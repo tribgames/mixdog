@@ -1,12 +1,8 @@
 //! `ProviderAdapter` of the OpenAI Responses routes (`openai`,
 //! `openai-oauth`) over HTTP/SSE or WebSocket. The WebSocket send owns one
 //! handshake/stream retry budget, shared by agent and direct callers. HTTP
-//! retrying remains above the adapter. Two repairs are decided from the
-//! response head or the first frame, before any output exists:
-//!
-//! - a 401 asks the credential source to reload or refresh once and replays;
-//! - a 400 whose structured `param` points at a mid-conversation effort
-//!   update replays once without the updates.
+//! retrying remains above the adapter. Credential and effort repairs are
+//! bounded and cannot replay a response once it has been exposed.
 //! Connection retirement spends the same WebSocket budget as other transient
 //! failures; no caller retries a failure whose provider recovery has ended.
 //!
@@ -18,9 +14,19 @@
 // Private names for existing callback/result shapes; representations are unchanged.
 type SettingLookup = dyn Fn(&str) -> Option<String> + Send + Sync;
 
-use crate::providers::idle::IdleWatch;
-use crate::providers::idle::Stalled;
 use crate::transport::deadlines::openai_http_response;
+use crate::transport::link::Surface;
+use crate::transport::link::deadline_error;
+use crate::transport::model_driver::Expiry;
+use crate::transport::model_driver::ModelAttempt;
+use crate::transport::model_driver::ModelCall;
+use crate::transport::model_driver::ModelDriver;
+use mixdog_core_api::domain::provider::AttemptHandle;
+use mixdog_core_api::domain::provider::AttemptPhase;
+use mixdog_core_api::domain::provider::Exposure;
+use mixdog_core_api::domain::provider::PhaseWindows;
+use mixdog_core_api::domain::provider::StreamTimeoutPhase;
+use mixdog_rt::Expired;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt;
@@ -37,12 +43,14 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::keepalive::TransportKind;
+use mixdog_core_api::domain::provider::Boundary;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ErrorResponse;
 use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
+use mixdog_core_api::domain::provider::ProgressKind;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::StreamEvent;
@@ -66,8 +74,9 @@ use super::codec::OpenAiCodec;
 use super::config::Route;
 use super::config::WireContext;
 use super::config::request_scope;
+use super::decoder::ResponsesDecoder;
 use super::effort::EffortProjection;
-use super::effort_retry::without_effort_updates;
+use super::effort_retry::{EffortUpdateSupport, SentUpdates};
 use super::models::OpenAiModels;
 use super::delta;
 use super::delta::Chain;
@@ -180,13 +189,13 @@ impl Default for Sources {
     }
 }
 
-/// The values the codec and decoder read that no request carries: the clock,
-/// request ids, and the `x-codex-turn-state` tokens of live turns. One per
-/// process; the adapter writes the tokens its responses issue.
+/// The values no request carries: clock, request ids, live turn-state tokens,
+/// and route/model effort rejections. Shared across adapters in a process.
 #[derive(Default)]
 pub struct SessionContext {
     states: Mutex<TurnStates>,
     sources: Sources,
+    effort_updates: EffortUpdateSupport,
 }
 
 impl SessionContext {
@@ -197,7 +206,7 @@ impl SessionContext {
     /// A context whose clock and request ids are the given ones: the wire
     /// parity recording runs both sides on one fixed clock and id.
     pub fn with_sources(now: impl Fn() -> u64 + Send + Sync + 'static, request_id: impl Fn() -> String + Send + Sync + 'static) -> Self {
-        Self { states: Mutex::default(), sources: Sources { now: Box::new(now), request_id: Box::new(request_id), ..Sources::default() } }
+        Self { sources: Sources { now: Box::new(now), request_id: Box::new(request_id), ..Sources::default() }, ..Self::default() }
     }
 
     /// The same context reading its settings from `var` instead of the process environment.
@@ -433,6 +442,36 @@ impl OpenAiAdapter {
         self
     }
 
+    fn http_fallback_enabled(&self) -> bool {
+        self.mode.http_fallback()
+            && !self.context.var("MIXDOG_OPENAI_HTTP_FALLBACK").is_some_and(|raw| {
+                matches!(raw.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off")
+            })
+    }
+
+    fn starts_on_http(&self, request: &ModelRequest) -> bool {
+        self.codec.transport() != TransportKind::WebSocket
+            || (self.mode.http_fallback() && self.codec.route() == Route::Codex
+                && self.context.flag("MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK"))
+            || (self.http_fallback_enabled() && self.pool.http_active(
+                &request_scope(request).into_iter().chain(request.options.session_id.as_deref()).collect::<Vec<_>>(),
+            ))
+    }
+
+    fn encode(&self, wire: Wire, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
+        let effort = request.options.effort_projection.as_ref()
+            .filter(|_| !self.context.effort_updates.is_rejected(self.id.as_str(), &request.model))
+            .map(EffortProjection::from);
+        self.codec_for(wire).encode_with(request, effort.as_ref())
+    }
+
+    fn codec_for(&self, wire: Wire) -> &OpenAiCodec {
+        match wire {
+            Wire::Ws => &self.codec,
+            Wire::Http => self.http_codec.as_ref().unwrap_or(&self.codec),
+        }
+    }
+
     /// `preconnect(CODEX_BACKEND_ORIGIN)` (`shared/llm/http-agent.mjs:496-527`): a fire-and-forget HEAD that lands a
     /// kept-alive socket, gated by a TTL of `MIXDOG_LLM_KEEPALIVE_MS` (60 s) less 10 s, at least 5 s. Any failure only
     /// clears the stamp so the next call warms again; nothing is surfaced.
@@ -498,6 +537,48 @@ impl OpenAiAdapter {
         Some(request)
     }
 
+    /// The model submission of `request` on the HTTP (`ws` false) or WebSocket wire: the windows this route declares (the
+    /// common fallback fills the rest) and how an expiry of each phase reads.
+    /// - HTTP: the head by `PROVIDER_HTTP_RESPONSE_TIMEOUT_MS`; the first payload and the first output by
+    ///   `PROVIDER_FIRST_OUTPUT_TIMEOUT_MS` (the one window that bounded the wait for both); idle by the semantic idle window.
+    /// - WebSocket: no head window (the acquire's own deadline bounds the dial); the first payload by the no-first-frame window,
+    ///   the first output and idle by their `PROVIDER_WS_*` windows.
+    ///
+    /// With `MIXDOG_ENABLE_STREAM_WATCHDOG` off the stream windows are the fallback policy's.
+    fn model_call(&self, request: &ModelRequest, ws: bool) -> ModelCall {
+        let millis = |ms: f64| Duration::from_millis(ms as u64);
+        let oauth = self.codec.route() != Route::ApiKey;
+        let (windows, label) = if ws {
+            let watching = self.ws_idle_ms.is_some();
+            let windows = PhaseWindows {
+                head: None,
+                payload: self.ws_pre_stream_ms.map(millis),
+                first_output: watching.then(|| millis(self.ws_first_output_ms)),
+                idle: self.ws_idle_ms.map(millis),
+                recovery: None,
+            };
+            (windows, "Responses WS")
+        } else {
+            let watching = self.http_idle_ms.is_some();
+            let windows = PhaseWindows {
+                head: Some(millis(self.http_response_ms)),
+                payload: watching.then(|| millis(self.http_first_output_ms)),
+                first_output: watching.then(|| millis(self.http_first_output_ms)),
+                idle: self.http_idle_ms.map(millis),
+                recovery: None,
+            };
+            (windows, self.codec.http_label())
+        };
+        // The head's own timeout (`createTimeoutSignal`'s `<label> initial response timed out after <ms>ms`).
+        let head = match (ws, oauth) {
+            (false, true) => Surface::FetchLabeled("OpenAI OAuth HTTP fallback initial response"),
+            (false, false) => Surface::FetchLabeled("OpenAI HTTP fallback initial response"),
+            (true, true) => Surface::SocketLabeled("OpenAI OAuth WS initial response"),
+            (true, false) => Surface::SocketLabeled("OpenAI WS initial response"),
+        };
+        ModelCall::new(&request.options.send_identity, windows, Arc::new(move |expiry, delivery, exposure| expired(label, head, expiry, delivery, exposure)))
+    }
+
     async fn open_http(
         &self,
         codec: &OpenAiCodec,
@@ -506,14 +587,25 @@ impl OpenAiAdapter {
     ) -> Result<Opened, ProviderError> {
         let packed = self.compressed(&wire).await;
         let exchange = openai_http_response(codec.route() != Route::ApiKey, self.http_response_ms);
-        let mut response = self.http.send(packed.clone().unwrap_or_else(|| wire.clone()), exchange).await?;
+        let identity = &request.options.send_identity;
+        // Every submission is an attempt of the driver (the plain re-send of a refused compressed body is another), whose
+        // head, first-payload, first-output and idle windows are this route's; the driver enforces them over the body too.
+        let call = self.model_call(request, false);
+        let driver = ModelDriver::new(self.http.clone());
+        // The credential is held and the request is being handed to the transport: its tier is this attempt's.
+        identity.note_dispatched_speed_tier(wire_speed(&wire.body));
+        let (mut response, mut attempt) = driver.send(&call, packed.clone().unwrap_or_else(|| wire.clone()), exchange).await?;
         // `resendIfEncodingRejected`: a 400/415 of a compressed request is drained and the same request sent plain;
         // the latch is set only when that plain request is accepted (the encoding was the cause).
         if packed.is_some() && matches!(response.status, 400 | 415) {
+            // The refused body is drained under the refused exchange's own clock (the connection is reusable only once it is
+            // read; discarded bytes are no progress and no fresh window opens). A drain that fails, the clock's expiry
+            // included, ends the cleanup at the first error: the refusal is already known, the body is released and the
+            // plain resend goes on.
             let mut body = response.body;
-            while body.next().await.is_some() {}
+            while let Some(Ok(_)) = body.next().await {}
             drop(body);
-            response = self.http.send(wire, exchange).await?;
+            (response, attempt) = driver.send(&call, wire, exchange).await?;
             if response.is_success() {
                 ZSTD_LATCHED.store(true, Ordering::Relaxed);
             }
@@ -521,9 +613,7 @@ impl OpenAiAdapter {
         if response.is_success() {
             let token = header(&response.headers, TURN_STATE_HEADER).map(str::to_owned);
             self.remember_turn_state(request, token.as_deref());
-            let mut idle = IdleWatch::new(self.http_idle_ms, codec.http_label()).with_first(&request.options.send_identity, self.http_first_output_ms);
-            idle.arm_first();
-            return Ok(Opened::Stream(ResponsesStream::new(Source::Http(response.body), codec.decoder(request)).with_idle(idle)));
+            return Ok(Opened::Stream(ResponsesStream::new(Source::Http(response.body), codec.responses_decoder(request)).with_attempt(identity.clone(), attempt)));
         }
         Ok(Opened::Rejected(read_failure(response).await?))
     }
@@ -538,6 +628,51 @@ impl OpenAiAdapter {
         credential: &Credential,
         force_fresh: bool,
     ) -> Result<Opened, ProviderError> {
+        // Every operation on a socket is an attempt of the driver (a fallback, a refresh resume, a retry included): the head
+        // wait counts from here, the acquire and the request frame within it, and the driver bounds each read after it.
+        let attempt = self.model_call(request, true).begin();
+        let speed = wire_speed(&wire.body);
+        let sent = match attempt.bound(self.ws_submit(request, wire, credential, force_fresh)).await {
+            // The request frame went out on the socket: only now does this attempt carry its tier.
+            Ok(Ok(Submitted::Sent(sent))) => {
+                request.options.send_identity.note_dispatched_speed_tier(speed);
+                sent
+            }
+            Ok(Ok(Submitted::Rejected(refusal))) => {
+                attempt.fail();
+                return Ok(Opened::Rejected(refusal));
+            }
+            Ok(Err(error)) => {
+                attempt.fail();
+                return Err(error);
+            }
+            Err(expiry) => return Err(attempt.error(expiry, DeliveryState::Ambiguous, Exposure::default())),
+        };
+        let Sent { checkout, body, owner, scope_turn, token, updates } = *sent;
+        // The socket took the request: that is this exchange's head, and the first payload is awaited from here.
+        attempt.head_received();
+        let mut stream = ResponsesStream::new(Source::Ws { checkout, pending: None }, self.codec.responses_decoder(request)).with_bound(request.options.send_identity.clone(), attempt);
+        stream.updates = updates;
+        stream.anchor = Some(Anchor { body, response_id: None, items: Vec::new() });
+        // `_captureTurnStateFromEvent` returns at once when the activation gave the socket a token.
+        if let Some((scope, turn)) = scope_turn
+            && token.is_none()
+        {
+            stream.turn_state = Some((self.context.clone(), scope, turn, owner));
+        }
+        // The first frame decides whether the server took the request.
+        stream.prime().await;
+        Ok(Opened::Stream(stream))
+    }
+
+    /// The acquire and the request frame of one WebSocket operation (the driver bounds them together as the head).
+    async fn ws_submit(
+        &self,
+        request: &ModelRequest,
+        wire: WireRequest,
+        credential: &Credential,
+        force_fresh: bool,
+    ) -> Result<Submitted, ProviderError> {
         let mut body: serde_json::Map<String, Value> = serde_json::from_slice(&wire.body)
             .map_err(|_| ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent))?;
         body.shift_remove("type");
@@ -596,7 +731,7 @@ impl OpenAiAdapter {
                         .iter()
                         .filter_map(|(k, v)| Some((k.as_str().to_owned(), v.to_str().ok()?.to_owned())))
                         .collect();
-                    return Ok(Opened::Rejected(ErrorResponse {
+                    return Ok(Submitted::Rejected(ErrorResponse {
                         status: Some(response.status().as_u16()),
                         headers,
                         body: response.into_body().unwrap_or_default(),
@@ -619,6 +754,7 @@ impl OpenAiAdapter {
         let scope_turn = request_scope(request).zip(self.codec.ws_turn(request));
         let token = scope_turn.as_ref().and_then(|(scope, turn)| self.context.activate(scope, turn, Some(checkout.owner)));
         let frame = self.codec.ws_frame(request, framed.frame, token.as_deref());
+        let updates = SentUpdates::of(frame.get("input"));
         let text = serde_json::to_string(&Value::Object(frame))
             .map_err(|_| ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent))?;
         let socket = checkout.socket.as_ref().expect("a checked-out socket");
@@ -631,20 +767,26 @@ impl OpenAiAdapter {
                 error
             })?;
         let owner = checkout.owner;
-        let mut idle = IdleWatch::new(self.ws_idle_ms, "Responses WS").with_first(&request.options.send_identity, self.ws_first_output_ms);
-        idle.arm_first();
-        let mut stream = ResponsesStream::new(Source::Ws { checkout, pending: None }, self.codec.decoder(request)).with_idle(idle);
-        stream.anchor = Some(Anchor { body, response_id: None, items: Vec::new() });
-        // `_captureTurnStateFromEvent` returns at once when the activation gave the socket a token.
-        if let Some((scope, turn)) = scope_turn
-            && token.is_none()
-        {
-            stream.turn_state = Some((self.context.clone(), scope.to_owned(), turn, owner));
-        }
-        // The first frame decides whether the server took the request.
-        stream.prime(self.ws_pre_stream_ms).await;
-        Ok(Opened::Stream(stream))
+        let scope_turn = scope_turn.map(|(scope, turn)| (scope.to_owned(), turn));
+        Ok(Submitted::Sent(Box::new(Sent { checkout, body, owner, scope_turn, token, updates })))
     }
+}
+
+/// A WebSocket operation's request on the wire: the socket that took it and what the stream built over it needs.
+struct Sent {
+    checkout: Checkout,
+    body: serde_json::Map<String, Value>,
+    owner: u64,
+    /// The turn's pool scope and turn id, where the response's turn state is to be captured.
+    scope_turn: Option<(String, String)>,
+    token: Option<String>,
+    updates: SentUpdates,
+}
+
+enum Submitted {
+    Sent(Box<Sent>),
+    /// The upgrade was refused: a status, headers and body.
+    Rejected(ErrorResponse),
 }
 
 /// The request a pooled socket's response answers, for the next delta.
@@ -664,10 +806,6 @@ enum Opened {
 
 /// The request's mid-conversation effort updates in the provider's form: the projection the
 /// agent set on the request's options (`EffortAdapter::attempt_with`).
-fn effort_of(request: &ModelRequest) -> Option<EffortProjection> {
-    request.options.effort_projection.as_ref().map(EffortProjection::from)
-}
-
 fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
     headers
         .iter()
@@ -747,16 +885,55 @@ impl ProviderAdapter for OpenAiAdapter {
     /// One send. WebSocket handshake and stream failures share its bounded
     /// provider recovery; transport switches are decided by that same owner.
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let refresh = Arc::new(RefreshOnce::default());
+        let mut auth = AuthRetry::default();
+        match self.attempt_once(request.clone(), &refresh, &mut auth).await {
+            Err(error) if self.unknown_model(&error) && refresh.take() => {}
+            sent => return sent,
+        }
+        // `openai-oauth.mjs:323`: the model is unknown to the backend, which may be the cached roster being old (the
+        // request's service tier, reasoning summaries and access programs come from it): read it again and send the same
+        // id once more; what that send answers is the answer. The refusal that arrives inside an opened stream is the
+        // same case and shares this one refresh.
+        mixdog_rt::node_stderr!("[openai-oauth-ws] unknown model — refreshing catalog + 1 retry");
+        self.codec.facts().refresh().await;
+        self.attempt_once(request, &refresh, &mut auth).await
+    }
+}
+
+/// The one catalog refresh a send may spend (`opts._modelRetry`, `openai-oauth.mjs:320`), shared by the refusal that comes
+/// before the stream opens and the one inside it.
+#[derive(Default)]
+struct RefreshOnce(std::sync::atomic::AtomicBool);
+
+impl RefreshOnce {
+    /// Takes the refresh: true for the first caller only.
+    fn take(&self) -> bool {
+        !self.0.swap(true, std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl OpenAiAdapter {
+    /// Whether the catalog refresh and one more send can answer `error`: the Codex route, an unknown-model refusal, and
+    /// nothing of the response shown or run (`liveTextEmitted`, a reasoning delta, a tool call begun). An upgrade the
+    /// endpoint answers 404 is the route saying it does not do WebSocket (the HTTP fallback's case), not a retired model
+    /// (`isOpenAiOAuthHandshakeHttpFallback`, `openai-oauth.mjs:316`).
+    fn unknown_model(&self, error: &ProviderError) -> bool {
+        self.codec.route() == Route::Codex
+            && crate::providers::rejections::names_unknown_model(error.status, &error.message)
+            && !(error.ws_phase == Some(WsPhase::Handshake) && error.status == Some(404))
+            && replay_safe(error)
+            && error.partial_usage.is_none()
+    }
+
+    async fn attempt_once(
+        &self, request: Arc<ModelRequest>, refresh: &Arc<RefreshOnce>, auth: &mut AuthRetry,
+    ) -> Result<Box<dyn ModelStream>, ProviderError> {
         // `_sendOnce` re-warms before every turn (`openai-oauth.mjs:170`).
         self.preconnect();
-        let scope = request_scope(&request).map(str::to_owned);
-        let keys: Vec<&str> = scope.iter().map(String::as_str).chain(request.options.session_id.as_deref()).collect();
-        let switching = self.mode.http_fallback();
-        if self.codec.transport() != TransportKind::WebSocket || (switching && self.pool.http_active(&keys)) {
-            return self.run(Wire::Http, &request).await.map_err(|failed| failed.error);
-        }
-        let wire = self.codec.encode_with(&request, effort_of(&request).as_ref())?;
-        let mut send = WebSocketSend {
+        let wire_kind = if self.starts_on_http(&request) { Wire::Http } else { Wire::Ws };
+        let wire = self.encode(wire_kind, &request)?;
+        let mut send = ResponsesSend {
             adapter: self.clone(),
             retry: mixdog_core_api::domain::retry::RetryState::new(
                 mixdog_core_api::domain::retry::RetryClass::Midstream,
@@ -766,11 +943,39 @@ impl ProviderAdapter for OpenAiAdapter {
             wire,
             stream: None,
             first_failure: None,
+            output_exposed: false,
             reasoning_exposed: false,
-            websocket: true,
+            visible_progress: false,
+            wire_kind,
+            auth: std::mem::take(auth),
+            effort_reissued: false,
+            refresh: Arc::clone(refresh),
         };
-        send.resume(None).await?;
-        Ok(Box::new(send))
+        match send.resume(None, false).await {
+            Ok(()) => Ok(Box::new(send)),
+            Err(error) => {
+                *auth = send.auth;
+                Err(error)
+            }
+        }
+    }
+}
+
+/// The premium speed a Responses body (or `response.create` frame) asks for: `priority`, `ultrafast` or `fast`; any other
+/// tier, `flex` included, groups as standard speed (empty).
+fn wire_speed(body: &[u8]) -> &'static str {
+    #[derive(serde::Deserialize)]
+    struct Sent {
+        service_tier: Option<String>,
+    }
+    match serde_json::from_slice::<Sent>(body) {
+        Ok(Sent { service_tier: Some(tier) }) => match tier.as_str() {
+            "priority" => "priority",
+            "ultrafast" => "ultrafast",
+            "fast" => "fast",
+            _ => "",
+        },
+        _ => "",
     }
 }
 
@@ -780,156 +985,38 @@ enum Wire {
     Http,
 }
 
-/// A failed attempt; `handshake` when the WebSocket upgrade itself was refused.
-/// `refusal` with the credential its request carried redacted from its body.
-fn scrub_refusal(mut refusal: ErrorResponse, credential: &Credential) -> ErrorResponse {
-    let text = String::from_utf8_lossy(&refusal.body);
-    let clean = crate::oauth::scrub::scrub_oauth_secrets(&text, &[&credential.bearer]);
-    if clean != text {
-        refusal.body = clean.into_bytes();
-    }
-    refusal
-}
-
 struct Failed {
     error: ProviderError,
     handshake: bool,
+    effort_rejected: bool,
 }
 
 impl From<ProviderError> for Failed {
     fn from(error: ProviderError) -> Self {
         let handshake = error.ws_phase == Some(WsPhase::Handshake);
-        Self { error, handshake }
+        Self { error, handshake, effort_rejected: false }
     }
 }
 
-impl OpenAiAdapter {
-    /// A resend over HTTP is a request of its own, which Node builds anew with a fresh `x-client-request-id`
-    /// (`openai-oauth-http-sse.mjs`, once per `sendViaHttpSse`); the WebSocket's resend keeps its headers.
-    fn renew_request_id(&self, wire_kind: Wire, wire: &mut WireRequest) {
-        if wire_kind == Wire::Ws {
-            return;
-        }
-        for (name, value) in &mut wire.headers {
-            if name.eq_ignore_ascii_case("x-client-request-id") {
-                *value = self.context.request_id();
-            }
-        }
-    }
+fn replay_safe(error: &ProviderError) -> bool {
+    let exposure = error.exposure;
+    !error.unsafe_to_retry && !exposure.text_emitted && !exposure.tool_dispatched && !exposure.tool_input_cut
+}
 
-    /// The exchange on one wire with the credential repeats of an attempt.
-    async fn run(&self, wire_kind: Wire, request: &Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, Failed> {
-        let codec = match wire_kind {
-            Wire::Ws => &self.codec,
-            Wire::Http => self.http_codec.as_ref().unwrap_or(&self.codec),
-        };
-        let mut wire = codec.encode_with(request, effort_of(request).as_ref())?;
-        self.exchange(wire_kind, request, &mut wire, false).await
-    }
+/// A send may renew once, regardless of which transport or response boundary
+/// returned the 401. Remember the exact credential used for the replacement.
+#[derive(Default)]
+struct AuthRetry {
+    spent: bool,
+    renewed: Option<Credential>,
+}
 
-    /// The acquisition fixture exercises one exchange, not the send's retry ladder.
-    #[cfg(any(test, feature = "test-support"))]
-    pub async fn ws_attempt_once(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        self.run(Wire::Ws, &request).await.map_err(|failed| failed.error)
-    }
-
-    async fn exchange(
-        &self,
-        wire_kind: Wire,
-        request: &Arc<ModelRequest>,
-        wire: &mut WireRequest,
-        force_fresh: bool,
-    ) -> Result<Box<dyn ModelStream>, Failed> {
-        let codec = match wire_kind {
-            Wire::Ws => &self.codec,
-            Wire::Http => self.http_codec.as_ref().unwrap_or(&self.codec),
-        };
-        let identity = &request.options.send_identity;
-        let mut credential = self.credentials.current().await?;
-        let mut refreshed = false;
-        let mut stripped = false;
-        loop {
-            // Node raises `requesting` before each WebSocket acquisition (`openai-oauth-ws.mjs:250`) and before each
-            // HTTP/SSE request, which names its attempt (`openai-http-sse-request.mjs:133`). A resend below (the reloaded
-            // credential, `openai-oauth.mjs:293` / `openai-oauth-dispatch.mjs:209`; the effort update removed, the whole send
-            // again, `effort-configuration.mjs:112`) is a request of its own: it raises the stage again, and over HTTP its
-            // attempts count from the first.
-            match wire_kind {
-                Wire::Ws => identity.raise_stage("requesting"),
-                Wire::Http => {
-                    if refreshed || stripped {
-                        identity.restart_attempts();
-                    }
-                    let attempt = identity.next_attempt();
-                    identity.raise_stage_with(
-                        "requesting",
-                        serde_json::json!({ "attempt": attempt + 1, "maxAttempts": super::policy::REQUEST_RETRIES + 1, "retry": attempt > 0 }),
-                    );
-                }
-            }
-            let authorized = self.authorize(wire.clone(), &credential);
-            let opened = match wire_kind {
-                // The acquire and the upgrade are the handshake; a failure past the socket is stamped where it happens.
-                Wire::Ws => self.open_ws(request, authorized, &credential, force_fresh).await.map_err(|mut error| {
-                    error.ws_phase.get_or_insert(WsPhase::Handshake);
-                    error
-                })?,
-                Wire::Http => self.open_http(codec, request, authorized).await?,
-            };
-            let refused = matches!(opened, Opened::Rejected(_));
-            let handshake = wire_kind == Wire::Ws && refused;
-            let rejected = match opened {
-                Opened::Stream(stream) => match stream.first_frame_failure() {
-                    Some(failure) if !stripped && without_effort_updates(&wire, &failure).is_some() => failure,
-                    _ => return Ok(Box::new(stream)),
-                },
-                Opened::Rejected(rejected) => rejected,
-            };
-            // The credential this request carried is redacted from whatever the refusal echoes of it (the message, the
-            // body's error text), the upgrade rejection included.
-            let rejected = scrub_refusal(rejected, &credential);
-            if rejected.status == Some(401) && !refreshed {
-                refreshed = true;
-                // `openai-oauth-dispatch.mjs:205` (HTTP/SSE) and `openai-oauth.mjs:285` (WebSocket).
-                if self.codec.route() == Route::Codex {
-                    match wire_kind {
-                        Wire::Http => mixdog_rt::node_stderr!("[openai-oauth-http] 401 — forcing refresh and retrying once over HTTP/SSE"),
-                        Wire::Ws => mixdog_rt::node_stderr!("[openai-oauth-ws] 401 — forcing refresh and retrying once over WS"),
-                    }
-                }
-                if let Some(next) = self.credentials.after_rejection(&credential).await? {
-                    credential = next;
-                }
-                self.renew_request_id(wire_kind, wire);
-                continue;
-            }
-            if !stripped && let Some(next) = without_effort_updates(&wire, &rejected) {
-                stripped = true;
-                *wire = next;
-                self.renew_request_id(wire_kind, wire);
-                continue;
-            }
-            let mut err = codec.classify(&rejected);
-            // `rejectedToolSchema`: a 400 that names one of the tools this body carried.
-            crate::providers::rejections::mark_tool_schema(&mut err, &rejected.body, &crate::providers::rejections::wire_tool_names(&wire.body));
-            // `_wsErrLabel` for the upgrade (`openai-ws-handshake.mjs:107`), `httpLabel` for the HTTP/SSE request.
-            let label = match (wire_kind, self.codec.route()) {
-                (Wire::Ws, Route::Codex) => "OpenAI OAuth WS handshake",
-                (Wire::Ws, _) => "OpenAI WS handshake",
-                (Wire::Http, Route::Codex) => "OpenAI OAuth HTTP fallback",
-                (Wire::Http, _) => "OpenAI HTTP fallback",
-            };
-            if refused {
-                err.message = super::error::http_response_message(label, &rejected, &err, self.context.now_unix_ms());
-            }
-            if rejected.status == Some(401) && refreshed && err.kind == ErrorKind::Auth {
-                err.reauth_required = true;
-            }
-            if wire_kind == Wire::Ws {
-                err.ws_phase = Some(if handshake { WsPhase::Handshake } else { WsPhase::Stream });
-            }
-            return Err(Failed { error: err, handshake });
-        }
+impl AuthRetry {
+    async fn renew(&mut self, source: &dyn CredentialSource, rejected: &Credential) -> Result<Credential, ProviderError> {
+        self.spent = true;
+        let next = source.after_rejection(rejected).await?.unwrap_or_else(|| rejected.clone());
+        self.renewed = Some(next.clone());
+        Ok(next)
     }
 }
 
@@ -940,83 +1027,129 @@ impl OpenAiAdapter {
 /// One logical send's handshake and stream ladder. Neither the pool nor the
 /// caller owns another WebSocket counter. Replays preserve the full request,
 /// not the failed connection's delta chain.
-struct WebSocketSend {
+struct ResponsesSend {
     adapter: OpenAiAdapter,
     request: Arc<ModelRequest>,
     wire: WireRequest,
-    stream: Option<Box<dyn ModelStream>>,
+    stream: Option<ResponsesStream>,
     retry: mixdog_core_api::domain::retry::RetryState,
     first_failure: Option<ProviderError>,
+    output_exposed: bool,
     reasoning_exposed: bool,
-    websocket: bool,
+    wire_kind: Wire,
+    visible_progress: bool,
+    auth: AuthRetry,
+    effort_reissued: bool,
+    /// The send's one catalog refresh, spent by a refusal before the stream opened or by one inside it.
+    refresh: Arc<RefreshOnce>,
 }
 
-impl WebSocketSend {
-    async fn resume(&mut self, mut failed: Option<Failed>) -> Result<(), ProviderError> {
+impl ResponsesSend {
+    /// An unknown-model refusal inside the stream (`response.failed` with `model_not_found`, before any output was shown):
+    /// the roster is read again and the request, encoded anew from it, is sent once more.
+    async fn resend_after_refresh(&mut self) -> Result<(), ProviderError> {
+        mixdog_rt::node_stderr!("[openai-oauth-ws] unknown model — refreshing catalog + 1 retry");
+        self.adapter.codec.facts().refresh().await;
+        self.wire = self.adapter.encode(self.wire_kind, &self.request)?;
+        self.resume(None, false).await
+    }
+
+    async fn resume(&mut self, mut failed: Option<Failed>, mut fresh: bool) -> Result<(), ProviderError> {
         use mixdog_core_api::domain::retry::{RetryDecider, Verdict};
 
         loop {
-            if let Some(Failed { mut error, handshake }) = failed.take() {
-                error.unsafe_to_retry |= self.reasoning_exposed;
-                let decision = crate::retry::StandardRetryDecider.verdict(
-                    &error,
-                    &self.retry,
-                    &self.adapter.policy,
-                    self.adapter.context.retry_samples(),
-                );
-                let exhausted = matches!(decision.verdict, Verdict::Exhausted);
-                if let Some(fallback) = self.adapter.mode.http_fallback()
-                    .then(|| switch::decide(self.adapter.codec.route(), &error, handshake, exhausted))
-                    .flatten()
-                {
-                    if fallback.sticky && let Some(scope) = request_scope(&self.request) {
-                        self.adapter.pool.mark_http(scope);
+            if let Some(Failed { mut error, handshake, effort_rejected }) = failed.take() {
+                error.unsafe_to_retry |= self.output_exposed;
+                if effort_rejected {
+                    if !replay_safe(&error) || self.visible_progress {
+                        return Err(error);
                     }
-                    if let Some(wait) = error.retry_after {
-                        self.adapter.context.retry_wait(wait).await;
+                    self.adapter.context.effort_updates.mark_rejected(self.adapter.id.as_str(), &self.request.model);
+                    if self.effort_reissued {
+                        return Err(error);
                     }
-                    self.websocket = false;
-                    self.stream = Some(self.adapter.run(Wire::Http, &self.request).await.map_err(|failed| failed.error)?);
-                    return Ok(());
-                }
-                let Verdict::Retry { delay, .. } = decision.verdict else {
-                    let current = matches!(error.status, Some(401 | 403 | 426 | 429))
-                        || switch::too_big_close(&error)
-                        || error.unsafe_to_retry
-                        || error.exposure.text_emitted
-                        || error.exposure.tool_dispatched
-                        || error.exposure.tool_input_cut
-                        // A connection retirement must neither mask nor be masked by another failure.
-                        || [Some(&error), self.first_failure.as_ref()].into_iter().flatten().any(super::error::connection_limit);
-                    if !current && let Some(first) = self.first_failure.take() {
-                        error = first;
+                    let sent = &self.request.options.send_identity;
+                    if error.partial_usage.is_some() {
+                        if !crate::registry::accounted::handoff_abandoned_usage(&mut error, sent) {
+                            return Err(error);
+                        }
+                        sent.note_dispatched_speed_tier("");
                     }
-                    // An exposed stream needs the owner's retraction or split-call
-                    // recovery, not another provider retry. Only a genuinely ended
-                    // ladder forbids that owner-controlled new request.
-                    error.recovery_exhausted |= exhausted;
-                    if exhausted || (!error.exposure.text_emitted && !error.exposure.tool_input_cut && !self.reasoning_exposed) {
-                        error.should_retry = Some(false);
-                    }
+                    self.effort_reissued = true;
+                    self.retry = mixdog_core_api::domain::retry::RetryState::new(
+                        mixdog_core_api::domain::retry::RetryClass::Midstream, self.request.model.clone(),
+                    );
+                    self.first_failure = None;
+                    sent.restart_attempts();
+                    self.wire_kind = if self.adapter.starts_on_http(&self.request) { Wire::Http } else { Wire::Ws };
+                    self.wire = self.adapter.encode(self.wire_kind, &self.request)?;
+                    fresh = true;
+                } else if self.wire_kind == Wire::Http || error.partial_usage.is_some() {
                     return Err(error);
-                };
-                if !handshake || self.first_failure.is_none() {
-                    self.first_failure = Some(error.clone());
-                }
-                self.retry = decision.next;
-                self.request.options.send_identity.raise_stage_with(
-                    "reconnecting",
-                    crate::retry::stage::reconnecting(
+                } else {
+                    let decision = crate::retry::StandardRetryDecider.verdict(
                         &error,
-                        self.retry.count(None).retries,
-                        self.adapter.policy.midstream.schedule.max_retries,
-                        delay,
-                        self.adapter.context.now_unix_ms(),
-                    ),
-                );
-                self.adapter.context.retry_wait(delay).await;
+                        &self.retry,
+                        &self.adapter.policy,
+                        self.adapter.context.retry_samples(),
+                    );
+                    let exhausted = matches!(decision.verdict, Verdict::Exhausted);
+                    if let Some(fallback) = self.adapter.http_fallback_enabled()
+                        .then(|| switch::decide(self.adapter.codec.route(), &error, handshake, exhausted))
+                        .flatten()
+                    {
+                        if fallback.sticky && let Some(scope) = request_scope(&self.request) {
+                            self.adapter.pool.mark_http(scope);
+                        }
+                        if let Some(wait) = error.retry_after {
+                            self.adapter.context.retry_wait(wait).await;
+                        }
+                        self.wire_kind = Wire::Http;
+                        // What the fallback answers is not the roster's to refresh (Node's refresh check precedes the fallback).
+                        self.refresh.take();
+                        self.wire = self.adapter.encode(Wire::Http, &self.request)?;
+                        continue;
+                    }
+                    let Verdict::Retry { delay, .. } = decision.verdict else {
+                        let current = matches!(error.status, Some(401 | 403 | 426 | 429))
+                            || switch::too_big_close(&error)
+                            || error.unsafe_to_retry
+                            || error.exposure.text_emitted
+                            || error.exposure.tool_dispatched
+                            || error.exposure.tool_input_cut
+                            // A connection retirement must neither mask nor be masked by another failure.
+                            || [Some(&error), self.first_failure.as_ref()].into_iter().flatten().any(super::error::connection_limit);
+                        if !current && let Some(first) = self.first_failure.take() {
+                            error = first;
+                        }
+                        // An exposed stream needs the owner's retraction or split-call
+                        // recovery, not another provider retry. Only a genuinely ended
+                        // ladder forbids that owner-controlled new request.
+                        error.recovery_exhausted |= exhausted;
+                        if exhausted || (!error.exposure.text_emitted && !error.exposure.tool_input_cut && !self.output_exposed) {
+                            error.should_retry = Some(false);
+                        }
+                        return Err(error);
+                    };
+                    if !handshake || self.first_failure.is_none() {
+                        self.first_failure = Some(error.clone());
+                    }
+                    self.retry = decision.next;
+                    self.request.options.send_identity.raise_stage_with(
+                        "reconnecting",
+                        crate::retry::stage::reconnecting(
+                            &error,
+                            self.retry.count(None).retries,
+                            self.adapter.policy.midstream.schedule.max_retries,
+                            delay,
+                            self.adapter.context.now_unix_ms(),
+                        ),
+                    );
+                    self.adapter.context.retry_wait(delay).await;
+                    fresh = true;
+                }
             }
-            match self.adapter.exchange(Wire::Ws, &self.request, &mut self.wire, self.retry.count(None).retries > 0).await {
+            match self.adapter.exchange(self.wire_kind, &self.request, &mut self.wire, fresh, &mut self.auth).await {
                 Ok(stream) => {
                     self.stream = Some(stream);
                     return Ok(());
@@ -1028,24 +1161,73 @@ impl WebSocketSend {
 }
 
 #[async_trait]
-impl ModelStream for WebSocketSend {
+impl ModelStream for ResponsesSend {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
         loop {
-            let event = self.stream.as_mut()?.next().await?;
+            let stream = self.stream.as_mut()?;
+            let event = stream.next().await?;
             match event {
                 Ok(event) => {
-                    if matches!(&event, StreamEvent::ReasoningDelta(text) if !text.is_empty()) {
-                        self.reasoning_exposed = true;
-                    }
+                    self.reasoning_exposed |= matches!(&event, StreamEvent::ReasoningDelta(text) if !text.is_empty())
+                        || matches!(&event, StreamEvent::Progress(ProgressKind::Reasoning));
+                    self.output_exposed |= matches!(&event,
+                        StreamEvent::TextDelta(text) | StreamEvent::FinalContent(text)
+                            if !text.is_empty()
+                    ) || matches!(&event, StreamEvent::ToolCallDone(_));
+                    self.visible_progress |= matches!(&event, StreamEvent::Progress(kind) if kind.is_visible());
                     return Some(Ok(event));
                 }
-                Err(error) if self.websocket => {
+                Err(mut error) => {
+                    let effort_rejected = stream.updates.rejected(&error, stream.decoder.failure_param());
+                    let rejected_key = stream.credential.take();
                     self.stream = None;
-                    if let Err(error) = self.resume(Some(Failed { error, handshake: false })).await {
+                    error.unsafe_to_retry |= self.output_exposed;
+                    if self.reasoning_exposed {
+                        error.unsafe_to_retry = true;
+                        error.recovery_terminal = true;
+                        error.recovery_exhausted = true;
+                        error.should_retry = Some(false);
+                        error.reauth_required |= error.status == Some(401) && self.auth.spent && error.kind == ErrorKind::Auth;
+                        return Some(Err(error));
+                    }
+                    if error.status == Some(401) {
+                        if self.auth.spent {
+                            error.reauth_required |= error.kind == ErrorKind::Auth;
+                        } else if replay_safe(&error) && !self.visible_progress && let Some(key) = rejected_key {
+                            if let Err(refresh_error) = self.auth.renew(self.adapter.credentials.as_ref(), &key).await {
+                                return Some(Err(if self.adapter.codec.route() == Route::ApiKey || error.partial_usage.is_some() {
+                                    error
+                                } else {
+                                    refresh_error
+                                }));
+                            }
+                            let sent = &self.request.options.send_identity;
+                            if error.partial_usage.is_some()
+                                && !crate::registry::accounted::handoff_abandoned_usage(&mut error, sent)
+                            {
+                                return Some(Err(error));
+                            }
+                            sent.note_dispatched_speed_tier("");
+                            if self.wire_kind == Wire::Http {
+                                sent.restart_attempts();
+                                self.adapter.renew_request_id(self.wire_kind, &mut self.wire);
+                            }
+                            if let Err(error) = self.resume(None, true).await {
+                                return Some(Err(error));
+                            }
+                            continue;
+                        }
+                    }
+                    if self.wire_kind == Wire::Ws && self.adapter.unknown_model(&error) && self.refresh.take() {
+                        if let Err(error) = self.resend_after_refresh().await {
+                            return Some(Err(error));
+                        }
+                        continue;
+                    }
+                    if let Err(error) = self.resume(Some(Failed { error, handshake: false, effort_rejected }), false).await {
                         return Some(Err(error));
                     }
                 }
-                Err(error) => return Some(Err(error)),
             }
         }
     }
@@ -1088,11 +1270,37 @@ impl Source {
     }
 }
 
+/// The failure of `expiry` for a stream labelled `label`: the head is the transport's own timeout (`head`); the first-payload,
+/// first-output and idle windows are the stream stall (`streamStalledError`, `stall-policy.mjs:161`: `ESTREAMSTALL`, phase
+/// `idle`, unsafe to retry once a tool call was dispatched).
+fn expired(label: &str, head: Surface, expiry: Expiry, delivery: DeliveryState, exposure: Exposure) -> ProviderError {
+    match expiry.phase {
+        AttemptPhase::Connect | AttemptPhase::Head | AttemptPhase::Recovery => {
+            let mut err = deadline_error(Expired { after: expiry.window }, delivery, head);
+            err.exposure = exposure;
+            err
+        }
+        AttemptPhase::Payload | AttemptPhase::FirstOutput | AttemptPhase::Idle | AttemptPhase::Retired => {
+            let mut err = ProviderError::new(ErrorKind::Transient, delivery);
+            err.code = Some("ESTREAMSTALL".into());
+            err.message = format!("{label} stream timed out after {}ms of inactivity", expiry.window.as_millis());
+            mixdog_rt::node_stderr!("[provider-stall] {} (tool dispatched: {})", err.message, exposure.tool_dispatched);
+            err.timed_out = true;
+            err.timeout_phase = Some(StreamTimeoutPhase::Idle);
+            err.exposure = exposure;
+            err.unsafe_to_retry = exposure.tool_dispatched;
+            err
+        }
+    }
+}
+
 struct ResponsesStream {
     source: Option<Source>,
     /// The exchange runs on a WebSocket: a failure of it is a stream failure of that send (`wsFailurePhase`).
     ws: bool,
-    decoder: Box<dyn WireDecoder>,
+    decoder: ResponsesDecoder,
+    updates: SentUpdates,
+    credential: Option<Credential>,
     queue: VecDeque<StreamEvent>,
     failed: Option<ProviderError>,
     /// A pooled socket's request, to anchor its response.
@@ -1100,9 +1308,15 @@ struct ResponsesStream {
     /// Where a WebSocket response's `x-codex-turn-state` goes (the context, the scope, the turn and the socket that
     /// owns it), until the first one is taken (`_captureTurnStateFromEvent` returns once its entry holds a token).
     turn_state: Option<(Arc<SessionContext>, String, String, u64)>,
-    /// The semantic idle window (`armSemanticIdle`): started by the first progress the decoder reports and again by each
-    /// later one; keepalives and metadata frames never start it.
-    idle: IdleWatch,
+    /// The send and the attempt this stream answers: transport health is marked on the send while the attempt is current,
+    /// the first payload and the first output (and an item boundary after output) are published on the attempt, whose
+    /// deadlines they install (a stale stream changes nothing). The stream runs no timer of its own.
+    attempt: Option<(mixdog_core_api::domain::provider::SendIdentity, AttemptHandle)>,
+    /// A WebSocket's attempt: the driver wraps the socket's reads, which it cannot do for a body it does not own, under the
+    /// deadline of the phase the attempt is in. An HTTP stream's body is the driver's already.
+    bound: Option<ModelAttempt>,
+    /// A whole protocol record was decoded: the first-output window runs from then.
+    payload_seen: bool,
 }
 
 /// `_captureTurnStateFromEvent`'s carriers (`turn-state-headers.mjs:41-46`), in its order: the event's headers, the
@@ -1130,27 +1344,43 @@ fn frame_turn_state(unit: &[u8]) -> Option<String> {
 }
 
 impl ResponsesStream {
-    fn new(source: Source, decoder: Box<dyn WireDecoder>) -> Self {
+    fn new(source: Source, decoder: ResponsesDecoder) -> Self {
         let ws = matches!(source, Source::Ws { .. });
-        Self { source: Some(source), ws, decoder, queue: VecDeque::new(), failed: None, anchor: None, turn_state: None, idle: IdleWatch::off() }
+        Self { source: Some(source), ws, decoder, updates: SentUpdates::default(), credential: None, queue: VecDeque::new(), failed: None, anchor: None, turn_state: None, attempt: None, bound: None, payload_seen: false }
     }
 
-    fn with_idle(mut self, idle: IdleWatch) -> Self {
-        self.idle = idle;
+    /// The stream of an HTTP exchange: its body is the driver's, and `attempt` is what its boundaries are published on.
+    fn with_attempt(mut self, identity: mixdog_core_api::domain::provider::SendIdentity, attempt: AttemptHandle) -> Self {
+        self.attempt = Some((identity, attempt));
         self
     }
 
-    /// Reads a WebSocket's first frame ahead of the consumer, within `window_ms` (`None`: unbounded, the watchdog is off). A
-    /// socket that takes the request and sends nothing fails the stream as a stall, which the send's retry ladder takes.
-    async fn prime(&mut self, window_ms: Option<f64>) {
-        let Some(Source::Ws { checkout, pending }) = &mut self.source else { return };
+    /// The stream of a WebSocket operation: its reads are bounded by `attempt`.
+    fn with_bound(mut self, identity: mixdog_core_api::domain::provider::SendIdentity, attempt: ModelAttempt) -> Self {
+        self.attempt = Some((identity, attempt.handle().clone()));
+        self.bound = Some(attempt);
+        self
+    }
+
+    /// Transport health (`onStreamDelta('transport')`): a unit of the response arrived. Not a boundary, not a keepalive; a stream
+    /// whose attempt a later one replaced or that ended marks nothing.
+    fn mark_transport(&self) {
+        if let Some((identity, attempt)) = &self.attempt
+            && attempt.context().is_some()
+        {
+            identity.raise_transport();
+        }
+    }
+
+    /// Reads a WebSocket's first frame ahead of the consumer, under the attempt's first-payload window. A socket that takes the
+    /// request and sends nothing fails the stream as a stall, which the send's retry ladder takes.
+    async fn prime(&mut self) {
+        let (Some(attempt), Some(Source::Ws { checkout, pending })) = (&self.bound, &mut self.source) else { return };
         let Some(socket) = checkout.socket.as_mut() else { return };
-        let mut pre = IdleWatch::new(window_ms, "Responses WS");
-        pre.rearm();
-        match pre.read(socket.recv()).await {
+        match attempt.bound(socket.recv()).await {
             Ok(first) => *pending = first,
-            Err(Stalled) => {
-                let err = pre.stalled(mixdog_core_api::domain::provider::Exposure::default());
+            Err(expiry) => {
+                let err = attempt.error(expiry, DeliveryState::Accepted, Exposure::default());
                 self.source = None;
                 self.failed = Some(err);
             }
@@ -1181,7 +1411,15 @@ impl ResponsesStream {
 
     /// Queues decoded events; the response's output items are kept for the anchor.
     fn push(&mut self, events: Vec<StreamEvent>) {
+        let mut served = None;
         for event in &events {
+            match event {
+                StreamEvent::ServedModel(model) => served = Some(model),
+                // A terminal bundle can queue a tool before its usage. The
+                // consumer can cancel while handling that tool.
+                StreamEvent::Usage(usage) => crate::registry::accounted::observe_attempt_usage(usage.clone(), served.cloned()),
+                _ => {}
+            }
             if let (StreamEvent::ReasoningReplay(replay), Some(anchor)) = (event, self.anchor.as_mut())
                 && let Value::Array(items) = &replay.items
             {
@@ -1189,6 +1427,16 @@ impl ResponsesStream {
             }
         }
         self.queue.extend(events);
+    }
+
+    fn defer_failure(&mut self, error: ProviderError) {
+        // Decoding can produce output and a billed failure in the same read.
+        // Publish the bill before yielding the queued output, in case it is the
+        // last event the consumer reads before cancelling.
+        if let Some(usage) = error.partial_usage.as_deref() {
+            crate::registry::accounted::observe_attempt_usage(usage.clone(), error.partial_model.as_deref().map(str::to_owned));
+        }
+        self.failed = Some(error);
     }
 
     /// The response completed on a pooled socket: it keeps the anchor.
@@ -1205,21 +1453,6 @@ impl ResponsesStream {
         checkout.finish(chain);
     }
 
-    /// The first frame as a failed response, when it is an `error` frame.
-    fn first_frame_failure(&self) -> Option<ErrorResponse> {
-        let Some(Source::Ws { pending: Some(Ok(Message::Text(text))), .. }) = &self.source else {
-            return None;
-        };
-        let frame: Value = serde_json::from_str(text.as_str()).ok()?;
-        if frame.get("type").and_then(Value::as_str) != Some("error") {
-            return None;
-        }
-        Some(ErrorResponse {
-            status: frame.get("status").and_then(Value::as_u64).and_then(|s| u16::try_from(s).ok()),
-            headers: Vec::new(),
-            body: serde_json::to_vec(&frame).ok()?,
-        })
-    }
 }
 
 impl Drop for ResponsesStream {
@@ -1246,7 +1479,10 @@ impl ModelStream for ResponsesStream {
                 if self.ws {
                     err.ws_phase = Some(WsPhase::Stream);
                 }
-                return Some(Err(err));
+                if let Some(credential) = &self.credential {
+                    err.message = crate::oauth::scrub::scrub_oauth_secrets(&err.message, &[&credential.bearer]);
+                }
+                return Some(Err(self.decoder.fail(err)));
             }
             let source = self.source.as_mut()?;
             // The terminal event ends the attempt; anything after it is dropped.
@@ -1255,10 +1491,18 @@ impl ModelStream for ResponsesStream {
                 self.source = None;
                 return None;
             }
-            let unit = match self.idle.read(source.next_unit()).await {
+            // An HTTP body is the driver's: a read that outlives the deadline of the attempt's phase ends with its fault. A
+            // socket's reads are bounded here, under the same deadline.
+            let read = match &self.bound {
+                Some(attempt) => attempt
+                    .bound(source.next_unit())
+                    .await
+                    .map_err(|expiry| attempt.error(expiry, DeliveryState::Accepted, self.decoder.exposure())),
+                None => Ok(source.next_unit().await),
+            };
+            let unit = match read {
                 Ok(unit) => unit,
-                Err(Stalled) => {
-                    let err = self.idle.stalled(self.decoder.exposure());
+                Err(err) => {
                     self.source = None;
                     self.failed = Some(err);
                     continue;
@@ -1266,21 +1510,51 @@ impl ModelStream for ResponsesStream {
             };
             match unit {
                 Some(Ok(unit)) => {
+                    self.mark_transport();
                     self.note_frame(&unit);
                     match self.decoder.feed(&unit) {
                         Ok(events) => {
-                            self.idle.note(&events);
+                            // A whole protocol record (a comment or metadata frame is not one) ends the payload wait and starts
+                            // the first-output window; the first output moves the attempt to its idle phase, where output and
+                            // an item boundary after it renew the window (keepalives and metadata never do).
+                            if let Some((_, attempt)) = &self.attempt {
+                                if !self.payload_seen && (self.decoder.payload_seen() || events.iter().any(|e| !matches!(e, StreamEvent::ProviderKeepalive))) {
+                                    self.payload_seen = true;
+                                    attempt.observe(Boundary::FirstProtocolPayload);
+                                }
+                                let idle = attempt.context().is_some_and(|ctx| ctx.phase == AttemptPhase::Idle);
+                                if events.iter().any(crate::providers::idle::output) || (idle && events.iter().any(crate::providers::idle::boundary)) {
+                                    attempt.observe(Boundary::FirstSemanticOutput);
+                                }
+                            }
                             self.push(events);
+                            // A failure held back behind this unit's events surfaces after them, not on the next read.
+                            if let Err(err) = self.decoder.feed(&[]) {
+                                self.source = None;
+                                self.defer_failure(err);
+                            }
                         }
                         Err(err) => {
                             self.source = None;
-                            self.failed = Some(err);
+                            self.defer_failure(err);
                         }
                     }
                 }
                 Some(Err(fault)) => {
+                    // A phase deadline of the driver ended an HTTP body: its one failure, as classified above.
+                    if let Some(Source::Http(body)) = &self.source
+                        && let Some(timed) = body.expired(self.decoder.exposure())
+                    {
+                        self.source = None;
+                        self.failed = Some(timed);
+                        continue;
+                    }
                     let ending = match &self.source {
                         Some(Source::Ws { checkout, .. }) => checkout.socket.as_ref().and_then(|socket| socket.ending()),
+                        _ => None,
+                    };
+                    let connection = match &self.source {
+                        Some(Source::Http(body)) => body.connection(),
                         _ => None,
                     };
                     self.source = None;
@@ -1296,15 +1570,21 @@ impl ModelStream for ResponsesStream {
                         }
                         None => ProviderError::transport(fault, DeliveryState::Accepted),
                     };
+                    err.connection = connection;
                     err.exposure = self.decoder.exposure();
                     self.failed = Some(err);
                 }
                 None => {
                     self.source = None;
                     match self.decoder.finish() {
-                        Ok(events) => self.push(events),
+                        Ok(events) => {
+                            self.push(events);
+                            if let Err(err) = self.decoder.feed(&[]) {
+                                self.defer_failure(err);
+                            }
+                        }
                         Err(err) => {
-                            self.failed = Some(err);
+                            self.defer_failure(err);
                         }
                     }
                 }
@@ -1436,41 +1716,425 @@ mod tests {
     }
 }
 
+
+
+
 #[cfg(test)]
 mod idle_tests {
+    use std::sync::atomic::AtomicUsize;
+
+    use mixdog_core_api::domain::provider::RequestOptions;
+    use mixdog_core_api::domain::provider::SendIdentity;
+
     use super::*;
-    use crate::providers::idle::testing::Echo;
+    use crate::catalog::ListingLookup;
     use crate::providers::idle::testing::Timetable;
+    use crate::providers::openai::scripted::ScriptedDial;
+    use crate::transport::HttpResponse;
+    use crate::transport::link::Exchange;
 
-    fn http(items: &[(u64, &'static str)], window_ms: Option<f64>) -> ResponsesStream {
-        ResponsesStream::new(Source::Http(Timetable::of(items)), Box::new(Echo)).with_idle(IdleWatch::new(window_ms, "OpenAI HTTP fallback"))
+    struct Creds;
+
+    #[async_trait]
+    impl CredentialSource for Creds {
+        async fn current(&self) -> Result<Credential, ProviderError> {
+            Ok(Credential { bearer: "fixture-key".into(), account_id: None })
+        }
+        async fn after_rejection(&self, _: &Credential) -> Result<Option<Credential>, ProviderError> {
+            Ok(None)
+        }
     }
 
-    /// Progress starts the window and a keepalive does not move it (`meaningful()`).
+    /// A transport that answers each request's head after `head_after[n]` seconds with a body that delivers `chunks[n]` on its
+    /// timetable and then stays silent.
+    struct Script {
+        head_after: Vec<u64>,
+        chunks: Vec<Vec<(u64, &'static str)>>,
+        next: AtomicUsize,
+    }
+
+    impl Script {
+        fn of(head_after: &[u64], chunks: &[&[(u64, &'static str)]]) -> Arc<Self> {
+            Arc::new(Self { head_after: head_after.to_vec(), chunks: chunks.iter().map(|c| c.to_vec()).collect(), next: 0.into() })
+        }
+    }
+
+    #[async_trait]
+    impl HttpSend for Script {
+        async fn send(&self, _: WireRequest, _: Exchange) -> Result<HttpResponse, ProviderError> {
+            let n = self.next.fetch_add(1, Ordering::SeqCst);
+            mixdog_rt::time::sleep(Duration::from_secs(self.head_after[n])).await;
+            Ok(HttpResponse { status: 200, headers: Vec::new(), body: Timetable::of(&self.chunks[n]) })
+        }
+    }
+
+    fn adapter() -> OpenAiAdapter {
+        let context = Arc::new(SessionContext::new());
+        let config = super::super::config::OpenAiConfig::api_key(false, Arc::new(super::super::config::NoFacts), context.clone());
+        OpenAiAdapter::new(
+            ProviderId::from("openai"),
+            OpenAiCodec::new(config, TransportKind::Http1),
+            AdapterLinks {
+                http: Script::of(&[], &[]),
+                dial: ScriptedDial::with(Vec::new()),
+                compress_lane: mixdog_rt::testing::tokens().cpu_bulk,
+                credentials: Arc::new(Creds),
+                context,
+                listing: ListingLookup::new(),
+            },
+        )
+    }
+
+    fn wire() -> WireRequest {
+        WireRequest { transport: TransportKind::Http1, method: "POST".into(), url: "http://x.test/".into(), headers: Vec::new(), body: Vec::new() }
+    }
+
+    fn request(identity: &SendIdentity) -> ModelRequest {
+        ModelRequest { model: "m".into(), messages: Vec::new(), tools: Vec::new(), options: RequestOptions { send_identity: identity.clone(), ..RequestOptions::default() } }
+    }
+
+    fn responses_decoder() -> ResponsesDecoder {
+        ResponsesDecoder::new(super::super::decoder::Framing::Sse, Arc::new(SessionContext::default()), ProviderId::from("openai"))
+    }
+
+    /// One model submission through the driver, read through the adapter's stream.
+    #[allow(clippy::result_large_err, reason = "a test helper")]
+    async fn open(adapter: &OpenAiAdapter, script: Arc<Script>, identity: &SendIdentity) -> Result<ResponsesStream, ProviderError> {
+        let call = adapter.model_call(&request(identity), false);
+        let (response, attempt) = ModelDriver::new(script).send(&call, wire(), openai_http_response(false, 60_000.0)).await?;
+        Ok(ResponsesStream::new(Source::Http(response.body), responses_decoder()).with_attempt(identity.clone(), attempt))
+    }
+
+    async fn failure(stream: &mut ResponsesStream) -> ProviderError {
+        loop {
+            match stream.next().await.expect("the window ends the stream") {
+                Ok(_) => continue,
+                Err(err) => break err,
+            }
+        }
+    }
+
+    const CREATED: &str = "data: {\"type\":\"response.created\",\"response\":{\"id\":\"r\",\"model\":\"m\"}}\n\n";
+    const TEXT: &str = concat!(
+        "data: {\"type\":\"response.created\",\"response\":{\"id\":\"r\",\"model\":\"m\"}}\n\n",
+        "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_1\",\"role\":\"assistant\",\"content\":[]}}\n\n",
+        "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"msg_1\",\"delta\":\"hi\"}\n\n",
+    );
+
+    /// The head window this route declares (`PROVIDER_HTTP_RESPONSE_TIMEOUT_MS`, 60 s) is the driver's: a head that never comes
+    /// expires at it, not at the fallback's 120 s, with the initial-response wording; and every submission is an attempt with a
+    /// whole fresh window, so two 50 s heads in a row are both answered.
     #[tokio::test(start_paused = true)]
-    async fn a_stream_that_went_quiet_after_output_stalls() {
-        let mut stream = http(&[(0, "a"), (15, "k"), (15, "k")], Some(20_000.0));
-        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::TextDelta(_)))));
-        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::ProviderKeepalive))));
-        let err = stream.next().await.expect("the stall").expect_err("a stall");
+    async fn the_http_head_window_is_the_declared_one_and_a_resend_gets_a_whole_fresh_window() {
+        let (adapter, identity) = (adapter(), SendIdentity::default());
+        let began = tokio::time::Instant::now();
+        assert!(open(&adapter, Script::of(&[50], &[&[]]), &identity).await.is_ok());
+        assert!(open(&adapter, Script::of(&[50], &[&[]]), &identity).await.is_ok());
+        assert_eq!(began.elapsed(), Duration::from_secs(100), "two windows' worth of heads, each inside its own");
+        let began = tokio::time::Instant::now();
+        let err = open(&adapter, Script::of(&[100_000], &[&[]]), &identity).await.err().expect("the head never comes");
+        assert_eq!(began.elapsed(), Duration::from_secs(60));
+        assert_eq!(err.code.as_deref(), Some("EPROVIDERTIMEOUT"));
+        assert_eq!(err.message, "OpenAI HTTP fallback initial response timed out after 60000ms");
+    }
+
+    /// Silence after the head is the first-payload wait, declared as `PROVIDER_FIRST_OUTPUT_TIMEOUT_MS`: longer than the fallback
+    /// head window it must survive, and it expires at its own value.
+    #[tokio::test(start_paused = true)]
+    async fn a_declared_window_longer_than_the_fallback_survives_it_and_expires_at_its_own_value() {
+        let (adapter, identity) = (adapter(), SendIdentity::default());
+        let window = adapter.http_first_output_ms as u64;
+        assert!(window > PhaseWindows::FALLBACK_HEAD.as_millis() as u64, "the declared window outlasts the fallback head");
+        let mut stream = open(&adapter, Script::of(&[0], &[&[]]), &identity).await.expect("the head");
+        let began = tokio::time::Instant::now();
+        let err = failure(&mut stream).await;
+        assert_eq!(began.elapsed(), Duration::from_millis(window));
         assert_eq!(err.code.as_deref(), Some("ESTREAMSTALL"));
-        assert_eq!(err.timeout_phase, Some(mixdog_core_api::domain::provider::StreamTimeoutPhase::Idle));
-        assert_eq!(err.message, "OpenAI HTTP fallback stream timed out after 20000ms of inactivity");
+        assert_eq!(err.message, format!("OpenAI HTTP fallback stream timed out after {window}ms of inactivity"));
+        assert!(stream.next().await.is_none());
     }
 
-    /// Before the first output only the first-output windows bound the stream: keepalives alone never arm the idle one.
+    /// Metadata received 100 s into the response does not buy another first-output window.
     #[tokio::test(start_paused = true)]
-    async fn keepalives_alone_never_arm_the_window() {
-        let mut stream = http(&[(0, "k"), (5, "k")], Some(10_000.0));
-        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::ProviderKeepalive))));
-        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::ProviderKeepalive))));
-        assert!(mixdog_rt::time::timeout(std::time::Duration::from_secs(100_000), stream.next()).await.is_err());
+    async fn payload_then_silence_expires_at_the_original_first_output_deadline() {
+        let (adapter, identity) = (adapter(), SendIdentity::default());
+        let window = adapter.http_first_output_ms as u64;
+        let mut stream = open(&adapter, Script::of(&[0], &[&[(100, CREATED)]]), &identity).await.expect("the head");
+        let began = tokio::time::Instant::now();
+        let err = failure(&mut stream).await;
+        assert_eq!(began.elapsed(), Duration::from_millis(window));
+        assert_eq!(err.message, format!("OpenAI HTTP fallback stream timed out after {window}ms of inactivity"));
     }
 
+    /// Output starts the idle window, which is the declared semantic idle one.
     #[tokio::test(start_paused = true)]
-    async fn the_watchdog_switched_off_leaves_the_read_unbounded() {
-        let mut stream = http(&[(0, "a")], None);
-        assert!(stream.next().await.is_some());
-        assert!(mixdog_rt::time::timeout(std::time::Duration::from_secs(100_000), stream.next()).await.is_err());
+    async fn silence_after_output_expires_at_the_declared_idle_window() {
+        let (adapter, identity) = (adapter(), SendIdentity::default());
+        let idle = adapter.http_idle_ms.expect("the watchdog is on") as u64;
+        let mut stream = open(&adapter, Script::of(&[0], &[&[(0, TEXT)]]), &identity).await.expect("the head");
+        let began = tokio::time::Instant::now();
+        let err = failure(&mut stream).await;
+        assert_eq!(began.elapsed(), Duration::from_millis(idle));
+        assert_eq!(err.message, format!("OpenAI HTTP fallback stream timed out after {idle}ms of inactivity"));
+        assert!(err.exposure.text_emitted);
+    }
+
+    /// Answers a turn request with the next scripted `(status, body)` and records each request's `content-encoding`; the warm-up
+    /// HEAD is answered empty and not counted.
+    struct Refusing {
+        answers: Mutex<VecDeque<(u16, Box<dyn BodyStream>)>>,
+        encodings: Mutex<Vec<Option<String>>>,
+    }
+
+    /// A body that delivers its chunks and then ends.
+    struct Ending(VecDeque<Bytes>);
+
+    #[async_trait]
+    impl BodyStream for Ending {
+        async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
+            self.0.pop_front().map(Ok)
+        }
+    }
+
+    #[async_trait]
+    impl HttpSend for Refusing {
+        async fn send(&self, request: WireRequest, _: Exchange) -> Result<HttpResponse, ProviderError> {
+            if request.method == "HEAD" {
+                return Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Ending(VecDeque::new())) });
+            }
+            self.encodings.lock().unwrap().push(header(&request.headers, "content-encoding").map(str::to_owned));
+            let (status, body) = self.answers.lock().unwrap().pop_front().expect("a scripted answer");
+            Ok(HttpResponse { status, headers: Vec::new(), body })
+        }
+    }
+
+    /// A Codex adapter over `http`, and a body large enough to be compressed.
+    fn codex(http: Arc<Refusing>) -> (OpenAiAdapter, WireRequest) {
+        let context = Arc::new(SessionContext::new());
+        let identity = super::super::config::CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "1".into(), beta_features: "b".into() };
+        let config = super::super::config::OpenAiConfig::codex(false, identity, Arc::new(super::super::config::NoFacts), context.clone());
+        let adapter = OpenAiAdapter::new(
+            ProviderId::from("openai-oauth"),
+            OpenAiCodec::new(config, TransportKind::Http1),
+            AdapterLinks { http, dial: ScriptedDial::with(Vec::new()), compress_lane: mixdog_rt::testing::tokens().cpu_bulk, credentials: Arc::new(Creds), context, listing: ListingLookup::new() },
+        );
+        let wire = WireRequest { transport: TransportKind::Http1, method: "POST".into(), url: "http://x.test/".into(), headers: Vec::new(), body: vec![b'a'; 20_000] };
+        (adapter, wire)
+    }
+
+    /// A compressed request the backend refuses with 400 is sent once more plain, whether the refusal's body drains or stalls:
+    /// a stalled one ends the cleanup at the refused exchange's own window (its first error), and the plain request, an attempt
+    /// of its own with whole windows, arrives and succeeds.
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_compressed_body_that_stalls_ends_its_cleanup_and_the_plain_request_is_sent() {
+        reset_zstd_latch();
+        for (label, refusal) in [("stalled", Timetable::of(&[(0, "{}")]) as Box<dyn BodyStream>), ("drained", Box::new(Ending([Bytes::from_static(b"{}")].into())))] {
+            let http = Arc::new(Refusing { answers: Mutex::new([(400, refusal), (200, Box::new(Ending([Bytes::from_static(CREATED.as_bytes())].into())) as Box<dyn BodyStream>)].into()), encodings: Mutex::default() });
+            let (adapter, wire) = codex(http.clone());
+            let identity = SendIdentity::default();
+            let began = tokio::time::Instant::now();
+            let opened = adapter.open_http(&adapter.codec, &request(&identity), wire).await.expect("the plain request is answered");
+            assert!(matches!(opened, Opened::Stream(_)), "{label}: the plain request succeeded");
+            assert_eq!(*http.encodings.lock().unwrap(), [Some("zstd".to_owned()), None], "{label}: compressed, then plain");
+            if label == "stalled" {
+                assert_eq!(began.elapsed(), Duration::from_millis(adapter.http_first_output_ms as u64), "the drain ended at the refused attempt's own window");
+            } else {
+                assert_eq!(began.elapsed(), Duration::ZERO);
+            }
+            let log = identity.take_boundaries();
+            let started = log.iter().filter(|(_, b)| *b == Boundary::AttemptStarted).count();
+            assert_eq!(started, 2, "{label}: the resend is an attempt of its own");
+            reset_zstd_latch();
+        }
+    }
+
+    /// A read that carries output and then a failing frame delivers the output and then the failure: the stream does not
+    /// end quietly at the failing terminal frame.
+    #[tokio::test(start_paused = true)]
+    async fn output_read_together_with_a_failing_frame_is_delivered_before_the_failure() {
+        let frames = [
+            serde_json::json!({ "type": "response.created", "response": { "id": "resp_1", "model": "m" } }),
+            serde_json::json!({ "type": "response.output_item.added", "output_index": 0, "item": { "type": "message", "id": "msg_1", "role": "assistant", "content": [] } }),
+            serde_json::json!({ "type": "response.output_text.delta", "output_index": 0, "item_id": "msg_1", "delta": "partial" }),
+            serde_json::json!({ "type": "response.failed", "response": { "id": "resp_1", "status": "failed", "error": { "code": "server_error", "message": "boom" } } }),
+        ];
+        let chunk: &'static str = Box::leak(frames.iter().map(|f| format!("data: {f}\n\n")).collect::<String>().into_boxed_str());
+        let mut stream = ResponsesStream::new(Source::Http(Timetable::of(&[(0, chunk)])), responses_decoder());
+        let mut text = String::new();
+        let failure = loop {
+            match stream.next().await.expect("the failure ends the stream") {
+                Ok(StreamEvent::TextDelta(delta)) => text.push_str(&delta),
+                Ok(_) => {}
+                Err(error) => break error,
+            }
+        };
+        assert_eq!(text, "partial");
+        assert!(failure.exposure.text_emitted);
+        assert!(stream.next().await.is_none());
+    }
+
+    /// A stream whose attempt a later one replaced is stale: its late chunk marks no transport and moves no phase of the
+    /// current attempt.
+    #[tokio::test(start_paused = true)]
+    async fn a_replaced_attempts_late_chunk_changes_nothing() {
+        let identity = SendIdentity::default();
+        let stale = identity.begin_attempt(PhaseWindows::default(), false);
+        let mut stream = ResponsesStream::new(Source::Http(Timetable::of(&[(1, TEXT)])), responses_decoder()).with_attempt(identity.clone(), stale);
+        let current = identity.begin_attempt(PhaseWindows::default(), false);
+        identity.take_boundaries();
+        assert!(matches!(stream.next().await, Some(Ok(_))), "the stale stream still decodes its own bytes");
+        assert!(identity.take_boundaries().is_empty(), "no boundary of the stale attempt reaches the send");
+        assert!(!identity.take_transport(), "no transport mark either");
+        let ctx = identity.attempt_context();
+        assert_eq!((ctx.id, ctx.phase), (current.id(), AttemptPhase::Head));
     }
 }
+
+
+/// A failed attempt; `handshake` when the WebSocket upgrade itself was refused.
+/// `refusal` with the credential its request carried redacted from its body.
+fn scrub_refusal(mut refusal: ErrorResponse, credential: &Credential) -> ErrorResponse {
+    let text = String::from_utf8_lossy(&refusal.body);
+    let clean = crate::oauth::scrub::scrub_oauth_secrets(&text, &[&credential.bearer]);
+    if clean != text {
+        refusal.body = clean.into_bytes();
+    }
+    refusal
+}
+impl OpenAiAdapter {
+    /// A resend over HTTP is a request of its own, which Node builds anew with a fresh `x-client-request-id`
+    /// (`openai-oauth-http-sse.mjs`, once per `sendViaHttpSse`); the WebSocket's resend keeps its headers.
+    fn renew_request_id(&self, wire_kind: Wire, wire: &mut WireRequest) {
+        if wire_kind == Wire::Ws {
+            return;
+        }
+        for (name, value) in &mut wire.headers {
+            if name.eq_ignore_ascii_case("x-client-request-id") {
+                *value = self.context.request_id();
+            }
+        }
+    }
+
+    /// The acquisition fixture exercises one exchange, not the send's retry ladder.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn ws_attempt_once(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let mut wire = self.encode(Wire::Ws, &request)?;
+        let mut auth = AuthRetry::default();
+        let stream = self.exchange(Wire::Ws, &request, &mut wire, false, &mut auth).await.map_err(|failed| failed.error)?;
+        Ok(Box::new(stream))
+    }
+
+    async fn exchange(
+        &self,
+        wire_kind: Wire,
+        request: &Arc<ModelRequest>,
+        wire: &mut WireRequest,
+        force_fresh: bool,
+        auth: &mut AuthRetry,
+    ) -> Result<ResponsesStream, Failed> {
+        let codec = self.codec_for(wire_kind);
+        let public = codec.route() == Route::ApiKey;
+        let identity = &request.options.send_identity;
+        let mut credential = match auth.renewed.as_ref() {
+            Some(key) => key.clone(),
+            _ => self.credentials.current().await?,
+        };
+        let mut http_updates = if wire_kind == Wire::Http && request.options.effort_projection.is_some() {
+            let body = serde_json::from_slice::<Value>(&wire.body).ok();
+            SentUpdates::of(body.as_ref().and_then(|b| b.get("input")))
+        } else {
+            SentUpdates::default()
+        };
+        let mut resending = false;
+        loop {
+            // Node raises `requesting` before each WebSocket acquisition (`openai-oauth-ws.mjs:250`) and before each
+            // HTTP/SSE request, which names its attempt (`openai-http-sse-request.mjs:133`). A resend below (the reloaded
+            // credential, `openai-oauth.mjs:293` / `openai-oauth-dispatch.mjs:209`; the effort update removed, the whole send
+            // again, `effort-configuration.mjs:112`) is a request of its own: it raises the stage again, and over HTTP its
+            // attempts count from the first.
+            match wire_kind {
+                Wire::Ws => identity.raise_stage("requesting"),
+                Wire::Http => {
+                    if resending {
+                        identity.restart_attempts();
+                    }
+                    let attempt = identity.next_attempt();
+                    identity.raise_stage_with(
+                        "requesting",
+                        serde_json::json!({ "attempt": attempt + 1, "maxAttempts": super::policy::REQUEST_RETRIES + 1, "retry": attempt > 0 }),
+                    );
+                }
+            }
+            let authorized = self.authorize(wire.clone(), &credential);
+            let opened = match wire_kind {
+                // The acquire and the upgrade are the handshake; a failure past the socket is stamped where it happens.
+                Wire::Ws => self.open_ws(request, authorized, &credential, force_fresh || resending).await.map_err(|mut error| {
+                    error.ws_phase.get_or_insert(WsPhase::Handshake);
+                    error
+                })?,
+                Wire::Http => self.open_http(codec, request, authorized).await?,
+            };
+            let rejected = match opened {
+                Opened::Stream(mut stream) => {
+                    stream.credential = Some(credential);
+                    if wire_kind == Wire::Http {
+                        stream.updates = std::mem::take(&mut http_updates);
+                    }
+                    return Ok(stream);
+                }
+                Opened::Rejected(rejected) => rejected,
+            };
+            // The credential this request carried is redacted from whatever the refusal echoes of it (the message, the
+            // body's error text), the upgrade rejection included.
+            let rejected = scrub_refusal(rejected, &credential);
+            if rejected.status == Some(401) && !auth.spent {
+                // `openai-oauth-dispatch.mjs:205` (HTTP/SSE) and `openai-oauth.mjs:285` (WebSocket).
+                if self.codec.route() == Route::Codex {
+                    match wire_kind {
+                        Wire::Http => mixdog_rt::node_stderr!("[openai-oauth-http] 401 — forcing refresh and retrying once over HTTP/SSE"),
+                        Wire::Ws => mixdog_rt::node_stderr!("[openai-oauth-ws] 401 — forcing refresh and retrying once over WS"),
+                    }
+                }
+                match auth.renew(self.credentials.as_ref(), &credential).await {
+                    Ok(next) => {
+                        credential = next;
+                        resending = true;
+                        self.renew_request_id(wire_kind, wire);
+                        continue;
+                    }
+                    Err(err) if !public => return Err(err.into()),
+                    Err(_) => {}
+                }
+            }
+            let mut err = codec.classify(&rejected);
+            let handshake = wire_kind == Wire::Ws;
+            let effort_rejected = !handshake && request.options.effort_projection.is_some()
+                && rejected.status == Some(400) && {
+                    let body = serde_json::from_slice::<Value>(&rejected.body).ok();
+                    let param = body.as_ref().and_then(|b| b.get("error").unwrap_or(b).get("param")).and_then(Value::as_str);
+                    http_updates.rejected(&err, param)
+                };
+            // `rejectedToolSchema`: a 400 that names one of the tools this body carried.
+            crate::providers::rejections::mark_tool_schema(&mut err, &rejected.body, &crate::providers::rejections::wire_tool_names(&wire.body));
+            // `_wsErrLabel` for the upgrade (`openai-ws-handshake.mjs:107`), `httpLabel` for the HTTP/SSE request.
+            let label = match (wire_kind, self.codec.route()) {
+                (Wire::Ws, Route::Codex) => "OpenAI OAuth WS handshake",
+                (Wire::Ws, _) => "OpenAI WS handshake",
+                (Wire::Http, Route::Codex) => "OpenAI OAuth HTTP fallback",
+                (Wire::Http, _) => "OpenAI HTTP fallback",
+            };
+            err.message = super::error::http_response_message(label, &rejected, &err, self.context.now_unix_ms());
+            if rejected.status == Some(401) && auth.spent && err.kind == ErrorKind::Auth {
+                err.reauth_required = true;
+            }
+            if handshake {
+                err.ws_phase = Some(WsPhase::Handshake);
+            }
+            return Err(Failed { error: err, handshake, effort_rejected });
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "recovery_tests.rs"]
+mod recovery_tests;

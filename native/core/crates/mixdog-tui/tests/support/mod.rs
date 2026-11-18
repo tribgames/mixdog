@@ -25,23 +25,6 @@ pub fn child_spec(cwd: &str, provider: &str, model: &str) -> String {
     json!({ "cwd": cwd, "provider": provider, "model": model }).to_string()
 }
 
-/// The body of the `tui_child` test of each test binary: nothing in a normal run, the terminal UI in the pseudo-terminal of a
-/// parent. A failed run fails the child with the exit code's text.
-pub fn run_child() {
-    let Ok(raw) = std::env::var(CHILD_ENV) else { return };
-    let spec: Value = serde_json::from_str(&raw).expect("the child's options are JSON");
-    let text = |name: &str| spec[name].as_str().map(str::to_owned);
-    let options = mixdog_tui::run::TuiOptions {
-        cwd: text("cwd"),
-        provider: text("provider"),
-        model: text("model"),
-        statusline: Some(mixdog_tui::footer::process::process_renderer()),
-        ..Default::default()
-    };
-    let code = mixdog_tui::run::run_tui(options);
-    assert_eq!(format!("{code:?}"), format!("{:?}", std::process::ExitCode::SUCCESS), "the terminal UI ended with a failure");
-}
-
 static GATE: Mutex<()> = Mutex::new(());
 
 /// One pty test at a time in a binary: each starts a core and a terminal UI, and a timing must not share the machine with a
@@ -106,4 +89,22 @@ mod tests {
         assert_eq!(last_osc52_text(sequence.as_bytes()).as_deref(), Some("가나😀"));
         assert_eq!(last_osc52_text(b"no clipboard"), None);
     }
+}
+
+
+/// The body of the `tui_child` test of each test binary: nothing in a normal run, the terminal UI in the pseudo-terminal of a
+/// parent. A failed run fails the child with the exit code's text.
+pub fn run_child() {
+    let Ok(raw) = std::env::var(CHILD_ENV) else { return };
+    let spec: Value = serde_json::from_str(&raw).expect("the child's options are JSON");
+    let text = |name: &str| spec[name].as_str().map(str::to_owned);
+    let options = mixdog_tui::run::TuiOptions {
+        cwd: text("cwd"),
+        provider: text("provider"),
+        model: text("model"),
+        statusline: Some(mixdog_tui::footer::process::process_renderer()),
+        ..Default::default()
+    };
+    let code = mixdog_tui::run::run_tui(options);
+    assert_eq!(format!("{code:?}"), format!("{:?}", std::process::ExitCode::SUCCESS), "the terminal UI ended with a failure");
 }

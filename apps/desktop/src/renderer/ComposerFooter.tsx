@@ -271,10 +271,7 @@ export function ComposerFooter({
       />
       {modelControls}
       <span className="composer-primary-actions">
-        {/* The mic appears only once the voice runtime is installed
-            (Extensions → Voice transcription): an uninstalled feature never
-            advertises itself in the composer. */}
-        {dictation.dictationInstalled && (
+        {dictation.dictationAvailable && (
           <DictationButton
             state={dictation.dictationState}
             disabled={transitioning || dictation.dictationState === 'transcribing'}

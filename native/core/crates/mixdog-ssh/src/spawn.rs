@@ -62,9 +62,16 @@ pub fn prepare_spawn(env: &SshEnv, command: &str, args: &[String], context: Opti
     let mut list = args.to_vec();
     let mut vars = None;
     if command == "ssh" {
-        // The target's own generated config when there is one (resolved options, no forwards), else the generic
-        // one; a caller that passes its own -F keeps it.
-        let config_file = env.config_files.for_args(&list).or_else(|| env.config_files.generic());
+        // An attempt's ssh of its target runs with the config its inspection reviewed (none where Mixdog has no ssh folder); any
+        // other ssh with the config the last inspection of the target reviewed, else the generic one. A caller that passes its own
+        // -F keeps it.
+        let reviewed = context
+            .and_then(|attempt| attempt.reviewed.as_ref())
+            .filter(|reviewed| crate::resolved_config::args_target_key(&list).as_deref() == Some(reviewed.target_key.as_str()));
+        let config_file = match reviewed {
+            Some(reviewed) => reviewed.file.as_ref().map(|file| file.path().to_path_buf()),
+            None => env.config_files.for_args(&list).or_else(|| env.config_files.generic()),
+        };
         if let Some(file) = config_file
             && !list.iter().any(|arg| arg == "-F")
         {
@@ -100,6 +107,7 @@ pub fn prepare_spawn(env: &SshEnv, command: &str, args: &[String], context: Opti
             }
             let mut merged: BTreeMap<String, String> = env.env.clone();
             merged.extend(session.env());
+            merged.extend(session.child_env());
             merged.insert("SSH_ASKPASS_REQUIRE".to_owned(), "force".to_owned());
             merged.insert("DISPLAY".to_owned(), env.var("DISPLAY").filter(|display| !display.is_empty()).unwrap_or("localhost:0").to_owned());
             vars = Some(merged);

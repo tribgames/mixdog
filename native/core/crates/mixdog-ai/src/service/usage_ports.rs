@@ -3,10 +3,6 @@
 //! usage endpoints need a token (`providerObj.ensureAuth` of `fetchOAuthUsageSnapshot`).
 //!
 //! The quota history port lives with the ledger (`mixdog-core`'s `run_host/quota_history.rs`).
-//!
-//! Not here: the `getUsageSnapshot()` of cursor-api, whose key is configuration, not an account
-//! credential file. [`ProviderUsageSource`] answers it with an error (the measurement then reads as
-//! nothing, as Node's does when the provider call fails).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -42,7 +38,9 @@ use crate::oauth::scrub::scrub_oauth_secrets;
 use crate::oauth::Pace;
 use crate::oauth::SystemPace;
 use crate::providers::compat::creds::CommandCodeCredentials;
-use crate::providers::cursor::auth::FileAccess as CursorAccess;
+use crate::providers::cursor::AccessToken;
+use crate::providers::cursor::auth::{ApiKeyAccess, FileAccess as CursorAccess};
+use crate::registry::keys::{ApiKeyStore, KeyConfig};
 use crate::providers::google::auth::RequestAuth as _;
 use crate::providers::google::auth::antigravity::AntigravityAuth;
 use crate::providers::google::auth::antigravity::FileTokenStore;
@@ -176,8 +174,42 @@ pub struct ProviderUsageSource {
     muse: Mutex<HashMap<String, MuseState>>,
     /// `Math.random()`: spreads the cooldown by ± 25 % so accounts do not retry in lockstep.
     jitter: Arc<dyn Fn() -> f64 + Send + Sync>,
-    /// The client versions the Antigravity hub identity is built from (`ensureAntigravityVersion`).
+    /// Shared client identities, including the version used by Claude OAuth token refresh.
     versions: Option<Arc<ClientVersions>>,
+    cursor_api: Option<CursorApiUsage>,
+}
+
+struct CursorApiUsage {
+    keys: ApiKeyStore,
+    config: Arc<dyn Fn() -> KeyConfig + Send + Sync>,
+    cached: Mutex<Option<(String, [u8; 32], Arc<ApiKeyAccess>)>>,
+}
+
+struct CursorApiReading {
+    key: [u8; 32],
+    http: Arc<dyn HttpSend>,
+    versions: Option<Arc<ClientVersions>>,
+    access: Arc<ApiKeyAccess>,
+}
+
+#[async_trait]
+impl super::oauth_usage::CursorApiPlan for CursorApiReading {
+    fn key_identity(&self) -> [u8; 32] { self.key }
+
+    async fn read(&self) -> Result<Value, UsageError> {
+        read_cursor(usage_cursor::API_PROVIDER_ID, self.http.clone(), self.versions.as_ref(), self.access.clone()).await
+    }
+}
+
+async fn read_cursor(provider: &str, http: Arc<dyn HttpSend>, versions: Option<&Arc<ClientVersions>>, access: Arc<dyn AccessToken>) -> Result<Value, UsageError> {
+    let version = match versions {
+        Some(versions) => {
+            versions.warm(Dialect::Cursor).await;
+            versions.cursor_live()
+        }
+        None => crate::providers::cursor::CLIENT_VERSION_FLOOR.into(),
+    };
+    usage_cursor::CursorUsage::new(provider, http, None, version, access).read().await
 }
 
 struct MuseFailure {
@@ -199,13 +231,18 @@ impl ProviderUsageSource {
 
     /// The clock the OpenCode Go token expiry is judged by.
     pub fn with_pace(accounts: AccountStore, http: Arc<dyn HttpSend>, pace: Arc<dyn Pace>) -> Self {
-        Self { accounts, http, held: Mutex::new(HashMap::new()), pace, muse: Mutex::new(HashMap::new()), jitter: Arc::new(rand::random::<f64>), versions: None }
+        Self { accounts, http, held: Mutex::new(HashMap::new()), pace, muse: Mutex::new(HashMap::new()), jitter: Arc::new(rand::random::<f64>), versions: None, cursor_api: None }
     }
 
-    /// The process's client versions: Antigravity's requests carry the hub version they discover
-    /// (without them, the pinned fallback).
+    /// Reuse the process's client versions rather than pinning those identities to their fallback.
     pub fn with_versions(mut self, versions: Arc<ClientVersions>) -> Self {
         self.versions = Some(versions);
+        self
+    }
+
+    /// The API usage route resolves its key independently of provider registration.
+    pub fn with_cursor_api(mut self, keys: ApiKeyStore, config: Arc<dyn Fn() -> KeyConfig + Send + Sync>) -> Self {
+        self.cursor_api = Some(CursorApiUsage { keys, config, cached: Mutex::new(None) });
         self
     }
 
@@ -226,7 +263,13 @@ impl ProviderUsageSource {
         }
         let made = match provider {
             "openai-oauth" => Held::OpenAi(Arc::new(OpenAiOAuth::new(self.file(provider, account_id)?, self.http.clone()))),
-            "anthropic-oauth" => Held::Anthropic(Arc::new(OAuthSession::new(self.file(provider, account_id)?, self.http.clone()))),
+            "anthropic-oauth" => {
+                let mut session = OAuthSession::new(self.file(provider, account_id)?, self.http.clone());
+                if let Some(versions) = &self.versions {
+                    session = session.with_cli_version_source(versions.claude());
+                }
+                Held::Anthropic(Arc::new(session))
+            }
             "grok-oauth" => Held::Grok(Arc::new(GrokCredential::new(self.http.clone(), self.file(provider, account_id)?))),
             usage_antigravity::PROVIDER_ID => {
                 let pace = self.pace.clone();
@@ -291,7 +334,7 @@ impl ProviderUsageSource {
         let authorization = auth.authorize().await.map_err(|error| UsageError { status: error.status, message: format!("[antigravity-oauth] {}", error.message) })?;
         let bearer = authorization.headers.into_iter().find(|(name, _)| name == "authorization").map(|(_, value)| value).unwrap_or_default();
         let headers = vec![
-            ("Authorization".to_owned(), bearer),
+            ("Authorization".to_owned(), bearer.clone()),
             ("Content-Type".to_owned(), "application/json".to_owned()),
             ("User-Agent".to_owned(), usage_antigravity::user_agent(&version)),
         ];
@@ -303,22 +346,46 @@ impl ProviderUsageSource {
             return Err(UsageError::new(format!("[antigravity-oauth] retrieveUserQuotaSummary failed: {} {detail}", reply.status)));
         }
         let summary: Value = serde_json::from_str(&reply.body).map_err(|error| UsageError::new(mixdog_js::v8_json_parse_error(&reply.body).unwrap_or_else(|| error.to_string())))?;
-        Ok(Some(usage_antigravity::snapshot(&summary)))
+        let mut reading = usage_antigravity::snapshot(&summary);
+        // Stamped with the bearer and project this request carried.
+        let credential = json!({ "access_token": bearer.strip_prefix("Bearer ").unwrap_or(&bearer), "project_id": authorization.identity });
+        super::oauth_usage::stamp_reading(&mut reading, credential.as_object().and_then(|doc| super::oauth_usage::credential_stamp(usage_antigravity::PROVIDER_ID, doc)));
+        Ok(Some(reading))
     }
 
-    /// `getUsageSnapshot()` of cursor-oauth: the dashboard's plan usage with the stored access token
-    /// (exchanged when it is about to expire), carrying the Cursor client version.
-    async fn cursor_snapshot(&self, account_id: &str) -> Result<Option<Value>, UsageError> {
-        let version = match &self.versions {
-            Some(versions) => {
-                versions.warm(Dialect::Cursor).await;
-                versions.cursor_live()
-            }
-            None => crate::providers::cursor::CLIENT_VERSION_FLOOR.into(),
+    async fn prepare_cursor_api(&self) -> Result<Option<Arc<dyn super::oauth_usage::CursorApiPlan>>, UsageError> {
+        let Some(api) = &self.cursor_api else { return Ok(None) };
+        let provider = usage_cursor::API_PROVIDER_ID;
+        let config = (api.config)();
+        let key = api.keys.resolve(provider, &config).await.map_err(|error| UsageError::new(error.to_string()))?;
+        let mut cached = api.cached.lock().unwrap_or_else(PoisonError::into_inner);
+        if key.is_empty() {
+            *cached = None;
+            return Ok(None);
+        }
+        let slot = api.keys.slot(provider, &config);
+        let digest: [u8; 32] = Sha256::digest(key.as_bytes()).into();
+        let access = if let Some((held_slot, held_digest, tokens)) = cached.as_ref()
+            && held_slot == &slot && held_digest == &digest
+        {
+            tokens.clone()
+        } else {
+            let tokens = Arc::new(ApiKeyAccess::new(self.http.clone(), key, slot.clone()));
+            *cached = Some((slot, digest, tokens.clone()));
+            tokens
         };
-        let Some(Held::Cursor(access)) = self.held(usage_cursor::PROVIDER_ID, account_id)? else { unreachable!("the provider is held") };
-        let reading = usage_cursor::CursorUsage::new(usage_cursor::PROVIDER_ID, self.http.clone(), None, version, access);
-        reading.read().await.map(Some)
+        Ok(Some(Arc::new(CursorApiReading { key: digest, http: self.http.clone(), versions: self.versions.clone(), access })))
+    }
+
+    async fn cursor_snapshot(&self, provider: &str, account_id: &str) -> Result<Option<Value>, UsageError> {
+        if provider == usage_cursor::API_PROVIDER_ID {
+            return match self.prepare_cursor_api().await? {
+                Some(plan) => plan.read().await.map(Some),
+                None => Ok(None),
+            };
+        }
+        let Some(Held::Cursor(access)) = self.held(provider, account_id)? else { unreachable!("the provider is held") };
+        read_cursor(provider, self.http.clone(), self.versions.as_ref(), access).await.map(Some)
     }
 
     fn muse_states(&self) -> std::sync::MutexGuard<'_, HashMap<String, MuseState>> {
@@ -443,6 +510,7 @@ impl ProviderUsageSource {
     /// rejected (`withConsoleTokenRetry`).
     async fn opencode_go_snapshot(&self, account_id: &str) -> Result<Option<Value>, UsageError> {
         let tokens = self.opencode_tokens(account_id, false).await?;
+        let mut sent = tokens.clone();
         let parsed = match self.opencode_status(&tokens).await {
             Err(error) if error.status == Some(401) => {
                 let Some(Held::OpenCode(auth)) = self.held(usage_opencode_go::PROVIDER_ID, account_id)? else { unreachable!("the provider is held") };
@@ -450,6 +518,7 @@ impl ProviderUsageSource {
                 if identity(next.account_id.as_deref()) != identity(tokens.account_id.as_deref()) || identity(next.org_id.as_deref()) != identity(tokens.org_id.as_deref()) {
                     return Err(UsageError::new("[opencode-go-oauth] the OpenCode sign-in changed during the request"));
                 }
+                sent = next.clone();
                 match self.opencode_status(&next).await {
                     Err(error) if error.status == Some(401) => return Err(opencode_reauth("console 401", 401)),
                     other => other?,
@@ -457,7 +526,11 @@ impl ProviderUsageSource {
             }
             other => other?,
         };
-        Ok(Some(usage_opencode_go::snapshot(parsed, identity(tokens.email.as_deref()), identity(tokens.account_id.as_deref()), now_ms())))
+        let mut reading = usage_opencode_go::snapshot(parsed, identity(tokens.email.as_deref()), identity(tokens.account_id.as_deref()), now_ms());
+        // Stamped with the credential whose request answered: the refreshed one after a rejected first try.
+        let credential = json!({ "access_token": sent.access_token, "account_id": identity(sent.account_id.as_deref()) });
+        super::oauth_usage::stamp_reading(&mut reading, credential.as_object().and_then(|doc| super::oauth_usage::credential_stamp(usage_opencode_go::PROVIDER_ID, doc)));
+        Ok(Some(reading))
     }
 
     /// `getUsageSnapshot()` of command-code-oauth: the credits request with the account's key.
@@ -531,7 +604,7 @@ impl UsageSource for ProviderUsageSource {
 
     /// The Antigravity and Cursor provider objects have no `ensureAuth()`, so a rejected token is not retried.
     fn can_refresh(&self, provider: &str) -> bool {
-        provider != usage_antigravity::PROVIDER_ID && provider != usage_cursor::PROVIDER_ID
+        !matches!(provider, usage_antigravity::PROVIDER_ID | usage_cursor::PROVIDER_ID | usage_cursor::API_PROVIDER_ID)
     }
 
     async fn provider_snapshot(&self, provider: &str, account_id: &str) -> Result<Option<Value>, UsageError> {
@@ -540,9 +613,13 @@ impl UsageSource for ProviderUsageSource {
             usage_opencode_go::PROVIDER_ID => self.opencode_go_snapshot(account_id).await,
             usage_muse_code::PROVIDER_ID => self.muse_code_snapshot(account_id).await,
             usage_antigravity::PROVIDER_ID => self.antigravity_snapshot(account_id).await,
-            usage_cursor::PROVIDER_ID => self.cursor_snapshot(account_id).await,
+            usage_cursor::PROVIDER_ID | usage_cursor::API_PROVIDER_ID => self.cursor_snapshot(provider, account_id).await,
             _ => Err(UsageError::new(format!("{provider} plan usage is not available from this build"))),
         }
+    }
+
+    async fn cursor_api_plan(&self) -> Result<Option<Arc<dyn super::oauth_usage::CursorApiPlan>>, UsageError> {
+        self.prepare_cursor_api().await
     }
 }
 

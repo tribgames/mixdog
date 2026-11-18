@@ -183,8 +183,6 @@ mod tests {
 
     use super::*;
 
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/computer-error-recovery/golden.json");
-
     #[test]
     fn a_stale_refusal_of_an_input_on_a_window_is_answered_with_a_recapture_of_it() {
         let input = json!({ "window_id": "w-7" });
@@ -214,44 +212,10 @@ mod tests {
         );
     }
 
-    fn cases() -> Vec<Value> {
-        let golden: Value = serde_json::from_str(&GOLDEN).expect("golden");
-        golden["cases"].as_array().expect("cases").clone()
-    }
-
     /// `computerToolErrorRecovery` as Node's is for the message and what `{code, next, guidance}` it gives.
+    #[cfg(all(test, node_twin))]
     fn recorded(recovery: Option<Recovery>) -> Value {
         recovery.map_or(Value::Null, |r| json!({ "code": r.code, "next": r.next, "guidance": r.guidance }))
-    }
-
-    /// Every failure category over every target a call can name: the recovery and the text the model reads, whole.
-    #[test]
-    fn recovery_and_error_text_equal_the_recorded_node_output() {
-        let mut compared = 0;
-        for case in cases() {
-            let name = case["case"].as_str().expect("name");
-            let observed = &case["observed"];
-            if let Some(code) = case["input"]["code"].as_str() {
-                for row in observed.as_array().expect("rows") {
-                    let message = format!("{code}: private window details");
-                    assert_eq!(recorded(tool_error_recovery(&message, &row["args"])), row["recovery"], "{name} / {}", row["label"]);
-                    assert_eq!(format_tool_error(&message, &row["args"]), row["text"], "{name} / {}", row["label"]);
-                    compared += 1;
-                }
-            } else if name == "separators, prefixes and codeless sentences" {
-                let args = json!({ "action": "act", "input": { "window_id": "hwnd:0x1" } });
-                for row in observed.as_array().expect("rows") {
-                    let message = row["message"].as_str().expect("message");
-                    assert_eq!(recorded(tool_error_recovery(message, &args)), row["recovery"], "{message:?}");
-                    assert_eq!(format_tool_error(message, &args), row["text"], "{message:?}");
-                    compared += 1;
-                }
-            } else {
-                assert_eq!(format_tool_error("", &json!({})), observed["empty"]);
-                compared += 1;
-            }
-        }
-        assert!(compared > 100, "{compared}");
     }
 
     /// Codes `computerToolErrorRecovery` classifies (the helper and the core emit them): the model is told what to do next.
@@ -285,7 +249,7 @@ mod tests {
     /// (`capture_*`, `privileged_worker_*`, `msaa_*`, `focus_required`, ...) belong here because `error-recovery.mjs` never named them.
     /// So do the remote screen's input codes (`cursor_unavailable`, `out_of_bounds`, `protocol_error`: `--screen-input` answers the
     /// desktop, never the model) and the JPEG encoder's own `wic` failure, which falls back to PNG and never reaches a reply.
-    const WITHOUT_RECOVERY: [&str; 55] = [
+    const WITHOUT_RECOVERY: [&str; 56] = [
         "a11y_action_failed",
         "a11y_value_failed",
         "accessibility_blocked_by_integrity",
@@ -310,6 +274,8 @@ mod tests {
         "computer_capacity_exhausted",
         "computer_policy_denied",
         "computer_policy_expired",
+        // Computer Use was switched off mid-action: nothing may be retried or recaptured, so the text stands alone.
+        "computer_scope_revoked",
         "cursor_unavailable",
         "dialog_key_unsupported",
         "display_unavailable",
@@ -416,5 +382,44 @@ mod tests {
         }
         assert!(seen > 100, "the helper sources were not found under {}: {seen}", root.display());
         assert!(unclassified.is_empty(), "codes with no recovery classification: {unclassified:?}");
+    }
+
+
+    #[cfg(node_twin)]
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/computer-error-recovery/golden.json");
+    #[cfg(node_twin)]
+    fn cases() -> Vec<Value> {
+        let golden: Value = serde_json::from_str(&GOLDEN).expect("golden");
+        golden["cases"].as_array().expect("cases").clone()
+    }
+    /// Every failure category over every target a call can name: the recovery and the text the model reads, whole.
+    #[cfg(node_twin)]
+    #[test]
+    fn recovery_and_error_text_equal_the_recorded_node_output() {
+        let mut compared = 0;
+        for case in cases() {
+            let name = case["case"].as_str().expect("name");
+            let observed = &case["observed"];
+            if let Some(code) = case["input"]["code"].as_str() {
+                for row in observed.as_array().expect("rows") {
+                    let message = format!("{code}: private window details");
+                    assert_eq!(recorded(tool_error_recovery(&message, &row["args"])), row["recovery"], "{name} / {}", row["label"]);
+                    assert_eq!(format_tool_error(&message, &row["args"]), row["text"], "{name} / {}", row["label"]);
+                    compared += 1;
+                }
+            } else if name == "separators, prefixes and codeless sentences" {
+                let args = json!({ "action": "act", "input": { "window_id": "hwnd:0x1" } });
+                for row in observed.as_array().expect("rows") {
+                    let message = row["message"].as_str().expect("message");
+                    assert_eq!(recorded(tool_error_recovery(message, &args)), row["recovery"], "{message:?}");
+                    assert_eq!(format_tool_error(message, &args), row["text"], "{message:?}");
+                    compared += 1;
+                }
+            } else {
+                assert_eq!(format_tool_error("", &json!({})), observed["empty"]);
+                compared += 1;
+            }
+        }
+        assert!(compared > 100, "{compared}");
     }
 }

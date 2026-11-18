@@ -3,7 +3,6 @@
 //! day-of-week fields included; weekday 7 is Sunday; month and weekday names are accepted.
 
 use chrono::{DateTime, Datelike, Duration, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike, Utc};
-use chrono_tz::Tz;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CronExpr {
@@ -35,18 +34,22 @@ impl std::fmt::Display for CronError {
         f.write_str(&self.0)
     }
 }
-impl std::error::Error for CronError {}
 
-const MONTH_NAMES: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-const WEEKDAY_NAMES: [&str; 7] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const MONTH_NAMES: [&str; 12] = [
+    "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december",
+];
+const WEEKDAY_NAMES: [&str; 7] = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 
 fn value_of(token: &str, min: u32, names: Option<(&[&str], u32)>) -> Option<u32> {
     if let Ok(n) = token.parse::<u32>() {
         return Some(n);
     }
     let (names, first) = names?;
-    let lower = token.to_ascii_lowercase();
-    names.iter().position(|n| *n == lower).map(|i| i as u32 + first).filter(|v| *v >= min)
+    names
+        .iter()
+        .position(|name| name.eq_ignore_ascii_case(token) || name[..3].eq_ignore_ascii_case(token))
+        .map(|i| i as u32 + first)
+        .filter(|v| *v >= min)
 }
 
 fn parse_field(text: &str, min: u32, max: u32, names: Option<(&[&str], u32)>) -> Option<Field> {
@@ -132,7 +135,7 @@ impl CronExpr {
 
     /// The first fire instant strictly after `after`, in `tz` wall-clock terms. A wall time
     /// that occurs twice fires at its first occurrence; one a clock change skips never fires.
-    pub fn next_after(&self, after: DateTime<Utc>, tz: Tz) -> Option<DateTime<Utc>> {
+    pub fn next_after<Z: TimeZone>(&self, after: DateTime<Utc>, tz: Z) -> Option<DateTime<Utc>> {
         let mut local = after.with_timezone(&tz).naive_local();
         loop {
             local = self.next_local(local)?;
@@ -191,6 +194,8 @@ pub fn plan_beat(
 
 #[cfg(test)]
 mod tests {
+    use chrono_tz::Tz;
+
     use super::*;
 
     fn utc(s: &str) -> DateTime<Utc> {
@@ -204,6 +209,22 @@ mod tests {
         assert!(CronExpr::parse("*/0 * * * *").is_err());
         assert!(CronExpr::parse("* * * * * * *").is_err());
         assert!(CronExpr::parse("0 9 * * mon-fri").is_ok());
+        assert!(CronExpr::parse("0 9 * Janu Monday").is_err());
+        assert!(CronExpr::parse("0 9 * January Monsoon").is_err());
+    }
+
+    #[test]
+    fn named_months_and_weekdays_match_local_time() {
+        let seoul = chrono_tz::Asia::Seoul;
+        // Start just before 09:00 on a Monday in December; the first January Monday is the 6th.
+        let after = utc("2024-12-29T23:59:59Z");
+        for expression in ["0 9 * January Monday", "0 9 * JaN mOn"] {
+            let c = CronExpr::parse(expression).unwrap();
+            assert_eq!(c.next_after(after, seoul), Some(utc("2025-01-06T00:00:00Z")));
+        }
+
+        let c = CronExpr::parse("0 9 * jAnUaRy,March Monday-Friday/2").unwrap();
+        assert_eq!(c.next_after(utc("2025-01-06T00:00:00Z"), seoul), Some(utc("2025-01-08T00:00:00Z")));
     }
 
     #[test]
@@ -267,3 +288,6 @@ mod tests {
         assert_eq!(c.next_after(utc("2025-01-01T00:00:00Z"), Tz::UTC), Some(utc("2028-02-29T00:00:00Z")));
     }
 }
+
+
+impl std::error::Error for CronError {}

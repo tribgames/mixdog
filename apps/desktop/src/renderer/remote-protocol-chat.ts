@@ -28,6 +28,10 @@ import { SECTION_NAMES, type DesktopSectionsSnapshot } from '../shared/contract-
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { mergeToolRows, rowsOf, sessionStateOf } from '../../../../packages/protocol-client/src/index.ts';
 import { createChatHostApi, READ_NOT_HELD, READ_NOT_VIEWED, type ChatHostShared } from './remote-chat-host';
+import { callSharingControlThread } from './remote-capability-lane';
+import { followSessionStates, type SessionStateFollower } from './remote-session-states';
+import { remoteConnectionInterruptedError } from './remote-connection-state';
+import { phoneTransferCall } from './remote-transfer-call';
 import { remoteSessionIdOf, withRemoteSession } from '../shared/blank-snapshot.ts';
 import { createCapabilityLane } from '../main/protocol/capability-route';
 import { coreErrorForWindow } from '../main/protocol/core-error';
@@ -40,7 +44,8 @@ import { normalizedProviderModels } from '../shared/desktop-transcript-limits';
 /** The part of `ProtocolClient` (packages/protocol-client) this adapter uses. */
 export interface ChatClient {
   call(method: string, params: unknown): Promise<unknown>;
-  resumeThread(threadId: string, window: unknown): Promise<unknown>;
+  /** `join`: a resume of the thread the client already has in flight (its snapshot not folded yet) answers this one; none is sent. */
+  resumeThread(threadId: string, window: unknown, options?: { readonly join?: boolean; readonly force?: boolean }): Promise<unknown>;
   unsubscribeThread(threadId: string): Promise<void>;
   readonly server: { readonly connection?: { readonly device?: string } };
 }
@@ -69,6 +74,8 @@ export interface ChatLane {
 
 export interface ChatShared {
   routeService(method: string, args: readonly unknown[]): ChatRoute;
+  /** Optional transport for routing large submission fields outside the control RPC. */
+  sendTransfer?(method: string, params: unknown): Promise<unknown>;
   /** The lane of capability-route.ts, built on the connection this client is. */
   lane: ChatLane;
   coreErrorForWindow(error: unknown): unknown;
@@ -102,8 +109,9 @@ const record = (value: unknown): Record<string, unknown> =>
 
 export function createChatApi(client: ChatClient, shared: ChatShared) {
   const { lane } = shared;
+  const call = shared.sendTransfer ?? ((method: string, params: unknown) => client.call(method, params));
   const send = (request: { method: string; params: unknown }): Promise<unknown> =>
-    client.call(request.method, request.params).catch((error: unknown) => {
+    call(request.method, request.params).catch((error: unknown) => {
       throw shared.coreErrorForWindow(error);
     });
   const service = async (method: string, args: readonly unknown[]): Promise<unknown> => {
@@ -116,7 +124,7 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
     const held = shared.sessionStateOf(threadId);
     if (held) return held;
     const [resume] = shared.routeService('prefetchSession', [threadId]).requests;
-    await shared.whenFolded(threadId, () => client.resumeThread(threadId, resume?.params.window));
+    await shared.whenFolded(threadId, () => client.resumeThread(threadId, resume?.params.window, { join: true }));
     const resumed = shared.sessionStateOf(threadId);
     if (!resumed) throw new Error('The core did not fold the thread.');
     return resumed;
@@ -177,9 +185,13 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
     getQuotaAutoResume: (): Promise<boolean> => lane.getQuotaAutoResume(),
     setQuotaAutoResume: (enabled: boolean): Promise<boolean> => lane.setQuotaAutoResume(enabled),
     getTaskWorkspace: async (): Promise<string> => String(record(await service('getTaskWorkspace', [])).path),
-    readTranscriptItem: async (sessionId: string, itemId: string) => {
+    readTranscriptItem: async (sessionId: string, itemId: string, replayToken?: string) => {
       const state = shared.sessionStateOf(sessionId);
       if (!state) throw new Error(READ_NOT_VIEWED);
+      // A digest is not permission to read a historical row, and the stored
+      // item reader does not address a specific position. Never fall back to
+      // the current row for an exact-revision request.
+      if (replayToken !== undefined) return null;
       const output = shared.transcript.output(sessionId, state, itemId);
       if (!output) throw new Error(READ_NOT_HELD);
       return output;
@@ -210,7 +222,7 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
         return true;
       }
       const [resume] = shared.routeService('prefetchSession', [sessionId, transcriptItemLimit]).requests;
-      await client.resumeThread(sessionId, resume?.params.window);
+      await client.resumeThread(sessionId, resume?.params.window, { join: true });
       return true;
     },
     // Rust gap (position paging): Node's own answer for a host that cannot, which the page meets by growing its window.
@@ -259,6 +271,7 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
         discardPastedImages: restore.discardPastedImages ?? null,
         discardPastedTexts: restore.discardPastedTexts ?? null,
         restoredSubmissionIds: Array.isArray(restore.restoredSubmissionIds) ? restore.restoredSubmissionIds : [],
+        ...(typeof restore.restoreId === 'string' ? { restoreId: restore.restoreId } : {}),
       };
     },
     resolveToolApprovalForSession: async (sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean> => {
@@ -304,8 +317,8 @@ export type ChatApi = ReturnType<typeof createChatApi>;
 // ── The phone's thread list (decisions.md, "Phone thread list after a core restart") ─────────────────────────────────────────────────
 // Node's view sync subscribed to the catalog, then listed it, and a roster pushed during that read outranked the listing
 // (view-synchronizer.ts readCatalog); the phone replaced its list with that baseline on every attach, a restarted desktop's included.
-// The core republishes no thread edge after a restart and rejects an old-epoch replay, so after the app feed is re-subscribed the
-// list is read again, in full, and the edges that arrived meanwhile are laid over it: an edge outranks the listing, as the push did.
+// On reconnect the same client claims its last folded app position and missed edges replay. Only a snapshot (first attach or
+// replay unavailable) needs the list read again, with edges that arrive during the walk laid over it.
 
 type ThreadRow = Record<string, unknown>;
 
@@ -352,6 +365,7 @@ export function createRosterFeed<S>(options: {
   let refreshTimer: unknown = null;
   let refreshedAt = 0;
   const publishHeld = (): void => {
+    if (retired || !known) return;
     const rows = project(held.values());
     const key = JSON.stringify(rows);
     if (key === shown) return;
@@ -361,14 +375,19 @@ export function createRosterFeed<S>(options: {
   const scheduleRefresh = (): void => {
     if (refreshTimer) return;
     const delay = Math.max(STORE_REFRESH_DEBOUNCE_MS, STORE_REFRESH_MIN_GAP_MS - (timers.now() - refreshedAt));
+    const mine = generation;
     refreshTimer = timers.setTimeout(() => {
       refreshTimer = null;
+      if (mine !== generation && !known) return;
       refreshedAt = timers.now();
       publishHeld();
     }, delay);
   };
   let known = false;
   let reading: Promise<S[]> | null = null;
+  // Which listing is the current one: a snapshot (the core says changes were missed) or a reset (another pairing) ends the one before it.
+  let generation = 0;
+  let retired = false;
   // Edges since the read began (or, before any read, since the feed attached): they outrank the listing.
   const edges = new Map<string, ThreadRow | null>();
   // An archive change whose row the listing has not brought yet.
@@ -381,8 +400,20 @@ export function createRosterFeed<S>(options: {
   };
 
   /** `client` is the caller's own (a phone call's request carries that call's claim). */
-  const list = (client: Pick<RosterClient, 'call'>): Promise<S[]> => {
-    if (reading) return reading;
+  const list = (client: Pick<RosterClient, 'call'>, afresh = false): Promise<S[]> => {
+    if (retired) return Promise.reject(remoteConnectionInterruptedError());
+    if (reading && !afresh) return reading;
+    if (afresh) {
+      // What was seen before the gap is the new listing's to outrank, not to be laid over it.
+      generation += 1;
+      edges.clear();
+      pendingArchive.clear();
+    }
+    const mine = generation;
+    const superseded = (): Promise<S[]> => {
+      if (retired) return Promise.reject(remoteConnectionInterruptedError());
+      return reading ?? (known ? Promise.resolve(project(held.values())) : Promise.reject(remoteConnectionInterruptedError()));
+    };
     const read = (async () => {
       const listed = new Map<string, ThreadRow>();
       for (let cursor: string | undefined; ; ) {
@@ -390,6 +421,7 @@ export function createRosterFeed<S>(options: {
           data?: ThreadRow[];
           nextCursor?: string;
         };
+        if (mine !== generation) return superseded();
         for (const row of page.data ?? []) listed.set(idOf(row), row);
         if (!page.nextCursor) break;
         cursor = page.nextCursor;
@@ -443,6 +475,19 @@ export function createRosterFeed<S>(options: {
 
   return {
     list,
+    /** The list the roster holds while it is exact (a read is not under way and every attach has been read); undefined when it must be read. */
+    current: (): S[] | undefined => (known && !reading ? project(held.values()) : undefined),
+    /** The roster belongs to the client it is attached to: another pairing's client gets none of it. */
+    retire(): void {
+      retired = true;
+      generation += 1;
+      held = new Map();
+      known = false;
+      reading = null;
+      shown = '';
+      edges.clear();
+      pendingArchive.clear();
+    },
     /** Node's host republished the catalog itself before answering these calls (session-host-lifecycle.ts:203, 231, 311, 336, 493,
      *  500, 576): the rows held now are published at once, the pending refresh still to come. */
     flush: publishHeld,
@@ -457,10 +502,18 @@ export function createRosterFeed<S>(options: {
       const offStore = client.store.subscribe((change) => {
         // ppSnapshot names no feed (it is the app feed's own); a subscription change names it.
         if (change.type === 'subscription' && change.feedId !== 'app') return;
-        if (change.type === 'subscription' && change.state === 'lost') known = false;
-        // The re-attachment of a reconnect, or the first snapshot of an attach: list again, as Node's baseline was.
-        else if ((change.type === 'subscription' && change.state === 'restored') || (change.type === 'appSnapshot' && !known)) {
-          void list(client).catch(() => undefined); // a connection that ends mid-read is read again by the next reconnect
+        if (change.type === 'subscription' && change.state === 'lost') {
+          generation += 1;
+          reading = null;
+          known = false;
+        }
+        // A snapshot is the core's answer that it cannot continue the position the list stood at (a restart, a gap, a first attach):
+        // the list is read, in pages, and what arrives meanwhile is laid over it. A replay is the changes since, and needs no read.
+        else if (change.type === 'appSnapshot') {
+          known = false;
+          void list(client, true).catch(() => undefined); // a connection that ends mid-read is read again by the next reconnect
+        } else if (change.type === 'subscription' && change.state === 'restored' && !known) {
+          void list(client).catch(() => undefined);
         }
       });
       return () => {
@@ -531,8 +584,9 @@ export function createChatAdapter(options: {
   // The core sends these calls' row edges before it answers (thread_settings.rs); Node's host published them before answering.
   for (const name of CATALOG_PUBLISHING_CALLS) {
     calls[name] = async (params, host) => {
+      const feed = feedFor(host);
       const answer = await (api(host)[name] as (...args: unknown[]) => unknown)(...params);
-      feedFor(host).flush();
+      feed.flush();
       return answer;
     };
   }
@@ -551,42 +605,104 @@ export function createChatAdapter(options: {
     const held = shells.get(host.ctx);
     return held ? withRemoteSession(held, remoteSessionIdOf(options.remoteSession(host.client() as unknown as ChatClient))) : null;
   };
+  /** A thread's state as the page is shown it (Node's host pushed it as a `sessionState` frame, remote-shim-dispatch.ts at v1.4.5),
+   *  with the remote channel's session as this client holds it now. */
+  const decorated = (client: ChatClient, state: unknown): SessionSnapshot =>
+    withRemoteSession(state, remoteSessionIdOf(options.remoteSession(client))) as unknown as SessionSnapshot;
+  /** The page's follower of its current client's threads (remote-session-states.ts), per page: the page's sessions are these
+   *  states (session-lane-store.ts). A page whose host hands it no client (`onClient`) has none. */
+  const followers = new WeakMap<object, SessionStateFollower>();
+  const followerOf = (host: PhoneProtocolHost): SessionStateFollower | undefined => followers.get(host.ctx);
+  const deleteSession = calls.deleteSession!;
+  // A deleted thread is gone for the page too (Node's host ended its lane with `laneEnd: 'gone'`). The answer is the client's that
+  // sent the delete: it ends that client's lane, and nothing if that client was replaced meanwhile (its follower is stopped).
+  calls.deleteSession = async (params, host) => {
+    const follower = followerOf(host);
+    const answer = await deleteSession(params, host);
+    follower?.gone(String(params[0] ?? ''));
+    return answer;
+  };
   // A refused approval answer: the page's session state is projected anew from this client's own fold (its current pending
   // list) and published to the page, whatever the feed replays (a same-window resume at the cursor replays nothing). A thread
-  // this client does not fold gets one bounded resume; no fold, nothing is published and the card stays retryable.
+  // this client does not fold gets one bounded resume; no fold, nothing is published and the card stays retryable. One publication
+  // per baseline: a held fold has nothing new for the feed to publish, so it is published here; a resumed one arrives as a first
+  // fold, which the follower publishes.
   calls.refreshSessionState = async (params, host) => {
     const sessionId = String(params[0] ?? '');
     const client = host.client() as unknown as ChatClient;
     const shared = options.sharedFor(client);
-    let state = shared.sessionStateOf(sessionId);
-    if (!state) {
-      const [resume] = shared.routeService('prefetchSession', [sessionId]).requests;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      await Promise.race([
-        shared.whenFolded(sessionId, () => client.resumeThread(sessionId, resume?.params.window)).catch(() => undefined),
-        new Promise<void>((resolve) => (timer = setTimeout(resolve, FRESH_FOLD_WAIT_MS))),
-      ]);
-      clearTimeout(timer);
-      state = shared.sessionStateOf(sessionId);
+    const follower = followerOf(host);
+    const held = shared.sessionStateOf(sessionId);
+    if (held) {
+      if (follower) return follower.republish(sessionId);
+      host.ctx.sessionInbox.publish({ sessionId, snapshot: decorated(client, held), frameSource: 'live' });
+      return true;
     }
+    const [resume] = shared.routeService('prefetchSession', [sessionId]).requests;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      shared.whenFolded(sessionId, () => client.resumeThread(sessionId, resume?.params.window, { force: true })).catch(() => undefined),
+      new Promise<void>((resolve) => (timer = setTimeout(resolve, FRESH_FOLD_WAIT_MS))),
+    ]);
+    clearTimeout(timer);
+    const state = shared.sessionStateOf(sessionId);
     if (!state) return false;
-    const snapshot = withRemoteSession(state, remoteSessionIdOf(options.remoteSession(client))) as unknown as SessionSnapshot;
-    host.ctx.sessionInbox.publish({ sessionId, snapshot, frameSource: 'live' });
+    if (!follower) host.ctx.sessionInbox.publish({ sessionId, snapshot: decorated(client, state), frameSource: 'live' });
     return true;
   };
-  calls.listSessions = (_params, host) => feedFor(host).list(host.client() as unknown as RosterClient);
+  calls.listSessions = (_params, host) => {
+    const feed = feedFor(host);
+    return feed.current() ?? feed.list(host.client() as unknown as RosterClient);
+  };
+  calls.sessionStreamPosition = (params, host) =>
+    (host.client() as unknown as ProtocolClient<SessionFold>).feedPosition(String(params[0] ?? '')) ?? null;
   return {
     group: 'chat',
     calls,
     install(host) {
       let off: (() => void) | undefined;
       let stopped = false;
-      void host.ctx.phone.start().then(() => {
-        if (!stopped) off = feedFor(host).attach(host.client() as unknown as RosterClient);
+      // The roster is one client's: a client that replaces it (a re-pairing in the same page) starts from nothing.
+      const retire = (): void => {
+        off?.();
+        off = undefined;
+        feeds.get(host.ctx)?.retire();
+        feeds.delete(host.ctx);
+        followers.get(host.ctx)?.stop();
+        followers.delete(host.ctx);
+        shells.delete(host.ctx);
+      };
+      const offReset = host.onPairingReset?.(retire);
+      if (!host.onClient) {
+        void host.ctx.phone.start().then(() => {
+          if (!stopped) off = feedFor(host).attach(host.client() as unknown as RosterClient);
+        });
+      }
+      // Each client the page is handed replaces the one before: the old one's follower stops before the new one starts.
+      const offClients = host.onClient?.((client) => {
+        if (stopped) return;
+        retire();
+        off = feedFor(host).attach(client as unknown as RosterClient);
+        const chat = client as unknown as ChatClient;
+        const follower = followSessionStates(client, {
+          publish: (update) => host.ctx.sessionInbox.publish(update),
+          decorate: (state) => decorated(chat, state),
+          stateOf: (threadId) => sessionStateOf(client, threadId),
+        });
+        followers.set(host.ctx, follower);
       });
+      // The page's view settled (remote-shim-api.ts `setVisibleSessions`): the threads it let go of end as unloaded. Only a page
+      // that is handed its clients has a follower, and a view.
+      const sweep = (): void => followerOf(host)?.sweep();
+      if (offClients) host.ctx.viewSettledListeners.add(sweep);
       return () => {
         stopped = true;
-        off?.();
+        retire();
+        offReset?.();
+        offClients?.();
+        if (offClients) host.ctx.viewSettledListeners.delete(sweep);
+        followers.get(host.ctx)?.stop();
+        followers.delete(host.ctx);
       };
     },
   };
@@ -600,12 +716,13 @@ const connectionStatus = (client: ProtocolClient<SessionFold>): DesktopSectionsS
 
 /** The desktop's capability lane (main/protocol/capability-route.ts) over this phone's client: the same conversions, the same
  *  core replies, with `client` being the one call's scoped client. The desktop's own session lane (main/protocol/session-lane.ts)
- *  builds the same over its connection's client. */
+ *  builds the same over its connection's client. The lane is made per call, so a call that names no session is sent to the
+ *  connection's one control thread (`callSharingControlThread`), as Node's host sent every phone call to its one control session. */
 export const sharedFor = (scoped: ChatClient): ChatHostShared => {
   const client = scoped as unknown as ProtocolClient<SessionFold>;
   const lane = createCapabilityLane({
     protocol: {
-      call: (method, params) => client.call(method as never, params as never) as Promise<unknown>,
+      call: callSharingControlThread(client),
       snapshot: () => ({ status: connectionStatus(client), entries: SECTION_NAMES.flatMap((name) => [...client.store.sections(name)]) }),
       // `client/activity` is the desktop window's rate-limited presence ping; Node's phone never sent one.
       noteUserInput: () => undefined,
@@ -615,6 +732,7 @@ export const sharedFor = (scoped: ChatClient): ChatHostShared => {
   });
   return {
     routeService,
+    sendTransfer: (method, params) => phoneTransferCall(client, method, params),
     lane,
     coreErrorForWindow,
     normalizedProviderModels,

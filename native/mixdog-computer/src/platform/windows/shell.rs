@@ -2,9 +2,10 @@
 
 use super::capture_budget::Budget;
 use crate::platform::{AppEntry, Launched};
+use crate::port::windows::{Launch, WinPort};
 use serde_json::{json, Value};
 use std::ffi::c_void;
-use windows::core::{HSTRING, PCWSTR};
+use windows::core::HSTRING;
 use windows::Graphics::Imaging::{
     BitmapAlphaMode, BitmapDecoder, BitmapInterpolationMode, BitmapPixelFormat, BitmapTransform,
     ColorManagementMode, ExifOrientationMode, SoftwareBitmap,
@@ -12,21 +13,16 @@ use windows::Graphics::Imaging::{
 use windows::Globalization::Language;
 use windows::Media::Ocr::OcrEngine;
 use windows::Storage::Streams::{DataWriter, InMemoryRandomAccessStream};
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HGLOBAL};
-use windows::Win32::System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_ALL};
+use windows::Win32::Foundation::HGLOBAL;
+use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
-    SetClipboardData,
+    CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
 };
-use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
-use windows::Win32::System::Threading::GetProcessId;
+use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
 use windows::Win32::UI::Shell::{
-    ApplicationActivationManager, IApplicationActivationManager, IEnumShellItems, IShellItem,
-    SHGetKnownFolderItem, ShellExecuteExW, AO_NOERRORUI, BHID_EnumItems, FOLDERID_AppsFolder,
-    KF_FLAG_DEFAULT, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
-    SIGDN, SIGDN_NORMALDISPLAY, SIGDN_PARENTRELATIVEPARSING,
+    IEnumShellItems, IShellItem, SHGetKnownFolderItem, BHID_EnumItems, FOLDERID_AppsFolder, KF_FLAG_DEFAULT, SIGDN,
+    SIGDN_NORMALDISPLAY, SIGDN_PARENTRELATIVEPARSING,
 };
-use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE;
 
 const CF_UNICODETEXT: u32 = 13;
 
@@ -36,6 +32,7 @@ fn open_clipboard() -> Result<(), String> {
         if unsafe { OpenClipboard(None) }.is_ok() {
             return Ok(());
         }
+        // Waiting for another application to let go of the clipboard holds nothing.
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     Err("the clipboard is held by another application".into())
@@ -79,26 +76,11 @@ pub fn clipboard_read() -> Result<String, String> {
     }
 }
 
-pub fn clipboard_write(text: &str) -> Result<bool, String> {
+pub fn clipboard_write(port: &WinPort, text: &str) -> Result<bool, String> {
     {
         let _clipboard = Clipboard::open()?;
-        // SAFETY: the clipboard is open; ownership of the global passes to it on success.
-        unsafe {
-            EmptyClipboard().map_err(|error| error.to_string())?;
-            if !text.is_empty() {
-                let units: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-                let global = GlobalAlloc(GMEM_MOVEABLE, units.len() * 2)
-                    .map_err(|error| error.to_string())?;
-                let pointer = GlobalLock(global) as *mut u16;
-                if pointer.is_null() {
-                    return Err("the clipboard text could not be staged".into());
-                }
-                std::ptr::copy_nonoverlapping(units.as_ptr(), pointer, units.len());
-                let _ = GlobalUnlock(global);
-                SetClipboardData(CF_UNICODETEXT, Some(HANDLE(global.0)))
-                    .map_err(|error| error.to_string())?;
-            }
-        }
+        // The write is one submission through the port; opening the clipboard was preparation.
+        port.clipboard_write(text)?;
     }
     let now = clipboard_read()?;
     Ok(now == text)
@@ -127,60 +109,20 @@ fn launch_failure(target: &str, code: u32, message: &str, route: &str) -> String
     format!("launch failed [{category}/{code}] for '{target}': {message}{hint}")
 }
 
-/// A packaged app cannot start from its executable path: the system keeps a
-/// stub there and hands the work to the activation broker. Activating the app
-/// id returns the process that actually hosts it.
-fn activate_app_id(app_id: &str) -> windows::core::Result<u32> {
-    // SAFETY: COM is initialised on this thread by the desktop.
-    unsafe {
-        let manager: IApplicationActivationManager =
-            CoCreateInstance(&ApplicationActivationManager, None, CLSCTX_ALL)?;
-        manager.ActivateApplication(&HSTRING::from(app_id), PCWSTR::null(), AO_NOERRORUI)
-    }
-}
-
-/// The app is shown without being activated, so the person's foreground
-/// window survives the launch. Returns the process id, or 0 when the shell
-/// reports none.
-fn shell_launch(target: &str) -> windows::core::Result<u32> {
-    let file = HSTRING::from(target);
-    let mut request = SHELLEXECUTEINFOW {
-        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
-        fMask: SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI,
-        lpFile: PCWSTR(file.as_ptr()),
-        nShow: SW_SHOWNOACTIVATE.0,
-        ..Default::default()
-    };
-    // SAFETY: the request points at `file`, which outlives the call.
-    unsafe {
-        ShellExecuteExW(&mut request)?;
-        if request.hProcess.is_invalid() {
-            return Ok(0);
-        }
-        let pid = GetProcessId(request.hProcess);
-        let _ = CloseHandle(request.hProcess);
-        Ok(pid)
-    }
-}
-
-pub fn launch(target: &str, app: Option<&AppEntry>) -> Result<Launched, String> {
+/// Launches through the port: a packaged app by its id through the activation broker (its executable path is a stub), anything
+/// else through the shell, shown without activation so the person's foreground window survives.
+pub fn launch(port: &WinPort, target: &str, app: Option<&AppEntry>) -> Result<Launched, String> {
+    let apps_folder;
     let (route, app_id, launched) = match app {
-        Some(entry) if entry.app_id.contains('!') => (
-            "app_activation",
-            entry.app_id.clone(),
-            activate_app_id(&entry.app_id),
-        ),
-        Some(entry) => (
-            "apps_folder",
-            entry.app_id.clone(),
-            shell_launch(&format!("shell:AppsFolder\\{}", entry.app_id)),
-        ),
-        None if target.contains('!') => (
-            "app_activation",
-            target.to_string(),
-            activate_app_id(target),
-        ),
-        None => ("windows_shell", String::new(), shell_launch(target)),
+        Some(entry) if entry.app_id.contains('!') => {
+            ("app_activation", entry.app_id.clone(), port.launch(Launch::AppId(&entry.app_id))?)
+        }
+        Some(entry) => {
+            apps_folder = format!("shell:AppsFolder\\{}", entry.app_id);
+            ("apps_folder", entry.app_id.clone(), port.launch(Launch::Shell(&apps_folder))?)
+        }
+        None if target.contains('!') => ("app_activation", target.to_string(), port.launch(Launch::AppId(target))?),
+        None => ("windows_shell", String::new(), port.launch(Launch::Shell(target))?),
     };
     let pid = launched.map_err(|error| {
         // An activation failure arrives as an HRESULT wrapping the Win32 code.

@@ -8,13 +8,17 @@ import { fetchSessionDiff, fetchSessionDiffFilePatchResult, sessionDiffRevision 
 import {
   buildSessionDiffRows,
   decodeSessionDiffFilePatch,
-  sessionDiffFilePatch,
+  parsedSessionDiff,
+  parseSessionDiff,
+  sessionDiffFileSlice,
   sessionDiffPatchTooLarge,
   sessionDiffRowOverLineLimit,
   sessionDiffRowWithPatch,
   sessionDiffSetCapped,
   utf8ByteLength,
+  type ParsedSessionDiff,
   type SessionDiffFilePatch,
+  type SessionDiffResult,
   type SessionDiffRow,
 } from './session-diff-model';
 import { defaultSessionLaneStore, useSessionLane, useSessionLaneRevision } from './session-lane-store';
@@ -28,6 +32,7 @@ import {
 } from './turn-review-model';
 import type { TurnReviewFile } from './turn-review-cache';
 import { useTurnChangesEpoch } from './turn-changes-model';
+import { rowListIndex } from './session-diff-row-index';
 import { useSessionDiffRefresh } from './use-session-diff-refresh';
 import { readCachedDockGitState, requestDockGitState } from './utility-dock-git-state';
 
@@ -202,26 +207,9 @@ function subscribeEntries(listener: () => void) {
 }
 
 function publish(key: string, entry: ChangesEntry): void {
+  prepareRowList(entry.rows);
   entries.set(key, entry);
   for (const listener of [...entryListeners]) listener();
-}
-
-function rowsSignature(read: ChangesRead): string {
-  return JSON.stringify([
-    read.repository,
-    read.root,
-    read.base,
-    read.diffTooLarge,
-    read.untrackedOmitted,
-    read.rows.map((row) => [
-      row.path,
-      row.status,
-      row.additions,
-      row.deletions,
-      row.parts.length,
-      read.revisions.get(row.path) ?? '',
-    ]),
-  ]);
 }
 
 function reviewRows(files: ReadonlyArray<{ path: string; status: string; additions: number; deletions: number }>) {
@@ -249,21 +237,9 @@ function gitStatusRows(files: DesktopGitFile[], staged: boolean): ChangesRead['r
   return reviewRows(listed);
 }
 
-/** FNV-1a over a row's inline patch text: a short stand-in for it in the
- *  entry signature. */
-function patchDigest(row: SessionDiffRow): string {
-  let hash = 0x811c9dc5;
-  for (const part of row.parts) {
-    for (let index = 0; index < part.patch.length; index += 1) {
-      hash = Math.imul(hash ^ part.patch.charCodeAt(index), 0x01000193);
-    }
-    hash = Math.imul(hash ^ 0x7c, 0x01000193);
-  }
-  return (hash >>> 0).toString(36);
-}
-
-function lastTurnRows(decoded: { files: TurnReviewFile[]; leadPatch: string | null }): ChangesRead['rows'] {
-  return buildSessionDiffRows({ files: decoded.files, patch: decoded.leadPatch ?? '' });
+/** The turn's rows, parsed a file per task. */
+async function lastTurnRows(decoded: { files: TurnReviewFile[]; leadPatch: string | null }) {
+  return (await parseSessionDiff({ files: decoded.files, patch: decoded.leadPatch ?? '' })).rows;
 }
 
 async function readTurnReview(sessionId: string, summary: boolean, background: boolean) {
@@ -327,7 +303,8 @@ async function readChanges({ cwd, source, sessionId }: ChangesTarget, mode: Load
     const [dock, result] = await Promise.all([dockState, fetchSessionDiff(sessionId, { force: true, join })]);
     if (dock.error) throw new Error(dock.error);
     if (!dock.status?.repository) return NO_REPOSITORY;
-    const rows = buildSessionDiffRows(result);
+    // Parsed (a file per task) by the read itself.
+    const { rows, digests } = parsedSessionDiff(result);
     // A file's patch can move while its counts hold: an inline patch's digest
     // does; a file listed without its patch is re-read with every fresh result
     // (the cache's revision), as the non-Git session diff does.
@@ -338,7 +315,7 @@ async function readChanges({ cwd, source, sessionId }: ChangesTarget, mode: Load
       base: '',
       rows,
       untracked: new Set(),
-      revisions: new Map(rows.map((row) => [row.path, row.parts.length ? patchDigest(row) : revision])),
+      revisions: new Map(rows.map((row) => [row.path, row.parts.length ? (digests.get(row.path) ?? revision) : revision])),
       diffTooLarge: result?.diffTooLarge === true,
       untrackedOmitted: 0,
     };
@@ -350,7 +327,7 @@ async function readChanges({ cwd, source, sessionId }: ChangesTarget, mode: Load
     repository: true,
     root: dock.status.root,
     base: '',
-    rows: decoded ? lastTurnRows(decoded) : [],
+    rows: decoded ? await lastTurnRows(decoded) : [],
     untracked: new Set(),
     revisions: NO_REVISIONS,
     diffTooLarge: decoded?.diffTooLarge === true,
@@ -387,7 +364,8 @@ function sameRow(left: SessionDiffRow, right: SessionDiffRow): boolean {
 /** A re-read keeps the row objects (and the list) it did not move, so every
  *  memo keyed by row — a drawn file, its patch, the summary — holds. */
 function keepRows(previous: readonly SessionDiffRow[] | undefined, next: readonly SessionDiffRow[]) {
-  if (!previous?.length) return next;
+  if (!previous) return next;
+  if (!previous.length) return next.length ? next : previous;
   const byId = new Map(previous.map((row) => [row.id, row]));
   let moved = previous.length !== next.length;
   const rows = next.map((row, index) => {
@@ -407,24 +385,39 @@ function adopt(target: ChangesTarget, read: ChangesRead, mode: LoadMode): void {
   const key = changesKey(target);
   const previous = entries.get(key);
   const wasStale = staleKeys.delete(key);
-  const changed = !previous || rowsSignature(previous) !== rowsSignature(read);
+  const rows = keepRows(previous?.rows, read.rows);
+  const changed =
+    !previous ||
+    previous.rows !== rows ||
+    previous.repository !== read.repository ||
+    previous.root !== read.root ||
+    previous.base !== read.base ||
+    previous.diffTooLarge !== read.diffTooLarge ||
+    previous.untrackedOmitted !== read.untrackedOmitted ||
+    rows.some(
+      ({ path }) => previous.revisions.get(path) !== read.revisions.get(path) ||
+        previous.untracked.has(path) !== read.untracked.has(path)
+    );
   // A prefetch that found nothing new keeps the shown entry (no render).
   if (!changed && mode === 'warm' && !wasStale && !previous.loading && !previous.error) return;
-  publish(key, {
+  const next = {
     ...read,
-    rows: keepRows(previous?.rows, read.rows),
+    rows,
     generation: (previous?.generation ?? 0) + (changed || mode !== 'warm' ? 1 : 0),
     patchEpoch: (previous?.patchEpoch ?? 0) + (mode === 'foreground' ? 1 : 0),
     evidenceEpoch: (previous?.evidenceEpoch ?? 0) + (mode === 'activity' ? 1 : 0),
     loading: false,
     error: '',
-  });
+  };
+  publish(key, next);
 }
 
 function markLoading(target: ChangesTarget): void {
   const key = changesKey(target);
   const previous = entries.get(key);
-  if (previous && !previous.loading) publish(key, { ...previous, loading: true });
+  if (!previous || previous.loading) return;
+  const next = { ...previous, loading: true };
+  publish(key, next);
 }
 
 /** One read per (root, source) at a time; resolves true when its answer was adopted. */
@@ -433,12 +426,17 @@ function loadChanges(target: ChangesTarget, mode: LoadMode): Promise<boolean> {
   if (mode === 'foreground') markLoading(target);
   const pending = requests.get(key);
   if (pending) return pending;
+  const ticket = target.source === 'last-turn' ? nextLastTurnRequest() : undefined;
+  if (ticket !== undefined) lastTurnAdoptions.set(key, { ticket, cwd: target.cwd });
+  const superseded = () => ticket !== undefined && lastTurnAdoptions.get(key)?.ticket !== ticket;
   const request = readChanges(target, mode).then(
     (read) => {
+      if (superseded()) return false;
       adopt(target, read, mode);
       return true;
     },
     (reason: unknown) => {
+      if (superseded()) return false;
       // A failed read of a switched cwd must not bring back the old cwd's rows.
       const previous = staleKeys.delete(key) ? undefined : entries.get(key);
       publish(key, {
@@ -494,21 +492,38 @@ function retainChangesWatch(target: ChangesTarget): () => void {
   };
 }
 
+// Order physical reads, not replies (a mounted bar can join an older prefetch).
+let lastTurnRequest = 0;
+export function nextLastTurnRequest(): number {
+  return ++lastTurnRequest;
+}
+const lastTurnAdoptions = new Map<string, { ticket: number; cwd: string }>();
+
 /** The turn review bar's own read answered: the session's last-turn entry follows it. */
 export function adoptLastTurnReview(
   sessionId: string,
-  decoded: { files: TurnReviewFile[]; leadPatch: string | null; diffTooLarge?: boolean }
-): void {
+  decoded: { files: TurnReviewFile[]; leadPatch: string | null; diffTooLarge?: boolean },
+  ticket: number
+): Promise<void> | undefined {
   const key = `last-turn\0${sessionId}`;
-  const previous = entries.get(key);
-  if (previous?.repository !== true) return;
-  const read = {
-    ...previous,
-    rows: keepRows(previous.rows, lastTurnRows(decoded)),
-    diffTooLarge: decoded.diffTooLarge === true,
-  };
-  if (rowsSignature(previous) === rowsSignature(read)) return;
-  publish(key, { ...read, generation: previous.generation + 1 });
+  // Only the scheduler reads the workspace's repository status. A bar
+  // answer (including an unchanged or failed read) cannot validate it.
+  const canAdopt = () => !staleKeys.has(key) && ticket >= (lastTurnAdoptions.get(key)?.ticket ?? 0);
+  if (!canAdopt() || entries.get(key)?.repository !== true) return;
+  return lastTurnRows(decoded).then((rows) => {
+    // A newer answer superseded this one while it was parsed.
+    const previous = entries.get(key);
+    if (!canAdopt() || previous?.repository !== true) return;
+    const validation = lastTurnAdoptions.get(key);
+    if (!validation) return;
+    validation.ticket = ticket;
+    const read = { ...previous, rows: keepRows(previous.rows, rows), diffTooLarge: decoded.diffTooLarge === true };
+    if (
+      previous.rows === read.rows && previous.diffTooLarge === read.diffTooLarge &&
+      !previous.loading && !previous.error
+    ) return;
+    publish(key, { ...read, loading: false, error: '', generation: previous.generation + 1 });
+  });
 }
 
 // ── Lazy per-file patches ────────────────────────────────────────────────
@@ -543,7 +558,7 @@ let patchSeq = 0;
 const patchWanted = new Map<string, number>();
 const patchQueue: Array<() => Promise<void>> = [];
 let patchReadsRunning = 0;
-const turnPatches = new Map<string, Promise<string>>();
+const turnPatches = new Map<string, Promise<ParsedSessionDiff>>();
 const patchListeners = new Set<() => void>();
 let patchVersion = 0;
 let patchNotifyTimer: ReturnType<typeof setTimeout> | 0 = 0;
@@ -605,11 +620,13 @@ function readFilePatch(
       const turnKey = `${key}\0${entry.generation}`;
       let turn = turnPatches.get(turnKey);
       if (!turn) {
-        turn = readTurnReview(target.sessionId, false, false).then((decoded) => decoded?.leadPatch ?? '');
+        turn = readTurnReview(target.sessionId, false, false).then((decoded) =>
+          parseSessionDiff({ patch: decoded?.leadPatch ?? '' })
+        );
         turnPatches.clear();
         turnPatches.set(turnKey, turn);
       }
-      return turn.then((patch) => textPatch(sessionDiffFilePatch(patch, path)));
+      return turn.then((parsed) => textPatch(sessionDiffFileSlice(parsed, path)));
     }
     case 'session':
       // Served from the shared session-diff cache the list read filled.
@@ -806,22 +823,47 @@ function requestGitPatches(target: ChangesTarget, key: string, entry: ChangesEnt
 /** The files whose patches a set of rows asks for: the lazy ones, within the
  *  per-file limit; a capped set reads only the selected file. The open and
  *  the intent prefetch both ask through this, so they name the same files. */
+/** Per list: whether it is capped and (uncapped) its wanted files, for the
+ *  reader kind and patch-cache version they were worked out at: a data change
+ *  (the list, a landed patch) works them out again, a render does not. */
+const wantedSets = new WeakMap<
+  readonly SessionDiffRow[],
+  Map<string, { version: number; capped: boolean; wanted: SessionDiffRow[] }>
+>();
+
 function wantedPatchRows(
   rows: readonly SessionDiffRow[],
+  /** Names `lazy` and `rowKey` (the reader's source and key). */
+  kind: string,
   lazy: (row: SessionDiffRow) => boolean,
   rowKey: (row: SessionDiffRow) => string,
   selectedId: string
 ): { capped: boolean; wantedRows: SessionDiffRow[] } {
-  // The set's patch text in UTF-8 bytes: inline parts, plus what the lazy
-  // files read so far.
-  let bytes = 0;
-  for (const row of rows) bytes += lazy(row) ? (patches.peek(rowKey(row))?.bytes ?? 0) : inlineBytes(row);
-  const capped = sessionDiffSetCapped(rows, bytes);
-  const wantedRows = rows.filter(
-    (row) => lazy(row) && !sessionDiffRowOverLineLimit(row) && (!capped || row.id === selectedId)
-  );
-  return { capped, wantedRows };
+  let byKind = wantedSets.get(rows);
+  if (!byKind) {
+    byKind = new Map();
+    wantedSets.set(rows, byKind);
+  }
+  let set = byKind.get(kind);
+  if (set?.version !== patchVersion) {
+    // The set's patch text in UTF-8 bytes: inline parts, plus what the lazy
+    // files read so far. Summed only for a set within the file limit, so a
+    // set of any size past it costs nothing per file here.
+    const capped = sessionDiffSetCapped(rows, () => {
+      let bytes = 0;
+      for (const row of rows) bytes += lazy(row) ? (patches.peek(rowKey(row))?.bytes ?? 0) : inlineBytes(row);
+      return bytes;
+    });
+    set = { version: patchVersion, capped, wanted: capped ? [] : rows.filter((row) => wantedRow(lazy, row)) };
+    byKind.set(kind, set);
+  }
+  if (!set.capped) return { capped: false, wantedRows: set.wanted };
+  const selected = rows[rowListIndex(rows).byId.get(selectedId) ?? -1];
+  return { capped: true, wantedRows: selected && wantedRow(lazy, selected) ? [selected] : [] };
 }
+
+const wantedRow = (lazy: (row: SessionDiffRow) => boolean, row: SessionDiffRow) =>
+  lazy(row) && !sessionDiffRowOverLineLimit(row);
 
 // ── The selected file of a capped set ────────────────────────────────────
 // A capped set reads and draws one file. Which one is decided here for both
@@ -855,7 +897,7 @@ export function intentSelectedRow<Row extends { path: string }>(
   paneKey: string,
   focusPath: string
 ): Row | null {
-  const focusRow = focusPath ? (rows.find((row) => row.path === focusPath) ?? null) : null;
+  const focusRow = focusPath ? (rows[rowListIndex(rows).byPath.get(focusPath) ?? -1] ?? null) : null;
   return resolveSelectedRow(rows, focusRow, publishedSelection(paneKey, sessionId));
 }
 
@@ -866,7 +908,7 @@ export function resolveSelectedRow<Row extends { path: string }>(
   focusRow: Row | null,
   selectedPath: string
 ): Row | null {
-  return focusRow ?? rows.find((row) => row.path === selectedPath) ?? rows[0] ?? null;
+  return focusRow ?? (selectedPath ? rows[rowListIndex(rows).byPath.get(selectedPath) ?? -1] : undefined) ?? rows[0] ?? null;
 }
 
 /** Per session: the workspaces its Changes readers are reading, counted per
@@ -916,6 +958,7 @@ export function prefetchSessionChanges(
       const selected = intentSelectedRow(entry.rows, session, paneKey, focusPath);
       const { wantedRows } = wantedPatchRows(
         entry.rows,
+        `git\0${key}`,
         (row) => row.parts.length === 0 && !row.reason,
         (row) => `${key}\0${row.path}`,
         selected?.id ?? ''
@@ -961,8 +1004,14 @@ export function useSessionChangePatches({
     row.parts.length === 0 && ((git && !row.reason) || (sessionDiff && row.patchOmitted === true));
   const rowKey = (row: SessionDiffRow) => `${key}\0${git ? row.path : row.id}`;
   const stampOf = (row: SessionDiffRow) => (git ? gitPatchStamp(target, entry, row) : `r${generation}`);
-  const { capped, wantedRows } = wantedPatchRows(rows, lazy, rowKey, selectedId);
-  const wantedKey = wantedRows.map((row) => `${rowKey(row)}\0${stampOf(row)}`).join('\0\0');
+  const kind = `${git ? 'git' : sessionDiff ? 'session' : 'none'}\0${key}`;
+  const { capped, wantedRows } = wantedPatchRows(rows, kind, lazy, rowKey, selectedId);
+  // The reads' names, once per wanted set and entry (a data change).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the wanted set, the entry and the generation are what the stamps read
+  const wantedKey = useMemo(
+    () => wantedRows.map((row) => `${rowKey(row)}\0${stampOf(row)}`).join('\0\0'),
+    [wantedRows, entry, generation, kind]
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: wantedKey (rows and stamps) with generation names the reads
   useEffect(() => {
     if (git && entry) {
@@ -1059,16 +1108,51 @@ function sessionDiffSnapshotsEqualFor(session: string) {
   };
 }
 
+// Every reader of one list (the chip, each pane that opens) shares one
+// summary and one resolved list per data change: a pane's mount never walks
+// the files again.
+const EMPTY_ITEMS: TranscriptItem[] = [];
+const summaries = new WeakMap<readonly SessionDiffRow[], ReturnType<typeof summarizeSessionDiffRows>>();
+function rowsSummary(rows: readonly SessionDiffRow[]) {
+  let summary = summaries.get(rows);
+  if (!summary) {
+    summary = summarizeSessionDiffRows(rows);
+    summaries.set(rows, summary);
+  }
+  return summary;
+}
+/** Everything a list's readers look up, built when the list is adopted (a
+ *  data change), never when a reader opens. */
+function prepareRowList(rows: readonly SessionDiffRow[]): void {
+  rowListIndex(rows);
+  rowsSummary(rows);
+}
+const resolvedRows = new WeakMap<
+  SessionDiffResult,
+  { items: readonly TranscriptItem[]; project: string; rows: SessionDiffRow[] }
+>();
+function resolvedSessionRows(result: SessionDiffResult | null, items: TranscriptItem[], project: string) {
+  if (!result) return resolveSessionRows(result, items, project);
+  const known = resolvedRows.get(result);
+  if (known && known.items === items && known.project === project) return known.rows;
+  const rows = resolveSessionRows(result, items, project);
+  prepareRowList(rows);
+  resolvedRows.set(result, { items, project, rows });
+  return rows;
+}
+
 /** The session's Changes: the selected Git source for a repository root, else
  *  the runtime's session diff completed with the transcript's own edits. */
 export function useSessionChanges({
   cwd,
   sessionId,
   active,
+  gitOnly = false,
 }: {
   cwd: string | undefined;
   sessionId: string | undefined;
   active: boolean;
+  gitOnly?: boolean;
 }) {
   const source = useSessionChangesSource();
   const project = String(cwd || '');
@@ -1078,7 +1162,17 @@ export function useSessionChanges({
   // new cwd's cached counts predate the move, so none render until it is read.
   const seenCwd = useRef(project);
   if (seenCwd.current !== project) {
-    if (seenCwd.current && project) staleKeys.add(changesKey(target));
+    if (seenCwd.current && project) {
+      const key = changesKey(target);
+      if (source !== 'last-turn') staleKeys.add(key);
+      else if (lastTurnAdoptions.get(key)?.cwd !== project) {
+        // The last-turn entry is session keyed. Its old workspace's read
+        // can neither validate this one nor serve as its first read.
+        requests.delete(key);
+        staleKeys.add(key);
+        lastTurnAdoptions.set(key, { ticket: nextLastTurnRequest(), cwd: project });
+      }
+    }
     seenCwd.current = project;
   }
   const entry = useSyncExternalStore(subscribeEntries, () => (project ? readEntry(target) : undefined));
@@ -1097,7 +1191,8 @@ export function useSessionChanges({
     () => `${fileChangeKey(laneItemsForKey)}:${busy ? 1 : 0}`,
     [laneItemsForKey, busy]
   );
-  const diff = useSessionDiffRefresh({ sessionId: git ? '' : session, active, revision: changeRevision, busy });
+  const fallback = !gitOnly && !git;
+  const diff = useSessionDiffRefresh({ sessionId: fallback ? session : '', active, revision: changeRevision, busy });
   useEffect(() => {
     if (!active || !watchable) return;
     return retainChangesWatch(target);
@@ -1119,12 +1214,13 @@ export function useSessionChanges({
   }, [active, mutations, source, target, watchable]);
   const laneItems = lane?.items;
   const latestCheckpoint = useMemo(() => latestTurnCheckpoint(laneItems), [laneItems]);
-  const fallbackRows = useMemo(() => {
-    if (git) return EMPTY_ROWS;
-    return resolveSessionRows(diff.result, Array.isArray(laneItems) ? laneItems : [], project);
-  }, [git, diff.result, laneItems, project]);
-  const rows = git ? (entry?.rows ?? EMPTY_ROWS) : fallbackRows;
-  const summary = useMemo(() => summarizeSessionDiffRows(rows), [rows]);
+  const rows = useMemo(
+    () => fallback
+      ? resolvedSessionRows(diff.result, Array.isArray(laneItems) ? laneItems : EMPTY_ITEMS, project)
+      : (entry?.rows ?? EMPTY_ROWS),
+    [fallback, diff.result, laneItems, project, entry?.rows]
+  );
+  const summary = rowsSummary(rows);
   const diffRefresh = diff.refresh;
   const refresh = useCallback(
     async (force = true, background = false): Promise<boolean> => {
@@ -1147,7 +1243,7 @@ export function useSessionChanges({
     refresh,
     /** A read has answered (Git entry, or the session diff). An entry whose
      *  reads have only failed is unknown, not an empty answer. */
-    ready: git ? entry !== undefined && entry.repository !== null : Boolean(diff.result),
+    ready: fallback ? Boolean(diff.result) : entry !== undefined && entry.repository !== null,
     /** Adopted reads, so a waiter can tell a refresh it did not issue landed. */
     adoptions: git ? (entry?.generation ?? 0) : diff.adoptions,
     /** The non-Git session diff (null for a Git root). */

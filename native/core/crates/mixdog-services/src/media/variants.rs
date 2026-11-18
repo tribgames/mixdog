@@ -231,6 +231,25 @@ mod tests {
         thread: ThreadId,
     }
 
+    #[test]
+    fn base64_decodes_as_node_does() {
+        // Expected values are Node's `[...Buffer.from(text, 'base64')]`.
+        for (text, expected) in [
+            ("AQID", vec![1, 2, 3]),
+            ("AQ", vec![1]),
+            ("AQ==xx", vec![1]),
+            ("A Q I D\n", vec![1, 2, 3]),
+            ("-_-_", vec![251, 255, 191]),
+            ("A", vec![]),
+            ("AQI", vec![1, 2]),
+            ("!!AQID", vec![1, 2, 3]),
+            ("AQ=ID", vec![1]),
+        ] {
+            assert_eq!(node_base64(text), expected, "{text:?}");
+        }
+    }
+
+
     fn rig(answer: Result<Value, mixdog_core_api::domain::ext::ExtError>) -> Rig {
         let dir = tempfile::tempdir().unwrap();
         let lane = mixdog_rt::testing::tokens().durability_io;
@@ -239,17 +258,14 @@ mod tests {
         let renditions = StillRenditions::new(Arc::new(ExtImageCodec::new(host.clone())), lane, store.renditions_dir());
         Rig { _dir: dir, store, renditions, host, thread: ThreadId("t".to_owned()) }
     }
-
     async fn save(rig: &Rig, kind: &str) -> String {
         let (kind, mime) = (kind.to_owned(), if kind == "video" { "video/mp4" } else { "image/png" });
         let saved = rig.store.run(move |s| s.save_asset(&kind, "gemini", "m", "p", json!({}), mime, b"original bytes", Map::new())).await.unwrap().unwrap();
         saved["id"].as_str().unwrap().to_owned()
     }
-
     async fn resolve(rig: &Rig, id: &str, options: Value) -> Result<Value, MediaError> {
         resolve_media_file(&rig.store, &rig.renditions, &rig.thread, id, options).await
     }
-
     #[tokio::test]
     async fn resolving_a_variant_gives_the_rendition_file_or_says_it_is_unavailable() {
         let rig = rig(webp("AQID"));
@@ -274,7 +290,6 @@ mod tests {
             assert!(matches!(&error, MediaError::Invalid(m) if *m == format!("unknown media variant: {shown}")), "{error:?}");
         }
     }
-
     #[tokio::test]
     async fn a_rendition_the_host_cannot_make_is_unavailable_and_a_video_has_no_still_step() {
         let none = rig(Ok(json!({"ok": null})));
@@ -293,7 +308,6 @@ mod tests {
         assert!(matches!(error, MediaError::Rendition(_)), "{error:?}");
         assert_eq!(error.code(), "renditionFailed");
     }
-
     #[tokio::test]
     async fn reading_a_variant_inlines_it_and_the_original_only_when_allowed() {
         let rig = rig(webp("AQID"));
@@ -309,7 +323,6 @@ mod tests {
         assert_eq!((downgraded["downgraded"].as_bool(), downgraded["variant"].as_str(), downgraded["base64"].as_str()), (Some(true), Some("original"), Some("b3JpZ2luYWwgYnl0ZXM=")));
         assert_eq!(read_media_asset(&rig.store, &rig.renditions, &rig.thread, "nope", json!({})).await.unwrap(), Value::Null);
     }
-
     #[tokio::test]
     async fn a_browser_made_thumbnail_is_cached_with_its_duration_and_refused_when_unusable() {
         let rig = rig(webp("AQID"));
@@ -334,7 +347,6 @@ mod tests {
         assert_eq!(cache(json!({"base64": "A".repeat(5_600_000)})).await, refused);
         assert_eq!(rig.host.calls.lock().unwrap().len(), 0, "a browser thumbnail never asks the host");
     }
-
     #[tokio::test]
     async fn deleting_an_asset_removes_its_renditions() {
         let rig = rig(webp("AQID"));
@@ -356,7 +368,6 @@ mod tests {
         rig.store.run(|s| s.delete_assets(&json!({"all": true}))).await.unwrap().unwrap();
         assert!(paths.iter().all(|(_, p)| !p.exists()));
     }
-
     #[tokio::test]
     async fn a_saved_asset_gets_its_tile_built_in_the_background() {
         let rig = rig(webp("AQID"));
@@ -370,23 +381,5 @@ mod tests {
             mixdog_rt::time::sleep(Duration::from_millis(50)).await;
         }
         assert_eq!(std::fs::read(&tile).unwrap(), [1, 2, 3]);
-    }
-
-    #[test]
-    fn base64_decodes_as_node_does() {
-        // Expected values are Node's `[...Buffer.from(text, 'base64')]`.
-        for (text, expected) in [
-            ("AQID", vec![1, 2, 3]),
-            ("AQ", vec![1]),
-            ("AQ==xx", vec![1]),
-            ("A Q I D\n", vec![1, 2, 3]),
-            ("-_-_", vec![251, 255, 191]),
-            ("A", vec![]),
-            ("AQI", vec![1, 2]),
-            ("!!AQID", vec![1, 2, 3]),
-            ("AQ=ID", vec![1]),
-        ] {
-            assert_eq!(node_base64(text), expected, "{text:?}");
-        }
     }
 }

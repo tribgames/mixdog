@@ -10,7 +10,7 @@
 //!
 //! The typed fields: role, text/file/image-reference content (and a tool result's `{content}`
 //! envelope), `toolCalls`, `toolCallId`, `isError`, `toolKind`, `toolTiming` (all five marks), `stopReason`, `turnReminder`,
-//! `cacheTier`, `providerReplay`, `providerMetadata`, `nativeToolSearch`, `thinkingBlocks`,
+//! `cacheTier`, `providerReplay`, `providerMetadata`, `nativeToolSearch`, `scopedCacheSource`, `thinkingBlocks`,
 //! `assistantBlocks`, `uiDiff`, and from `meta`: `source` (a string `meta` is a bare source),
 //! `attempt`, `submissionIds`, `transcript.messageId`, `effortConfiguration`.
 
@@ -19,7 +19,7 @@ use std::sync::Arc;
 use crate::effort::EffortSnapshot;
 use crate::message::{AgentMessage, Source, ToolKind, ToolTiming};
 use mixdog_core_api::domain::provider::{
-    BinarySource, CacheTier, Content, ContentPart, ImageSource, ProviderReplay, Role, StopReason, TextAttachment, ToolCall,
+    BinarySource, CacheTier, Content, ContentPart, ImageSource, ProviderReplay, Role, ScopedCacheSource, StopReason, TextAttachment, ToolCall,
 };
 use mixdog_protocol::ProviderId;
 use serde_json::{json, Map, Value};
@@ -295,8 +295,8 @@ fn tier_name(tier: CacheTier) -> &'static str {
     }
 }
 
-fn calls_of(row: &Value) -> Result<Vec<ToolCall>, String> {
-    row.get("toolCalls")
+fn calls_of(calls: Option<&Value>) -> Result<Vec<ToolCall>, String> {
+    calls
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
@@ -334,29 +334,42 @@ fn call_rows(calls: &[ToolCall], base: Option<&Value>) -> Value {
 }
 
 /// The message a row holds, without keeping the row.
-fn typed_of(row: &Value) -> Result<AgentMessage, String> {
-    let role = role_of(str_of(row, "role").ok_or("a row without a role")?).ok_or_else(|| format!("a row of role {:?}", row["role"]))?;
+fn typed_of(row: &Map<String, Value>) -> Result<AgentMessage, String> {
+    let text = |key: &str| row.get(key).and_then(Value::as_str);
+    let role = role_of(text("role").ok_or("a row without a role")?).ok_or_else(|| format!("a row of role {:?}", row.get("role").unwrap_or(&Value::Null)))?;
     let mut message = AgentMessage::user_content(content_of(row.get("content"))?);
     message.message.role = role;
-    message.message.tool_calls = calls_of(row)?;
-    message.message.tool_call_id = str_of(row, "toolCallId").map(str::to_owned);
+    message.message.tool_calls = calls_of(row.get("toolCalls"))?;
+    message.message.tool_call_id = text("toolCallId").map(str::to_owned);
     // Node's tool result states a failure by its `toolKind` alone (`finalize.mjs`); an older row by `isError`.
-    message.message.is_error = row.get("isError").and_then(Value::as_bool) == Some(true) || (role == Role::Tool && str_of(row, "toolKind") == Some("error"));
-    message.message.cache_tier = str_of(row, "cacheTier").and_then(tier_of);
+    message.message.is_error = row.get("isError").and_then(Value::as_bool) == Some(true) || (role == Role::Tool && text("toolKind") == Some("error"));
+    message.message.cache_tier = text("cacheTier").and_then(tier_of);
     message.message.thinking_blocks = row.get("thinkingBlocks").cloned();
     message.message.assistant_blocks = row.get("assistantBlocks").cloned();
     message.message.native_tool_search = row.get("nativeToolSearch").cloned();
-    message.message.turn_reminder = str_of(row, "turnReminder").map(str::to_owned);
+    message.message.turn_reminder = text("turnReminder").map(str::to_owned);
     if let Some(replay) = row.get("providerReplay").filter(|r| r.is_object()) {
         message.message.push_replay(ProviderReplay { owner: ProviderId::from(str_of(replay, "provider").unwrap_or_default()), items: replay.get("items").cloned().unwrap_or(Value::Null) });
     }
+    // `replayAccount`: `providerReplay.accountId ?? providerAccountId`.
+    let replay_account = row.get("providerReplay").and_then(|replay| replay.get("accountId")).or_else(|| row.get("providerAccountId"));
+    message.message.replay_account = replay_account.and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned);
     message.turn_reminder = message.message.turn_reminder.clone();
-    message.stop_reason = str_of(row, "stopReason").map(stop_of);
-    message.tool_kind = str_of(row, "toolKind").and_then(kind_of);
+    message.stop_reason = text("stopReason").map(stop_of);
+    message.tool_kind = text("toolKind").and_then(kind_of);
+    if role == Role::Tool && message.tool_kind == Some(ToolKind::CacheHit) {
+        message.message.scoped_cache_source = row.get("scopedCacheSource").and_then(|source| {
+            Some(ScopedCacheSource {
+                call_id: str_of(source, "callId")?.to_owned(),
+                body_sha256: str_of(source, "bodySha256")?.to_owned(),
+            })
+        });
+    }
     message.tool_timing = timing_of(row.get("toolTiming"));
     message.provider_metadata = row.get("providerMetadata").cloned();
-    message.ui_diff = str_of(row, "uiDiff").map(str::to_owned);
+    message.ui_diff = text("uiDiff").map(str::to_owned);
     message.tool_meta = row.get("toolMeta").filter(|m| m.is_object()).cloned();
+    message.agent_task_ids = row.get("agentTaskIds").and_then(Value::as_array).map(|ids| ids.iter().filter_map(|id| id.as_str().map(str::to_owned)).collect());
     match row.get("meta") {
         Some(Value::String(name)) => message.source = Some(source_of(name).ok_or_else(|| format!("meta source {name:?}"))?),
         Some(meta @ Value::Object(_)) => {
@@ -366,6 +379,7 @@ fn typed_of(row: &Value) -> Result<AgentMessage, String> {
             message.attempt = meta.get("attempt").and_then(Value::as_u64).map(|n| n as u32);
             message.submission_ids = meta.get("submissionIds").and_then(Value::as_array).into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect();
             message.message_id = meta.pointer("/transcript/messageId").and_then(Value::as_str).map(str::to_owned);
+            message.originals_missing = meta.pointer("/transcript/originalImagesMissing").and_then(Value::as_u64).map_or(0, |n| n as u32);
             message.effort = meta.get("effortConfiguration").and_then(EffortSnapshot::from_value);
         }
         _ => {}
@@ -375,9 +389,31 @@ fn typed_of(row: &Value) -> Result<AgentMessage, String> {
 
 /// The message a stored row holds, with the row kept for writing it back.
 pub fn message_of(row: &Value) -> Result<AgentMessage, String> {
+    let row = row.as_object().ok_or("a row without a role")?;
     let mut message = typed_of(row)?;
-    message.stored = row.as_object().map(|r| Arc::new(r.clone()));
+    message.stored = Some(Arc::new(row.clone()));
     Ok(message)
+}
+
+/// The message of a row [`message_of_owned`] read before, from the `stored` row it kept: the same message, its `stored`
+/// the same row (shared). What a holder of the rows only (not their messages) reads them back with.
+pub fn message_of_stored(stored: &Arc<Map<String, Value>>) -> Result<AgentMessage, String> {
+    let mut message = typed_of(stored)?;
+    message.stored = Some(stored.clone());
+    Ok(message)
+}
+
+/// [`message_of`] taking the row: the row becomes the message's `stored` as it is, with no copy (a turn reads its whole
+/// context this way). A row that is not a message is handed back with the error.
+pub fn message_of_owned(row: Value) -> Result<AgentMessage, (String, Value)> {
+    let Value::Object(map) = row else { return Err(("a row without a role".to_owned(), row)) };
+    match typed_of(&map) {
+        Ok(mut message) => {
+            message.stored = Some(Arc::new(map));
+            Ok(message)
+        }
+        Err(error) => Err((error, Value::Object(map))),
+    }
 }
 
 // ---- writing ---------------------------------------------------------------------------------------
@@ -426,7 +462,7 @@ fn meta_row(m: &AgentMessage, base: Option<&Value>, was: Option<&AgentMessage>) 
     if changed(&|w| w.submission_ids == m.submission_ids) {
         set_or_remove(&mut meta, "submissionIds", (!m.submission_ids.is_empty()).then(|| json!(m.submission_ids)));
     }
-    if changed(&|w| w.message_id == m.message_id) {
+    if changed(&|w| w.message_id == m.message_id && w.originals_missing == m.originals_missing && w.transcript_meta == m.transcript_meta) {
         let mut transcript = meta.get("transcript").and_then(Value::as_object).cloned().unwrap_or_default();
         match &m.message_id {
             Some(id) => {
@@ -435,6 +471,17 @@ fn meta_row(m: &AgentMessage, base: Option<&Value>, was: Option<&AgentMessage>) 
             None => {
                 transcript.shift_remove("messageId");
             }
+        }
+        match m.originals_missing {
+            0 => {
+                transcript.shift_remove("originalImagesMissing");
+            }
+            lost => {
+                transcript.insert("originalImagesMissing".into(), json!(lost));
+            }
+        }
+        for (key, value) in m.transcript_meta.as_ref().and_then(Value::as_object).into_iter().flatten() {
+            transcript.entry(key.clone()).or_insert_with(|| value.clone());
         }
         set_or_remove(&mut meta, "transcript", (!transcript.is_empty()).then(|| Value::Object(transcript)));
     }
@@ -484,19 +531,24 @@ fn fresh_row(m: &AgentMessage) -> Row {
     set_or_remove(&mut row, "turnReminder", m.turn_reminder.as_ref().filter(|t| !t.is_empty()).map(|v| json!(v)));
     set_or_remove(&mut row, "stopReason", m.stop_reason.as_ref().map(|s| json!(stop_name(s))));
     set_or_remove(&mut row, "toolKind", m.tool_kind.map(|k| json!(kind_name(k))));
+    set_or_remove(&mut row, "scopedCacheSource", scoped_cache_source_row(&m.message.scoped_cache_source));
     set_or_remove(&mut row, "toolTiming", m.tool_timing.as_ref().map(timing_row));
     set_or_remove(&mut row, "uiDiff", m.ui_diff.as_ref().map(|v| json!(v)));
     set_or_remove(&mut row, "toolMeta", m.tool_meta.clone());
+    set_or_remove(&mut row, "agentTaskIds", m.agent_task_ids.as_ref().map(|ids| json!(ids)));
     set_or_remove(&mut row, "meta", meta_row(m, None, None));
     row
+}
+
+fn scoped_cache_source_row(source: &Option<ScopedCacheSource>) -> Option<Value> {
+    source.as_ref().map(|s| json!({ "callId": s.call_id, "bodySha256": s.body_sha256 }))
 }
 
 /// The row of `message`: its stored row with what the run changed written over it, or a fresh
 /// row.
 pub fn row_of(message: &AgentMessage) -> Value {
     let Some(base) = &message.stored else { return Value::Object(fresh_row(message)) };
-    let base_value = Value::Object((**base).clone());
-    let Ok(was) = typed_of(&base_value) else { return Value::Object(fresh_row(message)) };
+    let Ok(was) = typed_of(base) else { return Value::Object(fresh_row(message)) };
     let (m, w) = (&message.message, &was.message);
     let mut row = (**base).clone();
     if m.role != w.role {
@@ -547,6 +599,9 @@ pub fn row_of(message: &AgentMessage) -> Value {
     if message.tool_kind != was.tool_kind {
         set_or_remove(&mut row, "toolKind", message.tool_kind.map(|k| json!(kind_name(k))));
     }
+    if m.scoped_cache_source != w.scoped_cache_source {
+        set_or_remove(&mut row, "scopedCacheSource", scoped_cache_source_row(&m.scoped_cache_source));
+    }
     if message.tool_timing != was.tool_timing {
         set_or_remove(&mut row, "toolTiming", message.tool_timing.as_ref().map(timing_row));
     }
@@ -559,7 +614,12 @@ pub fn row_of(message: &AgentMessage) -> Value {
     if message.tool_meta != was.tool_meta {
         set_or_remove(&mut row, "toolMeta", message.tool_meta.clone());
     }
-    if (message.source, message.attempt, &message.submission_ids, &message.message_id, &message.effort) != (was.source, was.attempt, &was.submission_ids, &was.message_id, &was.effort) {
+    if message.agent_task_ids != was.agent_task_ids {
+        set_or_remove(&mut row, "agentTaskIds", message.agent_task_ids.as_ref().map(|ids| json!(ids)));
+    }
+    if (message.source, message.attempt, &message.submission_ids, &message.message_id, message.originals_missing, &message.transcript_meta, &message.effort)
+        != (was.source, was.attempt, &was.submission_ids, &was.message_id, was.originals_missing, &was.transcript_meta, &was.effort)
+    {
         set_or_remove(&mut row, "meta", meta_row(message, base.get("meta"), Some(&was)));
     }
     Value::Object(row)
@@ -571,29 +631,6 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::*;
-
-    fn corpus() -> PathBuf {
-        std::env::var_os("MIXDOG_MIGRATION_CORPUS")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(r"C:\Users\tempe\.mixdog\data\scratch\rust-core\migration-corpus"))
-    }
-
-    /// Session files of the real corpus (v145 and dev146): `sess_*.json`, not the archived,
-    /// deleted or backup copies.
-    fn sessions() -> Vec<PathBuf> {
-        let mut out = Vec::new();
-        for dir in ["v145", "dev146"] {
-            let Ok(entries) = std::fs::read_dir(corpus().join(dir).join("sessions")) else { continue };
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if name.starts_with("sess_") && name.ends_with(".json") && !name.contains(".log.") && !name.contains(".compaction") {
-                    out.push(entry.path());
-                }
-            }
-        }
-        out.sort();
-        out
-    }
 
     fn rows_of(path: &Path) -> Option<(String, Vec<Value>)> {
         let text = std::fs::read_to_string(path).ok()?;
@@ -611,6 +648,23 @@ mod tests {
         assert_eq!(row_of(&message), row);
         let sent = format!("{:?}", message.wire());
         assert!(!sent.contains("restartRecovery"), "{sent}");
+    }
+
+    /// A row read back from the `stored` row it kept is the message read from the row at first, and shares that row.
+    #[test]
+    fn a_message_read_back_from_its_stored_row_is_the_same_message() {
+        let rows = [
+            json!({ "role": "user", "content": "hi", "meta": { "transcript": { "messageId": "m1", "at": 1 } } }),
+            json!({ "role": "assistant", "content": "looking", "toolCalls": [{ "id": "c1", "name": "read", "arguments": { "path": "x" } }], "stopReason": "tool_use", "extra": { "kept": [1, 2] } }),
+            json!({ "role": "tool", "content": "Cancelled", "toolCallId": "c1", "toolKind": "error", "meta": { "sentRequestTail": true } }),
+        ];
+        for row in rows {
+            let first = message_of_owned(row).expect("a message row");
+            let stored = first.stored.clone().expect("the row is kept");
+            let again = message_of_stored(&stored).expect("reads again");
+            assert_eq!(again, first);
+            assert!(Arc::ptr_eq(again.stored.as_ref().unwrap(), &stored), "the row is shared, not copied");
+        }
     }
 
     #[test]
@@ -666,28 +720,64 @@ mod tests {
         assert_eq!(message_of(&row).unwrap().tool_meta, Some(meta));
     }
 
-    /// A reference part keeps its object as Node stores it, through the row and into the wire
-    /// message, whose lowering carries the text only.
     #[test]
-    fn a_reference_parts_object_survives_the_row_and_stays_off_the_wire() {
-        let golden: Value = serde_json::from_str(include_str!("../../mixdog-core/src/run_host/golden/attachment_reference.json")).unwrap();
-        let media = golden["pdf_pages"]["info"].as_object().unwrap().clone();
-        let files = json!({ "kind": "files", "files": [{ "attachmentRef": "r", "name": "a.pdf", "mimeType": "application/pdf", "sizeBytes": 1, "path": "/p/a.pdf" }] }).as_object().unwrap().clone();
-        for meta in [media, files] {
-            let message = AgentMessage::user_content(Content::Parts(vec![ContentPart::Text("ref".into(), Some(meta.clone()))]));
-            let row = row_of(&message);
-            assert_eq!(row["content"][0]["attachmentReference"], Value::Object(meta.clone()));
-            let back = message_of(&row).unwrap();
-            assert_eq!(back.message.content, message.message.content);
-            let Content::Parts(parts) = &back.wire().content else { panic!("parts") };
-            assert_eq!(parts, &vec![ContentPart::Text("ref".into(), Some(meta))]);
+    fn an_edited_tool_envelope_keeps_a_shape_the_reader_takes() {
+        for (stored, want) in [
+            (json!({ "content": [{ "type": "text", "text": "old" }] }), json!({ "content": [{ "type": "text", "text": "new" }] })),
+            (json!({ "content": "old" }), json!({ "content": "new" })),
+        ] {
+            let row = json!({ "role": "tool", "toolCallId": "c1", "content": stored });
+            let mut message = message_of(&row).unwrap();
+            message.message.content = Content::Text("new".into());
+            let back = row_of(&message);
+            assert_eq!(back["content"], want);
+            // A list envelope reads back as its one text part; a string envelope as text.
+            let read = message_of(&back).unwrap().message.content;
+            assert_eq!(read, if want["content"].is_array() { Content::Parts(vec![ContentPart::Text("new".into(), None)]) } else { Content::Text("new".into()) });
         }
     }
 
+    #[test]
+    fn changing_one_meta_field_keeps_the_rest_as_stored() {
+        let row = json!({ "role": "user", "content": "hi", "meta": { "attempt": 1, "submissionIds": [] } });
+        let mut message = message_of(&row).unwrap();
+        message.attempt = Some(2);
+        assert_eq!(row_of(&message)["meta"], json!({ "attempt": 2, "submissionIds": [] }));
+    }
+
+    #[test]
+    fn clearing_the_message_id_removes_it_from_the_row() {
+        let row = json!({ "role": "user", "content": "hi", "meta": { "transcript": { "messageId": "m1", "appliedSkills": ["a"] } } });
+        let mut message = message_of(&row).unwrap();
+        message.message_id = None;
+        let back = row_of(&message);
+        assert_eq!(back["meta"], json!({ "transcript": { "appliedSkills": ["a"] } }));
+        assert_eq!(message_of(&back).unwrap().message_id, None);
+    }
+
+    fn corpus() -> PathBuf {
+        std::env::var_os("MIXDOG_MIGRATION_CORPUS").map(PathBuf::from).expect("MIXDOG_MIGRATION_CORPUS names the migration corpus")
+    }
+    /// Session files of the real corpus (v145 and dev146): `sess_*.json`, not the archived,
+    /// deleted or backup copies.
+    fn sessions() -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for dir in ["v145", "dev146"] {
+            let Ok(entries) = std::fs::read_dir(corpus().join(dir).join("sessions")) else { continue };
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with("sess_") && name.ends_with(".json") && !name.contains(".log.") && !name.contains(".compaction") {
+                    out.push(entry.path());
+                }
+            }
+        }
+        out.sort();
+        out
+    }
     /// Every stored message of the real corpus sessions: Node's bytes, the message, Node's bytes.
     /// A message the run changed is rewritten over its row: the edit changes that key and nothing
     /// else.
-    /// Run: `$env:MIXDOG_MIGRATION_CORPUS = "<corpus dir with v145/ and dev146/>"; cargo test -p mixdog-core --lib run_host::message_row -- --ignored --nocapture` (PowerShell; the variable's default is `C:\Users\tempe\.mixdog\data\scratch\rust-core\migration-corpus`).
+    /// Run: `$env:MIXDOG_MIGRATION_CORPUS = "<corpus dir with v145/ and dev146/>"; cargo test -p mixdog-core --lib run_host::message_row -- --ignored --nocapture` (PowerShell).
     #[test]
     #[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
     fn the_migration_corpus_round_trips_byte_for_byte() {
@@ -725,10 +815,9 @@ mod tests {
         assert!(files > 0 && messages > 0, "no corpus at {}", corpus().display());
         eprintln!("round-tripped {messages} messages of {files} sessions");
     }
-
     /// The typed fields alone, without the stored row, rebuild every message of the corpus but
     /// for the keys with no typed home; the test names them, so a new one fails here.
-    /// Run: `$env:MIXDOG_MIGRATION_CORPUS = "<corpus dir with v145/ and dev146/>"; cargo test -p mixdog-core --lib run_host::message_row -- --ignored --nocapture` (PowerShell; the variable's default is `C:\Users\tempe\.mixdog\data\scratch\rust-core\migration-corpus`).
+    /// Run: `$env:MIXDOG_MIGRATION_CORPUS = "<corpus dir with v145/ and dev146/>"; cargo test -p mixdog-core --lib run_host::message_row -- --ignored --nocapture` (PowerShell).
     #[test]
     #[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
     fn the_typed_fields_hold_everything_but_the_named_extras() {
@@ -787,7 +876,7 @@ mod tests {
         for path in sessions() {
             let Some((_, rows)) = rows_of(&path) else { continue };
             for row in rows {
-                let typed = typed_of(&row).unwrap();
+                let typed = typed_of(row.as_object().expect("a row")).unwrap();
                 let fresh = Value::Object(fresh_row(&typed));
                 let (mut want, mut got) = (project(&row), project(&fresh));
                 for side in [&mut want, &mut got] {
@@ -802,37 +891,21 @@ mod tests {
         assert!(messages > 0);
     }
 
+
+    /// A reference part keeps its object as Node stores it, through the row and into the wire
+    /// message, whose lowering carries the text only.
     #[test]
-    fn an_edited_tool_envelope_keeps_a_shape_the_reader_takes() {
-        for (stored, want) in [
-            (json!({ "content": [{ "type": "text", "text": "old" }] }), json!({ "content": [{ "type": "text", "text": "new" }] })),
-            (json!({ "content": "old" }), json!({ "content": "new" })),
-        ] {
-            let row = json!({ "role": "tool", "toolCallId": "c1", "content": stored });
-            let mut message = message_of(&row).unwrap();
-            message.message.content = Content::Text("new".into());
-            let back = row_of(&message);
-            assert_eq!(back["content"], want);
-            // A list envelope reads back as its one text part; a string envelope as text.
-            let read = message_of(&back).unwrap().message.content;
-            assert_eq!(read, if want["content"].is_array() { Content::Parts(vec![ContentPart::Text("new".into(), None)]) } else { Content::Text("new".into()) });
+    fn a_reference_parts_object_survives_the_row_and_stays_off_the_wire() {
+        let media = json!({ "kind": "pdf_pages", "pages": [1, 2], "path": "/p/a.pdf" }).as_object().unwrap().clone();
+        let files = json!({ "kind": "files", "files": [{ "attachmentRef": "r", "name": "a.pdf", "mimeType": "application/pdf", "sizeBytes": 1, "path": "/p/a.pdf" }] }).as_object().unwrap().clone();
+        for meta in [media, files] {
+            let message = AgentMessage::user_content(Content::Parts(vec![ContentPart::Text("ref".into(), Some(meta.clone()))]));
+            let row = row_of(&message);
+            assert_eq!(row["content"][0]["attachmentReference"], Value::Object(meta.clone()));
+            let back = message_of(&row).unwrap();
+            assert_eq!(back.message.content, message.message.content);
+            let Content::Parts(parts) = &back.wire().content else { panic!("parts") };
+            assert_eq!(parts, &vec![ContentPart::Text("ref".into(), Some(meta))]);
         }
     }
-
-    #[test]
-    fn changing_one_meta_field_keeps_the_rest_as_stored() {
-        let row = json!({ "role": "user", "content": "hi", "meta": { "attempt": 1, "submissionIds": [] } });
-        let mut message = message_of(&row).unwrap();
-        message.attempt = Some(2);
-        assert_eq!(row_of(&message)["meta"], json!({ "attempt": 2, "submissionIds": [] }));
-    }
-
-    #[test]
-    fn clearing_the_message_id_removes_it_from_the_row() {
-        let row = json!({ "role": "user", "content": "hi", "meta": { "transcript": { "messageId": "m1", "appliedSkills": ["a"] } } });
-        let mut message = message_of(&row).unwrap();
-        message.message_id = None;
-        let back = row_of(&message);
-        assert_eq!(back["meta"], json!({ "transcript": { "appliedSkills": ["a"] } }));
-        assert_eq!(message_of(&back).unwrap().message_id, None);
-    }}
+}

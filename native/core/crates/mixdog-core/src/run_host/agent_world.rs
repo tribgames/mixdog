@@ -313,21 +313,6 @@ impl HostWorld for AgentHost {
 mod tests {
     use super::*;
 
-    const GOLDEN: &str = include_str!("../../../../fixtures/agent-world/golden.json");
-
-    fn golden() -> Value {
-        serde_json::from_str(GOLDEN).unwrap()
-    }
-
-    #[test]
-    fn the_runtime_spec_is_what_node_resolved() {
-        for case in golden()["runtimeSpec"].as_array().unwrap() {
-            let preset = &case["preset"];
-            let got = resolve_runtime_spec(preset, case["agentId"].as_str().unwrap());
-            assert_eq!(got, case["spec"], "{preset}");
-        }
-    }
-
     struct Table;
 
     impl RouteWindows for Table {
@@ -342,20 +327,13 @@ mod tests {
     }
 
     /// `serde_json` keeps `120000` and `120000.0` apart; JavaScript has one number type.
+    #[cfg(node_twin)]
     fn floats(value: Value) -> Value {
         match value {
             Value::Number(n) => serde_json::json!(n.as_f64().unwrap()),
             Value::Array(items) => Value::Array(items.into_iter().map(floats).collect()),
             Value::Object(map) => Value::Object(map.into_iter().map(|(k, v)| (k, floats(v))).collect()),
             other => other,
-        }
-    }
-
-    #[test]
-    fn a_routes_context_choice_is_what_node_selected() {
-        for case in golden()["contextSelection"].as_array().unwrap() {
-            let got = Value::Object(context_selection(&case["route"], &Table));
-            assert_eq!(floats(got), floats(case["selection"].clone()), "{}", case["route"]);
         }
     }
 
@@ -375,26 +353,6 @@ mod tests {
         fn now_ms(&self) -> i64 {
             0
         }
-    }
-
-    #[tokio::test]
-    async fn a_dispatch_reads_the_agent_section_of_the_saved_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("mixdog-config.json");
-        let saved = serde_json::json!({
-            "agent": { "agents": { "maintainer": { "provider": "p", "model": "m" } }, "default": "lead", "presets": [{ "id": "lead" }] },
-            "agents": { "greeted": true },
-        });
-        std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
-        let tokens = mixdog_rt::testing::tokens();
-        let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-        let (config, _) = Config::open(path, Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap();
-        let world = AgentWorld::new(config, Arc::new(Table), Arc::new(|_: &str| None), Arc::new(Epoch), Arc::new(|_| {}));
-        let seen = world.config();
-        assert_eq!(world.route_candidates(&seen, "maintainer"), vec![serde_json::json!({ "provider": "p", "model": "m" })], "the Maintainer's route");
-        assert_eq!(seen.get("default"), Some(&serde_json::json!("lead")));
-        assert_eq!(seen.get("presets"), Some(&serde_json::json!([{ "id": "lead" }])));
-        assert!(seen.get("agent").is_none(), "the section itself, not the file that holds it");
     }
 
     #[test]
@@ -429,6 +387,25 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn a_dispatch_reads_the_agent_section_of_the_saved_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mixdog-config.json");
+        let saved = serde_json::json!({
+            "agent": { "agents": { "maintainer": { "provider": "p", "model": "m" } }, "default": "lead", "presets": [{ "id": "lead" }] },
+            "agents": { "greeted": true },
+        });
+        std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let (config, _) = Config::open(path, Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap();
+        let world = AgentWorld::new(config, Arc::new(Table), Arc::new(|_: &str| None), Arc::new(Epoch), Arc::new(|_| {}));
+        let seen = world.config();
+        assert_eq!(world.route_candidates(&seen, "maintainer"), vec![serde_json::json!({ "provider": "p", "model": "m" })], "the Maintainer's route");
+        assert_eq!(seen.get("default"), Some(&serde_json::json!("lead")));
+        assert_eq!(seen.get("presets"), Some(&serde_json::json!([{ "id": "lead" }])));
+        assert!(seen.get("agent").is_none(), "the section itself, not the file that holds it");
+    }
     #[tokio::test(start_paused = true)]
     async fn a_joined_waiter_is_answered_by_the_signature_it_asked_for_not_the_configs_new_one() {
         mixdog_rt::testing::tokens();
@@ -447,7 +424,6 @@ mod tests {
         assert_eq!(work.runs.load(Ordering::SeqCst), 1, "nothing started \"b\"");
         assert!(preparation.is_prepared("a") && !preparation.is_prepared("b"));
     }
-
     #[tokio::test(start_paused = true)]
     async fn a_joiner_whose_snapshot_was_not_recorded_starts_over_on_the_new_config() {
         mixdog_rt::testing::tokens();
@@ -473,5 +449,30 @@ mod tests {
         assert_eq!(joiner.await, Ok(()));
         assert_eq!(work.runs.load(Ordering::SeqCst), 2);
         assert!(preparation.is_prepared("c"));
+    }
+
+
+    #[cfg(node_twin)]
+    const GOLDEN: &str = include_str!("../../../../fixtures/agent-world/golden.json");
+    #[cfg(node_twin)]
+    fn golden() -> Value {
+        serde_json::from_str(GOLDEN).unwrap()
+    }
+    #[test]
+    #[cfg(node_twin)]
+    fn the_runtime_spec_is_what_node_resolved() {
+        for case in golden()["runtimeSpec"].as_array().unwrap() {
+            let preset = &case["preset"];
+            let got = resolve_runtime_spec(preset, case["agentId"].as_str().unwrap());
+            assert_eq!(got, case["spec"], "{preset}");
+        }
+    }
+    #[test]
+    #[cfg(node_twin)]
+    fn a_routes_context_choice_is_what_node_selected() {
+        for case in golden()["contextSelection"].as_array().unwrap() {
+            let got = Value::Object(context_selection(&case["route"], &Table));
+            assert_eq!(floats(got), floats(case["selection"].clone()), "{}", case["route"]);
+        }
     }
 }

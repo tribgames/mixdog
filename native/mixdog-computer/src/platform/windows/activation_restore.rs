@@ -6,6 +6,7 @@
 use super::native;
 use crate::observer::{Scope, Shared};
 use crate::platform::Wid;
+use crate::port::windows::WinPort;
 use std::cell::RefCell;
 
 /// How the restore ended, as the `restore` fact reads.
@@ -102,6 +103,8 @@ pub fn is_target_window(window: Wid, target: Wid) -> bool {
 
 struct Desktop<'a> {
     shared: &'a Shared,
+    /// The restore's one activation try is a submission of the executor's port, refused once its scope is revoked.
+    port: Option<&'a WinPort>,
     generation: &'a str,
     sequence: i64,
     target: Wid,
@@ -129,18 +132,19 @@ impl Ground for Desktop<'_> {
     }
     /// RestoreForeground: a handle gone by now is not tried.
     fn focus(&self) -> bool {
-        native::is_window(self.before) && native::try_focus_attached(self.before)
+        native::is_window(self.before) && self.port.is_some_and(|port| port.focus_try(self.before))
     }
 }
 
 /// Test-RestoreBaseline on its own, for the guard's check once the lock is
 /// granted (input-semantic.ps1:76-82).
 pub fn superseded(shared: &Shared, generation: &str, sequence: i64, target: Wid) -> Option<String> {
-    baseline(&desktop(shared, generation, sequence, target, 0))
+    baseline(&desktop(shared, None, generation, sequence, target, 0))
 }
 
 fn desktop<'a>(
     shared: &'a Shared,
+    port: Option<&'a WinPort>,
     generation: &'a str,
     sequence: i64,
     target: Wid,
@@ -148,6 +152,7 @@ fn desktop<'a>(
 ) -> Desktop<'a> {
     Desktop {
         shared,
+        port,
         generation,
         sequence,
         target,
@@ -161,19 +166,48 @@ fn desktop<'a>(
 /// delivery began under; `release` ends the foreground lock first.
 pub fn restore(
     shared: &Shared,
+    port: &WinPort,
     generation: &str,
     sequence: i64,
     target: Wid,
     before: Wid,
     release: &mut dyn FnMut() -> String,
 ) -> RestoreOutcome {
-    run(&desktop(shared, generation, sequence, target, before), release)
+    run(&desktop(shared, Some(port), generation, sequence, target, before), release)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::cell::{Cell, RefCell};
+
+    /// The restore's one activation try is the port's focus operation: after Off it is refused and nothing reaches Windows.
+    #[test]
+    fn the_restore_focus_goes_through_the_port_and_is_refused_after_off() {
+        use crate::port::windows::fake::FakeWin;
+        // SAFETY: a plain query; the desktop window always exists.
+        let window = native::wid(unsafe { windows::Win32::UI::WindowsAndMessaging::GetDesktopWindow() });
+        let shared = crate::observer::Observer::new().shared.clone();
+        let scope = crate::port::Scope::open(1);
+        let (port, fake) = FakeWin::port(&scope);
+        *fake.focus_lands.lock().unwrap() = true;
+        assert!(desktop(&shared, Some(&port), "g", 1, 7, window).focus());
+        scope.revoke();
+        // The person moved the foreground away meanwhile: the restore would have to act, and is refused.
+        *fake.foreground.lock().unwrap() = 0;
+        assert!(!desktop(&shared, Some(&port), "g", 1, 7, window).focus());
+        assert_eq!(
+            fake.log(),
+            [
+                "attach 99 1".to_string(),
+                format!("bring_to_top {window}"),
+                format!("foreground {window}"),
+                format!("active {window}"),
+                format!("focus {window}"),
+                "detach 99 1".to_string(),
+            ]
+        );
+    }
 
     /// A scripted desktop; `begins` answers each BeginRestore in turn.
     struct Fake {

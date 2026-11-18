@@ -13,7 +13,6 @@ import {
 } from '../shared/file-downloads.ts';
 import {
   BLOB_FALLBACK_MAX_BYTES,
-  LANE_BLOB_MAX_BYTES,
   LANE_WINDOW_BYTES,
   FileDownloadCancelledError,
   FileSaveError,
@@ -419,8 +418,8 @@ test('a lane read the worker refuses as changed fails the download without deliv
   assert.deepEqual(methods(host.calls), ['authorize', 'begin']);
 });
 
-test('a lane over the page read limit is still handed to the browser as its URL', async () => {
-  const host = fakeHost({ size: LANE_BLOB_MAX_BYTES + 1, media: MEDIA });
+test('a 40 MiB download is handed to the browser without reading the file into the page', async () => {
+  const host = fakeHost({ size: 40 * 1024 * 1024, media: MEDIA });
   const { env, delivered, laneReads } = environment(host, { kind: 'browser' }, () => LANE_URL);
   assert.equal((await run(env)).result, 'started');
   assert.deepEqual(delivered[0].target, { url: LANE_URL });

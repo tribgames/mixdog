@@ -28,15 +28,17 @@ use tokio_util::sync::CancellationToken;
 
 use crate::memory::embed::config;
 use crate::memory::embed::engine::EmbedConfig;
-use crate::memory::embed::host::Embedder;
+use crate::memory::embed::host::{Embedder, Lifecycle};
+use crate::model_host::WaitError;
 use crate::memory::embed::{compress, install};
 use crate::model_install::{InstallError, ProgressSink};
 use crate::tool_state::{StateTick, onnx_runtime_supported};
 
-/// The worker's `IDLE_TIMEOUT_MS`: 5 minutes.
-pub const IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+/// How long a loaded model may sit unused. Node's worker kept it five minutes (`IDLE_TIMEOUT_MS`); three here: the model
+/// is 170 MB resident and loads again in a few seconds.
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(3 * 60);
 /// `EMBED_KEEP_WARM_MS`: how long a backlog being worked keeps the model resident.
-pub const KEEP_WARM: Duration = Duration::from_secs(6 * 60);
+pub const KEEP_WARM: Duration = Duration::from_secs(3 * 60);
 
 type Loaded = Arc<OnceCell<Result<Embedder, String>>>;
 type Load = Arc<dyn Fn(EmbedConfig) -> Pin<Box<dyn Future<Output = Result<Embedder, String>> + Send>> + Send + Sync>;
@@ -52,6 +54,195 @@ struct Usage {
 fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
+
+/// `MAX_RESTART_BACKOFF_MS`.
+const MAX_RESTART_BACKOFF: Duration = Duration::from_secs(30);
+
+/// Node's `_restartCount` / `_lastRestartMs` (`ensureWorker`): a host that died or timed out makes the next launch wait `1 s * 2^(n-1)`, at most 30 s, since the last launch.
+#[derive(Default)]
+struct Restarts {
+    count: u32,
+    last_launch: Option<Instant>,
+    /// A launch this provider admitted is still loading: a caller joining it is not a launch.
+    loading: bool,
+    /// The last host generation whose end was accounted.
+    accounted: Option<u64>,
+    /// Ends and failed loads accounted so far (a test's count).
+    #[cfg(test)]
+    accountings: u32,
+}
+
+impl Restarts {
+    /// Node's `exit` handler (`embedding-provider.mjs:143-151`; the timeout's kill, `:190`, ends in a non-zero exit too): a host nobody retired that
+    /// exited with status 0 resets the count; a non-zero exit, a signal or a failed wait adds one; a retired host's end changes nothing. Each
+    /// generation is consumed once. A successful request changes nothing.
+    fn ended(&mut self, generation: u64, exit: &Result<std::process::ExitStatus, WaitError>, retired: bool) {
+        if self.accounted == Some(generation) {
+            return;
+        }
+        self.accounted = Some(generation);
+        #[cfg(test)]
+        {
+            self.accountings += 1;
+        }
+        if retired {
+            return;
+        }
+        match exit {
+            Ok(status) if status.success() => self.count = 0,
+            _ => self.count += 1,
+        }
+    }
+
+    fn failed_load(&mut self) {
+        #[cfg(test)]
+        {
+            self.accountings += 1;
+        }
+        self.count += 1;
+    }
+
+    /// Admits a launch at `now`, or says how long the backoff has left.
+    fn admit(&mut self, now: Instant) -> Result<(), Duration> {
+        if self.loading {
+            return Ok(());
+        }
+        if self.count > 0 {
+            let backoff = Duration::from_secs(1u64 << (self.count - 1).min(5)).min(MAX_RESTART_BACKOFF);
+            let elapsed = self.last_launch.map_or(backoff, |at| now.saturating_duration_since(at));
+            if elapsed < backoff {
+                return Err(backoff - elapsed);
+            }
+        }
+        self.last_launch = Some(now);
+        self.loading = true;
+        Ok(())
+    }
+}
+
+/// Empties the cell, retiring the host it held: the host's end is the owner's choice (Node excludes retiring workers from the restart count), and
+/// its later `Ended` is never read by a warmup, which only reads the cell's current host.
+fn retire_cell(loaded: &std::sync::Mutex<Loaded>) {
+    let mut cell = locked(loaded);
+    if let Some(Ok(model)) = cell.get() {
+        model.retire();
+    }
+    *cell = Loaded::default();
+}
+
+pub struct EmbeddingProvider {
+    config: EmbedConfig,
+    hub: String,
+    /// The load, shared by every caller; a failure is retried on the next request. Shared with the task that runs
+    /// it, so a recall that stops waiting does not end it; a dispose puts a fresh cell in its place.
+    loaded: Arc<std::sync::Mutex<Loaded>>,
+    usage: Arc<Usage>,
+    restarts: std::sync::Mutex<Restarts>,
+    /// The idle window; zero never releases (`MIXDOG_EMBED_IDLE_TIMEOUT_MS=0`).
+    idle: Duration,
+    /// The worker's `modelCacheCompressionStarted`: one compression per provider, a reload after a
+    /// dispose included.
+    compress_started: Arc<std::sync::atomic::AtomicBool>,
+    load: Load,
+    /// Installs run one at a time; `cancel` ends both the wait and a stuck install.
+    installing: Gate,
+    tick: StateTick,
+    /// Runs `compact.exe` after the first successful load (Windows only).
+    compact: Option<compress::Compact>,
+}
+
+fn info_of(model: &str, dtype: Option<&str>, dimensions: Option<usize>, device: &str) -> Value {
+    json!({
+        "model": model,
+        "dtype": config::normalize_dtype(model, dtype),
+        "dimensions": dimensions,
+        "device": device,
+        "engine": "Transformers.js · ONNX Runtime",
+        "supported": onnx_runtime_supported(),
+    })
+}
+
+#[cfg(test)]
+mod unbuilt_tests {
+    use super::*;
+
+    /// What Node's `getEmbeddingInfo()` answered for the default model before anything loaded (recorded by the capability
+    /// harness: `getToolModuleSettings` `memory.info`).
+    #[test]
+    fn a_host_without_the_runtime_reports_the_metadata_node_does() {
+        let info = EmbeddingProvider::info_unbuilt(config::DEFAULT_MODEL_ID, None);
+        assert_eq!(info["model"], config::DEFAULT_MODEL_ID);
+        assert_eq!((info["dtype"].as_str(), info["dimensions"].as_u64(), info["device"].as_str()), (Some("q8"), Some(384), Some("")));
+        assert_eq!(info["engine"], "Transformers.js · ONNX Runtime");
+        // Node recorded supported: true on win32/x64 (onnxRuntimeSupported(): only macOS Intel has no binding).
+        assert_eq!(info["supported"], !(cfg!(target_os = "macos") && cfg!(target_arch = "x86_64")));
+    }
+}
+
+#[cfg(test)]
+mod idle_tests {
+    use super::*;
+
+    fn failing(dir: &std::path::Path, idle: Duration) -> EmbeddingProvider {
+        EmbeddingProvider::installed_with_load(dir, || Box::pin(async { Err("no model in this test".to_owned()) })).with_idle_timeout(idle)
+    }
+
+    async fn settled(provider: &EmbeddingProvider) -> bool {
+        for _ in 0..100 {
+            if provider.current().get().is_none() {
+                return true;
+            }
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
+        }
+        false
+    }
+
+    #[tokio::test]
+    async fn an_idle_model_is_released_and_the_next_use_loads_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let provider = failing(dir.path(), Duration::from_millis(40));
+        assert!(provider.warmup().await.is_err());
+        assert!(provider.current().get().is_some());
+        assert!(settled(&provider).await, "the idle model was not released");
+        assert!(provider.warmup().await.is_err());
+        assert!(provider.current().get().is_some(), "the next use loads again");
+    }
+
+    #[tokio::test]
+    async fn a_backlog_holds_the_model_and_a_zero_window_never_releases() {
+        let dir = tempfile::tempdir().unwrap();
+        let held = failing(dir.path(), Duration::from_millis(30));
+        assert!(held.warmup().await.is_err());
+        held.hold_warm();
+        mixdog_rt::time::sleep(Duration::from_millis(150)).await;
+        assert!(held.current().get().is_some(), "a held model is released");
+        let never = failing(dir.path(), Duration::ZERO);
+        assert!(never.warmup().await.is_err());
+        mixdog_rt::time::sleep(Duration::from_millis(100)).await;
+        assert!(never.current().get().is_some());
+    }
+}
+
+
+#[cfg(test)]
+mod install_tests {
+    use super::*;
+
+    /// A watcher woken by the last tick of an install reads it as over: that tick comes after the gate is free
+    /// (the two ticks around the download are bumped while it is held).
+    #[tokio::test]
+    async fn an_install_ends_with_a_tick_after_the_gate_is_free() {
+        let dir = tempfile::tempdir().unwrap();
+        let provider = EmbeddingProvider::installed_with_load(dir.path(), || Box::pin(async { Err("no model".to_owned()) }));
+        let mut ticks = provider.tick().subscribe();
+        let before = *ticks.borrow_and_update();
+        assert!(!provider.is_installing());
+        provider.install(None, &CancellationToken::new()).await.unwrap();
+        assert!(!provider.is_installing());
+        assert_eq!(*ticks.borrow_and_update(), before + 3, "a tick before and after the download, and one once the gate is free");
+    }
+}
+
 
 /// Releases the model once it has not been asked for during `idle` and no backlog holds it warm. A
 /// lease that is still held re-arms a full window; the timer ends with the provider.
@@ -81,7 +272,7 @@ async fn release_when_idle(loaded: Weak<std::sync::Mutex<Loaded>>, usage: Arc<Us
             continue;
         }
         usage.armed.store(false, Ordering::Release);
-        *locked(&loaded) = Loaded::default();
+        retire_cell(&loaded);
         tick.bump();
         // Asked for while it was released: the new load needs its own timer.
         if *locked(&usage.last_use) > last && !usage.armed.swap(true, Ordering::AcqRel) {
@@ -90,27 +281,6 @@ async fn release_when_idle(loaded: Weak<std::sync::Mutex<Loaded>>, usage: Arc<Us
         return;
     }
 }
-
-pub struct EmbeddingProvider {
-    config: EmbedConfig,
-    hub: String,
-    /// The load, shared by every caller; a failure is retried on the next request. Shared with the task that runs
-    /// it, so a recall that stops waiting does not end it; a dispose puts a fresh cell in its place.
-    loaded: Arc<std::sync::Mutex<Loaded>>,
-    usage: Arc<Usage>,
-    /// The idle window; zero never releases (`MIXDOG_EMBED_IDLE_TIMEOUT_MS=0`).
-    idle: Duration,
-    /// The worker's `modelCacheCompressionStarted`: one compression per provider, a reload after a
-    /// dispose included.
-    compress_started: Arc<std::sync::atomic::AtomicBool>,
-    load: Load,
-    /// Installs run one at a time; `cancel` ends both the wait and a stuck install.
-    installing: Gate,
-    tick: StateTick,
-    /// Runs `compact.exe` after the first successful load (Windows only).
-    compact: Option<compress::Compact>,
-}
-
 impl EmbeddingProvider {
     pub fn new(config: EmbedConfig) -> Self {
         Self::with_tick(config, StateTick::default())
@@ -123,6 +293,7 @@ impl EmbeddingProvider {
             hub: install::HUB.to_owned(),
             loaded: Arc::default(),
             usage: Arc::new(Usage { last_use: std::sync::Mutex::new(Instant::now()), warm_until: std::sync::Mutex::new(None), armed: AtomicBool::new(false) }),
+            restarts: std::sync::Mutex::default(),
             idle: IDLE_TIMEOUT,
             compress_started: Arc::default(),
             load: Arc::new(|config| Box::pin(async move { Embedder::load(config).await.map_err(|e| e.message()) })),
@@ -220,30 +391,95 @@ impl EmbeddingProvider {
     /// The worker's `dispose`: the loaded model (or the remembered failure) is released, so the next
     /// warmup loads again.
     pub fn dispose(&self) {
-        *self.loaded.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Loaded::default();
+        retire_cell(&self.loaded);
         self.tick.bump();
     }
 
     /// Loads the model, once however many callers ask. `Ok(None)` when it is
     /// not installed; `Err` is this host's load failure.
+    ///
+    /// The host's end is read from its lifecycle (Rule B): a `Stopping` host (its output closed, a write failed, a kill was asked) is not classified;
+    /// the call waits for the reaper's `Ended` outside the provider's lock and reads the cell again. The end of the host the cell holds is
+    /// accounted once, under the cell's lock, with the cell's replacement: a later end of an older host never touches the cell's replacement.
     pub async fn warmup(&self) -> Result<Option<Embedder>, String> {
         self.touched();
-        {
-            let mut cell = locked(&self.loaded);
-            if let Some(loaded) = cell.get() {
-                if let Ok(model) = loaded
-                    && model.alive()
-                {
-                    return Ok(Some(model.clone()));
+        loop {
+            let stopping = {
+                let mut cell = locked(&self.loaded);
+                match cell.get() {
+                    None => break,
+                    // A failed load counts once (Node's failed spawn, `embedding-provider.mjs:141`); the next request retries it, never in-process.
+                    Some(Err(_)) => {
+                        *cell = Loaded::default();
+                        locked(&self.restarts).failed_load();
+                        break;
+                    }
+                    Some(Ok(model)) => match model.lifecycle() {
+                        Lifecycle::Running => return Ok(Some(model.clone())),
+                        Lifecycle::Stopping => model.clone(),
+                        Lifecycle::Ended { generation, exit, retired } => {
+                            locked(&self.restarts).ended(generation, &exit, retired);
+                            *cell = Loaded::default();
+                            break;
+                        }
+                    },
                 }
-                // A dead host or interrupted load is retried by the next request, never in-process.
-                *cell = Loaded::default();
-            }
+            };
+            drop(stopping.ended().await);
         }
         if !self.is_installed().await.map_err(|e| e.to_string())? {
             return Ok(None);
         }
+        let admitted = locked(&self.restarts).admit(Instant::now());
+        if let Err(remaining) = admitted {
+            return Err(format!("embed worker in restart backoff ({}s remaining)", remaining.as_secs() + u64::from(remaining.subsec_nanos() > 0)));
+        }
+        struct Launched<'a>(&'a std::sync::Mutex<Restarts>);
+        impl Drop for Launched<'_> {
+            fn drop(&mut self) {
+                locked(self.0).loading = false;
+            }
+        }
+        let _launched = Launched(&self.restarts);
         self.load_future().await.map(Some)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_restart_count(&self, count: u32) {
+        locked(&self.restarts).count = count;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn restart_count(&self) -> u32 {
+        locked(&self.restarts).count
+    }
+
+    /// The generation of the host the cell holds, if it holds one.
+    #[cfg(test)]
+    pub(crate) fn held_generation(&self) -> Option<u64> {
+        match self.current().get() {
+            Some(Ok(model)) => Some(model.generation()),
+            _ => None,
+        }
+    }
+
+    /// Host ends and failed loads accounted so far.
+    #[cfg(test)]
+    pub(crate) fn accountings(&self) -> u32 {
+        locked(&self.restarts).accountings
+    }
+
+    /// The last launch is now, so a test does not depend on how long its host took to die.
+    #[cfg(test)]
+    pub(crate) fn stamp_launch_now(&self) {
+        locked(&self.restarts).last_launch = Some(Instant::now());
+    }
+
+    /// Moves the last launch `by` into the past: the backoff has run that much longer (a test's clock).
+    #[cfg(test)]
+    pub(crate) fn backdate_launch(&self, by: Duration) {
+        let mut restarts = locked(&self.restarts);
+        restarts.last_launch = restarts.last_launch.and_then(|at| at.checked_sub(by));
     }
 
     /// The shared load, as an owned future a task can run to its end.
@@ -300,7 +536,6 @@ impl EmbeddingProvider {
         &self.tick
     }
 }
-
 #[cfg(test)]
 impl EmbeddingProvider {
     /// A provider over `cache` whose model files are present and whose load is `load`: the embedding worker the
@@ -326,95 +561,5 @@ impl EmbeddingProvider {
         let mut provider = Self::new(config);
         provider.load = Arc::new(move |_| load());
         provider
-    }
-}
-
-fn info_of(model: &str, dtype: Option<&str>, dimensions: Option<usize>, device: &str) -> Value {
-    json!({
-        "model": model,
-        "dtype": config::normalize_dtype(model, dtype),
-        "dimensions": dimensions,
-        "device": device,
-        "engine": "Transformers.js · ONNX Runtime",
-        "supported": onnx_runtime_supported(),
-    })
-}
-
-#[cfg(test)]
-mod unbuilt_tests {
-    use super::*;
-
-    /// What Node's `getEmbeddingInfo()` answered for the default model before anything loaded (recorded by the capability
-    /// harness: `getToolModuleSettings` `memory.info`).
-    #[test]
-    fn a_host_without_the_runtime_reports_the_metadata_node_does() {
-        let info = EmbeddingProvider::info_unbuilt(config::DEFAULT_MODEL_ID, None);
-        assert_eq!(info["model"], config::DEFAULT_MODEL_ID);
-        assert_eq!((info["dtype"].as_str(), info["dimensions"].as_u64(), info["device"].as_str()), (Some("q8"), Some(384), Some("")));
-        assert_eq!(info["engine"], "Transformers.js · ONNX Runtime");
-        // Node recorded supported: true on win32/x64 (onnxRuntimeSupported(): only macOS Intel has no binding).
-        assert_eq!(info["supported"], !(cfg!(target_os = "macos") && cfg!(target_arch = "x86_64")));
-    }
-}
-#[cfg(test)]
-mod idle_tests {
-    use super::*;
-
-    fn failing(dir: &std::path::Path, idle: Duration) -> EmbeddingProvider {
-        EmbeddingProvider::installed_with_load(dir, || Box::pin(async { Err("no model in this test".to_owned()) })).with_idle_timeout(idle)
-    }
-
-    async fn settled(provider: &EmbeddingProvider) -> bool {
-        for _ in 0..100 {
-            if provider.current().get().is_none() {
-                return true;
-            }
-            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
-        }
-        false
-    }
-
-    #[tokio::test]
-    async fn an_idle_model_is_released_and_the_next_use_loads_again() {
-        let dir = tempfile::tempdir().unwrap();
-        let provider = failing(dir.path(), Duration::from_millis(40));
-        assert!(provider.warmup().await.is_err());
-        assert!(provider.current().get().is_some());
-        assert!(settled(&provider).await, "the idle model was not released");
-        assert!(provider.warmup().await.is_err());
-        assert!(provider.current().get().is_some(), "the next use loads again");
-    }
-
-    #[tokio::test]
-    async fn a_backlog_holds_the_model_and_a_zero_window_never_releases() {
-        let dir = tempfile::tempdir().unwrap();
-        let held = failing(dir.path(), Duration::from_millis(30));
-        assert!(held.warmup().await.is_err());
-        held.hold_warm();
-        mixdog_rt::time::sleep(Duration::from_millis(150)).await;
-        assert!(held.current().get().is_some(), "a held model is released");
-        let never = failing(dir.path(), Duration::ZERO);
-        assert!(never.warmup().await.is_err());
-        mixdog_rt::time::sleep(Duration::from_millis(100)).await;
-        assert!(never.current().get().is_some());
-    }
-}
-
-#[cfg(test)]
-mod install_tests {
-    use super::*;
-
-    /// A watcher woken by the last tick of an install reads it as over: that tick comes after the gate is free
-    /// (the two ticks around the download are bumped while it is held).
-    #[tokio::test]
-    async fn an_install_ends_with_a_tick_after_the_gate_is_free() {
-        let dir = tempfile::tempdir().unwrap();
-        let provider = EmbeddingProvider::installed_with_load(dir.path(), || Box::pin(async { Err("no model".to_owned()) }));
-        let mut ticks = provider.tick().subscribe();
-        let before = *ticks.borrow_and_update();
-        assert!(!provider.is_installing());
-        provider.install(None, &CancellationToken::new()).await.unwrap();
-        assert!(!provider.is_installing());
-        assert_eq!(*ticks.borrow_and_update(), before + 3, "a tick before and after the download, and one once the gate is free");
     }
 }

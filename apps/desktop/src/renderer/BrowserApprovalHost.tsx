@@ -42,7 +42,7 @@ function fileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** What "Allow for this session" would change, in the card's own words. */
+/** What "Allow for this conversation" would change, in the card's own words. */
 export function sessionAllowNote(requester: string, kinds: string[]): string {
   return sessionAllowScope(requester, kinds.map((kind) => actionLabel(KIND_ACTION[kind] ?? kind)).join(', '));
 }
@@ -143,7 +143,7 @@ export function BrowserApprovalCard({ prompt, queueLabel }: { prompt: BrowserApp
     ...(prompt.remember?.session
       ? [
           {
-            label: t('Allow for this session'),
+            label: t('Allow for this conversation'),
             hint: [sessionAllowNote(requester, prompt.remember.kinds), riskNote].filter(Boolean).join(' '),
             always: true,
             onClick: () => answer(prompt, 'session'),

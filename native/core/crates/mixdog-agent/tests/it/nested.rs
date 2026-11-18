@@ -50,10 +50,6 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../fixtures/tool-pool/dispatch.json")).expect("fixture")
-}
-
 const ASKED: &str = "mcp__mail__send";
 
 struct Connectors;
@@ -176,6 +172,10 @@ struct Rig {
 }
 
 fn rig(surface: SessionSurface, hooks: Option<Arc<Hooks>>, tools: Vec<Arc<Runs>>) -> Rig {
+    rig_over(Arc::new(Session(surface)), hooks, tools)
+}
+
+fn rig_over(session: Arc<dyn GateSession>, hooks: Option<Arc<Hooks>>, tools: Vec<Arc<Runs>>) -> Rig {
     let connectors = Arc::new(Connectors);
     let policy = ToolPolicy::new(Arc::new(MemoryGrantStore::default()), connectors.clone());
     let approvals = Arc::new(MockApprovalGate::default());
@@ -185,7 +185,7 @@ fn rig(surface: SessionSurface, hooks: Option<Arc<Hooks>>, tools: Vec<Arc<Runs>>
     let gate = PolicyGate::new(PolicyGateParts {
         policy: Arc::new(policy),
         connectors,
-        session: Arc::new(Session(surface)),
+        session,
         tools: Arc::new(Registry(registry.0.clone())),
         grants: Arc::new(SessionGrants::default()),
         approvals: approvals.clone(),
@@ -248,35 +248,6 @@ fn text(outcome: &ToolOutcome) -> String {
     }
 }
 
-/// A tool set to ask before it runs meets the user's answer exactly as Node's loop words it.
-#[tokio::test]
-async fn an_ask_is_answered_with_the_words_of_the_node_loop() {
-    let g = golden();
-    assert_eq!(g["askTool"], ASKED);
-    for case in g["asks"].as_array().expect("asks") {
-        let tool = Runs::new(ASKED, false);
-        let rig = rig(SessionSurface::default(), None, vec![tool.clone()]);
-        let answer = &case["answer"];
-        let resolution = if answer.is_null() {
-            ApprovalResolution::Unavailable { at: 0 }
-        } else {
-            decided(answer["approved"].as_bool().expect("approved"), answer["reason"].as_str())
-        };
-        rig.approvals.script.lock().expect("script").push_back(resolution);
-        let got = run_nested(&rig.pipeline, &rig.tools, None, &ctx(rig.approvals.clone()), ASKED, json!({ "to": "x" })).await;
-        match case["denial"].as_str() {
-            Some(denial) => {
-                assert_eq!(text(&got), denial, "{}", case["name"]);
-                assert!(got.is_err() && tool.seen.lock().expect("seen").is_empty(), "{}", case["name"]);
-            }
-            None => {
-                assert_eq!(text(&got), "ran", "{}", case["name"]);
-                assert_eq!(*tool.seen.lock().expect("seen"), [json!({ "to": "x" })], "{}", case["name"]);
-            }
-        }
-    }
-}
-
 /// The surface the session holds judges the target like a direct call of it
 /// (`preDispatchDenyForSession`), before the tool runs.
 #[tokio::test]
@@ -314,4 +285,104 @@ async fn a_target_the_registry_does_not_know_is_refused_in_the_loops_words() {
     let rig = rig(SessionSurface::default(), None, vec![Runs::new("read", false)]);
     let got = run_nested(&rig.pipeline, &rig.tools, None, &ctx(rig.approvals.clone()), "nope", json!({})).await;
     assert_eq!(text(&got), mixdog_agent::text::unknown_tool_message("nope", &[]));
+}
+
+/// A session whose live gate list (`getFeatureDisallowedTools()`) the test moves while the turn is running. Its stored surface
+/// (the header's, what the model's tool list was built from) never moves.
+struct LiveSession {
+    surface: SessionSurface,
+    denied: Arc<Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl GateSession for LiveSession {
+    fn connector_agent_id(&self) -> String {
+        Session(self.surface.clone()).connector_agent_id()
+    }
+    async fn facts(&self) -> SessionFacts {
+        Session(self.surface.clone()).facts().await
+    }
+    fn surface(&self) -> SessionSurface {
+        self.surface.clone()
+    }
+    fn settings(&self) -> PolicySettings {
+        PolicySettings::default()
+    }
+    async fn account(&self, _call: &GateCall) -> Result<Option<mixdog_agent::env::BoundAccount>, String> {
+        Ok(None)
+    }
+    fn live_setting_denied(&self) -> Vec<String> {
+        self.denied.lock().expect("denied").clone()
+    }
+}
+
+fn node_refusal(tool: &str) -> String {
+    format!("Error: tool \"{tool}\" is disabled in settings by the user; do not retry unless the user turns it back on")
+}
+
+/// `web_fetch` keeps its gate under the transports it is routed to (`FETCH_TRANSPORTS`), and the refusal names the gate.
+#[tokio::test]
+async fn a_fetch_transport_is_refused_under_the_web_fetch_gate() {
+    let tool = Runs::new("local_fetch", false);
+    let denied = Arc::new(Mutex::new(vec!["web_fetch".to_owned()]));
+    let session = Arc::new(LiveSession { surface: SessionSurface::default(), denied });
+    let rig = rig_over(session, None, vec![tool.clone()]);
+    let got = run_nested(&rig.pipeline, &rig.tools, None, &ctx(rig.approvals.clone()), "local_fetch", json!({})).await;
+    assert_eq!(text(&got), node_refusal("web_fetch"));
+    assert!(tool.seen.lock().expect("seen").is_empty());
+}
+
+/// Every tool Node's `registerLiveFeatureGates` gates: a setting switched off while the turn runs refuses the next call
+/// (a nested one, which is what `call_tool` and a sub-agent's bridge make, and a direct one, through the one gate), the tool
+/// list stays as the turn began it, and switching the setting back on admits the call again in the same turn.
+#[tokio::test]
+async fn a_setting_switched_off_mid_turn_refuses_the_next_call_and_back_on_admits_it() {
+    for gated in mixdog_tools::policy::surface::SETTING_GATED_TOOL_NAMES {
+        let tool = Runs::new(gated, false);
+        let surface = SessionSurface { active_tools: vec![gated.to_owned()], ..SessionSurface::default() };
+        let denied = Arc::new(Mutex::new(Vec::new()));
+        let session = Arc::new(LiveSession { surface: surface.clone(), denied: denied.clone() });
+        let rig = rig_over(session.clone(), None, vec![tool.clone()]);
+        let call_ctx = ctx(rig.approvals.clone());
+        let nested = || run_nested(&rig.pipeline, &rig.tools, None, &call_ctx, gated, json!({}));
+
+        assert_eq!(text(&nested().await), "ran", "{gated}: on at the start of the turn");
+        *denied.lock().expect("denied") = vec![gated.to_owned()];
+        assert_eq!(text(&nested().await), node_refusal(gated), "{gated}: nested call after the switch");
+        assert_eq!(
+            rig.pipeline.gate.check_call("c", &GateCall::new(gated, json!({}))).await,
+            mixdog_agent::env::GateDecision::Deny(node_refusal(gated)),
+            "{gated}: direct call after the switch"
+        );
+        assert_eq!(tool.seen.lock().expect("seen").len(), 1, "{gated}: the refused calls never ran the tool");
+        assert_eq!(session.surface(), surface, "{gated}: the tool list the model was given does not move mid-turn");
+        *denied.lock().expect("denied") = Vec::new();
+        assert_eq!(text(&nested().await), "ran", "{gated}: switched back on in the same turn");
+    }
+}
+
+
+/// A tool set to ask before it runs: an approval lets it run, a denial or no one to ask refuses the call and the tool never runs.
+#[tokio::test]
+async fn an_ask_runs_the_tool_only_when_the_user_approves() {
+    let cases = [(Some((true, None)), true), (Some((false, Some("not now"))), false), (Some((false, None)), false), (None, false)];
+    for (answer, runs) in cases {
+        let tool = Runs::new(ASKED, false);
+        let rig = rig(SessionSurface::default(), None, vec![tool.clone()]);
+        let resolution = match answer {
+            None => ApprovalResolution::Unavailable { at: 0 },
+            Some((approved, reason)) => decided(approved, reason),
+        };
+        rig.approvals.script.lock().expect("script").push_back(resolution);
+        let got = run_nested(&rig.pipeline, &rig.tools, None, &ctx(rig.approvals.clone()), ASKED, json!({ "to": "x" })).await;
+        if runs {
+            assert_eq!(text(&got), "ran");
+            assert_eq!(*tool.seen.lock().expect("seen"), [json!({ "to": "x" })]);
+        } else {
+            assert!(got.is_err() && tool.seen.lock().expect("seen").is_empty(), "{answer:?}");
+            if let Some((_, Some(reason))) = answer {
+                assert!(text(&got).contains(reason), "the denial carries the user's reason: {}", text(&got));
+            }
+        }
+    }
 }

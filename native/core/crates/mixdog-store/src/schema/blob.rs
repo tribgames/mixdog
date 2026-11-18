@@ -9,8 +9,14 @@ use serde::Serializer;
 
 /// Digest text form, everywhere a digest is written: `sha256:` + 64 lowercase hex.
 pub const DIGEST_PREFIX: &str = "sha256:";
-/// Blob files live at `<D>/prompt-attachments/sha256/<first two hex>/<64 hex>`.
-pub const BLOB_DIR: &str = "prompt-attachments/sha256";
+/// Blob files live at `<D>/blobs/sha256/<first two hex>/<64 hex>`: the core's own directory, which no 1.4.5 code names,
+/// so nothing 1.4.5 does to its own tree (its census, a rollback) reaches a name the core reads.
+pub const BLOB_DIR: &str = "blobs/sha256";
+/// 1.4.5's blob store (`src/runtime/attachments/store.mjs` `attachmentsDir`). The core only reads it, once, to give each
+/// of its blobs a name under [`BLOB_DIR`] (`mixdog_migrate::legacy_blobs`); it stays whole for a rollback.
+pub const LEGACY_BLOB_DIR: &str = "prompt-attachments/sha256";
+/// Published when every 1.4.5 blob has its name under [`BLOB_DIR`]; until then the core does not serve.
+pub const LEGACY_BLOBS_IMPORTED: &str = "blobs/legacy-imported";
 /// Media type of an out-of-line body slot (its bytes are the slot value's `serde_json` encoding).
 pub const BODY_MEDIA_TYPE: &str = "application/json";
 /// Most digests one record's `refs` may list (64 attachments per message in 1.4.5,

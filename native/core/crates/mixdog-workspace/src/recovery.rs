@@ -1190,102 +1190,6 @@ mod tests {
     use super::*;
     use serde_json::Value;
 
-    /// A record Node wrote after a failure whose message it cut at 8000 units inside an emoji
-    /// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): the core reads its state as Node's
-    /// `readRecoveryRecord` does (the half emoji as U+FFFD), so the record stays restorable.
-    #[test]
-    fn a_state_node_cut_inside_an_emoji_is_read_as_node_reads_it() {
-        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
-        let cases: Value = serde_json::from_slice(&fs::read(set.join("cases.json")).unwrap()).unwrap();
-        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "project-recovery").unwrap();
-        let base = tempfile::tempdir().unwrap();
-        let directory = base.path().join("store").join(case["recordId"].as_str().unwrap());
-        fs::create_dir_all(&directory).unwrap();
-        for entry in fs::read_dir(set.join("project-recovery/before/record")).unwrap() {
-            let entry = entry.unwrap();
-            fs::copy(entry.path(), directory.join(entry.file_name())).unwrap();
-        }
-        let store = RecoveryStore::new(base.path().to_path_buf());
-        let record = store.read_record(&directory).unwrap();
-        assert_eq!(serde_json::to_value(&record.state).unwrap(), case["nodeRead"]);
-        assert_eq!(serde_json::to_value(&record.manifest).unwrap(), case["before"]["record/manifest.json"]);
-        // Node's own rewrite of the state it read (the phase moved on): the core writes the same document (U+FFFD where
-        // Node wrote the escape, decisions.md "frame-lone-surrogate").
-        let mut state = record.state.unwrap();
-        state.phase = serde_json::from_value(case["op"]["writeRecoveryState"]["phase"].clone()).unwrap();
-        store.write_state(&directory, &state).unwrap();
-        let written: Value = serde_json::from_slice(&fs::read(directory.join("state.json")).unwrap()).unwrap();
-        assert_eq!(written, case["after"]["record/state.json"]);
-    }
-
-    /// A journal whose paths held a lone surrogate (Node writes one for a desktop batch edit of such a name: relPath and
-    /// destination with the escape, `native/core/fixtures/lone-surrogate-files` `project-recovery-lone-path`). A path is no
-    /// free text and no shipped client sends one holding a lone unit (decisions.md "frame-lone-surrogate"): the record is
-    /// invalid and nothing is restored, not over the file whose name holds a real U+FFFD either, whether the two paths held
-    /// the same lone unit or different ones (`\ud800` and `\udc00` read as the same U+FFFD).
-    #[test]
-    fn a_journal_whose_paths_held_a_lone_surrogate_restores_nothing() {
-        for edit in [(|raw: String| raw) as fn(String) -> String, |raw: String| raw.replacen(r"\ud83d", r"\ud800", 1).replacen(r"\ud83d", r"\udc00", 1)] {
-            let (_project, _base, root, store, id, _case) = node_record("project-recovery-lone-path", "b\u{fffd}.txt", edit);
-            let inspected = store.execute(&root, Action::Inspect { id: id.clone() }).unwrap().detail.unwrap();
-            assert_eq!(serde_json::to_value(&inspected).unwrap()["phase"], "invalid");
-            let restored = store.execute(&root, Action::Restore { id, revision: inspected.revision.clone() });
-            assert!(restored.as_ref().map_or(true, |done| serde_json::to_value(&done.detail).unwrap()["phase"] != "recovered"), "{restored:?}");
-            assert_eq!(fs::read_to_string(root.join("src").join("b\u{fffd}.txt")).unwrap(), "after\n");
-        }
-    }
-
-    /// A destination naming the file in another case than the relPath does (`src/A.txt` against `...\\src\\a.txt`): Node's
-    /// `join(parent, basename(file)) !== entry.destination` (project-recovery.ts:45) compares the strings and refuses it,
-    /// where a case-folded comparison would restore over the file.
-    #[test]
-    fn a_destination_in_another_case_than_its_relpath_is_refused() {
-        let (_project, _base, root, store, id, _case) =
-            node_record("project-recovery", "a.txt", |raw| raw.replacen(r#""relPath":"src/a.txt""#, r#""relPath":"src/A.txt""#, 1));
-        let inspected = store.execute(&root, Action::Inspect { id: id.clone() }).unwrap().detail.unwrap();
-        let restored = store.execute(&root, Action::Restore { id, revision: inspected.revision.clone() });
-        assert!(restored.as_ref().map_or(true, |done| serde_json::to_value(&done.detail).unwrap()["phase"] != "recovered"), "{restored:?}");
-        assert_eq!(fs::read_to_string(root.join("src").join("a.txt")).unwrap(), "after\n");
-    }
-
-    /// Node's record of case `name`, moved onto a fresh project root (its scratch root and identities replaced, every other
-    /// byte as Node wrote it, then `edit`ed), with `src/<file>` holding the record's after bytes.
-    #[allow(clippy::type_complexity)]
-    fn node_record(name: &str, file: &str, edit: impl Fn(String) -> String) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, RecoveryStore, String, Value) {
-        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
-        let cases: Value = serde_json::from_slice(&fs::read(set.join("cases.json")).unwrap()).unwrap();
-        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == name).unwrap();
-        let node_record = set.join(name).join("before/record");
-        let raw = String::from_utf8(fs::read(node_record.join("manifest.json")).unwrap()).unwrap();
-        // The record names Node's scratch root and its identities: moved onto this test's root, every other byte as Node wrote it.
-        let node_manifest = &case["before"]["record/manifest.json"];
-        let project = tempfile::tempdir().unwrap();
-        let root = canonical(project.path()).unwrap();
-        fs::create_dir(root.join("src")).unwrap();
-        fs::write(root.join("src").join(file), "after\n").unwrap();
-        let escaped = |path: &Path| serde_json::to_string(&path.to_string_lossy()).unwrap().trim_matches('"').to_owned();
-        let node_root = serde_json::to_string(node_manifest["root"].as_str().unwrap()).unwrap().trim_matches('"').to_owned();
-        let identity = |path: &Path| serde_json::to_value(identity_of(path).unwrap()).unwrap();
-        let mut moved = raw.replace(&node_root, &escaped(&root));
-        for (node, ours) in [(&node_manifest["rootIdentity"], identity(&root)), (&node_manifest["files"][0]["parent"], identity(&root.join("src")))] {
-            for key in ["dev", "ino"] {
-                moved = moved.replacen(&format!("\"{key}\":\"{}\"", node[key].as_str().unwrap()), &format!("\"{key}\":\"{}\"", ours[key].as_str().unwrap()), 1);
-            }
-        }
-        let base = tempfile::tempdir().unwrap();
-        let store = RecoveryStore::new(base.path().to_path_buf());
-        let id = node_manifest["id"].as_str().unwrap();
-        let directory = store.store_path(&root).join(id);
-        fs::create_dir_all(&directory).unwrap();
-        fs::write(directory.join("manifest.json"), edit(moved)).unwrap();
-        for name in ["state.json", "0.before", "0.after"] {
-            fs::copy(node_record.join(name), directory.join(name)).unwrap();
-        }
-        let id = id.to_owned();
-        let case = case.clone();
-        (project, base, root, store, id, case)
-    }
-
     /// A journal of the old app's interrupted save, left by an earlier migration under `desktop/editor-recovery`, is found by the
     /// store at `recovery`, and what the store already holds stays.
     #[test]
@@ -1309,38 +1213,6 @@ mod tests {
         assert_eq!(listed[0].id, journal.id);
         assert_eq!(serde_json::to_value(&listed[0]).unwrap()["phase"], "interrupted");
         assert!(!data.path().join("desktop").join("editor-recovery").exists(), "no copy is left behind");
-    }
-
-    #[test]
-    fn electron_journal_conflicts_are_preserved_without_resurrection() {
-        let (_project, _base, root, old, id, _case) = node_record("project-recovery", "a.txt", |raw| raw);
-        let data = tempfile::tempdir().unwrap();
-        let digest = old.store_path(&root).file_name().unwrap().to_owned();
-        let legacy = data.path().join("desktop/editor-recovery").join(&digest).join(&id);
-        let current = data.path().join(JOURNALS_DIR).join(&digest).join(&id);
-        fs::create_dir_all(legacy.parent().unwrap()).unwrap();
-        fs::rename(old.store_path(&root).join(&id), &legacy).unwrap();
-        fs::create_dir_all(&current).unwrap();
-        for entry in fs::read_dir(&legacy).unwrap() {
-            let entry = entry.unwrap();
-            fs::copy(entry.path(), current.join(entry.file_name())).unwrap();
-        }
-        let store = RecoveryStore::new(data.path().join(JOURNALS_DIR));
-        assert_eq!(store.list(&root).unwrap().len(), 1);
-        let retired = store.retire(&current).unwrap();
-        store.remove(&retired).unwrap();
-        assert!(RecoveryStore::new(data.path().join(JOURNALS_DIR)).list(&root).unwrap().is_empty());
-        assert!(!legacy.exists());
-        let archive = data.path().join("desktop/editor-recovery-superseded").join(&digest);
-        let mut preserved = Vec::new();
-        for slot in fs::read_dir(archive).unwrap() {
-            for entry in fs::read_dir(slot.unwrap().path().join(&id)).unwrap() {
-                preserved.push(entry.unwrap().file_name());
-            }
-        }
-        assert!(preserved.iter().any(|name| name == "manifest.json"));
-        assert!(preserved.iter().any(|name| name == "0.before"));
-        assert!(preserved.iter().any(|name| name == "0.after"));
     }
 
     #[test]
@@ -1380,6 +1252,114 @@ mod tests {
         assert!(!to.join(id).exists());
     }
 
+
+    #[cfg(node_twin)]
+    include!("node-twin/recovery.rs");
+    /// A journal whose paths held a lone surrogate (Node writes one for a desktop batch edit of such a name: relPath and
+    /// destination with the escape, `native/core/fixtures/lone-surrogate-files` `project-recovery-lone-path`). A path is no
+    /// free text and no shipped client sends one holding a lone unit (decisions.md "frame-lone-surrogate"): the record is
+    /// invalid and nothing is restored, not over the file whose name holds a real U+FFFD either, whether the two paths held
+    /// the same lone unit or different ones (`\ud800` and `\udc00` read as the same U+FFFD).
+    #[test]
+    fn a_journal_whose_paths_held_a_lone_surrogate_restores_nothing() {
+        for edit in [(|raw: String| raw) as fn(String) -> String, |raw: String| raw.replacen(r"\ud83d", r"\ud800", 1).replacen(r"\ud83d", r"\udc00", 1)] {
+            let (_project, _base, root, store, id, _case) = node_record("project-recovery-lone-path", "b\u{fffd}.txt", edit);
+            let inspected = store.execute(&root, Action::Inspect { id: id.clone() }).unwrap().detail.unwrap();
+            assert_eq!(serde_json::to_value(&inspected).unwrap()["phase"], "invalid");
+            let restored = store.execute(&root, Action::Restore { id, revision: inspected.revision.clone() });
+            assert!(restored.as_ref().map_or(true, |done| serde_json::to_value(&done.detail).unwrap()["phase"] != "recovered"), "{restored:?}");
+            assert_eq!(fs::read_to_string(root.join("src").join("b\u{fffd}.txt")).unwrap(), "after\n");
+        }
+    }
+    /// A destination naming the file in another case than the relPath does (`src/A.txt` against `...\\src\\a.txt`): Node's
+    /// `join(parent, basename(file)) !== entry.destination` (project-recovery.ts:45) compares the strings and refuses it,
+    /// where a case-folded comparison would restore over the file.
+    #[test]
+    fn a_destination_in_another_case_than_its_relpath_is_refused() {
+        let (_project, _base, root, store, id, _case) =
+            node_record("project-recovery", "a.txt", |raw| raw.replacen(r#""relPath":"src/a.txt""#, r#""relPath":"src/A.txt""#, 1));
+        let inspected = store.execute(&root, Action::Inspect { id: id.clone() }).unwrap().detail.unwrap();
+        let restored = store.execute(&root, Action::Restore { id, revision: inspected.revision.clone() });
+        assert!(restored.as_ref().map_or(true, |done| serde_json::to_value(&done.detail).unwrap()["phase"] != "recovered"), "{restored:?}");
+        assert_eq!(fs::read_to_string(root.join("src").join("a.txt")).unwrap(), "after\n");
+    }
+    /// A journal record of one file `src/<file>` on a fresh project root (`name` picks the file's spelling in the manifest: a plain
+    /// `a.txt`, or `b` plus a lone surrogate escape), its state `failed`, its before and after bytes, then the manifest text
+    /// `edit`ed; with `src/<file>` holding the after bytes.
+    #[allow(clippy::type_complexity)]
+    fn node_record(name: &str, file: &str, edit: impl Fn(String) -> String) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, RecoveryStore, String, Value) {
+        let project = tempfile::tempdir().unwrap();
+        let root = canonical(project.path()).unwrap();
+        fs::create_dir(root.join("src")).unwrap();
+        fs::write(root.join("src").join(file), "after\n").unwrap();
+        let escaped = |path: &Path| serde_json::to_string(&path.to_string_lossy()).unwrap().trim_matches('"').to_owned();
+        let rel = if name == "project-recovery-lone-path" { r"b\ud83d.txt" } else { "a.txt" };
+        let identity = |path: &Path| serde_json::to_string(&identity_of(path).unwrap()).unwrap();
+        let id = "3c16294e-ac3c-4dc6-85e0-c7ad1c979ec7";
+        let manifest = format!(
+            r#"{{"version":1,"id":"{id}","createdAt":1794355203000,"root":"{root}","rootIdentity":{root_identity},"files":[{{"relPath":"src/{rel}","destination":"{root}\\src\\{rel}","parent":{parent},"mode":420,"before":{{"size":7,"sha256":"9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb"}},"after":{{"size":6,"sha256":"7b9a72466d3960eb2aacccfc848939453490db0678bd4725def3f789b891c919"}}}}]}}"#,
+            root = escaped(&root),
+            root_identity = identity(&root),
+            parent = identity(&root.join("src")),
+        );
+        let base = tempfile::tempdir().unwrap();
+        let store = RecoveryStore::new(base.path().to_path_buf());
+        let directory = store.store_path(&root).join(id);
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("manifest.json"), edit(manifest)).unwrap();
+        fs::write(directory.join("state.json"), r#"{"phase":"failed","message":"interrupted","restored":[]}"#).unwrap();
+        fs::write(directory.join("0.before"), "before\n").unwrap();
+        fs::write(directory.join("0.after"), "after\n").unwrap();
+        (project, base, root, store, id.to_owned(), Value::Null)
+    }
+    /// A recovery state whose message was cut inside an emoji (a lone surrogate escape at its end) is read with U+FFFD there, so the
+    /// record stays restorable, and writing the state again keeps that text.
+    #[test]
+    fn a_state_cut_inside_an_emoji_is_read_with_a_replacement_character_and_kept() {
+        let (_project, _base, root, store, id, _) = node_record("project-recovery", "a.txt", |raw| raw);
+        let directory = store.store_path(&root).join(&id);
+        let cut = format!(r#"{{"phase":"failed","message":"{}\ud83d","restored":[]}}"#, "m".repeat(7999));
+        fs::write(directory.join("state.json"), cut).unwrap();
+        let record = store.read_record(&directory).unwrap();
+        let expected = format!("{}\u{fffd}", "m".repeat(7999));
+        let state = serde_json::to_value(&record.state).unwrap();
+        assert_eq!((state["phase"].as_str(), state["message"].as_str()), (Some("failed"), Some(expected.as_str())));
+        let state = record.state.unwrap();
+        store.write_state(&directory, &state).unwrap();
+        let written: Value = serde_json::from_slice(&fs::read(directory.join("state.json")).unwrap()).unwrap();
+        assert_eq!(written["message"], expected.as_str());
+    }
+    #[test]
+    fn electron_journal_conflicts_are_preserved_without_resurrection() {
+        let (_project, _base, root, old, id, _case) = node_record("project-recovery", "a.txt", |raw| raw);
+        let data = tempfile::tempdir().unwrap();
+        let digest = old.store_path(&root).file_name().unwrap().to_owned();
+        let legacy = data.path().join("desktop/editor-recovery").join(&digest).join(&id);
+        let current = data.path().join(JOURNALS_DIR).join(&digest).join(&id);
+        fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        fs::rename(old.store_path(&root).join(&id), &legacy).unwrap();
+        fs::create_dir_all(&current).unwrap();
+        for entry in fs::read_dir(&legacy).unwrap() {
+            let entry = entry.unwrap();
+            fs::copy(entry.path(), current.join(entry.file_name())).unwrap();
+        }
+        let store = RecoveryStore::new(data.path().join(JOURNALS_DIR));
+        assert_eq!(store.list(&root).unwrap().len(), 1);
+        let retired = store.retire(&current).unwrap();
+        store.remove(&retired).unwrap();
+        assert!(RecoveryStore::new(data.path().join(JOURNALS_DIR)).list(&root).unwrap().is_empty());
+        assert!(!legacy.exists());
+        let archive = data.path().join("desktop/editor-recovery-superseded").join(&digest);
+        let mut preserved = Vec::new();
+        for slot in fs::read_dir(archive).unwrap() {
+            for entry in fs::read_dir(slot.unwrap().path().join(&id)).unwrap() {
+                preserved.push(entry.unwrap().file_name());
+            }
+        }
+        assert!(preserved.iter().any(|name| name == "manifest.json"));
+        assert!(preserved.iter().any(|name| name == "0.before"));
+        assert!(preserved.iter().any(|name| name == "0.after"));
+    }
     #[test]
     fn journal_archive_obstruction_blocks_retirement_and_preserves_distinct_record() {
         let (_project, _base, root, old, id, _case) = node_record("project-recovery", "a.txt", |raw| raw);
@@ -1416,5 +1396,4 @@ mod tests {
         assert_eq!(fs::read(slot.join(&id).join("manifest.json")).unwrap(), old_manifest);
         assert!(slot.join(&id).join("0.before").exists());
     }
-
 }

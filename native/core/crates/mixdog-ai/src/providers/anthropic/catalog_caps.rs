@@ -76,7 +76,12 @@ pub struct CatalogCaps {
 
 impl CatalogCaps {
     pub fn new(catalog: Arc<CatalogService>, env: &dyn Environment) -> Self {
-        let always = env.var("MIXDOG_ANTHROPIC_ALWAYS_ENABLE_EFFORT").map(|v| mixdog_js::js_trim(&v).to_lowercase());
+        Self::with_flag(catalog, env.var("MIXDOG_ANTHROPIC_ALWAYS_ENABLE_EFFORT").as_deref())
+    }
+
+    /// Over `MIXDOG_ANTHROPIC_ALWAYS_ENABLE_EFFORT`'s value as the caller read it.
+    pub fn with_flag(catalog: Arc<CatalogService>, always_effort: Option<&str>) -> Self {
+        let always = always_effort.map(|v| mixdog_js::js_trim(v).to_lowercase());
         Self { catalog, always_effort: matches!(always.as_deref(), Some("1" | "true" | "yes" | "on")) }
     }
 

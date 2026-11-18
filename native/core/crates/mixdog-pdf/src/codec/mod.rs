@@ -38,8 +38,6 @@ impl fmt::Display for CodecError {
     }
 }
 
-impl std::error::Error for CodecError {}
-
 /// JavaScript `ToInt32` of a number, the conversion a wasm `i32` parameter applies to the width, height and options
 /// pdf.js passes (`NaN` and the infinities become 0, fractions are truncated, the value wraps modulo 2^32).
 pub fn to_int32(value: f64) -> i32 {
@@ -72,3 +70,6 @@ mod tests {
         assert_eq!(CodecError::Message("x".into()).message(), "x");
     }
 }
+
+
+impl std::error::Error for CodecError {}

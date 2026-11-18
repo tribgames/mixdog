@@ -21,6 +21,10 @@ mixdog-app-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }
 mixdog-exthost = { workspace = true }
 mixdog-js = { workspace = true }
+mixdog-imaging = { workspace = true }
+mixdog-image-egress = { workspace = true }
+mixdog-image-vault = { workspace = true }
+mixdog-ooxml-text = { workspace = true }
 mixdog-ledger = { workspace = true }
 mixdog-mcp = { workspace = true }
 mixdog-protocol = { workspace = true }
@@ -30,6 +34,7 @@ mixdog-services = { workspace = true }
 mixdog-statefile = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-tools = { workspace = true }
+mixdog-workspace = { workspace = true }
 rand = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -97,37 +102,37 @@ mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-trace = { workspace = true, features = ["flush-probe"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-app-protocol = { workspace = true }
 mixdog-core-domains = { workspace = true, features = ["count-work"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-core-config = { workspace = true, features = ["count-work"] }
 mixdog-protocol = { workspace = true }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-agent = { workspace = true, features = ["test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-tools = { workspace = true, features = ["policy-observer"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 fancy-regex = { workspace = true, features = ["perf", "probe", "std", "unicode", "variable-lookbehinds"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-services = { workspace = true, features = ["assigned-pg-port", "test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-exthost = { workspace = true, features = ["test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 mixdog-browser-engine = { workspace = true, features = ["test-support"] }
 mixdog-imaging = { workspace = true }

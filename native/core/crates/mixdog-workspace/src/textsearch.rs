@@ -376,6 +376,68 @@ mod tests {
         assert_eq!(error.message, "Invalid search pattern: Invalid regular expression: /(/giu: Unterminated group");
     }
 
+    /// A user's regular expression that does not parse is refused with the JavaScript engine's own text (the flags shown are the
+    /// ones the search uses: `giu`, or `gu` when case matters); a plain-text query is never a pattern.
+    #[test]
+    fn a_bad_regular_expression_is_refused_with_the_engines_text() {
+        let message = |query: &str, match_case: bool| Pattern::compile(&TextQuery { regex: true, match_case, ..q(query) }).err().map(|e| e.message);
+        let refused = |reason: &str, pattern: &str, flags: &str| Some(format!("Invalid search pattern: Invalid regular expression: /{pattern}/{flags}: {reason}"));
+        assert_eq!(message("a**", false), refused("Nothing to repeat", "a**", "giu"));
+        assert_eq!(message("[abc", true), refused("Unterminated character class", "[abc", "gu"));
+        assert_eq!(message("a)", false), refused("Unmatched ')'", "a)", "giu"));
+        assert_eq!(message("a\\", false), refused("\\ at end of pattern", "a\\", "giu"));
+        assert_eq!(message("a{2,1}", false), refused("numbers out of order in {} quantifier", "a{2,1}", "giu"));
+        assert_eq!(message("[b-a]", false), refused("Range out of order in character class", "[b-a]", "giu"));
+        assert_eq!(message("(?<n>a)(?<n>b)", false), refused("Duplicate capture group name", "(?<n>a)(?<n>b)", "giu"));
+        assert_eq!(message("\\p{NoSuchProperty}", false), refused("Invalid property name", "\\p{NoSuchProperty}", "giu"));
+        assert_eq!(message("(a|b)+?\\1[a-z]*", false), None);
+        let literal = Pattern::compile(&q("a**(")).is_ok();
+        assert!(literal, "plain text is escaped, not parsed");
+    }
+
+    /// Search: case, whole words, include and exclude globs, line and column of each hit (columns count UTF-16 units from 1), CRLF lines.
+    #[test]
+    fn search_respects_case_words_globs_and_reports_utf16_columns() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("one.txt"), "😀 Needle\r\nneedles\r\nNEEDLE\n").unwrap();
+        fs::create_dir(dir.path().join("docs")).unwrap();
+        fs::write(dir.path().join("docs/two.md"), "a needle\n").unwrap();
+        let root = crate::pathguard::canonical(dir.path()).unwrap();
+        let find = |query: TextQuery| search(&root, &query, &|| false).unwrap();
+        let hits = find(q("needle"));
+        assert_eq!(hits.match_count, 4);
+        let one = hits.files.iter().find(|f| f.rel_path == "one.txt").unwrap();
+        assert_eq!((one.matches[0].line, one.matches[0].column, one.matches[0].end_column, one.matches[0].match_text.as_str()), (1, 4, 10, "Needle"));
+        assert_eq!(one.matches[0].preview, "😀 Needle", "the carriage return is not part of the line");
+        assert_eq!(find(TextQuery { match_case: true, ..q("needle") }).match_count, 2);
+        assert_eq!(find(TextQuery { whole_word: true, ..q("needle") }).match_count, 3);
+        let md = find(TextQuery { include: "**/*.md".into(), ..q("needle") });
+        assert_eq!(md.files.iter().map(|f| f.rel_path.as_str()).collect::<Vec<_>>(), ["docs/two.md"]);
+        let not_md = find(TextQuery { exclude: "*.md".into(), ..q("needle") });
+        assert_eq!(not_md.files.iter().map(|f| f.rel_path.as_str()).collect::<Vec<_>>(), ["one.txt"]);
+    }
+
+    /// Replace: plain text replaces literally (a `$1` stays), a regular expression expands `$1`, `$&` and `$$`; only the files asked for
+    /// are planned; a replace that would pass the result cap is refused.
+    #[test]
+    fn replace_expands_groups_only_for_regular_expressions_and_limits_its_files() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.txt"), "key=1\nkey=2\n").unwrap();
+        fs::write(dir.path().join("b.txt"), "key=3\n").unwrap();
+        let root = crate::pathguard::canonical(dir.path()).unwrap();
+        let regex = TextQuery { regex: true, match_case: true, ..q("key=(\\d)") };
+        let plan = plan_replace(&root, &regex, "v$1[$&]$$", None, &|| false).unwrap();
+        assert_eq!((plan.replacements, plan.writes.len()), (3, 2));
+        let a = plan.writes.iter().find(|w| w.rel_path == "a.txt").unwrap();
+        assert_eq!((a.content.as_str(), a.expected_content.as_str()), ("v1[key=1]$\nv2[key=2]$\n", "key=1\nkey=2\n"));
+        let only_b = plan_replace(&root, &regex, "x", Some(&["b.txt".to_owned()]), &|| false).unwrap();
+        assert_eq!(only_b.writes.iter().map(|w| w.rel_path.as_str()).collect::<Vec<_>>(), ["b.txt"]);
+        let plain = plan_replace(&root, &TextQuery { match_case: true, ..q("key") }, "$1", None, &|| false).unwrap();
+        assert_eq!(plain.writes.iter().find(|w| w.rel_path == "b.txt").unwrap().content, "$1=3\n");
+        let capped = plan_replace(&root, &TextQuery { max_results: Some(1), ..q("key") }, "x", None, &|| false).err().expect("the cap refuses the replace");
+        assert_eq!(capped.message, "Search result limit reached. Narrow the search before replacing.");
+    }
+
     #[test]
     fn replace_plans_exact_writes() {
         let dir = project();

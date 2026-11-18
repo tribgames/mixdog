@@ -497,30 +497,77 @@ pub(super) async fn extract_archive(processes: &Processes, archive: &Path, desti
     Err(AssetError::Other(format!("[local-provider] runtime extraction failed: {}", if tail.is_empty() { format!("status {}", output.code) } else { tail.to_owned() })))
 }
 
-#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
-fn exists_blocking(path: &Path) -> bool {
-    path.exists()
+const RUNTIME_RECEIPT: &str = ".mixdog-runtime-verification.json";
+
+fn runtime_receipt(entry: &Value, version: &str, digest: &str) -> Value {
+    json!({
+        "version": version,
+        "platform": entry["key"],
+        "assets": entry["assets"],
+        "executable": entry["executable"],
+        "executableSha256": digest,
+    })
 }
 
-/// Installs the runtime build for this host; no-op when its executable is already there.
+/// Only the managed installer writes this receipt, after verifying all pinned
+/// archives and extracting them together. Reuse also checks the current binary.
+#[allow(clippy::disallowed_methods, reason = "receipt IO runs on the durability lane")]
+async fn verified_runtime(lane: DurabilityIo, dir: &Path, entry: &Value, version: &str, executable: &str, cancel: &CancellationToken) -> Result<bool, AssetError> {
+    let path = dir.join(RUNTIME_RECEIPT);
+    let server = dir.join(executable);
+    let check_server = server.clone();
+    let receipt = on_durability_lane(lane, cancel, move || {
+        if !file_has_data(&check_server) {
+            return Ok(None);
+        }
+        match fs::read(path) {
+            Ok(bytes) => Ok(serde_json::from_slice::<Value>(&bytes).ok()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
+    }).await?;
+    let Some(receipt) = receipt else { return Ok(false) };
+    let Some(digest) = receipt["executableSha256"].as_str() else { return Ok(false) };
+    if receipt != runtime_receipt(entry, version, digest) {
+        return Ok(false);
+    }
+    Ok(sha256_file(lane, &server, cancel).await? == digest)
+}
+
+#[allow(clippy::disallowed_methods, reason = "receipt IO runs on the durability lane")]
+async fn record_runtime_verification(lane: DurabilityIo, staging: &Path, entry: &Value, version: &str, executable: &str, cancel: &CancellationToken) -> Result<(), AssetError> {
+    let server = staging.join(executable);
+    let check_server = server.clone();
+    if !on_durability_lane(lane, cancel, move || Ok(file_has_data(&check_server))).await? {
+        return Err(AssetError::Other(format!("[local-provider] runtime archive did not produce a usable {executable}")));
+    }
+    let digest = sha256_file(lane, &server, cancel).await?;
+    let receipt = runtime_receipt(entry, version, &digest).to_string();
+    let path = staging.join(RUNTIME_RECEIPT);
+    on_durability_lane(lane, cancel, move || fs::write(path, receipt)).await
+}
+
+/// Installs the runtime build for this host; reuse requires verified evidence.
 pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, processes: &Processes, platform_key: &str, progress: Progress, cancel: CancellationToken) -> Result<Value, AssetError> {
     let durability = processes.durability();
-    let hardware = catalog.hardware.detect(true).await;
+    let unsupported = || AssetError::Other("[local-provider] Windows x64 with a compatible NVIDIA RTX GPU, or an Apple Silicon Mac with enough memory, is required".into());
+    let entry = catalog.runtime_platform_entry(platform_key).ok_or_else(unsupported)?;
+    let target = catalog.runtime_directory();
+    let executable = entry["executable"].as_str().filter(|name| !name.is_empty()).ok_or_else(unsupported)?;
+    let version = catalog.runtime_version();
+    if verified_runtime(durability, &target, &entry, version, executable, &cancel).await? {
+        return catalog.status(Some(platform_key)).await;
+    }
+    catalog.hardware.detect(true).await;
     if cancel.is_cancelled() {
         return Err(AssetError::Aborted);
     }
-    let entry = catalog.runtime_platform_entry(platform_key);
     let status = catalog.status(Some(platform_key)).await?;
-    let Some(entry) = entry.filter(|_| status["available"] == true) else {
-        return Err(AssetError::Other("[local-provider] Windows x64 with a compatible NVIDIA RTX GPU, or an Apple Silicon Mac with enough memory, is required".into()));
-    };
-    let _ = hardware;
-    let target = catalog.runtime_directory();
-    let executable = entry["executable"].as_str().unwrap_or("");
-    let installed = target.join(executable);
-    if probe(durability, move || file_has_data(&installed)).await? {
-        return catalog.status(Some(platform_key)).await;
+    if status["available"] != true {
+        return Err(unsupported());
     }
+    let assets = entry["assets"].as_array().filter(|assets| !assets.is_empty())
+        .ok_or_else(|| AssetError::Other("[local-provider] runtime manifest has no pinned assets".into()))?;
     let total_bytes = entry["downloadBytes"].as_i64().unwrap_or(0);
     check_disk(durability, true, &catalog.runtime_root(), total_bytes).await?;
     let staging = catalog.runtime_root().join(format!(".staging-{}", std::process::id()));
@@ -529,7 +576,7 @@ pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, proc
     create_dir_all(durability, &staging).await?;
     let result = async {
         let mut completed = 0i64;
-        for asset in entry["assets"].as_array().cloned().unwrap_or_default() {
+        for asset in assets {
             let archive = downloads.join(asset["name"].as_str().unwrap_or("asset"));
             let (done, progress_cb) = (completed, progress.clone());
             let on_progress: Progress = std::sync::Arc::new(move |p: Map<String, Value>| {
@@ -542,7 +589,7 @@ pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, proc
                 m.insert("percent".into(), json!((got as f64 / total_bytes as f64 * 100.0).round()));
                 progress_cb(m);
             });
-            download_verified_asset(fetcher, &asset, &archive, DownloadOptions { on_progress: Some(on_progress), cancel: cancel.clone(), ..DownloadOptions::new(durability) }).await?;
+            download_verified_asset(fetcher, asset, &archive, DownloadOptions { on_progress: Some(on_progress), cancel: cancel.clone(), ..DownloadOptions::new(durability) }).await?;
             let after = completed + asset["size"].as_i64().unwrap_or(0);
             progress(Map::from_iter([
                 ("phase".to_owned(), json!("runtime")), ("stage".into(), json!("extracting")),
@@ -552,10 +599,7 @@ pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, proc
             extract_archive(processes, &archive, &staging, &cancel).await?;
             completed = after;
         }
-        let extracted = staging.join(executable);
-        if !probe(durability, move || exists_blocking(&extracted)).await? {
-            return Err(AssetError::Other(format!("[local-provider] runtime archive did not contain {executable}")));
-        }
+        record_runtime_verification(durability, &staging, &entry, version, executable, &cancel).await?;
         if cancel.is_cancelled() {
             return Err(AssetError::Aborted);
         }
@@ -720,6 +764,30 @@ mod tests {
         DownloadOptions { check_disk: false, ..DownloadOptions::new(mixdog_rt::testing::tokens().durability_io) }
     }
 
+    #[tokio::test]
+    async fn runtime_reuse_requires_current_archive_evidence_and_intact_executable() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let cancel = CancellationToken::new();
+        let executable = "llama-server";
+        let entry = json!({
+            "key": "fixture",
+            "executable": executable,
+            "assets": [{"name": "runtime.zip", "sha256": digest(b"original archive")}],
+        });
+        let server = dir.join(executable);
+        fs::write(&server, b"verified binary").unwrap();
+        assert!(!verified_runtime(lane, dir, &entry, "v1", executable, &cancel).await.unwrap());
+        record_runtime_verification(lane, dir, &entry, "v1", executable, &cancel).await.unwrap();
+        assert!(verified_runtime(lane, dir, &entry, "v1", executable, &cancel).await.unwrap());
+        let mut updated = entry.clone();
+        updated["assets"][0]["sha256"] = json!(digest(b"different archive"));
+        assert!(!verified_runtime(lane, dir, &updated, "v1", executable, &cancel).await.unwrap());
+        fs::write(&server, b"modified binary").unwrap();
+        assert!(!verified_runtime(lane, dir, &entry, "v1", executable, &cancel).await.unwrap());
+    }
+
     /// The test backend runs lane jobs inline, so which thread wrote cannot be observed here; what
     /// is checked is that the lane path honours cancellation and carries a multi-batch download.
     #[tokio::test(flavor = "current_thread")]
@@ -872,6 +940,7 @@ mod tests {
         let cancelled = DownloadOptions { cancel: { let c = CancellationToken::new(); c.cancel(); c }, ..opts() };
         assert!(matches!(download_verified_asset(&fake(content), &asset(content), &dest, cancelled).await, Err(AssetError::Aborted)));
     }
+
 
     #[tokio::test]
     async fn partial_files_surface_as_paused_installations_and_can_be_discarded() {

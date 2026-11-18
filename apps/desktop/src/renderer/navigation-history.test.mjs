@@ -12,7 +12,7 @@ import {
 } from './navigation-history.ts';
 import { useEditorNavigation } from './use-editor-navigation.ts';
 import { useAppSessionOpen } from './app-shell-session-open.ts';
-import { applySessionLaneResult, useAppTaskLifecycle } from './app-root/use-app-task-lifecycle.ts';
+import { seedCreatedSessionLane, useAppTaskLifecycle } from './app-root/use-app-task-lifecycle.ts';
 import { useAppTabActions } from './app-root/use-app-tab-actions.ts';
 
 const session = (id) => ({ kind: 'session', id });
@@ -132,7 +132,7 @@ async function mountNavigation(t, sessions) {
     jsdom: { url: 'https://mixdog.test/' },
     expose: ['navigator', 'HTMLElement', 'Event', 'CustomEvent', 'localStorage'],
   });
-  for (const row of sessions) applySessionLaneResult(row.id, { sessionId: row.id });
+  for (const row of sessions) seedCreatedSessionLane(row.id, { sessionId: row.id });
   const leaf = { id: 'leaf-1', tabs: [], activeKey: '' };
   const paneWorkspace = {
     leaves: [leaf],

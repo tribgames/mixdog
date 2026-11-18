@@ -32,17 +32,6 @@ const MAX_CACHED_RENDITION_BYTES: u64 = 4 * 1024 * 1024;
 const DEFAULT_RENDITION_CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
 const PROBE_BYTES: usize = 4096;
 
-/// A rendition on disk: `{ path, mime, bytes }`.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Rendition {
-    pub path: PathBuf,
-    pub mime: &'static str,
-    pub bytes: u64,
-    /// The clip's length, probed while its poster was built (`durationSeconds`); none for a still
-    /// or a cached rendition.
-    pub duration_seconds: Option<i64>,
-}
-
 /// Cloneable because one generation answers every caller waiting on it.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum RenditionError {
@@ -74,8 +63,6 @@ pub enum Priority {
     Foreground,
     Background,
 }
-
-type Outcome = Result<Option<Rendition>, RenditionError>;
 
 /// A waiter is told "your slot is taken" (the slot is already counted); the waiting side turns that
 /// into a [`Permit`], which keeps the queue free of the permits it hands out.
@@ -224,13 +211,6 @@ fn rendition_path(cache_dir: &Path, variant: RenditionVariant, id: &str, extensi
     cache_dir.join(variant_name(variant)).join(format!("{id}{extension}"))
 }
 
-/// `MIXDOG_RENDITION_CACHE_MAX_BYTES` when it is a number of at least one rendition's cap, else
-/// 512 MiB.
-pub fn cache_max_bytes() -> u64 {
-    let configured = std::env::var("MIXDOG_RENDITION_CACHE_MAX_BYTES").map_or(f64::NAN, |raw| mixdog_js::string_to_number(&raw));
-    if configured.is_finite() && configured >= MAX_CACHED_RENDITION_BYTES as f64 { configured.floor() as u64 } else { DEFAULT_RENDITION_CACHE_MAX_BYTES }
-}
-
 /// `holdsNoData`: only NUL and white space.
 fn holds_no_data(bytes: &[u8]) -> bool {
     bytes.iter().all(|b| matches!(b, 0 | b' ' | b'\t' | b'\n' | b'\r'))
@@ -248,25 +228,6 @@ fn file_has_data(path: &Path) -> bool {
         Ok(n) => !holds_no_data(&head[..n]),
         Err(_) => true,
     }
-}
-
-/// `cachedRendition`: the first of webp, png, jpg that is a file with data. A data-less file a
-/// crash left is dropped so the miss rebuilds it.
-#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
-pub fn cached_rendition(cache_dir: &Path, variant: RenditionVariant, id: &str) -> Option<Rendition> {
-    for (extension, mime) in EXTENSION_MIME {
-        let path = rendition_path(cache_dir, variant, id, extension);
-        let Ok(info) = fs::metadata(&path) else { continue };
-        if !info.is_file() {
-            continue;
-        }
-        if !file_has_data(&path) {
-            let _ = fs::remove_file(&path);
-            continue;
-        }
-        return Some(Rendition { path, mime, bytes: info.len(), duration_seconds: None });
-    }
-    None
 }
 
 /// `pruneRenditionCache`: evicts the oldest files (then by path) until the tree fits `max_bytes`,
@@ -306,25 +267,6 @@ pub fn prune_cache(cache_dir: &Path, max_bytes: u64, protected: &Path) {
     }
 }
 
-/// `writeRendition`: nothing for an empty or over-cap buffer; otherwise published whole (stage,
-/// then rename), then the cache pruned around it. A failed write is forgiven when the file exists
-/// (another writer won the same publication).
-#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
-pub fn write_rendition(cache_dir: &Path, variant: RenditionVariant, id: &str, extension: &str, bytes: &[u8]) -> std::io::Result<Option<Rendition>> {
-    if bytes.is_empty() || bytes.len() as u64 > MAX_CACHED_RENDITION_BYTES {
-        return Ok(None);
-    }
-    let Some((_, mime)) = EXTENSION_MIME.iter().find(|(known, _)| *known == extension) else { return Ok(None) };
-    let path = rendition_path(cache_dir, variant, id, extension);
-    if let Err(error) = write_atomic(&path, bytes, false)
-        && !path.exists() {
-        return Err(error);
-    }
-    let size = fs::metadata(&path).map_or(bytes.len() as u64, |m| m.len());
-    prune_cache(cache_dir, cache_max_bytes(), &path);
-    Ok(Some(Rendition { path, mime, bytes: size, duration_seconds: None }))
-}
-
 /// `removeRenditions`: every cached rendition of one asset, in every variant and format.
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub fn remove_renditions(cache_dir: &Path, id: &str) {
@@ -332,46 +274,6 @@ pub fn remove_renditions(cache_dir: &Path, id: &str) {
         for (extension, _) in EXTENSION_MIME {
             let _ = fs::remove_file(rendition_path(cache_dir, variant, id, extension));
         }
-    }
-}
-
-/// One `ensureRendition` call.
-pub struct Request {
-    pub thread: ThreadId,
-    pub id: String,
-    /// A video's poster is ffmpeg's frame, not the image host's webp.
-    pub video: bool,
-    pub source: PathBuf,
-    pub variant: RenditionVariant,
-    pub priority: Priority,
-    /// `false` serves the cache only.
-    pub generate: bool,
-}
-
-#[derive(Default)]
-struct State {
-    /// Two tiles asking for the same missing rendition share one generation.
-    inflight: HashMap<String, Vec<oneshot::Sender<Outcome>>>,
-    /// `failedUntil`, oldest first.
-    failed: VecDeque<(String, Instant)>,
-}
-
-impl State {
-    fn prune_failed(&mut self, now: Instant) {
-        self.failed.retain(|(_, expires)| *expires > now);
-        while self.failed.len() > FAILED_RENDITION_CACHE_MAX {
-            self.failed.pop_front();
-        }
-    }
-
-    fn forget(&mut self, key: &str) {
-        self.failed.retain(|(known, _)| known != key);
-    }
-
-    fn remember(&mut self, key: String, cooldown: Duration, now: Instant) {
-        self.forget(&key);
-        self.failed.push_back((key, now + cooldown));
-        self.prune_failed(now);
     }
 }
 
@@ -383,151 +285,6 @@ struct Posters {
     /// Runs ffmpeg as a work task. Processes owns spawn-lane admission, async event collection and kill-on-drop cleanup.
     run: PosterRun,
     ffmpeg: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>,
-}
-
-struct Inner {
-    codec: Arc<ExtImageCodec>,
-    /// Set once by the composition; without it a video has no poster (no ffmpeg runtime).
-    posters: OnceLock<Posters>,
-    lane: DurabilityIo,
-    cache_dir: PathBuf,
-    cooldown: Duration,
-    scheduler: Scheduler,
-    state: Mutex<State>,
-}
-
-/// Still renditions of the media store, built by the extension host's `sharp`.
-#[derive(Clone)]
-pub struct StillRenditions(Arc<Inner>);
-
-impl StillRenditions {
-    /// `cache_dir` is the store's `renditions` directory.
-    pub fn new(codec: Arc<ExtImageCodec>, lane: DurabilityIo, cache_dir: PathBuf) -> Self {
-        Self::with_cooldown(codec, lane, cache_dir, FAILED_RENDITION_COOLDOWN)
-    }
-
-    pub fn with_cooldown(codec: Arc<ExtImageCodec>, lane: DurabilityIo, cache_dir: PathBuf, cooldown: Duration) -> Self {
-        Self(Arc::new(Inner { codec, posters: OnceLock::new(), lane, cache_dir, cooldown, scheduler: Scheduler::new(SCHEDULER_LIMIT), state: Mutex::default() }))
-    }
-
-    /// Lets videos have a poster: `ffmpeg` answers where the ffmpeg binary is at the time (none while
-    /// it is not installed), `processes` runs it. Set once; a second call changes nothing.
-    pub fn enable_video_posters(&self, processes: Processes, ffmpeg: impl Fn() -> Option<PathBuf> + Send + Sync + 'static) {
-        let run: PosterRun = Arc::new(move |program: String, arguments: Vec<String>, dir: PathBuf| {
-            let processes = processes.clone();
-            mixdog_rt::spawn("media.poster.process", TaskClass::Work, async move {
-                let mut options = RunOptions::new(&dir);
-                options.timeout = POSTER_TIMEOUT;
-                processes.run(&program, &arguments, options).await
-            })
-        });
-        let _ = self.0.posters.set(Posters { run, ffmpeg: Arc::new(ffmpeg) });
-    }
-
-    /// [`ensure_request`](Self::ensure_request) for a foreground still.
-    pub async fn ensure(&self, thread: &ThreadId, id: &str, source: PathBuf, variant: RenditionVariant, generate: bool) -> Outcome {
-        self.ensure_request(Request { thread: thread.clone(), id: id.to_owned(), video: false, source, variant, priority: Priority::Foreground, generate }).await
-    }
-
-    /// `ensureRendition`: the cached rendition, else (when `generate`, and not within the cooldown
-    /// of a failure) the host's webp of the source, cached. Callers asking for the same variant
-    /// and asset while it is made share the one generation. `Ok(None)` is Node's `null`.
-    pub async fn ensure_request(&self, request: Request) -> Outcome {
-        let inner = &self.0;
-        let (cache_dir, id, variant) = (inner.cache_dir.clone(), request.id.clone(), request.variant);
-        if let Some(cached) = on_lane(inner.lane, move || cached_rendition(&cache_dir, variant, &id)).await? {
-            return Ok(Some(cached));
-        }
-        if !request.generate {
-            return Ok(None);
-        }
-        let key = format!("{}:{}", variant_name(variant), request.id);
-        let receiver = {
-            let mut state = inner.state.lock().unwrap();
-            let now = Instant::now();
-            state.prune_failed(now);
-            if state.failed.iter().any(|(known, expires)| *known == key && *expires > now) {
-                return Ok(None);
-            }
-            let (tx, rx) = oneshot::channel();
-            if let Some(waiters) = state.inflight.get_mut(&key) {
-                waiters.push(tx);
-            } else {
-                state.inflight.insert(key.clone(), vec![tx]);
-                tokio::spawn(generate_shared(inner.clone(), key, request));
-            }
-            rx
-        };
-        receiver.await.unwrap_or_else(|_| Err(std::io::Error::other("rendition task ended").into()))
-    }
-
-    /// `cacheRendition`: stores a browser-made thumbnail so a codec miss is paid once. `None` for
-    /// a mime this cache does not hold, or a buffer that is empty or over the cap.
-    pub async fn cache(&self, id: &str, variant: RenditionVariant, mime: &str, bytes: Vec<u8>) -> Result<Option<Rendition>, RenditionError> {
-        let Some(extension) = self.0.admit_cached(id, variant, mime, bytes.len()).map(str::to_owned) else { return Ok(None) };
-        let (cache_dir, id) = (self.0.cache_dir.clone(), id.to_owned());
-        Ok(on_lane(self.0.lane, move || write_rendition(&cache_dir, variant, &id, &extension, &bytes)).await??)
-    }
-}
-
-impl Inner {
-    /// The extension a browser-made thumbnail of this type and size is cached under; a cached one
-    /// also ends the cooldown of its rendition.
-    fn admit_cached(&self, id: &str, variant: RenditionVariant, mime: &str, len: usize) -> Option<&'static str> {
-        let extension = EXTENSION_MIME.iter().find(|(_, known)| *known == mime).map(|(extension, _)| *extension)?;
-        if len == 0 || len as u64 > MAX_CACHED_RENDITION_BYTES {
-            return None;
-        }
-        self.state.lock().unwrap().forget(&format!("{}:{id}", variant_name(variant)));
-        Some(extension)
-    }
-}
-
-/// The generation of one key, run under the scheduler; its answer goes to every waiter. A failure
-/// of the asset (no rendition, or the cache write) starts the cooldown; a host that could not
-/// answer says nothing about the asset, so it does not.
-#[allow(clippy::disallowed_methods, reason = "The existing rendition scheduler bounds this bridge; rustc cannot prove the poster lane future Send, and filesystem work still uses DurabilityIo")]
-async fn generate_shared(inner: Arc<Inner>, key: String, request: Request) {
-    let permit = inner.scheduler.enqueue(request.priority).permit().await;
-    // A video's poster takes owned values only (the future borrows nothing of `inner` or the request across an await).
-    let outcome = if request.video {
-        let parts = inner.posters.get().map(|posters| (posters.run.clone(), posters.ffmpeg.clone()));
-        match parts {
-            Some((run, resolve)) => {
-                // Keep the existing bounded bridge: the poster's higher-ranked lane future cannot satisfy Send,
-                // even through an explicit boxed boundary. Its file operations remain separate durability-lane jobs.
-                let (runtime, lane, cache, variant, id, source) = (tokio::runtime::Handle::current(), inner.lane, inner.cache_dir.clone(), request.variant, request.id.clone(), request.source.clone());
-                let made = tokio::task::spawn_blocking(move || runtime.block_on(poster(run, resolve, lane, cache, variant, id, source)));
-                made.await.unwrap_or(Ok(None))
-            }
-            None => Ok(None),
-        }
-    } else {
-        generate(&inner, &request).await
-    };
-    drop(permit);
-    let waiters = {
-        let mut state = inner.state.lock().unwrap();
-        match &outcome {
-            Ok(Some(_)) => state.forget(&key),
-            Err(RenditionError::Host(_)) => {}
-            _ => state.remember(key.clone(), inner.cooldown, Instant::now()),
-        }
-        state.inflight.remove(&key).unwrap_or_default()
-    };
-    for waiter in waiters {
-        drop(waiter.send(outcome.clone()));
-    }
-}
-
-async fn generate(inner: &Inner, request: &Request) -> Outcome {
-    let variant = request.variant;
-    let source = request.source.clone();
-    // A source `sharp` cannot open is "not a decodable image" to Node: no rendition.
-    let Ok(bytes) = on_lane(inner.lane, move || read_source(&source)).await? else { return Ok(None) };
-    let Some(still) = inner.codec.still_rendition(&request.thread, &bytes, variant).await.map_err(RenditionError::Host)? else { return Ok(None) };
-    let (cache_dir, id) = (inner.cache_dir.clone(), request.id.clone());
-    Ok(on_lane(inner.lane, move || write_rendition(&cache_dir, variant, &id, &still.extension, &still.bytes)).await??)
 }
 
 /// `resolveFfmpeg`: the binary `MIXDOG_FFMPEG_PATH` (`explicit`) names when it exists, else the
@@ -547,34 +304,6 @@ const POSTER_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_POSTER_BYTES: u64 = 32 * 1024 * 1024;
 /// The long edge of the tile-sized poster (`SPECS.thumb.maxEdge`).
 const THUMB_EDGE: u32 = 512;
-
-/// `videoPosterArguments`, writing the JPEG to `out` instead of a pipe.
-fn poster_arguments(source: &Path, out: &Path) -> Vec<String> {
-    [
-        "-hide_banner",
-        "-nostdin",
-        "-i",
-        &source.to_string_lossy(),
-        // The encoded first frame is frequently a black transition. An accurate post-input seek
-        // gives generated clips a representative early poster.
-        "-ss",
-        "0.12",
-        "-frames:v",
-        "1",
-        "-vf",
-        &format!("scale='min({THUMB_EDGE},iw)':-2"),
-        "-q:v",
-        "4",
-        "-f",
-        "image2",
-        "-vcodec",
-        "mjpeg",
-        "-y",
-        &out.to_string_lossy(),
-    ]
-    .map(str::to_owned)
-    .to_vec()
-}
 
 /// `parseDurationSeconds`: the first `Duration: h:m:s` of ffmpeg's banner, rounded; 0 when there is none.
 fn parse_duration_seconds(text: &str) -> i64 {
@@ -598,48 +327,6 @@ fn parse_duration_seconds(text: &str) -> i64 {
         return if seconds.is_finite() { seconds.round() as i64 } else { 0 };
     }
     0
-}
-
-/// `generate` for a video: only the tile-sized poster is worth extracting (a "display" frame would
-/// be a still pretending to be a clip). No ffmpeg, a clip ffmpeg cannot read, a run past its limit or
-/// a frame over the cap is no rendition.
-#[allow(clippy::disallowed_methods, reason = "its file work runs as durability-lane jobs")]
-async fn poster(run: PosterRun, resolve: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>, lane: DurabilityIo, cache_root: PathBuf, variant: RenditionVariant, id: String, source: PathBuf) -> Outcome {
-    if variant != RenditionVariant::Thumb {
-        return Ok(None);
-    }
-    let found = on_lane(lane, move || {
-        let path = resolve()?;
-        path.is_file().then_some(path)
-    })
-    .await?;
-    let Some(ffmpeg) = found else { return Ok(None) };
-    let out = rendition_path(&cache_root, variant, &id, ".poster-tmp.jpg");
-    let dir = out.parent().map(Path::to_owned).unwrap_or_default();
-    let made = dir.clone();
-    if on_lane(lane, move || fs::create_dir_all(&made)).await?.is_err() {
-        return Ok(None);
-    }
-    let (program, arguments) = (ffmpeg.to_string_lossy().into_owned(), poster_arguments(&source, &out));
-    let Ok(ran) = run(program, arguments, dir).await else { return Ok(None) };
-    let read = on_lane(lane, move || {
-        let small = match fs::metadata(&out) {
-            Ok(meta) => meta.len() <= MAX_POSTER_BYTES,
-            Err(_) => false,
-        };
-        let bytes = if small { fs::read(&out).ok() } else { None };
-        let _ = fs::remove_file(&out);
-        bytes
-    })
-    .await?;
-    let bytes = match read {
-        Some(bytes) if !bytes.is_empty() && !ran.timed_out => bytes,
-        _ => return Ok(None),
-    };
-    let seconds = parse_duration_seconds(&ran.stderr);
-    let (cache_dir, id) = (cache_root, id.clone());
-    let written = on_lane(lane, move || write_rendition(&cache_dir, variant, &id, ".jpg", &bytes)).await??;
-    Ok(written.map(|rendition| Rendition { duration_seconds: (seconds != 0).then_some(seconds), ..rendition }))
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
@@ -915,10 +602,12 @@ pub(super) mod tests {
         assert_eq!((state.active, state.background_active), (0, 0));
     }
 
+    #[cfg(node_twin)]
     fn within<T>(future: impl std::future::Future<Output = T>) -> impl std::future::Future<Output = T> {
         future
     }
 
+    #[cfg(node_twin)]
     /// The Rust worker the real-worker test starts: `ext_worker_dev` of `mixdog-exthost-worker` (built with its feature
     /// `test-support`, e.g. `cargo build -p mixdog-exthost-worker --features test-support --bin ext_worker_dev`). Cargo names a
     /// binary only to the tests of its own package, so it is found next to this test binary's `deps` directory.
@@ -930,6 +619,7 @@ pub(super) mod tests {
         worker
     }
 
+    #[cfg(node_twin)]
     /// The mean of every cell of a 32x32 grid over RGBA pixels, rounded.
     fn thumbnail(rgba: &[u8], width: u32, height: u32) -> Vec<f64> {
         const CELLS: usize = 32;
@@ -956,6 +646,7 @@ pub(super) mod tests {
         out
     }
 
+    #[cfg(node_twin)]
     /// `ours` is the same picture as `theirs` (bytes sharp produced) under the rules of `mixdog-imaging`'s twin
     /// (`tests/node_twin.rs`): both decode to the same size, and their 32x32 area-averaged thumbnails are within PSNR 38 dB
     /// and a mean difference of 2.0.
@@ -980,6 +671,7 @@ pub(super) mod tests {
     /// gradient, recorded once by `record-gradient-renditions.mjs` beside this file (222 and 258 bytes). The recorded bytes are
     /// libwebp's through libvips, so they are compared under the twin's rules (class, mime and dimensions exact, pixels by
     /// PSNR), not byte for byte.
+    #[cfg(node_twin)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn the_real_worker_makes_nodes_webp_for_both_variants() {
         use base64::Engine as _;
@@ -1026,6 +718,7 @@ pub(super) mod tests {
     }
 }
 
+
 #[cfg(test)]
 mod poster_tests {
     use super::*;
@@ -1039,6 +732,7 @@ mod poster_tests {
         assert_eq!(parse_duration_seconds("Duration: 00:00:"), 0);
     }
 
+
     #[test]
     fn the_poster_arguments_take_a_representative_early_tile_sized_frame() {
         let args = poster_arguments(Path::new("in.mp4"), Path::new("out.jpg"));
@@ -1049,7 +743,6 @@ mod poster_tests {
         assert_eq!(at("-vf"), Some("scale='min(512,iw)':-2"));
         assert_eq!(args.last().map(String::as_str), Some("out.jpg"));
     }
-
     #[tokio::test]
     async fn a_video_has_no_poster_without_ffmpeg_and_a_display_size_never_has_one() {
         let (_dir, _host, renditions, source) = tests::rig(Ok(serde_json::json!({"ok": null})));
@@ -1061,4 +754,303 @@ mod poster_tests {
             assert_eq!(renditions.ensure_request(request).await.unwrap(), None);
         }
     }
+}
+
+
+/// A rendition on disk: `{ path, mime, bytes }`.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Rendition {
+    pub path: PathBuf,
+    pub mime: &'static str,
+    pub bytes: u64,
+    /// The clip's length, probed while its poster was built (`durationSeconds`); none for a still
+    /// or a cached rendition.
+    pub duration_seconds: Option<i64>,
+}
+type Outcome = Result<Option<Rendition>, RenditionError>;
+/// `MIXDOG_RENDITION_CACHE_MAX_BYTES` when it is a number of at least one rendition's cap, else
+/// 512 MiB.
+pub fn cache_max_bytes() -> u64 {
+    let configured = std::env::var("MIXDOG_RENDITION_CACHE_MAX_BYTES").map_or(f64::NAN, |raw| mixdog_js::string_to_number(&raw));
+    if configured.is_finite() && configured >= MAX_CACHED_RENDITION_BYTES as f64 { configured.floor() as u64 } else { DEFAULT_RENDITION_CACHE_MAX_BYTES }
+}
+/// `cachedRendition`: the first of webp, png, jpg that is a file with data. A data-less file a
+/// crash left is dropped so the miss rebuilds it.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+pub fn cached_rendition(cache_dir: &Path, variant: RenditionVariant, id: &str) -> Option<Rendition> {
+    for (extension, mime) in EXTENSION_MIME {
+        let path = rendition_path(cache_dir, variant, id, extension);
+        let Ok(info) = fs::metadata(&path) else { continue };
+        if !info.is_file() {
+            continue;
+        }
+        if !file_has_data(&path) {
+            let _ = fs::remove_file(&path);
+            continue;
+        }
+        return Some(Rendition { path, mime, bytes: info.len(), duration_seconds: None });
+    }
+    None
+}
+/// `writeRendition`: nothing for an empty or over-cap buffer; otherwise published whole (stage,
+/// then rename), then the cache pruned around it. A failed write is forgiven when the file exists
+/// (another writer won the same publication).
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+pub fn write_rendition(cache_dir: &Path, variant: RenditionVariant, id: &str, extension: &str, bytes: &[u8]) -> std::io::Result<Option<Rendition>> {
+    if bytes.is_empty() || bytes.len() as u64 > MAX_CACHED_RENDITION_BYTES {
+        return Ok(None);
+    }
+    let Some((_, mime)) = EXTENSION_MIME.iter().find(|(known, _)| *known == extension) else { return Ok(None) };
+    let path = rendition_path(cache_dir, variant, id, extension);
+    if let Err(error) = write_atomic(&path, bytes, false)
+        && !path.exists() {
+        return Err(error);
+    }
+    let size = fs::metadata(&path).map_or(bytes.len() as u64, |m| m.len());
+    prune_cache(cache_dir, cache_max_bytes(), &path);
+    Ok(Some(Rendition { path, mime, bytes: size, duration_seconds: None }))
+}
+/// One `ensureRendition` call.
+pub struct Request {
+    pub thread: ThreadId,
+    pub id: String,
+    /// A video's poster is ffmpeg's frame, not the image host's webp.
+    pub video: bool,
+    pub source: PathBuf,
+    pub variant: RenditionVariant,
+    pub priority: Priority,
+    /// `false` serves the cache only.
+    pub generate: bool,
+}
+#[derive(Default)]
+struct State {
+    /// Two tiles asking for the same missing rendition share one generation.
+    inflight: HashMap<String, Vec<oneshot::Sender<Outcome>>>,
+    /// `failedUntil`, oldest first.
+    failed: VecDeque<(String, Instant)>,
+}
+impl State {
+    fn prune_failed(&mut self, now: Instant) {
+        self.failed.retain(|(_, expires)| *expires > now);
+        while self.failed.len() > FAILED_RENDITION_CACHE_MAX {
+            self.failed.pop_front();
+        }
+    }
+
+    fn forget(&mut self, key: &str) {
+        self.failed.retain(|(known, _)| known != key);
+    }
+
+    fn remember(&mut self, key: String, cooldown: Duration, now: Instant) {
+        self.forget(&key);
+        self.failed.push_back((key, now + cooldown));
+        self.prune_failed(now);
+    }
+}
+struct Inner {
+    codec: Arc<ExtImageCodec>,
+    /// Set once by the composition; without it a video has no poster (no ffmpeg runtime).
+    posters: OnceLock<Posters>,
+    lane: DurabilityIo,
+    cache_dir: PathBuf,
+    cooldown: Duration,
+    scheduler: Scheduler,
+    state: Mutex<State>,
+}
+/// Still renditions of the media store, built by the extension host's `sharp`.
+#[derive(Clone)]
+pub struct StillRenditions(Arc<Inner>);
+impl StillRenditions {
+    /// `cache_dir` is the store's `renditions` directory.
+    pub fn new(codec: Arc<ExtImageCodec>, lane: DurabilityIo, cache_dir: PathBuf) -> Self {
+        Self::with_cooldown(codec, lane, cache_dir, FAILED_RENDITION_COOLDOWN)
+    }
+
+    pub fn with_cooldown(codec: Arc<ExtImageCodec>, lane: DurabilityIo, cache_dir: PathBuf, cooldown: Duration) -> Self {
+        Self(Arc::new(Inner { codec, posters: OnceLock::new(), lane, cache_dir, cooldown, scheduler: Scheduler::new(SCHEDULER_LIMIT), state: Mutex::default() }))
+    }
+
+    /// Lets videos have a poster: `ffmpeg` answers where the ffmpeg binary is at the time (none while
+    /// it is not installed), `processes` runs it. Set once; a second call changes nothing.
+    pub fn enable_video_posters(&self, processes: Processes, ffmpeg: impl Fn() -> Option<PathBuf> + Send + Sync + 'static) {
+        let run: PosterRun = Arc::new(move |program: String, arguments: Vec<String>, dir: PathBuf| {
+            let processes = processes.clone();
+            mixdog_rt::spawn("media.poster.process", TaskClass::Work, async move {
+                let mut options = RunOptions::new(&dir);
+                options.timeout = POSTER_TIMEOUT;
+                processes.run(&program, &arguments, options).await
+            })
+        });
+        let _ = self.0.posters.set(Posters { run, ffmpeg: Arc::new(ffmpeg) });
+    }
+
+    /// [`ensure_request`](Self::ensure_request) for a foreground still.
+    pub async fn ensure(&self, thread: &ThreadId, id: &str, source: PathBuf, variant: RenditionVariant, generate: bool) -> Outcome {
+        self.ensure_request(Request { thread: thread.clone(), id: id.to_owned(), video: false, source, variant, priority: Priority::Foreground, generate }).await
+    }
+
+    /// `ensureRendition`: the cached rendition, else (when `generate`, and not within the cooldown
+    /// of a failure) the host's webp of the source, cached. Callers asking for the same variant
+    /// and asset while it is made share the one generation. `Ok(None)` is Node's `null`.
+    pub async fn ensure_request(&self, request: Request) -> Outcome {
+        let inner = &self.0;
+        let (cache_dir, id, variant) = (inner.cache_dir.clone(), request.id.clone(), request.variant);
+        if let Some(cached) = on_lane(inner.lane, move || cached_rendition(&cache_dir, variant, &id)).await? {
+            return Ok(Some(cached));
+        }
+        if !request.generate {
+            return Ok(None);
+        }
+        let key = format!("{}:{}", variant_name(variant), request.id);
+        let receiver = {
+            let mut state = inner.state.lock().unwrap();
+            let now = Instant::now();
+            state.prune_failed(now);
+            if state.failed.iter().any(|(known, expires)| *known == key && *expires > now) {
+                return Ok(None);
+            }
+            let (tx, rx) = oneshot::channel();
+            if let Some(waiters) = state.inflight.get_mut(&key) {
+                waiters.push(tx);
+            } else {
+                state.inflight.insert(key.clone(), vec![tx]);
+                tokio::spawn(generate_shared(inner.clone(), key, request));
+            }
+            rx
+        };
+        receiver.await.unwrap_or_else(|_| Err(std::io::Error::other("rendition task ended").into()))
+    }
+
+    /// `cacheRendition`: stores a browser-made thumbnail so a codec miss is paid once. `None` for
+    /// a mime this cache does not hold, or a buffer that is empty or over the cap.
+    pub async fn cache(&self, id: &str, variant: RenditionVariant, mime: &str, bytes: Vec<u8>) -> Result<Option<Rendition>, RenditionError> {
+        let Some(extension) = self.0.admit_cached(id, variant, mime, bytes.len()).map(str::to_owned) else { return Ok(None) };
+        let (cache_dir, id) = (self.0.cache_dir.clone(), id.to_owned());
+        Ok(on_lane(self.0.lane, move || write_rendition(&cache_dir, variant, &id, &extension, &bytes)).await??)
+    }
+}
+impl Inner {
+    /// The extension a browser-made thumbnail of this type and size is cached under; a cached one
+    /// also ends the cooldown of its rendition.
+    fn admit_cached(&self, id: &str, variant: RenditionVariant, mime: &str, len: usize) -> Option<&'static str> {
+        let extension = EXTENSION_MIME.iter().find(|(_, known)| *known == mime).map(|(extension, _)| *extension)?;
+        if len == 0 || len as u64 > MAX_CACHED_RENDITION_BYTES {
+            return None;
+        }
+        self.state.lock().unwrap().forget(&format!("{}:{id}", variant_name(variant)));
+        Some(extension)
+    }
+}
+/// The generation of one key, run under the scheduler; its answer goes to every waiter. A failure
+/// of the asset (no rendition, or the cache write) starts the cooldown; a host that could not
+/// answer says nothing about the asset, so it does not.
+#[allow(clippy::disallowed_methods, reason = "The existing rendition scheduler bounds this bridge; rustc cannot prove the poster lane future Send, and filesystem work still uses DurabilityIo")]
+async fn generate_shared(inner: Arc<Inner>, key: String, request: Request) {
+    let permit = inner.scheduler.enqueue(request.priority).permit().await;
+    // A video's poster takes owned values only (the future borrows nothing of `inner` or the request across an await).
+    let outcome = if request.video {
+        let parts = inner.posters.get().map(|posters| (posters.run.clone(), posters.ffmpeg.clone()));
+        match parts {
+            Some((run, resolve)) => {
+                // Keep the existing bounded bridge: the poster's higher-ranked lane future cannot satisfy Send,
+                // even through an explicit boxed boundary. Its file operations remain separate durability-lane jobs.
+                let (runtime, lane, cache, variant, id, source) = (tokio::runtime::Handle::current(), inner.lane, inner.cache_dir.clone(), request.variant, request.id.clone(), request.source.clone());
+                let made = tokio::task::spawn_blocking(move || runtime.block_on(poster(run, resolve, lane, cache, variant, id, source)));
+                made.await.unwrap_or(Ok(None))
+            }
+            None => Ok(None),
+        }
+    } else {
+        generate(&inner, &request).await
+    };
+    drop(permit);
+    let waiters = {
+        let mut state = inner.state.lock().unwrap();
+        match &outcome {
+            Ok(Some(_)) => state.forget(&key),
+            Err(RenditionError::Host(_)) => {}
+            _ => state.remember(key.clone(), inner.cooldown, Instant::now()),
+        }
+        state.inflight.remove(&key).unwrap_or_default()
+    };
+    for waiter in waiters {
+        drop(waiter.send(outcome.clone()));
+    }
+}
+async fn generate(inner: &Inner, request: &Request) -> Outcome {
+    let variant = request.variant;
+    let source = request.source.clone();
+    // A source `sharp` cannot open is "not a decodable image" to Node: no rendition.
+    let Ok(bytes) = on_lane(inner.lane, move || read_source(&source)).await? else { return Ok(None) };
+    let Some(still) = inner.codec.still_rendition(&request.thread, &bytes, variant).await.map_err(RenditionError::Host)? else { return Ok(None) };
+    let (cache_dir, id) = (inner.cache_dir.clone(), request.id.clone());
+    Ok(on_lane(inner.lane, move || write_rendition(&cache_dir, variant, &id, &still.extension, &still.bytes)).await??)
+}
+/// `videoPosterArguments`, writing the JPEG to `out` instead of a pipe.
+fn poster_arguments(source: &Path, out: &Path) -> Vec<String> {
+    [
+        "-hide_banner",
+        "-nostdin",
+        "-i",
+        &source.to_string_lossy(),
+        // The encoded first frame is frequently a black transition. An accurate post-input seek
+        // gives generated clips a representative early poster.
+        "-ss",
+        "0.12",
+        "-frames:v",
+        "1",
+        "-vf",
+        &format!("scale='min({THUMB_EDGE},iw)':-2"),
+        "-q:v",
+        "4",
+        "-f",
+        "image2",
+        "-vcodec",
+        "mjpeg",
+        "-y",
+        &out.to_string_lossy(),
+    ]
+    .map(str::to_owned)
+    .to_vec()
+}
+/// `generate` for a video: only the tile-sized poster is worth extracting (a "display" frame would
+/// be a still pretending to be a clip). No ffmpeg, a clip ffmpeg cannot read, a run past its limit or
+/// a frame over the cap is no rendition.
+#[allow(clippy::disallowed_methods, reason = "its file work runs as durability-lane jobs")]
+async fn poster(run: PosterRun, resolve: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>, lane: DurabilityIo, cache_root: PathBuf, variant: RenditionVariant, id: String, source: PathBuf) -> Outcome {
+    if variant != RenditionVariant::Thumb {
+        return Ok(None);
+    }
+    let found = on_lane(lane, move || {
+        let path = resolve()?;
+        path.is_file().then_some(path)
+    })
+    .await?;
+    let Some(ffmpeg) = found else { return Ok(None) };
+    let out = rendition_path(&cache_root, variant, &id, ".poster-tmp.jpg");
+    let dir = out.parent().map(Path::to_owned).unwrap_or_default();
+    let made = dir.clone();
+    if on_lane(lane, move || fs::create_dir_all(&made)).await?.is_err() {
+        return Ok(None);
+    }
+    let (program, arguments) = (ffmpeg.to_string_lossy().into_owned(), poster_arguments(&source, &out));
+    let Ok(ran) = run(program, arguments, dir).await else { return Ok(None) };
+    let read = on_lane(lane, move || {
+        let small = match fs::metadata(&out) {
+            Ok(meta) => meta.len() <= MAX_POSTER_BYTES,
+            Err(_) => false,
+        };
+        let bytes = if small { fs::read(&out).ok() } else { None };
+        let _ = fs::remove_file(&out);
+        bytes
+    })
+    .await?;
+    let bytes = match read {
+        Some(bytes) if !bytes.is_empty() && !ran.timed_out => bytes,
+        _ => return Ok(None),
+    };
+    let seconds = parse_duration_seconds(&ran.stderr);
+    let (cache_dir, id) = (cache_root, id.clone());
+    let written = on_lane(lane, move || write_rendition(&cache_dir, variant, &id, ".jpg", &bytes)).await??;
+    Ok(written.map(|rendition| Rendition { duration_seconds: (seconds != 0).then_some(seconds), ..rendition }))
 }

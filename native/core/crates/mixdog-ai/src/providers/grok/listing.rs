@@ -314,13 +314,24 @@ fn mark_latest(rows: &mut [Map<String, Value>]) {
     }
 }
 
-#[async_trait]
-impl ModelListing for GrokListing {
-    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
-        // One credential read for both catalogs: two concurrent refreshes would
-        // rotate the same refresh token twice.
-        let (name, value) = self.credential.header(false).await?.ok_or_else(|| malformed("no credential"))?;
-        let bearer = vec![(name, value)];
+impl GrokListing {
+    /// One credential read for both catalogs: two concurrent refreshes would rotate the same refresh token twice.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn header(&self) -> Result<(String, String), ProviderError> {
+        self.credential.header(false).await?.ok_or_else(|| malformed("no credential"))
+    }
+
+    /// The identity of the credential `header` carries: the user its token names.
+    fn identity_of(&self, header: &(String, String)) -> mixdog_core_api::domain::provider::RosterIdentity {
+        mixdog_core_api::domain::provider::RosterIdentity {
+            account: self.credential.account_of(header).map(|id| crate::catalog::account_fingerprint(&[&id])),
+            ..Default::default()
+        }
+    }
+
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn list_with(&self, header: (String, String)) -> Result<Vec<ModelRecord>, ProviderError> {
+        let bearer = vec![header];
         let mut proxy_headers = bearer.clone();
         proxy_headers.extend(identity_headers(&self.client_version.get()));
         let (api, proxy) = futures::future::join(
@@ -341,5 +352,23 @@ impl ModelListing for GrokListing {
         let enriched = self.lookup.enrich_listed(PROVIDER_ID, listed);
         let settled = enriched.into_iter().map(|record| self.settle(record)).collect();
         Ok(self.lookup.sanitize_listed(PROVIDER_ID, settled))
+    }
+}
+
+#[async_trait]
+impl ModelListing for GrokListing {
+    async fn roster_identity(&self) -> mixdog_core_api::domain::provider::RosterIdentity {
+        self.header().await.map(|header| self.identity_of(&header)).unwrap_or_default()
+    }
+
+    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+        self.list_with(self.header().await?).await
+    }
+
+    async fn list_roster(&self) -> Result<mixdog_core_api::domain::provider::ListedRoster, ProviderError> {
+        let header = self.header().await?;
+        let identity = self.identity_of(&header);
+        let rows = self.list_with(header).await?;
+        Ok(mixdog_core_api::domain::provider::ListedRoster { rows, provenance: mixdog_core_api::domain::provider::Provenance::Fetched, identity })
     }
 }

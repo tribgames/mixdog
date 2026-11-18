@@ -63,17 +63,6 @@ async fn retried_call_id_runs_once_and_conflicting_payload_is_refused() {
     assert_eq!(h.calls.load(Ordering::SeqCst), 3);
 }
 
-#[tokio::test(start_paused = true)]
-async fn cache_entry_expires_a_ttl_after_the_call_settles() {
-    let (d, h, _) = dispatch(Echo::default());
-    d.dispatch(client("t", None), req("reply", json!({"n":1}), Some("c"))).await.unwrap();
-    assert_eq!(d.cached_calls(), 1);
-    mixdog_rt::time::sleep(Duration::from_secs(61)).await;
-    assert_eq!(d.cached_calls(), 0);
-    d.dispatch(client("t", None), req("reply", json!({"n":1}), Some("c"))).await.unwrap();
-    assert_eq!(h.calls.load(Ordering::SeqCst), 2);
-}
-
 #[tokio::test]
 async fn a_slow_call_never_blocks_another_clients_call_and_counts_as_work() {
     let gate = Arc::new(Notify::new());
@@ -196,4 +185,16 @@ async fn tool_dispatch_matches_the_lifecycle_tool_contract() {
         t.handle_tool_call("reload_config", &json!({})).await,
         error_result("[channels degraded] reload_config unavailable — restart MCP to recover")
     );
+}
+
+
+#[tokio::test(start_paused = true)]
+async fn cache_entry_expires_a_ttl_after_the_call_settles() {
+    let (d, h, _) = dispatch(Echo::default());
+    d.dispatch(client("t", None), req("reply", json!({"n":1}), Some("c"))).await.unwrap();
+    assert_eq!(d.cached_calls(), 1);
+    mixdog_rt::time::sleep(Duration::from_secs(61)).await;
+    assert_eq!(d.cached_calls(), 0);
+    d.dispatch(client("t", None), req("reply", json!({"n":1}), Some("c"))).await.unwrap();
+    assert_eq!(h.calls.load(Ordering::SeqCst), 2);
 }

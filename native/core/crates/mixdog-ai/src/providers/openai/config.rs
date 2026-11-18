@@ -71,6 +71,12 @@ pub struct ModelFacts {
 
 pub trait ModelFactsSource: Send + Sync {
     fn facts(&self, model: &str) -> ModelFacts;
+
+    /// Reads the model roster the facts come from again (`refreshCodexCatalog`), so the next `facts` call sees it. A
+    /// source with nothing to refresh leaves it.
+    fn refresh<'a>(&'a self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(async {})
+    }
 }
 
 /// A catalog with no rows: every model is unknown.
@@ -127,10 +133,9 @@ pub struct OpenAiConfig {
     /// Response storage (`store`): the public API defaults to true, the
     /// Codex backend to false.
     pub store: bool,
-    /// Codex route only: send `max_output_tokens` when the caller set one.
-    pub send_max_output_tokens: bool,
     pub facts: Arc<dyn ModelFactsSource>,
     pub context: Arc<dyn WireContext>,
+    pub(super) cache_lanes: super::cache_key::LaneConfig,
 }
 
 impl OpenAiConfig {
@@ -142,15 +147,14 @@ impl OpenAiConfig {
         Self {
             target: Target::ApiKey,
             store,
-            send_max_output_tokens: true,
             facts,
             context,
+            cache_lanes: Default::default(),
         }
     }
 
     pub fn codex(
         store: bool,
-        send_max_output_tokens: bool,
         identity: CodexIdentity,
         facts: Arc<dyn ModelFactsSource>,
         context: Arc<dyn WireContext>,
@@ -158,10 +162,16 @@ impl OpenAiConfig {
         Self {
             target: Target::Codex(identity),
             store,
-            send_max_output_tokens,
             facts,
             context,
+            cache_lanes: Default::default(),
         }
+    }
+
+    /// Keep only the provider's prompt-cache lane settings, not its credentials or other config.
+    pub fn with_prompt_cache_lanes(mut self, config: &Value) -> Self {
+        self.cache_lanes = super::cache_key::LaneConfig::from_provider(config);
+        self
     }
 
     pub fn route(&self) -> Route {

@@ -16,7 +16,9 @@ use mixdog_tui::panels::context::{
 use mixdog_tui::panels::context_model::{ContextModelInput, build_context_panel_model};
 use mixdog_tui::panels::context_refresh::{ContextPanelRefresh, ContextRefreshFields};
 use mixdog_tui::panels::doctor::run_doctor;
-use mixdog_tui::panels::usage::{UsageRequest, open_usage_panel};
+use mixdog_tui::panels::usage::open_usage_panel;
+#[cfg(node_twin)]
+use mixdog_tui::panels::usage::UsageRequest;
 use mixdog_tui::panels::{ContextPanel, ContextWindows, PanelsHost};
 use mixdog_tui::slash::host::Tone;
 use mixdog_tui::surface::epoch::PanelValue;
@@ -26,16 +28,12 @@ use mixdog_tui_widgets::panels::context_inspector::InspectOutcome;
 use mixdog_tui_widgets::picker::IndexMode;
 use serde_json::{Value, json};
 
-const GOLDEN: &str = include_str!("goldens/panels.json");
-
-fn golden() -> Value {
-    serde_json::from_str(GOLDEN).expect("panels.json is valid JSON")
-}
-
 /// Collects the first mismatches of a group of cases.
+#[cfg(node_twin)]
 #[derive(Default)]
 struct Mismatches(Vec<String>);
 
+#[cfg(node_twin)]
 impl Mismatches {
     fn expect(&mut self, what: impl FnOnce() -> String, got: &Value, want: &Value) {
         if got != want && self.0.len() < 8 {
@@ -180,20 +178,6 @@ fn model_of(input: &Value) -> (Vec<Value>, Value) {
 }
 
 #[test]
-fn the_context_model_is_what_node_builds_over_316_status_answers() {
-    let golden = golden();
-    let cases = golden["contextModel"].as_array().expect("contextModel");
-    assert!(cases.len() >= 300);
-    let mut mismatches = Mismatches::default();
-    for (index, case) in cases.iter().enumerate() {
-        let (rows, detail) = model_of(&case["input"]);
-        mismatches.expect(|| format!("case {index} rows of {}", case["input"]), &Value::Array(rows), &case["rows"]);
-        mismatches.expect(|| format!("case {index} detail of {}", case["input"]), &detail, &case["detail"]);
-    }
-    mismatches.finish("context model");
-}
-
-#[test]
 fn the_context_rows_follow_the_runtime_status_getters() {
     // `openContextPicker renders the context rows from the runtime status getters` of usage-context-panels.test.mjs.
     let status = json!({
@@ -201,8 +185,8 @@ fn the_context_rows_follow_the_runtime_status_getters() {
         "effectiveContextWindow": 180_000,
         "rawContextWindow": 200_000,
         "usage": {
-            "lastContextTokens": 50_000, "lastInputTokens": 48_000, "lastCachedReadTokens": 40_000,
-            "lastCacheWriteTokens": 2_000, "lastOutputTokens": 900
+            "lastContextTokens": 50_000, "lastInputTokens": 6_000, "lastCachedReadTokens": 40_000,
+            "lastCacheWriteTokens": 2_000, "lastPromptTokens": 48_000, "lastUncachedInputTokens": 8_000, "lastOutputTokens": 900
         },
         "messages": {
             "estimatedTokens": 30_000, "count": 14, "toolCallCount": 3, "toolCallTokens": 1_200,
@@ -248,7 +232,7 @@ fn the_context_rows_follow_the_runtime_status_getters() {
         ["request", "Request overhead", "800 framing \u{b7} 16k reserve incl. tools"],
         ["last-api", "Last API usage", "50k context \u{b7} 6.0k uncached input \u{b7} 900 output \u{b7} last API request"],
         ["reasoning", "Reasoning tokens", "\u{2248}0 tokens (0%) \u{b7} current context estimate"],
-        ["cache", "Prompt cache", "80% hit \u{b7} 40k read \u{b7} 2.0k write \u{b7} 6.0k new (last request)"],
+        ["cache", "Prompt cache", "83% hit \u{b7} 40k read \u{b7} 2.0k write \u{b7} 6.0k new (last request)"],
         ["free", "Free space", "130k tokens (72.2%) \u{b7} raw window 200k"],
         ["extensions", "Skills/plugins", "7 skills \u{b7} 2 plugins"],
     ];
@@ -280,7 +264,7 @@ fn the_context_rows_follow_the_runtime_status_getters() {
     );
     assert_eq!(
         panel.detail["lastApi"],
-        json!({ "contextTokens": 50_000, "inputTokens": 6_000, "rawInputTokens": 48_000, "outputTokens": 900 })
+        json!({ "contextTokens": 50_000, "inputTokens": 6_000, "rawInputTokens": 6_000, "outputTokens": 900 })
     );
     assert_eq!(panel.detail["inspection"], status["inspection"]);
     assert_eq!(panel.detail["speed"], json!({ "outputTokensPerSecond": null }));
@@ -318,6 +302,35 @@ fn a_running_compaction_shows_no_duration_and_a_finished_one_shows_its_last_dura
 }
 
 #[test]
+fn the_last_request_cache_rate_requires_a_measured_prompt_split() {
+    for (usage, expected) in [
+        (
+            json!({
+                "lastContextTokens": 24_000, "lastInputTokens": null, "lastOutputTokens": 0,
+                "lastUncachedInputTokens": null, "lastCachedReadTokens": null, "lastCacheWriteTokens": null
+            }),
+            "N/A hit \u{b7} \u{2014} read \u{b7} \u{2014} new (last request)",
+        ),
+        (
+            json!({
+                "lastContextTokens": null, "lastOutputTokens": 200,
+                "lastPromptTokens": 60, "lastUncachedInputTokens": 60, "lastCachedReadTokens": 0, "lastCacheWriteTokens": 0
+            }),
+            "0% hit \u{b7} 0 read \u{b7} 0 write \u{b7} 60 new (last request)",
+        ),
+        (
+            json!({ "lastInputTokens": 60, "lastOutputTokens": 200, "lastCachedReadTokens": 40, "lastCacheWriteTokens": 0 }),
+            "N/A hit \u{b7} 40 read \u{b7} 0 write \u{b7} \u{2014} new (last request)",
+        ),
+    ] {
+        let (rows, detail) = model_of(&json!({ "contextStatus": { "usage": usage } }));
+        let cache = rows.iter().find(|row| row["value"] == "cache").unwrap();
+        assert_eq!(cache["description"], expected);
+        assert_eq!(detail["lastApi"]["outputTokens"], usage["lastOutputTokens"]);
+    }
+}
+
+#[test]
 fn failing_getters_fall_back_to_the_visible_window_and_placeholders() {
     let mut fake = Fake::new();
     fake.windows = ContextWindows { context_window: json!(100_000), raw_context_window: Value::Null };
@@ -330,7 +343,7 @@ fn failing_getters_fall_back_to_the_visible_window_and_placeholders() {
     assert_eq!(row("summary"), "\u{2014}/100k (\u{2014}) \u{b7} \u{2014} free \u{b7} Awaiting measurement \u{b7} effective");
     assert_eq!(row("compaction"), "Compact checked \u{b7} 0 pressure \u{b7} 0 reserve");
     assert_eq!(row("tools"), "0 schema tokens (0%) \u{b7} 0/0 active");
-    assert_eq!(row("cache"), "N/A hit \u{b7} \u{2014} read \u{b7} 0 new (last request)");
+    assert_eq!(row("cache"), "N/A hit \u{b7} \u{2014} read \u{b7} \u{2014} new (last request)");
     assert_eq!(row("free"), "\u{2014} tokens (\u{2014}) \u{b7} raw window 100k");
     assert_eq!(
         panel.detail["compaction"],
@@ -353,34 +366,6 @@ fn the_context_open_paints_nothing_when_the_claim_was_lost_during_the_reads() {
     fake.drain();
     assert!(fake.log.is_empty());
     assert!(fake.surface.context().is_none());
-}
-
-#[test]
-fn the_context_open_matches_node_for_every_recorded_read_outcome() {
-    let golden = golden();
-    let mut mismatches = Mismatches::default();
-    for case in golden["contextOpen"].as_array().expect("contextOpen") {
-        let spec = &case["spec"];
-        let mut fake = Fake::new();
-        fake.windows = ContextWindows {
-            context_window: member(&spec["state"], "contextWindow"),
-            raw_context_window: member(&spec["state"], "rawContextWindow"),
-        };
-        for (name, answer) in spec["stores"].as_object().unwrap() {
-            fake.script(name, if answer == "!" { Err("daemon offline".to_owned()) } else { Ok(answer.clone()) });
-        }
-        let mut open = begin_context_open(&mut fake);
-        let reads = read_context_status(&mut fake);
-        if spec["lose"] == true {
-            fake.surface.supersede();
-        }
-        finish_context_open(&mut fake, &mut open, &reads);
-        fake.drain();
-        let name = case["name"].clone();
-        mismatches.expect(|| format!("{name} calls"), &Value::Array(fake.calls.clone()), &case["calls"]);
-        mismatches.expect(|| format!("{name} log"), &Value::Array(fake.log.clone()), &case["log"]);
-    }
-    mismatches.finish("context open");
 }
 
 #[test]
@@ -421,6 +406,7 @@ fn an_open_context_panel_is_rebuilt_when_a_summarised_field_changes() {
 
 // ---------------------------------------------------------------- the usage dashboard
 
+#[cfg(node_twin)]
 fn run_usage_case(case: &Value) -> Fake {
     let spec = &case["spec"];
     let answer = &spec["answer"];
@@ -455,23 +441,6 @@ fn run_usage_case(case: &Value) -> Fake {
         fake.drain();
     }
     fake
-}
-
-#[test]
-fn the_usage_panel_matches_node_for_every_argument_and_outcome() {
-    let golden = golden();
-    let cases = golden["usage"].as_array().expect("usage");
-    assert!(cases.len() >= 20);
-    let mut mismatches = Mismatches::default();
-    for case in cases {
-        let fake = run_usage_case(case);
-        let name = case["name"].clone();
-        mismatches.expect(|| format!("{name} calls"), &Value::Array(fake.calls.clone()), &case["calls"]);
-        mismatches.expect(|| format!("{name} notices"), &Value::Array(fake.notices.clone()), &case["notices"]);
-        mismatches.expect(|| format!("{name} closes"), &json!(fake.closes), &case["closes"]);
-        mismatches.expect(|| format!("{name} log"), &Value::Array(fake.log.clone()), &case["log"]);
-    }
-    mismatches.finish("usage");
 }
 
 #[test]
@@ -617,27 +586,6 @@ impl BtwRun {
 }
 
 #[test]
-fn the_btw_controller_matches_node_under_every_scripted_step() {
-    let golden = golden();
-    let scripts = golden["btw"].as_array().expect("btw");
-    assert!(scripts.len() >= 20);
-    let mut mismatches = Mismatches::default();
-    for script in scripts {
-        let mut run = BtwRun::new();
-        for (index, recorded) in script["result"].as_array().unwrap().iter().enumerate() {
-            let step = recorded["step"].as_array().unwrap().clone();
-            run.step(&step);
-            let panel = run.controller.panel().cloned().unwrap_or(Value::Null);
-            let calls = Value::Array(std::mem::take(&mut run.host.calls));
-            let name = script["name"].clone();
-            mismatches.expect(|| format!("{name} step {index} {step:?} panel"), &panel, &recorded["panel"]);
-            mismatches.expect(|| format!("{name} step {index} {step:?} calls"), &calls, &recorded["calls"]);
-        }
-    }
-    mismatches.finish("btw");
-}
-
-#[test]
 fn a_btw_answer_lives_only_in_the_panel_and_a_replaced_ask_is_ignored() {
     let mut run = BtwRun::new();
     run.step(&[json!("ask"), json!("why?")]);
@@ -654,3 +602,7 @@ fn a_btw_answer_lives_only_in_the_panel_and_a_replaced_ask_is_ignored() {
     run.step(&[json!("close")]);
     assert_eq!(run.controller.panel(), None);
 }
+
+#[cfg(node_twin)]
+#[path = "node-twin/panels.rs"]
+mod node_twin;

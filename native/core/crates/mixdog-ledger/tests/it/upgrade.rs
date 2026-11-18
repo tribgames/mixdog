@@ -70,7 +70,7 @@ fn upgrade_and_build(path: &Path, expect: Prepared) -> Connection {
         .query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get(0))
         .unwrap();
     assert_eq!(prepare(&mut conn).unwrap(), expect);
-    assert_eq!(counts(&conn), (19, 7, 1, 31));
+    assert_eq!(counts(&conn), (20, 7, 1, 32));
     assert_eq!(classify(&conn).unwrap(), LedgerState::Current);
     assert_eq!(sums_complete(&conn).unwrap(), events == 0);
     // Small budget forces many resumable steps.
@@ -85,47 +85,83 @@ fn upgrade_and_build(path: &Path, expect: Prepared) -> Connection {
     conn
 }
 
-#[tokio::test]
-async fn genuine_145_fixture_upgrades() {
-    let src = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/migration/ledger-v145/ledger.sqlite");
-    let (_dir, path) = copy_to_temp(&src);
-    let conn = upgrade_and_build(&path, Prepared::Upgraded(LedgerShape::Tag145));
-    let tokens = mixdog_rt::testing::tokens();
-    let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
-    let rollup = reader.rollup(RollupQuery::default()).await.unwrap();
-    assert!(!rollup["days"].as_object().unwrap().is_empty());
-    let sessions: Vec<String> = conn
-        .prepare("SELECT value FROM usage_sessions LIMIT 3")
+/// A v3 ledger whose routes differ only by the 1-hour cache-write count in their rates becomes one route per real
+/// route: the counts move to `usage_event_cache_1h`, the day sums follow the records, and a record appended after
+/// lands on the merged route.
+#[test]
+fn v3_routes_split_by_the_1h_count_merge_into_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ledger.sqlite");
+    let route = |tokens: Option<u32>| {
+        let rates = match tokens {
+            Some(t) => format!(r#"{{"pricingModel":"m","cacheWrite1hTokens":{t},"inputCostPerM":8}}"#),
+            None => r#"{"pricingModel":"m","inputCostPerM":8}"#.to_owned(),
+        };
+        mixdog_js::json_stringify(&serde_json::json!(["p", "m", "oauth", "lead", "subscription", rates, "live", 0]))
+    };
+    {
+        let mut conn = Connection::open(&path).unwrap();
+        for script in mixdog_store::schema::sql::LEDGER_NEW_SCRIPTS {
+            conn.execute_batch(script).unwrap();
+        }
+        assert_eq!(classify(&conn).unwrap(), LedgerState::V3);
+        conn.execute("INSERT INTO usage_sessions(value) VALUES ('a'),('b')", []).unwrap();
+        // Routes 1..=3 carry counts 100, 200, 300; route 4 has none (the merged one already exists).
+        for tokens in [Some(100), Some(200), Some(300), None] {
+            conn.execute("INSERT INTO usage_routes(signature) VALUES (?1)", [route(tokens)]).unwrap();
+        }
+        for i in 0..8u8 {
+            conn.execute(
+                "INSERT INTO usage_events VALUES (?1, 1000, 20260101, ?2, ?3, 1,2,3,4,0.5,10)",
+                rusqlite::params![vec![0u8, i], 1 + i64::from(i % 4), 1 + i64::from(i % 2)],
+            )
+            .unwrap();
+        }
+        while !build_sums_step(&mut conn, 200).unwrap() {}
+        assert_sums_match_events(&conn);
+    }
+    let mut conn = Connection::open(&path).unwrap();
+    assert_eq!(prepare(&mut conn).unwrap(), Prepared::UpgradedV3);
+    assert_eq!(classify(&conn).unwrap(), LedgerState::Current);
+    assert_eq!(counts(&conn), (20, 7, 1, 32));
+    let routes: Vec<String> = conn
+        .prepare("SELECT signature FROM usage_routes")
         .unwrap()
         .query_map([], |r| r.get(0))
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap();
-    let before = reader.usage_token(sessions.clone(), vec![]).await.unwrap();
-    reader
-        .session_usage(sessions.clone(), vec![])
-        .await
+    assert_eq!(routes, vec![route(None)]);
+    let events: i64 = conn.query_row("SELECT COUNT(*) FROM usage_events WHERE route=4", [], |r| r.get(0)).unwrap();
+    assert_eq!(events, 8);
+    let counts_1h: Vec<f64> = conn
+        .prepare("SELECT tokens FROM usage_event_cache_1h ORDER BY id")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
         .unwrap();
-    assert_eq!(reader.usage_token(sessions, vec![]).await.unwrap(), before);
-}
-
-#[test]
-fn corpus_ledger_upgrades() {
-    let src = PathBuf::from(
-        r"C:\Users\tempe\.mixdog\data\scratch\rust-core\migration-corpus\v145\usage\ledger.sqlite",
-    );
-    if !src.exists() {
-        return;
-    }
-    let (_dir, path) = copy_to_temp(&src);
-    let conn = Connection::open(&path).unwrap();
-    let shape = match classify(&conn).unwrap() {
-        LedgerState::Upgradable(shape) => shape,
-        other => panic!("{other:?}"),
-    };
-    drop(conn);
-    upgrade_and_build(&path, Prepared::Upgraded(shape));
+    // Events 0..8 used routes 1,2,3,4,1,2,3,4: the six on routes 1-3 keep their counts.
+    assert_eq!(counts_1h, vec![100.0, 200.0, 300.0, 100.0, 200.0, 300.0]);
+    assert_sums_match_events(&conn);
+    let record: UsageRecord = serde_json::from_value(serde_json::json!({
+        "id": "r-1", "ts": 2000, "day": "2026-01-01", "provider": "p", "model": "m", "kind": "oauth",
+        "sessionId": "a", "sourceType": "lead", "input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 5,
+        "costUsd": 0.1, "costSource": "subscription", "origin": "live", "durationMs": 5,
+        "rates": r#"{"pricingModel":"m","cacheWrite1hTokens":5,"inputCostPerM":8}"#
+    }))
+    .unwrap();
+    assert_eq!(append_batch(&mut conn, std::slice::from_ref(&record)).unwrap(), 1);
+    let (routes, last): (i64, f64) = conn
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM usage_routes), (SELECT tokens FROM usage_event_cache_1h WHERE id=x'01722d31')",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((routes, last), (1, 5.0));
+    assert_sums_match_events(&conn);
+    assert_eq!(prepare(&mut conn).unwrap(), Prepared::Current);
 }
 
 #[test]
@@ -164,4 +200,46 @@ fn dev_shape_upgrades_and_append_after_is_counted_once() {
         0
     );
     assert_sums_match_events(&conn);
+}
+
+#[test]
+#[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
+fn corpus_ledger_upgrades() {
+    let src = PathBuf::from(std::env::var_os("MIXDOG_MIGRATION_CORPUS").expect("MIXDOG_MIGRATION_CORPUS names the migration corpus"))
+        .join("v145/usage/ledger.sqlite");
+    let (_dir, path) = copy_to_temp(&src);
+    let conn = Connection::open(&path).unwrap();
+    let shape = match classify(&conn).unwrap() {
+        LedgerState::Upgradable(shape) => shape,
+        other => panic!("{other:?}"),
+    };
+    drop(conn);
+    upgrade_and_build(&path, Prepared::Upgraded(shape));
+}
+
+
+#[tokio::test]
+async fn a_145_ledger_upgrades_keeps_its_requests_and_answers_its_queries() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ledger.sqlite");
+    crate::v145::write_v145(&path);
+    let conn = upgrade_and_build(&path, Prepared::Upgraded(LedgerShape::Tag145));
+    let tokens = mixdog_rt::testing::tokens();
+    let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
+    let rollup = reader.rollup(RollupQuery::default()).await.unwrap();
+    assert_eq!(rollup["days"].as_object().unwrap().len(), 2, "both days of the ledger");
+    assert_eq!(conn.query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get::<_, i64>(0)).unwrap(), 3);
+    let sessions: Vec<String> = conn
+        .prepare("SELECT value FROM usage_sessions LIMIT 3")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let before = reader.usage_token(sessions.clone(), vec![]).await.unwrap();
+    reader
+        .session_usage(sessions.clone(), vec![])
+        .await
+        .unwrap();
+    assert_eq!(reader.usage_token(sessions, vec![]).await.unwrap(), before);
 }

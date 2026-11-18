@@ -92,6 +92,11 @@ pub trait AskpassEnv: Send + Sync {
     fn env(&self) -> Vec<(String, String)>;
     /// The session ended: spawns no longer use it.
     fn closed(&self) -> bool;
+    /// What one more ssh invocation of this session gets in its environment besides `env`: the number that tells its questions
+    /// from another invocation's.
+    fn child_env(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
     /// Directory of the connection-sharing sockets of the session (not used on Windows).
     fn control_dir(&self) -> Option<PathBuf>;
 }
@@ -106,6 +111,38 @@ pub struct AttemptContext {
     pub diagnostics_key: Option<String>,
     /// Set for the interactive (password / passphrase / one-time code) retry of an attempt.
     pub askpass: Option<Arc<dyn AskpassEnv>>,
+    /// The config the attempt's inspection reviewed: every ssh of its target runs with exactly that one.
+    pub reviewed: Option<ReviewedConfig>,
+}
+
+/// The ssh config an inspection judged a target's known_hosts files by, written for it alone.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReviewedConfig {
+    /// `SshTarget::key()` of the target.
+    pub target_key: String,
+    /// `None` where Mixdog has no ssh folder: ssh reads the user's own files.
+    pub file: Option<Arc<ConfigFile>>,
+}
+
+/// A config file written for one inspection: removed once nothing that reviewed it (the attempt, its link, the selection of later
+/// ssh runs of the target) holds it any more.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ConfigFile(PathBuf);
+
+impl ConfigFile {
+    pub fn new(path: PathBuf) -> Self {
+        Self(path)
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for ConfigFile {
+    fn drop(&mut self) {
+        let _ = mixdog_fsio::remove_file(&mixdog_fsio::Unlaned, &self.0);
+    }
 }
 
 /// Which `-F` file an ssh gets: the target's own generated config when there is one, else the generic one.

@@ -571,10 +571,48 @@ pub fn split_segments(path: &str) -> Vec<&str> {
 mod tests {
     use super::*;
 
-    /// `path.win32.relative` as Node answers it where the lower-cased comparison meets a character whose lower case has another
-    /// length (`İ`), characters outside the BMP and the other case-insensitive pairs (`testdata/path_relative.json`, written by Node).
+    fn win(from: &str, to: &str) -> String {
+        relative(Style::Win32, from, to)
+    }
+
     #[test]
-    fn win32_relative_is_nodes_where_lower_casing_changes_lengths() {
+    fn win32_relative_compares_paths_without_regard_to_case() {
+        assert_eq!(win("C:\\Users\\A", "c:\\users\\a\\b\\c"), "b\\c");
+        assert_eq!(win("C:\\Users\\A\\x", "c:\\USERS\\a"), "..");
+        assert_eq!(win("C:\\a\\b", "C:\\a\\c"), "..\\c");
+        assert_eq!(win("C:\\a", "C:\\a"), "");
+    }
+
+    #[test]
+    fn win32_relative_between_drives_is_the_target_itself() {
+        assert_eq!(win("C:\\a", "D:\\b"), "D:\\b");
+    }
+
+    #[test]
+    fn win32_relative_accepts_forward_slashes_and_writes_backslashes() {
+        assert_eq!(win("C:/a/b", "C:/a/b/c/d"), "c\\d");
+        assert_eq!(win("C:\\a\\b", "C:\\a"), "..");
+    }
+
+    #[test]
+    fn win32_relative_keeps_the_target_spelling_where_lower_casing_changes_a_length() {
+        // `İ` (U+0130) lower-cases to two units, so a comparison on the lower-cased text must not shift the cut: the rest of the
+        // target keeps its own spelling.
+        assert_eq!(win("C:\\İ\\x", "C:\\İ\\x\\Y"), "Y");
+        assert_eq!(win("C:\\İ", "C:\\i\u{307}\\Z"), "Z");
+        assert_eq!(win("C:\\😀\\a", "C:\\😀\\B"), "..\\B");
+    }
+}
+
+
+
+/// The recorded path answers of the reference runtime; compiled only on the machine that holds them.
+#[cfg(all(test, node_twin))]
+mod node_twin {
+    use super::*;
+
+    #[test]
+    fn win32_relative_matches_the_recorded_rows() {
         let golden: serde_json::Value = serde_json::from_str(include_str!("../testdata/path_relative.json")).unwrap();
         let rows = golden["rows"].as_array().unwrap();
         for row in rows {

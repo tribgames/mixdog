@@ -9,11 +9,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::connections::{
-    SshAgentState, SshAgentStatus, SshCleanupResult, SshConnectResult, SshFailed, SshFailure, SshFailureKind,
+    SshAgentState, SshAgentStatus, SshCleanupResult, SshFailed, SshFailure, SshFailureKind,
 };
+#[cfg(test)]
+use mixdog_app_protocol::v2::connections::SshConnectResult;
 use mixdog_rt::DurabilityIo;
 use mixdog_ssh::agent::{agent_status, AgentState};
-use mixdog_ssh::askpass::{AskpassPrompter, AskpassServer, AskpassSession};
+use mixdog_ssh::askpass::{AskpassKind, AskpassPrompter, AskpassServer, AskpassSession};
 use mixdog_ssh::context::{AskpassEnv, AttemptContext, ClaimedResources, SshEnv};
 use mixdog_ssh::private_dir::resolve_plain_dir;
 
@@ -26,10 +28,28 @@ pub trait LoginOutcome: Sized {
     fn cancelled() -> Self;
     /// The same refusal with the state of the user's ssh-agent.
     fn with_agent(self, agent: SshAgentStatus) -> Self;
+    /// The refusal of a login whose secret the server is known to have rejected (its process asked for it again): no key is missing.
+    fn with_refused_answer(self, refused: AskpassKind) -> Self;
+}
+
+/// The failure of a password, passphrase or code the server is known to have rejected: told as that, not as a missing key. A
+/// question that is none of them (`Other`) keeps the login failure.
+fn refused_answer(failed: SshFailed, refused: AskpassKind) -> SshFailed {
+    let said = match refused {
+        AskpassKind::Password => mixdog_ssh::said::PASSWORD_REFUSED,
+        AskpassKind::Passphrase => mixdog_ssh::said::PASSPHRASE_REFUSED,
+        AskpassKind::Otp => mixdog_ssh::said::CODE_REFUSED,
+        AskpassKind::Other => return failed,
+    }
+    .plain();
+    SshFailed {
+        ok: false,
+        failure: SshFailure { kind: SshFailureKind::Failed { message: said.english }, notice: Some(said.message), code: Some("login-refused".to_owned()) },
+    }
 }
 
 fn cancelled_failure() -> SshFailure {
-    SshFailure { kind: SshFailureKind::Cancelled, code: None }
+    SshFailure { kind: SshFailureKind::Cancelled, notice: None, code: None }
 }
 
 fn refused(failed: &SshFailed) -> bool {
@@ -38,14 +58,15 @@ fn refused(failed: &SshFailed) -> bool {
 
 fn agent_added(failed: SshFailed, agent: SshAgentStatus) -> SshFailed {
     match failed.failure {
-        SshFailure { kind: SshFailureKind::Auth { keygen, register, .. }, code } => SshFailed {
+        SshFailure { kind: SshFailureKind::Auth { keygen, register, .. }, notice, code } => SshFailed {
             ok: false,
-            failure: SshFailure { kind: SshFailureKind::Auth { keygen, register, agent: Some(agent) }, code },
+            failure: SshFailure { kind: SshFailureKind::Auth { keygen, register, agent: Some(agent) }, notice, code },
         },
         _ => failed,
     }
 }
 
+#[cfg(test)]
 impl LoginOutcome for SshConnectResult {
     fn is_ok(&self) -> bool {
         matches!(self, Self::Connected(_))
@@ -64,6 +85,35 @@ impl LoginOutcome for SshConnectResult {
             Self::Failed(failed) => Self::Failed(agent_added(failed, agent)),
             connected => connected,
         }
+    }
+
+    fn with_refused_answer(self, refused: AskpassKind) -> Self {
+        match self {
+            Self::Failed(failed) => Self::Failed(refused_answer(failed, refused)),
+            connected => connected,
+        }
+    }
+}
+
+impl<T> LoginOutcome for Result<T, SshFailure> {
+    fn is_ok(&self) -> bool {
+        Result::is_ok(self)
+    }
+
+    fn refused_login(&self) -> bool {
+        matches!(self, Err(failure) if matches!(failure.kind, SshFailureKind::Auth { .. }))
+    }
+
+    fn cancelled() -> Self {
+        Err(cancelled_failure())
+    }
+
+    fn with_agent(self, agent: SshAgentStatus) -> Self {
+        self.map_err(|failure| agent_added(SshFailed { ok: false, failure }, agent).failure)
+    }
+
+    fn with_refused_answer(self, refused: AskpassKind) -> Self {
+        self.map_err(|failure| refused_answer(SshFailed { ok: false, failure }, refused).failure)
     }
 }
 
@@ -86,6 +136,13 @@ impl LoginOutcome for SshCleanupResult {
             done => done,
         }
     }
+
+    fn with_refused_answer(self, refused: AskpassKind) -> Self {
+        match self {
+            Self::Failed(failed) => Self::Failed(refused_answer(failed, refused)),
+            done => done,
+        }
+    }
 }
 
 /// The running askpass session as the retry holds it.
@@ -93,6 +150,10 @@ impl LoginOutcome for SshCleanupResult {
 pub trait AskpassControl: Send + Sync {
     /// The user dismissed or timed out a question of the session.
     fn cancelled(&self) -> bool;
+    /// What the last question asked for whose answer the server refused; none without that evidence.
+    fn refused(&self) -> Option<AskpassKind> {
+        None
+    }
     /// Ends the session.
     async fn close(&self);
 }
@@ -101,6 +162,10 @@ pub trait AskpassControl: Send + Sync {
 impl AskpassControl for AskpassSession {
     fn cancelled(&self) -> bool {
         AskpassSession::cancelled(self)
+    }
+
+    fn refused(&self) -> Option<AskpassKind> {
+        AskpassSession::refused(self)
     }
 
     async fn close(&self) {
@@ -194,8 +259,13 @@ where
             Ok(session) => {
                 let second = run(AttemptContext { askpass: Some(session.env.clone()), ..base }).await;
                 let dismissed = session.control.cancelled();
+                let refused = session.control.refused();
                 session.control.close().await;
-                if dismissed && !second.is_ok() { T::cancelled() } else { second }
+                match refused {
+                    _ if dismissed && !second.is_ok() => T::cancelled(),
+                    Some(refused) if second.refused_login() => second.with_refused_answer(refused),
+                    _ => second,
+                }
             }
         }
     } else {

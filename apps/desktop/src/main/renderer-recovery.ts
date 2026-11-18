@@ -139,7 +139,7 @@ export function normalizeRendererWhatsNewDiagnostic(input: unknown): Record<stri
 export function normalizeRendererComposerActionDiagnostic(input: unknown): Record<string, unknown> | null {
   const record = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
   if (record.kind !== 'composer-action') return null;
-  const actions = new Set(['submit', 'restore-queue']);
+  const actions = new Set(['submit', 'restore-queue', 'stop']);
   const sources = new Set([
     'keyboard-enter',
     'form-submit',
@@ -148,7 +148,15 @@ export function normalizeRendererComposerActionDiagnostic(input: unknown): Recor
     'escape',
     'arrow-up',
     'queue-row',
+    'stop-button',
   ]);
+  const stopOutcome = ['stopped', 'restored', 'nothing', 'failed'].includes(String(record.stopOutcome))
+    ? String(record.stopOutcome)
+    : '';
+  const stopReason = String(record.stopReason ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
   const action = String(record.action || '');
   const source = String(record.source || '');
   if (!actions.has(action) || !sources.has(source)) return null;
@@ -165,5 +173,8 @@ export function normalizeRendererComposerActionDiagnostic(input: unknown): Recor
     composing: record.composing === true,
     uptimeMs: metric(record.uptimeMs, 1_000_000_000),
     ...(record.targeted === true ? { targeted: true } : {}),
+    ...(stopOutcome ? { stopOutcome } : {}),
+    ...(typeof record.aborted === 'boolean' ? { aborted: record.aborted } : {}),
+    ...(stopReason ? { stopReason } : {}),
   };
 }

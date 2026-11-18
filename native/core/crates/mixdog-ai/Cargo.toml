@@ -25,6 +25,8 @@ mixdog-protocol = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-statefile = { workspace = true }
 mixdog-core-api = { workspace = true }
+mixdog-imaging = { workspace = true }
+mixdog-image-egress = { workspace = true }
 aes-gcm = { workspace = true }
 arc-swap = { workspace = true }
 jsonschema = { workspace = true }
@@ -54,6 +56,7 @@ hyper-util = { workspace = true }
 tokio-rustls = { workspace = true, features = ["ring"] }
 serde = { workspace = true }
 # preserve_order: wire bodies keep insertion order (prompt-cache prefixes are byte prefixes).
+indexmap = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order", "raw_value"] }
 sha2 = { workspace = true }
 socket2 = { workspace = true }
@@ -79,12 +82,12 @@ rcgen = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time", "io-util", "test-util"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-app-protocol = { workspace = true }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-protocol = { workspace = true }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }

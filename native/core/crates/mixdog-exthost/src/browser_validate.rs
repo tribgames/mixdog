@@ -261,6 +261,172 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn a_tool_action_and_an_empty_input_are_not_refused_here() {
+        assert!(validate_ui_action("navigate", &mut Value::Null).is_ok());
+        assert!(validate_ui_action("importSources", &mut json!({})).is_ok());
+        assert!(validate_ui_action("history", &mut json!("x")).is_ok(), "the host answers a non-object input");
+        assert!(validate_ui_action("importStart", &mut json!([1])).is_ok(), "the host answers an array input");
+        let Err(CoreError::DomainError { message, .. }) = validate_ui_action("input", &mut Value::Null) else { panic!("refused") };
+        assert_eq!(message.as_deref(), Some("unknown remote browser control \"(none)\"."));
+    }
+
+
+    fn refusal(action: &str, mut input: Value) -> Option<String> {
+        match validate_ui_action(action, &mut input) {
+            Ok(()) => None,
+            Err(CoreError::DomainError { domain, code: None, message, detail: None }) => {
+                assert_eq!(&*domain, "browser");
+                message.map(|m| m.to_string())
+            }
+            Err(other) => panic!("{other:?}"),
+        }
+    }
+
+    const DOC: &str = "p1:7";
+
+    #[test]
+    fn a_navigation_needs_a_url_of_one_to_4096_units_and_a_new_tab_the_same() {
+        assert_eq!(refusal("input", json!({"type": "navigate", "url": "https://example.com"})), None);
+        assert_eq!(refusal("input", json!({"type": "navigate", "url": ""})).as_deref(), Some("remote browser url is invalid."));
+        assert_eq!(refusal("input", json!({"type": "navigate"})).as_deref(), Some("remote browser url is invalid."));
+        assert_eq!(refusal("tabOpen", json!({"url": "x".repeat(4096)})), None);
+        assert_eq!(refusal("tabOpen", json!({"url": "x".repeat(4097)})).as_deref(), Some("remote browser url is invalid."));
+    }
+
+    #[test]
+    fn an_unknown_or_missing_control_type_is_named_in_the_refusal() {
+        assert_eq!(refusal("input", json!({"type": "teleport"})).as_deref(), Some("unknown remote browser control \"teleport\"."));
+        assert_eq!(refusal("input", json!({})).as_deref(), Some("unknown remote browser control \"(none)\"."));
+        for plain in ["back", "forward", "reload", "stop", "new-tab"] {
+            assert_eq!(refusal("input", json!({"type": plain})), None, "{plain}");
+        }
+    }
+
+    #[test]
+    fn tab_ids_are_p_followed_by_digits() {
+        assert_eq!(refusal("input", json!({"type": "select-tab", "tabId": "p12"})), None);
+        for bad in ["12", "p", "px", "p1x", ""] {
+            assert_eq!(refusal("input", json!({"type": "close-tab", "tabId": bad})).as_deref(), Some("remote browser tab id is invalid."), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_viewport_is_200_to_3840_pixels_with_a_scale_of_half_to_four() {
+        let view = |w: f64, h: f64, s: f64| refusal("input", json!({"type": "viewport", "width": w, "height": h, "deviceScaleFactor": s}));
+        assert_eq!(view(200.0, 3840.0, 0.5), None);
+        assert_eq!(view(199.0, 800.0, 1.0).as_deref(), Some("remote browser viewport size is invalid."));
+        assert_eq!(view(800.0, 3841.0, 1.0).as_deref(), Some("remote browser viewport size is invalid."));
+        assert_eq!(view(800.5, 600.0, 1.0).as_deref(), Some("remote browser viewport size is invalid."));
+        assert_eq!(view(800.0, 600.0, 4.5).as_deref(), Some("remote browser viewport scale is invalid."));
+    }
+
+    #[test]
+    fn gestures_need_a_document_id_of_the_form_p_page_colon_token() {
+        for bad in ["p0:1", "1:1", "p1", "p1:", "p1:x", ""] {
+            assert_eq!(refusal("input", json!({"type": "wheel", "documentId": bad})).as_deref(), Some("remote browser document id is invalid."), "{bad:?}");
+        }
+        assert_eq!(refusal("input", json!({"type": "wheel"})).as_deref(), Some("remote browser document id is invalid."));
+    }
+
+    #[test]
+    fn a_pointer_names_its_phase_and_button_and_keeps_its_numbers_in_range() {
+        let pointer = |patch: Value| {
+            let mut input = json!({"type": "pointer", "documentId": DOC, "phase": "mousePressed", "button": "left", "x": 10, "y": 20, "buttons": 1, "modifiers": 0, "clickCount": 1});
+            input.as_object_mut().unwrap().extend(patch.as_object().unwrap().clone());
+            refusal("input", input)
+        };
+        assert_eq!(pointer(json!({})), None);
+        assert_eq!(pointer(json!({"phase": "mouseDragged"})).as_deref(), Some("Browser pointer is invalid."));
+        assert_eq!(pointer(json!({"button": "back"})).as_deref(), Some("Browser pointer is invalid."));
+        assert_eq!(pointer(json!({"x": -1})).as_deref(), Some("Browser x is invalid."));
+        assert_eq!(pointer(json!({"buttons": 8})).as_deref(), Some("Browser buttons is invalid."));
+        assert_eq!(pointer(json!({"modifiers": 16})).as_deref(), Some("Browser modifiers is invalid."));
+        assert_eq!(pointer(json!({"clickCount": 4})).as_deref(), Some("Browser clickCount is invalid."));
+    }
+
+    #[test]
+    fn a_wheel_delta_is_within_twenty_thousand() {
+        let wheel = |dy: i64| refusal("input", json!({"type": "wheel", "documentId": DOC, "x": 1, "y": 1, "deltaX": 0, "deltaY": dy}));
+        assert_eq!(wheel(20_000), None);
+        assert_eq!(wheel(-20_001).as_deref(), Some("Browser deltaY is invalid."));
+    }
+
+    #[test]
+    fn typed_text_is_capped_at_two_thousand_units_for_the_remote_and_a_key_name_at_sixty_four() {
+        let text = |t: String| refusal("input", json!({"type": "text", "documentId": DOC, "text": t}));
+        assert_eq!(text("a".repeat(2000)), None);
+        assert_eq!(text("a".repeat(2001)).as_deref(), Some("remote browser text is invalid."));
+        assert_eq!(text(String::new()).as_deref(), Some("Browser text is invalid."), "an empty text is not an input");
+        let key = |k: &str| refusal("input", json!({"type": "key", "documentId": DOC, "key": k}));
+        assert_eq!(key("Enter"), None);
+        assert_eq!(key(&"k".repeat(65)).as_deref(), Some("Browser key is invalid."));
+    }
+
+    #[test]
+    fn a_composition_selection_stays_inside_its_text() {
+        let comp = |start: i64, end: i64| refusal("input", json!({"type": "composition", "documentId": DOC, "text": "abc", "selectionStart": start, "selectionEnd": end}));
+        assert_eq!(comp(1, 3), None);
+        assert_eq!(comp(2, 1).as_deref(), Some("Browser selectionEnd is invalid."));
+        assert_eq!(comp(0, 4).as_deref(), Some("Browser selectionEnd is invalid."));
+        assert_eq!(refusal("input", json!({"type": "composition-end", "documentId": DOC, "text": "abc"})), None);
+    }
+
+    #[test]
+    fn a_dialog_answer_needs_a_boolean_accept_a_request_id_and_known_options() {
+        let answer = |patch: Value| {
+            let mut input = json!({"type": "answer-dialog", "documentId": DOC, "accept": true, "requestId": "r1"});
+            input.as_object_mut().unwrap().extend(patch.as_object().unwrap().clone());
+            refusal("input", input)
+        };
+        assert_eq!(answer(json!({})), None);
+        assert_eq!(answer(json!({"remember": "site"})), None);
+        assert_eq!(answer(json!({"accept": "yes"})).as_deref(), Some("Browser dialog answer is invalid."));
+        assert_eq!(answer(json!({"remember": "always"})).as_deref(), Some("Browser dialog answer is invalid."));
+        assert_eq!(answer(json!({"keepDefault": 1})).as_deref(), Some("Browser dialog answer is invalid."));
+        assert_eq!(answer(json!({"requestId": ""})).as_deref(), Some("Browser requestId is invalid."));
+    }
+
+    #[test]
+    fn a_page_release_names_a_main_browser_page() {
+        assert_eq!(refusal("release", json!({"id": "main-browser-abc_1-2"})), None);
+        for bad in [json!({"id": "other"}), json!({"id": "main-browser-a b"}), json!({})] {
+            assert_eq!(refusal("release", bad).as_deref(), Some("Browser page is not a main tab page."));
+        }
+    }
+
+    #[test]
+    fn a_history_query_is_at_most_five_hundred_units() {
+        assert_eq!(refusal("history", json!({"query": "q".repeat(500)})), None);
+        assert_eq!(refusal("history", json!({"query": "q".repeat(501)})).as_deref(), Some("Browser history query is invalid."));
+        assert_eq!(refusal("history", json!({})).as_deref(), Some("Browser history query is invalid."));
+    }
+
+    #[test]
+    fn an_import_names_a_job_a_source_a_profile_and_one_to_three_known_items() {
+        let import = |patch: Value| {
+            let mut input = json!({"jobId": "job-12345", "sourceId": "chrome", "profileId": "Default", "items": ["passwords", "cookies"]});
+            input.as_object_mut().unwrap().extend(patch.as_object().unwrap().clone());
+            refusal("importStart", input)
+        };
+        assert_eq!(import(json!({})), None);
+        assert_eq!(import(json!({"jobId": "short"})).as_deref(), Some("Browser import job id is invalid."));
+        assert_eq!(import(json!({"jobId": "has space 123"})).as_deref(), Some("Browser import job id is invalid."));
+        assert_eq!(import(json!({"sourceId": ""})).as_deref(), Some("Browser import source id is invalid."));
+        assert_eq!(import(json!({"profileId": "p".repeat(201)})).as_deref(), Some("Browser import profile id is invalid."));
+        assert_eq!(import(json!({"items": []})).as_deref(), Some("Browser import items are invalid."));
+        assert_eq!(import(json!({"items": ["passwords", "cookies", "history", "passwords"]})).as_deref(), Some("Browser import items are invalid."));
+        assert_eq!(import(json!({"items": ["bookmarks"]})).as_deref(), Some("Browser import items are invalid."));
+    }
+
+    #[test]
+    fn a_stored_credential_is_named_by_twenty_four_lower_case_hex_digits() {
+        let fill = |id: &str| refusal("credentialFill", json!({"session_id": "s", "credentialId": id}));
+        assert_eq!(fill(&"a1".repeat(12)), None);
+        assert_eq!(fill(&"A1".repeat(12)).as_deref(), Some("Stored browser credential id is invalid."));
+        assert_eq!(fill("abc").as_deref(), Some("Stored browser credential id is invalid."));
+    }
+    #[cfg(node_twin)]
     /// The corpus the desktop's `remote-browser.test.mjs` reads too: each row is a UI action
     /// with its input and the text the desktop refuses it with (`null`: admitted).
     #[test]
@@ -281,15 +447,5 @@ mod tests {
             };
             assert_eq!(message.as_deref(), row["error"].as_str(), "{row}");
         }
-    }
-
-    #[test]
-    fn a_tool_action_and_an_empty_input_are_not_refused_here() {
-        assert!(validate_ui_action("navigate", &mut Value::Null).is_ok());
-        assert!(validate_ui_action("importSources", &mut json!({})).is_ok());
-        assert!(validate_ui_action("history", &mut json!("x")).is_ok(), "the host answers a non-object input");
-        assert!(validate_ui_action("importStart", &mut json!([1])).is_ok(), "the host answers an array input");
-        let Err(CoreError::DomainError { message, .. }) = validate_ui_action("input", &mut Value::Null) else { panic!("refused") };
-        assert_eq!(message.as_deref(), Some("unknown remote browser control \"(none)\"."));
     }
 }

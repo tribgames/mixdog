@@ -20,8 +20,8 @@ test('project options lead with none, prefer alias over name, and keep an unlist
 });
 
 test("only the host's exact task workspace reads as no project", () => {
-  const internal = 'C:\\Users\\tempe\\AppData\\Roaming\\mixdog-desktop\\workspace\\unclassified';
-  for (const path of [internal, 'c:/users/tempe/appdata/roaming/mixdog-desktop/workspace/Unclassified/']) {
+  const internal = 'C:\\Users\\alice\\AppData\\Roaming\\mixdog-desktop\\workspace\\unclassified';
+  for (const path of [internal, 'c:/users/alice/appdata/roaming/mixdog-desktop/workspace/Unclassified/']) {
     assert.equal(automationDraftCwd(path, internal), '');
   }
   // A real project that merely ends the same way is a project.

@@ -9,7 +9,7 @@
 //!
 //! The binary reaches the stand-in through the `test-support` pin of its HTTP client (`REPLAY_PROVIDER_PIN`). Ctrl+C is a
 //! CTRL_C_EVENT on the binary's own hidden console, sent by this test binary re-run as a helper; Windows only, as the recording is.
-#![cfg(windows)]
+#![cfg(all(windows, node_twin))]
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the test lays out an install, runs a process and reads what it left on disk")]
 
 #[path = "../../mixdog-cli/tests/support/request.rs"]
@@ -45,18 +45,6 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const CTRL_C_TARGET: &str = "EXEC_ENTRY_CTRL_C_TARGET";
 const NO_SCRIPT: &str = "HTTP/1.1 404 Not Found\r\ncontent-type: text/plain\r\ncontent-length: 9\r\nconnection: close\r\n\r\nno script";
 
-fn fixture(name: &str) -> &'static str {
-    match name {
-        "text" => mixdog_testkit::fixture!("../../fixtures/exec-cli/text.json"),
-        "json" => mixdog_testkit::fixture!("../../fixtures/exec-cli/json.json"),
-        "provider-error" => mixdog_testkit::fixture!("../../fixtures/exec-cli/provider-error.json"),
-        "failed-turn" => mixdog_testkit::fixture!("../../fixtures/exec-cli/failed-turn.json"),
-        "ctrl-c" => mixdog_testkit::fixture!("../../fixtures/exec-cli/ctrl-c.json"),
-        "kill" => mixdog_testkit::fixture!("../../fixtures/exec-cli/kill.json"),
-        other => panic!("no case {other}"),
-    }
-}
-
 /// An install of the binary under test: the binary hard-linked beside a `js-runtime.json` naming this tree's JS package
 /// and the `node` on `PATH`.
 fn install() -> PathBuf {
@@ -82,6 +70,8 @@ fn normalize(text: &str, sandbox: &str) -> String {
         (r"mixdog-headless-pristine-[A-Za-z0-9]+", "mixdog-headless-pristine-<id>"),
         (r"sess_[A-Za-z0-9_]+", "<session>"),
         (r"exec_[0-9a-f]{32}", "<thread>"),
+        // The core's own `[ask-error]` line names the turn by its time-ordered id (a declared core-side leave-out).
+        (r"(\[ask-error\] session=\S+ turn=)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "${1}<turn>"),
         (r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", "<time>"),
         (r#""(duration_ms|duration_api_ms|queue_ms|dispatch_ms|execution_ms|batch_wait_ms|postprocess_ms|total_ms)":\d+(?:\.\d+)?"#, r#""$1":0"#),
     ];
@@ -119,61 +109,6 @@ struct Declared {
     /// What it names is a timing fact (it may or may not occur in a recording): it need not be met.
     timing: bool,
     met: std::cell::Cell<bool>,
-}
-
-impl NotCompared {
-    fn from_manifest() -> Self {
-        let manifest: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/exec-cli/MANIFEST.json")).unwrap();
-        let declared = |key: &str, text: &str| -> Vec<Declared> {
-            manifest[key]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|entry| {
-                    assert!(!entry["reason"].as_str().unwrap().is_empty(), "{key}: {} has no reason", entry["name"]);
-                    Declared { side: entry["side"].as_str().unwrap().to_owned(), name: entry["name"].as_str().unwrap().to_owned(), text: entry[text].as_str().unwrap().to_owned(), timing: entry["timing"] == true, met: std::cell::Cell::new(false) }
-                })
-                .collect()
-        };
-        Self { stderr: declared("stderrNotCompared", "line"), others: declared("othersNotCompared", "request") }
-    }
-
-    /// The names of the declared leave-outs that no compared data of their side held.
-    fn unmet(&self) -> Vec<&str> {
-        self.stderr.iter().chain(&self.others).filter(|declared| !declared.timing && !declared.met.get()).map(|declared| declared.name.as_str()).collect()
-    }
-
-    /// Whether a leave-out of `side` names exactly `text`; the ones that do are met.
-    fn names(declared: &[Declared], side: &str, text: &str) -> bool {
-        let named: Vec<&Declared> = declared.iter().filter(|declared| declared.side == side && declared.text == text).collect();
-        named.iter().for_each(|declared| declared.met.set(true));
-        !named.is_empty()
-    }
-
-    /// `output` of `side` (`node` or `core`) without the stderr lines declared for that side; runs the leave-out empties are
-    /// joined again.
-    fn output(&self, output: &Value, side: &str) -> Value {
-        let mut joined: Vec<(String, String)> = Vec::new();
-        for chunk in output.as_array().unwrap() {
-            let stream = chunk["stream"].as_str().unwrap();
-            let text = chunk["text"].as_str().unwrap();
-            let left_out = |line: &str| Self::names(&self.stderr, side, line.trim_end_matches(['\r', '\n']));
-            let kept: String = if stream == "stderr" { text.split_inclusive('\n').filter(|line| !left_out(line)).collect() } else { text.to_owned() };
-            if kept.is_empty() {
-                continue;
-            }
-            match joined.last_mut() {
-                Some((last, text)) if last == stream => text.push_str(&kept),
-                _ => joined.push((stream.to_owned(), kept)),
-            }
-        }
-        Value::Array(joined.into_iter().map(|(stream, text)| json!({ "stream": stream, "text": text })).collect())
-    }
-
-    /// The requests outside the turn that `side` (`node` or `core`) makes, without those declared for that side only.
-    fn others(&self, others: &Value, side: &str) -> Value {
-        Value::Array(others.as_array().unwrap().iter().filter(|request| !Self::names(&self.others, side, request.as_str().unwrap())).cloned().collect())
-    }
 }
 
 /// The stand-in provider's record of a run.
@@ -501,6 +436,72 @@ fn run_case(exe: &Path, runtime: &tokio::runtime::Runtime, case: &Value) -> Valu
     got
 }
 
+
+fn fixture(name: &str) -> &'static str {
+    match name {
+        "text" => mixdog_testkit::fixture!("../../fixtures/exec-cli/text.json"),
+        "json" => mixdog_testkit::fixture!("../../fixtures/exec-cli/json.json"),
+        "provider-error" => mixdog_testkit::fixture!("../../fixtures/exec-cli/provider-error.json"),
+        "failed-turn" => mixdog_testkit::fixture!("../../fixtures/exec-cli/failed-turn.json"),
+        "ctrl-c" => mixdog_testkit::fixture!("../../fixtures/exec-cli/ctrl-c.json"),
+        "kill" => mixdog_testkit::fixture!("../../fixtures/exec-cli/kill.json"),
+        other => panic!("no case {other}"),
+    }
+}
+impl NotCompared {
+    fn from_manifest() -> Self {
+        let manifest: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/exec-cli/MANIFEST.json")).unwrap();
+        let declared = |key: &str, text: &str| -> Vec<Declared> {
+            manifest[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|entry| {
+                    assert!(!entry["reason"].as_str().unwrap().is_empty(), "{key}: {} has no reason", entry["name"]);
+                    Declared { side: entry["side"].as_str().unwrap().to_owned(), name: entry["name"].as_str().unwrap().to_owned(), text: entry[text].as_str().unwrap().to_owned(), timing: entry["timing"] == true, met: std::cell::Cell::new(false) }
+                })
+                .collect()
+        };
+        Self { stderr: declared("stderrNotCompared", "line"), others: declared("othersNotCompared", "request") }
+    }
+
+    /// The names of the declared leave-outs that no compared data of their side held.
+    fn unmet(&self) -> Vec<&str> {
+        self.stderr.iter().chain(&self.others).filter(|declared| !declared.timing && !declared.met.get()).map(|declared| declared.name.as_str()).collect()
+    }
+
+    /// Whether a leave-out of `side` names exactly `text`; the ones that do are met.
+    fn names(declared: &[Declared], side: &str, text: &str) -> bool {
+        let named: Vec<&Declared> = declared.iter().filter(|declared| declared.side == side && declared.text == text).collect();
+        named.iter().for_each(|declared| declared.met.set(true));
+        !named.is_empty()
+    }
+
+    /// `output` of `side` (`node` or `core`) without the stderr lines declared for that side; runs the leave-out empties are
+    /// joined again.
+    fn output(&self, output: &Value, side: &str) -> Value {
+        let mut joined: Vec<(String, String)> = Vec::new();
+        for chunk in output.as_array().unwrap() {
+            let stream = chunk["stream"].as_str().unwrap();
+            let text = chunk["text"].as_str().unwrap();
+            let left_out = |line: &str| Self::names(&self.stderr, side, line.trim_end_matches(['\r', '\n']));
+            let kept: String = if stream == "stderr" { text.split_inclusive('\n').filter(|line| !left_out(line)).collect() } else { text.to_owned() };
+            if kept.is_empty() {
+                continue;
+            }
+            match joined.last_mut() {
+                Some((last, text)) if last == stream => text.push_str(&kept),
+                _ => joined.push((stream.to_owned(), kept)),
+            }
+        }
+        Value::Array(joined.into_iter().map(|(stream, text)| json!({ "stream": stream, "text": text })).collect())
+    }
+
+    /// The requests outside the turn that `side` (`node` or `core`) makes, without those declared for that side only.
+    fn others(&self, others: &Value, side: &str) -> Value {
+        Value::Array(others.as_array().unwrap().iter().filter(|request| !Self::names(&self.others, side, request.as_str().unwrap())).cloned().collect())
+    }
+}
 #[test]
 fn the_entry_binary_does_what_nodes_cli_process_recorded_for_every_exec_case() {
     let exe = install();
@@ -510,11 +511,19 @@ fn the_entry_binary_does_what_nodes_cli_process_recorded_for_every_exec_case() {
     for name in CASES {
         let case: Value = serde_json::from_str(fixture(name)).unwrap();
         let got = run_case(&exe, &runtime, &case);
+        // Node's recorded requests with the decided departures of tool definitions (`departures.json`, scenario
+        // `tool-definitions`: grep's `section`) applied to the tools they offered; nothing else of a request is adjusted.
+        let mut expected = case.clone();
+        for request in expected["requests"].as_array_mut().unwrap() {
+            if request.get("tools").is_some() {
+                request["tools"] = request::with_decided_departures(&request["tools"]);
+            }
+        }
         for field in ["code", "requests", "files", "left"] {
-            if got.get(field) != case.get(field) {
+            if got.get(field) != expected.get(field) {
                 differences.push(format!(
                     "{name}: {field}\n  Node: {}\n  core: {}",
-                    serde_json::to_string(&case.get(field)).unwrap(),
+                    serde_json::to_string(&expected.get(field)).unwrap(),
                     serde_json::to_string(&got.get(field)).unwrap()
                 ));
             }

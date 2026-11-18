@@ -286,7 +286,11 @@ pub fn metadata(message: &Value) -> Metadata {
     if !attachments.is_empty() {
         fields.insert("attachments".into(), Value::Array(attachments));
     }
-    let reactions = normalize_reactions(value.get("reactions"));
+    // How many of the message's images went with only their smaller copy: every surface words its note from this.
+    if let Some(lost) = value.get("originalImagesMissing").and_then(Value::as_u64).filter(|lost| *lost > 0) {
+        fields.insert("originalImagesMissing".into(), json!(lost));
+    }
+    let reactions =normalize_reactions(value.get("reactions"));
     if !reactions.is_empty() {
         fields.insert("reactions".into(), Value::Array(reactions));
     }
@@ -310,23 +314,41 @@ pub fn metadata(message: &Value) -> Metadata {
 pub struct Ids<'a> {
     pub(super) iid: &'a str,
     part: usize,
+    /// Ids a row of the record was shown under live (its text segments, `meta.segments`): those rows keep them, and
+    /// [`Self::next`] never hands them to another row.
+    reserved: Vec<String>,
 }
 
 impl<'a> Ids<'a> {
     pub fn new(iid: &'a str) -> Self {
-        Self { iid, part: 0 }
+        Self { iid, part: 0, reserved: Vec::new() }
+    }
+
+    /// `id` belongs to a row that names it; no other row of the record gets it.
+    fn reserve(&mut self, id: &str) {
+        self.reserved.push(id.to_owned());
     }
 
     /// A live record's later rows have ids of their own, opaque like the record's (Node's `nextId()` gives every card one): the
-    /// record's 128-bit id plus the row's position. A stored record from another source (`hist_...`) keeps `<iid>:<n>`.
+    /// record's 128-bit id plus the row's position. A stored record from another source (`hist_...`) keeps `<iid>:<n>`. A
+    /// reserved id is passed over.
     pub fn next(&mut self) -> String {
-        self.part += 1;
-        if self.part == 1 {
+        loop {
+            let id = self.at(self.part + 1);
+            self.part += 1;
+            if !self.reserved.contains(&id) {
+                return id;
+            }
+        }
+    }
+
+    fn at(&self, part: usize) -> String {
+        if part == 1 {
             return self.iid.to_owned();
         }
         match self.iid.strip_prefix("itm_").filter(|hex| hex.len() == 32).and_then(|hex| u128::from_str_radix(hex, 16).ok()) {
-            Some(bits) => format!("itm_{:032x}", bits.wrapping_add((self.part - 1) as u128)),
-            None => format!("{}:{}", self.iid, self.part),
+            Some(bits) => format!("itm_{:032x}", bits.wrapping_add((part - 1) as u128)),
+            None => format!("{}:{}", self.iid, part),
         }
     }
 }
@@ -387,9 +409,10 @@ fn call_args(call: &Value) -> Option<Value> {
 
 use mixdog_protocol::tool_visibility::is_task_wait;
 
-fn restored_tool_calls(message: &Value, meta: &Row, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
+/// The rows of a message's tool calls `calls` (a run of `message_calls`, in order).
+fn restored_calls(calls: &[Value], meta: &Row, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
     let at = meta.get("at").and_then(Value::as_f64).filter(|a| a.is_finite());
-    for call in message_calls(message) {
+    for call in calls {
         let named = ["/function/name", "/name"]
             .iter()
             .filter_map(|p| call.pointer(p))
@@ -493,25 +516,79 @@ fn assistant_rows(message: &Value, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
         out.push(Restored::Row { row, source: Some("import".into()) });
         return;
     }
-    let text = content_text(message);
-    let text = js_trim(&text);
-    if !text.is_empty() {
-        let mut meta = fields.clone();
-        meta.shift_remove("completion");
-        let id = ids.next();
+    // A reply shown with progress updates among its text names what was shown (`meta.shownText`): the rows are that text, the
+    // message's own being only what the model's context holds.
+    let content = match message.pointer("/meta/shownText").and_then(Value::as_str) {
+        Some(shown) => shown.to_owned(),
+        None => content_text(message),
+    };
+    // The text as the segments it was shown in (the first under the record's id), each after the tool calls that streamed
+    // before it (Node's text, card, text); else whole, before the calls: a row with no segments, or whose segments do not cut
+    // its text (a stored copy rewritten since), is one row.
+    let parts: Vec<(Option<String>, &str, usize)> = match text_segments(message, &content) {
+        Some(parts) => parts.into_iter().map(|(id, text, after)| (Some(id), js_trim(text), after)).collect(),
+        None => vec![(None, js_trim(&content), 0)],
+    };
+    // The segments' ids are taken before any row of the record is given one: a call that streamed before the first segment
+    // (whose id is the record's own) gets the next free id, never one a segment was shown under.
+    for (named, ..) in &parts {
+        if let Some(id) = named {
+            ids.reserve(id);
+        }
+    }
+    let calls = message_calls(message);
+    let mut placed = 0;
+    let mut meta = fields.clone();
+    meta.shift_remove("completion");
+    let mut last = None;
+    for (index, (named, text, after)) in parts.into_iter().enumerate() {
+        let after = after.clamp(placed, calls.len());
+        restored_calls(&calls[placed..after], &fields, ids, out);
+        placed = after;
+        if text.is_empty() {
+            continue;
+        }
+        // The record's id is its first segment's row, as a whole text's: it takes the record's own id, and a later row (the
+        // end) the next one. A later segment's row has the id it was shown under.
+        let id = match named {
+            Some(id) => id,
+            None if index == 0 => ids.next(),
+            None => continue,
+        };
         let mut row = Row::new();
         row.insert("kind".into(), json!("assistant"));
         row.insert("id".into(), json!(id));
         row.insert("text".into(), json!(text));
         row.extend(meta.clone());
         out.push(Restored::Row { row, source: None });
+        last = Some(id);
+    }
+    if let Some(id) = last {
         // A failed end follows the message's tool calls (`restoredFailedTurnItems`).
         if let Some(done) = completion.filter(|c| c.get("status").and_then(Value::as_str) != Some("failed")) {
             let end = turn_done(&done, &meta, ids.next(), Some(&id));
             out.push(Restored::Row { row: end, source: None });
         }
     }
-    restored_tool_calls(message, &fields, ids, out);
+    restored_calls(&calls[placed..], &fields, ids, out);
+}
+
+/// The segments a reply's text was shown as (`meta.segments`, `[{id, len, after}]`, `len` in bytes): each one's id, its part
+/// of `content`, and how many of the message's tool calls streamed before it. `None` when the row names none, or they do
+/// not cut `content` exactly (a part off a character boundary, a length that does not add up).
+fn text_segments<'t>(message: &Value, content: &'t str) -> Option<Vec<(String, &'t str, usize)>> {
+    let named = message.pointer("/meta/segments")?.as_array()?;
+    let mut parts = Vec::with_capacity(named.len());
+    let mut at = 0usize;
+    for segment in named {
+        let id = segment.get("id")?.as_str().filter(|id| !id.is_empty())?;
+        let end = at.checked_add(usize::try_from(segment.get("len")?.as_u64()?).ok()?)?;
+        let text = content.get(at..end)?;
+        let after = segment.get("after").and_then(Value::as_u64).and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
+        parts.push((id.to_owned(), text, after));
+        at = end;
+    }
+    (at == content.len() && !parts.is_empty()).then_some(parts)
 }
 
 /// `importedToolRuns` without the line check, which the client keeps (`ImportedToolRun`): the
@@ -994,5 +1071,178 @@ mod tests {
         );
         let mut stored = Ids::new("hist_S_1_1");
         assert_eq!((stored.next(), stored.next()), ("hist_S_1_1".to_owned(), "hist_S_1_1:2".to_owned()));
+    }
+
+    /// An assistant record's rows as `(kind, id, text or tool name)`.
+    fn shown(message: &Value) -> Vec<(String, String, String)> {
+        let mut out = Vec::new();
+        assistant_rows(message, &mut Ids::new("itm_a"), &mut out);
+        out.iter()
+            .filter_map(|restored| match restored {
+                Restored::Row { row, .. } => Some((
+                    row["kind"].as_str().unwrap_or_default().to_owned(),
+                    row["id"].as_str().unwrap_or_default().to_owned(),
+                    row.get("text").or_else(|| row.get("name")).and_then(Value::as_str).unwrap_or_default().to_owned(),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn row(kind: &str, id: &str, text: &str) -> (String, String, String) {
+        (kind.to_owned(), id.to_owned(), text.to_owned())
+    }
+
+    fn call(id: &str, name: &str) -> Value {
+        json!({ "id": id, "name": name, "arguments": {} })
+    }
+
+    /// A reply shown as segments around its tool calls (`meta.segments`) is restored as those rows, in that order: each segment
+    /// under the id it was shown under, after the calls that streamed before it. Neither the text after a call is lost nor the
+    /// text before it repeated; an empty segment shows no row.
+    #[test]
+    fn a_reply_shown_as_segments_is_restored_as_those_rows() {
+        let content = "before\n\nafter one  then";
+        let message = json!({
+            "role": "assistant",
+            "content": content,
+            "toolCalls": [call("c1", "shell"), call("c2", "read")],
+            "meta": { "segments": [
+                { "id": "itm_a", "len": "before\n\n".len(), "after": 0 },
+                { "id": "itm_b", "len": "after one".len(), "after": 1 },
+                { "id": "itm_c", "len": "  ".len(), "after": 1 },
+                { "id": "itm_d", "len": "then".len(), "after": 2 },
+            ] },
+        });
+        let rows = shown(&message);
+        let texts: Vec<(String, String)> = rows.iter().filter(|(kind, ..)| kind == "assistant").map(|(_, id, text)| (id.clone(), text.clone())).collect();
+        assert_eq!(texts, [("itm_a".into(), "before".into()), ("itm_b".into(), "after one".into()), ("itm_d".into(), "then".into())]);
+        let kinds: Vec<&str> = rows.iter().map(|(kind, ..)| kind.as_str()).collect();
+        assert_eq!(kinds, ["assistant", "tool", "assistant", "tool", "assistant"], "each segment after the calls before it");
+        assert_eq!(rows[1].2, "shell");
+        assert_eq!(rows[3].2, "read");
+    }
+
+    /// A reply shown with progress updates among its text (`meta.shownText`) is restored as what was shown: the update before
+    /// its tool call though the message's own text is empty, and the segments cut the shown text.
+    #[test]
+    fn a_reply_shown_with_progress_updates_is_restored_as_what_was_shown() {
+        let only_update = json!({
+            "role": "assistant",
+            "content": "",
+            "toolCalls": [call("c1", "shell")],
+            "meta": { "shownText": "Reading the file." },
+        });
+        let rows = shown(&only_update);
+        let kinds: Vec<(&str, &str)> = rows.iter().map(|(kind, _, text)| (kind.as_str(), text.as_str())).collect();
+        assert_eq!(kinds, [("assistant", "Reading the file."), ("tool", "shell")]);
+        let around = json!({
+            "role": "assistant",
+            "content": "Done.",
+            "toolCalls": [call("c1", "shell")],
+            "meta": {
+                "shownText": "Reading the file.Done.",
+                "segments": [
+                    { "id": "itm_a", "len": "Reading the file.".len(), "after": 0 },
+                    { "id": "itm_b", "len": "Done.".len(), "after": 1 },
+                ],
+            },
+        });
+        let rows = shown(&around);
+        let texts: Vec<(&str, &str)> = rows.iter().map(|(kind, _, text)| (kind.as_str(), text.as_str())).collect();
+        assert_eq!(texts, [("assistant", "Reading the file."), ("tool", "shell"), ("assistant", "Done.")]);
+        // The only thing shown came after the first call: it is restored there, not before both.
+        let between = json!({
+            "role": "assistant",
+            "content": "",
+            "toolCalls": [call("c1", "shell"), call("c2", "read")],
+            "meta": { "shownText": "Now the second.", "segments": [{ "id": "itm_a", "len": "Now the second.".len(), "after": 1 }] },
+        });
+        let rows = shown(&between);
+        let texts: Vec<(&str, &str)> = rows.iter().map(|(kind, _, text)| (kind.as_str(), text.as_str())).collect();
+        assert_eq!(texts, [("tool", "shell"), ("assistant", "Now the second."), ("tool", "read")]);
+    }
+
+    /// The record's rows as `(kind, id, text or tool name)`, for a record id of the live form (`itm_` and 32 hex digits).
+    fn shown_live(message: &Value) -> Vec<(String, String, String)> {
+        let mut out = Vec::new();
+        assistant_rows(message, &mut Ids::new(LIVE), &mut out);
+        out.iter()
+            .filter_map(|restored| match restored {
+                Restored::Row { row, .. } => Some((
+                    row["kind"].as_str().unwrap_or_default().to_owned(),
+                    row["id"].as_str().unwrap_or_default().to_owned(),
+                    row.get("text").or_else(|| row.get("name")).and_then(Value::as_str).unwrap_or_default().to_owned(),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    const LIVE: &str = "itm_00000000000000000000000000000a00";
+    /// The id [`Ids::next`] would give the record's second row: a segment named so must still keep it.
+    const LIVE_2: &str = "itm_00000000000000000000000000000a01";
+
+    fn distinct(rows: &[(String, String, String)]) -> bool {
+        let ids: std::collections::HashSet<&str> = rows.iter().map(|(_, id, _)| id.as_str()).collect();
+        ids.len() == rows.len()
+    }
+
+    /// A reply whose tool call streamed before its text (tool, text, tool, text): each text row keeps the id it was shown under
+    /// (the first the record's own), and no call row is given one of them: every row's id is its own.
+    #[test]
+    fn a_tool_first_reply_is_restored_with_the_ids_it_was_shown_under() {
+        let message = json!({
+            "role": "assistant",
+            "content": "one two",
+            "toolCalls": [call("c1", "shell"), call("c2", "read")],
+            "meta": { "segments": [
+                { "id": LIVE, "len": "one ".len(), "after": 1 },
+                { "id": LIVE_2, "len": "two".len(), "after": 2 },
+            ] },
+        });
+        let rows = shown_live(&message);
+        let order: Vec<(&str, &str)> = rows.iter().map(|(kind, _, text)| (kind.as_str(), text.as_str())).collect();
+        assert_eq!(order, [("tool", "shell"), ("assistant", "one"), ("tool", "read"), ("assistant", "two")]);
+        assert_eq!((rows[1].1.as_str(), rows[3].1.as_str()), (LIVE, LIVE_2), "each text under the id it was shown under");
+        assert!(distinct(&rows), "every row has an id of its own: {rows:?}");
+        assert!(rows.iter().filter(|(kind, ..)| kind == "tool").all(|(_, id, _)| id != LIVE && id != LIVE_2), "no call takes a segment's id");
+    }
+
+    /// The same for a reply whose text came first (text, tool, text, tool): the segments keep their ids, every id distinct.
+    #[test]
+    fn a_text_first_reply_is_restored_with_the_ids_it_was_shown_under() {
+        let message = json!({
+            "role": "assistant",
+            "content": "one two",
+            "toolCalls": [call("c1", "shell"), call("c2", "read")],
+            "meta": { "segments": [
+                { "id": LIVE, "len": "one ".len(), "after": 0 },
+                { "id": LIVE_2, "len": "two".len(), "after": 1 },
+            ] },
+        });
+        let rows = shown_live(&message);
+        let order: Vec<(&str, &str)> = rows.iter().map(|(kind, _, text)| (kind.as_str(), text.as_str())).collect();
+        assert_eq!(order, [("assistant", "one"), ("tool", "shell"), ("assistant", "two"), ("tool", "read")]);
+        assert_eq!((rows[0].1.as_str(), rows[2].1.as_str()), (LIVE, LIVE_2));
+        assert!(distinct(&rows), "every row has an id of its own: {rows:?}");
+    }
+
+    /// A reply with no segments (every row written before them, and a provider that streams no text) is one row of its whole text
+    /// under the record's id, before its calls; so is one whose segments do not cut its text (a copy rewritten since).
+    #[test]
+    fn a_reply_without_matching_segments_is_one_row() {
+        let plain = json!({ "role": "assistant", "content": "all of it", "toolCalls": [call("c1", "shell")] });
+        let rows = shown(&plain);
+        assert_eq!(rows[0], row("assistant", "itm_a", "all of it"));
+        assert_eq!(rows.iter().map(|(kind, ..)| kind.as_str()).collect::<Vec<_>>(), ["assistant", "tool"]);
+        let rewritten = json!({
+            "role": "assistant",
+            "content": "[redacted] after",
+            "meta": { "segments": [{ "id": "itm_a", "len": 3, "after": 0 }, { "id": "itm_b", "len": 40, "after": 0 }] },
+        });
+        assert_eq!(shown(&rewritten), [row("assistant", "itm_a", "[redacted] after")]);
+        let one = json!({ "role": "assistant", "content": "only", "meta": { "segments": [{ "id": "itm_a", "len": 4, "after": 0 }] } });
+        assert_eq!(shown(&one), [row("assistant", "itm_a", "only")]);
     }
 }

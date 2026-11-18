@@ -497,10 +497,6 @@ mod tests {
 
     const NOW: f64 = 1_700_000_000_000.0;
 
-    fn describe(value: Value) -> Presentation {
-        mixdog_js::time::with_local_zone(mixdog_js::time::Tz::UTC, || describe_error(Some(&value), Some(NOW)))
-    }
-
     #[test]
     fn credentials_and_image_data_never_reach_a_view() {
         let text = "GET https://user:pw@host/x Bearer abc.def password=hunter2 data:image/png;base64,AAAA==\u{1b}[31m";
@@ -509,6 +505,10 @@ mod tests {
         assert!(utf16_len(&safe_error_details(&"x".repeat(13_000))) <= DETAILS_LIMIT + 2);
     }
 
+
+    fn describe(value: Value) -> Presentation {
+        mixdog_js::time::with_local_zone(mixdog_js::time::Tz::UTC, || describe_error(Some(&value), Some(NOW)))
+    }
     #[test]
     fn a_typed_kind_owns_the_verdict() {
         let found = describe(json!({ "status": 429, "retryAfterMs": 90_000, "message": "slow" }));
@@ -519,7 +519,6 @@ mod tests {
         let quota = describe(json!({ "status": 429, "quotaScope": "day", "resetAt": NOW + 3_600_000.0 }));
         assert_eq!(quota.recovery, "It resets at 23:13. Switch accounts or providers to continue now.");
     }
-
     #[test]
     fn persisted_summaries_and_wording_map_back() {
         assert_eq!(describe(json!("The provider usage limit was reached.")).provider_kind, "quota_exhausted");

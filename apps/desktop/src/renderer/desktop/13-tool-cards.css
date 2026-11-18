@@ -81,14 +81,12 @@
 .transcript-artifact-frame:focus-visible {
   outline: none;
 }
+/* At its own width a plate matches the source's ratio; a narrow column that
+   shrinks it crops the sides instead of letterboxing the picture. */
 .transcript-artifact-frame img {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
-}
-.transcript-artifact-media[data-fit="cover"] img,
-.transcript-artifact-media[data-fit="center"] img {
   object-fit: cover;
 }
 .transcript-artifact-media[data-fit="top"] img {
@@ -191,16 +189,16 @@
 .transcript-artifact-actions .icon-button:focus-visible {
   color: var(--mx-icon);
 }
-/* A written document: a horizontal card with its first page (portrait docs
-   44x56, sheets and slides 64x40), name, "TYPE · pages · size" and an Open
-   affordance; the whole card opens it. A deleted file keeps the card, dimmed. */
+/* A written document: a horizontal card with its first page, name,
+   "TYPE · pages · size" and an Open affordance; the whole card opens it. A
+   deleted file keeps the card, dimmed. It shares the browser page card's
+   width and thumbnail box (below), so every artifact card has one height. */
 .transcript-artifact-file {
   display: flex;
   align-items: center;
   gap: 12px;
   box-sizing: border-box;
-  width: 340px;
-  max-width: 100%;
+  width: min(100%, 460px);
   min-width: 0;
   padding: 8px 10px 8px 8px;
   border-radius: var(--mx-radius-lg);
@@ -223,25 +221,23 @@
 .transcript-artifact-file > :not(.transcript-artifact-thumb, .transcript-artifact-body, .transcript-artifact-open) {
   display: none;
 }
-.transcript-artifact-thumb {
+/* One thumbnail box for every artifact card, whatever the file or page: a
+   real preview (first page, page screenshot, table) covers it from the top,
+   otherwise the type glyph sits centred in it. The box has its final size
+   from the first paint, so a preview arriving late never resizes the card. */
+.transcript-artifact-thumb,
+.transcript-browser-page-thumb {
   position: relative;
-  flex: none;
+  box-sizing: border-box;
+  flex: 0 0 104px;
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 56px;
+  width: 104px;
+  height: 66px;
   overflow: hidden;
-  border-radius: var(--mx-radius-sm);
+  border-radius: var(--mx-radius-md);
   background: var(--mx-bg-layer-2);
   box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
-}
-.transcript-artifact-thumb.wide {
-  width: 64px;
-  height: 40px;
-}
-.transcript-artifact-thumb.wide > .file-sheet {
-  width: auto;
-  height: 100%;
 }
 .transcript-artifact-body {
   display: grid;
@@ -577,7 +573,7 @@ html[data-mixdog-mobile-tabs]
   align-items: center;
   gap: 12px;
   margin: 8px 0 4px;
-  padding: 8px;
+  padding: 8px 10px 8px 8px;
   border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
   background: transparent;
@@ -616,30 +612,19 @@ html[data-mixdog-mobile-tabs]
   border-radius: 3px;
   object-fit: contain;
 }
-/* The page itself on the left, site / title / path on the right, like the page
-   reads in a browser tab. The thumbnail slot has its final size from the first
-   paint (a quiet placeholder until the picture is ready, or if it fails), so
-   a picture of any size fills it in place and the card never resizes. */
-.transcript-browser-page-thumb {
-  box-sizing: border-box;
-  flex: 0 0 104px;
-  width: 104px;
-  height: 66px;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  border-radius: 6px;
-  background: var(--mx-hover);
-  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
-}
+/* The page itself on the left (the artifact thumbnail box above: a quiet
+   placeholder until the picture is ready, or if it fails), site / title /
+   path on the right, like the page reads in a browser tab. */
 .transcript-browser-page-thumb-empty {
   color: var(--mx-icon-muted);
   opacity: 0.6;
 }
 .transcript-browser-page-thumb > img {
+  position: absolute;
+  inset: 0;
   display: block;
-  width: 104px;
-  height: 66px;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   object-position: top left;
 }
@@ -665,13 +650,13 @@ html[data-mixdog-mobile-tabs]
   align-self: center;
   flex: 0 0 auto;
   min-height: 28px;
-  padding: 0 12px;
+  padding: 0 10px;
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
   background: var(--mx-action-bg);
   box-shadow: none;
-  font-size: var(--mx-font-ui);
+  font-size: var(--mx-font-meta);
   cursor: pointer;
   transition: background var(--mx-motion-ink);
 }

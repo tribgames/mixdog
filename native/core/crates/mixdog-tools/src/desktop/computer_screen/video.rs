@@ -387,6 +387,7 @@ impl<F: Clone + Send + Sync + 'static> ScreenVideoSource<F> {
     }
 
     /// Test only: `gate` is called at each point where a decision on the run is made and its update is not.
+    #[cfg(node_twin)]
     #[cfg(test)]
     pub(super) fn set_gate(&self, gate: Arc<dyn Fn(&'static str) + Send + Sync>) {
         *self.inner.gate.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(gate);

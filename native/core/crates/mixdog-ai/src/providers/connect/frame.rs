@@ -58,6 +58,15 @@ impl FrameReader {
 
     /// Every frame completed by `chunk`, in wire order.
     pub fn push(&mut self, chunk: &[u8]) -> Result<Vec<Frame>, FrameTooLarge> {
+        let (frames, error) = self.push_prefix(chunk);
+        match error {
+            Some(error) => Err(error),
+            None => Ok(frames),
+        }
+    }
+
+    /// Complete frames before a bad envelope still arrived and may contain billable usage.
+    pub(crate) fn push_prefix(&mut self, chunk: &[u8]) -> (Vec<Frame>, Option<FrameTooLarge>) {
         self.buf.extend_from_slice(chunk);
         let mut frames = Vec::new();
         let mut at = 0;
@@ -65,10 +74,11 @@ impl FrameReader {
             let flags = self.buf[at];
             let length = u32::from_be_bytes(self.buf[at + 1..at + HEADER].try_into().expect("4 bytes"));
             if length as usize > self.max_frame {
-                return Err(FrameTooLarge {
+                self.buf.clear();
+                return (frames, Some(FrameTooLarge {
                     length: u64::from(length),
                     max: self.max_frame,
-                });
+                }));
             }
             let end = at + HEADER + length as usize;
             if self.buf.len() < end {
@@ -81,7 +91,7 @@ impl FrameReader {
             at = end;
         }
         self.buf.drain(..at);
-        Ok(frames)
+        (frames, None)
     }
 }
 

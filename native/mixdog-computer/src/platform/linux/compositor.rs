@@ -4,6 +4,7 @@
 use crate::platform::{Wid, WinState, WindowInfo};
 use serde_json::Value;
 use std::process::Command;
+use crate::port::linux::{self as port, Program};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Compositor {
@@ -22,21 +23,6 @@ fn json_command(program: &str, args: &[&str]) -> Option<Value> {
         .success()
         .then(|| serde_json::from_slice(&output.stdout).ok())
         .flatten()
-}
-
-fn run(program: &str, args: &[&str]) -> Result<(), String> {
-    let output = Command::new(program)
-        .args(args)
-        .output()
-        .map_err(|error| format!("{program}: {error}"))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "{program}: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
-    }
 }
 
 const GNOME_PATH: &str = "/io/mixdog/Windows";
@@ -342,12 +328,11 @@ impl Compositor {
 
     pub fn focus(&self, handle: Wid) -> Result<(), String> {
         match self {
-            Compositor::Sway => run("swaymsg", &[&format!("[con_id={handle}]"), "focus"]),
-            Compositor::Hyprland => run(
-                "hyprctl",
+            Compositor::Sway => port::compositor_command(Program::Swaymsg, &[&format!("[con_id={handle}]"), "focus"]),
+            Compositor::Hyprland => port::compositor_command(Program::Hyprctl,
                 &["dispatch", "focuswindow", &format!("address:0x{handle:x}")],
             ),
-            Compositor::Gnome => gnome_call("Activate", &(handle,)).map(|_| ()),
+            Compositor::Gnome => port::gnome_window("Activate", &(handle,)),
             Compositor::None => self.supported(),
         }
     }
@@ -363,9 +348,8 @@ impl Compositor {
         match self {
             Compositor::Sway => {
                 let target = format!("[con_id={handle}]");
-                run("swaymsg", &[&target, "floating", "enable"])?;
-                run(
-                    "swaymsg",
+                port::compositor_command(Program::Swaymsg, &[&target, "floating", "enable"])?;
+                port::compositor_command(Program::Swaymsg,
                     &[
                         &target,
                         "resize",
@@ -374,8 +358,7 @@ impl Compositor {
                         &format!("{height}"),
                     ],
                 )?;
-                run(
-                    "swaymsg",
+                port::compositor_command(Program::Swaymsg,
                     &[
                         &target,
                         "move",
@@ -388,16 +371,14 @@ impl Compositor {
             }
             Compositor::Hyprland => {
                 let address = format!("address:0x{handle:x}");
-                run(
-                    "hyprctl",
+                port::compositor_command(Program::Hyprctl,
                     &[
                         "dispatch",
                         "resizewindowpixel",
                         &format!("exact {width} {height},{address}"),
                     ],
                 )?;
-                run(
-                    "hyprctl",
+                port::compositor_command(Program::Hyprctl,
                     &[
                         "dispatch",
                         "movewindowpixel",
@@ -405,11 +386,7 @@ impl Compositor {
                     ],
                 )
             }
-            Compositor::Gnome => gnome_call(
-                "MoveResize",
-                &(handle, x, y, width as u32, height as u32),
-            )
-            .map(|_| ()),
+            Compositor::Gnome => port::gnome_window("MoveResize", &(handle, x, y, width as u32, height as u32)),
             Compositor::None => self.supported(),
         }
     }
@@ -417,30 +394,27 @@ impl Compositor {
     pub fn set_state(&self, handle: Wid, state: WinState) -> Result<(), String> {
         match (self, state) {
             (Compositor::Gnome, WinState::Minimize) => {
-                gnome_call("Minimize", &(handle,)).map(|_| ())
+                port::gnome_window("Minimize", &(handle,))
             }
             (Compositor::Gnome, WinState::Maximize) => {
-                gnome_call("Maximize", &(handle,)).map(|_| ())
+                port::gnome_window("Maximize", &(handle,))
             }
             (Compositor::Gnome, WinState::Restore) => {
-                let _ = gnome_call("Unminimize", &(handle,));
-                gnome_call("Unmaximize", &(handle,)).map(|_| ())
+                let _ = port::gnome_window("Unminimize", &(handle,));
+                port::gnome_window("Unmaximize", &(handle,))
             }
-            (Compositor::Sway, WinState::Minimize) => run(
-                "swaymsg",
+            (Compositor::Sway, WinState::Minimize) => port::compositor_command(Program::Swaymsg,
                 &[&format!("[con_id={handle}]"), "move", "scratchpad"],
             ),
-            (Compositor::Sway, WinState::Maximize) => run(
-                "swaymsg",
+            (Compositor::Sway, WinState::Maximize) => port::compositor_command(Program::Swaymsg,
                 &[&format!("[con_id={handle}]"), "fullscreen", "enable"],
             ),
             (Compositor::Sway, WinState::Restore) => {
                 let target = format!("[con_id={handle}]");
-                let _ = run("swaymsg", &[&target, "scratchpad", "show"]);
-                run("swaymsg", &[&target, "fullscreen", "disable"])
+                let _ = port::compositor_command(Program::Swaymsg, &[&target, "scratchpad", "show"]);
+                port::compositor_command(Program::Swaymsg, &[&target, "fullscreen", "disable"])
             }
-            (Compositor::Hyprland, WinState::Minimize) => run(
-                "hyprctl",
+            (Compositor::Hyprland, WinState::Minimize) => port::compositor_command(Program::Hyprctl,
                 &[
                     "dispatch",
                     "movetoworkspacesilent",
@@ -449,11 +423,10 @@ impl Compositor {
             ),
             (Compositor::Hyprland, WinState::Maximize) => {
                 self.focus(handle)?;
-                run("hyprctl", &["dispatch", "fullscreen", "1"])
+                port::compositor_command(Program::Hyprctl, &["dispatch", "fullscreen", "1"])
             }
             (Compositor::Hyprland, WinState::Restore) => {
-                let _ = run(
-                    "hyprctl",
+                let _ = port::compositor_command(Program::Hyprctl,
                     &[
                         "dispatch",
                         "movetoworkspacesilent",
@@ -461,7 +434,7 @@ impl Compositor {
                     ],
                 );
                 self.focus(handle)?;
-                run("hyprctl", &["dispatch", "fullscreenstate", "0 0"])
+                port::compositor_command(Program::Hyprctl, &["dispatch", "fullscreenstate", "0 0"])
             }
             (Compositor::None, _) => self.supported(),
         }
@@ -470,14 +443,13 @@ impl Compositor {
     pub fn close(&self, handle: Wid) -> Result<bool, String> {
         match self {
             Compositor::Sway => {
-                run("swaymsg", &[&format!("[con_id={handle}]"), "kill"]).map(|_| true)
+                port::compositor_command(Program::Swaymsg, &[&format!("[con_id={handle}]"), "kill"]).map(|_| true)
             }
-            Compositor::Hyprland => run(
-                "hyprctl",
+            Compositor::Hyprland => port::compositor_command(Program::Hyprctl,
                 &["dispatch", "closewindow", &format!("address:0x{handle:x}")],
             )
             .map(|_| true),
-            Compositor::Gnome => gnome_call("Close", &(handle,)).map(|_| true),
+            Compositor::Gnome => port::gnome_window("Close", &(handle,)).map(|_| true),
             Compositor::None => self.supported().map(|_| false),
         }
     }

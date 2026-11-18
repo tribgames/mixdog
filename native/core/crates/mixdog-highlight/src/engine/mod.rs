@@ -81,8 +81,6 @@ impl std::fmt::Display for HighlightError {
     }
 }
 
-impl std::error::Error for HighlightError {}
-
 /// The result of `highlight` and `highlightAuto`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HighlightResult {
@@ -805,3 +803,6 @@ impl Run<'_> {
 
 #[cfg(test)]
 mod tests;
+
+
+impl std::error::Error for HighlightError {}

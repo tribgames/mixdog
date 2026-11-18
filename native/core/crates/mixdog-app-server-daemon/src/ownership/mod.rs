@@ -15,6 +15,7 @@ mod dir;
 mod sys_unix;
 #[cfg(windows)]
 mod sys_windows;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod node_cases;
 #[cfg(test)]
@@ -61,8 +62,6 @@ impl fmt::Display for AcquireError {
         }
     }
 }
-
-impl std::error::Error for AcquireError {}
 
 /// The lock held by this core, the directory it locked, and (once the claim
 /// barrier exists) the barrier pin.
@@ -123,3 +122,6 @@ impl Ownership for CoreOwnership {
             .map_err(|reason| *self.fenced.get_or_init(|| reason))
     }
 }
+
+
+impl std::error::Error for AcquireError {}

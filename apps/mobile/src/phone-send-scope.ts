@@ -27,7 +27,7 @@ const OPTIONS_AT: Readonly<Record<string, number>> = {
 };
 
 /** The client for one call: every request-writing method gets that call's claim as its `sent` option. */
-export function scopeClient<C extends object>(client: C, claim: FrameClaim): C {
+export function scopeClient<C extends object>(client: C, claim: FrameClaim, onChunkAccepted?: () => void): C {
   return new Proxy(client, {
     get(target, key) {
       const value = Reflect.get(target, key, target) as unknown;
@@ -36,7 +36,10 @@ export function scopeClient<C extends object>(client: C, claim: FrameClaim): C {
       return (...args: unknown[]) => {
         const rest = args.slice();
         while (rest.length <= at) rest.push(undefined);
-        rest[at] = { ...(rest[at] as object | undefined), sent: claim };
+        rest[at] = {
+          ...(rest[at] as object | undefined),
+          ...(key === 'putBlob' && onChunkAccepted ? { onChunkAccepted } : { sent: claim }),
+        };
         return (value as (...a: unknown[]) => unknown).apply(target, rest);
       };
     },

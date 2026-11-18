@@ -39,6 +39,12 @@ pub struct Snapshot {
     pub ask_started_at: i64,
     pub first_activity_at: i64,
     pub model_request_started_at: i64,
+    /// The phase of the current attempt's response (the attempt clock, `SendIdentity`), as the driver's boundaries published it:
+    /// observed, never enforced here; `None` for a provider that makes no driven attempt.
+    pub attempt_phase: Option<mixdog_core_api::domain::provider::AttemptPhase>,
+    /// When the model request's scheduled retry runs (epoch ms; `0` when none is scheduled): the wait until then is the
+    /// retry schedule's, never the provider's silence.
+    pub retry_at: i64,
     pub last_keepalive_at: i64,
     pub last_visible_text_at: i64,
     pub awaiting_model_response: bool,
@@ -184,9 +190,16 @@ fn silent_for(now: i64, snapshot: Option<&Snapshot>, runtime: Option<&RuntimeFac
 
 /// `evaluateAgentWatchdogAbort`: the sentence the policy stops the agent with, or `None`.
 /// Reading it stops nothing; the sweep that aborts an unattended run uses it as the abort reason.
+///
+/// Each wait has its own clock, and only the run's own silence is judged here. A running tool owns its deadline (a shell's
+/// timeout, a task wait's, a child agent's own watchdog), so however quiet it is it is never a silent model; a wait for
+/// execution capacity is the pool's; a scheduled retry is the retry schedule's; a driven model attempt is the driver's.
 pub fn stale_report(snapshot: &Snapshot, now: i64, policy: &WatchdogPolicy) -> Option<String> {
     // A turn blocked on the user's approval is waiting on a person, not stalled.
     if snapshot.awaiting_user {
+        return None;
+    }
+    if matches!(snapshot.stage.as_deref(), Some("tool_running" | "resource_wait" | "preparing")) || snapshot.retry_at > 0 {
         return None;
     }
     let started = snapshot.model_request_started_at;
@@ -195,11 +208,22 @@ pub fn stale_report(snapshot: &Snapshot, now: i64, policy: &WatchdogPolicy) -> O
         return None;
     }
     let (transport, semantic) = (policy.first_transport_ms, policy.first_semantic_ms);
-    if snapshot.waiting_for_transport && transport > 0 && started != 0 && now - started > transport {
-        return Some(format!("agent first transport stale ({transport}ms)"));
-    }
-    if snapshot.waiting_for_first_semantic && semantic > 0 && started != 0 && now - started > semantic {
-        return Some(format!("agent first semantic response stale ({semantic}ms)"));
+    if snapshot.attempt_phase.is_some() {
+        // A model attempt's phases (head, payload, first output, idle, recovery) each have one deadline, enforced by the
+        // model-exchange driver at the transport; a model wait is only observed here, so no threshold of this policy cuts it.
+        // What is left to this watchdog is the work that is no model attempt: a running tool, an approval, a queue.
+        if matches!(snapshot.stage.as_deref(), Some("connecting" | "requesting" | "streaming")) {
+            return None;
+        }
+    } else {
+        // A provider whose requests do not pass through the driver publishes no attempt: its first-transport and first-output
+        // waits are timed from the request's start.
+        if snapshot.waiting_for_transport && transport > 0 && started != 0 && now - started > transport {
+            return Some(format!("agent first transport stale ({transport}ms)"));
+        }
+        if snapshot.waiting_for_first_semantic && semantic > 0 && started != 0 && now - started > semantic {
+            return Some(format!("agent first semantic response stale ({semantic}ms)"));
+        }
     }
     if snapshot.waiting_for_first_semantic {
         return None;
@@ -235,8 +259,16 @@ fn without_agent_prefix(message: &str) -> &str {
     }
 }
 
+/// Whole seconds until the scheduled retry of the model request runs (at least 1), while one is scheduled.
+fn retry_in(snapshot: Option<&Snapshot>, now: i64) -> Option<i64> {
+    snapshot.filter(|s| s.retry_at > now).map(|s| ((s.retry_at - now) + 999) / 1000)
+}
+
 fn describe_last_progress(stage: &str, input: &ProgressInput<'_>, silent: Option<u64>, last_tool_call: Option<&str>) -> String {
     let snapshot = input.snapshot;
+    if let Some(secs) = retry_in(snapshot, input.now) {
+        return format!("model request failed; retrying in {secs}s");
+    }
     let flag = |f: fn(&Snapshot) -> bool| snapshot.is_some_and(f);
     if flag(|s| s.awaiting_model_response) {
         return "model thinking (request sent; awaiting response headers)".to_owned();
@@ -323,6 +355,9 @@ fn describe_diagnostic(stage: &str, input: &ProgressInput<'_>, silent: Option<u6
         } else {
             format!("idle, {queued} follow-up{plural} queued")
         };
+    }
+    if let Some(secs) = retry_in(input.snapshot, input.now) {
+        return format!("provider retry scheduled in {secs}s");
     }
     if let (Some(policy), Some(snapshot)) = (input.policy.as_ref(), input.snapshot)
         && let Some(stale) = stale_report(snapshot, input.now, policy)

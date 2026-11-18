@@ -2,15 +2,12 @@
 //! window's focused control.
 
 use super::super::native::{self, hwnd, wid};
-use super::{belongs_to_top, bound, drops, is_chromium, refuse_dropped, send, with_release, Msg, MsgError, WinBackground};
+use super::{belongs_to_top, drops, is_chromium, refuse_dropped, send, with_release, Msg, MsgError, WinBackground};
 use crate::platform::{window_id, Wid};
+use crate::port::windows::{Message, WinPort};
 use windows::Win32::Foundation::LPARAM;
 use windows::Win32::UI::Input::KeyboardAndMouse::MapVirtualKeyW;
 use windows::Win32::UI::WindowsAndMessaging::{EnumChildWindows, GetGUIThreadInfo, GetParent, GUITHREADINFO};
-
-const WM_KEYDOWN: u32 = 0x0100;
-const WM_KEYUP: u32 = 0x0101;
-const WM_CHAR: u32 = 0x0102;
 
 pub(super) fn supports_keyboard_class(class: &str) -> bool {
     !(["ApplicationFrameWindow", "Windows.UI.Core.CoreWindow", "WinUIDesktopWin32WindowClass", "Microsoft.UI.Content.DesktopChildSiteBridge"]
@@ -276,11 +273,12 @@ fn translated_character(vk: u16) -> Option<usize> {
     }
 }
 
-fn background_virtual_key(target: Wid, vk: u16) -> Result<(), String> {
+/// One key: its press through the port, the character a physical press would make (a submission of its own, refused once the
+/// scope is revoked), then the release the press's receipt names.
+fn background_virtual_key(port: &WinPort, top: Wid, target: Wid, vk: u16) -> Result<(), String> {
     // SAFETY: a plain table lookup.
     let scan = unsafe { MapVirtualKeyW(vk as u32, windows::Win32::UI::Input::KeyboardAndMouse::MAP_VIRTUAL_KEY_TYPE(0)) } as isize;
     let state = 1 | (scan << 16) | if extended_virtual_key(vk) { 1 << 24 } else { 0 };
-    let released = state | (0xC000_0000u32 as i32 as isize);
     // Tk derives the editing action from the key itself and repeats it for the
     // character, so it receives the key alone.
     let translated = if native::class_name(target).starts_with("Tk") {
@@ -288,26 +286,18 @@ fn background_virtual_key(target: Wid, vk: u16) -> Result<(), String> {
     } else {
         translated_character(vk)
     };
-    let release = bound(target, move || {
-        send(target, WM_KEYUP, vk as usize, released).map(|_| ())
-    });
-    with_release(
-        || {
-            send(target, WM_KEYDOWN, vk as usize, state)?;
-            if let Some(character) = translated {
-                send(target, WM_CHAR, character, state)?;
-            }
-            Ok(())
-        },
-        || Ok(()),
-        &release,
-    )
+    with_release(port, top, target, Message::KeyDown { vk, lparam: state }, || {
+        if let Some(character) = translated {
+            send(port, top, target, Message::Char { unit: character, lparam: state })?;
+        }
+        Ok(())
+    })
 }
 
-fn background_char(target: Wid, glyph: char) -> Msg {
+fn background_char(port: &WinPort, top: Wid, target: Wid, glyph: char) -> Msg {
     let mut units = [0u16; 2];
     for unit in glyph.encode_utf16(&mut units).iter() {
-        send(target, WM_CHAR, *unit as usize, 1)?;
+        send(port, top, target, Message::Char { unit: *unit as usize, lparam: 1 })?;
     }
     Ok(())
 }
@@ -318,12 +308,13 @@ impl WinBackground {
     pub(super) fn send_keys_to(&self, window: Wid, preferred: Wid, keys: &str) -> Result<String, String> {
         let strokes = parse_keys(keys).map_err(|error| error.text)?;
         refuse_dropped(window, preferred, drops::Kind::Key)?;
+        let port = &*self.port;
         self.while_inactive(window, || {
             let target = keyboard_target(window, preferred).map_err(|error| error.text)?;
             for stroke in strokes {
                 match stroke {
-                    Stroke::Char(glyph) => background_char(target, glyph).map_err(|error| error.text)?,
-                    Stroke::Key(vk) => background_virtual_key(target, vk)?,
+                    Stroke::Char(glyph) => background_char(port, window, target, glyph).map_err(|error| error.text)?,
+                    Stroke::Key(vk) => background_virtual_key(port, window, target, vk)?,
                 }
             }
             Ok(window_id(target))
@@ -334,13 +325,14 @@ impl WinBackground {
     /// (BackgroundText, MixWin32Keyboard.cs:491-505).
     pub(super) fn send_text_to(&self, window: Wid, preferred: Wid, text: &str) -> Result<String, String> {
         refuse_dropped(window, preferred, drops::Kind::Text)?;
+        let port = &*self.port;
         self.while_inactive(window, || {
             let target = keyboard_target(window, preferred).map_err(|error| error.text)?;
             for glyph in text.chars() {
                 match glyph {
-                    '\n' => background_virtual_key(target, 0x0D)?,
+                    '\n' => background_virtual_key(port, window, target, 0x0D)?,
                     '\r' => {}
-                    other => background_char(target, other).map_err(|error| error.text)?,
+                    other => background_char(port, window, target, other).map_err(|error| error.text)?,
                 }
             }
             Ok(window_id(target))
@@ -430,5 +422,34 @@ mod tests {
         // A Tk frame with nothing focused would swallow the keys.
         assert_eq!(code(keyboard_target_in(&fake, 1, 0)), "background_unsupported");
         assert_eq!(code(keyboard_target_in(&fake, 1, 1)), "background_unsupported");
+    }
+
+    /// The real key sequence (press, the character a press makes, release) over a fake Windows: Off between the accepted
+    /// press and its character refuses the character, and only the press's own release goes out; Off before the press sends
+    /// nothing at all (a menu walk's Escape cleanup is this sequence).
+    #[test]
+    fn an_escape_interrupted_by_off_lets_out_only_its_owned_release() {
+        use crate::port::windows::fake::FakeWin;
+        let scope = crate::port::Scope::open(1);
+        let (port, fake) = FakeWin::port(&scope);
+        let revoking = scope.clone();
+        *fake.between.lock().unwrap() = Some(Box::new(move |what, count| {
+            if what == "message" && count == 1 {
+                revoking.revoke();
+            }
+        }));
+        assert!(background_virtual_key(&port, 1, 2, 0x1B).is_err());
+        let log = fake.log();
+        assert_eq!(log.len(), 2, "{log:?}");
+        assert!(log[0].starts_with("queue 2 KeyDown { vk: 27"), "{log:?}");
+        assert!(log[1].starts_with("queue 2 KeyUp { vk: 27"), "{log:?}");
+        assert!(scope.release_held());
+        assert_eq!(fake.log().len(), 2);
+
+        let revoked = crate::port::Scope::open(2);
+        let (port, fake) = FakeWin::port(&revoked);
+        revoked.revoke();
+        assert!(background_virtual_key(&port, 1, 2, 0x1B).is_err());
+        assert!(fake.log().is_empty());
     }
 }

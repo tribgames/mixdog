@@ -55,6 +55,7 @@ test('a save shows at once and keeps the saved value; a rejected one restores', 
   assert.equal(store.peekWorktreeSettings().branchPrefix, 'bad/');
   await reject();
   assert.equal(store.peekWorktreeSettings().branchPrefix, 'mixdog/');
+  assert.equal(store.peekWorktreeSettingsProblems().save, 'rejected');
   // Each save shows; only the rejected one changes the page again.
   assert.equal(notified, 3);
 });

@@ -204,6 +204,7 @@ pub fn workspace_prompt_context(facts: &WorkspaceFacts, cwd: &str, config_mode: 
     WorkspaceContext { environment_context: Some(environment), instruction_files_context: instructions }
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "prompt_session_home_replay.rs"]
 mod home_replay;

@@ -54,120 +54,6 @@ pub struct Ticker {
     shared: Arc<Shared>,
 }
 
-/// Cancels one registered deadline. Dropping it does **not** cancel: the callback still fires.
-#[must_use = "dropping the handle keeps the deadline armed; call cancel() to disarm it"]
-pub struct TimerHandle {
-    shared: Arc<Shared>,
-    key: (tokio::time::Instant, u64),
-    /// The deadline's place on a replay's clock, which fires it instead of the ticker task.
-    #[cfg(feature = "virtual-clock")]
-    queued: Option<crate::virtual_clock::Key>,
-}
-
-impl TimerHandle {
-    /// Disarms the deadline. Returns `true` if it had not fired yet (its callback will never
-    /// run), `false` if it already fired or was taken for firing.
-    pub fn cancel(self) -> bool {
-        #[cfg(feature = "virtual-clock")]
-        if let Some(queued) = self.queued {
-            crate::virtual_clock::disarm(queued);
-        }
-        self.shared.lock().pending.remove(&self.key).is_some()
-    }
-}
-
-impl Ticker {
-    /// Starts a ticker task on RT-C. Most code uses the process-wide [`ticker`]. Requires an
-    /// installed backend.
-    pub fn start() -> Self {
-        let shared = Arc::new(Shared {
-            state: Mutex::new(State::default()),
-            changed: Notify::new(),
-        });
-        // A replay's clock fires each deadline itself, in its own order (`register`).
-        #[cfg(feature = "virtual-clock")]
-        if crate::virtual_clock::active() {
-            return Self { shared };
-        }
-        // Detached: the task lives as long as the runtime.
-        drop(crate::spawn(
-            "core-ticker",
-            TaskClass::Control,
-            run(shared.clone()),
-        ));
-        Self { shared }
-    }
-
-    /// Runs `callback` once at `at` (immediately, on the next tick, if `at` has passed).
-    pub fn register(&self, at: Instant, callback: impl FnOnce() + Send + 'static) -> TimerHandle {
-        let key;
-        let earliest;
-        {
-            let mut state = self.shared.lock();
-            state.next_id += 1;
-            key = (on_tokio_clock(at), state.next_id);
-            state.pending.insert(key, Box::new(callback));
-            earliest = state.pending.keys().next() == Some(&key);
-        }
-        if earliest {
-            self.shared.changed.notify_waiters();
-        }
-        TimerHandle {
-            shared: self.shared.clone(),
-            key,
-            #[cfg(feature = "virtual-clock")]
-            queued: self.on_virtual_clock(at, key),
-        }
-    }
-
-    /// Queues the deadline on a replay's clock, when one runs the process: at its due the clock runs the callback in a task on
-    /// RT-C, unless a cancel took it first.
-    #[cfg(feature = "virtual-clock")]
-    fn on_virtual_clock(&self, at: Instant, key: (tokio::time::Instant, u64)) -> Option<crate::virtual_clock::Key> {
-        if !crate::virtual_clock::active() {
-            return None;
-        }
-        let shared = self.shared.clone();
-        crate::virtual_clock::call_after(
-            at.saturating_duration_since(Instant::now()),
-            Box::new(move || {
-                let callback = shared.lock().pending.remove(&key);
-                if let Some(callback) = callback {
-                    let _ = catch_unwind(AssertUnwindSafe(callback));
-                }
-            }),
-        )
-    }
-
-    /// Resolves at `at`. Cancel-safe: dropping the future disarms the deadline.
-    pub fn wait_until(&self, at: Instant) -> impl Future<Output = ()> + Send + use<> {
-        let (tx, rx) = oneshot::channel();
-        let handle = self.register(at, move || {
-            let _ = tx.send(());
-        });
-        let guard = DisarmOnDrop(Some(handle));
-        async move {
-            let _guard = guard;
-            let _ = rx.await;
-        }
-    }
-
-    /// Deadlines currently armed.
-    pub fn pending(&self) -> usize {
-        self.shared.lock().pending.len()
-    }
-}
-
-struct DisarmOnDrop(Option<TimerHandle>);
-
-impl Drop for DisarmOnDrop {
-    fn drop(&mut self) {
-        if let Some(handle) = self.0.take() {
-            let _ = handle.cancel();
-        }
-    }
-}
-
 /// The process-wide ticker, started on first use. Requires an installed backend.
 #[cfg(not(feature = "test-support"))]
 pub fn ticker() -> &'static Ticker {
@@ -277,5 +163,116 @@ mod tests {
             crate::time::sleep(Duration::from_secs(2)).await;
             assert!(rx.try_recv().is_ok(), "at its time, on this runtime's clock");
         });
+    }
+}
+
+
+/// Cancels one registered deadline. Dropping it does **not** cancel: the callback still fires.
+#[must_use = "dropping the handle keeps the deadline armed; call cancel() to disarm it"]
+pub struct TimerHandle {
+    shared: Arc<Shared>,
+    key: (tokio::time::Instant, u64),
+    /// The deadline's place on a replay's clock, which fires it instead of the ticker task.
+    #[cfg(feature = "virtual-clock")]
+    queued: Option<crate::virtual_clock::Key>,
+}
+impl TimerHandle {
+    /// Disarms the deadline. Returns `true` if it had not fired yet (its callback will never
+    /// run), `false` if it already fired or was taken for firing.
+    pub fn cancel(self) -> bool {
+        #[cfg(feature = "virtual-clock")]
+        if let Some(queued) = self.queued {
+            crate::virtual_clock::disarm(queued);
+        }
+        self.shared.lock().pending.remove(&self.key).is_some()
+    }
+}
+impl Ticker {
+    /// Starts a ticker task on RT-C. Most code uses the process-wide [`ticker`]. Requires an
+    /// installed backend.
+    pub fn start() -> Self {
+        let shared = Arc::new(Shared {
+            state: Mutex::new(State::default()),
+            changed: Notify::new(),
+        });
+        // A replay's clock fires each deadline itself, in its own order (`register`).
+        #[cfg(feature = "virtual-clock")]
+        if crate::virtual_clock::active() {
+            return Self { shared };
+        }
+        // Detached: the task lives as long as the runtime.
+        drop(crate::spawn(
+            "core-ticker",
+            TaskClass::Control,
+            run(shared.clone()),
+        ));
+        Self { shared }
+    }
+
+    /// Runs `callback` once at `at` (immediately, on the next tick, if `at` has passed).
+    pub fn register(&self, at: Instant, callback: impl FnOnce() + Send + 'static) -> TimerHandle {
+        let key;
+        let earliest;
+        {
+            let mut state = self.shared.lock();
+            state.next_id += 1;
+            key = (on_tokio_clock(at), state.next_id);
+            state.pending.insert(key, Box::new(callback));
+            earliest = state.pending.keys().next() == Some(&key);
+        }
+        if earliest {
+            self.shared.changed.notify_waiters();
+        }
+        TimerHandle {
+            shared: self.shared.clone(),
+            key,
+            #[cfg(feature = "virtual-clock")]
+            queued: self.on_virtual_clock(at, key),
+        }
+    }
+
+    /// Queues the deadline on a replay's clock, when one runs the process: at its due the clock runs the callback in a task on
+    /// RT-C, unless a cancel took it first.
+    #[cfg(feature = "virtual-clock")]
+    fn on_virtual_clock(&self, at: Instant, key: (tokio::time::Instant, u64)) -> Option<crate::virtual_clock::Key> {
+        if !crate::virtual_clock::active() {
+            return None;
+        }
+        let shared = self.shared.clone();
+        crate::virtual_clock::call_after(
+            at.saturating_duration_since(Instant::now()),
+            Box::new(move || {
+                let callback = shared.lock().pending.remove(&key);
+                if let Some(callback) = callback {
+                    let _ = catch_unwind(AssertUnwindSafe(callback));
+                }
+            }),
+        )
+    }
+
+    /// Resolves at `at`. Cancel-safe: dropping the future disarms the deadline.
+    pub fn wait_until(&self, at: Instant) -> impl Future<Output = ()> + Send + use<> {
+        let (tx, rx) = oneshot::channel();
+        let handle = self.register(at, move || {
+            let _ = tx.send(());
+        });
+        let guard = DisarmOnDrop(Some(handle));
+        async move {
+            let _guard = guard;
+            let _ = rx.await;
+        }
+    }
+
+    /// Deadlines currently armed.
+    pub fn pending(&self) -> usize {
+        self.shared.lock().pending.len()
+    }
+}
+struct DisarmOnDrop(Option<TimerHandle>);
+impl Drop for DisarmOnDrop {
+    fn drop(&mut self) {
+        if let Some(handle) = self.0.take() {
+            let _ = handle.cancel();
+        }
     }
 }

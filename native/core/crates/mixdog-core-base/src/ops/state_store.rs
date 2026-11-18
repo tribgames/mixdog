@@ -52,7 +52,7 @@ impl StateOpStore {
 /// not complete). `created_at` is the op id's UUIDv7 time.
 pub fn op_row(id: &OpId, record: &OpRecord, now_ms: i64) -> Result<OpRow, CoreError> {
     let created_at = i64::try_from(op_time_ms(id, "opId")?).expect("a UUIDv7 time has 48 bits");
-    let (method, digest, state) = match record {
+    let (method, digest, audience, state) = match record {
         OpRecord::Fenced => {
             return Ok(OpRow {
                 method: String::new(),
@@ -66,13 +66,30 @@ pub fn op_row(id: &OpId, record: &OpRecord, now_ms: i64) -> Result<OpRow, CoreEr
         OpRecord::Settled {
             method,
             digest,
+            audience,
             state,
-        } => (method, digest, state),
+        } => (method, digest, audience.as_ref(), state),
     };
+    let mut row = OpRow {
+        method: method.to_string(),
+        payload_digest: digest.as_str().to_owned(),
+        state: OpRowState::InProgress,
+        outcome: None,
+        created_at,
+        completed_at: None,
+    };
+    set_op_row_outcome(&mut row, audience, state, now_ms);
+    Ok(row)
+}
+
+/// Encode an audience-bound outcome in a row the owner commits in its own transaction.
+pub fn set_op_row_outcome(row: &mut OpRow, audience: Option<&PayloadDigest>, state: &OpState, now_ms: i64) {
+    let audience = audience.map(|a| Arc::from(a.as_str()));
     let (row_state, outcome) = match state {
         OpState::Applied { seq, result } => (
             OpRowState::Applied,
             encode(&Applied {
+                audience,
                 seq: *seq,
                 result: result.clone(),
             }),
@@ -80,12 +97,14 @@ pub fn op_row(id: &OpId, record: &OpRecord, now_ms: i64) -> Result<OpRow, CoreEr
         OpState::Rejected { error } => (
             OpRowState::Rejected,
             encode(&Rejected {
+                audience,
                 error: rejection_to_json(error),
             }),
         ),
         OpState::ExternalPending { effect, target } => (
             OpRowState::ExternalPending,
             encode(&External {
+                audience,
                 effect: effect.clone(),
                 target: target.clone(),
             }),
@@ -93,50 +112,47 @@ pub fn op_row(id: &OpId, record: &OpRecord, now_ms: i64) -> Result<OpRow, CoreEr
         OpState::ExternalUnknown { effect, target } => (
             OpRowState::ExternalUnknown,
             encode(&External {
+                audience,
                 effect: effect.clone(),
                 target: target.clone(),
             }),
         ),
     };
-    Ok(OpRow {
-        method: method.to_string(),
-        payload_digest: digest.as_str().to_owned(),
-        state: row_state,
-        outcome: Some(outcome),
-        created_at,
-        completed_at: (row_state != OpRowState::ExternalPending).then_some(now_ms),
-    })
+    row.state = row_state;
+    row.outcome = Some(outcome);
+    row.completed_at = (row_state != OpRowState::ExternalPending).then_some(now_ms);
 }
 
 /// The record a stored row holds.
-fn op_record(row: OpRow) -> Result<OpRecord, CoreError> {
-    let state = match row.state {
+pub fn op_record(row: OpRow) -> Result<OpRecord, CoreError> {
+    let (audience, state) = match row.state {
         OpRowState::Fenced => return Ok(OpRecord::Fenced),
         // Boot recovery turns every `inProgress` row into `externalUnknown`, and the core
         // never writes one.
         OpRowState::InProgress => return Err(unreadable()),
         OpRowState::Applied => {
-            let Applied { seq, result } = decode(row.outcome)?;
-            OpState::Applied { seq, result }
+            let Applied { audience, seq, result } = decode(row.outcome)?;
+            (audience, OpState::Applied { seq, result })
         }
         OpRowState::Rejected => {
-            let Rejected { error } = decode(row.outcome)?;
-            OpState::Rejected {
+            let Rejected { audience, error } = decode(row.outcome)?;
+            (audience, OpState::Rejected {
                 error: rejection_from_json(error)?,
-            }
+            })
         }
         OpRowState::ExternalPending => {
-            let External { effect, target } = decode(row.outcome)?;
-            OpState::ExternalPending { effect, target }
+            let External { audience, effect, target } = decode(row.outcome)?;
+            (audience, OpState::ExternalPending { effect, target })
         }
         OpRowState::ExternalUnknown => {
-            let External { effect, target } = decode(row.outcome)?;
-            OpState::ExternalUnknown { effect, target }
+            let External { audience, effect, target } = decode(row.outcome)?;
+            (audience, OpState::ExternalUnknown { effect, target })
         }
     };
     Ok(OpRecord::Settled {
         method: row.method.into(),
         digest: PayloadDigest::from_stored(row.payload_digest.into()),
+        audience: audience.map(PayloadDigest::from_stored),
         state,
     })
 }
@@ -144,6 +160,8 @@ fn op_record(row: OpRow) -> Result<OpRecord, CoreError> {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Applied {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    audience: Option<Arc<str>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     seq: Option<u64>,
     /// Present (a JSON `null` included) exactly when the result was stored.
@@ -158,12 +176,16 @@ struct Applied {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Rejected {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    audience: Option<Arc<str>>,
     error: Value,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct External {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    audience: Option<Arc<str>>,
     effect: Arc<str>,
     target: Arc<str>,
 }

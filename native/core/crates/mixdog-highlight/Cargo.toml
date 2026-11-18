@@ -12,3 +12,8 @@ mixdog-js = { workspace = true }
 # `utf16`: the engine matches over UTF-16 code units, as the JavaScript strings highlight.js indexes.
 regress = { workspace = true, features = ["utf16"] }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (<build-tools>\unify-test-features.py).
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }

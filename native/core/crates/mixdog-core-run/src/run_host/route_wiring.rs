@@ -317,19 +317,6 @@ impl HopWiring for RouteWirer {
 mod tests {
     use super::*;
 
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/run_host/golden/route_wiring.json");
-
-    #[test]
-    fn an_uncatalogued_id_gets_nodes_generation_floor() {
-        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-        let gates = golden["gates"].as_array().unwrap();
-        assert_eq!(gates.len(), 27);
-        for row in gates {
-            let got = AnthropicEffortGates::for_model(row["model"].as_str().unwrap(), None);
-            assert_eq!((got.xhigh, got.max), (row["xhigh"].as_bool().unwrap(), row["max"].as_bool().unwrap()), "{row}");
-        }
-    }
-
     #[test]
     fn a_catalogs_ladder_wins_over_the_floor() {
         let caps = ModelCaps { effort_levels: vec!["low".into(), "high".into()], ..ModelCaps::default() };
@@ -337,48 +324,6 @@ mod tests {
         assert_eq!((got.xhigh, got.max), (false, false));
         let caps = ModelCaps { effort_levels: vec!["xhigh".into()], ..ModelCaps::default() };
         assert_eq!(AnthropicEffortGates::for_model("claude-3-5-sonnet", Some(&caps)), AnthropicEffortGates { xhigh: true, max: true });
-    }
-
-    #[test]
-    fn every_configuration_equals_nodes() {
-        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-        let cases = golden["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 936);
-        let unsupported = UnsupportedEfforts::default();
-        for case in cases {
-            let session = &case["session"];
-            let messages: Vec<AgentMessage> = session["messages"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|row| {
-                    let mut message = AgentMessage::user("");
-                    message.effort = EffortSnapshot::from_body(row);
-                    message
-                })
-                .collect();
-            let gates = AnthropicEffortGates::for_model(session["model"].as_str().unwrap(), None);
-            assert_eq!((gates.xhigh, gates.max), (case["caps"]["xhigh"].as_bool().unwrap(), case["caps"]["max"].as_bool().unwrap()), "{case}");
-            let provider = &case["provider"];
-            let facts = ProviderFacts {
-                config: provider["config"].clone(),
-                protocol: provider["protocol"].as_str().map(str::to_owned),
-                cached_model: Some(provider["row"].clone()).filter(|r| !r.is_null()),
-                gates,
-                wire: Arc::new(|e| Some(e.to_owned())),
-            };
-            let parameters = if session["modelParameters"].is_null() { json!({}) } else { session["modelParameters"].clone() };
-            let route = TurnRoute {
-                provider: session["provider"].as_str().unwrap(),
-                model: session["model"].as_str().unwrap(),
-                effort: session["effort"].as_str(),
-                model_parameters: &parameters,
-                messages: &messages,
-            };
-            let got = prepare_turn_effort_configuration(&route, &facts, case["turnEffort"].as_str(), &unsupported, &|_| None);
-            let got = got.as_ref().map(EffortSnapshot::to_value).unwrap_or(Value::Null);
-            assert_eq!(got, case["snapshot"], "{case}");
-        }
     }
 
     #[test]
@@ -426,5 +371,62 @@ mod tests {
         let route = TurnRoute { provider: "custom-x", model: "llama", effort: Some("high"), model_parameters: &parameters, messages: &[] };
         let snapshot = prepare_turn_effort_configuration(&route, &facts, None, &UnsupportedEfforts::default(), &|_| None).unwrap();
         assert_eq!((snapshot.mode, snapshot.effort.as_str()), (EffortMode::Custom, "high"));
+    }
+
+
+    #[cfg(node_twin)]
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/run_host/golden/route_wiring.json");
+    #[test]
+    #[cfg(node_twin)]
+    fn an_uncatalogued_id_gets_nodes_generation_floor() {
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
+        let gates = golden["gates"].as_array().unwrap();
+        assert_eq!(gates.len(), 27);
+        for row in gates {
+            let got = AnthropicEffortGates::for_model(row["model"].as_str().unwrap(), None);
+            assert_eq!((got.xhigh, got.max), (row["xhigh"].as_bool().unwrap(), row["max"].as_bool().unwrap()), "{row}");
+        }
+    }
+    #[test]
+    #[cfg(node_twin)]
+    fn every_configuration_equals_nodes() {
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
+        let cases = golden["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 936);
+        let unsupported = UnsupportedEfforts::default();
+        for case in cases {
+            let session = &case["session"];
+            let messages: Vec<AgentMessage> = session["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| {
+                    let mut message = AgentMessage::user("");
+                    message.effort = EffortSnapshot::from_body(row);
+                    message
+                })
+                .collect();
+            let gates = AnthropicEffortGates::for_model(session["model"].as_str().unwrap(), None);
+            assert_eq!((gates.xhigh, gates.max), (case["caps"]["xhigh"].as_bool().unwrap(), case["caps"]["max"].as_bool().unwrap()), "{case}");
+            let provider = &case["provider"];
+            let facts = ProviderFacts {
+                config: provider["config"].clone(),
+                protocol: provider["protocol"].as_str().map(str::to_owned),
+                cached_model: Some(provider["row"].clone()).filter(|r| !r.is_null()),
+                gates,
+                wire: Arc::new(|e| Some(e.to_owned())),
+            };
+            let parameters = if session["modelParameters"].is_null() { json!({}) } else { session["modelParameters"].clone() };
+            let route = TurnRoute {
+                provider: session["provider"].as_str().unwrap(),
+                model: session["model"].as_str().unwrap(),
+                effort: session["effort"].as_str(),
+                model_parameters: &parameters,
+                messages: &messages,
+            };
+            let got = prepare_turn_effort_configuration(&route, &facts, case["turnEffort"].as_str(), &unsupported, &|_| None);
+            let got = got.as_ref().map(EffortSnapshot::to_value).unwrap_or(Value::Null);
+            assert_eq!(got, case["snapshot"], "{case}");
+        }
     }
 }

@@ -82,72 +82,6 @@ pub struct SessionHomePorts<S: RoomStore> {
     ready: Arc<RoomsReady>,
 }
 
-impl<S: RoomStore> SessionHomePorts<S> {
-    pub fn new(
-        catalog: Arc<dyn AgentCatalog>,
-        sessions: Arc<dyn SessionOps>,
-        rooms: Arc<Rooms<S>>,
-        room_host: Arc<dyn RoomHost>,
-        runner: Arc<dyn RoomRunner>,
-        ready: Arc<RoomsReady>,
-    ) -> Self {
-        super::service::log_members_through(&rooms, room_host.clone());
-        Self { catalog, sessions, rooms, room_host, runner, ready }
-    }
-
-    /// Node's `pruneDeleted` (`agent-room-membership.ts:64-76`), which the rooms' first load runs (`agent-rooms.ts:353-361`
-    /// `ready`, [`RoomsReady`]): members whose definition is proven deleted leave every room, saved; the catalog is republished
-    /// and their room conversations are deleted; those that could not be are logged (the load does not fail on them). A failed
-    /// save fails the load, the members already gone from the live records ([`Rooms::prune_members`]).
-    pub async fn prune_deleted(&self, log: &(dyn Fn(&str) + Send + Sync)) -> Result<(), RoomError> {
-        let rooms = self.rooms.list().await?;
-        // A room saved before its log kept its members gets that record now, or it would not come back from a rebuild until its
-        // members next change; one that cannot be written is left to the next load.
-        for room in &rooms {
-            let _ = self.room_host.seed_members(&room.id, &room.config.members).await;
-        }
-        let mut ids: Vec<String> = Vec::new();
-        for room in rooms {
-            for id in room.config.members {
-                if !ids.contains(&id) {
-                    ids.push(id);
-                }
-            }
-        }
-        if !ids.iter().any(|id| id != MIXY_AGENT_ID) {
-            return Ok(());
-        }
-        // An unknown or failed check proves nothing (`.catch(() => null)`).
-        let Ok(presence) = self.catalog.presence(&ids).await else { return Ok(()) };
-        let deleted: Vec<String> = ids.into_iter().filter(|id| presence.get(id) == Some(&Presence::Deleted)).collect();
-        let left = self.rooms.prune_members(&deleted).await?;
-        if left.is_empty() {
-            return Ok(());
-        }
-        let failed = self.leave(&left).await?;
-        if failed > 0 {
-            log(&format!("{failed} conversations of members who left their rooms could not be deleted"));
-        }
-        Ok(())
-    }
-
-    /// Members that left their rooms (`dropMembers`, saved): what was owed to them ends, the catalog is republished and their room
-    /// conversations are deleted; how many could not be. No client waits on it (`forgetMember`, `agent-rooms.ts:345-346`;
-    /// `pruneDeleted`, `agent-room-membership.ts:72-74`): the deletions follow the start at once, and the first joins the listing
-    /// in flight (`session-host-lifecycle.ts:527`, `session-host.ts:790`).
-    async fn leave(&self, left: &[Left]) -> Result<usize, RoomError> {
-        // `removeFromRoom` of `dropMembers`: the calls owed to the member end, room by room.
-        for gone in left {
-            self.runner.cancel_owed_to(&gone.room_id, std::slice::from_ref(&gone.agent_id));
-        }
-        let publish = CancellationToken::new();
-        let listing = self.room_host.republish_catalog(&publish).await?;
-        let sessions: Vec<String> = left.iter().filter_map(|l| l.session_id()).collect();
-        join(&publish, listing).await;
-        Ok(self.room_host.delete_sessions(&sessions).await)
-    }
-}
-
 #[async_trait]
 impl<S: RoomStore + 'static> HomePorts for SessionHomePorts<S> {
     async fn plan(&self, agent_id: &str) -> Result<HomePlan, RoomError> {
@@ -510,7 +444,9 @@ mod tests {
         fn is_running(&self, _: &str) -> bool {
             false
         }
-        fn stop(&self, _: &str) {}
+        async fn stop(&self, _: &str) -> Result<(), String> {
+            Ok(())
+        }
         async fn start(&self, _: &str, _: Vec<String>) -> Result<(), RoomError> {
             Ok(())
         }
@@ -590,27 +526,6 @@ mod tests {
         assert_eq!(runner.0.lock().unwrap().len(), 2, "a member in no room cancels nothing");
     }
 
-    /// A task session's create params carry the task workspace as Node's `resolveTaskProject`
-    /// gives it for a task without a Project.
-    #[tokio::test]
-    async fn a_home_session_is_created_as_a_task_in_the_task_workspace_as_node_resolves_it() {
-        let golden: Value = serde_json::from_str(include_str!("golden/task_session.json")).unwrap();
-        let spy = Arc::new(Spy::default());
-        let ports = ports(spy.clone());
-        let plan = ports.plan("bench").await.unwrap();
-        assert_eq!(
-            plan.params,
-            json!({ "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true, "sessionProfile": { "homeAgent": "bench" } })
-        );
-        assert_eq!(plan.route, json!({ "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true }));
-        ports.create_session("home_bench", &plan.params).await.unwrap();
-        let (id, sent) = spy.0.lock().unwrap()[0].clone();
-        assert_eq!(id, "home_bench");
-        assert_eq!(sent["cwd"], golden["cwd"]);
-        assert_eq!(sent["desktopSession"], golden["desktopSession"]);
-        assert_eq!(sent["sessionProfile"], json!({ "homeAgent": "bench" }));
-    }
-
     #[tokio::test]
     async fn mixy_follows_her_route_an_unknown_agent_is_refused_and_a_retired_one_is_named() {
         let spy = Arc::new(Spy::default());
@@ -682,5 +597,93 @@ mod tests {
     async fn deleting_sessions_counts_the_failures() {
         let host = SessionRoomHost::new(Arc::new(Catalog), Arc::new(Spy::default()), Arc::new(|_| Box::pin(async { Ok(None) })));
         assert_eq!(host.delete_sessions(&["a".into(), "bad".into(), "b".into()]).await, 1);
+    }
+
+
+    /// A task session's create params carry the task workspace as Node's `resolveTaskProject`
+    /// gives it for a task without a Project.
+    #[tokio::test]
+    async fn a_home_session_is_created_as_a_task_in_the_task_workspace() {
+        let golden = json!({ "cwd": "C:\\Users\\me\\Tasks 한글", "desktopSession": { "classification": "task", "projectPath": null } });
+        let spy = Arc::new(Spy::default());
+        let ports = ports(spy.clone());
+        let plan = ports.plan("bench").await.unwrap();
+        assert_eq!(
+            plan.params,
+            json!({ "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true, "sessionProfile": { "homeAgent": "bench" } })
+        );
+        assert_eq!(plan.route, json!({ "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true }));
+        ports.create_session("home_bench", &plan.params).await.unwrap();
+        let (id, sent) = spy.0.lock().unwrap()[0].clone();
+        assert_eq!(id, "home_bench");
+        assert_eq!(sent["cwd"], golden["cwd"]);
+        assert_eq!(sent["desktopSession"], golden["desktopSession"]);
+        assert_eq!(sent["sessionProfile"], json!({ "homeAgent": "bench" }));
+    }
+}
+
+impl<S: RoomStore> SessionHomePorts<S> {
+    pub fn new(
+        catalog: Arc<dyn AgentCatalog>,
+        sessions: Arc<dyn SessionOps>,
+        rooms: Arc<Rooms<S>>,
+        room_host: Arc<dyn RoomHost>,
+        runner: Arc<dyn RoomRunner>,
+        ready: Arc<RoomsReady>,
+    ) -> Self {
+        super::service::log_members_through(&rooms, room_host.clone());
+        Self { catalog, sessions, rooms, room_host, runner, ready }
+    }
+
+    /// Node's `pruneDeleted` (`agent-room-membership.ts:64-76`), which the rooms' first load runs (`agent-rooms.ts:353-361`
+    /// `ready`, [`RoomsReady`]): members whose definition is proven deleted leave every room, saved; the catalog is republished
+    /// and their room conversations are deleted; those that could not be are logged (the load does not fail on them). A failed
+    /// save fails the load, the members already gone from the live records ([`Rooms::prune_members`]).
+    pub async fn prune_deleted(&self, log: &(dyn Fn(&str) + Send + Sync)) -> Result<(), RoomError> {
+        let rooms = self.rooms.list().await?;
+        // A room saved before its log kept its members gets that record now, or it would not come back from a rebuild until its
+        // members next change; one that cannot be written is left to the next load.
+        for room in &rooms {
+            let _ = self.room_host.seed_members(&room.id, &room.config.members).await;
+        }
+        let mut ids: Vec<String> = Vec::new();
+        for room in rooms {
+            for id in room.config.members {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
+        }
+        if !ids.iter().any(|id| id != MIXY_AGENT_ID) {
+            return Ok(());
+        }
+        // An unknown or failed check proves nothing (`.catch(() => null)`).
+        let Ok(presence) = self.catalog.presence(&ids).await else { return Ok(()) };
+        let deleted: Vec<String> = ids.into_iter().filter(|id| presence.get(id) == Some(&Presence::Deleted)).collect();
+        let left = self.rooms.prune_members(&deleted).await?;
+        if left.is_empty() {
+            return Ok(());
+        }
+        let failed = self.leave(&left).await?;
+        if failed > 0 {
+            log(&format!("{failed} conversations of members who left their rooms could not be deleted"));
+        }
+        Ok(())
+    }
+
+    /// Members that left their rooms (`dropMembers`, saved): what was owed to them ends, the catalog is republished and their room
+    /// conversations are deleted; how many could not be. No client waits on it (`forgetMember`, `agent-rooms.ts:345-346`;
+    /// `pruneDeleted`, `agent-room-membership.ts:72-74`): the deletions follow the start at once, and the first joins the listing
+    /// in flight (`session-host-lifecycle.ts:527`, `session-host.ts:790`).
+    async fn leave(&self, left: &[Left]) -> Result<usize, RoomError> {
+        // `removeFromRoom` of `dropMembers`: the calls owed to the member end, room by room.
+        for gone in left {
+            self.runner.cancel_owed_to(&gone.room_id, std::slice::from_ref(&gone.agent_id));
+        }
+        let publish = CancellationToken::new();
+        let listing = self.room_host.republish_catalog(&publish).await?;
+        let sessions: Vec<String> = left.iter().filter_map(|l| l.session_id()).collect();
+        join(&publish, listing).await;
+        Ok(self.room_host.delete_sessions(&sessions).await)
     }
 }

@@ -705,6 +705,7 @@ fn issues_name_what_the_author_has_to_resolve() {
     assert_eq!(at(&value, "4.message"), &string_of("Table width 600.5pt exceeds available page width 468pt."));
 }
 
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The recordings of the PowerShell host.
 

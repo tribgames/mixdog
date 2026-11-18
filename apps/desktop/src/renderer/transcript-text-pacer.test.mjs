@@ -1,7 +1,7 @@
 /**
  * transcript-text-pacer.test.mjs — the paced reveal of the coding transcript's
  * live text: step size and cadence by backlog, catch-up, rejoin, the first
- * text, idling, and the part ending.
+ * text, idling, and the rest showing at once when the part ends.
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -59,7 +59,22 @@ async function mount(t) {
   return { render, advance, shown: () => host.textContent.length, host };
 }
 
-test('the cadence drains a backlog in about 550 ms: 550 x 22 / backlog, within 25..150 ms', () => {
+test('a 400-character opening drains as the reference pacer does: its first step at once, the rest over about 1.5 s', async (t) => {
+  // The interval is recomputed from what is left at every step (550 x 22 /
+  // backlog, within 25..150 ms), so a lump with nothing after it slows down
+  // as it drains: 20 characters, then 19 steps of 20 taking
+  // sum(ceil(clamp(12100 / b))) for b = 380, 360, …, 20 = 1492 ms. 550 ms is
+  // the lag behind a steady stream, not the drain time of a lump.
+  const view = await mount(t);
+  await view.render({ text: words(80) });
+  assert.equal(view.shown(), 20);
+  await view.advance(1450);
+  assert.ok(view.shown() < 400, `not drained at 1450 ms (${view.shown()})`);
+  await view.advance(80);
+  assert.equal(view.shown(), 400, 'drained by 1530 ms');
+});
+
+test('the cadence follows the backlog: 550 x 22 / backlog, within 25..150 ms', () => {
   assert.equal(revealStepInterval(22), 150);
   assert.equal(revealStepInterval(100), 121);
   assert.equal(revealStepInterval(242), 50);
@@ -77,7 +92,7 @@ test('a step is 22 characters; a backlog past 484 adds its excess, ramped over 7
 
 test('a first text up to 400 characters shows as one step; a longer one shows at once', async (t) => {
   const short = await mount(t);
-  await short.render({ text: words(60) });
+  await short.render({ text: words(80) });
   // 22 characters end inside the fifth word: back to after the fourth.
   assert.equal(short.host.textContent, words(4));
   const long = await mount(t);
@@ -143,7 +158,7 @@ test('drained, the reveal idles; the next arrival waits its cadence from when it
   assert.equal(view.host.textContent, `Hi ${words(4)}`);
 });
 
-test('the part ending shows the rest at once; a remount continues where it was', async (t) => {
+test('the part ending shows the rest at once; a remount before that continues where it was', async (t) => {
   const view = await mount(t);
   await view.render({ text: 'Hi ' });
   await view.advance(5);
@@ -159,7 +174,15 @@ test('the part ending shows the rest at once; a remount continues where it was',
   assert.equal(again.textContent.length, shown, 'a second mount of the row shows the same');
   await act(async () => root.unmount());
   await view.render({ text: `Hi ${words(40)}`, streaming: false });
+  assert.equal(view.shown(), 203, 'ended: the rest shows at once');
+  await view.advance(200);
+  assert.equal(view.shown(), 203, 'and stays whole');
+  // Streaming again after it settled goes on from what shows; nothing starts
+  // over.
+  await view.render({ text: `Hi ${words(41)}` });
   assert.equal(view.shown(), 203);
+  await view.advance(200);
+  assert.equal(view.shown(), 208);
 });
 
 /** Reduced motion on or off for the rest of test `t`. */
@@ -233,7 +256,7 @@ test('an unmounted row takes no steps; its remount continues where it stopped', 
   await advanceClock(t, 200);
   assert.ok(view.shown() > shown, 'stepping again');
   await view.render({ text: `Hi ${words(40)}`, streaming: false });
-  assert.equal(view.shown(), 203);
+  assert.equal(view.shown(), 203, 'ended, the rest shows at once');
   await view.unmount();
 });
 
@@ -258,7 +281,7 @@ test("deleting a session drops its rows' reveals and fade timelines", async (t) 
   assert.equal(streamFadeTimeline('gone-s:r1', false), null);
   assert.equal(streamFadeTimeline('draft-gone:r1', false), null, 'its namespace too');
   assert.ok(streamFadeTimeline('kept-s:r1', false), 'other sessions keep theirs');
-  await view.mount({ text: `Hi ${words(40)}` });
+  await view.mount({ text: `Hi ${words(20)}` });
   assert.equal(view.shown(), 23, 'the reveal starts over: its first step');
   await view.unmount();
 });

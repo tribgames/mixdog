@@ -1,6 +1,4 @@
-//! The public pages: the cases of `lib/app-page.test.mjs` and `lib/connect-page.test.mjs`, the shared-CSS check of
-//! `apps/desktop/src/renderer/connect-copy.test.mjs`, and byte equality of every page body and header set with what the
-//! Node functions answered. The Node answers are recorded in `fixtures/relay-pages/golden.json` by `record.mjs` beside it.
+//! The public pages: `/app`, `/app/latest.json`, `/connect`, the update-your-PC page, and the pairing CSS they share.
 
 use std::path::PathBuf;
 
@@ -15,10 +13,6 @@ use serde_json::Value;
 const RELEASE_URL: &str = "https://github.com/tribgames/mixdog/releases/download/mobile-v0.1.13/Mixdog-0.1.13.apk";
 const ANDROID_AGENT: &str = "Mozilla/5.0 (Linux; Android 14; Pixel 8)";
 
-fn golden() -> Value {
-    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/relay-pages/golden.json")).expect("the recording parses")
-}
-
 fn request<'a>(method: &'a str, user_agent: Option<&'a str>) -> PageRequest<'a> {
     PageRequest { method, user_agent }
 }
@@ -32,6 +26,7 @@ fn text(reply: &PageReply) -> &str {
 }
 
 /// The reply Node recorded, compared with ours: status, headers in order, body bytes (null = `end()` without data).
+#[cfg(node_twin)]
 fn assert_matches_node(ours: &PageReply, recorded: &Value, what: &str) {
     assert_eq!(i64::from(ours.status), recorded["status"].as_i64().expect("status"), "{what}: status");
     let headers: Vec<(String, String)> = recorded["headers"]
@@ -46,7 +41,7 @@ fn assert_matches_node(ours: &PageReply, recorded: &Value, what: &str) {
     assert_eq!(ours.body, body, "{what}: body");
 }
 
-// ---- lib/app-page.test.mjs ----
+// ---- /app and /app/latest.json ----
 
 #[test]
 fn latest_json_reports_the_version_and_apk_of_the_deployed_release() {
@@ -146,7 +141,7 @@ fn only_the_releases_list_and_a_release_apk_are_apk_links() {
     assert!(!is_android_apk_url("https://github.com/tribgames/mixdog/releases/download/mobile-v\u{0661}.1.1/a.apk"));
 }
 
-// ---- lib/connect-page.test.mjs ----
+// ---- /connect ----
 
 #[test]
 fn connect_and_app_carry_their_logo_inline_and_not_from_a_relay_root_asset() {
@@ -162,7 +157,7 @@ fn connect_and_app_carry_their_logo_inline_and_not_from_a_relay_root_asset() {
     }
 }
 
-// ---- apps/desktop/src/renderer/connect-copy.test.mjs (the shared layout CSS) ----
+// ---- the shared layout CSS ----
 
 fn repo_file(path: &str) -> String {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../..");
@@ -181,8 +176,22 @@ fn the_pairing_css_is_the_block_the_phone_app_and_the_desktop_screen_carry() {
     assert!(asset.contains(".mxp-col{width:calc(100% - 40px);max-width:340px;"));
 }
 
+#[test]
+fn the_phone_app_is_told_by_its_user_agent_token() {
+    assert!(is_native_app_request(Some("MixdogApp/1.2.3 (Android)")));
+    assert!(!is_native_app_request(Some("Mozilla/5.0 (iPhone)")));
+    assert!(!is_native_app_request(Some("mixdogapp/1")));
+    assert!(!is_native_app_request(None));
+}
+
+
+#[cfg(node_twin)]
+fn golden() -> Value {
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/relay-pages/golden.json")).expect("the recording parses")
+}
 // ---- byte equality with the Node pages ----
 
+#[cfg(node_twin)]
 #[test]
 fn the_app_page_and_the_latest_release_equal_the_node_replies() {
     let golden = golden();
@@ -205,7 +214,7 @@ fn the_app_page_and_the_latest_release_equal_the_node_replies() {
         assert_matches_node(&AppPages::new(url).latest_release(request(method, None)), &case["reply"], &format!("latest {url} {method}"));
     }
 }
-
+#[cfg(node_twin)]
 #[test]
 fn the_connect_page_equals_the_node_reply() {
     let golden = golden();
@@ -216,7 +225,7 @@ fn the_connect_page_equals_the_node_reply() {
         assert_matches_node(&connect_page(request(method, None)), &case["reply"], &format!("/connect {method}"));
     }
 }
-
+#[cfg(node_twin)]
 #[test]
 fn the_update_page_equals_the_node_reply_and_escapes_the_versions() {
     let golden = golden();
@@ -231,7 +240,7 @@ fn the_update_page_equals_the_node_reply_and_escapes_the_versions() {
     let page = render_update_pc_page("<b>", "\"x\" & 'y'");
     assert!(page.contains("data-current=\"&#60;b&#62;\" data-min=\"&#34;x&#34; &#38; &#39;y&#39;\""));
 }
-
+#[cfg(node_twin)]
 #[test]
 fn the_release_file_is_judged_as_node_judges_it() {
     let golden = golden();
@@ -250,9 +259,25 @@ fn the_release_file_is_judged_as_node_judges_it() {
 }
 
 #[test]
-fn the_phone_app_is_told_by_its_user_agent_token() {
-    assert!(is_native_app_request(Some("MixdogApp/1.2.3 (Android)")));
-    assert!(!is_native_app_request(Some("Mozilla/5.0 (iPhone)")));
-    assert!(!is_native_app_request(Some("mixdogapp/1")));
-    assert!(!is_native_app_request(None));
+fn the_connect_page_is_served_to_get_and_head_and_refused_to_other_methods() {
+    let get = connect_page(request("GET", None));
+    assert_eq!(get.status, 200);
+    assert!(header(&get, "Content-Type").expect("type").starts_with("text/html"));
+    assert!(header(&get, "Content-Security-Policy").expect("csp").starts_with("default-src 'none'"));
+    assert!(text(&get).contains("/pair-code/resolve"), "the page posts the typed code to the relay");
+    let head = connect_page(request("HEAD", None));
+    assert_eq!((head.status, head.body), (200, None));
+    assert_eq!(connect_page(request("POST", None)).status, 405);
+}
+
+#[test]
+fn the_update_page_is_always_served_and_shows_the_versions_escaped() {
+    let reply = update_pc_page("GET", "1.4.0", "1.5.0");
+    assert_eq!(reply.status, 200);
+    assert!(header(&reply, "Content-Type").expect("type").starts_with("text/html"));
+    assert!(header(&reply, "Content-Security-Policy").is_some());
+    assert!(text(&reply).contains("data-current=\"1.4.0\" data-min=\"1.5.0\""));
+    assert_eq!(update_pc_page("HEAD", "1.4.0", "1.5.0").body, None);
+    let page = render_update_pc_page("<b>", "\"x\" & 'y'");
+    assert!(page.contains("data-current=\"&#60;b&#62;\" data-min=\"&#34;x&#34; &#38; &#39;y&#39;\""));
 }

@@ -64,6 +64,9 @@ pub(crate) fn retry_policy_with(retry_429: bool, default_jitter: Jitter) -> Retr
         stop_after_repeated: false,
     };
     policy.honor_should_retry_true = true;
+    // A cut stream that spent the mid-stream row is replayed by the loop (`anthropic-midstream-recovery.mjs` never marks it
+    // `providerRecoveryExhausted`).
+    policy.stream_cut_loop_replay = true;
     policy
 }
 
@@ -77,5 +80,13 @@ mod tests {
         let policy = retry_policy_with(true, tuned);
         assert_eq!(policy.midstream.schedule.jitter, tuned);
         assert_eq!(policy.request.schedule.jitter, Jitter { ratio: 0.25, mode: JitterMode::Positive });
+    }
+
+    #[test]
+    fn a_spent_stream_cut_goes_on_to_the_loop_transport_row_on_both_routes() {
+        for retry_429 in [true, false] {
+            assert!(retry_policy(retry_429).stream_cut_loop_replay);
+        }
+        assert!(!RetryPolicy::codex_default().stream_cut_loop_replay);
     }
 }

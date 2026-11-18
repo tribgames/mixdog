@@ -33,7 +33,8 @@ fn is_structural(c: u16) -> bool {
 
 /// Dense runs (`[\x21-\x7e]{16,}`) priced by length, and encoded words (8+ alphanumerics with a
 /// letter and a digit, not touching `_`).
-fn dense_token_floor(s: &[u16]) -> f64 {
+fn dense_token_floor<U: Copy + Into<u16>>(s: &[U]) -> f64 {
+    let unit = |index: usize| -> u16 { s[index].into() };
     let length = s.len();
     let mut floor = 0.0f64;
     let mut dense_run = 0usize;
@@ -41,7 +42,7 @@ fn dense_token_floor(s: &[u16]) -> f64 {
     let (mut word_letter, mut word_digit) = (false, false);
     let (mut encoded_words, mut encoded_chars) = (0usize, 0usize);
     for index in 0..=length {
-        let c = s.get(index).copied();
+        let c: Option<u16> = s.get(index).copied().map(Into::into);
         if matches!(c, Some(0x21..=0x7e)) {
             dense_run += 1;
         } else if dense_run > 0 {
@@ -65,7 +66,7 @@ fn dense_token_floor(s: &[u16]) -> f64 {
             && word_letter
             && word_digit
             && c != Some(0x5f)
-            && (start == 0 || s[start - 1] != 0x5f)
+            && (start == 0 || unit(start - 1) != 0x5f)
         {
             encoded_words += 1;
             encoded_chars += index - start;
@@ -78,20 +79,21 @@ fn dense_token_floor(s: &[u16]) -> f64 {
 }
 
 /// Text that is mostly structure (JSON-like lines, or a high share of brackets and quotes).
-fn structured_token_floor(s: &[u16]) -> f64 {
+fn structured_token_floor<U: Copy + Into<u16>>(s: &[U]) -> f64 {
+    let unit = |index: usize| -> u16 { s[index].into() };
     let length = s.len();
     let (mut lines, mut json_like, mut non_ws, mut structural) = (0usize, 0usize, 0usize, 0usize);
     let (mut first, mut last): (Option<usize>, usize) = (None, 0);
     let (mut pending_terminator, mut inner_terminator) = (false, false);
     for index in 0..=length {
-        let c = s.get(index).copied().unwrap_or(0x0a);
+        let c: u16 = s.get(index).copied().map_or(0x0a, Into::into);
         if c == 0x0a {
             if let Some(f) = first {
                 lines += 1;
-                let open = s[f];
-                let mut close = s[last];
+                let open = unit(f);
+                let mut close = unit(last);
                 if close == 0x2c && last > f + 1 {
-                    close = s[last - 1];
+                    close = unit(last - 1);
                 }
                 if matches!(open, 0x5b | 0x7b) && matches!(close, 0x5d | 0x7d) && !inner_terminator {
                     json_like += 1;
@@ -135,22 +137,78 @@ pub fn estimate_tokens(text: &str) -> u64 {
     if text.is_empty() {
         return 0;
     }
-    let units: Vec<u16> = text.encode_utf16().collect();
     let weighted: f64 = text.chars().map(|c| code_point_weight(c as u32)).sum();
-    let ascii_floor = units.len() as f64 / 4.0;
-    let dense = dense_token_floor(&units).max(structured_token_floor(&units));
-    weighted.max(ascii_floor).max(dense).ceil() as u64
+    // An ASCII text's UTF-16 code units are its bytes: the floors read it in place.
+    let (length, dense) = if text.is_ascii() {
+        let units = text.as_bytes();
+        (units.len(), dense_token_floor(units).max(structured_token_floor(units)))
+    } else {
+        let units: Vec<u16> = text.encode_utf16().collect();
+        (units.len(), dense_token_floor(&units).max(structured_token_floor(&units)))
+    };
+    weighted.max(length as f64 / 4.0).max(dense).ceil() as u64
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn plain_text_costs_a_quarter_token_per_ascii_character_rounded_up() {
+        assert_eq!(estimate_tokens(""), 0);
+        assert_eq!(estimate_tokens("abcd"), 1);
+        assert_eq!(estimate_tokens("abcde"), 2);
+        assert_eq!(estimate_tokens(&"word ".repeat(40)), 50);
+    }
+
+    #[test]
+    fn other_scripts_and_symbols_cost_more_per_character() {
+        assert_eq!(estimate_tokens("한글"), 3, "Hangul 1.5 each");
+        assert_eq!(estimate_tokens("日本"), 3, "Han 1.2 each, 2.4 rounded up");
+        assert_eq!(estimate_tokens("ひら"), 3, "Hiragana 1.2 each");
+        assert_eq!(estimate_tokens("😀"), 2, "emoji 2.0");
+        assert_eq!(estimate_tokens("éé"), 2, "Latin-1 and extended 0.6 each, 1.2 rounded up");
+        assert_eq!(estimate_tokens("→"), 2, "arrows 1.5");
+    }
+
+    #[test]
+    fn a_long_run_of_visible_characters_is_priced_by_its_length() {
+        assert_eq!(estimate_tokens(&"!".repeat(15)), 4, "below sixteen the quarter rate holds");
+        assert_eq!(estimate_tokens(&"!".repeat(16)), 8, "sixteen or more: half a token each");
+        assert_eq!(estimate_tokens(&"!".repeat(64)), 42, "sixty-four or more: 0.65 each, rounded up");
+    }
+
+    #[test]
+    fn three_encoded_words_price_the_whole_text_by_their_density() {
+        // Three words of eight or more letters-and-digits: 24 encoded characters at 0.5 and two spaces at 0.25.
+        assert_eq!(estimate_tokens("abc12345 def67890 ghi12345"), 13);
+        assert_eq!(estimate_tokens("abc12345 def67890"), 5, "two are not enough");
+    }
+
+    #[test]
+    fn structured_text_is_priced_at_half_a_token_per_non_blank_character() {
+        let json = "[\n{\"a\":1},\n{\"b\":2}\n]";
+        // 17 non-blank characters at 0.5 and 3 line breaks at 0.25.
+        assert_eq!(estimate_tokens(json), 10);
+        assert_eq!(estimate_tokens("a\nb"), 1, "fewer than three lines are never structured");
+    }
+
+    #[test]
+    fn a_lone_surrogate_in_the_text_is_not_a_failure() {
+        assert_eq!(estimate_tokens("\u{fffd} lone"), 3);
+    }
+}
+
+
+/// The recorded estimates of the reference runtime; compiled only on the machine that holds them.
+#[cfg(all(test, node_twin))]
+mod node_twin {
     use serde_json::Value;
 
     use super::*;
 
-    /// Golden twin: `golden/token_estimate.json` is `estimateTokens` of today's Node product.
     #[test]
-    fn estimates_equal_the_recorded_node_values() {
+    fn estimates_equal_the_recorded_values() {
         let golden: Vec<Value> = serde_json::from_str(include_str!("../testdata/token_estimate.json")).expect("golden");
         for case in golden {
             let text = case["text"].as_str().unwrap_or("\u{fffd} lone");

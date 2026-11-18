@@ -41,6 +41,34 @@ pub(crate) enum Ctl {
     },
     /// The run's token is already cancelled; the actor resolves the run's own requests.
     Abort { turn: TurnId },
+    /// A Stop with no published run: the actor stops whatever the session's busy span holds (a start, a settlement, a
+    /// compaction) through its owner and says what it found.
+    StopBusy(tokio::sync::oneshot::Sender<BusyStop>),
+    /// A Stop of the published run `turn`: the actor decides the prompt's disposition (under the prompt's lock, against any output
+    /// commit), aborts the run at once, appends the Stop's record and answers with the decision and the record's durable-only
+    /// waiter. A run whose end is already in (parked or applied) is no longer stoppable: the actor answers what the busy span holds.
+    StopRun {
+        turn: TurnId,
+        named: bool,
+        restore_prompt: Option<bool>,
+        canceller: String,
+        unreadable: bool,
+        reply: tokio::sync::oneshot::Sender<RunStop>,
+    },
+    /// A Stop while the scheduled compaction holds the session hands the newest editable queued prompt `qid` back to the canceller:
+    /// the actor freezes that entry under a recorded Stop (it leaves the queue and never runs) and answers the hand-back's id (the
+    /// reply carries it) and the Stop's durable-only waiter, or `None` when the entry is gone.
+    StopQueued {
+        qid: String,
+        canceller: String,
+        reply: tokio::sync::oneshot::Sender<Option<(Option<String>, super::stop::StopWait)>>,
+    },
+    /// A user Stop of exactly the work submitted under `submissions` (a room Stop of its exchange's member submissions): the
+    /// actor freezes each and answers the durable-only waiters of their Stops.
+    StopWork {
+        submissions: Vec<String>,
+        reply: tokio::sync::oneshot::Sender<Vec<super::stop::StopWait>>,
+    },
     /// `turn/steer`: the queued prompt is prioritized (front of the queue, priority `now`, a drain kicked), and the
     /// entries pushed into the active run's steer queue are taken.
     Prioritize { queued: QueuedId },
@@ -83,6 +111,30 @@ pub(crate) enum Ctl {
         mark: tokio::sync::oneshot::Receiver<serde_json::Map<String, serde_json::Value>>,
         marked: tokio::sync::oneshot::Sender<Result<(), super::run::RunError>>,
     },
+}
+
+/// What the actor answers a Stop of the published run ([`Ctl::StopRun`]).
+#[derive(Debug)]
+pub(crate) enum RunStop {
+    /// The run was stopped: the decision over its prompt, the waiter of the Stop's durable record, and the id of the hand-back the
+    /// Stop owes (a reply carrying the restored text names it, as the notification does).
+    Decided(super::stop::Decision, super::stop::StopWait, Option<String>),
+    /// The named turn is not the one running.
+    NotActive,
+    /// The run had already ended: what the busy span held instead.
+    Busy(BusyStop),
+}
+
+/// What a Stop found of the busy span when no run was published.
+#[derive(Debug)]
+pub(crate) enum BusyStop {
+    /// Something was under way and its owner was told to stop; each waiter is a Stop record's durable-only answer (none when the
+    /// Stop froze no work: a compaction, or a settlement with no completion queued for its wake).
+    Stopped(Vec<super::stop::StopWait>),
+    /// Nothing was under way.
+    Idle,
+    /// Something is under way that has no owner to cancel (the named stage).
+    Unstoppable(&'static str),
 }
 
 /// What a retention delete re-asks under the thread's own admission: the thread must still be
@@ -260,6 +312,9 @@ pub(crate) struct ControlCell {
     /// In-core starts of this thread waiting out the core's hold on turn starts (`SessionHandle::deferring`): the idle clock does not
     /// unload the thread under them, whose callers left their start on this cell (`agent_start`, `routine_starts`).
     pub deferring: std::sync::atomic::AtomicUsize,
+    /// What an archive preparation holding this thread checks at its commit: moved by every attach and by every step that moved
+    /// what the preparation judged; held while a preparation holds the thread (the idle deadline leaves it loaded).
+    pub retention: super::archive_trees::RetentionMark,
     /// Woken after every step of the thread's actor, so a test waits on the thread's state by its
     /// change (`eventually_on!`, and `SessionHandle::stepped` for the tests of other crates).
     #[cfg(any(test, feature = "test-support"))]
@@ -278,6 +333,9 @@ pub(crate) struct ControlCell {
     /// quota settlement, a compaction, a completion wake or queued input).
     #[cfg(any(test, feature = "test-support"))]
     pub retry_blocked: std::sync::atomic::AtomicBool,
+    /// The actor's pending continuation decision (`goal_scheduled`) after its last step.
+    #[cfg(any(test, feature = "test-support"))]
+    pub goal_pending: std::sync::atomic::AtomicBool,
     /// A test's mark of a turn in flight with no run (Node's `markSessionAskStart`, until `markSessionDone`): the
     /// session is not idle (`ui_busy`); `Inbox::AskEnded` clears it and runs what the turn's end runs for a prune.
     #[cfg(test)]
@@ -288,6 +346,12 @@ pub(crate) struct ControlCell {
     pub prompt_timers: std::sync::atomic::AtomicU64,
     /// Where the thread's moved live facts republish its roster row (the directory's, bound once by the composition).
     pub live_rows: LiveRowsCell,
+    /// The directory's [`StopLatches`], shared by every cell.
+    pub stop_latches: Arc<StopLatches>,
+    /// A test's hook at a run start's fences: `check` once the start passed its Stop check (before the start gate), `gate` once
+    /// the gate registered it (before the spawn). Called on the actor's own step, so what it does lands exactly there.
+    #[cfg(any(test, feature = "test-support"))]
+    pub start_fences: Mutex<Option<Arc<dyn Fn(&'static str) + Send + Sync>>>,
     /// No open-time recovery is pending and every accepted record is released (durable or failed), after the last step.
     #[cfg(any(test, feature = "test-support"))]
     pub recovered: std::sync::atomic::AtomicBool,
@@ -299,6 +363,14 @@ pub(crate) struct ControlCell {
     /// waits on this, so the gate was consulted before it asserts.
     #[cfg(any(test, feature = "test-support"))]
     pub gate_holds: std::sync::atomic::AtomicU64,
+    /// The queue drain passes finished, counted after the pass decided and registered any next start (or found none): a test that
+    /// shows nothing started waits for a pass after the event it cares about.
+    #[cfg(any(test, feature = "test-support"))]
+    pub drain_passes: std::sync::atomic::AtomicU64,
+    /// The Stop events in the order the actor took them: `stop:frozen:<sid>:<identities>`, `stop:durable:<sid>`,
+    /// `stop:failed:<sid>`, `stop:settled:<sid>`, `stop:recovered:<sid>`, `start:stopped:<work>`, `run:admitted:<work>`.
+    #[cfg(any(test, feature = "test-support"))]
+    pub stop_ledger: Mutex<Vec<String>>,
     /// The numbers of the thread's prompt-history appends ([`super::prompt_history::AppendQueue::numbered_on`]): the
     /// replay barrier takes their accepted count as it arrives.
     #[cfg(any(test, feature = "test-support"))]
@@ -313,7 +385,118 @@ pub(crate) struct ControlCell {
 /// The directory's binding of [`super::thread_edges::LiveRows`], shared by every cell.
 pub(crate) type LiveRowsCell = Arc<std::sync::OnceLock<Arc<super::thread_edges::LiveRows>>>;
 
+/// One thread's start gate: the identities a Stop from outside the actor latched, and the identities each run started (or took
+/// at a boundary) is running, with that run's cancel.
+#[derive(Default)]
+struct Gate {
+    latched: HashSet<String>,
+    running: Vec<(TurnId, HashSet<String>, Cancel)>,
+}
+
+/// The per-thread synchronisation point between starting work and a Stop from outside the thread's actor (a room Stop's member
+/// submissions), by thread, shared by every cell and every later load of the thread (the directory's).
+///
+/// Invariant, by construction (one lock per directory over every thread's gate): **latched ⇒ not started, or started ⇒ the
+/// latch saw it.** A run's start ([`Self::begin`]) and a boundary's take of an entry ([`Self::claim`]) register the identities
+/// they are about to run under the lock a latch takes; one that finds an identity latched does not run it. A latch
+/// ([`Self::latch`]) that finds an identity registered as running aborts that run at once with the user's cancel.
+///
+/// A latched identity is released ([`Self::release`]) only once the thread's durable `work_stop` for it is acknowledged and
+/// folded into the session's `stoppedWork` (which the actor and every later load read), or the thread is deleted
+/// ([`Self::forget`]): it is never unprotected in between, and no timer or cap removes it.
+#[derive(Default)]
+pub(crate) struct StopLatches(Mutex<std::collections::HashMap<String, Gate>>);
+
+impl StopLatches {
+    /// Latches `identities` in `thread` (a Stop's linearization point). A run already running any of them is aborted now with the
+    /// user's cancel; true when one was.
+    pub fn latch(&self, thread: &ThreadId, identities: impl IntoIterator<Item = String>, abort: &mixdog_agent::cancel::Abort) -> bool {
+        let mut gates = lock(&self.0);
+        let gate = gates.entry(thread.as_str().to_owned()).or_default();
+        let identities: Vec<String> = identities.into_iter().collect();
+        gate.latched.extend(identities.iter().cloned());
+        let mut aborted = false;
+        for (_, running, cancel) in &gate.running {
+            if identities.iter().any(|identity| running.contains(identity)) {
+                cancel.abort_with(abort);
+                aborted = true;
+            }
+        }
+        aborted
+    }
+
+    pub fn latched(&self, thread: &ThreadId, identity: &str) -> bool {
+        lock(&self.0).get(thread.as_str()).is_some_and(|gate| gate.latched.contains(identity))
+    }
+
+    /// Run `turn` is about to start the work `identities` under `cancel`: registered as running, or refused (false) when any of
+    /// them is latched, in which case it never runs.
+    pub fn begin(&self, thread: &ThreadId, turn: &TurnId, identities: &[String], cancel: &Cancel) -> bool {
+        let mut gates = lock(&self.0);
+        let gate = gates.entry(thread.as_str().to_owned()).or_default();
+        if identities.iter().any(|identity| gate.latched.contains(identity)) {
+            return false;
+        }
+        gate.running.push((turn.clone(), identities.iter().cloned().collect(), cancel.clone()));
+        true
+    }
+
+    /// Running `turn` is about to take the entry of `identities` at a boundary: registered with the run, or refused (false) when
+    /// any of them is latched, in which case the entry is not injected.
+    pub fn claim(&self, thread: &ThreadId, turn: &TurnId, identities: &[String]) -> bool {
+        let mut gates = lock(&self.0);
+        let Some(gate) = gates.get_mut(thread.as_str()) else { return true };
+        if identities.iter().any(|identity| gate.latched.contains(identity)) {
+            return false;
+        }
+        if let Some((_, running, _)) = gate.running.iter_mut().find(|(running, _, _)| running == turn) {
+            running.extend(identities.iter().cloned());
+        }
+        true
+    }
+
+    /// Run `turn` ended.
+    pub fn end(&self, thread: &ThreadId, turn: &TurnId) {
+        let mut gates = lock(&self.0);
+        if let Some(gate) = gates.get_mut(thread.as_str()) {
+            gate.running.retain(|(running, _, _)| running != turn);
+            if gate.latched.is_empty() && gate.running.is_empty() {
+                gates.remove(thread.as_str());
+            }
+        }
+    }
+
+    /// The latched identities of `thread` that `protected` says the durable record now protects are released.
+    pub fn release(&self, thread: &ThreadId, protected: impl Fn(&str) -> bool) {
+        let mut gates = lock(&self.0);
+        if let Some(gate) = gates.get_mut(thread.as_str()) {
+            gate.latched.retain(|identity| !protected(identity));
+            if gate.latched.is_empty() && gate.running.is_empty() {
+                gates.remove(thread.as_str());
+            }
+        }
+    }
+
+    /// `thread` was deleted: nothing of it can run again.
+    pub fn forget(&self, thread: &ThreadId) {
+        lock(&self.0).remove(thread.as_str());
+    }
+
+    #[cfg(test)]
+    pub fn latched_count(&self, thread: &ThreadId) -> usize {
+        lock(&self.0).get(thread.as_str()).map_or(0, |gate| gate.latched.len())
+    }
+}
+
 impl ControlCell {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn start_fence(&self, at: &'static str) {
+        let hook = lock(&self.start_fences).clone();
+        if let Some(hook) = hook {
+            hook(at);
+        }
+    }
+
     /// The live facts the roster lays over the thread's row moved (its turn, the approval it shows).
     pub fn live_changed(&self) {
         if let Some(rows) = self.live_rows.get() {
@@ -337,7 +520,12 @@ impl ControlCell {
     /// close takes the word only at a count of zero. False when closed.
     pub fn subscribing(&self) -> bool {
         use std::sync::atomic::Ordering::SeqCst;
-        self.subscribers.try_update(SeqCst, SeqCst, |word| (word & CLOSING == 0).then_some((word + 1) | ATTACHED)).is_ok()
+        let admitted = self.subscribers.try_update(SeqCst, SeqCst, |word| (word & CLOSING == 0).then_some((word + 1) | ATTACHED)).is_ok();
+        if admitted {
+            // A window opening the session voids an archive prepared without it.
+            self.retention.moved();
+        }
+        admitted
     }
 
     /// Closes the thread to attaches when nobody is attached: the unload's admission decision,
@@ -578,10 +766,12 @@ impl ControlCell {
     }
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 mod queue_tests {
     use super::*;
 
+    #[cfg(node_twin)]
     /// `isQueuedEntryEditable` as Node's helper answered these entries (`fixtures/interrupt/queue-golden.json`,
     /// `record-queue.mjs`).
     #[test]
@@ -592,3 +782,4 @@ mod queue_tests {
         }
     }
 }
+

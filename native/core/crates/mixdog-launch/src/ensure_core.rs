@@ -72,8 +72,6 @@ impl std::fmt::Display for EnsureError {
     }
 }
 
-impl std::error::Error for EnsureError {}
-
 impl From<DiscoveryError> for EnsureError {
     fn from(error: DiscoveryError) -> Self {
         Self::Discovery(error)
@@ -95,61 +93,6 @@ pub trait CoreHost: Sync {
     fn runs(&self, pid: u32) -> bool;
     /// `launchCore`: starts a core and answers the boot's capture.
     fn launch(&self) -> Result<SpawnCapture, EnsureError>;
-}
-
-/// What a launcher decides.
-#[derive(Clone)]
-pub struct EnsureOptions {
-    /// The core binary; [`core_binary`] when not named.
-    pub bin: Option<PathBuf>,
-    pub ready_timeout: Duration,
-    /// `false` for a launcher that owns its core (the desktop app): the core is an ordinary child and ends with it.
-    pub detached: bool,
-    pub log: Log,
-    /// The discovery file; the process's runtime root when not named.
-    pub discovery_path: Option<PathBuf>,
-    /// The data folder whose `daemon-crash` keeps the capture; the process's when not named.
-    pub data_dir: Option<PathBuf>,
-    /// Variables the core starts with beyond the launcher's own environment.
-    pub env: Vec<(OsString, OsString)>,
-}
-
-impl Default for EnsureOptions {
-    fn default() -> Self {
-        Self {
-            bin: None,
-            ready_timeout: ready_timeout_of_process(),
-            detached: true,
-            log: std::sync::Arc::new(|_| {}),
-            discovery_path: None,
-            data_dir: None,
-            env: Vec::new(),
-        }
-    }
-}
-
-/// `Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS) || 15000`.
-fn ready_timeout_of_process() -> Duration {
-    let configured = std::env::var("MIXDOG_DAEMON_READY_TIMEOUT_MS").ok().and_then(|text| text.trim().parse::<f64>().ok()).filter(|ms| ms.is_finite() && *ms != 0.0);
-    // A negative number is a wait of the least length (`Math.max(1, ...)`).
-    configured.map_or(DEFAULT_READY_TIMEOUT, |ms| Duration::from_millis(if ms < 0.0 { 1 } else { ms as u64 }))
-}
-
-/// `mixdogd`: `MIXDOGD_BIN` when set (development), else the one beside the running executable, else under `core/` beside it
-/// (the packaged desktop's layout), else the name itself for the system's search path.
-pub fn core_binary() -> PathBuf {
-    if let Some(bin) = std::env::var_os("MIXDOGD_BIN").filter(|bin| !bin.is_empty()) {
-        return PathBuf::from(bin);
-    }
-    let name = if cfg!(windows) { "mixdogd.exe" } else { "mixdogd" };
-    if let Some(dir) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)) {
-        for candidate in [dir.join(name), dir.join("core").join(name)] {
-            if candidate.is_file() {
-                return candidate;
-            }
-        }
-    }
-    PathBuf::from(name)
 }
 
 /// A detached core leaves this process's console and process group (Windows: no console and no window) or session (Unix), so it
@@ -182,27 +125,31 @@ pub struct SystemHost {
     env: Vec<(OsString, OsString)>,
 }
 
-impl SystemHost {
-    pub fn new(options: &EnsureOptions) -> Self {
-        Self {
-            bin: options.bin.clone().unwrap_or_else(core_binary),
-            discovery_path: options.discovery_path.clone().unwrap_or_else(discovery_path),
-            data_dir: options.data_dir.clone().or_else(data_dir),
-            detached: options.detached,
-            log: options.log.clone(),
-            env: options.env.clone(),
-        }
-    }
+/// The v1.4.5 session wire is not a Rust RPC endpoint. Recognize it narrowly so
+/// the contender can start and let its ownership gate decide whether to block.
+fn legacy_discovery(document: &Value) -> bool {
+    document.get("core").is_none()
+        && document["protocol"] == 1
+        && document["revision"] == 6
+        // The tagged publisher reports 0.0.0 when its package manifest is unreadable.
+        && matches!(document["version"].as_str(), Some("1.4.5" | "0.0.0"))
+        && document["pid"].as_u64().is_some_and(|pid| (1..=u64::from(u32::MAX)).contains(&pid))
+        && document.pointer("/endpoints/session/port").and_then(Value::as_u64)
+            .is_some_and(|port| (1..=u64::from(u16::MAX)).contains(&port))
+        && document.pointer("/endpoints/session/token").and_then(Value::as_str)
+            .is_some_and(|token| !token.trim().is_empty())
 }
 
-/// The discovery document `bytes` read from `path`. A document this build cannot read (the 1.4.5 daemon wrote `daemon.json`
-/// without its `core` block) whose process no longer runs names no core, as a stale one of this build does; one whose process
-/// still runs is the parse error.
+/// A legacy daemon never counts as an attachable core. Leave its discovery
+/// untouched for startup to judge, and keep reporting other live parse errors.
 fn core_view(bytes: &[u8], path: &std::path::Path, runs: &dyn Fn(u32) -> bool) -> Result<Option<CoreView>, DiscoveryError> {
     let document = serde_json::from_slice::<Value>(bytes).ok();
     let discovery = match Discovery::parse(bytes, path) {
         Ok(discovery) => discovery,
         Err(error) => {
+            if document.as_ref().is_some_and(legacy_discovery) {
+                return Ok(None);
+            }
             let named = document.as_ref().and_then(|document| document.get("pid")).and_then(Value::as_u64).and_then(|pid| u32::try_from(pid).ok());
             return match named {
                 Some(pid) if !runs(pid) => Ok(None),
@@ -285,51 +232,6 @@ fn not_ready(last: Option<&CoreView>) -> EnsureError {
     EnsureError::NotReady { state: last.map(|view| view.discovery.core.state.clone()), blocked: last.and_then(|view| view.blocked.clone()) }
 }
 
-/// The serving core's discovery. A `blocked` core is the user's decision, so it fails at once instead of waiting; `booting`,
-/// `migrating` and `draining` end by themselves, so they are waited out. A core this call started that ends abnormally before
-/// serving fails at once too, with its exit and what it last said.
-///
-/// A discovery file outlives a process that was killed: one that names a process no longer running names no core, so a core
-/// is started as when there is no file. Waiting for it never ends. When another launcher wins the race to start the core, this
-/// one attaches to the winner: its own contender exits cleanly having lost the claim, and discovery then names the winner.
-pub async fn wait_for_core(host: &dyn CoreHost, ready_timeout: Duration, poll: Duration) -> Result<CoreView, EnsureError> {
-    let deadline = Instant::now() + ready_timeout.max(Duration::from_millis(1));
-    let mut launched = false;
-    let mut capture: Option<SpawnCapture> = None;
-    let mut last: Option<CoreView> = None;
-    while Instant::now() < deadline {
-        last = host.read_discovery()?;
-        if last.as_ref().is_some_and(|view| !host.runs(view.discovery.pid)) {
-            last = None;
-        }
-        if let Some(view) = last.as_ref().filter(|view| view.discovery.core.state == "serving" && view.discovery.core.rpc.is_some()) {
-            if let Some(capture) = &capture {
-                capture.note_ready();
-            }
-            return Ok(view.clone());
-        }
-        if last.as_ref().is_some_and(|view| view.discovery.core.state == "blocked") {
-            return Err(not_ready(last.as_ref()));
-        }
-        if let Some(ended) = ended_before_serving(capture.as_ref(), last.as_ref()) {
-            return Err(ended);
-        }
-        if last.is_none() && !launched {
-            launched = true;
-            capture = Some(host.launch()?);
-        }
-        let left = deadline.saturating_duration_since(Instant::now());
-        mixdog_rt::time::sleep(poll.min(left.max(Duration::from_millis(1)))).await;
-    }
-    Err(not_ready(last.as_ref()))
-}
-
-/// Attach to the serving core, starting one when none runs.
-pub async fn ensure_core(options: EnsureOptions) -> Result<Discovery, EnsureError> {
-    let host = SystemHost::new(&options);
-    wait_for_core(&host, options.ready_timeout, POLL).await.map(|view| view.discovery)
-}
-
 /// The line a launcher prints when its connection to the core fails: `mixdog: <the protocol's message>`. A version refusal
 /// from `initialize` names who is outdated and both versions.
 pub fn client_error_line(error: &ClientError) -> String {
@@ -406,53 +308,6 @@ mod tests {
 
     const FAST: Duration = Duration::from_millis(1);
 
-    #[tokio::test]
-    async fn a_serving_core_is_attached_to_without_starting_one() {
-        let host = Script::new(vec![Some(view(7, "serving", true, None))]);
-        let found = wait_for_core(&host, Duration::from_secs(5), FAST).await.unwrap();
-        assert_eq!(found.discovery.pid, 7);
-        assert_eq!(host.launches.load(Ordering::SeqCst), 0);
-    }
-
-    #[tokio::test]
-    async fn no_core_starts_one_once_and_waits_through_booting_and_migrating() {
-        let host = Script::new(vec![None, None, Some(view(9, "booting", false, None)), Some(view(9, "migrating", false, None)), Some(view(9, "serving", true, None))]);
-        let found = wait_for_core(&host, Duration::from_secs(5), FAST).await.unwrap();
-        assert_eq!(found.discovery.pid, 9);
-        assert_eq!(host.launches.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn a_discovery_naming_a_vanished_process_names_no_core() {
-        let mut host = Script::new(vec![Some(view(5, "serving", true, None)), Some(view(8, "serving", true, None))]);
-        host.dead = vec![5];
-        let found = wait_for_core(&host, Duration::from_secs(5), FAST).await.unwrap();
-        assert_eq!((found.discovery.pid, host.launches.load(Ordering::SeqCst)), (8, 1));
-    }
-
-    #[tokio::test]
-    async fn a_blocked_core_fails_at_once_with_what_blocks_it() {
-        let host = Script::new(vec![Some(view(7, "blocked", false, Some(serde_json::json!({ "reason": "newer data" }))))]);
-        let error = wait_for_core(&host, Duration::from_secs(5), FAST).await.unwrap_err();
-        assert_eq!(error.to_string(), r#"core is not ready: the core is blocked ({"reason":"newer data"})"#);
-        assert_eq!(host.launches.load(Ordering::SeqCst), 0);
-    }
-
-    #[tokio::test]
-    async fn a_core_that_never_publishes_ends_the_wait_with_the_timeout_text() {
-        let host = Script::new(vec![None]);
-        let error = wait_for_core(&host, Duration::from_millis(60), FAST).await.unwrap_err();
-        assert_eq!(error.to_string(), "core is not ready: no core published its endpoint");
-        assert_eq!(host.launches.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn a_core_that_stays_draining_ends_the_wait_naming_its_state() {
-        let host = Script::new(vec![Some(view(7, "draining", false, None))]);
-        let error = wait_for_core(&host, Duration::from_millis(60), FAST).await.unwrap_err();
-        assert_eq!(error.to_string(), "core is not ready: the core is draining");
-    }
-
     #[test]
     fn a_document_of_another_build_names_no_core_once_its_process_is_gone() {
         let path = std::path::Path::new("daemon.json");
@@ -471,4 +326,183 @@ mod tests {
         assert_eq!(client_error_line(&refused), "mixdog: version refused: clientOutdated (core 1.6.0, this program 1.5.0)");
         assert_eq!(client_error_line(&ClientError::ConnectionLost), "mixdog: connection lost");
     }
+
+
+    #[tokio::test]
+    async fn a_serving_core_is_attached_to_without_starting_one() {
+        let host = Script::new(vec![Some(view(7, "serving", true, None))]);
+        let found = wait_for_core(&host, Duration::from_secs(5), FAST).await.unwrap();
+        assert_eq!(found.discovery.pid, 7);
+        assert_eq!(host.launches.load(Ordering::SeqCst), 0);
+    }
+    #[tokio::test]
+    async fn no_core_starts_one_once_and_waits_through_booting_and_migrating() {
+        let host = Script::new(vec![None, None, Some(view(9, "booting", false, None)), Some(view(9, "migrating", false, None)), Some(view(9, "serving", true, None))]);
+        let found = wait_for_core(&host, Duration::from_secs(5), FAST).await.unwrap();
+        assert_eq!(found.discovery.pid, 9);
+        assert_eq!(host.launches.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn a_discovery_naming_a_vanished_process_names_no_core() {
+        let mut host = Script::new(vec![Some(view(5, "serving", true, None)), Some(view(8, "serving", true, None))]);
+        host.dead = vec![5];
+        let found = wait_for_core(&host, Duration::from_secs(5), FAST).await.unwrap();
+        assert_eq!((found.discovery.pid, host.launches.load(Ordering::SeqCst)), (8, 1));
+    }
+    #[tokio::test]
+    async fn a_blocked_core_fails_at_once_with_what_blocks_it() {
+        let host = Script::new(vec![Some(view(7, "blocked", false, Some(serde_json::json!({ "reason": "newer data" }))))]);
+        let error = wait_for_core(&host, Duration::from_secs(5), FAST).await.unwrap_err();
+        assert_eq!(error.to_string(), r#"core is not ready: the core is blocked ({"reason":"newer data"})"#);
+        assert_eq!(host.launches.load(Ordering::SeqCst), 0);
+    }
+    #[tokio::test]
+    async fn live_v145_discovery_starts_one_contender_and_reports_its_blocked_verdict() {
+        let path = std::path::Path::new("daemon.json");
+        let legacy = serde_json::json!({
+            "protocol": 1, "revision": 6, "version": "1.4.5", "pid": 31,
+            "endpoints": { "session": { "port": 4000, "token": "legacy" } }
+        });
+        let read = |value: &Value| core_view(&serde_json::to_vec(value).unwrap(), path, &|_| true);
+        let mut fallback = legacy.clone();
+        fallback["version"] = Value::from("0.0.0");
+        assert!(matches!(read(&fallback), Ok(None)));
+        fallback["endpoints"]["session"]["token"] = Value::Null;
+        assert!(matches!(read(&fallback), Err(DiscoveryError::Malformed { .. })));
+        let mut incomplete = legacy.clone();
+        incomplete["endpoints"]["session"]["port"] = 0.into();
+        assert!(matches!(read(&incomplete), Err(DiscoveryError::Malformed { .. })));
+        let mut broken_rust = legacy.clone();
+        broken_rust["core"] = Value::Null;
+        assert!(matches!(read(&broken_rust), Err(DiscoveryError::Malformed { .. })));
+
+        let verdict = serde_json::json!({ "kind": "waitExit", "pid": 31 });
+        let host = Script::new(vec![read(&legacy).unwrap(), read(&legacy).unwrap(), Some(view(7, "blocked", false, Some(verdict.clone())))]);
+        let error = wait_for_core(&host, Duration::from_secs(5), FAST).await.unwrap_err();
+        assert!(matches!(error, EnsureError::NotReady { state: Some(state), blocked: Some(blocked) }
+            if state == "blocked" && blocked == verdict));
+        assert_eq!(host.launches.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn a_core_that_never_publishes_ends_the_wait_with_the_timeout_text() {
+        let host = Script::new(vec![None]);
+        let error = wait_for_core(&host, Duration::from_millis(60), FAST).await.unwrap_err();
+        assert_eq!(error.to_string(), "core is not ready: no core published its endpoint");
+        assert_eq!(host.launches.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn a_core_that_stays_draining_ends_the_wait_naming_its_state() {
+        let host = Script::new(vec![Some(view(7, "draining", false, None))]);
+        let error = wait_for_core(&host, Duration::from_millis(60), FAST).await.unwrap_err();
+        assert_eq!(error.to_string(), "core is not ready: the core is draining");
+    }
+}
+
+
+impl std::error::Error for EnsureError {}
+/// What a launcher decides.
+#[derive(Clone)]
+pub struct EnsureOptions {
+    /// The core binary; [`core_binary`] when not named.
+    pub bin: Option<PathBuf>,
+    pub ready_timeout: Duration,
+    /// `false` for a launcher that owns its core (the desktop app): the core is an ordinary child and ends with it.
+    pub detached: bool,
+    pub log: Log,
+    /// The discovery file; the process's runtime root when not named.
+    pub discovery_path: Option<PathBuf>,
+    /// The data folder whose `daemon-crash` keeps the capture; the process's when not named.
+    pub data_dir: Option<PathBuf>,
+    /// Variables the core starts with beyond the launcher's own environment.
+    pub env: Vec<(OsString, OsString)>,
+}
+impl Default for EnsureOptions {
+    fn default() -> Self {
+        Self {
+            bin: None,
+            ready_timeout: ready_timeout_of_process(),
+            detached: true,
+            log: std::sync::Arc::new(|_| {}),
+            discovery_path: None,
+            data_dir: None,
+            env: Vec::new(),
+        }
+    }
+}
+/// `Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS) || 15000`.
+fn ready_timeout_of_process() -> Duration {
+    let configured = std::env::var("MIXDOG_DAEMON_READY_TIMEOUT_MS").ok().and_then(|text| text.trim().parse::<f64>().ok()).filter(|ms| ms.is_finite() && *ms != 0.0);
+    // A negative number is a wait of the least length (`Math.max(1, ...)`).
+    configured.map_or(DEFAULT_READY_TIMEOUT, |ms| Duration::from_millis(if ms < 0.0 { 1 } else { ms as u64 }))
+}
+/// `mixdogd`: `MIXDOGD_BIN` when set (development), else the one beside the running executable, else under `core/` beside it
+/// (the packaged desktop's layout), else the name itself for the system's search path.
+pub fn core_binary() -> PathBuf {
+    if let Some(bin) = std::env::var_os("MIXDOGD_BIN").filter(|bin| !bin.is_empty()) {
+        return PathBuf::from(bin);
+    }
+    let name = if cfg!(windows) { "mixdogd.exe" } else { "mixdogd" };
+    if let Some(dir) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)) {
+        for candidate in [dir.join(name), dir.join("core").join(name)] {
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    PathBuf::from(name)
+}
+impl SystemHost {
+    pub fn new(options: &EnsureOptions) -> Self {
+        Self {
+            bin: options.bin.clone().unwrap_or_else(core_binary),
+            discovery_path: options.discovery_path.clone().unwrap_or_else(discovery_path),
+            data_dir: options.data_dir.clone().or_else(data_dir),
+            detached: options.detached,
+            log: options.log.clone(),
+            env: options.env.clone(),
+        }
+    }
+}
+/// The serving core's discovery. A `blocked` core is the user's decision, so it fails at once instead of waiting; `booting`,
+/// `migrating` and `draining` end by themselves, so they are waited out. A core this call started that ends abnormally before
+/// serving fails at once too, with its exit and what it last said.
+///
+/// A discovery file outlives a process that was killed: one that names a process no longer running names no core, so a core
+/// is started as when there is no file. Waiting for it never ends. When another launcher wins the race to start the core, this
+/// one attaches to the winner: its own contender exits cleanly having lost the claim, and discovery then names the winner.
+pub async fn wait_for_core(host: &dyn CoreHost, ready_timeout: Duration, poll: Duration) -> Result<CoreView, EnsureError> {
+    let deadline = Instant::now() + ready_timeout.max(Duration::from_millis(1));
+    let mut launched = false;
+    let mut capture: Option<SpawnCapture> = None;
+    let mut last: Option<CoreView> = None;
+    while Instant::now() < deadline {
+        last = host.read_discovery()?;
+        if last.as_ref().is_some_and(|view| !host.runs(view.discovery.pid)) {
+            last = None;
+        }
+        if let Some(view) = last.as_ref().filter(|view| view.discovery.core.state == "serving" && view.discovery.core.rpc.is_some()) {
+            if let Some(capture) = &capture {
+                capture.note_ready();
+            }
+            return Ok(view.clone());
+        }
+        if last.as_ref().is_some_and(|view| view.discovery.core.state == "blocked") {
+            return Err(not_ready(last.as_ref()));
+        }
+        if let Some(ended) = ended_before_serving(capture.as_ref(), last.as_ref()) {
+            return Err(ended);
+        }
+        if last.is_none() && !launched {
+            launched = true;
+            capture = Some(host.launch()?);
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        mixdog_rt::time::sleep(poll.min(left.max(Duration::from_millis(1)))).await;
+    }
+    Err(not_ready(last.as_ref()))
+}
+/// Attach to the serving core, starting one when none runs.
+pub async fn ensure_core(options: EnsureOptions) -> Result<Discovery, EnsureError> {
+    let host = SystemHost::new(&options);
+    wait_for_core(&host, options.ready_timeout, POLL).await.map(|view| view.discovery)
 }

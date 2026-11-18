@@ -183,7 +183,7 @@ export function moveRouteFocus(
 
 /** The Auto effort switch below the effort row; null hides it (feature not
  *  installed or the model cannot change effort per turn). */
-export type RouteAutoEffort = { enabled: boolean; pending: boolean } | null;
+export type RouteAutoEffort = { enabled: boolean; pending: boolean; unavailable?: boolean } | null;
 
 export function routeEffortPane({
   effort,
@@ -208,7 +208,18 @@ export function routeEffortPane({
 }): ReactNode {
   return (
     <>
-      {autoEffort && (
+      {autoEffort?.unavailable && (
+        <div
+          key="auto"
+          className="route-sheet-note"
+          role="note"
+          data-effort-option="auto-unavailable"
+          title={t('Auto is not available for this model')}
+        >
+          {t('Auto is not available for this model')}
+        </div>
+      )}
+      {autoEffort && !autoEffort.unavailable && (
         <button
           type="button"
           key="auto"

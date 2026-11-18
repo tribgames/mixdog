@@ -873,6 +873,90 @@ mod tests {
         }
     }
 
+    // W3, against a peer that never reads: `ws` emits the receiver's error at once (`receiverOnError`), and the socket
+    // its close frame cannot leave on is destroyed `closeTimeout` after `close()` (`setCloseTimer`; 30 000 ms,
+    // `constants.js` CLOSE_TIMEOUT), though its owner let go of the connection at once. On the paused clock: the error
+    // with no time passed, the socket there until the deadline and gone at it.
+    #[tokio::test(start_paused = true)]
+    async fn a_violation_is_reported_at_once_and_its_close_ends_the_socket_at_ws_close_timeout() {
+        mixdog_rt::testing::tokens();
+        let (near, mut far) = tokio::io::duplex(4); // four bytes each way: the eight byte close frame does not fit
+        let socket = WebSocketStream::from_raw_socket(WsIo::new(near, Vec::new(), Some(Extension::default())), tungstenite::protocol::Role::Client, None).await;
+        let mut connection = start(socket, &KeepaliveSchedule::SPEC);
+        let begin = tokio::time::Instant::now();
+        far.write_all(&[0xa1, 0x01, b'x']).await.unwrap(); // RSV2: 1002
+        let got = mixdog_rt::time::timeout(WITHIN, connection.recv()).await.expect("the error within 20 s");
+        assert!(matches!(got, Some(Err(_))), "{got:?}");
+        assert_eq!(begin.elapsed(), std::time::Duration::ZERO, "the error comes at once, not after the close");
+        assert_eq!(
+            connection.ending(),
+            Some(WsEnding::Violation { message: "Invalid WebSocket frame: RSV2 and RSV3 must be clear".into(), code: "WS_ERR_UNEXPECTED_RSV_2_3", close_code: 1002 })
+        );
+        drop(connection);
+        // More than the four bytes the pipe toward the client holds: the client reads nothing while its close is stuck,
+        // so this write can only end by failing, when the socket is gone.
+        let probe = far.write_all(&[0u8; 5]);
+        let gone = mixdog_rt::time::timeout(CLOSE_FLUSH + WITHIN, probe).await.expect("the socket gone within 50 s");
+        assert!(gone.is_err(), "the write failed because the socket was dropped");
+        assert_eq!(begin.elapsed(), CLOSE_FLUSH, "gone at ws's closeTimeout");
+        let mut seen = Vec::new();
+        mixdog_rt::time::timeout(WITHIN, far.read_to_end(&mut seen)).await.expect("what was written within 20 s").unwrap();
+        assert_eq!(&seen[..2], [0x88, 0x82], "the close frame was on its way: {seen:02x?}");
+        assert_eq!(seen.len(), 4, "only what the pipe could take before the socket went");
+    }
+
+    // P2 (recheck): a send made after the caller heard of a violation is refused, though the writer has not yet run
+    // (`ws` sets CLOSING in `close()` before it emits the error, and `send` outside OPEN fails). The writer is held: its
+    // queue is open with room, and nothing reads it.
+    #[tokio::test]
+    async fn a_send_after_a_violation_is_refused_while_the_writer_is_held() {
+        mixdog_rt::testing::tokens();
+        let (near, mut far) = tokio::io::duplex(1 << 10);
+        let socket = WebSocketStream::from_raw_socket(WsIo::new(near, Vec::new(), Some(Extension::default())), tungstenite::protocol::Role::Client, None).await;
+        let (_sink, stream) = socket.split();
+        let link = Arc::new(WsLink::new(KeepaliveSchedule::SPEC));
+        let (out_tx, mut out_rx) = mpsc::channel(QUEUE);
+        let (in_tx, in_rx) = mpsc::channel(QUEUE);
+        let (violation_tx, _violation_rx) = tokio::sync::oneshot::channel();
+        let held_writer = tokio::spawn(std::future::pending::<()>());
+        let reader = tokio::spawn(read_loop(stream, out_tx.clone(), in_tx, link.clone(), held_writer.abort_handle(), violation_tx));
+        let mut connection = WsConnection {
+            out: out_tx,
+            inbound: in_rx,
+            link: link.clone(),
+            ended: false,
+            _tasks: AbortOnDrop { writer: held_writer.abort_handle(), reader: reader.abort_handle(), link },
+        };
+        far.write_all(&[0xa1, 0x01, b'x']).await.unwrap(); // RSV2: 1002
+        let got = mixdog_rt::time::timeout(WITHIN, connection.recv()).await.expect("the error within 20 s");
+        assert!(matches!(got, Some(Err(_))), "{got:?}");
+        let sent = mixdog_rt::time::timeout(WITHIN, connection.send(Message::text("after"))).await.expect("the send's outcome within 20 s");
+        assert!(sent.is_err(), "a send after the violation is refused, not queued: {sent:?}");
+        assert!(out_rx.try_recv().is_err(), "nothing was queued for the writer");
+    }
+
+    // W6, the nonce: `Sec-WebSocket-Key` is 16 bytes from a cryptographically secure generator (tungstenite's
+    // `generate_key` draws from `rand`'s OS-seeded ChaCha generator; `ws` uses `crypto.randomBytes(16)`), a fresh one
+    // for every upgrade.
+    #[tokio::test]
+    async fn every_upgrade_carries_a_fresh_sixteen_byte_key() {
+        let keys = Arc::new(Mutex::new(Vec::<String>::new()));
+        for _ in 0..3 {
+            let seen = keys.clone();
+            let _ = upgrade_against(move |key| {
+                seen.lock().unwrap().push(key.to_owned());
+                answer(key, "")
+            })
+            .await;
+        }
+        let keys = keys.lock().unwrap();
+        for key in keys.iter() {
+            assert_eq!(base64::engine::general_purpose::STANDARD.decode(key).unwrap().len(), 16);
+        }
+        assert!(keys[0] != keys[1] && keys[1] != keys[2] && keys[0] != keys[2], "{keys:?}");
+    }
+
+
     // W6, the close handshake, replayed against `ws`'s own (`ws-close-capture.mjs`, `fixtures/ws-close.json`): for each
     // close frame a server sends, the frames the client writes and its end of the TCP stream, in order. `ws` echoes the
     // code and the reason (`websocket.js` `receiverOnConclude`: `close(code, reason)`; none for an empty close), closes
@@ -965,88 +1049,5 @@ mod tests {
             expected.push(serde_json::json!({ "name": case["name"], "frame": case["frame"], "events": case["events"], "heard": node_heard }));
         }
         assert_eq!(rust, expected);
-    }
-
-    // W3, against a peer that never reads: `ws` emits the receiver's error at once (`receiverOnError`), and the socket
-    // its close frame cannot leave on is destroyed `closeTimeout` after `close()` (`setCloseTimer`; 30 000 ms,
-    // `constants.js` CLOSE_TIMEOUT), though its owner let go of the connection at once. On the paused clock: the error
-    // with no time passed, the socket there until the deadline and gone at it.
-    #[tokio::test(start_paused = true)]
-    async fn a_violation_is_reported_at_once_and_its_close_ends_the_socket_at_ws_close_timeout() {
-        mixdog_rt::testing::tokens();
-        let (near, mut far) = tokio::io::duplex(4); // four bytes each way: the eight byte close frame does not fit
-        let socket = WebSocketStream::from_raw_socket(WsIo::new(near, Vec::new(), Some(Extension::default())), tungstenite::protocol::Role::Client, None).await;
-        let mut connection = start(socket, &KeepaliveSchedule::SPEC);
-        let begin = tokio::time::Instant::now();
-        far.write_all(&[0xa1, 0x01, b'x']).await.unwrap(); // RSV2: 1002
-        let got = mixdog_rt::time::timeout(WITHIN, connection.recv()).await.expect("the error within 20 s");
-        assert!(matches!(got, Some(Err(_))), "{got:?}");
-        assert_eq!(begin.elapsed(), std::time::Duration::ZERO, "the error comes at once, not after the close");
-        assert_eq!(
-            connection.ending(),
-            Some(WsEnding::Violation { message: "Invalid WebSocket frame: RSV2 and RSV3 must be clear".into(), code: "WS_ERR_UNEXPECTED_RSV_2_3", close_code: 1002 })
-        );
-        drop(connection);
-        // More than the four bytes the pipe toward the client holds: the client reads nothing while its close is stuck,
-        // so this write can only end by failing, when the socket is gone.
-        let probe = far.write_all(&[0u8; 5]);
-        let gone = mixdog_rt::time::timeout(CLOSE_FLUSH + WITHIN, probe).await.expect("the socket gone within 50 s");
-        assert!(gone.is_err(), "the write failed because the socket was dropped");
-        assert_eq!(begin.elapsed(), CLOSE_FLUSH, "gone at ws's closeTimeout");
-        let mut seen = Vec::new();
-        mixdog_rt::time::timeout(WITHIN, far.read_to_end(&mut seen)).await.expect("what was written within 20 s").unwrap();
-        assert_eq!(&seen[..2], [0x88, 0x82], "the close frame was on its way: {seen:02x?}");
-        assert_eq!(seen.len(), 4, "only what the pipe could take before the socket went");
-    }
-
-    // P2 (recheck): a send made after the caller heard of a violation is refused, though the writer has not yet run
-    // (`ws` sets CLOSING in `close()` before it emits the error, and `send` outside OPEN fails). The writer is held: its
-    // queue is open with room, and nothing reads it.
-    #[tokio::test]
-    async fn a_send_after_a_violation_is_refused_while_the_writer_is_held() {
-        mixdog_rt::testing::tokens();
-        let (near, mut far) = tokio::io::duplex(1 << 10);
-        let socket = WebSocketStream::from_raw_socket(WsIo::new(near, Vec::new(), Some(Extension::default())), tungstenite::protocol::Role::Client, None).await;
-        let (_sink, stream) = socket.split();
-        let link = Arc::new(WsLink::new(KeepaliveSchedule::SPEC));
-        let (out_tx, mut out_rx) = mpsc::channel(QUEUE);
-        let (in_tx, in_rx) = mpsc::channel(QUEUE);
-        let (violation_tx, _violation_rx) = tokio::sync::oneshot::channel();
-        let held_writer = tokio::spawn(std::future::pending::<()>());
-        let reader = tokio::spawn(read_loop(stream, out_tx.clone(), in_tx, link.clone(), held_writer.abort_handle(), violation_tx));
-        let mut connection = WsConnection {
-            out: out_tx,
-            inbound: in_rx,
-            link: link.clone(),
-            ended: false,
-            _tasks: AbortOnDrop { writer: held_writer.abort_handle(), reader: reader.abort_handle(), link },
-        };
-        far.write_all(&[0xa1, 0x01, b'x']).await.unwrap(); // RSV2: 1002
-        let got = mixdog_rt::time::timeout(WITHIN, connection.recv()).await.expect("the error within 20 s");
-        assert!(matches!(got, Some(Err(_))), "{got:?}");
-        let sent = mixdog_rt::time::timeout(WITHIN, connection.send(Message::text("after"))).await.expect("the send's outcome within 20 s");
-        assert!(sent.is_err(), "a send after the violation is refused, not queued: {sent:?}");
-        assert!(out_rx.try_recv().is_err(), "nothing was queued for the writer");
-    }
-
-    // W6, the nonce: `Sec-WebSocket-Key` is 16 bytes from a cryptographically secure generator (tungstenite's
-    // `generate_key` draws from `rand`'s OS-seeded ChaCha generator; `ws` uses `crypto.randomBytes(16)`), a fresh one
-    // for every upgrade.
-    #[tokio::test]
-    async fn every_upgrade_carries_a_fresh_sixteen_byte_key() {
-        let keys = Arc::new(Mutex::new(Vec::<String>::new()));
-        for _ in 0..3 {
-            let seen = keys.clone();
-            let _ = upgrade_against(move |key| {
-                seen.lock().unwrap().push(key.to_owned());
-                answer(key, "")
-            })
-            .await;
-        }
-        let keys = keys.lock().unwrap();
-        for key in keys.iter() {
-            assert_eq!(base64::engine::general_purpose::STANDARD.decode(key).unwrap().len(), 16);
-        }
-        assert!(keys[0] != keys[1] && keys[1] != keys[2] && keys[0] != keys[2], "{keys:?}");
     }
 }

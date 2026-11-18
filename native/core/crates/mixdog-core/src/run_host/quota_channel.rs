@@ -71,6 +71,7 @@ impl QuotaChannel for HostQuotaChannel {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use std::collections::BTreeSet;
     use std::sync::Mutex;
 
@@ -78,8 +79,6 @@ mod tests {
     use mixdog_core_api::CoreError;
 
     use super::*;
-
-    const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/quota-usable/quota-usable-twin.json");
 
     /// Answers the one streamed request it is given and keeps what it was asked.
     struct Pc {
@@ -109,6 +108,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn unavailable(detail: &str) -> HostError {
         HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: detail.into() })
     }
@@ -150,6 +150,19 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_answer_that_is_not_a_usable_is_not_usable_and_a_blank_failure_has_nodes_text() {
+        let ask = |reply| async move { HostQuotaChannel::new(Pc::answering(reply)).quota_usable("openai-oauth", "").await };
+        assert!(matches!(ask(answer(ProxyAnswer::Sent { attempts: 1 })).await, Ok(Value::Null)));
+        assert!(matches!(ask(Ok(json!({ "unexpected": true }))).await, Ok(Value::Null)));
+        assert!(matches!(ask(rpc(Some(serde_json::to_value(failure("")).unwrap()))).await, Err(ChannelError::Failed(text)) if text == "model proxy call failed"));
+        assert!(matches!(ask(answer(ProxyAnswer::Failed { failure: failure("PC broke") })).await, Err(ChannelError::Failed(text)) if text == "PC broke"));
+    }
+
+
+    #[cfg(node_twin)]
+    const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/quota-usable/quota-usable-twin.json");
+    #[tokio::test]
+    #[cfg(node_twin)]
     async fn the_exchange_and_the_disconnected_pc_read_as_nodes_model_proxy_channel_does() {
         let twin: Value = serde_json::from_str(&TWIN).unwrap();
         let cases = twin["proxy"].as_array().unwrap();
@@ -196,14 +209,5 @@ mod tests {
         }
         // Only the four answers that are not a bool: the typed wire carries a bool.
         assert_eq!(skipped.len(), 4, "{skipped:?}");
-    }
-
-    #[tokio::test]
-    async fn an_answer_that_is_not_a_usable_is_not_usable_and_a_blank_failure_has_nodes_text() {
-        let ask = |reply| async move { HostQuotaChannel::new(Pc::answering(reply)).quota_usable("openai-oauth", "").await };
-        assert!(matches!(ask(answer(ProxyAnswer::Sent { attempts: 1 })).await, Ok(Value::Null)));
-        assert!(matches!(ask(Ok(json!({ "unexpected": true }))).await, Ok(Value::Null)));
-        assert!(matches!(ask(rpc(Some(serde_json::to_value(failure("")).unwrap()))).await, Err(ChannelError::Failed(text)) if text == "model proxy call failed"));
-        assert!(matches!(ask(answer(ProxyAnswer::Failed { failure: failure("PC broke") })).await, Err(ChannelError::Failed(text)) if text == "PC broke"));
     }
 }

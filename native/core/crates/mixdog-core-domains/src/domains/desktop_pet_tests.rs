@@ -321,41 +321,6 @@ struct Rig {
     heard: Arc<Mutex<Vec<DesktopPetPrefs>>>,
 }
 
-impl Rig {
-    fn new(profile: bool) -> Self {
-        let root = tempfile::tempdir().unwrap();
-        for dir in ["data", "profile"] {
-            std::fs::create_dir_all(root.path().join(dir)).unwrap();
-        }
-        let heard = Arc::new(Mutex::new(Vec::new()));
-        let sink = heard.clone();
-        let named = profile.then(|| root.path().join("profile"));
-        let service = DesktopPetService::new(
-            root.path().join("data"),
-            Arc::new(move || named.clone()),
-            Arc::new(move |prefs| sink.lock().unwrap().push(prefs.clone())),
-            &mixdog_rt::testing::tokens(),
-        );
-        Self { root, service, heard }
-    }
-
-    fn file(&self) -> std::path::PathBuf {
-        self.root.path().join("data").join(STATE_FILE)
-    }
-
-    fn legacy(&self) -> std::path::PathBuf {
-        self.root.path().join("profile").join(LEGACY_FILE)
-    }
-
-    async fn read(&self) -> Value {
-        value(&self.service, request("desktopPet/state/read", json!({}), None)).await.unwrap()
-    }
-
-    async fn write(&self, prefs: Value) -> Value {
-        value(&self.service, request("desktopPet/state/write", json!({ "prefs": prefs }), None)).await.unwrap()
-    }
-}
-
 #[tokio::test]
 async fn read_answers_the_default_with_no_file() {
     let rig = Rig::new(false);
@@ -474,4 +439,40 @@ fn the_placement_method_answers_each_rule_as_the_function_does() {
     let prefs = serde_json::to_value(default_prefs()).unwrap();
     let on = ask(json!({ "op": "positionOn", "display": { "id": 1, "workArea": rect(PRIMARY.work_area) }, "prefs": prefs, "scale": 100 }));
     assert_eq!(on, point(pet_position_on(&PRIMARY, &default_prefs(), &size(100))));
+}
+
+
+impl Rig {
+    fn new(profile: bool) -> Self {
+        let root = tempfile::tempdir().unwrap();
+        for dir in ["data", "profile"] {
+            std::fs::create_dir_all(root.path().join(dir)).unwrap();
+        }
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let sink = heard.clone();
+        let named = profile.then(|| root.path().join("profile"));
+        let service = DesktopPetService::new(
+            root.path().join("data"),
+            Arc::new(move || named.clone()),
+            Arc::new(move |prefs| sink.lock().unwrap().push(prefs.clone())),
+            &mixdog_rt::testing::tokens(),
+        );
+        Self { root, service, heard }
+    }
+
+    fn file(&self) -> std::path::PathBuf {
+        self.root.path().join("data").join(STATE_FILE)
+    }
+
+    fn legacy(&self) -> std::path::PathBuf {
+        self.root.path().join("profile").join(LEGACY_FILE)
+    }
+
+    async fn read(&self) -> Value {
+        value(&self.service, request("desktopPet/state/read", json!({}), None)).await.unwrap()
+    }
+
+    async fn write(&self, prefs: Value) -> Value {
+        value(&self.service, request("desktopPet/state/write", json!({ "prefs": prefs }), None)).await.unwrap()
+    }
 }

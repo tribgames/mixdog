@@ -63,6 +63,8 @@ use crate::transport::http::HttpSend;
 use crate::providers::connect::stream::DecodedStream;
 
 pub const PROVIDER_ID: &str = "devin-oauth";
+/// The two-row fallback seed native discovery returns for seats it cannot serve.
+const DISCOVERY_SEED_UIDS: [&str; 2] = ["swe-1-6", "swe-1-6-fast"];
 
 /// The login the account holds: the stored session token, or the reason it
 /// cannot be used (`reauth_required` when the user must sign in again).
@@ -120,68 +122,10 @@ fn gzip(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-impl WireCodec for DevinCodec {
-    fn transport(&self) -> TransportKind {
-        TransportKind::Http1
-    }
-
-    fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
-        let t = &self.target;
-        let chat = build_chat_request(
-            request,
-            &ChatParams {
-                provider: &self.provider,
-                model: &request.model,
-                chat_model_uid: &t.chat_model_uid,
-                assignment_jwt: t.assignment_jwt.as_deref(),
-                row: t.row.as_ref(),
-                metadata: session::request_metadata(&t.session.api_key, &t.session.jwt, Client::Cli),
-                cascade_id: &t.cascade_id,
-                execution_id: &t.execution_id,
-            },
-        );
-        let host = t.session.api_host.as_deref().unwrap_or(&t.base_url);
-        Ok(WireRequest {
-            transport: TransportKind::Http1,
-            method: "POST".to_owned(),
-            url: session::join_url(host, session::CHAT_PATH),
-            headers: session::stream_headers(),
-            body: frame::encode(&gzip(&chat.encode()), frame::COMPRESSED),
-        })
-    }
-
-    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
-        Box::new(DevinDecoder::new(
-            self.provider.clone(),
-            self.target.model.clone(),
-            self.secrets(),
-        ))
-    }
-
-    fn classify(&self, response: &ErrorResponse) -> ProviderError {
-        error::http_error(response, decoder::OPERATION, &self.secrets())
-    }
-}
-
 /// The catalog rows of one account.
 struct Catalog {
     account: String,
     rows: HashMap<String, ModelRow>,
-}
-
-pub struct DevinAdapter {
-    id: ProviderId,
-    base_url: String,
-    http: Arc<dyn HttpSend>,
-    token: Arc<dyn SessionToken>,
-    policy: RetryPolicy,
-    keepalive: KeepaliveSchedule,
-    catalog: ArcSwapOption<Catalog>,
-    /// The rows the last listing stored, which `getCachedModelInfo` answers.
-    rows: crate::catalog::RowStore,
-    /// A default codec only for the trait's `codec()` accessor: the codec of
-    /// an attempt is built per account and per turn.
-    placeholder: DevinCodec,
 }
 
 fn account_key(session_token: &str) -> String {
@@ -204,6 +148,27 @@ fn no_retry_policy() -> RetryPolicy {
     policy
 }
 
+fn random_uuid() -> String {
+    let bytes: [u8; 16] = crate::random::bytes();
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    format!("{}-{}-{}-{}-{}", &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32])
+}
+
+
+pub struct DevinAdapter {
+    id: ProviderId,
+    base_url: String,
+    http: Arc<dyn HttpSend>,
+    token: Arc<dyn SessionToken>,
+    policy: RetryPolicy,
+    keepalive: KeepaliveSchedule,
+    catalog: ArcSwapOption<Catalog>,
+    /// The rows the last listing stored, which `getCachedModelInfo` answers.
+    rows: crate::catalog::RowStore,
+    /// A default codec only for the trait's `codec()` accessor: the codec of
+    /// an attempt is built per account and per turn.
+    placeholder: DevinCodec,
+}
 impl DevinAdapter {
     pub fn new(base_url: Option<String>, http: Arc<dyn HttpSend>, token: Arc<dyn SessionToken>) -> Self {
         #[cfg(feature = "count-work")]
@@ -262,18 +227,49 @@ impl DevinAdapter {
         session::exchange_user_jwt(self.http.as_ref(), &self.base_url, &self.token.account(), session_token).await
     }
 
-    /// One `GetCliModelConfigs` request: no cache.
+    /// `fetchDevinModels`: the native dev-channel identity first; when it fails, answers nothing or only the
+    /// fallback seed, the legacy editor identity with the raw token is asked, and its rows win only when native
+    /// failed or they are strictly more. One 5 s deadline covers both. No cache.
     pub async fn fetch_rows(&self, session_token: &str) -> Result<Vec<ModelRow>, ProviderError> {
-        let api_key = session::normalize_session_token(session_token);
-        let body = schema::encode_metadata_request(&session::request_metadata(&api_key, "", Client::Discovery));
-        let bytes = session::unary(
-            self.http.as_ref(),
-            &self.base_url,
-            session::GET_CLI_MODEL_CONFIGS_PATH,
-            body,
-            &[api_key, session_token.to_owned()],
-        )
-        .await?;
+        let deadline = std::time::Instant::now() + DISCOVERY_DEADLINE;
+        let native_key = session::normalize_session_token(session_token);
+        let native = self.discovery_attempt(&native_key, Client::Discovery, session_token, deadline).await;
+        let seed_only = |rows: &[ModelRow]| !rows.is_empty() && rows.iter().all(|row| DISCOVERY_SEED_UIDS.contains(&row.id.as_str()));
+        if let Ok(rows) = &native
+            && !rows.is_empty()
+            && !seed_only(rows)
+        {
+            return native;
+        }
+        let legacy = self.discovery_attempt(session_token, Client::Legacy, session_token, deadline).await;
+        let legacy_wins = match (&native, &legacy) {
+            (_, Err(_)) => false,
+            (Err(_), Ok(_)) => true,
+            (Ok(native), Ok(legacy)) => legacy.len() > native.len(),
+        };
+        if legacy_wins { legacy } else { native }
+    }
+
+    /// One `GetCliModelConfigs` request under the shared deadline.
+    async fn discovery_attempt(
+        &self,
+        api_key: &str,
+        client: Client,
+        session_token: &str,
+        deadline: std::time::Instant,
+    ) -> Result<Vec<ModelRow>, ProviderError> {
+        let body = schema::encode_metadata_request(&session::request_metadata(api_key, "", client));
+        let secrets = [api_key.to_owned(), session_token.to_owned()];
+        let request = session::unary(self.http.as_ref(), &self.base_url, session::GET_CLI_MODEL_CONFIGS_PATH, body, &secrets);
+        let bytes = match mixdog_rt::time::timeout(deadline.saturating_duration_since(std::time::Instant::now()), request).await {
+            Ok(answer) => answer?,
+            Err(_) => {
+                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+                error.code = Some("unavailable".to_owned());
+                error.message = format!("Devin model discovery timed out after {} ms", DISCOVERY_DEADLINE.as_millis());
+                return Err(error);
+            }
+        };
         let configs = schema::decode_cli_model_configs(&bytes)
             .map_err(|e| error::protocol_error(&format!("malformed GetCliModelConfigsResponse: {e}")))?;
         Ok(models::normalize_models(&configs))
@@ -292,7 +288,7 @@ impl DevinAdapter {
         vision: bool,
     ) -> Result<schema::ModelAssignment, ProviderError> {
         let metadata = session::request_metadata(&session.api_key, "", Client::Cli);
-        let prompt = request::router_prompt(&request.messages, vision);
+        let prompt = request::router_prompt(&request.messages, vision)?;
         let body = schema::encode_assign_model(&metadata, router_uid, cascade_id, prompt.as_ref());
         let bytes = session::unary(
             self.http.as_ref(),
@@ -312,13 +308,6 @@ impl DevinAdapter {
         Ok(assignment)
     }
 }
-
-fn random_uuid() -> String {
-    let bytes: [u8; 16] = crate::random::bytes();
-    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    format!("{}-{}-{}-{}-{}", &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32])
-}
-
 #[async_trait]
 impl ModelListing for DevinAdapter {
     async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
@@ -329,7 +318,6 @@ impl ModelListing for DevinAdapter {
         Ok(listed)
     }
 }
-
 #[async_trait]
 impl ProviderAdapter for DevinAdapter {
     fn release_send(&self, _group: &str) {}
@@ -422,12 +410,67 @@ impl ProviderAdapter for DevinAdapter {
             let rejected = head.read_all().await?;
             return Err(codec.classify(&rejected));
         }
-        Ok(Box::new(DecodedStream::new(head.body, codec.decoder(&request)).with_fault_code("unavailable").with_fault_prefix("Devin connection failed: ")))
+        Ok(Box::new(DecodedStream::new(head.body, codec.decoder(&request))
+            .with_billed_usage(request.model.trim().to_owned())
+            .with_fault_code("unavailable")
+            .with_fault_prefix("Devin connection failed: ")))
     }
 }
-
 impl crate::catalog::CachedModelInfo for DevinAdapter {
     fn cached_row(&self, model: &str) -> Option<std::sync::Arc<serde_json::Value>> {
         self.rows.find(model)
+    }
+}
+
+/// `DEVIN_DISCOVERY_TIMEOUT_MS`: the whole discovery, native and legacy together.
+const DISCOVERY_DEADLINE: std::time::Duration = std::time::Duration::from_millis(5_000);
+impl WireCodec for DevinCodec {
+    fn transport(&self) -> TransportKind {
+        TransportKind::Http1
+    }
+    fn image_branch(&self, _: &ModelRequest) -> mixdog_image_egress::route::WireBranch {
+        mixdog_image_egress::route::WireBranch::InlineOnly
+    }
+
+    fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
+        let t = &self.target;
+        let chat = build_chat_request(
+            request,
+            &ChatParams {
+                provider: &self.provider,
+                model: &request.model,
+                chat_model_uid: &t.chat_model_uid,
+                assignment_jwt: t.assignment_jwt.as_deref(),
+                row: t.row.as_ref(),
+                metadata: session::request_metadata(&t.session.api_key, &t.session.jwt, Client::Cli),
+                cascade_id: &t.cascade_id,
+                execution_id: &t.execution_id,
+            },
+        )?;
+        let host = t.session.api_host.as_deref().unwrap_or(&t.base_url);
+        Ok(WireRequest {
+            transport: TransportKind::Http1,
+            method: "POST".to_owned(),
+            url: session::join_url(host, session::CHAT_PATH),
+            headers: session::stream_headers(),
+            body: frame::encode(&gzip(&chat.encode()), frame::COMPRESSED),
+        })
+    }
+
+    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
+        let decoder = DevinDecoder::new(
+            self.provider.clone(),
+            self.target.model.clone(),
+            self.secrets(),
+        );
+        Box::new(if self.target.assignment_jwt.is_some() {
+            decoder.with_assignment(&self.target.chat_model_uid)
+        } else {
+            decoder
+        })
+    }
+
+    fn classify(&self, response: &ErrorResponse) -> ProviderError {
+        error::http_error(response, decoder::OPERATION, &self.secrets())
     }
 }

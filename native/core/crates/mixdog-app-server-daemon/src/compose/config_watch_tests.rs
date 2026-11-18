@@ -13,7 +13,7 @@ async fn a_hand_edit_of_the_config_file_reaches_the_composed_core() {
     let data = dir.path().join("data");
     std::fs::create_dir_all(&data).unwrap();
     let stop = mixdog_rt::CancellationToken::new();
-    let core = mixdog_rt::time::timeout(Duration::from_secs(60), compose(&tokens, ComposeConfig {
+    let core = mixdog_rt::time::timeout(Duration::from_secs(60), compose(&tokens, ComposeConfig { rebuild: Default::default(),
         data_dir: data.clone(), user_data_dir: dir.path().join("userdata"), runtime_root: dir.path().join("runtime"),
         js_runtime: crate::js_runtime::fixture(dir.path()), ort_library: OrtRuntime::NoBinding,
         outgoing: mixdog_app_server::Outgoing::new(),

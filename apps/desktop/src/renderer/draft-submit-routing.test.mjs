@@ -45,7 +45,7 @@ function mountRouting(desktop, modelPrefs = NO_PICK) {
       activateSelection: () => {},
       promoteSelectionInLeaf: () => {},
       registerWorkspaceSelection: () => {},
-      applySessionLaneResult: () => {},
+      seedCreatedSessionLane: () => {},
     });
     return null;
   }

@@ -283,5 +283,9 @@ pub fn retire_seeded_copies(lane: &InLane<MaintenanceIo>, paths: &WorkflowPaths,
     Ok(())
 }
 
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod tests;

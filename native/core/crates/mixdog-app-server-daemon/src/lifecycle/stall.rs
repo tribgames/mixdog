@@ -403,60 +403,6 @@ mod tests {
         assert!(spans.describe(6900.0, 7000.0).starts_with("spans: s69 50ms"));
     }
 
-    fn reporter_with(fx: &super::super::testing::Fixture, work: WorkCounts) -> (StallReporter, PathBuf, Arc<SlowSpans>) {
-        let (spans, _) = spans();
-        let path = fx.runtime_root.path().join("stall.jsonl");
-        let reporter = StallReporter::new(fx.recorder.clone(), path.clone()).describing(StallDescription { work: Arc::new(move || work), spans: Arc::clone(&spans) });
-        (reporter, path, spans)
-    }
-
-    #[test]
-    fn the_stall_line_carries_the_in_flight_work() {
-        let fx = fixture();
-        let (reporter, path, _) = reporter_with(&fx, WorkCounts { active_calls: 2, queued_calls: 1, busy_sessions: 1, busy_memory_agents: 0 });
-        reporter.report(2500);
-        reporter.report(0);
-        let text = std::fs::read_to_string(path).unwrap();
-        let lines: Vec<serde_json::Value> = text.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
-        assert_eq!(lines.len(), 2);
-        assert_eq!((lines[0]["event"].as_str(), lines[0]["stalledMs"].as_u64()), (Some("stalled"), Some(2500)));
-        assert_eq!(lines[0]["detail"], "in-flight: activeCalls=2 queuedCalls=1 busySessions=1 busyMemoryAgents=0");
-        assert_eq!(lines[1]["event"], "recovered");
-    }
-
-    #[test]
-    fn the_stall_line_names_the_overlapping_spans_before_the_work() {
-        let fx = fixture();
-        let (reporter, path, spans) = reporter_with(&fx, WorkCounts::default());
-        let now = spans.now_ms();
-        spans.record("session.read#abcd1234:getTurnChanges".into(), now - 400.0, now - 5.0);
-        reporter.report(1000);
-        let line: serde_json::Value = serde_json::from_str(std::fs::read_to_string(path).unwrap().lines().next().unwrap()).unwrap();
-        assert_eq!(
-            line["detail"],
-            "spans: session.read#abcd1234:getTurnChanges 395ms | in-flight: activeCalls=0 queuedCalls=0 busySessions=0 busyMemoryAgents=0"
-        );
-    }
-
-    /// A runtime that answers nothing (the probe is never run) for the limit ends the process through the lifecycle's stalled-core exit.
-    #[test]
-    fn a_runtime_that_answers_nothing_for_the_limit_ends_the_process() {
-        let fx = fixture();
-        let (reporter, path, _) = reporter_with(&fx, WorkCounts::default());
-        let _monitor = StallMonitor::spawn(
-            StallConfig { interval: Duration::from_millis(20), report_after: Duration::from_millis(40) },
-            Arc::new(|_job| {}),
-            Arc::clone(&fx.lifecycle),
-            reporter.ending_after(Some(Duration::from_millis(200))),
-        );
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while !fx.recorder.has_exited() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert_eq!(fx.recorder.exit_code(), Some(0));
-        assert!(std::fs::read_to_string(path).unwrap().contains("\"event\":\"ending\""));
-    }
-
     #[test]
     fn a_stall_below_the_limit_is_reported_and_not_acted_on() {
         let fx = fixture();
@@ -491,5 +437,57 @@ mod tests {
         std::thread::sleep(SLEEP_GAP + Duration::from_millis(700));
         assert_eq!(fx.lifecycle.stalled_ms(), 0, "the runtime answered every probe");
         assert!(!fx.recorder.has_exited(), "an answering runtime is not ended");
+    }
+
+
+    fn reporter_with(fx: &super::super::testing::Fixture, work: WorkCounts) -> (StallReporter, PathBuf, Arc<SlowSpans>) {
+        let (spans, _) = spans();
+        let path = fx.runtime_root.path().join("stall.jsonl");
+        let reporter = StallReporter::new(fx.recorder.clone(), path.clone()).describing(StallDescription { work: Arc::new(move || work), spans: Arc::clone(&spans) });
+        (reporter, path, spans)
+    }
+    #[test]
+    fn the_stall_line_carries_the_in_flight_work() {
+        let fx = fixture();
+        let (reporter, path, _) = reporter_with(&fx, WorkCounts { active_calls: 2, queued_calls: 1, busy_sessions: 1, busy_memory_agents: 0 });
+        reporter.report(2500);
+        reporter.report(0);
+        let text = std::fs::read_to_string(path).unwrap();
+        let lines: Vec<serde_json::Value> = text.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!((lines[0]["event"].as_str(), lines[0]["stalledMs"].as_u64()), (Some("stalled"), Some(2500)));
+        assert_eq!(lines[0]["detail"], "in-flight: activeCalls=2 queuedCalls=1 busySessions=1 busyMemoryAgents=0");
+        assert_eq!(lines[1]["event"], "recovered");
+    }
+    #[test]
+    fn the_stall_line_names_the_overlapping_spans_before_the_work() {
+        let fx = fixture();
+        let (reporter, path, spans) = reporter_with(&fx, WorkCounts::default());
+        let now = spans.now_ms();
+        spans.record("session.read#abcd1234:getTurnChanges".into(), now - 400.0, now - 5.0);
+        reporter.report(1000);
+        let line: serde_json::Value = serde_json::from_str(std::fs::read_to_string(path).unwrap().lines().next().unwrap()).unwrap();
+        assert_eq!(
+            line["detail"],
+            "spans: session.read#abcd1234:getTurnChanges 395ms | in-flight: activeCalls=0 queuedCalls=0 busySessions=0 busyMemoryAgents=0"
+        );
+    }
+    /// A runtime that answers nothing (the probe is never run) for the limit ends the process through the lifecycle's stalled-core exit.
+    #[test]
+    fn a_runtime_that_answers_nothing_for_the_limit_ends_the_process() {
+        let fx = fixture();
+        let (reporter, path, _) = reporter_with(&fx, WorkCounts::default());
+        let _monitor = StallMonitor::spawn(
+            StallConfig { interval: Duration::from_millis(20), report_after: Duration::from_millis(40) },
+            Arc::new(|_job| {}),
+            Arc::clone(&fx.lifecycle),
+            reporter.ending_after(Some(Duration::from_millis(200))),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !fx.recorder.has_exited() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(fx.recorder.exit_code(), Some(0));
+        assert!(std::fs::read_to_string(path).unwrap().contains("\"event\":\"ending\""));
     }
 }

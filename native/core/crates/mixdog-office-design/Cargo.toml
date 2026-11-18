@@ -29,3 +29,7 @@ base64 = { workspace = true }
 tempfile = { workspace = true }
 # The twin tests start the lane executors a route's file work runs on.
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (<build-tools>\unify-test-features.py).
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }

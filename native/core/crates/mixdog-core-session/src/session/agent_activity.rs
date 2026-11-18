@@ -48,6 +48,9 @@ pub trait AgentSignals: Send + Sync {
     fn approval_wait(&self, session: &str);
     /// `sessionRecords.onChange`: `session`'s stored record changed.
     fn session_record(&self, session: &str);
+    /// An agent session's own turn was stopped (`abortSession`, `session-turns.mjs`): the agent jobs it started are cancelled
+    /// with it (`parent Agent turn aborted`). A Lead's stop never signals this; delegated work outlives it.
+    fn agent_turn_aborted(&self, _session: &str) {}
 }
 
 impl SessionDirectory {

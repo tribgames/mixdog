@@ -20,6 +20,9 @@ use super::scope::TagRecord;
 pub struct ResolveOptions {
     pub scan_sessions: bool,
     pub exclude_terminal_traces: bool,
+    /// A spawn: a session its owner closed is not a binding of the tag (a scan does not bind it again), so the tag
+    /// is free for a new session. A send or a read keeps finding it.
+    pub skip_released: bool,
 }
 
 /// `resumableTagSession`: the saved session that can continue a tag, or the working directory
@@ -255,6 +258,11 @@ pub trait Views: Send + Sync {
 /// Who a call's thread is: the owner session id and the host process it runs under.
 pub trait CallerScopes: Send + Sync {
     fn scope_of(&self, thread: &mixdog_protocol::ThreadId) -> Scope;
+
+    /// `turnHopOf(session)`: the bot-chain hop of the turn the thread is in (0: none).
+    fn turn_hop(&self, _thread: &mixdog_protocol::ThreadId) -> u32 {
+        0
+    }
 }
 
 /// The machine: files, the working directory and the clock.

@@ -10,6 +10,8 @@ import type {
   DesktopConnectionNotice,
   DesktopServerRestoreProgress,
 } from '../shared/contract';
+import type { DesktopCoreLink } from '../shared/contract-sections';
+import { reconnectCore, useCoreLink } from './core-link-store';
 import {
   isConnectionDown,
   subscribeConnectionNotices,
@@ -131,6 +133,62 @@ function LinkBanner({ view, serverName }: { view: DesktopConnectionLinkView; ser
   );
 }
 
+/** Why a closed connection to the window's own core ended, in words a person can act on. */
+export function coreClosedDetail(closed: NonNullable<DesktopCoreLink['closed']>): string {
+  if (closed.cause === 'clientOutdated') {
+    return t('This app is older than the version running on the server. Update the app, then reconnect.');
+  }
+  if (closed.cause === 'serverOutdated') {
+    return t('An older version is still running in the background. Restart the app to finish updating, then reconnect.');
+  }
+  return closed.message;
+}
+
+/** This window's own core: while its connection is down the composer takes no input and the banner says so; a closed
+ *  connection says why and offers Reconnect. */
+function CoreLinkStatus() {
+  const { view, down } = useCoreLink();
+  const name = desktopConnection()?.name ?? '';
+  const [trying, setTrying] = useState(false);
+  useComposerBlocked(down);
+  useEffect(() => {
+    if (view.status !== 'closed') setTrying(false);
+  }, [view.status]);
+  if (!down) return null;
+  const closed = view.link.closed;
+  return createPortal(
+    <div className="conn-link-stack" data-modal-background>
+      <div className="mx-toast conn-link-banner" role={closed ? 'alert' : 'status'} data-state={closed ? 'lost' : 'reconnecting'}>
+        <div className="conn-link-copy">
+          <b>
+            {!closed && <span className="conn-spinner" aria-hidden="true" />}
+            {closed
+              ? t('Connection to {{name}} lost', { name })
+              : t('Reconnecting to {{name}} (attempt {{attempt}})', { name, attempt: view.link.attempt + 1 })}
+          </b>
+          <span className="conn-link-sub">{closed ? coreClosedDetail(closed) : t('Trying now…')}</span>
+        </div>
+        {closed && (
+          <div className="conn-link-actions">
+            <button
+              type="button"
+              className="conn-btn conn-btn--sm conn-btn--primary"
+              disabled={trying}
+              onClick={() => {
+                setTrying(true);
+                void reconnectCore().catch(() => undefined).finally(() => setTrying(false));
+              }}
+            >
+              {t('Reconnect')}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function noticeText(
   notice: DesktopConnectionNotice,
   serverName: string
@@ -208,7 +266,7 @@ function ServerWindowStatus() {
   const serverName = desktopConnection()?.name ?? '';
   useComposerBlocked(isConnectionDown(view));
   return createPortal(
-    <div className="conn-link-stack" data-modal-background>
+    <div className="conn-link-stack conn-link-stack--server" data-modal-background>
       {view && <LinkBanner view={view} serverName={serverName} />}
       <Notices serverName={serverName} />
     </div>,
@@ -219,7 +277,7 @@ function ServerWindowStatus() {
 const RESTORE_PHASE_LABELS: Record<Exclude<DesktopServerRestoreProgress['phase'], 'ready' | 'failed'>, () => string> = {
   connect: () => t('Reach the server'),
   check: () => t('Check the server'),
-  install: () => t('Install Mixdog'),
+  install: () => t('Install the app'),
   start: () => t('Connect'),
 };
 
@@ -310,5 +368,12 @@ function ServerRestoreStatus() {
 export function ConnectionStatusBanner() {
   const connection = desktopConnection();
   if (!connection) return null;
-  return isSshConnectionWindow() ? <ServerWindowStatus /> : <ServerRestoreStatus />;
+  return isSshConnectionWindow() ? (
+    <ServerWindowStatus />
+  ) : (
+    <>
+      <CoreLinkStatus />
+      <ServerRestoreStatus />
+    </>
+  );
 }

@@ -526,6 +526,45 @@ pub fn vertex_model_access(
     error.code = Some(VERTEX_MODEL_NOT_ENABLED.to_owned());
 }
 
+/// A gcloud login's 403 that names a missing quota project or IAM permission, reworded to say what to do
+/// (`accessError`, vertex-ai-auth.mjs). Status and classification stay as they were; any other error is left alone.
+pub fn vertex_gcloud_access(error: &mut ProviderError, response: &ErrorResponse, principal: &str, project: &str) {
+    static CONSUMER: LazyLock<JsRegex> = LazyLock::new(|| re(r"^projects/(?:764086051850|32555940559)$", ""));
+    static PERMISSION: LazyLock<JsRegex> = LazyLock::new(|| re(r"Permission '[^']+' denied", ""));
+    if error.status != Some(403) || error.code.as_deref() == Some(VERTEX_MODEL_NOT_ENABLED) {
+        return;
+    }
+    let parsed: Option<Value> = serde_json::from_slice(&response.body).ok();
+    let body = parsed.as_ref().and_then(error_object);
+    let infos: Vec<&Value> = ["details", "errorDetails"]
+        .iter()
+        .filter_map(|k| body.as_ref().and_then(|e| e.get(*k)).and_then(Value::as_array))
+        .next()
+        .into_iter()
+        .flatten()
+        .filter(|d| d.get("@type").and_then(Value::as_str).is_some_and(|t| t.ends_with("google.rpc.ErrorInfo")))
+        .collect();
+    let reason = |wanted: &str| infos.iter().any(|d| d.get("reason").and_then(Value::as_str) == Some(wanted));
+    let consumer = infos.iter().rev().find_map(|d| d.pointer("/metadata/consumer").and_then(Value::as_str)).unwrap_or("");
+    let own_message = body.as_ref().and_then(|e| e.get("message")).and_then(Value::as_str).unwrap_or("");
+    let detail = error.message.clone();
+    let evidence = format!("{detail} {own_message}");
+    let shown = mixdog_js::slice_utf16(&detail, 200);
+    let place = format!(" in project {project}");
+    if reason("USER_PROJECT_DENIED") || CONSUMER.is_match(consumer) || evidence.contains("requires a quota project") {
+        error.message = format!(
+            "[vertex-ai] Vertex AI requires a quota project for gcloud user credentials{place}. Use a service-account key, \
+             or sign in as a service account: gcloud auth application-default login --impersonate-service-account=SERVICE_ACCOUNT_EMAIL \
+             (HTTP 403: {shown})"
+        );
+    } else if reason("IAM_PERMISSION_DENIED") || PERMISSION.is_match(&evidence) {
+        error.message = format!(
+            "[vertex-ai] {principal} does not have permission to use Vertex AI{place}. \
+             Grant it the Vertex AI User role (roles/aiplatform.user), then try again. (HTTP 403: {shown})"
+        );
+    }
+}
+
 /// `geminiInBandError(chunk, label)`: the `{error: ...}` envelope a stream carries in-band instead of a status, at
 /// `now`; `None` for an ordinary payload.
 pub fn in_band(chunk: &Value, dialect: &ErrorDialect, now: SystemTime) -> Option<ProviderError> {

@@ -25,7 +25,6 @@ use serde_json::json;
 
 use super::effort::EffortProjection;
 use crate::providers::file_text::{FileKind, file_fallback_text, file_kind};
-
 /// Synthetic output for a call whose result never committed (cancel/abort).
 const CANCELLED_OUTPUT: &str = "Cancelled";
 
@@ -134,6 +133,7 @@ fn file_part(assistant: bool, filename: Option<&str>, mime_type: &str, data: &st
 fn normalize_part(part: &ContentPart, assistant: bool) -> Option<Value> {
     match part {
         ContentPart::Text(text, _) => (!text.is_empty()).then(|| text_part(assistant, text.as_str())),
+        // The media type is the one the image's bytes have (`prepare_images`, before the request is built).
         ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => {
             Some(json!({"type": "input_image", "image_url": data_url(mime_type, data)}))
         }
@@ -601,6 +601,8 @@ pub struct LowerExtras {
     /// its index (`messages.len()` = after the last one).
     pub reasoning_by_index: BTreeMap<usize, Vec<Value>>,
     pub effort: Option<EffortProjection>,
+    /// A later WebSocket framing pass may remove any prefix of this input.
+    pub keep_full_tool_outputs: bool,
 }
 
 fn configuration_update(effort: &str) -> Value {
@@ -703,5 +705,22 @@ pub fn lower_from(messages: &[Message], opts: &LowerOptions, extras: &LowerExtra
     if let Some(effort) = after_batch {
         lowering.out.push(configuration_update(effort));
     }
-    ensure_call_outputs(lowering.out)
+    let mut out = ensure_call_outputs(lowering.out);
+    if extras.keep_full_tool_outputs {
+        return out;
+    }
+    use crate::providers::tool_result_copies::{WireUse, receipts};
+    let uses = out.iter().enumerate().filter_map(|(index, item)| {
+        let kind = match item_type(item) {
+            "function_call" | "custom_tool_call" | "tool_search_call" => WireUse::Call,
+            "function_call_output" => WireUse::Result(item["output"].as_str()),
+            "custom_tool_call_output" | "tool_search_output" => WireUse::Result(None),
+            _ => return None,
+        };
+        Some((index, item["call_id"].as_str()?, kind))
+    });
+    for (index, receipt) in receipts(messages, wire, uses) {
+        out[index]["output"] = receipt.into();
+    }
+    out
 }

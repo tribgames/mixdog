@@ -137,6 +137,28 @@ pub struct ImageRef {
     pub reference: Option<String>,
 }
 
+/// One completion a woken batch delivered, located in the row's joined text: the row's text is the entries' texts joined by a
+/// newline, and `start`/`end` are the entry's own text as UTF-16 code unit offsets (`text.slice(start, end)` in JavaScript).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct DeliveredCompletion {
+    /// The execution the entry reports; absent for an entry that named none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_id: Option<String>,
+    /// The job's surface (`agent`, `shell`, ...) as the queued entry recorded it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface: Option<String>,
+    /// The job's final status as the queued entry recorded it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub start: u32,
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub end: u32,
+}
+
 /// A bot's emoji reaction on a user message, one per bot, in the order left.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
@@ -353,6 +375,9 @@ pub struct UserRowDetails {
     /// The executions a woken batch delivered; `null` keeps the position of an entry that named none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub consumed_execution_ids: Vec<Option<String>>,
+    /// The completions a woken batch of several delivered, each located in the row's text (see [`DeliveredCompletion`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub completions: Vec<DeliveredCompletion>,
     /// Bot-to-bot chain position.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hop: Option<u32>,

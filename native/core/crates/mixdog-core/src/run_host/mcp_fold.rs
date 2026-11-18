@@ -21,8 +21,9 @@ use mixdog_mcp::permissions::parse_mcp_tool_name;
 use serde_json::{json, Value};
 
 use super::deferred_manifest::{apply_initial_manifest, listed_deferred_tool_names};
+use super::tool_exposure::native_provider_family;
 use super::tool_surface::{
-    clean, clean_list, filter_disallowed_tools, fixed_surface_session, map_mut, names_value, parse_tool_selection, rendered_manifest, roster_permits,
+    clean, clean_list, filter_disallowed_tools, fixed_surface_session, map_mut, names_value, parse_tool_selection, permitted_by_session_policy, rendered_manifest, roster_permits,
     sorted_catalog_by_measured_usage, tool_name, tools_of, unique, ToolSurface,
 };
 
@@ -140,6 +141,62 @@ impl ToolSurface<'_> {
         true
     }
 
+    /// `foldLateDeferredTools(session)` at a cold point: the late tools the session may run join the boot catalog and the
+    /// rebuilt prompt's manifest lists them, so nothing about them rides a notice; the pending announcements the manifest now
+    /// carries are dropped. The names folded.
+    pub fn fold_late_deferred_tools(&self, session: &mut Value) -> Vec<String> {
+        if !session.get("tools").is_some_and(Value::is_array) || fixed_surface_session(session) {
+            return Vec::new();
+        }
+        let late = list(session, "deferredLateToolCatalog").to_vec();
+        let connected: HashSet<String> = clean_list(session, "deferredMcpToolNames").into_iter().collect();
+        let mut by_name = ByName::default();
+        for tool in list(session, "deferredToolCatalog") {
+            let name = tool_name(tool);
+            if !name.is_empty() && !by_name.has(&name) {
+                by_name.set(name, tool.clone());
+            }
+        }
+        let mut folded = Vec::new();
+        for tool in &late {
+            let name = tool_name(tool);
+            if name.is_empty() || by_name.has(&name) || !roster_permits(session, tool) {
+                continue;
+            }
+            if if is_mcp(&name) { !connected.contains(&name) } else { !permitted_by_session_policy(session, &name) } {
+                continue;
+            }
+            by_name.set(name.clone(), tool.clone());
+            folded.push(name);
+        }
+        let remaining: Vec<Value> = late.into_iter().filter(|tool| !by_name.has(&tool_name(tool))).collect();
+        let map = map_mut(session);
+        map.insert("deferredToolCatalog".into(), Value::Array(sorted_catalog_by_measured_usage(by_name.into_catalog())));
+        map.insert("deferredLateToolCatalog".into(), Value::Array(remaining));
+        let scope = session.get("mcpScopeId").and_then(Value::as_str).map(str::to_owned);
+        session["mcpServerInstructions"] = self.host.mcp_server_instructions(scope.as_deref());
+        if session.get("messages").and_then(Value::as_array).is_some_and(|messages| messages.iter().any(|m| m.get("role").and_then(Value::as_str) == Some("system"))) {
+            let pool = self.pool_tool_names(session);
+            apply_initial_manifest(session, &pool, true, self.clock);
+            let pool = self.pool_tool_names(session);
+            let announced = listed_deferred_tool_names(session, &pool, &rendered_manifest(session));
+            session["deferredAnnouncedTools"] = names_value(&announced);
+        }
+        // `dropPendingDeferredToolAdds`: what the manifest lists is no longer announced.
+        let listed: HashSet<String> = clean_list(session, "deferredAnnouncedTools").into_iter().collect();
+        if let Some(pending) = session.get("pendingDeferredToolDelta").filter(|pending| pending.is_object()).cloned() {
+            let added: Vec<Value> = list(&pending, "added").iter().filter(|entry| !listed.contains(&clean(entry.get("name")))).cloned().collect();
+            if added.len() != list(&pending, "added").len() {
+                if added.is_empty() && list(&pending, "removed").is_empty() {
+                    map_mut(session).shift_remove("pendingDeferredToolDelta");
+                } else {
+                    session["pendingDeferredToolDelta"]["added"] = Value::Array(added);
+                }
+            }
+        }
+        folded
+    }
+
     /// `reconcileDeferredMcpToolCatalog(session, liveMcpTools)` (the part after its unchanged-input
     /// cache): the late pool, the connected names and the pending deferred-tools delta follow the live
     /// registry. The names announced or removed, or `None` when nothing was.
@@ -148,6 +205,10 @@ impl ToolSurface<'_> {
         if !session.get("tools").is_some_and(Value::is_array) {
             return None;
         }
+        // A withdrawn or retired name does not leave the stored catalogs, the eager tools or the prompt's roster here: availability,
+        // the late pool and the removal notice below follow the hub at once and a call to it is refused, but the boot catalog, the
+        // eager surface and the manifest are the cold fold's (`LeadSurfaceHost::folded_prompt` repairs) or an explicit surface
+        // rebuild's, as in Node, so a warm prefix is never rewritten by a refresh.
         let clock: &dyn Clock = self.clock;
         let now = clock.now_ms();
         let live = filter_disallowed_tools(live_mcp, &clean_list(session, "disallowedTools"));
@@ -177,6 +238,7 @@ impl ToolSurface<'_> {
             let catalog = sorted_catalog_by_measured_usage(by_name.into_catalog());
             let moved = list(session, "deferredToolCatalog") != catalog.as_slice();
             map_mut(session).insert("deferredToolCatalog".into(), Value::Array(catalog));
+            // The scoped catalog only: Node returns here, so the eager `tools` are not re-linked on this branch.
             if moved {
                 map_mut(session).insert("updatedAt".into(), json!(now));
             }
@@ -201,12 +263,17 @@ impl ToolSurface<'_> {
             }
             live_by_name.set(name, tool.clone());
         }
-        // The late pool alone is rebuilt (the boot catalog stays frozen): it keeps an MCP tool while its server is
-        // connected or the tool is loaded, and every non-MCP entry (a built-in a settings gate opened).
+        // Anthropic native search history can name a late tool without recording it in `deferredDiscoveredTools`.
+        // Its result only carries the name, so keep the schema here until cold repair, even if it disconnected before
+        // being withdrawn. Only a history reference puts such a definition on the wire; availability and removal notices
+        // still come from `connected`.
+        let keeps_history_schemas = session.get("deferredNativeTools") == Some(&Value::Bool(true))
+            && native_provider_family(&clean(session.get("provider")), session.get("wireRoute")) == "anthropic";
+        // The boot catalog stays frozen. Other late MCP schemas survive only while connected or loaded.
         let mut next = ByName::default();
         for tool in &late {
             let name = tool_name(tool);
-            if name.is_empty() || next.has(&name) || (is_mcp(&name) && !live_by_name.has(&name) && !active.contains(&name)) {
+            if name.is_empty() || next.has(&name) || (is_mcp(&name) && !keeps_history_schemas && !live_by_name.has(&name) && !active.contains(&name)) {
                 continue;
             }
             next.set(name, tool.clone());

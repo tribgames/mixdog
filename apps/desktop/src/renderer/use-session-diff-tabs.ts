@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { pendingSessionDiffFileRequest, type SessionDiffFileRequest } from './session-diff-focus';
 import type { SessionDiffRow } from './session-diff-model';
+import { rowListIndex } from './session-diff-row-index';
 import { normalizeChangePath } from './turn-changes-model';
 
 /** The panel's open file tabs, drawn next to the Changes tab. */
@@ -146,9 +147,12 @@ export function sessionDiffTabView({
   fileRequest: SessionDiffFileRequest | null;
   otherSurfaceTabs: number;
 }) {
-  const focusRow = focusPath ? (rows.find((row) => row.path === focusPath) ?? null) : null;
+  // The list's shared index (built when the list was adopted).
+  const { byPath } = rowListIndex(rows);
+  const rowAt = (path: string) => rows[byPath.get(path) ?? -1];
+  const focusRow = focusPath ? (rowAt(focusPath) ?? null) : null;
   // A file tab whose file left the diff is not drawn.
-  const tabRows = diffTabs.flatMap((path) => rows.filter((row) => row.path === path));
+  const tabRows = diffTabs.flatMap((path) => rowAt(path) ?? []);
   // Never a blank pane: while the file that opened it is still being read
   // the body shows the loading surface; with no file tab and nothing
   // pending, "Changes" stands in.

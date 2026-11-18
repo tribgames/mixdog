@@ -25,6 +25,7 @@ use super::number_or_zero;
 use super::or;
 use super::or_null;
 use super::positive_int;
+use mixdog_ai::registry::keys::Environment as Vars;
 use super::string_or_empty;
 use super::truthy;
 use crate::compact::estimate::MessageMeter;
@@ -73,17 +74,19 @@ pub struct StatusInput<'a> {
     pub agent_mode: bool,
     pub meter: &'a MessageMeter<'a>,
     pub signer: &'a TranscriptSigner<'a>,
+    /// The environment the compaction policy reads its `MIXDOG_*` tuning variables from (the header is read first).
+    pub env: &'a dyn Vars,
 }
 
 // --- Environment and config reads -------------------------------------------
 
-fn env_text(name: &str) -> Option<Value> {
-    std::env::var(name).ok().map(Value::String)
+fn env_text(env: &dyn Vars, name: &str) -> Option<Value> {
+    env.var(name).map(Value::String)
 }
 
 /// `envFlag(name, fallback)`.
-fn env_flag(name: &str, fallback: bool) -> bool {
-    let Ok(raw) = std::env::var(name) else { return fallback };
+fn env_flag(env: &dyn Vars, name: &str, fallback: bool) -> bool {
+    let Some(raw) = env.var(name) else { return fallback };
     let value = raw.trim().to_lowercase();
     match value.as_str() {
         "1" | "true" | "yes" | "on" => true,
@@ -93,8 +96,8 @@ fn env_flag(name: &str, fallback: bool) -> bool {
 }
 
 /// `envPositiveInt(name)`.
-fn env_positive_int(name: &str) -> Option<f64> {
-    positive_int(env_text(name).as_ref())
+fn env_positive_int(env: &dyn Vars, name: &str) -> Option<f64> {
+    positive_int(env_text(env, name).as_ref())
 }
 
 fn get<'a>(map: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {
@@ -168,10 +171,10 @@ fn cfg_value(cfg: &Header, key: &str) -> Option<Value> {
 }
 
 /// `resolveCompactBufferRatio(cfg)`.
-fn compact_buffer_ratio(cfg: &Header) -> f64 {
+fn compact_buffer_ratio(env: &dyn Vars, cfg: &Header) -> f64 {
     let resolved = buffer_ratio_candidate(
-        &[cfg_value(cfg, "bufferPercent"), cfg_value(cfg, "bufferPct"), env_text("MIXDOG_AGENT_COMPACT_BUFFER_PERCENT")],
-        &[cfg_value(cfg, "bufferRatio"), cfg_value(cfg, "bufferFraction"), env_text("MIXDOG_AGENT_COMPACT_BUFFER_RATIO")],
+        &[cfg_value(cfg, "bufferPercent"), cfg_value(cfg, "bufferPct"), env_text(env, "MIXDOG_AGENT_COMPACT_BUFFER_PERCENT")],
+        &[cfg_value(cfg, "bufferRatio"), cfg_value(cfg, "bufferFraction"), env_text(env, "MIXDOG_AGENT_COMPACT_BUFFER_RATIO")],
     );
     normalize_buffer_ratio(resolved, DEFAULT_COMPACTION_BUFFER_RATIO)
 }
@@ -182,7 +185,7 @@ enum MainBuffer {
 }
 
 /// `resolveMainBufferSetting(cfg)`.
-fn main_buffer_setting(cfg: &Header) -> Option<MainBuffer> {
+fn main_buffer_setting(env: &dyn Vars, cfg: &Header) -> Option<MainBuffer> {
     if let Some(tokens) = first_positive(&[get(cfg, "mainBufferTokens"), get(cfg, "mainBuffer")]) {
         return Some(MainBuffer::Tokens(tokens));
     }
@@ -192,12 +195,12 @@ fn main_buffer_setting(cfg: &Header) -> Option<MainBuffer> {
     ) {
         return Some(MainBuffer::Ratio(ratio));
     }
-    if let Some(tokens) = positive_int(env_text("MIXDOG_MAIN_COMPACT_BUFFER_TOKENS").as_ref()) {
+    if let Some(tokens) = positive_int(env_text(env, "MIXDOG_MAIN_COMPACT_BUFFER_TOKENS").as_ref()) {
         return Some(MainBuffer::Tokens(tokens));
     }
     buffer_ratio_candidate(
-        &[env_text("MIXDOG_MAIN_COMPACT_BUFFER_PERCENT")],
-        &[env_text("MIXDOG_MAIN_COMPACT_BUFFER_RATIO")],
+        &[env_text(env, "MIXDOG_MAIN_COMPACT_BUFFER_PERCENT")],
+        &[env_text(env, "MIXDOG_MAIN_COMPACT_BUFFER_RATIO")],
     )
     .map(MainBuffer::Ratio)
 }
@@ -219,12 +222,12 @@ fn buffer_tokens_for_boundary(boundary_tokens: f64, explicit_tokens: f64, ratio:
 }
 
 /// `bufferTelemetryBaseline(cfg, boundary)`.
-fn buffer_telemetry_baseline(cfg: &Header, boundary: Option<f64>) -> bool {
-    if boundary.is_none() || env_positive_int("MIXDOG_AGENT_COMPACT_BUFFER_TOKENS").is_some() {
+fn buffer_telemetry_baseline(env: &dyn Vars, cfg: &Header, boundary: Option<f64>) -> bool {
+    if boundary.is_none() || env_positive_int(env, "MIXDOG_AGENT_COMPACT_BUFFER_TOKENS").is_some() {
         return false;
     }
     for name in ["MIXDOG_AGENT_COMPACT_BUFFER_PERCENT", "MIXDOG_AGENT_COMPACT_BUFFER_RATIO"] {
-        let n = number(env_text(name).as_ref());
+        let n = number(env_text(env, name).as_ref());
         if finite(n) && n > 0.0 {
             return false;
         }
@@ -238,8 +241,8 @@ fn buffer_telemetry_baseline(cfg: &Header, boundary: Option<f64>) -> bool {
     true
 }
 
-fn is_persisted_zero_buffer_telemetry(cfg: &Header, boundary: Option<f64>) -> bool {
-    if !buffer_telemetry_baseline(cfg, boundary) {
+fn is_persisted_zero_buffer_telemetry(env: &dyn Vars, cfg: &Header, boundary: Option<f64>) -> bool {
+    if !buffer_telemetry_baseline(env, cfg, boundary) {
         return false;
     }
     let ratio = number(get(cfg, "bufferRatio"));
@@ -250,8 +253,8 @@ fn is_persisted_zero_buffer_telemetry(cfg: &Header, boundary: Option<f64>) -> bo
     finite(explicit) && explicit == 0.0
 }
 
-fn is_legacy_default_buffer_telemetry(cfg: &Header, boundary: Option<f64>) -> bool {
-    if !buffer_telemetry_baseline(cfg, boundary) {
+fn is_legacy_default_buffer_telemetry(env: &dyn Vars, cfg: &Header, boundary: Option<f64>) -> bool {
+    if !buffer_telemetry_baseline(env, cfg, boundary) {
         return false;
     }
     let Some(boundary) = boundary else { return false };
@@ -268,8 +271,8 @@ fn is_legacy_default_buffer_telemetry(cfg: &Header, boundary: Option<f64>) -> bo
 }
 
 /// `resolveCompactBufferTokens(boundary, cfg)`.
-fn compact_buffer_tokens(boundary: f64, cfg: &Header) -> f64 {
-    let legacy = is_legacy_default_buffer_telemetry(cfg, Some(boundary)) || is_persisted_zero_buffer_telemetry(cfg, Some(boundary));
+fn compact_buffer_tokens(env: &dyn Vars, boundary: f64, cfg: &Header) -> f64 {
+    let legacy = is_legacy_default_buffer_telemetry(env, cfg, Some(boundary)) || is_persisted_zero_buffer_telemetry(env, cfg, Some(boundary));
     let mut effective = cfg.clone();
     if legacy {
         for key in ["bufferTokens", "buffer", "bufferRatio"] {
@@ -277,14 +280,14 @@ fn compact_buffer_tokens(boundary: f64, cfg: &Header) -> f64 {
         }
     }
     let configured = first_positive(&[nullish(get(&effective, "bufferTokens"), get(&effective, "buffer"))])
-        .or_else(|| env_positive_int("MIXDOG_AGENT_COMPACT_BUFFER_TOKENS"))
+        .or_else(|| env_positive_int(env, "MIXDOG_AGENT_COMPACT_BUFFER_TOKENS"))
         .unwrap_or(0.0);
-    buffer_tokens_for_boundary(boundary, configured, compact_buffer_ratio(&effective), MAX_COMPACTION_BUFFER_RATIO)
+    buffer_tokens_for_boundary(boundary, configured, compact_buffer_ratio(env, &effective), MAX_COMPACTION_BUFFER_RATIO)
 }
 
 /// `resolveMainCompactBufferTokens(boundary, cfg)`.
-fn main_compact_buffer_tokens(boundary: f64, cfg: &Header) -> f64 {
-    let (tokens, ratio) = match main_buffer_setting(cfg) {
+fn main_compact_buffer_tokens(env: &dyn Vars, boundary: f64, cfg: &Header) -> f64 {
+    let (tokens, ratio) = match main_buffer_setting(env, cfg) {
         Some(MainBuffer::Tokens(tokens)) => (tokens, 0.0),
         Some(MainBuffer::Ratio(ratio)) => (0.0, ratio),
         None => (0.0, 0.0),
@@ -301,14 +304,14 @@ struct SessionCompactPolicy {
 }
 
 /// `resolveSessionCompactPolicy(session, boundaryTokens)`.
-fn session_compact_policy(session: &Header, boundary_tokens: Option<f64>) -> SessionCompactPolicy {
+fn session_compact_policy(env: &dyn Vars, session: &Header, boundary_tokens: Option<f64>) -> SessionCompactPolicy {
     let compaction = get(session, "compaction").filter(|v| truthy(Some(v))).and_then(Value::as_object);
     let cfg = compaction.unwrap_or(session);
     let Some(boundary) = boundary_tokens.filter(|b| *b >= 1.0) else {
         let buffer_ratio = if is_agent_owner(session) {
-            compact_buffer_ratio(cfg)
+            compact_buffer_ratio(env, cfg)
         } else {
-            match main_buffer_setting(cfg) {
+            match main_buffer_setting(env, cfg) {
                 Some(MainBuffer::Ratio(ratio)) => ratio,
                 _ => 0.0,
             }
@@ -319,8 +322,8 @@ fn session_compact_policy(session: &Header, boundary_tokens: Option<f64>) -> Ses
     let explicit_limit = raw_limit.filter(|limit| *limit < boundary);
     let trigger = match explicit_limit {
         Some(limit) => limit,
-        None if is_agent_owner(session) => (boundary - compact_buffer_tokens(boundary, cfg)).max(1.0),
-        None => (boundary - main_compact_buffer_tokens(boundary, cfg)).max(1.0),
+        None if is_agent_owner(session) => (boundary - compact_buffer_tokens(env, boundary, cfg)).max(1.0),
+        None => (boundary - main_compact_buffer_tokens(env, boundary, cfg)).max(1.0),
     };
     let buffer_tokens = (boundary - trigger).max(0.0);
     SessionCompactPolicy {
@@ -354,26 +357,26 @@ struct Policy {
 }
 
 /// `providerTokenCalibration(provider)`.
-pub fn provider_token_calibration(provider: Option<&Value>) -> f64 {
+pub fn provider_token_calibration(env: &dyn Vars, provider: Option<&Value>) -> f64 {
     let p = string_or_empty(provider).to_lowercase();
-    let env = |name: &str| {
-        let n = number(env_text(name).as_ref());
+    let tuned = |name: &str| {
+        let n = number(env_text(env, name).as_ref());
         (finite(n) && n > 0.0).then(|| n.clamp(0.25, 3.0))
     };
     if p.starts_with("anthropic") {
-        env("MIXDOG_TOKEN_CALIBRATION_ANTHROPIC").unwrap_or(1.4)
+        tuned("MIXDOG_TOKEN_CALIBRATION_ANTHROPIC").unwrap_or(1.4)
     } else if p.starts_with("gemini") || p.starts_with("google") {
-        env("MIXDOG_TOKEN_CALIBRATION_GEMINI").unwrap_or(1.15)
+        tuned("MIXDOG_TOKEN_CALIBRATION_GEMINI").unwrap_or(1.15)
     } else {
-        env("MIXDOG_TOKEN_CALIBRATION_DEFAULT").unwrap_or(1.0)
+        tuned("MIXDOG_TOKEN_CALIBRATION_DEFAULT").unwrap_or(1.0)
     }
 }
 
-fn compact_target_ratio(cfg: &Header) -> f64 {
-    let env = ["MIXDOG_AGENT_COMPACT_TARGET_PERCENT", "MIXDOG_COMPACT_TARGET_PERCENT"].map(env_text);
+fn compact_target_ratio(env: &dyn Vars, cfg: &Header) -> f64 {
+    let vars = ["MIXDOG_AGENT_COMPACT_TARGET_PERCENT", "MIXDOG_COMPACT_TARGET_PERCENT"].map(|name| env_text(env, name));
     let raw = [get(cfg, "targetPercent"), get(cfg, "targetPct"), get(cfg, "targetRatio"), get(cfg, "targetFraction")]
         .into_iter()
-        .chain(env.iter().map(Option::as_ref))
+        .chain(vars.iter().map(Option::as_ref))
         .find(|value| !matches!(value, None | Some(Value::Null)));
     let n = match raw {
         Some(value) => number(value),
@@ -386,23 +389,23 @@ fn compact_target_ratio(cfg: &Header) -> f64 {
 }
 
 /// `resolveCompactTargetTokens(boundary, cfg)`.
-fn compact_target_tokens(boundary: f64, cfg: &Header) -> Option<f64> {
+fn compact_target_tokens(env: &dyn Vars, boundary: f64, cfg: &Header) -> Option<f64> {
     if boundary < 1.0 {
         return None;
     }
     let explicit = positive_int(nullish(get(cfg, "targetTokens"), get(cfg, "target")))
-        .or_else(|| env_positive_int("MIXDOG_AGENT_COMPACT_TARGET_TOKENS"))
-        .or_else(|| env_positive_int("MIXDOG_COMPACT_TARGET_TOKENS"));
+        .or_else(|| env_positive_int(env, "MIXDOG_AGENT_COMPACT_TARGET_TOKENS"))
+        .or_else(|| env_positive_int(env, "MIXDOG_COMPACT_TARGET_TOKENS"));
     if let Some(explicit) = explicit {
         return Some(explicit.min(boundary).max(1.0));
     }
     let min_target = boundary.min(
         positive_int(nullish(get(cfg, "targetMinTokens"), get(cfg, "minTargetTokens")))
-            .or_else(|| env_positive_int("MIXDOG_AGENT_COMPACT_TARGET_MIN_TOKENS"))
-            .or_else(|| env_positive_int("MIXDOG_COMPACT_TARGET_MIN_TOKENS"))
+            .or_else(|| env_positive_int(env, "MIXDOG_AGENT_COMPACT_TARGET_MIN_TOKENS"))
+            .or_else(|| env_positive_int(env, "MIXDOG_COMPACT_TARGET_MIN_TOKENS"))
             .unwrap_or(COMPACT_TARGET_MIN_TOKENS),
     );
-    let by_ratio = (boundary * compact_target_ratio(cfg)).floor().max(1.0);
+    let by_ratio = (boundary * compact_target_ratio(env, cfg)).floor().max(1.0);
     Some(boundary.min(min_target.max(by_ratio)).max(1.0))
 }
 
@@ -412,10 +415,10 @@ enum Worker {
     Policy(Box<Policy>),
 }
 
-fn worker_policy(session: &Header, tools: &RequestTools<'_>, agent_mode: bool) -> Option<Worker> {
+fn worker_policy(env: &dyn Vars, session: &Header, tools: &RequestTools<'_>, agent_mode: bool) -> Option<Worker> {
     let empty = Map::new();
     let cfg = get(session, "compaction").filter(|v| truthy(Some(v))).and_then(Value::as_object).unwrap_or(&empty);
-    let auto = (get(cfg, "auto") != Some(&Value::Bool(false)) || agent_mode) && env_flag("MIXDOG_AGENT_COMPACT_AUTO", true);
+    let auto = (get(cfg, "auto") != Some(&Value::Bool(false)) || agent_mode) && env_flag(env, "MIXDOG_AGENT_COMPACT_AUTO", true);
     if !auto {
         return Some(Worker::Off);
     }
@@ -429,13 +432,13 @@ fn worker_policy(session: &Header, tools: &RequestTools<'_>, agent_mode: bool) -
         (None, None) => auto_limit,
     }?;
     let compact_boundary = (boundary_tokens * COMPACT_SAFETY_PERCENT).floor().max(1.0);
-    let policy = session_compact_policy(session, Some(compact_boundary));
+    let policy = session_compact_policy(env, session, Some(compact_boundary));
     let configured = first_positive(&[get(cfg, "reservedTokens")])
-        .or_else(|| env_positive_int("MIXDOG_AGENT_COMPACT_RESERVED_TOKENS"))
+        .or_else(|| env_positive_int(env, "MIXDOG_AGENT_COMPACT_RESERVED_TOKENS"))
         .unwrap_or(0.0);
     let request_reserve = estimate_request_reserve_tokens(tools) as f64;
     let reserve = request_reserve + configured;
-    let target = compact_target_tokens(compact_boundary, cfg).unwrap_or(compact_boundary);
+    let target = compact_target_tokens(env, compact_boundary, cfg).unwrap_or(compact_boundary);
     let legacy_target = (target + reserve).min(compact_boundary).max(1.0);
     let policy_trigger = policy.trigger_tokens.unwrap_or(f64::NAN);
     let single_shot = reserve >= policy_trigger;
@@ -456,7 +459,7 @@ fn worker_policy(session: &Header, tools: &RequestTools<'_>, agent_mode: bool) -
         request_reserve_tokens: Some(request_reserve),
         configured_reserve_tokens: Some(configured),
         reserve_tokens: Some(reserve),
-        token_calibration: provider_token_calibration(get(session, "provider")),
+        token_calibration: provider_token_calibration(env, get(session, "provider")),
         tool_schema_signature: Some(tool_schema_signature(tools)),
         provider: Some(or_null(get(session, "provider"))),
         compact_target_tokens: Some(target),
@@ -870,8 +873,7 @@ fn measurement(session: &Header, active: bool) -> Value {
     if get(session, "lastContextTokensStaleAfterCompact") == Some(&Value::Bool(true)) {
         return pending;
     }
-    let tokens = number(get(session, "lastContextTokens"));
-    if finite(tokens) && tokens > 0.0 {
+    if let Some(tokens) = get(session, "lastContextTokens").and_then(Value::as_f64).filter(|n| *n >= 0.0) {
         json!({ "tokens": num(tokens), "source": "last_api_request", "updatedAt": if updated_at != 0.0 { num(updated_at) } else { Value::Null } })
     } else {
         pending
@@ -894,18 +896,20 @@ fn identity(input: &StatusInput<'_>) -> Map<String, Value> {
     out
 }
 
-/// `sessionUsageCounters(session, lastContextTokens)`.
-fn usage_counters(session: Option<&Header>, last_context_tokens: f64) -> Value {
+/// Last-request readings preserve missing evidence; accumulated counters still default to zero.
+fn usage_counters(session: Option<&Header>) -> Value {
     let counter = |key: &str| num(session.map_or(0.0, |s| number_or_zero(or(get(s, key), None))));
+    let last = |key: &str| session.and_then(|s| get(s, key)).filter(|v| v.is_number()).cloned().unwrap_or(Value::Null);
     let truthy_or_null = |key: &str| session.and_then(|s| get(s, key)).filter(|v| truthy(Some(v))).cloned().unwrap_or(Value::Null);
     json!({
         "reasoningUsage": truthy_or_null("reasoningUsage"),
-        "lastInputTokens": counter("lastInputTokens"),
-        "lastUncachedInputTokens": counter("lastUncachedInputTokens"),
-        "lastOutputTokens": counter("lastOutputTokens"),
-        "lastCachedReadTokens": counter("lastCachedReadTokens"),
-        "lastCacheWriteTokens": counter("lastCacheWriteTokens"),
-        "lastContextTokens": num(last_context_tokens),
+        "lastInputTokens": last("lastInputTokens"),
+        "lastUncachedInputTokens": last("lastUncachedInputTokens"),
+        "lastOutputTokens": last("lastOutputTokens"),
+        "lastCachedReadTokens": last("lastCachedReadTokens"),
+        "lastCacheWriteTokens": last("lastCacheWriteTokens"),
+        "lastPromptTokens": last("lastPromptTokens"),
+        "lastContextTokens": last("lastContextTokens"),
         "totalInputTokens": counter("totalInputTokens"),
         "totalUncachedInputTokens": counter("totalUncachedInputTokens"),
         "totalOutputTokens": counter("totalOutputTokens"),
@@ -926,7 +930,7 @@ fn finite_or_null(value: Option<f64>) -> Value {
 /// `emptyContextStatus(session, route, env)`.
 fn empty_status(input: &StatusInput<'_>) -> Value {
     let session = input.session;
-    let policy = worker_policy(session, &input.session_tools, input.agent_mode);
+    let policy = worker_policy(input.env, session, &input.session_tools, input.agent_mode);
     let route_window = number_or_zero(or(
         get(session, "compactBoundaryTokens"),
         or(get(session, "contextWindow"), Some(&input.route.context_window)),
@@ -972,25 +976,25 @@ fn empty_status(input: &StatusInput<'_>) -> Value {
     );
     out.insert("messages".into(), summarize_messages(&[], input.meter));
     out.insert("request".into(), json!({ "toolSchemaTokens": 0, "toolSchemaBreakdown": {}, "requestOverheadTokens": 0, "reserveTokens": 0 }));
-    out.insert("usage".into(), usage_counters(None, 0.0));
+    out.insert("usage".into(), usage_counters(None));
     Value::Object(out)
 }
 
 /// The fallback policy when no worker policy has a boundary: the session's own buffer policy with the
 /// provider's calibration.
 fn contextual_policy(session: &Header, input: &StatusInput<'_>, compact_boundary: f64) -> Policy {
-    if let Some(Worker::Policy(p)) = worker_policy(session, &input.request_tools, input.agent_mode)
+    if let Some(Worker::Policy(p)) = worker_policy(input.env, session, &input.request_tools, input.agent_mode)
         && p.boundary_tokens.is_some_and(|b| b != 0.0)
     {
         return *p;
     }
     let boundary = (compact_boundary != 0.0).then_some(compact_boundary);
-    let base = session_compact_policy(session, boundary);
+    let base = session_compact_policy(input.env, session, boundary);
     Policy {
         trigger_tokens: base.trigger_tokens,
         buffer_tokens: Some(base.buffer_tokens),
         buffer_ratio: Some(base.buffer_ratio),
-        token_calibration: provider_token_calibration(or(get(session, "provider"), Some(&json!(input.route.provider)))),
+        token_calibration: provider_token_calibration(input.env, or(get(session, "provider"), Some(&json!(input.route.provider)))),
         ..Policy::default()
     }
 }
@@ -1076,7 +1080,7 @@ pub fn context_status(input: &StatusInput<'_>) -> Value {
             "reserveTokens": num(reserve),
         }),
     );
-    out.insert("usage".into(), usage_counters(Some(session), last_context_tokens));
+    out.insert("usage".into(), usage_counters(Some(session)));
     Value::Object(out)
 }
 
@@ -1156,7 +1160,7 @@ pub fn compaction_plan(input: &StatusInput<'_>, auto_mode: bool, force: bool) ->
         return if force { Err(COMPACT_NO_WINDOW) } else { Ok(None) };
     };
     // `resolveSessionCompactionPolicy`: the session's policy with automatic compaction on.
-    let aligned = match worker_policy(session, &input.request_tools, true) {
+    let aligned = match worker_policy(input.env, session, &input.request_tools, true) {
         Some(Worker::Policy(policy)) => Some(*policy),
         // `{ auto: false }`: an object with none of the policy's fields.
         Some(Worker::Off) => Some(Policy::default()),
@@ -1171,7 +1175,7 @@ pub fn compaction_plan(input: &StatusInput<'_>, auto_mode: bool, force: bool) ->
         0.0
     } else {
         let estimated = number_or_zero(summarize_messages(messages, input.meter).get("estimatedTokens"));
-        round((estimated + estimate_request_reserve_tokens(&input.session_tools) as f64) * provider_token_calibration(get(session, "provider"))).max(0.0)
+        round((estimated + estimate_request_reserve_tokens(&input.session_tools) as f64) * provider_token_calibration(input.env, get(session, "provider"))).max(0.0)
     };
     let gauge = aligned.as_ref().map_or(0.0, |policy| resolve_tokens(session, before_message_tokens, policy, messages, input).0);
     // `compactDisplayBeforeTokens`: the context the provider last measured, while that reading is live.
@@ -1186,7 +1190,7 @@ pub fn compaction_plan(input: &StatusInput<'_>, auto_mode: bool, force: bool) ->
             let request = estimate_request_reserve_tokens(&input.session_tools) as f64;
             let configured = compaction
                 .and_then(|c| positive_int(get(c, "reservedTokens")))
-                .or_else(|| env_positive_int("MIXDOG_AGENT_COMPACT_RESERVED_TOKENS"))
+                .or_else(|| env_positive_int(input.env, "MIXDOG_AGENT_COMPACT_RESERVED_TOKENS"))
                 .unwrap_or(0.0);
             request + configured
         }
@@ -1244,7 +1248,7 @@ impl CompactionPlan {
 
 /// The budget a forced (manual) compaction asks its summary to fit, for a session header.
 pub fn forced_target_budget(input: &StatusInput<'_>) -> Option<f64> {
-    match worker_policy(input.session, &input.request_tools, true) {
+    match worker_policy(input.env, input.session, &input.request_tools, true) {
         Some(Worker::Policy(policy)) => compact_target_budget(&policy, true),
         _ => None,
     }

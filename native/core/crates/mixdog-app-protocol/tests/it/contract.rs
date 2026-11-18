@@ -43,32 +43,6 @@ fn golden_path(kind: FileKind, name: &str) -> PathBuf {
     }
 }
 
-/// §14.1: the generated JSON Schema and TS equal the checked-in goldens.
-/// `MIXDOG_UPDATE_PROTOCOL_GOLDEN=1` rewrites them.
-#[test]
-fn schema_and_typescript_goldens_match() {
-    let update = std::env::var_os("MIXDOG_UPDATE_PROTOCOL_GOLDEN").is_some();
-    let mut stale = Vec::new();
-    for file in mixdog_app_protocol::export::generate() {
-        let path = golden_path(file.kind, file.name);
-        if update {
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(&path, &file.content).unwrap();
-            continue;
-        }
-        let current = std::fs::read_to_string(&path)
-            .unwrap_or_default()
-            .replace("\r\n", "\n");
-        if current != file.content {
-            stale.push(path.display().to_string());
-        }
-    }
-    assert!(
-        stale.is_empty(),
-        "stale golden files (rerun with MIXDOG_UPDATE_PROTOCOL_GOLDEN=1): {stale:?}"
-    );
-}
-
 fn resolve<'a>(schema: &'a Value, definitions: &'a Value) -> &'a Value {
     match schema.get("$ref").and_then(Value::as_str) {
         Some(reference) => {
@@ -291,7 +265,7 @@ fn target_of(list: InventoryList, name: &str) -> Option<&'static Target> {
 }
 
 /// DS-ALL-1: each of the 173 operations, 61 service methods, 190 phone
-/// methods and 303 session actions is mapped exactly once, to a target that
+/// methods and 304 session actions is mapped exactly once, to a target that
 /// exists in the generated tables.
 #[test]
 fn ds_all_1_every_inventory_name_is_mapped_once() {
@@ -303,7 +277,7 @@ fn ds_all_1_every_inventory_name_is_mapped_once() {
         (InventoryList::Operations, "operations", 173),
         (InventoryList::Services, "services", 61),
         (InventoryList::Remote, "remote", 190),
-        (InventoryList::Actions, "actions", 303),
+        (InventoryList::Actions, "actions", 304),
     ];
     let methods: HashSet<&str> = CLIENT_METHODS.iter().map(|s| s.method).collect();
     let notifications: HashSet<&str> = SERVER_NOTIFICATIONS.iter().map(|s| s.method).collect();
@@ -931,5 +905,42 @@ fn ccr_shapes() {
     assert_eq!(
         initialized.unwrap(),
         mixdog_app_protocol::ClientNotification::Initialized
+    );
+}
+
+
+/// The upload window is part of every core's `initialize` limits: a reply without it is not a valid one (the gate admits
+/// only an equal version and build, which always states it).
+#[test]
+fn an_initialize_reply_must_state_the_upload_window() {
+    let mut limits = serde_json::to_value(mixdog_app_protocol::limits::Limits::default()).unwrap();
+    assert_eq!(limits["maxUploadInFlightBytes"], 3 * 1024 * 1024);
+    limits.as_object_mut().unwrap().remove("maxUploadInFlightBytes");
+    assert!(serde_json::from_value::<mixdog_app_protocol::limits::Limits>(limits).is_err());
+}
+
+/// §14.1: the generated JSON Schema and TS equal the checked-in goldens.
+/// `MIXDOG_UPDATE_PROTOCOL_GOLDEN=1` rewrites them.
+#[test]
+fn schema_and_typescript_goldens_match() {
+    let update = std::env::var_os("MIXDOG_UPDATE_PROTOCOL_GOLDEN").is_some();
+    let mut stale = Vec::new();
+    for file in mixdog_app_protocol::export::generate() {
+        let path = golden_path(file.kind, file.name);
+        if update {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, &file.content).unwrap();
+            continue;
+        }
+        let current = std::fs::read_to_string(&path)
+            .unwrap_or_default()
+            .replace("\r\n", "\n");
+        if current != file.content {
+            stale.push(path.display().to_string());
+        }
+    }
+    assert!(
+        stale.is_empty(),
+        "stale golden files (rerun with MIXDOG_UPDATE_PROTOCOL_GOLDEN=1): {stale:?}"
     );
 }

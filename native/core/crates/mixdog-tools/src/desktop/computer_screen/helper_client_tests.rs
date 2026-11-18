@@ -40,9 +40,6 @@ use super::testing::manifest_names;
 use super::testing::next_turn;
 use tokio::sync::oneshot;
 
-const RECORDING: &str = include_str!("../../../../../fixtures/screen-control/client/scenarios.json");
-const MANIFEST: &str = include_str!("../../../../../fixtures/screen-control/client/MANIFEST.json");
-
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
@@ -252,25 +249,6 @@ async fn play(replay: Replay, scenario: Value) -> (Vec<Value>, Value) {
     (log_take(&log), final_state)
 }
 
-#[test]
-fn every_recorded_client_scenario_replays_to_nodes_whole_trace() {
-    let recording: Value = serde_json::from_str(RECORDING).expect("the recording parses");
-    let scenarios = recording["scenarios"].as_array().expect("scenarios");
-    manifest_names(MANIFEST, scenarios);
-    let mut failures = Vec::new();
-    for scenario in scenarios {
-        let name = scenario["name"].as_str().expect("a scenario name");
-        let (trace, final_state) = Replay::run(|replay| play(replay, scenario.clone()));
-        let want = scenario["trace"].as_array().expect("a trace");
-        if let Some(index) = (0..trace.len().max(want.len())).find(|&index| trace.get(index) != want.get(index)) {
-            failures.push(format!("{name}: trace event {index}\n  rust: {:?}\n  node: {:?}", trace.get(index), want.get(index)));
-        } else if final_state != scenario["final"] {
-            failures.push(format!("{name}: the final state\n  rust: {final_state}\n  node: {}", scenario["final"]));
-        }
-    }
-    assert!(failures.is_empty(), "{} of {} scenarios differ from Node:\n{}", failures.len(), scenarios.len(), failures.join("\n"));
-}
-
 // A connect given up during its handshake (Node: `client.ts` close() ends the connection while it authenticates, and
 // the adapter closes a connection made after its dispose, `secure-desktop-adapter.ts:201-204,297`). The real
 // connector and its owner thread, on a multi-threaded runtime; the handshake is a stand-in held until the test
@@ -304,18 +282,6 @@ struct QuietLink {
     /// Never sent on: `next` waits its time on it as the real link waits for the helper.
     silence: std::sync::mpsc::Receiver<()>,
     _open: std::sync::mpsc::Sender<()>,
-}
-
-impl LinkIo for QuietLink {
-    fn write(&mut self, _message: Message) -> std::io::Result<()> {
-        drop(self.seen.send(Seen::Wrote));
-        Ok(())
-    }
-
-    fn next(&mut self, wait: std::time::Duration) -> std::io::Result<Option<mixdog_secure_desktop::client::Event>> {
-        drop(self.silence.recv_timeout(wait));
-        Ok(None)
-    }
 }
 
 impl Drop for QuietLink {
@@ -398,22 +364,6 @@ struct GatedLink {
     _open: std::sync::mpsc::Sender<()>,
 }
 
-impl LinkIo for GatedLink {
-    fn write(&mut self, _message: Message) -> std::io::Result<()> {
-        drop(self.tell.send(format!("{} wrote", self.name)));
-        Ok(())
-    }
-
-    fn next(&mut self, wait: std::time::Duration) -> std::io::Result<Option<mixdog_secure_desktop::client::Event>> {
-        if !self.running {
-            self.running = true;
-            drop(self.tell.send(format!("{} running", self.name)));
-        }
-        drop(self.silence.recv_timeout(wait));
-        Ok(None)
-    }
-}
-
 impl Drop for GatedLink {
     fn drop(&mut self) {
         if let Some(release) = self.release.take() {
@@ -490,4 +440,53 @@ fn a_late_close_of_a_connection_given_up_in_its_handshake_leaves_the_connection_
     wait_for("B wrote");
     turn.enter(|| drop(client));
     timers.settle();
+}
+
+impl LinkIo for QuietLink {
+    fn write(&mut self, _message: Message) -> std::io::Result<()> {
+        drop(self.seen.send(Seen::Wrote));
+        Ok(())
+    }
+
+    fn next(&mut self, wait: std::time::Duration) -> std::io::Result<Option<mixdog_secure_desktop::client::Event>> {
+        let _ = self.silence.recv_timeout(wait);
+        Ok(None)
+    }
+}
+impl LinkIo for GatedLink {
+    fn write(&mut self, _message: Message) -> std::io::Result<()> {
+        let _ = self.tell.send(format!("{} wrote", self.name));
+        Ok(())
+    }
+
+    fn next(&mut self, wait: std::time::Duration) -> std::io::Result<Option<mixdog_secure_desktop::client::Event>> {
+        if !self.running {
+            self.running = true;
+            let _ = self.tell.send(format!("{} running", self.name));
+        }
+        let _ = self.silence.recv_timeout(wait);
+        Ok(None)
+    }
+}
+
+
+const RECORDING: &str = include_str!("../../../../../fixtures/screen-control/client/scenarios.json");
+const MANIFEST: &str = include_str!("../../../../../fixtures/screen-control/client/MANIFEST.json");
+#[test]
+fn every_recorded_client_scenario_replays_to_nodes_whole_trace() {
+    let recording: Value = serde_json::from_str(RECORDING).expect("the recording parses");
+    let scenarios = recording["scenarios"].as_array().expect("scenarios");
+    manifest_names(MANIFEST, scenarios);
+    let mut failures = Vec::new();
+    for scenario in scenarios {
+        let name = scenario["name"].as_str().expect("a scenario name");
+        let (trace, final_state) = Replay::run(|replay| play(replay, scenario.clone()));
+        let want = scenario["trace"].as_array().expect("a trace");
+        if let Some(index) = (0..trace.len().max(want.len())).find(|&index| trace.get(index) != want.get(index)) {
+            failures.push(format!("{name}: trace event {index}\n  rust: {:?}\n  node: {:?}", trace.get(index), want.get(index)));
+        } else if final_state != scenario["final"] {
+            failures.push(format!("{name}: the final state\n  rust: {final_state}\n  node: {}", scenario["final"]));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} scenarios differ from Node:\n{}", failures.len(), scenarios.len(), failures.join("\n"));
 }

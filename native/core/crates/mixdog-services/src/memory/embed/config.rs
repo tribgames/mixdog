@@ -90,33 +90,6 @@ pub struct EmbedEnv {
     pub dtype: Option<String>,
 }
 
-impl EmbedEnv {
-    pub fn from_process() -> Self {
-        Self { model: std::env::var("MIXDOG_EMBED_MODEL").ok(), dtype: std::env::var("MIXDOG_EMBED_DTYPE").ok() }
-    }
-
-    /// How long the loaded model may sit unused before it is released: `MIXDOG_EMBED_IDLE_TIMEOUT_MS` when it
-    /// is a number from 0 up (0 never releases), else five minutes.
-    pub fn idle_timeout() -> std::time::Duration {
-        let set = std::env::var("MIXDOG_EMBED_IDLE_TIMEOUT_MS").ok().map(|v| mixdog_js::string_to_number(&v));
-        match set {
-            Some(ms) if ms.is_finite() && ms >= 0.0 => std::time::Duration::from_millis(ms as u64),
-            _ => super::provider::IDLE_TIMEOUT,
-        }
-    }
-
-    /// `getConfiguredEmbeddingModelId`: the trimmed model setting, else the default model.
-    pub fn model_id(&self) -> String {
-        let model = js_trim(self.model.as_deref().unwrap_or_default());
-        if model.is_empty() { DEFAULT_MODEL_ID.to_owned() } else { model.to_owned() }
-    }
-
-    /// `getDefaultEmbeddingDtype`: the dtype setting when `model_id` supports it, else its default.
-    pub fn dtype(&self, model_id: &str) -> String {
-        normalize_dtype(model_id, self.dtype.as_deref())
-    }
-}
-
 /// `getDefaultEmbeddingDevice`: the profile's device, `auto` for a model without one.
 pub fn default_device(model_id: &str) -> &'static str {
     profile(model_id).map_or("auto", |p| p.default_device)
@@ -222,5 +195,33 @@ mod device_tests {
         // An empty setting is no setting; a blank one is a setting that names no device.
         assert!(prefers_gpu("Xenova/bge-m3", Some(""), true));
         assert!(!prefers_gpu("Xenova/bge-m3", Some("  "), true));
+    }
+}
+
+
+impl EmbedEnv {
+    pub fn from_process() -> Self {
+        Self { model: std::env::var("MIXDOG_EMBED_MODEL").ok(), dtype: std::env::var("MIXDOG_EMBED_DTYPE").ok() }
+    }
+
+    /// How long the loaded model may sit unused before it is released: `MIXDOG_EMBED_IDLE_TIMEOUT_MS` when it
+    /// is a number from 0 up (0 never releases), else three minutes.
+    pub fn idle_timeout() -> std::time::Duration {
+        let set = std::env::var("MIXDOG_EMBED_IDLE_TIMEOUT_MS").ok().map(|v| mixdog_js::string_to_number(&v));
+        match set {
+            Some(ms) if ms.is_finite() && ms >= 0.0 => std::time::Duration::from_millis(ms as u64),
+            _ => super::provider::IDLE_TIMEOUT,
+        }
+    }
+
+    /// `getConfiguredEmbeddingModelId`: the trimmed model setting, else the default model.
+    pub fn model_id(&self) -> String {
+        let model = js_trim(self.model.as_deref().unwrap_or_default());
+        if model.is_empty() { DEFAULT_MODEL_ID.to_owned() } else { model.to_owned() }
+    }
+
+    /// `getDefaultEmbeddingDtype`: the dtype setting when `model_id` supports it, else its default.
+    pub fn dtype(&self, model_id: &str) -> String {
+        normalize_dtype(model_id, self.dtype.as_deref())
     }
 }

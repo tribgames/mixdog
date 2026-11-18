@@ -17,8 +17,12 @@ export interface ConfirmActionOptions {
    *  action ever runs (a double click never executes twice). Requests without
    *  a key are independent, even with identical text. */
   key?: string;
+  /** Withdraw a confirmation whose premise is no longer current. */
+  signal?: AbortSignal;
   /** A name prompt (promptAction): the text field and where its text goes. */
   input?: { value: string; label: string; maxLength?: number };
+  /** A prompt's text above its field (a confirm's body is its message). */
+  description?: string;
   onValue?(value: string): void;
 }
 
@@ -60,6 +64,7 @@ export interface PromptActionOptions {
   maxLength?: number;
   confirmLabel?: string;
   key?: string;
+  description?: string;
 }
 
 /** Ask for one line of text in the themed dialog (a window.prompt
@@ -74,6 +79,7 @@ export async function promptAction(title: string, options: PromptActionOptions):
       title,
       confirmLabel: options.confirmLabel,
       key: options.key,
+      description: options.description,
       input: { value: options.value, label: options.label, maxLength: options.maxLength },
       onValue: (value) => {
         typed = value;
@@ -106,23 +112,68 @@ let host: { element: HTMLDivElement; root: { render(node: unknown): void; unmoun
 let starting = false;
 let nextId = 0;
 let opener: Element | null = null;
+let renderCurrent: (() => void) | undefined;
 
 const DUPLICATE: Promise<boolean> = Promise.resolve(false);
 
 function present(message: string, options: ConfirmActionOptions, asks: boolean): Promise<boolean> {
-  if (driver) return Promise.resolve(driver(message, options));
+  const { signal } = options;
+  if (signal?.aborted) return DUPLICATE;
+  if (driver) {
+    const answer = Promise.resolve(driver(message, options));
+    if (!signal) return answer;
+    return new Promise((resolve, reject) => {
+      const abort = () => resolve(false);
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) abort();
+      void answer.then(
+        (approved) => {
+          signal.removeEventListener('abort', abort);
+          resolve(approved && !signal.aborted);
+        },
+        (error: unknown) => {
+          signal.removeEventListener('abort', abort);
+          reject(error);
+        }
+      );
+    });
+  }
   const key = options.key;
   if (key !== undefined && queue.some((entry) => entry.key === key)) return DUPLICATE;
   let resolve: (approved: boolean) => void = () => {};
   const promise = new Promise<boolean>((done) => {
     resolve = done;
   });
-  queue.push({ id: nextId++, key, message, options, asks, promise, resolve });
+  const entry: PendingConfirm = {
+    id: nextId++,
+    key,
+    message,
+    options,
+    asks,
+    promise,
+    resolve(approved) {
+      signal?.removeEventListener('abort', abort);
+      resolve(approved);
+    },
+  };
+  const abort = () => finish(entry, false);
+  queue.push(entry);
+  signal?.addEventListener('abort', abort, { once: true });
   if (queue.length === 1) {
     opener = document.activeElement;
-    void show();
+    if (renderCurrent) renderCurrent();
+    else void show();
   }
   return promise;
+}
+
+function finish(entry: PendingConfirm, approved: boolean): void {
+  const index = queue.indexOf(entry);
+  if (index === -1) return;
+  queue.splice(index, 1);
+  entry.resolve(approved && !entry.options.signal?.aborted);
+  // Abort can come from another React root's layout cleanup.
+  if (index === 0) queueMicrotask(() => renderCurrent?.());
 }
 
 async function show(): Promise<void> {
@@ -133,6 +184,7 @@ async function show(): Promise<void> {
       import('react-dom/client'),
       import('./settings/capability-controls'),
     ]);
+    if (queue.length === 0) return;
     const element = document.createElement('div');
     document.body.append(element);
     host = { element, root: createRoot(element) };
@@ -142,40 +194,39 @@ async function show(): Promise<void> {
         host?.root.unmount();
         host?.element.remove();
         host = null;
+        renderCurrent = undefined;
         return;
       }
       const text = splitConfirmMessage(current.message);
       const { options } = current;
-      let answered = false;
-      const answer = (approved: boolean) => {
-        if (answered) return;
-        answered = true;
-        queue.shift();
-        current.resolve(approved);
-        render();
-      };
       host?.root.render(
         <SettingsConfirmDialog
           key={current.id}
           returnFocus={opener}
           options={{
             title: options.title ?? text.title,
-            description: options.input ? '' : options.title ? current.message : text.description,
+            description: options.input
+              ? (options.description ?? '')
+              : options.title
+                ? current.message
+                : text.description,
             confirmLabel: options.confirmLabel,
             danger: options.danger,
             input: options.input,
             onConfirm: current.asks
               ? (value) => {
+                  if (queue[0] !== current || current.options.signal?.aborted) return;
                   if (value !== undefined) options.onValue?.(value);
-                  answer(true);
+                  finish(current, true);
                 }
               : undefined,
           }}
           // The dialog closes before it confirms; let a confirm land first.
-          onClose={() => queueMicrotask(() => answer(false))}
+          onClose={() => queueMicrotask(() => finish(current, false))}
         />
       );
     };
+    renderCurrent = render;
     render();
   } finally {
     starting = false;

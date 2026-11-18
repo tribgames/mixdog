@@ -319,23 +319,6 @@ mod tests {
     /// A folder of its own under the temp folder, removed when dropped.
     struct Scratch(PathBuf);
 
-    impl Scratch {
-        fn new(name: &str) -> Self {
-            let dir = std::env::temp_dir().join(format!("mixdog-unix-io-{name}-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
-            Self(dir)
-        }
-
-        fn fifo(&self, name: &str) -> PathBuf {
-            let path = self.0.join(name);
-            let c = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
-            // SAFETY: a NUL-terminated path.
-            assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0, "{}", io::Error::last_os_error());
-            path
-        }
-    }
-
     impl Drop for Scratch {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
@@ -400,6 +383,24 @@ mod tests {
         assert_eq!(volume_of(&dir.0.join("a.txt")), volume);
         if cfg!(any(target_os = "linux", target_os = "macos")) {
             assert!(!volume.is_empty(), "the mount table names {}'s volume", dir.0.display());
+        }
+    }
+
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("mixdog-unix-io-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+
+        fn fifo(&self, name: &str) -> PathBuf {
+            let path = self.0.join(name);
+            let c = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+            // SAFETY: a NUL-terminated path.
+            assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0, "{}", io::Error::last_os_error());
+            path
         }
     }
 }

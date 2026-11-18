@@ -18,6 +18,7 @@ import {
   nextLeaseInstance,
   processForegroundLock,
 } from '../computer/backend/foreground-lock-host';
+import type { ComputerScopes } from './computer-scope';
 import { HOST_COMMAND_FAILED, HOST_INVALID_PARAMS, HostRpcError, type HostConnection, objectParams } from './connection';
 
 export const HOST_COMPUTER_FOREGROUND_LEASE = 'host/computer/foregroundLease';
@@ -61,6 +62,7 @@ const id = (value: unknown, min: number): boolean =>
  */
 export function registerComputerLease(
   connection: HostConnection,
+  scopes: ComputerScopes,
   runtime?: ForegroundLeaseRuntime | null
 ): void {
   const own = runtime !== undefined;
@@ -105,6 +107,8 @@ export function registerComputerLease(
     } else if (typeof action !== 'number') {
       throw new HostRpcError(HOST_INVALID_PARAMS, `${HOST_COMPUTER_FOREGROUND_LEASE} needs op, instance and action.`);
     }
+    // Taking the foreground lock is an effect of the scope; a release, or a helper gone, only gives back what it held.
+    const acquiring = op === 'acquire' ? scopes.admit(params) : undefined;
     const lock = lockOf();
     if (!lock) return unavailable('no foreground lock on this platform');
     let instance = instances.get(helper);
@@ -115,7 +119,7 @@ export function registerComputerLease(
     }
     if (instance === undefined) instances.set(helper, (instance = nextLeaseInstance()));
     const number = instance;
-    const result = await new Promise<HostComputerForegroundLeaseResult | undefined>((resolve) => {
+    const answering = new Promise<HostComputerForegroundLeaseResult | undefined>((resolve) => {
       const timer = setTimeout(resolve, ANSWER_WAIT_MS, undefined);
       lock.handle(
         JSON.stringify({
@@ -140,6 +144,9 @@ export function registerComputerLease(
         }
       );
     });
+    // An acquire is counted under its scope until the lease owner answered.
+    acquiring?.track(answering);
+    const result = await answering;
     if (!result) {
       // A release nobody answered may leave a lease held: the core records it as unknown, never as nothing held.
       if (op === 'release') throw new HostRpcError(HOST_COMMAND_FAILED, 'the lease owner did not answer the release');

@@ -97,7 +97,6 @@ pub struct ProcessServices {
 pub struct ProcessInputs {
     pub config: Config,
     pub catalog: Arc<CatalogService>,
-    pub listing: ListingLookup,
     pub network: Arc<NetworkProxy>,
     pub lanes: LaneTokens,
     /// Node's `resolvePluginData()`: the keychain's `secrets/` folder, the OAuth credential
@@ -125,8 +124,9 @@ impl ProcessServices {
         let installation_id = resolve_installation_id(&*env, &inputs.lanes, &inputs.plugin_data).await;
         Ok(Self {
             config: inputs.config,
+            // The catalog's own handle, never one the composition makes: what the catalog publishes is what the adapters read.
+            listing: inputs.catalog.listing_lookup(),
             catalog: inputs.catalog,
-            listing: inputs.listing,
             network: inputs.network,
             vault: Arc::new(KeychainVault::open(inputs.lanes.durability_io, &inputs.plugin_data)),
             env,
@@ -247,14 +247,6 @@ fn refresh(path: &Path, known: Option<Signature>) -> Refresh {
     Refresh::Loaded { sig, bytes: std::fs::read(path).ok() }
 }
 
-fn entry_key(provider: &str, model: &str) -> String {
-    format!("{}:{}", mixdog_js::js_trim(provider), mixdog_js::js_trim(model).to_lowercase())
-}
-
-fn strings(value: Option<&Value>) -> Vec<String> {
-    value.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()
-}
-
 impl FileRejections {
     pub fn new(lanes: &LaneTokens, plugin_data: &Path) -> Arc<Self> {
         Arc::new(Self { path: plugin_data.join("effort-rejections.json"), lane: lanes.interactive_io, cached: std::sync::Mutex::new(None) })
@@ -262,14 +254,7 @@ impl FileRejections {
 
     /// A missing, unreadable or foreign-version file holds nothing (Node's `load`).
     fn parse(bytes: Option<Vec<u8>>) -> HashMap<String, RejectionEntry> {
-        let doc = bytes.and_then(|b| mixdog_statefile::parse_json_text(&b).ok());
-        let mut models = HashMap::new();
-        if let Some(doc) = doc.filter(|d| d.get("version").and_then(Value::as_f64) == Some(1.0)) {
-            for (key, entry) in doc.get("models").and_then(Value::as_object).into_iter().flatten() {
-                models.insert(key.clone(), RejectionEntry { rejected: strings(entry.get("rejected")), allowed: strings(entry.get("allowed")) });
-            }
-        }
-        models
+        mixdog_ai::effort::parse_rejections(bytes.as_deref())
     }
 }
 
@@ -287,6 +272,6 @@ impl EffortRejections for FileRejections {
         if let Some(Refresh::Loaded { sig, bytes }) = refreshed {
             *cached = Some(Loaded { sig, models: Self::parse(bytes) });
         }
-        cached.as_ref()?.models.get(&entry_key(provider, model)).cloned()
+        cached.as_ref()?.models.get(&mixdog_ai::effort::rejection_key(provider, model)).cloned()
     }
 }

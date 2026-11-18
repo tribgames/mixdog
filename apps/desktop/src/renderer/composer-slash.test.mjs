@@ -58,7 +58,7 @@ test('the composer offers only frequent commands and preserves direct command ex
     },
     setFast: async (enabled, sessionId) => {
       calls.push(['fast', enabled, sessionId]);
-      return {};
+      return { sessionId, fast: enabled };
     },
   };
   const props = {
@@ -86,7 +86,9 @@ test('the composer offers only frequent commands and preserves direct command ex
       calls.push(['abort']);
     },
     invokeResult: (action) => action(),
-    applySnapshot() {},
+    applySnapshot(snapshot) {
+      assert.notEqual(snapshot?.sessionId, 'slash-test', 'a slash answer must not repaint the held conversation');
+    },
     onNewTask: () => calls.push(['new']),
     onClearToNewTask: () => calls.push(['new']),
     onResumeSession: (id) => calls.push(['resume', id]),

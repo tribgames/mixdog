@@ -66,6 +66,8 @@ members = [
     "crates/mixdog-exthost-worker",
     "crates/mixdog-highlight",
     "crates/mixdog-imaging",
+    "crates/mixdog-image-egress",
+    "crates/mixdog-image-vault",
     "crates/mixdog-jssyntax",
     "crates/mixdog-launch",
     "crates/mixdog-markdown-ansi",
@@ -106,6 +108,7 @@ exclude = [
     "crates/mixdog-patch",
     "crates/mixdog-graph",
     "crates/mixdog-secure-desktop",
+    "vendor/ast-grep-core",
     "vendor/fancy-regex",
     "vendor/icu_collator",
     "vendor/regress",
@@ -121,6 +124,8 @@ publish = false
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unused_must_use = "deny"
+# `node_twin`: set by the untracked native/core/.cargo/local.toml on the owner's machine (local-only Node-comparison tests).
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(node_twin)"] }
 
 [workspace.lints.clippy]
 disallowed_methods = "deny"
@@ -245,6 +250,8 @@ mixdog-pdf = { path = "crates/mixdog-pdf" }
 mixdog-exthost-worker = { path = "crates/mixdog-exthost-worker" }
 mixdog-highlight = { path = "crates/mixdog-highlight" }
 mixdog-imaging = { path = "crates/mixdog-imaging" }
+mixdog-image-egress = { path = "crates/mixdog-image-egress" }
+mixdog-image-vault = { path = "crates/mixdog-image-vault" }
 mixdog-jssyntax = { path = "crates/mixdog-jssyntax" }
 mixdog-launch = { path = "crates/mixdog-launch" }
 mixdog-markdown-ansi = { path = "crates/mixdog-markdown-ansi" }
@@ -401,6 +408,8 @@ libwebp-sys = "=0.9.6"
 # The same 0.19.2 with a stop a thread may set that a match reads at bounded intervals of counted steps
 # (native/core/vendor/fancy-regex/MIXDOG.md): an MCP output schema's pattern ends when its call is cancelled.
 fancy-regex = { path = "vendor/fancy-regex" }
+# ast-grep-core 0.45.3 whose composite matchers do not copy an unchanged capture environment (native/core/vendor/ast-grep-core/MIXDOG.md).
+ast-grep-core = { path = "vendor/ast-grep-core" }
 icu_collator = { path = "vendor/icu_collator" }
 # regress 0.10.5 with a start-anchored match tried at one position under the `utf16` feature (native/core/vendor/regress/MIXDOG.md).
 regress = { path = "vendor/regress" }

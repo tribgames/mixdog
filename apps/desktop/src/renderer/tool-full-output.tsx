@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
+import { registerIdleReclaim } from './idle-reclaim';
 import { currentRemoteConnectionState, isRemoteDesktopOffline } from './remote-connection-state';
+import { enforceRendererCacheBudget, registerBudgetedCache } from './renderer-cache-budget';
+import { estimateRetainedChars } from './renderer-value-weight';
 import { toolRowRevision, uiDiffDigest } from './transcript-tool-core';
 
 interface LoadedToolOutput {
@@ -9,35 +12,35 @@ interface LoadedToolOutput {
   rawResult?: unknown;
   uiDiff?: unknown;
 }
+type FailedRead = { status: 'failed'; at: number; manual: boolean };
+type SettledReadState = FailedRead | { status: 'done'; output: LoadedToolOutput };
 type ReadState =
   /** `background`: a prefetch nobody asked to see; the row shows nothing of it. */
   | { status: 'loading'; background: boolean }
-  | { status: 'failed'; at: number }
-  | { status: 'done'; output: LoadedToolOutput };
+  | SettledReadState;
 const FULL_TOOL_OUTPUT_LIMIT = 64;
-/** A failed read is not prefetched again for this long (the button retries it at once). */
+const FULL_TOOL_OUTPUT_MAX_CHARS = 8 * 1024 * 1024;
+/** Backoff for unattended prefetch failures; an observed failure takes an explicit Retry. */
 export const TOOL_OUTPUT_PREFETCH_RETRY_MS = 60_000;
 /** Reads by session, row and row revision (a text read for one revision of a
- *  row is never shown for another): in flight, failed, or done — newest last,
- *  so a row the virtual list remounts keeps its full text. The settled ones,
- *  done or failed, that no mounted row is subscribed to are kept to
- *  FULL_TOOL_OUTPUT_LIMIT; subscribed ones are always kept. */
+ *  row is never shown for another): in flight, failed, or done. */
 const reads = new Map<string, ReadState>();
-/** Keys whose last read succeeded, kept (key only, no output) for the life of
- *  the session or the row revision, whatever happens to the held reads: an
- *  output dropped from `reads` is not prefetched again. Cleared with the
- *  session (releaseFullToolOutputs); a new revision is a new key. */
-const readKeys = new Set<string>();
-/** When each key's last read failed, until its wait is over: a failure keeps
- *  its wait however many reads settle after it or leave `reads`. Oldest first. */
-const failedAt = new Map<string, number>();
+/** Only unobserved, exactly replayable payloads and lightweight failures are evictable. */
+const retainedReads = new Map<string, number>();
+let retainedChars = 0;
+/** Receipts survive payload eviction: no second prefetch, and an opened row
+ *  can reload only the exact revision the host promised to replay. */
+const readKeys = new Map<string, { viewed: boolean; replayToken?: string }>();
+/** Preserve Retry even when the read leaves the cache. Backoff affects
+ *  speculative reads only; it does not erase a failure from the UI. */
+const failedReads = new Map<string, FailedRead>();
 /** The one request per key allowed to write its answer: a request still in
  *  flight when its session was released (or reset) settles without effect. */
 const requests = new Map<string, object>();
 /** Rows waiting on a read, by its key: a read wakes only its own row. */
 const listeners = new Map<string, Set<() => void>>();
 /** Prefetches waiting for a slot, oldest first, by the element that asked. */
-const queued: { key: string; sessionId: string; id: string; owner: object }[] = [];
+const queued: { key: string; sessionId: string; id: string; owner: object; replayToken: string | undefined }[] = [];
 const PREFETCH_SLOTS = 2;
 let prefetching = 0;
 let historyPagesPending = 0;
@@ -46,34 +49,67 @@ function publish(key: string): void {
   for (const listener of [...(listeners.get(key) ?? [])]) listener();
 }
 
-/** Keeps the newest FULL_TOOL_OUTPUT_LIMIT settled reads nobody is subscribed
- *  to; a read a mounted row shows is never dropped from under it. */
-function trimSettledReads(): void {
-  let settled = 0;
-  for (const [entry, value] of [...reads].reverse()) {
-    if (value.status === 'loading' || listeners.has(entry)) continue;
-    if (++settled > FULL_TOOL_OUTPUT_LIMIT) reads.delete(entry);
+function untrackRead(key: string): void {
+  retainedChars -= retainedReads.get(key) ?? 0;
+  retainedReads.delete(key);
+}
+
+function dropRead(key: string): void {
+  untrackRead(key);
+  reads.delete(key);
+}
+
+function trimSettledReads(target: number): void {
+  while (retainedReads.size > FULL_TOOL_OUTPUT_LIMIT || retainedChars > target) {
+    const oldest = retainedReads.keys().next();
+    if (oldest.done) break;
+    dropRead(oldest.value);
   }
+}
+
+registerBudgetedCache({ name: 'full-tool-output', chars: () => retainedChars, trim: trimSettledReads });
+registerIdleReclaim(() => {
+  for (const key of retainedReads.keys()) dropRead(key);
+});
+
+function retainUnobservedRead(key: string, state: SettledReadState): void {
+  // The current row-id-only readers can return a different revision or lose
+  // the row entirely. Without an explicit replay guarantee, keep the original.
+  if (state.status === 'done' && !readKeys.get(key)?.replayToken) return;
+  const chars = state.status === 'done' ? estimateRetainedChars(state.output, FULL_TOOL_OUTPUT_MAX_CHARS) : 0;
+  // Oversized replies are still delivered in full to observers. Once cold,
+  // drop only their cached copy instead of displacing smaller, reusable reads.
+  if (chars > FULL_TOOL_OUTPUT_MAX_CHARS) {
+    dropRead(key);
+    return;
+  }
+  retainedReads.set(key, chars);
+  retainedChars += chars;
+  trimSettledReads(FULL_TOOL_OUTPUT_MAX_CHARS);
+  enforceRendererCacheBudget();
 }
 
 function subscribeKey(key: string, listener: () => void): () => void {
   const set = listeners.get(key) ?? new Set<() => void>();
   listeners.set(key, set);
   set.add(listener);
+  untrackRead(key);
   return () => {
     set.delete(listener);
     if (!set.size && listeners.get(key) === set) {
       listeners.delete(key);
-      // Its row left: the read counts toward the limit again.
-      trimSettledReads();
+      const state = reads.get(key);
+      if (state && state.status !== 'loading') retainUnobservedRead(key, state);
     }
   };
 }
 
 export function resetFullToolOutputs(): void {
   reads.clear();
+  retainedReads.clear();
+  retainedChars = 0;
   readKeys.clear();
-  failedAt.clear();
+  failedReads.clear();
   requests.clear();
   queued.length = 0;
   prefetching = 0;
@@ -84,30 +120,39 @@ export function resetFullToolOutputs(): void {
 /** A session went away: its held reads, tombstones, failure waits and queued
  *  prefetches go with it. */
 export function releaseFullToolOutputs(sessionId: string): void {
-  const prefix = `${sessionId}|`;
+  const prefix = fullToolOutputSessionPrefix(sessionId);
   const gone = new Set<string>();
-  for (const map of [reads, failedAt]) {
-    for (const key of [...map.keys()]) {
+  for (const key of reads.keys()) {
+    if (!key.startsWith(prefix)) continue;
+    dropRead(key);
+    gone.add(key);
+  }
+  for (const map of [readKeys, failedReads]) {
+    for (const key of map.keys()) {
       if (!key.startsWith(prefix)) continue;
       map.delete(key);
       gone.add(key);
     }
   }
-  for (const key of [...readKeys]) {
-    if (!key.startsWith(prefix)) continue;
-    readKeys.delete(key);
-    gone.add(key);
-  }
-  for (const key of [...requests.keys()]) if (key.startsWith(prefix)) requests.delete(key);
+  for (const key of requests.keys()) if (key.startsWith(prefix)) requests.delete(key);
   for (let index = queued.length - 1; index >= 0; index -= 1) {
     if (queued[index]?.sessionId === sessionId) queued.splice(index, 1);
   }
   for (const key of gone) publish(key);
 }
 
+function fullToolOutputSessionPrefix(sessionId: string): string {
+  return `${JSON.stringify(sessionId)}|`;
+}
+
 /** The key a row's read is held under. */
 function fullToolOutputKey(sessionId: string, item: TranscriptItem): string {
-  return `${sessionId}|${item.id == null ? '' : String(item.id)}|${toolRowRevision(item)}`;
+  const itemId = item.id == null ? '' : String(item.id);
+  return `${fullToolOutputSessionPrefix(sessionId)}${JSON.stringify(itemId)}|${toolRowRevision(item)}|${projectedReplayToken(item) ?? ''}`;
+}
+
+function projectedReplayToken(item: TranscriptItem): string | undefined {
+  return typeof item.remoteOutputReplayToken === 'string' ? item.remoteOutputReplayToken : undefined;
 }
 
 /** The phone's copy of this row holds a cut output (main/remote-transcript.ts). */
@@ -116,16 +161,19 @@ export function toolOutputCut(item: TranscriptItem): boolean {
 }
 
 /** Reads one row's uncut output from the host and holds the answer. */
-function startRead(key: string, sessionId: string, id: string, prefetch: boolean): void {
+function startRead(key: string, sessionId: string, id: string, prefetch: boolean, projectedToken?: string): void {
   const read = typeof window === 'undefined' ? undefined : window.mixdogDesktop?.readTranscriptItem;
   if (!read) return;
+  const receipt = readKeys.get(key);
+  const replayToken = receipt?.replayToken ?? projectedToken;
   const request = {};
   requests.set(key, request);
+  dropRead(key);
   reads.set(key, { status: 'loading', background: prefetch });
   // A background read starts unseen: no row is woken until it settles.
   if (prefetch) prefetching += 1;
   else publish(key);
-  const settle = (state: ReadState) => {
+  const settle = (state: SettledReadState, token?: string) => {
     if (prefetch) prefetching -= 1;
     if (requests.get(key) !== request) {
       // Superseded or released: it writes nothing, but its slot is free.
@@ -133,44 +181,53 @@ function startRead(key: string, sessionId: string, id: string, prefetch: boolean
       return;
     }
     requests.delete(key);
-    reads.delete(key);
+    const current = reads.get(key);
     reads.set(key, state);
-    readKeys.delete(key);
-    failedAt.delete(key);
-    if (state.status === 'failed') failedAt.set(key, state.at);
-    else readKeys.add(key);
-    // A failure whose wait is over is as good as never read.
-    for (const [entry, at] of failedAt) {
-      if (Date.now() - at < TOOL_OUTPUT_PREFETCH_RETRY_MS) break;
-      failedAt.delete(entry);
+    if (state.status === 'failed') {
+      failedReads.set(key, state);
+    } else {
+      failedReads.delete(key);
+      readKeys.set(key, {
+        viewed: receipt?.viewed === true || (current?.status === 'loading' && !current.background),
+        ...(token ? { replayToken: token } : {}),
+      });
     }
-    trimSettledReads();
+    if (!listeners.has(key)) retainUnobservedRead(key, state);
     publish(key);
     pumpPrefetches();
   };
-  void Promise.resolve(read(sessionId, id))
+  const fail = () => {
+    const current = reads.get(key);
+    settle({ status: 'failed', at: Date.now(), manual: current?.status === 'loading' && !current.background });
+  };
+  void Promise.resolve(replayToken ? read(sessionId, id, replayToken) : read(sessionId, id))
     .then((output) => {
-      if (!output || output.withheld) return settle({ status: 'failed', at: Date.now() });
-      settle({
-        status: 'done',
-        output: {
-          ...('result' in output ? { result: output.result } : {}),
-          ...('rawResult' in output ? { rawResult: output.rawResult } : {}),
-          ...('uiDiff' in output ? { uiDiff: output.uiDiff } : {}),
+      if (!output || output.withheld || output.id !== id || (replayToken && output.replayToken !== replayToken)) {
+        return fail();
+      }
+      settle(
+        {
+          status: 'done',
+          output: {
+            ...('result' in output ? { result: output.result } : {}),
+            ...('rawResult' in output ? { rawResult: output.rawResult } : {}),
+            ...('uiDiff' in output ? { uiDiff: output.uiDiff } : {}),
+          },
         },
-      });
+        output.replayToken
+      );
     })
-    .catch(() => settle({ status: 'failed', at: Date.now() }));
+    .catch(fail);
 }
 
 /** Whether a background read of `key` is due: never read, or failed long
  *  enough ago (also once its held read was dropped). */
 function prefetchDue(key: string): boolean {
-  const state = reads.get(key);
-  if (state) return state.status === 'failed' && Date.now() - state.at >= TOOL_OUTPUT_PREFETCH_RETRY_MS;
   if (readKeys.has(key)) return false;
-  const failed = failedAt.get(key);
-  return failed === undefined || Date.now() - failed >= TOOL_OUTPUT_PREFETCH_RETRY_MS;
+  const state = reads.get(key);
+  if (state && state.status !== 'failed') return false;
+  const failed = failedReads.get(key);
+  return !failed || (!failed.manual && Date.now() - failed.at >= TOOL_OUTPUT_PREFETCH_RETRY_MS);
 }
 
 /** The phone's link to the host is up (a desktop window has no remote state). */
@@ -183,7 +240,7 @@ function pumpPrefetches(): void {
   if (!linkUp()) return;
   while (prefetching < PREFETCH_SLOTS && historyPagesPending === 0 && queued.length) {
     const next = queued.shift();
-    if (next && prefetchDue(next.key)) startRead(next.key, next.sessionId, next.id, true);
+    if (next && prefetchDue(next.key)) startRead(next.key, next.sessionId, next.id, true, next.replayToken);
   }
 }
 
@@ -195,7 +252,7 @@ export function prefetchToolOutputs(sessionId: string, items: readonly Transcrip
     if (!toolOutputCut(item) || item.id == null || !sessionId) continue;
     const key = fullToolOutputKey(sessionId, item);
     if (!prefetchDue(key) || queued.some((entry) => entry.key === key)) continue;
-    queued.push({ key, sessionId, id: String(item.id), owner });
+    queued.push({ key, sessionId, id: String(item.id), owner, replayToken: projectedReplayToken(item) });
   }
   pumpPrefetches();
 }
@@ -242,9 +299,9 @@ export interface FullToolOutput {
 /** The host cuts a long tool output from a phone's copy of the transcript
  *  (`remoteOutputTruncated`; an older row's output to its first lines) and
  *  sends an edit's diff as a digest (`uiDiffSummary`). `readTranscriptItem`
- *  returns the uncut text. A digest-only diff loads on its own once the row is
- *  open (`wanted`); a cut output waits for the button, unless the idle
- *  prefetch (tool-output-prefetch.ts) already read it. */
+ *  returns the uncut text. Digest-only diffs and previously requested full
+ *  output reload on expansion (`wanted`); an unread cut output waits for the
+ *  button unless the idle prefetch already filled it. */
 export function useFullToolOutput(sessionId: string, item: TranscriptItem, wanted: boolean): FullToolOutput {
   const outputCut = toolOutputCut(item);
   const diffCut = uiDiffDigest(item) !== null;
@@ -253,7 +310,7 @@ export function useFullToolOutput(sessionId: string, item: TranscriptItem, wante
   const subscribe = useCallback((listener: () => void) => subscribeKey(key, listener), [key]);
   const state = useSyncExternalStore(
     subscribe,
-    () => reads.get(key),
+    () => reads.get(key) ?? failedReads.get(key),
     () => undefined
   );
   const status =
@@ -281,6 +338,7 @@ export function useFullToolOutput(sessionId: string, item: TranscriptItem, wante
           // A reader's own press goes ahead of the prefetch queue (and its slots);
           // pressed while a background read of the row runs, it shows that one.
           const current = reads.get(key);
+          if (current?.status === 'done') return;
           if (current?.status === 'loading') {
             if (current.background) {
               reads.set(key, { status: 'loading', background: false });
@@ -288,13 +346,23 @@ export function useFullToolOutput(sessionId: string, item: TranscriptItem, wante
             }
             return;
           }
-          reads.delete(key);
-          startRead(key, sessionId, id, false);
+          startRead(key, sessionId, id, false, projectedReplayToken(item));
         }
       : null;
   const loadRef = useRef(load);
   loadRef.current = load;
-  const autoLoad = wanted && diffCut && load !== null && status === 'idle';
+  useEffect(() => {
+    if (!wanted) return;
+    if (loaded) {
+      const receipt = readKeys.get(key);
+      if (receipt) receipt.viewed = true;
+    }
+    if (status === 'failed') {
+      const failure = failedReads.get(key);
+      if (failure) failure.manual = true;
+    }
+  }, [key, loaded, status, wanted]);
+  const autoLoad = wanted && (diffCut || readKeys.get(key)?.viewed === true) && load !== null && status === 'idle';
   // \key\ re-arms the load when the row changes while it stays open.
   // biome-ignore lint/correctness/useExhaustiveDependencies: \key\ is the trigger, not a value the effect reads
   useEffect(() => {

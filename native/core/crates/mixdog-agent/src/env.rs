@@ -94,6 +94,11 @@ pub struct SteerEntry {
     pub ids: Vec<String>,
     pub submitted_at: Option<i64>,
     pub message_id: Option<String>,
+    /// How many of the entry's images go without their original (the core's own count; `originals_missing` of the
+    /// message it becomes).
+    pub originals_missing: u32,
+    /// The entry's `transcriptMeta`, stored in the message's `meta.transcript`.
+    pub transcript_meta: Option<JsonValue>,
     pub mode: SteerMode,
     pub execution: Option<JsonValue>,
 }
@@ -180,12 +185,12 @@ pub enum Stage {
         at: i64,
     },
     Compacting,
+    /// The provider's note that the request is on the wire and the model is working on it (`MODEL_THINKING_STAGE`), raised after
+    /// each attempt's `requesting`, for a provider whose `SendStages.model_thinking` is set.
+    ModelThinking,
     ApprovalWait {
         waiting: bool,
     },
-    /// A call passed its gate without asking anyone (a user-prompt tool, whose own question is its ask, never says so): no
-    /// approval of it will come before it runs.
-    Authorized,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -326,9 +331,14 @@ pub struct UsageDelta {
     pub reasoning_tokens_complete: bool,
     /// `outgoing`: the transcript the request carried, which the provider's reading is aligned to
     /// (`recordProviderContextBaseline`).
-    pub outgoing: Vec<AgentMessage>,
+    /// Shared with the send's pre-send check when the transcript did not move between them: a long transcript is not copied
+    /// once per event per round.
+    pub outgoing: Arc<[AgentMessage]>,
     /// `sendStartedAt`: when the request's send began (`lastProviderSendAt`).
     pub sent_at_ms: i64,
+    /// The session's transcript-cache book as it stands after this call, when it changed: the owner persists it with the
+    /// call's usage, before the run's next request depends on it.
+    pub tail_book: Option<serde_json::Value>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -337,6 +347,8 @@ pub enum RunEvent {
     Stage(Stage),
     TextDelta(String),
     ReasoningDelta(String),
+    /// A progress update of the turn (`StreamEvent::ProgressDelta`): shown where its text is, no part of the reply's content.
+    ProgressDelta(String),
     /// Mid-turn assistant text surfaced before a tool card, or a kept answer.
     AssistantText { text: String, committed: bool },
     ToolCalls { iteration: u32, calls: Vec<ToolCall> },
@@ -352,7 +364,8 @@ pub enum RunEvent {
         will_compact: bool,
         /// The request about to go out, for the check's telemetry (`compactTelemetry`): its
         /// transcript, its tools, and whether a context-overflow retry is pending.
-        messages: Vec<AgentMessage>,
+        /// Empty when the send compacts first (`will_compact`): only a check of a send that compacts nothing reads it.
+        messages: Arc<[AgentMessage]>,
         tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
         reactive: bool,
     },
@@ -362,9 +375,22 @@ pub enum RunEvent {
     /// A [`StreamEvent::Progress`] of the provider stream: model progress that is no text or reasoning delta (a tool call's
     /// arguments or end, an item boundary), reported where Node's decoder calls `onStreamDelta(kind)`.
     ToolStream(ProgressKind),
+    /// A [`StreamEvent::ItemStart`]: the provider opened a content block of this kind (Anthropic's `content_block_start`),
+    /// Node's `onStreamItemStart`. A tool block's start ends the text segment shown before it (`settleSegmentBeforeToolCall`).
+    ItemStart(mixdog_core_api::domain::provider::ItemKind),
     /// A [`StreamEvent::ChunkProgress`]: the chunk reports this one kind (`None`: transport only) and the stream's
     /// deltas report none of their own from here on.
     Chunk(Option<ProgressKind>),
+    /// The response's bytes arrived (`onStreamDelta('transport')`): transport health only. Not a stage, not a keepalive and
+    /// not progress, so it also leaves the chunk-based accounting of [`Self::Chunk`] alone.
+    Transport,
+    /// A boundary of an attempt's response, published when it was observed (`SendIdentity`'s attempt clock): the watchdog's
+    /// progress record takes its phase from these and from nothing else. `attempt` is unique over the process, so the late event
+    /// of a retired attempt never moves its successor.
+    Boundary { submission: u64, attempt: u64, boundary: mixdog_core_api::domain::provider::Boundary },
+    /// The send loop began a unit of provider work (`submission`: a logical request, a route's first work, or one exchange with the
+    /// provider, whether or not the provider goes through the driver): the run's record of the attempt it owned is no longer current.
+    SubmissionStarted { id: u64 },
     /// The summary model's usage of a compaction pass (`accumulateCompactUsage`): one usage report of the turn,
     /// at the loop's next iteration index, with the reasoning figure `reasoningUsage(usage)` reads of it.
     CompactUsage { iteration: u32, usage: Usage, reasoning_tokens: Option<u64>, reasoning_tokens_complete: bool, input_excludes_cache: bool },
@@ -457,6 +483,22 @@ pub enum Retracted {
 pub trait RunObserver: Send + Sync {
     fn event(&self, event: RunEvent);
 
+    /// A known local wait while there is no model response to supervise.
+    fn local_wait(&self, _phase: Option<&'static str>) {}
+
+    /// The request handed to the adapter, after the turn has resolved its route and per-send options.
+    fn request_started(&self, _provider: &str, _request: &ModelRequest, _effort: Option<&str>) {}
+
+    /// The provider send the calls issued now belong to; an eager call keeps it to tell its early result back under it.
+    fn send_generation(&self) -> u64 {
+        0
+    }
+
+    /// The early result of an eager call issued in send `generation`, which may settle after a later send began.
+    fn early_result_of(&self, _generation: u64, message: AgentMessage) {
+        self.event(RunEvent::EarlyResult(message));
+    }
+
     /// Whether the owner offers any way to withdraw shown text. Without one, a
     /// stream cut mid-text is kept as shown and resumed, not replayed.
     fn can_retract(&self) -> bool;
@@ -491,6 +533,15 @@ impl std::fmt::Display for CommitError {
 
 impl std::error::Error for CommitError {}
 
+/// The session's committed history as its store holds it now, for a run whose transcript a rewrite it did not make retired
+/// (the cache owner refused its request as stale): the run goes on from the stored history, never from its old copy.
+#[async_trait]
+pub trait StoredHistory: Send + Sync {
+    /// Once every message the run committed has landed: the stored conversation (no system messages) and the generation of
+    /// the history it is, read as one load. `Err`: the store could not be read.
+    async fn reload(&self) -> Result<(Vec<AgentMessage>, u64), String>;
+}
+
 /// Where committed messages go. `commit` classifies the message (which may read the attachment
 /// store) and queues it for durability; `durable` resolves when that message is on disk.
 #[async_trait]
@@ -513,6 +564,12 @@ pub trait TranscriptSink: Send + Sync {
     /// Resolves once the save of the message of `ticket` (and every one before it) has ended. A save that failed does not fail
     /// the running turn: Node gates only the next turn's open on durability (`turn-durability.mjs`). Cancel-safe.
     async fn durable(&self, ticket: Ticket);
+
+    /// Resolves once the message of `ticket` (and every one before it) is in the owner's hands, ahead of anything the run
+    /// reports after: shown, whether or not it is stored yet. A sink that hands nothing on apart from storing waits for that.
+    async fn accepted(&self, ticket: Ticket) {
+        self.durable(ticket).await;
+    }
 
     /// Resolves once everything the run handed over so far has been stored or has failed: its rows and what the owner drafted
     /// from its events, the mark of a send about to leave (`RunEvent::ProviderSendStarted`) among it. The request leaves after
@@ -578,6 +635,8 @@ pub struct SummaryRouteUsed {
     pub model: String,
     /// The summary was a fork of the cached request (`pipeline.generated.mode === 'shared-prefix'`).
     pub forked: bool,
+    /// Why the summary call stopped (`end_turn`, ...); `None` when the provider did not say.
+    pub stop: Option<String>,
 }
 
 impl CompactOutput {
@@ -655,12 +714,8 @@ pub trait Compactor: Send + Sync {
     /// Cancel-safe: dropping the future abandons the pass.
     async fn compact(&self, request: CompactRequest<'_>) -> Result<CompactOutput, CompactError>;
 
-    /// Whether the agent session's cache tail expired before this request: a
-    /// cold send would rewrite the whole transcript, so compacting first
-    /// makes that write the compacted one.
-    fn cache_expired(&self) -> bool {
-        false
-    }
+    /// Effects of adopting a compacted transcript, never of proposing one.
+    async fn adopted(&self, _messages: &[AgentMessage]) {}
 
     /// `preflightAttachments`: the transcript with the attachments that would crowd the model
     /// window carried by reference from this send on; `None` when nothing must be. Asked before
@@ -675,6 +730,21 @@ pub trait Compactor: Send + Sync {
         let _ = messages;
         false
     }
+
+    /// This compactor for the route the run moved to mid-turn: sized by its compaction settings, with its summary
+    /// resolver and saved-request fork following its provider and model. `None` when nothing in it follows the route.
+    /// The transcript seams are the ones the session wired.
+    fn resized(&self, seated: &SeatedRoute) -> Option<Arc<dyn Compactor>> {
+        let _ = seated;
+        None
+    }
+}
+
+/// The route a run moved to (`advanceAgentRoute`): the session header as the hop wrote it, and the compaction settings
+/// resolved from it.
+pub struct SeatedRoute {
+    pub header: serde_json::Map<String, JsonValue>,
+    pub settings: crate::boundary::CompactSettings,
 }
 
 // ---------------------------------------------------------------------------
@@ -688,12 +758,30 @@ pub struct RouteSwitch {
     pub model: String,
     /// The muted transcript line announcing the hop.
     pub notice: String,
+    pub request: RouteSwitchRequest,
     /// The new route's effort projection inputs and consuming adapter, if it
     /// takes mid-conversation updates.
     pub effort: Option<crate::effort::EffortWiring>,
     /// The new route's text-only input handling, if its model takes no media.
     pub text_only: Option<crate::text_only::TextOnlyInput>,
 }
+
+/// Request and boundary settings rebuilt from the seated destination, not the departing route.
+#[derive(Default)]
+pub struct RouteSwitchRequest {
+    pub options: mixdog_core_api::domain::provider::RequestOptions,
+    pub compact: Option<crate::boundary::CompactSettings>,
+    /// The session header as the hop wrote it: what the compaction side reads the seated provider and model from.
+    pub header: serde_json::Map<String, JsonValue>,
+    /// The destination's output ceiling for an escalated retry (`RunConfig::escalated_max_output_tokens`).
+    pub escalated_max_output_tokens: Option<u32>,
+    /// The session's cache-tail gate sized for the destination's compaction settings, as the run holds them once the
+    /// hop applied them. The book it judges on is the session's own: only the sizing key moves.
+    pub tail_gate: Option<TailGateFor>,
+}
+
+/// The session's cache-tail gate for the compaction settings a request is judged under.
+pub type TailGateFor = Arc<dyn Fn(Option<&crate::boundary::CompactSettings>) -> mixdog_core_api::domain::cache_tail::TailGateHandle + Send + Sync>;
 
 /// `seesImages` of `pdfReadModes` (`tool-exec/dispatch.mjs`): whether a route's model sees images, asked for each tool
 /// call with the route the run stands on. Owner: the host, over the provider registry and the catalog.
@@ -710,6 +798,10 @@ pub trait Yielder: Send + Sync {
     /// failure reaches the caller even when every slot is busy. `Err` is the cancelled
     /// re-acquisition's reason.
     async fn run_yielded(&self, task: futures::future::BoxFuture<'_, bool>, cancel: Option<&crate::cancel::Cancel>) -> Result<(), String>;
+
+    async fn run_yielded_reporting(&self, task: futures::future::BoxFuture<'_, bool>, cancel: Option<&crate::cancel::Cancel>, _waiting: &(dyn Fn() + Send + Sync)) -> Result<(), String> {
+        self.run_yielded(task, cancel).await
+    }
 }
 
 /// What the loop does with a failure no retry covers (Node `advanceAgentRoute`'s three ends).
@@ -749,6 +841,16 @@ pub trait RouteFallback: Send + Sync {
     /// session's chain, the error to surface, or the failure of the hop itself. `last_usage` is
     /// the turn's running usage total, booked against the model being left.
     async fn advance(&self, error: ProviderError, last_usage: Option<&Usage>) -> RouteDecision;
+
+    /// Asked before every request the run has not sent yet (a turn's first, a tool follow-up, a replayed round): a session
+    /// a quota diverted from its configured primary may now be better served by another route of its configured order
+    /// (back to a higher one that recovered, on to a lower one when the current is out). `Some` is the route the host
+    /// already wrote to the session; the loop seats it as it seats a hop. `None`: stay. Never asked while a request is in
+    /// flight, and a request already sent is not interrupted or replayed by it.
+    async fn reconsider(&self, last_usage: Option<&Usage>) -> Option<RouteSwitch> {
+        let _ = last_usage;
+        None
+    }
 
     /// `routeUsageSegments` at the end of the turn: the turn's usage split per model when the
     /// route switched mid-turn (empty when it did not). `current` is the model the turn ended on.
@@ -886,20 +988,42 @@ pub enum StopVerdict {
 pub struct Reused {
     pub content: String,
     pub first_tool_use_id: String,
+    pub kind: ReuseKind,
+    pub explicit_success: bool,
+}
+
+#[derive(Clone, Copy)]
+pub enum ReuseKind {
+    Read,
+    Scoped,
+}
+
+/// A write ticket captures the inputs and freshness evidence at actual execution,
+/// not when a speculative cache lookup happens.
+#[async_trait]
+pub trait ReuseWrite: Send + Sync {
+    async fn store(self: Box<Self>, content: &str, output: &ToolOutput);
 }
 
 /// Async because freshness reads the file system (a metadata stat per path argument), which a host
 /// runs as a lane job, not on the runtime thread.
 #[async_trait]
 pub trait ResultReuse: Send + Sync {
-    async fn lookup(&self, call: &ToolCall, touch: bool) -> Option<Reused>;
-    /// Records the body a successful read-only call delivered. `output` is the
-    /// tool's own result with `parts` and `follow_up_messages` emptied (the
-    /// model-visible body is `content`): its `meta` and flags are what the
-    /// tool layer reads, e.g. `code_graph::dependency_roots(output)`.
-    async fn store(&self, call: &ToolCall, content: &str, tool_use_id: &str, output: &ToolOutput);
+    /// Scheduling hint only: check memory, never inspect the filesystem or return a body.
+    async fn has_candidate(&self, _call: &ToolCall, _cwd: &std::path::Path) -> bool {
+        false
+    }
+    async fn lookup(&self, call: &ToolCall, cwd: &std::path::Path, touch: bool) -> Option<Reused>;
+    async fn prepare(&self, _call: &ToolCall, _cwd: &std::path::Path) -> Option<Box<dyn ReuseWrite>> {
+        None
+    }
+    /// Keeps cache reads and fills fenced until the mutation has settled and
+    /// its affected rows have been invalidated.
+    fn mutation_guard(&self) -> Option<Box<dyn Send + Sync>> {
+        None
+    }
     /// A call ran: mutations and failures invalidate what they may have touched.
-    async fn after_call(&self, call: &ToolCall, failed: bool);
+    async fn after_call(&self, _name: &str, _args: &serde_json::Value, _cwd: &std::path::Path, _failed: bool) {}
     /// Compaction replaced the transcript, so the tool results it held are no longer in context: a new read epoch
     /// (`resetReadStateAfterCompaction`).
     fn after_compaction(&self) {}
@@ -970,6 +1094,8 @@ pub trait TurnGuards: Send + Sync {
     fn note_progress(&self);
     /// The turn now waits on the user (approval denied).
     fn note_user_wait(&self);
+    /// The model was sent the brief's start reminder (the todo list was asked for once this cycle).
+    fn note_creation_told(&self) {}
     /// The cycle state `session.todoCheck` holds now, once it exists.
     fn saved(&self) -> Option<serde_json::Value>;
     /// The hidden stale-list reminder to append after a batch, if any. Reads
@@ -1037,6 +1163,12 @@ pub trait GateSession: Send + Sync {
     /// last. `Ok(None)` for a call bound to no account. `Err` is the refusal (usable accounts
     /// listed), which the model sees as the call's result before any hook or card.
     async fn account(&self, call: &GateCall) -> Result<Option<BoundAccount>, String>;
+    /// The tools the user's settings switch off right now, from the in-memory config (no machine probe, no I/O). The surface's
+    /// `featureDeniedTools` is the header's, which moves only at a turn start; the gate refuses a call from this list too
+    /// (`settingDisabledTool`). A session with no live source switches nothing off.
+    fn live_setting_denied(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 
@@ -1130,6 +1262,7 @@ impl PolicyGate {
         let mut surface = self.session.surface();
         surface.connector_disabled = self.connectors.disabled(&self.session.connector_agent_id(), name);
         surface.project_disabled = self.connectors.project_disabled(&self.thread_id, name);
+        surface.live_feature_denied = Some(self.session.live_setting_denied());
         surface
     }
 }
@@ -1153,7 +1286,8 @@ impl mixdog_tools::policy::pipeline::AccountResolver for PolicyGate {
 impl ToolGate for PolicyGate {
     async fn check_call(&self, call_id: &str, call: &GateCall) -> GateDecision {
         let facts = self.session.facts().await;
-        let surface = self.session.surface();
+        let mut surface = self.session.surface();
+        surface.live_feature_denied = Some(self.session.live_setting_denied());
         let call_id = ToolCallId::from(call_id);
         let authorized = self
             .policy
@@ -1232,6 +1366,18 @@ impl RunObserver for NullObserver {
 pub trait SendTap: Send + Sync {
     /// The send starts with `request`: its first attempt's request, before any retry.
     fn begin(&self, request: &ModelRequest) -> Box<dyn SendTicket>;
+
+    /// [`begin`](Self::begin) with the request the loop holds: a tap that keeps it shares it instead of copying it. The
+    /// request is the one sent, its tail reminder included ([`crate::send::kept_messages`] are the ones before it).
+    fn begin_shared(&self, request: &std::sync::Arc<ModelRequest>) -> Box<dyn SendTicket> {
+        self.begin(request)
+    }
+
+    /// The run moved to another provider (a model fallback): the sends that follow are on `provider`, named
+    /// `provider_name` in the session's header. A request already captured keeps the route it was sent on.
+    fn route_changed(&self, provider_name: &str, provider: &Arc<dyn ProviderAdapter>) {
+        let _ = (provider_name, provider);
+    }
 }
 
 /// One captured send, ended exactly once.
@@ -1260,7 +1406,7 @@ pub struct FailedCall {
 
 /// One executed call as the fields of Node's `traceAgentTool` call site (`session/tool-batch/finalize.mjs:226`, `traceCompleted`):
 /// `result` is the result the transcript holds after the batch's offload and image compaction (a text as a string, a structured
-/// result as its parts, images left out), `result_kind` `"error"` or `"normal"`.
+/// result as its parts, images left out). Cache hits carry only call identity and timing, not arguments or a result body.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TracedCall {
     pub iteration: u32,
@@ -1281,6 +1427,14 @@ pub struct TracedCall {
     pub result_telemetry: Option<serde_json::Value>,
     /// What the tool reported about its local search (Node's `localSearchTelemetry`).
     pub local_search: Option<serde_json::Value>,
+}
+
+pub struct CrossTurnReceipt<'a> {
+    pub iteration: u32,
+    pub tool: &'a str,
+    pub occurrence: u32,
+    pub first_iteration: u32,
+    pub total: u32,
 }
 
 /// One completed send as the fields of Node's `traceProviderSend` call (`session/loop/send-phase.mjs` `settleSendResult`):
@@ -1332,6 +1486,8 @@ pub trait ToolFailureLog: Send + Sync {
             self.failed(FailedCall { iteration, tool_name, tool_kind, tool_ms, tool_args, model, result_text });
         }
     }
+    /// A validated cross-turn receipt, not another delivery of the cached body.
+    fn cross_turn_receipt(&self, _receipt: CrossTurnReceipt<'_>) {}
     /// `recordAgentWatchdogAbort(ctx)`: the progress watchdog stopped the run's turn (`mixdog_trace::watchdog_abort_records`
     /// has the fields of `ctx`); the `stall_abort` rows join the same log.
     fn stall_abort(&self, ctx: serde_json::Map<String, serde_json::Value>);

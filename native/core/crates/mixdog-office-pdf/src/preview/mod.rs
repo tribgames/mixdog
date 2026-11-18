@@ -117,8 +117,6 @@ impl std::fmt::Display for PreviewError {
     }
 }
 
-impl std::error::Error for PreviewError {}
-
 /// Runs `job` on `lane` and waits for its answer. File work of a preview is not abortable (Node's is not either): where a
 /// request's cancellation counts, the caller checks it.
 ///
@@ -471,3 +469,6 @@ impl DocumentPreview {
         pages::preview_pages(self, pdf, options).await
     }
 }
+
+
+impl std::error::Error for PreviewError {}

@@ -18,6 +18,7 @@ use mixdog_ledger::repair::Priced;
 use mixdog_ledger::repair::RepairOptions;
 use mixdog_ledger::repair::integrity;
 use mixdog_ledger::repair::repair_usage_ledger;
+use mixdog_ledger::requests::RequestQuery;
 use mixdog_ledger::rollup::RollupQuery;
 use mixdog_ledger::schema::prepare;
 use mixdog_ledger::sums::build_sums_step;
@@ -109,6 +110,28 @@ fn repair_reprices_keeps_records_and_backs_up_the_prior_state() {
     assert!(again.integrity.is_none() && again.repriced == 0);
 }
 
+#[tokio::test]
+async fn repricing_keeps_missing_output_unknown_in_the_request_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut conn = ledger(dir.path());
+    let mut unmeasured = record("no-usage", 1_000, "2026-01-01", "cursor-api", None, "unpriced");
+    unmeasured.input = 0.0;
+    unmeasured.output = 0.0;
+    unmeasured.cache_read = 0.0;
+    unmeasured.cache_write = 0.0;
+    unmeasured.rates = Some(r#"{"inputTokensKnown":false,"outputTokensKnown":false}"#.into());
+    append_batch(&mut conn, &[unmeasured]).unwrap();
+    repair_usage_ledger(&mut conn, &options(false), 5_000, &mut |_| {
+        Ok(Priced { cost_usd: None, rates: None })
+    }).unwrap();
+
+    let tokens = mixdog_rt::testing::tokens();
+    let reader = UsageReader::new(&dir.path().join("ledger.sqlite"), tokens.interactive_io, tokens.maintenance_io);
+    let page = reader.requests_page(RequestQuery { to_ms: 5_000, ..RequestQuery::default() }).await.unwrap();
+    assert_eq!(page["requests"][0]["status"], "completed");
+    assert_eq!(page["requests"][0]["output"], serde_json::Value::Null);
+}
+
 #[test]
 fn repair_rejects_an_invalid_price_and_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
@@ -183,6 +206,7 @@ fn repair_moves_a_provider_and_updates_the_route() {
         ("new-oauth", "subscription")
     );
 }
+
 
 #[tokio::test]
 async fn stale_days_recompute_in_bounded_steps_and_the_cache_answers_the_rollup() {

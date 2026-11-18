@@ -91,6 +91,11 @@ test('--changed selects the tests whose static imports reach a changed file', as
     selected: ['src/five.test.mjs'],
     unreached: [],
   });
+  // An empty change set selects nothing and never reads the import graph.
+  assert.deepEqual(
+    selectChangedTests(tests, [], cwd, () => assert.fail('graph read for an empty change set')),
+    { selected: [], unreached: [] }
+  );
   assert.equal(parseArgs(['--changed', 'src']).changed, true);
   assert.match(USAGE, /--changed/);
 
@@ -331,7 +336,10 @@ test('discovery covers the package root, src, scripts, lib and deploy, excludes 
     'scripts/nested/c.test.mjs': '',
     'src/plain.mjs': '',
     'src/noop.test.jsx': '',
+    'src/noop.test.ts': '',
     'outside.test.mjs': '',
+    'packages/protocol/test/rule.test.ts': '',
+    'apps/mixdogd-npm/test/launcher.test.mjs': '',
     'apps/desktop/src/ignored.test.mjs': '',
     'src/node_modules/ignored.test.mjs': '',
     'src/.runtime/ignored.test.mjs': '',
@@ -342,11 +350,13 @@ test('discovery covers the package root, src, scripts, lib and deploy, excludes 
     'scripts/nested/target/ignored-test.mjs': '',
   });
   assert.deepEqual(await discoverTestFiles(cwd), [
+    'apps/mixdogd-npm/test/launcher.test.mjs',
     'deploy/release.test.mjs',
     'lib/leg.test.mjs',
     // The package root is shallow, so a nested workspace package (apps/desktop
     // above) never joins the invoking package's suite.
     'outside.test.mjs',
+    'packages/protocol/test/rule.test.ts',
     'scripts/b-test.mjs',
     'scripts/nested/c.test.mjs',
     'src/a.test.mjs',
@@ -355,6 +365,16 @@ test('discovery covers the package root, src, scripts, lib and deploy, excludes 
     'src/fixtures/node_modules-like/kept.test.mjs',
     'src/targeted/kept-test.mjs',
   ]);
+});
+
+test('discovery leaves out the tests that need a built core or cargo (scripts/rust-core), in every lane', async (t) => {
+  const cwd = await fixture(t, {
+    'scripts/rust-core/core-session.test.mjs': '',
+    'scripts/rust-core/nested/lanes.slow.test.mjs': '',
+    'scripts/rust-core-like/kept.test.mjs': '',
+    'scripts/kept-test.mjs': '',
+  });
+  assert.deepEqual(await discoverTestFiles(cwd), ['scripts/kept-test.mjs', 'scripts/rust-core-like/kept.test.mjs']);
 });
 
 test('discovery accepts absent roots and empty workspaces', async (t) => {
@@ -416,6 +436,91 @@ test('CLI listing uses its working directory, sorted lanes, filters, and an empt
   assert.equal(empty.status, 0);
   assert.equal(empty.stdout, '');
   assert.equal(empty.stderr, '');
+});
+
+test('--changed lists readers of deleted modules and runtime inputs only in the requested package and lane', async (t) => {
+  const cwd = await fixture(t, {
+    'src/catalog.mjs': [
+      '// @test-input ./skills/skill-creator/SKILL.md',
+      '// @test-input ./skills/skill-creator/references/',
+    ].join('\n'),
+    'src/skill.test.mjs': "import './catalog.mjs';",
+    'src/skill.slow.test.mjs': "import './catalog.mjs';",
+    'src/unrelated.test.mjs': "const base = new URL('./', import.meta.url);",
+    'src/skills/skill-creator/SKILL.md': '# Skill',
+    'src/skills/skill-creator/references/guide.md': '# Guide',
+    'src/retired/guide.md': '# Unreferenced',
+    'native/fixtures/connectors/accepted.json': '{}',
+    'native/crates/protocol/capability.rs': '',
+    'apps/relay/src/contract.mjs': '',
+    'apps/desktop/src/connector-api.test.mjs': "import '../../relay/src/contract.mjs';",
+    'apps/desktop/src/connector-coverage.test.mjs': "const rule = new URL('../../../native/crates/protocol/capability.rs', import.meta.url);",
+    'apps/desktop/src/connector-destination.test.mjs': "import './replacement.mjs';",
+    'apps/desktop/src/connector-directory.test.mjs': "import './former-module.mjs';",
+    'apps/desktop/src/connector-dual.test.mjs': "import './connector.mjs';\nimport './replacement.mjs';",
+    'apps/desktop/src/connector-fixtures.test.mjs': '// @test-input ../../../native/fixtures/connectors/',
+    'apps/desktop/src/connector-style.test.mjs': "const css = new URL('./connectors.css', import.meta.url);",
+    'apps/desktop/src/connectors.css': '',
+    'apps/desktop/src/connector.test.mjs': "import './connector';",
+    'apps/desktop/src/connector.mjs': '',
+    'apps/desktop/src/connector.ts': '',
+    'apps/desktop/src/former-module.mjs': 'export const previous = true;',
+    'apps/desktop/src/unrelated.test.mjs': '// @test-input ../../../native/fixtures/connectors-other/',
+  });
+  const git = (...args) => {
+    const result = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+  };
+  git('init', '-q');
+  git('add', '.');
+  git('commit', '-qm', 'base');
+  const clean = runNode(cwd, [runnerPath, '--changed', '--list']);
+  assert.equal(clean.status, 0, clean.stderr);
+  assert.equal(clean.stdout, '');
+  assert.equal(clean.stderr, '--changed: no fast test file matching the filters reaches a changed file\n');
+  await rm(join(cwd, 'src/skills/skill-creator/SKILL.md'));
+  await writeFile(join(cwd, 'src/skills/skill-creator/references/a new guide.md'), '# Another guide');
+  await rm(join(cwd, 'native/fixtures/connectors/accepted.json'));
+  await writeFile(join(cwd, 'native/crates/protocol/capability.rs'), 'pub const CHANGED: bool = true;');
+  await writeFile(join(cwd, 'apps/relay/src/contract.mjs'), 'export const changed = true;');
+  await rm(join(cwd, 'apps/desktop/src/connectors.css'));
+  await rm(join(cwd, 'apps/desktop/src/former-module.mjs'));
+  await mkdir(join(cwd, 'apps/desktop/src/former-module.mjs'));
+  git('mv', 'apps/desktop/src/connector.mjs', 'apps/desktop/src/replacement.mjs');
+
+  const root = runNode(cwd, [runnerPath, '--changed', '--list']);
+  assert.equal(root.status, 0, root.stderr);
+  assert.equal(root.stdout, 'fast  src/skill.test.mjs\n');
+  assert.equal(root.stderr, '');
+  const slow = runNode(cwd, [runnerPath, '--changed', '--list', '--lane=slow']);
+  assert.equal(slow.status, 0, slow.stderr);
+  assert.equal(slow.stdout, 'slow  src/skill.slow.test.mjs\n');
+  assert.equal(slow.stderr, '');
+
+  const desktop = runNode(join(cwd, 'apps/desktop'), [runnerPath, '--changed', '--list']);
+  assert.equal(desktop.status, 0, desktop.stderr);
+  assert.equal(desktop.stdout, [
+    'fast  src/connector-api.test.mjs',
+    'fast  src/connector-coverage.test.mjs',
+    'fast  src/connector-destination.test.mjs',
+    'fast  src/connector-directory.test.mjs',
+    'fast  src/connector-dual.test.mjs',
+    'fast  src/connector-fixtures.test.mjs',
+    'fast  src/connector-style.test.mjs',
+    'fast  src/connector.test.mjs',
+    '',
+  ].join('\n'));
+
+  await rm(join(cwd, 'src/retired/guide.md'));
+  const orphan = runNode(cwd, [runnerPath, '--changed', '--list', 'retired']);
+  assert.equal(orphan.status, 1, orphan.stderr);
+  assert.equal(orphan.stdout, '');
+  assert.match(orphan.stderr, /without --changed:[\r\n]+ {2}src\/retired\/guide\.md/);
+  const excluded = runNode(cwd, [runnerPath, '--changed', '--list', '--exclude-path', 'src/retired/', 'retired']);
+  assert.equal(excluded.status, 0, excluded.stderr);
+  assert.equal(excluded.stdout, '');
+  assert.doesNotMatch(excluded.stderr, /src\/retired\/guide\.md/);
 });
 
 test('CLI argument and empty-selection errors retain their messages, streams, and exit status', async (t) => {

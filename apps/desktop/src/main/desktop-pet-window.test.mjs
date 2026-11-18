@@ -320,6 +320,7 @@ function setup({
   pageLoaded = Promise.resolve(),
   avatarImage,
   readError,
+  beforeCoreCall,
 } = {}) {
   // The overlay is off by default; these tests exercise it, so they start on
   // unless a test passes `enabled` itself (`enabled: undefined` = never chosen).
@@ -331,6 +332,7 @@ function setup({
     screen,
     call: async (method, params) => {
       calls.core.push(method);
+      beforeCoreCall?.(method, params);
       if (method === 'desktopPet/state/read') {
         if (readError) throw readError;
         return stored;
@@ -1282,6 +1284,27 @@ test('Reset position re-pins; Settings and the menu set the same options and bot
   assert.equal(stored().pinned, true);
 });
 
+test('offline Pin here shows the failure on the last confirmed view without another core call', async () => {
+  const attempts = [];
+  let offline = false;
+  const { window, stored } = await started({
+    prefs: FREE,
+    beforeCoreCall(method, params) {
+      if (offline) {
+        attempts.push([method, params.op]);
+        throw new Error('core offline');
+      }
+    },
+  });
+  const confirmed = window.webContents.lastView();
+  const prefs = stored();
+  offline = true;
+  await command(window, 'pin-here');
+  assert.deepEqual(window.webContents.lastView(), { ...confirmed, saveFailed: true });
+  assert.deepEqual(stored(), prefs);
+  assert.deepEqual(attempts, [['desktopPet/placement/resolve', 'displayFor']]);
+});
+
 test('"Pin here" locks the bot where it stands: no drag or nudge, kept across a restart, exclusive with the composer pin, cleared by Reset', async () => {
   const { pet, window, app, stored } = await started({ prefs: { ...FREE, positions: { 1: { x: 40, y: 40 } } } });
   await app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
@@ -1802,6 +1825,7 @@ test('the published state and theme reach the pet window; the quick message goes
   await app.webContents.emit(DESKTOP_PET_IPC.publish, STATE);
   const base = {
     ...STATE,
+    saveFailed: false,
     collapsed: false,
     autoAdvance: true,
     autoClose: true,

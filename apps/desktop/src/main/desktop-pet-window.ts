@@ -9,6 +9,7 @@
 // drag unpins it), it stays on screen on its own, at a spot saved per display.
 // Either way it is clamped to a work area, back onto the primary display when
 // its own is removed.
+import { isDeepStrictEqual } from 'node:util';
 import type { ToolApprovalDecision } from '../shared/contract';
 import { DESKTOP_PET_WINDOW_IPC } from '../shared/desktop-pet-bridge';
 import {
@@ -250,8 +251,8 @@ interface PetContext {
   shape: DesktopPetPlacedGeometry | null;
   /** The last step of the queue every change of the overlay runs through, one at a time. */
   tail: Promise<unknown>;
-  /** The last settings write: they reach the core in the order they were made. */
-  writing: Promise<unknown>;
+  saveFailed: boolean;
+  lastView: { window: PetWindow; view: DesktopPetView } | null;
   /** A layout step waits in the queue (a burst of window moves asks for one). */
   layoutQueued: boolean;
   /** The newest drag move not yet applied (moves arrive faster than placements resolve). */
@@ -351,12 +352,30 @@ async function loadShape(s: PetContext) {
   s.shape = (await resolve(s, { op: 'geometry', scale: s.prefs.scale })) as DesktopPetPlacedGeometry;
 }
 
-function save(s: PetContext, next: Partial<DesktopPetPrefs>) {
-  s.prefs = { ...s.prefs, ...next };
-  const prefs = s.prefs;
-  s.writing = s.writing
-    .then(() => s.deps.call('desktopPet/state/write', { prefs }))
-    .then(undefined, (error: unknown) => fail(s, 'desktopPet/state/write', error));
+function setSaveFailed(s: PetContext, failed: boolean) {
+  if (s.saveFailed === failed) return;
+  s.saveFailed = failed;
+  const last = s.lastView;
+  if (last && last.window === s.pet && live(s.pet) && !s.pet.webContents.isDestroyed()) {
+    // A failed core call must not need another placement RPC just to update the alert.
+    s.pet.webContents.send(DESKTOP_PET_IPC.view, { ...last.view, saveFailed: failed });
+  }
+}
+
+async function save(s: PetContext, next: Partial<DesktopPetPrefs>) {
+  const prefs = { ...s.prefs, ...next };
+  if (isDeepStrictEqual(prefs, s.prefs)) {
+    setSaveFailed(s, false);
+    return;
+  }
+  try {
+    await s.deps.call('desktopPet/state/write', { prefs });
+  } catch (error) {
+    setSaveFailed(s, true);
+    throw error;
+  }
+  s.prefs = prefs;
+  setSaveFailed(s, false);
 }
 
 function config(s: PetContext): DesktopPetConfig {
@@ -411,20 +430,20 @@ function homeDisplay(s: PetContext): PetDisplay {
 
 const placementDisplay = (display: PetDisplay) => ({ id: display.id, workArea: display.workArea });
 
-async function displayFor(s: PetContext, point: Point): Promise<PetDisplay> {
+async function displayFor(s: PetContext, point: Point, size = windowSize(s)): Promise<PetDisplay> {
   const displays = s.deps.screen.getAllDisplays();
   const id = await resolve(s, {
     op: 'displayFor',
     point,
-    size: windowSize(s),
+    size,
     displays: displays.map(placementDisplay),
   });
   return displays.find((display) => display.id === id) ?? s.deps.screen.getPrimaryDisplay();
 }
 
 /** A free window's spot on `workArea`: the whole bot inside it. */
-function clampFree(s: PetContext, point: Point, workArea: PetRect): Promise<Point> {
-  return resolvePoint(s, { op: 'clampFree', point, scale: s.prefs.scale, workArea });
+function clampFree(s: PetContext, point: Point, workArea: PetRect, scale = s.prefs.scale): Promise<Point> {
+  return resolvePoint(s, { op: 'clampFree', point, scale, workArea });
 }
 
 /** Where the window opens on `display`: its saved spot there, else the default corner. */
@@ -533,6 +552,7 @@ async function view(s: PetContext): Promise<DesktopPetView> {
   s.sentEdges = extent.key;
   return {
     ...s.state,
+    saveFailed: s.saveFailed,
     collapsed: s.prefs.collapsed,
     autoAdvance: s.prefs.autoAdvance,
     autoClose: s.prefs.autoClose,
@@ -553,7 +573,10 @@ async function view(s: PetContext): Promise<DesktopPetView> {
 async function pushView(s: PetContext) {
   if (!live(s.pet) || s.pet.webContents.isDestroyed()) return;
   const next = await view(s);
-  if (live(s.pet) && !s.pet.webContents.isDestroyed()) s.pet.webContents.send(DESKTOP_PET_IPC.view, next);
+  if (live(s.pet) && !s.pet.webContents.isDestroyed()) {
+    s.lastView = { window: s.pet, view: next };
+    s.pet.webContents.send(DESKTOP_PET_IPC.view, next);
+  }
 }
 
 function pushConfig(s: PetContext) {
@@ -582,8 +605,8 @@ async function moveTo(s: PetContext, point: Point, persist: boolean) {
   if (!live(s.pet)) return;
   const display = await displayFor(s, point);
   const next = await clampFree(s, point, display.workArea);
+  if (persist) await save(s, { positions: { ...s.prefs.positions, [String(display.id)]: next } });
   await place(s, next);
-  if (persist) save(s, { positions: { ...s.prefs.positions, [String(display.id)]: next } });
 }
 
 const placementComposer = (composer: DesktopPetComposer) => ({
@@ -616,8 +639,7 @@ async function pinnedSpot(s: PetContext): Promise<Point | null> {
 }
 
 /** The sprite box (screen px) of a window whose top-left is `point`. */
-function spriteBox(s: PetContext, point: Point): DesktopPetRect {
-  const { sprite, window } = geometry(s);
+function spriteBox(s: PetContext, point: Point, { sprite, window } = geometry(s)): DesktopPetRect {
   return {
     x: point.x + sprite.left,
     y: point.y + window.height - sprite.bottom - sprite.size,
@@ -629,17 +651,17 @@ function spriteBox(s: PetContext, point: Point): DesktopPetRect {
 /** "Pin here" against the app window: the anchor for the window at `point`
  *  saved (null without an app window: kept as an absolute spot until one
  *  attaches). */
-async function anchorHere(s: PetContext, point: Point) {
+async function anchorAt(s: PetContext, point: Point, shape = geometry(s)): Promise<PetHereAnchor | null> {
   const owner = appWindow(s);
-  if (!owner) return;
+  if (!owner) return null;
   const box = composerBox(s, owner);
   const hereAnchor = (await resolve(s, {
     op: 'hereAnchor',
     point,
-    sprite: spriteBox(s, point),
+    sprite: spriteBox(s, point, shape),
     content: box ?? owner.getContentBounds(),
   })) as PetHereAnchor;
-  save(s, { hereAnchor: box ? { ...hereAnchor, composer: true } : hereAnchor });
+  return box ? { ...hereAnchor, composer: true } : hereAnchor;
 }
 
 /** The composer card in screen px (the app's content bounds, its CSS px at
@@ -665,14 +687,16 @@ async function hereSpot(s: PetContext): Promise<Point | null> {
   const owner = appWindow(s);
   if (!owner || !appShowing(s)) return null;
   if (!s.prefs.hereAnchor) {
-    await anchorHere(s, live(s.pet) ? currentPosition(s) : await positionOn(s, homeDisplay(s)));
+    const at = live(s.pet) ? currentPosition(s) : await positionOn(s, homeDisplay(s));
+    await save(s, { hereAnchor: await anchorAt(s, at) });
   }
   const content = owner.getContentBounds();
   // An anchor against the window (an older one, or made before the card
   // showed) moves onto the card as soon as there is one, where it stands.
   const older = s.prefs.hereAnchor;
   if (older && !older.composer && s.composer) {
-    await anchorHere(s, await resolvePoint(s, { op: 'herePosition', anchor: older, content }));
+    const at = await resolvePoint(s, { op: 'herePosition', anchor: older, content });
+    await save(s, { hereAnchor: await anchorAt(s, at) });
   }
   const anchor = s.prefs.hereAnchor;
   if (!anchor) return null;
@@ -888,32 +912,45 @@ async function changed(s: PetContext): Promise<DesktopPetConfig> {
 }
 
 async function setKeepAbove(s: PetContext, on: boolean) {
-  if (s.prefs.keepAbove !== on) save(s, { keepAbove: on });
+  await save(s, { keepAbove: on });
   await applyLayer(s);
   await layout(s);
   return changed(s);
 }
 
 async function setCollapsed(s: PetContext, on: boolean) {
-  if (s.prefs.collapsed !== on) save(s, { collapsed: on });
+  await save(s, { collapsed: on });
   return changed(s);
 }
 
 /** Pinned: stands on the message box and cannot be moved. Unpinned: where
  *  it stands now becomes its free spot, and it can be dragged. */
-async function setPinned(s: PetContext, on: boolean) {
-  if (s.prefs.pinned !== on) save(s, { pinned: on });
-  if (on && s.prefs.pinnedHere) save(s, { pinnedHere: false });
-  if (on && s.prefs.onScreen) {
-    save(s, { onScreen: false });
-    await applyLayer(s);
+async function setPlacement(s: PetContext, name: 'pinned' | 'pinnedHere' | 'onScreen', on: boolean) {
+  if (s.prefs[name] === on) return config(s);
+  const next: Partial<DesktopPetPrefs> = {
+    pinned: on && name === 'pinned',
+    pinnedHere: on && name === 'pinnedHere',
+    onScreen: on && name === 'onScreen',
+    hereAnchor: null,
+  };
+  let spot: Point | null = null;
+  if (!next.pinned && live(s.pet)) {
+    try {
+      const at = currentPosition(s);
+      const display = await displayFor(s, at);
+      spot = await clampFree(s, at, display.workArea);
+      next.positions = { ...s.prefs.positions, [String(display.id)]: spot };
+      if (next.pinnedHere) next.hereAnchor = await anchorAt(s, spot);
+    } catch (error) {
+      setSaveFailed(s, true);
+      throw error;
+    }
   }
+  await save(s, next);
   s.drag = null;
-  if (on) await layout(s);
-  else {
-    await moveTo(s, currentPosition(s), true);
-    await layout(s);
-  }
+  await applyLayer(s);
+  if (spot) await place(s, spot);
+  await layout(s);
   return changed(s);
 }
 
@@ -927,89 +964,44 @@ async function setScale(s: PetContext, scale: number): Promise<DesktopPetConfig>
   const before = windowSize(s);
   const at = currentPosition(s);
   const wasLive = live(s.pet);
-  save(s, { scale });
-  await loadShape(s);
+  const shape = (await resolve(s, { op: 'geometry', scale })) as DesktopPetPlacedGeometry;
+  const next: Partial<DesktopPetPrefs> = { scale };
+  if (wasLive && !s.prefs.pinned) {
+    const display = await displayFor(s, at, shape.window);
+    const spot = await clampFree(s, { x: at.x, y: at.y + before.height - shape.window.height }, display.workArea, scale);
+    next.positions = { ...s.prefs.positions, [String(display.id)]: spot };
+    if (s.prefs.pinnedHere) next.hereAnchor = await anchorAt(s, spot, shape);
+  }
+  await save(s, next);
+  s.shape = shape;
   if (wasLive) {
-    if (!s.prefs.pinned) {
-      const display = await displayFor(s, at);
-      const spot = await clampFree(
-        s,
-        { x: at.x, y: at.y + before.height - windowSize(s).height },
-        display.workArea
-      );
-      save(s, { positions: { ...s.prefs.positions, [String(display.id)]: spot } });
-      // Pinned here: the same feet, against the app window.
-      if (s.prefs.pinnedHere) await anchorHere(s, spot);
-    }
     destroyPetWindow(s);
     await syncPetWindow(s);
   }
   return changed(s);
 }
 
-/** "Pin here": locked where it stands now, against the app window (its
- *  distance from the nearest corner of the window's content kept as the
- *  window moves or resizes, and across restarts); turns "Pin above the
- *  message box" off. Off: free and draggable again, where it stands. */
-async function setPinnedHere(s: PetContext, on: boolean) {
-  if (on && s.prefs.pinned) await setPinned(s, false);
-  if (on && s.prefs.onScreen) {
-    save(s, { onScreen: false });
-    await applyLayer(s);
-  }
-  if (s.prefs.pinnedHere !== on) save(s, { pinnedHere: on });
-  s.drag = null;
-  if (on) {
-    await moveTo(s, currentPosition(s), true);
-    if (live(s.pet)) await anchorHere(s, currentPosition(s));
-  } else {
-    if (s.prefs.hereAnchor) save(s, { hereAnchor: null });
-    if (live(s.pet)) await moveTo(s, currentPosition(s), true);
-  }
-  await layout(s);
-  return changed(s);
-}
-
-/** "Free on screen": free and draggable anywhere on its displays, apart
- *  from the app window: a window of its own (owned by none), never clamped
- *  to, moved with or hidden with the app window, its bubble kept to the
- *  screen; turns both pins off. "Keep above other windows" stays its own
- *  choice (the layer only). Off: free as before, following the app window. */
-async function setOnScreen(s: PetContext, on: boolean) {
-  if (on && s.prefs.pinned) await setPinned(s, false);
-  if (on && s.prefs.pinnedHere) await setPinnedHere(s, false);
-  if (s.prefs.onScreen !== on) save(s, { onScreen: on });
-  s.drag = null;
-  await applyLayer(s);
-  if (live(s.pet)) await moveTo(s, currentPosition(s), true);
-  await layout(s);
-  return changed(s);
-}
-
 /** One option by name (the app window's Settings). */
 async function setOption(s: PetContext, rawName: unknown, rawValue: unknown): Promise<DesktopPetConfig> {
   const { name, value } = requiredDesktopPetOption(rawName, rawValue);
-  if (name === 'pinned') return setPinned(s, value);
-  if (name === 'pinnedHere') return setPinnedHere(s, value);
-  if (name === 'onScreen') return setOnScreen(s, value);
+  if (name === 'pinned' || name === 'pinnedHere' || name === 'onScreen') return setPlacement(s, name, value);
   if (name === 'keepAbove') return setKeepAbove(s, value);
   if (name === 'collapsed') return setCollapsed(s, value);
   // Reply reading only: the pet window draws it from the view.
-  if (s.prefs[name] !== value) save(s, { [name]: value });
+  await save(s, { [name]: value });
   return changed(s);
 }
 
 /** Back above the message box: re-pinned, this display's free spot forgotten. */
 async function reset(s: PetContext): Promise<DesktopPetConfig> {
+  const next: Partial<DesktopPetPrefs> = { pinned: true, pinnedHere: false, hereAnchor: null, onScreen: false };
   if (live(s.pet)) {
     const display = await displayFor(s, currentPosition(s));
     const positions = { ...s.prefs.positions };
     delete positions[String(display.id)];
-    save(s, { positions });
+    next.positions = positions;
   }
-  if (!s.prefs.pinned || s.prefs.pinnedHere || s.prefs.hereAnchor || s.prefs.onScreen) {
-    save(s, { pinned: true, pinnedHere: false, hereAnchor: null, onScreen: false });
-  }
+  await save(s, next);
   s.drag = null;
   await applyLayer(s);
   await layout(s);
@@ -1017,9 +1009,14 @@ async function reset(s: PetContext): Promise<DesktopPetConfig> {
 }
 
 async function setEnabled(s: PetContext, on: boolean): Promise<DesktopPetConfig> {
-  if (s.prefs.enabled !== on) save(s, { enabled: on });
-  await syncPetWindow(s);
+  await save(s, { enabled: on });
   pushConfig(s);
+  try {
+    await syncPetWindow(s);
+  } catch (error) {
+    // The preference is durable even if the window cannot be placed now.
+    fail(s, 'desktop pet window placement', error);
+  }
   return config(s);
 }
 
@@ -1037,10 +1034,10 @@ async function runCommand(s: PetContext, command: DesktopPetCommand) {
       return;
     }
     case 'pin-here':
-      await setPinnedHere(s, !s.prefs.pinnedHere);
+      await setPlacement(s, 'pinnedHere', !s.prefs.pinnedHere);
       return;
     case 'on-screen':
-      await setOnScreen(s, !s.prefs.onScreen);
+      await setPlacement(s, 'onScreen', !s.prefs.onScreen);
       return;
     case 'collapse':
       await setCollapsed(s, !s.prefs.collapsed);
@@ -1049,7 +1046,7 @@ async function runCommand(s: PetContext, command: DesktopPetCommand) {
       await setKeepAbove(s, !s.prefs.keepAbove);
       return;
     case 'pin':
-      await setPinned(s, !s.prefs.pinned);
+      await setPlacement(s, 'pinned', !s.prefs.pinned);
       return;
     case 'reset':
       await reset(s);
@@ -1402,7 +1399,8 @@ export function createDesktopPet(deps: DesktopPetDeps) {
     prefs: PREFS_UNREAD,
     shape: null,
     tail: Promise.resolve(),
-    writing: Promise.resolve(),
+    saveFailed: false,
+    lastView: null,
     layoutQueued: false,
     dragMove: null,
     state: IDLE_STATE,

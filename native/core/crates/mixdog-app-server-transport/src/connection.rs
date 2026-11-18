@@ -97,6 +97,9 @@ impl Drop for InboundFrames {
 pub struct AcceptedConnection {
     pub id: ConnectionId,
     pub origin: ConnectionOrigin,
+    /// The paired credential authenticated by the in-process relay bridge. SSH routing headers
+    /// may narrow the origin to Relay, but do not carry this identity.
+    pub authenticated_relay_credential: Option<String>,
     pub inbound: InboundFrames,
     pub sink: ConnectionWriter,
 }

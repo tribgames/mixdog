@@ -60,11 +60,16 @@
       "limit": {
         "type": "integer",
         "minimum": 0,
-        "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+        "description": "Requested results; default 250; 0 unlimited. In content mode, an explicit positive limit caps at 40; continue via the returned offset."
       },
       "offset": {
         "type": "integer",
         "minimum": 0
+      },
+      "section": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Resume a multi-path or multi-pattern result at this section (paths in order, each with the patterns in order); offset then counts that section's results only. Use the call a capped result prints."
       },
       "context": {
         "type": "integer",

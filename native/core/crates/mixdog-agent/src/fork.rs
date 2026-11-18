@@ -42,6 +42,9 @@ pub fn fork_options(saved: &RequestOptions) -> RequestOptions {
     if options.tool_choice.as_deref() != Some("none") {
         options.tool_choice = None;
     }
+    // A fork is an optional reuse of the parent's prefix: its cache owner skips it on a cold prefix rather than compact the
+    // parent from inside it. A side question sets its own purpose.
+    options.tail_purpose = mixdog_core_api::domain::cache_tail::Purpose::SummaryFork;
     options
 }
 
@@ -54,7 +57,9 @@ pub fn forked_request(saved: &ModelRequest, reply: Option<&ModelResponse>, promp
 /// stub, `SIDE_QUESTION_TOOL_STUB`).
 pub fn forked_request_stubbed(saved: &ModelRequest, reply: Option<&ModelResponse>, prompt: &str, tool_stub: &str) -> ModelRequest {
     let mut options = fork_options(&saved.options);
-    let mut messages = saved.messages.clone();
+    // A saved request may still carry the tail reminder it was sent with: the fork starts from the messages before it.
+    let kept = crate::send::kept_messages(saved);
+    let mut messages = kept.to_vec();
     let reply_message = reply.and_then(|r| if r.tool_calls.is_empty() { intermediate_message(r) } else { Some(tool_call_message(r)) });
     if let (Some(message), Some(reply)) = (reply_message, reply) {
         let ids = message.assistant_call_ids();
@@ -66,8 +71,8 @@ pub fn forked_request_stubbed(saved: &ModelRequest, reply: Option<&ModelResponse
             options.provider_state = reply.provider_state.clone();
         }
     }
-    if !saved.messages.is_empty() {
-        options.shared_cache_prefix_count = Some(saved.messages.len());
+    if !kept.is_empty() {
+        options.shared_cache_prefix_count = Some(kept.len());
     }
     // A user interjection keeps its own turn, so the prefix's last block reaches the provider unchanged.
     messages.push(AgentMessage::sourced(Source::Steering, prompt).wire());
@@ -145,22 +150,72 @@ mod tests {
         assert_eq!(fork.options.tool_choice, None);
     }
 
+    /// The store keeps the request as sent, its tail reminder included: its fork is the fork of the request without it.
     #[test]
-    fn a_fork_after_parent_output_runs_under_its_own_first_output_window() {
-        let window = std::time::Duration::from_secs(600);
-        let parent = saved();
-        let (parent_deadline, _) = parent.options.send_identity.first_output(window);
-        parent.options.send_identity.note_output();
-        let fork = forked_request(&parent, None, "summarize");
-        let (fork_deadline, output_seen) = fork.options.send_identity.first_output(window);
-        assert!(!output_seen, "the fork has produced no output of its own");
-        assert!(fork_deadline >= parent_deadline,"its deadline starts at its own first attempt");
-        assert!(parent.options.send_identity.first_output(window).1, "the parent's state is untouched");
+    fn a_sent_request_forks_as_the_request_without_its_tail_reminder() {
+        let reply = ModelResponse { content: "done".into(), ..ModelResponse::default() };
+        let sent = crate::send::with_tail_reminder(&saved(), Some("remember"));
+        assert_eq!(sent.messages.len(), 2, "the reminder rides last");
+        assert_eq!(crate::send::kept_messages(&sent), &saved().messages[..]);
+        for reply in [None, Some(&reply)] {
+            assert_eq!(forked_request(&sent, reply, "summarize"), forked_request(&crate::send::without_tail_reminder(&sent), reply, "summarize"));
+        }
     }
 
     #[test]
     fn a_request_with_no_settled_reply_forks_to_its_messages_and_the_prompt() {
         let fork = forked_request(&saved(), None, "summarize");
         assert_eq!(fork.messages.len(), 2);
+    }
+
+    /// An adapter that counts the attempts it is given.
+    struct Counting {
+        inner: mixdog_core_api::domain::mock::MockProvider,
+        attempts: std::sync::atomic::AtomicU32,
+    }
+
+    #[async_trait::async_trait]
+    impl ProviderAdapter for Counting {
+        fn release_send(&self, _group: &str) {}
+        fn id(&self) -> &mixdog_protocol::ProviderId {
+            self.inner.id()
+        }
+        fn codec(&self) -> &dyn mixdog_core_api::domain::provider::WireCodec {
+            self.inner.codec()
+        }
+        fn retry_policy(&self) -> &mixdog_core_api::domain::retry::RetryPolicy {
+            self.inner.retry_policy()
+        }
+        fn keepalive(&self) -> &mixdog_core_api::domain::keepalive::KeepaliveSchedule {
+            self.inner.keepalive()
+        }
+        async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn mixdog_core_api::domain::provider::ModelStream>, ProviderError> {
+            self.attempts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.inner.attempt(request).await
+        }
+    }
+
+    /// Side questions and compaction forks send through `send_forked`, one `attempt` of the registered provider, which is
+    /// under the egress guard: an image its route cannot take (here a route that declares none) refuses the fork, naming nothing
+    /// as sent, before the adapter is asked.
+    #[tokio::test]
+    async fn a_fork_carrying_an_image_no_route_declared_is_refused_before_the_adapter_is_asked() {
+        use base64::Engine as _;
+        let counting = Arc::new(Counting { inner: mixdog_core_api::domain::mock::MockProvider::new([]), attempts: Default::default() });
+        let provider: Arc<dyn ProviderAdapter> = mixdog_ai::registry::egress::EgressGuard::wrap(counting.clone());
+        let heic = base64::engine::general_purpose::STANDARD.encode(b"\0\0\0\x18ftypheic\0\0\0\0mif1heic");
+        let image = mixdog_core_api::domain::provider::ContentPart::Image(mixdog_core_api::domain::provider::ImageSource::Base64 {
+            data: heic,
+            mime_type: "image/heic".into(),
+            width: None,
+            height: None,
+        });
+        let mut request = saved();
+        request.messages = vec![Message::new(Role::User, Content::Parts(vec![image]))];
+        let fork = forked_request(&request, None, "summarize");
+        let error = send_forked(&provider, fork, &CancellationToken::new()).await.unwrap_err();
+        assert!(error.message.starts_with("Nothing was sent."), "{}", error.message);
+        assert!(!error.message.contains("/compact"), "never prescribe /compact: {}", error.message);
+        assert_eq!(counting.attempts.load(std::sync::atomic::Ordering::Relaxed), 0);
     }
 }

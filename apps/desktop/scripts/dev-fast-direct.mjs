@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readdirSync } from 'node:fs';
 import { chmod, cp, mkdir, readFile, readdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
@@ -214,6 +215,26 @@ export function coreInputs(root) {
 
 const ignoredSource =
   /(?:^|[\\/])(?:node_modules|out|dist|target|\.cache|\.runtime)(?:[\\/]|$)|(?:^|[\\/]).*\.(?:test|spec)\.[^.]+$/i;
+/** The files `import.meta.glob('changelog/*.md')` (changelog-source.ts) bundles: direct children only, so drafts
+ *  in subfolders or under other extensions do not invalidate the renderer. */
+function rendererChangelogFiles() {
+  const dir = join(repoRoot, 'changelog');
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.md') && !entry.name.startsWith('.'))
+    .map((entry) => join(dir, entry.name));
+}
+
+// Resolved as computer-source-assets.mjs resolves it; a missing install leaves a path that names no file.
+const overlayFontSpecifier = 'pretendard/dist/web/static/woff2-subset/Pretendard-Medium.subset.woff2';
+const echartsBrowserFile = join(desktopDir, 'node_modules', 'echarts', 'dist', 'echarts.min.js');
+const overlayFontFile = (() => {
+  try {
+    return require.resolve(overlayFontSpecifier);
+  } catch {
+    return join(desktopDir, 'node_modules', ...overlayFontSpecifier.split('/'));
+  }
+})();
+
 const fileContents = new Map();
 const fileMetadata = new Map();
 const inputFiles = new Map();
@@ -223,11 +244,25 @@ export const targetInputs = {
     join(desktopDir, 'src', 'renderer'),
     join(desktopDir, 'src', 'shared'),
     join(desktopDir, 'electron.vite.config.ts'),
+    // The renderer bundles these Markdown files (changelog-source.ts) and runs these Vite plugins.
+    join(repoRoot, 'CHANGELOG.md'),
+    ...rendererChangelogFiles(),
+    echartsBrowserFile,
+    join(desktopDir, 'scripts', 'renderer-shell.ts'),
+    join(desktopDir, 'scripts', 'chunk-prefetch.ts'),
+    join(desktopDir, 'scripts', 'css-subject-buckets.ts'),
+    join(desktopDir, 'scripts', 'remote-webrtc-sender-csp.mjs'),
+    join(desktopDir, 'scripts', 'monaco-typescript-external.mjs'),
   ],
   main: [
     join(desktopDir, 'src', 'main'),
     join(desktopDir, 'src', 'shared'),
     join(desktopDir, 'electron.vite.config.ts'),
+    join(desktopDir, 'scripts', 'computer-source-assets.mjs'),
+    // Embedded into the main bundle at build time (electron.vite.config.ts bundledSourceModule, content.ts).
+    echartsBrowserFile,
+    join(desktopDir, 'node_modules', 'mermaid', 'dist', 'mermaid.min.js'),
+    overlayFontFile,
   ],
   preload: [
     join(desktopDir, 'src', 'preload'),
@@ -273,8 +308,10 @@ async function pathExists(path) {
   }
 }
 
-async function walkFiles(input, files = [], knownType = '') {
-  if (ignoredSource.test(input)) return files;
+// A named input file is read even under node_modules or dist (the embedded browser builds live there);
+// only what a directory input contains is filtered.
+async function walkFiles(input, files = [], knownType = '', explicit = false) {
+  if (!explicit && ignoredSource.test(input)) return files;
   let type = knownType;
   if (!type) {
     try {
@@ -312,7 +349,7 @@ function memoized(cache, key, start) {
 }
 
 async function filesForInput(input) {
-  return memoized(inputFiles, input, () => walkFiles(input, []));
+  return memoized(inputFiles, input, () => walkFiles(input, [], '', true));
 }
 
 async function contentsForFile(path) {
@@ -344,11 +381,19 @@ export function packagingManifestForFingerprint(manifest) {
   return normalized;
 }
 
+/** A text file's contents with CRLF read as LF. The snapshot is a git checkout (`* text=auto`: LF), the core is built in the
+ *  real checkout, and an editor that saved a source with CRLF changes no byte the compiler reads: compared as written, every
+ *  such file made the deploy refuse its own snapshot ("core sources changed after planning"). Binary files are unchanged. */
+function sameLineEndings(contents) {
+  if (contents.indexOf(13) === -1 || contents.subarray(0, 8192).includes(0)) return contents;
+  return Buffer.from(contents.toString('latin1').replaceAll(String.fromCharCode(13, 10), String.fromCharCode(10)), 'latin1');
+}
+
 async function contentsForFingerprint(path) {
   const contents = await contentsForFile(path);
   const resolvedPath = resolve(path);
   if (resolvedPath !== desktopPackageManifest && resolvedPath !== repoPackageManifest) {
-    return contents;
+    return sameLineEndings(contents);
   }
   return Buffer.from(JSON.stringify(packagingManifestForFingerprint(JSON.parse(contents.toString('utf8')))));
 }
@@ -722,6 +767,25 @@ async function stageTree(source, destination) {
   }
 }
 
+/** The `out/**` exclusions of electron-builder.yml `files`, which the full Windows package applies. `path` is
+ *  relative to the package root, with `/` separators. */
+export function packageExcludesOutputFile(path) {
+  return (
+    path === 'out/main/capture-window.js' ||
+    /^out\/main\/(?:.*\/)?jitter-probe[^/]*(?:\/|$)/.test(path) ||
+    path.endsWith('.map')
+  );
+}
+
+// walkFiles skips any path under an `out` directory, so this lists the tree itself.
+async function pruneExcludedPackageOutput(outDir) {
+  for (const entry of await readdir(outDir, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const file = join(entry.parentPath, entry.name);
+    if (packageExcludesOutputFile(`out/${relative(outDir, file).replaceAll(sep, '/')}`)) await rm(file, { force: true });
+  }
+}
+
 async function stageShell({ installDir, artifactDir }) {
   const startedAt = performance.now();
   const installedResources = join(installDir, 'resources');
@@ -764,7 +828,7 @@ async function stageShell({ installDir, artifactDir }) {
   await mkdir(artifactResources, { recursive: true });
   await rm(join(stagingRoot, 'out'), { recursive: true, force: true });
   await stageTree(join(desktopDir, 'out'), join(stagingRoot, 'out'));
-  await rm(join(stagingRoot, 'out', 'main', 'capture-window.js'), { force: true });
+  await pruneExcludedPackageOutput(join(stagingRoot, 'out'));
   try {
     await createAsarPackage(stagingRoot, artifactArchive, fastDirectAsarOptions());
   } finally {

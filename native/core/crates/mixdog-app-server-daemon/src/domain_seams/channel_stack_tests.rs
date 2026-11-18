@@ -10,10 +10,6 @@ use serde_json::{Map, Value, json};
 
 use super::*;
 
-fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../fixtures/channel-settings/golden.json")).expect("the golden is JSON")
-}
-
 async fn open(dir: &std::path::Path, channels: Option<&Value>) -> Config {
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
@@ -31,6 +27,7 @@ async fn open(dir: &std::path::Path, channels: Option<&Value>) -> Config {
     config
 }
 
+#[cfg(node_twin)]
 /// Node's `webhook` object read as the receiver reads it.
 fn expected(webhook: &Value) -> WebhookSettings {
     // `config.port || 3333`
@@ -48,38 +45,105 @@ fn expected(webhook: &Value) -> WebhookSettings {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn every_patch_leaves_the_section_node_leaves() {
-    let golden = golden();
-    for case in golden["cases"].as_array().unwrap() {
-        let name = case["name"].as_str().unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let config = open(dir.path(), case["seeded"].as_bool().unwrap().then(|| &case["seed"])).await;
-        let settings = ConfigChannelSettings::new(config.clone());
-        for (i, step) in case["steps"].as_array().unwrap().iter().enumerate() {
-            let label = format!("{name} step {i} {}", step["patch"]);
-            let got = settings.update_webhook(&WebhookPatch::from_params(&step["patch"])).await.unwrap();
-            assert_eq!(got, expected(&step["returned"]["webhook"]), "{label}: returned");
-            let saved = config.get("channels").unwrap_or(Value::Null);
-            assert_eq!(saved, step["channels"], "{label}: channels section");
-            assert_eq!(settings.webhook().await.unwrap(), got, "{label}: a read answers what the write returned");
-        }
-    }
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_receivers_secret_and_opt_in_come_from_the_section() {
+async fn the_receivers_opt_in_and_listener_settings_come_from_webhook_config() {
     let dir = tempfile::tempdir().unwrap();
-    let seed = json!({ "secret": "s", "allowUnsignedWebhooks": true, "endpoints": { "gh": { "parser": "github", "allowUnsigned": true } }, "webhook": { "enabled": true, "port": 5000 } });
+    let seed = json!({ "webhook": { "allowUnsignedWebhooks": true, "endpoints": { "manual": { "allowUnsigned": true } }, "enabled": true, "port": 5000 } });
     let settings = ConfigChannelSettings::new(open(dir.path(), Some(&seed)).await);
     let config = settings.webhook_config().await.unwrap();
-    assert_eq!(config.secret.as_deref(), Some("s"));
     assert!(config.allow_unsigned_webhooks);
-    assert_eq!(config.endpoints["gh"].allow_unsigned, Some(true));
+    assert_eq!(config.endpoints["manual"].allow_unsigned, Some(true));
     assert_eq!(settings.webhook().await.unwrap(), WebhookSettings { enabled: Some(true), port: json!(5000), domain: None });
 }
 
-/// The session service's routine boundary (Node: the live surface's `submit`, daemon.mjs:1199-1201): every routine turn
-/// is accepted and settles done; kept in order as Node's recorder keeps the submits.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, reason = "Write the existing configuration fixture before opening it.")]
+async fn existing_file_webhook_routes_signed_deliveries_without_displacing_database_auth() {
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_services::bots::{HomeWebhookDispatch, RoutineRuntime, StoreRoutineRecords};
+    use mixdog_services::channels::RunningWork;
+    use mixdog_services::scheduler::{StateScheduleStore, SystemClock};
+    use mixdog_services::webhooks::signature::{Headers, hmac_hex};
+    use mixdog_services::webhooks::{EndpointRecord, EndpointRecords, StateWebhookStore};
+    use mixdog_workspace::localfs::LocalFileService;
+
+    struct NoInjections;
+    #[async_trait]
+    impl EventSink for NoInjections {
+        async fn inject(&self, _: &str, _: &str) -> Result<(), String> {
+            unreachable!("the queue is not run in this test")
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let file = json!({
+        "channels": {
+            "webhook": { "secret": "file-key", "endpoints": { "gh": { "parser": "github" } } },
+            "events": { "rules": [{
+                "source": "webhook", "name": "gh", "parser": "github",
+                "filter": "action == 'opened'", "execute": "Review {{title}}"
+            }] }
+        }
+    });
+    std::fs::write(crate::compose_flip::config_file(dir.path()), file.to_string()).unwrap();
+    let settings = ConfigChannelSettings::new(open(dir.path(), None).await);
+    let tokens = mixdog_rt::testing::tokens();
+    let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.path().join("core.sqlite")).unwrap();
+    let clock = Arc::new(SystemClock);
+    let store = Arc::new(StateWebhookStore::new(state.clone(), clock.clone()));
+    let pipeline = settings.event_pipeline(
+        QueueFiles {
+            fs: Arc::new(LocalFileService::new()),
+            read: tokens.interactive_io,
+            write: tokens.durability_io,
+            root: AbsPath::new(dir.path().join("events")).unwrap(),
+        },
+        Arc::new(NoInjections),
+        store.clone(),
+        Arc::new(|| 0),
+    );
+    store.upsert(&EndpointRecord { name: "db".into(), secret: Some("db-key".into()), ..Default::default() }).await.unwrap();
+    let schedules = Arc::new(StateScheduleStore::new(state, clock.clone()));
+    let routines = RoutineRuntime::new(
+        Arc::new(HomeTurns::default()),
+        Arc::new(StoreRoutineRecords::new(schedules, store.clone())),
+        clock,
+        chrono_tz::UTC,
+    );
+    let work = RunningWork::default();
+    let service = WebhookService::new(
+        store.clone(),
+        Arc::new(HomeWebhookDispatch::new(routines, store, Some(pipeline), work.clone())),
+        settings.webhook_config().await.unwrap(),
+        work,
+        Arc::new(|| 0),
+    );
+    let sign = |headers: &Headers, secret: &str, body: &[u8]| {
+        let mut headers = headers.clone();
+        headers.insert("x-hub-signature-256".into(), format!("sha256={}", hmac_hex(secret, body)));
+        headers
+    };
+
+    // A matched rule consumes a filtered delivery without starting background queue work.
+    let body = br#"{"action":"closed"}"#;
+    let headers = Headers::from_iter([("content-type".into(), "application/json".into())]);
+    let unsigned = service.handle_post("/webhook/gh", &headers, body).await;
+    assert_eq!(unsigned.status, 403);
+    let forged = service.handle_post("/webhook/gh", &sign(&headers, "wrong-key", body), body).await;
+    assert_eq!(forged.status, 403);
+    let signed = service.handle_post("/webhook/gh", &sign(&headers, "file-key", body), body).await;
+    assert_eq!(signed.status, 200, "{}", signed.body);
+    assert_eq!(signed.body["status"], "accepted");
+
+    let probe_body = br#"{"mixdogWebhookTest":true}"#;
+    let probe = Headers::from_iter([("x-mixdog-webhook-test".into(), "1".into())]);
+    let wrong_secret = service.handle_post("/webhook/db", &sign(&probe, "file-key", probe_body), probe_body).await;
+    assert_eq!(wrong_secret.status, 403);
+    let db_secret = service.handle_post("/webhook/db", &sign(&probe, "db-key", probe_body), probe_body).await;
+    assert_eq!(db_secret.status, 200, "{}", db_secret.body);
+    assert_eq!(db_secret.body["status"], "verified");
+}
+
+/// The session service's routine boundary: every routine turn is accepted and settles done.
 #[derive(Default)]
 struct HomeTurns {
     turns: std::sync::Mutex<Vec<Value>>,
@@ -122,9 +186,11 @@ impl mixdog_services::bots::RoutineHost for HomeTurns {
     }
 }
 
+#[cfg(node_twin)]
 /// The provider init the start runs (Node's recorder holds it at its gate and releases it).
 struct NoProviders;
 
+#[cfg(node_twin)]
 #[async_trait::async_trait]
 impl mixdog_services::channels::AgentRuntime for NoProviders {
     async fn init_providers(&self) -> Result<(), String> {
@@ -132,24 +198,29 @@ impl mixdog_services::channels::AgentRuntime for NoProviders {
     }
 }
 
+#[cfg(node_twin)]
 struct WallClock(i64);
 
+#[cfg(node_twin)]
 impl mixdog_services::scheduler::Clock for WallClock {
     fn now(&self) -> chrono::DateTime<chrono::Utc> {
         chrono::DateTime::from_timestamp_millis(self.0).unwrap()
     }
 }
 
+#[cfg(node_twin)]
 /// The webhook automation, counting the reload syncs it finished and, when armed, sending the recorded delivery the
 /// moment a reload sync is entered (Node's recorder sends it once `WebhookServer.reloadConfig` was entered).
 type ArmedReload = (u16, String, Value, tokio::sync::oneshot::Sender<Value>);
 
+#[cfg(node_twin)]
 struct ArmedReloads {
     inner: mixdog_services::channels::WebhookAutomation,
     reloaded: tokio::sync::watch::Sender<usize>,
     armed: std::sync::Mutex<Option<ArmedReload>>,
 }
 
+#[cfg(node_twin)]
 #[async_trait::async_trait]
 impl mixdog_services::channels::AutomationServices for ArmedReloads {
     async fn sync(&self, reload: bool) -> Result<(), String> {
@@ -169,6 +240,7 @@ impl mixdog_services::channels::AutomationServices for ArmedReloads {
     }
 }
 
+#[cfg(node_twin)]
 /// One delivery on a fresh connection: `{status, body}`, or the error the connection ended with under Node's code.
 async fn deliver(port: u16, body: &str, headers: &Value) -> Value {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -194,6 +266,7 @@ async fn deliver(port: u16, body: &str, headers: &Value) -> Value {
     json!({"status": status, "body": serde_json::from_str::<Value>(&body).unwrap_or_else(|error| panic!("the reply's body is not JSON ({error}): {body:?}"))})
 }
 
+#[cfg(node_twin)]
 /// The body of a whole chunked message: each chunk's bytes, up to the zero chunk that ends it.
 fn dechunked(mut rest: &str) -> String {
     let mut body = String::new();
@@ -208,12 +281,14 @@ fn dechunked(mut rest: &str) -> String {
     }
 }
 
+#[cfg(node_twin)]
 /// Waits for `what` with one deadline.
 #[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
 async fn within<T>(what: &str, future: impl std::future::Future<Output = T>) -> T {
     tokio::time::timeout(std::time::Duration::from_secs(30), future).await.unwrap_or_else(|_| panic!("never happened: {what}"))
 }
 
+#[cfg(node_twin)]
 /// The composition's channel stack (compose_flip.rs) over a real store and config in `root`: the admin, the runtime, the
 /// stores, the automation (reload syncs counted, a delivery armable) and the session boundary's routine turns.
 struct Stack {
@@ -225,6 +300,7 @@ struct Stack {
     host: Arc<HomeTurns>,
 }
 
+#[cfg(node_twin)]
 fn channel_stack(root: &std::path::Path, config: &Config, wall: Arc<dyn mixdog_services::scheduler::Clock>, tz: chrono_tz::Tz) -> Stack {
     use mixdog_services::bots::{HomeScheduleRunner, HomeWebhookDispatch, RoutineRuntime, StoreRoutineRecords};
     use mixdog_services::channels::{AdminDeps, ChannelAdmin, ChannelSettings, RunningWork, WebhookAutomation};
@@ -271,6 +347,127 @@ fn channel_stack(root: &std::path::Path, config: &Config, wall: Arc<dyn mixdog_s
     Stack { admin, runtime, schedules, webhooks, automation, host }
 }
 
+#[cfg(node_twin)]
+struct NoEvidence;
+
+#[cfg(node_twin)]
+#[async_trait::async_trait]
+impl mixdog_core_agents::agents::AgentEvidence for NoEvidence {
+    async fn home_greeted(&self, _: &str) -> bool {
+        false
+    }
+    async fn home_chatted(&self, _: &str) -> bool {
+        false
+    }
+    async fn mixy_owns_routines(&self) -> Result<bool, String> {
+        Ok(false)
+    }
+}
+
+#[cfg(node_twin)]
+/// The recording saves its bots without a route, so no route is ever set.
+struct NoRouteSets;
+
+#[cfg(node_twin)]
+#[async_trait::async_trait]
+impl super::super::agent_effects::AgentRouteSetting for NoRouteSets {
+    async fn set(&self, agent_id: &str, _: &mixdog_ai::service::admin_route::Obj) -> Result<(), String> {
+        panic!("the recording sets no route (asked for {agent_id})")
+    }
+}
+
+#[cfg(node_twin)]
+/// `JSON.stringify` of a PostgreSQL `timestamptz`: ISO, milliseconds, `Z`.
+fn pg_stamp(value: &Value) -> Value {
+    match value.as_str() {
+        Some(text) => json!(chrono::DateTime::parse_from_rfc3339(text).unwrap().to_utc().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
+        None => Value::Null,
+    }
+}
+
+#[cfg(node_twin)]
+/// A stored row as Node's `SELECT` of its columns reads it: the snake-case column names; the stamps as above.
+fn node_row(row: impl serde::Serialize, columns: &str) -> Value {
+    let camel = serde_json::to_value(row).unwrap();
+    let mut out = Map::new();
+    for column in columns.split(", ") {
+        let field: String = column.split('_').enumerate().map(|(i, part)| if i == 0 { part.to_owned() } else { part[..1].to_uppercase() + &part[1..] }).collect();
+        let value = match column {
+            "has_last_payload" => json!(!camel["lastPayload"].is_null()),
+            _ if column.ends_with("_at") || matches!(column, "deferred_until" | "skipped_until") => pg_stamp(&camel[&field]),
+            _ => camel.get(&field).cloned().unwrap_or_else(|| panic!("no column {column}")),
+        };
+        out.insert(column.to_owned(), value);
+    }
+    Value::Object(out)
+}
+
+#[cfg(node_twin)]
+/// Every file under `dir`, by its path below it.
+fn files(dir: &std::path::Path) -> Value {
+    #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
+    fn walk(root: &std::path::Path, dir: &std::path::Path, out: &mut Map<String, Value>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let mut paths: Vec<_> = entries.map(|entry| entry.unwrap().path()).collect();
+        paths.sort();
+        for path in paths {
+            if path.is_dir() {
+                walk(root, &path, out);
+            } else {
+                let key = path.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/");
+                out.insert(key, json!(std::fs::read_to_string(&path).unwrap()));
+            }
+        }
+    }
+    let mut out = Map::new();
+    walk(dir, dir, &mut out);
+    Value::Object(out)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_public_base_exists_once_a_tunnel_persisted_an_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let relay = Some("wss://relay.example/".to_owned());
+    let base = HookIdentityBase::new(tokens.durability_io, dir.path().to_path_buf(), relay.clone());
+    assert_eq!(base.hook_public_base().await, Ok(None), "no identity is created by a read");
+    let files = DeviceFiles::at(dir.path().to_path_buf(), "relay-hook-device.json");
+    let identity = mixdog_core_base::support::on_lane(tokens.durability_io, &CancellationToken::new(), move |lane| files.load_or_create(lane))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(base.hook_public_base().await, Ok(Some(format!("https://relay.example/hook/{}", identity.device_id))));
+    let off = HookIdentityBase::new(tokens.durability_io, dir.path().to_path_buf(), Some("off".to_owned()));
+    assert_eq!(off.hook_public_base().await, Ok(None), "a switched-off relay has no public base");
+    let bad = HookIdentityBase::new(tokens.durability_io, dir.path().to_path_buf(), Some("ftp://relay.example".to_owned()));
+    assert!(bad.hook_public_base().await.is_err(), "an invalid relay URL is Node's thrown TypeError");
+}
+
+
+#[cfg(node_twin)]
+fn golden() -> Value {
+    serde_json::from_str(include_str!("../../../../fixtures/channel-settings/golden.json")).expect("the golden is JSON")
+}
+#[cfg(node_twin)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_patch_leaves_the_section_node_leaves() {
+    let golden = golden();
+    for case in golden["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let config = open(dir.path(), case["seeded"].as_bool().unwrap().then(|| &case["seed"])).await;
+        let settings = ConfigChannelSettings::new(config.clone());
+        for (i, step) in case["steps"].as_array().unwrap().iter().enumerate() {
+            let label = format!("{name} step {i} {}", step["patch"]);
+            let got = settings.update_webhook(&WebhookPatch::from_params(&step["patch"])).await.unwrap();
+            assert_eq!(got, expected(&step["returned"]["webhook"]), "{label}: returned");
+            let saved = config.get("channels").unwrap_or(Value::Null);
+            assert_eq!(saved, step["channels"], "{label}: channels section");
+            assert_eq!(settings.webhook().await.unwrap(), got, "{label}: a read answers what the write returned");
+        }
+    }
+}
+#[cfg(node_twin)]
 /// `record-webhook-late-reload.mjs` (`fixtures/webhook-late-reload`, step `configEdit`, Node b6f10295a with
 /// node-fix-webhook-late-reload.patch): with the receiver listening and the session service running, another process
 /// edits the channels section of the config file on disk (port kept). The composition's follow (`ChannelConfigFollow`
@@ -346,77 +543,7 @@ async fn a_delivery_during_a_config_edit_reload_is_answered_and_runs_once_as_nod
     );
     mixdog_services::channels::ChannelLifecycle::stop_owned_runtime(&*runtime, "test").await.unwrap();
 }
-
-struct NoEvidence;
-
-#[async_trait::async_trait]
-impl mixdog_core_agents::agents::AgentEvidence for NoEvidence {
-    async fn home_greeted(&self, _: &str) -> bool {
-        false
-    }
-    async fn home_chatted(&self, _: &str) -> bool {
-        false
-    }
-    async fn mixy_owns_routines(&self) -> Result<bool, String> {
-        Ok(false)
-    }
-}
-
-/// The recording saves its bots without a route, so no route is ever set.
-struct NoRouteSets;
-
-#[async_trait::async_trait]
-impl super::super::agent_effects::AgentRouteSetting for NoRouteSets {
-    async fn set(&self, agent_id: &str, _: &mixdog_ai::service::admin_route::Obj) -> Result<(), String> {
-        panic!("the recording sets no route (asked for {agent_id})")
-    }
-}
-
-/// `JSON.stringify` of a PostgreSQL `timestamptz`: ISO, milliseconds, `Z`.
-fn pg_stamp(value: &Value) -> Value {
-    match value.as_str() {
-        Some(text) => json!(chrono::DateTime::parse_from_rfc3339(text).unwrap().to_utc().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
-        None => Value::Null,
-    }
-}
-
-/// A stored row as Node's `SELECT` of its columns reads it: the snake-case column names; the stamps as above.
-fn node_row(row: impl serde::Serialize, columns: &str) -> Value {
-    let camel = serde_json::to_value(row).unwrap();
-    let mut out = Map::new();
-    for column in columns.split(", ") {
-        let field: String = column.split('_').enumerate().map(|(i, part)| if i == 0 { part.to_owned() } else { part[..1].to_uppercase() + &part[1..] }).collect();
-        let value = match column {
-            "has_last_payload" => json!(!camel["lastPayload"].is_null()),
-            _ if column.ends_with("_at") || matches!(column, "deferred_until" | "skipped_until") => pg_stamp(&camel[&field]),
-            _ => camel.get(&field).cloned().unwrap_or_else(|| panic!("no column {column}")),
-        };
-        out.insert(column.to_owned(), value);
-    }
-    Value::Object(out)
-}
-
-/// Every file under `dir`, by its path below it.
-fn files(dir: &std::path::Path) -> Value {
-    #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
-    fn walk(root: &std::path::Path, dir: &std::path::Path, out: &mut Map<String, Value>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
-        let mut paths: Vec<_> = entries.map(|entry| entry.unwrap().path()).collect();
-        paths.sort();
-        for path in paths {
-            if path.is_dir() {
-                walk(root, &path, out);
-            } else {
-                let key = path.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/");
-                out.insert(key, json!(std::fs::read_to_string(&path).unwrap()));
-            }
-        }
-    }
-    let mut out = Map::new();
-    walk(dir, dir, &mut out);
-    Value::Object(out)
-}
-
+#[cfg(node_twin)]
 /// `record-bot-routines-purge.mjs` (`fixtures/bot-routines-purge`, Node b6f10295a): a bot's whole deletion through the
 /// admin entry — `deleteAgentDefinition`, then `purgeAgentDefinition` twice — on the composition's agent definitions
 /// (`build_agents`, `DaemonAgentEffects` over `ServiceChannels`) and channel stack over a real store, config and data
@@ -524,23 +651,4 @@ async fn a_bots_whole_deletion_through_the_admin_entry_leaves_what_node_leaves()
         got["state"] = state().await;
         assert_eq!(got, *phase, "{step}");
     }
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_public_base_exists_once_a_tunnel_persisted_an_identity() {
-    let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let relay = Some("wss://relay.example/".to_owned());
-    let base = HookIdentityBase::new(tokens.durability_io, dir.path().to_path_buf(), relay.clone());
-    assert_eq!(base.hook_public_base().await, Ok(None), "no identity is created by a read");
-    let files = DeviceFiles::at(dir.path().to_path_buf(), "relay-hook-device.json");
-    let identity = mixdog_core_base::support::on_lane(tokens.durability_io, &CancellationToken::new(), move |lane| files.load_or_create(lane))
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(base.hook_public_base().await, Ok(Some(format!("https://relay.example/hook/{}", identity.device_id))));
-    let off = HookIdentityBase::new(tokens.durability_io, dir.path().to_path_buf(), Some("off".to_owned()));
-    assert_eq!(off.hook_public_base().await, Ok(None), "a switched-off relay has no public base");
-    let bad = HookIdentityBase::new(tokens.durability_io, dir.path().to_path_buf(), Some("ftp://relay.example".to_owned()));
-    assert!(bad.hook_public_base().await.is_err(), "an invalid relay URL is Node's thrown TypeError");
 }

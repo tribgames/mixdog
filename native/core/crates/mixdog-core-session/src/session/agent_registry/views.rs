@@ -458,10 +458,58 @@ impl Facts {
     }
 }
 
+/// The session a memo's facts were read with. A loaded session is kept as the published header it was read from, held
+/// weakly, never as a row: a memo outlives neither that header nor the session's stay in memory, and keeps no copy of it (a
+/// worker's header carries its whole tool list), the registry's overlay included, which is derived again from the header
+/// when the facts are taken. A row read from the index is held as read.
+#[derive(Clone)]
+enum KeptSession {
+    None,
+    Read(Arc<Row>),
+    Published(super::Published),
+}
+
+/// [`Facts`] as a memo keeps them.
+#[derive(Clone)]
+struct KeptFacts {
+    session: KeptSession,
+    blocks: bool,
+}
+
+impl KeptFacts {
+    fn of(facts: &Facts, published: Option<super::Published>) -> Self {
+        let session = match (&facts.session, published) {
+            (None, _) => KeptSession::None,
+            (Some(_), Some(published)) => KeptSession::Published(published),
+            (Some(row), None) => KeptSession::Read(row.clone()),
+        };
+        Self { session, blocks: facts.blocks }
+    }
+
+    /// As [`Facts::unbinds`] of the facts read.
+    fn unbinds(&self) -> bool {
+        matches!(self.session, KeptSession::None) || self.blocks
+    }
+
+    /// The facts as read of `session`; `None` once the published header they were read from is gone (the session published
+    /// another or left memory), so they are read again.
+    fn facts(&self, registry: &super::AgentRegistry, st: &State, session: &str) -> Option<Facts> {
+        let row = match &self.session {
+            KeptSession::None => None,
+            KeptSession::Read(row) => Some(row.clone()),
+            KeptSession::Published(published) => {
+                let header = published.header.upgrade()?;
+                Some(if published.overlay { Arc::new(registry.overlaid(st, session, &header)) } else { header })
+            }
+        };
+        Some(Facts { session: row, blocks: self.blocks })
+    }
+}
+
 /// The facts of a tag whose session is not loaded, while nothing they were read from changed.
 struct Memo {
     session_id: String,
-    facts: Facts,
+    facts: KeptFacts,
     /// The clock instants the facts hold for: `from <= now < until`.
     from: f64,
     until: f64,
@@ -487,6 +535,8 @@ pub(super) struct TagFacts {
     unbind: HashMap<Option<String>, BTreeSet<String>>,
     /// The tags a listing of an owner may add.
     lists: HashMap<String, BTreeSet<String>>,
+    /// The tags whose memo was read from a loaded session's published header.
+    published: HashSet<String>,
     /// The sessions loaded at the last pass, and its clock.
     loaded: HashSet<String>,
     last_now: f64,
@@ -497,6 +547,7 @@ pub(super) struct TagFacts {
 impl TagFacts {
     fn forget(&mut self, tag: &str) {
         let Some(memo) = self.memo.remove(tag) else { return };
+        self.published.remove(tag);
         if memo.until.is_finite() {
             self.ends.remove(&(Ms(memo.until), tag.to_owned()));
         }
@@ -541,6 +592,9 @@ impl TagFacts {
         }
         if let Some(owner) = &memo.lists_for {
             self.lists.entry(owner.clone()).or_default().insert(tag.to_owned());
+        }
+        if matches!(memo.facts.session, KeptSession::Published(_)) {
+            self.published.insert(tag.to_owned());
         }
         self.memo.insert(tag.to_owned(), memo);
     }
@@ -837,19 +891,31 @@ pub(super) fn constrain(w: &mut Window, map: &Row, now: f64) {
 /// of the others read again.
 pub(super) struct TagPass {
     pub(super) unstamped: HashSet<String>,
+    /// The one reading of this pass for each tag whose kept facts it read or read again, by tag, with the session it was
+    /// read for: what the pass selects tags by (the memos' `lists_for` and unbinding) and the rows it answers come from this
+    /// reading, held strongly until the pass ends, whatever the session publishes meanwhile.
+    held: HashMap<String, (String, Facts)>,
 }
 
 impl super::AgentRegistry {
     /// `getLiveSession` and the scan guard for a bound tag, read now.
     pub(super) fn tag_facts(&self, st: &State, tag: &str, session: &str, now: f64) -> Facts {
+        self.read_tag_facts(st, tag, session, now).0
+    }
+
+    /// [`Self::tag_facts`], and the published header a loaded session was read from.
+    fn read_tag_facts(&self, st: &State, tag: &str, session: &str, now: f64) -> (Facts, Option<super::Published>) {
         #[cfg(any(test, feature = "test-support"))]
         work::note(|c| c.tags_visited += 1);
-        let found = self.live_session_row(st, session);
-        let blocks = found.as_ref().is_some_and(|s| {
+        let found = self.shared_live_session(st, session);
+        let blocks = found.as_ref().is_some_and(|read| {
             let index = st.tombstone_index(now);
-            self.blocks_scan(st, s, tag, &index)
+            self.blocks_scan(st, &read.row, tag, &index)
         });
-        Facts { session: found.map(Arc::new), blocks }
+        match found {
+            Some(read) => (Facts { session: Some(read.row), blocks }, read.published),
+            None => (Facts { session: None, blocks }, None),
+        }
     }
 
     /// Brings the kept facts up to date for a read at `now`: the loaded sessions are listed, and
@@ -897,12 +963,31 @@ impl super::AgentRegistry {
         }
         let mut stale: Vec<String> = facts.stale.drain().collect();
         stale.retain(|tag| st.tags.get(tag).is_some_and(|session| !unstamped.contains(session)));
+        // The kept facts read from a published header that this pass does not read again: the header is taken now, once, and
+        // held by the pass. One whose header is already gone is read again with the stale ones.
+        let rereads: HashSet<&String> = stale.iter().collect();
+        let kept: Vec<(String, String, KeptFacts)> = facts
+            .published
+            .iter()
+            .filter(|tag| !rereads.contains(tag))
+            .filter_map(|tag| facts.memo.get(tag).map(|memo| (tag.clone(), memo.session_id.clone(), memo.facts.clone())))
+            .collect();
         drop(views);
+        let mut held = HashMap::new();
+        for (tag, session, kept) in kept {
+            match kept.facts(self, st, &session) {
+                Some(read) => {
+                    held.insert(tag, (session, read));
+                }
+                None => stale.push(tag),
+            }
+        }
         let memos: Vec<(String, Memo)> = stale
             .into_iter()
             .map(|tag| {
                 let session = st.tags.get(&tag).cloned().unwrap_or_default();
-                let memo = self.memo(st, &tag, &session, now);
+                let (memo, read) = self.memo(st, &tag, &session, now);
+                held.insert(tag.clone(), (session, read));
                 (tag, memo)
             })
             .collect();
@@ -911,12 +996,12 @@ impl super::AgentRegistry {
             views.facts.forget(&tag);
             views.facts.keep(&tag, memo);
         }
-        TagPass { unstamped }
+        TagPass { unstamped, held }
     }
 
-    /// The facts of a tag whose session is not loaded, and how long they hold.
-    fn memo(&self, st: &State, tag: &str, session: &str, now: f64) -> Memo {
-        let facts = self.tag_facts(st, tag, session, now);
+    /// The facts of a tag whose session is not loaded, and how long they hold; with the facts as read.
+    fn memo(&self, st: &State, tag: &str, session: &str, now: f64) -> (Memo, Facts) {
+        let (facts, published) = self.read_tag_facts(st, tag, session, now);
         let (from, until) = match facts.session.as_deref() {
             // A settled session ages out a day after it settled at the earliest (the configured
             // reap window can only make it later); one not settled only when its record changes.
@@ -938,15 +1023,20 @@ impl super::AgentRegistry {
             let hidden = row.as_ref().is_some_and(|row| owner_key(row) == owner);
             (!hidden).then_some(owner)
         });
-        Memo { session_id: session.to_owned(), facts, from, until, guard, lists_for }
+        let memo = Memo { session_id: session.to_owned(), facts: KeptFacts::of(&facts, published), from, until, guard, lists_for };
+        (memo, facts)
     }
 
-    /// The facts of a bound tag at `now`: kept, or read now for a loaded session that gives no stamp.
+    /// The facts of a bound tag at `now`: this pass's reading, kept, or read now for a loaded session that gives no stamp.
     pub(super) fn facts_of(&self, st: &State, pass: &TagPass, tag: &str, session: &str, now: f64) -> Facts {
         if !pass.unstamped.contains(session) {
-            let views = st.views(now);
-            if let Some(memo) = views.facts.memo.get(tag).filter(|m| m.session_id == session && m.from <= now && now < m.until) {
-                return memo.facts.clone();
+            if let Some((_, read)) = pass.held.get(tag).filter(|(read_for, _)| read_for == session) {
+                return read.clone();
+            }
+            // A memo the pass holds no reading of keeps its row strongly: it reads the same every time.
+            let kept = st.views(now).facts.memo.get(tag).filter(|m| m.session_id == session && m.from <= now && now < m.until).map(|m| m.facts.clone());
+            if let Some(read) = kept.and_then(|kept| kept.facts(self, st, session)) {
+                return read;
             }
         }
         self.tag_facts(st, tag, session, now)

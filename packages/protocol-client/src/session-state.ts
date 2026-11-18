@@ -7,21 +7,41 @@
 //  - `desktopSessionState` projects that fold, the pending server requests and the `hostShellJobs` section into the
 //    `DesktopSessionState` the UI reads. `toolApproval`/`toolApprovalsWaiting` come from server requests (protocol.md §8.5) and
 //    `hostShellJobs` from the app feed, which are not part of the thread feed, so they are joined here and nowhere else.
-import type { Json, JsonRpcNotification, ProtocolClient, ServerRequest, ThreadReducer } from './api.ts';
+import type { Json, JsonRpcNotification, ProtocolClient, ServerRequest, StreamPosition, ThreadReducer } from './api.ts';
+import { streamPositionReached } from './api.ts';
 import { asObj, isObj } from './obj.ts';
 import type { Obj } from './obj.ts';
-import { mergeToolRows, mergeToolRowsSteps, rowOf, rowsOf } from './rows.ts';
+import { itemRows, mergeToolRows, mergeToolRowsSteps, rowOf, rowsOf } from './rows.ts';
 
 
 /** The projection the UI reads: a flat record of `DesktopSessionState` fields. */
 export type DesktopSessionState = Readonly<Record<string, Json>>;
 
-/** Assistant text being streamed: the item id, the row identity the tail will take over, and the text so far. */
+/** Assistant text being streamed: the item id, the row identity the tail will take over, and the text so far, held as its
+ *  completed lines (`lines`, up to and including the last newline) and the unfinished line after them (`rest`). A delta is
+ *  appended to these two parts by looking only at the delta, so the reply so far is never rescanned or flattened per token. */
 interface Live {
   readonly id: string;
   readonly identity: Obj;
-  readonly text: string;
+  readonly lines: string;
+  readonly rest: string;
 }
+
+/** `text` cut at its last newline. */
+function splitLive(text: string): { lines: string; rest: string } {
+  const cut = text.lastIndexOf('\n') + 1;
+  return { lines: text.slice(0, cut), rest: text.slice(cut) };
+}
+
+/** `live` with `delta` appended. */
+function appendLive(live: Live, delta: string): Live {
+  const cut = delta.lastIndexOf('\n') + 1;
+  if (cut === 0) return { ...live, rest: live.rest + delta };
+  return { ...live, lines: live.lines + live.rest + delta.slice(0, cut), rest: delta.slice(cut) };
+}
+
+/** Whether the live row shows an unfinished line (`liveFields` sets `streamingPartial`). */
+const showsPartial = (live: Live): boolean => (live.lines ? live.rest !== '' : /\S/.test(live.rest));
 
 /** The reducer state of one thread feed. */
 export interface SessionFold {
@@ -40,6 +60,11 @@ export interface SessionFold {
   readonly frames?: number;
   /** `structureRevision` as Node's frames commit it: one up per frame that changed the rows' structure (frame-batched-store.mjs:37). */
   readonly framedRevision?: number;
+  /** The `thread/snapshot` this fold grew from, a new object per snapshot: a reader that holds an earlier fold tells a fold
+   *  that replaced it from one that advanced it. The invariant its readers rely on (`subscribeFramedSessionStates`, the desktop's
+   *  session lane): every snapshot's fold gets a fresh object (`initialSteps`), and every incremental step keeps it as it is
+   *  (the reducer spreads the fold). test/framed-states.test.ts fails when either stops holding. */
+  readonly origin?: object;
 }
 
 // ───────────────────────────── sections ─────────────────────────────
@@ -72,8 +97,10 @@ const SECTIONS: Readonly<Record<string, SectionDef>> = {
   // The setup tool's desktop request (`{ id, at }`, Node's session store `setupUiRequest`), held by the thread until a window
   // claims it or its claim window ends; a snapshot carries it as a replay does.
   'thread/setupUiRequest/updated': { stateKey: 'setupUiRequest', field: 'setupUiRequest' },
-  // A group room log's view while the room runs (`{ busy, toolApproval?, typing?, handoffQuestions? }`, Node's
-  // `decorateRoomSnapshot`): not a field of its own, laid over the log's fields by `desktopSessionState`.
+  // A group room log's view while the room runs (`{ busy, toolApproval?, typing?, deciding?, handoffQuestions? }`, Node's
+  // `decorateRoomSnapshot`): not a field of its own, laid over the log's fields by `desktopSessionState`. The core sends it
+  // with the row it landed with (`item/completed.roomView`) or alone when no row changes; the typing row is the core's, drawn
+  // as supplied.
   'thread/roomView/updated': { stateKey: 'roomView', field: 'roomView' },
 };
 
@@ -125,6 +152,11 @@ function transcriptOf(items: readonly Obj[]): Obj[] {
   return rows;
 }
 
+/** The most rows a subscribed thread's fold holds while rows keep arriving: the desktop's largest transcript read (main/ipc-validation.ts
+ * TRANSCRIPT_WINDOW_MAX_ITEMS), so a thread followed for long keeps a bounded window. A row past it drops the oldest, and the fold
+ * says older rows exist (`transcriptHasOlder`), which paging reads back as it reads rows above any window. */
+export const FOLD_MAX_ITEMS = 8_192;
+
 function upsert(items: readonly Obj[], row: Obj): Obj[] {
   let at = items.length - 1;
   while (at >= 0 && items[at]?.id !== row.id) at--;
@@ -170,10 +202,16 @@ function fieldsOfState(state: Obj, hasOlder: boolean): Obj {
   return fields;
 }
 
+/** The live text of an `agentMessage` item: the row it settles as, without its text. */
+function liveOf(item: Obj, row: Obj): Live {
+  const { text, ...identity } = row;
+  return { id: String(item.id), identity: { ...identity, kind: 'assistant', streaming: true }, ...splitLive(typeof text === 'string' ? text : '') };
+}
+
 const withLive = (s: SessionFold, live: Live | null): SessionFold => ({
   ...s,
   live,
-  ...(!s.partialShown && live && liveFields(live).streamingPartial !== undefined ? { partialShown: true } : {}),
+  ...(!s.partialShown && live && showsPartial(live) ? { partialShown: true } : {}),
 });
 const withField = (s: SessionFold, key: string, value: Json | undefined): SessionFold => {
   const fields: Obj = { ...s.fields };
@@ -189,14 +227,22 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
   const p = asObj(snapshot);
   const source = Array.isArray(p.items) ? p.items : [];
   const items: Obj[] = [];
+  let live: Live | null = null;
   for (let i = 0; i < source.length; i++) {
-    items.push(...rowsOf(asObj(source[i])));
+    const item = asObj(source[i]);
+    // The reply the turn is streaming (the core's in-progress item, its text so far) is the live row `item/started` and its deltas
+    // made, not a settled row: a snapshot taken mid-stream folds to the state the live feed had, and the next delta extends it.
+    const row = item.type === 'agentMessage' && asObj(item.meta).status === 'inProgress' ? rowOf(item) : null;
+    if (row) live = liveOf(item, row);
+    else items.push(...rowsOf(item));
     if (i % ITEMS_PER_STEP === ITEMS_PER_STEP - 1) yield;
   }
   transcriptCache.set(items, yield* mergeToolRowsSteps(items));
   // Node's store begins at 0 (initial-state.mjs:18) and a snapshot's rows enter it as one structure change (transcript-store.mjs:74,
   // a restore's `replaceItems`; a new task's first row is a push, frame-batched-store.mjs:37): a snapshot with rows is revision 1.
-  return { sessionId: String(asObj(p.thread).id ?? ''), items, fields: fieldsOfState(asObj(p.state), p.hasOlder === true), live: null, structureRevision: items.length ? 1 : 0, frames: 0, framedRevision: items.length ? 1 : 0 };
+  // `origin` is a fresh object for each snapshot and is never replaced by a later step (`SessionFold.origin`).
+  const fold: SessionFold = { sessionId: String(asObj(p.thread).id ?? ''), items, fields: fieldsOfState(asObj(p.state), p.hasOlder === true), live: null, structureRevision: items.length ? 1 : 0, frames: 0, framedRevision: items.length ? 1 : 0, origin: {} };
+  return live ? withLive(fold, live) : fold;
 }
 
 export const sessionReducer: ThreadReducer<SessionFold> = {
@@ -230,23 +276,27 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
       case 'item/started':
       case 'item/completed': {
         const item = asObj(p.item);
-        const row = rowOf(item);
-        if (row === null) return s;
+        const [row, ...batched] = itemRows(item);
+        if (row === undefined) return s;
         // After a compaction the core sends each row of its window again, archived (`show_archived`). A row this store does not
         // hold lies above its tail window, older than the divider; appended, it showed below the divider, inside the current turn.
         // Node dims only the rows its store holds (`archiveItemsForCompaction`); paging reads the older ones, already archived.
         if (row.archived === true && !s.items.some((held) => held.id === row.id)) return s;
-        if (item.type === 'agentMessage' && n.method === 'item/started') {
-          const { text, ...identity } = row;
-          return withLive(s, { id: String(item.id), identity: { ...identity, kind: 'assistant', streaming: true }, text: typeof text === 'string' ? text : '' });
-        }
+        if (item.type === 'agentMessage' && n.method === 'item/started') return withLive(s, liveOf(item, row));
         const live = s.live?.id === item.id && n.method === 'item/completed' ? null : s.live;
-        return { ...s, items: upsert(s.items, row), live, structureRevision: s.structureRevision + 1 };
+        // A room log's row and the view that landed with it are one revision: the view rides on the row's notification
+        // (`roomView`), so both are folded here, before any subscriber is told.
+        const viewed = p.roomView === undefined ? s.fields : withSection(s.fields, SECTIONS['thread/roomView/updated']!, p.roomView);
+        const upserted = batched.reduce(upsert, upsert(s.items, row));
+        const drop = upserted.length - FOLD_MAX_ITEMS;
+        const items = drop > 0 ? upserted.slice(drop) : upserted;
+        const fields = drop > 0 && viewed.transcriptHasOlder !== true ? { ...viewed, transcriptHasOlder: true } : viewed;
+        return { ...s, items, live, fields, structureRevision: s.structureRevision + 1 };
       }
       case 'item/agentMessage/delta': {
         const id = String(p.itemId);
         const delta = typeof p.delta === 'string' ? p.delta : '';
-        const live = s.live?.id === id ? { ...s.live, text: s.live.text + delta } : { id, identity: { id, kind: 'assistant', streaming: true }, text: delta };
+        const live = s.live?.id === id ? appendLive(s.live, delta) : { id, identity: { id, kind: 'assistant', streaming: true }, ...splitLive(delta) };
         return withLive(s, live);
       }
       case 'thread/historyReset': {
@@ -268,14 +318,13 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
 /** The live row as `streamingTail` (what the terminal shows, gated to completed lines) and `streamingPartial` (the unfinished
  * line beyond it), as the engine publishes them today (turn-stream.mjs `partialNow`). */
 function liveFields(live: Live): Obj {
-  const cut = live.text.lastIndexOf('\n') + 1;
-  const rest = live.text.slice(cut);
+  const { lines, rest } = live;
   const out: Obj = {};
-  if (cut > 0) {
-    out.streamingTail = { ...live.identity, text: live.text.slice(0, cut) };
-    if (rest) out.streamingPartial = { id: live.id, from: cut, text: rest };
-  } else if (live.text.trim()) {
-    out.streamingPartial = { id: live.id, from: 0, text: live.text, tail: live.identity };
+  if (lines) {
+    out.streamingTail = { ...live.identity, text: lines };
+    if (rest) out.streamingPartial = { id: live.id, from: lines.length, text: rest };
+  } else if (showsPartial(live)) {
+    out.streamingPartial = { id: live.id, from: 0, text: rest, tail: live.identity };
   }
   return out;
 }
@@ -390,23 +439,42 @@ export function sessionStateOf(client: ProtocolClient<SessionFold>, threadId: st
 
 /** The thread's states as Node's frame publisher published them (frame-batched-store.mjs): `listener` hears the first fold of the
  *  thread and then one state per `thread/frame`, its `structureRevision` the frames' (one up per frame that changed the rows'
- *  structure). The phone shows these; a reader of every change uses `sessionStateOf`. */
+ *  structure). A fold that replaces the thread's (a resume's new snapshot: another window, a redial) is a first fold again, its
+ *  frames counted from none.
+ *
+ *  What is heard is kept per fold, by the fold's `origin` (`initialSteps`: one new object per snapshot, carried unchanged by every
+ *  incremental step of the reducer), so it goes with the fold: a thread that is unsubscribed or lost leaves nothing behind. A
+ *  fold without an `origin` is heard at every change. The phone shows these; a reader of every change uses `sessionStateOf`.
+ *
+ *  Each state is heard with the feed position it was folded up to. A note that schedules no frame and leaves the fold as it was
+ *  (stage, model-request and tool-batch telemetry) makes the state last heard current at its later position: `current` hears
+ *  that position, with the state last heard, so a reader comparing with a received position (`feedPosition`) always reaches it. */
 export function subscribeFramedSessionStates(
   client: ProtocolClient<SessionFold>,
   threadId: () => string | undefined,
-  listener: (threadId: string, state: DesktopSessionState) => void
+  listener: (threadId: string, state: DesktopSessionState, position: StreamPosition) => void,
+  current?: (threadId: string, state: DesktopSessionState, position: StreamPosition) => void
 ): () => void {
-  const heard = new Map<string, number>();
+  const heard = new WeakMap<object, { frames: number; fold: SessionFold; state: DesktopSessionState; position: StreamPosition }>();
   return client.store.subscribe((change) => {
     if (change.type !== 'thread') return;
     const id = threadId() ?? change.threadId;
     if (change.threadId !== id) return;
-    const fold = client.store.thread(id)?.state;
-    if (!fold) return;
+    const entry = client.store.thread(id);
+    const fold = entry?.state;
+    if (!entry || !fold) return;
     const frames = fold.frames ?? 0;
-    if (heard.get(id) === frames) return;
-    heard.set(id, frames);
-    const state = desktopSessionState(fold, client.pendingServerRequests(), client.store.section('hostShellJobs')?.value);
-    listener(id, { ...state, structureRevision: fold.framedRevision ?? fold.structureRevision });
+    const position: StreamPosition = { epoch: entry.feed.epoch, seq: entry.feed.seq, order: entry.order };
+    const last = fold.origin ? heard.get(fold.origin) : undefined;
+    if (last && last.frames === frames) {
+      if (current && last.fold === fold && !streamPositionReached(last.position, position)) {
+        heard.set(fold.origin as object, { ...last, position });
+        current(id, last.state, position);
+      }
+      return;
+    }
+    const state = { ...desktopSessionState(fold, client.pendingServerRequests(), client.store.section('hostShellJobs')?.value), structureRevision: fold.framedRevision ?? fold.structureRevision };
+    if (fold.origin) heard.set(fold.origin, { frames, fold, state, position });
+    listener(id, state, position);
   });
 }

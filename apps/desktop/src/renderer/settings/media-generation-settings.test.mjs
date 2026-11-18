@@ -316,6 +316,43 @@ test('choosing a model persists the pin and Auto clears it', async () => {
   }
 });
 
+test('Retry recovers a failed Media settings read without clearing saved defaults', async () => {
+  for (const failedRead of ['listMediaLanes', 'getMediaPins']) {
+    const api = fakeApi({
+      pins: {
+        image: { lane: 'openai-oauth', model: 'gpt-image-2', account: 'acc-2' },
+        video: { lane: 'grok-oauth', model: 'grok-imagine-video', account: '' },
+      },
+      accounts: { 'openai-oauth': [{ id: 'acc-2', label: 'Work' }] },
+    });
+    const invoke = api.invokeCapability;
+    let fail = true;
+    api.invokeCapability = async (request) => {
+      if (fail && request.capability === failedRead) throw new Error('Media read failed');
+      return invoke(request);
+    };
+    const view = await mount(api);
+    try {
+      assert.equal(trigger('image').disabled, true, failedRead);
+      assert.equal(trigger('video').disabled, true, failedRead);
+      assert.notEqual(trigger('image').textContent, 'Auto', failedRead);
+      const retry = [...document.querySelectorAll('[data-media-generation] button')].find(
+        (button) => button.textContent === 'Retry'
+      );
+      assert.ok(retry, failedRead);
+      fail = false;
+      await click(retry);
+      assert.equal(trigger('image').disabled, false, failedRead);
+      assert.equal(trigger('video').disabled, false, failedRead);
+      assert.match(trigger('image').textContent, /GPT Image 2\s*Work/);
+      assert.equal(trigger('video').textContent, 'Grok Imagine Video');
+      assert.deepEqual(api.saved, []);
+    } finally {
+      await view.dispose();
+    }
+  }
+});
+
 test('saved defaults load into the triggers', async () => {
   const api = fakeApi({ pins: { image: null, video: { kind: 'video', lane: 'grok-oauth', model: '', account: '' } } });
   const view = await mount(api);
@@ -466,3 +503,74 @@ test('only the latest save of a kind sets or rolls back its pin', async () => {
     host.remove();
   }
 });
+
+async function checkPinRetry(failLatestBeforeRead) {
+  const cachedPin = { lane: 'openai-oauth', model: 'gpt-image-2', account: '' };
+  const hostPin = { lane: 'openai-oauth', model: 'gpt-image-2', account: 'work' };
+  const saves = [];
+  let finishRetry;
+  let pinReads = 0;
+  const api = {
+    async invokeCapability({ capability }) {
+      if (capability === 'listMediaLanes') return { value: LANES };
+      if (capability === 'getMediaPins') {
+        pinReads += 1;
+        if (pinReads === 1) return { value: { image: cachedPin, video: null } };
+        if (pinReads === 2) throw new Error('Media read failed');
+        return new Promise((resolve) => {
+          finishRetry = resolve;
+        });
+      }
+      if (capability === 'setMediaPin') {
+        return new Promise((_, reject) => saves.push(reject));
+      }
+      return { value: {} };
+    },
+  };
+  let data;
+  function Probe({ active }) {
+    data = useMediaGeneration(api, active);
+    return null;
+  }
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = (active) => act(async () => root.render(React.createElement(Probe, { active })));
+  try {
+    await render(true);
+    await render(false);
+    await render(true);
+    const older = { lane: 'openai-oauth', model: 'gpt-image-2', account: 'personal' };
+    const newer = { lane: 'grok-oauth', model: 'grok-imagine-image', account: '' };
+    await act(async () => {
+      void data.save('image', older);
+    });
+    await act(async () => data.retry());
+    await act(async () => {
+      void data.save('image', newer);
+    });
+    const finishRead = () => act(async () => finishRetry({ value: { image: hostPin, video: null } }));
+    const failSave = (index) => act(async () => saves[index](new Error('Save failed')));
+    if (failLatestBeforeRead) {
+      await failSave(1);
+      await finishRead();
+      assert.deepEqual(data.pins.image, hostPin, 'the retry is visible while the older save is still pending');
+      await failSave(0);
+    } else {
+      await finishRead();
+      assert.deepEqual(data.pins.image, newer);
+      await failSave(0);
+      assert.deepEqual(data.pins.image, newer);
+      await failSave(1);
+    }
+    assert.deepEqual(data.pins.image, hostPin);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+}
+
+test('a saved-default retry refreshes the rollback pin without replacing a pending edit', () => checkPinRetry(false));
+
+test('a saved-default retry publishes the host pin after the latest save fails while an older save is pending', () =>
+  checkPinRetry(true));

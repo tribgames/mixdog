@@ -50,11 +50,19 @@ pub struct AgentActivity {
     sink: Arc<dyn ActivitySink>,
     /// Woken by every signal, loaded owners or not: the `agentPool` section re-lists on it.
     changed: Arc<Notify>,
+    /// Cancels the agent jobs a session started (`cancelBackgroundTasks({ surface: 'agent', callerSessionId, reason })`); bound
+    /// once the job board exists, which is built over this listener.
+    cancel_jobs: std::sync::OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
 }
 
 impl AgentActivity {
     pub fn new(sink: Arc<dyn ActivitySink>) -> Arc<Self> {
-        Arc::new(Self { sink, changed: Arc::new(Notify::new()) })
+        Arc::new(Self { sink, changed: Arc::new(Notify::new()), cancel_jobs: std::sync::OnceLock::new() })
+    }
+
+    /// Binds the cancel of a session's agent jobs; a second bind is refused.
+    pub fn bind_cancel_jobs(&self, cancel: Arc<dyn Fn(&str) + Send + Sync>) -> Result<(), Arc<dyn Fn(&str) + Send + Sync>> {
+        self.cancel_jobs.set(cancel)
     }
 
     /// The wake of the `agentPool` section: one permit however many signals arrived since it was last awaited.
@@ -95,6 +103,11 @@ impl StatusSignals for AgentActivity {
     fn worker_rows(&self, _session: &str) {
         self.everyone();
     }
+
+    /// A Lead pool row is no agent's status: the pool re-lists, no thread re-reads.
+    fn lead_rows(&self, _session: &str) {
+        self.changed.notify_one();
+    }
 }
 
 /// The session actor's sources (`SessionDeps.agent_signals`). Node's listeners of both ignore the
@@ -107,6 +120,12 @@ impl mixdog_core_session::session::agent_activity::AgentSignals for AgentActivit
 
     fn session_record(&self, _session: &str) {
         self.everyone();
+    }
+
+    fn agent_turn_aborted(&self, session: &str) {
+        if let Some(cancel) = self.cancel_jobs.get() {
+            cancel(session);
+        }
     }
 }
 
@@ -177,6 +196,18 @@ mod tests {
             assert!(changed.notified().now_or_never().is_some(), "a signal wakes the section");
             assert!(changed.notified().now_or_never().is_none(), "a burst is one wake");
         }
+    }
+
+    /// A Lead pool row write wakes the pool section and no loaded thread.
+    #[test]
+    fn a_lead_row_write_wakes_the_pool_alone() {
+        use futures::FutureExt;
+        let sink = Arc::new(Sink(vec!["a", "b"], Mutex::default()));
+        let activity = AgentActivity::new(sink.clone());
+        let changed = activity.changed();
+        activity.signals().lead_rows("lead");
+        assert!(sink.1.lock().unwrap().is_empty(), "no thread re-reads");
+        assert!(changed.notified().now_or_never().is_some(), "the pool re-lists");
     }
 
     #[test]

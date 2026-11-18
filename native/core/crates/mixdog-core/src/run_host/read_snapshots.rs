@@ -126,6 +126,7 @@ mod tests {
         assert_eq!(file_name(&"x".repeat(300)).len(), 200 + ".json".len());
     }
 
+
     #[tokio::test]
     async fn only_scopes_older_than_thirty_days_are_swept() {
         let dir = tempfile::tempdir().unwrap();

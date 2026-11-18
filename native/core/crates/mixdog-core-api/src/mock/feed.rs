@@ -123,12 +123,18 @@ impl Shared {
     fn encode(&self, job: Encode) {
         let _ = self.cpu.submit(&CancellationToken::new(), move |lane| {
             let frame = job.view.encode_snapshot(lane, job.at, &job.window);
-            job.slot.fill(frame);
+            // The view's delivery form of the frame, as the product feed hands it to each lane (`FeedView::at_delivery`).
+            job.slot.fill(job.view.at_delivery(frame));
         });
     }
 }
 
 impl FeedSource for MockFeed {
+    fn position(&self) -> FeedPosition {
+        let seq = self.shared.lock().seq;
+        self.shared.position(seq)
+    }
+
     fn feed_id(&self) -> FeedId {
         self.shared.id.clone()
     }
@@ -219,11 +225,6 @@ impl FeedSource for MockFeed {
 }
 
 impl Feed for MockFeed {
-    fn position(&self) -> FeedPosition {
-        let seq = self.shared.lock().seq;
-        self.shared.position(seq)
-    }
-
     fn publish(
         &self,
         frames: &[FeedFrame],

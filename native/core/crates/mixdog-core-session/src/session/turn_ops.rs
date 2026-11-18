@@ -178,8 +178,9 @@ pub trait SideQuestions: Send + Sync {
     fn forget(&self, thread: &ThreadId, cancel: bool);
     /// Sends the fork of the session's request (`buildForkedRequest`) with `prompt` as its last
     /// user message and `tool_stub` answering each tool call of the saved reply, on its own
-    /// transport scope, one provider call, no tools executed; logs the usage as `side-question`.
-    async fn send(&self, thread: &ThreadId, prompt: &str, tool_stub: &str, cancel: &CancellationToken) -> Result<SideReply, SideFailure>;
+    /// transport scope, one provider call, no tools executed; logs the usage as `side-question`. `idle`: no turn or
+    /// compaction of the session is running, so a cold transcript may be compacted before the question is asked.
+    async fn send(&self, thread: &ThreadId, prompt: &str, tool_stub: &str, idle: bool, cancel: &CancellationToken) -> Result<SideReply, SideFailure>;
 }
 
 /// The stored transcripts of the copies of a session's conversation in other sessions (`offloadCopies`), serialized
@@ -230,6 +231,11 @@ pub trait ManualCompaction: Send + Sync {
     /// saved configuration, when it differs from the header's. `install`: the session is being installed
     /// (the one sync that leaves an injected configuration's sessions alone).
     fn synced_compaction(&self, header: &mixdog_store::schema::record::Header, install: bool) -> Option<Value>;
+    /// `refreshSessionProviderCacheOpts(session)` of a resumed session (`session-lifecycle.mjs:649`): the `providerCacheOpts` the
+    /// thread's Lead cache class derives from the saved `autoClear`, when that differs from the header's.
+    fn synced_cache_opts(&self, _header: &mixdog_store::schema::record::Header) -> Option<Value> {
+        None
+    }
     /// The configured values the route section carries besides the session's own: `autoClear` (`getAutoClear`), `systemShell`
     /// (`normalizeSystemShellConfig(config.shell)`) and `webSearchRoute` (`webSearchRouteOrDefault(config.webSearchRoute)`), for
     /// the thread whose header is `header`.
@@ -298,7 +304,7 @@ fn side_question_prompt(question: &str) -> String {
 }
 
 /// `askSideQuestion`: the answer text. Rejects with Node's messages.
-pub async fn ask_side_question(side: &dyn SideQuestions, thread: &ThreadId, question: &str) -> Result<String, CoreError> {
+pub async fn ask_side_question(side: &dyn SideQuestions, thread: &ThreadId, question: &str, idle: bool) -> Result<String, CoreError> {
     let text = mixdog_js::js_trim(question);
     if text.is_empty() {
         return Err(failure("Side question is empty."));
@@ -307,7 +313,7 @@ pub async fn ask_side_question(side: &dyn SideQuestions, thread: &ThreadId, ques
         return Err(failure(SIDE_QUESTION_NO_REQUEST));
     }
     let run = side.begin(thread);
-    let sent = side.send(thread, &side_question_prompt(text), SIDE_QUESTION_TOOL_STUB, &run.cancel).await;
+    let sent = side.send(thread, &side_question_prompt(text), SIDE_QUESTION_TOOL_STUB, idle, &run.cancel).await;
     // A cancel that raced the reply wins over it (`if (run.signal.aborted) throw ...`).
     if run.cancel.is_cancelled() || matches!(sent, Err(SideFailure::Aborted)) {
         return Err(failure(SIDE_QUESTION_CANCELED));

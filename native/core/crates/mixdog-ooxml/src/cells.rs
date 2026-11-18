@@ -742,6 +742,102 @@ pub fn set_cells_in_sheet(xml: &str, entries: &[CellEntry<'_>]) -> Result<String
     Ok(write_sheet_rows(xml, &data, &rows))
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many held cells and written cells a test's thread looked at while placing formulas in rows.
+    static ROW_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Formulas written in one pass over the sheet, each into its cell as a single write of it would: the style the cell already carries is
+/// kept as written, a cell with none gets none, and every other part of the sheet (the rows and cells not written, a row's other
+/// children such as its `extLst`) stays as it was. Only the rows that receive a formula are rebuilt.
+pub fn set_formulas_in_sheet(xml: &str, entries: &[(String, String)]) -> Result<String, String> {
+    let data = sheet_data_of(xml)?;
+    let inner = container_body(&xml[data.clone()], "sheetData");
+    // row number -> column -> (reference, formula); a cell written twice keeps the later formula.
+    let mut wanted: BTreeMap<u64, BTreeMap<u64, (String, String)>> = BTreeMap::new();
+    for (reference, formula) in entries {
+        let parsed = parse_cell_ref(reference)?;
+        wanted.entry(parsed.row).or_default().insert(column_number(&parsed.col) as u64, (parsed.reference, formula.clone()));
+    }
+    let mut body = String::with_capacity(inner.len());
+    let mut taken = 0;
+    for span in element_spans(&inner, "row") {
+        let index = row_index(&span.attrs);
+        // Rows that did not exist and come before this one are made in row order.
+        while index != 0 && let Some(next) = wanted.keys().next().copied().filter(|next| *next < index) {
+            let cells = wanted.remove(&next).unwrap_or_default();
+            body.push_str(&inner[taken..span.start]);
+            taken = span.start;
+            body.push_str(&new_row(next, &cells));
+        }
+        body.push_str(&inner[taken..span.start]);
+        taken = span.end;
+        match wanted.remove(&index).filter(|_| index != 0) {
+            Some(cells) => body.push_str(&rebuilt_row(&span, &cells)?),
+            None => body.push_str(&span.xml),
+        }
+    }
+    body.push_str(&inner[taken..]);
+    for (index, cells) in wanted {
+        body.push_str(&new_row(index, &cells));
+    }
+    Ok(format!("{}<sheetData>{body}</sheetData>{}", &xml[..data.start], &xml[data.end..]))
+}
+
+fn new_row(index: u64, cells: &BTreeMap<u64, (String, String)>) -> String {
+    let cells: String = cells.values().map(|(reference, formula)| cell_xml(reference, &Value::Null, formula, None)).collect();
+    format!("<row r=\"{index}\">{cells}</row>")
+}
+
+/// A row with the formulas written into it: a cell it holds is replaced in place (its style kept), a new one goes before the first
+/// cell of a later column or after the last cell; nothing else of the row moves.
+fn rebuilt_row(row: &crate::xml::Span, cells: &BTreeMap<u64, (String, String)>) -> Result<String, String> {
+    let attrs = group_one(&ROW_OPEN, &row.xml).unwrap_or_default();
+    let body = container_body(&row.xml, "row");
+    let held: Vec<(crate::xml::Span, u64)> = element_spans(&body, "c")
+        .into_iter()
+        .filter_map(|span| {
+            let reference = element_reference(&span.attrs);
+            (!reference.is_empty()).then(|| parse_cell_ref(&reference).map(|parsed| (span, column_number(&parsed.col) as u64)))
+        })
+        .collect::<Result<_, _>>()?;
+    // The held cells by column (the first of a column in the row's order), so each written cell finds its place in one lookup.
+    let mut by_column: BTreeMap<u64, usize> = BTreeMap::new();
+    for (at, (_, held_column)) in held.iter().enumerate() {
+        #[cfg(test)]
+        ROW_PROBES.with(|probes| probes.set(probes.get() + 1));
+        by_column.entry(*held_column).or_insert(at);
+    }
+    // (where it goes, column, the cell, how much of the old text it replaces)
+    let mut edits: Vec<(usize, u64, String, usize)> = Vec::new();
+    for (column, (reference, formula)) in cells {
+        #[cfg(test)]
+        ROW_PROBES.with(|probes| probes.set(probes.get() + 1));
+        match by_column.get(column) {
+            Some(&at) => {
+                let span = &held[at].0;
+                let style = group_one(&STYLE_ATTRIBUTE, &span.attrs);
+                edits.push((span.start, *column, cell_xml(reference, &Value::Null, formula, style.as_deref()), span.end - span.start));
+            }
+            None => {
+                let later = by_column.range((std::ops::Bound::Excluded(*column), std::ops::Bound::Unbounded)).next();
+                let at = later.map_or_else(|| held.last().map_or(0, |(span, _)| span.end), |(_, &held_at)| held[held_at].0.start);
+                edits.push((at, *column, cell_xml(reference, &Value::Null, formula, None), 0));
+            }
+        }
+    }
+    edits.sort_by_key(|(at, column, ..)| (*at, *column));
+    let (mut out, mut from) = (String::new(), 0);
+    for (at, _, cell, replaced) in edits {
+        out.push_str(&body[from..at]);
+        out.push_str(&cell);
+        from = at + replaced;
+    }
+    out.push_str(&body[from..]);
+    Ok(format!("<row{attrs}>{out}</row>"))
+}
+
 /// A style to apply to a cell.
 #[derive(Debug, Clone, Copy)]
 pub struct CellStyle<'a> {
@@ -831,6 +927,62 @@ mod tests {
 
     fn strings() -> Vec<String> {
         vec!["Name".to_owned(), "Tom & Jerry".to_owned()]
+    }
+
+    /// A sheet whose rows hold more than cells: a row's `extLst`, a styled cell, a merge and a row of attributes.
+    const BUSY: &str = "<worksheet><sheetData><row r=\"1\" spans=\"1:3\" ht=\"20\" customHeight=\"1\"><c r=\"A1\" s=\"4\"><v>1</v></c><c r=\"C1\"><v>3</v></c><extLst><ext uri=\"{x}\"><v/></ext></extLst></row><row r=\"2\"><c r=\"A2\"><v>2</v></c><extLst><ext uri=\"{y}\"/></extLst></row><row r=\"4\"><c r=\"B4\"><v>9</v></c></row></sheetData><mergeCells count=\"1\"><mergeCell ref=\"A1:B1\"/></mergeCells></worksheet>";
+
+    #[test]
+    fn a_run_of_formulas_leaves_what_it_does_not_write_and_equals_writing_them_one_by_one() {
+        // An existing styled cell, a cell of an untouched row, a new cell before a later column, and rows that do not exist yet.
+        let entries: Vec<(String, String)> = [("A1", "=B2+1"), ("B1", "=A1*2"), ("A3", "=A2"), ("B3", "=A3"), ("C5", "=B4")]
+            .iter()
+            .map(|(reference, formula)| ((*reference).to_owned(), (*formula).to_owned()))
+            .collect();
+        let together = set_formulas_in_sheet(BUSY, &entries).expect("one pass");
+        let mut one_by_one = BUSY.to_owned();
+        for (reference, formula) in &entries {
+            one_by_one = set_cell_in_sheet(&one_by_one, reference, &Value::Null, formula).expect("one cell");
+        }
+        assert_eq!(together, one_by_one);
+        // The row the formulas did not reach keeps its children, and the rows they did reach keep their attributes and extLst.
+        assert!(together.contains("<row r=\"2\"><c r=\"A2\"><v>2</v></c><extLst><ext uri=\"{y}\"/></extLst></row>"), "{together}");
+        assert!(together.contains("<row r=\"1\" spans=\"1:3\" ht=\"20\" customHeight=\"1\">"), "{together}");
+        assert!(together.contains("<extLst><ext uri=\"{x}\"><v/></ext></extLst></row>"), "{together}");
+        assert!(together.contains("<c r=\"A1\" s=\"4\"><f>B2+1</f>"), "the style of a written cell is kept: {together}");
+    }
+
+    fn column_letters(mut number: usize) -> String {
+        let mut letters = String::new();
+        while number > 0 {
+            letters.insert(0, (b'A' + ((number - 1) % 26) as u8) as char);
+            number = (number - 1) / 26;
+        }
+        letters
+    }
+
+    #[test]
+    fn a_wide_range_written_into_an_existing_row_looks_at_each_cell_a_constant_number_of_times() {
+        // 100 held cells in odd columns; formulas go into 200 columns, half of them held: every cell is looked at once to file it
+        // and once to place, however wide the row is.
+        let held: String = (0..100).map(|k| format!("<c r=\"{}1\"><v>{k}</v></c>", column_letters(2 * k + 1))).collect();
+        let xml = format!("<worksheet><sheetData><row r=\"1\">{held}</row></sheetData></worksheet>");
+        let entries: Vec<(String, String)> = (1..=200).map(|k| (format!("{}1", column_letters(k)), "=1".to_owned())).collect();
+        ROW_PROBES.with(|probes| probes.set(0));
+        let written = set_formulas_in_sheet(&xml, &entries).expect("one pass");
+        let probes = ROW_PROBES.with(std::cell::Cell::get);
+        assert!(probes <= 100 + 200, "{probes} looks at cells for 100 held and 200 written");
+        let mut one_by_one = xml.clone();
+        for (reference, formula) in &entries {
+            one_by_one = set_cell_in_sheet(&one_by_one, reference, &Value::Null, formula).expect("one cell");
+        }
+        assert_eq!(written, one_by_one);
+    }
+
+    #[test]
+    fn a_cell_added_to_a_row_goes_before_the_row_children_that_are_not_cells() {
+        let written = set_formulas_in_sheet(BUSY, &[("D1".to_owned(), "=A1".to_owned())]).expect("one pass");
+        assert!(written.contains("<c r=\"D1\"><f>A1</f><v></v></c><extLst>"), "{written}");
     }
 
     #[test]

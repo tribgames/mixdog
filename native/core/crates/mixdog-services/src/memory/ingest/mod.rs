@@ -16,11 +16,11 @@ pub mod ordinals;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use futures::FutureExt;
+use futures::future::{BoxFuture, Shared};
 use mixdog_js::{js_trim, to_number, value_to_string};
 use mixdog_rt::DurabilityIo;
-use mixdog_rt::TaskClass;
 use serde_json::Value;
-use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::memory::clean::clean_memory_text;
@@ -57,8 +57,8 @@ struct Inner {
     lane: DurabilityIo,
     ordinals: Mutex<OrdinalStore>,
     /// The tail of the background flush chain: every flush waits for the one
-    /// before it, so bursts never run concurrent full-backlog scans.
-    flush_tail: Mutex<Option<JoinHandle<()>>>,
+    /// before it, so bursts never run concurrent full-backlog scans. Each is scope work; this only waits on it.
+    flush_tail: Mutex<Option<Shared<BoxFuture<'static, ()>>>>,
     #[cfg(test)]
     statements: Mutex<Vec<(&'static str, Value)>>,
 }
@@ -99,200 +99,6 @@ fn is_untimestamped(message: &Value) -> bool {
         Some(Value::Number(_)) => false,
         Some(Value::String(text)) => js_trim(text).is_empty(),
         _ => true,
-    }
-}
-
-/// `parseTsToMs`: seconds or milliseconds as a number, or a date string; the
-/// collection time when it cannot be read.
-fn parse_ts_to_ms(value: Option<&Value>, fallback_ms: i64) -> i64 {
-    match value {
-        Some(Value::Number(n)) => {
-            let n = n.as_f64().unwrap_or(0.0);
-            (if n < 1e12 { n * 1000.0 } else { n }) as i64
-        }
-        Some(other) => {
-            let parsed = mixdog_js::time::date_parse(&value_to_string(other));
-            if parsed.is_finite() { parsed as i64 } else { fallback_ms }
-        }
-        None => fallback_ms,
-    }
-}
-
-impl SessionIngest {
-    /// `flush` is the database's one flusher (`MemoryStack::embed_flush`): Node shares its
-    /// embedding cache state and prune clock per db handle.
-    pub fn new(db: Db, flush: Arc<RawEmbedFlush>, session_cwd: Option<PathBuf>, now: NowMs, lane: DurabilityIo) -> Self {
-        Self(Arc::new(Inner {
-            flush,
-            db,
-            session_cwd,
-            now,
-            chains: mixdog_rt::KeyedGate::new(),
-            cancel: CancellationToken::new(),
-            lane,
-            ordinals: Mutex::new(OrdinalStore::default()),
-            flush_tail: Mutex::new(None),
-            #[cfg(test)]
-            statements: Mutex::new(Vec::new()),
-        }))
-    }
-
-    /// Waits for the background flushes started so far (tests, shutdown).
-    pub async fn settle(&self) {
-        let tail = self.0.flush_tail.lock().expect("flush tail").take();
-        if let Some(tail) = tail {
-            let _ = tail.await;
-        }
-    }
-
-    /// The `ingest_session` action: its reply text.
-    pub async fn ingest_session(&self, args: &Value) -> Result<String> {
-        let named = |key: &str| args.get(key).filter(|v| truthy(v)).map(value_to_string);
-        let session_id = js_trim(
-            &named("sessionId").or_else(|| named("session_id")).unwrap_or_else(|| format!("session-{}", (self.0.now)())),
-        )
-        .to_owned();
-        self.0
-            .chains
-            .run(&session_id, &self.0.cancel, self.ingest_one(&session_id, args))
-            .await
-            .map_err(|_| MemoryError::Cancelled)?
-    }
-
-    /// Shutdown: ingests waiting for their session's turn, and the ones running, end cancelled.
-    pub fn close(&self) {
-        self.0.cancel.cancel();
-    }
-
-    async fn ingest_one(&self, session_id: &str, args: &Value) -> Result<String> {
-        let inner = &self.0;
-        let messages: &[Value] = args.get("messages").and_then(Value::as_array).map_or(&[], Vec::as_slice);
-        let len = messages.len() as f64;
-        let limit = if args.get("fullTranscript") == Some(&Value::Bool(true)) {
-            len
-        } else {
-            let n = to_number(args.get("limit").unwrap_or(&Value::Null));
-            (if n.is_nan() || n == 0.0 { DEFAULT_LIMIT } else { n }).clamp(1.0, MAX_LIMIT)
-        };
-        let start = (len - limit).max(0.0);
-        let explicit_cwd = args.get("cwd").and_then(Value::as_str);
-        let project_id = resolve_project_scope(inner.lane, explicit_cwd, inner.session_cwd.as_deref()).await?;
-
-        let mut state = inner.ordinals.lock().expect("ordinal store").take(session_id);
-        state.ensure_durable_loaded(&inner.db, session_id).await;
-        let (prepared, considered) = assign_occurrences(session_id, messages, start, &mut state);
-        let inserted = self.insert_prepared(session_id, messages, &prepared, project_id.as_deref()).await;
-        // A failed insert leaves the durable map unsaved; the in-memory state stays, as it does in Node.
-        if inserted.is_ok() {
-            state.persist_durable(&inner.db, session_id).await;
-        }
-        inner.ordinals.lock().expect("ordinal store").put(session_id, state);
-        let (count, ids) = inserted?;
-        self.flush_after_ingest(ids, args.get("embedWait") == Some(&Value::Bool(false))).await;
-        Ok(format!("ingest_session: considered={considered} inserted={count} session={session_id}"))
-    }
-
-    /// Inserts the rows. A re-ingested row keeps its turn and consumes none; the
-    /// ids returned are exactly the rows this call inserted.
-    async fn insert_prepared(
-        &self,
-        session_id: &str,
-        messages: &[Value],
-        prepared: &[Prepared],
-        project_id: Option<&str>,
-    ) -> Result<(usize, Vec<i64>)> {
-        let client = self.0.db.client().await?;
-        self.observe(MAX_TURN_SQL, serde_json::json!([session_id]));
-        let mut turn: i32 = client
-            .query_opt(MAX_TURN_SQL, &[&session_id])
-            .await
-            .ok()
-            .flatten()
-            .map_or(0, |row| row.get::<_, i32>(0))
-            .max(0);
-        let now = (self.0.now)();
-        let (mut inserted, mut ids) = (0usize, Vec::new());
-        for row in prepared {
-            let message = &messages[row.index];
-            let fallback = now - (messages.len() - row.index) as i64;
-            let (ts_ms, time_source) =
-                if row.untimestamped { (fallback, "collected") } else { (parse_ts_to_ms(raw_ts(message), now), "recorded") };
-            // The transcript watcher stores every session's own file: an occurrence it holds is not stored a second time.
-            let held: i64 = client.query_one(TRANSCRIPT_HELD_SQL, &[&session_id, &row.role, &row.raw_content]).await?.get(0);
-            if held > row.occurrence as i64 {
-                continue;
-            }
-            let assigned = turn + 1;
-            let source_ref = stable_session_source_ref(session_id, message, row.role, &row.content, row.occurrence as usize);
-            self.observe(
-                INSERT_SQL,
-                serde_json::json!([ts_ms, row.role, row.raw_content, source_ref, session_id, assigned, project_id, time_source]),
-            );
-            let stored = client
-                .query(INSERT_SQL, &[&ts_ms, &row.role, &row.raw_content, &source_ref, &session_id, &assigned, &project_id, &time_source])
-                .await?;
-            if let Some(first) = stored.first() {
-                inserted += stored.len();
-                ids.push(first.get::<_, i64>(0));
-                turn += 1;
-            }
-        }
-        Ok((inserted, ids))
-    }
-
-    /// Embeds this call's rows (awaited, so a recall that follows sees them in
-    /// its dense leg unless the caller opts out) and sweeps the backlog in the
-    /// background. The flush runs to completion or failure; nothing waits on a
-    /// clock, and a model that is absent leaves the rows to the text lanes.
-    async fn flush_after_ingest(&self, ids: Vec<i64>, defer_own: bool) {
-        if !ids.is_empty() {
-            let this = self.clone();
-            if defer_own {
-                // A clear or manual compaction is about to summarise these rows away.
-                self.enqueue_flush(async move {
-                    this.0.flush.flush(FLUSH_LIMIT, Some(&ids)).await;
-                });
-            } else {
-                // Its own task, so a cancelled caller never leaves a claim transaction open.
-                let own = mixdog_rt::spawn("services.memory.ingest-embed", TaskClass::Work, async move {
-                    this.0.flush.flush(FLUSH_LIMIT, Some(&ids)).await
-                });
-                if let Ok(outcome) = own.await
-                    && outcome.attempted > 0
-                {
-                    mixdog_rt::memory_stderr!("[embed] post-ingest raw flush (own) attempted={} embedded={}", outcome.attempted, outcome.embedded);
-                }
-            }
-        }
-        let this = self.clone();
-        self.enqueue_flush(async move {
-            let outcome = this.0.flush.flush(FLUSH_LIMIT, None).await;
-            if outcome.attempted > 0 {
-                mixdog_rt::memory_stderr!("[embed] post-ingest raw flush (backlog) attempted={} embedded={}", outcome.attempted, outcome.embedded);
-            }
-        });
-    }
-
-    fn observe(&self, _sql: &'static str, _params: Value) {
-        #[cfg(test)]
-        self.0.statements.lock().expect("statements").push((_sql, _params));
-    }
-
-    /// The entries statements sent so far (text, params), in order.
-    #[cfg(test)]
-    pub(crate) fn statements(&self) -> Vec<(&'static str, Value)> {
-        self.0.statements.lock().expect("statements").clone()
-    }
-
-    fn enqueue_flush(&self, work: impl std::future::Future<Output = ()> + Send + 'static) {
-        let mut tail = self.0.flush_tail.lock().expect("flush tail");
-        let previous = tail.take();
-        *tail = Some(mixdog_rt::spawn("services.memory.ingest-flush", TaskClass::Work, async move {
-            if let Some(previous) = previous {
-                let _ = previous.await;
-            }
-            work.await;
-        }));
     }
 }
 
@@ -361,4 +167,255 @@ fn assign_occurrences(session_id: &str, messages: &[Value], start: f64, state: &
     state.snapshot = snapshot;
     state.seeded = true;
     (prepared, considered)
+}
+
+
+/// `parseTsToMs`: seconds or milliseconds as a number, or a date string; the
+/// collection time when it cannot be read.
+fn parse_ts_to_ms(value: Option<&Value>, fallback_ms: i64) -> i64 {
+    match value {
+        Some(Value::Number(n)) => {
+            let n = n.as_f64().unwrap_or(0.0);
+            (if n < 1e12 { n * 1000.0 } else { n }) as i64
+        }
+        Some(other) => {
+            let parsed = mixdog_js::time::date_parse(&value_to_string(other));
+            if parsed.is_finite() { parsed as i64 } else { fallback_ms }
+        }
+        None => fallback_ms,
+    }
+}
+impl SessionIngest {
+    /// `flush` is the database's one flusher (`MemoryStack::embed_flush`): Node shares its
+    /// embedding cache state and prune clock per db handle.
+    pub fn new(db: Db, flush: Arc<RawEmbedFlush>, session_cwd: Option<PathBuf>, now: NowMs, lane: DurabilityIo) -> Self {
+        Self(Arc::new(Inner {
+            flush,
+            db,
+            session_cwd,
+            now,
+            chains: mixdog_rt::KeyedGate::new(),
+            cancel: CancellationToken::new(),
+            lane,
+            ordinals: Mutex::new(OrdinalStore::default()),
+            flush_tail: Mutex::new(None),
+            #[cfg(test)]
+            statements: Mutex::new(Vec::new()),
+        }))
+    }
+
+    /// Waits for the background flushes queued so far (tests).
+    pub async fn settle(&self) {
+        let tail = self.0.flush_tail.lock().expect("flush tail").clone();
+        if let Some(tail) = tail {
+            tail.await;
+        }
+    }
+
+    /// The `ingest_session` action: its reply text.
+    pub async fn ingest_session(&self, args: &Value) -> Result<String> {
+        self.ingest_session_cancellable(args, &CancellationToken::new()).await
+    }
+
+    pub(crate) async fn ingest_session_cancellable(&self, args: &Value, request: &CancellationToken) -> Result<String> {
+        let named = |key: &str| args.get(key).filter(|v| truthy(v)).map(value_to_string);
+        let session_id = js_trim(
+            &named("sessionId").or_else(|| named("session_id")).unwrap_or_else(|| format!("session-{}", (self.0.now)())),
+        )
+        .to_owned();
+        let _turn = tokio::select! {
+            biased;
+            () = request.cancelled() => return Err(crate::memory::recall::aborted()),
+            turn = self.0.chains.enter(&session_id, &self.0.cancel) => turn.map_err(|_| MemoryError::Cancelled)?,
+        };
+        tokio::select! {
+            biased;
+            () = self.0.cancel.cancelled() => Err(MemoryError::Cancelled),
+            result = self.ingest_one(&session_id, args, request) => result,
+        }
+    }
+
+    /// Shutdown: ingests waiting for their session's turn, and the ones running, end cancelled.
+    pub fn close(&self) {
+        self.0.cancel.cancel();
+    }
+
+    async fn ingest_one(&self, session_id: &str, args: &Value, request: &CancellationToken) -> Result<String> {
+        let inner = &self.0;
+        let messages: &[Value] = args.get("messages").and_then(Value::as_array).map_or(&[], Vec::as_slice);
+        let len = messages.len() as f64;
+        let limit = if args.get("fullTranscript") == Some(&Value::Bool(true)) {
+            len
+        } else {
+            let n = to_number(args.get("limit").unwrap_or(&Value::Null));
+            (if n.is_nan() || n == 0.0 { DEFAULT_LIMIT } else { n }).clamp(1.0, MAX_LIMIT)
+        };
+        let start = (len - limit).max(0.0);
+        let explicit_cwd = args.get("cwd").and_then(Value::as_str);
+        let project_id = resolve_project_scope(inner.lane, explicit_cwd, inner.session_cwd.as_deref()).await?;
+        crate::memory::core::store::check_write_start(Some(request))?;
+
+        let mut state = inner.ordinals.lock().expect("ordinal store").take(session_id);
+        state.ensure_durable_loaded(&inner.db, session_id).await;
+        let mut assigned = state.clone();
+        let (prepared, considered) = assign_occurrences(session_id, messages, start, &mut assigned);
+        let inserted = self.insert_prepared(session_id, messages, &prepared, project_id.as_deref(), request).await;
+        // A failed insert leaves the durable map unsaved; the in-memory state stays, as it does in Node.
+        // Cancellation before the first write must not consume occurrences for an ingest that never ran.
+        if !matches!(&inserted, Err(MemoryError::Cancelled)) {
+            state = assigned;
+        }
+        if inserted.is_ok() {
+            state.persist_durable(&inner.db, session_id).await;
+        }
+        inner.ordinals.lock().expect("ordinal store").put(session_id, state);
+        let (count, ids) = inserted?;
+        self.flush_after_ingest(ids, args.get("embedWait") == Some(&Value::Bool(false))).await;
+        Ok(format!("ingest_session: considered={considered} inserted={count} session={session_id}"))
+    }
+
+    /// Inserts the rows. A re-ingested row keeps its turn and consumes none; the
+    /// ids returned are exactly the rows this call inserted.
+    async fn insert_prepared(
+        &self,
+        session_id: &str,
+        messages: &[Value],
+        prepared: &[Prepared],
+        project_id: Option<&str>,
+        request: &CancellationToken,
+    ) -> Result<(usize, Vec<i64>)> {
+        let client = self.0.db.client().await?;
+        self.observe(MAX_TURN_SQL, serde_json::json!([session_id]));
+        let mut turn: i32 = client
+            .query_opt(MAX_TURN_SQL, &[&session_id])
+            .await
+            .ok()
+            .flatten()
+            .map_or(0, |row| row.get::<_, i32>(0))
+            .max(0);
+        let now = (self.0.now)();
+        let (mut inserted, mut ids) = (0usize, Vec::new());
+        let mut writing = false;
+        for row in prepared {
+            let message = &messages[row.index];
+            let fallback = now - (messages.len() - row.index) as i64;
+            let (ts_ms, time_source) =
+                if row.untimestamped { (fallback, "collected") } else { (parse_ts_to_ms(raw_ts(message), now), "recorded") };
+            // The transcript watcher stores every session's own file: an occurrence it holds is not stored a second time.
+            let held: i64 = client.query_one(TRANSCRIPT_HELD_SQL, &[&session_id, &row.role, &row.raw_content]).await?.get(0);
+            if held > row.occurrence as i64 {
+                continue;
+            }
+            let assigned = turn + 1;
+            let source_ref = stable_session_source_ref(session_id, message, row.role, &row.content, row.occurrence as usize);
+            if !writing {
+                if request.is_cancelled() {
+                    return Err(MemoryError::Cancelled);
+                }
+                writing = true;
+            }
+            self.observe(
+                INSERT_SQL,
+                serde_json::json!([ts_ms, row.role, row.raw_content, source_ref, session_id, assigned, project_id, time_source]),
+            );
+            let stored = client
+                .query(INSERT_SQL, &[&ts_ms, &row.role, &row.raw_content, &source_ref, &session_id, &assigned, &project_id, &time_source])
+                .await?;
+            if let Some(first) = stored.first() {
+                inserted += stored.len();
+                ids.push(first.get::<_, i64>(0));
+                turn += 1;
+            }
+        }
+        if !writing && request.is_cancelled() {
+            return Err(MemoryError::Cancelled);
+        }
+        Ok((inserted, ids))
+    }
+
+    /// Embeds this call's rows (awaited, so a recall that follows sees them in
+    /// its dense leg unless the caller opts out) and sweeps the backlog in the
+    /// background. The flush runs to completion or failure; nothing waits on a
+    /// clock, and a model that is absent leaves the rows to the text lanes.
+    /// Every flush is work of the database's scope, registered before it starts (a child of the ingest when the ingest is scope work): a caller that
+    /// stops waiting leaves it owned, and a scope that refuses it (sealed) refuses before any access.
+    async fn flush_after_ingest(&self, ids: Vec<i64>, defer_own: bool) {
+        if !ids.is_empty() {
+            let this = self.clone();
+            if defer_own {
+                // A clear or manual compaction is about to summarise these rows away.
+                self.enqueue_flush(async move {
+                    this.0.flush.flush(FLUSH_LIMIT, Some(&ids)).await;
+                });
+            } else {
+                let own = self.0.db.scope().spawn("services.memory.ingest-embed", async move {
+                    this.0.flush.flush(FLUSH_LIMIT, Some(&ids)).await
+                });
+                if let Some(own) = own
+                    && let Some(outcome) = own.await
+                    && outcome.attempted > 0
+                {
+                    mixdog_rt::memory_stderr!("[embed] post-ingest raw flush (own) attempted={} embedded={}", outcome.attempted, outcome.embedded);
+                }
+            }
+        }
+        let this = self.clone();
+        self.enqueue_flush(async move {
+            let outcome = this.0.flush.flush(FLUSH_LIMIT, None).await;
+            if outcome.attempted > 0 {
+                mixdog_rt::memory_stderr!("[embed] post-ingest raw flush (backlog) attempted={} embedded={}", outcome.attempted, outcome.embedded);
+            }
+        });
+    }
+
+    fn observe(&self, _sql: &'static str, _params: Value) {
+        #[cfg(test)]
+        self.0.statements.lock().expect("statements").push((_sql, _params));
+    }
+
+    #[cfg(node_twin)]
+    /// The entries statements sent so far (text, params), in order.
+    #[cfg(test)]
+    pub(crate) fn statements(&self) -> Vec<(&'static str, Value)> {
+        self.0.statements.lock().expect("statements").clone()
+    }
+
+    /// Queues `work` after the flushes queued before it. It is registered in the database's scope before it is published as the tail, so the queue
+    /// never holds work nobody owns; a refused registration (the scope sealed) leaves the tail as it was.
+    fn enqueue_flush(&self, work: impl std::future::Future<Output = ()> + Send + 'static) {
+        let mut tail = self.0.flush_tail.lock().expect("flush tail");
+        let previous = tail.clone();
+        let queued = self.0.db.scope().spawn("services.memory.ingest-flush", async move {
+            if let Some(previous) = previous {
+                previous.await;
+            }
+            work.await;
+        });
+        if let Some(queued) = queued {
+            *tail = Some(queued.map(drop).boxed().shared());
+        }
+    }
+}
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_cancelled_ingest_leaves_the_queue_behind_a_busy_session_without_opening_the_database() {
+        let db = Db::deferred(
+            crate::memory::pg::db::Schema::Memory,
+            Arc::new(|| panic!("a cancelled ingest must not open the database")),
+            Arc::new(|| None),
+        );
+        let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db, None)), None, Arc::new(|| 0), mixdog_rt::testing::tokens().durability_io);
+        let _held = ingest.0.chains.enter("session-test", &ingest.0.cancel).await.unwrap();
+        let request = CancellationToken::new();
+        let args = serde_json::json!({"sessionId":"session-test"});
+        let mut waiting = Box::pin(ingest.ingest_session_cancellable(&args, &request));
+        assert!(futures::poll!(&mut waiting).is_pending());
+        request.cancel();
+        let std::task::Poll::Ready(result) = futures::poll!(&mut waiting) else { panic!("cancellation must not wait for the holder") };
+        assert!(result.unwrap_err().message().contains("aborted"));
+    }
 }

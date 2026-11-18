@@ -5,11 +5,9 @@
  *
  * Deploy rewrites the version field of package.json / package-lock.json on
  * every release, so a cache key built from hashFiles() over those manifests is
- * guaranteed to miss on the one run that needs it: the desktop bundle and the
- * five prepared platform runtimes were rebuilt from scratch each release even
- * though their inputs were byte-identical apart from the version string.
- * Hashing the same manifests with the package identity stripped keeps the key
- * pinned to the dependency tree that actually decides the output.
+ * guaranteed to miss on a version-only release. Strip the package identity
+ * when keying dependency inputs; a cache of output that embeds the manifest
+ * itself must also key on the shipped bytes.
  */
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';

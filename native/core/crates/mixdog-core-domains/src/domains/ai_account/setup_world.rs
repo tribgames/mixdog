@@ -22,7 +22,7 @@ use super::collaborators::OAuthProvider;
 use super::custom_admin::CustomFacts;
 use super::failure::Failure;
 use super::oauth_status::{PROVIDERS, oauth_available};
-use super::provider_setup::{KeychainStatus, SetupOptions, SetupWorld, model_proxy_provider_setup, provider_setup};
+use super::provider_setup::{KeychainStatus, SetupOptions, SetupWorld, model_proxy_provider_setup, provider_setup, with_hidden_favorites};
 use super::setup_cache::{KeychainLive, SetupBuilder};
 
 /// The API providers whose keys the rows read, in setup order.
@@ -252,6 +252,10 @@ impl SetupBuilder for SetupGatherer {
 
     async fn proxy(&self, force: bool) -> Result<Value, Failure> {
         let providers = self.proxy.providers(force).await?;
-        Ok(model_proxy_provider_setup(providers.as_ref()))
+        Ok(self.refresh_hidden_favorites(model_proxy_provider_setup(providers.as_ref())))
+    }
+
+    fn refresh_hidden_favorites(&self, setup: Value) -> Value {
+        with_hidden_favorites(setup, &(self.config)())
     }
 }

@@ -122,22 +122,19 @@ impl Tool for EditTool {
         let shown = display_path(abs.as_path(), &ctx.cwd);
         let full = abs.as_path().display().to_string();
 
-        // `withEditTargetLock` asks `existsSync` before it locks anything: a target that cannot be stat'ed at all (a
-        // missing file, an over-long name, a denied parent) is missing or inaccessible, whatever the cause.
-        if !old.is_empty() && ctx.files.stat(ctx.io.interactive, abs.clone()).await.is_err() {
-            return Err(unreadable(&full, "target is missing or inaccessible"));
-        }
         let _locked = lock_edit_target(ctx, &abs).await?;
-        let pre = match &self.state {
-            Some(_) => ctx.files.stat(ctx.io.interactive, abs.clone()).await.ok().and_then(|s| FileVersion::of(&s)),
-            None => None,
-        };
-        let existing = guarded(ctx, "edit", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default())).await?;
-        let bytes = match existing {
-            Ok(b) => b.bytes,
+        let stat = match guarded(ctx, "edit", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
+            Ok(stat) => stat,
             Err(e) if e.kind == FsErrorKind::NotFound && old.is_empty() => {
                 return create(ctx, self.state.as_deref(), &abs, &shown, &full, new).await;
             }
+            Err(_) if !old.is_empty() => return Err(unreadable(&full, "target is missing or inaccessible")),
+            Err(e) => return Err(unreadable(&full, &read_message(&e, abs.as_path()))),
+        };
+        let pre = self.state.as_ref().and_then(|_| FileVersion::of(&stat));
+        let existing = guarded(ctx, "edit", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default())).await?;
+        let bytes = match existing {
+            Ok(b) => b.bytes,
             Err(e) if e.kind == FsErrorKind::NotFound => {
                 return Err(unreadable(&full, "target is missing or inaccessible"));
             }
@@ -165,7 +162,7 @@ impl Tool for EditTool {
                 ));
             }
             let after = encode_text(new, codec);
-            write_checked(ctx, &abs, &full, after.clone(), WritePrecondition::ContentEquals(bytes.clone())).await?;
+            write_checked(ctx, &abs, &full, after.clone(), WritePrecondition::FileEquals { stat, bytes: bytes.clone() }).await?;
             if let Some(state) = &self.state {
                 note_edit(ctx, state, &abs, pre, &after).await;
             }
@@ -183,7 +180,7 @@ impl Tool for EditTool {
         }
         let (next, applied) = apply(&content, &old, &new, replace_all, codec.encoding == Encoding::Utf8, occupation)?;
         let after = encode_text(&next, codec);
-        write_checked(ctx, &abs, &full, after.clone(), WritePrecondition::ContentEquals(bytes.clone())).await?;
+        write_checked(ctx, &abs, &full, after.clone(), WritePrecondition::FileEquals { stat, bytes: bytes.clone() }).await?;
         if let Some(state) = &self.state {
             note_edit(ctx, state, &abs, pre, &after).await;
         }
@@ -321,7 +318,11 @@ impl Tool for WriteTool {
             Some(_) => stat.and_then(|s| FileVersion::of(&s)),
             None => None,
         };
-        let before = ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default()).await.ok().map(|read| read.bytes);
+        let before = if ctx.review.is_some() {
+            ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default()).await.ok().map(|read| read.bytes)
+        } else {
+            None
+        };
         if let Some(parent) = abs.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf())) {
             let _ = guarded(ctx, "write", ctx.files.create_dir(ctx.io.durability, parent, true)).await?;
         }

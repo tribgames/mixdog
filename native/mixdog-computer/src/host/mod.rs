@@ -1,6 +1,7 @@
 //! The resident host: request loop, per-request guards, and the shared
 //! pieces every action builds on. Actions live in the sibling modules.
 
+mod authority;
 mod cursor;
 mod elevated;
 pub use elevated::worker as elevated_worker;
@@ -39,6 +40,7 @@ const GLIDE_MIN_WAIT_MS: u64 = 140;
 const GLIDE_SPEED_PX_PER_MS: f64 = 1.4;
 const GLIDE_SEED_OFFSET: f64 = 140.0;
 
+/// A pause between steps. It holds no permission: the next effect is arbitrated by the desktop's port again.
 pub fn sleep_ms(ms: u64) {
     std::thread::sleep(Duration::from_millis(ms));
 }
@@ -120,19 +122,33 @@ pub struct Host {
     /// Windows whose last unnamed-backend capture needed Windows Graphics
     /// Capture, with the process that owned them: the next one asks it first.
     wgc_windows: RefCell<HashMap<Wid, i64>>,
+    /// The automation scope this host runs under: `desktop` was built with ports bound to it, so every effect it makes is
+    /// arbitrated against its revocation. The host only reads it to refuse a request early.
+    authority: crate::port::Scope,
 }
 
+/// One helper process runs under one scope: Off ends it, and On starts a new process.
+const SCOPE_EPOCH: u64 = 1;
+
+/// The resident host. It exits 3 when its scope was revoked and the input it
+/// held could not all be released (the core records that cleanup as
+/// unconfirmed); otherwise as before.
 pub fn run() {
     let cfg = Config::from_env();
     let observer = Observer::new();
-    let desktop = platform::create(observer.shared.clone(), cfg.input_marker);
-    Host::new(cfg, desktop, observer, lease::from_env()).serve_lines(stdin::Router::stdin());
+    let scope = crate::port::Scope::open(SCOPE_EPOCH);
+    let desktop = platform::create(observer.shared.clone(), cfg.input_marker, &scope);
+    let host = Host::new(cfg, desktop, observer, lease::from_env(), scope);
+    let router = stdin::Router::stdin(host.authority.clone());
+    if !host.serve_lines(router) {
+        std::process::exit(3);
+    }
 }
 
 /// Reports what this desktop can do, for diagnostics and packaging checks.
 pub fn probe() -> i32 {
     let observer = Observer::new();
-    let desktop = platform::create(observer.shared.clone(), crate::config::input_marker());
+    let desktop = platform::create(observer.shared.clone(), crate::config::input_marker(), &crate::port::Scope::open(SCOPE_EPOCH));
     sleep_ms(300);
     let accessibility = desktop.accessibility().map(|a11y| match a11y.available() {
         Ok(()) => "ready".to_string(),
@@ -157,10 +173,12 @@ impl Host {
         desktop: Box<dyn Desktop>,
         observer: Observer,
         lease: Box<dyn ForegroundLease>,
+        authority: crate::port::Scope,
     ) -> Host {
         Host {
             cfg,
             desktop,
+            authority,
             observer,
             sessions: RefCell::new(HashMap::new()),
             current: RefCell::new("default".into()),
@@ -176,33 +194,47 @@ impl Host {
         }
     }
 
-    /// Answers each request line in turn until the input ends, or until a
-    /// reply asked this host to retire.
-    fn serve_lines(&self, requests: stdin::Router) {
+    /// Answers each request line in turn until the input ends, a reply asked
+    /// this host to retire, or the scope is revoked (the command running then
+    /// is refused at its next primitive, and nothing queued behind it runs).
+    /// False when the scope was revoked and the input it held was not all
+    /// released.
+    fn serve_lines(&self, requests: stdin::Router) -> bool {
         for line in requests {
+            if self.authority.is_revoked() {
+                break;
+            }
             self.serve(&line);
-            if self.retire_after_reply.get() {
+            if self.retire_after_reply.get() || self.authority.is_revoked() {
                 break;
             }
         }
-        // The input ended (the core died) or this host retires: nothing it
-        // holds may outlive it, the way --screen-input lets go on EOF.
-        self.release_on_exit();
+        // The input ended (the core died), this host retires or its scope is
+        // revoked: nothing it holds may outlive it, the way --screen-input
+        // lets go on EOF. After the revocation only the releases the ports
+        // hold receipts for go out: no focus is restored, the pointer is not
+        // moved, and the ports let go of whatever receipt is left.
+        let released = self.release_on_exit();
+        let drained = !self.authority.is_revoked() || self.authority.release_held();
+        (released && drained) || !self.authority.is_revoked()
     }
 
     /// Lets go of every key, button, no-activate hold, the cursor theme and
     /// this process's own foreground lock, in every session; each step runs
-    /// whatever the earlier ones answered.
-    fn release_on_exit(&self) {
+    /// whatever the earlier ones answered. True when every held input was
+    /// released.
+    fn release_on_exit(&self) -> bool {
         let keys: Vec<String> = self.sessions.borrow().keys().cloned().collect();
         let previous = self.current.borrow().clone();
+        let mut released = true;
         for key in keys {
             self.current.replace(key);
-            let _ = self.release_held_input();
+            released &= self.release_held_input().is_ok();
         }
         self.current.replace(previous);
         let _ = self.desktop.cursor_theme_end();
         self.desktop.release_process_holds();
+        released
     }
 
     fn serve(&self, line: &str) {
@@ -276,6 +308,8 @@ impl Host {
     }
 
     fn handle(&self, req: &Req) -> Res<Obj> {
+        // A request read after the revocation, whatever it is, is refused.
+        self.authority.check()?;
         let session_key = req.str("session_id").unwrap_or_else(|| "default".into());
         self.sessions
             .borrow_mut()
@@ -696,6 +730,10 @@ impl Host {
     /// holds, the target still has the foreground, and nobody else has touched
     /// the mouse or keyboard since the action began.
     fn assert_continue(&self) -> Res<()> {
+        // Each next input of a compound action stops at a revoked scope here,
+        // before its other checks; the primitive itself commits under the
+        // scope again (`guarded`).
+        self.authority.check()?;
         if let Some(dispatch) = self.dispatch.get() {
             self.authorize_current(dispatch.target)?;
             let foreground = self.desktop.foreground();
@@ -1256,7 +1294,7 @@ mod tests {
             &self,
             _: &WindowInfo,
             _: &[String],
-            _: &dyn Fn() -> Result<(), String>,
+            _: crate::platform::Authorize<'_>,
         ) -> Result<crate::a11y::MenuOutcome, String> {
             self.0.borrow_mut().push("menu".into());
             Ok(crate::a11y::MenuOutcome {
@@ -1383,6 +1421,8 @@ mod tests {
         /// While set, looking a window up records foreign input.
         armed: Rc<Cell<bool>>,
         shared: std::sync::Arc<crate::observer::Shared>,
+        /// The effect port of the host's scope: every effect of this desktop goes through it before the script decides.
+        port: std::sync::Arc<crate::port::fake::FakePort>,
     }
 
     impl Fake {
@@ -1403,11 +1443,24 @@ mod tests {
         }
 
         fn deliver(&self, what: &str) -> Result<(), String> {
+            self.port.act(what)?;
+            self.landed(what)
+        }
+
+        /// What the script answers for an effect the port let through.
+        fn landed(&self, what: &str) -> Result<(), String> {
             if !self.script.live.get() {
                 return Err("fake".into());
             }
             self.note(what);
             Ok(())
+        }
+
+        /// A press or a release through the port: a release with a receipt goes out whatever the scope says.
+        fn hold(&self, device: &str, code: String, down: bool, what: &str) -> Result<(), String> {
+            let hold = crate::port::fake::Hold::new(device, &code);
+            if down { self.port.press(hold).map(drop)? } else { self.port.release(&hold)? }
+            self.landed(what)
         }
     }
 
@@ -1442,6 +1495,9 @@ mod tests {
             }
         }
         fn focus(&self, handle: Wid) -> bool {
+            if self.port.act("focus").is_err() {
+                return false;
+            }
             let activates = self.script.activates.get();
             if activates {
                 self.script.foreground.set(handle);
@@ -1497,11 +1553,11 @@ mod tests {
             self.script.cursor.set((x, y));
             Ok(())
         }
-        fn button(&self, _: Button, down: bool, _: i32, _: i32, _: u32) -> Result<(), String> {
+        fn button(&self, button: Button, down: bool, _: i32, _: i32, _: u32) -> Result<(), String> {
             match (self.script.release_error.get(), self.script.press_error.get()) {
                 (Some(error), _) if !down => Err(error.into()),
                 (_, Some(error)) if down => Err(error.into()),
-                _ => self.deliver(if down { "down" } else { "up" }),
+                _ => self.hold("mouse", format!("{button:?}"), down, if down { "down" } else { "up" }),
             }
         }
         fn drag_move(&self, x: i32, y: i32) -> Result<(), String> {
@@ -1512,8 +1568,8 @@ mod tests {
         fn wheel(&self, _: i32, _: i32, _: i32, _: bool) -> Result<(), String> {
             self.deliver("wheel")
         }
-        fn key(&self, _: crate::keys::Key, _: bool) -> Result<(), String> {
-            self.deliver("key")
+        fn key(&self, key: crate::keys::Key, down: bool) -> Result<(), String> {
+            self.hold("keyboard", format!("{key:?}"), down, "key")
         }
         fn text(&self, text: &str) -> Result<(), String> {
             self.deliver(&format!("text:{text}"))
@@ -1531,6 +1587,7 @@ mod tests {
             Err("fake".into())
         }
         fn clipboard_write(&self, _: &str) -> Result<bool, String> {
+            self.port.act("clipboard")?;
             Err("fake".into())
         }
         fn launch(
@@ -1538,6 +1595,7 @@ mod tests {
             _: &str,
             _: Option<&platform::AppEntry>,
         ) -> Result<platform::Launched, String> {
+            self.port.act("launch")?;
             Err("fake".into())
         }
         fn installed_apps(&self) -> Result<Vec<platform::AppEntry>, String> {
@@ -1613,12 +1671,14 @@ mod tests {
         let observer = Observer::new();
         let script = Rc::new(Script::default());
         script.foreground.set(foreground);
+        let scope = crate::port::Scope::open(SCOPE_EPOCH);
         let desktop = Fake {
             script: script.clone(),
             posts: Posts(log.clone()),
             menus: Menus(log.clone()),
             armed,
             shared: observer.shared.clone(),
+            port: crate::port::fake::FakePort::new(&scope),
         };
         let host = Host::new(
             Config {
@@ -1631,6 +1691,7 @@ mod tests {
             Box::new(desktop),
             observer,
             Box::new(crate::lease_api::NoLease),
+            scope,
         );
         (host, log, script)
     }
@@ -1851,6 +1912,89 @@ mod tests {
         let released = run(&host, json!({ "action": "release_cursor_theme" }));
         assert_eq!(released.get("system_theme_restored"), Some(&json!(true)));
         assert_eq!(script.theme_held.get(), None);
+    }
+
+    /// A `sequence_step` request carrying `step`, as the core sends it.
+    fn sequence_request(step: Value) -> Req {
+        Req(json!({ "action": "sequence_step", "delivery": "background", "session_id": "s", "step": step }))
+    }
+
+    fn typing_step() -> Value {
+        json!({ "action": "type", "delivery": "background", "session_id": "s", "window_id": "hwnd:0x3", "text": "x" })
+    }
+
+    fn with_field(mut value: Value, key: &str, field: Value) -> Value {
+        value[key] = field;
+        value
+    }
+
+    #[test]
+    fn a_sequence_step_is_admitted_only_as_one_exact_window_background_input_of_its_session() {
+        let (host, log, _) = live(3);
+        let mut no_window = typing_step();
+        no_window.as_object_mut().unwrap().remove("window_id");
+        let refused = [
+            with_field(typing_step(), "action", json!("launch")),
+            with_field(typing_step(), "action", json!("sequence_step")),
+            with_field(typing_step(), "delivery", json!("foreground")),
+            with_field(typing_step(), "session_id", json!("other")),
+            with_field(typing_step(), "window", json!("Notepad")),
+            with_field(typing_step(), "read_only", json!(true)),
+            no_window,
+        ];
+        for step in refused {
+            let error = host.handle(&sequence_request(step.clone())).unwrap_err();
+            assert!(error.starts_with("sequence_step_invalid: expected one exact-window background input"), "{step}: {error}");
+        }
+        // A step that is no object at all, and a foreground envelope around a good step.
+        assert!(host.handle(&sequence_request(json!("type"))).unwrap_err().starts_with("sequence_step_invalid"));
+        let foreground = Req(json!({ "action": "sequence_step", "delivery": "foreground", "session_id": "s", "step": typing_step() }));
+        assert!(host.handle(&foreground).unwrap_err().starts_with("sequence_step_invalid"));
+        assert!(log.borrow().is_empty(), "nothing was sent for a refused step: {:?}", log.borrow());
+    }
+
+    #[test]
+    fn a_sequence_waits_between_zero_and_five_seconds() {
+        let (host, log, _) = live(3);
+        let wait = |duration: Value| {
+            let mut step = json!({ "action": "wait", "delivery": "background", "session_id": "s", "window_id": "hwnd:0x3" });
+            if !duration.is_null() {
+                step["duration"] = duration;
+            }
+            host.handle(&sequence_request(step))
+        };
+        for refused in [json!(5.5), json!(6), json!(-1), json!("soon"), Value::Null] {
+            let error = wait(refused.clone()).unwrap_err();
+            assert_eq!(error, "sequence_step_invalid: wait requires 0..5 seconds", "{refused}");
+        }
+        for admitted in [json!(0), json!(5)] {
+            let outcome = wait(admitted.clone());
+            assert!(
+                !matches!(&outcome, Err(error) if error.starts_with("sequence_step_invalid")),
+                "{admitted} is within 0..5 seconds: {outcome:?}"
+            );
+        }
+        assert!(log.borrow().iter().all(|entry| entry != "text" && entry != "keys"));
+    }
+
+    #[test]
+    fn a_held_key_is_not_a_background_sequence_step() {
+        let (host, log, _) = live(3);
+        for action in ["key_down", "key_up"] {
+            let step = with_field(with_field(typing_step(), "action", json!(action)), "key", json!("a"));
+            let error = host.handle(&sequence_request(step)).unwrap_err();
+            assert_eq!(error, "background_unsupported|a held key requires the real keyboard; use explicit foreground delivery", "{action}");
+        }
+        assert!(log.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_read_only_run_refuses_a_sequence_step() {
+        let (host, log, _) = live(3);
+        let mut request = sequence_request(typing_step());
+        request.0["read_only"] = json!(true);
+        assert_eq!(host.handle(&request).unwrap_err(), "read_only run: 'sequence_step' is a mutation");
+        assert!(log.borrow().is_empty());
     }
 
     #[test]
@@ -2265,12 +2409,14 @@ mod tests {
         let (host, log, script) = scripted(3, Rc::new(Cell::new(false)));
         script.themes.set(true);
         script.live.set(true);
+        host.desktop.key(crate::keys::Key::Char('a'), true).unwrap();
+        log.borrow_mut().clear();
         host.sessions.borrow_mut().entry("other".into()).or_default().held_keys.push((
             "a".into(),
             Vec::new(),
             crate::keys::Key::Char('a'),
         ));
-        host.serve_lines(stdin::Router::new(std::io::Cursor::new("")));
+        host.serve_lines(stdin::Router::new(std::io::Cursor::new(""), host.authority.clone()));
         assert!(script.theme_log.borrow().iter().any(|entry| entry == "end"));
         // The key held in a session that was not current was let go.
         assert!(log.borrow().iter().any(|entry| entry == "key"));
@@ -2285,15 +2431,69 @@ mod tests {
             "\n",
             "{\"id\":2,\"action\":\"wait\",\"duration\":0,\"session_id\":\"second\"}\n",
         );
+        // The end of these inputs may be read before the loop runs: it revokes a scope of its own here, so the order of the
+        // requests is what is tested.
         let (serving, _) = setup(3, false);
-        serving.serve_lines(stdin::Router::new(std::io::Cursor::new(input)));
+        serving.serve_lines(stdin::Router::new(std::io::Cursor::new(input), crate::port::Scope::open(SCOPE_EPOCH)));
         assert!(serving.sessions.borrow().contains_key("first"));
         assert!(serving.sessions.borrow().contains_key("second"));
         let (retiring, _) = setup(3, false);
         retiring.retire_after_reply.set(true);
-        retiring.serve_lines(stdin::Router::new(std::io::Cursor::new(input)));
+        retiring.serve_lines(stdin::Router::new(std::io::Cursor::new(input), crate::port::Scope::open(SCOPE_EPOCH)));
         assert!(retiring.sessions.borrow().contains_key("first"));
         assert!(!retiring.sessions.borrow().contains_key("second"));
+    }
+
+    /// Once the scope is revoked every request is refused, a primitive inside one included, and the loop ends with the teardown:
+    /// the held key is let go, nothing else is done.
+    #[test]
+    fn a_revoked_scope_refuses_every_request_and_only_releases_on_the_way_out() {
+        let (host, log, script) = scripted(3, Rc::new(Cell::new(false)));
+        script.live.set(true);
+        // The key is held through the port: its receipt is what lets its release out after Off.
+        host.desktop.key(crate::keys::Key::Char('a'), true).unwrap();
+        host.sessions.borrow_mut().entry("default".into()).or_default().held_keys.push((
+            "a".into(),
+            Vec::new(),
+            crate::keys::Key::Char('a'),
+        ));
+        host.authority.revoke();
+        let refused = host.reply("{\"id\":1,\"action\":\"clipboard_write\",\"text\":\"x\"}");
+        assert_eq!(refused["ok"], json!(false));
+        assert!(refused["error"].as_str().unwrap().starts_with("computer_scope_revoked:"), "{refused}");
+        assert_eq!(host.desktop.move_pointer(1, 1), Err(crate::port::REVOKED.to_string()));
+        assert!(!host.desktop.focus(1));
+        // A release the port holds no receipt for is an ordinary submission, refused.
+        assert_eq!(host.desktop.key(crate::keys::Key::Char('b'), false), Err(crate::port::REVOKED.to_string()));
+        log.borrow_mut().clear();
+        let input = "{\"id\":2,\"action\":\"launch\",\"target\":\"x\"}\n";
+        assert!(host.serve_lines(stdin::Router::new(std::io::Cursor::new(input), host.authority.clone())));
+        assert_eq!(*log.borrow(), ["key"], "only the held key was let go");
+        assert!(host.sessions.borrow()["default"].held_keys.is_empty());
+    }
+
+    /// A request whose wait is held unresolved (its settle sleep) while Off is acknowledged cannot submit afterwards: the
+    /// acknowledgement does not wait for it, and its continuation is refused at the port.
+    #[test]
+    fn off_is_acknowledged_during_a_wait_and_the_continuation_cannot_submit() {
+        let (host, log, script) = scripted(3, Rc::new(Cell::new(false)));
+        script.live.set(true);
+        let scope = host.authority.clone();
+        let (waiting, revoked) = (std::sync::Arc::new(std::sync::Barrier::new(2)), std::sync::Arc::new(std::sync::Barrier::new(2)));
+        let (at_wait, after) = (waiting.clone(), revoked.clone());
+        let revoker = std::thread::spawn(move || {
+            at_wait.wait();
+            // Returns while the request is still inside its wait: nothing holds the scope across it.
+            scope.revoke();
+            after.wait();
+        });
+        host.desktop.move_pointer(1, 1).unwrap();
+        waiting.wait();
+        revoked.wait();
+        assert_eq!(host.desktop.move_pointer(2, 2), Err(crate::port::REVOKED.to_string()));
+        assert_eq!(host.desktop.text("x"), Err(crate::port::REVOKED.to_string()));
+        revoker.join().unwrap();
+        assert_eq!(*log.borrow(), ["move"]);
     }
 
     #[test]

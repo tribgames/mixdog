@@ -79,7 +79,8 @@ pub trait DoctorSources: Send + Sync {
     async fn plugins_status(&self) -> Probe;
     async fn hooks_status(&self) -> Probe;
     /// The json → log session migration:
-    /// `{complete, started, logs, pending, skipped: [{id, reason}]}` or `{unreadable: true}`.
+    /// `{complete, started, logs, pending, skipped: [{id, reason}]}` or `{unreadable: true}`; a core that records the upgrade's
+    /// post-conversion steps adds `upgradeSteps`, their one-line report, which the row then shows.
     async fn session_log_migration(&self) -> Probe;
     /// `builtinFeatureActive(undefined, id)` for `browser` and `computer`.
     fn bridge_active(&self, id: &str) -> bool;
@@ -211,6 +212,15 @@ fn report_update(package_version: Option<&str>, update: &Value) -> Option<Verdic
         );
     }
     let latest = js_text(update.get("latestVersion"));
+    // The packaged desktop's updater is the only path: the row names it instead of offering `/update`, which would do nothing.
+    if update.get("managedBy").and_then(Value::as_str) == Some("desktop") {
+        let detail = if truthy(update.get("updateAvailable")) {
+            format!("v{current} · update available → v{latest} · installed by the Mixdog desktop app")
+        } else {
+            format!("v{current} · up to date · updates are installed by the Mixdog desktop app")
+        };
+        return verdict(Level::Ok, detail);
+    }
     if truthy(update.get("updateAvailable")) {
         with_command(
             Level::Warn,
@@ -690,6 +700,53 @@ fn report_hooks(hooks: &Value) -> Option<Verdict> {
     verdict(if errors > 0 { Level::Warn } else { Level::Ok }, detail)
 }
 
+/// The session-log row, with what the upgrade carried over after the session conversion (`upgradeSteps`, read from the store when
+/// the check ran) after it.
+fn session_log_row(status: &Value) -> Option<Verdict> {
+    let mut row = report_session_log(status)?;
+    if let Some(steps) = status.get("upgradeSteps").and_then(Value::as_str) {
+        row.detail.push_str(&format!(" · upgrade steps: {steps}"));
+    }
+    if let Some(migration) = status.get("migration") {
+        row = with_migration_counts(row, migration);
+    }
+    Some(row)
+}
+
+/// The counts of the upgrade's `migration/complete.json` (`migration`, summed over its two groups by the core), after the row.
+/// Data the upgrade could not convert (`quarantinedUnexpected`) is moved aside, not lost, and the user would otherwise see only
+/// fewer sessions: the row is a warning. Any quarantined data, expected or not, is named with the folder it is in.
+fn with_migration_counts(mut row: Verdict, migration: &Value) -> Verdict {
+    if truthy(migration.get("unreadable")) {
+        row.detail.push_str(" · migration record: unreadable");
+        if row.level == Level::Ok {
+            row.level = Level::Warn;
+        }
+        return row;
+    }
+    let count = |name: &str| migration.get(name).and_then(Value::as_u64).unwrap_or(0);
+    let unexpected = count("quarantinedUnexpected");
+    row.detail.push_str(&format!(
+        " · migration: {} verified, {} retired, {} retained, {} dangling, {} quarantined as expected, {unexpected} quarantined unexpectedly",
+        count("verified"),
+        count("retired"),
+        count("retained"),
+        count("dangling"),
+        count("quarantinedExpected"),
+    ));
+    // Whatever was set aside, expected or not, is named with its folder; only the unexpected makes the row a warning.
+    if unexpected + count("quarantinedExpected") > 0 {
+        let folder = migration.get("quarantineDir").and_then(Value::as_str).unwrap_or("the quarantine folder of the data folder");
+        row.detail.push_str(&format!(" (moved aside to {folder}, each with its reason.json)"));
+    }
+    if unexpected > 0 {
+        if row.level == Level::Ok {
+            row.level = Level::Warn;
+        }
+    }
+    row
+}
+
 fn report_session_log(status: &Value) -> Option<Verdict> {
     if truthy(status.get("unreadable")) {
         return with_hint(
@@ -760,11 +817,50 @@ fn report_session_log(status: &Value) -> Option<Verdict> {
 
 // --- Local installation state -----------------------------------------------------------
 
+/// Whether a file can really be created in `dir` and removed again (the permission attribute of a directory says nothing on
+/// Windows): true only when both happened, so a folder that takes the file but not its removal is not "writable". `cancel` is
+/// the check's: once the check has ended no file is created, and one created by an open that returned late is removed (a call
+/// the OS holds blocked, an unreachable network folder, cannot be interrupted from here; the job ends when it returns).
+pub(crate) fn folder_accepts_a_file(dir: &std::path::Path, cancel: &CancellationToken) -> bool {
+    folder_accepts_a_file_with(dir, cancel, |path| remove_probe(path))
+}
+
 #[allow(clippy::disallowed_methods, reason = "body of the interactive-io lane job in `run_check`")]
-fn data_folder(dir: &std::path::Path) -> Option<Verdict> {
+fn remove_probe(path: &std::path::Path) -> std::io::Result<()> {
+    std::fs::remove_file(path)
+}
+
+#[allow(clippy::disallowed_methods, reason = "body of the interactive-io lane job in `run_check`")]
+fn folder_accepts_a_file_with(
+    dir: &std::path::Path,
+    cancel: &CancellationToken,
+    remove: impl Fn(&std::path::Path) -> std::io::Result<()>,
+) -> bool {
+    // Each probe makes a file of its own (exclusive create under a name no other probe uses: this process's id, a counter and the
+    // clock), so concurrent checks and a file an earlier probe could not remove never decide this one's answer; a name that is
+    // taken anyway is not this probe's file and the next name is tried, until the check itself ends.
+    static PROBES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    while !cancel.is_cancelled() {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |at| at.as_nanos());
+        let count = PROBES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = dir.join(format!(".mixdog-doctor-write-probe-{}-{count}-{nanos:x}", std::process::id()));
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => {
+                drop(file);
+                return remove(&path).is_ok();
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(_) => return false,
+        }
+    }
+    false
+}
+
+#[allow(clippy::disallowed_methods, reason = "body of the interactive-io lane job in `run_check`")]
+fn data_folder(dir: &std::path::Path, cancel: &CancellationToken) -> Option<Verdict> {
     let shown = dir.to_string_lossy();
     match std::fs::metadata(dir) {
-        Ok(meta) if !meta.permissions().readonly() => {
+        Ok(meta) if meta.is_dir() && folder_accepts_a_file(dir, cancel) => {
             verdict(Level::Ok, format!("writable · {shown}"))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => with_hint(
@@ -905,7 +1001,8 @@ async fn run_check(
         "hooks" => Ok(object(sources.hooks_status().await)?.and_then(|h| report_hooks(&h))),
         "data" => {
             let dir = config.data_dir.clone();
-            Ok(on_lane(interactive, cancel, move |_| data_folder(&dir))
+            let probe_cancel = cancel.clone();
+            Ok(on_lane(interactive, cancel, move |_| data_folder(&dir, &probe_cancel))
                 .await
                 .map_err(|_| ProbeFailed)?)
         }
@@ -922,7 +1019,7 @@ async fn run_check(
                 .map_err(|_| ProbeFailed)?
         }
         "sessionLog" => {
-            Ok(object(sources.session_log_migration().await)?.and_then(|s| report_session_log(&s)))
+            Ok(object(sources.session_log_migration().await)?.and_then(|s| session_log_row(&s)))
         }
         _ => Ok(None),
     }
@@ -977,7 +1074,11 @@ async fn doctor_check(
     cancel: CancellationToken,
     interactive: InteractiveIo,
 ) -> Value {
-    let work = run_check(id, thread.as_ref(), &*sources, &config, &cancel, interactive);
+    // The check's own token: cancelled when the check ends (its deadline, or the request dropping it), so the lane jobs it
+    // queued are dropped and the ones running see it.
+    let check_cancel = cancel.child_token();
+    let _ends_with_the_check = check_cancel.clone().drop_guard();
+    let work = run_check(id, thread.as_ref(), &*sources, &config, &check_cancel, interactive);
     let verdict = match mixdog_rt::time::timeout(config.check_timeout, work).await {
         Err(_) => Verdict {
             level: Level::Warn,

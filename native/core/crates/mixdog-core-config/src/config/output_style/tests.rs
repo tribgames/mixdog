@@ -7,6 +7,7 @@ use mixdog_core_api::mock::MockStatePublisher;
 
 use super::*;
 use crate::config::ConfigLanes;
+#[cfg(node_twin)]
 use crate::config::patch::js_deep_equal;
 
 async fn open(dir: &Path, entry: &Value) -> OutputStyles {
@@ -29,13 +30,27 @@ async fn open(dir: &Path, entry: &Value) -> OutputStyles {
 }
 
 /// Recorded entries per test: each builds its own style directories.
+#[cfg(node_twin)]
 const ENTRY_CHUNK: usize = 4;
 
+#[tokio::test]
+async fn an_unknown_style_names_the_choices_like_node() {
+    let dir = tempfile::tempdir().unwrap();
+    let entry = serde_json::json!({ "world": { "builtin": { "simple.md": "---\ntitle: Simple\n---\n", "detailed.md": "x" }, "user": {} }, "config": {} });
+    let styles = open(dir.path(), &entry).await;
+    match styles.set("nope").await {
+        Err(ToolModulesError::InvalidArgument(message)) => assert_eq!(message, "output style must be one of Detailed, Simple"),
+        other => panic!("{other:?}"),
+    }
+}
+
+
+#[cfg(node_twin)]
 fn styles_twin() -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/output-styles-twin.json");
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }
-
+#[cfg(node_twin)]
 mixdog_rt::replay_chunks!(STYLE_TESTS, #[tokio::test] async the_styles_chunk; [
     the_status_and_the_selection_match_the_recorded_node_answers_00 = 0,
     the_status_and_the_selection_match_the_recorded_node_answers_01 = 1,
@@ -48,7 +63,7 @@ mixdog_rt::replay_chunks!(STYLE_TESTS, #[tokio::test] async the_styles_chunk; [
     the_status_and_the_selection_match_the_recorded_node_answers_08 = 8,
     the_status_and_the_selection_match_the_recorded_node_answers_09 = 9,
 ]);
-
+#[cfg(node_twin)]
 #[test]
 fn every_recorded_entry_has_its_styles_test() {
     let twin = styles_twin();
@@ -56,7 +71,7 @@ fn every_recorded_entry_has_its_styles_test() {
     assert_eq!(entries.len(), 40);
     mixdog_rt::testing::assert_chunks_registered(STYLE_TESTS, entries.len(), ENTRY_CHUNK);
 }
-
+#[cfg(node_twin)]
 async fn the_styles_chunk(chunk: usize) {
     let twin = styles_twin();
     let entries = twin["entries"].as_array().unwrap();
@@ -82,16 +97,5 @@ async fn the_styles_chunk(chunk: usize) {
                 }
             }
         }
-    }
-}
-
-#[tokio::test]
-async fn an_unknown_style_names_the_choices_like_node() {
-    let dir = tempfile::tempdir().unwrap();
-    let entry = serde_json::json!({ "world": { "builtin": { "simple.md": "---\ntitle: Simple\n---\n", "detailed.md": "x" }, "user": {} }, "config": {} });
-    let styles = open(dir.path(), &entry).await;
-    match styles.set("nope").await {
-        Err(ToolModulesError::InvalidArgument(message)) => assert_eq!(message, "output style must be one of Detailed, Simple"),
-        other => panic!("{other:?}"),
     }
 }

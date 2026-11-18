@@ -506,26 +506,6 @@ mod tests {
     }
 
     #[test]
-    fn a_policy_file_is_read_and_a_broken_one_admits_nothing() {
-        let (_dir, path) = written(&policy(json!({})).to_string());
-        let loaded = LaunchPolicy::load(&env_of(&path)).unwrap();
-        assert!(!loaded.unloadable);
-        assert_eq!(loaded.admit("capture", Some(&on("hwnd:0x1", None)), None, NOW), Ok(()));
-        let wrong_action = policy(json!({"actions": ["anything"]})).to_string();
-        for broken in ["not json", "{}", "", wrong_action.as_str()] {
-            let (_dir, path) = written(broken);
-            let loaded = LaunchPolicy::load(&env_of(&path)).unwrap();
-            denied(loaded.admit("capture", Some(&on("hwnd:0x1", None)), None, NOW), "computer_policy_invalid");
-            assert_eq!(loaded.admit("session_release", None, None, NOW), Ok(()));
-        }
-        denied(LaunchPolicy::load(&env_of("   ")).unwrap().admit("list_windows", None, None, NOW), "computer_policy_invalid");
-        let missing = std::env::temp_dir().join("no-such-policy-file.json").to_string_lossy().into_owned();
-        denied(LaunchPolicy::load(&env_of(&missing)).unwrap().admit("list_windows", None, None, NOW), "computer_policy_invalid");
-        let (_dir, huge) = written(&format!("{{\"version\":1,\"pad\":\"{}\"}}", "x".repeat(70_000)));
-        denied(LaunchPolicy::load(&env_of(&huge)).unwrap().admit("list_windows", None, None, NOW), "computer_policy_invalid");
-    }
-
-    #[test]
     fn the_format_is_exact() {
         for bad in [
             json!(null),
@@ -686,5 +666,26 @@ mod tests {
         assert_eq!(shown["windows"], json!([]));
         assert!(settings.restricted());
         denied(settings.admit("capture", Some(&on("hwnd:0x1", None)), None, NOW), "computer_policy_denied");
+    }
+
+
+    #[test]
+    fn a_policy_file_is_read_and_a_broken_one_admits_nothing() {
+        let (_dir, path) = written(&policy(json!({})).to_string());
+        let loaded = LaunchPolicy::load(&env_of(&path)).unwrap();
+        assert!(!loaded.unloadable);
+        assert_eq!(loaded.admit("capture", Some(&on("hwnd:0x1", None)), None, NOW), Ok(()));
+        let wrong_action = policy(json!({"actions": ["anything"]})).to_string();
+        for broken in ["not json", "{}", "", wrong_action.as_str()] {
+            let (_dir, path) = written(broken);
+            let loaded = LaunchPolicy::load(&env_of(&path)).unwrap();
+            denied(loaded.admit("capture", Some(&on("hwnd:0x1", None)), None, NOW), "computer_policy_invalid");
+            assert_eq!(loaded.admit("session_release", None, None, NOW), Ok(()));
+        }
+        denied(LaunchPolicy::load(&env_of("   ")).unwrap().admit("list_windows", None, None, NOW), "computer_policy_invalid");
+        let missing = std::env::temp_dir().join("no-such-policy-file.json").to_string_lossy().into_owned();
+        denied(LaunchPolicy::load(&env_of(&missing)).unwrap().admit("list_windows", None, None, NOW), "computer_policy_invalid");
+        let (_dir, huge) = written(&format!("{{\"version\":1,\"pad\":\"{}\"}}", "x".repeat(70_000)));
+        denied(LaunchPolicy::load(&env_of(&huge)).unwrap().admit("list_windows", None, None, NOW), "computer_policy_invalid");
     }
 }

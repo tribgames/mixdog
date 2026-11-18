@@ -52,41 +52,6 @@ pub(crate) fn answer_from_exit(stdout: &str, stderr: &str, code: Option<i32>) ->
     json!({"ok": false, "error": error})
 }
 
-/// Runs one payload through a fresh host and answers.
-pub(crate) async fn call_once(
-    client: std::sync::Arc<HostClient>,
-    payload: &Value,
-    timeout: Duration,
-    cancel: &CancellationToken,
-) -> OfficeReply {
-    if !cancel.is_cancelled() {
-        let body = if payload.is_null() { json!({}) } else { payload.clone() };
-        client.send(body.to_string());
-    }
-    client.end_stdin();
-    let reason = tokio::select! {
-        biased;
-        () = cancel.cancelled() => Some((CANCELLED.to_owned(), true)),
-        () = client.wait_closed() => None,
-        () = mixdog_rt::time::sleep(timeout) => {
-            Some((format!("Microsoft Office operation timed out after {}ms", timeout.as_millis()), false))
-        }
-    };
-    let Some((error, cancelled)) = reason else {
-        let value = answer_from_exit(&client.stdout(), &client.stderr(), client.exit_code());
-        return OfficeReply { value, host_exit: None };
-    };
-    let cleanup = client.drain(&error).await;
-    let value = json!({
-        "ok": false,
-        "cancelled": cancelled,
-        "error": cleanup::cleanup_error(&error, Some(&cleanup)),
-        "operationMayHaveCompleted": true,
-        "cleanup": cleanup,
-    });
-    OfficeReply { value, host_exit: Some(client.host_exit()) }
-}
-
 /// The client of a one-shot host.
 pub(crate) fn attach(running: crate::session::Running, grace: Duration, sweeper: crate::sweep::Sweeper) -> std::sync::Arc<HostClient> {
     HostClient::attach(
@@ -136,4 +101,40 @@ mod tests {
         let failed = answer_from_exit("{\"ok\":false,\"error\":\"x\"}", stderr, Some(0));
         assert_eq!(failed["operationCompleted"], json!(false));
     }
+}
+
+
+/// Runs one payload through a fresh host and answers.
+pub(crate) async fn call_once(
+    client: std::sync::Arc<HostClient>,
+    payload: &Value,
+    timeout: Duration,
+    cancel: &CancellationToken,
+) -> OfficeReply {
+    if !cancel.is_cancelled() {
+        let body = if payload.is_null() { json!({}) } else { payload.clone() };
+        client.send(body.to_string());
+    }
+    client.end_stdin();
+    let reason = tokio::select! {
+        biased;
+        () = cancel.cancelled() => Some((CANCELLED.to_owned(), true)),
+        () = client.wait_closed() => None,
+        () = mixdog_rt::time::sleep(timeout) => {
+            Some((format!("Microsoft Office operation timed out after {}ms", timeout.as_millis()), false))
+        }
+    };
+    let Some((error, cancelled)) = reason else {
+        let value = answer_from_exit(&client.stdout(), &client.stderr(), client.exit_code());
+        return OfficeReply { value, host_exit: None };
+    };
+    let cleanup = client.drain(&error).await;
+    let value = json!({
+        "ok": false,
+        "cancelled": cancelled,
+        "error": cleanup::cleanup_error(&error, Some(&cleanup)),
+        "operationMayHaveCompleted": true,
+        "cleanup": cleanup,
+    });
+    OfficeReply { value, host_exit: Some(client.host_exit()) }
 }

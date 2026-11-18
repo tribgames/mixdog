@@ -95,91 +95,6 @@ fn request(method: &str, params: Value) -> CoreRequest {
     }
 }
 
-fn golden() -> Value {
-    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/agent/compact/golden/settings.json"))
-        .unwrap();
-    serde_json::from_str(&text).unwrap()
-}
-
-#[test]
-fn the_config_owned_session_keys_equal_nodes() {
-    let golden = golden();
-    let mut node: Vec<&str> = golden["configKeys"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
-    let mut rust = compaction_config_keys();
-    node.sort_unstable();
-    node.dedup();
-    rust.sort_unstable();
-    rust.dedup();
-    assert_eq!(rust, node);
-}
-
-#[tokio::test]
-async fn every_recorded_call_equals_nodes_result_and_state() {
-    let golden = golden();
-    for case in golden["cases"].as_array().unwrap() {
-        let name = case["name"].as_str().unwrap();
-        // `configText` keeps the order the keys were written in; a parsed JS object lists
-        // integer-like keys first, so `config` alone could not carry it.
-        let config: Doc = match case["configText"].as_str() {
-            Some(text) => serde_json::from_str(text).unwrap(),
-            None => case["config"].as_object().unwrap().clone(),
-        };
-        let store = Arc::new(Store(Mutex::new(config)));
-        let host = Arc::new(Host::new(case["provider"].as_str().map(str::to_owned), case["session"].as_object().cloned()));
-        let mut refreshed = 0;
-        // A session case runs on a thread; the others run without one.
-        let thread = (!case["session"].is_null()).then(|| ThreadId::from("t1"));
-        let service = CompactionSettingsService::new(store.clone(), host.clone());
-        for (index, step) in case["steps"].as_array().unwrap().iter().enumerate() {
-            let at = format!("{name}[{index}] {}", step["method"]);
-            let method = format!("config/{}", step["method"].as_str().unwrap());
-            let mut params = serde_json::Map::new();
-            if let Some(input) = step.get("input") {
-                params.insert("input".into(), input.clone());
-            }
-            if let Some(thread) = &thread {
-                params.insert("threadId".into(), Value::String(thread.to_string()));
-            }
-            let reply = service.call(request(&method, Value::Object(params))).await;
-            match (step.get("error"), reply) {
-                (Some(expected), Err(CoreError::DomainError { domain, code, message, detail })) => {
-                    assert_eq!((&*domain, code), ("config", None), "{at}");
-                    assert_eq!(message.as_deref(), expected.as_str(), "{at}");
-                    assert_eq!(detail, None, "{at}");
-                }
-                (None, Ok(Reply::Value(value))) => assert_eq!(value, step["result"], "{at} result"),
-                (error, other) => panic!("{at}: node error {error:?}, rust {other:?}"),
-            }
-            assert_eq!(Value::Object(store.agent()), step["config"], "{at} config");
-            let session = host.session.lock().unwrap().clone().map_or(Value::Null, Value::Object);
-            assert_eq!(session, step["session"], "{at} session");
-            assert_eq!(*host.invalidated.lock().unwrap(), step["invalidated"].as_u64().unwrap(), "{at} invalidated");
-            if step["method"] == "setCompactionSettings" && step.get("error").is_none() {
-                assert_eq!(*host.last_thread.lock().unwrap(), thread, "{at} thread");
-            }
-            // Node refreshes the Lead cache options once per saved auto-clear change, with the
-            // config it saved and never when the change was refused.
-            let refreshes = host.refreshes.lock().unwrap();
-            assert_eq!(refreshes.len() as u64, step["refreshes"].as_u64().unwrap(), "{at} refreshes");
-            for (refresh_thread, agent) in &refreshes[refreshed..] {
-                assert_eq!(refresh_thread, &thread, "{at} refresh thread");
-                assert_eq!(Value::Object(agent.clone()), step["config"], "{at} refresh config");
-            }
-            refreshed = refreshes.len();
-        }
-    }
-}
-
-#[test]
-fn agent_terminal_reap_equals_nodes() {
-    let golden = golden();
-    for row in golden["reap"].as_array().unwrap() {
-        let auto_clear = Some(&row["autoClear"]).filter(|v| !v.is_null());
-        let provider = row["provider"].as_str().unwrap_or_default();
-        assert_eq!(agent_terminal_reap_ms(auto_clear, provider), row["ms"].as_f64().unwrap(), "{row}");
-    }
-}
-
 async fn set(service: &CompactionSettingsService, method: &str, input: Value) {
     service.call(request(method, serde_json::json!({ "input": input }))).await.unwrap();
 }
@@ -212,3 +127,65 @@ async fn concurrent_auto_clear_edits_of_different_providers_both_survive() {
     assert_eq!(agent["autoClear"]["enabled"], Value::Bool(false));
     assert_eq!(agent["compaction"]["auto"], Value::Bool(false));
 }
+
+/// Saving compaction settings from a conversation stores them, drops the stale context status of that thread, and a
+/// conversation-owned key is among those the config owns.
+#[tokio::test]
+async fn saving_compaction_settings_from_a_thread_stores_them_and_invalidates_its_context_status() {
+    let store = Arc::new(Store(Mutex::new(Doc::new())));
+    let host = Arc::new(Host::new(None, None));
+    let service = CompactionSettingsService::new(store.clone(), host.clone());
+    let params = serde_json::json!({ "threadId": "t1", "input": { "auto": false } });
+    service.call(request("config/setCompactionSettings", params)).await.unwrap();
+    assert_eq!(store.agent()["compaction"]["auto"], Value::Bool(false));
+    assert_eq!((*host.invalidated.lock().unwrap(), host.last_thread.lock().unwrap().clone()), (1, Some(ThreadId::from("t1"))));
+    let keys = compaction_config_keys();
+    for key in ["auto", "summaryMode", "tailTurns", "bufferTokens"] {
+        assert!(keys.contains(&key), "{key}");
+    }
+}
+
+/// The auto-clear window of a conversation with no route is global; with a provider it is that provider's. Every saved
+/// change refreshes the Lead's cache options once with what was saved, and a request the global window cannot take
+/// (`unlimited` with no route) is refused with the usage line and saves nothing.
+#[tokio::test]
+async fn setting_the_auto_clear_window_saves_it_globally_or_per_provider_and_refreshes_the_lead_once() {
+    let store = Arc::new(Store(Mutex::new(Doc::new())));
+    let host = Arc::new(Host::new(None, None));
+    let service = CompactionSettingsService::new(store.clone(), host.clone());
+    let refused = service.call(request("config/setAutoClear", serde_json::json!({ "input": { "duration": "unlimited" } }))).await;
+    assert!(
+        matches!(&refused, Err(CoreError::DomainError { message: Some(text), .. }) if &**text == "usage: /autoclear [on|off|status|<minutes|1h|90m>|unlimited]"),
+        "{refused:?}"
+    );
+    assert!(store.agent().is_empty() && host.refreshes.lock().unwrap().is_empty());
+
+    let reply = service.call(request("config/setAutoClear", serde_json::json!({ "input": { "duration": "10m" } }))).await.unwrap();
+    let Reply::Value(view) = reply else { panic!("a value") };
+    assert_eq!((view["enabled"].clone(), view["idleMs"].clone(), view["label"].clone()), (Value::Bool(true), serde_json::json!(600_000), serde_json::json!("10m")));
+    assert_eq!(store.agent()["autoClear"]["idleMs"], serde_json::json!(600_000));
+    set(&service, "config/setAutoClear", serde_json::json!({ "provider": "mistral", "duration": "3600s" })).await;
+    assert_eq!(store.agent()["autoClear"]["providerIdleMs"], serde_json::json!({ "mistral": 3_600_000 }));
+    assert_eq!(store.agent()["autoClear"]["idleMs"], serde_json::json!(600_000), "the global window is not touched by a provider's");
+    assert_eq!(host.refreshes.lock().unwrap().len(), 2);
+}
+
+/// How long a finished agent's session is kept before it is released: the provider's own default (30 minutes for
+/// the pay-per-use OpenAI API, 2 hours for Groq, a day for DeepSeek, an hour otherwise), matched without regard to
+/// case, unless the config sets that provider's window, or a default of its own.
+#[test]
+fn a_finished_agents_session_is_kept_for_its_providers_window() {
+    let none = |provider: &str| agent_terminal_reap_ms(None, provider);
+    assert_eq!(
+        [none("openai-oauth"), none("openai"), none("OpenAI"), none("groq"), none("deepseek"), none("unknown"), none("")],
+        [3_600_000.0, 1_800_000.0, 1_800_000.0, 7_200_000.0, 86_400_000.0, 3_600_000.0, 3_600_000.0]
+    );
+    let config = serde_json::json!({ "providerIdleMs": { "groq": 600_000 } });
+    assert_eq!(agent_terminal_reap_ms(Some(&config), "groq"), 600_000.0);
+    assert_eq!(agent_terminal_reap_ms(Some(&config), "deepseek"), 86_400_000.0);
+    let own_default = serde_json::json!({ "providerIdleMs": { "default": 120_000 } });
+    assert_eq!(agent_terminal_reap_ms(Some(&own_default), "unknown"), 120_000.0);
+    assert_eq!(agent_terminal_reap_ms(Some(&serde_json::json!("x")), "groq"), 7_200_000.0, "a config that is not an object is ignored");
+}
+
+

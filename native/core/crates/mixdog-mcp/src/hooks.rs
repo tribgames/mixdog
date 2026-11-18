@@ -182,7 +182,7 @@ pub fn read_trusted_projects(_lane: &InLane<MaintenanceIo>, data_dir: &Path) -> 
     for name in ["config.json", "settings.json"] {
         let Ok(text) = std::fs::read_to_string(data_dir.join(name)) else { continue };
         let Ok(parsed) = serde_json::from_str::<Value>(&text) else { continue };
-        let list = parsed.get("trustedProjects").or_else(|| parsed.pointer("/hooks/trustedProjects"));
+        let list = parsed.get("trustedProjects").filter(|v| !v.is_null()).or_else(|| parsed.pointer("/hooks/trustedProjects"));
         for item in list.and_then(Value::as_array).into_iter().flatten() {
             let raw = js_trim(item.as_str().unwrap_or_default());
             if raw.is_empty() {

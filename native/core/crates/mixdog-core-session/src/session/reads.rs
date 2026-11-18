@@ -35,6 +35,7 @@ use mixdog_core_api::Reply;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::ItemId;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_core_api::ids::TurnId;
 use mixdog_protocol::ItemStatus;
 use mixdog_protocol::RoomRowKind;
 use mixdog_protocol::ThreadItem;
@@ -55,9 +56,39 @@ use super::SessionLanes;
 use super::ThreadStore;
 use super::Transcript;
 use super::directory::DirInner;
+use super::seams::check_turn_read_cancel;
+use super::seams::turn_read_cancelled;
 use super::transcript::position_of_id;
 use super::transcript::displayed_id;
 use super::view::meta;
+
+pub(super) const HISTORY_POSITION: &str = "historyPosition";
+const HISTORY_CURSOR_PREFIX: &str = "h1:";
+
+pub(super) fn mark_history_position(item: &mut ThreadItem, iid: &str, row: usize) {
+    super::view::meta_mut(item).ext.insert(HISTORY_POSITION.into(), json!(format!("{HISTORY_CURSOR_PREFIX}{row}:{iid}")));
+}
+
+pub(super) fn history_cursor_iid(cursor: &str) -> Option<&str> {
+    let (row, iid) = cursor.strip_prefix(HISTORY_CURSOR_PREFIX)?.split_once(':')?;
+    row.parse::<usize>().ok().and_then(|_| (!iid.is_empty()).then_some(iid))
+}
+
+fn history_position(item: &ThreadItem) -> Option<&str> {
+    meta(item).ext.get(HISTORY_POSITION)?.as_str()
+}
+
+fn exact_cursor(cursor: &Option<ItemsCursor>) -> bool {
+    matches!(cursor, Some(ItemsCursor::Opaque(value)) if value.starts_with(HISTORY_CURSOR_PREFIX))
+}
+
+fn anchor_position<'a>(mut items: impl Iterator<Item = &'a ThreadItem> + Clone, anchor: &str, exact: bool) -> Option<usize> {
+    if exact {
+        items.position(|item| history_position(item) == Some(anchor))
+    } else {
+        position_of_id(items, anchor)
+    }
+}
 
 /// `PAGE_MIN_ROWS` (`store-transcript-projection.mjs`): a byte budget never cuts a page below
 /// this many rows.
@@ -210,89 +241,6 @@ pub(super) async fn history_tail(
     Ok((History { rev, rows: rows.await.map_err(|_| dropped())? }, complete))
 }
 
-impl DirInner {
-    /// Answers one of the reads for the thread its params name, loaded or not.
-    pub(super) async fn serve_read(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
-        let id = req
-            .params
-            .get("threadId")
-            .and_then(Value::as_str)
-            .map(ThreadId::from)
-            .ok_or_else(|| invalid("threadId", "a thread id"))?;
-        if req.method.as_str() == "thread/items/list" {
-            let p: ThreadItemsListParams = params(req, "ThreadItemsListParams")?;
-            let deps = &self.deps;
-            let thread = &id;
-            return list_from_tail(
-                &id,
-                &p,
-                |rows| async move {
-                    let (History { rev, rows }, complete) = history_tail(&deps.store, &deps.transcript, deps.lanes, thread, rows).await?;
-                    Ok((rev, rows, complete))
-                },
-                |anchor, records| history_before(&deps.store, &deps.transcript, deps.lanes, thread, anchor.to_owned(), records),
-            )
-            .await;
-        }
-        if req.method.as_str() == "thread/finalAnswer/read" {
-            let p: ThreadFinalAnswerReadParams = params(req, "ThreadFinalAnswerReadParams")?;
-            // The desktop asks after every turn and again while the answer is pending: the answer is in the rows of
-            // the newest turn, so only as much of the history as shows them is read (a busy thread has none to read).
-            let mut want = FIRST_TAIL_ROWS;
-            loop {
-                if self.busy(&id) {
-                    // Still the thread's existence is the history's to say.
-                    history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, &id, 1).await?;
-                    return Ok(Reply::Value(Value::Null));
-                }
-                let (History { rev: _, rows }, complete) = history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, &id, want).await?;
-                let shown: Vec<Value> = rows.iter().map(|(item, _)| display_row(item)).collect();
-                if complete || holds_final_turn(&shown) {
-                    return Ok(Reply::Value(final_answer(&shown, self.busy(&id), p.started_at).unwrap_or(Value::Null)));
-                }
-                want = want.saturating_mul(2);
-            }
-        }
-        let History { rev: _, rows } = history(&self.deps, &id).await?;
-        let items: Vec<ThreadItem> = rows.iter().map(|(item, _)| item.clone()).collect();
-        match req.method.as_str() {
-            "thread/items/read" => items_read(&id, &items, params(req, "ThreadItemsReadParams")?),
-            "thread/turns/list" => turns_list(&items, params(req, "ThreadTurnsListParams")?, self.active_turn(&id)),
-            "thread/attachment/list" => attachment_list(&items, params(req, "ThreadPageParams")?),
-            "thread/modelMessages/list" => self.model_messages_list(&id, params(req, "ThreadModelMessagesListParams")?).await,
-            _ => unreachable!("`serves` admits only these methods"),
-        }
-    }
-
-    /// Whether the loaded thread is running a turn (`snapshot.busy`); an unloaded one is not.
-    fn busy(&self, id: &ThreadId) -> bool {
-        self.loaded(id).is_some_and(|handle| handle.cell.view.load_full().state.runtime.as_ref().is_some_and(|runtime| runtime.busy))
-    }
-
-    /// The turn the loaded thread's run is in.
-    fn active_turn(&self, id: &ThreadId) -> Option<String> {
-        self.loaded(id).and_then(|handle| handle.cell.run.load_full().map(|run| run.turn.as_str().to_owned()))
-    }
-
-    async fn model_messages_list(&self, id: &ThreadId, p: ThreadModelMessagesListParams) -> Result<Reply, CoreError> {
-        let context = super::run::ModelContext {
-            store: self.deps.store.clone(),
-            sensitive: self.deps.sensitive.clone(),
-            lanes: self.deps.lanes,
-            thread: id.clone(),
-            input: ItemId::from(String::new()),
-        };
-        let messages: Vec<Value> = context.read().await?.into_iter().map(|(_, mut message)| {
-            mixdog_agent::interrupt::without_recovery_mark(&mut message);
-            message
-        }).collect();
-        let start = usize::try_from(p.start).unwrap_or(usize::MAX);
-        let rest = messages.get(start..).unwrap_or_default();
-        let take = p.limit.map_or(rest.len(), |n| (n as usize).min(rest.len()));
-        Ok(Reply::Value(json!({ "messageCount": messages.len(), "messages": rest[..take] })))
-    }
-}
-
 /// `thread/items/list`: the page around the cursor's row. The cursor names a row by its id, so a
 /// row a rewind or a clear removed answers `cursorInvalidated` (protocol §5.5, retracting
 /// D-reads-1's `itemNotFound`): the client restarts from its snapshot. The page's byte budget
@@ -328,11 +276,9 @@ fn items_window_in(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], comple
         .collect();
     let at = match anchor {
         None => None,
-        // A cursor names the first row that displays it, else the first of that item id (`position_of_id`), and a user
-        // row displays its client's own submission id: an older row may display the same id, so only the whole history
-        // proves which row a cursor names.
+        // A legacy cursor can match an older display alias; an exact cursor outside the tail also needs an indexed or full read.
         Some(_) if !complete && !anchored => return Ok(None),
-        Some(item) => match position_of_id(turn.iter().map(|(row, _)| row), item) {
+        Some(item) => match anchor_position(turn.iter().map(|(row, _)| row), item, exact_cursor(&p.cursor)) {
             Some(at) => Some(at),
             None => return Err(CoreError::CursorInvalidated { thread_id: id.clone(), history_rev: rev }),
         },
@@ -348,7 +294,9 @@ fn items_window_in(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], comple
         return Ok(None);
     }
     let data: Vec<ThreadItem> = turn[page.start..page.end].iter().map(|(item, _)| item.clone()).collect();
-    let edge = |row: Option<&ThreadItem>, wanted: bool| row.filter(|_| wanted).map(|item| item.id().as_str().to_owned());
+    let edge = |row: Option<&ThreadItem>, wanted: bool| {
+        row.filter(|_| wanted).map(|item| history_position(item).unwrap_or_else(|| item.id().as_str()).to_owned())
+    };
     // The cursor onward in the page's own direction, and the one back.
     let (next, back) = if older {
         (edge(data.first(), page.has_older), edge(data.last(), page.has_newer))
@@ -381,17 +329,18 @@ where
         Some(ItemsCursor::Item { kind, item_id }) if kind == "item" => Some(item_id.as_str()),
         _ => None,
     };
+    let exact = exact_cursor(&p.cursor);
     // A turn's rows are counted among that turn's only, which the rows around the cursor do not show.
     if let Some(anchor) = anchor.filter(|_| older && p.turn_id.is_none()) {
         let mut want = FIRST_TAIL_ROWS;
         while let Some(b) = before(anchor, want).await? {
             // The index names candidates; the rows decide. A row older than the cursor's own that shows its id, or none
             // that does, is a history the index did not describe whole: the whole history answers.
-            let Some(at) = position_of_id(b.rows.iter().map(|(item, _)| item), anchor).filter(|at| *at >= b.from) else {
+            let Some(at) = anchor_position(b.rows.iter().map(|(item, _)| item), anchor, exact).filter(|at| *at >= b.from) else {
                 break;
             };
             // With several rows the id can name, a row's submission id takes it before another row's item id does.
-            if b.named > 1 && displayed_id(&b.rows[at].0) != anchor {
+            if b.named > 1 && (exact || displayed_id(&b.rows[at].0) != anchor) {
                 break;
             }
             if let Some(reply) = items_window_in(id, b.rev, &b.rows, b.complete, true, p)? {
@@ -424,12 +373,15 @@ fn items_read(id: &ThreadId, items: &[ThreadItem], p: ThreadItemsReadParams) -> 
 }
 
 fn turns_list(items: &[ThreadItem], p: ThreadTurnsListParams, active: Option<String>) -> Result<Reply, CoreError> {
+    turns_page(turns_of(items, active.as_deref()), p)
+}
+
+fn turns_page(mut turns: Vec<Turn>, p: ThreadTurnsListParams) -> Result<Reply, CoreError> {
     let limit = match p.limit {
         None => TURNS_PAGE,
         Some(n) if n >= 1 => n as usize,
         Some(_) => return Err(invalid("limit", "a positive integer")),
     };
-    let mut turns = turns_of(items, active.as_deref());
     if !matches!(p.sort_direction, Some(SortDirection::Asc)) {
         turns.reverse();
     }
@@ -437,7 +389,7 @@ fn turns_list(items: &[ThreadItem], p: ThreadTurnsListParams, active: Option<Str
         None => 0,
         Some(cursor) => turns.iter().position(|t| t.id.as_str() == cursor).map(|at| at + 1).ok_or_else(|| invalid("cursor", "a turn id of this thread"))?,
     };
-    let mut data: Vec<Turn> = turns.into_iter().skip(from).collect();
+    let mut data: Vec<Turn> = turns.into_iter().skip(from).take(limit.saturating_add(1)).collect();
     let more = data.len() > limit;
     data.truncate(limit);
     let next_cursor = data.last().filter(|_| more).map(|t| t.id.as_str().to_owned());
@@ -749,36 +701,112 @@ pub(super) fn turns_of(items: &[ThreadItem], active: Option<&str>) -> Vec<Turn> 
         let at = match turns.iter().position(|t| t.id.as_str() == id.as_str()) {
             Some(at) => at,
             None => {
-                turns.push(Turn {
-                    id: id.clone(),
-                    status: if active == Some(id.as_str()) { TurnStatus::InProgress } else { TurnStatus::Interrupted },
-                    started_at: meta(item).at,
-                    completed_at: None,
-                    error: None,
-                    stop_reason: None,
-                    termination_reason: None,
-                    items: Some(Vec::new()),
-                });
+                turns.push(turn_shell(id, meta(item).at, active));
                 turns.len() - 1
             }
         };
         let turn = &mut turns[at];
         turn.items.get_or_insert_with(Vec::new).push(item.clone());
-        if let ThreadItem::TurnEnd { status, detail, error_details, error_kind, meta, .. } = item {
-            turn.completed_at = meta.at;
-            turn.status = match status {
-                TurnEndStatus::Done => TurnStatus::Completed,
-                TurnEndStatus::Failed => TurnStatus::Failed,
-                TurnEndStatus::Cancelled => TurnStatus::Interrupted,
-            };
-            if *status == TurnEndStatus::Failed {
-                let message = detail.clone().or_else(|| error_details.clone()).unwrap_or_default();
-                let data = error_kind.clone().map_or_else(|| json!({}), Value::Object);
-                turn.error = Some(TurnError { message, data, provider_error: None });
-            }
-        }
+        fold_turn_end(turn, item, false, false);
     }
     turns
+}
+
+fn turn_shell(id: &TurnId, started_at: Option<i64>, active: Option<&str>) -> Turn {
+    Turn {
+        id: id.clone(),
+        status: if active == Some(id.as_str()) { TurnStatus::InProgress } else { TurnStatus::Interrupted },
+        started_at,
+        completed_at: None,
+        error: None,
+        stop_reason: None,
+        termination_reason: None,
+        items: None,
+    }
+}
+
+fn fold_turn_end(turn: &mut Turn, item: &ThreadItem, keep_end: bool, keep_error: bool) -> bool {
+    let ThreadItem::TurnEnd { status, detail, error_details, error_kind, meta, .. } = item else { return false };
+    if !keep_end {
+        turn.completed_at = meta.at;
+        turn.status = match status {
+            TurnEndStatus::Done => TurnStatus::Completed,
+            TurnEndStatus::Failed => TurnStatus::Failed,
+            TurnEndStatus::Cancelled => TurnStatus::Interrupted,
+        };
+    }
+    if !keep_error && *status == TurnEndStatus::Failed {
+        let message = detail.clone().or_else(|| error_details.clone()).unwrap_or_default();
+        let data = error_kind.clone().map_or_else(|| json!({}), Value::Object);
+        turn.error = Some(TurnError { message, data, provider_error: None });
+    }
+    true
+}
+
+#[derive(Default)]
+struct TurnMetadata {
+    seen: usize,
+    turns: std::collections::HashMap<TurnId, SeenTurn>,
+}
+
+struct SeenTurn {
+    first: usize,
+    ended: bool,
+    turn: Turn,
+}
+
+impl TurnMetadata {
+    fn push(&mut self, item: &ThreadItem) {
+        let Some(id) = meta(item).turn_id.as_ref() else { return };
+        self.seen += 1;
+        let at = meta(item).at;
+        let entry = self.turns.entry(id.clone()).or_insert_with(|| SeenTurn { first: 0, ended: false, turn: turn_shell(id, at, None) });
+        // Walking backwards: every encounter revises the first occurrence, but not the latest end or failure.
+        entry.first = self.seen;
+        entry.turn.started_at = at;
+        let keep_error = entry.turn.error.is_some();
+        entry.ended |= fold_turn_end(&mut entry.turn, item, entry.ended, keep_error);
+    }
+
+    fn finish(self, active: Option<&str>) -> Vec<Turn> {
+        let mut seen: Vec<_> = self.turns.into_values().collect();
+        seen.sort_unstable_by_key(|entry| std::cmp::Reverse(entry.first));
+        seen.into_iter().map(|mut entry| {
+            if !entry.ended && active == Some(entry.turn.id.as_str()) {
+                entry.turn.status = TurnStatus::InProgress;
+            }
+            entry.turn
+        }).collect()
+    }
+}
+
+async fn read_turn_metadata(deps: &SessionDeps, id: &ThreadId, cancel: &CancellationToken) -> Result<Option<TurnMetadata>, CoreError> {
+    use mixdog_core_base::support::on_lane_wait;
+
+    let mut scan = TurnMetadata::default();
+    let mut after = None;
+    loop {
+        let (store, thread) = (deps.store.clone(), id.clone());
+        let io_cancel = cancel.clone();
+        let chunk = on_lane_wait(deps.lanes.io, cancel, move |lane| store.turn_history_chunk(lane, &thread, after, &io_cancel)).await??;
+        let Some(super::seams::TurnHistoryChunk { records, next }) = chunk else { return Ok(None) };
+        let transcript = deps.transcript.clone();
+        let cpu_cancel = cancel.clone();
+        scan = on_lane_wait(deps.lanes.cpu, cancel, move |lane| {
+            for record in records {
+                check_turn_read_cancel(&cpu_cancel)?;
+                // Page decoration changes only ext fields, not membership, timestamps, or terminal state.
+                for (item, _) in transcript.rows(lane, &record).into_iter().rev() {
+                    scan.push(&item);
+                }
+            }
+            Ok::<_, CoreError>(scan)
+        }).await??;
+        match next {
+            Some(next) => after = Some(next),
+            None => return Ok(Some(scan)),
+        }
+    }
 }
 
 /// JS truthiness of a JSON value.
@@ -835,56 +863,6 @@ pub(super) fn attachment_rows(rows: &[Value]) -> Vec<Value> {
 mod tests {
     use super::*;
 
-    fn golden() -> Value {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-reads/golden.json");
-        let bytes = mixdog_statefile::read_content(&path).expect("read golden.json").expect("golden.json exists");
-        serde_json::from_slice(&bytes).expect("golden.json parses")
-    }
-
-    /// `sessionFinalAnswer` of the recorded snapshots; `None` for Node's `null`.
-    #[test]
-    fn the_final_answer_equals_nodes() {
-        let golden = golden();
-        let cases = golden["finalAnswers"].as_array().expect("cases");
-        assert!(cases.len() > 20);
-        for case in cases {
-            let snapshot = &case["snapshot"];
-            let rows = snapshot["items"].as_array().expect("items");
-            let busy = snapshot["busy"] == json!(true) || snapshot.get("streamingTail").is_some_and(|tail| !tail.is_null());
-            let got = final_answer(rows, busy, case["startedAt"].as_i64().expect("startedAt"));
-            let want = (!case["expected"].is_null()).then(|| case["expected"].clone());
-            assert_eq!(got, want, "{}", case["name"]);
-            // The read takes only the newest rows: any tail that holds the newest turn answers as the whole history does.
-            let started_at = case["startedAt"].as_i64().expect("startedAt");
-            for from in 0..rows.len() {
-                if holds_final_turn(&rows[from..]) {
-                    assert_eq!(final_answer(&rows[from..], busy, started_at), want, "{} from row {from}", case["name"]);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn a_page_row_carries_archived_and_the_dividers_that_follow_its_record() {
-        use crate::session::seams::{RowDecor, WindowDivider};
-        let rows = |n: usize| -> Vec<(ThreadItem, usize)> {
-            (0..n).map(|i| (items(json!([{ "type": "agentMessage", "id": format!("a{i}"), "text": "x", "meta": {} }])).remove(0), 1)).collect()
-        };
-        let ext = |item: &ThreadItem| meta(item).ext.clone();
-        // No decoration: the rows as they are.
-        assert!(decorated(rows(1), None).iter().all(|(item, _)| ext(item).is_empty()));
-        let divider = WindowDivider { before: 1, ordinal: 9, cid: "k1".into(), at: Some(5), model_switches: Vec::new() };
-        let decor = RowDecor { archived: true, dividers_after: vec![divider] };
-        let shown = decorated(rows(2), Some(&decor));
-        // Every row of the record is archived; the divider rides the last one, as the item the window would show.
-        assert!(shown.iter().all(|(item, _)| ext(item).get("archived") == Some(&json!(true))));
-        assert!(ext(&shown[0].0).get(DIVIDERS_AFTER).is_none());
-        let after = ext(&shown[1].0).get(DIVIDERS_AFTER).cloned().expect("the dividers after the record");
-        assert_eq!(after, json!([crate::session::transcript::divider_item("k1", Some(5))]));
-        // A record that shows no row has none to carry them.
-        assert!(decorated(Vec::new(), Some(&decor)).is_empty());
-    }
-
     #[test]
     fn the_newest_turn_is_held_once_two_turn_ends_are_in_the_rows() {
         let done = |id: &str| json!({ "kind": "turndone", "id": id });
@@ -928,6 +906,15 @@ mod tests {
         );
         assert_eq!(turns[1].error.as_ref().map(|e| e.message.as_str()), Some("boom"));
         assert!(turns[0].error.is_none());
+        let mut scan = TurnMetadata::default();
+        for item in history.iter().rev() {
+            scan.push(item);
+        }
+        let mut metadata = turns;
+        for turn in &mut metadata {
+            turn.items = None;
+        }
+        assert_eq!(serde_json::to_value(scan.finish(Some("t4"))).unwrap(), serde_json::to_value(metadata).unwrap());
     }
 
     #[test]
@@ -953,15 +940,6 @@ mod tests {
         assert!(turns_list(&history, serde_json::from_value(json!({ "threadId": "x", "cursor": "nope" })).unwrap(), None).is_err());
     }
 
-    #[test]
-    fn the_attachment_rows_equal_nodes() {
-        let golden = golden();
-        for case in golden["attachmentRows"].as_array().expect("cases") {
-            let items = case["items"].as_array().expect("items");
-            assert_eq!(Value::Array(attachment_rows(items)), case["expected"], "{}", case["items"]);
-        }
-    }
-
     fn history_of(sizes: &[usize]) -> Vec<(ThreadItem, usize)> {
         sizes
             .iter()
@@ -977,6 +955,114 @@ mod tests {
         }
     }
 
+    /// Protocol §5.5: a cursor into history a rewind or a clear removed is `cursorInvalidated`,
+    /// at the history revision the read found; the page before it was valid.
+    #[test]
+    fn a_cursor_into_removed_history_is_invalidated() {
+        let id = ThreadId::from("t");
+        let before = history_of(&[10, 10, 10, 10]);
+        let first = page(&id, 0, &before, json!({ "threadId": "t", "limit": 2 })).expect("page");
+        let cursor = first["nextCursor"].as_str().expect("more rows").to_owned();
+        assert_eq!(cursor, "r2");
+        // A rewind to r2 removes r2 and r3 and moves the revision; the cursor named r2.
+        let rewound = history_of(&[10, 10]);
+        match page(&id, 1, &rewound, json!({ "threadId": "t", "limit": 2, "cursor": cursor })) {
+            Err(CoreError::CursorInvalidated { thread_id, history_rev }) => assert_eq!((thread_id, history_rev), (id.clone(), 1)),
+            other => panic!("{other:?}"),
+        }
+        // A clear removes every row; the `{type:"item"}` form is the same cursor.
+        match page(&id, 2, &[], json!({ "threadId": "t", "cursor": { "type": "item", "itemId": "r0" } })) {
+            Err(CoreError::CursorInvalidated { history_rev, .. }) => assert_eq!(history_rev, 2),
+            other => panic!("{other:?}"),
+        }
+        // A cursor that survived keeps paging.
+        assert!(page(&id, 1, &rewound, json!({ "threadId": "t", "cursor": "r1" })).is_ok());
+    }
+
+    #[test]
+    fn continuation_names_the_exact_occurrence_of_a_repeated_display_id() {
+        let id = ThreadId::from("t");
+        let mut rows: Vec<(ThreadItem, usize)> = ["earlier", "between", "later", "newest"].into_iter().enumerate().map(|(at, text)| {
+            let shown = if at == 0 || at == 2 { "repeat" } else { text };
+            let mut item = items(json!([{ "type": "agentMessage", "id": shown, "text": text }])).remove(0);
+            mark_history_position(&mut item, &format!("record-{at}"), 0);
+            (item, 10)
+        }).collect();
+        let first = page(&id, 0, &rows, json!({ "threadId": "t", "limit": 2 })).expect("newest page");
+        let cursor = first["nextCursor"].as_str().expect("older page");
+        let older = page(&id, 0, &rows, json!({ "threadId": "t", "cursor": cursor, "limit": 2 })).expect("older page");
+        assert_eq!(older["data"][0]["text"], "earlier");
+        assert_eq!(older["data"][1]["text"], "between");
+        let newer = page(&id, 0, &rows, json!({
+            "threadId": "t", "cursor": older["backwardsCursor"], "sortDirection": "asc", "limit": 2
+        })).expect("newer page");
+        assert_eq!(newer["data"][0]["text"], "later");
+        rows.truncate(2);
+        assert!(matches!(page(&id, 1, &rows, json!({ "threadId": "t", "cursor": cursor })),
+            Err(CoreError::CursorInvalidated { .. })), "the earlier row with the same display id is not the cursor");
+    }
+
+    #[test]
+    fn a_page_row_carries_archived_and_the_dividers_that_follow_its_record() {
+        use crate::session::seams::{RowDecor, WindowDivider};
+        let rows = |n: usize| -> Vec<(ThreadItem, usize)> {
+            (0..n).map(|i| (items(json!([{ "type": "agentMessage", "id": format!("a{i}"), "text": "x", "meta": {} }])).remove(0), 1)).collect()
+        };
+        let ext = |item: &ThreadItem| meta(item).ext.clone();
+        // No decoration: the rows as they are.
+        assert!(decorated(rows(1), None).iter().all(|(item, _)| ext(item).is_empty()));
+        let divider = WindowDivider { before: 1, ordinal: 9, cid: "k1".into(), at: Some(5), model_switches: Vec::new() };
+        let decor = RowDecor { archived: true, dividers_after: vec![divider] };
+        let shown = decorated(rows(2), Some(&decor));
+        // Every row of the record is archived; the divider rides the last one, as the item the window would show.
+        assert!(shown.iter().all(|(item, _)| ext(item).get("archived") == Some(&json!(true))));
+        assert!(ext(&shown[0].0).get(DIVIDERS_AFTER).is_none());
+        let after = ext(&shown[1].0).get(DIVIDERS_AFTER).cloned().expect("the dividers after the record");
+        assert_eq!(after, json!([crate::session::transcript::divider_item("k1", Some(5))]));
+        // A record that shows no row has none to carry them.
+        assert!(decorated(Vec::new(), Some(&decor)).is_empty());
+    }
+
+
+    #[cfg(node_twin)]
+    fn golden() -> Value {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-reads/golden.json");
+        let bytes = mixdog_statefile::read_content(&path).expect("read golden.json").expect("golden.json exists");
+        serde_json::from_slice(&bytes).expect("golden.json parses")
+    }
+    #[cfg(node_twin)]
+    /// `sessionFinalAnswer` of the recorded snapshots; `None` for Node's `null`.
+    #[test]
+    fn the_final_answer_equals_nodes() {
+        let golden = golden();
+        let cases = golden["finalAnswers"].as_array().expect("cases");
+        assert!(cases.len() > 20);
+        for case in cases {
+            let snapshot = &case["snapshot"];
+            let rows = snapshot["items"].as_array().expect("items");
+            let busy = snapshot["busy"] == json!(true) || snapshot.get("streamingTail").is_some_and(|tail| !tail.is_null());
+            let got = final_answer(rows, busy, case["startedAt"].as_i64().expect("startedAt"));
+            let want = (!case["expected"].is_null()).then(|| case["expected"].clone());
+            assert_eq!(got, want, "{}", case["name"]);
+            // The read takes only the newest rows: any tail that holds the newest turn answers as the whole history does.
+            let started_at = case["startedAt"].as_i64().expect("startedAt");
+            for from in 0..rows.len() {
+                if holds_final_turn(&rows[from..]) {
+                    assert_eq!(final_answer(&rows[from..], busy, started_at), want, "{} from row {from}", case["name"]);
+                }
+            }
+        }
+    }
+    #[cfg(node_twin)]
+    #[test]
+    fn the_attachment_rows_equal_nodes() {
+        let golden = golden();
+        for case in golden["attachmentRows"].as_array().expect("cases") {
+            let items = case["items"].as_array().expect("items");
+            assert_eq!(Value::Array(attachment_rows(items)), case["expected"], "{}", case["items"]);
+        }
+    }
+    #[cfg(node_twin)]
     /// `storedHistorySlice({cursor})`: the recorded Node pages replayed through `thread/items/list`
     /// (cursor, `limit`, `byteBudget`, `sortDirection`), edges and `cursorMissing` included. Node's
     /// own row sizes feed the rows here; that production measures a row as Node does is the
@@ -1023,7 +1109,7 @@ mod tests {
         }
         assert!(replayed > 200, "{replayed}");
     }
-
+    #[cfg(node_twin)]
     /// A page read from the newest stored rows only is the page the whole history gives, or asks for more rows: never another
     /// page. A cursor is never answered from a window (a user row displays its client's submission id, so an older row may
     /// display the same id): every recorded Node request with a cursor asks for the whole history from every window start.
@@ -1070,28 +1156,124 @@ mod tests {
         let from_oldest = json!({ "threadId": "t", "limit": 3, "sortDirection": "asc" });
         assert!(items_window(&id, 0, &ten[1..], false, &serde_json::from_value(from_oldest).expect("params")).expect("a page").is_none());
     }
+}
 
-    /// Protocol §5.5: a cursor into history a rewind or a clear removed is `cursorInvalidated`,
-    /// at the history revision the read found; the page before it was valid.
-    #[test]
-    fn a_cursor_into_removed_history_is_invalidated() {
-        let id = ThreadId::from("t");
-        let before = history_of(&[10, 10, 10, 10]);
-        let first = page(&id, 0, &before, json!({ "threadId": "t", "limit": 2 })).expect("page");
-        let cursor = first["nextCursor"].as_str().expect("more rows").to_owned();
-        assert_eq!(cursor, "r2");
-        // A rewind to r2 removes r2 and r3 and moves the revision; the cursor named r2.
-        let rewound = history_of(&[10, 10]);
-        match page(&id, 1, &rewound, json!({ "threadId": "t", "limit": 2, "cursor": cursor })) {
-            Err(CoreError::CursorInvalidated { thread_id, history_rev }) => assert_eq!((thread_id, history_rev), (id.clone(), 1)),
-            other => panic!("{other:?}"),
+
+impl DirInner {
+    /// Answers one of the reads for the thread its params name, loaded or not.
+    pub(super) async fn serve_read(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
+        let id = req
+            .params
+            .get("threadId")
+            .and_then(Value::as_str)
+            .map(ThreadId::from)
+            .ok_or_else(|| invalid("threadId", "a thread id"))?;
+        if req.method.as_str() == "thread/items/list" {
+            let p: ThreadItemsListParams = params(req, "ThreadItemsListParams")?;
+            let deps = &self.deps;
+            let thread = &id;
+            return list_from_tail(
+                &id,
+                &p,
+                |rows| async move {
+                    let (History { rev, rows }, complete) = history_tail(&deps.store, &deps.transcript, deps.lanes, thread, rows).await?;
+                    Ok((rev, rows, complete))
+                },
+                |anchor, records| history_before(&deps.store, &deps.transcript, deps.lanes, thread, anchor.to_owned(), records),
+            )
+            .await;
         }
-        // A clear removes every row; the `{type:"item"}` form is the same cursor.
-        match page(&id, 2, &[], json!({ "threadId": "t", "cursor": { "type": "item", "itemId": "r0" } })) {
-            Err(CoreError::CursorInvalidated { history_rev, .. }) => assert_eq!(history_rev, 2),
-            other => panic!("{other:?}"),
+        if req.method.as_str() == "thread/finalAnswer/read" {
+            let p: ThreadFinalAnswerReadParams = params(req, "ThreadFinalAnswerReadParams")?;
+            // The desktop asks after every turn and again while the answer is pending: the answer is in the rows of
+            // the newest turn, so only as much of the history as shows them is read (a busy thread has none to read).
+            let mut want = FIRST_TAIL_ROWS;
+            loop {
+                if self.busy(&id) {
+                    // Still the thread's existence is the history's to say.
+                    history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, &id, 1).await?;
+                    return Ok(Reply::Value(Value::Null));
+                }
+                let (History { rev: _, rows }, complete) = history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, &id, want).await?;
+                let shown: Vec<Value> = rows.iter().map(|(item, _)| display_row(item)).collect();
+                if complete || holds_final_turn(&shown) {
+                    return Ok(Reply::Value(final_answer(&shown, self.busy(&id), p.started_at).unwrap_or(Value::Null)));
+                }
+                want = want.saturating_mul(2);
+            }
         }
-        // A cursor that survived keeps paging.
-        assert!(page(&id, 1, &rewound, json!({ "threadId": "t", "cursor": "r1" })).is_ok());
+        if req.method.as_str() == "thread/turns/list" {
+            let p: ThreadTurnsListParams = params(req, "ThreadTurnsListParams")?;
+            let cancel = &req.ctx.cancel;
+            let result = mixdog_rt::Scope::new().cancel(cancel).run(self.read_turns(&id, p, cancel))
+                .await.done().ok_or_else(turn_read_cancelled)?;
+            // Grouping and serialization can finish in a single poll after cancellation.
+            check_turn_read_cancel(cancel)?;
+            return result;
+        }
+        let History { rev: _, rows } = history(&self.deps, &id).await?;
+        let items: Vec<ThreadItem> = rows.iter().map(|(item, _)| item.clone()).collect();
+        match req.method.as_str() {
+            "thread/items/read" => items_read(&id, &items, params(req, "ThreadItemsReadParams")?),
+            "thread/attachment/list" => attachment_list(&items, params(req, "ThreadPageParams")?),
+            "thread/modelMessages/list" => self.model_messages_list(&id, params(req, "ThreadModelMessagesListParams")?).await,
+            _ => unreachable!("`serves` admits only these methods"),
+        }
+    }
+
+    async fn read_turns(&self, id: &ThreadId, p: ThreadTurnsListParams, cancel: &CancellationToken) -> Result<Reply, CoreError> {
+        use mixdog_core_base::support::on_lane_wait;
+
+        self.deps.store.unheld().await;
+        if p.items_view != Some(true)
+            && let Some(scan) = read_turn_metadata(&self.deps, id, cancel).await?
+        {
+            check_turn_read_cancel(cancel)?;
+            return turns_page(scan.finish(self.active_turn(id).as_deref()), p);
+        }
+        check_turn_read_cancel(cancel)?;
+        let (store, thread, io_cancel) = (self.deps.store.clone(), id.clone(), cancel.clone());
+        let (records, decor) = on_lane_wait(self.deps.lanes.io, cancel, move |lane| {
+            store.turn_history_full(lane, &thread, &io_cancel)
+        }).await??;
+        let (transcript, cpu_cancel) = (self.deps.transcript.clone(), cancel.clone());
+        let items = on_lane_wait(self.deps.lanes.cpu, cancel, move |lane| {
+            let mut items = Vec::new();
+            for (at, record) in records.into_iter().enumerate() {
+                check_turn_read_cancel(&cpu_cancel)?;
+                items.extend(decorated(transcript.rows(lane, &record), decor.get(at)).into_iter().map(|(item, _)| item));
+            }
+            Ok::<_, CoreError>(items)
+        }).await??;
+        check_turn_read_cancel(cancel)?;
+        turns_list(&items, p, self.active_turn(id))
+    }
+
+    /// Whether the loaded thread is running a turn (`snapshot.busy`); an unloaded one is not.
+    fn busy(&self, id: &ThreadId) -> bool {
+        self.loaded(id).is_some_and(|handle| handle.cell.view.load_full().state.runtime.as_ref().is_some_and(|runtime| runtime.busy))
+    }
+
+    /// The turn the loaded thread's run is in.
+    fn active_turn(&self, id: &ThreadId) -> Option<String> {
+        self.loaded(id).and_then(|handle| handle.cell.run.load_full().map(|run| run.turn.as_str().to_owned()))
+    }
+
+    async fn model_messages_list(&self, id: &ThreadId, p: ThreadModelMessagesListParams) -> Result<Reply, CoreError> {
+        let context = super::run::ModelContext {
+            store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
+            lanes: self.deps.lanes,
+            thread: id.clone(),
+            input: ItemId::from(String::new()),
+        };
+        let messages: Vec<Value> = context.read().await?.into_iter().map(|(_, mut message)| {
+            mixdog_agent::interrupt::without_recovery_mark(&mut message);
+            message
+        }).collect();
+        let start = usize::try_from(p.start).unwrap_or(usize::MAX);
+        let rest = messages.get(start..).unwrap_or_default();
+        let take = p.limit.map_or(rest.len(), |n| (n as usize).min(rest.len()));
+        Ok(Reply::Value(json!({ "messageCount": messages.len(), "messages": rest[..take] })))
     }
 }

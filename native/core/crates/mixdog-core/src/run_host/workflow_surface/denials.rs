@@ -92,6 +92,9 @@ pub fn feature_disallowed_tools(config: &Map<String, Value>, facts: &FeatureFact
         (explore_route_configured(config), &["explore"]),
     ];
     let mut denied: Vec<String> = gates.iter().filter(|(on, _)| !on).flat_map(|(_, names)| names.iter().map(|name| (*name).to_owned())).collect();
+    if env("MIXDOG_DISABLE_SKILLS").as_deref().is_some_and(mixdog_mcp::skill_catalog::skills_disabled) {
+        denied.push("Skill".to_owned());
+    }
     // Bots' emoji reactions: on unless turned off.
     if config.get("reactions") == Some(&Value::Bool(false)) {
         denied.push(REACTION_TOOL.to_owned());
@@ -104,6 +107,13 @@ pub fn feature_disallowed_tools(config: &Map<String, Value>, facts: &FeatureFact
         denied.push("load_tool".to_owned());
     }
     denied
+}
+
+/// The gates the user's settings alone close: [`feature_disallowed_tools`] with every machine fact (git on PATH, a desktop bridge)
+/// taken as present. It reads the config and the environment only, so a dispatch-time check built on it cannot wait on a lane or fail.
+pub fn setting_denied_tools(config: &Map<String, Value>, env: Env<'_>, profile: ToolProfile) -> Vec<String> {
+    let facts = FeatureFacts { browser: true, computer: true, terminal: true, visualize: true, git: true };
+    feature_disallowed_tools(config, &facts, env, profile)
 }
 
 /// `reactionDisabled(session, ownerIsAgent)`: `react` belongs to a bot's own chat with the user,
@@ -139,4 +149,59 @@ pub fn live_denied_tools(session: &Header, workflow: &Value, features: &[String]
     }
     names.retain(|name| !name.is_empty());
     Ok(names)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::run_host::session_tools::{Resolve, resolve};
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_core_api::ids::ThreadId;
+    use mixdog_tools::orch::skill::{SkillLookup, SkillPort, SkillTool};
+    use mixdog_tools::orch::util::PortError;
+    use std::sync::Arc;
+
+    #[test]
+    fn global_skills_off_withholds_the_loader_from_an_agent() {
+        let pool: Vec<Arc<dyn mixdog_core_api::domain::tool::Tool>> = vec![Arc::new(SkillTool::new(Arc::new(NoSkills)))];
+        let env = |var: &str| (var == "MIXDOG_DISABLE_SKILLS").then(|| "yes".to_owned());
+        let disallowed = feature_disallowed_tools(&Map::new(), &FeatureFacts::default(), &env, ToolProfile::Headless);
+        let request = Resolve { tool_spec: None, model: "", skills_listed: false, agent_owned: true, schema_allowed: None, disallowed: &disallowed };
+        assert!(resolve(&pool, Vec::new(), &request).is_empty());
+    }
+
+    struct NoSkills;
+    #[async_trait]
+    impl SkillPort for NoSkills {
+        async fn load(&self, _: &ThreadId, _: &str, _: &AbsPath) -> Result<SkillLookup, PortError> {
+            unreachable!("the loader must not be sent")
+        }
+        async fn body_present(&self, _: &ThreadId, _: &str) -> Result<bool, PortError> {
+            unreachable!("the loader must not be sent")
+        }
+    }
+}
+
+#[cfg(test)]
+mod setting_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    /// The dispatch-time question is only "did the user switch it off": an enabled tool is never reported denied for want of a
+    /// machine fact (git not found yet, a probe that could not run), and a switched-off one is.
+    #[test]
+    fn only_the_users_settings_close_a_gate_at_dispatch() {
+        let env = |_: &str| None;
+        let on = json!({"modules": {}, "builtins": {"memory": {"installed": true}, "office": {"installed": true}}});
+        let denied = setting_denied_tools(on.as_object().unwrap(), &env, ToolProfile::Interactive);
+        for enabled in ["web_search", "web_fetch", "memory", "recall", "git", "office", "visualize"] {
+            assert!(!denied.iter().any(|name| name == enabled), "{enabled} is on");
+        }
+        let off = json!({"modules": {"webSearch": {"enabled": false}, "git": {"enabled": false}, "visualize": {"enabled": false}}});
+        let denied = setting_denied_tools(off.as_object().unwrap(), &env, ToolProfile::Interactive);
+        for switched in ["web_search", "web_fetch", "git", "visualize"] {
+            assert!(denied.iter().any(|name| name == switched), "{switched} is off");
+        }
+    }
 }

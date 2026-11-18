@@ -52,22 +52,20 @@ impl ApiKeySource for HeldKey {
     }
 }
 
-impl ApiKeyAuth {
-    pub fn new(key: impl Into<String>) -> Self {
-        Self { source: Arc::new(HeldKey(key.into())) }
-    }
-
-    /// The key as the provider's source reads it at each request. The 401 recovery of a source that can be re-read
-    /// is the adapter's ([`super::adapter::GoogleAdapter::with_key_reload`]), as a whole request.
-    pub fn from_source(source: Arc<dyn ApiKeySource>) -> Self {
-        Self { source }
-    }
-}
-
 #[async_trait]
 impl RequestAuth for ApiKeyAuth {
     async fn authorize(&self) -> Result<Authorization, ProviderError> {
-        let key = self.source.key().await?;
+        Self::authorization(self.source.key().await?)
+    }
+
+    async fn rejected(&self, _: &Authorization) -> bool {
+        false
+    }
+}
+
+impl ApiKeyAuth {
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value")]
+    pub(super) fn authorization(key: String) -> Result<Authorization, ProviderError> {
         if key.trim().is_empty() {
             let mut err = ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent);
             err.reauth_required = true;
@@ -75,10 +73,6 @@ impl RequestAuth for ApiKeyAuth {
             return Err(err);
         }
         Ok(Authorization { headers: vec![("x-goog-api-key".into(), key)], identity: String::new() })
-    }
-
-    async fn rejected(&self, _: &Authorization) -> bool {
-        false
     }
 }
 
@@ -133,4 +127,30 @@ pub fn parse_token_grant(body: &[u8], what: &str) -> Result<TokenGrant, Provider
         refresh_token: value.get("refresh_token").and_then(Value::as_str).filter(|t| !t.is_empty()).map(str::to_owned),
         expires_in_secs: value.get("expires_in").and_then(Value::as_u64),
     })
+}
+
+
+impl ApiKeyAuth {
+    pub fn new(key: impl Into<String>) -> Self {
+        Self { source: Arc::new(HeldKey(key.into())) }
+    }
+
+    /// The key as the provider's source reads it at each request. The 401 recovery of a source that can be re-read
+    /// is the adapter's ([`super::adapter::GoogleAdapter::with_key_reload`]), as a whole request.
+    pub fn from_source(source: Arc<dyn ApiKeySource>) -> Self {
+        Self { source }
+    }
+}
+
+
+/// A refused Antigravity refresh (`refreshTokens`): the status and the redacted start of the body, and a sign-in
+/// is asked for on any 400 or 401 (an `invalid_grant` is the user's revocation or the token's age).
+pub fn antigravity_refresh_failure(status: u16, body: &[u8]) -> ProviderError {
+    let scrubbed = crate::oauth::scrub::scrub_oauth_secrets(&String::from_utf8_lossy(body), &[]);
+    let kind = if status >= 500 || status == 429 { ErrorKind::Transient } else { ErrorKind::Auth };
+    let mut err = ProviderError::new(kind, DeliveryState::NotSent);
+    err.status = Some(status);
+    err.reauth_required = matches!(status, 400 | 401);
+    err.message = format!("[antigravity-oauth] token refresh {status}: {}", mixdog_js::slice_utf16(&scrubbed, 300));
+    err
 }

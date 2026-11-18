@@ -3,53 +3,72 @@
 //! `loadSkillToolDependencies` leaves it, and the transcript answers whether a skill body is still
 //! in the conversation as `skillBodyPresentInSession` does.
 
+#[cfg(node_twin)]
 use std::sync::Mutex;
 
+#[cfg(node_twin)]
 use mixdog_core_ports::ports::threads::Section;
+#[cfg(node_twin)]
 use mixdog_core_session::session::NoRouteExclusions;
+#[cfg(node_twin)]
 use mixdog_mcp::skill_deps::DependencySource;
+#[cfg(node_twin)]
 use mixdog_mcp::skill_state::body_present;
 use serde_json::json;
 
 use mixdog_core::run_host::skill_session::*;
+#[cfg(node_twin)]
 use mixdog_mcp::skill_port::DeferredToolArm as _;
 use mixdog_mcp::skill_port::TranscriptTexts as _;
 use std::sync::Arc;
 use async_trait::async_trait;
+#[cfg(node_twin)]
 use mixdog_agent::env::Clock;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::memory_source::ThreadMessages;
+#[cfg(node_twin)]
 use mixdog_core_ports::ports::threads::HeaderUpdate;
+#[cfg(node_twin)]
 use mixdog_core_ports::ports::threads::HeaderUpdates;
+#[cfg(node_twin)]
 use mixdog_core_ports::ports::threads::ThreadState;
+#[cfg(node_twin)]
 use mixdog_mcp::skill_deps::SkillToolDependencies;
+#[cfg(node_twin)]
 use mixdog_store::schema::record::Header;
+#[cfg(node_twin)]
 use mixdog_tools::orch::skill::ArmNotice;
 use mixdog_tools::orch::util::PortError;
+#[cfg(node_twin)]
 use mixdog_tools::policy::ConnectorPermissions;
+#[cfg(node_twin)]
 use serde_json::Map;
 use serde_json::Value;
+#[cfg(node_twin)]
 use mixdog_core::run_host::tool_surface::SurfaceHost;
 
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[path = "node_cases.rs"]
 mod node_cases;
-
-fn golden() -> Value {
-    mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/skill-session/golden.json")).expect("fixture")
-}
 
 fn thread() -> ThreadId {
     ThreadId::from("t1")
 }
 
+#[cfg(node_twin)]
 fn object(value: &Value) -> Header {
     value.as_object().expect("object").clone()
 }
 
 /// The header of thread `t1` with one writer, as the session actor holds it: an update runs on the
 /// header as it stands, one at a time, and its change is applied before the next.
+#[cfg(node_twin)]
 const ROUNDS: usize = 50;
 
+#[cfg(node_twin)]
 struct Store {
     header: Mutex<Header>,
     /// A header write by another party that lands before the next update does.
@@ -62,7 +81,9 @@ struct Store {
     rival: Option<std::sync::atomic::AtomicUsize>,
 }
 
+#[cfg(node_twin)]
 impl Store {
+    #[cfg(node_twin)]
     fn of(header: &Value) -> Arc<Self> {
         Arc::new(Self { header: Mutex::new(object(header)), interloper: Mutex::new(None), unreadable: false, fails: false, rival: None })
     }
@@ -94,6 +115,7 @@ impl Store {
 }
 
 #[async_trait]
+#[cfg(node_twin)]
 impl ThreadState for Store {
     async fn header(&self, _: &ThreadId) -> Result<Header, PortError> {
         if self.unreadable {
@@ -115,6 +137,7 @@ impl ThreadState for Store {
 }
 
 #[async_trait]
+#[cfg(node_twin)]
 impl HeaderUpdates for Store {
     async fn update_header(&self, _: &ThreadId, update: HeaderUpdate) -> Result<(), PortError> {
         if self.fails {
@@ -134,12 +157,14 @@ impl HeaderUpdates for Store {
     }
 }
 #[derive(Default)]
+#[cfg(node_twin)]
 struct Switches {
     connector: Vec<String>,
     project: Vec<String>,
 }
 
 #[async_trait]
+#[cfg(node_twin)]
 impl ConnectorPermissions for Switches {
     fn needs_approval(&self, _: &str, _: &str) -> bool {
         false
@@ -155,9 +180,14 @@ impl ConnectorPermissions for Switches {
     }
 }
 
+#[cfg(node_twin)]
 struct Host;
 
+#[cfg(node_twin)]
 impl SurfaceHost for Host {
+    fn defined(&self, _: &str) -> bool {
+        true
+    }
     fn bridge_tools(&self) -> Vec<Value> {
         Vec::new()
     }
@@ -166,18 +196,22 @@ impl SurfaceHost for Host {
     }
 }
 
+#[cfg(node_twin)]
 struct Now;
 
+#[cfg(node_twin)]
 impl Clock for Now {
     fn now_ms(&self) -> i64 {
         0
     }
 }
 
+#[cfg(node_twin)]
 fn arm_of(store: &Arc<Store>, switches: Switches) -> HeaderSkillArm {
     HeaderSkillArm::new(store.clone(), store.clone(), Arc::new(NoRouteExclusions), Arc::new(switches), Arc::new(Host), Arc::new(Now))
 }
 
+#[cfg(node_twin)]
 fn dependencies(tools: &Value, issues: &Value) -> SkillToolDependencies {
     SkillToolDependencies {
         tool_dependencies: tools.as_array().expect("dependencies").clone(),
@@ -186,11 +220,40 @@ fn dependencies(tools: &Value, issues: &Value) -> SkillToolDependencies {
         issues: issues.as_array().expect("issues").iter().map(|issue| issue.as_str().expect("issue").to_owned()).collect(),
     }
 }
+/// The thread's model conversation, as `thread/messages/read` answers it.
+struct Rows {
+    rows: Vec<Value>,
+    unreadable: bool,
+}
 
+#[async_trait]
+impl ThreadMessages for Rows {
+    async fn messages(&self, _: &ThreadId) -> Result<Vec<Value>, PortError> {
+        if self.unreadable { Err(PortError::Denied("no such thread".into())) } else { Ok(self.rows.clone()) }
+    }
+}
+
+fn transcript(rows: Rows) -> ThreadTranscript {
+    ThreadTranscript::new(Arc::new(rows))
+}
+
+/// A transcript that cannot be read is the port's error, not an empty transcript.
+#[tokio::test]
+async fn an_unreadable_transcript_is_an_error() {
+    let transcript = transcript(Rows { rows: vec![json!({"role": "user", "content": "hi"})], unreadable: true });
+    assert_eq!(transcript.user_texts(&thread()).await, Err(PortError::Denied("no such thread".into())));
+}
+
+
+#[cfg(node_twin)]
+fn golden() -> Value {
+    mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/skill-session/golden.json")).expect("fixture")
+}
 /// Every golden case: the session after the skill loaded (once, or again for a repeat) is the one
 /// Node ended with, key for key, and the notice is the text Node appended to the stub (or the
 /// native payload that replaced the result), whole.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_skill_load_leaves_the_session_and_tells_the_model_as_node_does() {
     let golden = golden();
     let cases = golden["arm"].as_array().expect("arm cases");
@@ -212,11 +275,11 @@ async fn a_skill_load_leaves_the_session_and_tells_the_model_as_node_does() {
         assert_eq!(notice.result(case["head"].as_str().expect("head")), case["result"].as_str().expect("result"), "{name}: result");
     }
 }
-
 /// `preDispatchDenyForSession` reads the agent's connector policy and the project's switches per
 /// tool (`agentMcpToolPermission`, `projectMcpToolDisabled`): a tool either turns off is not armed,
 /// is reported unavailable with the refusal's text, and the others are armed.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_tool_the_connector_or_project_switched_off_is_not_armed() {
     let golden = golden();
     let case = &golden["arm"][0];
@@ -235,10 +298,10 @@ async fn a_tool_the_connector_or_project_switched_off_is_not_armed() {
         assert!(notice.lines.contains(&format!("Required tools unavailable: {reason}")), "{:?}", notice.lines);
     }
 }
-
 /// A header that cannot be read or updated fails the load with the port's error: nothing is
 /// reported armed.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_header_that_cannot_be_read_or_updated_fails_the_load() {
     let golden = golden();
     let case = &golden["arm"][0];
@@ -250,11 +313,11 @@ async fn a_header_that_cannot_be_read_or_updated_fails_the_load() {
         assert_eq!(Value::Object(store.snapshot()), case["before"]);
     }
 }
-
 /// The update is pure: what it asks of the world was looked up before it ran. A tool the catalog
 /// gained in between was not looked up, so the load fails (typed) and writes nothing, rather than
 /// guessing its switches.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_tool_the_catalog_gained_after_the_lookups_fails_the_load() {
     let golden = golden();
     let case = &golden["arm"][0];
@@ -268,9 +331,9 @@ async fn a_tool_the_catalog_gained_after_the_lookups_fails_the_load() {
     assert!(matches!(failed, Err(PortError::Failed { ref message, .. }) if message.contains("mcp__docs__lookup")), "{failed:?}");
     assert!(!store.snapshot().contains_key("skillLoadedTools"));
 }
-
 /// A write that lands before the update is part of the header the load reads: both are kept.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_write_that_lands_first_is_read_by_the_load_and_kept() {
     let golden = golden();
     let case = &golden["arm"][0];
@@ -282,10 +345,10 @@ async fn a_write_that_lands_first_is_read_by_the_load_and_kept() {
     assert_eq!(header["skillLoadedTools"], json!(["recall", "office", "read"]));
     assert_eq!(header["title"], json!("held"));
 }
-
 /// A writer that keeps changing the header (an armed key among them) neither stalls the load nor
 /// loses its own keys: the load completes in one update and the writer's last write stands.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_writer_that_keeps_writing_neither_stalls_the_load_nor_loses_its_keys() {
     let golden = golden();
     let case = &golden["arm"][0];
@@ -302,25 +365,9 @@ async fn a_writer_that_keeps_writing_neither_stalls_the_load_nor_loses_its_keys(
     assert_eq!(header["title"], json!(49));
     assert!(header["deferredCallableTools"].as_array().expect("callable").contains(&json!("office")));
 }
-/// The thread's model conversation, as `thread/messages/read` answers it.
-struct Rows {
-    rows: Vec<Value>,
-    unreadable: bool,
-}
-
-#[async_trait]
-impl ThreadMessages for Rows {
-    async fn messages(&self, _: &ThreadId) -> Result<Vec<Value>, PortError> {
-        if self.unreadable { Err(PortError::Denied("no such thread".into())) } else { Ok(self.rows.clone()) }
-    }
-}
-
-fn transcript(rows: Rows) -> ThreadTranscript {
-    ThreadTranscript::new(Arc::new(rows))
-}
-
 /// Every golden case: a body is present in the transcript exactly when Node found it so.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_skill_body_is_present_in_the_transcript_as_node_finds_it() {
     let golden = golden();
     let cases = golden["transcript"].as_array().expect("transcript cases");
@@ -339,11 +386,4 @@ async fn a_skill_body_is_present_in_the_transcript_as_node_finds_it() {
         let present = body_present(texts, case["body"].as_str().expect("body"));
         assert_eq!(present, case["present"].as_bool().expect("present"), "{}", case["name"]);
     }
-}
-
-/// A transcript that cannot be read is the port's error, not an empty transcript.
-#[tokio::test]
-async fn an_unreadable_transcript_is_an_error() {
-    let transcript = transcript(Rows { rows: vec![json!({"role": "user", "content": "hi"})], unreadable: true });
-    assert_eq!(transcript.user_texts(&thread()).await, Err(PortError::Denied("no such thread".into())));
 }

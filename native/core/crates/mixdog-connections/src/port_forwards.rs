@@ -14,7 +14,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::connections::{PortForward, PortForwardStatus, ServerPort, ServerPortsView};
 use mixdog_rt::time::timeout;
-use mixdog_ssh::command::SshTarget;
+use mixdog_ssh::command::{FailureClass, SshError, SshTarget};
+use mixdog_ssh::said;
 use mixdog_ssh::context::{AttemptContext, SshEnv};
 use mixdog_ssh::tunnel::{free_local_port, local_port_accepts, LocalForward, SshTunnel, TunnelSpec, TunnelState};
 use tokio::sync::watch;
@@ -204,7 +205,7 @@ struct Forward {
     preferred: u16,
     tunnel: Arc<dyn ForwardTunnel>,
     /// A start that did not get ready in time (the tunnel keeps trying).
-    last_error: Option<String>,
+    last_error: Option<SshError>,
 }
 
 impl Forward {
@@ -221,24 +222,25 @@ fn tunnel_state(tunnel: &dyn ForwardTunnel) -> TunnelState {
     state.borrow().clone()
 }
 
-fn failure_of(tunnel: &dyn ForwardTunnel) -> Option<String> {
+fn failure_of(tunnel: &dyn ForwardTunnel) -> Option<SshError> {
     match tunnel_state(tunnel) {
-        TunnelState::Stopped { failure: Some(error) } => Some(error.message),
+        TunnelState::Stopped { failure: Some(error) } => Some(error),
         _ => None,
     }
 }
 
 fn forward_view(remote_port: u16, entry: &Forward) -> PortForward {
     let local_port = entry.local_port();
-    let (status, message) = match tunnel_state(entry.tunnel.as_ref()) {
-        TunnelState::Stopped { failure: Some(error) } => (PortForwardStatus::Error, Some(error.message)),
+    let (status, error) = match tunnel_state(entry.tunnel.as_ref()) {
+        TunnelState::Stopped { failure: Some(error) } => (PortForwardStatus::Error, Some(error)),
         TunnelState::Up => (PortForwardStatus::Active, None),
         _ => match &entry.last_error {
-            Some(message) => (PortForwardStatus::Error, Some(message.clone())),
+            Some(error) => (PortForwardStatus::Error, Some(error.clone())),
             None => (PortForwardStatus::Starting, None),
         },
     };
-    PortForward { remote_port, local_port, status, message }
+    let (message, notice) = error.map_or((None, None), |error| (Some(error.message), error.notice));
+    PortForward { remote_port, local_port, status, message, notice }
 }
 
 #[derive(Default)]
@@ -507,16 +509,16 @@ impl Inner {
         started
     }
 
-    async fn ready(&self, tunnel: &dyn ForwardTunnel) -> Result<(), String> {
+    async fn ready(&self, tunnel: &dyn ForwardTunnel) -> Result<(), SshError> {
         let mut state = tunnel.state();
         let reached = timeout(self.ready_timeout, state.wait_for(|now| matches!(now, TunnelState::Up | TunnelState::Stopped { failure: Some(_) }))).await;
         match reached {
             Ok(Ok(now)) => match &*now {
-                TunnelState::Stopped { failure: Some(error) } => Err(error.message.clone()),
+                TunnelState::Stopped { failure: Some(error) } => Err(error.clone()),
                 _ => Ok(()),
             },
-            Ok(Err(_)) => Err("The ssh tunnel is closed.".to_owned()),
-            Err(_) => Err(format!("The ssh tunnel is not ready after {} ms.", self.ready_timeout.as_millis())),
+            Ok(Err(_)) => Err(SshError::said(said::FORWARD_CONNECTION_CLOSED.plain(), FailureClass::Terminal)),
+            Err(_) => Err(SshError::said(said::FORWARD_CONNECTION_NOT_READY.said([("ms", self.ready_timeout.as_millis())]), FailureClass::Terminal)),
         }
     }
 

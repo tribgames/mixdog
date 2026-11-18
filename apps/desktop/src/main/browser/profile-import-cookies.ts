@@ -148,21 +148,42 @@ function cookieKey(cookie: { domain?: unknown; name?: unknown; path?: unknown; p
   return JSON.stringify([cookie.domain, cookie.name, cookie.path || '/', key?.topLevelSite, key?.hasCrossSiteAncestor]);
 }
 
-/** Preserve host-only identity, including Chromium's mandatory __Host- rules. */
-export async function importBrowserCookies(
+export function importBrowserCookies(
   partition: { cookies: BrowserCookieJar },
   cookies: BrowserImportCookie[],
   backup: (cookies: BrowserCookie[]) => Promise<void>,
   sourceFailures?: NativeCookieImportFailures
-): Promise<number> {
+): Promise<number>;
+export function importBrowserCookies(
+  partition: { cookies: BrowserCookieJar },
+  cookies: BrowserImportCookie[],
+  backup: (cookies: BrowserCookie[]) => Promise<void>,
+  sourceFailures: NativeCookieImportFailures,
+  stillSelected: () => boolean
+): Promise<number | undefined>;
+/** Preserve host-only identity, including Chromium's mandatory __Host- rules.
+ * With a source lease, only write while selected and never run legacy cleanup:
+ * an existing domain cookie may have been restored deliberately. */
+export async function importBrowserCookies(
+  partition: { cookies: BrowserCookieJar },
+  cookies: BrowserImportCookie[],
+  backup: (cookies: BrowserCookie[]) => Promise<void>,
+  sourceFailures?: NativeCookieImportFailures,
+  stillSelected?: () => boolean
+): Promise<number | undefined> {
   const existing = await partition.cookies.get({});
   // Persist an OS-encrypted recovery snapshot before any changes.
   await backup(existing);
+  if (stillSelected && !stillSelected()) return undefined;
   const existingKeys = new Set(existing.map(cookieKey));
   const sourceKeys = new Set(cookies.map(cookieKey));
   let imported = 0;
   let failed = sourceFailures ? FAILURE_KEYS.reduce((sum, key) => sum + sourceFailures[key], 0) : 0;
   for (const cookie of cookies) {
+    if (stillSelected && !stillSelected()) {
+      if (imported) await partition.cookies.flushStore();
+      return undefined;
+    }
     const name = typeof cookie.name === 'string' ? cookie.name : '';
     const domain = typeof cookie.domain === 'string' ? cookie.domain : '';
     const host = domain.replace(/^\./, '');
@@ -193,7 +214,7 @@ export async function importBrowserCookies(
       if (partitionKey && partition.cookies.supportsPartitions !== true) {
         throw new Error('The destination does not support partitioned cookies.');
       }
-      if (!domain.startsWith('.')) {
+      if (!stillSelected && !domain.startsWith('.')) {
         const wrongDomainKey = cookieKey({ domain: `.${host}`, name, path, partitionKey });
         if (!sourceKeys.has(wrongDomainKey) && existingKeys.has(wrongDomainKey)) {
           // The old importer widened host-only cookies to .host. Electron's

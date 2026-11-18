@@ -35,12 +35,16 @@ mixdog-raster = { workspace = true }
 [dev-dependencies]
 base64 = { workspace = true }
 tempfile = { workspace = true }
-# `twin`: the recording of Node's package modules is replayed from tests/twin_package.rs.
+# `test-support`: the write note the integration tests save with.
 mixdog-office-base = { workspace = true, features = ["test-support"] }
 flate2 = { workspace = true }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tar = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (<build-tools>\unify-test-features.py).
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 
 [target."cfg(windows)".dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }

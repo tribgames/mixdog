@@ -735,3 +735,156 @@ impl BotSources for LiveBotSources {
         (self.now_ms)()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::session_control::ListedRow;
+    use super::super::session_control::ListingPage;
+    use super::super::session_control::LiveSources;
+    use super::*;
+
+    const NOW: i64 = 100_000_000;
+    const MINUTE: i64 = 60_000;
+    const OVERVIEW_NEXT: &str = "session action=bots session_id=<bot id or chat id>: its routines and recent sessions; session action=read session_id=<id> reads one.";
+
+    #[derive(Default)]
+    struct Sources {
+        bots: Vec<Value>,
+        held: Vec<Value>,
+        routines: Vec<Value>,
+        awaiting: Vec<String>,
+    }
+
+    #[async_trait]
+    impl BotSources for Sources {
+        async fn bots(&self) -> Result<Vec<Value>, String> {
+            Ok(self.bots.clone())
+        }
+        async fn task_watches(&self) -> Result<Vec<Value>, String> {
+            Ok(Vec::new())
+        }
+        async fn held(&self) -> Result<Vec<Value>, String> {
+            Ok(self.held.clone())
+        }
+        async fn routines(&self) -> Result<Vec<Value>, String> {
+            Ok(self.routines.clone())
+        }
+        async fn mixy_name(&self) -> Result<String, String> {
+            Ok("Mixy".into())
+        }
+        fn awaiting_approval(&self, session_id: &str) -> bool {
+            self.awaiting.iter().any(|id| id == session_id)
+        }
+        fn now_ms(&self) -> i64 {
+            NOW
+        }
+    }
+
+    struct Catalog(Vec<Value>);
+
+    #[async_trait]
+    impl SessionListing for Catalog {
+        async fn page(&self, _: usize, _: Option<&str>) -> Result<ListingPage, String> {
+            Ok(ListingPage { rows: self.0.iter().map(|row| ListedRow { row: row.as_object().expect("row").clone(), archived: false }).collect(), next_cursor: None })
+        }
+        async fn row(&self, _: &str) -> Result<Option<ListedRow>, String> {
+            Ok(None)
+        }
+        async fn live_sources(&self) -> Result<LiveSources, String> {
+            Ok(LiveSources::default())
+        }
+    }
+
+    fn bots() -> Vec<Value> {
+        vec![json!({ "id": "alice", "name": "Alice" }), json!({ "id": "bob", "name": "Bob", "disabled": true })]
+    }
+
+    fn catalog() -> Catalog {
+        Catalog(vec![
+            json!({ "id": "sess_home_alice", "lastUsedAt": NOW - 5 * MINUTE, "lastMessagePreview": "hello  there", "working": true }),
+            json!({ "id": "sess_home_bob", "lastUsedAt": NOW - 180 * MINUTE }),
+        ])
+    }
+
+    async fn ask(sources: &Sources, args: Value, own: Option<&str>) -> Result<Value, String> {
+        status(sources, &catalog(), &args, own.map(str::to_owned)).await
+    }
+
+    #[tokio::test]
+    async fn the_overview_has_a_line_per_bot_with_bots_that_need_attention_first() {
+        let sources = Sources { bots: bots(), ..Sources::default() };
+        let answer = ask(&sources, json!({}), Some("")).await.expect("an overview");
+        assert_eq!(
+            answer,
+            json!({
+                "bots": [
+                    "Bob (bob) · chat sess_home_bob · idle · attention: disabled · last 3h ago",
+                    "Alice (alice) · chat sess_home_alice · working · last 5m ago · \"hello there\"",
+                ],
+                "note": UNTRUSTED_NOTE,
+                "next": OVERVIEW_NEXT,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn with_no_bots_the_overview_says_so() {
+        let answer = ask(&Sources::default(), json!({}), Some("")).await.expect("an overview");
+        assert_eq!(answer, json!({ "bots": [], "note": "No bots yet." }));
+    }
+
+    #[tokio::test]
+    async fn a_failing_routine_and_a_held_request_are_flagged_on_their_owner() {
+        let sources = Sources {
+            bots: bots(),
+            routines: vec![json!({ "kind": "schedule", "name": "nightly", "owner": "bob", "consecutiveFailures": 3 })],
+            held: vec![json!({ "agentId": "alice", "kind": "tool", "tool": "bash" })],
+            ..Sources::default()
+        };
+        let lines = ask(&sources, json!({}), Some("")).await.expect("an overview")["bots"].clone();
+        let lines: Vec<&str> = lines.as_array().expect("lines").iter().map(|l| l.as_str().expect("text")).collect();
+        assert!(lines.iter().any(|l| l.starts_with("Bob (bob)") && l.contains("attention: nightly failed 3x; disabled") && l.contains("1 routine")), "{lines:?}");
+        assert!(lines.iter().any(|l| l.starts_with("Alice (alice)") && l.contains("attention: 1 approval waiting")), "{lines:?}");
+    }
+
+    #[tokio::test]
+    async fn a_bots_detail_lists_its_sessions_routines_and_held_requests() {
+        let sources = Sources {
+            bots: bots(),
+            routines: vec![json!({ "kind": "schedule", "name": "daily", "owner": "alice", "enabled": true, "time": "09:00", "nextFireAt": NOW + 120 * MINUTE, "lastSuccessAt": NOW - 300 * MINUTE })],
+            held: vec![json!({ "agentId": "alice", "kind": "tool", "tool": "bash", "run": { "kind": "schedule", "name": "daily" }, "expiresAt": NOW + 30 * MINUTE })],
+            awaiting: vec!["sess_home_alice".into()],
+        };
+        let answer = ask(&sources, json!({ "session_id": "sess_home_alice" }), Some("")).await.expect("the detail");
+        let line = answer["bot"].as_str().expect("the bot's line");
+        assert!(line.starts_with("Alice (alice) · chat sess_home_alice · working · attention: 2 approvals waiting"), "{line}");
+        assert_eq!(answer["routines"], json!(["schedule daily: next in 2h, 09:00, last ok 5h ago"]));
+        assert_eq!(answer["held"], json!(["tool bash in schedule daily, expires in 30m"]));
+        assert_eq!(
+            answer["sessions"],
+            json!([{ "id": "sess_home_alice", "kind": "chat", "title": "Alice", "last": "5m ago", "preview": "hello there", "working": true, "approvalWaiting": true }])
+        );
+        assert_eq!((&answer["note"], &answer["read"]), (&json!(UNTRUSTED_NOTE), &json!("session action=read session_id=<id> reads one.")));
+    }
+
+    #[tokio::test]
+    async fn a_chat_sees_only_its_own_bot_and_a_background_run_none() {
+        let sources = Sources { bots: bots(), ..Sources::default() };
+        assert_eq!(ask(&sources, json!({ "session_id": "bob" }), Some("alice")).await, Err("session: this chat sees only its own bot status".to_owned()));
+        assert_eq!(ask(&sources, json!({}), None).await, Err("session: a background run cannot read bot status".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn a_bot_nobody_defined_is_named_in_the_refusal() {
+        let sources = Sources { bots: bots(), ..Sources::default() };
+        assert_eq!(ask(&sources, json!({ "session_id": "ghost" }), Some("")).await, Err("session: no bot \"ghost\"; session action=bots lists them".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn the_session_limit_is_an_integer_from_one_to_a_hundred() {
+        let sources = Sources { bots: bots(), ..Sources::default() };
+        for limit in [json!(0), json!(101), json!(2.5), json!("3")] {
+            assert_eq!(ask(&sources, json!({ "limit": limit }), Some("")).await, Err("session: limit must be an integer from 1 to 100".to_owned()), "{limit}");
+        }
+    }
+}

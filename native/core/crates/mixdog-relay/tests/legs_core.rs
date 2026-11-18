@@ -1,11 +1,4 @@
-//! The desktop leg and the hub: the cases of `lib/relay-legs.test.mjs`, and the leg-level cases of `apps/relay/security.test.mjs` that
-//! need no HTTP routing (the redial, the handshake watchdog, the capability a leg declares, the fan-out). The phone-level cases of that
-//! file (the `/ws` decision, the offline answers, the answered-closing sockets, one phone's path beside another's) belong to the phone
-//! legs.
-//!
-//! The sockets are in-process stand-ins that record what they were handed and flush only when the test says so, as a congested peer
-//! does; time is the paused clock of tokio's test runtime through `mixdog_rt::time`. Tests that write the device store run on the real
-//! clock with a handshake timing that cannot fire: a store write waits for a lane thread, which a paused clock would read as idle time.
+//! The desktop leg and the hub: announcing phones, capabilities, handshake turns and probes, offline notices, transport-frame delivery under pressure, redial and the legs without HTTP.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -235,10 +228,6 @@ fn millis(ms: u64) -> Duration {
     Duration::from_millis(ms)
 }
 
-fn io() -> mixdog_rt::DurabilityIo {
-    mixdog_rt::testing::tokens().durability_io
-}
-
 /// A desktop leg wired the way the server wires it: a 64 KiB capacity ceiling and a quick handshake watchdog.
 fn config() -> HubConfig {
     HubConfig {
@@ -260,12 +249,6 @@ struct Rig {
     _dir: tempfile::TempDir,
 }
 
-async fn rig(config: HubConfig) -> Rig {
-    let dir = tempfile::tempdir().expect("a temporary directory");
-    let store = DeviceStore::open(dir.path(), io()).await.expect("the store opens");
-    Rig { hub: Hub::new(store, config, IngressPool::new()), _dir: dir }
-}
-
 fn desktop(hub: &Arc<Hub>, device: &str) -> (Arc<Fake>, DesktopHandle) {
     let socket = Fake::new();
     let handle = hub.attach_desktop(device, socket.clone(), None);
@@ -285,23 +268,6 @@ fn phone_with(hub: &Arc<Hub>, device: &str, options: PhoneOptions) -> (Arc<Fake>
 async fn settle() {
     for _ in 0..8 {
         tokio::task::yield_now().await;
-    }
-}
-
-/// Let `ms` of the paused clock pass and run what became due.
-async fn step(ms: u64) {
-    tokio::time::advance(millis(ms)).await;
-    settle().await;
-}
-
-/// Let `ms` pass the way a running process lives it: in slices short enough that a timer which a due timer arms is armed at the
-/// instant its parent fired (one jump of the paused clock arms it at the end of the jump, which no process ever sees).
-async fn elapse(ms: u64) {
-    let mut left = ms;
-    while left > 0 {
-        let slice = left.min(5);
-        step(slice).await;
-        left -= slice;
     }
 }
 
@@ -331,16 +297,6 @@ struct Routed {
     client: String,
 }
 
-async fn routed(buffered: usize, max_frame_bytes: usize, inflight_ceiling: usize) -> Routed {
-    let rig = rig(patient(HubConfig { max_frame_bytes, ..config() })).await;
-    let (desktop, handle) = desktop(&rig.hub, "dev");
-    let (phone, phone_handle) =
-        phone_with(&rig.hub, "dev", PhoneOptions { browser_client_id: Some("browser-1".into()), inflight_ceiling, ..PhoneOptions::default() });
-    phone.set_buffered(buffered);
-    let client = phone_handle.client_id().to_owned();
-    Routed { _rig: rig, desktop, handle, phone, phone_handle, client }
-}
-
 impl Routed {
     async fn binary(&self, data: &[u8], droppable: bool) {
         send_binary(&self.handle, &self.client, data, droppable).await;
@@ -355,7 +311,128 @@ impl Routed {
     }
 }
 
-// ---- lib/relay-legs.test.mjs ----
+#[test]
+fn a_transport_frame_is_recognised_by_its_magic_in_clear_and_nothing_else() {
+    let mut transport = TRANSPORT.to_vec();
+    transport.extend_from_slice(&[7; 64]);
+    let mut legacy = LEGACY.to_vec();
+    legacy.extend_from_slice(&[9; 64]);
+    assert!(envelope::is_transport_frame(&transport));
+    assert!(!envelope::is_transport_frame(&legacy));
+    assert!(!envelope::is_transport_frame(&[0x4d, 0x58, 0x54, 0x02]));
+    assert!(!envelope::is_transport_frame(&[0x4d, 0x58, 0x54]));
+    assert!(!envelope::is_transport_frame(&[]));
+}
+
+fn transport_bytes() -> Vec<u8> {
+    let mut bytes = TRANSPORT.to_vec();
+    bytes.extend_from_slice(&[7; 64]);
+    bytes
+}
+
+fn legacy_bytes() -> Vec<u8> {
+    let mut bytes = LEGACY.to_vec();
+    bytes.extend_from_slice(&[9; 64]);
+    bytes
+}
+
+/// Transport frame number `n`: `MXT\x01`, u16 n, padding up to `size` bytes.
+fn numbered(n: u16, size: usize) -> Vec<u8> {
+    let mut frame = vec![(n & 0xff) as u8; size];
+    frame[..6].copy_from_slice(&[0x4d, 0x58, 0x54, 0x01, (n >> 8) as u8, (n & 0xff) as u8]);
+    frame
+}
+
+fn number_of(frame: &[u8]) -> u16 {
+    u16::from_be_bytes([frame[4], frame[5]])
+}
+
+fn transport_numbers(sent: &[Sent]) -> Vec<u16> {
+    sent.iter()
+        .filter_map(|item| match item {
+            Sent::Binary(bytes) if envelope::is_transport_frame(bytes) => Some(number_of(bytes)),
+            _ => None,
+        })
+        .collect()
+}
+
+impl Routed {
+    fn hub(&self) -> &Arc<Hub> {
+        &self._rig.hub
+    }
+}
+
+async fn declare(handle: &DesktopHandle, bytes: usize) {
+    send(handle, &json!({ "type": "desktop-lanes", "media": false, "maxPayloadBytes": bytes })).await;
+}
+
+/// A phone's frame of `bytes` bytes on its desktop's leg; returns what the leg received.
+fn uplink_of(phone: &PhoneHandle, desktop: &Fake, bytes: usize) -> Vec<usize> {
+    let before = desktop.binaries().len();
+    phone.frame(Bytes::from(vec![1; bytes]), true);
+    desktop.binaries()[before..].iter().filter_map(|raw| decode_frame(raw).map(|decoded| decoded.data.len())).collect()
+}
+
+// ---- the control frames and the registrations ----
+
+struct Recorder {
+    calls: Mutex<Vec<String>>,
+}
+
+impl RevokeHook for Recorder {
+    fn device_revoked(&self, device_id: &str) {
+        self.calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(format!("device:{device_id}"));
+    }
+
+    fn client_revoked(&self, device_id: &str, client_id: &str) {
+        self.calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(format!("client:{device_id}:{client_id}"));
+    }
+}
+
+fn recording_handler(seen: &Arc<Mutex<Vec<Value>>>) -> Handler {
+    let seen = Arc::clone(seen);
+    Arc::new(move |call: LegCall| -> HandlerFuture {
+        let seen = Arc::clone(&seen);
+        Box::pin(async move {
+            seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(call.message);
+        })
+    })
+}
+
+
+fn io() -> mixdog_rt::DurabilityIo {
+    mixdog_rt::testing::tokens().durability_io
+}
+async fn rig(config: HubConfig) -> Rig {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let store = DeviceStore::open(dir.path(), io()).await.expect("the store opens");
+    Rig { hub: Hub::new(store, config, IngressPool::new()), _dir: dir }
+}
+/// Let `ms` of the paused clock pass and run what became due.
+async fn step(ms: u64) {
+    tokio::time::advance(millis(ms)).await;
+    settle().await;
+}
+/// Let `ms` pass the way a running process lives it: in slices short enough that a timer which a due timer arms is armed at the
+/// instant its parent fired (one jump of the paused clock arms it at the end of the jump, which no process ever sees).
+async fn elapse(ms: u64) {
+    let mut left = ms;
+    while left > 0 {
+        let slice = left.min(5);
+        step(slice).await;
+        left -= slice;
+    }
+}
+async fn routed(buffered: usize, max_frame_bytes: usize, inflight_ceiling: usize) -> Routed {
+    let rig = rig(patient(HubConfig { max_frame_bytes, ..config() })).await;
+    let (desktop, handle) = desktop(&rig.hub, "dev");
+    let (phone, phone_handle) =
+        phone_with(&rig.hub, "dev", PhoneOptions { browser_client_id: Some("browser-1".into()), inflight_ceiling, ..PhoneOptions::default() });
+    phone.set_buffered(buffered);
+    let client = phone_handle.client_id().to_owned();
+    Routed { _rig: rig, desktop, handle, phone, phone_handle, client }
+}
+// ---- the desktop leg and the hub ----
 
 #[tokio::test]
 async fn a_phone_is_announced_to_the_desktop_and_leaves_its_entry_when_it_closes() {
@@ -374,7 +451,6 @@ async fn a_phone_is_announced_to_the_desktop_and_leaves_its_entry_when_it_closes
     assert_eq!(close["clientId"], open["clientId"]);
     assert_eq!(desktop.types(), ["relay-capabilities", "client-open", "client-close"]);
 }
-
 #[tokio::test]
 async fn a_desktop_leg_publishes_capabilities_and_replays_the_live_phone_ids() {
     let rig = rig(config()).await;
@@ -388,7 +464,6 @@ async fn a_desktop_leg_publishes_capabilities_and_replays_the_live_phone_ids() {
     assert_eq!(open["clientId"], phone.client_id());
     assert_eq!(open["browserClientId"], "browser-1");
 }
-
 #[tokio::test(start_paused = true)]
 async fn a_phone_the_pc_rejected_never_holds_the_pc_to_a_handshake_turn_even_if_it_withholds_its_close() {
     let rig = rig(config()).await;
@@ -407,7 +482,6 @@ async fn a_phone_the_pc_rejected_never_holds_the_pc_to_a_handshake_turn_even_if_
     step(150).await;
     assert_eq!(replacement.closed(), None);
 }
-
 #[tokio::test(start_paused = true)]
 async fn a_missed_handshake_turn_closes_the_pc_leg_only_when_the_leg_is_also_silent_through_a_probe() {
     // Live PC: busy with other traffic while one phone's challenge is late.
@@ -455,7 +529,6 @@ async fn a_missed_handshake_turn_closes_the_pc_leg_only_when_the_leg_is_also_sil
         assert_eq!(phone_socket.closed(), None, "the phone keeps its socket through the redial");
     }
 }
-
 #[tokio::test(start_paused = true)]
 async fn parked_phones_are_told_once_when_the_pc_leg_closes_then_once_a_second_per_phone_while_calls_go_nowhere() {
     let rig = rig(patient(config())).await;
@@ -491,7 +564,6 @@ async fn parked_phones_are_told_once_when_the_pc_leg_closes_then_once_a_second_p
     assert_eq!(first.texts().last().map(String::as_str), Some("{\"pong\":1}"));
     assert_eq!(first.texts().len(), 4);
 }
-
 #[tokio::test]
 async fn a_superseded_pc_leg_closing_does_not_tell_phones_the_pc_is_gone() {
     let rig = rig(patient(config())).await;
@@ -504,32 +576,6 @@ async fn a_superseded_pc_leg_closing_does_not_tell_phones_the_pc_is_gone() {
     assert!(phone_socket.texts().is_empty());
     assert_eq!(rig.hub.client_count("dev"), 1);
 }
-
-#[test]
-fn a_transport_frame_is_recognised_by_its_magic_in_clear_and_nothing_else() {
-    let mut transport = TRANSPORT.to_vec();
-    transport.extend_from_slice(&[7; 64]);
-    let mut legacy = LEGACY.to_vec();
-    legacy.extend_from_slice(&[9; 64]);
-    assert!(envelope::is_transport_frame(&transport));
-    assert!(!envelope::is_transport_frame(&legacy));
-    assert!(!envelope::is_transport_frame(&[0x4d, 0x58, 0x54, 0x02]));
-    assert!(!envelope::is_transport_frame(&[0x4d, 0x58, 0x54]));
-    assert!(!envelope::is_transport_frame(&[]));
-}
-
-fn transport_bytes() -> Vec<u8> {
-    let mut bytes = TRANSPORT.to_vec();
-    bytes.extend_from_slice(&[7; 64]);
-    bytes
-}
-
-fn legacy_bytes() -> Vec<u8> {
-    let mut bytes = LEGACY.to_vec();
-    bytes.extend_from_slice(&[9; 64]);
-    bytes
-}
-
 #[tokio::test]
 async fn a_transport_frame_marked_droppable_is_still_delivered_to_a_phone_past_the_push_skip_mark() {
     let route = routed(2 * MIB, 4096, 0).await;
@@ -538,7 +584,6 @@ async fn a_transport_frame_marked_droppable_is_still_delivered_to_a_phone_past_t
     assert_eq!(resync_hints(&route.phone), 0);
     assert_eq!(route.phone.closed(), None);
 }
-
 #[tokio::test]
 async fn a_full_phone_queue_cuts_the_leg_for_a_transport_frame_instead_of_silently_dropping_it() {
     let route = routed(9 * MIB, 4096, 0).await;
@@ -548,7 +593,6 @@ async fn a_full_phone_queue_cuts_the_leg_for_a_transport_frame_instead_of_silent
     assert_eq!(resync_hints(&route.phone), 0);
     assert_eq!(route.phone.closed(), Some((SLOW_PEER, "slow consumer".to_owned())));
 }
-
 #[tokio::test]
 async fn a_box_that_cannot_carry_a_transport_frame_cuts_the_leg_never_defers_or_drops_it() {
     let route = routed(0, 4096, 8).await;
@@ -557,7 +601,6 @@ async fn a_box_that_cannot_carry_a_transport_frame_cuts_the_leg_never_defers_or_
     assert_eq!(resync_hints(&route.phone), 0);
     assert_eq!(route.phone.closed(), Some((RELAY_BUSY, "relay busy".to_owned())));
 }
-
 #[tokio::test]
 async fn legacy_droppable_frames_keep_dropping_skipped_past_1_mib_dropped_at_a_full_queue_with_a_resync_hint() {
     for buffered in [2 * MIB, 9 * MIB] {
@@ -568,7 +611,6 @@ async fn legacy_droppable_frames_keep_dropping_skipped_past_1_mib_dropped_at_a_f
         assert_eq!(route.phone.closed(), None);
     }
 }
-
 #[tokio::test]
 async fn legacy_non_droppable_frames_keep_their_behavior_delivered_when_queued_cut_at_a_full_queue() {
     let queued = routed(2 * MIB, 4096, 0).await;
@@ -578,7 +620,6 @@ async fn legacy_non_droppable_frames_keep_their_behavior_delivered_when_queued_c
     full.binary(&legacy_bytes(), false).await;
     assert_eq!(full.phone.closed(), Some((SLOW_PEER, "slow consumer".to_owned())));
 }
-
 #[tokio::test]
 async fn legacy_text_frames_and_broadcasts_keep_their_droppable_behavior() {
     let drop = routed(2 * MIB, 4096, 0).await;
@@ -594,27 +635,6 @@ async fn legacy_text_frames_and_broadcasts_keep_their_droppable_behavior() {
     critical.broadcast("{\"state\":2}", true).await;
     assert_eq!(critical.phone.texts(), ["{\"state\":2}"]);
 }
-
-/// Transport frame number `n`: `MXT\x01`, u16 n, padding up to `size` bytes.
-fn numbered(n: u16, size: usize) -> Vec<u8> {
-    let mut frame = vec![(n & 0xff) as u8; size];
-    frame[..6].copy_from_slice(&[0x4d, 0x58, 0x54, 0x01, (n >> 8) as u8, (n & 0xff) as u8]);
-    frame
-}
-
-fn number_of(frame: &[u8]) -> u16 {
-    u16::from_be_bytes([frame[4], frame[5]])
-}
-
-fn transport_numbers(sent: &[Sent]) -> Vec<u16> {
-    sent.iter()
-        .filter_map(|item| match item {
-            Sent::Binary(bytes) if envelope::is_transport_frame(bytes) => Some(number_of(bytes)),
-            _ => None,
-        })
-        .collect()
-}
-
 #[tokio::test]
 async fn downstream_transport_frames_reach_a_pressured_phone_in_the_order_the_pc_sent_them_flush_by_flush() {
     let route = routed(0, 2 * MIB, 0).await;
@@ -645,7 +665,6 @@ async fn downstream_transport_frames_reach_a_pressured_phone_in_the_order_the_pc
     assert_eq!(route.phone.closed(), None);
     assert_eq!(route.phone.inner().buffered, 0);
 }
-
 #[tokio::test]
 async fn upstream_transport_frames_reach_the_pc_in_the_order_the_phone_sent_them_flush_by_flush() {
     let route = routed(0, 128 * 1024, 0).await;
@@ -679,13 +698,6 @@ async fn upstream_transport_frames_reach_the_pc_in_the_order_the_phone_sent_them
     assert_eq!(route.hub().client_count("dev"), 1);
     assert!(route.desktop.sent().len() > base);
 }
-
-impl Routed {
-    fn hub(&self) -> &Arc<Hub> {
-        &self._rig.hub
-    }
-}
-
 #[tokio::test]
 async fn upstream_an_exhausted_queue_cuts_the_phone_leg_after_a_contiguous_prefix_never_a_silent_loss() {
     let route = routed(0, 128 * 1024, 0).await;
@@ -720,7 +732,6 @@ async fn upstream_an_exhausted_queue_cuts_the_phone_leg_after_a_contiguous_prefi
     assert_eq!(route.desktop.frames_of("client-close").len(), 1);
     route.desktop.flush_all();
 }
-
 #[tokio::test]
 async fn client_open_omits_the_credential_when_the_leg_has_none_older_desktops() {
     let rig = rig(config()).await;
@@ -729,8 +740,7 @@ async fn client_open_omits_the_credential_when_the_leg_has_none_older_desktops()
     let open = &desktop.frames_of("client-open")[0];
     assert!(open.get("browserClientId").is_none());
 }
-
-// ---- apps/relay/security.test.mjs: the legs without HTTP ----
+// ---- the legs without HTTP ----
 
 #[tokio::test]
 async fn a_phone_survives_a_desktop_leg_redial_and_is_re_announced() {
@@ -745,7 +755,6 @@ async fn a_phone_survives_a_desktop_leg_redial_and_is_re_announced() {
     assert_eq!(phone_socket.closed(), None);
     assert_eq!(rig.hub.client_count("dev"), 1);
 }
-
 #[tokio::test(start_paused = true)]
 async fn a_handshake_turn_stall_closes_the_pc_leg_so_it_redials() {
     let rig = rig(config()).await;
@@ -783,7 +792,6 @@ async fn a_handshake_turn_stall_closes_the_pc_leg_so_it_redials() {
     assert_eq!(halfway.closed().map(|(code, _)| code), Some(DESKTOP_HANDSHAKE_STALLED));
     assert_eq!(phone_socket.closed(), None, "the waiting phone keeps its socket through the redial");
 }
-
 #[tokio::test(start_paused = true)]
 async fn the_parked_phones_of_a_gone_pc_are_closed_4002_after_the_grace() {
     assert_eq!(DESKTOP_OFFLINE, 4002);
@@ -806,7 +814,6 @@ async fn the_parked_phones_of_a_gone_pc_are_closed_4002_after_the_grace() {
     assert_eq!(phone_socket.closed(), Some((DESKTOP_OFFLINE, "desktop offline".to_owned())));
     assert!(rig.hub.desktop_info("dev").is_none());
 }
-
 #[tokio::test]
 async fn the_text_envelope_is_acknowledged_per_connection_never_inferred() {
     // A receiver that takes 4400 bytes and a 3050-byte text message, which only fits when the wrapper is the fixed one.
@@ -864,18 +871,6 @@ async fn the_text_envelope_is_acknowledged_per_connection_never_inferred() {
     assert_eq!(modern.closed(), None);
     assert_eq!(legacy.closed(), None);
 }
-
-async fn declare(handle: &DesktopHandle, bytes: usize) {
-    send(handle, &json!({ "type": "desktop-lanes", "media": false, "maxPayloadBytes": bytes })).await;
-}
-
-/// A phone's frame of `bytes` bytes on its desktop's leg; returns what the leg received.
-fn uplink_of(phone: &PhoneHandle, desktop: &Fake, bytes: usize) -> Vec<usize> {
-    let before = desktop.binaries().len();
-    phone.frame(Bytes::from(vec![1; bytes]), true);
-    desktop.binaries()[before..].iter().filter_map(|raw| decode_frame(raw).map(|decoded| decoded.data.len())).collect()
-}
-
 #[tokio::test]
 async fn a_claim_is_trusted_on_the_connection_that_made_it_and_on_no_other() {
     let rig = rig(patient(HubConfig { max_frame_bytes: MIB, uplink_capacity_ceiling: 4 * MIB, ..config() })).await;
@@ -907,7 +902,6 @@ async fn a_claim_is_trusted_on_the_connection_that_made_it_and_on_no_other() {
     assert!(phone_socket.texts().iter().all(|text| !text.contains("frame-too-large")));
     assert_eq!(third.closed(), None);
 }
-
 #[tokio::test]
 async fn a_redialed_leg_carries_nothing_it_has_not_declared_on_that_connection() {
     let rig = rig(patient(HubConfig { max_frame_bytes: MIB, uplink_capacity_ceiling: 4 * MIB, ..config() })).await;
@@ -936,7 +930,6 @@ async fn a_redialed_leg_carries_nothing_it_has_not_declared_on_that_connection()
     send(&third_handle, &json!({ "type": "desktop-lanes", "media": false, "maxPayloadBytes": 256 * 1024 })).await;
     assert_eq!(uplink_of(&phone, &third, 64 * 1024), [64 * 1024]);
 }
-
 #[tokio::test]
 async fn a_critical_fan_out_defers_what_the_box_cannot_carry_and_closes_no_healthy_leg() {
     // A box budget that cannot hold this broadcast for all 32 legs at once: the shape that used to close 30 of them with 4009.
@@ -973,23 +966,6 @@ async fn a_critical_fan_out_defers_what_the_box_cannot_carry_and_closes_no_healt
     // Nothing leaked out of the accounting once the served legs drained.
     assert_eq!(rig.hub.meter().bytes(), 0);
 }
-
-// ---- the control frames and the registrations ----
-
-struct Recorder {
-    calls: Mutex<Vec<String>>,
-}
-
-impl RevokeHook for Recorder {
-    fn device_revoked(&self, device_id: &str) {
-        self.calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(format!("device:{device_id}"));
-    }
-
-    fn client_revoked(&self, device_id: &str, client_id: &str) {
-        self.calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(format!("client:{device_id}:{client_id}"));
-    }
-}
-
 #[tokio::test]
 async fn a_revocation_that_cannot_persist_keeps_the_leg_and_a_real_one_closes_everything() {
     let rig = rig(patient(config())).await;
@@ -1014,7 +990,6 @@ async fn a_revocation_that_cannot_persist_keeps_the_leg_and_a_real_one_closes_ev
     send(&handle, &json!({ "type": "desktop-name", "name": "after" })).await;
     assert_eq!(rig.hub.desktop_info(DEVICE).and_then(|info| info.host_name), None);
 }
-
 #[tokio::test]
 async fn list_clients_marks_the_browsers_with_a_live_phone_and_revoke_client_closes_theirs() {
     let rig = rig(patient(config())).await;
@@ -1049,17 +1024,6 @@ async fn list_clients_marks_the_browsers_with_a_live_phone_and_revoke_client_clo
     assert_eq!(desktop.frames_of("client-revoked")[1]["ok"], false);
     assert_eq!(recorder.calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len(), 1);
 }
-
-fn recording_handler(seen: &Arc<Mutex<Vec<Value>>>) -> Handler {
-    let seen = Arc::clone(seen);
-    Arc::new(move |call: LegCall| -> HandlerFuture {
-        let seen = Arc::clone(&seen);
-        Box::pin(async move {
-            seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(call.message);
-        })
-    })
-}
-
 #[tokio::test]
 async fn the_frame_types_the_legs_do_not_answer_go_to_the_area_that_registered_them() {
     let rig = rig(patient(config())).await;
@@ -1083,7 +1047,6 @@ async fn the_frame_types_the_legs_do_not_answer_go_to_the_area_that_registered_t
     let kinds: Vec<String> = seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().map(|m| m["type"].as_str().unwrap_or("").to_owned()).collect();
     assert_eq!(kinds, ["claim-approve", "media-head"]);
 }
-
 #[tokio::test]
 async fn a_superseded_leg_may_answer_for_itself_but_nothing_it_says_belongs_to_the_connection_that_replaced_it() {
     let rig = rig(patient(config())).await;
@@ -1108,7 +1071,6 @@ async fn a_superseded_leg_may_answer_for_itself_but_nothing_it_says_belongs_to_t
     let info = rig.hub.desktop_info("dev").expect("an entry");
     assert!(!info.media_lane && info.pair_v2);
 }
-
 #[tokio::test]
 async fn what_the_registered_services_publish_reaches_every_connecting_leg_and_the_close_hook_only_the_live_one() {
     let rig = rig(patient(config())).await;
@@ -1135,9 +1097,8 @@ async fn what_the_registered_services_publish_reaches_every_connecting_leg_and_t
     second_handle.closed();
     assert_eq!(*closed.lock().unwrap_or_else(std::sync::PoisonError::into_inner), ["dev"]);
 }
-
 #[tokio::test]
-async fn a_frame_to_a_phone_is_sent_as_node_encodes_the_string_and_a_rejection_reason_is_clipped_to_120_units() {
+async fn a_frame_to_a_phone_is_sent_as_json_text_and_a_rejection_reason_is_clipped_to_120_units() {
     let rig = rig(patient(config())).await;
     let (_desktop, handle) = desktop(&rig.hub, "dev");
     let (socket, phone) = phone(&rig.hub, "dev", Some("bbbbbbbb"));
@@ -1155,7 +1116,6 @@ async fn a_frame_to_a_phone_is_sent_as_node_encodes_the_string_and_a_rejection_r
     send(&handle, &json!({ "type": "close-client", "clientId": fallback.client_id() })).await;
     assert_eq!(fallback_socket.closed(), Some((DESKTOP_REJECTED_CLIENT, "desktop rejected client".to_owned())));
 }
-
 #[tokio::test]
 async fn an_oversize_desktop_frame_is_answered_on_that_leg_and_names_the_client() {
     let rig = rig(patient(config())).await;
@@ -1177,7 +1137,6 @@ async fn an_oversize_desktop_frame_is_answered_on_that_leg_and_names_the_client(
     assert_eq!(desktop.frames_of("frame-too-large").len(), before + 1);
     assert!(desktop.frames_of("frame-too-large")[before].get("clientId").is_none());
 }
-
 #[tokio::test]
 async fn the_desktop_name_is_cleaned_and_the_lanes_it_declares_are_read_strictly() {
     let rig = rig(patient(config())).await;

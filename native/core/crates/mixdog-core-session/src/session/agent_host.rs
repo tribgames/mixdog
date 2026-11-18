@@ -20,6 +20,10 @@ impl CallerScopes for SessionDirectory {
             host_pid,
         }
     }
+
+    fn turn_hop(&self, thread: &ThreadId) -> u32 {
+        SessionDirectory::turn_hop(self, thread)
+    }
 }
 
 #[cfg(test)]
@@ -48,3 +52,4 @@ mod tests {
         );
     }
 }
+

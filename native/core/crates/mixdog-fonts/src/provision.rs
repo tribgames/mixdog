@@ -177,18 +177,22 @@ mod tests {
         );
     }
 
-    // The fixtures are read explicitly; no HostEnv or installed-font discovery is involved.
-    fn pinned_fixture(bold: bool) -> (FontDef, Vec<u8>) {
-        let (file_name, bytes, sha256) = if bold {
-            ("NotoSansLisu-Bold.ttf", 54280, "2940c8397a096f2bb295a869a318a5d91fbbf3b70e09995308febe9c483eb9e2")
-        } else {
-            ("NotoSansLisu-Regular.ttf", 54508, "7aa2279848cc8647198185807616555759bd68b8a3edb21ecc467d071aa7a6a4")
-        };
-        let path = mixdog_office_base::twin::repo_root().join("native/core/fixtures/office-measure/faces").join(file_name);
-        let data = mixdog_fsio::read(&mixdog_fsio::Unlaned, path).unwrap();
-        (FontDef { id: "fixture", family: "Pinned", file_name, registry_name: "", path: "", bytes, sha256 }, data)
+    #[test]
+    fn office_for_mac_is_looked_for_on_macos_only() {
+        let env = HostEnv { os: Os::Linux, home: PathBuf::from("/home/ann"), windir: None, local_app_data: None, xdg_data_home: None };
+        assert_eq!(mac_office_font_dir(&mixdog_fsio::Unlaned, &env), None);
     }
 
+
+    // A face of the repository read explicitly, pinned by the size and sha256 of its own bytes; no HostEnv or
+    // installed-font discovery is involved.
+    fn pinned_fixture(bold: bool) -> (FontDef, Vec<u8>) {
+        let file_name = if bold { "LiberationSans-Bold.ttf" } else { "LiberationSans-Regular.ttf" };
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../mixdog-pdf/assets/standard_fonts").join(file_name);
+        let data = mixdog_fsio::read(&mixdog_fsio::Unlaned, path).unwrap();
+        let sha256: &'static str = Box::leak(format!("{:x}", Sha256::digest(&data)).into_boxed_str());
+        (FontDef { id: "fixture", family: "Pinned", file_name, registry_name: "", path: "", bytes: data.len(), sha256 }, data)
+    }
     #[test]
     fn verified_new_bytes_cannot_certify_an_older_retained_snapshot() {
         let path = Path::new("isolated-not-read/snapshot.ttf");
@@ -208,7 +212,6 @@ mod tests {
         assert_eq!(register_verified(&old_def, path, old, &mut registry), Ok(id));
         assert_eq!(registry.len(), 1);
     }
-
     #[test]
     fn verified_identical_new_registration_is_repeatable() {
         let path = Path::new("isolated-not-read/snapshot.ttf");
@@ -218,11 +221,5 @@ mod tests {
         assert_eq!(registry.face(id).bytes().unwrap().as_ref(), bytes.as_slice());
         assert_eq!(register_verified(&def, path, bytes, &mut registry), Ok(id));
         assert_eq!(registry.len(), 1);
-    }
-
-    #[test]
-    fn office_for_mac_is_looked_for_on_macos_only() {
-        let env = HostEnv { os: Os::Linux, home: PathBuf::from("/home/ann"), windir: None, local_app_data: None, xdg_data_home: None };
-        assert_eq!(mac_office_font_dir(&mixdog_fsio::Unlaned, &env), None);
     }
 }

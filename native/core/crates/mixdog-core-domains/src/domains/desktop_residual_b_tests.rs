@@ -21,12 +21,6 @@ impl AttachmentHost for Host {
     }
 }
 
-fn service(dir: &Path, attachments: HashMap<String, Vec<u8>>) -> DesktopResidualBService {
-    let mut service = DesktopResidualBService::new(Arc::new(Host(attachments)), &mixdog_rt::testing::tokens(), dir.to_path_buf());
-    service.temp = dir.join("temp");
-    service
-}
-
 fn jpeg(width: u32, height: u32) -> Vec<u8> {
     let rgb: Vec<u8> = (0..width * height).flat_map(|i| [(i % 251) as u8, (i % 127) as u8, 40]).collect();
     let mut out = Vec::new();
@@ -209,70 +203,8 @@ fn a_picture_is_scaled_to_a_thumbnail_or_handed_over_bounded() {
     assert!(thumbnail_of(&[0xff, 0xd8, 0xff, 0x00, 0x01], 100).unwrap().starts_with("data:image/jpeg;base64,"));
 }
 
-#[tokio::test]
-async fn the_thumbnail_method_reads_the_store_by_content_hash() {
-    let dir = tempfile::tempdir().unwrap();
-    let id = hex_of(&[0xab; 32]);
-    let service = service(dir.path(), HashMap::from([(id.clone(), jpeg(64, 64))]));
-    let ask = |params: Value| value(&service, request("desktop/attachment/thumbnail", params, None));
-    assert!(ask(json!({ "attachmentRef": id })).await.unwrap()["dataUrl"].as_str().unwrap().starts_with("data:image/jpeg;base64,"));
-    assert_eq!(ask(json!({ "attachmentRef": hex_of(&[2; 32]) })).await.unwrap(), json!({ "dataUrl": null }));
-    for bad in [json!("../x"), json!(7), json!(id.to_uppercase())] {
-        assert_eq!(ask(json!({ "attachmentRef": bad })).await.unwrap(), json!({ "dataUrl": null }));
-    }
-}
-
 fn hex_of(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-// ---- launch-version.test.mjs -----------------------------------------------------------------------------------------
-
-#[tokio::test]
-async fn a_launch_is_recorded_and_an_update_announced_until_acknowledged() {
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("last-launch-version");
-    let service = service(dir.path(), HashMap::new());
-    let path = file.to_string_lossy().into_owned();
-    let record = |version: &str, argv: &[&str]| {
-        let params = json!({ "path": path, "version": version, "argv": argv });
-        value(&service, request("desktop/launchVersion/record", params, None))
-    };
-    let announce = |reply: Value| reply["announce"].as_bool().unwrap();
-    let stored = || std::fs::read_to_string(&file).unwrap();
-
-    // No record: a fresh install announces nothing; a relaunch after an update (`--updated`) announces.
-    assert!(!announce(record("1.0.0", &[]).await.unwrap()));
-    assert_eq!(stored(), "{\"lastLaunched\":\"1.0.0\"}\n");
-    assert!(!announce(record("1.0.0", &["--updated"]).await.unwrap()));
-    // A strictly newer version announces and keeps announcing until acknowledged.
-    assert!(announce(record("1.1.0", &[]).await.unwrap()));
-    assert_eq!(stored(), "{\"lastLaunched\":\"1.1.0\",\"pendingAnnouncement\":\"1.1.0\"}\n");
-    assert!(announce(record("1.1.0", &[]).await.unwrap()));
-    let ack = |version: &str| value(&service, request("desktop/launchVersion/acknowledge", json!({ "path": path, "version": version }), None));
-    ack("9.9.9").await.unwrap();
-    assert!(stored().contains("pendingAnnouncement"));
-    ack("1.1.0").await.unwrap();
-    assert_eq!(stored(), "{\"lastLaunched\":\"1.1.0\"}\n");
-    assert!(!announce(record("1.1.0", &[]).await.unwrap()));
-    // A downgrade announces nothing and is recorded.
-    assert!(!announce(record("1.0.5", &[]).await.unwrap()));
-    assert_eq!(stored(), "{\"lastLaunched\":\"1.0.5\"}\n");
-    // The first form of the record (the bare version) reads as that launch.
-    std::fs::write(&file, "v1.0.5\n").unwrap();
-    assert!(announce(record("1.2.0", &[]).await.unwrap()));
-    // A crash-emptied or junk record is no record: nothing is announced for it.
-    for junk in ["\0\0\0", "", "   ", "{\"lastLaunched\":", "banana"] {
-        std::fs::write(&file, junk).unwrap();
-        assert!(!announce(record("1.2.0", &[]).await.unwrap()), "{junk:?}");
-        assert_eq!(stored(), "{\"lastLaunched\":\"1.2.0\"}\n");
-    }
-    // A record the launch cannot write is reported, not raised.
-    let blocked = dir.path().join("blocked");
-    std::fs::create_dir(&blocked).unwrap();
-    let reply = value(&service, request("desktop/launchVersion/record", json!({ "path": blocked, "version": "1.0.0" }), None)).await.unwrap();
-    assert_eq!(reply["announce"], json!(false));
-    assert!(reply["writeError"].is_string());
 }
 
 #[test]
@@ -327,63 +259,6 @@ fn the_first_snapshot_carries_the_default_preset_route() {
     }
 }
 
-#[tokio::test]
-async fn the_model_bootstrap_method_reads_the_config_file() {
-    let dir = tempfile::tempdir().unwrap();
-    let service = service(dir.path(), HashMap::new());
-    let ask = || value(&service, request("desktop/modelBootstrap/read", json!({}), None));
-    assert_eq!(ask().await.unwrap(), json!({ "snapshot": null }));
-    std::fs::write(dir.path().join("mixdog-config.json"), "not json").unwrap();
-    assert_eq!(ask().await.unwrap(), json!({ "snapshot": null }));
-    std::fs::write(dir.path().join("mixdog-config.json"), json!({ "agent": { "presets": [preset("p", "m")], "default": "p" } }).to_string()).unwrap();
-    assert_eq!(ask().await.unwrap()["snapshot"]["model"], json!("m"));
-}
-
-// ---- native-runtime-cache-gc.test.mjs and user-file-write.test.mjs ------------------------------------------------------
-
-#[tokio::test]
-async fn a_superseded_native_cache_is_removed_and_the_others_stay() {
-    let dir = tempfile::tempdir().unwrap();
-    for name in ["graph-bin", "spawn-bin", "patch-bin"] {
-        std::fs::create_dir_all(dir.path().join(name).join("1.0")).unwrap();
-        std::fs::write(dir.path().join(name).join("1.0").join("tool"), "x").unwrap();
-    }
-    let service = service(dir.path(), HashMap::new());
-    let reply = value(&service, request("desktop/nativeToolCache/gc", json!({ "bundledKinds": ["graph", "graph", "bogus", "supervisor", "patch"] }), None)).await.unwrap();
-    assert_eq!(reply, json!({ "removed": ["graph", "supervisor", "patch"], "failed": [] }));
-    assert!(!dir.path().join("graph-bin").exists() && !dir.path().join("patch-bin").exists());
-    assert!(dir.path().join("spawn-bin").join("1.0").join("tool").exists());
-}
-
-#[tokio::test]
-async fn a_user_file_is_rewritten_in_place_or_created() {
-    let dir = tempfile::tempdir().unwrap();
-    let service = service(dir.path(), HashMap::new());
-    let write = |params: Value| value(&service, request("desktop/userFile/write", params, None));
-    let file = dir.path().join("notes.txt");
-    std::fs::write(&file, "a much longer old content").unwrap();
-    assert_eq!(write(json!({ "path": file, "text": "short" })).await.unwrap(), json!({ "bytes": 5 }));
-    assert_eq!(std::fs::read_to_string(&file).unwrap(), "short");
-    write(json!({ "path": file, "dataBase64": "AAEC" })).await.unwrap();
-    assert_eq!(std::fs::read(&file).unwrap(), [0, 1, 2]);
-    std::fs::create_dir(dir.path().join("sub")).unwrap();
-    let created = dir.path().join("sub").join("new.txt");
-    write(json!({ "path": created, "text": "fresh" })).await.unwrap();
-    assert_eq!(std::fs::read_to_string(&created).unwrap(), "fresh");
-    assert!(write(json!({ "path": file })).await.is_err());
-    assert!(write(json!({ "path": file, "text": "a", "dataBase64": "AA==" })).await.is_err());
-    assert!(write(json!({ "path": file, "dataBase64": "***" })).await.is_err());
-    // A symlink stays a link: its target is written.
-    #[cfg(unix)]
-    {
-        let link = dir.path().join("link.txt");
-        std::os::unix::fs::symlink(&file, &link).unwrap();
-        write(json!({ "path": link, "text": "via link" })).await.unwrap();
-        assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "via link");
-    }
-}
-
 // ---- linux-input-access.test.mjs -------------------------------------------------------------------------------------
 
 struct FakeMachine {
@@ -430,80 +305,6 @@ impl InputAccessProbe for FakeMachine {
     }
 }
 
-#[tokio::test]
-async fn the_uinput_rule_is_installed_once_and_only_when_needed() {
-    let ask = |machine: &Arc<FakeMachine>| {
-        let machine = Arc::clone(machine);
-        async move { InputAccessRequests::default().request(machine, mixdog_rt::testing::tokens().durability_io).await }
-    };
-    let mut other = FakeMachine::new(PkexecStatus::Exit(0));
-    Arc::get_mut(&mut other).unwrap().platform = "darwin";
-    assert_eq!(ask(&other).await, json!({ "ok": false, "reason": "failed" }));
-
-    let ready = FakeMachine::new(PkexecStatus::Exit(0));
-    ready.access.store(true, Ordering::SeqCst);
-    assert_eq!(ask(&ready).await, json!({ "ok": true }));
-    assert_eq!(ready.pkexec_runs.load(Ordering::SeqCst), 0);
-
-    assert_eq!(ask(&FakeMachine::new(PkexecStatus::Exit(0))).await, json!({ "ok": true }));
-    assert_eq!(ask(&FakeMachine::new(PkexecStatus::Missing)).await["reason"], json!("pkexec_missing"));
-    assert_eq!(ask(&FakeMachine::new(PkexecStatus::Exit(126))).await["reason"], json!("cancelled"));
-    let failed = ask(&FakeMachine::new(PkexecStatus::Exit(3))).await;
-    assert_eq!((failed["reason"].clone(), failed["exitCode"].clone()), (json!("failed"), json!(3)));
-
-    // A clean exit that changed nothing: the access is rechecked a bounded number of times, then the cause is named.
-    let mut stuck = FakeMachine::new(PkexecStatus::Exit(0));
-    Arc::get_mut(&mut stuck).unwrap().grants_access = false;
-    let relogin = ask(&stuck).await;
-    assert_eq!((relogin["reason"].clone(), relogin["detail"].clone()), (json!("access_unavailable"), json!("relogin")));
-    assert_eq!(stuck.waits.load(Ordering::SeqCst), RECHECK_ATTEMPTS);
-    let mut no_module = FakeMachine::new(PkexecStatus::Exit(0));
-    {
-        let machine = Arc::get_mut(&mut no_module).unwrap();
-        machine.grants_access = false;
-        machine.device = false;
-    }
-    assert_eq!(ask(&no_module).await["detail"], json!("no-module"));
-}
-
-#[tokio::test]
-async fn two_requests_in_flight_share_one_prompt() {
-    let machine = FakeMachine::new(PkexecStatus::Exit(0));
-    let requests = InputAccessRequests::default();
-    let lane = mixdog_rt::testing::tokens().durability_io;
-    let (first, second) = futures::join!(requests.request(machine.clone(), lane), requests.request(machine.clone(), lane));
-    assert_eq!((first, second), (json!({ "ok": true }), json!({ "ok": true })));
-    assert_eq!(machine.pkexec_runs.load(Ordering::SeqCst), 1);
-}
-
-#[tokio::test]
-async fn concurrent_requests_share_the_pending_lane_probe_without_holding_the_state_lock() {
-    let lane = mixdog_rt::testing::tokens().durability_io;
-    let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::DurabilityIo);
-    let machine = FakeMachine::new(PkexecStatus::Exit(0));
-    let requests = InputAccessRequests::default();
-    let first = requests.request(machine.clone(), lane);
-    let second = requests.request(machine.clone(), lane);
-    futures::pin_mut!(first, second);
-    assert!(futures::poll!(&mut first).is_pending());
-    assert!(futures::poll!(&mut second).is_pending());
-    assert!(requests.in_flight.try_lock().is_ok(), "no state lock may span the lane wait");
-    assert_eq!(machine.pkexec_runs.load(Ordering::SeqCst), 0, "a queued probe is not a permission denial");
-    drop(full);
-    let (first, second) = futures::join!(first, second);
-    assert_eq!((first, second), (json!({ "ok": true }), json!({ "ok": true })));
-    assert_eq!(machine.pkexec_runs.load(Ordering::SeqCst), 1);
-}
-
-#[tokio::test]
-async fn a_probe_lane_failure_never_starts_an_authorization_prompt() {
-    let lane = mixdog_rt::testing::tokens().durability_io;
-    let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
-    let machine = FakeMachine::new(PkexecStatus::Exit(0));
-    assert_eq!(InputAccessRequests::default().request(machine.clone(), lane).await, json!({ "ok": false, "reason": "failed" }));
-    assert_eq!(machine.pkexec_runs.load(Ordering::SeqCst), 0);
-}
-
 #[test]
 fn the_privileged_script_holds_constants_only() {
     let script = install_script();
@@ -537,37 +338,6 @@ fn job(id: &str, seq: u64, state: &str, processed: u64) -> Value {
     json!({ "jobId": id, "seq": seq, "state": state, "processed": processed })
 }
 
-#[tokio::test]
-async fn a_changed_job_is_published_once_and_polled_while_it_runs() {
-    // The poll runs as a mixdog-rt task: the test backend must be installed.
-    mixdog_rt::testing::tokens();
-    let source = Arc::new(Jobs { jobs: Mutex::new(vec![]), published: Mutex::new(vec![]), fail: AtomicBool::new(false) });
-    let progress = ImportProgress::new(source.clone(), Duration::from_millis(20));
-    let published = || source.published.lock().unwrap().len();
-
-    progress.observe("somethingElse", &job("a", 1, "running", 0));
-    progress.observe("startConversationImport", &json!({ "noJobId": true }));
-    assert_eq!(published(), 0);
-    progress.observe("startConversationImport", &job("a", 1, "running", 0));
-    progress.observe("cancelConversationImport", &job("a", 1, "running", 0));
-    assert_eq!(published(), 1, "an unchanged stamp is not published again");
-    progress.observe("getConversationImportJobs", &json!({ "jobs": [job("a", 2, "running", 5), job("b", 1, "done", 9), "junk"] }));
-    assert_eq!(published(), 3, "every job of a list is published, the finished one too");
-
-    // The poll picks up the runtime's next state of the running job and stops once nothing runs.
-    *source.jobs.lock().unwrap() = vec![job("a", 3, "done", 10), job("b", 1, "done", 9)];
-    tokio::time::sleep(Duration::from_millis(250)).await;
-    assert_eq!(published(), 4);
-    assert_eq!(source.published.lock().unwrap().last().unwrap()["state"], json!("done"));
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    assert_eq!(published(), 4);
-
-    // After a dispose, nothing more is published.
-    progress.dispose();
-    progress.observe("startConversationImport", &job("c", 1, "running", 0));
-    assert_eq!(published(), 4);
-}
-
 #[test]
 fn a_stamp_reads_a_missing_field_as_undefined() {
     assert_eq!(template_text(None), "undefined");
@@ -593,36 +363,6 @@ fn the_leg_redials_when_the_network_returns_or_changes_while_online() {
     assert!(network_changed(&snapshot(false, ""), &snapshot(true, "a")));
     assert!(!network_changed(&snapshot(true, "a"), &snapshot(false, "")));
     assert!(!network_changed(&snapshot(false, "a"), &snapshot(false, "b")));
-}
-
-#[tokio::test]
-async fn the_watcher_fires_on_a_change_and_stops() {
-    // The poll runs as a mixdog-rt task: the test backend must be installed.
-    mixdog_rt::testing::tokens();
-    let current = Arc::new(Mutex::new(NetworkSnapshot { online: true, signature: "a".to_owned() }));
-    let fired = Arc::new(AtomicUsize::new(0));
-    let watcher = NetworkWatcher::start(
-        Duration::from_millis(10),
-        {
-            let current = Arc::clone(&current);
-            Arc::new(move || current.lock().unwrap().clone())
-        },
-        {
-            let fired = Arc::clone(&fired);
-            Arc::new(move || {
-                fired.fetch_add(1, Ordering::SeqCst);
-            })
-        },
-    );
-    tokio::time::sleep(Duration::from_millis(60)).await;
-    assert_eq!(fired.load(Ordering::SeqCst), 0);
-    current.lock().unwrap().signature = "b".to_owned();
-    tokio::time::sleep(Duration::from_millis(120)).await;
-    assert_eq!(fired.load(Ordering::SeqCst), 1);
-    watcher.stop();
-    current.lock().unwrap().signature = "c".to_owned();
-    tokio::time::sleep(Duration::from_millis(80)).await;
-    assert_eq!(fired.load(Ordering::SeqCst), 1);
 }
 
 // ---- login-shell-environment.test.mjs --------------------------------------------------------------------------------
@@ -720,20 +460,6 @@ fn an_empty_providers_array_still_selects_the_nested_agent_document() {
     }
 }
 
-#[tokio::test]
-async fn a_poll_publishes_every_row_and_a_null_row_fails_the_read() {
-    mixdog_rt::testing::tokens();
-    let source = Arc::new(Jobs { jobs: Mutex::new(vec![]), published: Mutex::new(vec![]), fail: AtomicBool::new(false) });
-    let progress = ImportProgress::new(source.clone(), Duration::from_millis(20));
-    // A row that is not a job is published like any other (`jobs.map(emit)` does not test `isJob`); the number after it has the same
-    // key (no `jobId`) and the same stamp (`undefined:undefined:undefined`), so it is not published again. The rows after a `null` are not.
-    assert_eq!(progress.emit_rows(&[job("a", 1, "done", 1), json!({ "noJobId": true }), json!(7)]), Some(false));
-    assert_eq!(source.published.lock().unwrap().len(), 2);
-    assert_eq!(progress.emit_rows(&[job("a", 2, "running", 1), Value::Null, job("b", 1, "running", 0)]), None);
-    assert_eq!(source.published.lock().unwrap().len(), 3, "the row before the null was published, the one after it was not");
-    assert_eq!(progress.emit_rows(&[job("b", 1, "stopping", 0)]), Some(true));
-}
-
 #[test]
 fn an_interface_that_joins_without_a_route_change_is_a_network_change() {
     let routes = [("route4", "192.168.1.5")];
@@ -778,6 +504,288 @@ impl DomainService for FakeImport {
     }
 }
 
+#[test]
+fn the_launcher_adopts_the_shell_overrides_and_on_a_mac_the_homebrew_directories() {
+    let inherited = map(&[("PATH", "/usr/bin"), ("HOME", "/home/u")]);
+    let read = || LoginShellRead { environment: Some(map(&[("PATH", "/opt/x:/usr/bin"), ("HOME", "/home/u"), ("PWD", "/tmp"), ("TOKEN", "t")])), failures: vec![] };
+    let brew = |dir: &str| dir == "/opt/homebrew/bin";
+    // Linux: the overrides only. The probe's own PWD and an unchanged HOME are not set.
+    let linux = login_shell_adoption("linux", read(), &inherited, brew);
+    assert_eq!((linux.set.clone(), linux.adopted, linux.changed_count), (map(&[("PATH", "/opt/x:/usr/bin"), ("TOKEN", "t")]), true, 2));
+    assert!(linux.homebrew_path_added.is_empty());
+    // macOS: Homebrew is appended to the PATH the shell chose.
+    let mac = login_shell_adoption("darwin", read(), &inherited, brew);
+    assert_eq!(mac.set["PATH"], "/opt/x:/usr/bin:/opt/homebrew/bin");
+    assert_eq!((mac.changed_count, mac.homebrew_path_added), (2, vec!["/opt/homebrew/bin".to_owned()]));
+    // No shell answered: nothing is set from it, the failures are reported, and a mac still gets Homebrew on the inherited PATH.
+    let failure = LoginShellFailure { shell: "/bin/zsh".to_owned(), reason: "timeout".to_owned() };
+    let none = login_shell_adoption("darwin", LoginShellRead { environment: None, failures: vec![failure.clone()] }, &inherited, brew);
+    assert_eq!((none.adopted, none.failures, none.set), (false, vec![failure], map(&[("PATH", "/usr/bin:/opt/homebrew/bin")])));
+    assert_eq!(login_shell_adoption("win32", read(), &inherited, brew), LoginShellAdoption::default());
+}
+
+
+fn service(dir: &Path, attachments: HashMap<String, Vec<u8>>) -> DesktopResidualBService {
+    let mut service = DesktopResidualBService::new(Arc::new(Host(attachments)), &mixdog_rt::testing::tokens(), dir.to_path_buf());
+    service.temp = dir.join("temp");
+    service
+}
+#[tokio::test]
+async fn the_thumbnail_method_reads_the_store_by_content_hash() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = hex_of(&[0xab; 32]);
+    let service = service(dir.path(), HashMap::from([(id.clone(), jpeg(64, 64))]));
+    let ask = |params: Value| value(&service, request("desktop/attachment/thumbnail", params, None));
+    assert!(ask(json!({ "attachmentRef": id })).await.unwrap()["dataUrl"].as_str().unwrap().starts_with("data:image/jpeg;base64,"));
+    assert_eq!(ask(json!({ "attachmentRef": hex_of(&[2; 32]) })).await.unwrap(), json!({ "dataUrl": null }));
+    for bad in [json!("../x"), json!(7), json!(id.to_uppercase())] {
+        assert_eq!(ask(json!({ "attachmentRef": bad })).await.unwrap(), json!({ "dataUrl": null }));
+    }
+}
+// ---- launch-version.test.mjs -----------------------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_launch_is_recorded_and_an_update_announced_until_acknowledged() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("last-launch-version");
+    let service = service(dir.path(), HashMap::new());
+    let path = file.to_string_lossy().into_owned();
+    let record = |version: &str, argv: &[&str]| {
+        let params = json!({ "path": path, "version": version, "argv": argv });
+        value(&service, request("desktop/launchVersion/record", params, None))
+    };
+    let announce = |reply: Value| reply["announce"].as_bool().unwrap();
+    let stored = || std::fs::read_to_string(&file).unwrap();
+
+    // No record: a fresh install announces nothing; a relaunch after an update (`--updated`) announces.
+    assert!(!announce(record("1.0.0", &[]).await.unwrap()));
+    assert_eq!(stored(), "{\"lastLaunched\":\"1.0.0\"}\n");
+    assert!(!announce(record("1.0.0", &["--updated"]).await.unwrap()));
+    // A strictly newer version announces and keeps announcing until acknowledged.
+    assert!(announce(record("1.1.0", &[]).await.unwrap()));
+    assert_eq!(stored(), "{\"lastLaunched\":\"1.1.0\",\"pendingAnnouncement\":\"1.1.0\"}\n");
+    assert!(announce(record("1.1.0", &[]).await.unwrap()));
+    let ack = |version: &str| value(&service, request("desktop/launchVersion/acknowledge", json!({ "path": path, "version": version }), None));
+    ack("9.9.9").await.unwrap();
+    assert!(stored().contains("pendingAnnouncement"));
+    ack("1.1.0").await.unwrap();
+    assert_eq!(stored(), "{\"lastLaunched\":\"1.1.0\"}\n");
+    assert!(!announce(record("1.1.0", &[]).await.unwrap()));
+    // A downgrade announces nothing and is recorded.
+    assert!(!announce(record("1.0.5", &[]).await.unwrap()));
+    assert_eq!(stored(), "{\"lastLaunched\":\"1.0.5\"}\n");
+    // The first form of the record (the bare version) reads as that launch.
+    std::fs::write(&file, "v1.0.5\n").unwrap();
+    assert!(announce(record("1.2.0", &[]).await.unwrap()));
+    // A crash-emptied or junk record is no record: nothing is announced for it.
+    for junk in ["\0\0\0", "", "   ", "{\"lastLaunched\":", "banana"] {
+        std::fs::write(&file, junk).unwrap();
+        assert!(!announce(record("1.2.0", &[]).await.unwrap()), "{junk:?}");
+        assert_eq!(stored(), "{\"lastLaunched\":\"1.2.0\"}\n");
+    }
+    // A record the launch cannot write is reported, not raised.
+    let blocked = dir.path().join("blocked");
+    std::fs::create_dir(&blocked).unwrap();
+    let reply = value(&service, request("desktop/launchVersion/record", json!({ "path": blocked, "version": "1.0.0" }), None)).await.unwrap();
+    assert_eq!(reply["announce"], json!(false));
+    assert!(reply["writeError"].is_string());
+}
+#[tokio::test]
+async fn the_model_bootstrap_method_reads_the_config_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let service = service(dir.path(), HashMap::new());
+    let ask = || value(&service, request("desktop/modelBootstrap/read", json!({}), None));
+    assert_eq!(ask().await.unwrap(), json!({ "snapshot": null }));
+    std::fs::write(dir.path().join("mixdog-config.json"), "not json").unwrap();
+    assert_eq!(ask().await.unwrap(), json!({ "snapshot": null }));
+    std::fs::write(dir.path().join("mixdog-config.json"), json!({ "agent": { "presets": [preset("p", "m")], "default": "p" } }).to_string()).unwrap();
+    assert_eq!(ask().await.unwrap()["snapshot"]["model"], json!("m"));
+}
+// ---- native-runtime-cache-gc.test.mjs and user-file-write.test.mjs ------------------------------------------------------
+
+#[tokio::test]
+async fn a_superseded_native_cache_is_removed_and_the_others_stay() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["graph-bin", "spawn-bin", "patch-bin"] {
+        std::fs::create_dir_all(dir.path().join(name).join("1.0")).unwrap();
+        std::fs::write(dir.path().join(name).join("1.0").join("tool"), "x").unwrap();
+    }
+    let service = service(dir.path(), HashMap::new());
+    let reply = value(&service, request("desktop/nativeToolCache/gc", json!({ "bundledKinds": ["graph", "graph", "bogus", "supervisor", "patch"] }), None)).await.unwrap();
+    assert_eq!(reply, json!({ "removed": ["graph", "supervisor", "patch"], "failed": [] }));
+    assert!(!dir.path().join("graph-bin").exists() && !dir.path().join("patch-bin").exists());
+    assert!(dir.path().join("spawn-bin").join("1.0").join("tool").exists());
+}
+#[tokio::test]
+async fn a_user_file_is_rewritten_in_place_or_created() {
+    let dir = tempfile::tempdir().unwrap();
+    let service = service(dir.path(), HashMap::new());
+    let write = |params: Value| value(&service, request("desktop/userFile/write", params, None));
+    let file = dir.path().join("notes.txt");
+    std::fs::write(&file, "a much longer old content").unwrap();
+    assert_eq!(write(json!({ "path": file, "text": "short" })).await.unwrap(), json!({ "bytes": 5 }));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "short");
+    write(json!({ "path": file, "dataBase64": "AAEC" })).await.unwrap();
+    assert_eq!(std::fs::read(&file).unwrap(), [0, 1, 2]);
+    std::fs::create_dir(dir.path().join("sub")).unwrap();
+    let created = dir.path().join("sub").join("new.txt");
+    write(json!({ "path": created, "text": "fresh" })).await.unwrap();
+    assert_eq!(std::fs::read_to_string(&created).unwrap(), "fresh");
+    assert!(write(json!({ "path": file })).await.is_err());
+    assert!(write(json!({ "path": file, "text": "a", "dataBase64": "AA==" })).await.is_err());
+    assert!(write(json!({ "path": file, "dataBase64": "***" })).await.is_err());
+    // A symlink stays a link: its target is written.
+    #[cfg(unix)]
+    {
+        let link = dir.path().join("link.txt");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        write(json!({ "path": link, "text": "via link" })).await.unwrap();
+        assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "via link");
+    }
+}
+#[tokio::test]
+async fn the_uinput_rule_is_installed_once_and_only_when_needed() {
+    let ask = |machine: &Arc<FakeMachine>| {
+        let machine = Arc::clone(machine);
+        async move { InputAccessRequests::default().request(machine, mixdog_rt::testing::tokens().durability_io).await }
+    };
+    let mut other = FakeMachine::new(PkexecStatus::Exit(0));
+    Arc::get_mut(&mut other).unwrap().platform = "darwin";
+    assert_eq!(ask(&other).await, json!({ "ok": false, "reason": "failed" }));
+
+    let ready = FakeMachine::new(PkexecStatus::Exit(0));
+    ready.access.store(true, Ordering::SeqCst);
+    assert_eq!(ask(&ready).await, json!({ "ok": true }));
+    assert_eq!(ready.pkexec_runs.load(Ordering::SeqCst), 0);
+
+    assert_eq!(ask(&FakeMachine::new(PkexecStatus::Exit(0))).await, json!({ "ok": true }));
+    assert_eq!(ask(&FakeMachine::new(PkexecStatus::Missing)).await["reason"], json!("pkexec_missing"));
+    assert_eq!(ask(&FakeMachine::new(PkexecStatus::Exit(126))).await["reason"], json!("cancelled"));
+    let failed = ask(&FakeMachine::new(PkexecStatus::Exit(3))).await;
+    assert_eq!((failed["reason"].clone(), failed["exitCode"].clone()), (json!("failed"), json!(3)));
+
+    // A clean exit that changed nothing: the access is rechecked a bounded number of times, then the cause is named.
+    let mut stuck = FakeMachine::new(PkexecStatus::Exit(0));
+    Arc::get_mut(&mut stuck).unwrap().grants_access = false;
+    let relogin = ask(&stuck).await;
+    assert_eq!((relogin["reason"].clone(), relogin["detail"].clone()), (json!("access_unavailable"), json!("relogin")));
+    assert_eq!(stuck.waits.load(Ordering::SeqCst), RECHECK_ATTEMPTS);
+    let mut no_module = FakeMachine::new(PkexecStatus::Exit(0));
+    {
+        let machine = Arc::get_mut(&mut no_module).unwrap();
+        machine.grants_access = false;
+        machine.device = false;
+    }
+    assert_eq!(ask(&no_module).await["detail"], json!("no-module"));
+}
+#[tokio::test]
+async fn two_requests_in_flight_share_one_prompt() {
+    let machine = FakeMachine::new(PkexecStatus::Exit(0));
+    let requests = InputAccessRequests::default();
+    let lane = mixdog_rt::testing::tokens().durability_io;
+    let (first, second) = futures::join!(requests.request(machine.clone(), lane), requests.request(machine.clone(), lane));
+    assert_eq!((first, second), (json!({ "ok": true }), json!({ "ok": true })));
+    assert_eq!(machine.pkexec_runs.load(Ordering::SeqCst), 1);
+}
+#[tokio::test]
+async fn concurrent_requests_share_the_pending_lane_probe_without_holding_the_state_lock() {
+    let lane = mixdog_rt::testing::tokens().durability_io;
+    let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::DurabilityIo);
+    let machine = FakeMachine::new(PkexecStatus::Exit(0));
+    let requests = InputAccessRequests::default();
+    let first = requests.request(machine.clone(), lane);
+    let second = requests.request(machine.clone(), lane);
+    futures::pin_mut!(first, second);
+    assert!(futures::poll!(&mut first).is_pending());
+    assert!(futures::poll!(&mut second).is_pending());
+    assert!(requests.in_flight.try_lock().is_ok(), "no state lock may span the lane wait");
+    assert_eq!(machine.pkexec_runs.load(Ordering::SeqCst), 0, "a queued probe is not a permission denial");
+    drop(full);
+    let (first, second) = futures::join!(first, second);
+    assert_eq!((first, second), (json!({ "ok": true }), json!({ "ok": true })));
+    assert_eq!(machine.pkexec_runs.load(Ordering::SeqCst), 1);
+}
+#[tokio::test]
+async fn a_probe_lane_failure_never_starts_an_authorization_prompt() {
+    let lane = mixdog_rt::testing::tokens().durability_io;
+    let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+    let machine = FakeMachine::new(PkexecStatus::Exit(0));
+    assert_eq!(InputAccessRequests::default().request(machine.clone(), lane).await, json!({ "ok": false, "reason": "failed" }));
+    assert_eq!(machine.pkexec_runs.load(Ordering::SeqCst), 0);
+}
+#[tokio::test]
+async fn a_changed_job_is_published_once_and_polled_while_it_runs() {
+    // The poll runs as a mixdog-rt task: the test backend must be installed.
+    mixdog_rt::testing::tokens();
+    let source = Arc::new(Jobs { jobs: Mutex::new(vec![]), published: Mutex::new(vec![]), fail: AtomicBool::new(false) });
+    let progress = ImportProgress::new(source.clone(), Duration::from_millis(20));
+    let published = || source.published.lock().unwrap().len();
+
+    progress.observe("somethingElse", &job("a", 1, "running", 0));
+    progress.observe("startConversationImport", &json!({ "noJobId": true }));
+    assert_eq!(published(), 0);
+    progress.observe("startConversationImport", &job("a", 1, "running", 0));
+    progress.observe("cancelConversationImport", &job("a", 1, "running", 0));
+    assert_eq!(published(), 1, "an unchanged stamp is not published again");
+    progress.observe("getConversationImportJobs", &json!({ "jobs": [job("a", 2, "running", 5), job("b", 1, "done", 9), "junk"] }));
+    assert_eq!(published(), 3, "every job of a list is published, the finished one too");
+
+    // The poll picks up the runtime's next state of the running job and stops once nothing runs.
+    *source.jobs.lock().unwrap() = vec![job("a", 3, "done", 10), job("b", 1, "done", 9)];
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    assert_eq!(published(), 4);
+    assert_eq!(source.published.lock().unwrap().last().unwrap()["state"], json!("done"));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(published(), 4);
+
+    // After a dispose, nothing more is published.
+    progress.dispose();
+    progress.observe("startConversationImport", &job("c", 1, "running", 0));
+    assert_eq!(published(), 4);
+}
+#[tokio::test]
+async fn the_watcher_fires_on_a_change_and_stops() {
+    // The poll runs as a mixdog-rt task: the test backend must be installed.
+    mixdog_rt::testing::tokens();
+    let current = Arc::new(Mutex::new(NetworkSnapshot { online: true, signature: "a".to_owned() }));
+    let fired = Arc::new(AtomicUsize::new(0));
+    let watcher = NetworkWatcher::start(
+        Duration::from_millis(10),
+        {
+            let current = Arc::clone(&current);
+            Arc::new(move || current.lock().unwrap().clone())
+        },
+        {
+            let fired = Arc::clone(&fired);
+            Arc::new(move || {
+                fired.fetch_add(1, Ordering::SeqCst);
+            })
+        },
+    );
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    assert_eq!(fired.load(Ordering::SeqCst), 0);
+    current.lock().unwrap().signature = "b".to_owned();
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    assert_eq!(fired.load(Ordering::SeqCst), 1);
+    watcher.stop();
+    current.lock().unwrap().signature = "c".to_owned();
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    assert_eq!(fired.load(Ordering::SeqCst), 1);
+}
+#[tokio::test]
+async fn a_poll_publishes_every_row_and_a_null_row_fails_the_read() {
+    mixdog_rt::testing::tokens();
+    let source = Arc::new(Jobs { jobs: Mutex::new(vec![]), published: Mutex::new(vec![]), fail: AtomicBool::new(false) });
+    let progress = ImportProgress::new(source.clone(), Duration::from_millis(20));
+    // A row that is not a job is published like any other (`jobs.map(emit)` does not test `isJob`); the number after it has the same
+    // key (no `jobId`) and the same stamp (`undefined:undefined:undefined`), so it is not published again. The rows after a `null` are not.
+    assert_eq!(progress.emit_rows(&[job("a", 1, "done", 1), json!({ "noJobId": true }), json!(7)]), Some(false));
+    assert_eq!(source.published.lock().unwrap().len(), 2);
+    assert_eq!(progress.emit_rows(&[job("a", 2, "running", 1), Value::Null, job("b", 1, "running", 0)]), None);
+    assert_eq!(source.published.lock().unwrap().len(), 3, "the row before the null was published, the one after it was not");
+    assert_eq!(progress.emit_rows(&[job("b", 1, "stopping", 0)]), Some(true));
+}
 #[tokio::test]
 async fn the_import_service_announces_the_progress_of_its_jobs() {
     mixdog_rt::testing::tokens();
@@ -802,24 +810,4 @@ async fn the_import_service_announces_the_progress_of_its_jobs() {
     let heard = heard.lock().unwrap();
     assert_eq!(heard.len(), 2, "the poll announced the finished snapshot");
     assert_eq!(heard[1].1["state"], json!("done"));
-}
-
-#[test]
-fn the_launcher_adopts_the_shell_overrides_and_on_a_mac_the_homebrew_directories() {
-    let inherited = map(&[("PATH", "/usr/bin"), ("HOME", "/home/u")]);
-    let read = || LoginShellRead { environment: Some(map(&[("PATH", "/opt/x:/usr/bin"), ("HOME", "/home/u"), ("PWD", "/tmp"), ("TOKEN", "t")])), failures: vec![] };
-    let brew = |dir: &str| dir == "/opt/homebrew/bin";
-    // Linux: the overrides only. The probe's own PWD and an unchanged HOME are not set.
-    let linux = login_shell_adoption("linux", read(), &inherited, brew);
-    assert_eq!((linux.set.clone(), linux.adopted, linux.changed_count), (map(&[("PATH", "/opt/x:/usr/bin"), ("TOKEN", "t")]), true, 2));
-    assert!(linux.homebrew_path_added.is_empty());
-    // macOS: Homebrew is appended to the PATH the shell chose.
-    let mac = login_shell_adoption("darwin", read(), &inherited, brew);
-    assert_eq!(mac.set["PATH"], "/opt/x:/usr/bin:/opt/homebrew/bin");
-    assert_eq!((mac.changed_count, mac.homebrew_path_added), (2, vec!["/opt/homebrew/bin".to_owned()]));
-    // No shell answered: nothing is set from it, the failures are reported, and a mac still gets Homebrew on the inherited PATH.
-    let failure = LoginShellFailure { shell: "/bin/zsh".to_owned(), reason: "timeout".to_owned() };
-    let none = login_shell_adoption("darwin", LoginShellRead { environment: None, failures: vec![failure.clone()] }, &inherited, brew);
-    assert_eq!((none.adopted, none.failures, none.set), (false, vec![failure], map(&[("PATH", "/usr/bin:/opt/homebrew/bin")])));
-    assert_eq!(login_shell_adoption("win32", read(), &inherited, brew), LoginShellAdoption::default());
 }

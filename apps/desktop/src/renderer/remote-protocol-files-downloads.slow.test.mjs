@@ -5,9 +5,10 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { builtCoreBin } from './built-core.mjs';
 
 const recorder = fileURLToPath(new URL('../../../../benchmarks/rust-core/recorders/record-file-downloads.mjs', import.meta.url));
-const BIN = process.env.MIXDOGD_BIN || 'D:\\mixdog-build\\pool\\w25-target\\debug\\mixdogd.exe';
+const BIN = builtCoreBin();
 
 test('the files adapter replays every call of the downloads recording over a real core', () => {
   const child = spawnSync(process.execPath, [...process.execArgv, recorder, '--replay', BIN], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 900_000 });

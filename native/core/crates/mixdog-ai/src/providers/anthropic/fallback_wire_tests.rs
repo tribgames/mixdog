@@ -5,34 +5,58 @@
 //! the whole result (the model that answered and the fallback record included), the stream callbacks in order, and the
 //! ledger row the accounting writes.
 
+#[cfg(node_twin)]
 use std::sync::Arc;
 
+#[cfg(node_twin)]
 use async_trait::async_trait;
+#[cfg(node_twin)]
 use serde_json::Value;
 
+#[cfg(node_twin)]
 use super::ModelCaps;
+#[cfg(node_twin)]
 use crate::providers::google::wire_tests::Rows;
+#[cfg(node_twin)]
 use crate::providers::google::wire_tests::empty_pricing;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::Hub;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::Inputs;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::assert_same_events;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::assert_same_requests;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::assert_same_result;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::attempt;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::built;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::core_result;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::load;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::node_result;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::request_of;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::scenarios;
+#[cfg(node_twin)]
 use crate::registry::accounted::AccountOf;
+#[cfg(node_twin)]
 use crate::registry::accounted::AccountedAdapter;
+#[cfg(node_twin)]
 use crate::registry::accounted::AccountingDeps;
+#[cfg(node_twin)]
 use crate::registry::accounting::UsageSink;
 
+#[cfg(node_twin)]
 /// The recorder's account roster: the default account.
 struct DefaultAccount;
 
+#[cfg(node_twin)]
 #[async_trait]
 impl AccountOf for DefaultAccount {
     async fn of(&self, _: &str) -> Result<String, String> {
@@ -40,6 +64,7 @@ impl AccountOf for DefaultAccount {
     }
 }
 
+#[cfg(node_twin)]
 #[test]
 fn a_turn_the_fallback_model_answers_is_booked_and_reported_as_node_does() {
     // The recorder ran with TZ=Asia/Seoul: a row's day is that local day.
@@ -48,6 +73,7 @@ fn a_turn_the_fallback_model_answers_is_booked_and_reported_as_node_does() {
     });
 }
 
+#[cfg(node_twin)]
 async fn replay_fallbacks() {
     let names = scenarios("anthropic-fallback");
     assert_eq!(names, ["before-output", "mid-output", "snapshot-target"]);

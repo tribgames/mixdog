@@ -25,7 +25,7 @@ function fakeCore(answers = {}) {
   };
 }
 
-const blobAnswers = { 'blob/put': (params) => ({ received: params.digest }) };
+const blobAnswers = { 'blob/read': new Error('blobNotFound'), 'blob/put': (params) => ({ received: params.digest }) };
 
 function register(registration, options) {
   const handlers = new Map();

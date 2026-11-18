@@ -1,0 +1,19 @@
+name: Install cargo-nextest
+description: >-
+  The pinned cargo-nextest release as its prebuilt binary, for the runner's own system. The release proof reads nextest's JUnit report
+  (scripts/ci/run-nextest.mjs); the version is the one core-build and core-tests install.
+runs:
+  using: composite
+  steps:
+    - name: cargo-nextest 0.9.151
+      shell: bash
+      run: |
+        case "$RUNNER_OS" in
+          Linux) platform=linux ;;
+          macOS) platform=mac ;;
+          Windows) platform=windows-tar ;;
+          *) echo "::error::no cargo-nextest build for $RUNNER_OS"; exit 1 ;;
+        esac
+        dest="${CARGO_HOME:-$HOME/.cargo}/bin"
+        if command -v cygpath > /dev/null; then dest=$(cygpath -u "$dest"); fi
+        curl -fsSL --retry 3 --retry-delay 5 "https://get.nexte.st/0.9.151/${platform}" | tar -xzf - -C "$dest"

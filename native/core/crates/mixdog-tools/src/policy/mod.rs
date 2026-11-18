@@ -8,7 +8,8 @@
 //!
 //! * [`ToolPolicy::authorize`] runs `hook → gate → approval → connector`.
 //! * [`gate`] is the human-gate rule; [`grants`] and [`session_grants`] are
-//!   what a person may choose to remember; [`run_policy`] is the schedule and
+//!   what a person may choose to remember, [`offer`] which of it a card
+//!   offers and the writer stores; [`run_policy`] is the schedule and
 //!   webhook rule; [`card`] is what an outbound card shows.
 //! * [`exec`] is the verdict a shell command receives before it is spawned.
 
@@ -18,6 +19,7 @@ pub mod exec;
 pub mod file_store;
 pub mod gate;
 pub mod grants;
+pub mod offer;
 pub mod pipeline;
 pub mod run_policy;
 pub mod session_grants;
@@ -50,6 +52,7 @@ pub use pipeline::HookFailure;
 pub use pipeline::PreToolHook;
 pub use pipeline::ToolPolicy;
 pub use pipeline::ToolResolver;
+pub use pipeline::Withdrawal;
 pub use run_policy::RunKind;
 pub use session_grants::SessionGrantRegistry;
 pub use session_grants::SessionGrants;

@@ -3,7 +3,7 @@
 // subscribed to session A never re-renders for session B's traffic.
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 
-import type { DesktopSessionStateUpdate } from '../shared/contract';
+import type { DesktopSessionStateUpdate, DesktopStreamPosition } from '../shared/contract';
 import { desktopAgentIdentity } from '../shared/agent-activity';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { estimateSessionSnapshotBytes } from './app-session-snapshots';
@@ -13,8 +13,11 @@ import { sharedTranscriptSnapshotDecorator, type TranscriptSnapshotDecorator } f
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
 import { noteStreamLaneFrame, noteStreamPublish } from './transcript-stream-metrics';
 import { transcriptWindowAlignment } from './transcript-alignment';
+import { reconcileSessionProjection } from '../main/state-delta';
+import { streamPositionReached } from '../../../../packages/protocol-client/src/index.ts';
 
 type SessionLaneSource = (listener: (update: DesktopSessionStateUpdate) => void) => () => void;
+
 
 interface SessionLaneStore {
   get(sessionId: string): Snapshot | null;
@@ -26,6 +29,18 @@ interface SessionLaneStore {
   start(source?: SessionLaneSource | undefined): () => void;
   /** Test/manual injection of one lane frame. */
   apply(update: DesktopSessionStateUpdate): void;
+  /** The first state of a session the caller's operation created (a new task, a fork), as that operation answered it. Only a
+   *  creating operation seeds: a settings reply never does. A session whose stream already delivered a state, or ended as
+   *  gone, is its stream's: the answer is not applied. */
+  seedCreatedSession(sessionId: string, snapshot: DesktopSessionStateUpdate['snapshot']): void;
+  /** Whether the session's shown state is current at or past `mark`, the position its connection had received on the session's
+   *  feed once a call answered (`DesktopApi.sessionStreamPosition`): the state that call's mutation produced is shown. Both are
+   *  the protocol client's positions, so the comparison needs nothing of this store's own history. */
+  streamReached(sessionId: string, mark: DesktopStreamPosition): boolean;
+  /** The feed position the state shown for the session is current at; a new value whenever a publication moves it. */
+  streamPosition(sessionId: string): DesktopStreamPosition | null;
+  /** Hears the session's shown position move (a publication that changes no state included). */
+  subscribeStreamPosition(sessionId: string, listener: () => void): () => void;
   stats(): {
     entries: number;
     estimatedBytes: number;
@@ -445,6 +460,18 @@ export function createSessionLaneStore({
     subscribed: (sessionId) => (listeners.get(sessionId)?.size || 0) > 0,
   });
   const notificationKeys = new Map<string, object>();
+  /** Each session's shown feed position and who hears it move, and the sessions whose lane ended as gone. */
+  const positions = new Map<string, DesktopStreamPosition>();
+  const positionListeners = new Map<string, Set<() => void>>();
+  const movePosition = (sessionId: string, position: DesktopStreamPosition): void => {
+    const held = positions.get(sessionId);
+    if (held && streamPositionReached(held, position)) return;
+    positions.set(sessionId, { epoch: position.epoch, seq: position.seq, order: position.order });
+    for (const listener of [...(positionListeners.get(sessionId) ?? [])]) listener();
+  };
+  /** The position of an accepted state whose notification is still scheduled. */
+  const notifiedAt = new Map<string, DesktopStreamPosition>();
+  const ended = new Set<string>();
   let stop: (() => void) | null = null;
   let approvals: ReadonlySet<string> = new Set();
   let questions: ReadonlySet<string> = new Set();
@@ -491,10 +518,16 @@ export function createSessionLaneStore({
     return key;
   };
   const notify = (sessionId: string): void => {
+    // A state's position is shown with the state: both are heard in this one notification, so a preview that ends at the
+    // position never ends before its pane holds the state that reached it.
+    const position = notifiedAt.get(sessionId);
+    notifiedAt.delete(sessionId);
     const bucket = listeners.get(sessionId);
-    if (!bucket) return;
-    noteStreamPublish();
-    for (const listener of [...bucket]) listener();
+    if (bucket) {
+      noteStreamPublish();
+      for (const listener of [...bucket]) listener();
+    }
+    if (position) movePosition(sessionId, position);
   };
   const apply = (update: DesktopSessionStateUpdate): void => {
     const sessionId = String(update?.sessionId || '');
@@ -523,6 +556,17 @@ export function createSessionLaneStore({
     // Any lane end (a daemon disconnect, an unload, a baseline release, a
     // teardown) means its frames are no longer current: the transcript stays,
     // but the lane stops being the approval source until its next real frame.
+    // The lane handed on the state this entry already shows, current at a later feed position (a frame or a note that changed
+    // nothing shown): only the position moves; nothing is decorated, decided or re-rendered.
+    if (update.snapshot && prior?.incoming?.deref() === update.snapshot) {
+      // Behind a state not yet notified, the position waits for that notification too.
+      if (update.streamPosition) {
+        if (notifiedAt.has(sessionId)) notifiedAt.set(sessionId, update.streamPosition);
+        else movePosition(sessionId, update.streamPosition);
+      }
+      if (shown.has(sessionId) && !live.has(sessionId)) setLive(new Set([...live, sessionId]));
+      return;
+    }
     if (!update.snapshot && live.has(sessionId)) setLive(new Set([...live].filter((id) => id !== sessionId)));
     if (!update.snapshot && update.laneEnd !== 'gone' && prior) {
       reportSessionReadFrame(update, 'rejected');
@@ -548,13 +592,25 @@ export function createSessionLaneStore({
       }
     }
     if (prior) snapshots.delete(sessionId);
-    // A genuine teardown ends the session's identity baseline and failure scope.
-    if (!update.snapshot && update.laneEnd === 'gone') decorator.forget?.(sessionId);
+    // A genuine teardown ends the session's identity baseline and failure scope, and no answer seeds it again.
+    if (!update.snapshot && update.laneEnd === 'gone') {
+      decorator.forget?.(sessionId);
+      positions.delete(sessionId);
+      notifiedAt.delete(sessionId);
+      ended.add(sessionId);
+    }
     if (update.snapshot) {
       const incoming = decorator.decorate(update.snapshot);
       const decision = decideSessionLaneFrame(priorSnapshot, prior?.revision ?? null, incoming, provenance);
       reportLaneDecision(sessionId, provenance, decision);
-      const snapshot = decision.accept ? decision.snapshot : (priorSnapshot ?? incoming);
+      const accepted = decision.accept ? decision.snapshot : (priorSnapshot ?? incoming);
+      // A row (or field) that did not change keeps the object the pane holds, whatever lane delivered the frame: the core
+      // publishes whole states, a snapshot or a read is a new object graph, and the row renderers treat a new object as a
+      // changed row.
+      const snapshot =
+        priorSnapshot && sameLaneSession(priorSnapshot, accepted)
+          ? reconcileSessionProjection(priorSnapshot, accepted)
+          : accepted;
       const now = Date.now();
       const subscribed = (listeners.get(sessionId)?.size || 0) > 0;
       const refreshEstimate = !prior || (!subscribed && now - prior.estimatedAt >= SESSION_LANE_ESTIMATE_INTERVAL_MS);
@@ -564,7 +620,9 @@ export function createSessionLaneStore({
         bytes,
         estimatedAt: refreshEstimate ? now : prior.estimatedAt,
         revision: decision.accept ? decision.revision : (prior?.revision ?? null),
+        incoming: decision.accept ? new WeakRef(update.snapshot) : prior?.incoming,
       });
+      if (decision.accept && update.streamPosition) notifiedAt.set(sessionId, update.streamPosition);
     }
     snapshots.prune();
     const nextSnapshot = snapshots.get(sessionId)?.snapshot ?? null;
@@ -576,6 +634,8 @@ export function createSessionLaneStore({
       const key = notificationKeys.get(sessionId);
       if (key) cancelLayoutFrame(key);
       notificationKeys.delete(sessionId);
+      // No pane holds a state to catch up with: the position shows at once.
+      notify(sessionId);
       return;
     }
     const key = notificationKey(sessionId);
@@ -613,6 +673,9 @@ export function createSessionLaneStore({
           const key = notificationKeys.get(sessionId);
           if (key) cancelLayoutFrame(key);
           notificationKeys.delete(sessionId);
+          // The cancelled notification carried the deferred position: with no pane left to catch up, it shows at once, as in
+          // `apply` without a listener.
+          notify(sessionId);
           snapshots.release(sessionId);
           syncApprovals();
           // An unmounted lane that is no longer cached has nothing displayed
@@ -657,6 +720,27 @@ export function createSessionLaneStore({
       return halt;
     },
     apply,
+    seedCreatedSession(sessionId, snapshot) {
+      if (ended.has(sessionId) || snapshots.get(sessionId)) return;
+      apply({ sessionId, snapshot, frameSource: 'live' });
+    },
+    streamReached(sessionId, mark) {
+      const shown = positions.get(sessionId);
+      return shown !== undefined && streamPositionReached(shown, mark);
+    },
+    streamPosition: (sessionId) => positions.get(sessionId) ?? null,
+    subscribeStreamPosition(sessionId, listener) {
+      let bucket = positionListeners.get(sessionId);
+      if (!bucket) {
+        bucket = new Set();
+        positionListeners.set(sessionId, bucket);
+      }
+      bucket.add(listener);
+      return () => {
+        bucket.delete(listener);
+        if (bucket.size === 0) positionListeners.delete(sessionId);
+      };
+    },
     stats: () => ({
       entries: snapshots.size,
       estimatedBytes: snapshots.bytes,
@@ -667,6 +751,9 @@ export function createSessionLaneStore({
       for (const key of notificationKeys.values()) cancelLayoutFrame(key);
       notificationKeys.clear();
       snapshots.clear();
+      positions.clear();
+      notifiedAt.clear();
+      ended.clear();
       decorator.clear();
       if (approvals.size > 0) {
         approvals = new Set();
@@ -695,28 +782,47 @@ export function useSessionLaneRevision(
   return useSyncExternalStore(subscribe, () => (enabled && sessionId ? store.revision(sessionId) : null));
 }
 
+/** The feed position of the session's shown state; re-renders when a publication moves it. An empty id hears nothing. */
+export function useSessionLaneStreamPosition(
+  sessionId: string,
+  store: SessionLaneStore = defaultSessionLaneStore
+): DesktopStreamPosition | null {
+  const subscribe = useCallback(
+    (listener: () => void) => (sessionId ? store.subscribeStreamPosition(sessionId, listener) : () => {}),
+    [sessionId, store]
+  );
+  return useSyncExternalStore(subscribe, () => (sessionId ? store.streamPosition(sessionId) : null));
+}
+
 export function useSessionLane(
   sessionId: string,
   store: SessionLaneStore = defaultSessionLaneStore,
   isEqual: (left: Snapshot, right: Snapshot) => boolean = Object.is,
   enabled = true
 ): Snapshot | null {
-  const cached = useRef<{ value: Snapshot | null } | null>(null);
+  // Only the current selection owns its lane. React also keeps the return
+  // value of getSnapshot on the alternate Fiber after a session switch.
+  const cached = useRef<{ sessionId: string; value: Snapshot | null; token: WeakRef<Snapshot> | null } | null>(null);
   const subscribe = useCallback(
     (listener: () => void) => (enabled && sessionId ? store.subscribe(sessionId, listener) : () => {}),
     [enabled, sessionId, store]
   );
   const read = useCallback(() => {
-    if (!enabled) return cached.current?.value ?? null;
+    // The cache belongs to one session. A comparator scoped to a few fields
+    // would otherwise call another session "equal" and keep returning (and
+    // pinning) the snapshot this hook read before its id changed.
+    if (cached.current && cached.current.sessionId !== sessionId) cached.current = null;
+    if (!enabled) return cached.current?.token ?? null;
     const next = sessionId ? store.get(sessionId) : null;
     const previous = cached.current;
     if (
       previous &&
       (previous.value === next || (previous.value !== null && next !== null && isEqual(previous.value, next)))
     )
-      return previous.value;
-    cached.current = { value: next };
-    return next;
+      return previous.token;
+    const token = next ? new WeakRef(next) : null;
+    cached.current = { sessionId, value: next, token };
+    return token;
   }, [enabled, isEqual, sessionId, store]);
-  return useSyncExternalStore(subscribe, read);
+  return useSyncExternalStore(subscribe, read)?.deref() ?? null;
 }

@@ -9,6 +9,13 @@ import { createSessionLaneStore, useSessionLane } from './session-lane-store';
 import { installTestDom } from './test-support/test-dom.mjs';
 
 const item = { kind: 'turndone', status: 'complete', toolCount: 2, elapsedMs: 12_000 };
+test('a restore or route limit alone invalidates its pane selection', () => {
+  const before = { sessionId: 's', items: [item] };
+  const restore = { id: 'cancelled', ids: ['p'], text: 'draft', device: '', at: 1 };
+  assert.equal(desktopConversationShellSnapshotsEqual(before, { ...before, promptRestore: restore }), false);
+  assert.equal(desktopHeaderSnapshotsEqual(before, { ...before, contextTokens: 32000 }), false);
+  assert.equal(desktopHeaderSnapshotsEqual(before, { ...before, rawContextWindow: 32000 }), false);
+});
 const render = (props) => {
   document.body.innerHTML = renderToStaticMarkup(React.createElement(CompletionStatus, { item, ...props }));
   return document.querySelector('.turn-status');

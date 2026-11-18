@@ -125,3 +125,48 @@ pub(super) fn to_prune(names: &[String], own: &str) -> Vec<String> {
     sorted.sort_by(|a, b| js_order(b, a));
     sorted.into_iter().skip(KEEP).filter(|name| name.as_str() != own).cloned().collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const START: i64 = 1_767_225_600_000; // 2026-01-01T00:00:00.000Z
+
+    #[test]
+    fn a_reason_is_reduced_to_safe_name_characters() {
+        assert_eq!(safe_reason("pre save (v2)"), "pre-save-v2-");
+        assert_eq!(safe_reason(""), "snapshot");
+        assert_eq!(safe_reason("a.b_c-d"), "a.b_c-d");
+        assert_eq!(safe_reason(&"x".repeat(60)).len(), 48);
+    }
+
+    #[test]
+    fn a_backup_name_is_time_sequence_and_reason() {
+        let mut counter = Counter::default();
+        assert_eq!(counter.next_name(&[], "boot", START), "2026-01-01T00-00-00-000Z-0000000000-boot");
+        assert_eq!(counter.next_name(&[], "boot", START), "2026-01-01T00-00-00-000Z-0000000001-boot", "the same millisecond counts up");
+        assert_eq!(counter.next_name(&[], "boot", START + 5), "2026-01-01T00-00-00-005Z-0000000002-boot");
+    }
+
+    #[test]
+    fn a_new_name_sorts_after_every_existing_backup_whatever_the_clock_says() {
+        let future = "2026-01-01T00-00-10-000Z-0000000007-other".to_owned();
+        let name = Counter::default().next_name(std::slice::from_ref(&future), "boot", START);
+        assert_eq!(name, "2026-01-01T00-00-10-000Z-0000000008-boot");
+        assert!(js_order(&future, &name).is_lt());
+
+        let unsequenced = "2026-01-01T00-00-10-000Z-older".to_owned();
+        let name = Counter::default().next_name(&[unsequenced], "boot", START);
+        assert!(name.starts_with("2026-01-01T00-00-10-001Z-"), "{name}");
+    }
+
+    #[test]
+    fn only_the_forty_newest_backups_are_kept_and_the_one_just_written_never_goes() {
+        let names: Vec<String> = (0..45).map(|n| format!("2026-01-01T00-00-{n:02}-000Z-0000000000-boot")).collect();
+        let pruned = to_prune(&names, "none");
+        assert_eq!(pruned.len(), 5);
+        assert!(pruned.iter().all(|name| names[..5].contains(name)), "the oldest five go: {pruned:?}");
+        assert!(to_prune(&names, &names[0]).len() == 4, "the own backup is spared even when old");
+        assert!(to_prune(&names[..40], "none").is_empty());
+    }
+}

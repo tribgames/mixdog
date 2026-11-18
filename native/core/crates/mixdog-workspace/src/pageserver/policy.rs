@@ -11,17 +11,14 @@ const NOT_A_PAGE: &str = "The page must be a visible HTML file inside its folder
 
 /// Presentation types: served anywhere under the root.
 fn page_type(extension: &str) -> Option<&'static str> {
+    if let Some(media_type) = mixdog_imaging::Format::browser_media_type(extension) {
+        return Some(media_type);
+    }
     Some(match extension {
         "html" | "htm" => "text/html; charset=utf-8",
         "css" => "text/css; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",
         "map" => "application/json; charset=utf-8",
-        "svg" => "image/svg+xml",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "avif" => "image/avif",
         "bmp" => "image/bmp",
         "ico" => "image/x-icon",
         "woff2" => "font/woff2",

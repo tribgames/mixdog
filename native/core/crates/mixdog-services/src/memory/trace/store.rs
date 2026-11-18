@@ -34,7 +34,9 @@ use super::rows::tool_columns;
 use super::sql;
 use crate::memory::error::MemoryError;
 use crate::memory::error::Result;
-use crate::memory::pg::db::Db;
+use crate::memory::lifecycle::Scope;
+use crate::memory::pg::db::{Db, Lease};
+use tokio_util::sync::CancellationToken;
 
 const TRACE_ENABLE_MARKER: &str = ".trace-enabled";
 const FLUSH_DELAY: Duration = Duration::from_millis(100);
@@ -102,15 +104,17 @@ fn row_error(error: RowError) -> MemoryError {
     MemoryError::Runtime(format!("trace row: {}", error.0))
 }
 
-/// Runs `body` on a pooled connection whose `search_path` is `trace, public`, then restores the
-/// pool's path. A connection that cannot be reset is dropped, never pooled.
-async fn with_trace<T>(db: &Db, body: impl AsyncFnOnce(&Object) -> Result<T>) -> Result<T> {
-    let client = db.client().await?;
-    client.batch_execute(sql::SET_SEARCH_PATH).await?;
-    let result = body(&client).await;
-    if client.batch_execute("RESET search_path").await.is_err() {
-        drop(Object::take(client));
-    }
+/// Runs `body` on a leased connection whose `search_path` is `trace, public`, then restores the
+/// pool's path. A connection that cannot be reset, that still has a transaction open, or whose holder was cancelled or revoked is discarded,
+/// never pooled ([`Lease`]).
+async fn with_trace<T>(db: &Db, body: impl AsyncFnOnce(&Lease) -> Result<T>) -> Result<T> {
+    let lease = Lease::take(db).await?;
+    lease.batch_execute(sql::SET_SEARCH_PATH).await?;
+    // A test's fence inside the trace's SQL (its session setting made, the write not yet sent): the shutdown's trace drain.
+    #[cfg(test)]
+    crate::memory::lifecycle::fences::pass("trace-sql").await;
+    let result = body(&lease).await;
+    lease.release(Some("RESET search_path")).await;
     result
 }
 
@@ -160,15 +164,15 @@ async fn bootstrap(db: &Db) -> Result<()> {
     with_trace(db, async |client| {
         let locked: bool = client.query_one(sql::TRY_LOCK, &[]).await?.get(0);
         if !locked {
-            client.batch_execute("BEGIN").await?;
+            client.begin().await?;
             let waited = async {
                 client.batch_execute(LOCK_TIMEOUT).await?;
                 client.batch_execute(BLOCKING_LOCK).await?;
-                client.batch_execute("COMMIT").await
+                client.commit().await
             }
             .await;
             if let Err(error) = waited {
-                let _ = client.batch_execute("ROLLBACK").await;
+                let _ = client.rollback().await;
                 return Err(MemoryError::Runtime(format!(
                     "trace-store bootstrap advisory lock timed out (30s): {error}"
                 )));
@@ -304,7 +308,8 @@ async fn insert_trace_events(db: &Db, events: &[Event], now_ms: i64) -> Result<u
         params.push(Box::new(c.entry_id));
     }
     let statement = insert_trace_events_sql(cells.len());
-    db.execute(statement.as_str(), &refs(&params)).await?;
+    // The table is `trace.trace_events`, unqualified in Node's text: it runs on a connection whose path is the trace schema's, as every trace write.
+    with_trace(db, async |client| Ok(client.execute(statement.as_str(), &refs(&params)).await?)).await?;
     Ok(cells.len())
 }
 
@@ -318,7 +323,7 @@ async fn insert_agent_calls(db: &Db, events: &[Event], now_ms: i64) -> Result<(u
     let llm = llm_columns(&rows.llm_rows).map_err(row_error)?;
     let sessions = session_columns(&rows.sessions).map_err(row_error)?;
     with_trace(db, async |client| {
-        client.batch_execute("BEGIN").await?;
+        client.begin().await?;
         let run = async {
             if !rows.tool_rows.is_empty() {
                 let params = column_params(&tool);
@@ -332,11 +337,11 @@ async fn insert_agent_calls(db: &Db, events: &[Event], now_ms: i64) -> Result<(u
                 let params = column_params(&sessions);
                 client.execute(sql::UPSERT_SESSIONS, &refs(&params)).await?;
             }
-            client.batch_execute("COMMIT").await
+            client.commit().await
         }
         .await;
         if let Err(error) = run {
-            let _ = client.batch_execute("ROLLBACK").await;
+            let _ = client.rollback().await;
             return Err(error.into());
         }
         Ok(())
@@ -398,21 +403,53 @@ struct Feed {
     timer_armed: bool,
 }
 
+/// The store's one lifecycle. Its scope (a sub-scope of the database's, so the stack's revocation reaches it) owns every feed delivery, flush
+/// timer and job, analytics insert and the retention pass. Admission (`row`, `record`, `enqueue`) takes the `feed` lock and checks the seal under
+/// it, and [`TraceStore::close`] seals under the same lock: a row is either refused or accepted with the work that delivers it already registered.
+/// Work registered by other work (a feed batch's delivery, a flush's retry) is a child, admitted after the seal, so accepted rows are finished.
 struct Inner {
     db: Arc<Db>,
+    scope: Scope,
+    /// Cancelled by the close: the feed and flush timers fire at once (their data is delivered, not dropped) and retention stops resting.
+    closing: CancellationToken,
     queue: Mutex<Queue>,
     /// One permit: a flush at a time (held across the insert's awaits, which a mutex must not be).
     flushing: Semaphore,
     feed: Mutex<Feed>,
-    /// Rows arrive from any thread (RowSink::row), so tasks are spawned on the runtime that opened the store.
-    handle: tokio::runtime::Handle,
+    #[cfg(test)]
+    feed_seam: Mutex<Option<crate::memory::ingest::embed_flush::ClaimSeam>>,
 }
 
-/// Queues `events` for the trace_events insert and inserts their agent analytics in the background.
+impl Inner {
+    fn new(db: Arc<Db>) -> Self {
+        let scope = db.scope().sub_scope();
+        Self {
+            db,
+            scope,
+            closing: CancellationToken::new(),
+            queue: Mutex::new(Queue::default()),
+            flushing: Semaphore::new(1),
+            feed: Mutex::new(Feed::default()),
+            #[cfg(test)]
+            feed_seam: Mutex::new(None),
+        }
+    }
+
+    /// `accept` under the admission lock, unless the store is closed.
+    fn admit<T>(&self, accept: impl FnOnce(&mut Feed) -> T) -> Option<T> {
+        let mut feed = self.feed.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.scope.is_sealed() {
+            return None;
+        }
+        Some(accept(&mut feed))
+    }
+}
+
+/// Queues `events` for the trace_events insert and inserts their agent analytics as work of the store's scope.
 fn deliver(inner: &Arc<Inner>, events: Vec<Event>, now_ms: i64) {
     enqueue(inner, events.clone(), now_ms);
     let db = inner.db.clone();
-    inner.handle.spawn(async move {
+    let _inserting = inner.scope.spawn("services.memory.trace-agent", async move {
         if let Err(error) = insert_agent_calls(&db, &events, now_ms).await {
             mixdog_rt::memory_stderr!("[trace] insertAgentCalls error: {error}");
         }
@@ -443,40 +480,55 @@ fn enqueue(inner: &Arc<Inner>, events: Vec<Event>, now_ms: i64) {
     }
 }
 
-/// Posts what the feed holds, in batches of at most 500 (the route's cap).
+/// Posts what the feed holds, in batches of at most 500 (the route's cap). The rows are taken inside the registered work, and each batch's
+/// delivery is registered (as its child) before the work ends, so a close waits for rows already taken from the feed.
 fn spawn_feed(inner: Arc<Inner>, now_ms: i64, delayed: bool) {
-    let handle = inner.handle.clone();
-    handle.spawn(async move {
+    let work = inner.clone();
+    let _feeding = inner.scope.spawn("services.memory.trace-feed", async move {
         if delayed {
-            mixdog_rt::time::sleep(FEED_EVERY).await;
+            tokio::select! {
+                () = work.closing.cancelled() => {}
+                () = mixdog_rt::time::sleep(FEED_EVERY) => {}
+            }
         }
         let rows = {
-            let mut feed = inner.feed.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut feed = work.feed.lock().unwrap_or_else(PoisonError::into_inner);
             feed.timer_armed = false;
             std::mem::take(&mut feed.rows)
         };
+        #[cfg(test)]
+        feed_seam(&work).await;
         for batch in rows.chunks(FEED_BATCH) {
-            deliver(&inner, batch.to_vec(), now_ms);
+            deliver(&work, batch.to_vec(), now_ms);
         }
     });
 }
 
+#[cfg(test)]
+async fn feed_seam(inner: &Inner) {
+    let held = inner.feed_seam.lock().unwrap_or_else(PoisonError::into_inner).as_ref().map(|seam| (seam.entered.clone(), seam.release.clone()));
+    if let Some((entered, release)) = held {
+        let _ = entered.send(());
+        let _ = release.acquire().await.map(tokio::sync::SemaphorePermit::forget);
+    }
+}
+
 impl mixdog_trace::RowSink for TraceStore {
     fn row(&self, row: &serde_json::Map<String, Value>, now_ms: i64) {
-        let (now, arm) = {
-            let mut feed = self.inner.feed.lock().unwrap_or_else(PoisonError::into_inner);
+        // The feed work is registered under the admission lock that holds the row, so an accepted row always has registered work to deliver it.
+        let _accepted = self.inner.admit(|feed| {
             feed.rows.push(Value::Object(row.clone()));
-            if feed.rows.len() >= FEED_BATCH {
+            let (now, arm) = if feed.rows.len() >= FEED_BATCH {
                 (true, false)
             } else {
                 let arm = !feed.timer_armed;
                 feed.timer_armed = true;
                 (false, arm)
+            };
+            if now || arm {
+                spawn_feed(self.inner.clone(), now_ms, arm);
             }
-        };
-        if now || arm {
-            spawn_feed(self.inner.clone(), now_ms, arm);
-        }
+        });
     }
 }
 
@@ -484,7 +536,6 @@ impl mixdog_trace::RowSink for TraceStore {
 #[derive(Clone)]
 pub struct TraceStore {
     inner: Arc<Inner>,
-    retention: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 /// The answer to one `/admin/trace-record` call.
@@ -514,26 +565,42 @@ impl TraceStore {
             return Ok(None);
         }
         bootstrap(&db).await?;
-        let store = Self {
-            inner: Arc::new(Inner { db: db.clone(), queue: Mutex::new(Queue::default()), flushing: Semaphore::new(1), feed: Mutex::new(Feed::default()), handle: tokio::runtime::Handle::current() }),
-            retention: Arc::new(Mutex::new(None)),
-        };
-        let task_db = db;
-        let handle = tokio::spawn(async move {
+        let store = Self { inner: Arc::new(Inner::new(db.clone())) };
+        let closing = store.inner.closing.clone();
+        // The retention pass is the store's work: the close ends its rest and waits for a pass in progress.
+        let _retention = store.inner.scope.spawn("services.memory.trace-retention", async move {
             let mut now = now_ms;
             loop {
-                run_retention(&task_db, retention_days, now).await;
-                mixdog_rt::time::sleep(RETENTION_EVERY).await;
+                run_retention(&db, retention_days, now).await;
+                tokio::select! {
+                    () = closing.cancelled() => return,
+                    () = mixdog_rt::time::sleep(RETENTION_EVERY) => {}
+                }
                 now += i64::try_from(RETENTION_EVERY.as_millis()).unwrap_or(i64::MAX);
             }
         });
-        *store.retention.lock().unwrap_or_else(PoisonError::into_inner) = Some(handle);
         Ok(Some(store))
     }
 
-    /// `enqueueTraceEvents`: returns at once; the flush runs within 100 ms or at 500 events.
+    #[cfg(test)]
+    pub(crate) fn for_test(db: Arc<Db>) -> Self {
+        Self { inner: Arc::new(Inner::new(db)) }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn feed_rows(&self) -> usize {
+        self.inner.feed.lock().unwrap_or_else(PoisonError::into_inner).rows.len()
+    }
+
+    /// Holds the next feed batch right after it took its rows from the feed, before their delivery.
+    #[cfg(test)]
+    pub(crate) fn hold_feed_after_take(&self, seam: crate::memory::ingest::embed_flush::ClaimSeam) {
+        *self.inner.feed_seam.lock().unwrap_or_else(PoisonError::into_inner) = Some(seam);
+    }
+
+    /// `enqueueTraceEvents`: returns at once; the flush runs within 100 ms or at 500 events. Refused once the store is closed.
     pub fn enqueue(&self, events: Vec<Event>, now_ms: i64) {
-        enqueue(&self.inner, events, now_ms);
+        let _accepted = self.inner.admit(|_| enqueue(&self.inner, events, now_ms));
     }
 
     /// The exit drain: what is still queued is written once, without retries.
@@ -551,11 +618,13 @@ impl TraceStore {
         }
     }
 
-    /// `closeTraceDatabase` (the queue part): stop the retention pass and drain.
+    /// `closeTraceDatabase` (the queue part): admission is sealed, the timers fire at once, every accepted delivery (rows already taken from the
+    /// feed included), flush, analytics insert and the retention pass finish, then what the queue still holds is written once. The caller releases the
+    /// pool only after this returns; a stop past its deadline revokes this store's work instead ([`Scope::revoke`] of the database's scope).
     pub async fn close(&self, now_ms: i64) {
-        if let Some(handle) = self.retention.lock().unwrap_or_else(PoisonError::into_inner).take() {
-            handle.abort();
-        }
+        let _sealed = self.inner.admit(|_| self.inner.scope.seal());
+        self.inner.closing.cancel();
+        self.inner.scope.idle().await;
         self.drain(now_ms).await;
     }
 
@@ -571,8 +640,11 @@ impl TraceStore {
         let Some(store) = store else { return RecordReply::Disabled };
         let events: Vec<Event> = events.clone();
         let queued = events.len();
-        deliver(&store.inner, events, now_ms);
-        RecordReply::Queued(queued)
+        match store.inner.admit(|_| deliver(&store.inner, events, now_ms)) {
+            Some(()) => RecordReply::Queued(queued),
+            // A closed store takes nothing, as a store that is not open.
+            None => RecordReply::Disabled,
+        }
     }
 }
 
@@ -626,16 +698,19 @@ async fn flush(inner: &Arc<Inner>, now_ms: i64) {
     }
 }
 
-/// Runs a flush as a task, after the 100 ms window when delayed (that task owns the armed timer).
+/// Runs a flush as work of the store's scope, after the 100 ms window when delayed (that work owns the armed timer; the close fires it at once).
 /// A plain function, so `flush` can schedule its own follow-up without a recursive future type.
 fn spawn_flush(inner: Arc<Inner>, now_ms: i64, delayed: bool) {
-    let handle = inner.handle.clone();
-    handle.spawn(async move {
+    let work = inner.clone();
+    let _flushing = inner.scope.spawn("services.memory.trace-flush", async move {
         if delayed {
-            mixdog_rt::time::sleep(FLUSH_DELAY).await;
-            inner.queue.lock().unwrap_or_else(PoisonError::into_inner).timer_armed = false;
+            tokio::select! {
+                () = work.closing.cancelled() => {}
+                () = mixdog_rt::time::sleep(FLUSH_DELAY) => {}
+            }
+            work.queue.lock().unwrap_or_else(PoisonError::into_inner).timer_armed = false;
         }
-        flush(&inner, now_ms).await;
+        flush(&work, now_ms).await;
     });
 }
 

@@ -10,14 +10,79 @@ use serde_json::Value;
 /// statistics and quota totals add no turn for it.
 pub const NO_USAGE_COST_SOURCE: &str = "none";
 
-/// Marks a model key as that model's Fast-mode calls.
-pub const FAST_KEY: &str = "\u{0}fast";
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum SpeedTier {
+    #[default]
+    Standard,
+    Fast,
+    Ultrafast,
+}
 
-pub fn route_key(provider: &str, model: &str, fast: bool) -> String {
-    if fast {
-        format!("{provider}/{model}{FAST_KEY}")
-    } else {
-        format!("{provider}/{model}")
+impl SpeedTier {
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "standard" => Some(Self::Standard),
+            "fast" => Some(Self::Fast),
+            "ultrafast" => Some(Self::Ultrafast),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn from_row(row: &Value) -> Self {
+        row.get("speedTier")
+            .and_then(Value::as_str)
+            .and_then(Self::from_name)
+            .unwrap_or_else(|| {
+                // Older aggregates can attest to Fast, but not distinguish it from Ultra Fast.
+                if is_true(row.get("fast")) {
+                    Self::Fast
+                } else {
+                    Self::Standard
+                }
+            })
+    }
+
+    pub(crate) fn put_fields(self, row: &mut serde_json::Map<String, Value>) {
+        let name = match self {
+            Self::Standard => "standard",
+            Self::Fast => "fast",
+            Self::Ultrafast => "ultrafast",
+        };
+        row.insert("speedTier".into(), name.into());
+        if self != Self::Standard {
+            row.insert("fast".into(), true.into());
+        }
+    }
+
+    fn suffix(self) -> &'static str {
+        match self {
+            Self::Standard => "",
+            Self::Fast => "\0fast",
+            Self::Ultrafast => "\0ultrafast",
+        }
+    }
+
+    pub(crate) fn split_key(key: &str) -> (&str, Self) {
+        for tier in [Self::Fast, Self::Ultrafast] {
+            if let Some(model) = key.strip_suffix(tier.suffix()) {
+                return (model, tier);
+            }
+        }
+        (key, Self::Standard)
+    }
+
+    pub(crate) fn key(self, model: &str) -> String {
+        format!("{model}{}", self.suffix())
+    }
+
+    pub(crate) fn route_key(self, provider: &str, model: &str) -> String {
+        format!("{provider}/{model}{}", self.suffix())
+    }
+}
+
+impl rusqlite::types::FromSql for SpeedTier {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        Self::from_name(value.as_str()?).ok_or(rusqlite::types::FromSqlError::InvalidType)
     }
 }
 
@@ -61,12 +126,22 @@ pub fn is_unmeasuring_provider(provider: &str) -> bool {
     provider == "cursor-oauth" || provider == "cursor-api"
 }
 
-/// SQL form of "this route's requests ran in Fast mode", over a stored route signature.
-pub fn fast_route_sql(signature: &str) -> String {
+/// Classify from the tier sent on the request, not picker settings or the response alone.
+/// As in 1.4.5 accounting, a reported `default` downgrades API calls, not subscription calls.
+pub(crate) fn speed_tier_sql(signature: &str) -> String {
     format!(
-        "(COALESCE(json_extract(json_extract({signature},'$[5]'),'$.requestServiceTier') IN ('fast','priority','ultrafast'),0)
-    AND NOT (COALESCE(json_extract({signature},'$[2]'),'')='api'
-        AND COALESCE(json_extract(json_extract({signature},'$[5]'),'$.serviceTier'),'')='default'))"
+        "CASE
+            WHEN json_extract({signature},'$[2]')='api'
+                AND json_extract(json_extract({signature},'$[5]'),'$.serviceTier')='default'
+                THEN 'standard'
+            ELSE CASE COALESCE(json_extract(json_extract({signature},'$[5]'),'$.sentSpeedTier'),
+                    json_extract(json_extract({signature},'$[5]'),'$.requestServiceTier'))
+                WHEN 'ultrafast' THEN 'ultrafast'
+                WHEN 'priority' THEN 'fast'
+                WHEN 'fast' THEN 'fast'
+                ELSE 'standard'
+            END
+        END"
     )
 }
 
@@ -216,8 +291,8 @@ pub fn round_to(value: f64, digits: i32) -> f64 {
 }
 
 /// Orders model rows by each model's combined fields (descending, in order), keeping a
-/// model's Fast row directly under its normal row (`sortFastBesideModel`).
-pub fn sort_fast_beside_model(
+/// model's speed tiers together in Standard, Fast, Ultra Fast order.
+pub(crate) fn sort_model_tiers(
     rows: &mut [Value],
     model_of: impl Fn(&Value) -> String,
     fields: &[&str],
@@ -239,6 +314,6 @@ pub fn sort_fast_beside_model(
                 .unwrap_or(Ordering::Equal);
         }
         mixdog_js::locale_compare(&model_of(a), &model_of(b))
-            .then_with(|| is_true(a.get("fast")).cmp(&is_true(b.get("fast"))))
+            .then_with(|| SpeedTier::from_row(a).cmp(&SpeedTier::from_row(b)))
     });
 }

@@ -55,25 +55,6 @@ fn remove_blocking(path: PathBuf) -> std::io::Result<()> {
     std::fs::remove_file(path)
 }
 
-/// The model's weights and partial file as they are on disk; a link or a non-regular file is refused.
-#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
-fn model_files_blocking(path: &std::path::Path) -> Result<Value, ProviderError> {
-    let mut files = Vec::new();
-    for file in [path.to_path_buf(), PathBuf::from(format!("{}.part", path.display()))] {
-        let meta = match std::fs::symlink_metadata(&file) {
-            Ok(m) => m,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return failed(e.to_string()),
-        };
-        if !meta.is_file() || meta.file_type().is_symlink() {
-            return failed("[local-provider] refusing a non-regular or redirected model file");
-        }
-        let mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_secs_f64() * 1000.0);
-        files.push(json!({"path": file.to_string_lossy(), "size": meta.len(), "mtimeMs": mtime}));
-    }
-    Ok(Value::Array(files))
-}
-
 struct ServerUnloader(Arc<ServerProcess>);
 
 #[async_trait]
@@ -155,6 +136,9 @@ async fn keep_installed(catalog: Arc<Catalog>, mut ticks: tokio::sync::watch::Re
 #[async_trait]
 pub trait ToolSettings: Send + Sync {
     async fn tool_module_settings(&self) -> Value;
+    fn runtime_activation_epoch(&self) -> u64;
+    /// Called only by a successful runtime job, after it has stopped accepting Stop.
+    async fn runtime_installed(&self, epoch: u64) -> Result<(), String>;
 }
 
 pub struct Parts {
@@ -171,6 +155,232 @@ pub struct Parts {
     pub platform_key: Option<String>,
 }
 
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::super::assets::{Body, Fetched};
+    use super::super::hugging_face::RangeResponse;
+    use super::*;
+
+    struct NoNet;
+    #[async_trait]
+    impl Fetcher for NoNet {
+        async fn get(&self, _: &str, _: i64) -> Result<Fetched, String> {
+            struct Empty;
+            #[async_trait]
+            impl Body for Empty {
+                async fn next(&mut self) -> Result<Option<Vec<u8>>, String> {
+                    Ok(None)
+                }
+            }
+            Ok(Fetched { status: 200, content_length: None, https: true, body: Box::new(Empty) })
+        }
+    }
+    #[async_trait]
+    impl HfHttp for NoNet {
+        async fn get_json(&self, _: &str, _: usize) -> Result<Value, String> {
+            Err("offline".into())
+        }
+        async fn get_range(&self, _: &str, _: u64) -> Result<RangeResponse, String> {
+            Err("offline".into())
+        }
+    }
+    struct NoLaunch;
+    #[async_trait]
+    impl Launcher for NoLaunch {
+        async fn launch(&self, _: &str, _: &[String], _: &str, _: &[(String, String)], _: super::super::server_process::LogSink) -> Result<Arc<dyn super::super::server_process::RunningProcess>, String> {
+            Err("no process in tests".into())
+        }
+    }
+    #[async_trait]
+    impl Health for NoNet {
+        async fn check(&self, _: u16, _: &str) -> bool {
+            false
+        }
+        async fn free_port(&self) -> Result<u16, String> {
+            Ok(1)
+        }
+    }
+
+    pub(crate) fn provider(dir: &std::path::Path) -> Arc<LocalProvider> {
+        provider_with(dir, Processes::for_tests(), Arc::new(NoLaunch), Arc::new(NoNet))
+    }
+
+    /// A provider whose children, launcher and health probe are the caller's.
+    pub(crate) fn provider_with(dir: &std::path::Path, processes: Processes, launcher: Arc<dyn Launcher>, health: Arc<dyn Health>) -> Arc<LocalProvider> {
+        LocalProvider::new(Parts {
+            data_dir: dir.to_owned(),
+            fetcher: Arc::new(NoNet),
+            processes,
+            hf_http: Box::new(NoNet),
+            launcher,
+            health,
+            timing: Timing::default(),
+            idle_ttl_seconds: Some(0),
+            platform_key: Some("win32-x64-nvidia".into()),
+        })
+    }
+
+    pub(crate) async fn install_fake_model(p: &LocalProvider, content: &[u8]) -> (Value, PathBuf) {
+        // Register a model whose pinned digest is that of `content`.
+        let mut m = super::super::registered_models::tests::model(7, 16384);
+        m["size"] = json!(content.len());
+        m["estimatedVramBytes"] = json!(content.len() + 1);
+        m["minimumVramBytes"] = json!(content.len() + 1);
+        m["sha256"] = json!(sha2::Sha256::digest(content).iter().map(|b| format!("{b:02x}")).collect::<String>());
+        let registered = p.hf.registry().register(&m).await.unwrap();
+        let path = p.catalog.model_path(&registered);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, content).unwrap();
+        (registered, path)
+    }
+    use sha2::Digest;
+
+    #[tokio::test]
+    async fn details_then_delete_removes_files_and_forgets_the_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = provider(dir.path());
+        let (entry, path) = install_fake_model(&p, b"weights").await;
+        let id = entry["id"].as_str().unwrap();
+        let details = p.model_details(id).await.unwrap();
+        assert_eq!(details["sizeBytes"], 7);
+        let token = details["confirmationToken"].as_str().unwrap().to_owned();
+        let deleted = p.delete_model(&token).await.unwrap();
+        assert_eq!(deleted["deletedFiles"].as_array().unwrap().len(), 1);
+        assert!(!path.exists());
+        assert!(p.catalog.model_entry(id).is_none());
+        assert!(p.delete_model(&token).await.is_err(), "a token is single use");
+        assert!(p.model_details("hf-unknown").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_changed_file_invalidates_the_confirmation() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = provider(dir.path());
+        let (entry, path) = install_fake_model(&p, b"weights").await;
+        let token = p.model_details(entry["id"].as_str().unwrap()).await.unwrap()["confirmationToken"].as_str().unwrap().to_owned();
+        std::fs::write(&path, b"weights!!").unwrap();
+        let error = p.delete_model(&token).await.unwrap_err().to_string();
+        assert!(error.contains("model files changed"), "{error}");
+        assert!(path.exists());
+    }
+
+    #[tokio::test]
+    async fn context_is_validated_saved_and_reflected_in_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = provider(dir.path());
+        let (entry, _) = install_fake_model(&p, b"weights").await;
+        let id = entry["id"].as_str().unwrap();
+        assert!(matches!(p.set_context(id, Some(1000)).await, Err(ProviderError::Invalid(_))));
+        assert!(matches!(p.set_context("nope", None).await, Err(ProviderError::Invalid(_))));
+        let m = p.status().await.unwrap()["models"].as_array().unwrap().iter().find(|m| m["id"] == id).cloned().unwrap();
+        assert_eq!(m["contextWindow"], 16384);
+        assert_eq!(m["installed"], true);
+        // The runtime is not installed, so the server cannot start.
+        assert!(p.ensure_server(id, None).await.unwrap_err().to_string().contains("runtime is not installed"));
+    }
+
+    #[tokio::test]
+    async fn installation_arguments_are_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = provider(dir.path());
+        assert!(matches!(p.start_installation("runtime", Some("m")), Err(ProviderError::Invalid(_))));
+        assert!(matches!(p.start_installation("model", Some("nope")), Err(ProviderError::Invalid(_))));
+        assert!(matches!(p.start_installation("verify", None), Err(ProviderError::Invalid(_))));
+        assert!(p.discard_installation("bogus", None).await.is_err());
+    }
+
+
+    #[tokio::test]
+    async fn verify_reports_integrity_through_the_job_and_model_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = provider(dir.path());
+        let (entry, path) = install_fake_model(&p, b"weights").await;
+        let id = entry["id"].as_str().unwrap().to_owned();
+        let job = p.start_maintenance(&id, "verify").unwrap();
+        assert_eq!(job["phase"], "verify");
+        for _ in 0..200 {
+            if p.installs.status().iter().all(|j| j["state"] != "running") {
+                break;
+            }
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(p.installs.status()[0]["state"], "complete");
+        assert_eq!(p.catalog.state.get(&id)["verification"]["valid"], true);
+        std::fs::write(&path, b"corrupt").unwrap();
+        p.start_maintenance(&id, "verify").unwrap();
+        for _ in 0..200 {
+            if p.installs.status().iter().all(|j| j["state"] != "running") {
+                break;
+            }
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
+        }
+        let status = p.installs.status();
+        assert_eq!(status[0]["state"], "failed");
+        assert!(status[0]["error"].as_str().unwrap().contains("integrity check failed"));
+        assert!(matches!(p.start_maintenance(&id, "bogus"), Err(ProviderError::Invalid(_))));
+    }
+    #[tokio::test]
+    async fn every_kind_of_status_change_ticks_the_subscription() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = provider(dir.path());
+        let (entry, _) = install_fake_model(&p, b"weights").await;
+        let id = entry["id"].as_str().unwrap().to_owned();
+        let mut rx = p.subscribe();
+        let ticked = |rx: &mut tokio::sync::watch::Receiver<u64>| {
+            let changed = rx.has_changed().unwrap();
+            rx.borrow_and_update();
+            changed
+        };
+        assert!(!ticked(&mut rx), "nothing happened yet");
+        // Catalog: a context-window change.
+        p.set_context(&id, Some(16_384)).await.unwrap();
+        assert!(ticked(&mut rx));
+        // Queue: the idle TTL.
+        p.queue.configure(30);
+        assert!(ticked(&mut rx));
+        // Installations and model state: a verify job runs to completion.
+        p.start_maintenance(&id, "verify").unwrap();
+        for _ in 0..200 {
+            if p.installs.status().iter().all(|j| j["state"] != "running") {
+                break;
+            }
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(ticked(&mut rx));
+        // Installations: a discard removes the finished row.
+        p.discard_installation("verify", Some(&id)).await.unwrap();
+        assert!(ticked(&mut rx));
+        // The status a subscriber re-reads after the tick reflects the change.
+        let model = p.status().await.unwrap()["models"].as_array().unwrap().iter().find(|m| m["id"] == id.as_str()).cloned().unwrap();
+        assert_eq!(model["configuredContextWindow"], 16_384);
+        assert_eq!(p.status().await.unwrap()["idleTtlSeconds"], 30);
+        // Catalog: deleting the model.
+        let token = p.model_details(&id).await.unwrap()["confirmationToken"].as_str().unwrap().to_owned();
+        p.delete_model(&token).await.unwrap();
+        assert!(ticked(&mut rx));
+        assert!(p.status().await.unwrap()["models"].as_array().unwrap().iter().all(|m| m["id"] != id.as_str()));
+    }
+}
+
+
+/// The model's weights and partial file as they are on disk; a link or a non-regular file is refused.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn model_files_blocking(path: &std::path::Path) -> Result<Value, ProviderError> {
+    let mut files = Vec::new();
+    for file in [path.to_path_buf(), PathBuf::from(format!("{}.part", path.display()))] {
+        let meta = match std::fs::symlink_metadata(&file) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return failed(e.to_string()),
+        };
+        if !meta.is_file() || meta.file_type().is_symlink() {
+            return failed("[local-provider] refusing a non-regular or redirected model file");
+        }
+        let mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_secs_f64() * 1000.0);
+        files.push(json!({"path": file.to_string_lossy(), "size": meta.len(), "mtimeMs": mtime}));
+    }
+    Ok(Value::Array(files))
+}
 impl LocalProvider {
     pub fn new(parts: Parts) -> Arc<Self> {
         let signal = ChangeSignal::default();
@@ -335,7 +545,9 @@ impl LocalProvider {
                 Box::new(move |ready: Ready, cancel| {
                     Box::pin(async move {
                         let props = fetch_props(&ready.base_url, &ready.api_key, &cancel).await;
-                        catalog.state.record_load(&id, &props, Some(ready.load_time_ms));
+                        if !cancel.is_cancelled() {
+                            catalog.state.record_load(&id, &props, Some(ready.load_time_ms));
+                        }
                     })
                 })
             },
@@ -395,9 +607,7 @@ impl LocalProvider {
                 if model_id.is_some_and(|m| !m.is_empty()) {
                     return Err(ProviderError::Invalid("runtime installation does not accept modelId.".into()));
                 }
-                Ok(self.installs.track("runtime", None, move |progress: Progress, cancel| async move {
-                    install_runtime(&this.catalog, this.fetcher.as_ref(), &this.processes, &this.platform_key, progress, cancel).await.map_err(|e| e.to_string())
-                }))
+                Ok(self.start_runtime_installation(None))
             }
             "model" => {
                 let entry = model_id
@@ -413,6 +623,30 @@ impl LocalProvider {
             }
             _ => Err(ProviderError::Invalid("phase must be runtime or model.".into())),
         }
+    }
+
+    /// The shared runtime job owns the activation, not any of the command
+    /// waiters that join it. Explicit enable/install callers carry the epoch
+    /// they saw before any asynchronous preparation.
+    pub fn start_runtime_installation(self: &Arc<Self>, epoch: Option<u64>) -> (Value, super::installations::Completion) {
+        let this = self.clone();
+        let owner = self.tool_settings.get().cloned();
+        let epoch = epoch.or_else(|| owner.as_ref()?.upgrade().map(|owner| owner.runtime_activation_epoch()));
+        self.installs.track_with_commit("runtime", None, move |progress, cancel, begin_commit| async move {
+            let status = install_runtime(&this.catalog, this.fetcher.as_ref(), &this.processes, &this.platform_key, progress, cancel)
+                .await.map_err(|e| e.to_string())?;
+            // Installer success proves verified reuse or a freshly verified install;
+            // the catalog's display status is not proof.
+            if !begin_commit() {
+                return Err("aborted".into());
+            }
+            if let Some(epoch) = epoch
+                && let Some(owner) = owner.and_then(|owner| owner.upgrade())
+            {
+                owner.runtime_installed(epoch).await?;
+            }
+            Ok(status)
+        })
     }
 
     /// Installs a model and waits for the outcome.
@@ -587,212 +821,5 @@ impl LocalProvider {
                 Ok(json!({"modelId": id, "deletedFiles": deleted, "recoverability": "Redownload required; no Recycle Bin copy."}))
             })
             .await?
-    }
-}
-
-#[cfg(test)]
-pub(crate) mod tests {
-    use super::super::assets::{Body, Fetched};
-    use super::super::hugging_face::RangeResponse;
-    use super::*;
-
-    struct NoNet;
-    #[async_trait]
-    impl Fetcher for NoNet {
-        async fn get(&self, _: &str, _: i64) -> Result<Fetched, String> {
-            struct Empty;
-            #[async_trait]
-            impl Body for Empty {
-                async fn next(&mut self) -> Result<Option<Vec<u8>>, String> {
-                    Ok(None)
-                }
-            }
-            Ok(Fetched { status: 200, content_length: None, https: true, body: Box::new(Empty) })
-        }
-    }
-    #[async_trait]
-    impl HfHttp for NoNet {
-        async fn get_json(&self, _: &str, _: usize) -> Result<Value, String> {
-            Err("offline".into())
-        }
-        async fn get_range(&self, _: &str, _: u64) -> Result<RangeResponse, String> {
-            Err("offline".into())
-        }
-    }
-    struct NoLaunch;
-    #[async_trait]
-    impl Launcher for NoLaunch {
-        async fn launch(&self, _: &str, _: &[String], _: &str, _: &[(String, String)], _: super::super::server_process::LogSink) -> Result<Arc<dyn super::super::server_process::RunningProcess>, String> {
-            Err("no process in tests".into())
-        }
-    }
-    #[async_trait]
-    impl Health for NoNet {
-        async fn check(&self, _: u16, _: &str) -> bool {
-            false
-        }
-        async fn free_port(&self) -> Result<u16, String> {
-            Ok(1)
-        }
-    }
-
-    pub(crate) fn provider(dir: &std::path::Path) -> Arc<LocalProvider> {
-        provider_with(dir, Processes::for_tests(), Arc::new(NoLaunch), Arc::new(NoNet))
-    }
-
-    /// A provider whose children, launcher and health probe are the caller's.
-    pub(crate) fn provider_with(dir: &std::path::Path, processes: Processes, launcher: Arc<dyn Launcher>, health: Arc<dyn Health>) -> Arc<LocalProvider> {
-        LocalProvider::new(Parts {
-            data_dir: dir.to_owned(),
-            fetcher: Arc::new(NoNet),
-            processes,
-            hf_http: Box::new(NoNet),
-            launcher,
-            health,
-            timing: Timing::default(),
-            idle_ttl_seconds: Some(0),
-            platform_key: Some("win32-x64-nvidia".into()),
-        })
-    }
-
-    pub(crate) async fn install_fake_model(p: &LocalProvider, content: &[u8]) -> (Value, PathBuf) {
-        // Register a model whose pinned digest is that of `content`.
-        let mut m = super::super::registered_models::tests::model(7, 16384);
-        m["size"] = json!(content.len());
-        m["estimatedVramBytes"] = json!(content.len() + 1);
-        m["minimumVramBytes"] = json!(content.len() + 1);
-        m["sha256"] = json!(sha2::Sha256::digest(content).iter().map(|b| format!("{b:02x}")).collect::<String>());
-        let registered = p.hf.registry().register(&m).await.unwrap();
-        let path = p.catalog.model_path(&registered);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, content).unwrap();
-        (registered, path)
-    }
-    use sha2::Digest;
-
-    #[tokio::test]
-    async fn details_then_delete_removes_files_and_forgets_the_model() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = provider(dir.path());
-        let (entry, path) = install_fake_model(&p, b"weights").await;
-        let id = entry["id"].as_str().unwrap();
-        let details = p.model_details(id).await.unwrap();
-        assert_eq!(details["sizeBytes"], 7);
-        let token = details["confirmationToken"].as_str().unwrap().to_owned();
-        let deleted = p.delete_model(&token).await.unwrap();
-        assert_eq!(deleted["deletedFiles"].as_array().unwrap().len(), 1);
-        assert!(!path.exists());
-        assert!(p.catalog.model_entry(id).is_none());
-        assert!(p.delete_model(&token).await.is_err(), "a token is single use");
-        assert!(p.model_details("hf-unknown").await.is_err());
-    }
-
-    #[tokio::test]
-    async fn a_changed_file_invalidates_the_confirmation() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = provider(dir.path());
-        let (entry, path) = install_fake_model(&p, b"weights").await;
-        let token = p.model_details(entry["id"].as_str().unwrap()).await.unwrap()["confirmationToken"].as_str().unwrap().to_owned();
-        std::fs::write(&path, b"weights!!").unwrap();
-        let error = p.delete_model(&token).await.unwrap_err().to_string();
-        assert!(error.contains("model files changed"), "{error}");
-        assert!(path.exists());
-    }
-
-    #[tokio::test]
-    async fn verify_reports_integrity_through_the_job_and_model_state() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = provider(dir.path());
-        let (entry, path) = install_fake_model(&p, b"weights").await;
-        let id = entry["id"].as_str().unwrap().to_owned();
-        let job = p.start_maintenance(&id, "verify").unwrap();
-        assert_eq!(job["phase"], "verify");
-        for _ in 0..200 {
-            if p.installs.status().iter().all(|j| j["state"] != "running") {
-                break;
-            }
-            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
-        }
-        assert_eq!(p.installs.status()[0]["state"], "complete");
-        assert_eq!(p.catalog.state.get(&id)["verification"]["valid"], true);
-        std::fs::write(&path, b"corrupt").unwrap();
-        p.start_maintenance(&id, "verify").unwrap();
-        for _ in 0..200 {
-            if p.installs.status().iter().all(|j| j["state"] != "running") {
-                break;
-            }
-            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
-        }
-        let status = p.installs.status();
-        assert_eq!(status[0]["state"], "failed");
-        assert!(status[0]["error"].as_str().unwrap().contains("integrity check failed"));
-        assert!(matches!(p.start_maintenance(&id, "bogus"), Err(ProviderError::Invalid(_))));
-    }
-
-    #[tokio::test]
-    async fn context_is_validated_saved_and_reflected_in_status() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = provider(dir.path());
-        let (entry, _) = install_fake_model(&p, b"weights").await;
-        let id = entry["id"].as_str().unwrap();
-        assert!(matches!(p.set_context(id, Some(1000)).await, Err(ProviderError::Invalid(_))));
-        assert!(matches!(p.set_context("nope", None).await, Err(ProviderError::Invalid(_))));
-        let m = p.status().await.unwrap()["models"].as_array().unwrap().iter().find(|m| m["id"] == id).cloned().unwrap();
-        assert_eq!(m["contextWindow"], 16384);
-        assert_eq!(m["installed"], true);
-        // The runtime is not installed, so the server cannot start.
-        assert!(p.ensure_server(id, None).await.unwrap_err().to_string().contains("runtime is not installed"));
-    }
-
-    #[tokio::test]
-    async fn every_kind_of_status_change_ticks_the_subscription() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = provider(dir.path());
-        let (entry, _) = install_fake_model(&p, b"weights").await;
-        let id = entry["id"].as_str().unwrap().to_owned();
-        let mut rx = p.subscribe();
-        let ticked = |rx: &mut tokio::sync::watch::Receiver<u64>| {
-            let changed = rx.has_changed().unwrap();
-            rx.borrow_and_update();
-            changed
-        };
-        assert!(!ticked(&mut rx), "nothing happened yet");
-        // Catalog: a context-window change.
-        p.set_context(&id, Some(16_384)).await.unwrap();
-        assert!(ticked(&mut rx));
-        // Queue: the idle TTL.
-        p.queue.configure(30);
-        assert!(ticked(&mut rx));
-        // Installations and model state: a verify job runs to completion.
-        p.start_maintenance(&id, "verify").unwrap();
-        for _ in 0..200 {
-            if p.installs.status().iter().all(|j| j["state"] != "running") {
-                break;
-            }
-            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
-        }
-        assert!(ticked(&mut rx));
-        // Installations: a discard removes the finished row.
-        p.discard_installation("verify", Some(&id)).await.unwrap();
-        assert!(ticked(&mut rx));
-        // The status a subscriber re-reads after the tick reflects the change.
-        let model = p.status().await.unwrap()["models"].as_array().unwrap().iter().find(|m| m["id"] == id.as_str()).cloned().unwrap();
-        assert_eq!(model["configuredContextWindow"], 16_384);
-        assert_eq!(p.status().await.unwrap()["idleTtlSeconds"], 30);
-        // Catalog: deleting the model.
-        let token = p.model_details(&id).await.unwrap()["confirmationToken"].as_str().unwrap().to_owned();
-        p.delete_model(&token).await.unwrap();
-        assert!(ticked(&mut rx));
-        assert!(p.status().await.unwrap()["models"].as_array().unwrap().iter().all(|m| m["id"] != id.as_str()));
-    }
-
-    #[tokio::test]
-    async fn installation_arguments_are_checked() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = provider(dir.path());
-        assert!(matches!(p.start_installation("runtime", Some("m")), Err(ProviderError::Invalid(_))));
-        assert!(matches!(p.start_installation("model", Some("nope")), Err(ProviderError::Invalid(_))));
-        assert!(matches!(p.start_installation("verify", None), Err(ProviderError::Invalid(_))));
-        assert!(p.discard_installation("bogus", None).await.is_err());
     }
 }

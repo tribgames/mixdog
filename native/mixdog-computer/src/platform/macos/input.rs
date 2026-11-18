@@ -7,7 +7,7 @@ use super::ffi::*;
 use crate::keys::{Key, KeySink, Mod, Named};
 use crate::platform::Button;
 use core_foundation::base::CFRelease;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 pub fn keycode(key: Key) -> Result<u16, String> {
     let code = match key {
@@ -199,37 +199,138 @@ unsafe fn route_to_window(event: CGEventRef, dest: Dest, x: f64, y: f64) {
     );
 }
 
+pub(crate) use crate::port::macos::MacHold;
+use crate::port::macos::MacReceipt;
+
+/// 0 for the system input stream.
+fn route_pid(route: Route) -> i32 {
+    match route {
+        Route::System => 0,
+        Route::Process(pid) => pid,
+    }
+}
+
+fn route_of(pid: i32) -> Route {
+    if pid == 0 { Route::System } else { Route::Process(pid) }
+}
+
+/// The button a press or release kind names; None for any other kind.
+fn button_of(kind: u32) -> Option<Button> {
+    match kind {
+        kCGEventLeftMouseDown | kCGEventLeftMouseUp => Some(Button::Left),
+        kCGEventRightMouseDown | kCGEventRightMouseUp => Some(Button::Right),
+        kCGEventOtherMouseDown | kCGEventOtherMouseUp => Some(Button::Middle),
+        _ => None,
+    }
+}
+
+/// The flag a modifier key's own press sets.
+fn modifier_flag(code: u16) -> u64 {
+    match code {
+        0x37 => kCGEventFlagMaskCommand,
+        0x38 => kCGEventFlagMaskShift,
+        0x3A => kCGEventFlagMaskAlternate,
+        0x3B => kCGEventFlagMaskControl,
+        _ => 0,
+    }
+}
+
+/// A +1 mouse event at the point, with its click state and its target window.
+fn mouse_event(kind: u32, x: f64, y: f64, button: u32, clicks: u32, dest: Dest) -> CGEventRef {
+    // SAFETY: creates a +1 mouse event the poster releases.
+    let event = unsafe { CGEventCreateMouseEvent(std::ptr::null_mut(), kind, CGPoint { x, y }, button) };
+    if !event.is_null() {
+        // SAFETY: event is live.
+        unsafe {
+            CGEventSetIntegerValueField(event, kCGMouseEventClickState, clicks.max(1) as i64);
+            route_to_window(event, dest, x, y);
+        }
+    }
+    event
+}
+
+/// The press event one specification names, with its route and flags (a typed character's press carries `units`). The same
+/// specification is the receipt the port records, so the release [`release_event`] builds is always this press's. Building
+/// posts nothing; the port posts it.
+pub(crate) fn press_event(spec: &MacHold, units: Option<&[u16]>) -> (CGEventRef, Route, u64) {
+    match *spec {
+        MacHold::Button { button, pid, window, origin, at, clicks, flags } => {
+            // The press kind and number are the button's own: no event kind is part of the specification.
+            let (down, _, number) = button_events(button);
+            let dest = Dest { route: route_of(pid), window, origin: CGPoint { x: origin.0, y: origin.1 }, flags };
+            (mouse_event(down, at.0, at.1, number, clicks, dest), dest.route, flags)
+        }
+        MacHold::Key { code, pid, flags } => {
+            // SAFETY: creates a +1 keyboard event the port posts and releases (or frees when refused).
+            let event = unsafe { CGEventCreateKeyboardEvent(std::ptr::null_mut(), code, true) };
+            if let (false, Some(units)) = (event.is_null(), units) {
+                // SAFETY: event is live and units outlive the call.
+                unsafe { CGEventKeyboardSetUnicodeString(event, units.len() as _, units.as_ptr()) };
+            }
+            (event, route_of(pid), flags)
+        }
+    }
+}
+
+/// The release event a hold names, built from it alone, with its route and flags: a button at its last accepted point with
+/// the press's own destination; a key with the press's flags minus the key's own modifier, never a new one. Building posts
+/// nothing; the port posts it.
+pub(crate) fn release_event(hold: &MacHold) -> (CGEventRef, Route, u64) {
+    match *hold {
+        MacHold::Button { button, pid, window, origin, at, clicks, flags } => {
+            let (_, up, number) = button_events(button);
+            let dest = Dest { route: route_of(pid), window, origin: CGPoint { x: origin.0, y: origin.1 }, flags };
+            (mouse_event(up, at.0, at.1, number, clicks, dest), dest.route, flags)
+        }
+        MacHold::Key { code, pid, flags } => {
+            // SAFETY: creates a +1 keyboard event the port posts and releases.
+            let event = unsafe { CGEventCreateKeyboardEvent(std::ptr::null_mut(), code, false) };
+            (event, route_of(pid), flags & !modifier_flag(code))
+        }
+    }
+}
+
 pub struct Poster {
-    pub marker: i64,
     pub flags: Cell<u64>,
+    /// The receipts of this poster's accepted presses: a release consumes the one its key or button matches.
+    held: RefCell<Vec<MacReceipt>>,
 }
 
 impl Poster {
-    pub fn new(marker: i64) -> Poster {
+    /// The executor's port stamps every event with this process's marker.
+    pub fn new() -> Poster {
         Poster {
-            marker,
             flags: Cell::new(0),
+            held: RefCell::new(Vec::new()),
         }
     }
 
-    /// Stamps, posts and releases one event.
-    pub fn post(&self, event: CGEventRef, route: Route, flags: u64) -> Result<(), String> {
-        if event.is_null() {
-            return Err("input_delivery_failed: the event could not be created".into());
-        }
-        // SAFETY: event is a live +1 CGEvent; it is released exactly once here.
-        unsafe {
-            CGEventSetIntegerValueField(event, kCGEventSourceUserData, self.marker);
-            CGEventSetFlags(event, flags);
-            match route {
-                Route::System => CGEventPost(kCGHIDEventTap, event),
-                Route::Process(pid) => super::skylight::post_to_pid(pid, event),
-            }
-            CFRelease(event as *const _);
-        }
+    /// A press of `spec` through the port; its receipt kept for the release.
+    fn press(&self, spec: MacHold, units: Option<&[u16]>) -> Result<(), String> {
+        let receipt = crate::port::macos::press(spec, units)?;
+        self.held.borrow_mut().push(receipt);
         Ok(())
     }
 
+    /// The release of the press `matches` names: its receipt consumed by the port. Without one this poster holds nothing
+    /// there, and nothing is sent.
+    fn release(&self, matches: impl Fn(&MacHold) -> bool) -> Result<(), String> {
+        let receipt = {
+            let mut held = self.held.borrow_mut();
+            held.iter().position(|receipt| matches(receipt.hold())).map(|at| held.remove(at))
+        };
+        receipt.map_or(Ok(()), crate::port::macos::release)
+    }
+
+    /// One event that holds nothing, an ordinary submission of the executor's port.
+    fn post(&self, event: CGEventRef, route: Route, flags: u64) -> Result<(), String> {
+        crate::port::macos::post(event, route, flags)
+    }
+
+    /// A pointer event. A press is owned from its post (its receipt kept); a release consumes that receipt (the button at its
+    /// last accepted point, with the press's own destination); an accepted drag moves the point a held button is let go at.
+    /// All through the executor's port (`crate::port::macos`). The button of a press or release is read from `kind`, and its
+    /// number is the button's own (`button` is used only for motion); any other kind than a motion or drag is refused.
     pub fn mouse(
         &self,
         kind: u32,
@@ -239,24 +340,47 @@ impl Poster {
         clicks: u32,
         dest: Dest,
     ) -> Result<(), String> {
-        // SAFETY: creates a +1 mouse event that `post` releases.
-        let event = unsafe {
-            CGEventCreateMouseEvent(std::ptr::null_mut(), kind, CGPoint { x, y }, button)
-        };
-        if !event.is_null() {
-            // SAFETY: event is live.
-            unsafe {
-                CGEventSetIntegerValueField(event, kCGMouseEventClickState, clicks.max(1) as i64);
-                route_to_window(event, dest, x, y);
+        let pid = route_pid(dest.route);
+        match kind {
+            kCGEventLeftMouseDown | kCGEventRightMouseDown | kCGEventOtherMouseDown => {
+                let spec = MacHold::Button {
+                    button: button_of(kind).expect("a press kind"),
+                    pid,
+                    window: dest.window,
+                    origin: (dest.origin.x, dest.origin.y),
+                    at: (x, y),
+                    clicks,
+                    flags: dest.flags,
+                };
+                self.press(spec, None)
             }
+            kCGEventLeftMouseUp | kCGEventRightMouseUp | kCGEventOtherMouseUp => {
+                let released = button_of(kind);
+                self.release(|held| matches!(*held, MacHold::Button { button, pid: owner, .. } if Some(button) == released && owner == pid))
+            }
+            kCGEventMouseMoved | kCGEventLeftMouseDragged | kCGEventRightMouseDragged | kCGEventOtherMouseDragged => {
+                self.post(mouse_event(kind, x, y, button, clicks, dest), dest.route, dest.flags)?;
+                if kind != kCGEventMouseMoved {
+                    crate::port::macos::moved_to(pid, (x, y));
+                }
+                Ok(())
+            }
+            other => Err(format!("input_delivery_failed: pointer event kind {other} is not offered")),
         }
-        self.post(event, dest.route, dest.flags)
     }
 
+    /// A key down is owned once posted (its receipt kept); a key up consumes that receipt, and posts the release it names.
     pub fn key(&self, code: u16, down: bool, route: Route, flags: u64) -> Result<(), String> {
-        // SAFETY: creates a +1 keyboard event that `post` releases.
-        let event = unsafe { CGEventCreateKeyboardEvent(std::ptr::null_mut(), code, down) };
-        self.post(event, route, flags)
+        self.key_with(code, down, route, flags, None)
+    }
+
+    /// `key`, with the unicode string a typed character's press carries (its release carries none).
+    fn key_with(&self, code: u16, down: bool, route: Route, flags: u64, units: Option<&[u16]>) -> Result<(), String> {
+        let pid = route_pid(route);
+        if !down {
+            return self.release(|held| matches!(*held, MacHold::Key { code: key, pid: owner, .. } if key == code && owner == pid));
+        }
+        self.press(MacHold::Key { code, pid, flags }, units)
     }
 
     /// Literal characters, independent of the keyboard layout and input method.
@@ -274,22 +398,8 @@ impl Poster {
                 _ => {
                     let mut units = [0u16; 2];
                     let encoded = c.encode_utf16(&mut units);
-                    for down in [true, false] {
-                        // SAFETY: a +1 keyboard event carrying the character; `post` releases it.
-                        let event =
-                            unsafe { CGEventCreateKeyboardEvent(std::ptr::null_mut(), 0, down) };
-                        if !event.is_null() {
-                            // SAFETY: event is live and units outlive the call.
-                            unsafe {
-                                CGEventKeyboardSetUnicodeString(
-                                    event,
-                                    encoded.len() as _,
-                                    encoded.as_ptr(),
-                                )
-                            };
-                        }
-                        self.post(event, route, 0)?;
-                    }
+                    self.key_with(0, true, route, 0, Some(encoded))?;
+                    self.key_with(0, false, route, 0, None)?;
                 }
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
@@ -404,22 +514,19 @@ pub fn input_held() -> bool {
     }
 }
 
-/// Posts a release for every modifier and button still down.
-pub fn release_held(marker: i64) -> Result<(), String> {
-    let poster = Poster::new(marker);
-    let (x, y) = cursor();
-    for code in MODIFIER_CODES {
+/// The cleanup from a fresh process, which holds no receipt of the helper that was stopped: ownership is never inferred from
+/// the physical state, so nothing is released. A modifier or button still down is reported unconfirmed (it may be the
+/// person's, or the stopped helper's; only a receipt could tell).
+pub fn release_held(_marker: i64) -> Result<(), String> {
+    let down = MODIFIER_CODES.iter().any(|code| {
         // SAFETY: HID state query.
-        if unsafe { CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, code) } {
-            poster.key(code, false, Route::System, 0)?;
-        }
-    }
-    for button in [Button::Left, Button::Right, Button::Middle] {
-        let (_, up, number) = button_events(button);
+        unsafe { CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, *code) }
+    }) || [Button::Left, Button::Right, Button::Middle].into_iter().any(|button| {
         // SAFETY: HID state query.
-        if unsafe { CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, number) } {
-            poster.mouse(up, x, y, number, 1, Dest::system(0))?;
-        }
+        unsafe { CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, button_events(button).2) }
+    });
+    if down {
+        return Err("input_cleanup_unconfirmed: input is still down and no receipt names it as this helper's; nothing was released".into());
     }
     Ok(())
 }

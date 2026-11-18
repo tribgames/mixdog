@@ -31,7 +31,7 @@ import { createPanes } from './panes';
 import { createProblemTracker } from './problem-tracker';
 import { createReadActions } from './read-actions';
 import { createReloads } from './reloads';
-import { createPublish, createSessionViews } from './session-views';
+import { createPublish, createSessionViews, publishedHold } from './session-views';
 import { currentAnnotations, type FileTarget, type SessionState, type VisualizeResult, view } from './tab-state';
 import { createTabVersions } from './tab-versions';
 import { createTabs } from './tabs';
@@ -352,6 +352,7 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
 
   const thumbnails = createThumbnails(ctx);
   const publish = createPublish(ctx);
+  const withHold = <T extends { sessionId: string }>(sessionId: string, state: T): T => ({ ...state, ...publishedHold(ctx, sessionId) });
   const problems = createProblemTracker(ctx);
   const leases = createLeaseGuard((lease, kind, message) => {
     const found = problems.paneOfUrl([lease]);
@@ -434,13 +435,13 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     /** Every session's tabs, for a renderer that (re)loads. */
     snapshot(): VisualizeSessionState[] {
       return [...sessions.keys()]
-        .map(ctx.views.stateOf)
+        .map((id) => withHold(id, ctx.views.stateOf(id)))
         .filter((state) => state.tabs.length > 0 || state.history?.length);
     },
     /** Every session's tabs with their resolved files, for the remote mirror. */
     hostSnapshot(): VisualizeHostState[] {
       return [...sessions.keys()]
-        .map(ctx.views.hostStateOf)
+        .map((id) => withHold(id, ctx.views.hostStateOf(id)))
         .filter((state) => state.tabs.length > 0 || state.history?.length);
     },
     /** One panel tab as the renderer draws it (feedback finds its frames). */

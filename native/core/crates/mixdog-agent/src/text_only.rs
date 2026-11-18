@@ -104,12 +104,13 @@ pub fn degrade_media_parts(
     for part in parts {
         let text = match part {
             ContentPart::Text(_, _) => None,
-            ContentPart::Image(_) => Some(omitted_media_text("image")),
-            // A stored image is an image part in Node (`{type: 'image', attachmentRef}`), left out without its blob read.
+            // An image is never turned into text: it stays in the request, where the route it takes (a text-only model takes
+            // none) refuses it by name before anything is sent.
+            ContentPart::Image(_) => None,
             ContentPart::File { source: BinarySource::AttachmentRef(_), mime_type, text: None, .. }
                 if js_trim(mime_type).to_lowercase().starts_with("image/") =>
             {
-                Some(omitted_media_text("image"))
+                None
             }
             ContentPart::File { .. } => Some(media.text_form(part)?.unwrap_or_else(|| omitted_media_text("file"))),
             ContentPart::Document { .. } => {

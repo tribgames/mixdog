@@ -364,7 +364,7 @@ test('in Chrome: paragraph gap and lists render, a long path wraps, pages fit th
     // A long path wraps inside the bubble.
     const path = await page.evaluate(
       (md) => window.__layout(md),
-      'See C:/Project/mixdog/apps/desktop/src/renderer/a-really-long-folder-name/another-long-folder-name/skin-companion-paging.ts now.'
+      'See C:/Project/sample/apps/desktop/src/renderer/a-really-long-folder-name/another-long-folder-name/skin-companion-paging.ts now.'
     );
     assert.ok(
       path.scrollWidth <= path.clientWidth,
@@ -1864,6 +1864,7 @@ test('the publisher sends no composer while the app still shows its boot cover',
   assert.deepEqual(on.calls.composer.at(-1), { x: 300, y: 600, width: 700, height: 120, island: null });
 });
 
+// @test-input ./desktop-pet-main.tsx
 test('the pet window paints nothing but the pet: html/body out-rank every root background in its sheets', async () => {
   // The installed build painted a black plate behind the pet: the tokens'
   // `:root { background: var(--mx-bg-deep) }` (0,1,0) beat the pet's

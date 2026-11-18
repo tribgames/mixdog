@@ -80,6 +80,57 @@ fn label(level: &str) -> Option<&'static str> {
     })
 }
 
+/// The efforts Auto may choose for a model, ascending: `low` up to the tier below the top (`none` and
+/// `minimal` switch thinking off, `max`/`ultra` are reserved for an explicit choice). Empty when the
+/// route's options hold none of them: Auto then has nothing to move along, so it neither judges nor is
+/// offered, and the saved effort is what a request uses. One rule for the judge and for what the UI shows.
+pub fn auto_effort_ladder<S: AsRef<str>>(options: &[S]) -> Vec<&'static str> {
+    let supported: Vec<String> = options.iter().map(|o| mixdog_js::js_trim(o.as_ref()).to_lowercase()).collect();
+    ["low", "medium", "high", "xhigh"].into_iter().filter(|level| supported.iter().any(|s| s == level)).collect()
+}
+
+/// The row a non-Anthropic route's effort ladder is read from (`autoEffortModel`): the provider's stored row of the
+/// model (`getCachedModelInfo`) with its id set to the model, or a bare `{ id }` when the listing kept none. The judge and
+/// the model rows' `autoEffortCapable` / `effortOptions` both read the ladder from this one row.
+pub fn ladder_row(model: &str, stored: Option<serde_json::Map<String, Value>>) -> Value {
+    let mut row = stored.unwrap_or_default();
+    row.insert("id".into(), Value::from(model));
+    Value::Object(row)
+}
+
+/// An Anthropic route's ladder row (`autoEffortModel`): its id with the levels its wire builder accepts
+/// (`anthropicEffortLevelsFor`), declared authoritatively: a provider row never replaces them, and an empty list does not fall
+/// back to a family ladder.
+pub fn anthropic_ladder_row(model: &str, levels: Vec<String>) -> Value {
+    serde_json::json!({ "id": model, "reasoningLevels": levels, "customReasoning": true })
+}
+
+/// A route's own Auto flag: only an explicit `false` opts out, absent means on. The judge and the labels both ask this.
+pub fn route_auto_effort_on(flag: Option<&Value>) -> bool {
+    flag != Some(&Value::Bool(false))
+}
+
+/// The store key of a route's rejections (`provider:model`, the model lower-cased).
+pub fn rejection_key(provider: &str, model: &str) -> String {
+    format!("{}:{}", mixdog_js::js_trim(provider), mixdog_js::js_trim(model).to_lowercase())
+}
+
+/// `effort-rejections.json` (`{version: 1, models: {"provider:model": {rejected, allowed}}}`) as its entries by
+/// [`rejection_key`]; a missing, damaged or foreign-version file holds nothing.
+pub fn parse_rejections(bytes: Option<&[u8]>) -> std::collections::HashMap<String, RejectionEntry> {
+    let strings = |value: Option<&Value>| -> Vec<String> {
+        value.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()
+    };
+    let mut models = std::collections::HashMap::new();
+    let doc = bytes.and_then(|b| mixdog_statefile::parse_json_text(b).ok());
+    if let Some(doc) = doc.filter(|d| d.get("version").and_then(Value::as_f64) == Some(1.0)) {
+        for (key, entry) in doc.get("models").and_then(Value::as_object).into_iter().flatten() {
+            models.insert(key.clone(), RejectionEntry { rejected: strings(entry.get("rejected")), allowed: strings(entry.get("allowed")) });
+        }
+    }
+    models
+}
+
 /// `normalizeEffortInput`: `None` for empty / `auto`; a level, or the error text.
 pub fn normalize_effort_input(value: Option<&Value>) -> Result<Option<String>, String> {
     let v = clean(value).to_lowercase();
@@ -367,18 +418,17 @@ pub fn clamp_effort_opts(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use serde_json::json;
 
     use super::*;
 
-    fn golden() -> Value {
-        serde_json::from_str(mixdog_testkit::fixture!("fixtures/effort/golden.json")).expect("golden parses")
-    }
-
+    #[cfg(node_twin)]
     fn strs(v: &Value) -> Vec<String> {
         v.as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_owned()).collect()
     }
 
+    #[cfg(node_twin)]
     fn entry_for(rejections: &Value, provider: &str, model: &Value) -> Option<RejectionEntry> {
         let id = clean(model.get("id")).to_lowercase();
         let found = rejections["models"].get(format!("{}:{id}", provider.trim()))?;
@@ -402,6 +452,12 @@ mod tests {
         assert!(EffortProjection::from_session("low", [(1, "high".to_owned())], &|e| (e != "high").then(|| e.to_owned())).is_none());
     }
 
+
+    #[cfg(node_twin)]
+    fn golden() -> Value {
+        serde_json::from_str(mixdog_testkit::fixture!("fixtures/effort/golden.json")).expect("golden parses")
+    }
+    #[cfg(node_twin)]
     #[test]
     fn inputs_and_saved_efforts_equal_node() {
         for case in golden()["normalize"].as_array().unwrap() {
@@ -415,7 +471,7 @@ mod tests {
             assert_eq!(normalize_saved_effort(input).map(Value::from).unwrap_or(Value::Null), case["saved"], "{case}");
         }
     }
-
+    #[cfg(node_twin)]
     #[test]
     fn options_coercions_and_items_equal_node() {
         let golden = golden();
@@ -442,7 +498,7 @@ mod tests {
             assert_eq!(got.map(Value::from).unwrap_or(Value::Null), case["result"], "{case}");
         }
     }
-
+    #[cfg(node_twin)]
     #[test]
     fn stepping_down_from_a_rejected_level_equals_node() {
         let golden = golden();

@@ -157,6 +157,12 @@ export function stashComposerTags(scope: string, memberIds: readonly string[]): 
   if (memberIds.length && !forgottenComposerScopes.has(scope)) composerTagsByScope.set(scope, [...memberIds]);
 }
 
+/** The prompt hand-backs each session's composer applied, by session id, one id per source because their lifetimes differ:
+ *  `offer` is the session state's offer last seen as applied (the state's one current offer, all it can replay on a revisit
+ *  or reconnect; the next offer replaces it), `reply` the id last applied from a Stop reply (the next reply replaces it).
+ *  An id equal to either was applied. The session's deletion drops both (forgetComposerScope). */
+export const appliedPromptRestores = new Map<string, { offer?: string; reply?: string }>();
+
 /** A conversation whose deletion the host CONFIRMED never comes back: drop
  *  everything parked for it. Call it only from the delete action — a session
  *  merely missing from a catalog push may reappear with its parked content. */
@@ -166,6 +172,7 @@ export function forgetComposerScope(scope: string): void {
   composerDraftsByScope.delete(scope);
   composerAttachmentsByScope.delete(scope);
   composerTagsByScope.delete(scope);
+  appliedPromptRestores.delete(scope);
   forgottenComposerScopes.add(scope);
   if (forgottenComposerScopes.size > FORGOTTEN_SCOPES_LIMIT) {
     forgottenComposerScopes.delete(forgottenComposerScopes.values().next().value as string);

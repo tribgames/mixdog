@@ -4,15 +4,15 @@
 use std::path::Path;
 
 use super::args::Args;
-use super::graph::{Graph, MAX_FILES, Node};
+use super::graph::{Graph, Node};
 use super::hits::{
     FindOptions, Hit, declaration_outside_scope, find_hits, find_symbol_across_graph,
     native_hit, pick_declaration,
 };
 use super::outline::outline_rows;
 use super::refs::{
-    Scope, TransitiveOptions, caller_target_rels, format_callees, format_callers,
-    format_references, format_transitive_callers, reference_entries,
+    Scope, TransitiveOptions, format_callees, format_callers, format_references, format_transitive_callers,
+    importer_references,
 };
 use super::util::{cap_list, name_cmp};
 
@@ -61,6 +61,35 @@ pub(super) fn file_not_found(mode: &str, norm_file: Option<&str>, graph: &Graph)
     )
 }
 
+/// Why a file the graph does not hold is not there, as far as the disk says: absence from the graph proves only that, so
+/// "exists on disk" is said only of a path observed there, and a cause only when it is known (a type the graph does not
+/// index, a file over the size limit, a graph that left files out).
+fn not_in_graph(file: &str, graph: &Graph) -> String {
+    let path = std::path::Path::new(file);
+    let path = if path.is_absolute() { path.to_path_buf() } else { graph.root().join(file) };
+    // A file the graph could not verify this time is unknown, not absent.
+    if let Ok(rel) = path.strip_prefix(graph.root())
+        && graph.unverified.iter().any(|u| *u == rel.to_string_lossy().replace('\\', "/"))
+    {
+        return " — the file changed while it was being read, so it is not in the graph this time; ask again.".to_owned();
+    }
+    match std::fs::metadata(&path) {
+        Ok(meta) if meta.is_dir() => " — that path is a directory on disk, not a file; name a file in it.".to_owned(),
+        Ok(meta) => {
+            let cause = if path.extension().and_then(|e| e.to_str()).and_then(mixdog_graph::lang::lang_for).is_none() {
+                "; its type is not one the graph indexes".to_owned()
+            } else if meta.len() > mixdog_graph::MAX_FILE_BYTES {
+                "; it is larger than the size the graph indexes".to_owned()
+            } else {
+                String::new()
+            };
+            format!(" — it exists on disk but is not in this graph{cause}; use grep/read on it directly.")
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => " — no file exists at that path on disk.".to_owned(),
+        Err(e) => format!(" — it is not in this graph, and the disk could not be checked: {e}."),
+    }
+}
+
 pub(super) fn append_same_basename_hint(message: String, norm_file: Option<&str>, graph: &Graph) -> String {
     let raw = norm_file.unwrap_or("").replace('\\', "/");
     let base = raw.rsplit('/').next().unwrap_or("").to_lowercase();
@@ -74,7 +103,7 @@ pub(super) fn append_same_basename_hint(message: String, norm_file: Option<&str>
         .filter(|rel| rel.rsplit('/').next().unwrap_or("").to_lowercase() == base)
         .take(3)
         .collect();
-    let why = " — the file exists on disk but is not indexed (excluded dir like dist/vendor, unsupported type, or graph file cap); use grep/read on it directly.";
+    let why = not_in_graph(norm_file.unwrap_or(""), graph);
     if matches.is_empty() {
         return format!("{message}{why}");
     }
@@ -99,8 +128,19 @@ pub(super) fn filter_symbol_outline(node: &Node, args: &Args) -> String {
     if items.is_empty() {
         return "(no symbols)".to_string();
     }
+    let cap = args.user_limit();
+    let bound = |rows: Vec<String>| match cap {
+        Some(limit) if rows.len() > limit => {
+            let more = rows.len() - limit;
+            let mut kept: Vec<String> = rows.into_iter().take(limit).collect();
+            kept.push(format!("[+{more} more symbols — raise limit to see them]"));
+            kept
+        }
+        Some(_) => rows,
+        None => cap_list(rows, LIST_CAP),
+    };
     if keywords.is_empty() {
-        return cap_list(items, LIST_CAP).join("\n");
+        return bound(items).join("\n");
     }
     let needles: Vec<String> = keywords.iter().map(|k| k.to_lowercase()).collect();
     let lines: Vec<String> = items
@@ -118,15 +158,13 @@ pub(super) fn filter_symbol_outline(node: &Node, args: &Args) -> String {
             .join(", ");
         return format!("(no symbols matching {quoted})");
     }
-    cap_list(lines, LIST_CAP).join("\n")
+    bound(lines).join("\n")
 }
 
 fn explainer_summary(ctx: &Ctx<'_>, node: &Node) -> String {
     let imports_all = &node.resolved_imports;
     let imports: Vec<&str> = imports_all.iter().take(8).map(String::as_str).collect();
     let outline = outline_rows(node, Some(ctx.args.depth.unwrap_or(1.0)), 120);
-    let head: String = node.read().text().split('\n').take(6).collect::<Vec<_>>().join("\n");
-    let head: String = super::util::head_chars(head.trim(), 420).to_string();
     let mut parts = vec![format!("file: {}", node.rel), format!("language: {}", node.lang)];
     if !outline.is_empty() {
         parts.push(format!("outline:\n{}", outline.join("\n")));
@@ -143,8 +181,12 @@ fn explainer_summary(ctx: &Ctx<'_>, node: &Node) -> String {
             }
         ));
     }
-    if outline.is_empty() && !head.is_empty() {
-        parts.push(format!("head:\n{head}"));
+    if outline.is_empty() {
+            let head = node.read().text().split('\n').take(6).collect::<Vec<_>>().join("\n");
+            let head = super::util::head_chars(head.trim(), 420);
+            if !head.is_empty() {
+            parts.push(format!("head:\n{head}"));
+            }
     }
     parts.join("\n")
 }
@@ -188,9 +230,6 @@ pub(super) fn overview(ctx: &Ctx<'_>) -> String {
         scoped.iter().map(|n| n.resolved_imports.len()).sum::<usize>()
     ));
     lines.extend(by_lang.iter().map(|(l, c)| format!("{l}\t{c}")));
-    if ctx.graph.truncated {
-        lines.push(format!("WARN: graph truncated at CODE_GRAPH_MAX_FILES={MAX_FILES} — some files under cwd were not indexed"));
-    }
     lines.join("\n")
 }
 
@@ -290,7 +329,6 @@ pub(super) fn impact(ctx: &Ctx<'_>) -> String {
                 names.push(s.name.clone());
             }
         }
-        names.truncate(8);
         names
     } else {
         vec![target.clone()]
@@ -304,8 +342,7 @@ pub(super) fn impact(ctx: &Ctx<'_>) -> String {
     let mut external_callers: Vec<String> = Vec::new();
     let mut external_references = 0;
     for symbol in &symbols {
-        let (entries, _) = reference_entries(ctx.graph, symbol, Some(node.lang), Scope::default());
-        let refs: Vec<_> = entries.iter().filter(|e| e.file != node.rel).collect();
+        let refs = importer_references(ctx.graph, &node.rel, symbol);
         if refs.is_empty() {
             continue;
         }
@@ -331,14 +368,18 @@ pub(super) fn impact(ctx: &Ctx<'_>) -> String {
             .then_with(|| name_cmp(&a.symbol, &b.symbol))
     });
     let mut lines = vec![
+        "# impact: importer-restricted name matches; not binding-resolved references.".to_string(),
+        "# Counts include import/declaration occurrences and unrelated same-named identifiers.".to_string(),
+        "# Aliases, namespace members, and unrecognized re-export paths may be missed.".to_string(),
+        "# Zero matches does not establish that a symbol is unused; verify with grep/read.".to_string(),
         format!("file\t{}", node.rel),
         format!("language\t{}", node.lang),
         format!("imports\t{}", n.imports.len()),
         format!("dependents\t{}", n.dependents.len()),
         format!("related\t{}", n.related.len()),
         format!("scanned_symbols\t{}", symbols.len()),
-        format!("external_references\t{external_references}"),
-        format!("external_callers\t{}", external_callers.len()),
+        format!("external_name_matches\t{external_references}"),
+        format!("matching_files\t{}", external_callers.len()),
     ];
     if !target.is_empty() {
         lines.push(format!("symbol\t{target}"));
@@ -350,24 +391,23 @@ pub(super) fn impact(ctx: &Ctx<'_>) -> String {
     }
     if !rows.is_empty() {
         lines.push(String::new());
-        lines.push(if target.is_empty() { "# top symbol impact" } else { "# symbol impact" }.to_string());
-        for row in rows.iter().take(5) {
-            let suffix = if row.callers.is_empty() {
-                String::new()
-            } else {
-                format!(" -> {}", row.callers.join(", "))
-            };
-            lines.push(format!(
-                "{}\trefs={}\tcallers={}{suffix}",
-                row.symbol,
-                row.references,
-                row.callers.len()
-            ));
-        }
+        lines.push("# symbol name matches".to_string());
+        let shown: Vec<String> = rows
+            .iter()
+            .map(|row| {
+                let suffix = if row.callers.is_empty() {
+                    String::new()
+                } else {
+                    format!(" -> {}", row.callers.join(", "))
+                };
+                format!("{}\tname_matches={}\tfiles={}{suffix}", row.symbol, row.references, row.callers.len())
+            })
+            .collect();
+        lines.extend(cap_list(shown, LIST_CAP));
     }
     if !external_callers.is_empty() {
         lines.push(String::new());
-        lines.push("# external callers".to_string());
+        lines.push("# matching files".to_string());
         lines.extend(cap_list(external_callers, LIST_CAP));
     }
     lines.join("\n")
@@ -748,9 +788,6 @@ fn search_keyword(ctx: &Ctx<'_>, keyword: &str, limit: usize) -> String {
             unresolved.join(", ")
         ));
     }
-    if ctx.graph.truncated {
-        lines.push(format!("WARN: graph truncated at CODE_GRAPH_MAX_FILES={MAX_FILES} — matches may be incomplete. Re-run with a narrower cwd."));
-    }
     lines.join("\n")
 }
 
@@ -770,7 +807,7 @@ pub(super) fn find_symbol(ctx: &Ctx<'_>) -> Result<String, String> {
         .args
         .symbol
         .clone()
-        .ok_or_else(|| "find_symbol: provide \"symbol\" (to locate) or \"file\" (to list its symbols).".to_string())?;
+        .ok_or_else(|| "find_symbol: provide \"symbols\" to locate declarations, or use mode:\"symbols\" with \"files\" for a file outline.".to_string())?;
     let limit = ctx.args.limit.unwrap_or(20.0).clamp(1.0, 50.0) as usize;
     let file_rel = ctx.rel.as_deref();
     let in_scope = |rel: &str| file_rel.is_none_or(|f| rel == f);
@@ -868,10 +905,24 @@ fn scoped_call_context(
 
 pub(super) fn callers(ctx: &Ctx<'_>) -> Result<String, String> {
     let symbol = required_symbol("callers", ctx.args)?;
-    let narrowed = ctx.rel.is_some() || ctx.scope_prefix.is_some() || ctx.language().is_some();
-    let lang = match scoped_call_context("callers", ctx, &symbol)? {
-        Ok(lang) => lang,
-        Err(text) => return Ok(text),
+    // `files` only selects the declaration anchors; callers are searched project-wide, in any language unless
+    // `language` says otherwise.
+    let lang = if let Some(rel) = &ctx.rel {
+        if ctx.node.is_none() {
+            return Ok(file_not_found("callers", ctx.norm_file, ctx.graph));
+        }
+        let declared = find_hits(ctx.graph, &symbol, ctx.language()).iter().any(|h| &h.rel == rel && h.declaration_like);
+        if !declared {
+            return Ok(format!(
+                "(no declaration named '{symbol}' found in the requested files)\n# These files select declaration anchors, not caller-search locations. Verify the declaration with find_symbol or grep."
+            ));
+        }
+        ctx.language().map(str::to_string)
+    } else {
+        match scoped_call_context("callers", ctx, &symbol)? {
+            Ok(lang) => lang,
+            Err(text) => return Ok(text),
+        }
     };
     let user_limit = ctx.args.user_limit();
     let depth = ctx
@@ -879,11 +930,10 @@ pub(super) fn callers(ctx: &Ctx<'_>) -> Result<String, String> {
         .depth
         .map_or(1.0, |d| if d.is_finite() { d.floor() } else { 1.0 })
         .clamp(1.0, 5.0) as usize;
-    if depth > 1 {
-        return Ok(format_transitive_callers(
+    let result = if depth > 1 {
+        format_transitive_callers(
             ctx.graph,
             &symbol,
-            &ctx.cwd_text(),
             TransitiveOptions {
                 language: lang.as_deref(),
                 depth,
@@ -891,20 +941,16 @@ pub(super) fn callers(ctx: &Ctx<'_>) -> Result<String, String> {
                 page: ctx.args.page.map_or(1, |p| p.max(1.0) as usize),
                 scope: ctx.scope(),
             },
-        ));
-    }
-    let result = format_callers(
-        ctx.graph,
-        &symbol,
-        lang.as_deref(),
-        ctx.scope(),
-        user_limit.unwrap_or(200),
-    );
-    Ok(if narrowed {
-        result
+        )
     } else {
-        super::hits::augment_no_hit(result, "(no callers)", ctx.graph, &ctx.cwd_text(), &symbol)
-    })
+        format_callers(ctx.graph, &symbol, lang.as_deref(), ctx.scope(), user_limit.unwrap_or(200))
+    };
+    if result.trim() != "(no callers)" {
+        return Ok(result);
+    }
+    Ok(format!(
+        "(no caller name matches found)\n# Searched indexed declaration files, recognized importers/re-export paths, and unresolved-import candidates within the query scope.\n# This does not establish that '{symbol}' is unused. Aliases, shadowing, namespace members, and non-call uses are not fully resolved; verify with grep/read."
+    ))
 }
 
 pub(super) fn callees(ctx: &Ctx<'_>) -> Result<String, String> {
@@ -922,10 +968,4 @@ pub(super) fn callees(ctx: &Ctx<'_>) -> Result<String, String> {
         return Ok(format!("(no symbol matches in cwd={}{scope_note})", ctx.cwd_text()));
     };
     Ok(format_callees(ctx.graph, &decl.rel, &symbol, ctx.language()))
-}
-
-/// Used by the dispatcher to anchor caller scans (kept here with the other call helpers).
-#[allow(dead_code)]
-pub(super) fn target_rels(ctx: &Ctx<'_>, symbol: &str) -> Vec<String> {
-    caller_target_rels(ctx.graph, symbol, ctx.language(), ctx.scope())
 }

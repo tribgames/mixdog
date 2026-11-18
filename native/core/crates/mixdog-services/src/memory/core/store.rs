@@ -11,6 +11,7 @@ use mixdog_js::{js_trim, slice_utf16, value_to_string};
 use serde::Serialize;
 use serde_json::Value;
 use tokio_postgres::{Client, Row};
+use tokio_util::sync::CancellationToken;
 
 use crate::memory::core::access::{MemoryCaller, Pool};
 use crate::memory::error::{MemoryError, Result};
@@ -164,6 +165,25 @@ pub async fn add(
     agent_id: Option<&str>,
     caller: &MemoryCaller,
 ) -> Result<CoreEntry> {
+    add_cancellable(db, input, project_id, agent_id, caller, None).await
+}
+
+/// The SQL mutation has not started while the request waits for a connection, lock or validation.
+pub(crate) fn check_write_start(cancel: Option<&CancellationToken>) -> Result<()> {
+    if cancel.is_some_and(CancellationToken::is_cancelled) {
+        return Err(crate::memory::recall::aborted());
+    }
+    Ok(())
+}
+
+pub(crate) async fn add_cancellable(
+    db: &Db,
+    input: &Value,
+    project_id: Option<&str>,
+    agent_id: Option<&str>,
+    caller: &MemoryCaller,
+    cancel: Option<&CancellationToken>,
+) -> Result<CoreEntry> {
     if agent_id.is_some() && project_id.is_some() {
         return Err(MemoryError::rejected("agent memory has no project scope"));
     }
@@ -179,6 +199,7 @@ pub async fn add(
     transaction(db, async |tx| {
         lock_pool(tx, &[pool_lock_key(project_id, agent_id)]).await?;
         let collisions = key_rows(tx, project_id, agent_id, &element, None).await?;
+        check_write_start(cancel)?;
         if !collisions.is_empty() {
             let revivable = collisions.len() == 1 && collisions[0].1.as_deref() == Some("archived");
             if !revivable {
@@ -219,6 +240,10 @@ pub struct Edit<'a> {
 
 /// `_editCoreImpl` (core-memory-store.mjs:192), its statement text.
 pub async fn edit(db: &Db, id: i64, request: Edit<'_>) -> Result<CoreEntry> {
+    edit_cancellable(db, id, request, None).await
+}
+
+pub(crate) async fn edit_cancellable(db: &Db, id: i64, request: Edit<'_>, cancel: Option<&CancellationToken>) -> Result<CoreEntry> {
     let current = db
         .query_opt("SELECT * FROM core_entries WHERE id = $1", &[&id])
         .await?
@@ -272,7 +297,9 @@ pub async fn edit(db: &Db, id: i64, request: Edit<'_>) -> Result<CoreEntry> {
     };
     if !text_changed && !project_changed {
         // Optimistic guard on the snapshot this patch was computed against.
-        let updated = db
+        let client = db.client().await?;
+        check_write_start(cancel)?;
+        let updated = client
             .execute(
                 "UPDATE core_entries SET category = $1, updated_at = $2
        WHERE id = $3 AND element = $4 AND summary = $5
@@ -313,6 +340,7 @@ pub async fn edit(db: &Db, id: i64, request: Edit<'_>) -> Result<CoreEntry> {
         {
             return Err(already_exists(Pool { project_id: target_project, agent_id }, &element));
         }
+        check_write_start(cancel)?;
         tx.execute(
             "UPDATE core_entries
        SET element = $1, summary = $2, category = $3, project_id = $4, updated_at = $5
@@ -334,6 +362,52 @@ pub async fn delete(
     expected_agent_id: Option<&str>,
     caller: &MemoryCaller,
 ) -> Result<CoreEntry> {
+    delete_cancellable(db, id, expected_project_id, expected_agent_id, caller, None, None).await
+}
+
+#[derive(Default)]
+enum DeletePhase {
+    #[default]
+    Pending,
+    Interrupted,
+    Committing,
+}
+
+/// The proxy may report interruption only before the transaction claims COMMIT.
+/// Once claimed, it must wait for the real commit outcome and snapshot refresh.
+#[derive(Default)]
+pub(crate) struct DeleteSettlement(std::sync::Mutex<DeletePhase>);
+
+impl DeleteSettlement {
+    pub(crate) fn interrupt(&self) -> bool {
+        let mut phase = self.0.lock().expect("delete settlement");
+        if matches!(*phase, DeletePhase::Committing) {
+            return false;
+        }
+        *phase = DeletePhase::Interrupted;
+        true
+    }
+
+    pub(crate) fn begin_commit(&self, cancel: Option<&CancellationToken>) -> Result<()> {
+        let mut phase = self.0.lock().expect("delete settlement");
+        if matches!(*phase, DeletePhase::Interrupted) {
+            return Err(crate::memory::recall::aborted());
+        }
+        check_write_start(cancel)?;
+        *phase = DeletePhase::Committing;
+        Ok(())
+    }
+}
+
+pub(crate) async fn delete_cancellable(
+    db: &Db,
+    id: i64,
+    expected_project_id: Option<&str>,
+    expected_agent_id: Option<&str>,
+    caller: &MemoryCaller,
+    cancel: Option<&CancellationToken>,
+    settlement: Option<&DeleteSettlement>,
+) -> Result<CoreEntry> {
     let current = db
         .query_opt("SELECT project_id, agent_id FROM core_entries WHERE id = $1", &[&id])
         .await?;
@@ -345,13 +419,23 @@ pub async fn delete(
     }
     caller.assert_write("delete", &Pool { project_id: project.as_deref(), agent_id: agent.as_deref() })?;
     // The pool just authorised: a concurrent move out of it deletes nothing.
-    let removed = db
-        .query_opt(
-            "DELETE FROM core_entries WHERE id = $1
-       AND project_id IS NOT DISTINCT FROM $2 AND agent_id IS NOT DISTINCT FROM $3 RETURNING *",
-            &[&id, &project, &agent],
-        )
-        .await?;
+    let sql = "DELETE FROM core_entries WHERE id = $1
+       AND project_id IS NOT DISTINCT FROM $2 AND agent_id IS NOT DISTINCT FROM $3 RETURNING *";
+    let removed = if cancel.is_some() {
+        transaction(db, async |tx| {
+            check_write_start(cancel)?;
+            let removed = tx.query_opt(sql, &[&id, &project, &agent]).await?;
+            // DELETE can wait on a row lock. Check again before COMMIT, not after it.
+            if let Some(settlement) = settlement {
+                settlement.begin_commit(cancel)?;
+            } else {
+                check_write_start(cancel)?;
+            }
+            Ok(removed)
+        }).await?
+    } else {
+        db.query_opt(sql, &[&id, &project, &agent]).await?
+    };
     removed.map(|row| CoreEntry::from_row(&row)).ok_or_else(missing)
 }
 

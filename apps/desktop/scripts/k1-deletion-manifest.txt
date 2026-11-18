@@ -1,8 +1,8 @@
 # K1 deletion list (branch k1-rehearsal): the single authority for what the K1 cut deletes from the package root.
-# Computed on the merged tree (o1 + k1-packaging + k1-tui + k1-desktop-route) with D:\mixdog-build\tools\k1-closure.mjs
+# Computed on the merged tree (o1 + k1-packaging + k1-tui + k1-desktop-route) with <build-tools>\k1-closure.mjs
 # from the surviving entry points: packages/**, src/ext-host/**, src/skill-script-entry.mjs, src/defaults/** skill
 # scripts, kept scripts/** and apps/**. The Node TUI is not an entry point. Source: delete-list.md set 2 as corrected in
-# C:\Users\tempe\.mixdog\data\scratch\rust-core\k1\rehearsal.md. apps/desktop/scripts/verify-staged-package.mjs fails a
+# <mixdog-home>\data\scratch\rust-core\k1\rehearsal.md. apps/desktop/scripts/verify-staged-package.mjs fails a
 # package that packs any of them.
 
 ## DELETE (4162)

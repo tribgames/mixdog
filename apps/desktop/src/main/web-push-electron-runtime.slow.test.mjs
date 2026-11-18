@@ -11,7 +11,10 @@ const execFileAsync = promisify(execFile);
 test('Web Push signing and verification work in Electron Node mode', { timeout: 30_000 }, async () => {
   const testFile = fileURLToPath(new URL('./web-push.test.mjs', import.meta.url));
   const cwd = fileURLToPath(new URL('../..', import.meta.url));
-  const { stderr } = await execFileAsync(electron, ['--import', 'tsx', '--test', testFile], {
+  // The assertions are the child suite's, so its result counts: scripts/ci/node-runner.mjs gives it a receipt of its own (the gate's skip
+  // check reads it) when the lane left a children folder in MIXDOG_CHILD_RECEIPTS, and is a plain `--test` run otherwise.
+  const runner = fileURLToPath(new URL('../../../../scripts/ci/node-runner.mjs', import.meta.url));
+  const { stderr } = await execFileAsync(electron, [runner, '--import', 'tsx', testFile], {
     cwd,
     env: {
       ...process.env,

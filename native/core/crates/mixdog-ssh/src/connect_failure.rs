@@ -6,7 +6,7 @@
 
 use std::sync::LazyLock;
 
-use mixdog_app_protocol::v2::connections::{SshFailure, SshFailureKind};
+use mixdog_app_protocol::v2::connections::{SshFailure, SshFailureKind, SshMessage};
 use regex::Regex;
 
 use crate::binary::{client_install_command, is_missing_message};
@@ -55,12 +55,14 @@ pub struct SshFailureLite {
     pub message: String,
     /// A refused host key or login can only be confirmed again where servers are managed.
     pub settings_required: bool,
+    /// The message by code, when the failure has one (`message` is its English fallback).
+    pub notice: Option<SshMessage>,
 }
 
 impl SshFailureLite {
     /// The wire form, with `code`.
     pub fn into_failure(self) -> SshFailure {
-        SshFailure { kind: self.kind, code: Some(self.code) }
+        SshFailure { kind: self.kind, notice: self.notice, code: Some(self.code) }
     }
 
     /// The view's own name (`auth`, `host-key-changed`, `failed`, ...).
@@ -146,7 +148,11 @@ pub fn failure_of(error: &ConnectError, target: &SshTarget, platform: Platform) 
         _ => String::new(),
     };
     let settings_required = matches!(kind, SshFailureKind::HostKeyChanged { .. } | SshFailureKind::Auth { .. });
-    SshFailureLite { kind, code, message: shown, settings_required }
+    let notice = match error {
+        ConnectError::Bootstrap(bootstrap) => bootstrap.notice.clone(),
+        ConnectError::Ssh(ssh) => ssh.notice.clone(),
+    };
+    SshFailureLite { kind, code, message: shown, settings_required, notice }
 }
 
 fn classify(error: &ConnectError, message: &str, target: &SshTarget, platform: Platform) -> SshFailureKind {

@@ -3,6 +3,7 @@
 //! turn sees, the `call_tool` hand-off; and the session port's rules.
 
 use std::collections::HashMap;
+#[cfg(node_twin)]
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -16,14 +17,19 @@ use mixdog_core_api::domain::mock::MockProcessManager;
 use mixdog_core_api::domain::mock::MockProgress;
 use mixdog_core_api::domain::tool::SurfaceKind;
 use mixdog_core_api::domain::tool::Tool;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::tool::ToolAnnotations;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolIo;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::tool::ToolOutcome;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolPart;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_core_api::ids::ThreadId;
+#[cfg(node_twin)]
 use mixdog_core_ports::ports::setup_actions::CallerScope;
 use mixdog_core_ports::ports::run_stamps::RunStamps;
 use mixdog_core_ports::ports::threads::Section;
@@ -32,10 +38,15 @@ use mixdog_protocol::ToolCallId;
 use mixdog_protocol::TurnId;
 use mixdog_services::bots::HeartbeatSessions;
 use mixdog_store::schema::record::Header;
+#[cfg(node_twin)]
 use mixdog_tools::orch::bridge::CallResolution;
+#[cfg(node_twin)]
 use mixdog_tools::orch::bridge::CallTool;
+#[cfg(node_twin)]
 use mixdog_tools::orch::bridge::CatalogView;
+#[cfg(node_twin)]
 use mixdog_tools::orch::bridge::ToolDispatcher;
+#[cfg(node_twin)]
 use mixdog_tools::orch::bridge::ToolDoc;
 use mixdog_tools::orch::ports::CallerFacts;
 use mixdog_tools::orch::session::RenameError;
@@ -49,7 +60,9 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use mixdog_core::run_host::tool_pool::callers::ThreadCallers;
+#[cfg(node_twin)]
 use mixdog_core::run_host::tool_pool::model_surface::SurfaceInputs;
+#[cfg(node_twin)]
 use mixdog_core::run_host::tool_pool::model_surface::model_internal_tools;
 use mixdog_core::run_host::tool_pool::session_output::ListPage;
 use mixdog_core::run_host::tool_pool::session_port::AiTitleSetting;
@@ -65,23 +78,29 @@ use mixdog_core::run_host::tool_pool::session_port::SessionPortParts;
 use mixdog_core::run_host::tool_pool::session_port::Suggestions;
 use mixdog_core::run_host::tool_pool::session_port::ThreadRequests;
 use mixdog_core::run_host::unattended::UnattendedRunRegistry;
+#[cfg(node_twin)]
 use mixdog_tools::policy::RunKind;
 
+#[cfg(node_twin)]
 #[path = "session_project_node_cases.rs"]
 mod session_project_node_cases;
 
+#[cfg(node_twin)]
 fn golden(text: &str) -> Value {
     serde_json::from_str(text).expect("fixture")
 }
 
+#[cfg(node_twin)]
 fn caller_golden() -> Value {
     golden(include_str!("../../../../fixtures/tool-pool/caller-facts.json"))
 }
 
+#[cfg(node_twin)]
 fn tool_list_golden() -> Value {
     golden(include_str!("../../../../fixtures/tool-pool/tool-list.json"))
 }
 
+#[cfg(node_twin)]
 fn dispatch_golden() -> Value {
     golden(include_str!("../../../../fixtures/tool-pool/dispatch.json"))
 }
@@ -152,6 +171,7 @@ impl RunStamps for NoStamps {
     }
 }
 
+#[cfg(node_twin)]
 fn scope_json(scope: &CallerScope) -> Value {
     match scope {
         CallerScope::Human => json!({ "kind": "human" }),
@@ -170,6 +190,7 @@ fn scope_json(scope: &CallerScope) -> Value {
 /// Node's `scheduleCallerScope`, `unattendedRunOf` marks and `isHeartbeatSession` over a session
 /// record of every provenance, with and without the marks.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn caller_facts_follow_the_node_scope_and_marks() {
     let g = caller_golden();
     for case in g["cases"].as_array().expect("cases") {
@@ -211,9 +232,11 @@ async fn a_user_is_available_unless_the_session_has_no_approval_surface() {
     assert!(!callers.user_available(&ThreadId::from("sess_gone")).await);
 }
 
+#[cfg(node_twin)]
 struct Named(ToolSpec);
 
 #[async_trait]
+#[cfg(node_twin)]
 impl Tool for Named {
     fn spec(&self) -> &ToolSpec {
         &self.0
@@ -223,6 +246,7 @@ impl Tool for Named {
     }
 }
 
+#[cfg(node_twin)]
 fn named(name: &str) -> Arc<dyn Tool> {
     Arc::new(Named(ToolSpec {
         name: name.into(),
@@ -238,6 +262,7 @@ fn named(name: &str) -> Arc<dyn Tool> {
     }))
 }
 
+#[cfg(node_twin)]
 fn strings(value: &Value) -> Vec<String> {
     value.as_array().expect("array").iter().map(|v| v.as_str().expect("string").to_owned()).collect()
 }
@@ -245,6 +270,7 @@ fn strings(value: &Value) -> Vec<String> {
 /// Node's `modelStandaloneTools()` over the product's own standalone tool definitions: the main
 /// session, a delegated worker, workflows that do and do not delegate, and the narrowed profiles.
 #[test]
+#[cfg(node_twin)]
 fn the_tool_list_a_turn_sees_follows_node() {
     let g = tool_list_golden();
     let standalone: Vec<Arc<dyn Tool>> = strings(&g["standalone"]).iter().map(|n| named(n)).collect();
@@ -266,9 +292,11 @@ fn the_tool_list_a_turn_sees_follows_node() {
     }
 }
 
+#[cfg(node_twin)]
 struct Fixed(CallResolution);
 
 #[async_trait]
+#[cfg(node_twin)]
 impl CatalogView for Fixed {
     async fn announce(&self, _: &ThreadId, _: &[String]) {}
     fn available(&self, _: &ThreadId) -> Vec<ToolDoc> {
@@ -295,9 +323,11 @@ impl CatalogView for Fixed {
 }
 
 #[derive(Default)]
+#[cfg(node_twin)]
 struct Dispatched(Mutex<Vec<(String, Value)>>);
 
 #[async_trait]
+#[cfg(node_twin)]
 impl ToolDispatcher for Dispatched {
     async fn dispatch(&self, _: &ToolContext, name: &str, arguments: Value) -> ToolOutcome {
         self.0.lock().expect("dispatched").push((name.to_owned(), arguments));
@@ -330,6 +360,7 @@ fn ctx() -> ToolContext {
 /// the dispatcher, an unprojectable call is answered with the bridge error and nothing runs. (The
 /// catalog's own answer is fixed per case: the targets Node projected are `Deferred`.)
 #[tokio::test]
+#[cfg(node_twin)]
 async fn call_tool_hands_the_projected_target_to_the_dispatcher_and_refuses_the_rest_in_nodes_words() {
     let g = dispatch_golden();
     for case in g["projections"].as_array().expect("projections") {
@@ -364,8 +395,12 @@ async fn call_tool_hands_the_projected_target_to_the_dispatcher_and_refuses_the_
 
 // --- the session port ---------------------------------------------------------------------------
 
-#[path = "session_control_tests.rs"]
+#[path = "session_port_doubles.rs"]
 mod replay;
+
+mod fork_rules;
+mod send_rules;
+mod session_tool_rules;
 
 #[derive(Default)]
 struct Requests {
@@ -526,6 +561,7 @@ struct Port {
     callers: Arc<ThreadCallers>,
     threads: Arc<Threads>,
     requests: Arc<Requests>,
+    #[cfg(node_twin)]
     suggested: Arc<Suggested>,
 }
 
@@ -557,7 +593,14 @@ fn port(headers: &[(&str, Value)], requests: Requests) -> Port {
         bot_sources: Arc::new(mixdog_core::run_host::tool_pool::session_bots::LateBotSources::default()),
         io: mixdog_rt::testing::tokens().interactive_io,
     }));
-    Port { port, callers, threads, requests, suggested }
+    Port {
+        port,
+        callers,
+        threads,
+        requests,
+        #[cfg(node_twin)]
+        suggested,
+    }
 }
 
 fn thread(id: &str) -> ThreadId {
@@ -688,6 +731,7 @@ async fn answer(tool: &mixdog_tools::orch::session::SessionTool, context: &ToolC
 /// tool's answers, the one compaction a compact leaves behind (asking again changes nothing), the Lead-only refusal, and
 /// the lifecycle request of a fork with and without `compact` (the copy is compacted, never left uncompacted).
 #[tokio::test]
+#[cfg(node_twin)]
 async fn compact_and_fork_answer_as_the_node_session_tool_does() {
     let g = golden(mixdog_testkit::fixture!("../../fixtures/session-compact-cases/golden.json"));
     let case = |name: &str| g["cases"].as_array().expect("cases").iter().find(|c| c["case"] == name).unwrap_or_else(|| panic!("{name}"))["observed"].clone();
@@ -761,6 +805,7 @@ async fn the_sidebar_flags_and_the_control_actions_become_thread_requests() {
 }
 
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_proposal_is_recorded_with_its_key_and_the_dismissal() {
     let p = port(&[], Requests::default());
     assert_eq!(p.port.suggest("pause-routine:news", "Pause the news routine?", true).await, Ok(json!({ "recorded": true })));
@@ -769,6 +814,7 @@ async fn a_proposal_is_recorded_with_its_key_and_the_dismissal() {
 
 // --- `session action=list|read` quoting ------------------------------------------------------------
 
+#[cfg(node_twin)]
 mod session_output_replay {
     use mixdog_core::run_host::tool_pool::session_output::ListPage;
     use mixdog_core::run_host::tool_pool::session_output::ReadRange;
@@ -964,6 +1010,7 @@ async fn read_quotes_the_stored_transcript_from_its_newest_row() {
 
 /// The catalog a case scripts: the pages in the order they are asked for, the rows read by id, the live sessions. The catalog is
 /// the index of stored sessions (what Node's recording scripted as `listSessions`); every session itself is real.
+#[cfg(node_twin)]
 struct ScriptedCatalog {
     pages: Mutex<std::collections::VecDeque<Value>>,
     rows: HashMap<String, Value>,
@@ -974,6 +1021,7 @@ struct ScriptedCatalog {
 }
 
 #[async_trait]
+#[cfg(node_twin)]
 impl ThreadCatalog for ScriptedCatalog {
     async fn page(&self, cursor: Option<&str>, limit: usize) -> Result<ListPage, CoreError> {
         // The call Node's service made of its catalog, `includeAgentOnly` being its own.
@@ -996,9 +1044,11 @@ impl ThreadCatalog for ScriptedCatalog {
 }
 
 /// Node's recorder: the agent work that is pending is the owners the case names; none is in flight.
+#[cfg(node_twin)]
 struct PendingOwners(HashSet<String>);
 
 #[async_trait]
+#[cfg(node_twin)]
 impl mixdog_services::task_reports::host::AgentRegistry for PendingOwners {
     async fn owed_results(&self, _: &str) -> Vec<mixdog_services::task_reports::chain::Owed> {
         Vec::new()
@@ -1026,11 +1076,13 @@ impl mixdog_services::task_reports::host::AgentRegistry for PendingOwners {
 // Node's real catalog over the same sessions.
 
 /// The runtime facts of the recorded turns in flight (`inFlightSessionActivity()` of the recording).
+#[cfg(node_twin)]
 struct Facts {
     working: HashSet<String>,
     agent_working: HashSet<String>,
 }
 
+#[cfg(node_twin)]
 impl mixdog_core_session::session::thread_list::ListOverlay for Facts {
     fn of(&self, thread: &ThreadId) -> mixdog_core_session::session::thread_list::RowOverlay {
         mixdog_core_session::session::thread_list::RowOverlay {
@@ -1042,9 +1094,11 @@ impl mixdog_core_session::session::thread_list::ListOverlay for Facts {
 }
 
 /// The agent pool of a daemon with no workers: `StoreListing::page` and `row` never read it.
+#[cfg(node_twin)]
 struct NoWorkers;
 
 #[async_trait]
+#[cfg(node_twin)]
 impl mixdog_core_agents::agents::PoolStore for NoWorkers {
     async fn agent_index(&self) -> Option<Value> {
         None
@@ -1057,6 +1111,7 @@ impl mixdog_core_agents::agents::PoolStore for NoWorkers {
     }
 }
 
+#[cfg(node_twin)]
 impl mixdog_core_agents::agents::PoolLive for NoWorkers {
     fn now(&self) -> f64 {
         0.0
@@ -1067,7 +1122,7 @@ impl mixdog_core_agents::agents::PoolLive for NoWorkers {
     fn awaiting_shell(&self) -> HashSet<String> {
         HashSet::new()
     }
-    fn live_session(&self, _: &str) -> Option<Value> {
+    fn live_session(&self, _: &str) -> Option<std::sync::Arc<serde_json::Map<String, Value>>> {
         None
     }
     fn runtime_entry(&self, _: &str) -> Option<mixdog_core_agents::agents::RuntimeEntry> {
@@ -1082,11 +1137,14 @@ impl mixdog_core_agents::agents::PoolLive for NoWorkers {
 }
 
 /// What the store's rows hold beyond Node's JSON catalog rows (the recording's manifest declares them).
+#[cfg(node_twin)]
 const INDEX_ONLY: [&str; 9] = ["parentSessionId", "presetName", "effort", "fast", "modelParameters", "permissionMode", "schemaAllowedTools", "taskType", "compactCount"];
 /// The stat of Node's session file, which a store with no such file holds as 0.
+#[cfg(node_twin)]
 const STORAGE_STAMP: [&str; 2] = ["storageMtimeMs", "storageSize"];
 
 /// Node's row for the comparison: it holds none of the store's index-only fields; the stat of its file is dropped.
+#[cfg(node_twin)]
 fn node_row(row: &Value) -> Map<String, Value> {
     let mut row = row.as_object().expect("a row").clone();
     for key in INDEX_ONLY {
@@ -1099,6 +1157,7 @@ fn node_row(row: &Value) -> Map<String, Value> {
 }
 
 /// The core's row for the comparison: the index-only fields and the file stat are dropped.
+#[cfg(node_twin)]
 fn core_row(row: &Map<String, Value>) -> Map<String, Value> {
     let mut row = row.clone();
     for key in INDEX_ONLY.into_iter().chain(STORAGE_STAMP) {
@@ -1110,6 +1169,7 @@ fn core_row(row: &Map<String, Value>) -> Map<String, Value> {
 /// Every page, malformed cursor, row by id, archived flag and live overlay of Node's real catalog, asked of the production
 /// `StoreListing` over a `SqliteStore` holding the same sessions: whole, in recorded order.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[cfg(node_twin)]
 async fn the_production_listing_answers_as_nodes_real_catalog_does() {
     use mixdog_core::run_host::tool_pool::session_control::SessionListing;
     use mixdog_store::sqlite::DirtyMark;
@@ -1185,17 +1245,20 @@ async fn the_production_listing_answers_as_nodes_real_catalog_does() {
 }
 
 /// The store's listing over a case's scripted catalog: its pages in order, its rows by id and the live work laid over.
+#[cfg(node_twin)]
 struct ScriptedListing {
     catalog: Arc<ScriptedCatalog>,
     now: i64,
 }
 
+#[cfg(node_twin)]
 fn listed(row: Value) -> mixdog_core::run_host::tool_pool::session_control::ListedRow {
     let archived = row["archived"] == json!(true);
     mixdog_core::run_host::tool_pool::session_control::ListedRow { row: row.as_object().cloned().unwrap_or_default(), archived }
 }
 
 #[async_trait]
+#[cfg(node_twin)]
 impl mixdog_core::run_host::tool_pool::session_control::SessionListing for ScriptedListing {
     async fn page(&self, limit: usize, cursor: Option<&str>) -> Result<mixdog_core::run_host::tool_pool::session_control::ListingPage, String> {
         let page = self.catalog.page(cursor, limit).await.map_err(|error| format!("{error:?}"))?;
@@ -1211,6 +1274,7 @@ impl mixdog_core::run_host::tool_pool::session_control::SessionListing for Scrip
 }
 
 /// What `session action=bots` reads besides the catalog: the case's bots, watches, held requests and routines.
+#[cfg(node_twin)]
 struct ScriptedBotSources {
     bots: Vec<Value>,
     watches: Vec<Value>,
@@ -1222,6 +1286,7 @@ struct ScriptedBotSources {
 }
 
 #[async_trait]
+#[cfg(node_twin)]
 impl mixdog_core::run_host::tool_pool::session_bots::BotSources for ScriptedBotSources {
     async fn bots(&self) -> Result<Vec<Value>, String> {
         Ok(self.bots.clone())
@@ -1246,12 +1311,14 @@ impl mixdog_core::run_host::tool_pool::session_bots::BotSources for ScriptedBotS
     }
 }
 
+#[cfg(node_twin)]
 struct ListedBots {
     ids: Vec<String>,
     mixy: Option<String>,
 }
 
 #[async_trait]
+#[cfg(node_twin)]
 impl BotIds for ListedBots {
     async fn ids(&self) -> Result<Vec<String>, String> {
         Ok(self.ids.clone())
@@ -1265,6 +1332,7 @@ impl BotIds for ListedBots {
 }
 
 /// The bots, routines, held requests and report watches a case's world holds.
+#[cfg(node_twin)]
 struct ScriptedBotWorld {
     bots: Vec<BotRow>,
     routines: Result<Vec<Value>, String>,
@@ -1273,6 +1341,7 @@ struct ScriptedBotWorld {
 }
 
 #[async_trait]
+#[cfg(node_twin)]
 impl BotWorld for ScriptedBotWorld {
     async fn bots(&self) -> Result<Vec<BotRow>, String> {
         Ok(self.bots.clone())
@@ -1288,17 +1357,21 @@ impl BotWorld for ScriptedBotWorld {
     }
 }
 
+#[cfg(node_twin)]
 struct ListedProjects(Vec<mixdog_tools::orch::session::ProjectRow>);
 
 #[async_trait]
+#[cfg(node_twin)]
 impl ProjectList for ListedProjects {
     async fn list(&self) -> Vec<mixdog_tools::orch::session::ProjectRow> {
         self.0.clone()
     }
 }
 
+#[cfg(node_twin)]
 struct At(i64);
 
+#[cfg(node_twin)]
 impl mixdog_agent::env::Clock for At {
     fn now_ms(&self) -> i64 {
         self.0
@@ -1306,6 +1379,7 @@ impl mixdog_agent::env::Clock for At {
 }
 
 /// What the runs of a world saw, in the order they started: each run's thread and the input row it was handed.
+#[cfg(node_twin)]
 struct Runs {
     inputs: Mutex<Vec<(String, Value)>>,
     started: tokio::sync::Notify,
@@ -1314,10 +1388,14 @@ struct Runs {
 }
 
 /// The prompts the world's own seeding sends: a turn held in flight, and one that fails on the provider's quota.
+#[cfg(node_twin)]
 const HOLD: &str = "hold";
+#[cfg(node_twin)]
 const QUOTA: &str = "quota";
 
+#[cfg(node_twin)]
 impl Runs {
+    #[cfg(node_twin)]
     fn prompts(&self) -> Vec<(String, Value)> {
         self.inputs.lock().expect("runs").iter().filter(|(_, body)| !matches!(body["content"].as_str(), Some(HOLD | QUOTA))).cloned().collect()
     }
@@ -1325,6 +1403,7 @@ impl Runs {
 
 /// The session directory over the real thread store (SQLite index and files under a temp folder) with scripted runs: the
 /// threads, their records, the turns and the thread requests are the product's own.
+#[cfg(node_twin)]
 struct World {
     directory: Arc<mixdog_core_session::session::SessionDirectory>,
     runs: Arc<Runs>,
@@ -1339,9 +1418,11 @@ struct World {
 }
 
 /// The route facts of a route change: the window rule alone, no registered provider.
+#[cfg(node_twin)]
 struct WindowFacts;
 
 #[async_trait]
+#[cfg(node_twin)]
 impl mixdog_core::run_host::route_change::RouteFacts for WindowFacts {
     fn context_meta(&self, provider: &str, model: &str, seed: &Value) -> Option<mixdog_core_run::run_host::session_context_meta::ContextMeta> {
         Some(mixdog_core_run::run_host::session_context_meta::resolve_context_meta(None, None, provider, model, seed, false))
@@ -1351,19 +1432,24 @@ impl mixdog_core::run_host::route_change::RouteFacts for WindowFacts {
     }
 }
 
+#[cfg(node_twin)]
 struct Quiet;
 
+#[cfg(node_twin)]
 impl mixdog_core_session::session::route_session::RouteStatusline for Quiet {
     fn write(&self, _: &str, _: &mixdog_core_ports::ports::route::Route, _: Option<u64>) {}
 }
 
+#[cfg(node_twin)]
 impl mixdog_core_session::session::route_session::ContextStatusCache for Quiet {
     fn invalidate(&self, _: &ThreadId) {}
 }
 
+#[cfg(node_twin)]
 struct NoBotRoutes;
 
 #[async_trait]
+#[cfg(node_twin)]
 impl mixdog_core_run::run_host::route_chain::BotRoutes for NoBotRoutes {
     async fn bot_route(&self, _: &str) -> Result<Option<Option<Value>>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
         Ok(None)
@@ -1373,6 +1459,7 @@ impl mixdog_core_run::run_host::route_chain::BotRoutes for NoBotRoutes {
     }
 }
 
+#[cfg(node_twin)]
 impl mixdog_core_session::session::route_session::RouteConfig for Quiet {
     fn agent_config(&self) -> mixdog_core_ports::ports::domain_sessions::Obj {
         mixdog_core_ports::ports::domain_sessions::Obj::new()
@@ -1382,16 +1469,20 @@ impl mixdog_core_session::session::route_session::RouteConfig for Quiet {
     }
 }
 
+#[cfg(node_twin)]
 struct NoUsage;
 
+#[cfg(node_twin)]
 impl mixdog_core_ports::ports::route_write::StatuslineUsage for NoUsage {
     fn refresh(&self, _: &ThreadId, _: &mixdog_ai::service::admin_route::Obj) {}
 }
 
 /// No model list is fetched: nothing replayed reads the network.
+#[cfg(node_twin)]
 struct Offline;
 
 #[async_trait]
+#[cfg(node_twin)]
 impl mixdog_ai::transport::http::HttpSend for Offline {
     async fn send(
         &self,
@@ -1403,9 +1494,11 @@ impl mixdog_ai::transport::http::HttpSend for Offline {
 }
 
 /// The provider registry's builder: every provider builds a scripted adapter; no replayed call sends.
+#[cfg(node_twin)]
 struct Builds;
 
 #[async_trait]
+#[cfg(node_twin)]
 impl mixdog_ai::registry::providers::ProviderBuilder for Builds {
     async fn build(&self, _: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
         Ok(Arc::new(mixdog_core_api::domain::mock::MockProvider::new([])))
@@ -1420,6 +1513,7 @@ impl mixdog_ai::registry::providers::ProviderBuilder for Builds {
         Ok(false)
     }
 }
+#[cfg(node_twin)]
 async fn real_store(data: &std::path::Path) -> Arc<dyn mixdog_core_session::session::ThreadStore> {
     use mixdog_core_api::domain::mock::MockOwnership;
     use mixdog_store::sqlite::SqliteStore;
@@ -1436,6 +1530,7 @@ async fn real_store(data: &std::path::Path) -> Arc<dyn mixdog_core_session::sess
 
 /// The world over the real route service (`RouteService` over `LiveRouteWriter`, `SessionRoutes` and the real config file):
 /// a task started without a route of its own begins on the Lead route of that config, `lead` (`{provider, model}`).
+#[cfg(node_twin)]
 async fn world(quota_reset: u64, lead: &Value) -> World {
     use mixdog_core_session::session::RunOutcome;
     use mixdog_core_session::session::testing::Rig;
@@ -1503,9 +1598,11 @@ async fn world(quota_reset: u64, lead: &Value) -> World {
     World { directory, runs, quota: rig.quota.clone(), _rig: rig, _data: data, _config: config_dir, config: saved, routes, service, models: listed }
 }
 
+#[cfg(node_twin)]
 impl World {
     /// A stored session under `id` with `record` as its header (the session record Node's world held, bar its own id and the
     /// fields only Node's stub runtime read).
+    #[cfg(node_twin)]
     async fn open(&self, id: &str, record: &Value) {
         let mut header: Header = record.as_object().cloned().unwrap_or_default();
         for key in ["id", "messages", "turnHop", "turnBotChain"] {
@@ -1533,6 +1630,7 @@ impl World {
 }
 
 /// A quota resume of `id` is queued once its failed turn has settled (the queue is written on the store's own lane: the store tells when).
+#[cfg(node_twin)]
 async fn wait_for_quota_resume(world: &World, id: &str) {
     let changed = Arc::new(tokio::sync::Notify::new());
     let wake = changed.clone();
@@ -1553,6 +1651,7 @@ async fn wait_for_quota_resume(world: &World, id: &str) {
     )
     .await;
 }
+#[cfg(node_twin)]
 fn nodes_row(id: &str, at: i64) -> Value {
     json!({ "id": id, "title": format!("Title of {id}"), "status": "idle", "cwd": "/project", "lastUsedAt": 1_700_000_000_000_i64 + at * 1000, "updatedAt": 1_700_000_000_000_i64 + at * 1000 })
 }
@@ -1563,6 +1662,7 @@ fn nodes_row(id: &str, at: i64) -> Value {
 /// the created session's stored record: its folder, place and origin) and the prompts delivered (read from the input row of each
 /// turn the prompt started in the session that took it). A refused call made no session.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[cfg(node_twin)]
 async fn session_control_answers_as_the_node_session_tool_does_over_real_sessions() {
     let g = golden(mixdog_testkit::fixture!("../../fixtures/session-control-cases/golden.json"));
     let dir = tempfile::tempdir().expect("a folder");
@@ -1853,6 +1953,7 @@ async fn session_control_answers_as_the_node_session_tool_does_over_real_session
     assert!(failures.is_empty(), "{} cases differ:\n{}", failures.len(), failures.join("\n"));
 }
 
+#[cfg(node_twin)]
 fn ids_of(value: &Value) -> Vec<String> {
     value.as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect()).unwrap_or_default()
 }

@@ -19,8 +19,6 @@ use super::variants;
 use crate::params;
 use crate::tidy::process::{Processes, RunOptions};
 
-const OPENER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
-
 pub struct MediaService {
     store: Arc<MediaStore>,
     jobs: Arc<MediaJobs>,
@@ -59,17 +57,6 @@ pub fn open_command(path: &Path, reveal: bool, platform: &str) -> (&'static str,
     }
 }
 
-/// Hands the path to the OS opener under the shared process manager; whether it could be
-/// started is the answer, not how it exits (`explorer.exe` exits 1 after opening).
-async fn open_with_os(processes: &Processes, path: &Path, reveal: bool) -> bool {
-    let platform = if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let (program, args) = open_command(path, reveal, platform);
-    let cwd = std::env::temp_dir();
-    let mut options = RunOptions::new(&cwd);
-    options.timeout = OPENER_TIMEOUT;
-    processes.run(program, &args, options).await.error_code.is_empty()
-}
-
 /// The object a method's Node implementation receives, from the wire params. Five methods carry it
 /// in one field (`setMediaDefault`/`setMediaPin`/`startMediaJob`: `input`, `deleteMediaAssets`:
 /// `filter`, `listMediaAssets`: `options`); a missing or empty one is `{}` (`input || {}`). Every
@@ -87,9 +74,201 @@ fn wire_args(method: &str, params: &Value) -> Value {
     }
 }
 
+#[async_trait]
+impl DomainService for MediaService {
+    async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        Ok(Reply::Value(self.dispatch(req.method.as_str(), &req.params).await?))
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &[
+            "media/getMediaDefault",
+            "media/getMediaPins",
+            "media/setMediaDefault",
+            "media/setMediaPin",
+            "media/getMediaJob",
+            "media/listMediaLanes",
+            "media/startMediaJob",
+            "media/cancelMediaJob",
+            "media/listMediaAssets",
+            "media/listMediaBoards",
+            "media/readMediaAsset",
+            "media/resolveMediaFile",
+            "media/deleteMediaAsset",
+            "media/deleteMediaAssets",
+            "media/createMediaBoard",
+            "media/renameMediaBoard",
+            "media/deleteMediaBoard",
+            "media/setMediaAssetBoard",
+            "media/cacheMediaThumbnail",
+            "media/openMediaAsset",
+            "media/openMediaFolder",
+        ]
+    }
+
+    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
+        Admit::Accepted
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn open_commands_pass_the_path_as_one_argument() {
+        let p = Path::new("/a/b & c/x.png");
+        assert_eq!(open_command(p, false, "windows").1, vec!["/a/b & c/x.png".to_owned()]);
+        assert_eq!(open_command(p, true, "macos"), ("open", vec!["-R".to_owned(), "/a/b & c/x.png".to_owned()]));
+        assert_eq!(open_command(p, true, "linux").1, vec!["/a/b & c".to_owned()]);
+    }
+
+    fn object(entries: &[(&str, Value)]) -> Value {
+        Value::Object(entries.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect())
+    }
+
+    struct NoLanes;
+
+    #[async_trait]
+    impl super::super::jobs::MediaGenerator for NoLanes {
+        async fn resolve(&self, lane: &str, _: &str, _: &str) -> Result<super::super::jobs::ResolvedMedia, super::super::jobs::MediaFailure> {
+            Err(super::super::jobs::MediaFailure::new(format!("unknown media lane \"{lane}\""), "MEDIA_LANE_UNKNOWN"))
+        }
+        async fn generate(&self, _: super::super::jobs::GenerationRequest) -> Result<super::super::jobs::GeneratedMedia, super::super::jobs::MediaFailure> {
+            unreachable!("no lane resolves")
+        }
+        async fn lanes(&self) -> Value {
+            json!([])
+        }
+    }
+
+    async fn call(service: &MediaService, method: &'static str, params: Value) -> Result<Reply, CoreError> {
+        let request = CoreRequest { method: Method(method), params, op: None, ctx: mixdog_core_api::CallContext::internal("test") };
+        service.call(request).await
+    }
+
+    fn value(reply: Result<Reply, CoreError>) -> Value {
+        match reply.unwrap() {
+            Reply::Value(v) => v,
+            _ => panic!("not a value"),
+        }
+    }
+
+    fn message(reply: Result<Reply, CoreError>) -> (Option<String>, String) {
+        match reply.err().unwrap() {
+            CoreError::DomainError { code, message, .. } => (code.map(|c| c.to_string()), message.map(|m| m.to_string()).unwrap_or_default()),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The request's `params` are the method's arguments (`CoreRequest::params`, not a nested
+    /// `params` member), and a failure answers Node's message. Texts are Node's (`store.mjs`,
+    /// `lanes.mjs`).
+    #[tokio::test]
+    async fn the_wire_params_reach_the_method() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(MediaStore::new(dir.path(), mixdog_rt::testing::tokens().durability_io));
+        let jobs = MediaJobs::new(store.clone(), Arc::new(NoLanes), None);
+        let host = super::super::renditions::tests::scripted(super::super::renditions::tests::webp("AQID"), std::time::Duration::ZERO);
+        let renditions = StillRenditions::new(Arc::new(mixdog_exthost::ExtImageCodec::new(host)), mixdog_rt::testing::tokens().durability_io, store.renditions_dir());
+        let service = MediaService::new(store, jobs, Processes::for_tests(), renditions);
+
+        let board = value(call(&service, "media/createMediaBoard", json!({"opId": "o", "name": "Harness Board"})).await);
+        assert_eq!(board["name"], "Harness Board");
+        let renamed = value(call(&service, "media/renameMediaBoard", json!({"opId": "o", "id": board["id"], "name": "Renamed"})).await);
+        assert_eq!(renamed["name"], "Renamed");
+        assert_eq!(value(call(&service, "media/cancelMediaJob", json!({"opId": "o", "id": "j"})).await)["id"], "j");
+        assert_eq!(value(call(&service, "media/deleteMediaAsset", json!({"opId": "o", "id": "a"})).await)["id"], "a");
+        assert_eq!(message(call(&service, "media/renameMediaBoard", json!({"opId": "o", "id": "nope", "name": "Renamed"})).await), (None, "board not found".to_owned()));
+        let start = json!({"opId": "o", "input": {"kind": "image", "prompt": "harness", "lane": "harness-no-such-lane"}});
+        assert_eq!(
+            message(call(&service, "media/startMediaJob", start).await),
+            (Some("MEDIA_LANE_UNKNOWN".to_owned()), "unknown media lane \"harness-no-such-lane\"".to_owned())
+        );
+    }
+
+
+    const METHOD_TABLE: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../mixdog-app-protocol/schema/method_table.json");
+    const CLIENT_REQUEST: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../mixdog-app-protocol/schema/client_request.json");
+    /// The property names the protocol schema gives `method`'s params.
+    fn schema_fields(method: &str) -> Vec<String> {
+        let table: Value = serde_json::from_str(&METHOD_TABLE).unwrap();
+        let name = table["clientMethods"].as_array().unwrap().iter().find(|m| m["method"] == method).unwrap_or_else(|| panic!("{method} is not in the protocol"))["params"].as_str().unwrap().to_owned();
+        let requests: Value = serde_json::from_str(&CLIENT_REQUEST).unwrap();
+        requests["definitions"][&name]["properties"].as_object().unwrap_or_else(|| panic!("no schema for {name}")).keys().cloned().collect()
+    }
+    #[test]
+    fn the_object_methods_read_the_field_the_wire_carries_it_in() {
+        // The wire shapes of the schema: `{ opId, threadId?, <field>: <the object Node's method takes> }`.
+        let pin = json!({"kind": "image", "lane": "xai", "model": "grok-imagine-image"});
+        for (method, field) in [("media/setMediaPin", "input"), ("media/setMediaDefault", "input"), ("media/startMediaJob", "input"), ("media/deleteMediaAssets", "filter"), ("media/listMediaAssets", "options")] {
+            assert!(schema_fields(method).contains(&field.to_owned()), "{method}: the schema has no `{field}`");
+            let wire = object(&[("opId", json!("op-1")), ("threadId", Value::Null), (field, pin.clone())]);
+            assert_eq!(wire_args(method, &wire), pin, "{method}");
+            assert_eq!(wire_args(method, &json!({"opId": "op-1"})), json!({}), "{method}: a missing object is `{{}}`");
+            assert_eq!(wire_args(method, &object(&[(field, Value::Null)])), json!({}), "{method}: a null object is `{{}}`");
+        }
+        // A start carries the account, session and source type inside `input`.
+        let start = json!({"opId": "op-2", "input": {"lane": "gemini", "kind": "image", "prompt": "p", "account": "work", "sessionId": "s", "sourceType": "lead"}});
+        assert_eq!(wire_args("media/startMediaJob", &start)["account"], "work");
+        assert_eq!(wire_args("media/listMediaAssets", &json!({"options": {"limit": 5, "offset": 10, "kind": "video", "boardId": "b"}}))["limit"], 5);
+    }
+    #[test]
+    fn every_other_method_reads_flat_fields_the_schema_has() {
+        for (method, fields) in [
+            ("media/getMediaDefault", &["kind"][..]),
+            ("media/getMediaJob", &["id"]),
+            ("media/cancelMediaJob", &["id"]),
+            ("media/readMediaAsset", &["id", "options"]),
+            ("media/resolveMediaFile", &["id", "options"]),
+            ("media/deleteMediaAsset", &["id"]),
+            ("media/createMediaBoard", &["name"]),
+            ("media/renameMediaBoard", &["id", "name"]),
+            ("media/deleteMediaBoard", &["id"]),
+            ("media/setMediaAssetBoard", &["ids", "boardId"]),
+            ("media/cacheMediaThumbnail", &["id", "input"]),
+            ("media/openMediaAsset", &["id"]),
+            ("media/openMediaFolder", &["id"]),
+        ] {
+            let schema = schema_fields(method);
+            for field in fields {
+                assert!(schema.contains(&(*field).to_owned()), "{method}: the schema has no `{field}`");
+            }
+            let params = json!({"id": "a", "name": "n"});
+            assert_eq!(wire_args(method, &params), params, "{method}: params are read as they come");
+        }
+    }
+}
+
+
+const OPENER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+/// Hands the path to the OS opener under the shared process manager; whether it could be
+/// started is the answer, not how it exits (`explorer.exe` exits 1 after opening).
+async fn open_with_os(processes: &Processes, path: &Path, reveal: bool) -> bool {
+    let platform = if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    let (program, args) = open_command(path, reveal, platform);
+    let cwd = std::env::temp_dir();
+    let mut options = RunOptions::new(&cwd);
+    options.timeout = OPENER_TIMEOUT;
+    processes.run(program, &args, options).await.error_code.is_empty()
+}
 impl MediaService {
     pub fn new(store: Arc<MediaStore>, jobs: Arc<MediaJobs>, processes: Processes, renditions: StillRenditions) -> Self {
         Self { store, jobs, processes, renditions }
+    }
+
+    /// The file and type the relay media lane serves for an asset's variant (`resolveMediaFileTarget`: `resolveMediaFile` with the
+    /// rendition built when it is wanted): `None` for an asset this host does not know, or a rendition it cannot produce (never the
+    /// original in its place).
+    pub async fn lane_file(&self, id: &str, variant: &str) -> Result<Option<(std::path::PathBuf, String)>, MediaError> {
+        let thread = ThreadId::from("media-lane");
+        let file = variants::resolve_media_file(&self.store, &self.renditions, &thread, id, json!({ "variant": variant })).await?;
+        if file.is_null() || file.get("available") == Some(&Value::Bool(false)) {
+            return Ok(None);
+        }
+        let path = file.get("path").and_then(Value::as_str).filter(|path| !path.is_empty()).map(std::path::PathBuf::from);
+        let mime = file.get("mime").and_then(Value::as_str).unwrap_or("application/octet-stream").to_owned();
+        Ok(path.map(|path| (path, mime)))
     }
 
     async fn dispatch(&self, method: &str, wire: &Value) -> Result<Value, CoreError> {
@@ -158,170 +337,3 @@ impl MediaService {
         }
     }
 }
-
-#[async_trait]
-impl DomainService for MediaService {
-    async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        Ok(Reply::Value(self.dispatch(req.method.as_str(), &req.params).await?))
-    }
-
-    fn methods(&self) -> &'static [&'static str] {
-        &[
-            "media/getMediaDefault",
-            "media/getMediaPins",
-            "media/setMediaDefault",
-            "media/setMediaPin",
-            "media/getMediaJob",
-            "media/listMediaLanes",
-            "media/startMediaJob",
-            "media/cancelMediaJob",
-            "media/listMediaAssets",
-            "media/listMediaBoards",
-            "media/readMediaAsset",
-            "media/resolveMediaFile",
-            "media/deleteMediaAsset",
-            "media/deleteMediaAssets",
-            "media/createMediaBoard",
-            "media/renameMediaBoard",
-            "media/deleteMediaBoard",
-            "media/setMediaAssetBoard",
-            "media/cacheMediaThumbnail",
-            "media/openMediaAsset",
-            "media/openMediaFolder",
-        ]
-    }
-
-    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
-        Admit::Accepted
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn open_commands_pass_the_path_as_one_argument() {
-        let p = Path::new("/a/b & c/x.png");
-        assert_eq!(open_command(p, false, "windows").1, vec!["/a/b & c/x.png".to_owned()]);
-        assert_eq!(open_command(p, true, "macos"), ("open", vec!["-R".to_owned(), "/a/b & c/x.png".to_owned()]));
-        assert_eq!(open_command(p, true, "linux").1, vec!["/a/b & c".to_owned()]);
-    }
-
-    const METHOD_TABLE: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../mixdog-app-protocol/schema/method_table.json");
-    const CLIENT_REQUEST: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../mixdog-app-protocol/schema/client_request.json");
-
-    /// The property names the protocol schema gives `method`'s params.
-    fn schema_fields(method: &str) -> Vec<String> {
-        let table: Value = serde_json::from_str(&METHOD_TABLE).unwrap();
-        let name = table["clientMethods"].as_array().unwrap().iter().find(|m| m["method"] == method).unwrap_or_else(|| panic!("{method} is not in the protocol"))["params"].as_str().unwrap().to_owned();
-        let requests: Value = serde_json::from_str(&CLIENT_REQUEST).unwrap();
-        requests["definitions"][&name]["properties"].as_object().unwrap_or_else(|| panic!("no schema for {name}")).keys().cloned().collect()
-    }
-
-    fn object(entries: &[(&str, Value)]) -> Value {
-        Value::Object(entries.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect())
-    }
-
-    #[test]
-    fn the_object_methods_read_the_field_the_wire_carries_it_in() {
-        // The wire shapes of the schema: `{ opId, threadId?, <field>: <the object Node's method takes> }`.
-        let pin = json!({"kind": "image", "lane": "xai", "model": "grok-imagine-image"});
-        for (method, field) in [("media/setMediaPin", "input"), ("media/setMediaDefault", "input"), ("media/startMediaJob", "input"), ("media/deleteMediaAssets", "filter"), ("media/listMediaAssets", "options")] {
-            assert!(schema_fields(method).contains(&field.to_owned()), "{method}: the schema has no `{field}`");
-            let wire = object(&[("opId", json!("op-1")), ("threadId", Value::Null), (field, pin.clone())]);
-            assert_eq!(wire_args(method, &wire), pin, "{method}");
-            assert_eq!(wire_args(method, &json!({"opId": "op-1"})), json!({}), "{method}: a missing object is `{{}}`");
-            assert_eq!(wire_args(method, &object(&[(field, Value::Null)])), json!({}), "{method}: a null object is `{{}}`");
-        }
-        // A start carries the account, session and source type inside `input`.
-        let start = json!({"opId": "op-2", "input": {"lane": "gemini", "kind": "image", "prompt": "p", "account": "work", "sessionId": "s", "sourceType": "lead"}});
-        assert_eq!(wire_args("media/startMediaJob", &start)["account"], "work");
-        assert_eq!(wire_args("media/listMediaAssets", &json!({"options": {"limit": 5, "offset": 10, "kind": "video", "boardId": "b"}}))["limit"], 5);
-    }
-
-    #[test]
-    fn every_other_method_reads_flat_fields_the_schema_has() {
-        for (method, fields) in [
-            ("media/getMediaDefault", &["kind"][..]),
-            ("media/getMediaJob", &["id"]),
-            ("media/cancelMediaJob", &["id"]),
-            ("media/readMediaAsset", &["id", "options"]),
-            ("media/resolveMediaFile", &["id", "options"]),
-            ("media/deleteMediaAsset", &["id"]),
-            ("media/createMediaBoard", &["name"]),
-            ("media/renameMediaBoard", &["id", "name"]),
-            ("media/deleteMediaBoard", &["id"]),
-            ("media/setMediaAssetBoard", &["ids", "boardId"]),
-            ("media/cacheMediaThumbnail", &["id", "input"]),
-            ("media/openMediaAsset", &["id"]),
-            ("media/openMediaFolder", &["id"]),
-        ] {
-            let schema = schema_fields(method);
-            for field in fields {
-                assert!(schema.contains(&(*field).to_owned()), "{method}: the schema has no `{field}`");
-            }
-            let params = json!({"id": "a", "name": "n"});
-            assert_eq!(wire_args(method, &params), params, "{method}: params are read as they come");
-        }
-    }
-
-    struct NoLanes;
-
-    #[async_trait]
-    impl super::super::jobs::MediaGenerator for NoLanes {
-        async fn resolve(&self, lane: &str, _: &str, _: &str) -> Result<super::super::jobs::ResolvedMedia, super::super::jobs::MediaFailure> {
-            Err(super::super::jobs::MediaFailure::new(format!("unknown media lane \"{lane}\""), "MEDIA_LANE_UNKNOWN"))
-        }
-        async fn generate(&self, _: super::super::jobs::GenerationRequest) -> Result<super::super::jobs::GeneratedMedia, super::super::jobs::MediaFailure> {
-            unreachable!("no lane resolves")
-        }
-        async fn lanes(&self) -> Value {
-            json!([])
-        }
-    }
-
-    async fn call(service: &MediaService, method: &'static str, params: Value) -> Result<Reply, CoreError> {
-        let request = CoreRequest { method: Method(method), params, op: None, ctx: mixdog_core_api::CallContext::internal("test") };
-        service.call(request).await
-    }
-
-    fn value(reply: Result<Reply, CoreError>) -> Value {
-        match reply.unwrap() {
-            Reply::Value(v) => v,
-            _ => panic!("not a value"),
-        }
-    }
-
-    fn message(reply: Result<Reply, CoreError>) -> (Option<String>, String) {
-        match reply.err().unwrap() {
-            CoreError::DomainError { code, message, .. } => (code.map(|c| c.to_string()), message.map(|m| m.to_string()).unwrap_or_default()),
-            other => panic!("{other:?}"),
-        }
-    }
-
-    /// The request's `params` are the method's arguments (`CoreRequest::params`, not a nested
-    /// `params` member), and a failure answers Node's message. Texts are Node's (`store.mjs`,
-    /// `lanes.mjs`).
-    #[tokio::test]
-    async fn the_wire_params_reach_the_method() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(MediaStore::new(dir.path(), mixdog_rt::testing::tokens().durability_io));
-        let jobs = MediaJobs::new(store.clone(), Arc::new(NoLanes), None);
-        let host = super::super::renditions::tests::scripted(super::super::renditions::tests::webp("AQID"), std::time::Duration::ZERO);
-        let renditions = StillRenditions::new(Arc::new(mixdog_exthost::ExtImageCodec::new(host)), mixdog_rt::testing::tokens().durability_io, store.renditions_dir());
-        let service = MediaService::new(store, jobs, Processes::for_tests(), renditions);
-
-        let board = value(call(&service, "media/createMediaBoard", json!({"opId": "o", "name": "Harness Board"})).await);
-        assert_eq!(board["name"], "Harness Board");
-        let renamed = value(call(&service, "media/renameMediaBoard", json!({"opId": "o", "id": board["id"], "name": "Renamed"})).await);
-        assert_eq!(renamed["name"], "Renamed");
-        assert_eq!(value(call(&service, "media/cancelMediaJob", json!({"opId": "o", "id": "j"})).await)["id"], "j");
-        assert_eq!(value(call(&service, "media/deleteMediaAsset", json!({"opId": "o", "id": "a"})).await)["id"], "a");
-        assert_eq!(message(call(&service, "media/renameMediaBoard", json!({"opId": "o", "id": "nope", "name": "Renamed"})).await), (None, "board not found".to_owned()));
-        let start = json!({"opId": "o", "input": {"kind": "image", "prompt": "harness", "lane": "harness-no-such-lane"}});
-        assert_eq!(
-            message(call(&service, "media/startMediaJob", start).await),
-            (Some("MEDIA_LANE_UNKNOWN".to_owned()), "unknown media lane \"harness-no-such-lane\"".to_owned())
-        );
-    }}

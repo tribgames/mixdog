@@ -3,6 +3,7 @@
 
 use super::native::hwnd;
 use crate::platform::Wid;
+use crate::port::windows::{WinPort, A11y};
 use std::collections::HashMap;
 use windows::core::{IUnknown, Interface, BSTR};
 use windows::Win32::System::Com::IDispatch;
@@ -61,10 +62,10 @@ pub(super) trait AccNode: Clone {
     /// The state flags of `child` alone; `None` when they cannot be read.
     fn state(&self, child: i32) -> Option<u32>;
     fn child_count(&self) -> Option<i32>;
-    /// Runs the default action of `child` (accDoDefaultAction).
-    fn do_default_action(&self, child: i32) -> Result<(), String>;
-    /// Writes the value of `child` (put_accValue).
-    fn put_value(&self, child: i32, value: &str) -> Result<(), String>;
+    /// Runs the default action of `child` (accDoDefaultAction) through the port, on an object of `window`.
+    fn do_default_action(&self, port: &WinPort, window: Wid, child: i32) -> Result<(), String>;
+    /// Writes the value of `child` (put_accValue) through the port.
+    fn put_value(&self, port: &WinPort, window: Wid, child: i32, value: &str) -> Result<(), String>;
     /// Up to `count` child slots from `start`; fewer when the object has no
     /// more to give.
     fn children(&self, start: i32, count: usize) -> Result<Vec<Child<Self>>, String>;
@@ -121,15 +122,12 @@ impl AccNode for IAccessible {
         unsafe { self.accChildCount() }.ok()
     }
 
-    fn do_default_action(&self, child: i32) -> Result<(), String> {
-        // SAFETY: a call on a live object.
-        unsafe { self.accDoDefaultAction(&VARIANT::from(child)) }.map_err(|error| error.message())
+    fn do_default_action(&self, port: &WinPort, window: Wid, child: i32) -> Result<(), String> {
+        port.accessibility(window, A11y::DefaultAction(self, child))
     }
 
-    fn put_value(&self, child: i32, value: &str) -> Result<(), String> {
-        // SAFETY: a call on a live object.
-        unsafe { self.put_accValue(&VARIANT::from(child), &BSTR::from(value)) }
-            .map_err(|error| error.message())
+    fn put_value(&self, port: &WinPort, window: Wid, child: i32, value: &str) -> Result<(), String> {
+        port.accessibility(window, A11y::PutValue(self, child, &BSTR::from(value)))
     }
 
     fn children(&self, start: i32, count: usize) -> Result<Vec<Child<Self>>, String> {
@@ -226,11 +224,11 @@ impl<A: AccNode> MsaaNode<A> {
 
     /// Runs the node's default action as last read; refused when it exposes
     /// none (MixMsaaNode.DoDefaultAction, after its refresh).
-    pub(super) fn do_default_action(&self) -> Result<(), String> {
+    pub(super) fn do_default_action(&self, port: &WinPort) -> Result<(), String> {
         if self.default_action.trim().is_empty() {
             return Err("MSAA element exposes no default action".into());
         }
-        self.acc.do_default_action(self.child)
+        self.acc.do_default_action(port, self.window, self.child)
     }
 
     pub(super) fn enabled(&self) -> bool {
@@ -556,10 +554,10 @@ mod tests {
         fn child_count(&self) -> Option<i32> {
             self.0.count
         }
-        fn do_default_action(&self, _: i32) -> Result<(), String> {
+        fn do_default_action(&self, _: &WinPort, _: Wid, _: i32) -> Result<(), String> {
             Err("fake".into())
         }
-        fn put_value(&self, _: i32, _: &str) -> Result<(), String> {
+        fn put_value(&self, _: &WinPort, _: Wid, _: i32, _: &str) -> Result<(), String> {
             Err("fake".into())
         }
         fn children(&self, start: i32, count: usize) -> Result<Vec<Child<Self>>, String> {

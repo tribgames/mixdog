@@ -500,3 +500,59 @@ struct RoomAddressee {
     session_id: String,
     text: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bot_chain_may_go_three_hops_and_no_further() {
+        assert_eq!(chained_hop(0), Ok(0));
+        assert_eq!(chained_hop(MAX_BOT_HOPS), Ok(3));
+        assert_eq!(chained_hop(MAX_BOT_HOPS + 1), Err("session: Bot-to-bot chain limit reached; ask the user before continuing.".to_owned()));
+    }
+
+    #[test]
+    fn a_send_needs_a_prompt_with_something_in_it() {
+        let refused = Err("session: prompt is required for action=send".to_owned());
+        for args in [json!({}), json!({ "prompt": "" }), json!({ "prompt": " \n " }), json!({ "prompt": 7 })] {
+            assert_eq!(assert_send_request(&args, "sess_a"), refused, "{args}");
+        }
+        assert_eq!(assert_send_request(&json!({ "prompt": "go" }), "sess_a"), Ok(()));
+    }
+
+    fn catalog() -> Vec<Value> {
+        vec![json!({ "provider": "openai", "id": "gpt-5", "effortOptions": [{ "value": "low" }, { "value": "high" }] })]
+    }
+
+    #[test]
+    fn an_effort_the_model_offers_is_taken_and_auto_clears_it() {
+        assert_eq!(check_effort(&json!("high"), "openai", "gpt-5", &catalog()), Ok(Some("high".to_owned())));
+        assert_eq!(check_effort(&json!("high"), "openai", "GPT-5", &catalog()), Ok(Some("high".to_owned())), "the model is matched without case");
+        assert_eq!(check_effort(&json!("auto"), "openai", "gpt-5", &catalog()), Ok(None));
+    }
+
+    #[test]
+    fn an_effort_the_model_does_not_offer_is_refused_with_the_levels_it_does() {
+        assert_eq!(
+            check_effort(&json!("xhigh"), "openai", "gpt-5", &catalog()),
+            Err("session: effort \"xhigh\" is not supported; openai/gpt-5 supports: auto, low, high".to_owned())
+        );
+        let unknown_word = check_effort(&json!("loud"), "openai", "gpt-5", &catalog()).expect_err("not an effort");
+        assert!(unknown_word.starts_with("session: ") && unknown_word.ends_with("; openai/gpt-5 supports: auto, low, high"), "{unknown_word}");
+    }
+
+    #[test]
+    fn a_model_the_catalog_does_not_list_takes_any_known_effort_unchecked() {
+        assert_eq!(check_effort(&json!("high"), "openai", "other", &catalog()), Ok(Some("high".to_owned())));
+    }
+
+    #[test]
+    fn a_send_that_reports_nothing_back_says_why_only_when_accepted() {
+        assert_eq!(unreported("sess_a", None, false, 0), json!({ "sessionId": "sess_a", "accepted": false, "reportsBack": false }));
+        assert_eq!(
+            unreported("sess_a", Some("member"), true, 2),
+            json!({ "sessionId": "sess_a", "to": "member", "accepted": true, "reportsBack": false, "reportsBackReason": NOT_BOT_REASON, "hop": 2 })
+        );
+    }
+}

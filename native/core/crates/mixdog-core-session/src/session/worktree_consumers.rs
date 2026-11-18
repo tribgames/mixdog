@@ -66,9 +66,14 @@ fn consumer(id: String, header: &Header) -> LiveSession {
         closed: false,
         owner_session_id: text("ownerSessionId").map(str::to_owned),
         parent_session_id: text("parentSessionId").map(str::to_owned),
+        owner: text("owner").map(str::to_owned),
     }
 }
 
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "worktree_consumers_tests.rs"]
 mod tests;

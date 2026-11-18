@@ -14,8 +14,11 @@ use tokio_util::sync::CancellationToken;
 use crate::effort_judge::install::{self, Manifest, ManifestFile};
 use crate::effort_judge::model::{ModelConfig, OrtRuntime};
 use crate::memory::embed::engine::EmbedConfig;
+#[cfg(node_twin)]
 use crate::memory::embed::install as embed_install;
+#[cfg(node_twin)]
 use crate::memory::embed::provider::EmbeddingProvider;
+#[cfg(node_twin)]
 use crate::memory::recall::QueryEmbedder;
 use crate::model_install::{InstallError, Progress, ProgressSink, download_to_file, sha256_file, DownloadError, Spec};
 
@@ -92,10 +95,6 @@ impl Server {
     }
 }
 
-pub(super) fn lane() -> mixdog_rt::CpuBulk {
-    mixdog_rt::testing::tokens().cpu_bulk
-}
-
 pub(super) fn sha(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -126,6 +125,16 @@ pub(super) fn big(seed: u8, len: usize) -> Vec<u8> {
     (0..len).map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed) | 1).collect()
 }
 
+#[test]
+fn the_bundled_manifest_is_valid() {
+    let m = Manifest::bundled().expect("valid");
+    assert_eq!(m.release, "effort-judge-v7");
+    assert_eq!(m.files().count(), 3);
+}
+
+pub(super) fn lane() -> mixdog_rt::CpuBulk {
+    mixdog_rt::testing::tokens().cpu_bulk
+}
 #[tokio::test(flavor = "multi_thread")]
 async fn download_reports_bytes_checks_size_and_leaves_nothing_on_failure() {
     let body = big(1, 400_000);
@@ -166,7 +175,6 @@ async fn download_reports_bytes_checks_size_and_leaves_nothing_on_failure() {
     assert!(matches!(download_to_file(&over, None, &cancel).await, Err(DownloadError::Size(_))));
     assert_eq!(sha256_file(lane(), &dest).await.expect("hash"), sha(&body));
 }
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cancelled_download_ends_without_any_timer() {
     let server = Server::start(vec![("/stall", Route::Stall)]).await;
@@ -188,7 +196,6 @@ async fn a_cancelled_download_ends_without_any_timer() {
     assert!(matches!(result, Err(DownloadError::Cancelled)));
     assert!(!dest.exists());
 }
-
 #[tokio::test(flavor = "multi_thread")]
 async fn judge_install_verifies_stamps_skips_and_repairs() {
     let (model, tokenizer, calibration) = (big(2, 300_000), big(3, 120_000), br#"{"temperature":1.5,"steps":1}"#.to_vec());
@@ -234,7 +241,6 @@ async fn judge_install_verifies_stamps_skips_and_repairs() {
     assert_eq!(server2.hits("/calibration.json"), 1);
     assert_eq!(std::fs::read(target.join("calibration.json")).expect("cal"), calibration2);
 }
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hash_mismatch_never_replaces_a_working_file() {
     let good = big(4, 50_000);
@@ -248,26 +254,17 @@ async fn a_hash_mismatch_never_replaces_a_working_file() {
     assert_eq!(std::fs::read(dir.path().join("model.onnx")).expect("kept"), b"previous working model");
     assert!(!install::install_stamped(dir.path()));
 }
-
-#[test]
-fn the_bundled_manifest_is_valid() {
-    let m = Manifest::bundled().expect("valid");
-    assert_eq!(m.release, "effort-judge-v7");
-    assert_eq!(m.files().count(), 3);
-}
-
 /// The staged ONNX Runtime, for the integration tests that run real inference
 /// (those are `#[ignore]`d with the reason; run them with `--ignored`).
 pub(super) fn real_ort() -> PathBuf {
     PathBuf::from(std::env::var_os("MIXDOG_ORT_LIBRARY").expect("MIXDOG_ORT_LIBRARY names the staged onnxruntime"))
 }
-
+#[cfg(node_twin)]
 /// A config whose runtime library does not exist: every load fails, which is
 /// all the install and trigger logic needs.
 pub(super) fn embed_config(cache: &Path) -> EmbedConfig {
     embed_config_with(cache, PathBuf::from("unused"))
 }
-
 pub(super) fn embed_config_with(cache: &Path, ort_library: PathBuf) -> EmbedConfig {
     EmbedConfig {
         model_id: crate::memory::embed::config::DEFAULT_MODEL_ID.into(),
@@ -278,7 +275,25 @@ pub(super) fn embed_config_with(cache: &Path, ort_library: PathBuf) -> EmbedConf
         lane: lane(),
     }
 }
+#[tokio::test(flavor = "multi_thread")]
+async fn a_download_routed_by_the_network_proxy_policy_still_lands() {
+    let policy = mixdog_ai::netproxy::NetworkProxy::new(Arc::new(mixdog_ai::netproxy::ProcessEnv), mixdog_ai::netproxy::SystemProxy::default());
+    // Nothing goes out before the setting is read from the config once; this config names no proxy.
+    policy.adopt(&serde_json::json!({ "mode": "off" }));
+    let clients = mixdog_ai::netproxy::clients::RoutedClients::new(policy, |_| reqwest::Client::builder().no_proxy().build());
+    crate::model_install::route_downloads(Arc::new(clients));
+    let body = big(3, 5_000);
+    let server = Server::start(vec![("/routed", Route::Body(body.clone()))]).await;
+    let dir = tempfile::tempdir().expect("dir");
+    let dest = dir.path().join("routed.bin");
+    let url = format!("{}/routed", server.base);
+    let spec = Spec { url: &url, dest: &dest, max_bytes: 10_000, expected_bytes: 0, label: "routed", lane: lane() };
+    assert_eq!(download_to_file(&spec, None, &CancellationToken::new()).await.expect("downloads"), body.len() as u64);
+    assert_eq!(std::fs::read(&dest).expect("file"), body);
+}
 
+
+#[cfg(node_twin)]
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: real inference needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
 async fn an_uninstalled_embedding_model_answers_no_vector_at_once_then_installs_and_works() {
@@ -317,21 +332,4 @@ async fn an_uninstalled_embedding_model_answers_no_vector_at_once_then_installs_
     // Installing again fetches nothing.
     provider.install(None, &CancellationToken::new()).await.expect("again");
     assert_eq!(server.hits(&format!("/{id}/resolve/main/tokenizer.json")), 1);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_download_routed_by_the_network_proxy_policy_still_lands() {
-    let policy = mixdog_ai::netproxy::NetworkProxy::new(Arc::new(mixdog_ai::netproxy::ProcessEnv), mixdog_ai::netproxy::SystemProxy::default());
-    // Nothing goes out before the setting is read from the config once; this config names no proxy.
-    policy.adopt(&serde_json::json!({ "mode": "off" }));
-    let clients = mixdog_ai::netproxy::clients::RoutedClients::new(policy, |_| reqwest::Client::builder().no_proxy().build());
-    crate::model_install::route_downloads(Arc::new(clients));
-    let body = big(3, 5_000);
-    let server = Server::start(vec![("/routed", Route::Body(body.clone()))]).await;
-    let dir = tempfile::tempdir().expect("dir");
-    let dest = dir.path().join("routed.bin");
-    let url = format!("{}/routed", server.base);
-    let spec = Spec { url: &url, dest: &dest, max_bytes: 10_000, expected_bytes: 0, label: "routed", lane: lane() };
-    assert_eq!(download_to_file(&spec, None, &CancellationToken::new()).await.expect("downloads"), body.len() as u64);
-    assert_eq!(std::fs::read(&dest).expect("file"), body);
 }

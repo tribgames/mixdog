@@ -51,11 +51,19 @@ const VALUES_CELLS: i64 = 2000;
 /// `Snapshot-Excel`.
 pub(super) fn snapshot_excel(book: &Obj, payload: &Value) -> Result<Value> {
     let book = Com::Dispatch(book.clone());
+    let paged = payload_flag(payload, "paged");
+    let worksheets = items_of(&book.member("Worksheets")?)?;
+    // A paged read walks the workbook one sheet at a time, as the portable reader pages it: the sheet the caller named, else the one
+    // the walk is on, and its populated cells from `offset` on, at most `limit` of them.
+    let walk = if paged { Some(Walk::of(payload, &worksheets)?) } else { None };
     let mut sheets = Vec::new();
-    let mut complete_cells = 0usize;
-    for sheet in items_of(&book.member("Worksheets")?)? {
-        let (entry, cell_count) = sheet_entry(&book, &sheet, payload)?;
-        complete_cells += cell_count;
+    let (mut returned, mut total) = (0usize, 0usize);
+    for (at, sheet) in worksheets.iter().enumerate() {
+        if walk.as_ref().is_some_and(|walk| walk.sheet != at) {
+            continue;
+        }
+        let (entry, shown, counted) = sheet_entry(&book, sheet, payload, walk.as_ref().map(|walk| walk.window()))?;
+        (returned, total) = (shown, counted);
         sheets.push(entry);
     }
     let mut defined_names = Vec::new();
@@ -92,19 +100,9 @@ pub(super) fn snapshot_excel(book: &Obj, payload: &Value) -> Result<Value> {
     let active_sheet = string_of(&book.member("ActiveSheet")?.member("Name")?);
     let style = default_style(&book);
     let defined_name_count = defined_names.len();
-    let pagination = if payload_flag(payload, "paged") {
-        let limit = convert::to_int(&payload::property(payload, "limit")).map_err(crate::com::Error::host)?.max(1);
-        ordered(vec![
-            ("unit", Value::string("cell")),
-            ("scope", Value::string("workbook")),
-            ("offset", Value::Int(0)),
-            ("limit", Value::Int(limit)),
-            ("returned", Value::Long(complete_cells as i64)),
-            ("total", Value::Long(complete_cells as i64)),
-            ("nextOffset", Value::Null),
-        ])
-    } else {
-        Value::Null
+    let pagination = match &walk {
+        Some(walk) => walk.pagination(returned, total, worksheets.len()),
+        None => Value::Null,
     };
     Ok(ordered(vec![
         ("format", Value::string("xlsx")),
@@ -497,7 +495,79 @@ fn protection_of(sheet: &Com) -> Result<Value> {
 }
 
 /// One worksheet's entry and how many cells its page holds.
-fn sheet_entry(book: &Com, sheet: &Com, payload: &Value) -> Result<(Value, usize)> {
+/// Where a paged read of the workbook is: which sheet, and which populated cells of it.
+struct Walk {
+    sheet: usize,
+    named: bool,
+    name: String,
+    offset: usize,
+    limit: usize,
+    range: Option<String>,
+}
+
+impl Walk {
+    fn of(payload: &Value, worksheets: &[Com]) -> Result<Self> {
+        let named = payload_flag(payload, "sheet");
+        let sheet = if named {
+            let wanted = payload_text(payload, "sheet");
+            let mut found = None;
+            for (at, sheet) in worksheets.iter().enumerate() {
+                if payload::names_equal(&wanted, &string_of(&sheet.member("Name")?)) {
+                    found = Some(at);
+                    break;
+                }
+            }
+            found.ok_or_else(|| crate::com::Error::host(format!("XLSX sheet not found: {wanted}")))?
+        } else {
+            let offset = convert::to_int(&payload::property(payload, "sheetOffset")).map_err(crate::com::Error::host)?;
+            offset.clamp(0, (worksheets.len() as i32 - 1).max(0)) as usize
+        };
+        let number = |name: &str| convert::to_int(&payload::property(payload, name)).map_err(crate::com::Error::host);
+        let limit = number("limit")?;
+        Ok(Self {
+            sheet,
+            named,
+            name: string_of(&worksheets[sheet].member("Name")?),
+            offset: number("offset")?.max(0) as usize,
+            limit: if limit == 0 { 2000 } else { limit.max(1) as usize },
+            range: payload_flag(payload, "range").then(|| payload_text(payload, "range")),
+        })
+    }
+
+    fn window(&self) -> Window<'_> {
+        Window { offset: self.offset, limit: self.limit, range: self.range.as_deref() }
+    }
+
+    /// The pagination block the portable reader answers: the window of populated cells just read, and where the walk goes on (the
+    /// next cell of this sheet, else the next sheet when the caller named none).
+    fn pagination(&self, returned: usize, total: usize, sheets: usize) -> Value {
+        let next = self.offset + returned < total;
+        let range = self.range.as_ref().map(|range| format!("!{range}")).unwrap_or_default();
+        let mut fields = vec![
+            ("unit", Value::string("populated-cell")),
+            ("scope", Value::String(format!("{}{range}", self.name))),
+            ("offset", Value::Long(self.offset as i64)),
+            ("limit", Value::Long(self.limit as i64)),
+            ("returned", Value::Long(returned as i64)),
+            ("total", Value::Long(total as i64)),
+            ("nextOffset", if next { Value::Long((self.offset + returned) as i64) } else { Value::Null }),
+        ];
+        if !next && !self.named && self.sheet + 1 < sheets {
+            fields.push(("nextSheetOffset", Value::Long(self.sheet as i64 + 1)));
+        }
+        ordered(fields)
+    }
+}
+
+/// The populated cells a paged read keeps.
+struct Window<'a> {
+    offset: usize,
+    limit: usize,
+    range: Option<&'a str>,
+}
+
+/// One worksheet's entry, how many cells it shows and (for a paged read) how many populated cells lie in the range.
+fn sheet_entry(book: &Com, sheet: &Com, payload: &Value, window: Option<Window<'_>>) -> Result<(Value, usize, usize)> {
     let used = sheet.member("UsedRange")?;
     // Rows and columns the sheet withholds (a filter, an outline, a working column).
     let (hidden_rows, hidden_columns) = hidden_lines(&used);
@@ -554,14 +624,31 @@ fn sheet_entry(book: &Com, sheet: &Com, payload: &Value) -> Result<(Value, usize
     // A sheet past 500 cells reads its first rows up to that many cells and says it was cut, as the portable reader pages
     // it: it had read none, and every review of cells (the header, the hierarchy, the formulas) passed a large sheet on
     // Excel unread.
-    let columns_read = min_int(dimension_count(&used, "Columns")?, PAGE_CELLS)?;
-    let rows_read = min_int(dimension_count(&used, "Rows")?, blocks_fitting(PAGE_CELLS, columns_read)?)?;
-    let truncated = rows_read < dimension_count(&used, "Rows")? || columns_read < dimension_count(&used, "Columns")?;
-    entry.set("truncated", Value::Bool(truncated));
     // Where the sheet's rows end, past the page the cells were read from.
     let last_row = int_of(&used.member("Row")?)? + dimension_count(&used, "Rows")? - 1;
+    let (cells, truncated, total) = match &window {
+        Some(window) => {
+            let base = match window.range {
+                Some(range) => get_with(sheet, "Range", &[Com::Str(range.to_owned())])?,
+                None => used.clone(),
+            };
+            let (cells, total) = paged_cells(sheet, &base, window)?;
+            let truncated = window.offset + cells.len() < total;
+            (cells, truncated, total)
+        }
+        None => {
+            let columns_read = min_int(dimension_count(&used, "Columns")?, PAGE_CELLS)?;
+            let rows_read = min_int(dimension_count(&used, "Rows")?, blocks_fitting(PAGE_CELLS, columns_read)?)?;
+            let truncated = rows_read < dimension_count(&used, "Rows")? || columns_read < dimension_count(&used, "Columns")?;
+            let mut cells = read_block(sheet, &used, 0, rows_read, columns_read, &mut || true)?;
+            style_cells(sheet, &mut cells)?;
+            let cells: Vec<Value> = cells.into_iter().map(Value::Object).collect();
+            let total = cells.len();
+            (cells, truncated, total)
+        }
+    };
+    entry.set("truncated", Value::Bool(truncated));
     entry.set("lastRow", Value::Int(last_row));
-    let cells = read_cells(sheet, &used, rows_read, columns_read)?;
     let cell_count = cells.len();
     let lineage_entries: Vec<Value> =
         cells.iter().filter(|cell| convert::to_bool(&payload::property(cell, "formula"))).cloned().collect();
@@ -581,28 +668,30 @@ fn sheet_entry(book: &Com, sheet: &Com, payload: &Value) -> Result<(Value, usize
             entry.set("address", Value::String(string_of(&get_with(&range, "Address", &[])?)));
         }
     }
-    Ok((Value::Object(entry), cell_count))
+    Ok((Value::Object(entry), cell_count, total))
 }
 
-/// The cells of the page: its values and formulas come in one array each (asking every cell cost two calls even when it
-/// was empty, and its address a third). Only a cell holding something is asked about its style, a column's block at a time.
-/// A formula-looking string is confirmed with HasFormula.
-fn read_cells(sheet: &Com, used: &Com, rows_read: i32, columns_read: i32) -> Result<Vec<Value>> {
+/// The cells of a block of `rows` rows of `base` from row `row0`: its values and formulas come in one array each (asking every cell
+/// cost two calls even when it was empty, and its address a third). `keep` is asked once for each populated cell, in order, and
+/// answers whether to read that one out; a cell it declines is counted by the caller and costs no COM call. A formula-looking string is
+/// confirmed with HasFormula. Styles are read afterwards, by [`style_cells`].
+fn read_block(sheet: &Com, base: &Com, row0: i32, rows: i32, columns: i32, keep: &mut dyn FnMut() -> bool) -> Result<Vec<Object>> {
     let sheet_name = string_of(&sheet.member("Name")?);
-    let first_row = int_of(&used.member("Row")?)?;
-    let first_column = int_of(&used.member("Column")?)?;
-    let first = get_with(&used.member("Cells")?, "Item", &[Com::I4(1), Com::I4(1)])?;
-    let page = get_with(&first, "Resize", &[Com::I4(rows_read), Com::I4(columns_read)])?;
+    let first_row = int_of(&base.member("Row")?)?;
+    let first_column = int_of(&base.member("Column")?)?;
+    let first = get_with(&base.member("Cells")?, "Item", &[Com::I4(row0 + 1), Com::I4(1)])?;
+    let page = get_with(&first, "Resize", &[Com::I4(rows), Com::I4(columns)])?;
     let page_values = page.member("Value2")?;
     let page_formulas = page.member("Formula")?;
     let mut cells: Vec<Object> = Vec::new();
-    // The populated rows of each column, whose styles are read below a block at a time.
-    let mut column_rows: Vec<(String, Vec<i32>)> = Vec::new();
-    for r in 1..=rows_read {
-        for c in 1..=columns_read {
+    for r in 1..=rows {
+        for c in 1..=columns {
             let value = matrix_value(&page_values, r, c);
             let written = string_of(&matrix_value(&page_formulas, r, c));
             if is_ps_null(&value) && !written.starts_with('=') {
+                continue;
+            }
+            if !keep() {
                 continue;
             }
             let formula = if written.starts_with('=') && bool_of(&get_with(&page.member("Cells")?, "Item", &[Com::I4(r), Com::I4(c)])?.member("HasFormula")?)
@@ -614,9 +703,7 @@ fn read_cells(sheet: &Com, used: &Com, rows_read: i32, columns_read: i32) -> Res
             if is_ps_null(&value) && formula.is_null() {
                 continue;
             }
-            let letters = column_letters(first_column + c - 1);
-            let row = first_row + r - 1;
-            let address = format!("{letters}{row}");
+            let address = format!("{}{}", column_letters(first_column + c - 1), first_row + row0 + r - 1);
             let mut cell = Object::new(ObjectKind::Ordered);
             cell.set("path", Value::String(format!("/sheet[{sheet_name}]/cell[{address}]")));
             cell.set("ref", Value::String(address));
@@ -624,19 +711,75 @@ fn read_cells(sheet: &Com, used: &Com, rows_read: i32, columns_read: i32) -> Res
             cell.set("formula", formula);
             cell.set("style", Value::Null);
             cells.push(cell);
-            match column_rows.iter().position(|(known, _)| payload::names_equal(known, &letters)) {
-                Some(at) => column_rows[at].1.push(row),
-                None => column_rows.push((letters, vec![row])),
-            }
+        }
+    }
+    Ok(cells)
+}
+
+/// Gives each cell its style: only a cell holding something is asked, a column's block at a time.
+fn style_cells(sheet: &Com, cells: &mut [Object]) -> Result<()> {
+    // The populated rows of each column.
+    let mut column_rows: Vec<(String, Vec<i32>)> = Vec::new();
+    for cell in cells.iter() {
+        let reference = convert::to_ps_string(&cell.get("ref").cloned().unwrap_or(Value::Null));
+        let split = reference.find(|c: char| c.is_ascii_digit()).unwrap_or(reference.len());
+        let (letters, row) = (reference[..split].to_owned(), reference[split..].parse::<i32>().unwrap_or(0));
+        match column_rows.iter().position(|(known, _)| payload::names_equal(known, &letters)) {
+            Some(at) => column_rows[at].1.push(row),
+            None => column_rows.push((letters, vec![row])),
         }
     }
     let mut styles: HashMap<String, Value> = HashMap::new();
     for (letters, rows) in &column_rows {
         column_cell_styles(sheet, letters, rows, &mut styles, 0, rows.len() - 1)?;
     }
-    for cell in &mut cells {
+    for cell in cells.iter_mut() {
         let reference = convert::to_ps_string(&cell.get("ref").cloned().unwrap_or(Value::Null));
         cell.set("style", styles.get(&reference).cloned().unwrap_or(Value::Null));
     }
-    Ok(cells.into_iter().map(Value::Object).collect())
+    Ok(())
+}
+
+/// The window of populated cells of `base` (row by row, in blocks of about [`PAGE_CELLS`] cells), and how many populated cells the
+/// whole range holds: the walk reads on past the window to count them, but reads out only the cells inside it.
+fn paged_cells(sheet: &Com, base: &Com, window: &Window<'_>) -> Result<(Vec<Value>, usize)> {
+    let (rows, columns) = (dimension_count(base, "Rows")?, dimension_count(base, "Columns")?);
+    let block = blocks_fitting(PAGE_CELLS, columns)?;
+    let (mut seen, mut kept, mut row0) = (0usize, Vec::new(), 0);
+    while row0 < rows {
+        let height = min_int(block, rows - row0)?;
+        let mut keep = || {
+            let inside = seen >= window.offset && seen < window.offset + window.limit;
+            seen += 1;
+            inside
+        };
+        kept.extend(read_block(sheet, base, row0, height, columns, &mut keep)?);
+        row0 += height;
+    }
+    style_cells(sheet, &mut kept)?;
+    Ok((kept.into_iter().map(Value::Object).collect(), seen))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn field(pagination: &Value, name: &str) -> Value {
+        payload::property(pagination, name)
+    }
+
+    #[test]
+    fn a_page_of_two_cells_one_at_a_time_reports_the_true_total_and_continues() {
+        let walk = |offset| Walk { sheet: 0, named: false, name: "Data".to_owned(), offset, limit: 1, range: None };
+        let first = walk(0).pagination(1, 2, 3);
+        assert_eq!((field(&first, "total"), field(&first, "nextOffset")), (Value::Long(2), Value::Long(1)));
+        assert!(field(&first, "nextSheetOffset").is_null(), "this sheet is not read out yet");
+        // The last cell of the sheet: no next offset, and the walk goes into the next sheet.
+        let last = walk(1).pagination(1, 2, 3);
+        assert_eq!((field(&last, "returned"), field(&last, "nextOffset"), field(&last, "nextSheetOffset")), (Value::Long(1), Value::Null, Value::Long(1)));
+        // A named sheet, or the last sheet, ends the walk.
+        let named = Walk { named: true, ..walk(1) }.pagination(1, 2, 3);
+        assert!(field(&named, "nextOffset").is_null() && field(&named, "nextSheetOffset").is_null());
+        assert!(field(&Walk { sheet: 2, ..walk(1) }.pagination(1, 2, 3), "nextSheetOffset").is_null());
+    }
 }

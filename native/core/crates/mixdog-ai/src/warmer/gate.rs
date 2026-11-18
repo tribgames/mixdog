@@ -48,6 +48,11 @@ pub trait QuotaResumes: Send + Sync {
 #[async_trait]
 pub trait UsageSnapshots: Send + Sync {
     async fn cached(&self, provider: &str) -> Option<(Vec<Window>, i64)>;
+
+    /// The same reading, only when it was measured under the sign-in `stamp` names; a source that cannot tell has none.
+    async fn cached_bound(&self, _provider: &str, _stamp: &str) -> Option<(Vec<Window>, i64)> {
+        None
+    }
 }
 
 /// `readCachedOAuthUsageSnapshot({ provider, model: '' })` over the process's usage cache. A
@@ -67,6 +72,10 @@ impl UsageSnapshots for OAuthUsage {
             .collect();
         let cached_at = snapshot.get("cachedAt").and_then(serde_json::Value::as_f64).unwrap_or(0.0) as i64;
         Some((windows, cached_at))
+    }
+
+    async fn cached_bound(&self, provider: &str, stamp: &str) -> Option<(Vec<Window>, i64)> {
+        self.read_bound(provider, stamp).await
     }
 }
 
@@ -117,8 +126,37 @@ pub fn roster_block(
     reading_block(provider, usage.map(|u| u.windows.as_slice()), usage.map_or(0, |u| u.checked_at), now, exhausted)
 }
 
-/// The gate over the process's admission lanes, account roster and the three small seams above.
+/// Whether a provider's plan meters describe the service its sends and warms go to (`registry::builder::plan_meters_describe`
+/// over its configuration): the one rule both the send path and this gate follow.
+#[async_trait]
+pub trait PlanScope: Send + Sync {
+    async fn plan_meters_apply(&self, provider: &str) -> bool;
+}
+
+/// The rule as a reader of the host's provider settings as a send builds them (stored settings merged over the
+/// defaults), not the stored section alone.
+pub struct ScopeBy(pub Arc<dyn Fn(&str) -> futures::future::BoxFuture<'static, bool> + Send + Sync>);
+
+#[async_trait]
+impl PlanScope for ScopeBy {
+    async fn plan_meters_apply(&self, provider: &str) -> bool {
+        (self.0)(provider).await
+    }
+}
+
+/// Every provider goes to its own service.
+pub struct OwnServices;
+
+#[async_trait]
+impl PlanScope for OwnServices {
+    async fn plan_meters_apply(&self, _: &str) -> bool {
+        true
+    }
+}
+
+/// The gate over the process's admission lanes, account roster and the seams above.
 pub struct AccountGate {
+    pub scope: Arc<dyn PlanScope>,
     pub admission: Arc<Admission>,
     /// The settings the provider's ordinary sends open the lane with; a warm never creates a lane
     /// with different ones.
@@ -143,13 +181,14 @@ impl AccountGate {
         switch: Arc<dyn ProviderSwitch>,
         resumes: Arc<dyn QuotaResumes>,
         snapshots: Arc<dyn UsageSnapshots>,
+        scope: Arc<dyn PlanScope>,
     ) -> Self {
         let now_ms = Arc::new(|| {
             std::time::SystemTime::now()
                 .duration_since(std::time::SystemTime::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as i64)
         });
-        Self { admission, lane_settings, store, rotation, switch, resumes, snapshots, now_ms }
+        Self { admission, lane_settings, store, rotation, switch, resumes, snapshots, scope, now_ms }
     }
 
     fn lane_key(target: &GateTarget) -> LaneKey {
@@ -177,6 +216,16 @@ impl AccountGate {
         }
         // A roster that cannot be read is not evidence of room.
         let Ok(pool) = self.store.pool(&target.provider).await else { return Some("account not connected".to_owned()) };
+        // A destination the plan meters were not proven for borrows none of them: only what the account's own refusals
+        // hold (blocks) can stop the warm, as for a send there.
+        if !self.scope.plan_meters_apply(&target.provider).await {
+            let held = pool.account(&target.account_id).is_some_and(|row| {
+                let mut row = row.clone();
+                row.usage = None;
+                account_exhausted(&row, now, &target.model, pool.uses_credits())
+            });
+            return held.then(|| "account blocked".to_owned());
+        }
         let snapshot = if pool.accounts.is_empty() { self.snapshots.cached(&target.provider).await } else { None };
         roster_block(&target.provider, &target.account_id, &target.model, now, &pool.accounts, pool.uses_credits(), snapshot.as_ref())
             .map(str::to_owned)
@@ -201,7 +250,14 @@ impl WarmGate for AccountGate {
         }
         if !target.account_id.is_empty() && ACCOUNT_PROVIDERS.contains(&target.provider.as_str()) {
             self.rotation
-                .record_refusal(&target.provider, &target.account_id, &target.model, &Failed::new(error.clone()), None)
+                .record_refusal(
+                    &target.provider,
+                    &target.account_id,
+                    &target.model,
+                    &Failed::new(error.clone()),
+                    None,
+                    self.scope.plan_meters_apply(&target.provider).await,
+                )
                 .await
                 .map_err(|e| e.to_string())?;
         }

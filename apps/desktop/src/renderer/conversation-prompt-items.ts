@@ -26,9 +26,6 @@ export type PendingPromptItem = TranscriptItem & {
   queueEntry?: unknown;
   /** Submitted from this pane, not yet in the session runtime's queue. */
   steerLocal?: boolean;
-  /** Its own durable row has landed; it is kept only while its turn is not
-   *  reported (promptsAwaitingTurn) and never shows as a bubble again. */
-  landed?: boolean;
 };
 
 export function settledUserRowCount(items: readonly TranscriptItem[]): number {
@@ -118,8 +115,7 @@ export function pendingPromptTranscriptItems(
     }
     const baseline = Number(item.settledUserBaseline);
     const ordinal = Math.max(Number.isFinite(baseline) ? baseline : 0, claimedThrough) + 1;
-    // A landed prompt's row may leave again (a clear or rewind): it does not come back as a bubble.
-    if (item.landed || settledIds.has(String(item.id))) {
+    if (settledIds.has(String(item.id))) {
       claimedThrough = ordinal;
       continue;
     }
@@ -133,32 +129,6 @@ export function pendingPromptTranscriptItems(
     rows.push({ ...item, pending: true });
   }
   return rows;
-}
-
-/** How long a prompt whose own row has landed keeps the working band up
- *  while its turn is not reported: a prompt that starts no turn (or whose
- *  report never comes) does not leave the band standing. */
-export const PROMPT_TURN_REPORT_WAIT_MS = 1_500;
-
-/**
- * The idle prompts whose own durable row is in the transcript while their
- * turn is not reported yet: the runtime is not busy and nothing followed the
- * row. The core publishes the row before the turn's running state, so for
- * those states nothing else holds the working band up; dropping it moved the
- * followed transcript by the band's height and back (Node published both in
- * one frame).
- */
-export function promptsAwaitingTurn(
-  optimistic: readonly PendingPromptItem[],
-  settled: readonly TranscriptItem[],
-  busy: boolean
-): PendingPromptItem[] {
-  if (busy || settled.length === 0) return [];
-  const lastId = settled[settled.length - 1]?.id;
-  if (lastId === undefined || lastId === null) return [];
-  return optimistic.filter(
-    (item) => !item.queuedBehindTurn && item.steer !== 'failed' && String(item.id) === String(lastId)
-  );
 }
 
 /** Whether the runtime holds this queued text for after the turn: a slash
@@ -186,14 +156,17 @@ export function steerPromptItems(sessionQueue: readonly unknown[], pending: read
     const text = String(record.displayText || record.text || twin?.text || '').trim();
     const images = Array.isArray(record.images) && record.images.length ? record.images : twin?.images;
     if (!text && !images?.length) continue;
-    const submittedAt = Number(record.submittedAt);
+    const enqueuedAt = Number(record.submittedAt);
+    const submittedAt = Number.isFinite(enqueuedAt) && enqueuedAt > 0 ? enqueuedAt : (twin?.submittedAt ?? 0);
     rows.push({
       id,
       kind: 'user',
       text,
       pending: true,
       accepted: true,
-      submittedAt: Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : (twin?.submittedAt ?? 0),
+      submittedAt,
+      // A chat lays the waiting bubble out with its time line, as its durable row will be (agent-chat-place.ts).
+      ...(submittedAt > 0 ? { at: submittedAt } : {}),
       queuedBehindTurn: true,
       steer: heldForTurnEnd(text, record) ? 'held' : 'pending',
       queueEntry: entry,

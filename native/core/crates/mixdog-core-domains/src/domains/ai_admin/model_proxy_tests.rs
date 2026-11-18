@@ -89,6 +89,33 @@ fn a_request_survives_the_wire() {
     assert_eq!(request_in(*request).unwrap(), sent);
 }
 
+#[test]
+fn proxied_text_blocks_keep_cache_markers_at_their_original_positions() {
+    use mixdog_ai::providers::compat::{CompatChatCodec, CompatConfig, CompatProfile};
+    use mixdog_core_api::domain::provider::WireCodec;
+
+    let mut sent = request();
+    sent.messages = vec![p::Message::new(p::Role::System, p::Content::Parts(vec![
+        p::ContentPart::Text("before".into(), None),
+        p::ContentPart::Text("marked".into(), Some(json!({
+            "cache_control": { "type": "ephemeral", "ttl": "1h" },
+            "localOnly": "not forwarded",
+        }).as_object().unwrap().clone())),
+        p::ContentPart::Text("after".into(), None),
+    ]))];
+    let wire = serde_json::to_string(&request_out(&sent)).unwrap();
+    assert!(!wire.contains("localOnly"));
+    assert!(wire.contains(r#""cacheControl":{"type":"ephemeral","ttl":"1h"}"#));
+    let got = request_in(serde_json::from_str(&wire).unwrap()).unwrap();
+    let encoded = CompatChatCodec::new(CompatProfile::openrouter(), CompatConfig::default()).encode(&got).unwrap();
+    let body: Value = serde_json::from_slice(&encoded.body).unwrap();
+    assert_eq!(body["messages"][0]["content"], json!([
+        { "type": "text", "text": "before" },
+        { "type": "text", "text": "marked", "cache_control": { "type": "ephemeral", "ttl": "1h" } },
+        { "type": "text", "text": "after" },
+    ]));
+}
+
 /// The account that served an answer rides on the history the server sends back, so the PC's pool keeps the next turn on it
 /// (Node's `providerMetadata.accountRouting`, read by `sessionAccountId` and `customKeyServedBy`; the PC's pool reads it as
 /// `KeyPool`'s bound hint, replayed in mixdog-ai registry/gateway_replay.rs from the recorded gateway cases).
@@ -96,10 +123,17 @@ fn a_request_survives_the_wire() {
 fn the_account_that_served_an_answer_rides_on_the_history() {
     let mut sent = request();
     let mut served = p::Message::new(p::Role::Assistant, p::Content::Text("ok".into()));
-    served.account_routing = Some(p::AccountRouting { provider: "custom-x".into(), account_id: "k2".into(), session_account_id: Some("k1".into()) });
+    served.account_routing = Some(p::AccountRouting {
+        provider: "custom-x".into(),
+        account_id: "k2".into(),
+        session_account_id: Some("k1".into()),
+    });
     sent.messages.push(served);
     let text = serde_json::to_string(&request_out(&sent)).unwrap();
-    assert!(text.contains(r#""accountRouting":{"provider":"custom-x","accountId":"k2","sessionAccountId":"k1"}"#), "{text}");
+    assert!(
+        text.contains(r#""accountRouting":{"provider":"custom-x","accountId":"k2","sessionAccountId":"k1"}"#),
+        "{text}"
+    );
     let got = request_in(serde_json::from_str(&text).unwrap()).unwrap();
     assert_eq!(got.messages.last().unwrap().account_routing, sent.messages.last().unwrap().account_routing);
 }
@@ -181,6 +215,7 @@ fn variant_name(event: &p::StreamEvent) -> &'static str {
         E::ItemStart { .. } => "ItemStart",
         E::TextDelta(_) => "TextDelta",
         E::ReasoningDelta(_) => "ReasoningDelta",
+        E::ProgressDelta(_) => "ProgressDelta",
         E::ReasoningReplay(_) => "ReasoningReplay",
         E::ToolCallStart { .. } => "ToolCallStart",
         E::ToolCallArgsDelta { .. } => "ToolCallArgsDelta",
@@ -209,7 +244,8 @@ fn variant_name(event: &p::StreamEvent) -> &'static str {
     }
 }
 
-const STREAM_EVENT_VARIANTS: [&str; 28] = [
+const STREAM_EVENT_VARIANTS: [&str; 29] = [
+    "ProgressDelta",
     "AccountRouting",
     "AccountStage",
     "WireRerouted",
@@ -251,6 +287,7 @@ fn every_stream_event_survives_the_wire() {
         p::StreamEvent::ItemStart { kind: p::ItemKind::Text, phase: Some(p::Phase::Commentary) },
         p::StreamEvent::TextDelta("a".into()),
         p::StreamEvent::ReasoningDelta("b".into()),
+        p::StreamEvent::ProgressDelta("reading".into()),
         p::StreamEvent::ReasoningReplay(p::ProviderReplay { owner: "openai".into(), items: json!([{ "id": "rs1" }]) }),
         p::StreamEvent::ToolCallStart { id: "c1".into(), name: "read".into() },
         p::StreamEvent::ToolCallArgsDelta { id: "c1".into(), delta: "{\"p".into() },
@@ -275,7 +312,11 @@ fn every_stream_event_survives_the_wire() {
         p::StreamEvent::ServedModel("gemini-3.8-flash".into()),
         p::StreamEvent::ProviderMetadata(json!({ "anthropicFallbacks": [{ "trigger": "refusal" }] })),
         p::StreamEvent::ResponseId("resp_1".into()),
-        p::StreamEvent::AccountRouting(p::AccountRouting { provider: "custom-x".into(), account_id: "k2".into(), session_account_id: Some("k2".into()) }),
+        p::StreamEvent::AccountRouting(p::AccountRouting {
+            provider: "custom-x".into(),
+            account_id: "k2".into(),
+            session_account_id: Some("k2".into()),
+        }),
         p::StreamEvent::AccountStage(p::AccountStage::Switching { message: "Quota exhausted — switching to the next account".into() }),
         p::StreamEvent::AccountStage(p::AccountStage::Changed { provider: "custom-x".into(), account_id: "k2".into(), at: 1 }),
         p::StreamEvent::WireRerouted(json!({ "provider": "openrouter", "model": "m", "wire": "chat", "source": "reroute", "loweredAssistantCount": 0 })),
@@ -487,50 +528,12 @@ impl mixdog_ai::transport::HttpSend for Offline {
     }
 }
 
-async fn catalog(models: &[(&str, &str)]) -> Arc<mixdog_ai::catalog::CatalogService> {
-    use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelRecord, ModelsDevSource};
-    let tokens = mixdog_rt::testing::tokens();
-    let mut snapshot = CatalogSnapshot::default();
-    for (provider, id) in models {
-        snapshot.models.entry((*provider).into()).or_default().push(ModelRecord::new((*provider).into(), *id));
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
-    let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
-    Arc::new(CatalogService::cold_start(snapshot, Vec::new(), metadata).await)
-}
-
-pub(in crate::domains::ai_admin) async fn loopback(attempts: impl IntoIterator<Item = MockAttempt>) -> Loopback {
-    let catalog = catalog(&[("mock", "listed")]).await;
-    let broker = Arc::new(ModelBroker::new(Arc::new(Admission::new()), Arc::new(mixdog_ai::retry::StandardRetryDecider)));
-    let _ = StandardRetryDecider;
-    Loopback(ProxyRunner { providers: Arc::new(Mock(Arc::new(MockProvider::new(attempts)))), broker, quota: Arc::new(Quota), wire: Arc::new(Wires), config: Arc::new(Config), catalog })
-}
-
 pub(in crate::domains::ai_admin) fn hi() -> p::ModelRequest {
     p::ModelRequest { model: "m".into(), messages: vec![p::Message::new(p::Role::User, p::Content::Text("hi".into()))], tools: Vec::new(), options: p::RequestOptions::default() }
 }
 
 pub(in crate::domains::ai_admin) fn rejected(status: u16) -> MockAttempt {
     MockAttempt::Rejected(p::ErrorResponse { status: Some(status), headers: Vec::new(), body: Vec::new() })
-}
-
-#[tokio::test(start_paused = true)]
-async fn the_pc_retries_and_the_server_sees_each_discard() {
-    let pc = loopback([rejected(503), MockAttempt::Body(b"u:10,5\n".to_vec()), MockAttempt::Body(b"t:hi\ndone\n".to_vec())]).await;
-    let mut sink = Sink::default();
-    let attempts = remote_send(&pc, &NoStore, "mock", &hi(), &mut sink, &CancellationToken::new()).await.unwrap();
-    assert_eq!(attempts, 3);
-    assert_eq!(sink.discards, 2);
-    assert_eq!(sink.abandoned, vec![(10, 5)]);
-    assert!(matches!(sink.events.last(), Some(p::StreamEvent::Completed { .. })));
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_refusal_keeps_its_classification() {
-    let pc = loopback([rejected(401)]).await;
-    let error = remote_send(&pc, &NoStore, "mock", &hi(), &mut Sink::default(), &CancellationToken::new()).await.unwrap_err();
-    assert!(matches!(error, SendError::Provider(e) if e.status == Some(401)));
 }
 
 /// Node's `ModelProxyUnavailableError` (model-proxy-channel.mjs `request` with no client): the text a
@@ -543,12 +546,128 @@ fn a_send_with_no_pc_reads_as_nodes_model_proxy_unavailable_error() {
     assert_eq!((error.kind, error.delivery), (p::ErrorKind::Transient, p::DeliveryState::NotSent));
 }
 
+/// A PC lost after it took the call up may have sent it: the failure records an unknown delivery, never "nothing sent".
+#[test]
+fn a_pc_lost_mid_call_leaves_the_delivery_unknown() {
+    let text = "model proxy unavailable: the desktop client disconnected";
+    let SendError::Provider(error) = execution_error(ProxyError::Lost(text.into())) else { panic!("not a provider error") };
+    assert_eq!(error.message, text);
+    assert_eq!((error.kind, error.delivery), (p::ErrorKind::Transient, p::DeliveryState::Ambiguous));
+}
+
+/// A provider whose attempt never ends: only the cancel ends the call.
+#[cfg(node_twin)]
+struct Hang(MockProvider);
+
+#[cfg(node_twin)]
+#[async_trait]
+impl p::ProviderAdapter for Hang {
+    fn release_send(&self, _group: &str) {}
+    fn id(&self) -> &mixdog_protocol::ProviderId {
+        self.0.id()
+    }
+    fn codec(&self) -> &dyn p::WireCodec {
+        self.0.codec()
+    }
+    fn retry_policy(&self) -> &mixdog_core_api::domain::retry::RetryPolicy {
+        self.0.retry_policy()
+    }
+    fn keepalive(&self) -> &mixdog_core_api::domain::keepalive::KeepaliveSchedule {
+        self.0.keepalive()
+    }
+    async fn attempt(&self, _: Arc<p::ModelRequest>) -> Result<Box<dyn p::ModelStream>, p::ProviderError> {
+        std::future::pending().await
+    }
+}
+
+#[cfg(node_twin)]
+struct HangLookup(Arc<Hang>);
+
+#[cfg(node_twin)]
+#[async_trait]
+impl ProviderLookup for HangLookup {
+    async fn adapter(&self, name: &str) -> Option<Arc<dyn p::ProviderAdapter>> {
+        (name == "mock").then(|| self.0.clone() as Arc<dyn p::ProviderAdapter>)
+    }
+}
+
+async fn catalog(models: &[(&str, &str)]) -> Arc<mixdog_ai::catalog::CatalogService> {
+    use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelRecord, ModelsDevSource};
+    let tokens = mixdog_rt::testing::tokens();
+    let mut snapshot = CatalogSnapshot::default();
+    for (provider, id) in models {
+        snapshot.models.entry((*provider).into()).or_default().push(ModelRecord::new((*provider).into(), *id));
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
+    Arc::new(CatalogService::cold_start(snapshot, Vec::new(), metadata).await)
+}
+pub(in crate::domains::ai_admin) async fn loopback(attempts: impl IntoIterator<Item = MockAttempt>) -> Loopback {
+    loopback_on(Arc::new(MockProvider::new(attempts))).await
+}
+
+/// A PC whose provider is `provider`, so a test can count the attempts it was asked for.
+pub(in crate::domains::ai_admin) async fn loopback_on(provider: Arc<MockProvider>) -> Loopback {
+    let catalog = catalog(&[("mock", "listed")]).await;
+    let broker = Arc::new(ModelBroker::new(Arc::new(Admission::new()), Arc::new(mixdog_ai::retry::StandardRetryDecider)));
+    let _ = StandardRetryDecider;
+    Loopback(ProxyRunner { providers: Arc::new(Mock(provider)), broker, quota: Arc::new(Quota), wire: Arc::new(Wires), config: Arc::new(Config), catalog })
+}
+#[tokio::test(start_paused = true)]
+async fn the_pc_retries_and_the_server_sees_each_discard() {
+    let pc = loopback([rejected(503), MockAttempt::Body(b"u:10,5\n".to_vec()), MockAttempt::Body(b"t:hi\ndone\n".to_vec())]).await;
+    let mut sink = Sink::default();
+    let attempts = remote_send(&pc, &NoStore, "mock", &hi(), &mut sink, &CancellationToken::new()).await.unwrap();
+    assert_eq!(attempts, 3);
+    assert_eq!(sink.discards, 2);
+    assert_eq!(sink.abandoned, vec![(10, 5)]);
+    assert!(matches!(sink.events.last(), Some(p::StreamEvent::Completed { .. })));
+}
+#[tokio::test(start_paused = true)]
+async fn a_refusal_keeps_its_classification() {
+    let pc = loopback([rejected(401)]).await;
+    let error = remote_send(&pc, &NoStore, "mock", &hi(), &mut Sink::default(), &CancellationToken::new()).await.unwrap_err();
+    assert!(matches!(error, SendError::Provider(e) if e.status == Some(401)));
+}
 #[tokio::test(start_paused = true)]
 async fn a_provider_the_pc_lacks_is_refused_by_name() {
     let pc = loopback([]).await;
     let error = remote_send(&pc, &NoStore, "absent", &hi(), &mut Sink::default(), &CancellationToken::new()).await.unwrap_err();
     let SendError::Provider(e) = error else { panic!("{error:?}") };
     assert_eq!((e.kind, e.code.as_deref()), (p::ErrorKind::InvalidRequest, Some("MODEL_PROXY_PROVIDER_UNAVAILABLE")));
+}
+/// A session send that reaches the PC on a path carrying no verdicts back (`modelProxy/run` from a connection) is refused
+/// before any provider is asked: nothing of the session's transcript is sent unjudged.
+#[tokio::test(start_paused = true)]
+async fn a_session_send_with_no_way_back_to_its_owner_is_refused_unsent() {
+    let pc = loopback([MockAttempt::Body(b"t:hi\ndone\n".to_vec())]).await;
+    let call = w::ProxyCall::SessionSend { provider: "mock".into(), request: Box::new(request_out(&hi())) };
+    let failure = pc.0.run(call, None, &Collect(&Mutex::new(Vec::new())), &CancellationToken::new()).await.unwrap_err();
+    assert_eq!((failure.code.as_deref(), failure.delivery), (Some("MODEL_PROXY_SESSION_UNSUPPORTED"), w::ProxyDelivery::NotSent));
+    // The PC's provider still holds its one answer: it was never asked.
+    let plain = w::ProxyCall::Send { provider: "mock".into(), request: Box::new(request_out(&hi())) };
+    assert!(pc.0.run(plain, None, &Collect(&Mutex::new(Vec::new())), &CancellationToken::new()).await.is_ok());
+}
+
+/// The layout a PC describes survives the wire, and one that does not read (a digest that is not 64 hex digits, a tail
+/// outside the markers) is no layout at all.
+#[test]
+fn a_manifest_crosses_the_wire_whole_and_a_malformed_one_is_refused() {
+    use mixdog_core_api::domain::cache_tail::{Digest, Marker, WireManifest, Zone};
+    let manifest = WireManifest {
+        markers: vec![Marker { zone: Zone::System, ttl_ms: 3_600_000, block: 0, digest: Digest([1; 32]) }, Marker { zone: Zone::Messages, ttl_ms: 300_000, block: 2, digest: Digest([0xab; 32]) }],
+        boundaries: vec![Digest([1; 32]), Digest([2; 32]), Digest([0xab; 32])],
+        tail: Some(1),
+    };
+    let wire = manifest_out(&manifest);
+    assert_eq!(manifest_in(wire.clone()), Some(manifest));
+    let mut short = wire.clone();
+    short.boundaries[1].pop();
+    assert_eq!(manifest_in(short), None);
+    let mut beyond = wire;
+    beyond.tail = Some(2);
+    assert_eq!(manifest_in(beyond), None);
 }
 
 #[tokio::test(start_paused = true)]
@@ -572,46 +691,70 @@ async fn the_other_calls_are_answered_on_the_pc() {
     let failure = pc.0.run(w::ProxyCall::QuotaUsable { provider: "mock".into(), model: "ok".into() }, None, &Collect(&Mutex::new(Vec::new())), &given_up).await.unwrap_err();
     assert_eq!(failure.message, "The remote session cancelled the model call.");
     // A cached listing answers from the PC's catalog.
-    let w::ProxyAnswer::Models { models } = ask(w::ProxyCall::ListModels { provider: "mock".into(), refresh: false }).await.unwrap() else { panic!() };
+    let w::ProxyAnswer::Models { models, .. } = ask(w::ProxyCall::ListModels { provider: "mock".into(), refresh: false }).await.unwrap() else { panic!() };
     assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["listed"]);
 }
 
+#[tokio::test(start_paused = true)]
+async fn an_empty_pc_listing_keeps_its_completeness_through_the_ssh_catalog() {
+    use mixdog_ai::catalog::{CatalogService, ModelSource};
+
+    struct EmptyListing(bool);
+
+    #[async_trait]
+    impl p::ModelListing for EmptyListing {
+        async fn list_models(&self) -> Result<Vec<p::ModelRecord>, p::ProviderError> {
+            Ok(Vec::new())
+        }
+
+        async fn list_roster(&self) -> Result<p::ListedRoster, p::ProviderError> {
+            Ok(p::ListedRoster { rows: Vec::new(), provenance: p::Provenance::Proxied { complete: self.0 }, identity: Default::default() })
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    for complete in [false, true] {
+        let mut pc = loopback([]).await;
+        let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+        let source = ModelSource::new("mock".into(), Arc::new(EmptyListing(complete)));
+        let metadata = mixdog_ai::catalog::ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
+        pc.0.catalog = Arc::new(CatalogService::cold_start(Default::default(), vec![source], metadata).await);
+        let remote = ModelSource::new("mock".into(), Arc::new(ProxyListing::new(Arc::new(pc), "mock".into())));
+        let listing = remote.listing().await.unwrap();
+        assert!(listing.rows.is_empty());
+        assert_eq!(listing.stale.is_none(), complete);
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn the_store_serves_attachments_by_their_digest() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let store = mixdog_store::blobs::BlobStore::new(dir.path());
+    let bytes = b"stored pdf bytes".to_vec();
+    let put = bytes.clone();
+    let writer = store.clone();
+    let digest = mixdog_core_base::support::on_lane(tokens.durability_io, &CancellationToken::new(), move |lane| {
+        writer.put(lane, &put).map(|digest| digest.as_str().to_owned())
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    let attachments = StoreAttachments { store, interactive: tokens.interactive_io };
+    let hex = digest.strip_prefix("sha256:").unwrap();
+    assert_eq!(attachments.read(hex).await.unwrap(), bytes);
+    // A blob that is not there will never be readable; a malformed reference is an error.
+    assert_eq!(attachments.read(&"0".repeat(64)).await, Err(ReadError::Permanent));
+    assert!(matches!(attachments.read("not-a-digest").await, Err(ReadError::Other(_))));
+}
+
+
 // -- against Node's recording of a proxied run (record-model-proxy-pc.mjs) -------------------
 
+#[cfg(node_twin)]
 const PC_TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/model-proxy-pc/model-proxy-pc-twin.json");
-
-/// A provider whose attempt never ends: only the cancel ends the call.
-struct Hang(MockProvider);
-
-#[async_trait]
-impl p::ProviderAdapter for Hang {
-    fn release_send(&self, _group: &str) {}
-    fn id(&self) -> &mixdog_protocol::ProviderId {
-        self.0.id()
-    }
-    fn codec(&self) -> &dyn p::WireCodec {
-        self.0.codec()
-    }
-    fn retry_policy(&self) -> &mixdog_core_api::domain::retry::RetryPolicy {
-        self.0.retry_policy()
-    }
-    fn keepalive(&self) -> &mixdog_core_api::domain::keepalive::KeepaliveSchedule {
-        self.0.keepalive()
-    }
-    async fn attempt(&self, _: Arc<p::ModelRequest>) -> Result<Box<dyn p::ModelStream>, p::ProviderError> {
-        std::future::pending().await
-    }
-}
-
-struct HangLookup(Arc<Hang>);
-
-#[async_trait]
-impl ProviderLookup for HangLookup {
-    async fn adapter(&self, name: &str) -> Option<Arc<dyn p::ProviderAdapter>> {
-        (name == "mock").then(|| self.0.clone() as Arc<dyn p::ProviderAdapter>)
-    }
-}
-
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn a_run_streams_the_text_node_streamed_and_a_cancel_reads_as_nodes() {
     let twin: Value = serde_json::from_str(&PC_TWIN).unwrap();
@@ -653,9 +796,9 @@ async fn a_run_streams_the_text_node_streamed_and_a_cancel_reads_as_nodes() {
     let failure = pc.0.run(w::ProxyCall::QuotaUsable { provider: "anthropic".into(), model: "m".into() }, None, &Collect(&Mutex::new(Vec::new())), &CancellationToken::new()).await.unwrap_err();
     assert_eq!((failure.code.as_deref(), failure.message.as_str()), (refusal["error"]["code"].as_str(), refusal["error"]["message"].as_str().unwrap()));
 }
-
 /// The host's saved list (Node `allowedProvidersForHost`): a provider outside it is refused by every call before
 /// the PC looks it up, with the text of the recording, and is not named in the config answer.
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn a_provider_outside_the_hosts_list_is_refused_and_not_named() {
     let twin: Value = serde_json::from_str(&PC_TWIN).unwrap();
@@ -685,26 +828,4 @@ async fn a_provider_outside_the_hosts_list_is_refused_and_not_named() {
     assert_eq!(answer, w::ProxyAnswer::Usable { usable: true });
     let w::ProxyAnswer::ProviderConfig { providers, .. } = pc.0.run(w::ProxyCall::ProviderConfig, Some(none), &Collect(&Mutex::new(Vec::new())), &CancellationToken::new()).await.unwrap() else { panic!() };
     assert!(providers.is_empty());
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn the_store_serves_attachments_by_their_digest() {
-    let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let store = mixdog_store::blobs::BlobStore::new(dir.path());
-    let bytes = b"stored pdf bytes".to_vec();
-    let put = bytes.clone();
-    let writer = store.clone();
-    let digest = mixdog_core_base::support::on_lane(tokens.durability_io, &CancellationToken::new(), move |lane| {
-        writer.put(lane, &put).map(|pin| pin.digest().as_str().to_owned())
-    })
-    .await
-    .unwrap()
-    .unwrap();
-    let attachments = StoreAttachments { store, interactive: tokens.interactive_io };
-    let hex = digest.strip_prefix("sha256:").unwrap();
-    assert_eq!(attachments.read(hex).await.unwrap(), bytes);
-    // A blob that is not there will never be readable; a malformed reference is an error.
-    assert_eq!(attachments.read(&"0".repeat(64)).await, Err(ReadError::Permanent));
-    assert!(matches!(attachments.read("not-a-digest").await, Err(ReadError::Other(_))));
 }

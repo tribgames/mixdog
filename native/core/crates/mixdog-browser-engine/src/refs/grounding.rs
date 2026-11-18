@@ -42,8 +42,6 @@ impl std::fmt::Display for GroundingRefused {
     }
 }
 
-impl std::error::Error for GroundingRefused {}
-
 fn refused(message: String, drop_grounding: bool) -> GroundingRefused {
     GroundingRefused { message, drop_grounding }
 }
@@ -154,3 +152,6 @@ mod tests {
         assert_eq!(held.css_point(320.0, 225.0), (640.0, 450.0));
     }
 }
+
+
+impl std::error::Error for GroundingRefused {}

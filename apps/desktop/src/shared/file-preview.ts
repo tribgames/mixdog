@@ -1,5 +1,6 @@
 import { localFileOpener } from './local-files';
 import { fileExtension } from './file-extension';
+import { IMAGE_TYPES } from './image-types.generated';
 
 export type DesktopFilePreviewKind = 'image' | 'pdf' | 'audio' | 'video';
 
@@ -8,17 +9,13 @@ interface DesktopFilePreviewType {
   mime: string;
 }
 
+// Which image extensions a browser previews is the generated table's `browserDraws`; the media types are its own.
+const IMAGE_PREVIEW_TYPES: Readonly<Record<string, DesktopFilePreviewType>> = Object.fromEntries(
+  IMAGE_TYPES.filter((type) => type.browserDraws).map((type) => [type.extension, { kind: 'image', mime: type.mime }]),
+) as Record<string, DesktopFilePreviewType>;
+
 const FILE_PREVIEW_TYPES: Readonly<Record<string, DesktopFilePreviewType>> = Object.freeze({
-  png: { kind: 'image', mime: 'image/png' },
-  jpg: { kind: 'image', mime: 'image/jpeg' },
-  jpeg: { kind: 'image', mime: 'image/jpeg' },
-  jfif: { kind: 'image', mime: 'image/jpeg' },
-  gif: { kind: 'image', mime: 'image/gif' },
-  webp: { kind: 'image', mime: 'image/webp' },
-  avif: { kind: 'image', mime: 'image/avif' },
-  svg: { kind: 'image', mime: 'image/svg+xml' },
-  bmp: { kind: 'image', mime: 'image/bmp' },
-  ico: { kind: 'image', mime: 'image/x-icon' },
+  ...IMAGE_PREVIEW_TYPES,
   pdf: { kind: 'pdf', mime: 'application/pdf' },
   mp3: { kind: 'audio', mime: 'audio/mpeg' },
   wav: { kind: 'audio', mime: 'audio/wav' },

@@ -98,6 +98,7 @@ use super::provider::Exposure;
 use super::provider::HostedTool;
 use super::provider::ModelListing;
 use super::provider::ModelRecord;
+use super::provider::RosterIdentity;
 use super::provider::ModelRequest;
 use super::provider::ModelStream;
 use super::provider::ProviderAdapter;
@@ -371,6 +372,8 @@ pub struct MockProvider {
     pub attempts: AtomicU32,
     /// What [`ModelListing::list_models`] answers.
     pub models: Vec<ModelRecord>,
+    /// Who the listing is for ([`ModelListing::roster_identity`]); none by default, so no roster is kept for it.
+    pub roster_identity: RosterIdentity,
 }
 
 impl MockProvider {
@@ -389,6 +392,7 @@ impl MockProvider {
             script: Mutex::new(script.into_iter().collect()),
             attempts: AtomicU32::new(0),
             models: vec![model],
+            roster_identity: RosterIdentity::default(),
         }
     }
 }
@@ -397,6 +401,10 @@ impl MockProvider {
 impl ModelListing for MockProvider {
     async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
         Ok(self.models.clone())
+    }
+
+    async fn roster_identity(&self) -> RosterIdentity {
+        self.roster_identity.clone()
     }
 }
 
@@ -850,6 +858,9 @@ impl MockFileService {
             WritePrecondition::Unconditional => true,
             WritePrecondition::Absent => current.is_none(),
             WritePrecondition::ContentEquals(expected) => current == Some(expected),
+            WritePrecondition::FileEquals { stat, bytes } => {
+                current.is_some_and(|current| current == bytes && file_stat(current.len()) == *stat)
+            }
         };
         if ok {
             Ok(())

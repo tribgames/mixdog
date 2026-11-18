@@ -2,6 +2,7 @@
 #![allow(clippy::disallowed_methods, reason = "test setup")]
 //! DS-WS-2/3/4/5/6/9 against the service with mock feeds and mock processes.
 
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -75,6 +76,7 @@ fn env_with(turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReview
         code_graph: Some(Arc::new(EchoGraph)),
         turn_review,
         releases: mixdog_workspace::release::FolderReleases::new(),
+        upload_chunk_bytes: mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
     })
     .unwrap();
     // Registered as a row: `project/create` also leaves `.mixdog/project.id` in the folder, which
@@ -145,47 +147,6 @@ async fn a_text_file_is_read_in_windows_that_join_to_the_whole() {
     assert_eq!(joined, text);
 }
 
-/// Node read a file once, through one authorized handle (`readProjectTextFileAuthorized`), and answered that one version. The windows of one
-/// read come from the one read the first window made: a file replaced between two windows changes nothing the reader joins. Node's answer
-/// is the recording (apps/mobile/fixtures/phone-files/golden.json, main scenario `readProjectFile toolong.txt`: 1 MiB + 1 byte, so the
-/// phone reads it in windows); the file is made from the recorded text and mtime.
-#[tokio::test(flavor = "multi_thread")]
-async fn the_windows_of_one_read_are_one_version_of_a_file_replaced_between_them() {
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
-    let steps = golden["scenarios"]["main"]["steps"].as_array().unwrap();
-    let recorded = steps.iter().find(|step| step["call"] == "readProjectFile" && step["params"][1] == "toolong.txt").unwrap()["frame"]["value"].clone();
-    let text = recorded["content"].as_str().unwrap().to_owned();
-    let at_ms = recorded["mtimeMs"].as_u64().unwrap();
-    let env = env();
-    let file = env.root.join("toolong.txt");
-    let pin = |ms: u64| {
-        let open = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
-        open.set_modified(std::time::UNIX_EPOCH + Duration::from_millis(ms)).unwrap();
-    };
-    std::fs::write(&file, &text).unwrap();
-    pin(at_ms);
-    let root = env.root.to_string_lossy().into_owned();
-    let window = 60_000u64;
-    let mut part = call(&env, "projectFs/readText", json!({ "root": root, "rel": "toolong.txt", "authorized": true, "maxChars": window })).await.unwrap();
-    let mut joined = part["content"].as_str().unwrap().to_owned();
-    // The file is replaced (other text, other time) after the first window.
-    std::fs::write(&file, "c".repeat(text.len())).unwrap();
-    pin(at_ms + 1_000_000);
-    while let Some(next) = part.get("nextChar").and_then(Value::as_u64) {
-        let read_id = part["readId"].clone();
-        part = call(&env, "projectFs/readText", json!({ "root": root, "rel": "toolong.txt", "authorized": true, "readId": read_id, "fromChar": next, "maxChars": window })).await.unwrap();
-        joined.push_str(part["content"].as_str().unwrap());
-    }
-    assert!(joined == text, "the joined windows are the first version of the file ({} of {} bytes)", joined.len(), text.len());
-    // The recording holds the time as the integer JSON text `1767323045000`, the core writes the same number as a float: one JSON number
-    // to the phone. Every other field is compared as it is.
-    assert_eq!(part["mtimeMs"].as_f64(), recorded["mtimeMs"].as_f64(), "the time of the first read");
-    for field in ["binary", "tooLarge", "readOnly", "encoding"] {
-        assert_eq!(part[field], recorded[field], "{field} of the first read");
-    }
-    assert_eq!(part.as_object().unwrap().len(), recorded.as_object().unwrap().len(), "no field more or less than the recording's");
-}
-
 /// The paired device's side of the spec's `transfer/*` (SPEC.md R44): a path outside every project is described
 /// with a one-file grant (`transfer/grant/mint`), which `transfer/beginRead` redeems for exactly that file; the
 /// request is a relay connection (origin Relay), paired as "phone-1".
@@ -243,8 +204,8 @@ async fn a_paired_device_reads_one_granted_file_outside_its_projects_and_nothing
     assert!(matches!(plain, Err(CoreError::PermissionDenied { .. })), "{plain:?}");
 }
 
-/// The phone's other file calls over a one-file permission (Node's `remoteFileTarget`): the write, the entry path, the preview (no media lease is
-/// minted), and the preview range all name the granted file alone.
+/// The phone's other file calls over a one-file permission (Node's `remoteFileTarget`): the write, the entry path, the preview (an image
+/// is leased to the device), and the preview range all name the granted file alone.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_one_file_permission_writes_names_and_previews_that_file_alone() {
     let env = env();
@@ -279,7 +240,20 @@ async fn a_one_file_permission_writes_names_and_previews_that_file_alone() {
 
     let previewed = call(&env, "projectFs/previewFile", target("pic.png", &pic)).await.unwrap();
     assert_eq!((previewed["kind"].clone(), previewed["size"].clone()), (json!("image"), json!(8)));
-    assert!(previewed.get("mediaAssetId").is_none(), "a preview mints no media lease: {previewed:?}");
+    // A paired device's image gets a media lease (Node's `authorizedMediaFile`; the recording's `mediaAssetId`): the relay media lane
+    // serves it to that device alone, the file as it is on disk, ranges from any offset.
+    let lease = previewed["mediaAssetId"].as_str().expect("a paired device's image is leased").to_owned();
+    let leases = env.service.project_leases();
+    let served = leases.open(&lease, "phone-1").await.expect("the device's lease opens");
+    assert_eq!((served.size(), served.mime()), (8, "image/png"));
+    assert_eq!(served.read(4, 2).await.unwrap(), vec![1, 2]);
+    assert!(leases.open(&lease, "phone-2").await.is_none(), "another device is refused");
+    let pdf_target = |token: &str| json!({ "root": outside.to_string_lossy(), "rel": "doc.pdf", "accessToken": token });
+    std::fs::write(outside.join("doc.pdf"), b"%PDF-1.4").unwrap();
+    let doc = grant("doc.pdf").await.unwrap()["accessToken"].as_str().unwrap().to_owned();
+    let pdf = call(&env, "projectFs/previewFile", pdf_target(&doc)).await.unwrap();
+    assert_eq!(pdf["kind"], "pdf");
+    assert!(pdf.get("mediaAssetId").is_none(), "a pdf is read by page, never leased: {pdf:?}");
     let mut range = target("pic.png", &pic);
     range["offset"] = json!(4);
     range["length"] = json!(2);
@@ -289,99 +263,6 @@ async fn a_one_file_permission_writes_names_and_previews_that_file_alone() {
 
 /// `FIXED_NOW_MS` of `lib/phone-files-script.mjs`: the clock the Node recording ran on, given to the backups' clock.
 const PHONE_FILES_NOW_MS: &str = "1780819750000";
-
-/// The phone's editor backups and document previews over a relay connection, replayed from the phone-files recording's relay
-/// scenario (apps/mobile/fixtures/phone-files/golden.json): every backup call is sent as a phone that skips the adapter's
-/// `projectFs/entryPath` step would send it, naming the file by its absolute path (the granted file's path for a call with a
-/// token), and answers Node's frame whole; every document preview's file target goes through the same admission
-/// (`relay_file`), refused as Node refused it before any page was rendered. The recording's folders are mapped onto this
-/// world's: its project on the registered project, its outside folder on a folder beside it.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_relay_editor_backup_or_preview_names_a_project_file_or_a_granted_one_only() {
-    // SAFETY: nextest runs each test in its own process, and nothing else in this one reads the environment concurrently yet.
-    unsafe { std::env::set_var("MIXDOG_FIXED_NOW_MS", PHONE_FILES_NOW_MS) };
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
-    let recorded_root = golden["root"].as_str().unwrap();
-    let env = env();
-    env.service.set_phone_grants(
-        Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(NoneGone))),
-        Arc::new(|connection: ConnectionId| (connection.0 == 1).then(|| "phone-1".to_owned())),
-    );
-    let outside = env.root.parent().unwrap().join("outside");
-    std::fs::create_dir_all(&outside).unwrap();
-    std::fs::write(outside.join("granted.txt"), "granted edit\n").unwrap();
-    std::fs::write(outside.join("other.txt"), "other\n").unwrap();
-    std::fs::write(env.root.join("src/a.ts"), "export const a = 1;\n").unwrap();
-    let place = |path: &str| -> String {
-        let (project, out) = (format!("{recorded_root}\\proj"), format!("{recorded_root}\\outside"));
-        if let Some(rest) = path.strip_prefix(&project) {
-            format!("{}{rest}", env.root.to_string_lossy())
-        } else if let Some(rest) = path.strip_prefix(&out) {
-            format!("{}{rest}", outside.to_string_lossy())
-        } else {
-            panic!("{path} is outside the recording's world")
-        }
-    };
-    let mut granted = None;
-    let (mut backups, mut previews) = (0, 0);
-    for step in golden["scenarios"]["relay"]["steps"].as_array().unwrap() {
-        // A `grant` step: the phone holds a one-file permission for this path from here on.
-        if step.get("grant").is_some() {
-            let path = place(step["path"].as_str().unwrap());
-            call(&env, "transfer/grant/mint", json!({ "path": path })).await.unwrap();
-            granted = Some(path);
-            continue;
-        }
-        let (Some(name), params, frame) = (step["call"].as_str(), &step["params"], &step["frame"]) else { continue };
-        let tokened = params[2].is_object();
-        let file = || -> String {
-            // The project and the entry as the phone named them, joined as given (`..` kept).
-            if tokened { granted.clone().unwrap() } else { PathBuf::from(place(params[0].as_str().unwrap())).join(params[1].as_str().unwrap()).to_string_lossy().into_owned() }
-        };
-        let answer = match name {
-            "readEditorBackup" => call(&env, "projectFs/backup/read", json!({ "sourcePath": file() })).await,
-            "deleteEditorBackup" => call(&env, "projectFs/backup/delete", json!({ "sourcePath": file() })).await.map(|_| Value::Null),
-            "writeEditorBackup" => call(&env, "projectFs/backup/write", json!({ "sourcePath": file(), "content": params[2], "expectedContent": params[3] })).await,
-            "previewDocumentPages" => {
-                let (root, rel) = if tokened {
-                    let path = PathBuf::from(granted.clone().unwrap());
-                    (path.parent().unwrap().to_string_lossy().into_owned(), path.file_name().unwrap().to_string_lossy().into_owned())
-                } else {
-                    (place(params[0].as_str().unwrap()), params[1].as_str().unwrap().to_owned())
-                };
-                previews += 1;
-                let admitted = env.service.relay_file(&request("document/previewPages", json!({})), &root, &rel).await;
-                // Node's refusals of the target; a target it took went on to the conversion (whose answer is the worker's).
-                if frame["errorCode"] == "PROJECT_UNAVAILABLE" || frame["error"] == "Path is outside the project." {
-                    admitted.map(|_| Value::Null)
-                } else {
-                    assert!(admitted.is_ok(), "{name} {params}: {admitted:?}");
-                    continue;
-                }
-            }
-            _ => continue,
-        };
-        if name != "previewDocumentPages" {
-            backups += 1;
-        }
-        let got = match answer {
-            Ok(value) => json!({ "ok": true, "value": value }),
-            Err(CoreError::DomainError { code, message, .. }) => {
-                let mut node = json!({ "ok": false, "error": message.as_deref() });
-                if let Some(code) = code.as_deref() {
-                    node["errorCode"] = json!(code);
-                }
-                node
-            }
-            Err(other) => panic!("{name} {params}: {other:?}"),
-        };
-        assert_eq!(&got, frame, "{name} {params}");
-    }
-    assert_eq!((backups, previews), (14, 3));
-    // Nothing was planted for a refused file.
-    let names: Vec<_> = std::fs::read_dir(env.root.parent().unwrap().join("userData").join("editor-backups")).map(|dir| dir.count()).into_iter().collect();
-    assert!(names.iter().all(|count| *count == 0), "{names:?}");
-}
 
 /// A folder whose name only trims to a registered project's is not that project (Node trims the phone's `projectPath` and then
 /// acts on the registry's own root). A relay backup named in such a folder is kept under the project's file, which is what the
@@ -449,7 +330,11 @@ async fn a_staged_upload_is_named_uniquely_and_a_path_range_needs_no_transfer() 
     for _ in 0..2 {
         let began = call(&env, "transfer/beginWrite", json!({ "name": "dir\\b.txt", "size": 2, "scope": "draft1" })).await.unwrap();
         assert_eq!(began["uploadId"], began["transferId"]);
-        assert_eq!(began["chunkBytes"], 2 * 1024 * 1024);
+        assert_eq!(
+            began["chunkBytes"],
+            mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
+            "the begin answer states the chunk size the core advertises at initialize"
+        );
         let id = began["transferId"].as_str().unwrap().to_owned();
         call(&env, "transfer/writeChunk", json!({ "transferId": id, "offset": 0, "bytesB64": "aGk=" })).await.unwrap();
         let done = call(&env, "transfer/commit", json!({ "transferId": id })).await.unwrap();
@@ -515,6 +400,10 @@ async fn every_mutation_records_its_op_and_a_repeat_answers_from_the_record() {
     let Reply::Value(again) = again else { panic!() };
     assert_eq!(again, first);
     assert_eq!(std::fs::read_to_string(env.root.join("a.txt")).unwrap(), "changed elsewhere\n");
+    // A different authorized audience may not reuse another audience's result.
+    let mut other_audience = with_op("projectFs/writeText", params.clone(), op);
+    other_audience.ctx.origin = mixdog_protocol::Origin::Ssh;
+    assert!(matches!(env.service.call(other_audience).await, Err(CoreError::OpIdConflict { .. })));
     // The same id with another payload conflicts.
     let other = json!({ "root": root, "rel": "a.txt", "content": "x", "expectedContent": "changed elsewhere\n" });
     let err = env.service.call(with_op("projectFs/writeText", other, op)).await.unwrap_err();
@@ -535,63 +424,6 @@ async fn a_registry_change_and_its_op_row_commit_in_one_transaction() {
     env.service.call(with_op("project/create", json!({ "path": other.to_string_lossy() }), op)).await.unwrap();
     assert_eq!(env.state.op("project", op).await.unwrap().unwrap().state, mixdog_store::state::OpRowState::Applied);
     assert_eq!(env.state.projects().await.unwrap().len(), 2);
-}
-
-/// Node's `addProject` / `touchProjectSelected` leave `<project>/.mixdog/project.id` (memory
-/// classification reads only that); the `markers` of the recorded registry cases, replayed through
-/// `project/create` and, for a project registered without one, `project/touch`.
-#[tokio::test(flavor = "multi_thread")]
-async fn project_create_and_touch_leave_the_project_id_marker_node_leaves() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/store/registry/projects-registry.json")).unwrap();
-    let env = env();
-    let base = env.root.parent().unwrap().join("markers");
-    let mut checked = 0;
-    for case in golden["cases"].as_array().unwrap() {
-        let expected = case["markers"].as_object().unwrap();
-        if expected.is_empty() {
-            continue;
-        }
-        let name = case["name"].as_str().unwrap();
-        for phase in ["create", "touch"] {
-            let root = base.join(phase).join(name);
-            for sub in case["dirs"].as_array().unwrap() {
-                std::fs::create_dir_all(root.join(sub.as_str().unwrap())).unwrap();
-            }
-            let root_text = root.to_string_lossy().into_owned();
-            for op in case["ops"].as_array().unwrap().iter().filter(|op| op["op"] == "add") {
-                let raw = op["path"].as_str().unwrap().replace("<ABS>", &root_text);
-                if raw.is_empty() {
-                    continue;
-                }
-                let path = if std::path::Path::new(&raw).is_absolute() { raw } else { root.join(raw).to_string_lossy().into_owned() };
-                if phase == "create" {
-                    call(&env, "project/create", json!({ "path": path })).await.unwrap();
-                } else {
-                    let real = canonical(std::path::Path::new(&path)).unwrap().to_string_lossy().into_owned();
-                    env.state
-                        .write(move |tx| {
-                            tx.put_project(&mixdog_store::state::ProjectRow {
-                                path: real,
-                                alias: None,
-                                hidden: false,
-                                hidden_rank: None,
-                                last_used_at: None,
-                                name: None,
-                            })
-                        })
-                        .await
-                        .unwrap();
-                    call(&env, "project/touch", json!({ "path": path })).await.unwrap();
-                }
-            }
-            for (sub, text) in expected {
-                let marker = std::fs::read_to_string(root.join(sub).join(".mixdog").join("project.id")).unwrap_or_default();
-                assert_eq!(marker, text.as_str().unwrap(), "{name} ({phase}): marker of {sub}");
-                checked += 1;
-            }
-        }
-    }
-    assert_eq!(checked, 6, "three recorded markers, each through create and touch");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -700,106 +532,6 @@ async fn watch_refuses_a_relative_path_even_when_it_exists_from_the_working_dire
     assert_eq!(env.service.open_os_watches(), 0);
 }
 
-/// Every input Node's `absoluteLocalPath` refused (apps/mobile/fixtures/absolute-local-path/golden.json, the recording with the working
-/// directory on this process's drive) is refused by `fs/watch` with Node's message, and nothing is watched; a non-string `path` included.
-#[cfg(windows)]
-#[tokio::test(flavor = "multi_thread")]
-async fn watch_refuses_every_input_node_refuses_with_nodes_message() {
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/absolute-local-path/golden.json")).unwrap();
-    let drive = std::env::current_dir().unwrap().to_string_lossy().chars().next().unwrap().to_ascii_uppercase().to_string();
-    let recorded = golden["drives"].get(&drive).unwrap_or_else(|| panic!("absolute-local-path has no recording with the working directory on drive {drive}"));
-    let env = env();
-    let mut refused = 0;
-    for (input, answer) in golden["inputs"].as_array().unwrap().iter().zip(recorded.as_array().unwrap()) {
-        let Some(message) = answer["error"]["message"].as_str() else { continue };
-        let mut params = json!({ "watchId": "refused", "recursive": false });
-        if input.get("absent").is_none() {
-            params["path"] = input["value"].clone();
-        }
-        let error = env.service.call(request("fs/watch", params)).await.err().unwrap_or_else(|| panic!("{}: Node refused it and it was watched", input["name"]));
-        assert!(format!("{error:?}").contains(message), "{}: Node says {message:?}, got {error:?}", input["name"]);
-        refused += 1;
-    }
-    assert!(refused > 0);
-    assert_eq!(env.service.open_os_watches(), 0);
-}
-
-/// Every class of project path answered as Node answers it (apps/mobile/fixtures/project-path-classes/golden.json, recorded by
-/// record-project-path-classes.mjs from the real registry, the real store and `addProject`): the registry's lookup (`project/read`, and
-/// `transfer/trash/info`, which Node hands `projectDirectory`), the folder `project/ensureDirectory` makes and the path `project/create`
-/// registers. The working directory is the project's parent, as in the recording; the test needs a process of its own (nextest runs one).
-#[cfg(windows)]
-#[tokio::test(flavor = "multi_thread")]
-async fn project_paths_are_read_as_nodes_registry_reads_them() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/project-path-classes/golden.json")).unwrap();
-    let env = env();
-    let tmp = env.root.parent().unwrap().to_path_buf();
-    let proj = tmp.join("proj");
-    std::fs::create_dir(&proj).unwrap();
-    let row = mixdog_store::state::ProjectRow { path: proj.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
-    env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
-    std::env::set_current_dir(&tmp).unwrap();
-
-    let text = |path: &std::path::Path| path.to_string_lossy().into_owned();
-    let (proj_text, tmp_text) = (text(&proj), text(&tmp));
-    let rooted = tmp_text[2..].to_owned();
-    let fill: Vec<(&str, String)> = vec![
-        ("{proj}", proj_text.clone()),
-        ("{tmp}", tmp_text.clone()),
-        ("{PROJ}", proj_text.to_uppercase()),
-        ("{TMP}", tmp_text.to_uppercase()),
-        ("{projSlash}", proj_text.replace('\\', "/")),
-        ("{projUpper}", proj_text.to_uppercase()),
-        ("{tmpName}", tmp.file_name().unwrap().to_string_lossy().into_owned()),
-        ("{drive}", tmp_text[..2].to_owned()),
-        ("{tmpRooted}", rooted.clone()),
-        ("{tmpRootedSlash}", rooted.replace('\\', "/")),
-    ];
-    let expand = |template: &str| fill.iter().fold(template.to_owned(), |text, (token, value)| text.replace(token, value));
-
-    let inputs = golden["inputs"].as_array().unwrap();
-    let mut replayed = 0;
-    // In the recording's order: `inspect` before `ensure`, which makes the folders later inputs name. `known` is the registry's lookup behind
-    // `project/directory` (the registered folder is its own real path here).
-    for (operation, method) in [("known", "project/directory"), ("inspect", "project/read"), ("trash", "transfer/trash/info"), ("ensure", "project/ensureDirectory"), ("add", "project/create")] {
-        // Node's lookup answers the trash call too: its `projectDirectory` is the registry's lookup, then a folder.
-        let recorded = golden["answers"][if operation == "trash" { "known" } else { operation }].as_array().unwrap();
-        for (input, answer) in inputs.iter().zip(recorded) {
-            let given = expand(input["template"].as_str().unwrap());
-            let got = call(&env, method, json!({ "path": given })).await;
-            let name = format!("{operation} {}: {given:?}", input["name"]);
-            match answer.get("result") {
-                Some(want) => {
-                    let got = got.unwrap_or_else(|error| panic!("{name}: Node answered {want}, got {error:?}"));
-                    if operation == "trash" {
-                        assert!(got.get("available").is_some(), "{name}: {got}");
-                    } else if operation == "inspect" {
-                        let mut want: Value = serde_json::from_str(want.as_str().unwrap()).unwrap();
-                        want["path"] = json!(expand(want["path"].as_str().unwrap()));
-                        assert_eq!(got, want, "{name}");
-                    } else {
-                        let path = if operation == "add" { &got["project"]["path"] } else { &got["path"] };
-                        assert_eq!(path.as_str().unwrap(), expand(want.as_str().unwrap()), "{name}");
-                    }
-                }
-                None => {
-                    let message = answer["error"]["message"].as_str().unwrap();
-                    let error = got.err().unwrap_or_else(|| panic!("{name}: Node refused it with {message:?}"));
-                    // Node's own wording where the answer is Node's (the registry and the catalog); an operating-system error of a path Node
-                    // never reached (`ENOENT ... realpath`, a NUL) is a refusal here as well.
-                    if answer["error"].get("code").and_then(Value::as_str) == Some("PROJECT_UNAVAILABLE") {
-                        assert!(unavailable::<Value>(&Err(error)), "{name}");
-                    } else if !message.starts_with("ENOENT") && !message.starts_with("The argument 'path'") {
-                        assert!(format!("{error:?}").contains(message), "{name}: Node says {message:?}, got {error:?}");
-                    }
-                }
-            }
-            replayed += 1;
-        }
-    }
-    assert_eq!(replayed, inputs.len() * 5);
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn watch_pushes_batched_changes_and_connection_close_drops_the_os_watch() {
     let env = env();
@@ -842,123 +574,11 @@ async fn watch_pushes_batched_changes_and_connection_close_drops_the_os_watch() 
 struct WatchFolder(PathBuf);
 
 #[cfg(windows)]
-impl WatchFolder {
-    fn new() -> Self {
-        let root = std::env::temp_dir().join(format!("mixdog-folder-watch-{}", std::process::id()));
-        std::fs::create_dir_all(root.join("actual")).unwrap();
-        std::fs::create_dir(root.join("locked")).unwrap();
-        std::fs::write(root.join("afile.txt"), "a").unwrap();
-        let folder = Self(root);
-        folder.run("cmd", &["/c", "mklink", "/J", &folder.at("alias"), &folder.at("actual")]);
-        folder.run("icacls", &[&folder.at("locked"), "/deny", "*S-1-1-0:(RD)"]);
-        folder
-    }
-
-    fn at(&self, name: &str) -> String {
-        self.0.join(name).to_string_lossy().into_owned()
-    }
-
-    fn fill(&self, template: &str) -> String {
-        template.replace("{root}", &self.0.to_string_lossy())
-    }
-
-    fn run(&self, program: &str, args: &[&str]) {
-        let status = std::process::Command::new(program).args(args).stdout(std::process::Stdio::null()).status().unwrap();
-        assert!(status.success(), "{program} {args:?}: {status}");
-    }
-}
-
-#[cfg(windows)]
 impl Drop for WatchFolder {
     fn drop(&mut self) {
         let _ = std::process::Command::new("icacls").args([&self.at("locked"), "/remove:d", "*S-1-1-0"]).stdout(std::process::Stdio::null()).status();
         let _ = std::fs::remove_dir_all(&self.0);
     }
-}
-
-/// Node keys a folder watch by the path as resolved (lower-cased on Windows) and watches that path, so a folder and a junction to it are
-/// two watches, each reporting under its own name; a path `fs.watch` refuses fails with `fs.watch`'s own code and text, and a file is
-/// watched (apps/mobile/fixtures/folder-watch/golden.json, recorded with the real registry and `fs.watch`). The core's watches are the
-/// same: one OS watch per name, every changed path under the name the watch was asked for, and the recorded failures.
-#[cfg(windows)]
-#[tokio::test(flavor = "multi_thread")]
-async fn watches_are_keyed_and_reported_by_the_resolved_name_and_fail_as_fs_watch() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/folder-watch/golden.json")).unwrap();
-    let env = env();
-    let folder = WatchFolder::new();
-    let conn = MockConnection::new(ConnectionId(1), env.limits);
-    let watch = |id: &'static str, path: String, recursive: bool| {
-        let service = Arc::clone(&env.service);
-        let conn = &conn;
-        async move {
-            let reply = service.call(request("fs/watch", json!({ "watchId": id, "path": path, "recursive": recursive }))).await?;
-            let Reply::Subscribe(sub) = reply else { panic!("fs/watch must subscribe") };
-            let attached = subscribe(&sub.feed, SubscriptionId::from(id), sub.window, None, conn).unwrap();
-            conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
-            Ok::<(), CoreError>(())
-        }
-    };
-    let changed = |frames: &[String], id: &str| -> Vec<String> {
-        frames
-            .iter()
-            .filter_map(|frame| serde_json::from_str::<Value>(frame.split_once(':').map_or("", |(_, text)| text)).ok())
-            .filter(|frame| frame["method"] == "fs/changed" && frame["params"]["watchId"] == id)
-            .flat_map(|frame| frame["params"]["changedPaths"].as_array().unwrap().iter().map(|p| p.as_str().unwrap().to_owned()).collect::<Vec<_>>())
-            .collect()
-    };
-
-    // Two names of one folder: Node gave fs.watch each name, and reported each change under each name.
-    let two = &golden["twoNames"];
-    let paths: Vec<String> = two["fsWatchPaths"].as_array().unwrap().iter().map(|p| folder.fill(p.as_str().unwrap())).collect();
-    let ids = ["name-1", "name-2"];
-    for (id, path) in ids.iter().zip(&paths) {
-        watch(id, path.clone(), true).await.unwrap();
-    }
-    assert_eq!(env.service.open_os_watches(), paths.len(), "one OS watch per name, as Node's {} fs.watch calls", paths.len());
-    std::fs::write(folder.0.join("actual").join("changed.txt"), "1").unwrap();
-    let frames = mixdog_rt::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| ids.iter().all(|id| !changed(texts, id).is_empty()))).await.expect("a change under each name within 60 s");
-    for (id, reported) in ids.iter().zip(two["reportedUnder"].as_array().unwrap()) {
-        let dir = folder.fill(reported["dir"].as_str().unwrap());
-        let paths = changed(&frames, id);
-        assert!(paths.iter().all(|path| path.starts_with(&format!("{dir}\\"))), "{id}: every change is reported under {dir}: {paths:?}");
-    }
-    env.service.connection_closed(&ConnectionId(1));
-    assert_eq!(env.service.open_os_watches(), 0);
-
-    // The failures: fs.watch's own code and text, and a file that is watched.
-    let conn = MockConnection::new(ConnectionId(1), env.limits);
-    let watch = |id: &'static str, path: String| {
-        let service = Arc::clone(&env.service);
-        let conn = &conn;
-        async move {
-            let reply = service.call(request("fs/watch", json!({ "watchId": id, "path": path, "recursive": false }))).await?;
-            let Reply::Subscribe(sub) = reply else { panic!("fs/watch must subscribe") };
-            let attached = subscribe(&sub.feed, SubscriptionId::from(id), sub.window, None, conn).unwrap();
-            conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
-            Ok::<(), CoreError>(())
-        }
-    };
-    let failures = golden["failures"].as_array().unwrap();
-    let ids = ["fail-1", "fail-2", "fail-3"];
-    for (id, case) in ids.iter().zip(failures) {
-        let path = folder.fill(case["path"].as_str().unwrap());
-        let got = watch(id, path.clone()).await;
-        match case["answer"].get("error") {
-            Some(error) => {
-                let Err(CoreError::DomainError { code, message, .. }) = got else { panic!("{}: Node failed with {error}, got {got:?}", case["name"]) };
-                assert_eq!(message.as_deref(), Some(folder.fill(error["message"].as_str().unwrap()).as_str()), "{}", case["name"]);
-                assert_eq!(code.as_deref(), error["code"].as_str(), "{}", case["name"]);
-            }
-            None => {
-                got.unwrap_or_else(|error| panic!("{}: Node watched it, got {error:?}", case["name"]));
-                std::fs::write(&path, "b").unwrap();
-                let frames = mixdog_rt::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| !changed(texts, id).is_empty())).await.expect("the watched file's change within 60 s");
-                let under = folder.fill(case["reportedUnder"].as_str().unwrap());
-                assert!(changed(&frames, id).iter().all(|p| *p == under), "{}: reported under {under}: {:?}", case["name"], changed(&frames, id));
-            }
-        }
-    }
-    env.service.connection_closed(&ConnectionId(1));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1231,22 +851,6 @@ async fn a_recovery_restore_names_no_file_and_listing_or_inspecting_tells_no_one
     assert_eq!(log.0.lock().unwrap().clone(), [None]);
 }
 
-#[test]
-fn offered_names_and_mime_types_match_nodes_recorded_answers() {
-    let golden: Value = serde_json::from_slice(
-        &std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/transfer/names.json")).unwrap(),
-    )
-    .unwrap();
-    for row in golden["sanitize"].as_array().unwrap() {
-        let input = row["input"].as_str().unwrap();
-        assert_eq!(mixdog_workspace::transfer::sanitized_file_name(input), row["name"].as_str().unwrap(), "{input:?}");
-    }
-    for row in golden["mime"].as_array().unwrap() {
-        let input = row["input"].as_str().unwrap();
-        assert_eq!(mixdog_workspace::fsops::mime_type(std::path::Path::new(input)), row["mime"].as_str().unwrap(), "{input:?}");
-    }
-}
-
 /// Stands for the adapter over `CodeGraphTool`: answers with the cwd and the args it was given.
 struct EchoGraph;
 
@@ -1276,13 +880,8 @@ async fn code_graph_queries_pass_the_tools_arguments_and_return_its_text() {
 fn futures_block<F: std::future::Future>(f: F) -> F::Output {
     tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(f))
 }
-// ---- DS-WS-1: the recorded Node fixtures, replayed through the service -----------------------------
 
-fn corpus(domain: &str) -> Value {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../fixtures/desktop/{domain}/corpus.json"));
-    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
-}
-
+#[cfg(node_twin)]
 fn strip_mtime(mut value: Value) -> Value {
     match &mut value {
         Value::Object(map) => {
@@ -1302,6 +901,7 @@ fn strip_mtime(mut value: Value) -> Value {
 }
 
 /// The recorded Node error text, as the reason the Rust core must answer with.
+#[cfg(node_twin)]
 fn expect_error(message: &str, got: &CoreError, ctx: &str, root: &str) {
     let ok = match got {
         CoreError::PreconditionFailed { .. } => message.starts_with("File changed on disk"),
@@ -1323,6 +923,7 @@ fn expect_error(message: &str, got: &CoreError, ctx: &str, root: &str) {
     assert!(ok, "{ctx}: recorded {message:?}, got {got:?}");
 }
 
+#[cfg(node_twin)]
 fn tree(root: &std::path::Path, files: &[(&str, &[u8])]) {
     for (rel, data) in files {
         let path = root.join(rel);
@@ -1331,58 +932,170 @@ fn tree(root: &std::path::Path, files: &[(&str, &[u8])]) {
     }
 }
 
-async fn replay(env: &Env, cases: &Value, root: &str, ctx: &str) {
-    for case in cases["cases"].as_array().or_else(|| cases["entries"].as_array()).unwrap() {
-        let op = case["op"].as_str().unwrap();
-        let args = &case["args"];
-        let (method, params): (&'static str, Value) = match op {
-            "listProjectDirIn" | "listProjectDirIn(after)" => ("projectFs/listDir", json!({ "root": root, "rel": args[0] })),
-            "readProjectTextFileIn" | "readProjectTextFileIn(after write)" => ("projectFs/readText", json!({ "root": root, "rel": args[0] })),
-            "statProjectFileIn" => ("projectFs/stat", json!({ "root": root, "rel": args[0] })),
-            "writeProjectTextFileIn(expected mismatch)" => {
-                ("projectFs/writeText", json!({ "root": root, "rel": args[0], "content": "new", "expectedContent": "WRONG" }))
+#[cfg(node_twin)]
+include!("node-twin/service.rs");
+
+/// `project/create` leaves `<project>/.mixdog/project.id` holding the folder's name and a newline (memory classification reads only
+/// that), a path given with a trailing separator or a `..` spelling is the same project, and `project/touch` leaves the marker for a
+/// project that was registered without one.
+#[tokio::test(flavor = "multi_thread")]
+async fn project_create_and_touch_leave_the_project_id_marker() {
+    let env = env();
+    let base = env.root.parent().unwrap().join("markers");
+    for (phase, sub, spellings) in [("create", "a", vec!["a", "a/"]), ("create", "rel/proj", vec!["rel/proj", "rel/../rel/proj/."]), ("touch", "n", vec!["n"])] {
+        let root = base.join(phase);
+        std::fs::create_dir_all(root.join(sub)).unwrap();
+        for spelling in spellings {
+            let path = root.join(spelling).to_string_lossy().into_owned();
+            if phase == "create" {
+                call(&env, "project/create", json!({ "path": path })).await.unwrap();
+            } else {
+                let real = canonical(std::path::Path::new(&path)).unwrap().to_string_lossy().into_owned();
+                let row = mixdog_store::state::ProjectRow { path: real, alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
+                env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
+                call(&env, "project/touch", json!({ "path": path })).await.unwrap();
             }
-            "writeProjectTextFileIn" => (
-                "projectFs/writeText",
-                json!({ "root": root, "rel": args[0], "content": "rewritten\n", "expectedContent": "héllo\nworld\n" }),
-            ),
-            "createProjectEntryIn" | "createProjectEntryIn(invalid)" => {
-                ("projectFs/create", json!({ "root": root, "relDir": args[0], "name": args[1], "directory": args[2] }))
-            }
-            "renameProjectEntryIn" => ("projectFs/rename", json!({ "root": root, "rel": args[0], "newName": args[1] })),
-            "moveProjectEntryIn" => ("projectFs/move", json!({ "root": root, "rel": args[0], "targetDirRel": args[1] })),
-            "copyProjectEntryIn" => ("projectFs/copy", json!({ "root": root, "rel": args[0], "targetDirRel": args[1] })),
-            "searchWorkspaceTextIn" => ("projectFs/searchText", json!({ "root": root, "options": args })),
-            "replaceWorkspaceTextIn" => {
-                let mut params = json!({ "root": root, "options": args[0], "replacement": args[1] });
-                if let Some(paths) = args.get(2).filter(|p| !p.is_null()) {
-                    params["relPaths"] = paths.clone();
-                }
-                ("projectFs/replaceText", params)
-            }
-            other => panic!("{ctx}: unmapped recorded op {other}"),
-        };
-        let got = call(env, method, params).await;
-        let label = format!("{ctx} {op} {args}");
-        match (case.get("error"), got) {
-            (Some(error), Err(e)) => expect_error(error.as_str().unwrap(), &e, &label, root),
-            (None, Ok(value)) => {
-                if let Some(expected) = case.get("result") {
-                    assert_eq!(&strip_mtime(value), expected, "{label}");
-                }
-            }
-            (error, got) => panic!("{label}: recorded error {error:?}, got {got:?}"),
         }
+        let marker = std::fs::read_to_string(root.join(sub).join(".mixdog").join("project.id")).unwrap_or_default();
+        assert_eq!(marker, format!("{}\n", sub.rsplit('/').next().unwrap()), "{phase}: marker of {sub}");
     }
 }
 
+/// The project calls in sequence: a folder is registered under its own name, listed (newest first, ties by name), touched, renamed by an
+/// alias (an empty alias returns to the folder's name), removed (what is not registered is `removed: false`); a folder that does not
+/// exist cannot be registered and an unregistered one cannot be touched; `project/read` probes any path and `ensureDirectory` makes it.
 #[tokio::test(flavor = "multi_thread")]
-async fn recorded_project_file_operations_replay_identically() {
+async fn the_project_calls_register_list_touch_rename_and_remove_a_folder() {
     let env = env();
-    let pf = env.root.parent().unwrap().join("pf");
-    std::fs::create_dir_all(&pf).unwrap();
-    tree(
-        &pf,
+    let base = env.root.parent().unwrap().join("registry");
+    for name in ["zeta", "alpha"] {
+        std::fs::create_dir_all(base.join(name)).unwrap();
+    }
+    let at = |name: &str| canonical(&base.join(name)).unwrap().to_string_lossy().into_owned();
+    let names = |listing: &Value| -> Vec<String> { listing["projects"].as_array().unwrap().iter().filter(|p| p["path"].as_str().unwrap().starts_with(&*base.to_string_lossy())).map(|p| p["name"].as_str().unwrap().to_owned()).collect() };
+
+    let zeta = call(&env, "project/create", json!({ "path": at("zeta") })).await.unwrap();
+    assert_eq!((&zeta["project"]["name"], &zeta["project"]["alias"], &zeta["project"]["hidden"]), (&json!("zeta"), &Value::Null, &json!(false)));
+    call(&env, "project/create", json!({ "path": format!("  {}  ", at("alpha")) })).await.unwrap();
+    assert_eq!(names(&call(&env, "project/list", json!({})).await.unwrap()), ["alpha", "zeta"]);
+
+    let renamed = call(&env, "project/update", json!({ "path": at("zeta"), "alias": "  Aardvark " })).await.unwrap();
+    assert_eq!((&renamed["project"]["name"], &renamed["project"]["alias"]), (&json!("Aardvark"), &json!("Aardvark")));
+    call(&env, "project/touch", json!({ "path": at("zeta") })).await.unwrap();
+    assert_eq!(names(&call(&env, "project/list", json!({})).await.unwrap()), ["Aardvark", "alpha"]);
+    let back = call(&env, "project/update", json!({ "path": at("zeta"), "alias": "" })).await.unwrap();
+    assert_eq!((&back["project"]["name"], &back["project"]["alias"]), (&json!("zeta"), &Value::Null));
+
+    assert!(call(&env, "project/create", json!({ "path": base.join("missing").to_string_lossy() })).await.is_err(), "a folder that is not there is no project");
+    assert!(call(&env, "project/create", json!({ "path": "   " })).await.is_err());
+    std::fs::write(base.join("file.txt"), "x").unwrap();
+    assert!(call(&env, "project/create", json!({ "path": base.join("file.txt").to_string_lossy() })).await.is_err(), "a file is no project");
+    assert!(call(&env, "project/touch", json!({ "path": base.join("missing").to_string_lossy() })).await.is_err());
+
+    let probe = call(&env, "project/read", json!({ "path": base.join("file.txt").to_string_lossy() })).await.unwrap();
+    assert_eq!((&probe["exists"], &probe["directory"]), (&json!(true), &json!(false)));
+    let none = call(&env, "project/read", json!({ "path": base.join("nothing").to_string_lossy() })).await.unwrap();
+    assert_eq!((&none["exists"], &none["directory"]), (&json!(false), &json!(false)));
+    let made = call(&env, "project/ensureDirectory", json!({ "path": base.join("new/deep").to_string_lossy() })).await.unwrap();
+    assert!(Path::new(made["path"].as_str().unwrap()).is_dir());
+
+    assert_eq!(call(&env, "project/delete", json!({ "path": at("zeta") })).await.unwrap()["removed"], true);
+    assert_eq!(call(&env, "project/delete", json!({ "path": at("zeta") })).await.unwrap()["removed"], false);
+    assert_eq!(names(&call(&env, "project/list", json!({})).await.unwrap()), ["alpha"]);
+    // A removed folder can be registered again, under its own name.
+    let again = call(&env, "project/create", json!({ "path": at("zeta") })).await.unwrap();
+    assert_eq!(again["project"]["name"], "zeta");
+
+    // What the phone's "start a project" and "start a task" calls resolve: the registered folder's own path; a folder that is no
+    // project is refused.
+    let directory = call(&env, "project/directory", json!({ "path": at("alpha"), "owner": true })).await.unwrap();
+    assert_eq!(directory["path"], at("alpha").as_str());
+    assert!(call(&env, "project/directory", json!({ "path": base.join("new").to_string_lossy() })).await.is_err());
+}
+
+/// An offered file name drops a leading dot run and a trailing dot, turns separators and reserved characters into `-`, falls back to
+/// `download`, and is cut at 120 characters; the mime type is by extension, case-insensitively, and unknown ones are a byte stream.
+#[test]
+fn offered_names_and_mime_types_follow_their_rules() {
+    for (input, name) in [
+        ("report.pdf", "report.pdf"),
+        (".hidden.png", "hidden.png"),
+        ("a.", "a"),
+        (".png", "png"),
+        ("a/b\\c:d*.txt", "a-b-c-d-.txt"),
+        ("  ..--x.md. ", "x.md"),
+        ("...", "download"),
+        ("", "download"),
+        ("con<>.txt", "con-.txt"),
+    ] {
+        assert_eq!(mixdog_workspace::transfer::sanitized_file_name(input), name, "{input:?}");
+    }
+    assert_eq!(mixdog_workspace::transfer::sanitized_file_name(&format!("{}.png", "x".repeat(130))).chars().count(), 120);
+    for (input, mime) in [
+        (".png", "image/png"),
+        ("a.PNG", "image/png"),
+        ("C:\\x\\y.JPG", "image/jpeg"),
+        ("a.b.md", "text/markdown"),
+        ("a.", "application/octet-stream"),
+        ("dir.png/noext", "application/octet-stream"),
+        ("noext", "application/octet-stream"),
+        ("x.unknown", "application/octet-stream"),
+        (".gitignore", "application/octet-stream"),
+    ] {
+        assert_eq!(mixdog_workspace::fsops::mime_type(std::path::Path::new(input)), mime, "{input:?}");
+    }
+}
+
+/// A transfer read: `begin` answers the file's size, name, mime type and range limit; a path out of the project is refused as a
+/// permission denial; a range is the file's bytes with its length and whether it is the end; a range past the end is invalid;
+/// after `endRead` the transfer is gone, and aborting an unknown transfer answers false.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_transfer_read_serves_ranges_of_the_file_until_it_ends() {
+    let env = env();
+    let root = env.root.to_string_lossy().into_owned();
+    std::fs::write(env.root.join("report.bin"), b"0123456789abcdef".repeat(8)).unwrap();
+    let began = call(&env, "transfer/beginRead", json!({ "source": { "kind": "file", "root": root, "rel": "report.bin" } })).await.unwrap();
+    assert_eq!((&began["size"], &began["entry"]["name"], &began["entry"]["rangeMaxBytes"], &began["mimeType"]), (&json!(128), &json!("report.bin"), &json!(4_194_304), &json!("application/octet-stream")));
+    let outside = call(&env, "transfer/beginRead", json!({ "source": { "kind": "file", "root": root, "rel": "../x" } })).await;
+    assert!(matches!(&outside, Err(CoreError::PermissionDenied { .. })), "{outside:?}");
+    let id = began["transferId"].as_str().unwrap().to_owned();
+    let range = call(&env, "transfer/readRange", json!({ "transferId": id, "offset": 0, "length": 64 })).await.unwrap();
+    assert_eq!(range["data"], "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZg==");
+    assert_eq!((&range["length"], &range["eof"]), (&json!(64), &json!(false)));
+    let past = call(&env, "transfer/readRange", json!({ "transferId": id, "offset": 1000, "length": 8 })).await;
+    assert!(matches!(past, Err(CoreError::InvalidParams { .. })), "{past:?}");
+    assert_eq!(call(&env, "transfer/endRead", json!({ "transferId": id })).await.unwrap()["ended"], true);
+    assert!(call(&env, "transfer/readRange", json!({ "transferId": id, "offset": 0, "length": 8 })).await.is_err());
+    assert_eq!(call(&env, "transfer/abort", json!({ "transferId": "nope" })).await.unwrap()["aborted"], false);
+}
+
+/// A project folder holding `files`, registered as a project row (not through `project/create`, which also writes a marker file).
+async fn project_holding(env: &Env, name: &str, files: &[(&str, &[u8])]) -> String {
+    let dir = env.root.parent().unwrap().join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    for (rel, data) in files {
+        let path = dir.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, data).unwrap();
+    }
+    let row = mixdog_store::state::ProjectRow { path: dir.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
+    env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
+    dir.to_string_lossy().into_owned()
+}
+
+fn entries(listing: &Value) -> Vec<(String, bool)> {
+    listing.as_array().unwrap().iter().map(|e| (e["name"].as_str().unwrap().to_owned(), e["dir"].as_bool().unwrap())).collect()
+}
+
+/// A project folder lists folders first and then files, each in name order; a text file is read whole with its line endings, its
+/// encoding named (a UTF-8 byte-order mark, UTF-16) and a binary file flagged without content; a path out of the project or a missing
+/// file is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_project_folder_lists_and_reads_its_files() {
+    let env = env();
+    let root = project_holding(
+        &env,
+        "pf-read",
         &[
             ("utf8.txt", "héllo\nworld\n".as_bytes()),
             ("crlf.txt", b"a\r\nb\r\n"),
@@ -1391,80 +1104,157 @@ async fn recorded_project_file_operations_replay_identically() {
             ("bin.dat", &[0, 255, 0, 255, 1, 2, 3]),
             ("dir/inner.txt", b"inner\n"),
         ],
-    );
-    // A row, not `project/create`: the recorded listing of this folder has no `.mixdog/project.id`.
-    let row = mixdog_store::state::ProjectRow { path: pf.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
-    env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
-    replay(&env, &corpus("files"), &pf.to_string_lossy(), "files").await;
+    )
+    .await;
+    let listing = call(&env, "projectFs/listDir", json!({ "root": root, "rel": "." })).await.unwrap();
+    let file = |name: &str| (name.to_owned(), false);
+    assert_eq!(entries(&listing), [("dir".to_owned(), true), file("bin.dat"), file("bom8.txt"), file("crlf.txt"), file("utf16le.txt"), file("utf8.txt")]);
+    assert_eq!(entries(&call(&env, "projectFs/listDir", json!({ "root": root, "rel": "dir" })).await.unwrap()), [file("inner.txt")]);
+    for (rel, binary, content, encoding) in [("utf8.txt", false, "héllo\nworld\n", "utf8"), ("crlf.txt", false, "a\r\nb\r\n", "utf8"), ("bom8.txt", false, "bom\n", "utf8bom"), ("utf16le.txt", false, "hi\n", "utf16le"), ("bin.dat", true, "", "utf8")] {
+        let mut read = call(&env, "projectFs/readText", json!({ "root": root, "rel": rel })).await.unwrap();
+        // The answer carries the file's modification time (a number the test cannot know); the rest is the file's text and kind.
+        assert!(read.as_object_mut().unwrap().remove("mtimeMs").unwrap().is_number(), "{rel}");
+        assert_eq!(read, json!({ "binary": binary, "content": content, "encoding": encoding, "tooLarge": false }), "{rel}");
+    }
+    let stat = call(&env, "projectFs/stat", json!({ "root": root, "rel": "utf8.txt" })).await.unwrap();
+    assert_eq!((stat["directory"].clone(), stat["size"].clone()), (json!(false), json!(13)));
+    let outside = call(&env, "projectFs/readText", json!({ "root": root, "rel": "../escape.txt" })).await;
+    assert!(matches!(&outside, Err(CoreError::PermissionDenied { .. })), "{outside:?}");
+    let missing = call(&env, "projectFs/readText", json!({ "root": root, "rel": "missing.txt" })).await;
+    assert!(matches!(&missing, Err(CoreError::DomainError { code, .. }) if code.as_deref() == Some("ENOENT")), "{missing:?}");
 }
 
+/// Writing needs the content the editor last saw: a different one is refused (`File changed on disk`) and leaves the file; the same
+/// one is replaced. Entries are created (a name with a path in it is invalid), renamed, moved into a folder and copied.
 #[tokio::test(flavor = "multi_thread")]
-async fn recorded_workspace_searches_and_replace_replay_identically() {
+async fn a_project_file_is_written_only_over_what_the_editor_saw_and_entries_are_created_renamed_moved_and_copied() {
     let env = env();
-    let ws = env.root.parent().unwrap().join("ws");
-    std::fs::create_dir_all(&ws).unwrap();
-    tree(
-        &ws,
+    let root = project_holding(&env, "pf-write", &[("utf8.txt", "héllo\nworld\n".as_bytes()), ("crlf.txt", b"a\r\nb\r\n"), ("dir/inner.txt", b"inner\n")]).await;
+    let mismatch = call(&env, "projectFs/writeText", json!({ "root": root, "rel": "utf8.txt", "content": "new", "expectedContent": "WRONG" })).await;
+    assert!(matches!(&mismatch, Err(CoreError::PreconditionFailed { .. })), "{mismatch:?}");
+    assert_eq!(std::fs::read_to_string(Path::new(&root).join("utf8.txt")).unwrap(), "héllo\nworld\n");
+    call(&env, "projectFs/writeText", json!({ "root": root, "rel": "utf8.txt", "content": "rewritten\n", "expectedContent": "héllo\nworld\n" })).await.unwrap();
+    let read = call(&env, "projectFs/readText", json!({ "root": root, "rel": "utf8.txt" })).await.unwrap();
+    assert_eq!(read["content"], "rewritten\n");
+
+    call(&env, "projectFs/create", json!({ "root": root, "relDir": "dir", "name": "sub", "directory": true })).await.unwrap();
+    let invalid = call(&env, "projectFs/create", json!({ "root": root, "relDir": "dir", "name": "a/../b", "directory": false })).await;
+    assert!(matches!(&invalid, Err(CoreError::InvalidParams { .. })), "{invalid:?}");
+    call(&env, "projectFs/rename", json!({ "root": root, "rel": "dir/inner.txt", "newName": "renamed.txt" })).await.unwrap();
+    call(&env, "projectFs/move", json!({ "root": root, "rel": "dir/renamed.txt", "targetDirRel": "dir/sub" })).await.unwrap();
+    let copied = call(&env, "projectFs/copy", json!({ "root": root, "rel": "crlf.txt", "targetDirRel": "dir" })).await.unwrap();
+    assert_eq!(copied["name"], "crlf.txt");
+    let listing = call(&env, "projectFs/listDir", json!({ "root": root, "rel": "dir" })).await.unwrap();
+    assert_eq!(entries(&listing), [("sub".to_owned(), true), ("crlf.txt".to_owned(), false)]);
+    assert_eq!(std::fs::read_to_string(Path::new(&root).join("dir/sub/renamed.txt")).unwrap(), "inner\n");
+}
+
+fn matches_of(result: &Value) -> Vec<(String, Vec<(u64, u64, String)>)> {
+    result["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| {
+            let found = file["matches"].as_array().unwrap().iter().map(|m| (m["line"].as_u64().unwrap(), m["column"].as_u64().unwrap(), m["matchText"].as_str().unwrap().to_owned())).collect();
+            (file["relPath"].as_str().unwrap().to_owned(), found)
+        })
+        .collect()
+}
+
+/// A workspace text search ignores case unless asked not to, can be whole-word or a regular expression, is narrowed by include and
+/// exclude globs, stops at `maxResults` and says so (`limitHit`), reports 1-based line and column of each match, and skips
+/// `node_modules` and binary files; replacing changes exactly the matches (case-sensitively when asked) and reports the files.
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_search_finds_matches_by_the_options_and_replace_changes_exactly_those() {
+    let env = env();
+    let root = project_holding(
+        &env,
+        "ws-search",
         &[
             ("a.txt", b"Hello World\nhello world\nHELLO\n"),
             ("src/x.mjs", b"const hello = \"Hello\";\nfunction helloWorld() {}\n"),
             ("node_modules/skip.js", b"hello skipped\n"),
             ("data.bin", &[0, 1, 2, 104, 101, 108, 108, 111]),
         ],
+    )
+    .await;
+    env.service.catalog().add(&root, &CancellationToken::new(), None).await.unwrap();
+    let search = |options: Value| {
+        let (env, root) = (&env, root.clone());
+        async move { call(env, "projectFs/searchText", json!({ "root": root, "options": options })).await.unwrap() }
+    };
+    let m = |line, column, text: &str| (line, column, text.to_owned());
+    let all = search(json!({ "query": "hello" })).await;
+    assert_eq!(
+        matches_of(&all),
+        [("a.txt".to_owned(), vec![m(1, 1, "Hello"), m(2, 1, "hello"), m(3, 1, "HELLO")]), ("src/x.mjs".to_owned(), vec![m(1, 7, "hello"), m(1, 16, "Hello"), m(2, 10, "hello")])]
     );
-    env.service.catalog().add(&ws.to_string_lossy(), &CancellationToken::new(), None).await.unwrap();
-    replay(&env, &corpus("search"), &ws.to_string_lossy(), "search").await;
+    assert_eq!((all["matchCount"].clone(), all["limitHit"].clone()), (json!(6), json!(false)));
+    assert_eq!(all["files"][0]["matches"][0]["preview"], "Hello World");
+    assert_eq!((all["files"][0]["matches"][0]["endColumn"].clone()), json!(6));
+    let case = search(json!({ "query": "hello", "matchCase": true })).await;
+    assert_eq!(matches_of(&case), [("a.txt".to_owned(), vec![m(2, 1, "hello")]), ("src/x.mjs".to_owned(), vec![m(1, 7, "hello"), m(2, 10, "hello")])]);
+    let word = search(json!({ "query": "hello", "wholeWord": true })).await;
+    assert_eq!((word["matchCount"].clone(), matches_of(&word)[1].1.len()), (json!(5), 2), "`helloWorld` is not the word");
+    let regex = search(json!({ "query": "hel+o\\w*", "regex": true })).await;
+    assert_eq!((regex["matchCount"].clone(), matches_of(&regex)[1].1[2].clone()), (json!(6), m(2, 10, "helloWorld")));
+    let only_mjs = search(json!({ "query": "hello", "include": "*.mjs" })).await;
+    assert_eq!(matches_of(&only_mjs).iter().map(|f| f.0.as_str()).collect::<Vec<_>>(), ["src/x.mjs"]);
+    let not_src = search(json!({ "query": "hello", "exclude": "src/**" })).await;
+    assert_eq!(matches_of(&not_src).iter().map(|f| f.0.as_str()).collect::<Vec<_>>(), ["a.txt"]);
+    let capped = search(json!({ "query": "hello", "maxResults": 2 })).await;
+    assert_eq!((capped["matchCount"].clone(), capped["limitHit"].clone(), matches_of(&capped)[0].1.len()), (json!(2), json!(true), 2));
+
+    let replaced = call(&env, "projectFs/replaceText", json!({ "root": root, "options": { "query": "hello", "matchCase": true }, "replacement": "bye" })).await.unwrap();
+    assert_eq!(replaced, json!({ "filesChanged": 2, "paths": ["a.txt", "src/x.mjs"], "replacements": 3 }));
+    let after = search(json!({ "query": "bye" })).await;
+    assert_eq!(matches_of(&after), [("a.txt".to_owned(), vec![m(2, 1, "bye")]), ("src/x.mjs".to_owned(), vec![m(1, 7, "bye"), m(2, 10, "bye")])]);
+    assert_eq!(std::fs::read_to_string(Path::new(&root).join("src/x.mjs")).unwrap(), "const bye = \"Hello\";\nfunction byeWorld() {}\n");
+    assert_eq!(std::fs::read_to_string(Path::new(&root).join("node_modules/skip.js")).unwrap(), "hello skipped\n");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn recorded_transfer_reads_replay_through_the_transfer_methods() {
-    let env = env();
-    let root = env.root.to_string_lossy().into_owned();
-    let payload: Vec<u8> = b"0123456789abcdef".repeat(8);
-    std::fs::write(env.root.join("report.bin"), &payload).unwrap();
-    let fixture = corpus("transfer");
-    let entry = |op: &str| fixture["entries"].as_array().unwrap().iter().find(|e| e["op"] == op).unwrap().clone();
-    // begin: the size and name the Node service recorded.
-    let began = call(&env, "transfer/beginRead", json!({ "source": { "kind": "file", "root": root, "rel": "report.bin" } })).await.unwrap();
-    assert_eq!(began["size"], entry("begin")["result"]["size"]);
-    assert_eq!(began["entry"]["name"], entry("begin")["result"]["name"]);
-    assert_eq!(began["entry"]["rangeMaxBytes"], entry("begin")["result"]["rangeMaxBytes"]);
-    assert_eq!(began["mimeType"], entry("authorize")["result"]["mime"]);
-    // authorize(outside): a path out of the project is refused.
-    let outside = call(&env, "transfer/beginRead", json!({ "source": { "kind": "file", "root": root, "rel": "../x" } })).await;
-    // Node's `FileDownloadError('outside-project')` (recorded: name FileDownloadError): a refusal the core types as a permission denial, as
-    // `expired` is typed for the "no longer available" one; the download group's adapter gives it Node's text, which
-    // `transfer::tests::a_project_path_beyond_the_project_is_nodes_outside_project_refusal` holds to the recording.
-    assert_eq!(entry("authorize(outside)")["error"]["name"], "FileDownloadError");
-    assert!(matches!(&outside, Err(CoreError::PermissionDenied { .. })), "{outside:?}");
-    let id = began["transferId"].as_str().unwrap().to_owned();
-    // readRange: the recorded bytes.
-    let range = call(&env, "transfer/readRange", json!({ "transferId": id, "offset": 0, "length": 64 })).await.unwrap();
-    assert_eq!(range["data"], entry("readRange")["result"]["data"]);
-    assert_eq!((&range["length"], &range["eof"]), (&entry("readRange")["result"]["length"], &entry("readRange")["result"]["eof"]));
-    // past end: recorded as a TypeError (invalid params).
-    let past = call(&env, "transfer/readRange", json!({ "transferId": id, "offset": 1000, "length": 8 })).await;
-    assert!(matches!(past, Err(CoreError::InvalidParams { .. })), "{past:?}");
-    // finish, then the id is gone; abort of an unknown id is false.
-    assert_eq!(call(&env, "transfer/endRead", json!({ "transferId": id })).await.unwrap()["ended"], true);
-    assert!(call(&env, "transfer/readRange", json!({ "transferId": id, "offset": 0, "length": 8 })).await.is_err());
-    assert_eq!(call(&env, "transfer/abort", json!({ "transferId": "nope" })).await.unwrap()["aborted"], entry("abort(unknown)")["result"]);
-}
-
-fn fill(value: &Value, work: &str) -> Value {
-    match value {
-        Value::String(s) => Value::String(s.replace("<WORK>", work)),
-        Value::Array(items) => Value::Array(items.iter().map(|v| fill(v, work)).collect()),
-        // `{"$repeat": [unit, count]}` stands for a string too long to keep in the corpus.
-        Value::Object(map) if map.contains_key("$repeat") => {
-            Value::String(map["$repeat"][0].as_str().unwrap().repeat(map["$repeat"][1].as_u64().unwrap() as usize))
+/// A search pattern that is not a valid regular expression is refused with the text a user sees: `Invalid search pattern: Invalid
+/// regular expression: /<pattern>/<flags>: <reason>`, the flags being `giu` (`gu` when case matters). One pattern per reason.
+#[test]
+fn an_invalid_search_pattern_is_refused_with_the_reason_a_user_reads() {
+    use mixdog_workspace::textsearch::Pattern;
+    use mixdog_workspace::textsearch::TextQuery;
+    let cases = [
+        ("(", "Unterminated group"),
+        (")", "Unmatched ')'"),
+        ("[", "Unterminated character class"),
+        ("*", "Nothing to repeat"),
+        ("a{2,1}", "numbers out of order in {} quantifier"),
+        ("a{", "Incomplete quantifier"),
+        ("{", "Lone quantifier brackets"),
+        ("\\", "\\ at end of pattern"),
+        ("\\u{110000}", "Invalid Unicode escape"),
+        ("\\x", "Invalid escape"),
+        ("\\p{Foo}", "Invalid property name"),
+        ("\\k", "Invalid named reference"),
+        ("\\k<a>", "Invalid named capture referenced"),
+        ("(?<a>x)(?<a>y)", "Duplicate capture group name"),
+        ("(?<1a>x)", "Invalid capture group name"),
+        ("(?x)", "Invalid group"),
+        ("[b-a]", "Range out of order in character class"),
+        ("[\\d-a]", "Invalid character class"),
+        ("\\00", "Invalid decimal escape"),
+        ("(?=a)*", "Invalid quantifier"),
+        ("[\\1]", "Invalid class escape"),
+    ];
+    for (query, reason) in cases {
+        for (match_case, flags) in [(false, "giu"), (true, "gu")] {
+            let refused = Pattern::compile(&TextQuery { query: query.into(), regex: true, match_case, ..Default::default() }).err().unwrap_or_else(|| panic!("{query:?} compiles"));
+            assert_eq!(refused.message, format!("Invalid search pattern: Invalid regular expression: /{query}/{flags}: {reason}"), "{query:?}");
         }
-        Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), fill(v, work))).collect()),
-        other => other.clone(),
+    }
+    for valid in ["hel+o\\w*", "(?<name>a)\\k<name>", "[a-z]{2,3}", "\\p{L}+", "a|b"] {
+        assert!(Pattern::compile(&TextQuery { query: valid.into(), regex: true, ..Default::default() }).is_ok(), "{valid:?}");
     }
 }
 
 /// The corpus's scrubbing: the temp root becomes `<WORK>`, millisecond clocks 0, huge bodies their length.
+#[cfg(node_twin)]
 fn scrub(value: &Value, work: &str) -> Value {
     match value {
         Value::String(s) if s.encode_utf16().count() > 100_000 => Value::String(format!("<LEN:{}>", s.encode_utf16().count())),
@@ -1474,158 +1264,6 @@ fn scrub(value: &Value, work: &str) -> Value {
         Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), scrub(v, work))).collect()),
         other => other.clone(),
     }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn recorded_editor_files_replay_identically() {
-    let fixture = corpus("editor-config");
-    let host = if cfg!(windows) { "win32" } else if cfg!(target_os = "macos") { "darwin" } else { "linux" };
-    if fixture["platform"] != host {
-        eprintln!("editor-config corpus was recorded on {}; its backup names follow that platform's case rule", fixture["platform"]);
-        return;
-    }
-    let env = env();
-    let work = env.root.parent().unwrap().to_path_buf();
-    let work_s = work.to_string_lossy().into_owned();
-    let backups = mixdog_workspace::editorcfg::Backups::new(&work.join("userData"));
-    let backup_files = || -> Vec<String> {
-        std::fs::read_dir(work.join("userData/editor-backups")).map(|d| d.map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default()
-    };
-    for (index, entry) in fixture["entries"].as_array().unwrap().iter().enumerate() {
-        let label = format!("#{index} {} {}", entry["method"], entry["input"]);
-        if entry["input"].get("note").is_some() {
-            // The file-count cap: 105 sources, newest last, mtimes one second apart.
-            let _ = std::fs::remove_dir_all(work.join("userData/editor-backups"));
-            let now = std::time::SystemTime::now();
-            for i in 0..105u64 {
-                let source = work.join(format!("cap/f{i}.txt")).to_string_lossy().into_owned();
-                call_local(&env, "projectFs/backup/write", json!({ "sourcePath": source, "content": format!("c{i}"), "expectedContent": "e" })).await.unwrap();
-                let file = std::fs::OpenOptions::new().write(true).open(backups.path_of(&source).unwrap()).unwrap();
-                file.set_modified(now - Duration::from_secs(105 - i)).unwrap();
-            }
-            assert_eq!(backup_files().len() as u64, entry["result"]["filesAfter"].as_u64().unwrap(), "{label}");
-            continue;
-        }
-        for step in entry["setup"].as_array().into_iter().flatten() {
-            if let Some(rel) = step["file"].as_str() {
-                tree(&work, &[(rel, step["text"].as_str().unwrap().as_bytes())]);
-            } else {
-                let source = work.join(step["backup"].as_str().unwrap()).to_string_lossy().into_owned();
-                let text = match step["raw"].as_str() {
-                    Some(raw) => raw.to_owned(),
-                    None => {
-                        let updated = mixdog_workspace::editorcfg::now_ms() - step["ageMs"].as_i64().unwrap();
-                        json!({ "content": step["content"], "expectedContent": step["expectedContent"], "updatedAt": updated }).to_string()
-                    }
-                };
-                std::fs::write(backups.path_of(&source).unwrap(), text).unwrap();
-            }
-        }
-        let input = fill(&entry["input"], &work_s);
-        let (method, params): (&'static str, Value) = match entry["method"].as_str().unwrap() {
-            "projectFs/workspaceFile/read" => ("projectFs/workspaceFile/read", json!({ "workspaceFile": input["workspaceFile"] })),
-            "projectFs/workspaceFile/write" => {
-                ("projectFs/workspaceFile/write", json!({ "workspaceFile": input["workspaceFile"], "folders": input["folders"] }))
-            }
-            "projectFs/readEditorSettings" => {
-                let root = input["root"].as_str().unwrap();
-                if !std::path::Path::new(root).exists() {
-                    // A folder that is not there cannot be a registered project: the boundary refuses it.
-                    let denied = call(&env, "projectFs/readEditorSettings", json!({ "root": root, "rel": input["rel"] })).await;
-                    // `readEditorSettings` resolves the folder through `host.projectDirectory` (remote-methods.ts:740).
-                    assert!(unavailable(&denied), "{label}: {denied:?}");
-                    continue;
-                }
-                env.service.catalog().add(root, &CancellationToken::new(), None).await.unwrap();
-                ("projectFs/readEditorSettings", json!({ "root": root, "rel": input["rel"], "workspaceFile": input["workspaceFile"] }))
-            }
-            "projectFs/backup/read" => ("projectFs/backup/read", json!({ "sourcePath": input["sourcePath"] })),
-            "projectFs/backup/write" => (
-                "projectFs/backup/write",
-                json!({ "sourcePath": input["sourcePath"], "content": input["content"], "expectedContent": input["expectedContent"] }),
-            ),
-            "projectFs/backup/delete" => ("projectFs/backup/delete", json!({ "sourcePath": input["sourcePath"] })),
-            "project/taskWorkspace" => ("project/taskWorkspace", json!({})),
-            other => panic!("{label}: unmapped recorded method {other}"),
-        };
-        // The corpus is the desktop editor's own backups (any file it edits, `project-files.ts`): a local connection's calls. A paired
-        // phone's backups are held to a project or granted file (`a_relay_editor_backup_or_preview_...`).
-        let answer = if method.starts_with("projectFs/backup/") { call_local(&env, method, params).await } else { call(&env, method, params).await };
-        match (entry.get("error"), answer) {
-            (Some(error), Err(got)) => {
-                // Node's TypeErrors are this core's invalid params, with the text; its system errors only need to fail.
-                if error["name"] == "TypeError" {
-                    let CoreError::InvalidParams { expected, .. } = &got else { panic!("{label}: {got:?}") };
-                    assert_eq!(&**expected, error["message"].as_str().unwrap(), "{label}");
-                }
-            }
-            (None, Ok(value)) => {
-                if let Some(expected) = entry.get("result") {
-                    assert_eq!(&scrub(&value, &work_s), expected, "{label}");
-                }
-            }
-            (error, got) => panic!("{label}: recorded error {error:?}, got {got:?}"),
-        }
-        if let Some(expected) = entry.get("fileAfter") {
-            let mut file = input["workspaceFile"].as_str().unwrap().to_owned();
-            if !file.to_lowercase().ends_with(".code-workspace") {
-                file.push_str(".code-workspace");
-            }
-            // The file's text is JSON: a Windows path in it has doubled backslashes.
-            let text = std::fs::read_to_string(&file)
-                .map(|t| Value::String(t.replace(&work_s.replace('\\', "\\\\"), "<WORK>").replace(&work_s, "<WORK>")))
-                .unwrap_or(Value::Null);
-            assert_eq!(&text, expected, "{label}: file after");
-        }
-        if let Some(expected) = entry.get("files") {
-            assert_eq!(backup_files().len() as u64, expected.as_u64().unwrap(), "{label}: backup files");
-            let strays: Vec<String> = backup_files().into_iter().filter(|n| n.len() != 69 || !n.ends_with(".json")).collect();
-            assert_eq!(json!(strays), entry["fileNames"], "{label}: stray names");
-        }
-        if let Some(gone) = entry.get("fileGone") {
-            assert_eq!(!backups.path_of(input["sourcePath"].as_str().unwrap()).unwrap().exists(), gone.as_bool().unwrap(), "{label}");
-        }
-    }
-}
-
-/// The user's Markdown default view is a config key here (`desktop.editor.markdownDefaultView`; Node keeps it in the user settings
-/// file as `mixdog.markdown.defaultView`). Editor settings put it in the user scope: the recorded Node answers of the scoped
-/// settings (where the user file states `rich`) are the same when the file lacks the key and the config states it.
-#[tokio::test(flavor = "multi_thread")]
-async fn the_users_markdown_view_in_the_config_is_the_user_scope_of_editor_settings() {
-    const STATED: &str = "\"mixdog.markdown.defaultView\": \"rich\",";
-    let fixture = corpus("editor-config");
-    let entries = fixture["entries"].as_array().unwrap();
-    let start = entries
-        .iter()
-        .position(|entry| entry["setup"].as_array().is_some_and(|setup| setup.iter().any(|step| step["text"].as_str().is_some_and(|text| text.contains(STATED)))))
-        .expect("the corpus records a user scope that states the view");
-    let env = env();
-    env.service.set_user_markdown_view(Arc::new(|| Some("rich".to_owned())));
-    let work = env.root.parent().unwrap().to_path_buf();
-    let work_s = work.to_string_lossy().into_owned();
-    for step in entries[start]["setup"].as_array().unwrap() {
-        let text = step["text"].as_str().unwrap().replace(STATED, "");
-        tree(&work, &[(step["file"].as_str().unwrap(), text.as_bytes())]);
-    }
-    let mut replayed = 0;
-    for (index, entry) in entries.iter().enumerate().skip(start) {
-        if index > start && entry.get("setup").is_some() {
-            break;
-        }
-        if entry["method"] != "projectFs/readEditorSettings" {
-            continue;
-        }
-        let input = fill(&entry["input"], &work_s);
-        if !std::path::Path::new(input["root"].as_str().unwrap()).exists() {
-            continue;
-        }
-        env.service.catalog().add(input["root"].as_str().unwrap(), &CancellationToken::new(), None).await.unwrap();
-        let got = call(&env, "projectFs/readEditorSettings", json!({ "root": input["root"], "rel": input["rel"], "workspaceFile": input["workspaceFile"] })).await.unwrap();
-        assert_eq!(&scrub(&got, &work_s), &entry["result"], "#{index} {}", entry["input"]);
-        replayed += 1;
-    }
-    assert!(replayed > 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1664,39 +1302,14 @@ async fn lsp_feed_carries_node_keyed_sections_with_a_snapshot_for_late_subscribe
     assert!(snapshot.contains("lspStatus") && snapshot.contains(key.replace('\0', "\\u0000").as_str()), "{snapshot}");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn recorded_lsp_registry_and_unsupported_answers_replay() {
-    let env = env();
-    let fixture = corpus("lsp");
-    let find = |op: &str| fixture["entries"].as_array().unwrap().iter().find(|e| e["op"] == op).unwrap().clone();
-    let root = env.root.to_string_lossy().into_owned();
-    let doc = call(&env, "lsp/document", json!({ "projectPath": root, "root": root, "document": { "kind": "open", "languageId": "plaintext", "relPath": "a.xyz", "content": "x", "version": 1 } })).await.unwrap();
-    assert_eq!(doc, find("lspDocument")["result"]);
-    let request = call(
-        &env,
-        "lsp/request",
-        json!({ "projectPath": root, "root": root, "request": { "relPath": "a.xyz", "languageId": "plaintext", "method": "textDocument/hover", "params": { "position": { "line": 0, "character": 0 } } } }),
-    )
-    .await
-    .unwrap();
-    assert_eq!(request, find("lspRequest")["result"]);
-    assert_eq!(mixdog_workspace::lsp::document_language_id("a.tsx", "typescript"), "typescriptreact");
-    assert_eq!(mixdog_workspace::lsp::document_language_id("Dockerfile", "plaintext"), "plaintext");
-    let table = &find("SERVER_BY_LANGUAGE")["result"];
-    for language in mixdog_workspace::lsp::DEFAULT_LANGUAGES {
-        let spec = mixdog_workspace::lsp::default_spec(language).unwrap();
-        assert_eq!(table[language]["command"], spec.command.as_str(), "{language}");
-        assert_eq!(table[language]["id"], spec.id.as_str(), "{language}");
-        assert_eq!(table[language]["args"], json!(spec.args), "{language}");
-    }
-}
-
 // ---- the phone's start calls: what Node's `canonicalDirectory`, `knownProject` and `enter` answered (fixtures/phone-chat/host.json) --------
 
 /// The fixture's managed worktrees: `(worktree folder, owner Project, ready)`. A stand-in for the worktree manager's registry behind the daemon's
 /// `SessionProjectWorkspaces::managed`, the one resolver the service takes (`set_managed_projects`).
+#[cfg(node_twin)]
 struct Worktrees(CoreState, Vec<(String, String, bool)>);
 
+#[cfg(node_twin)]
 #[async_trait::async_trait]
 impl mixdog_workspace::service::ManagedProjects for Worktrees {
     async fn owner(&self, path: &str) -> Option<(String, String)> {
@@ -1723,6 +1336,7 @@ impl mixdog_workspace::service::ManagedProjects for Worktrees {
     }
 }
 
+#[cfg(node_twin)]
 fn domain(error: &CoreError) -> (Option<String>, Option<String>) {
     match error {
         CoreError::DomainError { code, message, .. } => (code.as_ref().map(|c| c.to_string()), message.as_ref().map(|m| m.to_string())),
@@ -1732,6 +1346,7 @@ fn domain(error: &CoreError) -> (Option<String>, Option<String>) {
 
 /// The adapter's sequence for `startProject` / `startProjectTask` (remote-chat-host.ts): the folder the blank snapshot names, and the
 /// folders `project/create` registered (Node's `addProject` calls) on the way.
+#[cfg(node_twin)]
 async fn start_through_core(env: &Env, call: &str, path: &str) -> (Result<String, CoreError>, Vec<String>) {
     let mut added = Vec::new();
     let folder = if call == "startProject" {
@@ -1756,174 +1371,346 @@ async fn start_through_core(env: &Env, call: &str, path: &str) -> (Result<String
     (folder, added)
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn recorded_start_calls_resolve_the_folder_node_did() {
-    let fixture: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/phone-chat/host.json")).unwrap();
-    let mut replayed = 0;
-    for case in fixture["cases"].as_array().unwrap().iter().filter(|case| case["group"] == "start" && case["call"] != "startTask") {
-        let name = case["name"].as_str().unwrap();
-        let env = env();
-        let base = env.root.parent().unwrap().to_path_buf();
-        let root = base.to_string_lossy().into_owned();
-        let at = |text: &str| text.replace("<ROOT>/", &format!("{root}/")).replace('/', std::path::MAIN_SEPARATOR_STR);
-        let setup = &case["setup"];
-        for dir in setup["dirs"].as_array().unwrap() {
-            std::fs::create_dir_all(base.join(dir.as_str().unwrap())).unwrap();
-        }
-        for file in setup["files"].as_array().unwrap() {
-            std::fs::write(base.join(file.as_str().unwrap()), "x").unwrap();
-        }
-        let hidden: Vec<String> = setup["hidden"].as_array().unwrap().iter().map(|h| at(h.as_str().unwrap())).collect();
-        let registered: Vec<String> = setup["projects"].as_array().unwrap().iter().map(|p| at(p["path"].as_str().unwrap())).collect();
-        for (rank, path) in registered.iter().chain(hidden.iter().filter(|h| !registered.contains(h))).enumerate() {
-            let tombstone = hidden.contains(path);
-            let row = mixdog_store::state::ProjectRow { path: path.clone(), alias: None, hidden: tombstone, hidden_rank: tombstone.then_some(rank as i64), last_used_at: None, name: None };
-            env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
-        }
-        if setup["worktrees"] == true {
-            let ready = name != "startProjectTask:worktree-not-ready";
-            let folder = canonical(&base.join("wt")).unwrap().to_string_lossy().into_owned();
-            env.service.set_managed_projects(Arc::new(Worktrees(env.state.clone(), vec![(folder, at("<ROOT>/proj"), ready)])));
-        }
-        // `requiredString` (the phone method layer) trims before a call reaches the host; a blank or non-string path never does.
-        let Some(given) = case["args"][0].as_str().map(str::trim).filter(|g| !g.is_empty()) else { continue };
-        let (outcome, added) = start_through_core(&env, case["call"].as_str().unwrap(), &at(given)).await;
-        let node = &case["node"];
-        match (&outcome, node.get("error")) {
-            (Ok(folder), None) => {
-                // What the core decides is the folder; Node's snapshot names it three times (the rest of the snapshot is the chat adapter's, replayed
-                // over this same fixture by remote-chat-host.test.mjs).
-                let result = &node["result"];
-                for field in [&result["cwd"], &result["currentProject"], &result["desktopSession"]["projectPath"]] {
-                    assert_eq!(*folder, at(field.as_str().unwrap()), "{name}: the folder of the blank snapshot");
-                }
-            }
-            (Err(error), Some(node_error)) => {
-                let (code, message) = domain(error);
-                let node_message = node_error["message"].as_str().unwrap();
-                let mut keys: Vec<&str> = node_error.as_object().unwrap().keys().map(String::as_str).collect();
-                keys.sort();
-                match code.as_deref() {
-                    // The message is the path the OS error names; the client builds Node's whole text from it.
-                    Some("pathMissing") => {
-                        assert_eq!(node_error["name"], "Error", "{name}");
-                        assert_eq!(keys, ["code", "message", "name"], "{name}");
-                        assert_eq!(node_error["code"], "ENOENT", "{name}");
-                        let named = message.unwrap().replace('\\', "/").replace(&root.replace('\\', "/"), "<ROOT>");
-                        assert_eq!(node_message, format!("ENOENT: no such file or directory, realpath '{named}'"), "{name}");
-                    }
-                    Some("notADirectory") => {
-                        assert_eq!(node_error["name"], "TypeError", "{name}");
-                        assert_eq!(keys, ["message", "name"], "{name}");
-                        assert_eq!(message.as_deref(), Some(node_message), "{name}");
-                    }
-                    // Node's registry (`known`, desktop-project-registry.ts) throws a plain `Error` with no code when its store has no
-                    // `listProjectsStrict` (the stand-in store this fixture was recorded with: no `code` in `node_error`), and the coded
-                    // `PROJECT_UNAVAILABLE` when it has one - as the real store (src/runtime/shared/projects.mjs) does, and as the core's
-                    // registry is: it tells a removal from an unreadable table. The real store's whole error is in the files recording.
-                    Some("PROJECT_UNAVAILABLE") => {
-                        assert_eq!(node_error["name"], "Error", "{name}");
-                        assert!(node_error.get("code").is_none(), "{name}: the stand-in store's error carries no code");
-                        let files: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
-                        let strict = files["scenarios"]["relay"]["steps"].as_array().unwrap().iter().map(|step| &step["frame"]).find(|frame| frame["errorCode"] == "PROJECT_UNAVAILABLE").unwrap();
-                        assert_eq!(strict["error"], node_message, "{name}: one text in both recordings");
-                        assert_eq!((code.as_deref(), message.as_deref()), (strict["errorCode"].as_str(), strict["error"].as_str()), "{name}: the whole error");
-                    }
-                    other => panic!("{name}: unexpected code {other:?}"),
-                }
-            }
-            (outcome, node) => panic!("{name}: core {outcome:?} against Node {node:?}"),
-        }
-        // The registry afterwards: the touch went to the Project Node touched, and the entered Project lost its tombstone.
-        let rows = env.state.projects().await.unwrap();
-        // Node's store calls, whole: an `addProject` for each Project `project/create` registered, then a `touchProjectSelected` for each Project the
-        // touch reached (the core's `lastUsedAt`).
-        let core_calls: Vec<Value> = added.iter().map(|path| json!(["addProject", path])).chain(rows.iter().filter(|row| row.last_used_at.is_some()).map(|row| json!(["touchProjectSelected", row.path]))).collect();
-        let node_calls: Vec<Value> = node["storeCalls"].as_array().unwrap().iter().map(|call| Value::Array(call.as_array().unwrap().iter().map(|part| json!(at(part.as_str().unwrap()))).collect())).collect();
-        assert_eq!(core_calls, node_calls, "{name}: the store calls");
-        let mut left: Vec<String> = rows.iter().filter(|row| row.hidden).map(|row| row.path.clone()).collect();
-        left.sort();
-        let node_left: Vec<String> = node["hiddenAfter"].as_array().map(|h| h.iter().map(|p| at(p.as_str().unwrap())).collect()).unwrap_or_else(|| hidden.clone());
-        assert_eq!(left, node_left, "{name}: tombstones left");
-        assert!(rows.iter().all(|row| row.hidden || row.hidden_rank.is_none()), "{name}: a rank outlived its tombstone");
-        replayed += 1;
-    }
-    assert_eq!(replayed, 18, "recorded start cases replayed");
-}
 
-/// `fixtures/session-transport-project-surface/recording.json` case 12 (`scripts/session-transport/project-surface.test.mjs`):
-/// the daemon's project calls in Node's order, through the core's methods (`project.list` -> `project/list`, `inspect` ->
-/// `project/read`, `add` -> `project/create`, `touch` -> `project/touch`, `rename` -> `project/update`, `ensureDirectory` ->
-/// `project/ensureDirectory`, `remove` -> `project/delete`) on a real registry, compared at what a client sees: each answer and the
-/// registry `project/list` shows after it. Node's store was scripted, so its invented values are read as what they stand for:
-/// `resolved:<p>` and `created:<p>` are the resolved folder, the name `Added` is the store's own name for a new row (the core's is
-/// the folder's name); the recorded store call list is Node's internal seam and not compared.
+/// Node read a file once, through one authorized handle (`readProjectTextFileAuthorized`), and answered that one version. The windows of one
+/// read come from the one read the first window made: a file replaced between two windows changes nothing the reader joins. Node's answer
+/// is the recording (apps/mobile/fixtures/phone-files/golden.json, main scenario `readProjectFile toolong.txt`: 1 MiB + 1 byte, so the
+/// phone reads it in windows); the file is made from the recorded text and mtime.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_project_calls_answer_what_node_recorded() {
-    let recording: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-transport-project-surface/recording.json")).unwrap()).unwrap();
-    let case = recording["cases"].as_array().unwrap().iter().find(|case| case["testLine"] == 12).unwrap();
+async fn the_windows_of_one_read_are_one_version_of_a_file_replaced_between_them() {
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
+    let steps = golden["scenarios"]["main"]["steps"].as_array().unwrap();
+    let recorded = steps.iter().find(|step| step["call"] == "readProjectFile" && step["params"][1] == "toolong.txt").unwrap()["frame"]["value"].clone();
+    let text = recorded["content"].as_str().unwrap().to_owned();
+    let at_ms = recorded["mtimeMs"].as_u64().unwrap();
     let env = env();
-    // The recorded registry starts empty: take the fixture's own row out first.
-    call(&env, "project/delete", json!({ "path": env.root.to_string_lossy() })).await.unwrap();
-    let base = env.root.parent().unwrap().to_path_buf();
-    let at = |recorded: &str| -> String {
-        let recorded = recorded.trim_start_matches("resolved:").trim_start_matches("created:");
-        match recorded {
-            "C:\\project" => env.root.to_string_lossy().into_owned(),
-            "C:\\new" => base.join("new").to_string_lossy().into_owned(),
-            "existing-directory" => env.root.join("src").to_string_lossy().into_owned(),
-            other => panic!("unmapped recorded path {other}"),
+    let file = env.root.join("toolong.txt");
+    let pin = |ms: u64| {
+        let open = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
+        open.set_modified(std::time::UNIX_EPOCH + Duration::from_millis(ms)).unwrap();
+    };
+    std::fs::write(&file, &text).unwrap();
+    pin(at_ms);
+    let root = env.root.to_string_lossy().into_owned();
+    let window = 60_000u64;
+    let mut part = call(&env, "projectFs/readText", json!({ "root": root, "rel": "toolong.txt", "authorized": true, "maxChars": window })).await.unwrap();
+    let mut joined = part["content"].as_str().unwrap().to_owned();
+    // The file is replaced (other text, other time) after the first window.
+    std::fs::write(&file, "c".repeat(text.len())).unwrap();
+    pin(at_ms + 1_000_000);
+    while let Some(next) = part.get("nextChar").and_then(Value::as_u64) {
+        let read_id = part["readId"].clone();
+        part = call(&env, "projectFs/readText", json!({ "root": root, "rel": "toolong.txt", "authorized": true, "readId": read_id, "fromChar": next, "maxChars": window })).await.unwrap();
+        joined.push_str(part["content"].as_str().unwrap());
+    }
+    assert!(joined == text, "the joined windows are the first version of the file ({} of {} bytes)", joined.len(), text.len());
+    // The recording holds the time as the integer JSON text `1767323045000`, the core writes the same number as a float: one JSON number
+    // to the phone. Every other field is compared as it is.
+    assert_eq!(part["mtimeMs"].as_f64(), recorded["mtimeMs"].as_f64(), "the time of the first read");
+    for field in ["binary", "tooLarge", "readOnly", "encoding"] {
+        assert_eq!(part[field], recorded[field], "{field} of the first read");
+    }
+    assert_eq!(part.as_object().unwrap().len(), recorded.as_object().unwrap().len(), "no field more or less than the recording's");
+}
+/// The phone's editor backups and document previews over a relay connection, replayed from the phone-files recording's relay
+/// scenario (apps/mobile/fixtures/phone-files/golden.json): every backup call is sent as a phone that skips the adapter's
+/// `projectFs/entryPath` step would send it, naming the file by its absolute path (the granted file's path for a call with a
+/// token), and answers Node's frame whole; every document preview's file target goes through the same admission
+/// (`relay_file`), refused as Node refused it before any page was rendered. The recording's folders are mapped onto this
+/// world's: its project on the registered project, its outside folder on a folder beside it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_editor_backup_or_preview_names_a_project_file_or_a_granted_one_only() {
+    // SAFETY: nextest runs each test in its own process, and nothing else in this one reads the environment concurrently yet.
+    unsafe { std::env::set_var("MIXDOG_FIXED_NOW_MS", PHONE_FILES_NOW_MS) };
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
+    let recorded_root = golden["root"].as_str().unwrap();
+    let env = env();
+    env.service.set_phone_grants(
+        Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(NoneGone))),
+        Arc::new(|connection: ConnectionId| (connection.0 == 1).then(|| "phone-1".to_owned())),
+    );
+    let outside = env.root.parent().unwrap().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("granted.txt"), "granted edit\n").unwrap();
+    std::fs::write(outside.join("other.txt"), "other\n").unwrap();
+    std::fs::write(env.root.join("src/a.ts"), "export const a = 1;\n").unwrap();
+    let place = |path: &str| -> String {
+        let (project, out) = (format!("{recorded_root}\\proj"), format!("{recorded_root}\\outside"));
+        if let Some(rest) = path.strip_prefix(&project) {
+            format!("{}{rest}", env.root.to_string_lossy())
+        } else if let Some(rest) = path.strip_prefix(&out) {
+            format!("{}{rest}", outside.to_string_lossy())
+        } else {
+            panic!("{path} is outside the recording's world")
         }
     };
-    let row = |recorded: &Value| -> Value {
-        let path = at(recorded["path"].as_str().unwrap());
-        let name = match recorded["name"].as_str().unwrap() {
-            "Added" => "project".to_owned(),
-            name => name.to_owned(),
+    let mut granted = None;
+    let (mut backups, mut previews) = (0, 0);
+    for step in golden["scenarios"]["relay"]["steps"].as_array().unwrap() {
+        // A `grant` step: the phone holds a one-file permission for this path from here on.
+        if step.get("grant").is_some() {
+            let path = place(step["path"].as_str().unwrap());
+            call(&env, "transfer/grant/mint", json!({ "path": path })).await.unwrap();
+            granted = Some(path);
+            continue;
+        }
+        let (Some(name), params, frame) = (step["call"].as_str(), &step["params"], &step["frame"]) else { continue };
+        let tokened = params[2].is_object();
+        let file = || -> String {
+            // The project and the entry as the phone named them, joined as given (`..` kept).
+            if tokened { granted.clone().unwrap() } else { PathBuf::from(place(params[0].as_str().unwrap())).join(params[1].as_str().unwrap()).to_string_lossy().into_owned() }
         };
-        json!({ "path": path, "name": name })
-    };
-    let listed = |projects: &Value| -> Vec<Value> { projects.as_array().unwrap().iter().map(|p| json!({ "path": p["path"], "name": p["name"] })).collect() };
-    let steps = case["result"]["steps"].as_array().unwrap();
-    assert_eq!(steps.len(), 7);
-    for step in steps {
-        let name = step["name"].as_str().unwrap();
-        let args = &step["args"][0];
-        let path = || at(args["path"].as_str().unwrap());
-        let want = &step["ok"];
-        let got = match name {
-            "project.list" => {
-                let got = call(&env, "project/list", json!({})).await.unwrap();
-                assert_eq!(listed(&got["projects"]), want["projects"].as_array().unwrap().iter().map(row).collect::<Vec<_>>(), "{name}");
-                continue;
+        let answer = match name {
+            "readEditorBackup" => call(&env, "projectFs/backup/read", json!({ "sourcePath": file() })).await,
+            "deleteEditorBackup" => call(&env, "projectFs/backup/delete", json!({ "sourcePath": file() })).await.map(|_| Value::Null),
+            "writeEditorBackup" => call(&env, "projectFs/backup/write", json!({ "sourcePath": file(), "content": params[2], "expectedContent": params[3] })).await,
+            "previewDocumentPages" => {
+                let (root, rel) = if tokened {
+                    let path = PathBuf::from(granted.clone().unwrap());
+                    (path.parent().unwrap().to_string_lossy().into_owned(), path.file_name().unwrap().to_string_lossy().into_owned())
+                } else {
+                    (place(params[0].as_str().unwrap()), params[1].as_str().unwrap().to_owned())
+                };
+                previews += 1;
+                let admitted = env.service.relay_file(&request("document/previewPages", json!({})), &root, &rel).await;
+                // Node's refusals of the target; a target it took went on to the conversion (whose answer is the worker's).
+                if frame["errorCode"] == "PROJECT_UNAVAILABLE" || frame["error"] == "Path is outside the project." {
+                    admitted.map(|_| Value::Null)
+                } else {
+                    assert!(admitted.is_ok(), "{name} {params}: {admitted:?}");
+                    continue;
+                }
             }
-            "project.inspect" => {
-                let got = call(&env, "project/read", json!({ "path": path() })).await.unwrap();
-                json!({ "path": got["path"], "exists": got["exists"], "directory": got["directory"] })
+            _ => continue,
+        };
+        if name != "previewDocumentPages" {
+            backups += 1;
+        }
+        let got = match answer {
+            Ok(value) => json!({ "ok": true, "value": value }),
+            Err(CoreError::DomainError { code, message, .. }) => {
+                let mut node = json!({ "ok": false, "error": message.as_deref() });
+                if let Some(code) = code.as_deref() {
+                    node["errorCode"] = json!(code);
+                }
+                node
             }
-            "project.add" => call(&env, "project/create", json!({ "path": path() })).await.unwrap(),
-            "project.touch" => call(&env, "project/touch", json!({ "path": path() })).await.unwrap(),
-            "project.rename" => call(&env, "project/update", json!({ "path": path(), "alias": args["name"] })).await.unwrap(),
-            "project.ensureDirectory" => {
-                let got = call(&env, "project/ensureDirectory", json!({ "path": path() })).await.unwrap();
-                assert!(std::path::Path::new(got["path"].as_str().unwrap()).is_dir(), "{name}: the folder exists");
-                got
+            Err(other) => panic!("{name} {params}: {other:?}"),
+        };
+        assert_eq!(&got, frame, "{name} {params}");
+    }
+    assert_eq!((backups, previews), (14, 3));
+    // Nothing was planted for a refused file.
+    let names: Vec<_> = std::fs::read_dir(env.root.parent().unwrap().join("userData").join("editor-backups")).map(|dir| dir.count()).into_iter().collect();
+    assert!(names.iter().all(|count| *count == 0), "{names:?}");
+}
+/// Every input Node's `absoluteLocalPath` refused (apps/mobile/fixtures/absolute-local-path/golden.json, the recording with the working
+/// directory on this process's drive) is refused by `fs/watch` with Node's message, and nothing is watched; a non-string `path` included.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn watch_refuses_every_input_node_refuses_with_nodes_message() {
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/absolute-local-path/golden.json")).unwrap();
+    let drive = std::env::current_dir().unwrap().to_string_lossy().chars().next().unwrap().to_ascii_uppercase().to_string();
+    let recorded = golden["drives"].get(&drive).unwrap_or_else(|| panic!("absolute-local-path has no recording with the working directory on drive {drive}"));
+    let env = env();
+    let mut refused = 0;
+    for (input, answer) in golden["inputs"].as_array().unwrap().iter().zip(recorded.as_array().unwrap()) {
+        let Some(message) = answer["error"]["message"].as_str() else { continue };
+        let mut params = json!({ "watchId": "refused", "recursive": false });
+        if input.get("absent").is_none() {
+            params["path"] = input["value"].clone();
+        }
+        let error = env.service.call(request("fs/watch", params)).await.err().unwrap_or_else(|| panic!("{}: Node refused it and it was watched", input["name"]));
+        assert!(format!("{error:?}").contains(message), "{}: Node says {message:?}, got {error:?}", input["name"]);
+        refused += 1;
+    }
+    assert!(refused > 0);
+    assert_eq!(env.service.open_os_watches(), 0);
+}
+/// Every class of project path answered as Node answers it (apps/mobile/fixtures/project-path-classes/golden.json, recorded by
+/// record-project-path-classes.mjs from the real registry, the real store and `addProject`): the registry's lookup (`project/read`, and
+/// `transfer/trash/info`, which Node hands `projectDirectory`), the folder `project/ensureDirectory` makes and the path `project/create`
+/// registers. The working directory is the project's parent, as in the recording; the test needs a process of its own (nextest runs one).
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn project_paths_are_read_as_nodes_registry_reads_them() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/project-path-classes/golden.json")).unwrap();
+    let env = env();
+    let tmp = env.root.parent().unwrap().to_path_buf();
+    let proj = tmp.join("proj");
+    std::fs::create_dir(&proj).unwrap();
+    let row = mixdog_store::state::ProjectRow { path: proj.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
+    env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
+    std::env::set_current_dir(&tmp).unwrap();
+
+    let text = |path: &std::path::Path| path.to_string_lossy().into_owned();
+    let (proj_text, tmp_text) = (text(&proj), text(&tmp));
+    let rooted = tmp_text[2..].to_owned();
+    let fill: Vec<(&str, String)> = vec![
+        ("{proj}", proj_text.clone()),
+        ("{tmp}", tmp_text.clone()),
+        ("{PROJ}", proj_text.to_uppercase()),
+        ("{TMP}", tmp_text.to_uppercase()),
+        ("{projSlash}", proj_text.replace('\\', "/")),
+        ("{projUpper}", proj_text.to_uppercase()),
+        ("{tmpName}", tmp.file_name().unwrap().to_string_lossy().into_owned()),
+        ("{drive}", tmp_text[..2].to_owned()),
+        ("{tmpRooted}", rooted.clone()),
+        ("{tmpRootedSlash}", rooted.replace('\\', "/")),
+    ];
+    let expand = |template: &str| fill.iter().fold(template.to_owned(), |text, (token, value)| text.replace(token, value));
+
+    let inputs = golden["inputs"].as_array().unwrap();
+    let mut replayed = 0;
+    // In the recording's order: `inspect` before `ensure`, which makes the folders later inputs name. `known` is the registry's lookup behind
+    // `project/directory` (the registered folder is its own real path here).
+    for (operation, method) in [("known", "project/directory"), ("inspect", "project/read"), ("trash", "transfer/trash/info"), ("ensure", "project/ensureDirectory"), ("add", "project/create")] {
+        // Node's lookup answers the trash call too: its `projectDirectory` is the registry's lookup, then a folder.
+        let recorded = golden["answers"][if operation == "trash" { "known" } else { operation }].as_array().unwrap();
+        for (input, answer) in inputs.iter().zip(recorded) {
+            let given = expand(input["template"].as_str().unwrap());
+            let got = call(&env, method, json!({ "path": given })).await;
+            let name = format!("{operation} {}: {given:?}", input["name"]);
+            match answer.get("result") {
+                Some(want) => {
+                    let got = got.unwrap_or_else(|error| panic!("{name}: Node answered {want}, got {error:?}"));
+                    if operation == "trash" {
+                        assert!(got.get("available").is_some(), "{name}: {got}");
+                    } else if operation == "inspect" {
+                        let mut want: Value = serde_json::from_str(want.as_str().unwrap()).unwrap();
+                        want["path"] = json!(expand(want["path"].as_str().unwrap()));
+                        assert_eq!(got, want, "{name}");
+                    } else {
+                        let path = if operation == "add" { &got["project"]["path"] } else { &got["path"] };
+                        assert_eq!(path.as_str().unwrap(), expand(want.as_str().unwrap()), "{name}");
+                    }
+                }
+                None => {
+                    let message = answer["error"]["message"].as_str().unwrap();
+                    let error = got.err().unwrap_or_else(|| panic!("{name}: Node refused it with {message:?}"));
+                    // Node's own wording where the answer is Node's (the registry and the catalog); an operating-system error of a path Node
+                    // never reached (`ENOENT ... realpath`, a NUL) is a refusal here as well.
+                    if answer["error"].get("code").and_then(Value::as_str) == Some("PROJECT_UNAVAILABLE") {
+                        assert!(unavailable::<Value>(&Err(error)), "{name}");
+                    } else if !message.starts_with("ENOENT") && !message.starts_with("The argument 'path'") {
+                        assert!(format!("{error:?}").contains(message), "{name}: Node says {message:?}, got {error:?}");
+                    }
+                }
             }
-            "project.remove" => call(&env, "project/delete", json!({ "path": path() })).await.unwrap(),
-            other => panic!("unrecorded call {other}"),
-        };
-        let want = match name {
-            "project.inspect" => json!({ "path": at(want["path"].as_str().unwrap()), "exists": want["exists"], "directory": want["directory"] }),
-            "project.ensureDirectory" => json!({ "path": at(want["path"].as_str().unwrap()) }),
-            "project.add" | "project.touch" | "project.rename" => json!({ "project": row(&want["project"]) }),
-            _ => want.clone(),
-        };
-        let got = match name {
-            "project.add" | "project.touch" | "project.rename" => json!({ "project": { "path": got["project"]["path"], "name": got["project"]["name"] } }),
-            _ => got,
-        };
-        assert_eq!(got, want, "{name}: the answer");
-        let after = call(&env, "project/list", json!({})).await.unwrap();
-        assert_eq!(listed(&after["projects"]), step["rowsAfter"].as_array().unwrap().iter().map(row).collect::<Vec<_>>(), "{name}: the registry after it");
+            replayed += 1;
+        }
+    }
+    assert_eq!(replayed, inputs.len() * 5);
+}
+#[cfg(windows)]
+impl WatchFolder {
+    fn new() -> Self {
+        let root = std::env::temp_dir().join(format!("mixdog-folder-watch-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("actual")).unwrap();
+        std::fs::create_dir(root.join("locked")).unwrap();
+        std::fs::write(root.join("afile.txt"), "a").unwrap();
+        let folder = Self(root);
+        folder.run("cmd", &["/c", "mklink", "/J", &folder.at("alias"), &folder.at("actual")]);
+        folder.run("icacls", &[&folder.at("locked"), "/deny", "*S-1-1-0:(RD)"]);
+        folder
+    }
+
+    fn at(&self, name: &str) -> String {
+        self.0.join(name).to_string_lossy().into_owned()
+    }
+
+    fn fill(&self, template: &str) -> String {
+        template.replace("{root}", &self.0.to_string_lossy())
+    }
+
+    fn run(&self, program: &str, args: &[&str]) {
+        let status = std::process::Command::new(program).args(args).stdout(std::process::Stdio::null()).status().unwrap();
+        assert!(status.success(), "{program} {args:?}: {status}");
     }
 }
+/// Node keys a folder watch by the path as resolved (lower-cased on Windows) and watches that path, so a folder and a junction to it are
+/// two watches, each reporting under its own name; a path `fs.watch` refuses fails with `fs.watch`'s own code and text, and a file is
+/// watched (apps/mobile/fixtures/folder-watch/golden.json, recorded with the real registry and `fs.watch`). The core's watches are the
+/// same: one OS watch per name, every changed path under the name the watch was asked for, and the recorded failures.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn watches_are_keyed_and_reported_by_the_resolved_name_and_fail_as_fs_watch() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/folder-watch/golden.json")).unwrap();
+    let env = env();
+    let folder = WatchFolder::new();
+    let conn = MockConnection::new(ConnectionId(1), env.limits);
+    let watch = |id: &'static str, path: String, recursive: bool| {
+        let service = Arc::clone(&env.service);
+        let conn = &conn;
+        async move {
+            let reply = service.call(request("fs/watch", json!({ "watchId": id, "path": path, "recursive": recursive }))).await?;
+            let Reply::Subscribe(sub) = reply else { panic!("fs/watch must subscribe") };
+            let attached = subscribe(&sub.feed, SubscriptionId::from(id), sub.window, None, conn).unwrap();
+            conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
+            Ok::<(), CoreError>(())
+        }
+    };
+    let changed = |frames: &[String], id: &str| -> Vec<String> {
+        frames
+            .iter()
+            .filter_map(|frame| serde_json::from_str::<Value>(frame.split_once(':').map_or("", |(_, text)| text)).ok())
+            .filter(|frame| frame["method"] == "fs/changed" && frame["params"]["watchId"] == id)
+            .flat_map(|frame| frame["params"]["changedPaths"].as_array().unwrap().iter().map(|p| p.as_str().unwrap().to_owned()).collect::<Vec<_>>())
+            .collect()
+    };
+
+    // Two names of one folder: Node gave fs.watch each name, and reported each change under each name.
+    let two = &golden["twoNames"];
+    let paths: Vec<String> = two["fsWatchPaths"].as_array().unwrap().iter().map(|p| folder.fill(p.as_str().unwrap())).collect();
+    let ids = ["name-1", "name-2"];
+    for (id, path) in ids.iter().zip(&paths) {
+        watch(id, path.clone(), true).await.unwrap();
+    }
+    assert_eq!(env.service.open_os_watches(), paths.len(), "one OS watch per name, as Node's {} fs.watch calls", paths.len());
+    std::fs::write(folder.0.join("actual").join("changed.txt"), "1").unwrap();
+    let frames = mixdog_rt::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| ids.iter().all(|id| !changed(texts, id).is_empty()))).await.expect("a change under each name within 60 s");
+    for (id, reported) in ids.iter().zip(two["reportedUnder"].as_array().unwrap()) {
+        let dir = folder.fill(reported["dir"].as_str().unwrap());
+        let paths = changed(&frames, id);
+        assert!(paths.iter().all(|path| path.starts_with(&format!("{dir}\\"))), "{id}: every change is reported under {dir}: {paths:?}");
+    }
+    env.service.connection_closed(&ConnectionId(1));
+    assert_eq!(env.service.open_os_watches(), 0);
+
+    // The failures: fs.watch's own code and text, and a file that is watched.
+    let conn = MockConnection::new(ConnectionId(1), env.limits);
+    let watch = |id: &'static str, path: String| {
+        let service = Arc::clone(&env.service);
+        let conn = &conn;
+        async move {
+            let reply = service.call(request("fs/watch", json!({ "watchId": id, "path": path, "recursive": false }))).await?;
+            let Reply::Subscribe(sub) = reply else { panic!("fs/watch must subscribe") };
+            let attached = subscribe(&sub.feed, SubscriptionId::from(id), sub.window, None, conn).unwrap();
+            conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
+            Ok::<(), CoreError>(())
+        }
+    };
+    let failures = golden["failures"].as_array().unwrap();
+    let ids = ["fail-1", "fail-2", "fail-3"];
+    for (id, case) in ids.iter().zip(failures) {
+        let path = folder.fill(case["path"].as_str().unwrap());
+        let got = watch(id, path.clone()).await;
+        match case["answer"].get("error") {
+            Some(error) => {
+                let Err(CoreError::DomainError { code, message, .. }) = got else { panic!("{}: Node failed with {error}, got {got:?}", case["name"]) };
+                assert_eq!(message.as_deref(), Some(folder.fill(error["message"].as_str().unwrap()).as_str()), "{}", case["name"]);
+                assert_eq!(code.as_deref(), error["code"].as_str(), "{}", case["name"]);
+            }
+            None => {
+                got.unwrap_or_else(|error| panic!("{}: Node watched it, got {error:?}", case["name"]));
+                std::fs::write(&path, "b").unwrap();
+                let frames = mixdog_rt::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| !changed(texts, id).is_empty())).await.expect("the watched file's change within 60 s");
+                let under = folder.fill(case["reportedUnder"].as_str().unwrap());
+                assert!(changed(&frames, id).iter().all(|p| *p == under), "{}: reported under {under}: {:?}", case["name"], changed(&frames, id));
+            }
+        }
+    }
+    env.service.connection_closed(&ConnectionId(1));
+}
+// ---- DS-WS-1: the recorded Node fixtures, replayed through the service -----------------------------
+

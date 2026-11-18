@@ -186,6 +186,111 @@ test('submission hook commits accepted text and restores interrupted text', asyn
   }
 });
 
+test('every Stop is logged with the core answer, and one that stopped nothing says so', async () => {
+  const records = [];
+  const previous = window.mixdogDesktop.rendererDiagnostic;
+  window.mixdogDesktop.rendererDiagnostic = (record) => records.push(record);
+  let current;
+  let answer;
+  const notices = [];
+  function Harness() {
+    const [draft, setDraft] = useState('');
+    const draftRef = useRef(draft);
+    draftRef.current = draft;
+    current = {
+      draft,
+      ...useComposerSubmission({
+        turnBusy: true,
+        commandBusy: false,
+        queued: [],
+        recoveryScope: 'session-stop',
+        textarea: useRef(null),
+        draftRef,
+        attachmentsRef: useRef([]),
+        pendingLoads: { current: 0 },
+        transitioningRef: useRef(false),
+        composingRef: useRef(false),
+        submittingRef: useRef(false),
+        submissionRetryRef: useRef(null),
+        mountedRef: useRef(true),
+        historyNavigation: useRef({ index: -1, seed: '' }),
+        setDraft,
+        setSubmitting() {},
+        setSubmissionRecoveryVersion() {},
+        clearNotice() {},
+        showNotice: (message, tone = 'info') => notices.push([message, tone]),
+        setAttachmentError() {},
+        removeAttachments() {},
+        mergeRestoredAttachments: (_attachments, text) => text,
+        restoredAttachments: (_value, text) => ({ attachments: [], text }),
+        executeSlash: async () => true,
+        rememberPrompt() {},
+        submit: async () => true,
+        abort: async () => answer(),
+      }),
+    };
+    return null;
+  }
+  const mounted = mountHarness(Harness, {});
+  const stopWith = async (reply, ...args) => {
+    answer = reply;
+    records.length = 0;
+    notices.length = 0;
+    await act(async () => {
+      await current.stop(...args);
+    });
+    assert.equal(records.length, 1, 'one record per Stop');
+    return { record: records[0], notices: [...notices] };
+  };
+  try {
+    await mounted.render({});
+    // A turn stopped: logged, no notice (the turn ending is the outcome).
+    let seen = await stopWith(async () => ({ aborted: true, restoreText: '' }));
+    assert.equal(seen.record.kind, 'composer-action');
+    assert.equal(seen.record.action, 'stop');
+    assert.equal(seen.record.source, 'stop-button');
+    assert.equal(seen.record.turnBusy, true);
+    assert.equal(seen.record.stopOutcome, 'stopped');
+    assert.equal(seen.record.aborted, true);
+    assert.deepEqual(seen.notices, []);
+
+    // Node's idle reply: `aborted: false` with no reason is "nothing was running".
+    seen = await stopWith(async () => ({ aborted: false, restoreText: '', restoredSubmissionIds: [] }), false, '', 'escape');
+    assert.equal(seen.record.source, 'escape');
+    assert.equal(seen.record.stopOutcome, 'nothing');
+    assert.equal(seen.record.aborted, false);
+    assert.equal('stopReason' in seen.record, false);
+    assert.deepEqual(seen.notices, [['Nothing was running to stop.', 'info']]);
+
+    // The core's `could-not-stop` has its own words, and rides in the record.
+    seen = await stopWith(async () => ({ aborted: false, reason: 'could-not-stop' }));
+    assert.equal(seen.record.stopReason, 'could-not-stop');
+    assert.deepEqual(seen.notices, [['The turn could not be stopped.', 'info']]);
+
+    // A queued prompt handed back is an outcome of its own: no notice, the draft returns.
+    seen = await stopWith(
+      async () => ({ aborted: false, restoreText: 'queued text', restoredSubmissionIds: ['s1'] }),
+      false,
+      's1'
+    );
+    assert.equal(seen.record.stopOutcome, 'restored');
+    assert.equal(seen.record.targeted, true);
+    assert.deepEqual(seen.notices, []);
+    assert.equal(current.draft, 'queued text');
+
+    // The call itself failed: logged and shown as an error.
+    seen = await stopWith(async () => {
+      throw new Error('link down');
+    });
+    assert.equal(seen.record.stopOutcome, 'failed');
+    assert.equal(seen.record.stopReason, 'link down');
+    assert.deepEqual(seen.notices, [['The turn could not be stopped.', 'error']]);
+  } finally {
+    window.mixdogDesktop.rendererDiagnostic = previous;
+    await mounted.cleanup();
+  }
+});
+
 test('an ambiguous failure restored onto a colliding chip id is renumbered and resent under the same submission id', async () => {
   let current;
   const sends = [];

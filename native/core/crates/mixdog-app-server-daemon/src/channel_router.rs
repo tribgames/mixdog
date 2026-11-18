@@ -125,8 +125,6 @@ impl std::fmt::Display for RouteError {
     }
 }
 
-impl std::error::Error for RouteError {}
-
 /// What a routed notification came to.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Delivery {
@@ -196,13 +194,10 @@ impl EventSink for ChannelEventSink {
 mod tests {
     use std::sync::Mutex;
 
+    #[cfg(node_twin)]
     use serde_json::Value;
 
     use super::*;
-
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../fixtures/channel-router/golden.json")).unwrap()
-    }
 
     fn lead(id: Option<&str>) -> SessionIdFn {
         let id = id.map(str::to_owned);
@@ -225,13 +220,30 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn the_sink_never_fails_the_pipeline() {
+        let sessions = Arc::new(Sessions { kind: "throws".into(), submits: Mutex::default() });
+        let sink = ChannelEventSink::new(ChannelSessionRouter::new(lead(Some("sess_lead")), sessions.clone()));
+        assert_eq!(sink.inject("event:ci", "red").await, Ok(()));
+        assert_eq!(*sessions.submits.lock().unwrap(), vec![("sess_lead".to_owned(), "red".to_owned())]);
+        let unpinned = ChannelEventSink::new(ChannelSessionRouter::new(Arc::new(daemon_session_id), sessions.clone()));
+        assert_eq!(unpinned.inject("event:ci", "red").await, Ok(()));
+        assert_eq!(sessions.submits.lock().unwrap().len(), 1, "Node daemon parity: no session, dropped");
+    }
+
+
+    #[cfg(node_twin)]
+    fn golden() -> Value {
+        serde_json::from_str(include_str!("../../../fixtures/channel-router/golden.json")).unwrap()
+    }
+    #[cfg(node_twin)]
     #[test]
     fn soft_warns_are_stripped_as_nodes_do() {
         for case in golden()["strip"].as_array().unwrap() {
             assert_eq!(strip_soft_warns(case["input"].as_str().unwrap()), case["output"].as_str().unwrap(), "{case}");
         }
     }
-
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn every_recorded_injection_routes_as_nodes_router_does() {
         for case in golden()["inject"].as_array().unwrap() {
@@ -258,15 +270,7 @@ mod tests {
             assert_eq!(logs, want_logs, "{case}");
         }
     }
-
-    #[tokio::test]
-    async fn the_sink_never_fails_the_pipeline() {
-        let sessions = Arc::new(Sessions { kind: "throws".into(), submits: Mutex::default() });
-        let sink = ChannelEventSink::new(ChannelSessionRouter::new(lead(Some("sess_lead")), sessions.clone()));
-        assert_eq!(sink.inject("event:ci", "red").await, Ok(()));
-        assert_eq!(*sessions.submits.lock().unwrap(), vec![("sess_lead".to_owned(), "red".to_owned())]);
-        let unpinned = ChannelEventSink::new(ChannelSessionRouter::new(Arc::new(daemon_session_id), sessions.clone()));
-        assert_eq!(unpinned.inject("event:ci", "red").await, Ok(()));
-        assert_eq!(sessions.submits.lock().unwrap().len(), 1, "Node daemon parity: no session, dropped");
-    }
 }
+
+
+impl std::error::Error for RouteError {}

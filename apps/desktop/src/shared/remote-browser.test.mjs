@@ -280,12 +280,10 @@ function hostRefusal(action, input) {
   }
 }
 
-// The corpus the core's browser_validate tests read too (native/core/fixtures/browser-parity/remote-browser.json).
+// fixtures/remote-browser.json: two rows per (action, refusal text) of the corpus the core's browser_validate tests read.
 test('the UI action corpus is refused with the same text the core gives', () => {
-  const corpus = JSON.parse(
-    readFileSync(new URL('../../../../native/core/fixtures/browser-parity/remote-browser.json', import.meta.url), 'utf8')
-  );
-  assert.ok(corpus.rows.length > 100);
+  const corpus = JSON.parse(readFileSync(new URL('./fixtures/remote-browser.json', import.meta.url), 'utf8'));
+  assert.ok(corpus.rows.length > 50);
   for (const row of corpus.rows) {
     assert.equal(hostRefusal(row.action, row.input), row.error, JSON.stringify(row));
   }

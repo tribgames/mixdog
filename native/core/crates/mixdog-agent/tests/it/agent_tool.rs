@@ -434,34 +434,12 @@ fn runtime(world: &Arc<World>) -> AgentRuntime {
     })
 }
 
+#[cfg(node_twin)]
 /// The two scenarios of the first recording whose answer main's 6de9f07bc changed (cleanup reports what it closed and
 /// hid, a close names why it did not land): `fixtures/agent-cleanup` holds them as recorded from that commit.
 const RECORDED_AGAIN: [&str; 2] = ["cleanup", "close_that_fails_keeps_the_row"];
 
-#[tokio::test]
-async fn every_recorded_scenario_equals_nodes_trace_and_answer() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/agent/agent_tool/cases.json");
-    let cases: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let cases = cases.as_array().unwrap();
-    assert!(cases.len() >= 40);
-    let kept: Vec<Value> = cases.iter().filter(|case| !RECORDED_AGAIN.contains(&s(case, "name").as_str())).cloned().collect();
-    assert_eq!(kept.len(), cases.len() - RECORDED_AGAIN.len());
-    replay(&kept).await;
-}
-
-/// `fixtures/agent-cleanup` (`record-agent-cleanup.mjs`, main 0bf8fe045): cleanup closes the delivered idle agents,
-/// drops the rows of deleted sessions and hides the idle sessions no row points to; a close names why it did not land
-/// and drops the row of a deleted session.
-#[tokio::test]
-async fn cleanup_and_close_equal_nodes_trace_and_answer() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/agent-cleanup/cases.json");
-    let recorded: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let cases = recorded["dispatch"].as_array().unwrap();
-    assert!(cases.len() >= 9);
-    assert!(RECORDED_AGAIN.iter().all(|name| cases.iter().any(|case| s(case, "name") == *name)));
-    replay(cases).await;
-}
-
+#[cfg(node_twin)]
 async fn replay(cases: &[Value]) {
     for case in cases {
         let name = s(case, "name");
@@ -489,7 +467,7 @@ async fn replay(cases: &[Value]) {
             hidden: Mutex::new(hidden),
         });
         let rt = runtime(&world);
-        let caller = Caller { scope: Scope { caller_session_id: Some("lead1".into()), host_pid: Some(4242) }, cwd: "/work".into() };
+        let caller = Caller { scope: Scope { caller_session_id: Some("lead1".into()), host_pid: Some(4242) }, cwd: "/work".into(), ..Caller::default() };
         let args = case["args"].clone();
         let reply = rt.handle(&args, &caller).await;
         let filter = args.get("tag").and_then(Value::as_str).unwrap_or_default();
@@ -497,4 +475,93 @@ async fn replay(cases: &[Value]) {
         let trace = world.trace.lock().unwrap().clone();
         assert_eq!(Value::Array(trace), case["trace"], "{name}: trace");
     }
+}
+
+/// A spawn reuses an existing session only if the request fits it (same agent, same cwd where given): the live path
+/// and the resume path ask the same question (`TagResume::request_fits`). A decided departure from Node, whose live
+/// path never asked.
+fn world_with(json: Value, tags: &[(&str, &str)]) -> Arc<World> {
+    Arc::new(World {
+        json,
+        tags: Mutex::new(tags.iter().map(|(t, id)| ((*t).to_owned(), (*id).to_owned())).collect()),
+        ..World::default()
+    })
+}
+
+async fn spawn_on(world: &Arc<World>, args: Value) -> (String, Vec<Value>) {
+    let caller = Caller { scope: Scope { caller_session_id: Some("lead1".into()), host_pid: Some(4242) }, cwd: "/work".into(), ..Caller::default() };
+    let reply = runtime(world).handle(&args, &caller).await;
+    (render(&reply, ""), world.trace.lock().unwrap().clone())
+}
+
+fn names(trace: &[Value], op: &str) -> bool {
+    trace.iter().any(|entry| entry[0] == op)
+}
+
+#[tokio::test]
+async fn a_spawn_on_a_live_tag_reuses_it_only_when_the_request_fits() {
+    let live = json!({ "live": { "s1": { "id": "s1", "agent": "worker", "cwd": "/work", "parentSessionId": "lead1" } } });
+    for args in [
+        json!({ "prompt": "again", "tag": "w1" }),
+        json!({ "prompt": "again", "tag": "w1", "agent": "worker", "cwd": "/work" }),
+    ] {
+        let world = world_with(live.clone(), &[("w1", "s1")]);
+        let (answer, trace) = spawn_on(&world, args).await;
+        assert_eq!(answer, "dispatched sess_default");
+        assert!(names(&trace, "dispatch") && !names(&trace, "startSpawn"));
+    }
+    for args in [
+        json!({ "prompt": "again", "tag": "w1", "cwd": "/elsewhere" }),
+        json!({ "prompt": "again", "tag": "w1", "agent": "reviewer" }),
+    ] {
+        let world = world_with(live.clone(), &[("w1", "s1")]);
+        let (answer, trace) = spawn_on(&world, args).await;
+        assert!(answer.starts_with("Error: agent spawn: tag \"w1\" is in use by agent \"worker\" in \"/work\""), "{answer}");
+        assert!(!names(&trace, "dispatch") && !names(&trace, "startSpawn"), "nothing is reused or started");
+    }
+}
+
+#[tokio::test]
+async fn a_spawn_on_a_reaped_tag_resumes_it_only_when_the_request_fits() {
+    let reaped = json!({
+        "lastSessions": { "w1": { "tag": "w1", "sessionId": "sx", "agent": "worker", "cwd": "/work", "parentSessionId": "lead1" } },
+        "resumable": { "w1|sx": { "session": { "id": "sx", "agent": "worker", "cwd": "/work" } } },
+    });
+    let world = world_with(reaped.clone(), &[]);
+    let (_, trace) = spawn_on(&world, json!({ "prompt": "go", "tag": "w1", "cwd": "/work" })).await;
+    assert!(names(&trace, "dispatch") && !names(&trace, "startSpawn"), "a fitting request resumes");
+    for args in [
+        json!({ "prompt": "go", "tag": "w1", "cwd": "/elsewhere" }),
+        json!({ "prompt": "go", "tag": "w1", "agent": "reviewer" }),
+    ] {
+        let world = world_with(reaped.clone(), &[]);
+        let (_, trace) = spawn_on(&world, args).await;
+        assert!(names(&trace, "startSpawn") && !names(&trace, "dispatch"), "a request that does not fit starts fresh");
+    }
+}
+
+
+#[cfg(node_twin)]
+#[tokio::test]
+async fn every_recorded_scenario_equals_nodes_trace_and_answer() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/agent/agent_tool/cases.json");
+    let cases: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let cases = cases.as_array().unwrap();
+    assert!(cases.len() >= 40);
+    let kept: Vec<Value> = cases.iter().filter(|case| !RECORDED_AGAIN.contains(&s(case, "name").as_str())).cloned().collect();
+    assert_eq!(kept.len(), cases.len() - RECORDED_AGAIN.len());
+    replay(&kept).await;
+}
+#[cfg(node_twin)]
+/// `fixtures/agent-cleanup` (`record-agent-cleanup.mjs`, main 0bf8fe045): cleanup closes the delivered idle agents,
+/// drops the rows of deleted sessions and hides the idle sessions no row points to; a close names why it did not land
+/// and drops the row of a deleted session.
+#[tokio::test]
+async fn cleanup_and_close_equal_nodes_trace_and_answer() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/agent-cleanup/cases.json");
+    let recorded: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let cases = recorded["dispatch"].as_array().unwrap();
+    assert!(cases.len() >= 9);
+    assert!(RECORDED_AGAIN.iter().all(|name| cases.iter().any(|case| s(case, "name") == *name)));
+    replay(cases).await;
 }

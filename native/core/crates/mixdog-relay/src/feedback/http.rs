@@ -31,7 +31,7 @@ struct Slot<'a>(&'a AtomicUsize);
 
 impl<'a> Slot<'a> {
     fn take(active: &'a AtomicUsize) -> Option<Self> {
-        active.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |held| (held < MAX_CONCURRENT_READS).then_some(held + 1)).ok()?;
+        active.try_update(Ordering::SeqCst, Ordering::SeqCst, |held| (held < MAX_CONCURRENT_READS).then_some(held + 1)).ok()?;
         Some(Self(active))
     }
 }
@@ -77,6 +77,32 @@ async fn refuse_unread(conn: ConnHandle, response: &mut ResponseWriter, status: 
     response.finished().await;
     conn.destroy();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_content_type_is_application_json_in_any_case_with_optional_parameters() {
+        for yes in ["application/json", "Application/JSON; charset=utf-8", " application/json ", "application/json ;x=1", "application/json;"] {
+            assert!(is_json(yes), "{yes}");
+        }
+        for no in ["", "text/plain", "application/jsonp", "application/json-seq", "application/x-www-form-urlencoded", "multipart/form-data", "application/jso"] {
+            assert!(!is_json(no), "{no}");
+        }
+    }
+
+    #[test]
+    fn a_slot_is_given_back_when_dropped_and_only_three_exist() {
+        let active = AtomicUsize::new(0);
+        let held: Vec<_> = (0..3).map(|_| Slot::take(&active).expect("a place")).collect();
+        assert!(Slot::take(&active).is_none());
+        drop(held);
+        assert!(Slot::take(&active).is_some());
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+    }
+}
+
 
 impl FeedbackEndpoint {
     pub fn new(service: Option<FeedbackService>) -> Self {
@@ -167,30 +193,5 @@ impl FeedbackEndpoint {
             Ok(accepted) => reply(&mut response, 202, &json!({ "id": accepted.id, "status": accepted.status }), &[]),
             Err(error) => fail(&mut response, error.status, error.code, &[]),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_content_type_is_application_json_in_any_case_with_optional_parameters() {
-        for yes in ["application/json", "Application/JSON; charset=utf-8", " application/json ", "application/json ;x=1", "application/json;"] {
-            assert!(is_json(yes), "{yes}");
-        }
-        for no in ["", "text/plain", "application/jsonp", "application/json-seq", "application/x-www-form-urlencoded", "multipart/form-data", "application/jso"] {
-            assert!(!is_json(no), "{no}");
-        }
-    }
-
-    #[test]
-    fn a_slot_is_given_back_when_dropped_and_only_three_exist() {
-        let active = AtomicUsize::new(0);
-        let held: Vec<_> = (0..3).map(|_| Slot::take(&active).expect("a place")).collect();
-        assert!(Slot::take(&active).is_none());
-        drop(held);
-        assert!(Slot::take(&active).is_some());
-        assert_eq!(active.load(Ordering::SeqCst), 0);
     }
 }

@@ -96,7 +96,225 @@ use common::on_lane;
 const CRED: &str = "aaaaaaa1";
 const OTHER_CRED: &str = "bbbbbbb2";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const REDIAL: &str = include_str!("../../../../../fixtures/remote-relay-redial/golden.json");
+
+/// Publications of the core, with the latest `hostState.remoteViewing` readable by waiting.
+struct Published {
+    remote_viewing: watch::Sender<Vec<String>>,
+}
+
+impl StatePublisher for Published {
+    fn publish(&self, section: SectionName, key: Option<String>, change: SectionChange) {
+        if section == SectionName::HostState && key.as_deref() == Some("remoteViewing") {
+            let SectionChange::Set(bytes) = &change else { panic!("remoteViewing is always a full value") };
+            let value: Value = serde_json::from_slice(bytes).unwrap();
+            let ids = value["sessionIds"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect();
+            self.remote_viewing.send_replace(ids);
+        }
+    }
+}
+
+fn listed() -> Value {
+    json!({ "threads": [{ "id": "t1", "title": "Fix the build" }] })
+}
+
+/// Every conversation exists, a project conversation of the harness folder (the catalog the grants are checked against has none to remove).
+struct AllSessions(String);
+
+fn path_of(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    dir.path().to_path_buf()
+}
+
+struct ChannelRead(mpsc::UnboundedReceiver<Incoming>);
+
+impl SocketRead for ChannelRead {
+    async fn next(&mut self) -> Option<Incoming> {
+        self.0.recv().await
+    }
+}
+
+struct ChannelWrite(mpsc::UnboundedSender<String>);
+
+impl SocketWrite for ChannelWrite {
+    async fn text(&mut self, frame: Bytes) -> Result<(), SocketClosed> {
+        self.0.send(String::from_utf8_lossy(&frame).into_owned()).map_err(|_| SocketClosed)
+    }
+
+    async fn ping(&mut self) -> Result<(), SocketClosed> {
+        Ok(())
+    }
+
+    async fn close(&mut self, _code: CloseCode) -> Result<(), SocketClosed> {
+        Ok(())
+    }
+}
+
+/// A client of this process on the server's hub.
+struct Client {
+    to_server: mpsc::UnboundedSender<Incoming>,
+    from_server: mpsc::UnboundedReceiver<String>,
+}
+
+/// How long a frame the server owes is waited for before the test says it never came.
+const FRAME_WAIT: Duration = Duration::from_secs(10);
+
+/// Where a test reads the frames a phone is sent.
+trait Frames {
+    async fn next_frame(&mut self) -> String;
+}
+
+impl Frames for Phone {
+    async fn next_frame(&mut self) -> String {
+        self.recv().await
+    }
+}
+
+/// The clock Node's recorder started at (`record-unpair-access.mjs` `CLOCK_START`, 2031-01-01).
+const DOWNLOAD_CLOCK_START: i64 = 1_924_992_000_000;
+
+/// The frame the core's wire carries for what Node sent the phone: `{ id, ok: true, value }` becomes `{ id, result }`, and
+/// `{ id, ok: false, error }` becomes `{ id, error }` with the JSON-RPC error body of a remote domain error carrying that text (the body is
+/// the wire's own: code -32600, reason `domainError`). Any other recorded key is kept as it is, so a frame that is not exactly one of the
+/// two shapes is not equal to what the server writes.
+fn wire_of(node: &Value) -> Value {
+    let mut frame = node.as_object().unwrap().clone();
+    match frame.shift_remove("ok").unwrap().as_bool().unwrap() {
+        true => {
+            let value = frame.shift_remove("value").unwrap();
+            frame.insert("result".to_owned(), value);
+        }
+        false => {
+            let text = frame.shift_remove("error").unwrap();
+            let body = json!({ "code": -32600, "message": "domainError", "data": { "reason": "domainError", "domain": "remote", "message": text } });
+            frame.insert("error".to_owned(), body);
+        }
+    }
+    Value::Object(frame)
+}
+
+/// The request the phone sends for the display list, with the id Node's recording used.
+#[cfg(node_twin)]
+fn displays_call(reply: &Value) -> Value {
+    json!({ "id": reply["id"], "method": "browser/screenDisplays", "params": {} })
+}
+
+/// The inputs `record-unpair-access.mjs` registered before its unpair.
+#[cfg(node_twin)]
+const PUSH_KEY: &str = "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM";
+#[cfg(node_twin)]
+const PUSH_ENDPOINT: &str = "https://push.example/x";
+
+/// `record-unpair-access.mjs` replaced the values that differ between two Node runs, by exact path (the fixture's `remapped`: a kind and
+/// a path in a scenario): a random id by `<kind#n>`, numbered per kind by first appearance of the value over the whole recording, so equal
+/// values share a token and different ones never do; the run's temporary directory, alone or as the head of a path, by `<dir>`. A frame the
+/// core wrote goes through the same replacement at the same paths, and the numbering goes on across the scenarios, as the recorder's did.
+#[cfg(node_twin)]
+struct Canon {
+    rules: std::collections::HashMap<String, String>,
+    dir: String,
+    tokens: std::collections::HashMap<String, String>,
+    counts: std::collections::HashMap<String, usize>,
+}
+
+#[cfg(node_twin)]
+impl Canon {
+    fn new(remapped: &Value) -> Self {
+        let rules = remapped.as_array().unwrap().iter().map(|rule| (rule["path"].as_str().unwrap().to_owned(), rule["kind"].as_str().unwrap().to_owned())).collect();
+        Self { rules, dir: String::new(), tokens: Default::default(), counts: Default::default() }
+    }
+
+    fn replace(&mut self, kind: &str, text: &str) -> String {
+        if kind == "dir" {
+            return text.strip_prefix(self.dir.as_str()).map_or_else(|| text.to_owned(), |rest| format!("<dir>{rest}"));
+        }
+        if !self.tokens.contains_key(text) {
+            let count = self.counts.entry(kind.to_owned()).or_default();
+            self.tokens.insert(text.to_owned(), format!("<{kind}#{count}>"));
+            *count += 1;
+        }
+        self.tokens[text].clone()
+    }
+
+    /// `node` found at `path` (a frame's path, then the keys and indices inside it) with the values at the rules' paths replaced.
+    fn frame(&mut self, path: &str, node: &Value) -> Value {
+        if let (Some(kind), Some(text)) = (self.rules.get(path).cloned(), node.as_str()) {
+            return json!(self.replace(&kind, text));
+        }
+        match node {
+            Value::Array(items) => Value::Array(items.iter().enumerate().map(|(index, item)| self.frame(&format!("{path}.{index}"), item)).collect()),
+            Value::Object(map) => Value::Object(map.iter().map(|(key, value)| (key.clone(), self.frame(&format!("{path}.{key}"), value))).collect()),
+            // JavaScript has one number type: `1924905600000` and `1924905600000.0` are the same value on Node's wire.
+            Value::Number(number) => match number.as_f64() {
+                Some(float) if number.is_f64() && float.fract() == 0.0 && float.abs() < 9e15 => json!(float as i64),
+                _ => node.clone(),
+            },
+            other => other.clone(),
+        }
+    }
+
+    /// The recording replaced exactly the rules' paths: each holds a placeholder, and no other string in `scenario` looks like one.
+    fn only_at_rules(&self, scenario: &Value) {
+        fn walk(rules: &std::collections::HashMap<String, String>, node: &Value, path: &str) {
+            match node {
+                Value::Object(map) => map.iter().for_each(|(key, value)| walk(rules, value, &if path.is_empty() { key.clone() } else { format!("{path}.{key}") })),
+                Value::Array(items) => items.iter().enumerate().for_each(|(index, item)| walk(rules, item, &format!("{path}.{index}"))),
+                Value::String(text) => {
+                    let placeholder = text.starts_with("<dir>") || (text.starts_with('<') && text.contains('#') && text.ends_with('>'));
+                    assert_eq!(placeholder, rules.contains_key(path), "{path} holds {text:?}: a placeholder belongs at the remap rules' paths and nowhere else");
+                }
+                _ => assert!(!rules.contains_key(path), "{path} is remapped but holds no string"),
+            }
+        }
+        walk(&self.rules, scenario, "");
+        for path in self.rules.keys() {
+            assert!(scenario.pointer(&format!("/{}", path.replace('.', "/"))).is_some_and(Value::is_string), "the remap rule {path} names nothing in the recording");
+        }
+    }
+}
+
+/// The frame Node's phone received for the core's wire frame: the inverse of `wire_of`, with the error code Node's frame carries.
+fn node_of(wire: &Value) -> Value {
+    let mut frame = wire.as_object().unwrap().clone();
+    if let Some(result) = frame.shift_remove("result") {
+        frame.insert("ok".to_owned(), json!(true));
+        frame.insert("value".to_owned(), result);
+    } else {
+        let error = frame.shift_remove("error").unwrap();
+        frame.insert("ok".to_owned(), json!(false));
+        frame.insert("error".to_owned(), error["data"]["message"].clone());
+        if let Some(code) = error["data"].get("code") {
+            frame.insert("errorCode".to_owned(), code.clone());
+        }
+    }
+    Value::Object(frame)
+}
+
+#[cfg(node_twin)]
+fn op(n: u32) -> String {
+    format!("018f0000-0000-7000-8000-{n:012x}")
+}
+
+#[cfg(node_twin)]
+fn at<'a>(root: &'a Value, path: &str) -> &'a Value {
+    path.split('.').fold(root, |node, key| &node[key])
+}
+
+#[cfg(node_twin)]
+#[test]
+fn the_remap_is_by_exact_path_and_keeps_what_the_values_mean() {
+    let mut canon = Canon::new(&json!([{ "kind": "grantId", "path": "a.value.id" }, { "kind": "grantId", "path": "b.value.id" }, { "kind": "dir", "path": "a.value.root" }]));
+    canon.dir = "/tmp/run".to_owned();
+    let a = canon.frame("a", &json!({ "value": { "id": "x1", "root": "/tmp/run/files", "expiresAt": 20, "nested": { "id": "x1", "updatedAt": 7 } } }));
+    let b = canon.frame("b", &json!({ "value": { "id": "x1" } }));
+    let c = canon.frame("b", &json!({ "value": { "id": "x2" } }));
+    // The same random id keeps one token over the whole recording, another id another token.
+    assert_eq!((a["value"]["id"].clone(), b["value"]["id"].clone()), (json!("<grantId#0>"), json!("<grantId#0>")));
+    assert_eq!(c["value"]["id"], json!("<grantId#1>"));
+    assert_eq!(a["value"]["root"], json!("<dir>/files"));
+    // A key of the same name at a path that is no rule is kept, and so are the times: two times that swap stay two times that swap.
+    assert_eq!((&a["value"]["nested"]["id"], &a["value"]["nested"]["updatedAt"], &a["value"]["expiresAt"]), (&json!("x1"), &json!(7), &json!(20)));
+    let swapped = canon.frame("a", &json!({ "value": { "expiresAt": 20 } }));
+    assert_ne!(swapped, canon.frame("a", &json!({ "value": { "expiresAt": 21 } })), "a changed time must change the frame");
+}
 
 /// The core the server sees: the mock directory for threads, the production `ScreenSessions` for the phone's screen report, and the
 /// registry hooks `ComposedCore` runs when a connection starts (`register_local`) and ends (`ConnectionOwners`).
@@ -112,7 +330,6 @@ struct Desktop {
     /// What the live view pushed to a phone's connection (frames and WebRTC signals), in order.
     pushed: Mutex<Vec<(ConnectionId, String, Value)>>,
 }
-
 impl Desktop {
     fn new(displays: bool) -> Self {
         Self { asked: Mutex::default(), reached: watch::channel(0).0, displays, notified: Mutex::default(), pushed: Mutex::default() }
@@ -131,32 +348,11 @@ impl Desktop {
             .collect()
     }
 }
-
-#[async_trait::async_trait]
-impl HostChannel for Desktop {
-    async fn request(&self, _capability: HostCapability, method: Method, _params: Value) -> Result<Value, HostError> {
-        self.asked.lock().unwrap().push(method.as_str().to_owned());
-        // Counted under the channel's own lock: two asks at once each published the length they saw, and the later
-        // publication could be the smaller one, leaving the count one short for good.
-        self.reached.send_modify(|reached| *reached += 1);
-        if !self.displays {
-            std::future::pending::<()>().await;
-        }
-        Ok(serde_json::from_str::<Value>(SCREEN_ACCESS).unwrap()["displays"].clone())
-    }
-
-    fn notify(&self, _capability: HostCapability, method: Method, params: Value) -> Result<(), CoreError> {
-        self.notified.lock().unwrap().push((method.as_str().to_owned(), params));
-        Ok(())
-    }
-}
-
 /// The phone's screen control as `compose_screen` binds it where the screen is served, with the part these scenarios are about: the
 /// display list is the desktop's (asked of it at each read, `host/computer/displays`), and a connection's access is the live view's own
 /// rule, which asks this port for its grant only once it allowed the connection. The screen sessions themselves (input, capture, the
 /// pill) are not exercised here: no session is ever resolved.
 struct DesktopScreens(Arc<Desktop>);
-
 #[async_trait::async_trait]
 impl PhoneScreens for DesktopScreens {
     async fn displays(&self) -> Result<Value, String> {
@@ -182,17 +378,14 @@ impl PhoneScreens for DesktopScreens {
     #[cfg(windows)]
     fn attach(&self, _: Arc<dyn ScreenSink>) {}
 }
-
 /// The live view's pushes to the phones, kept by the desktop stand-in for a test to read.
 struct PhonePushes(Arc<Desktop>);
-
 impl ConnectionNotifier for PhonePushes {
     fn notify(&self, to: ConnectionId, method: Method, params: Value) -> Result<(), CoreError> {
         self.0.pushed.lock().unwrap().push((to, method.as_str().to_owned(), params));
         Ok(())
     }
 }
-
 struct Core {
     live: Arc<LiveViewService>,
     workspace: Arc<mixdog_workspace::service::WorkspaceService>,
@@ -203,7 +396,6 @@ struct Core {
     owners: ConnectionOwners,
     closed: watch::Sender<Vec<ConnectionId>>,
 }
-
 impl CoreHandle for Core {
     fn threads(&self) -> &dyn ThreadDirectory {
         self.mock.threads()
@@ -261,27 +453,11 @@ impl CoreHandle for Core {
         self.mock.request_started(method, params)
     }
 }
-
-/// Publications of the core, with the latest `hostState.remoteViewing` readable by waiting.
-struct Published {
-    remote_viewing: watch::Sender<Vec<String>>,
-}
-
-impl StatePublisher for Published {
-    fn publish(&self, section: SectionName, key: Option<String>, change: SectionChange) {
-        if section == SectionName::HostState && key.as_deref() == Some("remoteViewing") {
-            let SectionChange::Set(bytes) = &change else { panic!("remoteViewing is always a full value") };
-            let value: Value = serde_json::from_slice(bytes).unwrap();
-            let ids = value["sessionIds"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect();
-            self.remote_viewing.send_replace(ids);
-        }
-    }
-}
-
 /// The core booted as `compose` and `serving::attach` boot it, with one paired device ("Pixel", `CRED`) in the relay's roster.
 struct Harness {
     /// The file the downloads' clock is read from (`<MIXDOG_DOWNLOAD_REPLAY_DIR>/clock`), which only the test writes: Node's recorder
     /// moved its own clock by explicit steps too.
+    #[cfg(node_twin)]
     wall: std::path::PathBuf,
     dir: tempfile::TempDir,
     core: Arc<Core>,
@@ -297,22 +473,204 @@ struct Harness {
     turns: Arc<Mutex<Vec<Value>>>,
     closed: watch::Receiver<Vec<ConnectionId>>,
     /// The device state an unpair cleans, the real services: notification preferences (`Config`), one-file grants and transfers.
+    #[cfg(node_twin)]
     config: mixdog_core_config::config::Config,
     /// The server's own hub and server: a client in this process attaches to them as the daemon's listeners do.
     hub: ConnectionHub,
     server: AppServer,
 }
+#[async_trait::async_trait]
+impl mixdog_workspace::grants::SessionCatalog for AllSessions {
+    async fn row(&self, _: &str) -> mixdog_workspace::error::WsResult<Option<mixdog_workspace::grants::SessionRow>> {
+        Ok(Some(mixdog_workspace::grants::SessionRow { project: true, project_path: Some(self.0.clone()), cwd: self.0.clone() }))
+    }
 
-fn listed() -> Value {
-    json!({ "threads": [{ "id": "t1", "title": "Fix the build" }] })
+    async fn has(&self, _: &str) -> mixdog_workspace::error::WsResult<bool> {
+        Ok(true)
+    }
+}
+impl Client {
+    /// Sends the request and returns the frame the server wrote for its id, as written.
+    async fn call(&mut self, request: &Value) -> Value {
+        self.to_server.send(Incoming::Text(request.to_string())).unwrap();
+        loop {
+            let next = mixdog_rt::time::timeout(FRAME_WAIT, self.from_server.recv()).await.expect("the server wrote no frame for the request");
+            let frame: Value = serde_json::from_str(&next.expect("the server ended")).unwrap();
+            if frame["id"] == request["id"] {
+                return frame;
+            }
+        }
+    }
+}
+/// The frame carrying `id`, with the frames for other ids that came before it. One deadline covers the whole wait: frames for other ids
+/// (Node's desktop also sends a phone frames nobody asked for) neither extend it nor are lost, so a reply that never comes fails here.
+async fn reply_within(from: &mut impl Frames, id: u64, within: Duration) -> (Value, Vec<Value>) {
+    let mut others = Vec::new();
+    let waited = mixdog_rt::time::timeout(within, async {
+        loop {
+            let frame: Value = serde_json::from_str(&from.next_frame().await).unwrap();
+            if frame["id"] == id {
+                return frame;
+            }
+            others.push(frame);
+        }
+    })
+    .await;
+    match waited {
+        Ok(frame) => (frame, others),
+        Err(_) => panic!("no frame with id {id} reached the phone within {within:?}; {} frame(s) for other ids came meanwhile", others.len()),
+    }
+}
+async fn answer(phone: &mut Phone, id: u64) -> Value {
+    reply_within(phone, id, FRAME_WAIT).await.0
+}
+#[tokio::test(start_paused = true)]
+async fn a_reply_that_never_comes_fails_at_one_deadline_while_other_frames_keep_arriving() {
+    // A phone that is sent a frame for another id every second (each one used to restart the wait). The clock is paused and moves only by
+    // the `advance` calls below, so the frames and the instants are the test's, not the runtime's.
+    struct Chatter(mpsc::UnboundedReceiver<String>);
+    impl Frames for Chatter {
+        async fn next_frame(&mut self) -> String {
+            self.0.recv().await.expect("the test ended the frames before the wait failed")
+        }
+    }
+    async fn settle() {
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+    }
+    let (send, frames) = mpsc::unbounded_channel();
+    let started = tokio::time::Instant::now();
+    let waiting = tokio::spawn(async move { reply_within(&mut Chatter(frames), 7, FRAME_WAIT).await });
+    settle().await;
+    let unrelated = || json!({ "e": "T", "s": 1 }).to_string();
+    for second in 1..=9 {
+        tokio::time::advance(Duration::from_secs(1)).await;
+        send.send(unrelated()).unwrap();
+        settle().await;
+        assert!(!waiting.is_finished(), "the wait failed at {second}s, before its {FRAME_WAIT:?} deadline");
+    }
+    // Just before the deadline the wait is still pending, though nine frames for other ids have come.
+    tokio::time::advance(FRAME_WAIT - Duration::from_secs(9) - Duration::from_millis(1)).await;
+    send.send(unrelated()).unwrap();
+    settle().await;
+    assert_eq!(started.elapsed(), FRAME_WAIT - Duration::from_millis(1));
+    assert!(!waiting.is_finished(), "the wait failed 1ms before its {FRAME_WAIT:?} deadline");
+    // At the deadline it has failed, though a frame for another id had just come (a per-frame timeout would still be pending).
+    tokio::time::advance(Duration::from_millis(1)).await;
+    settle().await;
+    assert_eq!(started.elapsed(), FRAME_WAIT);
+    assert!(waiting.is_finished(), "the wait was still pending at its {FRAME_WAIT:?} deadline: a frame for another id restarted it");
+    let message = *waiting.await.expect_err("the reply never came, so the wait must fail").into_panic().downcast::<String>().unwrap();
+    assert!(message.contains("no frame with id 7") && message.contains("10 frame(s) for other ids"), "{message}");
+}
+async fn list(phone: &mut Phone, id: u64) -> Value {
+    phone.send(&json!({ "id": id, "method": "thread/list", "params": {} }).to_string());
+    answer(phone, id).await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paired_phone_connects_over_the_relay_lists_threads_sends_a_turn_and_is_seen_viewing() {
+    let h = Harness::start(true).await;
+    let (mut phone, connection) = h.connect("p1", CRED).await;
+
+    // The relay connection is in the registry as the paired device, not as a local client.
+    let opened = h.core.mock.opened_connections();
+    assert_eq!(opened.len(), 1);
+    assert_eq!(opened[0].origin, Origin::Relay);
+    let described = h.registry.describe(connection.0).expect("the relay connection is registered");
+    assert_eq!((described.device.as_str(), described.credential.as_str(), described.kind), ("Pixel", CRED, LinkKind::Phone));
+
+    // It reads the sessions and drives one.
+    assert_eq!(list(&mut phone, 1).await["result"], listed());
+    let turn = json!({ "threadId": "t1", "opId": "op-1", "input": { "prompt": "hello" } });
+    phone.send(&json!({ "id": 2, "method": "turn/start", "params": turn }).to_string());
+    let started = answer(&mut phone, 2).await;
+    assert_eq!(started["result"], json!({ "kind": "started", "turnId": "turn-1" }), "{started}");
+    assert_eq!(*h.turns.lock().unwrap(), [turn]);
+
+    // What it reports of its screen is the phone's, not the desktop's, and counts as remote viewing by Node's rule.
+    assert!(h.published.remote_viewing.borrow().is_empty());
+    phone.send(
+        &json!({ "method": "ui/screenSessions/changed", "params": { "sessionIds": ["t1"], "visualizeSessionIds": ["t1"], "foreground": true } }).to_string(),
+    );
+    h.viewing(&["t1"]).await;
+    assert!(!h.core.screen.shows("t1"), "the phone's set is not the desktop's");
+    phone.send(&json!({ "method": "ui/screenSessions/changed", "params": { "sessionIds": [], "foreground": false } }).to_string());
+    h.viewing(&[]).await;
+    phone.send(&json!({ "method": "ui/screenSessions/changed", "params": { "sessionIds": [], "foreground": true } }).to_string());
+    h.viewing(&["t1"]).await;
+
+    // The phone leaves: its row and what it showed go.
+    phone.leave();
+    h.viewing(&[]).await;
+    h.closed(connection).await;
+    assert!(h.registry.describe(connection.0).is_none());
+    h.runtime.close().await;
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unpaired_device_loses_its_access_at_once_and_its_connection_when_the_relay_ends_it() {
+    let h = Harness::start(true).await;
+    let (mut phone, connection) = h.connect("p1", CRED).await;
+    let credential_of = phone_credential(h.registry.clone());
+    assert_eq!(credential_of(connection).as_deref(), Some(CRED), "a paired relay connection acts as its device (phone file grants)");
+    assert_eq!(list(&mut phone, 1).await["result"], listed());
+
+    h.runtime.revoke_client(CRED).await.unwrap();
+    let revoke = h.relay.frame(|frame| frame["type"] == "revoke-client").await;
+    assert_eq!(revoke["clientId"], CRED);
+    // Node closes nothing itself: the relay removed the pairing, so it ends the phone's leg and reports it gone.
+    phone.leave();
+    h.closed(connection).await;
+    assert_eq!(credential_of(connection), None, "the connection holds no grant of the device once it is unpaired");
+    assert!(h.registry.describe(connection.0).is_none());
+
+    // What the revoked phone still sends reaches nothing; another paired phone's call, sent after it, is answered.
+    phone.send(&json!({ "id": 2, "method": "thread/list", "params": {} }).to_string());
+    let (mut other, other_connection) = h.connect("p2", OTHER_CRED).await;
+    assert_eq!(credential_of(other_connection).as_deref(), Some(OTHER_CRED));
+    assert_eq!(list(&mut other, 1).await["result"], listed());
+    assert_eq!(h.reads.load(Ordering::SeqCst), 2, "the revoked phone's second read never reached the directory");
+    h.runtime.close().await;
+}
+/// One call of `phone`, as the frame Node's phone would have got, without its id.
+async fn download_frame(phone: &mut Phone, id: u64, method: &str, params: Value) -> Value {
+    phone.send(&json!({ "id": id, "method": method, "params": params }).to_string());
+    let mut frame = node_of(&answer(phone, id).await);
+    frame.as_object_mut().unwrap().shift_remove("id");
+    frame
+}
+/// The branches that own recorded frames this test does not replay yet. A `NOT_REPLAYED` entry names only these.
+#[cfg(node_twin)]
+const OWNERS: &[&str] = &["phone-ph2-terminal", "phone-ph2-settings-notify", "phone-chat-live", "rs-thread-list-rows"];
+
+/// The display list a window supplies the desktop with.
+fn displays() -> Value {
+    json!([{ "id": "display-1", "label": "Display 1", "primary": true, "width": 1920, "height": 1080 }])
 }
 
+#[async_trait::async_trait]
+impl HostChannel for Desktop {
+    async fn request(&self, _capability: HostCapability, method: Method, _params: Value) -> Result<Value, HostError> {
+        self.asked.lock().unwrap().push(method.as_str().to_owned());
+        // Counted under the channel's own lock: two asks at once each published the length they saw, and the later
+        // publication could be the smaller one, leaving the count one short for good.
+        self.reached.send_modify(|reached| *reached += 1);
+        if !self.displays {
+            std::future::pending::<()>().await;
+        }
+        Ok(displays())
+    }
+
+    fn notify(&self, _capability: HostCapability, method: Method, params: Value) -> Result<(), CoreError> {
+        self.notified.lock().unwrap().push((method.as_str().to_owned(), params));
+        Ok(())
+    }
+}
 #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
 fn identity_in(path: std::path::PathBuf) -> ServerIdentity {
     std::fs::create_dir_all(&path).unwrap();
     on_lane(move |lane| load_or_create_e2ee_identity(lane, &path).unwrap())
 }
-
 impl Harness {
     /// `revoke_ok`: whether the relay confirms an unpair. A window supplies the display list.
     async fn start(revoke_ok: bool) -> Self {
@@ -338,8 +696,7 @@ impl Harness {
         let wall = talk.join("clock");
         std::fs::write(&wall, DOWNLOAD_CLOCK_START.to_string()).unwrap();
         let path = dir.path().to_path_buf();
-        // An install that used remote access before: activated, with its E2EE identity on disk.
-        std::fs::write(path.join("remote-activated.json"), br#"{"activatedAt":1}"#).unwrap();
+        // A migrated install with activation in config and no native stamp or relay device file.
         let identity = identity_in(path.clone());
         let mut relay = driven_relay_with(json!([{ "id": CRED, "name": "Pixel", "browser": "Chrome" }]), revoke_ok).await;
 
@@ -350,6 +707,7 @@ impl Harness {
         let late_dialer = Arc::new(LateDialer::default());
         let remote = build_remote(RemoteInputs {
             dir: path,
+            migrated_activation: true,
             relay_env: Some(format!("ws://127.0.0.1:{}", relay.port)),
             app_version: (VERSION.to_owned(), None),
             durability: tokens.durability_io,
@@ -402,6 +760,7 @@ impl Harness {
             code_graph: None,
             turn_review: None,
             releases: mixdog_workspace::release::FolderReleases::new(),
+            upload_chunk_bytes: mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
         })
         .unwrap();
         let grants = Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(AllSessions(dir.path().to_string_lossy().into_owned()))));
@@ -459,7 +818,7 @@ impl Harness {
         relay.legs.recv().await.expect("the relay ended");
         remote.runtime.watch_connected().wait_for(|up| *up).await.expect("the runtime ended");
         remote.runtime.list_clients().await.unwrap();
-        Self { wall, dir, core, registry: remote.registry, runtime: remote.runtime, published, relay, identity, desktop, reads, turns, closed, config, hub: own_hub, server: own_server }
+        Self { #[cfg(node_twin)] wall, dir, core, registry: remote.registry, runtime: remote.runtime, published, relay, identity, desktop, reads, turns, closed, #[cfg(node_twin)] config, hub: own_hub, server: own_server }
     }
 
     /// The phone `id` of `credential` pairs and states who it is; the connection the core opened for it.
@@ -507,193 +866,6 @@ impl Harness {
         got.unwrap_or_else(|_| panic!("the viewed sessions never became {wanted:?}")).expect("the publisher ended");
     }
 }
-
-/// Every conversation exists, a project conversation of the harness folder (the catalog the grants are checked against has none to remove).
-struct AllSessions(String);
-
-#[async_trait::async_trait]
-impl mixdog_workspace::grants::SessionCatalog for AllSessions {
-    async fn row(&self, _: &str) -> mixdog_workspace::error::WsResult<Option<mixdog_workspace::grants::SessionRow>> {
-        Ok(Some(mixdog_workspace::grants::SessionRow { project: true, project_path: Some(self.0.clone()), cwd: self.0.clone() }))
-    }
-
-    async fn has(&self, _: &str) -> mixdog_workspace::error::WsResult<bool> {
-        Ok(true)
-    }
-}
-
-fn path_of(dir: &tempfile::TempDir) -> std::path::PathBuf {
-    dir.path().to_path_buf()
-}
-
-struct ChannelRead(mpsc::UnboundedReceiver<Incoming>);
-
-impl SocketRead for ChannelRead {
-    async fn next(&mut self) -> Option<Incoming> {
-        self.0.recv().await
-    }
-}
-
-struct ChannelWrite(mpsc::UnboundedSender<String>);
-
-impl SocketWrite for ChannelWrite {
-    async fn text(&mut self, frame: Bytes) -> Result<(), SocketClosed> {
-        self.0.send(String::from_utf8_lossy(&frame).into_owned()).map_err(|_| SocketClosed)
-    }
-
-    async fn ping(&mut self) -> Result<(), SocketClosed> {
-        Ok(())
-    }
-
-    async fn close(&mut self, _code: CloseCode) -> Result<(), SocketClosed> {
-        Ok(())
-    }
-}
-
-/// A client of this process on the server's hub.
-struct Client {
-    to_server: mpsc::UnboundedSender<Incoming>,
-    from_server: mpsc::UnboundedReceiver<String>,
-}
-
-impl Client {
-    /// Sends the request and returns the frame the server wrote for its id, as written.
-    async fn call(&mut self, request: &Value) -> Value {
-        self.to_server.send(Incoming::Text(request.to_string())).unwrap();
-        loop {
-            let next = mixdog_rt::time::timeout(FRAME_WAIT, self.from_server.recv()).await.expect("the server wrote no frame for the request");
-            let frame: Value = serde_json::from_str(&next.expect("the server ended")).unwrap();
-            if frame["id"] == request["id"] {
-                return frame;
-            }
-        }
-    }
-}
-
-/// How long a frame the server owes is waited for before the test says it never came.
-const FRAME_WAIT: Duration = Duration::from_secs(10);
-
-/// Where a test reads the frames a phone is sent.
-trait Frames {
-    async fn next_frame(&mut self) -> String;
-}
-
-impl Frames for Phone {
-    async fn next_frame(&mut self) -> String {
-        self.recv().await
-    }
-}
-
-/// The frame carrying `id`, with the frames for other ids that came before it. One deadline covers the whole wait: frames for other ids
-/// (Node's desktop also sends a phone frames nobody asked for) neither extend it nor are lost, so a reply that never comes fails here.
-async fn reply_within(from: &mut impl Frames, id: u64, within: Duration) -> (Value, Vec<Value>) {
-    let mut others = Vec::new();
-    let waited = mixdog_rt::time::timeout(within, async {
-        loop {
-            let frame: Value = serde_json::from_str(&from.next_frame().await).unwrap();
-            if frame["id"] == id {
-                return frame;
-            }
-            others.push(frame);
-        }
-    })
-    .await;
-    match waited {
-        Ok(frame) => (frame, others),
-        Err(_) => panic!("no frame with id {id} reached the phone within {within:?}; {} frame(s) for other ids came meanwhile", others.len()),
-    }
-}
-
-async fn answer(phone: &mut Phone, id: u64) -> Value {
-    reply_within(phone, id, FRAME_WAIT).await.0
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_reply_that_never_comes_fails_at_one_deadline_while_other_frames_keep_arriving() {
-    // A phone that is sent a frame for another id every second (each one used to restart the wait). The clock is paused and moves only by
-    // the `advance` calls below, so the frames and the instants are the test's, not the runtime's.
-    struct Chatter(mpsc::UnboundedReceiver<String>);
-    impl Frames for Chatter {
-        async fn next_frame(&mut self) -> String {
-            self.0.recv().await.expect("the test ended the frames before the wait failed")
-        }
-    }
-    async fn settle() {
-        for _ in 0..8 {
-            tokio::task::yield_now().await;
-        }
-    }
-    let (send, frames) = mpsc::unbounded_channel();
-    let started = tokio::time::Instant::now();
-    let waiting = tokio::spawn(async move { reply_within(&mut Chatter(frames), 7, FRAME_WAIT).await });
-    settle().await;
-    let unrelated = || json!({ "e": "T", "s": 1 }).to_string();
-    for second in 1..=9 {
-        tokio::time::advance(Duration::from_secs(1)).await;
-        send.send(unrelated()).unwrap();
-        settle().await;
-        assert!(!waiting.is_finished(), "the wait failed at {second}s, before its {FRAME_WAIT:?} deadline");
-    }
-    // Just before the deadline the wait is still pending, though nine frames for other ids have come.
-    tokio::time::advance(FRAME_WAIT - Duration::from_secs(9) - Duration::from_millis(1)).await;
-    send.send(unrelated()).unwrap();
-    settle().await;
-    assert_eq!(started.elapsed(), FRAME_WAIT - Duration::from_millis(1));
-    assert!(!waiting.is_finished(), "the wait failed 1ms before its {FRAME_WAIT:?} deadline");
-    // At the deadline it has failed, though a frame for another id had just come (a per-frame timeout would still be pending).
-    tokio::time::advance(Duration::from_millis(1)).await;
-    settle().await;
-    assert_eq!(started.elapsed(), FRAME_WAIT);
-    assert!(waiting.is_finished(), "the wait was still pending at its {FRAME_WAIT:?} deadline: a frame for another id restarted it");
-    let message = *waiting.await.expect_err("the reply never came, so the wait must fail").into_panic().downcast::<String>().unwrap();
-    assert!(message.contains("no frame with id 7") && message.contains("10 frame(s) for other ids"), "{message}");
-}
-
-async fn list(phone: &mut Phone, id: u64) -> Value {
-    phone.send(&json!({ "id": id, "method": "thread/list", "params": {} }).to_string());
-    answer(phone, id).await
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_paired_phone_connects_over_the_relay_lists_threads_sends_a_turn_and_is_seen_viewing() {
-    let h = Harness::start(true).await;
-    let (mut phone, connection) = h.connect("p1", CRED).await;
-
-    // The relay connection is in the registry as the paired device, not as a local client.
-    let opened = h.core.mock.opened_connections();
-    assert_eq!(opened.len(), 1);
-    assert_eq!(opened[0].origin, Origin::Relay);
-    let described = h.registry.describe(connection.0).expect("the relay connection is registered");
-    assert_eq!((described.device.as_str(), described.credential.as_str(), described.kind), ("Pixel", CRED, LinkKind::Phone));
-
-    // It reads the sessions and drives one.
-    assert_eq!(list(&mut phone, 1).await["result"], listed());
-    let turn = json!({ "threadId": "t1", "opId": "op-1", "input": { "prompt": "hello" } });
-    phone.send(&json!({ "id": 2, "method": "turn/start", "params": turn }).to_string());
-    let started = answer(&mut phone, 2).await;
-    assert_eq!(started["result"], json!({ "kind": "started", "turnId": "turn-1" }), "{started}");
-    assert_eq!(*h.turns.lock().unwrap(), [turn]);
-
-    // What it reports of its screen is the phone's, not the desktop's, and counts as remote viewing by Node's rule.
-    assert!(h.published.remote_viewing.borrow().is_empty());
-    phone.send(
-        &json!({ "method": "ui/screenSessions/changed", "params": { "sessionIds": ["t1"], "visualizeSessionIds": ["t1"], "foreground": true } }).to_string(),
-    );
-    h.viewing(&["t1"]).await;
-    assert!(!h.core.screen.shows("t1"), "the phone's set is not the desktop's");
-    phone.send(&json!({ "method": "ui/screenSessions/changed", "params": { "sessionIds": [], "foreground": false } }).to_string());
-    h.viewing(&[]).await;
-    phone.send(&json!({ "method": "ui/screenSessions/changed", "params": { "sessionIds": [], "foreground": true } }).to_string());
-    h.viewing(&["t1"]).await;
-
-    // The phone leaves: its row and what it showed go.
-    phone.leave();
-    h.viewing(&[]).await;
-    h.closed(connection).await;
-    assert!(h.registry.describe(connection.0).is_none());
-    h.runtime.close().await;
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unpaired_peer_is_refused_before_any_session_read_or_turn() {
     let h = Harness::start(true).await;
@@ -730,50 +902,15 @@ async fn an_unpaired_peer_is_refused_before_any_session_read_or_turn() {
     assert!(h.turns.lock().unwrap().is_empty(), "no turn was started");
     h.runtime.close().await;
 }
-
-#[tokio::test(flavor = "multi_thread")]
-async fn an_unpaired_device_loses_its_access_at_once_and_its_connection_when_the_relay_ends_it() {
-    let h = Harness::start(true).await;
-    let (mut phone, connection) = h.connect("p1", CRED).await;
-    let credential_of = phone_credential(h.registry.clone());
-    assert_eq!(credential_of(connection).as_deref(), Some(CRED), "a paired relay connection acts as its device (phone file grants)");
-    assert_eq!(list(&mut phone, 1).await["result"], listed());
-
-    h.runtime.revoke_client(CRED).await.unwrap();
-    let revoke = h.relay.frame(|frame| frame["type"] == "revoke-client").await;
-    assert_eq!(revoke["clientId"], CRED);
-    // Node closes nothing itself: the relay removed the pairing, so it ends the phone's leg and reports it gone.
-    phone.leave();
-    h.closed(connection).await;
-    assert_eq!(credential_of(connection), None, "the connection holds no grant of the device once it is unpaired");
-    assert!(h.registry.describe(connection.0).is_none());
-
-    // What the revoked phone still sends reaches nothing; another paired phone's call, sent after it, is answered.
-    phone.send(&json!({ "id": 2, "method": "thread/list", "params": {} }).to_string());
-    let (mut other, other_connection) = h.connect("p2", OTHER_CRED).await;
-    assert_eq!(credential_of(other_connection).as_deref(), Some(OTHER_CRED));
-    assert_eq!(list(&mut other, 1).await["result"], listed());
-    assert_eq!(h.reads.load(Ordering::SeqCst), 2, "the revoked phone's second read never reached the directory");
-    h.runtime.close().await;
-}
-
-const BROWSER_STREAMS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/browser-streams/streams.json");
-
 /// A phone's browser stream ends at its device's unpair and at the relay's close, through the production wiring (the runtime's unpair
-/// and close → `PairedDeviceCleanup` → the live view): Node's unpair drops the device from its streams (`remote-relay.ts:619`,
-/// `dropClient`) and its close disposes of them all (`:658`, `dispose`), both through the streams' one `drop`. The unpair is refused by
-/// the relay, so the phone's connection stays open (the leak an unpair must not leave). What the desktop is told is what Node's streams
-/// told it in `an unpaired phone that alone streams a session stops the desktop view`: the subscribe's request, then the drop's.
+/// and close → `PairedDeviceCleanup` → the live view): the unpair drops the device from its streams and the close disposes of them all,
+/// both through the streams' one `drop`. The unpair is refused by the relay, so the phone's connection stays open (the leak an unpair
+/// must not leave). What the desktop is told is the subscribe's request, then the drop's.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unpair_or_the_relay_closing_ends_the_phones_browser_stream_at_once() {
-    let all: Value = serde_json::from_str(&BROWSER_STREAMS).unwrap();
-    let scenario = all["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "an unpaired phone that alone streams a session stops the desktop view").unwrap();
-    let (subscribe, unpair) = (&scenario["steps"][0], &scenario["steps"][3]);
-    assert_eq!((subscribe["method"].as_str(), unpair["op"].as_str()), (Some("browserRemoteStream"), Some("unpair")));
-    // What reached the desktop at those steps (the phone's reply is checked on its own below).
-    let to_desktop = |step: usize| -> Vec<Value> { scenario["recorded"][step].as_array().unwrap().iter().filter(|entry| entry[0] == "request").cloned().collect() };
-    let want: Vec<Value> = [to_desktop(0), to_desktop(3)].concat();
-    let call = json!({ "id": 5, "method": "browser/stream", "params": { "sessionId": subscribe["params"][0], "on": true, "request": subscribe["params"][1] } });
+    let request = json!({ "maxWidth": 800, "maxHeight": 600 });
+    let want = vec![json!(["request", "sess_1", request]), json!(["request", "sess_1", null])];
+    let call = json!({ "id": 5, "method": "browser/stream", "params": { "sessionId": "sess_1", "on": true, "request": request } });
 
     let h = Harness::start(false).await;
     let (mut phone, _) = h.connect("p1", CRED).await;
@@ -790,49 +927,48 @@ async fn an_unpair_or_the_relay_closing_ends_the_phones_browser_stream_at_once()
     h.runtime.close().await;
     assert_eq!(h.desktop.view_requests(), want, "the relay's close ended the stream");
 }
-
 /// An unpaired device whose connection the relay leaves open (it refused the revocation) is shown nothing more on any path of the live
 /// view, through the production wiring (the runtime's unpair → the registry's revocation and `PairedDeviceCleanup` → the live view): a
 /// WebRTC signal the host sent the phone before the unpair and that only goes out after it reaches nothing, a new `browser/stream` and
-/// a WebRTC `ready` are refused, and so is the device's next connection, admitted while the unpair is in force. The replies are what
-/// the patched Node answered in `an unpaired device whose connections stay open is refused and sent nothing`.
+/// a WebRTC `ready` are refused, and so is the device's next connection, admitted while the unpair is in force.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unpaired_device_left_open_is_shown_nothing_on_any_live_view_path() {
-    let all: Value = serde_json::from_str(&BROWSER_STREAMS).unwrap();
-    let scenario = all["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "an unpaired device whose connections stay open is refused and sent nothing").unwrap();
-    let (steps, recorded) = (&scenario["steps"], &scenario["recorded"]);
-    assert_eq!(
-        (steps[0]["method"].as_str(), steps[4]["raw"]["type"].as_str(), steps[5]["op"].as_str(), steps[8]["method"].as_str(), steps[10]["raw"]["type"].as_str()),
-        (Some("browserRemoteStream"), Some("offer"), Some("unpair"), Some("browserRemoteStream"), Some("ready"))
-    );
-    let stream = |id: u64, step: &Value| json!({ "id": id, "method": "browser/stream", "params": { "sessionId": step["params"][0], "on": true, "request": step["params"][1] } });
-    // Node's reply to the refused subscribe, and its refusal of the `ready` as the phone's call would carry it.
-    let refused_stream = recorded[8][0][2].clone();
-    let refused_ready = |id: u64| wire_of(&json!({ "id": id, "ok": false, "error": recorded[10][0][1] }));
+    let request = json!({ "maxWidth": 1200, "maxHeight": 900 });
+    let offer = json!({
+        "v": 1, "source": { "kind": "browser", "sessionId": "sess_1" }, "connectionId": "connection-id-0001", "generation": 1, "type": "offer",
+        "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+        "fingerprints": [{ "algorithm": "sha-256", "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA" }],
+        "iceServers": [], "iceTransportPolicy": "all",
+        "geometry": { "generation": 1, "cssWidth": 390, "cssHeight": 844, "deviceScaleFactor": 3, "pixelWidth": 1170, "pixelHeight": 2532 }, "inputEpoch": 1
+    });
+    let ready = json!({ "v": 1, "source": { "kind": "browser", "sessionId": "sess_1" }, "type": "ready", "receiveCodecs": ["video/VP8", "video/H264"] });
+    let stream = |id: u64| json!({ "id": id, "method": "browser/stream", "params": { "sessionId": "sess_1", "on": true, "request": request } });
+    // The refusal of the new subscribe and of the `ready`, as the phone's calls carry them.
+    let refused_stream = json!({ "id": 4, "ok": false, "error": "Remote browser view is not allowed for this device." });
+    let refused_ready = |id: u64| wire_of(&json!({ "id": id, "ok": false, "error": "remote webrtc source is not streamed by this client." }));
 
     let h = Harness::start(false).await;
     let (mut phone, connection) = h.connect("p1", CRED).await;
-    phone.send(&stream(5, &steps[0]).to_string());
+    phone.send(&stream(5).to_string());
     assert_eq!(answer(&mut phone, 5).await["result"], json!({}), "the subscribe");
     // The host's signal to the phone, on its way when the unpair comes.
-    let pending = h.core.live.host_signal(connection, &steps[4]["raw"]);
+    let pending = h.core.live.host_signal(connection, &offer);
     assert!(h.runtime.revoke_client(CRED).await.is_err(), "the relay refused the unpair");
     assert_eq!(pending.await, Ok(()), "the host's send succeeds, as Node's resolves");
     assert_eq!(*h.desktop.pushed.lock().unwrap(), Vec::<(ConnectionId, String, Value)>::new(), "nothing reached the unpaired phone");
 
     let id = refused_stream["id"].as_u64().unwrap();
-    phone.send(&stream(id, &steps[8]).to_string());
+    phone.send(&stream(id).to_string());
     assert_eq!(answer(&mut phone, id).await, wire_of(&refused_stream), "a new subscribe");
-    phone.send(&json!({ "id": 7, "method": "browser/webrtcSignal", "params": { "signal": steps[10]["raw"] } }).to_string());
+    phone.send(&json!({ "id": 7, "method": "browser/webrtcSignal", "params": { "signal": ready } }).to_string());
     assert_eq!(answer(&mut phone, 7).await, refused_ready(7), "a WebRTC ready");
 
     let (mut again, _) = h.connect("p2", CRED).await;
-    again.send(&stream(id, &steps[8]).to_string());
+    again.send(&stream(id).to_string());
     assert_eq!(answer(&mut again, id).await, wire_of(&refused_stream), "the device's next connection");
     assert_eq!(*h.desktop.pushed.lock().unwrap(), Vec::<(ConnectionId, String, Value)>::new(), "nothing reached the unpaired device");
     h.runtime.close().await;
 }
-
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unpair_the_relay_has_not_confirmed_leaves_every_connection_open_without_the_grants_of_the_device() {
     let h = Harness::start(false).await;
@@ -850,7 +986,6 @@ async fn an_unpair_the_relay_has_not_confirmed_leaves_every_connection_open_with
     assert_eq!(list(&mut again, 1).await["result"], listed());
     h.runtime.close().await;
 }
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_local_client_naming_itself_after_a_paired_device_gets_no_grant_and_no_view() {
     let h = Harness::start(true).await;
@@ -885,13 +1020,25 @@ async fn a_local_client_naming_itself_after_a_paired_device_gets_no_grant_and_no
     assert!(h.registry.visualize_viewed_sessions().is_empty(), "no paired device views anything");
     h.runtime.close().await;
 }
+/// The leg is dropped, the next two dials fail and the third opens a leg: the delay doubles while redials fail.
+fn ladder() -> Value {
+    json!([{ "op": "drop", "code": null, "delayMs": 1000 }, { "op": "fail", "delayMs": 2000 }, { "op": "fail", "delayMs": 4000 }, { "op": "recover" }])
+}
 
-/// Plays the recorded `script` against the relay, which ends the leg the core holds and refuses the dials the script says fail. Each
-/// step that schedules a redial must not be followed by a dial sooner than the delay Node scheduled. (A longer wait is not asserted
-/// here; the schedule itself is replayed exactly by `mixdog-remote`'s `relay_redial`.)
-async fn follow(h: &mut Harness, script: &str) {
-    let golden: Value = serde_json::from_str(REDIAL).unwrap();
-    let steps = golden[script].as_array().unwrap().clone();
+/// The relay closes the leg with the stalled-handshake code (4010) three times: the first two are redialed at once, the third waits the backoff.
+fn stalled() -> Value {
+    json!([
+        { "op": "drop", "code": 4010, "delayMs": 0 }, { "op": "recover" },
+        { "op": "drop", "code": 4010, "delayMs": 0 }, { "op": "recover" },
+        { "op": "drop", "code": 4010, "delayMs": 1000 }, { "op": "recover" }
+    ])
+}
+
+/// Plays the `script` against the relay, which ends the leg the core holds and refuses the dials the script says fail. Each
+/// step that schedules a redial must not be followed by a dial sooner than the delay the script gives. (A longer wait is not asserted
+/// here; the schedule itself is asserted by `mixdog-remote`'s `relay_redial`.)
+async fn follow(h: &mut Harness, script: Value) {
+    let steps = script.as_array().unwrap().clone();
     let longest = steps.iter().filter_map(|step| step["delayMs"].as_u64()).max().unwrap();
     // When the dial that the next delay follows was made (the failed attempt, or the moment the leg was ended).
     let mut since = Instant::now();
@@ -916,7 +1063,7 @@ async fn follow(h: &mut Harness, script: &str) {
         let delay = Duration::from_millis(step["delayMs"].as_u64().unwrap());
         let dialed = h.relay.legs.recv().await.expect("the relay ended");
         let waited = dialed.duration_since(since);
-        assert!(waited >= delay, "step {at} ({step}): the core dialed again after {waited:?}, Node waits {delay:?}");
+        assert!(waited >= delay, "step {at} ({step}): the core dialed again after {waited:?}, the script waits {delay:?}");
         if delay.is_zero() {
             // A stalled-handshake close is redialed at once: well before the backoff an ordinary drop waits.
             assert!(waited < Duration::from_millis(longest), "step {at} ({step}): {waited:?}");
@@ -924,9 +1071,8 @@ async fn follow(h: &mut Harness, script: &str) {
         since = dialed;
     }
 }
-
 #[tokio::test(flavor = "multi_thread")]
-async fn the_leg_redials_on_the_backoff_node_recorded_and_a_phone_pairs_again_on_the_new_leg() {
+async fn the_leg_redials_on_the_doubling_backoff_and_a_phone_pairs_again_on_the_new_leg() {
     let mut h = Harness::start(true).await;
     let (_phone, connection) = h.connect("p1", CRED).await;
     let (mut watcher, watcher_connection) = h.connect("p2", OTHER_CRED).await;
@@ -936,7 +1082,7 @@ async fn the_leg_redials_on_the_backoff_node_recorded_and_a_phone_pairs_again_on
     h.viewing(&["t1"]).await;
 
     // Doubling while redials fail (1 s, 2 s, 4 s), then the leg opens: no phone survives the lost leg.
-    follow(&mut h, "ladder").await;
+    follow(&mut h, ladder()).await;
     h.closed(connection).await;
     h.closed(watcher_connection).await;
     h.viewing(&[]).await;
@@ -947,31 +1093,12 @@ async fn the_leg_redials_on_the_backoff_node_recorded_and_a_phone_pairs_again_on
     assert_eq!(list(&mut again, 1).await["result"], listed());
     h.runtime.close().await;
 }
-
-const FILE_DOWNLOADS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/file-downloads/file-downloads.json");
-
-/// The frame Node's phone got for the `n`th call of the scenario `name`, which must be of the phone method `method`, without its id.
-fn download_call(name: &str, n: usize, method: &str) -> Value {
-    let recording: Value = serde_json::from_str(&FILE_DOWNLOADS).unwrap();
-    let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("no scenario {name}"));
-    let step = scenario["steps"].as_array().unwrap().iter().filter(|step| step["op"] == "call").nth(n).unwrap_or_else(|| panic!("{name}: no call {n}"));
-    assert_eq!(step["method"], method, "{name}: call {n}");
-    let mut frame = step["frame"].clone();
-    frame.as_object_mut().unwrap().shift_remove("id");
-    frame
+/// The frame a phone gets for a download that is gone, as Node's phone got it (without its id).
+fn download_gone() -> Value {
+    json!({ "ok": false, "error": "This download is no longer available.", "errorCode": "file-download:expired" })
 }
-
-/// One call of `phone`, as the frame Node's phone would have got, without its id.
-async fn download_frame(phone: &mut Phone, id: u64, method: &str, params: Value) -> Value {
-    phone.send(&json!({ "id": id, "method": method, "params": params }).to_string());
-    let mut frame = node_of(&answer(phone, id).await);
-    frame.as_object_mut().unwrap().shift_remove("id");
-    frame
-}
-
-/// Remote access switched off closes the relay handle, and with it every download the paired phones held (`remote-relay.ts` `close`,
-/// `fileDownloads.revokeAll`): a phone that pairs again once remote access is back finds its unbegun grant and its transfer gone, as Node's
-/// phone did after the same revoke (`revoke all`: the begin of the unbegun grant, then the range of the transfer).
+/// Remote access switched off closes the relay handle, and with it every download the paired phones held: a phone that pairs again once
+/// remote access is back finds its unbegun grant and its transfer gone (the begin of the unbegun grant, then the range of the transfer).
 #[tokio::test(flavor = "multi_thread")]
 #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
 async fn switching_remote_access_off_ends_every_download_of_the_phones() {
@@ -993,21 +1120,34 @@ async fn switching_remote_access_off_ends_every_download_of_the_phones() {
     mixdog_rt::time::timeout(FRAME_WAIT, up.wait_for(|up| *up)).await.expect("the new leg never came up").expect("the runtime ended");
     let (mut again, _) = h.connect("p2", CRED).await;
     let begin = download_frame(&mut again, 4, "transfer/redeemGrant", json!({ "grantId": unbegun })).await;
-    assert_eq!(begin, download_call("revoke all", 3, "fileDownloadBegin"), "the unbegun grant after the relay closed");
+    assert_eq!(begin, download_gone(), "the unbegun grant after the relay closed");
     let range = json!({ "transferId": lease["transferId"], "offset": 0, "length": 4, "version": lease["version"] });
     let read = download_frame(&mut again, 5, "transfer/readRange", range).await;
-    assert_eq!(read, download_call("revoke all", 4, "fileDownloadRange"), "the transfer after the relay closed");
+    assert_eq!(read, download_gone(), "the transfer after the relay closed");
     h.runtime.close().await;
 }
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stalled_handshake_close_redials_at_once_twice_and_then_waits_the_backoff() {
     let mut h = Harness::start(true).await;
-    follow(&mut h, "stalled").await;
+    follow(&mut h, stalled()).await;
     h.runtime.watch_connected().wait_for(|up| *up).await.expect("the runtime ended");
     h.runtime.close().await;
 }
-
+/// Over its own loopback connection the method table refuses a local client the relay-only screen methods before any access rule is asked
+/// (`browser/screenDisplays` is a relay method), and the desktop is never asked for its displays.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_local_client_is_refused_the_relay_only_screen_methods_and_the_desktop_is_not_asked() {
+    let h = Harness::start(true).await;
+    let (_phone, _) = h.connect("p1", CRED).await;
+    let mut named = h.client(ConnectionOrigin::Loopback, "cli").await;
+    let call = json!({ "id": 7, "method": "browser/screenDisplays", "params": {} });
+    assert_eq!(
+        named.call(&call).await,
+        json!({ "id": 7, "error": { "code": -32600, "message": "permissionDenied", "data": { "reason": "permissionDenied", "method": "browser/screenDisplays", "origin": "local" } } })
+    );
+    assert!(h.desktop.asked.lock().unwrap().is_empty(), "a refused ask never reaches the window");
+    h.runtime.close().await;
+}
 #[test]
 fn a_local_client_is_recorded_by_what_it_states_and_a_relay_or_claimed_phone_is_not() {
     let registry = DeviceRegistry::default();
@@ -1021,32 +1161,9 @@ fn a_local_client_is_recorded_by_what_it_states_and_a_relay_or_claimed_phone_is_
     assert_eq!(kind(3), None, "a local client that says it is a phone is no paired phone");
     assert_eq!(kind(4), None, "a relay connection is recorded by the dialer that opened it");
 }
-
-/// The clock Node's recorder started at (`record-unpair-access.mjs` `CLOCK_START`, 2031-01-01).
-const DOWNLOAD_CLOCK_START: i64 = 1_924_992_000_000;
-
+#[cfg(node_twin)]
 const SCREEN_ACCESS: &str = include_str!("../../../../../fixtures/screen-access/screen-access.json");
-
-/// The frame the core's wire carries for what Node sent the phone: `{ id, ok: true, value }` becomes `{ id, result }`, and
-/// `{ id, ok: false, error }` becomes `{ id, error }` with the JSON-RPC error body of a remote domain error carrying that text (the body is
-/// the wire's own: code -32600, reason `domainError`). Any other recorded key is kept as it is, so a frame that is not exactly one of the
-/// two shapes is not equal to what the server writes.
-fn wire_of(node: &Value) -> Value {
-    let mut frame = node.as_object().unwrap().clone();
-    match frame.shift_remove("ok").unwrap().as_bool().unwrap() {
-        true => {
-            let value = frame.shift_remove("value").unwrap();
-            frame.insert("result".to_owned(), value);
-        }
-        false => {
-            let text = frame.shift_remove("error").unwrap();
-            let body = json!({ "code": -32600, "message": "domainError", "data": { "reason": "domainError", "domain": "remote", "message": text } });
-            frame.insert("error".to_owned(), body);
-        }
-    }
-    Value::Object(frame)
-}
-
+#[cfg(node_twin)]
 /// The recorded scenario `name` (by its leading words), checked to hold exactly the keys `wanted` (the ones this replay reads), and, when
 /// it has a `before`, the keys of an answer in it.
 fn recorded(name: &str, wanted: &[&str]) -> Value {
@@ -1065,12 +1182,7 @@ fn recorded(name: &str, wanted: &[&str]) -> Value {
     }
     scenario
 }
-
-/// The request the phone sends for the display list, with the id Node's recording used.
-fn displays_call(reply: &Value) -> Value {
-    json!({ "id": reply["id"], "method": "browser/screenDisplays", "params": {} })
-}
-
+#[cfg(node_twin)]
 /// Node's composed screen access (`screen-access.json`: the frame the real relay-client call dispatch sent the phone, over the real
 /// relay asking the real publisher over the real client table), against the production wiring. Every recorded scenario is replayed over a
 /// connection the server's dispatch serves, and the frame the server writes is compared as a whole to the frame Node's recorded reply
@@ -1166,107 +1278,9 @@ async fn the_composed_screen_access_answers_as_nodes_relay_and_publisher_did() {
     assert_eq!(asked(&h), local["hostAsked"].as_u64().unwrap());
     h.runtime.close().await;
 }
-
+#[cfg(node_twin)]
 const UNPAIR_ACCESS: &str = include_str!("../../../../../fixtures/unpair-access/unpair-access.json");
-
-/// The inputs `record-unpair-access.mjs` registered before its unpair.
-const PUSH_KEY: &str = "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM";
-const PUSH_ENDPOINT: &str = "https://push.example/x";
-
-/// `record-unpair-access.mjs` replaced the values that differ between two Node runs, by exact path (the fixture's `remapped`: a kind and
-/// a path in a scenario): a random id by `<kind#n>`, numbered per kind by first appearance of the value over the whole recording, so equal
-/// values share a token and different ones never do; the run's temporary directory, alone or as the head of a path, by `<dir>`. A frame the
-/// core wrote goes through the same replacement at the same paths, and the numbering goes on across the scenarios, as the recorder's did.
-struct Canon {
-    rules: std::collections::HashMap<String, String>,
-    dir: String,
-    tokens: std::collections::HashMap<String, String>,
-    counts: std::collections::HashMap<String, usize>,
-}
-
-impl Canon {
-    fn new(remapped: &Value) -> Self {
-        let rules = remapped.as_array().unwrap().iter().map(|rule| (rule["path"].as_str().unwrap().to_owned(), rule["kind"].as_str().unwrap().to_owned())).collect();
-        Self { rules, dir: String::new(), tokens: Default::default(), counts: Default::default() }
-    }
-
-    fn replace(&mut self, kind: &str, text: &str) -> String {
-        if kind == "dir" {
-            return text.strip_prefix(self.dir.as_str()).map_or_else(|| text.to_owned(), |rest| format!("<dir>{rest}"));
-        }
-        if !self.tokens.contains_key(text) {
-            let count = self.counts.entry(kind.to_owned()).or_default();
-            self.tokens.insert(text.to_owned(), format!("<{kind}#{count}>"));
-            *count += 1;
-        }
-        self.tokens[text].clone()
-    }
-
-    /// `node` found at `path` (a frame's path, then the keys and indices inside it) with the values at the rules' paths replaced.
-    fn frame(&mut self, path: &str, node: &Value) -> Value {
-        if let (Some(kind), Some(text)) = (self.rules.get(path).cloned(), node.as_str()) {
-            return json!(self.replace(&kind, text));
-        }
-        match node {
-            Value::Array(items) => Value::Array(items.iter().enumerate().map(|(index, item)| self.frame(&format!("{path}.{index}"), item)).collect()),
-            Value::Object(map) => Value::Object(map.iter().map(|(key, value)| (key.clone(), self.frame(&format!("{path}.{key}"), value))).collect()),
-            // JavaScript has one number type: `1924905600000` and `1924905600000.0` are the same value on Node's wire.
-            Value::Number(number) => match number.as_f64() {
-                Some(float) if number.is_f64() && float.fract() == 0.0 && float.abs() < 9e15 => json!(float as i64),
-                _ => node.clone(),
-            },
-            other => other.clone(),
-        }
-    }
-
-    /// The recording replaced exactly the rules' paths: each holds a placeholder, and no other string in `scenario` looks like one.
-    fn only_at_rules(&self, scenario: &Value) {
-        fn walk(rules: &std::collections::HashMap<String, String>, node: &Value, path: &str) {
-            match node {
-                Value::Object(map) => map.iter().for_each(|(key, value)| walk(rules, value, &if path.is_empty() { key.clone() } else { format!("{path}.{key}") })),
-                Value::Array(items) => items.iter().enumerate().for_each(|(index, item)| walk(rules, item, &format!("{path}.{index}"))),
-                Value::String(text) => {
-                    let placeholder = text.starts_with("<dir>") || (text.starts_with('<') && text.contains('#') && text.ends_with('>'));
-                    assert_eq!(placeholder, rules.contains_key(path), "{path} holds {text:?}: a placeholder belongs at the remap rules' paths and nowhere else");
-                }
-                _ => assert!(!rules.contains_key(path), "{path} is remapped but holds no string"),
-            }
-        }
-        walk(&self.rules, scenario, "");
-        for path in self.rules.keys() {
-            assert!(scenario.pointer(&format!("/{}", path.replace('.', "/"))).is_some_and(Value::is_string), "the remap rule {path} names nothing in the recording");
-        }
-    }
-}
-
-/// The frame Node's phone received for the core's wire frame: the inverse of `wire_of`, with the error code Node's frame carries.
-fn node_of(wire: &Value) -> Value {
-    let mut frame = wire.as_object().unwrap().clone();
-    if let Some(result) = frame.shift_remove("result") {
-        frame.insert("ok".to_owned(), json!(true));
-        frame.insert("value".to_owned(), result);
-    } else {
-        let error = frame.shift_remove("error").unwrap();
-        frame.insert("ok".to_owned(), json!(false));
-        frame.insert("error".to_owned(), error["data"]["message"].clone());
-        if let Some(code) = error["data"].get("code") {
-            frame.insert("errorCode".to_owned(), code.clone());
-        }
-    }
-    Value::Object(frame)
-}
-
-fn op(n: u32) -> String {
-    format!("018f0000-0000-7000-8000-{n:012x}")
-}
-
-fn at<'a>(root: &'a Value, path: &str) -> &'a Value {
-    path.split('.').fold(root, |node, key| &node[key])
-}
-
-/// The branches that own recorded frames this test does not replay yet. A `NOT_REPLAYED` entry names only these.
-const OWNERS: &[&str] = &["phone-ph2-terminal", "phone-ph2-settings-notify", "phone-chat-live", "rs-thread-list-rows"];
-
+#[cfg(node_twin)]
 struct NotReplayed {
     /// A recorded frame's path in a scenario (or `feedEvents`, the frames Node pushed to an attached phone).
     path: &'static str,
@@ -1274,10 +1288,10 @@ struct NotReplayed {
     /// What Node answered there and why the core's wire cannot be compared to it yet.
     why: &'static str,
 }
-
 /// The recorded frames this test does not replay whole, each with the branches it waits on. Node's frames stay in the fixture for the
 /// owner to replay. The test fails when an entry names an owner outside `OWNERS`, a path the recording holds no frame for, or a path it
 /// replays, and when a recorded frame is neither replayed nor named here.
+#[cfg(node_twin)]
 const NOT_REPLAYED: &[NotReplayed] = &[
     NotReplayed {
         path: "before.chat",
@@ -1319,11 +1333,12 @@ const NOT_REPLAYED: &[NotReplayed] = &[
         why: "Node's compact session-state frame `{e: 'T', s, w: {r, ip: {p, a: [row]}}}` (remote-relay-session-state.ts:143), pushed only to an attached phone and decoded into its transcript snapshot (remote-shim-dispatch.ts:228-257); without it an attached phone gets no live transcript updates. The core has no encoder of it on the phone link.",
     },
 ];
-
+#[cfg(node_twin)]
 /// The frames a recorded scenario holds, by path: those of `setup`, `before` and `after` (an object with an `id`, at any depth), and `feedEvents`.
 /// A key that is neither one of those nor one of the metadata asserted one by one in the test fails here, so no recorded group escapes.
 fn recorded_paths(scenario: &Value) -> Vec<String> {
     const METADATA: [&str; 6] = ["name", "relayConfirms", "revokeOutcome", "envelopesAtUnpair", "desktopClosedPhone", "phoneStillAttached"];
+    #[cfg(node_twin)]
     fn frames(path: &str, node: &Value, into: &mut Vec<String>) {
         let object = node.as_object().unwrap_or_else(|| panic!("{path} is neither a recorded frame nor a group of frames"));
         if object.contains_key("id") {
@@ -1345,23 +1360,7 @@ fn recorded_paths(scenario: &Value) -> Vec<String> {
     }
     paths
 }
-
-#[test]
-fn the_remap_is_by_exact_path_and_keeps_what_the_values_mean() {
-    let mut canon = Canon::new(&json!([{ "kind": "grantId", "path": "a.value.id" }, { "kind": "grantId", "path": "b.value.id" }, { "kind": "dir", "path": "a.value.root" }]));
-    canon.dir = "/tmp/run".to_owned();
-    let a = canon.frame("a", &json!({ "value": { "id": "x1", "root": "/tmp/run/files", "expiresAt": 20, "nested": { "id": "x1", "updatedAt": 7 } } }));
-    let b = canon.frame("b", &json!({ "value": { "id": "x1" } }));
-    let c = canon.frame("b", &json!({ "value": { "id": "x2" } }));
-    // The same random id keeps one token over the whole recording, another id another token.
-    assert_eq!((a["value"]["id"].clone(), b["value"]["id"].clone()), (json!("<grantId#0>"), json!("<grantId#0>")));
-    assert_eq!(c["value"]["id"], json!("<grantId#1>"));
-    assert_eq!(a["value"]["root"], json!("<dir>/files"));
-    // A key of the same name at a path that is no rule is kept, and so are the times: two times that swap stay two times that swap.
-    assert_eq!((&a["value"]["nested"]["id"], &a["value"]["nested"]["updatedAt"], &a["value"]["expiresAt"]), (&json!("x1"), &json!(7), &json!(20)));
-    let swapped = canon.frame("a", &json!({ "value": { "expiresAt": 20 } }));
-    assert_ne!(swapped, canon.frame("a", &json!({ "value": { "expiresAt": 21 } })), "a changed time must change the frame");
-}
+#[cfg(node_twin)]
 /// What Node's desktop did across an unpair of a paired phone, recorded through its real unpair handler (`unpair-access.json`), replayed
 /// over the composed wiring and the real services that hold a device's state (the remote access service, the workspace and its one-file
 /// grants and transfers, the notification preferences in `Config`): the same phone connection throughout. A frame is the whole frame the

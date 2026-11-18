@@ -58,6 +58,15 @@ export function restoreAttachmentsFromRecord(
       data: image.content,
       token: '',
       ...(typeof image.metadataText === 'string' && image.metadataText ? { metadataText: image.metadataText } : {}),
+      // The picked file the message was sent with: sent again with it, so the core judges it as it judges any send.
+      ...(typeof image.originalRef === 'string' && /^[a-f0-9]{64}$/.test(image.originalRef)
+        ? {
+            originalRef: image.originalRef,
+            ...(typeof image.originalMediaType === 'string' && image.originalMediaType
+              ? { originalMimeType: image.originalMediaType }
+              : {}),
+          }
+        : {}),
     });
   }
   for (const [key, raw] of Object.entries(asRecord(value.pastedTexts) || {})) {

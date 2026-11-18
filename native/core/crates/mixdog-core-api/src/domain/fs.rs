@@ -69,6 +69,8 @@ pub enum WritePrecondition {
     Absent,
     /// The current content must equal these bytes.
     ContentEquals(Vec<u8>),
+    /// The target must still be the observed file, with the same metadata and bytes.
+    FileEquals { stat: FileStat, bytes: Vec<u8> },
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -85,6 +87,27 @@ pub struct Descent {
     pub max_depth: Option<usize>,
     pub bare: Vec<String>,
     pub bare_dotted: bool,
+    /// A name rule the caller keeps entries by: a folder below which the rule keeps nothing is listed but not entered.
+    pub guard: Option<NameGuard>,
+}
+
+/// The ancestor rule of `list`'s find with a name (`findNameMatcher` over rg's `--iglob`): an entry is kept only when each
+/// folder above it, from the root down, matches the name or is neither inside a `noise` folder nor (when `dotted`) dotted
+/// itself. So a folder that fails it holds nothing kept, and the walk need not enter it.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct NameGuard {
+    /// The name as a regex (a glob's whole pattern) and the same without a leading `**/`; the source of each, as compiled.
+    pub whole: Option<String>,
+    pub rest: Option<String>,
+    /// With neither this nor `whole`, no folder is named: only the noise and dotted rules apply.
+    /// Without a glob: the name lowercased, matched as a substring of the lowercased subject.
+    pub fragment: Option<String>,
+    /// The subject is the folder's path below the root joined by `/` (the name holds a separator), else its own name.
+    pub path: bool,
+    /// The noise folder names (none when the caller includes noise).
+    pub noise: Vec<String>,
+    /// A dotted folder fails unless it matches (the caller does not show hidden entries).
+    pub dotted: bool,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]

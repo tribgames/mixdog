@@ -6,9 +6,10 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { builtCoreBin } from './built-core.mjs';
 
 const recorder = fileURLToPath(new URL('../../../../benchmarks/rust-core/recorders/record-phone-files.mjs', import.meta.url));
-const BIN = process.env.MIXDOGD_BIN || 'D:\\mixdog-build\\pool\\w5-target\\debug\\mixdogd.exe';
+const BIN = builtCoreBin();
 
 // The runner's spawn ledger (--import scripts/lib/test-spawn-ledger.mjs) fails a script that exits through process.exit before its top-level
 // evaluation settles, which is how the recorder ends its replay; the child needs the TypeScript loaders, not that guard.

@@ -1,6 +1,9 @@
 // Client of the core page server: the main process asks the core for page URLs
 // and revokes a closed owner's pages there. Page serving itself lives in the core.
+import { putBlobRef } from './core-blob-ref';
+import { MAX_INLINE_RESULT_BYTES } from './host/browser-engine/blob-upload';
 import { LocalAccessDeniedError } from './local-access-denied';
+import type { ProtocolConnection } from './protocol/connection';
 
 export interface PageOwner {
   id: number;
@@ -29,7 +32,12 @@ export function ownerIdOf(owner: { id: number }): string {
   return `wc:${owner.id}`;
 }
 
-export function createCoreLocalPages(invoke: Invoke): CoreLocalPages {
+const blobCore = (core: Pick<ProtocolConnection, 'call'> | undefined): Pick<ProtocolConnection, 'call'> => {
+  if (!core) throw new Error('A page file too large for one request needs the core connection to upload it.');
+  return core;
+};
+
+export function createCoreLocalPages(invoke: Invoke, core?: Pick<ProtocolConnection, 'call'>): CoreLocalPages {
   const watched = new WeakSet<object>();
   const queued = new Set<string>();
   let cachedOrigin: Promise<string> | null = null;
@@ -64,11 +72,22 @@ export function createCoreLocalPages(invoke: Invoke): CoreLocalPages {
     },
     async virtual(files, access = {}) {
       const ownerId = ownerFor(access);
-      const list = Object.entries(files).map(([path, file]) => ({
-        path,
-        dataBase64: file.body.toString('base64'),
-        type: file.type,
-      }));
+      // The page is always one virtual lease. A request over the core's inbound frame closes the connection, so the files
+      // that do not fit (a chart's ECharts, a diagram's Mermaid, an export's images) are uploaded with `blob/put` and named
+      // by `{$blobRef, as:'base64'}`, which the core expands to the file's bytes before the lease is made; the lease owns
+      // what it received.
+      let inline = 0;
+      const list = [];
+      for (const [path, file] of Object.entries(files)) {
+        const base64Length = Math.ceil(file.body.byteLength / 3) * 4;
+        const fits = inline + base64Length + path.length + file.type.length <= MAX_INLINE_RESULT_BYTES / 2;
+        if (fits) inline += base64Length + path.length + file.type.length;
+        list.push({
+          path,
+          dataBase64: fits ? file.body.toString('base64') : await putBlobRef(blobCore(core), file.body, 'base64'),
+          type: file.type,
+        });
+      }
       return invoke<string>('localPageVirtualIn', [list, ownerId]);
     },
     async assetType(root, file, dataRoot) {

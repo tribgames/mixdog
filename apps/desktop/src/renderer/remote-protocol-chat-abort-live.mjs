@@ -170,6 +170,7 @@ export async function runAbortLive({ only } = {}) {
           host: { ctx, client: () => client, declareLane() {} },
           started: async () => undefined,
           synced: async () => undefined,
+          appSynced: async () => undefined,
           probe() {},
           silentSince: () => false,
         });

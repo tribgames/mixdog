@@ -205,8 +205,9 @@ impl PkceProvider for OpenAiLogin {
             stored.insert("account_id".into(), json!(account));
         }
         stored.insert("identity".into(), identity.unwrap_or(Value::Null));
+        // `saveTokens` replaces the file: a sign-in to another account must not keep the previous `account_id`.
         self.file
-            .save(&Value::Object(stored))
+            .replace(stored)
             .await
             .map_err(|_| failed("storage", "the tokens could not be stored"))?;
         Ok(label)
@@ -234,5 +235,22 @@ mod site_tests {
         assert_transport("openaiCodeExchange", &transport);
         assert_thrown("openaiCodeExchange", login_message(&failure));
         assert_thrown("openaiCodeExchangeManual", login_message(&failure));
+    }
+
+    /// `saveTokens` replaces the file: signing in to an account whose token names no ChatGPT account keeps nothing of
+    /// the previous one.
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "test: seeds and reads a fixture credential file synchronously")]
+    async fn a_new_sign_in_drops_the_previous_accounts_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+        std::fs::write(file.path(), r#"{"access_token":"old","refresh_token":"old","account_id":"acct-old"}"#).unwrap();
+        let answer = br#"{"access_token":"opaque-new","refresh_token":"r-new","expires_in":3600}"#.to_vec();
+        let http = Arc::new(crate::providers::listing_row::testing::Replay::new(move |_| (200, answer.clone())));
+        OpenAiLogin::new(file.clone(), http).exchange("abc", "v", "http://localhost/cb").await.expect("signed in");
+        let stored: Value = serde_json::from_slice(&std::fs::read(file.path()).unwrap()).unwrap();
+        assert_eq!(stored["access_token"], "opaque-new");
+        assert!(stored.get("account_id").is_none(), "{stored}");
     }
 }

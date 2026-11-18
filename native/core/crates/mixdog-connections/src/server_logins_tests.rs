@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use mixdog_app_server_client::api::{
-    BlobRef, ClientError, ConnectionStatus, FeedStamp, FoldStore, InitializeResponse, Json, JsonRpcErrorBody, RequestId, ResumeWindow, SectionEntry,
+    BlobRef, ClientError, ConnectionStatus, FeedStamp, FoldStore, InitializeResponse, Json, JsonRpcErrorBody, ResumeWindow, SectionEntry,
     ServerRequest, ServerRequestAnswer, StoreChange, ThreadFold, ThreadId, ThreadResumeResponse,
 };
 use mixdog_rt::DurabilityIo;
@@ -20,10 +20,6 @@ use crate::paths::ConnectionsPaths;
 const CALLBACK: &str = "https://auth.example/authorize?client_id=c&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcb";
 const MANUAL: &str = "https://auth.example/manual";
 const CANCEL: &str = "account/cancelOAuthProviderLogin";
-
-fn io() -> DurabilityIo {
-    mixdog_rt::testing::tokens().durability_io
-}
 
 async fn settle() {
     for _ in 0..100 {
@@ -149,6 +145,9 @@ impl ProtocolClient for StubClient {
     async fn notify(&self, _method: &str, _params: Json) -> Result<(), ClientError> {
         Ok(())
     }
+    async fn notify_on(&self, _attachment: mixdog_app_server_client::AttachmentId, _method: &str, _params: Json) -> Result<(), ClientError> {
+        Ok(())
+    }
     async fn resume_thread(&self, _thread_id: &ThreadId, _window: ResumeWindow) -> Result<ThreadResumeResponse, ClientError> {
         Err(ClientError::ClientClosed)
     }
@@ -161,7 +160,7 @@ impl ProtocolClient for StubClient {
     fn pending_server_requests(&self) -> Vec<ServerRequest> {
         Vec::new()
     }
-    async fn respond(&self, _id: RequestId, _answer: ServerRequestAnswer) -> Result<(), ClientError> {
+    async fn respond(&self, _address: mixdog_app_server_client::ReplyAddress, _answer: ServerRequestAnswer) -> Result<(), ClientError> {
         Ok(())
     }
     async fn read_blob(&self, _blob: &BlobRef) -> Result<Vec<u8>, ClientError> {
@@ -291,49 +290,6 @@ struct Rig {
     client: Arc<StubClient>,
     forwarder: Arc<FakeForwarder>,
     _dir: tempfile::TempDir,
-}
-
-impl Rig {
-    async fn new(login: ModelLogin) -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let hosts = Arc::new(SshHostStore::load(&ConnectionsPaths::new(dir.path()), io()).await);
-        let record = SshHostRecord { id: "h1".into(), name: "box".into(), target: "me@box".into(), last_connected_at: None, settings: None };
-        hosts.save(record).await.unwrap();
-        let client = Arc::new(StubClient {
-            store: Arc::new(StubStore::new()),
-            handler: Mutex::new(Box::new(serving(CALLBACK))),
-            calls: Mutex::new(Vec::new()),
-            events: broadcast::channel(16).0,
-            publish_after: Mutex::new(None),
-        });
-        let server = Arc::new(FakeServer { login: Mutex::new(login), client: client.clone(), end: CancellationToken::new() });
-        let servers = Arc::new(FakeServers {
-            attached: Mutex::new(HashMap::from([("h1".to_owned(), server.clone())])),
-            attach: broadcast::channel(8).0,
-        });
-        let forwarder = Arc::new(FakeForwarder::default());
-        let logins = ServerLogins::with_parts(servers.clone(), hosts, forwarder.clone());
-        Self { logins, servers, server, client, forwarder, _dir: dir }
-    }
-
-    /// The connection goes: nothing is attached.
-    fn detach(&self) {
-        self.servers.attached.lock().unwrap().clear();
-    }
-
-    /// The connection is attached again, and the attach is announced.
-    fn attach(&self, server: &Arc<FakeServer>) {
-        self.servers.attached.lock().unwrap().insert("h1".into(), server.clone());
-        self.servers.attach.send("h1".into()).unwrap();
-    }
-
-    fn closes(&self) -> Vec<usize> {
-        self.forwarder.forwards.lock().unwrap().iter().map(|forward| forward.closes.load(Ordering::SeqCst)).collect()
-    }
-
-    fn cancels(&self) -> usize {
-        self.client.calls_of(CANCEL).len()
-    }
 }
 
 fn message<T: std::fmt::Debug>(result: LoginResult<T>) -> String {
@@ -634,13 +590,19 @@ async fn a_stale_queued_cancel_never_ends_a_newer_login_that_reuses_the_flow_id(
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_rejected_status_closes_the_forward_and_tells_the_server_to_drop_the_login() {
+async fn only_an_authoritative_unknown_status_retires_the_login_without_cancelling_it() {
     let rig = Rig::new(ModelLogin::Server).await;
     rig.logins.begin("h1", "openai-oauth").await.unwrap();
     rig.client.on(|method, _| if method == "account/getOAuthProviderLoginStatus" { Reply::Rpc("gone") } else { Reply::Ok(json!({})) });
     assert_eq!(message(rig.logins.status("h1", "f1").await), "gone");
     settle().await;
-    assert_eq!((rig.closes(), rig.cancels()), (vec![1], 1));
+    assert_eq!((rig.closes(), rig.cancels()), (vec![], 0));
+    rig.client.on(serving(CALLBACK));
+    assert!(rig.logins.status("h1", "f1").await.unwrap().forwarded);
+    rig.client.on(|_, _| Reply::Rpc("OAuth login flow is no longer available."));
+    assert_eq!(message(rig.logins.status("h1", "f1").await), "OAuth login flow is no longer available.");
+    settle().await;
+    assert_eq!((rig.closes(), rig.cancels()), (vec![1], 0));
 }
 
 // ----- what is reached -------------------------------------------------------------------------
@@ -648,7 +610,7 @@ async fn a_rejected_status_closes_the_forward_and_tells_the_server_to_drop_the_l
 #[tokio::test(start_paused = true)]
 async fn only_a_server_attached_with_its_own_logins_is_reached() {
     let rig = Rig::new(ModelLogin::Pc).await;
-    let pc = "box uses this PC's accounts. Switch it to server accounts to manage its logins.";
+    let pc = "pc-accounts: box uses this PC's accounts. Switch it to server accounts to manage its logins.";
     assert_eq!(message(rig.logins.begin("h1", "openai-oauth").await), pc);
     assert_eq!(message(rig.logins.save_key("h1", "openai", "sk-x").await), pc);
     assert_eq!(message(rig.logins.logout("h1", "openai").await), pc);
@@ -657,7 +619,7 @@ async fn only_a_server_attached_with_its_own_logins_is_reached() {
     assert!(rig.client.calls.lock().unwrap().is_empty());
 
     rig.detach();
-    assert_eq!(message(rig.logins.begin("h1", "openai-oauth").await), "Connect to box to manage its logins.");
+    assert_eq!(message(rig.logins.begin("h1", "openai-oauth").await), "connect-first: Connect to box to manage its logins.");
     let listed = rig.logins.list("h1").await.unwrap();
     assert_eq!((listed.connected, listed.model_login, listed.busy_sessions, listed.providers), (false, None, None, None));
     assert_eq!(message(rig.logins.list("nope").await), "This SSH server is no longer saved.");
@@ -839,4 +801,51 @@ async fn a_server_that_never_publishes_is_read_as_it_is_after_the_wait() {
 
 async fn within_wait<T>(work: impl std::future::Future<Output = T>) -> T {
     timeout(SECTION_WAIT + Duration::from_secs(1), work).await.expect("the read waited longer than its bound")
+}
+
+
+fn io() -> DurabilityIo {
+    mixdog_rt::testing::tokens().durability_io
+}
+impl Rig {
+    async fn new(login: ModelLogin) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let hosts = Arc::new(SshHostStore::load(&ConnectionsPaths::new(dir.path()), io()).await);
+        let record = SshHostRecord { id: "h1".into(), name: "box".into(), target: "me@box".into(), last_connected_at: None, settings: None };
+        hosts.save(record).await.unwrap();
+        let client = Arc::new(StubClient {
+            store: Arc::new(StubStore::new()),
+            handler: Mutex::new(Box::new(serving(CALLBACK))),
+            calls: Mutex::new(Vec::new()),
+            events: broadcast::channel(16).0,
+            publish_after: Mutex::new(None),
+        });
+        let server = Arc::new(FakeServer { login: Mutex::new(login), client: client.clone(), end: CancellationToken::new() });
+        let servers = Arc::new(FakeServers {
+            attached: Mutex::new(HashMap::from([("h1".to_owned(), server.clone())])),
+            attach: broadcast::channel(8).0,
+        });
+        let forwarder = Arc::new(FakeForwarder::default());
+        let logins = ServerLogins::with_parts(servers.clone(), hosts, forwarder.clone());
+        Self { logins, servers, server, client, forwarder, _dir: dir }
+    }
+
+    /// The connection goes: nothing is attached.
+    fn detach(&self) {
+        self.servers.attached.lock().unwrap().clear();
+    }
+
+    /// The connection is attached again, and the attach is announced.
+    fn attach(&self, server: &Arc<FakeServer>) {
+        self.servers.attached.lock().unwrap().insert("h1".into(), server.clone());
+        self.servers.attach.send("h1".into()).unwrap();
+    }
+
+    fn closes(&self) -> Vec<usize> {
+        self.forwarder.forwards.lock().unwrap().iter().map(|forward| forward.closes.load(Ordering::SeqCst)).collect()
+    }
+
+    fn cancels(&self) -> usize {
+        self.client.calls_of(CANCEL).len()
+    }
 }

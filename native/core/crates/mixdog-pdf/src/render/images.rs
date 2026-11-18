@@ -120,11 +120,6 @@ fn nonzero(value: f64) -> f64 {
     if value == 0.0 || value.is_nan() { 1.0 } else { value }
 }
 
-/// An image stream with no `Subtype` is the body of an inline image (`BI ... EI`): its keys may be the abbreviations.
-fn is_inline(source: &crate::stream::PdfStream) -> bool {
-    !source.dict.has("Subtype")
-}
-
 /// The opaque black of a mask pixel that paints and the transparency of one that does not: a clear bit paints
 /// (`convertBlackAndWhiteToRGBA` with a zero `nonBlackColor`).
 fn mask_pixels(mask: &ImageMask) -> Vec<u8> {
@@ -140,6 +135,74 @@ fn mask_pixels(mask: &ImageMask) -> Vec<u8> {
     rgba
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn opaque(width: u32, height: u32, rgba: [u8; 4]) -> Bitmap {
+        let pixels: Vec<u8> = (0..width * height).flat_map(|_| rgba).collect();
+        Bitmap::from_straight(width, height, &pixels).expect("bitmap")
+    }
+
+    fn red(canvas: &Canvas, x: i32, y: i32) -> u8 {
+        canvas.get_image_data(x, y, 1, 1).expect("pixel").data()[0]
+    }
+
+    #[test]
+    fn a_big_image_is_halved_until_it_is_within_twice_its_size() {
+        let scaled = scale_image(opaque(64, 32, [10, 20, 30, 255]), &[8.0, 0.0, 0.0, 1.0, 0.0, 0.0]).expect("scaled");
+        // 64 wide landing in 8: halved 64 -> 32 -> 16, where the remaining scale is 2.
+        assert_eq!((scaled.width, scaled.height), (16, 32));
+        let same = scale_image(opaque(4, 4, [0, 0, 0, 255]), &[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]).expect("same");
+        assert_eq!((same.width, same.height), (4, 4));
+    }
+
+    #[test]
+    fn smoothing_follows_interpolate_and_the_scale() {
+        assert!(smoothing_enabled(&[100.0, 0.0, 0.0, 100.0, 0.0, 0.0], Some(true)));
+        assert!(!smoothing_enabled(&[100.0, 0.0, 0.0, 100.0, 0.0, 0.0], None));
+        assert!(smoothing_enabled(&[1.0, 0.0, 0.0, 1.0, 0.0, 0.0], None));
+        assert!(smoothing_enabled(&[1.3, 0.0, 0.0, 1.3, 0.0, 0.0], Some(false)));
+    }
+
+    #[test]
+    fn an_axis_aligned_image_lands_on_whole_pixels() {
+        let mut canvas = Canvas::new(20, 20).expect("canvas");
+        canvas.set_image_smoothing_enabled(false);
+        canvas.transform(1.0, 0.0, 0.0, 1.0, 2.4, 3.4);
+        draw_at_integer_coords(
+            &mut canvas,
+            &opaque(2, 2, [200, 0, 0, 255]),
+            (0.0, 0.0, 2.0, 2.0),
+            (0.0, 0.0, 4.4, 4.4),
+        );
+        // The corner (2.4, 3.4) rounds to (2, 3) and the far corner (6.8, 7.8) to (7, 8): 5 by 5 whole pixels.
+        assert_eq!(red(&canvas, 2, 3), 200);
+        assert_eq!(red(&canvas, 6, 7), 200);
+        assert_eq!(red(&canvas, 7, 7), 0);
+        assert_eq!(red(&canvas, 2, 2), 0);
+        assert_eq!(canvas.get_transform(), [1.0, 0.0, 0.0, 1.0, 2.4, 3.4]);
+    }
+
+    #[test]
+    fn a_clear_bit_of_a_mask_paints() {
+        let mask = ImageMask {
+            width: 3,
+            height: 1,
+            interpolate: None,
+            data: vec![0b0100_0000],
+        };
+        let rgba = mask_pixels(&mask);
+        let alphas: Vec<u8> = rgba.chunks(4).map(|pixel| pixel[3]).collect();
+        assert_eq!(alphas, vec![255, 0, 255]);
+    }
+}
+
+
+/// An image stream with no `Subtype` is the body of an inline image (`BI ... EI`): its keys may be the abbreviations.
+fn is_inline(source: &crate::stream::PdfStream) -> bool {
+    !source.dict.has("Subtype")
+}
 impl Painter<'_> {
     /// `paintImageXObject`: the image the stream is.
     pub(super) fn paint_image_object(&mut self, image: &ImageRef) -> Result<()> {
@@ -296,68 +359,5 @@ impl Painter<'_> {
             .draw_image(&placed, js_round(bounds[0]) as f32, js_round(bounds[1]) as f32);
         self.canvas.restore();
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn opaque(width: u32, height: u32, rgba: [u8; 4]) -> Bitmap {
-        let pixels: Vec<u8> = (0..width * height).flat_map(|_| rgba).collect();
-        Bitmap::from_straight(width, height, &pixels).expect("bitmap")
-    }
-
-    fn red(canvas: &Canvas, x: i32, y: i32) -> u8 {
-        canvas.get_image_data(x, y, 1, 1).expect("pixel").data()[0]
-    }
-
-    #[test]
-    fn a_big_image_is_halved_until_it_is_within_twice_its_size() {
-        let scaled = scale_image(opaque(64, 32, [10, 20, 30, 255]), &[8.0, 0.0, 0.0, 1.0, 0.0, 0.0]).expect("scaled");
-        // 64 wide landing in 8: halved 64 -> 32 -> 16, where the remaining scale is 2.
-        assert_eq!((scaled.width, scaled.height), (16, 32));
-        let same = scale_image(opaque(4, 4, [0, 0, 0, 255]), &[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]).expect("same");
-        assert_eq!((same.width, same.height), (4, 4));
-    }
-
-    #[test]
-    fn smoothing_follows_interpolate_and_the_scale() {
-        assert!(smoothing_enabled(&[100.0, 0.0, 0.0, 100.0, 0.0, 0.0], Some(true)));
-        assert!(!smoothing_enabled(&[100.0, 0.0, 0.0, 100.0, 0.0, 0.0], None));
-        assert!(smoothing_enabled(&[1.0, 0.0, 0.0, 1.0, 0.0, 0.0], None));
-        assert!(smoothing_enabled(&[1.3, 0.0, 0.0, 1.3, 0.0, 0.0], Some(false)));
-    }
-
-    #[test]
-    fn an_axis_aligned_image_lands_on_whole_pixels() {
-        let mut canvas = Canvas::new(20, 20).expect("canvas");
-        canvas.set_image_smoothing_enabled(false);
-        canvas.transform(1.0, 0.0, 0.0, 1.0, 2.4, 3.4);
-        draw_at_integer_coords(
-            &mut canvas,
-            &opaque(2, 2, [200, 0, 0, 255]),
-            (0.0, 0.0, 2.0, 2.0),
-            (0.0, 0.0, 4.4, 4.4),
-        );
-        // The corner (2.4, 3.4) rounds to (2, 3) and the far corner (6.8, 7.8) to (7, 8): 5 by 5 whole pixels.
-        assert_eq!(red(&canvas, 2, 3), 200);
-        assert_eq!(red(&canvas, 6, 7), 200);
-        assert_eq!(red(&canvas, 7, 7), 0);
-        assert_eq!(red(&canvas, 2, 2), 0);
-        assert_eq!(canvas.get_transform(), [1.0, 0.0, 0.0, 1.0, 2.4, 3.4]);
-    }
-
-    #[test]
-    fn a_clear_bit_of_a_mask_paints() {
-        let mask = ImageMask {
-            width: 3,
-            height: 1,
-            interpolate: None,
-            data: vec![0b0100_0000],
-        };
-        let rgba = mask_pixels(&mask);
-        let alphas: Vec<u8> = rgba.chunks(4).map(|pixel| pixel[3]).collect();
-        assert_eq!(alphas, vec![255, 0, 255]);
     }
 }

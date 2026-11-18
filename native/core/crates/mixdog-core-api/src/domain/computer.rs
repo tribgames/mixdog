@@ -182,8 +182,21 @@ pub trait ComputerBackend: Send + Sync {
 /// (held input, element refs, window claims) per `session_id` of each request
 /// (`computer-bridge/client.mjs:311`; the host reads `request.session_id || 'default'`,
 /// `worker-pool.ts:70`).
+#[async_trait]
 pub trait ComputerSessions: Send + Sync {
+    /// The backend of `session` for a call, decided from what is true now (where the helper is, the setting): the call consumes its own
+    /// decision, never one an earlier listing left. A set with nothing to decide answers [`Self::backend`].
+    async fn backend_now(&self, session: &str) -> std::sync::Arc<dyn ComputerBackend> {
+        self.backend(session)
+    }
+
     /// The backend of `session`'s state; an empty id is Node's `"default"` session. Two ids never
     /// share state.
     fn backend(&self, session: &str) -> std::sync::Arc<dyn ComputerBackend>;
+
+    /// Whether a call can be served now: Computer Use is switched on and a helper (or the desktop's host) exists. Read live on
+    /// every ask; a set that has no such condition serves always.
+    fn available(&self) -> bool {
+        true
+    }
 }

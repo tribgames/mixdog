@@ -1,18 +1,16 @@
-//! Writing the X11 clipboard: the text stays available only while its owner
-//! answers conversion requests, so a thread owns the selection and serves
-//! it until another client takes ownership.
+//! Writing the X11 clipboard: the text stays available only while its owner answers conversion requests, so a thread owns
+//! the selection and serves it until another client takes ownership. The thread holds no permission: each of its submissions
+//! (taking the selection, writing a requestor's property, notifying it) is admitted by the executor's port when it acts, so
+//! after Off it serves nothing more, whether or not the caller is still waiting. Its readiness wait only bounds how long the
+//! caller waits for the answer; it plays no part in the admission.
 
 use super::x11::{connect, Atoms};
+use crate::port::linux::{selection, Selection};
 use std::sync::mpsc;
 use std::time::Duration;
 use x11rb::connection::Connection;
-use x11rb::protocol::xproto::{
-    AtomEnum, ConnectionExt as _, PropMode, SelectionNotifyEvent, WindowClass,
-    SELECTION_NOTIFY_EVENT,
-};
+use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, SelectionNotifyEvent, WindowClass, SELECTION_NOTIFY_EVENT};
 use x11rb::protocol::Event;
-use x11rb::wrapper::ConnectionExt as _;
-use x11rb::CURRENT_TIME;
 
 pub fn own(text: String) -> Result<(), String> {
     let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
@@ -22,23 +20,11 @@ pub fn own(text: String) -> Result<(), String> {
             let setup = (|| -> Result<_, String> {
                 let (conn, root) = connect()?;
                 let atoms = Atoms::intern(&conn)?;
+                // This process's own window: no other application sees it until it owns the selection.
                 let window = conn.generate_id().map_err(|error| error.to_string())?;
-                conn.create_window(
-                    0,
-                    window,
-                    root,
-                    -1,
-                    -1,
-                    1,
-                    1,
-                    0,
-                    WindowClass::INPUT_ONLY,
-                    0,
-                    &Default::default(),
-                )
-                .map_err(|error| error.to_string())?;
-                conn.set_selection_owner(window, atoms.CLIPBOARD, CURRENT_TIME)
+                conn.create_window(0, window, root, -1, -1, 1, 1, 0, WindowClass::INPUT_ONLY, 0, &Default::default())
                     .map_err(|error| error.to_string())?;
+                selection(&conn, Selection::Own { window, selection: atoms.CLIPBOARD })?;
                 let owner = conn
                     .get_selection_owner(atoms.CLIPBOARD)
                     .map_err(|error| error.to_string())?
@@ -62,6 +48,7 @@ pub fn own(text: String) -> Result<(), String> {
             };
             let bytes = text.into_bytes();
             loop {
+                // The wait for the next request holds nothing.
                 let Ok(event) = conn.wait_for_event() else {
                     return;
                 };
@@ -73,34 +60,20 @@ pub fn own(text: String) -> Result<(), String> {
                             property = request.target;
                         }
                         let served = if request.target == atoms.TARGETS {
-                            let targets = [
-                                atoms.TARGETS,
-                                atoms.UTF8_STRING,
-                                AtomEnum::STRING.into(),
-                                atoms.TEXT,
-                            ];
-                            conn.change_property32(
-                                PropMode::REPLACE,
-                                request.requestor,
-                                property,
-                                AtomEnum::ATOM,
-                                &targets,
+                            let targets = [atoms.TARGETS, atoms.UTF8_STRING, AtomEnum::STRING.into(), atoms.TEXT];
+                            selection(&conn, Selection::Atoms { requestor: request.requestor, property, atoms: &targets })
+                        } else if [atoms.UTF8_STRING, u32::from(AtomEnum::STRING), atoms.TEXT].contains(&request.target) {
+                            selection(
+                                &conn,
+                                Selection::Text { requestor: request.requestor, property, target: request.target, bytes: &bytes },
                             )
-                            .is_ok()
-                        } else if [atoms.UTF8_STRING, u32::from(AtomEnum::STRING), atoms.TEXT]
-                            .contains(&request.target)
-                        {
-                            conn.change_property8(
-                                PropMode::REPLACE,
-                                request.requestor,
-                                property,
-                                request.target,
-                                &bytes,
-                            )
-                            .is_ok()
                         } else {
-                            false
+                            Err(String::new())
                         };
+                        // Refused after Off: the owner stops serving.
+                        if served.as_ref().is_err_and(|error| error == crate::port::REVOKED) {
+                            return;
+                        }
                         let notify = SelectionNotifyEvent {
                             response_type: SELECTION_NOTIFY_EVENT,
                             sequence: 0,
@@ -108,22 +81,16 @@ pub fn own(text: String) -> Result<(), String> {
                             requestor: request.requestor,
                             selection: request.selection,
                             target: request.target,
-                            property: if served { property } else { x11rb::NONE },
+                            property: if served.is_ok() { property } else { x11rb::NONE },
                         };
-                        let _ = conn.send_event(
-                            false,
-                            request.requestor,
-                            x11rb::protocol::xproto::EventMask::NO_EVENT,
-                            notify,
-                        );
-                        let _ = conn.flush();
+                        if selection(&conn, Selection::Notify(notify)).is_err_and(|error| error == crate::port::REVOKED) {
+                            return;
+                        }
                     }
                     _ => {}
                 }
             }
         })
         .map_err(|error| error.to_string())?;
-    ready_rx
-        .recv_timeout(Duration::from_secs(2))
-        .map_err(|_| "clipboard_unavailable: clipboard owner did not start".to_string())?
+    ready_rx.recv_timeout(Duration::from_secs(2)).map_err(|_| "clipboard_unavailable: clipboard owner did not start".to_string())?
 }

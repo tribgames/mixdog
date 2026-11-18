@@ -51,6 +51,15 @@ pub trait ContextStatusHost: Send + Sync {
     async fn context_status_for(&self, thread: ThreadId, _header: Map<String, Value>) -> Result<Value, CoreError> {
         self.context_status(Some(thread), None).await
     }
+
+    /// The status a session's open reads: its `measurement` (the stored reading of its last model call, as Codex restores the
+    /// last token count) and its display figures (`contextWindow`, `compaction.boundaryTokens`, `compaction.triggerTokens`,
+    /// `compaction.autoCompactTokenLimit`) equal [`context_status`](Self::context_status)'s, read without counting the
+    /// conversation; its other fields (the counts of the messages) are not the full status's. `thread/contextStatus` answers
+    /// the full one.
+    async fn header_status(&self, thread: ThreadId) -> Result<Value, CoreError> {
+        self.context_status(Some(thread), None).await
+    }
 }
 
 pub struct ThreadContextService {
@@ -127,6 +136,12 @@ pub trait ContextWorld: Send + Sync {
         self.snapshot(Some(thread)).await
     }
 
+    /// The snapshot [`ContextStatusHost::header_status`] reads: the measurement and display figures of the full snapshot's
+    /// status, without the conversation's counts.
+    async fn header_snapshot(&self, thread: &ThreadId) -> Result<Option<ContextSnapshot>, CoreError> {
+        self.snapshot(Some(thread)).await
+    }
+
     /// The media meter and the image identities of `thread` on `provider` (the ones its snapshot carries).
     fn lowering(&self, thread: &ThreadId, provider: &str) -> (Arc<dyn MediaMeter>, Arc<dyn ImageIdentities>);
 }
@@ -154,6 +169,10 @@ impl ContextStatusHost for LiveContextStatus {
     async fn context_status_for(&self, thread: ThreadId, header: Map<String, Value>) -> Result<Value, CoreError> {
         Ok(self.world.snapshot_for(&thread, header).await?.map_or(Value::Null, |snapshot| self.status_of(&snapshot, None)))
     }
+
+    async fn header_status(&self, thread: ThreadId) -> Result<Value, CoreError> {
+        Ok(self.world.header_snapshot(&thread).await?.map_or(Value::Null, |snapshot| self.status_of(&snapshot, None)))
+    }
 }
 
 impl LiveContextStatus {
@@ -177,6 +196,7 @@ impl LiveContextStatus {
         agent_mode: snapshot.agent_mode,
         meter: &meter,
         signer: &signer,
+        env: &mixdog_ai::registry::keys::ProcessEnv,
     };
     let annotations_of = |name: &str| snapshot.annotations.get(name).cloned().unwrap_or_default();
     self.inspections.attach(context_status(&input), &input, &annotations_of, options)
@@ -203,21 +223,6 @@ mod tests {
         }
     }
 
-    /// Node's recorded statuses come back through the handler byte for byte.
-    #[tokio::test]
-    async fn answers_nodes_status() {
-        let text = mixdog_testkit::fixture!("../../fixtures/context-status/golden.json");
-        let golden: Value = serde_json::from_str(text).expect("golden json");
-        let cases: Vec<(String, Value)> =
-            golden["cases"].as_array().expect("cases").iter().map(|c| (c["name"].as_str().expect("name").to_owned(), c["status"].clone())).collect();
-        let service = ThreadContextService::new(Arc::new(Recorded(cases.clone())));
-        for (name, status) in &cases {
-            let answer = value(&service, request(CONTEXT_STATUS, json!({ "threadId": name, "options": { "probe": true } }), None)).await.expect("status");
-            assert_eq!(&answer, status, "{name}");
-        }
-        assert!(cases.iter().any(|(_, s)| s["usedSource"] == "post_compact"));
-    }
-
     #[tokio::test]
     async fn other_methods_refused() {
         let service = ThreadContextService::new(Arc::new(Recorded(Vec::new())));
@@ -242,6 +247,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn definitions(tools: &Value) -> Vec<ToolDefinition> {
         tools
             .as_array()
@@ -257,9 +263,11 @@ mod tests {
             .collect()
     }
 
+    #[cfg(node_twin)]
     /// The loaded sessions of the golden's empty-transcript cases, by case name.
     struct GoldenWorld(Value);
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl ContextWorld for GoldenWorld {
         async fn snapshot(&self, thread: Option<&ThreadId>) -> Result<Option<ContextSnapshot>, CoreError> {
@@ -351,9 +359,9 @@ mod tests {
                 send_tools: Vec::new(),
                 reasoning_tokens: None,
                 reasoning_tokens_complete: false,
-                outgoing: Vec::new(),
+                outgoing: Vec::new().into(),
                 sent_at_ms: 4_000,
-                input_excludes_cache: false,
+                input_excludes_cache: false, tail_book: None,
             },
             5_000,
         );
@@ -367,6 +375,23 @@ mod tests {
         assert_eq!(status["measurement"]["updatedAt"], header["lastContextTokensUpdatedAt"]);
     }
 
+
+    #[cfg(node_twin)]
+    /// Node's recorded statuses come back through the handler byte for byte.
+    #[tokio::test]
+    async fn answers_nodes_status() {
+        let text = mixdog_testkit::fixture!("../../fixtures/context-status/golden.json");
+        let golden: Value = serde_json::from_str(text).expect("golden json");
+        let cases: Vec<(String, Value)> =
+            golden["cases"].as_array().expect("cases").iter().map(|c| (c["name"].as_str().expect("name").to_owned(), c["status"].clone())).collect();
+        let service = ThreadContextService::new(Arc::new(Recorded(cases.clone())));
+        for (name, status) in &cases {
+            let answer = value(&service, request(CONTEXT_STATUS, json!({ "threadId": name, "options": { "probe": true } }), None)).await.expect("status");
+            assert_eq!(&answer, status, "{name}");
+        }
+        assert!(cases.iter().any(|(_, s)| s["usedSource"] == "post_compact"));
+    }
+    #[cfg(node_twin)]
     /// The gauge over a loaded session equals Node's for every golden case whose transcript is
     /// empty (the cases with messages are compared in `mixdog-agent`'s `compact_context_status`);
     /// a session that is not loaded is `null`.

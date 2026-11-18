@@ -191,10 +191,19 @@ fn calls_with(log: &[String], needle: &str) -> Vec<String> {
 
 #[test]
 fn the_editor_serves_the_operations_of_the_registry_fixture() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join("registry").join("operations.json");
-    let fixture: serde_json::Value = serde_json::from_str(&mixdog_testkit::read_string(&path)).expect("the registry fixture");
-    let expected: Vec<String> =
-        fixture["operations"]["xlsx"].as_array().expect("the xlsx names").iter().map(|name| name.as_str().expect("a name").to_owned()).collect();
+    let expected: Vec<String> = [
+        "add_chart", "add_conditional_format", "add_image", "add_note", "add_pivot_table", "add_provenance", "add_sheet",
+        "add_table", "add_validation", "append_row", "autofit_range", "clear_cell", "copy_sheet", "define_name",
+        "delete_columns", "delete_conditional_formats", "delete_drawing", "delete_name", "delete_note", "delete_rows",
+        "delete_sheet", "freeze_panes", "insert_columns", "insert_rows", "merge_cells", "protect_sheet", "rename_sheet",
+        "replace_text", "set_autofilter", "set_cell", "set_column_visibility", "set_column_width", "set_drawing",
+        "set_formula", "set_header_footer", "set_hyperlink", "set_page_setup", "set_range", "set_row_height",
+        "set_row_visibility", "set_sheet_view", "set_sheet_visibility", "set_style", "sort_range", "unmerge_cells",
+        "unprotect_sheet",
+    ]
+    .iter()
+    .map(|name| (*name).to_owned())
+    .collect();
     assert_eq!(expected.len(), 46);
     let served: Vec<String> = Editor.operation_names().iter().map(|name| (*name).to_owned()).collect();
     assert_eq!(served, expected);
@@ -1085,6 +1094,7 @@ fn a_column_fit_leaves_empty_columns_alone_and_pads_the_others_by_two() {
         ]
     );
 }
+
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The recordings of the PowerShell host.

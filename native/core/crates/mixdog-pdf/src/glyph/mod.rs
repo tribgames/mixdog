@@ -42,8 +42,6 @@ impl fmt::Display for GlyphError {
     }
 }
 
-impl std::error::Error for GlyphError {}
-
 pub type Result<T> = std::result::Result<T, GlyphError>;
 
 pub(crate) fn error<T>(message: impl Into<String>) -> Result<T> {
@@ -296,3 +294,6 @@ impl FontRenderer {
         Ok(cmds.into_path())
     }
 }
+
+
+impl std::error::Error for GlyphError {}

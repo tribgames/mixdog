@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 
@@ -10,7 +10,6 @@ process.env.MIXDOG_DATA_DIR = dataDir;
 
 const {
   attachmentStoreCacheStats,
-  collectPromptAttachments,
   hydratePastedAttachments,
   materializePromptSubmission,
   preparePromptSubmissionForProvider,
@@ -229,74 +228,23 @@ test('stored history keeps inline PDFs as refs that lower to the same provider b
   });
 });
 
-test('attachment GC preserves durable refs and the safety window while deleting stale orphans', async () => {
-  const makeFile = (text) =>
-    materializePromptSubmission([
-      {
-        type: 'file',
-        data: Buffer.from(text).toString('base64'),
-        mimeType: 'application/octet-stream',
-      },
-    ]).prompt[0];
-  const referenced = makeFile('durably referenced attachment');
-  const orphan = makeFile('stale orphan attachment');
-  const fresh = makeFile('fresh orphan attachment');
-  const blobPath = (part) =>
-    join(dataDir, 'prompt-attachments', 'sha256', part.attachmentRef.slice(0, 2), part.attachmentRef);
-  mkdirSync(join(dataDir, 'sessions'), { recursive: true });
-  writeFileSync(
-    join(dataDir, 'sessions', 'sess_attachment_gc.json'),
-    JSON.stringify({ id: 'sess_attachment_gc', messages: [{ content: [referenced] }] })
-  );
-  // Blobs from the earlier tests in this file are orphans too; a wide safety
-  // window keeps them out of the count regardless of how slowly the file ran.
-  const old = new Date(Date.now() - 120_000);
-  utimesSync(blobPath(referenced), old, old);
-  utimesSync(blobPath(orphan), old, old);
-
-  const result = await collectPromptAttachments({ now: Date.now(), minAgeMs: 60_000 });
-  assert.equal(existsSync(blobPath(referenced)), true);
-  assert.equal(existsSync(blobPath(fresh)), true);
-  assert.equal(existsSync(blobPath(orphan)), false);
-  assert.equal(result.deleted, 1);
-});
-
 const blobDir = (ref) => join(dataDir, 'prompt-attachments', 'sha256', ref.slice(0, 2));
 const blobFile = (ref) => join(blobDir(ref), ref);
 const sha256 = (buffer) => createHash('sha256').update(buffer).digest('hex');
 
-test('GC keeps blobs referenced only by a turn-checkpoint journal and sweeps stale temp files', async () => {
-  const journaled = materializePromptSubmission([
-    {
-      type: 'file',
-      data: Buffer.from('journal only attachment').toString('base64'),
-      mimeType: 'application/octet-stream',
-    },
-  ]).prompt[0];
-  mkdirSync(join(dataDir, 'turn-checkpoints'), { recursive: true });
-  writeFileSync(
-    join(dataDir, 'turn-checkpoints', 'sess_journal.jsonl'),
-    `${JSON.stringify({ kind: 'user', content: [journaled] })}\n`
+// 1.4.5's census and repair unlinked or renamed over a content address; nothing here may, whatever the file holds.
+test('an occupied content address is never unlinked or replaced: a corrupt file there fails the upload and stays', () => {
+  const bytes = Buffer.from('bytes whose address holds something else');
+  const ref = sha256(bytes);
+  mkdirSync(blobDir(ref), { recursive: true });
+  writeFileSync(blobFile(ref), 'damaged');
+  const before = statSync(blobFile(ref));
+  assert.throws(
+    () => materializePromptSubmission([{ type: 'file', data: bytes.toString('base64'), mimeType: 'application/octet-stream' }]),
+    /integrity check/
   );
-  const old = new Date(Date.now() - 120_000);
-  utimesSync(blobFile(journaled.attachmentRef), old, old);
-  const staleTemp = `${blobFile(journaled.attachmentRef)}.123.abcdef.tmp`;
-  const freshTemp = `${blobFile(journaled.attachmentRef)}.456.fedcba.tmp`;
-  const staleWriterTemp = `${blobFile(journaled.attachmentRef)}.mixdog-tmp-${'a'.repeat(24)}`;
-  const freshWriterTemp = `${blobFile(journaled.attachmentRef)}.mixdog-tmp-${'b'.repeat(24)}`;
-  writeFileSync(staleTemp, 'partial');
-  writeFileSync(freshTemp, 'partial');
-  writeFileSync(staleWriterTemp, 'partial');
-  writeFileSync(freshWriterTemp, 'partial');
-  utimesSync(staleTemp, old, old);
-  utimesSync(staleWriterTemp, old, old);
-
-  await collectPromptAttachments({ now: Date.now(), minAgeMs: 60_000 });
-  assert.equal(existsSync(blobFile(journaled.attachmentRef)), true, 'journal reference protects the blob');
-  assert.equal(existsSync(staleTemp), false, 'stale temp file is swept');
-  assert.equal(existsSync(staleWriterTemp), false, 'stale atomic-writer temp file is swept');
-  assert.equal(existsSync(freshTemp), true, 'a temp file inside the safety window may still be in flight');
-  assert.equal(existsSync(freshWriterTemp), true, 'a young atomic-writer temp may still be in flight');
+  assert.equal(readFileSync(blobFile(ref), 'utf8'), 'damaged');
+  assert.equal(statSync(blobFile(ref)).ino, before.ino, 'the same file, not a replacement');
 });
 
 test('a failed publish leaves no temp file behind', () => {

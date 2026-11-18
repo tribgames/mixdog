@@ -1,8 +1,0 @@
-{
-  "dispatchedToolCalls": [],
-  "error": {
-    "message": "Antigravity streamGenerateContent truncated: no finishReason",
-    "name": "TruncatedStreamError",
-    "status": null
-  }
-}

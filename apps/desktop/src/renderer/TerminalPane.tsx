@@ -657,14 +657,14 @@ export default function TerminalPane({
         // A restored tab backed by a fresh PTY must not inherit the old
         // process's viewport position.
         clearTerminalViewState(key);
-      } else if (reattached && ensured.replay) {
+      } else if (reattached) {
         view.localEcho?.reset();
         try {
           term.reset();
         } catch {
           /* disposed mid-reattach */
         }
-        replayWrite = trackReplay(view, ensured.replay);
+        if (ensured.replay) replayWrite = trackReplay(view, ensured.replay);
       }
       // A retry after a failed attempt must not stack a second subscription
       // or key handler onto the same view.

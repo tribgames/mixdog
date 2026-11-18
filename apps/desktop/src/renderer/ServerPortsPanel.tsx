@@ -5,6 +5,7 @@
 import { ExternalLink, Plus, RefreshCw, Square } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
+import { sshMessageText } from './settings/ssh-message-text';
 import type { DesktopPortForward, DesktopServerPort, DesktopServerPortsView } from '../shared/contract-server-ports';
 import { isConnectionDown, useConnectionLink } from './connection-link-store';
 import {
@@ -40,7 +41,7 @@ export function serverPortErrorText(reason: unknown): string {
 function forwardStatusText(forward: DesktopPortForward): string {
   if (forward.status === 'active') return t('Forwarding');
   if (forward.status === 'starting') return t('Connecting…');
-  return forward.message || t('Forwarding stopped');
+  return sshMessageText(forward.notice, forward.message || t('Forwarding stopped'));
 }
 
 function useServerPorts(active: boolean, down: boolean) {

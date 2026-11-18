@@ -52,7 +52,8 @@ fn pad(result: String, places: &V) -> Result<V, Failure> {
         return Ok(V::Error(E::Num));
     }
     let places = m::floor(places);
-    if places < result.len() as f64 {
+    // Nothing here is longer than ten digits, so wider padding is refused before it is allocated.
+    if places > 10.0 || places < result.len() as f64 {
         return Ok(V::Error(E::Num));
     }
     let count = places - result.len() as f64;
@@ -272,7 +273,12 @@ pub use exports::FUNCTIONS;
 fn run(name: &str, a: &[V]) -> Result<V, Failure> {
     let (x, y, z) = (arg(a, 0), arg(a, 1), arg(a, 2));
     if name.contains('2') {
-        return conversion(name, &x, &y);
+        let result = conversion(name, &x, &y)?;
+        // Spreadsheets print hexadecimal digits upper-case; JS toString(16) is lower-case.
+        return Ok(match result {
+            V::Text(t) if name.ends_with("HEX") => V::Text(t.to_uppercase()),
+            other => other,
+        });
     }
     if name.starts_with("BESSEL") {
         let (Ok(x), Ok(n)) = (num(&x), num(&y)) else {

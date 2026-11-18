@@ -1,11 +1,13 @@
 # Verification
 
-- Check required behavior, exact outputs and essential integrity, security,
-  compatibility and buildability. Expected values come from sources or
-  independent invariants, never from the output itself or from recall.
-- Match checks to the change: inspection for nonbehavioral edits, focused
-  tests for local behavior, broader lanes only for shared contracts. Run them
-  once after planned edits, heavy ones in sequence; never reread your writes.
+- Check required behavior, exact outputs and essential integrity, security
+  and compatibility. Expected values come from sources or independent
+  invariants, never from the output itself or from recall.
+- Narrowest check first: inspection for nonbehavioral edits, else the tests
+  nearest the change, by file or name. Widen only as far as the change
+  reaches; run nothing unrelated to it.
+- Run once after planned edits, heavy ones in sequence; never reread your
+  writes.
 - Read full logs; rerun only after a relevant fix, never masking a failure
   with retries, timeout bumps or skips; reuse valid passes.
   After two failed fixes, report and stop. Stop processes you started.

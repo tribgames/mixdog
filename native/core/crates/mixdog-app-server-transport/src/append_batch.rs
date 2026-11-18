@@ -67,6 +67,15 @@ fn append_of(frame: &[u8]) -> Option<(String, u64, String, Value)> {
     Some((item, seq, delta, value))
 }
 
+/// The notification's method, read from the frame's head without parsing it.
+pub(crate) fn method_of(frame: &[u8]) -> Option<&[u8]> {
+    const KEY: &[u8] = br#""method":""#;
+    let head = &frame[..frame.len().min(512)];
+    let at = head.windows(KEY.len()).position(|window| window == KEY)? + KEY.len();
+    let rest = &head[at..];
+    Some(&rest[..rest.iter().position(|byte| *byte == b'"')?])
+}
+
 impl<T> Appends<T> {
     /// When the window ends.
     pub(crate) fn due(&self) -> Option<Instant> {

@@ -356,39 +356,6 @@ async fn the_upgrade_past_max_connections_answers_503() {
 }
 
 #[tokio::test]
-async fn link_log_refused_upgrade_leaves_a_structured_line_with_its_reason_and_no_secret() {
-    let (hub, mut listener) = listen(Limits {
-        max_connections: 1,
-        ..small_limits()
-    })
-    .await;
-    let lines = Arc::new(Mutex::new(Vec::<String>::new()));
-    let sink = lines.clone();
-    hub.set_log(Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_owned()))).ok().unwrap();
-    let (_first, _server) = connected(&mut listener, Dial::default()).await;
-    // Two refusals back to back: each socket writes its own line (its own id and reason), when it is dropped.
-    assert!(dial(listener.local_addr(), Dial::default()).await.is_err());
-    assert!(dial(listener.local_addr(), Dial { token: Some("not-the-token"), ..Dial::default() }).await.is_err());
-    for _ in 0..200 {
-        if lines.lock().unwrap().len() >= 2 {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-    let lines = lines.lock().unwrap();
-    assert_eq!(lines.len(), 2, "{lines:?}");
-    assert!(
-        lines.iter().any(|line| line.starts_with("connection ended before service id=")
-            && line.contains("origin=loopback reason=refused status=503 cause=connectionLimit open=2 max=1")),
-        "{lines:?}"
-    );
-    assert!(lines.iter().any(|line| line.contains("reason=refused status=401 cause=unauthorized")), "{lines:?}");
-    let ids: std::collections::HashSet<_> = lines.iter().map(|line| line.split_whitespace().nth(4).unwrap().to_owned()).collect();
-    assert_eq!(ids.len(), 2, "each refusal names its own connection id: {lines:?}");
-    assert!(lines.iter().all(|line| !line.contains(TOKEN) && !line.contains("not-the-token")));
-}
-
-#[tokio::test]
 async fn oversized_text_and_bad_json_close_with_1009_and_1007() {
     let (hub, mut listener) = listen(small_limits()).await;
     let (mut client, _server) = connected(&mut listener, Dial::default()).await;
@@ -471,4 +438,38 @@ async fn drain_closes_connections_with_1001_and_the_listener_stops_accepting() {
     hub.close_all();
     assert_eq!(close_code(&mut client).await, 1001);
     assert!(listener.accept().await.is_none());
+}
+
+
+#[tokio::test]
+async fn link_log_refused_upgrade_leaves_a_structured_line_with_its_reason_and_no_secret() {
+    let (hub, mut listener) = listen(Limits {
+        max_connections: 1,
+        ..small_limits()
+    })
+    .await;
+    let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+    let sink = lines.clone();
+    hub.set_log(Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_owned()))).ok().unwrap();
+    let (_first, _server) = connected(&mut listener, Dial::default()).await;
+    // Two refusals back to back: each socket writes its own line (its own id and reason), when it is dropped.
+    assert!(dial(listener.local_addr(), Dial::default()).await.is_err());
+    assert!(dial(listener.local_addr(), Dial { token: Some("not-the-token"), ..Dial::default() }).await.is_err());
+    for _ in 0..200 {
+        if lines.lock().unwrap().len() >= 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let lines = lines.lock().unwrap();
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(
+        lines.iter().any(|line| line.starts_with("connection ended before service id=")
+            && line.contains("origin=loopback reason=refused status=503 cause=connectionLimit open=2 max=1")),
+        "{lines:?}"
+    );
+    assert!(lines.iter().any(|line| line.contains("reason=refused status=401 cause=unauthorized")), "{lines:?}");
+    let ids: std::collections::HashSet<_> = lines.iter().map(|line| line.split_whitespace().nth(4).unwrap().to_owned()).collect();
+    assert_eq!(ids.len(), 2, "each refusal names its own connection id: {lines:?}");
+    assert!(lines.iter().all(|line| !line.contains(TOKEN) && !line.contains("not-the-token")));
 }

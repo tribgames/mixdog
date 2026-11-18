@@ -156,12 +156,39 @@ pub fn logical_item_match(input: &Value, response: &Value) -> bool {
     }
 }
 
+fn digest(text: &str) -> [u8; 32] {
+    use sha2::Digest as _;
+    sha2::Sha256::digest(text.as_bytes()).into()
+}
+
+/// One item of the request a socket last sent, as the next request is compared with it: what it hashes to, never its content.
+/// A parked socket would otherwise hold a second copy of the whole conversation for as long as it stays open.
+#[derive(Clone, Debug)]
+struct Sent {
+    /// SHA-256 of the item's canonical text: the next request extends this one when its items hash to the same, in order.
+    exact: [u8; 32],
+    /// The item's type and the hash of its compared shape, as a mismatch's diagnostics name the expected item.
+    kind: String,
+    shape: String,
+}
+
+impl Sent {
+    fn of(item: &Value) -> Self {
+        Self { exact: digest(&stable_stringify(item)), kind: diagnostic_type(Some(item)), shape: diagnostic_hash(Some(item)) }
+    }
+
+    fn is(&self, item: &Value) -> bool {
+        digest(&stable_stringify(item)) == self.exact
+    }
+}
+
 /// What the socket last exchanged: the anchor of the next request.
 #[derive(Default, Clone, Debug)]
 pub struct Chain {
     response_id: Option<String>,
-    sans_input: Option<String>,
-    input: Option<Vec<Value>>,
+    /// SHA-256 of the canonical text of the request without its input.
+    sans_input: Option<[u8; 32]>,
+    input: Option<Vec<Sent>>,
     response_items: Option<Vec<Value>>,
 }
 
@@ -185,15 +212,20 @@ impl Chain {
         input: Option<Vec<Value>>,
         response_items: Option<Vec<Value>>,
     ) -> Self {
-        Self { response_id, sans_input, input, response_items }
+        Self {
+            response_id,
+            sans_input: sans_input.filter(|text| !text.is_empty()).map(|text| digest(&text)),
+            input: input.map(|items| items.iter().map(Sent::of).collect()),
+            response_items,
+        }
     }
 
     /// `_anchorResponseChain`: the request just sent and the response items it
     /// produced become the anchor of the next request.
     pub fn anchor(&mut self, response_id: &str, request: &Map<String, Value>, response_items: &[Value]) {
         self.response_id = Some(response_id.to_owned());
-        self.sans_input = Some(stable_stringify(&Value::Object(sans_input(request))));
-        self.input = Some(request.get("input").and_then(Value::as_array).cloned().unwrap_or_default());
+        self.sans_input = Some(digest(&stable_stringify(&Value::Object(sans_input(request)))));
+        self.input = Some(request.get("input").and_then(Value::as_array).map(|items| items.iter().map(Sent::of).collect()).unwrap_or_default());
         self.response_items = Some(response_items.to_vec());
     }
 }
@@ -332,16 +364,16 @@ fn diagnostic_type(item: Option<&Value>) -> String {
     }
 }
 
-fn input_mismatch(current: &[Value], previous: &[Value]) -> InputMismatch {
+fn input_mismatch(current: &[Value], previous: &[Sent]) -> InputMismatch {
     let limit = current.len().min(previous.len());
-    let index = (0..limit).find(|&i| stable_stringify(&current[i]) != stable_stringify(&previous[i])).unwrap_or(limit);
+    let index = (0..limit).find(|&i| !previous[i].is(&current[i])).unwrap_or(limit);
     let (expected, actual) = (previous.get(index), current.get(index));
     InputMismatch {
         index,
         previous_count: previous.len(),
         current_count: current.len(),
-        expected_type: diagnostic_type(expected),
-        expected_hash: diagnostic_hash(expected),
+        expected_type: expected.map_or_else(|| diagnostic_type(None), |sent| sent.kind.clone()),
+        expected_hash: expected.map_or_else(|| diagnostic_hash(None), |sent| sent.shape.clone()),
         actual_type: diagnostic_type(actual),
         actual_hash: diagnostic_hash(actual),
     }
@@ -408,11 +440,11 @@ fn full(body: &Map<String, Value>, reason: &str) -> Framed {
 
 /// `_stripRequestPrefix`: the request input after the previous request's
 /// input, when it begins with all of it.
-fn strip_request_prefix<'a>(current: &'a [Value], previous: &[Value]) -> Option<&'a [Value]> {
+fn strip_request_prefix<'a>(current: &'a [Value], previous: &[Sent]) -> Option<&'a [Value]> {
     if current.len() < previous.len() {
         return None;
     }
-    let same = current.iter().zip(previous).all(|(a, b)| stable_stringify(a) == stable_stringify(b));
+    let same = current.iter().zip(previous).all(|(item, sent)| sent.is(item));
     same.then(|| &current[previous.len()..])
 }
 
@@ -454,15 +486,13 @@ pub fn compute(delta: bool, chain: &Chain, body: &Map<String, Value>) -> Framed 
     if !delta {
         return full(body, "full_default");
     }
-    let (Some(sans), Some(response_id)) =
-        (chain.sans_input.as_deref().filter(|s| !s.is_empty()), chain.response_id.as_deref().filter(|s| !s.is_empty()))
-    else {
+    let (Some(sans), Some(response_id)) = (chain.sans_input, chain.response_id.as_deref().filter(|s| !s.is_empty())) else {
         return full(body, "no_anchor");
     };
     let Some(previous_input) = chain.input.as_deref() else {
         return full(body, "no_input_snapshot");
     };
-    if stable_stringify(&Value::Object(sans_input(body))) != sans {
+    if digest(&stable_stringify(&Value::Object(sans_input(body)))) != sans {
         return full(body, "request_properties_changed");
     }
     let current = body.get("input").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);

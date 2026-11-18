@@ -1,4 +1,6 @@
+#[cfg(node_twin)]
 use std::collections::BTreeMap;
+#[cfg(node_twin)]
 use std::path::Path;
 use std::sync::Arc;
 
@@ -16,6 +18,8 @@ use mixdog_core_config::config::AgentRoutes;
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
 use mixdog_core_ports::ports::setup_actions::CallerScope;
+
+mod actions;
 
 /// Nothing is said about the chats or the routines: the recorder ran with none.
 struct NoEvidence;
@@ -90,6 +94,7 @@ impl SetupCallers for Callers {
     }
 }
 
+#[cfg(node_twin)]
 fn write_files(base: &Path, files: &Value) {
     for (rel, content) in files.as_object().unwrap() {
         let file = base.join(rel);
@@ -98,6 +103,7 @@ fn write_files(base: &Path, files: &Value) {
     }
 }
 
+#[cfg(node_twin)]
 /// The data folder as text; a backup folder's timestamp is masked.
 fn snapshot(dir: &Path) -> BTreeMap<String, String> {
     fn walk(root: &Path, dir: &Path, out: &mut BTreeMap<String, String>) {
@@ -132,6 +138,7 @@ fn snapshot(dir: &Path) -> BTreeMap<String, String> {
     out
 }
 
+#[cfg(node_twin)]
 /// Paths in an answer are the sandbox's.
 fn mask(value: Value, data: &str) -> Value {
     match value {
@@ -143,13 +150,66 @@ fn mask(value: Value, data: &str) -> Value {
 }
 
 /// Recorded worlds per test: each writes its own data directory.
+#[cfg(node_twin)]
 const WORLD_CHUNK: usize = 5;
 
+#[tokio::test]
+async fn a_route_sent_with_a_save_goes_to_the_route_setter_after_the_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    let effects = Arc::new(NoEffects::default());
+    let agents = AgentDefinitions::new(dir.path(), dir.path(), tokens.interactive_io, AgentRoutes::new(config, dir.path()), Arc::new(NoEvidence), Arc::new(|| Value::Null), dir.path().join("task"))
+        .with_writes(tokens.durability_io, effects.clone(), Arc::new(String::new));
+    let route = json!({ "provider": "openai", "model": "gpt-6" });
+    let payload = json!({ "name": "Routed", "body": "Body", "route": route }).as_object().unwrap().clone();
+    let view = agents.save(&payload).await.unwrap();
+    assert_eq!(view["id"], "routed");
+    assert_eq!(*effects.0.lock().unwrap(), vec![json!({ "id": "routed", "route": route })]);
+    // A falsy route is no route.
+    let payload = json!({ "id": "routed", "body": "Body", "route": null }).as_object().unwrap().clone();
+    agents.save(&payload).await.unwrap();
+    assert_eq!(effects.0.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_name_that_is_no_text_is_an_unknown_agent_not_the_id_undefined() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    let agents = Arc::new(
+        AgentDefinitions::new(dir.path(), dir.path(), tokens.interactive_io, AgentRoutes::new(config, dir.path()), Arc::new(NoEvidence), Arc::new(|| Value::Null), dir.path().join("task"))
+            .with_writes(tokens.durability_io, Arc::new(NoEffects::default()), Arc::new(String::new)),
+    );
+    // An agent that really is called "undefined" and one called "null" exist.
+    for id in ["undefined", "null"] {
+        agents.save(json!({ "id": id, "body": "Body" }).as_object().unwrap()).await.unwrap();
+    }
+    let setup = DefinitionSetup::new(agents, Arc::new(Callers), Arc::new(Unused), Arc::new(Unused));
+    let thread = ThreadId::from("sess_task_1");
+    for (action, args, text) in [
+        ("read_definition", json!({ "definitionKind": "agent" }), "undefined"),
+        ("read_definition", json!({ "definitionKind": "agent", "name": null }), "null"),
+        ("delete_definition", json!({ "definitionKind": "agent" }), "undefined"),
+        ("delete_definition", json!({ "definitionKind": "agent", "name": null }), "null"),
+    ] {
+        let call = SetupCall { action, args: &args, thread: &thread };
+        match setup.run(&call).await {
+            Err(PortError::Failed { message, .. }) => assert_eq!(message, format!("unknown agent \"{text}\""), "{action} {args}"),
+            other => panic!("{action} {args}: {other:?}"),
+        }
+    }
+}
+
+
+#[cfg(node_twin)]
 fn action_worlds() -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/agent-definition-actions-twin.json");
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }
-
+#[cfg(node_twin)]
 mixdog_rt::replay_chunks!(ACTION_TESTS, #[tokio::test] async the_actions_chunk; [
     the_actions_answer_and_write_what_the_recorded_node_handlers_did_00 = 0,
     the_actions_answer_and_write_what_the_recorded_node_handlers_did_01 = 1,
@@ -168,7 +228,7 @@ mixdog_rt::replay_chunks!(ACTION_TESTS, #[tokio::test] async the_actions_chunk; 
     the_actions_answer_and_write_what_the_recorded_node_handlers_did_14 = 14,
     the_actions_answer_and_write_what_the_recorded_node_handlers_did_15 = 15,
 ]);
-
+#[cfg(node_twin)]
 #[test]
 fn every_recorded_world_has_its_actions_test() {
     let twin = action_worlds();
@@ -177,7 +237,7 @@ fn every_recorded_world_has_its_actions_test() {
     assert!(worlds.iter().map(|world| world["steps"].as_array().unwrap().len()).sum::<usize>() > 400);
     mixdog_rt::testing::assert_chunks_registered(ACTION_TESTS, worlds.len(), WORLD_CHUNK);
 }
-
+#[cfg(node_twin)]
 async fn the_actions_chunk(chunk: usize) {
     let twin = action_worlds();
     let worlds = twin["worlds"].as_array().unwrap();
@@ -219,7 +279,7 @@ async fn the_actions_chunk(chunk: usize) {
                     let revision = agents.get(&id).await.ok().map(|view| view["revision"].clone()).unwrap_or(json!("missing"));
                     payload.insert("expectedRevision".into(), revision);
                 }
-                let options = crate::agents::SaveOptions { no_widen: editor["options"]["noWiden"] == true, approved: None };
+                let options = crate::agents::SaveOptions { no_widen: editor["options"]["noWiden"] == true };
                 match agents.save_with(&payload, options).await {
                     Ok(value) => json!({ "ok": mask(value, &data_text) }),
                     Err(error) => json!({ "error": mask(Value::String(error.to_string()), &data_text) }),
@@ -271,54 +331,4 @@ async fn the_actions_chunk(chunk: usize) {
         }
     }
     assert!(failures.is_empty(), "{} differ:\n{}", failures.len(), failures.iter().take(30).cloned().collect::<Vec<_>>().join("\n"));
-}
-
-#[tokio::test]
-async fn a_route_sent_with_a_save_goes_to_the_route_setter_after_the_files() {
-    let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
-    let effects = Arc::new(NoEffects::default());
-    let agents = AgentDefinitions::new(dir.path(), dir.path(), tokens.interactive_io, AgentRoutes::new(config, dir.path()), Arc::new(NoEvidence), Arc::new(|| Value::Null), dir.path().join("task"))
-        .with_writes(tokens.durability_io, effects.clone(), Arc::new(String::new));
-    let route = json!({ "provider": "openai", "model": "gpt-6" });
-    let payload = json!({ "name": "Routed", "body": "Body", "route": route }).as_object().unwrap().clone();
-    let view = agents.save(&payload).await.unwrap();
-    assert_eq!(view["id"], "routed");
-    assert_eq!(*effects.0.lock().unwrap(), vec![json!({ "id": "routed", "route": route })]);
-    // A falsy route is no route.
-    let payload = json!({ "id": "routed", "body": "Body", "route": null }).as_object().unwrap().clone();
-    agents.save(&payload).await.unwrap();
-    assert_eq!(effects.0.lock().unwrap().len(), 1);
-}
-
-#[tokio::test]
-async fn a_name_that_is_no_text_is_an_unknown_agent_not_the_id_undefined() {
-    let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
-    let agents = Arc::new(
-        AgentDefinitions::new(dir.path(), dir.path(), tokens.interactive_io, AgentRoutes::new(config, dir.path()), Arc::new(NoEvidence), Arc::new(|| Value::Null), dir.path().join("task"))
-            .with_writes(tokens.durability_io, Arc::new(NoEffects::default()), Arc::new(String::new)),
-    );
-    // An agent that really is called "undefined" and one called "null" exist.
-    for id in ["undefined", "null"] {
-        agents.save(json!({ "id": id, "body": "Body" }).as_object().unwrap()).await.unwrap();
-    }
-    let setup = DefinitionSetup::new(agents, Arc::new(Callers), Arc::new(Unused), Arc::new(Unused));
-    let thread = ThreadId::from("sess_task_1");
-    for (action, args, text) in [
-        ("read_definition", json!({ "definitionKind": "agent" }), "undefined"),
-        ("read_definition", json!({ "definitionKind": "agent", "name": null }), "null"),
-        ("delete_definition", json!({ "definitionKind": "agent" }), "undefined"),
-        ("delete_definition", json!({ "definitionKind": "agent", "name": null }), "null"),
-    ] {
-        let call = SetupCall { action, args: &args, thread: &thread };
-        match setup.run(&call).await {
-            Err(PortError::Failed { message, .. }) => assert_eq!(message, format!("unknown agent \"{text}\""), "{action} {args}"),
-            other => panic!("{action} {args}: {other:?}"),
-        }
-    }
 }

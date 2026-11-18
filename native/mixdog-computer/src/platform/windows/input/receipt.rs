@@ -36,7 +36,7 @@ const FAILED: u32 = 2;
 
 const KEY: u32 = INPUT_KEYBOARD.0;
 const MOUSE: u32 = INPUT_MOUSE.0;
-const KEY_UP: u32 = KEYEVENTF_KEYUP.0;
+pub(crate) const KEY_UP: u32 = KEYEVENTF_KEYUP.0;
 /// Each button's up flag is its down flag shifted left once.
 const BUTTON_DOWNS: [u32; 3] = [
     MOUSEEVENTF_LEFTDOWN.0,
@@ -201,24 +201,6 @@ pub fn release_each(releases: &[Event], transmit: &mut Transmit<'_>) -> Result<(
     }
 }
 
-/// Deliver: hands `events` over as one batch. A partly accepted batch lets go
-/// of what its accepted prefix pressed and never sends any of it again.
-pub fn deliver_with(events: &[Event], transmit: &mut Transmit<'_>) -> Result<(), String> {
-    let sent = transmit(events)? as usize;
-    if sent == events.len() {
-        return Ok(());
-    }
-    if sent > events.len() {
-        return Err(INVALID_DELIVERY.into());
-    }
-    // A failed release is a cleanup failure, not a refused positive action.
-    if events.iter().all(Event::is_release) {
-        return Err(RELEASE_REJECTED.into());
-    }
-    release_each(&outstanding(&events[..sent]), transmit)?;
-    Err(DELIVERY_FAILED.into())
-}
-
 /// A left or right modifier: the generic modifier it drives and the pair's
 /// left key (RecordForeignKey).
 fn modifier_pair(vk: u16) -> Option<(u16, u16)> {
@@ -376,7 +358,16 @@ impl<'a, L: Lock> Receipt<'a, L> {
         // In flight before the system call: a process killed inside SendInput
         // must not leave a receipt that invents an acknowledged prefix.
         self.set_word(STATE, 4, IN_FLIGHT);
-        let sent = transmit(events)?;
+        // A refused admission means nothing reached the system: the receipt stays as it was. Any other error leaves it
+        // in flight (uncertain).
+        let sent = match transmit(events) {
+            Ok(sent) => sent,
+            Err(refused) if refused == crate::port::REVOKED => {
+                self.set_word(STATE, 4, CLEAN);
+                return Err(refused);
+            }
+            Err(error) => return Err(error),
+        };
         if sent as usize > events.len() {
             return Err(INVALID_DELIVERY.into());
         }
@@ -521,86 +512,6 @@ mod tests {
 
     const NOTHING_HELD: &KeyState<'static> = &nothing_held;
     const ALL_HELD: &KeyState<'static> = &all_held;
-
-    // input-transport.test.mjs: checked delivery.
-    #[test]
-    fn a_partial_batch_releases_only_its_accepted_presses() {
-        let batches = [
-            [down(13), up(13)],
-            [
-                Event::key(0, 65, UNICODE),
-                Event::key(0, 65, UNICODE | KEY_UP),
-            ],
-            [
-                Event::mouse(MOUSEEVENTF_LEFTDOWN.0),
-                Event::mouse(MOUSEEVENTF_LEFTUP.0),
-            ],
-        ];
-        for batch in batches {
-            for accepted in 0..=2u32 {
-                let (mut calls, mut downs, mut held) = (0, 0, false);
-                let outcome = deliver_with(&batch, &mut |events| {
-                    calls += 1;
-                    let count = if calls == 1 {
-                        accepted
-                    } else {
-                        events.len() as u32
-                    };
-                    for event in &events[..count as usize] {
-                        held = !event.is_release();
-                        downs += held as u32;
-                    }
-                    Ok(count)
-                });
-                assert!(!held, "partial input remained held: {batch:?} {accepted}");
-                assert_eq!(downs, (accepted > 0) as u32, "positive input was replayed");
-                assert_eq!(calls, if accepted == 1 { 2 } else { 1 }, "unexpected retry");
-                let expected = if accepted == 2 {
-                    Ok(())
-                } else {
-                    Err(DELIVERY_FAILED.to_string())
-                };
-                assert_eq!(outcome, expected);
-            }
-        }
-    }
-
-    #[test]
-    fn a_rejected_rollback_is_a_cleanup_failure() {
-        let (mut calls, mut downs) = (0, 0);
-        let outcome = deliver_with(&[down(13), up(13)], &mut |events| {
-            calls += 1;
-            if calls > 1 {
-                return Ok(0);
-            }
-            downs += 1;
-            assert!(!events[0].is_release());
-            Ok(1)
-        });
-        assert_eq!(outcome, Err(RELEASE_REJECTED.to_string()));
-        assert_eq!(
-            (calls, downs),
-            (2, 1),
-            "failed release retried or action replayed"
-        );
-    }
-
-    #[test]
-    fn a_rejected_release_batch_and_an_over_count_are_cleanup_failures() {
-        let outcome = deliver_with(&[up(0x10), Event::mouse(MOUSEEVENTF_LEFTUP.0)], &mut |_| {
-            Ok(1)
-        });
-        assert_eq!(outcome, Err(RELEASE_REJECTED.to_string()));
-        let outcome = deliver_with(&[down(0x41)], &mut |_| Ok(2));
-        assert_eq!(outcome, Err(INVALID_DELIVERY.to_string()));
-        // A mixed batch that is refused whole has nothing to roll back.
-        let mut calls = 0;
-        let outcome = deliver_with(&[up(0x10), down(0x41)], &mut |_| {
-            calls += 1;
-            Ok(0)
-        });
-        assert_eq!((outcome, calls), (Err(DELIVERY_FAILED.to_string()), 1));
-    }
 
     #[test]
     fn outstanding_pairs_presses_with_their_releases() {
@@ -973,10 +884,8 @@ mod tests {
             sent += 1;
             Ok(events.len() as u32)
         };
-        let outcome = deliver_with(&[up(0x10)], &mut |batch| {
-            receipt.deliver_tracked(batch, &mut transmit, NOTHING_HELD)
-        });
-        assert_eq!(outcome, Err(RELEASE_REJECTED.to_string()));
+        let outcome = receipt.deliver_tracked(&[up(0x10)], &mut transmit, NOTHING_HELD);
+        assert_eq!(outcome, Ok(0), "nothing sent");
         assert_eq!(fixture.owned(), vec![up(0x10), up(0x41)]);
         // An abort never lets go of a modifier the person took over, and says
         // its cleanup is unconfirmed.
@@ -997,10 +906,8 @@ mod tests {
         // Once the person lets go nothing is down, so the latched receipt
         // settles empty and the next release goes out.
         receipt.note_person(0xA0, false);
-        let outcome = deliver_with(&[up(0x10)], &mut |batch| {
-            receipt.deliver_tracked(batch, &mut transmit, NOTHING_HELD)
-        });
-        assert_eq!(outcome, Ok(()));
+        let outcome = receipt.deliver_tracked(&[up(0x10)], &mut transmit, NOTHING_HELD);
+        assert_eq!(outcome, Ok(1));
         assert_eq!(sent, 1);
         assert!(fixture.owned().is_empty());
     }

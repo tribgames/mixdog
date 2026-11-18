@@ -12,7 +12,7 @@
 
 use std::sync::LazyLock;
 
-use mixdog_core_api::domain::provider::{ErrorKind, ProviderError, TransportFault};
+use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError, TransportFault};
 use mixdog_js::{js_trim, number_to_string, slice_utf16, utf16_len, value_to_string};
 use regex::Regex;
 use serde_json::Value;
@@ -75,6 +75,29 @@ pub struct ErrorView {
     pub ws_close_code: Option<u32>,
     /// What ended the link or stream, for a failure that came from a Rust transport.
     pub fault: Option<TransportFault>,
+    /// How far the request got when it failed, for a failure that came from a Rust provider adapter: the text of a failure
+    /// with no message of its own is derived from it.
+    pub delivery: Option<DeliveryState>,
+}
+
+/// The text of a provider failure for a surface: its own message, else what the kind, the delivery and the fault say. An empty
+/// message is never shown as `Error` or `Unknown error`.
+pub fn provider_error_text(error: &ProviderError, surface: &str) -> String {
+    if !error.message.trim().is_empty() {
+        return error.message.clone();
+    }
+    present_error_text(&ErrorView::from(error), &PresentOptions { surface: surface.into(), ..PresentOptions::default() })
+}
+
+/// The sentence for a failure that has no message and no fault: what its kind and delivery state tell.
+fn empty_cause_text(error: &ErrorView, delivery: DeliveryState) -> String {
+    let kind = error.descriptor.as_ref().map_or("unknown", |d| d.kind.as_str());
+    let reached = match delivery {
+        DeliveryState::NotSent => "before the request was sent",
+        DeliveryState::Ambiguous => "while the request was in flight",
+        DeliveryState::Accepted => "after the provider accepted the request",
+    };
+    format!("The provider request failed ({kind}, {reached}).")
 }
 
 impl ErrorView {
@@ -129,21 +152,6 @@ pub fn sent_code(error: &ProviderError) -> String {
     code
 }
 
-impl Descriptor {
-    /// The verdict a classified provider error carries (`providerErrorKind`'s answer): the kind the adapter
-    /// stamped, the code trimmed and lower-cased, the status, and the positive retry advice and reset it named.
-    pub fn of(error: &ProviderError) -> Self {
-        let retry_after_ms = error.retry_after.map_or(0, |d| d.as_millis() as u64);
-        Self {
-            kind: kind_name(error.kind).into(),
-            code: sent_code(error).trim().to_lowercase(),
-            status: error.status.map_or(0, u32::from),
-            retry_after_ms: (retry_after_ms > 0).then_some(retry_after_ms),
-            reset_at: error.reset_at.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64),
-        }
-    }
-}
-
 impl From<&ProviderError> for ErrorView {
     fn from(error: &ProviderError) -> Self {
         let status = error.status.map_or(0, u32::from);
@@ -164,6 +172,7 @@ impl From<&ProviderError> for ErrorView {
             reauth_required: error.reauth_required,
             ws_close_code,
             fault: error.transport.clone(),
+            delivery: Some(error.delivery),
             ..Self::default()
         }
     }
@@ -182,6 +191,12 @@ pub struct PresentOptions {
 
 /// The one user-facing text of a failure: `presentErrorText(error, options)`.
 pub fn present_error_text(error: &ErrorView, options: &PresentOptions) -> String {
+    // A response the provider sent and the client refuses: not a connection failure, and the reason is the point.
+    match error.fault {
+        Some(TransportFault::TooManyEncodings) => return "The provider's response could not be decoded: too many content encodings.".into(),
+        Some(TransportFault::CorruptBody) => return "The provider's response could not be decoded: the compressed body is corrupt.".into(),
+        _ => {}
+    }
     let presentation = describe_error(error);
     if matches!(presentation.kind, "image-size" | "payload-size" | "request" | "model-unavailable" | "tool-schema") {
         return presentation.summary;
@@ -228,6 +243,9 @@ pub fn present_error_text(error: &ErrorView, options: &PresentOptions) -> String
     }
     if let Some(transport) = transport_error_text(&TransportInput::of(error)) {
         return transport;
+    }
+    if error.is_object && error.message.is_empty() && let Some(delivery) = error.delivery {
+        return empty_cause_text(error, delivery);
     }
     if re!(r"(?i)\bAGENT_CONTEXT_OVERFLOW\b|agent context overflow|latest turn cannot fit|context budget|context window").is_match(&text) {
         return "Context too large.".into();
@@ -946,12 +964,12 @@ fn typed_stream_failure_text(error: &ErrorView, text: &str, provider_label: Opti
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use serde_json::json;
 
     use super::*;
 
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("fixtures/error-text/cases.json");
-
+    #[cfg(node_twin)]
     fn view_of(case: &Value) -> ErrorView {
         let descriptor = &case["descriptor"];
         let descriptor = Descriptor {
@@ -989,9 +1007,11 @@ mod tests {
             attempts: number("attempts"),
             ws_close_code: fields.get("wsCloseCode").and_then(Value::as_u64).map(|c| c as u32),
             fault: None,
+            delivery: None,
         }
     }
 
+    #[cfg(node_twin)]
     fn options_of(case: &Value) -> PresentOptions {
         let options = &case["options"];
         PresentOptions {
@@ -1001,16 +1021,37 @@ mod tests {
         }
     }
 
+    /// A peer that closed or a failed lookup carries the code Node's `cause` names, as a reset does.
     #[test]
-    fn every_text_equals_nodes() {
-        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-        let cases = golden["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 94);
-        for case in cases {
-            let (view, options) = (view_of(case), options_of(case));
-            assert_eq!(present_error_text(&view, &options), case["text"].as_str().unwrap(), "{}", case["error"]);
-            assert_eq!(error_line(&view, &options), case["line"].as_str().unwrap(), "{}", case["error"]);
+    fn a_closed_socket_and_a_failed_lookup_name_their_node_codes() {
+        use mixdog_core_api::domain::provider::DeliveryState;
+        for (fault, text) in [
+            (TransportFault::Closed, "Connection to the provider was lost (UND_ERR_SOCKET)."),
+            (TransportFault::Dns, "Could not reach the provider (ENOTFOUND)."),
+        ] {
+            let error = ProviderError::transport(fault, DeliveryState::Ambiguous);
+            assert_eq!(present_error_text(&ErrorView::from(&error), &PresentOptions::default()), text);
         }
+    }
+
+    /// An accepted stream cut by a connection-level error has no message; its text names the lost connection and the cause the
+    /// fault carries: a reset, a peer's EOF without GOAWAY, a GOAWAY. Never `Error` or `Unknown error`.
+    #[test]
+    fn a_cut_stream_without_a_message_names_the_lost_connection() {
+        use mixdog_core_api::domain::provider::DeliveryState;
+        for (fault, text) in [
+            (TransportFault::Reset, "Connection to the provider was lost (ECONNRESET)."),
+            (TransportFault::Closed, "Connection to the provider was lost (UND_ERR_SOCKET)."),
+            (TransportFault::H2GoAway { code: 11 }, "Connection to the provider was lost (ERR_HTTP2_GOAWAY_SESSION)."),
+        ] {
+            let error = ProviderError::transport(fault, DeliveryState::Accepted);
+            assert_eq!(provider_error_text(&error, "agent"), text);
+        }
+        let bare = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
+        assert_eq!(provider_error_text(&bare, "agent"), "The provider request failed (transient, after the provider accepted the request).");
+        let mut worded = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
+        worded.message = "terminated".into();
+        assert_eq!(provider_error_text(&worded, "agent"), "terminated");
     }
 
     #[test]
@@ -1024,16 +1065,35 @@ mod tests {
         assert_eq!(present_error_text(&ErrorView::from(&cut), &PresentOptions::default()), "Connection to the provider was lost (TRUNCATED_STREAM).");
     }
 
-    /// A peer that closed or a failed lookup carries the code Node's `cause` names, as a reset does.
+
+    #[cfg(node_twin)]
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("fixtures/error-text/cases.json");
+    #[cfg(node_twin)]
     #[test]
-    fn a_closed_socket_and_a_failed_lookup_name_their_node_codes() {
-        use mixdog_core_api::domain::provider::DeliveryState;
-        for (fault, text) in [
-            (TransportFault::Closed, "Connection to the provider was lost (UND_ERR_SOCKET)."),
-            (TransportFault::Dns, "Could not reach the provider (ENOTFOUND)."),
-        ] {
-            let error = ProviderError::transport(fault, DeliveryState::Ambiguous);
-            assert_eq!(present_error_text(&ErrorView::from(&error), &PresentOptions::default()), text);
+    fn every_text_equals_nodes() {
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
+        let cases = golden["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 94);
+        for case in cases {
+            let (view, options) = (view_of(case), options_of(case));
+            assert_eq!(present_error_text(&view, &options), case["text"].as_str().unwrap(), "{}", case["error"]);
+            assert_eq!(error_line(&view, &options), case["line"].as_str().unwrap(), "{}", case["error"]);
+        }
+    }
+}
+
+
+impl Descriptor {
+    /// The verdict a classified provider error carries (`providerErrorKind`'s answer): the kind the adapter
+    /// stamped, the code trimmed and lower-cased, the status, and the positive retry advice and reset it named.
+    pub fn of(error: &ProviderError) -> Self {
+        let retry_after_ms = error.retry_after.map_or(0, |d| d.as_millis() as u64);
+        Self {
+            kind: kind_name(error.kind).into(),
+            code: sent_code(error).trim().to_lowercase(),
+            status: error.status.map_or(0, u32::from),
+            retry_after_ms: (retry_after_ms > 0).then_some(retry_after_ms),
+            reset_at: error.reset_at.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64),
         }
     }
 }

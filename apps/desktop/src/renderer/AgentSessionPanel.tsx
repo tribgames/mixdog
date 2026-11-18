@@ -9,6 +9,7 @@ import { sessionTabGlyph } from './WorkspaceTabStrip';
 import { DockHeaderRow } from './pane-dock-chrome';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import type { AgentSessionPanelTarget } from './session-side-surface-policy';
+import { SurfaceActiveContext, useSurfaceActive } from './surface-activity';
 import './agent-session-panel.css';
 
 type HeldLane = NonNullable<ReturnType<typeof useSessionLane>>;
@@ -52,6 +53,7 @@ export function AgentSessionPanel({
 }) {
   const held = useHeldSessionLane(target.sessionId, defaultSessionLaneStore, heldLanes);
   const title = target.title || t('Agent session');
+  const parentActive = useSurfaceActive();
   return (
     <section className="agent-session-panel" aria-label={title} hidden={!active || undefined}>
       <DockHeaderRow
@@ -76,7 +78,9 @@ export function AgentSessionPanel({
         ]}
         onClose={onClose}
       />
-      <div className="agent-session-panel-body">{renderConversation(target.sessionId, target.title, held)}</div>
+      <SurfaceActiveContext.Provider value={parentActive && active}>
+        <div className="agent-session-panel-body">{renderConversation(target.sessionId, target.title, held)}</div>
+      </SurfaceActiveContext.Provider>
     </section>
   );
 }

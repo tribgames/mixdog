@@ -86,8 +86,6 @@ impl std::fmt::Display for DispatchError {
     }
 }
 
-impl std::error::Error for DispatchError {}
-
 /// The synthesis capped at [`BRIEF_CAP_BYTES`] on a character boundary, with a
 /// marker that names the full size.
 pub fn apply_brief_cap(text: &str) -> String {
@@ -160,3 +158,6 @@ mod tests {
         assert_eq!(partial_handoff_text(&[row(".", ""), row("", "")]), None);
     }
 }
+
+
+impl std::error::Error for DispatchError {}

@@ -314,26 +314,77 @@ fn collect_edits(text: &[char], mask: &[bool], notes: &mut Vec<String>) -> Vec<E
 mod tests {
     use super::*;
 
-    /// Node's `rewritePowerShellBashisms` on 43 commands: rewritten text and note must be equal.
+    fn rewritten(command: &str) -> Option<(String, String)> {
+        rewrite_powershell_bashisms(command)
+    }
+
     #[test]
-    fn the_rewrite_equals_nodes() {
-        let vectors: Vec<serde_json::Value> =
-            serde_json::from_str(include_str!("testdata/bashism_node_vectors.json")).unwrap();
-        assert_eq!(vectors.len(), 43);
-        for v in &vectors {
-            let command = v["command"].as_str().unwrap();
-            let got = rewrite_powershell_bashisms(command);
-            match (&v["result"], got) {
-                (serde_json::Value::Null, None) => {}
-                (want, Some((text, note))) if !want.is_null() => {
-                    assert_eq!(want["command"].as_str(), Some(text.as_str()), "{command:?}");
-                    assert_eq!(want["note"].as_str(), Some(note.as_str()), "{command:?}");
-                }
-                (want, got) => panic!("{command:?}: want {want:?}, got {got:?}"),
-            }
+    fn a_quoted_or_bare_heredoc_into_an_interpreter_becomes_a_here_string_piped_to_it() {
+        let note = "[rewritten: \"python <<'EOF'\" → \"@'…'@ | python\"]";
+        assert_eq!(rewritten("python <<'EOF'\nprint(1)\nEOF"), Some(("@'\nprint(1)\n'@ | python".to_owned(), note.to_owned())));
+        for command in ["python <<EOF\nprint(1)\nEOF", "python <<\"EOF\"\nprint(1)\nEOF"] {
+            assert_eq!(rewritten(command).map(|r| r.0), Some("@'\nprint(1)\n'@ | python".to_owned()), "{command:?}");
+        }
+        // The text around the here-document stays where it was; arguments and later pipes follow the interpreter.
+        assert_eq!(rewritten("cd x && python <<'EOF'\nprint(1)\nEOF").unwrap().0, "cd x && @'\nprint(1)\n'@ | python");
+        assert_eq!(rewritten("python <<'EOF' | head\nprint(1)\nEOF").unwrap().0, "@'\nprint(1)\n'@ | python | head");
+        assert_eq!(rewritten("node --no-warnings <<'EOF'\nconsole.log(1)\nEOF").unwrap().0, "@'\nconsole.log(1)\n'@ | node --no-warnings");
+        // Carriage returns of the body are dropped and non-ASCII text is kept.
+        assert_eq!(rewritten("python <<'EOF'\nprint(1)\r\nEOF\r\n").unwrap().0, "@'\nprint(1)\n'@ | python\n");
+        assert_eq!(rewritten("python <<'EOF'\nprint('héllo 한글')\nEOF").unwrap().0, "@'\nprint('héllo 한글')\n'@ | python");
+    }
+
+    #[test]
+    fn a_heredoc_that_cannot_be_carried_by_a_here_string_is_left_alone() {
+        for command in [
+            "python <<-EOF\nprint(1)\nEOF",
+            "cat <<'EOF' > f\nx\nEOF",
+            "python <<EOF\nprint($x)\nEOF",
+            "python <<'EOF'\n'@\nEOF",
+            "python <<'EOF'\nprint(1)\n",
+        ] {
+            assert_eq!(rewritten(command), None, "{command:?}");
+        }
+    }
+
+    #[test]
+    fn dev_null_redirections_become_null_and_an_stdin_from_dev_null_is_dropped() {
+        for (command, want) in [
+            ("ls 2>/dev/null", "ls 2>$null"),
+            ("ls > /dev/null", "ls >$null"),
+            ("ls >> /dev/null", "ls >>$null"),
+            ("ls &>/dev/null", "ls *>$null"),
+            ("ls 2>&1 >/dev/null", "ls 2>&1 >$null"),
+            ("ls </dev/null", "ls"),
+            ("ls < /dev/null", "ls"),
+            ("ls 2>/dev/null; ls 2>/dev/null", "ls 2>$null; ls 2>$null"),
+            ("cmd </dev/null && other 2>/dev/null", "cmd && other 2>$null"),
+        ] {
+            assert_eq!(rewritten(command).map(|r| r.0), Some(want.to_owned()), "{command:?}");
+        }
+        let both = rewritten("ls 2>/dev/null </dev/null").unwrap();
+        assert_eq!(both.1, "[rewritten: \"2>/dev/null\" → \"2>$null\"]\n[rewritten: \"</dev/null\" → \"\" (stdin is already at EOF)]");
+    }
+
+    #[test]
+    fn text_that_only_mentions_dev_null_is_not_rewritten() {
+        for command in [
+            "ls >/dev/nullx",
+            "ls >/dev/null/x",
+            "echo \"2>/dev/null\"",
+            "echo '2>/dev/null'",
+            "ls # 2>/dev/null",
+            "@'\n2>/dev/null\n'@ | cat",
+            "echo \"unterminated 2>/dev/null",
+            "echo \"$(ls)\" 2>/dev/null",
+            "Get-ChildItem",
+        ] {
+            assert_eq!(rewritten(command), None, "{command:?}");
         }
     }
 }
+
+
 
 /// `(command, note)` when something was rewritten, else `None`.
 pub fn rewrite_powershell_bashisms(command: &str) -> Option<(String, String)> {

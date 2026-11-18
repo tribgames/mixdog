@@ -67,6 +67,7 @@ use tokio_util::sync::CancellationToken;
 use crate::append_batch::Appends;
 use crate::append_batch::Out;
 use crate::connection::ConnectionOrigin;
+use crate::hub::LineSink;
 use crate::socket::SocketWrite;
 
 /// Sizes the writer enforces, from `initialize.limits`.
@@ -343,6 +344,37 @@ impl ByteBudget for OrderedReserve {
     }
 }
 
+/// What a frame is, for the line that explains a slow consumer: its method, `response` for an answer or an error.
+fn kind_of(frame: &[u8]) -> String {
+    crate::append_batch::method_of(frame).map_or_else(|| "response".to_owned(), |method| String::from_utf8_lossy(method).into_owned())
+}
+
+/// Frames held in one queue, by kind: count and bytes.
+#[derive(Default)]
+struct Held {
+    bytes: usize,
+    frames: usize,
+    kinds: BTreeMap<String, (usize, usize)>,
+}
+
+impl Held {
+    fn add(&mut self, kind: String, bytes: usize) {
+        self.bytes += bytes;
+        self.frames += 1;
+        let held = self.kinds.entry(kind).or_default();
+        held.0 += 1;
+        held.1 += bytes;
+    }
+
+    /// `frames=N bytes=B kinds=[kind xN=B, …]`, the five heaviest kinds.
+    fn render(&self) -> String {
+        let mut kinds: Vec<(&String, &(usize, usize))> = self.kinds.iter().collect();
+        kinds.sort_by(|a, b| b.1.1.cmp(&a.1.1));
+        let kinds: Vec<String> = kinds.into_iter().take(5).map(|(kind, (count, bytes))| format!("{kind} x{count}={bytes}")).collect();
+        format!("frames={} bytes={} kinds=[{}]", self.frames, self.bytes, kinds.join(", "))
+    }
+}
+
 /// A queued control frame (an answer, error, server request or connection notification).
 struct Queued {
     number: u64,
@@ -549,413 +581,9 @@ pub(crate) struct Shared {
     media: OnceLock<Arc<dyn HostMediaSink>>,
     /// The peer announced `feedRanges`: text appends are coalesced ([`crate::append_batch`]).
     appends_on: AtomicBool,
-}
-
-impl Shared {
-    pub(crate) fn new(
-        id: ConnectionId,
-        origin: ConnectionOrigin,
-        limits: WriterLimits,
-        clock: Arc<AtomicU64>,
-    ) -> Self {
-        let now = clock.load(Ordering::Relaxed);
-        Self {
-            id,
-            origin,
-            narrowed: OnceLock::new(),
-            limits,
-            budget: Arc::new(EventBudget {
-                total: limits.event_budget,
-                slack: limits.max_snapshot,
-                used: Mutex::new(0),
-                wake: Notify::new(),
-                lag_waiting: AtomicBool::new(false),
-            }),
-            reserve: OrderedReserve::new(limits.control_reserve, true),
-            answers_waiting: OrderedReserve::new(limits.control_reserve + limits.event_budget, true),
-            ordered_room: OrderedReserve::new(limits.ordered_queue, true),
-            state: Mutex::new(State::default()),
-            clock,
-            last_rx: AtomicU64::new(now),
-            ping_since: AtomicU64::new(0),
-            closing_since: AtomicU64::new(0),
-            upgraded: AtomicBool::new(false),
-            gone: CancellationToken::new(),
-            abort: CancellationToken::new(),
-            media: OnceLock::new(),
-            appends_on: AtomicBool::new(false),
-        }
-    }
-
-    /// `frame` (of lane `lane`, none for a control frame) is next in write order: through the coalescing for a `feedRanges` peer.
-    fn through(&self, state: &mut State, lane: Option<u64>, frame: Bytes, hold: Reservation) -> Work {
-        if !self.appends_on.load(Ordering::Acquire) {
-            return Work::Text(frame, hold);
-        }
-        let out = state.appends.admit(lane, frame, hold, tokio::time::Instant::now());
-        state.ready.extend(out);
-        match state.ready.pop_front() {
-            Some((frame, holds)) => Work::Batch(frame, holds),
-            None => Work::Held,
-        }
-    }
-
-    /// When the coalescing's window ends, if one is open.
-    fn appends_due(&self) -> Option<tokio::time::Instant> {
-        self.lock().appends.due()
-    }
-
-    fn lock(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    fn wake(&self) {
-        self.budget.wake.notify_one();
-    }
-
-    /// Takes `bytes` for lane `serial`, under the state lock.
-    ///
-    /// Invariant: a request that keeps the lane within its fair share `total / lanes` always
-    /// succeeds, whatever the other lanes hold. Only the part of a lane above its share is
-    /// borrowed, so the guarantees of all lanes sum to at most `total`; borrowers are lagged
-    /// (queue dropped, bytes returned at once) before a lane within its share is refused, and
-    /// a lane whose share shrank because a lane opened is lagged by [`Shared::shrink_shares`].
-    /// A request above the share may still borrow free room, or revoke borrowers, up to a
-    /// snapshot, which a lane must be able to hold to recover.
-    fn take_for(&self, state: &mut State, serial: u64, bytes: usize) -> Option<Reservation> {
-        let lane_budget = Arc::clone(&state.lanes.get(&serial)?.budget);
-        let share = self.share(state);
-        let target = lane_budget.held() + bytes;
-        let guaranteed = target <= share;
-        if !lane_budget.take(bytes, None) {
-            if !guaranteed && target > share.max(self.limits.max_snapshot) {
-                return None;
-            }
-            self.revoke_borrowers(state, serial, share);
-            if !lane_budget.take(bytes, guaranteed.then_some(share)) {
-                return None;
-            }
-        }
-        Some(Reservation::new(bytes, lane_budget))
-    }
-
-    fn share(&self, state: &State) -> usize {
-        self.limits.event_budget / state.lanes.len().max(1)
-    }
-
-    /// Lags every lane other than `except` that holds more than `share`.
-    fn revoke_borrowers(&self, state: &mut State, except: u64, share: usize) {
-        let over: Vec<u64> = state
-            .lanes
-            .iter()
-            .filter(|(serial, lane)| **serial != except && lane.budget.held() > share)
-            .map(|(serial, _)| *serial)
-            .collect();
-        for serial in over {
-            state.lag(serial);
-        }
-        self.sync_lag_flag(state);
-    }
-
-    /// A lane opened, so every share shrank: lanes above their new share lag at once.
-    fn shrink_shares(&self, state: &mut State) {
-        let share = self.share(state);
-        self.revoke_borrowers(state, u64::MAX, share);
-    }
-
-    fn sync_lag_flag(&self, state: &State) {
-        self.budget
-            .lag_waiting
-            .store(state.lag_waiting(), Ordering::Release);
-    }
-
-    pub(crate) fn mark_upgraded(&self) {
-        self.upgraded.store(true, Ordering::Release);
-    }
-
-    pub(crate) fn is_upgraded(&self) -> bool {
-        self.upgraded.load(Ordering::Acquire)
-    }
-
-    pub(crate) fn is_closing(&self) -> bool {
-        self.closing_since.load(Ordering::Acquire) != 0
-    }
-
-    pub(crate) fn closing(&self) -> Option<Closing> {
-        self.lock().closing
-    }
-
-    pub(crate) fn media(&self) -> Option<&Arc<dyn HostMediaSink>> {
-        self.media.get()
-    }
-
-    pub(crate) fn id(&self) -> ConnectionId {
-        self.id
-    }
-
-    pub(crate) fn origin(&self) -> &ConnectionOrigin {
-        self.narrowed.get().unwrap_or(&self.origin)
-    }
-
-    /// Takes `origin` instead of the listener's. False when one was taken already.
-    pub(crate) fn narrow(&self, origin: ConnectionOrigin) -> bool {
-        self.narrowed.set(origin).is_ok()
-    }
-
-    /// Any received frame: the peer is alive.
-    pub(crate) fn note_rx(&self) {
-        self.last_rx
-            .store(self.clock.load(Ordering::Relaxed), Ordering::Release);
-        self.ping_since.store(0, Ordering::Release);
-    }
-
-    /// Starts closing once. With `drain`, control frames already queued are still written
-    /// before the close frame; otherwise they are discarded. Lanes are always released.
-    pub(crate) fn begin_close(&self, closing: Closing, drain: bool) -> bool {
-        let lanes = {
-            let mut state = self.lock();
-            if state.closing.is_some() {
-                return false;
-            }
-            state.closing = Some(closing);
-            if !drain {
-                state.control.clear();
-                state.pings = 0;
-            }
-            state.lagged.clear();
-            state.recovering = None;
-            state.by_sub.clear();
-            // Clear on disconnect: no held append or coalesced frame outlives the connection.
-            state.appends.clear();
-            state.ready.clear();
-            let lanes = std::mem::take(&mut state.lanes);
-            self.sync_lag_flag(&state);
-            lanes
-        };
-        for lane in lanes.values() {
-            lane.budget.void();
-        }
-        let now = self.clock.load(Ordering::Relaxed);
-        self.closing_since.store(now, Ordering::Release);
-        self.gone.cancel();
-        drop(lanes);
-        self.wake();
-        true
-    }
-
-    /// Queues `frame` when the control reserve takes it; `None` when it has no room for it now.
-    fn try_queue_control(&self, frame: &Bytes, release: Option<SubscriptionId>) -> Option<Result<(), SinkClosed>> {
-        let mut state = self.lock();
-        if state.closing.is_some() {
-            return Some(Err(SinkClosed));
-        }
-        let hold = self.reserve.try_take(frame.len())?;
-        let number = state.number();
-        state.control.push_back(Queued {
-            number,
-            frame: frame.clone(),
-            release,
-            hold,
-        });
-        drop(state);
-        self.wake();
-        Some(Ok(()))
-    }
-
-    fn queue_control(&self, frame: Bytes, release: Option<SubscriptionId>) -> Result<(), SinkClosed> {
-        if let Some(queued) = self.try_queue_control(&frame, release) {
-            return queued;
-        }
-        // The close says only `slowConsumer`: what was owed when the reserve ran out is known here alone.
-        tracing::warn!(
-            frame_bytes = frame.len(),
-            held_bytes = self.reserve.used.load(Ordering::Acquire),
-            "the control reserve is exhausted: closing the connection as a slow consumer"
-        );
-        self.slow_consumer();
-        Err(SinkClosed)
-    }
-
-    /// [`Self::queue_control`] that waits for the reserve's room instead of closing; ends with the connection. The answers
-    /// waiting hold at most `queueBytes` between them: a peer that keeps asking and reads nothing is a slow consumer once
-    /// they would hold more, whatever it sends meanwhile.
-    async fn queue_answer(self: Arc<Self>, frame: Bytes) -> Result<(), SinkClosed> {
-        if let Some(queued) = self.try_queue_control(&frame, None) {
-            return queued;
-        }
-        let Some(_waiting) = self.answers_waiting.try_take(frame.len()) else {
-            tracing::warn!(
-                frame_bytes = frame.len(),
-                waiting_bytes = self.answers_waiting.used.load(Ordering::Acquire),
-                "the answers waiting for the control reserve are past the queue's bytes: closing the connection as a slow consumer"
-            );
-            self.slow_consumer();
-            return Err(SinkClosed);
-        };
-        loop {
-            // Armed before the attempt, so room returned between the attempt and the wait is not missed.
-            let returned = self.reserve.returned.notified();
-            tokio::pin!(returned);
-            returned.as_mut().enable();
-            if let Some(queued) = self.try_queue_control(&frame, None) {
-                return queued;
-            }
-            tokio::select! {
-                () = &mut returned => {}
-                () = self.gone.cancelled() => return Err(SinkClosed),
-            }
-        }
-    }
-
-    /// The peer reads nothing, not even the ordered class: close, dropping what is queued.
-    fn slow_consumer(&self) {
-        self.begin_close(Closing::Send(CloseCode::SlowConsumer), false);
-    }
-
-    fn queue_ping(&self) -> bool {
-        let mut state = self.lock();
-        if state.closing.is_some() {
-            return false;
-        }
-        state.pings += 1;
-        drop(state);
-        self.wake();
-        true
-    }
-
-    /// One heartbeat tick `t` for this connection (P §4.7).
-    pub(crate) fn on_tick(&self, t: u64) {
-        let closing_since = self.closing_since.load(Ordering::Acquire);
-        if closing_since != 0 {
-            // A close that the peer does not complete within a tick is abandoned.
-            if closing_since + 1 < t {
-                self.abort.cancel();
-            }
-            return;
-        }
-        let last_rx = self.last_rx.load(Ordering::Acquire);
-        if !self.is_upgraded() {
-            if last_rx + 1 < t {
-                self.begin_close(Closing::Peer, false);
-                self.abort.cancel();
-            }
-            return;
-        }
-        let ping = self.ping_since.load(Ordering::Acquire);
-        if ping != 0 {
-            if ping + 2 <= t {
-                self.begin_close(Closing::Send(CloseCode::PeerUnresponsive), false);
-            }
-        } else if last_rx + 1 < t && self.queue_ping() {
-            self.ping_since.store(t, Ordering::Release);
-        }
-    }
-
-    /// The next thing the writer task does. Pings first; once closing, the control frames still
-    /// queued and then the close frame; else recovery of the oldest lagged lane once the budget
-    /// holds a snapshot, then the next text frame in queue order ([`State::next_in_order`]).
-    fn next_work(&self) -> Work {
-        let mut state = self.lock();
-        if state.pings > 0 {
-            state.pings -= 1;
-            return Work::Ping;
-        }
-        if let Some(closing) = state.closing {
-            return match state.control.pop_front() {
-                Some(queued) => Work::Text(queued.frame, queued.hold),
-                None => Work::Close(closing),
-            };
-        }
-        // What the coalescing let go goes before anything picked after it; a window that ended lets its appends go.
-        if self.appends_on.load(Ordering::Acquire) {
-            if let Some(out) = state.appends.fire(tokio::time::Instant::now()) {
-                state.ready.push_back(out);
-            }
-            if let Some((frame, holds)) = state.ready.pop_front() {
-                return Work::Batch(frame, holds);
-            }
-        }
-        if state.recovering.is_none()
-            && let Some(&serial) = state.lagged.front()
-            && let Some(reservation) = self.take_for(&mut state, serial, self.limits.max_snapshot)
-        {
-            state.lagged.pop_front();
-            state.recovering = Some(serial);
-            self.sync_lag_flag(&state);
-            if let Some(lane) = state.lanes.get(&serial) {
-                return Work::Recover {
-                    recovery: lane.recovery.clone(),
-                    sub: lane.sub.clone(),
-                    serial,
-                    reservation,
-                };
-            }
-        }
-        let serial = match state.next_in_order() {
-            None => return Work::Idle,
-            Some(Pick::Control) => {
-                let queued = state.control.pop_front().expect("the pick is the control head");
-                if let Some(serial) = queued
-                    .release
-                    .and_then(|sub| state.by_sub.get(&sub).copied())
-                    && let Some(lane) = state.lanes.get_mut(&serial)
-                {
-                    lane.released = true;
-                }
-                // The reserve stays charged until the socket has taken the frame.
-                return self.through(&mut state, None, queued.frame, queued.hold);
-            }
-            Some(Pick::Lane(serial)) => serial,
-        };
-        let lane = state.lanes.get_mut(&serial).expect("the picked lane exists");
-        lane.written = true;
-        let ordered = lane.ordered;
-        let (frame, reservation, was_slot) = match lane.queue.pop_front() {
-            Some(Entry::Frame {
-                frame, reservation, ..
-            }) => (frame, reservation, false),
-            Some(Entry::Slot {
-                frame: Some(frame),
-                reservation,
-                ..
-            }) => (frame, reservation, true),
-            _ => unreachable!("next_in_order checked the head"),
-        };
-        if was_slot && state.recovering == Some(serial) {
-            state.recovering = None;
-            self.sync_lag_flag(&state);
-        }
-        if ordered && !was_slot {
-            // An ordered frame holds the ordered reserve, which no lag can void.
-            return self.through(&mut state, Some(serial), frame, reservation);
-        }
-        // From here the frame belongs to the writer, not to the lane: a lag cannot take it
-        // back, and it stays charged until the socket has taken it.
-        let bytes = reservation.bytes();
-        drop(reservation);
-        if !self.budget.try_take(bytes) {
-            self.budget.force_take(bytes);
-        }
-        let budget: Arc<dyn ByteBudget> = self.budget.clone();
-        self.through(&mut state, Some(serial), frame, Reservation::new(bytes, budget))
-    }
-
-    /// After a recovery attach returned: a lane that is still lagged and still the recovering
-    /// one got neither a snapshot slot nor a new lag, so the feed refused it; it is removed so
-    /// one dead lane cannot hold the connection's single recovery turn.
-    fn recovery_returned(&self, serial: u64) {
-        let dead = {
-            let mut state = self.lock();
-            let failed = state.recovering == Some(serial)
-                && state.lanes.get(&serial).is_some_and(|lane| lane.lagged);
-            let dead = failed.then(|| state.remove_lane(serial)).flatten();
-            self.sync_lag_flag(&state);
-            dead
-        };
-        drop(dead);
-    }
+    /// The daemon log's line sink (the hub's, set once after connections may exist): where the close of a slow consumer says
+    /// what the connection held. `tracing` goes to the process's stderr, which the ready daemon does not keep.
+    log: Arc<OnceLock<LineSink>>,
 }
 
 enum Work {
@@ -974,60 +602,6 @@ enum Work {
     },
     Close(Closing),
     Idle,
-}
-
-/// The writer task: the only code that awaits the socket for outbound frames.
-pub(crate) async fn write_loop<W: SocketWrite>(shared: Arc<Shared>, mut socket: W) {
-    loop {
-        let step = match shared.next_work() {
-            Work::Text(frame, hold) => {
-                let sent = guarded(&shared, socket.text(frame)).await;
-                // The bytes return to the budget when the socket has taken the frame.
-                drop(hold);
-                sent
-            }
-            Work::Batch(frame, holds) => {
-                let sent = guarded(&shared, socket.text(frame)).await;
-                drop(holds);
-                sent
-            }
-            Work::Held => true,
-            Work::Ping => guarded(&shared, socket.ping()).await,
-            Work::Recover {
-                recovery,
-                sub,
-                serial,
-                reservation,
-            } => {
-                recovery.recover(sub, reservation);
-                shared.recovery_returned(serial);
-                true
-            }
-            Work::Close(Closing::Send(code)) => {
-                guarded(&shared, socket.close(code)).await;
-                return;
-            }
-            Work::Close(Closing::Peer) => return,
-            Work::Idle => match shared.appends_due() {
-                // A coalescing window ends on the clock, not on a new frame.
-                Some(due) => tokio::select! {
-                    () = shared.budget.wake.notified() => true,
-                    () = mixdog_rt::time::sleep_until(due) => true,
-                    () = shared.abort.cancelled() => false,
-                },
-                None => tokio::select! {
-                    () = shared.budget.wake.notified() => true,
-                    () = shared.abort.cancelled() => false,
-                },
-            },
-        };
-        if !step {
-            // The socket failed or was abandoned: nothing more can be written.
-            shared.begin_close(Closing::Peer, false);
-            shared.abort.cancel();
-            return;
-        }
-    }
 }
 
 /// Runs a socket write unless the connection is abandoned; `false` on failure or abandon.
@@ -1367,8 +941,10 @@ impl Lane for WriterLane {
             }
         };
         let Some(released) = released else {
-            tracing::warn!(lane = ?self.serial, "an ordered lane that has written fell behind: closing the connection as a slow consumer");
-            self.shared.slow_consumer();
+            self.shared.slow_consumer(&format!(
+                "cause=orderedLaneBehind lane_sub={:?} lane_serial={}",
+                self.sub, self.serial
+            ));
             return 0;
         };
         self.shared.wake();
@@ -1542,5 +1118,555 @@ mod budget_tests {
         assert_eq!(*parent.ledger(), 50, "the release returned its 100, the charge took 50");
         assert_eq!(lane.held(), 0);
         assert_eq!(other.held(), 50);
+    }
+}
+
+
+impl Shared {
+    pub(crate) fn new(
+        id: ConnectionId,
+        origin: ConnectionOrigin,
+        limits: WriterLimits,
+        clock: Arc<AtomicU64>,
+        log: Arc<OnceLock<LineSink>>,
+    ) -> Self {
+        let now = clock.load(Ordering::Relaxed);
+        Self {
+            id,
+            origin,
+            narrowed: OnceLock::new(),
+            limits,
+            budget: Arc::new(EventBudget {
+                total: limits.event_budget,
+                slack: limits.max_snapshot,
+                used: Mutex::new(0),
+                wake: Notify::new(),
+                lag_waiting: AtomicBool::new(false),
+            }),
+            reserve: OrderedReserve::new(limits.control_reserve, true),
+            answers_waiting: OrderedReserve::new(limits.control_reserve + limits.event_budget, true),
+            ordered_room: OrderedReserve::new(limits.ordered_queue, true),
+            state: Mutex::new(State::default()),
+            clock,
+            last_rx: AtomicU64::new(now),
+            ping_since: AtomicU64::new(0),
+            closing_since: AtomicU64::new(0),
+            upgraded: AtomicBool::new(false),
+            gone: CancellationToken::new(),
+            abort: CancellationToken::new(),
+            media: OnceLock::new(),
+            appends_on: AtomicBool::new(false),
+            log,
+        }
+    }
+
+    /// `frame` (of lane `lane`, none for a control frame) is next in write order: through the coalescing for a `feedRanges` peer.
+    fn through(&self, state: &mut State, lane: Option<u64>, frame: Bytes, hold: Reservation) -> Work {
+        if !self.appends_on.load(Ordering::Acquire) {
+            return Work::Text(frame, hold);
+        }
+        let out = state.appends.admit(lane, frame, hold, tokio::time::Instant::now());
+        state.ready.extend(out);
+        match state.ready.pop_front() {
+            Some((frame, holds)) => Work::Batch(frame, holds),
+            None => Work::Held,
+        }
+    }
+
+    /// When the coalescing's window ends, if one is open.
+    fn appends_due(&self) -> Option<tokio::time::Instant> {
+        self.lock().appends.due()
+    }
+
+    fn lock(&self) -> MutexGuard<'_, State> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn wake(&self) {
+        self.budget.wake.notify_one();
+    }
+
+    /// Takes `bytes` for lane `serial`, under the state lock.
+    ///
+    /// Invariant: a request that keeps the lane within its fair share `total / lanes` always
+    /// succeeds, whatever the other lanes hold. Only the part of a lane above its share is
+    /// borrowed, so the guarantees of all lanes sum to at most `total`; borrowers are lagged
+    /// (queue dropped, bytes returned at once) before a lane within its share is refused, and
+    /// a lane whose share shrank because a lane opened is lagged by [`Shared::shrink_shares`].
+    /// A request above the share may still borrow free room, or revoke borrowers, up to a
+    /// snapshot, which a lane must be able to hold to recover.
+    fn take_for(&self, state: &mut State, serial: u64, bytes: usize) -> Option<Reservation> {
+        let lane_budget = Arc::clone(&state.lanes.get(&serial)?.budget);
+        let share = self.share(state);
+        let target = lane_budget.held() + bytes;
+        let guaranteed = target <= share;
+        if !lane_budget.take(bytes, None) {
+            if !guaranteed && target > share.max(self.limits.max_snapshot) {
+                return None;
+            }
+            self.revoke_borrowers(state, serial, share);
+            if !lane_budget.take(bytes, guaranteed.then_some(share)) {
+                return None;
+            }
+        }
+        Some(Reservation::new(bytes, lane_budget))
+    }
+
+    fn share(&self, state: &State) -> usize {
+        self.limits.event_budget / state.lanes.len().max(1)
+    }
+
+    /// Lags every lane other than `except` that holds more than `share`.
+    fn revoke_borrowers(&self, state: &mut State, except: u64, share: usize) {
+        let over: Vec<u64> = state
+            .lanes
+            .iter()
+            .filter(|(serial, lane)| **serial != except && lane.budget.held() > share)
+            .map(|(serial, _)| *serial)
+            .collect();
+        for serial in over {
+            state.lag(serial);
+        }
+        self.sync_lag_flag(state);
+    }
+
+    /// A lane opened, so every share shrank: lanes above their new share lag at once.
+    fn shrink_shares(&self, state: &mut State) {
+        let share = self.share(state);
+        self.revoke_borrowers(state, u64::MAX, share);
+    }
+
+    fn sync_lag_flag(&self, state: &State) {
+        self.budget
+            .lag_waiting
+            .store(state.lag_waiting(), Ordering::Release);
+    }
+
+    pub(crate) fn mark_upgraded(&self) {
+        self.upgraded.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn is_upgraded(&self) -> bool {
+        self.upgraded.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn is_closing(&self) -> bool {
+        self.closing_since.load(Ordering::Acquire) != 0
+    }
+
+    pub(crate) fn closing(&self) -> Option<Closing> {
+        self.lock().closing
+    }
+
+    pub(crate) fn media(&self) -> Option<&Arc<dyn HostMediaSink>> {
+        self.media.get()
+    }
+
+    pub(crate) fn id(&self) -> ConnectionId {
+        self.id
+    }
+
+    pub(crate) fn origin(&self) -> &ConnectionOrigin {
+        self.narrowed.get().unwrap_or(&self.origin)
+    }
+
+    /// Takes `origin` instead of the listener's. False when one was taken already.
+    pub(crate) fn narrow(&self, origin: ConnectionOrigin) -> bool {
+        self.narrowed.set(origin).is_ok()
+    }
+
+    /// Any received frame: the peer is alive.
+    pub(crate) fn note_rx(&self) {
+        self.last_rx
+            .store(self.clock.load(Ordering::Relaxed), Ordering::Release);
+        self.ping_since.store(0, Ordering::Release);
+    }
+
+    /// Starts closing once. With `drain`, control frames already queued are still written
+    /// before the close frame; otherwise they are discarded. Lanes are always released.
+    pub(crate) fn begin_close(&self, closing: Closing, drain: bool) -> bool {
+        let lanes = {
+            let mut state = self.lock();
+            if state.closing.is_some() {
+                return false;
+            }
+            state.closing = Some(closing);
+            if !drain {
+                state.control.clear();
+                state.pings = 0;
+            }
+            state.lagged.clear();
+            state.recovering = None;
+            state.by_sub.clear();
+            // Clear on disconnect: no held append or coalesced frame outlives the connection.
+            state.appends.clear();
+            state.ready.clear();
+            let lanes = std::mem::take(&mut state.lanes);
+            self.sync_lag_flag(&state);
+            lanes
+        };
+        for lane in lanes.values() {
+            lane.budget.void();
+        }
+        let now = self.clock.load(Ordering::Relaxed);
+        self.closing_since.store(now, Ordering::Release);
+        self.gone.cancel();
+        drop(lanes);
+        self.wake();
+        true
+    }
+
+    /// Queues `frame` when the control reserve takes it; `None` when it has no room for it now.
+    fn try_queue_control(&self, frame: &Bytes, release: Option<SubscriptionId>) -> Option<Result<(), SinkClosed>> {
+        let mut state = self.lock();
+        if state.closing.is_some() {
+            return Some(Err(SinkClosed));
+        }
+        let hold = self.reserve.try_take(frame.len())?;
+        let number = state.number();
+        state.control.push_back(Queued {
+            number,
+            frame: frame.clone(),
+            release,
+            hold,
+        });
+        drop(state);
+        self.wake();
+        Some(Ok(()))
+    }
+
+    fn queue_control(&self, frame: Bytes, release: Option<SubscriptionId>) -> Result<(), SinkClosed> {
+        if let Some(queued) = self.try_queue_control(&frame, release) {
+            return queued;
+        }
+        self.slow_consumer(&format!(
+            "cause=controlReserve frame_bytes={} frame_kind={} held_bytes={}",
+            frame.len(),
+            kind_of(&frame),
+            self.reserve.used.load(Ordering::Acquire)
+        ));
+        Err(SinkClosed)
+    }
+
+    /// [`Self::queue_control`] that waits for the reserve's room instead of closing; ends with the connection. The answers
+    /// waiting hold at most `queueBytes` between them: a peer that keeps asking and reads nothing is a slow consumer once
+    /// they would hold more, whatever it sends meanwhile.
+    async fn queue_answer(self: Arc<Self>, frame: Bytes) -> Result<(), SinkClosed> {
+        if let Some(queued) = self.try_queue_control(&frame, None) {
+            return queued;
+        }
+        let Some(_waiting) = self.answers_waiting.try_take(frame.len()) else {
+            self.slow_consumer(&format!(
+                "cause=answersWaiting frame_bytes={} waiting_bytes={} held_bytes={}",
+                frame.len(),
+                self.answers_waiting.used.load(Ordering::Acquire),
+                self.reserve.used.load(Ordering::Acquire)
+            ));
+            return Err(SinkClosed);
+        };
+        loop {
+            // Armed before the attempt, so room returned between the attempt and the wait is not missed.
+            let returned = self.reserve.returned.notified();
+            tokio::pin!(returned);
+            returned.as_mut().enable();
+            if let Some(queued) = self.try_queue_control(&frame, None) {
+                return queued;
+            }
+            tokio::select! {
+                () = &mut returned => {}
+                () = self.gone.cancelled() => return Err(SinkClosed),
+            }
+        }
+    }
+
+    /// The peer reads nothing, not even the ordered class: close, dropping what is queued. The close frame says only
+    /// `slowConsumer`; what was owed when it came (`cause`, and every queue's frames by kind) is known here alone, so it is
+    /// written to the daemon log as one line, taken before the queues are dropped.
+    fn slow_consumer(&self, cause: &str) {
+        let held = self.held_report();
+        if self.begin_close(Closing::Send(CloseCode::SlowConsumer), false) {
+            let line = format!(
+                "connection slowConsumer id={} {cause} ordered_room_bytes={} event_budget_bytes={} {held}",
+                self.id.0,
+                self.ordered_room.used.load(Ordering::Acquire),
+                *self.budget.ledger()
+            );
+            tracing::warn!("{line}");
+            if let Some(log) = self.log.get() {
+                log(&line);
+            }
+        }
+    }
+
+    /// What every queue holds, by frame kind (`method`; `response` for an answer), the biggest holders first: the control
+    /// queue and the eight heaviest lanes.
+    fn held_report(&self) -> String {
+        let state = self.lock();
+        let mut control = Held::default();
+        for queued in &state.control {
+            control.add(kind_of(&queued.frame), queued.frame.len());
+        }
+        let mut lanes: Vec<(usize, String)> = state
+            .lanes
+            .values()
+            .map(|lane| {
+                let mut held = Held::default();
+                for entry in &lane.queue {
+                    match entry {
+                        Entry::Frame { frame, .. } => held.add(kind_of(frame), entry.bytes()),
+                        Entry::Slot { frame, .. } => held.add("snapshot".to_owned(), entry.bytes().max(frame.as_ref().map_or(0, Bytes::len))),
+                    }
+                }
+                let line = format!(
+                    "lane sub={:?} ordered={} written={} lagged={} {}",
+                    lane.sub,
+                    lane.ordered,
+                    lane.written,
+                    lane.lagged,
+                    held.render()
+                );
+                (held.bytes, line)
+            })
+            .collect();
+        lanes.sort_by(|a, b| b.0.cmp(&a.0));
+        let total = lanes.len();
+        let shown: Vec<String> = lanes.into_iter().take(8).map(|(_, line)| line).collect();
+        format!("control {} lanes={total} [{}]", control.render(), shown.join("; "))
+    }
+
+    fn queue_ping(&self) -> bool {
+        let mut state = self.lock();
+        if state.closing.is_some() {
+            return false;
+        }
+        state.pings += 1;
+        drop(state);
+        self.wake();
+        true
+    }
+
+    /// One heartbeat tick `t` for this connection (P §4.7).
+    pub(crate) fn on_tick(&self, t: u64) {
+        let closing_since = self.closing_since.load(Ordering::Acquire);
+        if closing_since != 0 {
+            // A close that the peer does not complete within a tick is abandoned.
+            if closing_since + 1 < t {
+                self.abort.cancel();
+            }
+            return;
+        }
+        let last_rx = self.last_rx.load(Ordering::Acquire);
+        if !self.is_upgraded() {
+            if last_rx + 1 < t {
+                self.begin_close(Closing::Peer, false);
+                self.abort.cancel();
+            }
+            return;
+        }
+        let ping = self.ping_since.load(Ordering::Acquire);
+        if ping != 0 {
+            if ping + 2 <= t {
+                self.begin_close(Closing::Send(CloseCode::PeerUnresponsive), false);
+            }
+        } else if last_rx + 1 < t && self.queue_ping() {
+            self.ping_since.store(t, Ordering::Release);
+        }
+    }
+
+    /// The next thing the writer task does. Pings first; once closing, the control frames still
+    /// queued and then the close frame; else recovery of the oldest lagged lane once the budget
+    /// holds a snapshot, then the next text frame in queue order ([`State::next_in_order`]).
+    fn next_work(&self) -> Work {
+        let mut state = self.lock();
+        if state.pings > 0 {
+            state.pings -= 1;
+            return Work::Ping;
+        }
+        if let Some(closing) = state.closing {
+            return match state.control.pop_front() {
+                Some(queued) => Work::Text(queued.frame, queued.hold),
+                None => Work::Close(closing),
+            };
+        }
+        // What the coalescing let go goes before anything picked after it; a window that ended lets its appends go.
+        if self.appends_on.load(Ordering::Acquire) {
+            if let Some(out) = state.appends.fire(tokio::time::Instant::now()) {
+                state.ready.push_back(out);
+            }
+            if let Some((frame, holds)) = state.ready.pop_front() {
+                return Work::Batch(frame, holds);
+            }
+        }
+        if state.recovering.is_none()
+            && let Some(&serial) = state.lagged.front()
+            && let Some(reservation) = self.take_for(&mut state, serial, self.limits.max_snapshot)
+        {
+            state.lagged.pop_front();
+            state.recovering = Some(serial);
+            self.sync_lag_flag(&state);
+            if let Some(lane) = state.lanes.get(&serial) {
+                return Work::Recover {
+                    recovery: lane.recovery.clone(),
+                    sub: lane.sub.clone(),
+                    serial,
+                    reservation,
+                };
+            }
+        }
+        let serial = match state.next_in_order() {
+            None => return Work::Idle,
+            Some(Pick::Control) => {
+                let queued = state.control.pop_front().expect("the pick is the control head");
+                if let Some(serial) = queued
+                    .release
+                    .and_then(|sub| state.by_sub.get(&sub).copied())
+                    && let Some(lane) = state.lanes.get_mut(&serial)
+                {
+                    lane.released = true;
+                }
+                // The reserve stays charged until the socket has taken the frame.
+                return self.through(&mut state, None, queued.frame, queued.hold);
+            }
+            Some(Pick::Lane(serial)) => serial,
+        };
+        let lane = state.lanes.get_mut(&serial).expect("the picked lane exists");
+        lane.written = true;
+        let ordered = lane.ordered;
+        let (frame, reservation, was_slot) = match lane.queue.pop_front() {
+            Some(Entry::Frame {
+                frame, reservation, ..
+            }) => (frame, reservation, false),
+            Some(Entry::Slot {
+                frame: Some(frame),
+                reservation,
+                ..
+            }) => (frame, reservation, true),
+            _ => unreachable!("next_in_order checked the head"),
+        };
+        if was_slot && state.recovering == Some(serial) {
+            state.recovering = None;
+            self.sync_lag_flag(&state);
+        }
+        if ordered && !was_slot {
+            // An ordered frame holds the ordered reserve, which no lag can void.
+            return self.through(&mut state, Some(serial), frame, reservation);
+        }
+        // From here the frame belongs to the writer, not to the lane: a lag cannot take it
+        // back, and it stays charged until the socket has taken it.
+        let bytes = reservation.bytes();
+        drop(reservation);
+        if !self.budget.try_take(bytes) {
+            self.budget.force_take(bytes);
+        }
+        let budget: Arc<dyn ByteBudget> = self.budget.clone();
+        self.through(&mut state, Some(serial), frame, Reservation::new(bytes, budget))
+    }
+
+    /// After a recovery attach returned: a lane that is still lagged and still the recovering
+    /// one got neither a snapshot slot nor a new lag, so the feed refused it; it is removed so
+    /// one dead lane cannot hold the connection's single recovery turn.
+    fn recovery_returned(&self, serial: u64) {
+        let dead = {
+            let mut state = self.lock();
+            let failed = state.recovering == Some(serial)
+                && state.lanes.get(&serial).is_some_and(|lane| lane.lagged);
+            let dead = failed.then(|| state.remove_lane(serial)).flatten();
+            self.sync_lag_flag(&state);
+            dead
+        };
+        drop(dead);
+    }
+}
+/// The writer task: the only code that awaits the socket for outbound frames.
+pub(crate) async fn write_loop<W: SocketWrite>(shared: Arc<Shared>, mut socket: W) {
+    loop {
+        let step = match shared.next_work() {
+            Work::Text(frame, hold) => {
+                let sent = write_text(&shared, &mut socket, frame).await;
+                // The bytes return to the budget when the socket has taken the frame.
+                drop(hold);
+                sent
+            }
+            Work::Batch(frame, holds) => {
+                let sent = write_text(&shared, &mut socket, frame).await;
+                drop(holds);
+                sent
+            }
+            Work::Held => true,
+            Work::Ping => guarded(&shared, socket.ping()).await,
+            Work::Recover {
+                recovery,
+                sub,
+                serial,
+                reservation,
+            } => {
+                recovery.recover(sub, reservation);
+                shared.recovery_returned(serial);
+                true
+            }
+            Work::Close(Closing::Send(code)) => {
+                guarded(&shared, socket.close(code)).await;
+                return;
+            }
+            Work::Close(Closing::Peer) => return,
+            Work::Idle => match shared.appends_due() {
+                // A coalescing window ends on the clock, not on a new frame.
+                Some(due) => tokio::select! {
+                    () = shared.budget.wake.notified() => true,
+                    () = mixdog_rt::time::sleep_until(due) => true,
+                    () = shared.abort.cancelled() => false,
+                },
+                None => tokio::select! {
+                    () = shared.budget.wake.notified() => true,
+                    () = shared.abort.cancelled() => false,
+                },
+            },
+        };
+        if !step {
+            // The socket failed or was abandoned: nothing more can be written.
+            shared.begin_close(Closing::Peer, false);
+            shared.abort.cancel();
+            return;
+        }
+    }
+}
+
+async fn write_text<W: SocketWrite>(shared: &Shared, socket: &mut W, frame: Bytes) -> bool {
+    let frame = if matches!(shared.origin(), ConnectionOrigin::Relay { .. }) {
+        // All subscription delivery (including replay and resnapshots) passes this boundary,
+        // even on an SSH listener narrowed to a relay origin. Fail closed on malformed frames.
+        let Ok(frame) = relay_frame(frame) else { return false };
+        frame
+    } else {
+        frame
+    };
+    guarded(shared, socket.text(frame)).await
+}
+
+fn relay_frame(frame: Bytes) -> serde_json::Result<Bytes> {
+    use serde_json::{Value, from_slice, from_str, json, to_vec, value::RawValue};
+
+    // Read only the envelope on the usual path; leave unrelated frames byte-for-byte intact.
+    let envelope: BTreeMap<&str, &RawValue> = from_slice(&frame)?;
+    let method: Option<String> = envelope.get("method").map(|raw| from_str(raw.get())).transpose()?;
+    let remote = mixdog_protocol::SectionName::Remote;
+    match method.as_deref() {
+        Some("app/snapshot") => {
+            let mut snapshot: Value = from_slice(&frame)?;
+            if let Some(sections) = snapshot["params"]["sections"].as_array_mut() {
+                sections.retain(|section| section["section"] != remote.wire());
+            }
+            to_vec(&snapshot).map(Bytes::from)
+        }
+        Some(method) if method == remote.notification_method() => {
+            let mut update: Value = from_slice(&frame)?;
+            let params = &update["params"];
+            // Keep the feed position contiguous and clear any previously held value.
+            update["params"] = json!({ "section": remote.wire(), "key": params["key"], "revision": params["revision"], "removed": true });
+            to_vec(&update).map(Bytes::from)
+        }
+        _ => Ok(frame),
     }
 }

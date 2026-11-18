@@ -333,6 +333,10 @@ impl MockThread {
 }
 
 impl FeedSource for MockThread {
+    fn position(&self) -> crate::feed::FeedPosition {
+        self.feed.position()
+    }
+
     fn feed_id(&self) -> FeedId {
         self.feed.feed_id()
     }

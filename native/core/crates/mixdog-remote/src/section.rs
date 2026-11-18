@@ -1,5 +1,5 @@
 //! The one publisher of the `remote` section. WP-REMOTE owns the whole value
-//! `{info, settings, claims, clients, controllerKeys, owedKeys, pairCode}`: every change is
+//! `{info, settings, claims, clients, controllerKeys, owedKeys, pairCode, pairCodeUnsupported}`: every change is
 //! published as the complete value (never a member merge in the daemon), and the first publish
 //! happens at construction so the app snapshot never lacks the section.
 //!
@@ -37,6 +37,9 @@ pub struct RemoteSectionValue {
     pub controller_keys: Vec<ControllerKeyRecord>,
     pub owed_keys: OwedAccess,
     pub pair_code: Option<RemotePairCode>,
+    /// The relay issues no pairing codes (it refused one, or never answered a request): the pairing view shows its
+    /// "codes aren't available" note instead of waiting for a code.
+    pub pair_code_unsupported: bool,
     /// Ids of the paired clients holding a native push registration (what Node's
     /// `pushRegistrations()` listed): the notification settings' "can be notified", sorted.
     pub push_registered: Vec<String>,
@@ -55,6 +58,7 @@ impl Default for RemoteSectionValue {
             controller_keys: Vec::new(),
             owed_keys: OwedAccess { keys: Vec::new(), unknown: 0 },
             pair_code: None,
+            pair_code_unsupported: false,
             push_registered: Vec::new(),
             disabled: false,
         }
@@ -122,6 +126,11 @@ impl RemoteSection {
         self.update(|value| {
             value.pair_code = code.map(|c| RemotePairCode { code: c.code.clone(), expires_at: c.expires_at as i64 });
         });
+    }
+
+    /// Whether the relay issues no pairing codes; the rest of the value is untouched.
+    pub fn set_pair_code_unsupported(&self, unsupported: bool) {
+        self.update(|value| value.pair_code_unsupported = unsupported);
     }
 
     pub fn snapshot(&self) -> RemoteSectionValue {

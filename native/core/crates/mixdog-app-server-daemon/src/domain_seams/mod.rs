@@ -21,12 +21,6 @@ pub mod remote;
 pub mod settings_effects;
 pub mod thread_progress_hints;
 
-/// The recorded Node goldens of the seams (`record-domain-seams.mjs`).
-#[cfg(test)]
-pub(crate) fn golden() -> serde_json::Value {
-    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/domain-seams/golden.json")).expect("the golden is JSON")
-}
-
 /// `value` with the scenario folder `root` written `<root>` and backslashes `/` (the recorder's
 /// one normalization), so the golden reads the same on every OS.
 #[cfg(test)]
@@ -40,4 +34,12 @@ pub(crate) fn portable(value: &serde_json::Value, root: &std::path::Path) -> ser
         Value::Object(map) => Value::Object(map.iter().map(|(key, item)| (swap(key), portable(item, root))).collect()),
         other => other.clone(),
     }
+}
+
+
+#[cfg(node_twin)]
+/// The recorded Node goldens of the seams (`record-domain-seams.mjs`).
+#[cfg(test)]
+pub(crate) fn golden() -> serde_json::Value {
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/domain-seams/golden.json")).expect("the golden is JSON")
 }

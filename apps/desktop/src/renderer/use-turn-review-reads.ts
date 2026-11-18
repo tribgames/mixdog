@@ -2,6 +2,7 @@ import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useStat
 import type { TranscriptItem } from './desktop-types';
 import { turnReviewScope } from './renderer-logic.mjs';
 import { useTurnChangesEpoch } from './turn-changes-model';
+import { nextLastTurnRequest } from './session-changes-store';
 import {
   beginTurnReviewRequest,
   endTurnReviewRequest,
@@ -148,12 +149,14 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
     // rather than asked for again. A refresh, a background read and an
     // expanded patch are different requests and are issued as usual.
     const entryRead = !refreshWorktree && summary && !background ? turnReviewPrefetch(requestedScope) : undefined;
-    let result = entryRead ? await entryRead : null;
+    let ticket = entryRead?.ticket;
+    let result = entryRead ? await entryRead.read : null;
     if (!result) {
       const known = cacheable ? (reviewTagCache.get(requestedScope) ?? '') : '';
       // The collapsed bar draws files and counts only. Its patch text is
       // most of each read (and, for a large change, most of its cost), so
       // it is read once the bar is opened.
+      ticket = nextLastTurnRequest();
       result = await api.invokeCapability({
         capability: TURN_REVIEW_CAPABILITY,
         args: [
@@ -174,7 +177,8 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
     if (value?.unchanged === true) return;
     recorded = value?.reason === 'recorded';
     cachedAnswer = value?.reason === 'cached';
-    const decoded = recordTurnReviewAnswer(sessionId, requestedScope, requestedCheckpoint, value);
+    if (ticket === undefined) return;
+    const decoded = recordTurnReviewAnswer(sessionId, requestedScope, requestedCheckpoint, value, ticket);
     if (!decoded) return;
     const { leadPatch, snapshotKind, checkpointId, files, reviews, historyTurns } = decoded;
     const signature = JSON.stringify([leadPatch, files, snapshotKind, checkpointId, reviews, historyTurns]);

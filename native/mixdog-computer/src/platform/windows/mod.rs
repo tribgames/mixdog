@@ -13,12 +13,12 @@ pub mod elevated;
 mod encode;
 mod foreground_lock;
 pub(crate) use foreground_lock::lease_now_ms;
-mod input;
+pub(crate) mod input;
 mod layout;
 mod ledger;
 mod msaa;
 mod msaa_element;
-mod native;
+pub(crate) mod native;
 mod native_state;
 mod observe;
 mod process;
@@ -36,6 +36,8 @@ use crate::a11y::Accessibility;
 use crate::keys::{Key, Mod};
 use crate::lease_api::ForegroundLease;
 use crate::observer::Shared;
+use crate::port::windows::WinPort;
+use crate::port::Scope;
 use crate::protocol::{Obj, Req};
 use serde_json::Value;
 use std::sync::Arc;
@@ -61,13 +63,6 @@ pub fn screen_input() -> i32 {
     screen_input::run()
 }
 
-pub fn terminate_pid(pid: i64) -> Result<(), String> {
-    if pid <= 0 || pid > u32::MAX as i64 {
-        return Err(format!("invalid pid {pid}"));
-    }
-    native::terminate(pid as u32)
-}
-
 pub fn parent_pid(pid: i64) -> i64 {
     if pid <= 0 || pid > u32::MAX as i64 {
         return 0;
@@ -76,16 +71,17 @@ pub fn parent_pid(pid: i64) -> i64 {
 }
 
 pub struct WinDesktop {
+    /// The executor's effect port: every input and change this desktop makes goes through it.
+    port: Arc<WinPort>,
     sender: input::Sender,
     background: background::WinBackground,
     accessibility: Option<uia::Uia>,
+    saved: saved_login::Reads,
     observer: Arc<Shared>,
-    /// The marker the observer counts as this host's own input.
-    marker: i64,
 }
 
 impl WinDesktop {
-    pub fn new(observer: Arc<Shared>, marker: i64) -> WinDesktop {
+    pub fn new(observer: Arc<Shared>, marker: i64, scope: &Scope) -> WinDesktop {
         // SAFETY: process-wide setup on the thread that serves every request.
         // UI Automation hit-tests and the pointer move in physical pixels, so
         // the host must be per-monitor aware for both sides to agree on a point.
@@ -93,14 +89,15 @@ impl WinDesktop {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
-        let sender = input::Sender::new(marker);
+        let port = WinPort::new(scope, marker);
         observe::start(observer.clone(), marker);
         WinDesktop {
-            sender,
-            background: background::WinBackground::new(observer.clone()),
-            accessibility: uia::Uia::new(observer.clone()).ok(),
+            sender: input::Sender::new(port.clone()),
+            background: background::WinBackground::new(observer.clone(), port.clone()),
+            accessibility: uia::Uia::new(observer.clone(), port.clone()).ok(),
+            saved: saved_login::Reads(port.clone()),
             observer,
-            marker,
+            port,
         }
     }
 }
@@ -127,7 +124,7 @@ impl Desktop for WinDesktop {
     }
 
     fn focus(&self, handle: Wid) -> bool {
-        native::focus(handle, self.marker)
+        native::focus(&self.port, handle)
     }
 
     fn window_at_point(&self, x: i32, y: i32) -> Wid {
@@ -160,16 +157,26 @@ impl Desktop for WinDesktop {
     }
 
     fn move_window(&self, handle: Wid, x: i32, y: i32, width: i32, height: i32) -> Result<(), String> {
-        native::move_window(handle, x, y, width, height)
+        if self.port.move_window(handle, x, y, width, height)? {
+            Ok(())
+        } else {
+            Err(format!("could not move window: {}", super::window_id(handle)))
+        }
     }
 
     fn set_window_state(&self, handle: Wid, state: WinState) -> Result<(), String> {
-        native::show(handle, state);
-        Ok(())
+        self.port.show(handle, state)
     }
 
     fn close_window(&self, handle: Wid) -> Result<bool, String> {
-        native::close(handle)
+        native::close(&self.port, handle)
+    }
+
+    fn terminate(&self, pid: i64) -> Result<(), String> {
+        if pid <= 0 || pid > u32::MAX as i64 {
+            return Err(format!("invalid pid {pid}"));
+        }
+        native::terminate(&self.port, pid as u32)
     }
 
     fn is_responding(&self, handle: Wid) -> bool {
@@ -237,11 +244,11 @@ impl Desktop for WinDesktop {
     }
 
     fn clipboard_write(&self, text: &str) -> Result<bool, String> {
-        shell::clipboard_write(text)
+        shell::clipboard_write(&self.port, text)
     }
 
     fn launch(&self, target: &str, app: Option<&AppEntry>) -> Result<Launched, String> {
-        shell::launch(target, app)
+        shell::launch(&self.port, target, app)
     }
 
     fn installed_apps(&self) -> Result<Vec<AppEntry>, String> {
@@ -299,7 +306,7 @@ impl Desktop for WinDesktop {
         lease: &dyn ForegroundLease,
         op: &mut dyn FnMut() -> Result<Obj, String>,
     ) -> (Result<Obj, String>, Option<Value>) {
-        activation_guard::guard(&self.observer, target, request_id, lease, op)
+        activation_guard::guard(&self.observer, &self.port, target, request_id, lease, op)
     }
 
     fn process_fate(&self, pid: &str, created: &str) -> Value {
@@ -307,11 +314,11 @@ impl Desktop for WinDesktop {
     }
 
     fn saved_login(&self) -> Option<&dyn SavedLoginReads> {
-        Some(&saved_login::Reads)
+        Some(&self.saved)
     }
 
     fn elevated_run(&self, req: &Req) -> Option<Result<Obj, String>> {
-        elevated::run(req)
+        elevated::run(self.port.scope(), req)
     }
 
     fn cursor_theme_reserve(&self) -> Result<bool, String> {

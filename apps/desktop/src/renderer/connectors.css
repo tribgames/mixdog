@@ -57,17 +57,6 @@
   display: flex;
   align-items: center;
 }
-/* The rail hides row descriptions; a connector row keeps its one live line
-   (the inline sign-in, a failure's reason, a package's connection count). */
-.session-sidebar-panels .extensions-pane .connectors-row .extensions-row .utilities-row-copy > small {
-  grid-column: 2;
-  display: block;
-  overflow: hidden;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 /* The live step of a sign-in: the shared row spinner before its words. */
 .connectors-row-step {
   display: flex;
@@ -109,38 +98,13 @@
   width: 100%;
   overflow-wrap: anywhere;
 }
-/* Sidebar rule: every text element of a connector row is one line: the name
-   (ellipsis if it overflows) and one status line — the badge first, then the
-   text, ellipsized. */
-.session-sidebar-panels .connectors-row .sidebar-resource-title > b {
-  flex: none;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.session-sidebar-panels .extensions-pane .connectors-row .extensions-row .utilities-row-copy > small {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.session-sidebar-panels .connectors-row .utilities-row-copy > small > .sidebar-resource-tag {
-  flex: none;
-}
-.connectors-row-line {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.connectors-row-scope {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.connectors-row[data-row-status="failed"] .utilities-row-copy > small {
-  color: var(--mx-danger);
+/* Sidebar rule: a connector row is one line — the name (ellipsized first; the
+   shared title rule) with its tag or live sign-in step right after it. The
+   step shrinks with the name; the tag never does. */
+.session-sidebar-panels .connectors-row .sidebar-resource-title > .connectors-row-step {
+  flex: 0 1 auto;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
 }
 /* Just connected: the row's surface flashes once in the ok tone. */
 .connectors-row[data-just-connected="true"] {

@@ -94,7 +94,7 @@ test('preview is the first sentence without headings or list markers', () => {
   assert.equal(instructionPreview('## Depth\n\n- Give a summary. Omit.'), 'Give a summary.');
 });
 
-test('Delegation page: mode rows with In use and Modified badges, preview text, Edit', async () => {
+test('Delegation labels the configured default without claiming the open chat uses it', async () => {
   const { host, unmount } = await mount(async () => undefined);
   assert.deepEqual(
     [...host.querySelectorAll('.settings-group > header h3')].map((node) => node.textContent),
@@ -102,9 +102,9 @@ test('Delegation page: mode rows with In use and Modified badges, preview text, 
   );
   const rows = [...host.querySelectorAll('.settings-resource')];
   assert.equal(rows.length, 2);
-  assert.match(rows[0].textContent, /Solo.*In use.*Lead executes all work directly\./);
+  assert.match(rows[0].textContent, /Solo.*Default.*Lead executes all work directly\./);
   assert.match(rows[1].textContent, /Swarm.*Modified/);
-  assert.doesNotMatch(rows[1].textContent, /In use/);
+  assert.doesNotMatch(host.textContent, /In use/);
   assert.equal(rows[0].querySelector('button').textContent, 'Edit');
   await unmount();
 });

@@ -144,21 +144,26 @@ impl StdioLease<'_> {
             state.waiting = Some(Waiter { kind, action, seq: seq.into(), lease: lease.into(), reply: None });
         }
         (self.send)(request);
-        let mut state = self.channel.state();
-        loop {
-            let answered = state.waiting.as_ref().is_none_or(|waiter| waiter.reply.is_some());
-            let left = until - (self.now)();
-            if answered || state.input_ended || left.is_nan() || left <= 0.0 {
-                break;
+        // The answer comes on the input thread, which also takes the scope's revocation. The wait holds nothing, so the
+        // revocation never waits behind it; an answer is data, and the next effect is arbitrated by the port again.
+        let reply = (|| {
+            let mut state = self.channel.state();
+            loop {
+                let answered = state.waiting.as_ref().is_none_or(|waiter| waiter.reply.is_some());
+                let left = until - (self.now)();
+                if answered || state.input_ended || left.is_nan() || left <= 0.0 {
+                    break;
+                }
+                // A wake that brought no answer waits again, never past `until`.
+                let wait = Duration::from_millis(left.min(ANSWER_TIMEOUT_MS).ceil() as u64);
+                state = match self.channel.answered.wait_timeout(state, wait) {
+                    Ok((state, _)) => state,
+                    Err(poisoned) => poisoned.into_inner().0,
+                };
             }
-            // A wake that brought no answer waits again, never past `until`.
-            let wait = Duration::from_millis(left.min(ANSWER_TIMEOUT_MS).ceil() as u64);
-            state = match self.channel.answered.wait_timeout(state, wait) {
-                Ok((state, _)) => state,
-                Err(poisoned) => poisoned.into_inner().0,
-            };
-        }
-        state.waiting.take()?.reply
+            state.waiting.take().and_then(|waiter| waiter.reply)
+        })();
+        reply
     }
 }
 

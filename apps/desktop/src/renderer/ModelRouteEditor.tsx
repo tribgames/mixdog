@@ -55,7 +55,12 @@ export function ModelRouteEditor({
   const effort = selected?.effortOptions.some((option) => option.value === value.effort)
     ? String(value.effort)
     : preferredModelEffort(selected) || '';
-  const modelParameters = preferredModelParameters(selected, value.modelParameters || {});
+  const preferred = preferredModelParameters(selected, value.modelParameters || {});
+  // For an already selected Fast slot, absence of a tier means ordinary Fast.
+  // Catalog preferences seed a new model choice; they aren't the saved slot.
+  const modelParameters = value.fast === true && modelOffersUltrafast(selected)
+    ? { ...preferred, serviceTier: value.modelParameters?.serviceTier ?? 'priority' }
+    : preferred;
   const fastAvailable = modelFastAvailable(selected, effort, modelParameters);
   const fast = fastAvailable && (typeof value.fast === 'boolean' ? value.fast : selected?.fastPreferred === true);
   const routeAutoEffort = value.autoEffort !== false;
@@ -99,7 +104,8 @@ export function ModelRouteEditor({
     (enabled) => {
       if (!selected) return;
       onChange(selectionFor(selected, enabled ? { autoEffort: true } : { autoEffort: false }));
-    }
+    },
+    (composerParity || autoEffortSwitch) && selected !== undefined
   );
   const contextDefaultPercent = defaultContextPercent(defaultWindow, maxWindow);
   const contextPercent = contextVisible

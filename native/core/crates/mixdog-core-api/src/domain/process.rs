@@ -58,8 +58,43 @@ pub enum ProcessOwner {
         language: String,
     },
     Internal,
-    /// The Windows computer helper: its job lets the helper's cursor watchdog break away and outlive it.
-    ComputerHelper,
+    /// The computer helper: its job lets the helper's cursor watchdog break away and outlive it (Windows). `scope` is the automation
+    /// scope it is started under, `None` for a helper no scope owns (a crash sweep, the remote screen's input process): the manager
+    /// creates a scoped helper only while that scope holds, and registers it with the scope before a revocation can proceed.
+    ComputerHelper { scope: Option<LaunchScope> },
+}
+
+/// Serializes the creation of a process with the revocation of the scope it is created under (see
+/// [`ProcessOwner::ComputerHelper`]).
+pub trait LaunchAuthority: Send + Sync {
+    /// The commit of one creation attempt: `None` once the scope is revoked, and then nothing may be created. While the commit lives a
+    /// revocation waits, so it is held only across the synchronous creation and the registration of what was created, never across a
+    /// wait, a sleep or a retry.
+    fn begin(&self) -> Option<Box<dyn LaunchCommit + '_>>;
+}
+
+/// One creation attempt committed under a scope that still holds.
+pub trait LaunchCommit {
+    /// `handle` was created: the revocation that follows finds it by this exact handle.
+    fn launched(&mut self, handle: &ProcessHandle);
+}
+
+/// The scope a computer helper is started under; equal only to itself.
+#[derive(Clone)]
+pub struct LaunchScope(pub std::sync::Arc<dyn LaunchAuthority>);
+
+impl PartialEq for LaunchScope {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for LaunchScope {}
+
+impl std::fmt::Debug for LaunchScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("LaunchScope")
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -172,6 +207,8 @@ pub enum ProcessError {
     Overloaded {
         queue: ProcessQueue,
     },
+    /// The scope the process was to be started under is revoked; nothing was created.
+    Revoked,
     Io {
         os_code: Option<i32>,
     },
@@ -239,6 +276,11 @@ pub trait ProcessManager: Send + Sync {
     /// counted from now. A manager that cannot hand processes over refuses with `UnknownHandle`, and the caller spawns.
     fn claim(&self, handle: &ProcessHandle, owner: ProcessOwner, time_limit: Option<Duration>) -> Result<(), ProcessError> {
         let _ = (handle, owner, time_limit);
+        Err(ProcessError::UnknownHandle)
+    }
+    /// Arms a run limit on an existing process, counted from now, without changing its owner.
+    fn arm_time_limit(&self, handle: &ProcessHandle, limit: Duration) -> Result<(), ProcessError> {
+        let _ = (handle, limit);
         Err(ProcessError::UnknownHandle)
     }
 }

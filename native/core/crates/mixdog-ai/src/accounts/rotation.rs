@@ -29,6 +29,10 @@ use super::is_custom_key_provider;
 use super::policy;
 use crate::oauth::Pace;
 
+pub(crate) fn uses_bound_plan_evidence(provider: &str) -> bool {
+    matches!(provider, "anthropic-oauth" | "antigravity-oauth" | "cursor-oauth" | "opencode-go-oauth")
+}
+
 /// The cooldown an account's provider asks for when the server named none.
 const INFERRED_COOLDOWN_MS: i64 = 5 * 60_000;
 /// Burst throttles reopen within seconds; a 429 whose Retry-After points
@@ -74,12 +78,13 @@ pub struct Failed {
 
 impl Failed {
     pub fn new(error: ProviderError) -> Self {
+        let quota_limit = error.quota_limit.as_deref().unwrap_or_default().to_owned();
         Self {
+            unsafe_to_retry: error.unsafe_to_retry,
             error,
             emitted: false,
-            unsafe_to_retry: false,
             account_blocked: false,
-            quota_limit: String::new(),
+            quota_limit,
         }
     }
 }
@@ -103,6 +108,11 @@ pub trait AccountSender<T: Send>: Send + Sync {
     /// Sends under `account_id`. `scoped` is false for a provider with no
     /// roster, whose send is the plain one.
     async fn send(&self, account_id: &str, scoped: bool) -> Result<T, Failed>;
+    /// Called only when another account request is about to replace this refusal. Without a
+    /// billing owner a billed refusal must surface intact, not disappear into a pool retry.
+    fn abandon(&self, error: &mut ProviderError) -> bool {
+        error.partial_usage.is_none()
+    }
     /// Stamps the serving account on the answer; `binding_id` is the account
     /// the session stays bound to.
     fn stamp(&self, result: &mut T, account_id: &str, binding_id: &str);
@@ -124,6 +134,21 @@ pub struct SendContext {
     pub cancel: CancellationToken,
     /// Plan quota cached for a provider with no roster (credit use off).
     pub implicit_plan_usage: Option<Account>,
+    /// Whether the stored plan meters (roster rows' and the implicit one) describe where this send goes. Without it
+    /// (a destination the configuration redirects, whose scope the meters were not proven for) they steer nothing, for
+    /// the roster and for no roster alike; refusals the destination itself gave still do.
+    pub plan_meters_apply: bool,
+}
+
+impl SendContext {
+    fn scope(mut pool: Pool, plan_meters_apply: bool) -> Pool {
+        if !plan_meters_apply {
+            for row in &mut pool.accounts {
+                row.usage = None;
+            }
+        }
+        pool
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -326,7 +351,7 @@ impl AccountRotation {
     /// The account a send of `ctx.model` would try first right now, or `None`
     /// when the provider has no roster account or none is eligible.
     pub async fn planned_account_id(&self, provider: &str, ctx: &SendContext) -> Result<Option<String>, AccountError> {
-        let pool = self.store.pool(provider).await?;
+        let pool = self.pool_for_service(provider, ctx.plan_meters_apply).await?;
         if pool.accounts.is_empty() {
             return Ok(None);
         }
@@ -380,6 +405,7 @@ impl AccountRotation {
         model: &str,
         failed: &Failed,
         policy: Option<&CooldownPolicy>,
+        plan_meters_apply: bool,
     ) -> Result<Verdict, AccountError> {
         let error = &failed.error;
         let now = self.now();
@@ -426,21 +452,26 @@ impl AccountRotation {
         // as quota; auth refusals say nothing about the quota.
         let typed = error.kind.is_quota() && !matches!(error.status, Some(401 | 403));
         if typed {
-            self.measure_once(provider, row).await;
+            if plan_meters_apply {
+                self.measure_once(provider, row).await;
+            }
             return Ok(blocked(true, "quota", true));
         }
         if policy.is_some_and(|p| p.rotate_on_rate_limit)
             && error.kind == ErrorKind::RateLimited
             && error.status == Some(429)
         {
-            self.measure_once(provider, row).await;
+            if plan_meters_apply {
+                self.measure_once(provider, row).await;
+            }
             return Ok(blocked(false, "rate_limited", false));
         }
         let mut exhausted = error.status == Some(429) && delay > QUOTA_WINDOW_RETRY_AFTER_MS;
         let mut evidence = false;
-        if error.status == Some(429) {
+        if error.status == Some(429) && plan_meters_apply {
             self.probe.measure(provider, &row.id, true).await;
-            let pool = self.store.pool(provider).await?;
+            // The plan meters are read only where they describe the service the refusal came from.
+            let pool = self.pool_for_service(provider, plan_meters_apply).await?;
             if let Some(entry) = pool.account(&row.id) {
                 let credits = pool.uses_credits();
                 let now = self.now();
@@ -482,12 +513,13 @@ impl AccountRotation {
         model: &str,
         failed: &Failed,
         cooldown: Option<&CooldownPolicy>,
+        plan_meters_apply: bool,
     ) -> Result<bool, AccountError> {
         let pool = self.store.pool(provider).await?;
         let Some(row) = pool.account(account_id) else {
             return Ok(false);
         };
-        let verdict = self.judge(provider, row, model, failed, cooldown).await?;
+        let verdict = self.judge(provider, row, model, failed, cooldown, plan_meters_apply).await?;
         if !verdict.exhausted {
             return Ok(false);
         }
@@ -496,6 +528,64 @@ impl AccountRotation {
     }
 
     // -- roster-level verdicts -------------------------------------------------
+
+    async fn pool_for_service(&self, provider: &str, plan_meters_apply: bool) -> Result<Pool, AccountError> {
+        let mut pool = SendContext::scope(self.store.pool(provider).await?, plan_meters_apply);
+        if !plan_meters_apply || !uses_bound_plan_evidence(provider) {
+            return Ok(pool);
+        }
+        let now = self.now();
+        for row in &mut pool.accounts {
+            let Some(usage) = row.usage.as_mut() else { continue };
+            if !policy::quota_reading_fresh(usage.checked_at, now) {
+                row.usage = None;
+                continue;
+            }
+            let stamp = self.store.quota_credential(provider, &row.id).await;
+            usage.windows.retain(|window| {
+                stamp.as_deref().is_some_and(|stamp| {
+                    window.extra.get(super::model::CREDENTIAL).and_then(serde_json::Value::as_str) == Some(stamp)
+                })
+            });
+        }
+        Ok(pool)
+    }
+
+    /// Read-only verdict for the hop factory. In particular, an unreadable or unmeasured alternative
+    /// cannot prove exhaustion, and a cooldown is not quota evidence.
+    pub(crate) async fn quota_eligibility(&self, provider: &str, ctx: &SendContext) -> Option<bool> {
+        if !ctx.plan_meters_apply {
+            return None;
+        }
+        let pool = self.pool_for_service(provider, ctx.plan_meters_apply).await.ok()?;
+        let model = ctx.model.as_str();
+        let now = self.now();
+        if pool.accounts.is_empty() {
+            if self.plan_quota_spent(provider, &pool, ctx).is_some() {
+                return Some(false);
+            }
+            return ctx.implicit_plan_usage.as_ref()
+                .filter(|row| ctx.plan_meters_apply && policy::has_room_reading(row, now, model))
+                .map(|_| true);
+        }
+        let none = HashSet::new();
+        let (rows, credits, _, all) = self.roster_exhaustion(&pool, model, &none, None);
+        if all && policy::choose_account(&pool, &none, now, model, None).is_none() {
+            for row in &rows {
+                self.store.quota_credential(provider, &row.id).await?;
+            }
+            return Some(false);
+        }
+        for row in &rows {
+            if !policy::account_exhausted(row, now, model, credits)
+                && (policy::has_room_reading(row, now, model) || policy::quota_block_expired(row, now, model))
+                && self.store.quota_credential(provider, &row.id).await.is_some()
+            {
+                return Some(true);
+            }
+        }
+        None
+    }
 
     /// Whether every account in `ids` (default: the roster; under manual
     /// policy the selected account alone) is exhausted with quota evidence:
@@ -631,7 +721,7 @@ impl AccountRotation {
         error: Option<ProviderError>,
         ids: Option<&[String]>,
     ) -> Result<(), PoolError> {
-        let pool = self.store.pool(provider).await?;
+        let pool = self.pool_for_service(provider, ctx.plan_meters_apply).await?;
         let model = ctx.model.as_str();
         let (rows, _, now, all) = self.roster_exhaustion(&pool, model, &ledger.evidenced, ids);
         let first = ids
@@ -690,14 +780,15 @@ impl AccountRotation {
     /// window spent refuses before the implicit account sends.
     fn plan_quota_spent(&self, provider: &str, pool: &Pool, ctx: &SendContext) -> Option<PoolError> {
         let now = self.now();
-        if pool.uses_credits() {
+        if pool.uses_credits() || !ctx.plan_meters_apply {
             return None;
         }
         let row = ctx.implicit_plan_usage.as_ref()?;
         if row
             .usage
             .as_ref()
-            .is_some_and(|u| !u.windows.is_empty() && !policy::stale_quota_windows(provider, &u.windows))
+            .is_some_and(|u| !u.windows.is_empty() && !policy::stale_quota_windows(provider, &u.windows)
+                && (!uses_bound_plan_evidence(provider) || policy::quota_reading_fresh(u.checked_at, now)))
             && policy::account_exhausted(row, now, &ctx.model, false)
         {
             return Some(PoolError {
@@ -723,11 +814,12 @@ impl AccountRotation {
         model: &str,
         refusal_scoped: bool,
         policy_now: Policy,
+        plan_meters_apply: bool,
     ) -> Result<bool, AccountError> {
         if pool.selected_id.as_deref() == Some(row.id.as_str()) || refusal_scoped {
             return Ok(false);
         }
-        if self.exhausted_for_model_only(provider, pool.selected_id.as_deref(), model).await? {
+        if self.exhausted_for_model_only(provider, pool.selected_id.as_deref(), model, plan_meters_apply).await? {
             return Ok(false);
         }
         Ok(self
@@ -737,8 +829,8 @@ impl AccountRotation {
             .is_some())
     }
 
-    async fn exhausted_for_model_only(&self, provider: &str, id: Option<&str>, model: &str) -> Result<bool, AccountError> {
-        let pool = self.store.pool(provider).await?;
+    async fn exhausted_for_model_only(&self, provider: &str, id: Option<&str>, model: &str, plan_meters_apply: bool) -> Result<bool, AccountError> {
+        let pool = self.pool_for_service(provider, plan_meters_apply).await?;
         Ok(id.and_then(|id| pool.account(id)).is_some_and(|row| {
             policy::account_exhausted_for_model_only(row, self.now(), model, pool.uses_credits())
         }))
@@ -759,7 +851,7 @@ impl AccountRotation {
         let scoped = if b.switched {
             b.refusal_scoped
         } else {
-            b.policy == Policy::Headroom && left_bound && self.exhausted_for_model_only(provider, b.bound_id, model).await?
+            b.policy == Policy::Headroom && left_bound && self.exhausted_for_model_only(provider, b.bound_id, model, b.plan_meters_apply).await?
         };
         let binding = if scoped { b.bound_id.unwrap_or(row_id) } else { row_id };
         sender_stamp(binding);
@@ -793,7 +885,7 @@ impl AccountRotation {
             if ctx.cancel.is_cancelled() {
                 return Err(PoolError::of(Cause::Cancelled));
             }
-            let pool = self.store.pool(provider).await?;
+            let pool = self.pool_for_service(provider, ctx.plan_meters_apply).await?;
             if pool.accounts.is_empty() {
                 // A custom provider's key has no plan meter to consult.
                 if !is_custom_key_provider(provider)
@@ -801,14 +893,24 @@ impl AccountRotation {
                 {
                     return Err(refused);
                 }
+                if let Some(mut error) = last_error.take()
+                    && !sender.abandon(&mut error)
+                {
+                    return Err(PoolError::of(Cause::Provider(error)));
+                }
                 return sender.send("default", false).await.map_err(|f| PoolError::of(Cause::Provider(f.error)));
             }
             let policy_now = pool.policy();
             let Some(row) = policy::choose_account(&pool, &ledger.attempted, self.now(), model, bound_id.as_deref()).cloned()
             else {
+                if sends == 0 && uses_bound_plan_evidence(provider)
+                    && self.roster_exhaustion(&pool, model, &ledger.evidenced, None).3
+                {
+                    return Err(self.exhausted_send_error(provider, &pool, model, &ledger.evidenced, None, None));
+                }
                 // Once per send: a refusal built on a stale meter must not
                 // outlive the meter. Tried before the failure is reported.
-                if !probed {
+                if !probed && ctx.plan_meters_apply {
                     probed = true;
                     if self.probe_refused(provider, &pool, model).await {
                         continue;
@@ -819,7 +921,7 @@ impl AccountRotation {
             };
             // Once per send: an account the send does not prefer is chosen on current readings.
             let preferred = if policy_now == Policy::Headroom { bound_id.as_deref() } else { pool.selected_id.as_deref() };
-            if !ranked && policy_now != Policy::Manual && preferred != Some(row.id.as_str()) {
+            if !ranked && ctx.plan_meters_apply && policy_now != Policy::Manual && preferred != Some(row.id.as_str()) {
                 ranked = true;
                 if self.measure_fallback_candidates(provider, &pool, &ledger.attempted, model).await {
                     continue;
@@ -827,6 +929,11 @@ impl AccountRotation {
             }
             ledger.attempted.insert(row.id.clone());
             sends += 1;
+            if let Some(mut error) = last_error.take()
+                && !sender.abandon(&mut error)
+            {
+                return Err(PoolError::of(Cause::Provider(error)));
+            }
             let failed = match sender.send(&row.id, true).await {
                 Ok(mut result) => {
                     self.state().quota_strikes.remove(&format!("{provider}:{}", row.id));
@@ -836,11 +943,12 @@ impl AccountRotation {
                         session_key: session_key.as_deref(),
                         switched,
                         refusal_scoped,
+                        plan_meters_apply: ctx.plan_meters_apply,
                     };
                     let (scoped, commit) = self
                         .bind_served(provider, |binding_id| sender.stamp(&mut result, &row.id, binding_id), &row.id, model, &binding)
                         .await?;
-                    if commit && self.commit_fallback(provider, &pool, &row, model, scoped, policy_now).await? {
+                    if commit && self.commit_fallback(provider, &pool, &row, model, scoped, policy_now, ctx.plan_meters_apply).await? {
                         sender.notify(Stage::AccountChanged {
                             provider: provider.to_owned(),
                             account_id: row.id.clone(),
@@ -851,11 +959,13 @@ impl AccountRotation {
                 }
                 Err(failed) => failed,
             };
-            if ctx.cancel.is_cancelled() {
+            // The session's cache owner refused this account's attempt before transport: no account failed, and the
+            // rebuilt attempt is admitted against whichever account serves it then.
+            if ctx.cancel.is_cancelled() || failed.error.tail_refusal.is_some() {
                 return Err(PoolError::of(Cause::Provider(failed.error)));
             }
             let unretryable = |unsafe_to_retry: bool| {
-                failed.emitted || unsafe_to_retry || failed.error.exposure.text_emitted || failed.error.exposure.tool_dispatched
+                failed.emitted || unsafe_to_retry || failed.error.exposure != Default::default() || !failed.error.partial_tool_calls.is_empty()
             };
             if failed.error.reauth_required {
                 if policy_now == Policy::Manual || unretryable(failed.unsafe_to_retry) {
@@ -872,7 +982,7 @@ impl AccountRotation {
                 continue;
             }
             let cooldown = sender.cooldown_policy(&row.id);
-            let verdict = self.judge(provider, &row, model, &failed, cooldown.as_ref()).await?;
+            let verdict = self.judge(provider, &row, model, &failed, cooldown.as_ref(), ctx.plan_meters_apply).await?;
             if !verdict.exhausted {
                 return Err(PoolError::of(Cause::Provider(failed.error)));
             }
@@ -894,7 +1004,7 @@ impl AccountRotation {
             }
             last_error = Some(failed.error);
             switched = true;
-            refusal_scoped = self.exhausted_for_model_only(provider, Some(&row.id), model).await?;
+            refusal_scoped = self.exhausted_for_model_only(provider, Some(&row.id), model, ctx.plan_meters_apply).await?;
             let reason = if verdict.evidence {
                 "Quota exhausted"
             } else if verdict.account_blocked {
@@ -908,7 +1018,7 @@ impl AccountRotation {
                 retry_at: None,
             });
         }
-        let pool = self.store.pool(provider).await?;
+        let pool = self.pool_for_service(provider, ctx.plan_meters_apply).await?;
         // Node: `lastError || new Error('Provider account attempts exhausted.')`.
         let last = last_error.map_or_else(|| Cause::Message(ATTEMPTS_EXHAUSTED.into()), Cause::Provider);
         Err(self.exhausted_send_error(provider, &pool, model, &ledger.evidenced, Some(last), None))
@@ -921,4 +1031,5 @@ struct Binding<'a> {
     session_key: Option<&'a str>,
     switched: bool,
     refusal_scoped: bool,
+    plan_meters_apply: bool,
 }

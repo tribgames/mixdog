@@ -120,18 +120,6 @@ pub struct CreateRequest {
     pub runtime_token: String,
 }
 
-/// The runtime token of this process's worker snapshots (`worker-snapshots.mjs state()`: a random
-/// `worker-snapshots-<uuid>` per process).
-fn process_runtime_token() -> &'static str {
-    static TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    TOKEN.get_or_init(|| {
-        use sha2::Digest;
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-        let digest = sha2::Sha256::digest(format!("{}:{nanos}:{:p}", std::process::id(), &TOKEN).as_bytes());
-        format!("worker-snapshots-{}", digest.iter().take(8).map(|b| format!("{b:02x}")).collect::<String>())
-    })
-}
-
 /// A created worktree and what creation did.
 #[derive(Clone, Debug)]
 pub struct Created {
@@ -163,12 +151,6 @@ pub struct Worktrees {
     activity: Option<Arc<crate::worktree::activity::Activity>>,
     cleanups: Vec<Arc<dyn crate::worktree::removal::RootCleanup>>,
     sizes: Arc<crate::worktree::disk::SizeCache>,
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
 }
 
 /// The public shape of a record.
@@ -203,6 +185,69 @@ pub(crate) fn is_snapshot(record: &WorktreeRecord) -> bool {
     record.extra.get("kind").and_then(Value::as_str) == Some("snapshot")
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Named(&'static str);
+
+    #[async_trait::async_trait]
+    impl crate::worktree::removal::RootCleanup for Named {
+        fn name(&self) -> &str {
+            self.0
+        }
+
+        async fn run(&self, _root: &Path, _entry_id: &str) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn the_porcelain_list_names_branch_detached_and_prunable_rows() {
+        let rows = parse_worktree_list(
+            "worktree /r\0HEAD aaa\0branch refs/heads/main\0\0worktree /w/x\0HEAD bbb\0detached\0prunable gitdir file points to non-existent location\0\0",
+        );
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].branch.as_deref(), Some("main"));
+        assert!(rows[1].detached && rows[1].prunable);
+    }
+
+
+    #[test]
+    fn a_root_cleanup_given_twice_runs_once_and_another_still_joins_it() {
+        let scm = crate::engine::Scm::new(
+            crate::testing::TestProcesses::shared(),
+            mixdog_rt::testing::tokens().maintenance_io,
+            std::env::temp_dir(),
+        );
+        let same: Arc<dyn crate::worktree::removal::RootCleanup> = Arc::new(Named("same"));
+        let other: Arc<dyn crate::worktree::removal::RootCleanup> = Arc::new(Named("other"));
+        let worktrees = Worktrees::new(scm, std::env::temp_dir())
+            .with_root_cleanup(same.clone())
+            .with_root_cleanup(same.clone())
+            .with_root_cleanup(other);
+        let names: Vec<&str> = worktrees.cleanups().iter().map(|cleanup| cleanup.name()).collect();
+        assert_eq!(names, ["same", "other"]);
+    }
+}
+
+
+/// The runtime token of this process's worker snapshots (`worker-snapshots.mjs state()`: a random
+/// `worker-snapshots-<uuid>` per process).
+fn process_runtime_token() -> &'static str {
+    static TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    TOKEN.get_or_init(|| {
+        use sha2::Digest;
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        let digest = sha2::Sha256::digest(format!("{}:{nanos}:{:p}", std::process::id(), &TOKEN).as_bytes());
+        format!("worker-snapshots-{}", digest.iter().take(8).map(|b| format!("{b:02x}")).collect::<String>())
+    })
+}
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64)
+}
 impl Worktrees {
     pub fn new(scm: Arc<Scm>, data_dir: PathBuf) -> Self {
         Self {
@@ -391,33 +436,8 @@ impl Worktrees {
         let repo = self.scm.open(&facts.top_level, cancel).await?;
         let _lock = repo.lock_repository().await?;
         let common = path_text(&facts.common_dir);
-        // A retried call (same transaction) returns the worktree it made.
-        let tx = request.tx_id.clone();
-        let session = request.session_id.clone();
-        let all = self.all(cancel).await?;
-        // The transaction's ready worktree retained by another session (`settleSessionAttempts`, manager.mjs:1387-1391: the record
-        // with this `txId`, whatever its repository): a new task that was refused at another address after its worktree was made.
-        if let Some(prior) = all.iter().find(|r| r.extra.get("txId").and_then(Value::as_str) == Some(tx.as_str()))
-            && prior.state == "ready"
-            && prior.owner_session_id.as_deref() != Some(session.as_str())
-        {
-            return Err(errors::transaction_of_another_session(tx));
-        }
-        let existing = all
-            .into_iter()
-            .find(|r| {
-                r.repo_common_dir == common
-                    && r.extra.get("txId").and_then(Value::as_str) == Some(tx.as_str())
-                    && r.owner_session_id.as_deref() == Some(session.as_str())
-            });
-        if let Some(found) = existing {
-            let prepared = found
-                .extra
-                .get("setup")
-                .and_then(|s| s.get("prepared"))
-                .cloned()
-                .unwrap_or(Value::Null);
-            return Ok(Created { record: found, prepared, changes: None });
+        if let Some(settled) = self.settle_session_attempts(&request, &facts.common_dir, cancel).await? {
+            return Ok(settled);
         }
         if request.start_commit.is_some() && (request.existing_branch || request.branch.is_none()) {
             return Err(ScmFailure::invalid("startCommit", "a new exact branch only"));
@@ -440,18 +460,33 @@ impl Worktrees {
         if !pending.is_empty() && request.carry.as_deref() == Some("ask") {
             return Err(errors::dirty_choice(pending));
         }
-        let base_commit = match (&request.start_commit, &request.base_branch) {
-            (Some(commit), _) => commit.clone(),
-            (None, Some(branch)) => self
+        // `resolveStartPoint`: the base branch's commit (it must exist), then an explicit start commit resolved to a commit.
+        let mut base_commit = facts.head.clone();
+        if let Some(branch) = &request.base_branch {
+            base_commit = self
                 .scm
                 .git
                 .read(cancel, &facts.top_level, &["rev-parse", "--verify", &format!("refs/heads/{branch}^{{commit}}")])
                 .await
-                .map_err(|_| errors::missing(None, None, None))?
+                .map_err(|_| errors::base_branch_missing(branch.clone()))?
                 .trim()
-                .to_owned(),
-            (None, None) => facts.head.clone(),
-        };
+                .to_owned();
+        }
+        if let Some(commit) = &request.start_commit {
+            let name = mixdog_js::js_trim(commit);
+            if name.is_empty() || name.starts_with('-') {
+                return Err(ScmFailure::git("A commit is required."));
+            }
+            let resolved = self
+                .scm
+                .git
+                .outcome(cancel, &facts.top_level, &["rev-parse", "--verify", "--quiet", &format!("{name}^{{commit}}")], &RunOptions::default())
+                .await?;
+            if !resolved.success() {
+                return Err(ScmFailure::git(format!("Commit {name} does not exist.")));
+            }
+            base_commit = resolved.stdout_text().lines().next().unwrap_or("").trim().to_owned();
+        }
         let settings = self.current_settings().await;
         let root = names::managed_root(&self.data_dir, &facts.common_dir);
         // The main checkout's local env files come along on their own; `.worktreeinclude`
@@ -550,6 +585,12 @@ impl Worktrees {
             let target = path_text(&path);
             let parent = root.clone();
             on_lane(self.scm.lane, cancel, move || std::fs::create_dir_all(parent)).await??;
+            // The ledger is persisted `pending` before git makes the checkout, so a crash leaves a record
+            // whose rollback knows to look for it.
+            if let Err(failure) = self.set_resource(&mut record, "worktree", "pending", cancel).await {
+                self.undo_failed_creation(&mut record, &failure, cancel).await;
+                return Err(failure);
+            }
             let args: Vec<&str> = if request.existing_branch {
                 vec!["worktree", "add", &target, &branch]
             } else {
@@ -563,14 +604,14 @@ impl Worktrees {
                         branches.insert(branch.to_lowercase());
                         let id = record.id.clone();
                         if let Err(error) = self.with_registry(cancel, move |r| r.delete(&id)).await {
-                            self.undo_failed_creation(&mut record, &[("worktree", "pending")], &error, cancel).await;
+                            self.undo_failed_creation(&mut record, &error, cancel).await;
                             return Err(error);
                         }
                         continue;
                     }
                     // `failCreation`: the same rollback as any later failure (the checkout may be half
                     // made, and `-b` may have made the branch); the git failure is the one surfaced.
-                    self.undo_failed_creation(&mut record, &[("worktree", "pending")], &failure, cancel).await;
+                    self.undo_failed_creation(&mut record, &failure, cancel).await;
                     return Err(failure);
                 }
             }
@@ -592,10 +633,67 @@ impl Worktrees {
                     // Node keeps this as `carryRestore` on the failure, which nothing reads.
                     tracing::warn!(id = %record.id, reference = %reference, "the carried changes were not put back: {error}");
                 }
-                self.undo_failed_creation(&mut record, &[("worktree", "created"), ("lock", "created"), ("owner", "created")], &failure, cancel).await;
+                self.undo_failed_creation(&mut record, &failure, cancel).await;
                 Err(failure)
             }
         }
+    }
+
+    /// An earlier attempt's ready worktree, its owner lease written again.
+    async fn settled(&self, record: WorktreeRecord, request: &CreateRequest, cancel: &CancellationToken) -> Result<Created, ScmFailure> {
+        if !request.runtime_token.trim().is_empty() {
+            let owner = Owner { session_id: request.session_id.clone(), runtime_token: request.runtime_token.clone(), pid: Some(std::process::id()) };
+            self.write_owner_lease(&record, &owner, cancel).await?;
+        }
+        let prepared = record.extra.get("setup").and_then(|s| s.get("prepared")).cloned().unwrap_or(Value::Null);
+        Ok(Created { record, prepared, changes: None })
+    }
+
+    /// `settleSessionAttempts` (manager.mjs:1387-1425), before a creation under the repository lock: the
+    /// worktree this transaction or the session already has ready, else `None` once every unfinished
+    /// earlier attempt of the session in this repository is completed. A transaction another session
+    /// made, a ready worktree of another repository, or an attempt still being cleaned up refuses.
+    /// A creation of an exact branch (`multiple`) only settles its own transaction.
+    async fn settle_session_attempts(&self, request: &CreateRequest, common_dir: &Path, cancel: &CancellationToken) -> Result<Option<Created>, ScmFailure> {
+        let tx = request.tx_id.as_str();
+        let session = request.session_id.as_str();
+        let tx_of = |record: &WorktreeRecord| record.extra.get("txId").and_then(Value::as_str).map(str::to_owned);
+        let all = self.all(cancel).await?;
+        if let Some(prior) = all.iter().find(|r| tx_of(r).as_deref() == Some(tx))
+            && prior.state == "ready"
+        {
+            if prior.owner_session_id.as_deref() != Some(session) {
+                return Err(errors::transaction_of_another_session(tx.to_owned()));
+            }
+            return self.settled(prior.clone(), request, cancel).await.map(Some);
+        }
+        let multiple = request.branch.is_some();
+        for mut record in all.into_iter().filter(|r| r.owner_session_id.as_deref() == Some(session)) {
+            if multiple && tx_of(&record).as_deref() != Some(tx) {
+                continue;
+            }
+            let same_repo = path_key(Path::new(&record.repo_common_dir)) == path_key(common_dir);
+            if record.state == "ready" {
+                if !same_repo {
+                    return Err(errors::session_attempt_conflict("This session already retains a worktree of another repository.", record.id, None));
+                }
+                return self.settled(record, request, cancel).await.map(Some);
+            }
+            if !same_repo {
+                continue;
+            }
+            // An earlier attempt of this session never finished (or its removal was interrupted): complete that first.
+            let (removed, remaining) = if record.state == "deleting" {
+                let deletion = self.finish_deletion(&mut record, cancel).await?;
+                (deletion.removed, deletion.remaining)
+            } else {
+                self.rollback_record(&mut record, None, cancel).await?
+            };
+            if !removed {
+                return Err(errors::session_attempt_conflict("A previous worktree of this session is still being cleaned up; try again.", record.id, Some(remaining)));
+            }
+        }
+        Ok(None)
     }
 
     /// `setResource`: one resource of the creation ledger, persisted.
@@ -608,16 +706,11 @@ impl Worktrees {
 
     /// `failCreation`'s rollback: the record goes through the ledger-proved `rollbackCreation`
     /// (`rollback_record`), never a forced removal of the branch: a branch that moved since the
-    /// creation holds someone's commits and stays. Node writes `pending` before it makes a resource
-    /// and `created` after; the resources named in `made` are the ones this failure may have made.
-    /// The creation's own failure is the one surfaced, so what the rollback could not undo is
-    /// logged (Node attaches it to that error as `rollback`, which nothing reads).
-    async fn undo_failed_creation(&self, record: &mut WorktreeRecord, made: &[(&str, &str)], failure: &ScmFailure, cancel: &CancellationToken) {
-        let mut resources = record.extra.get("resources").cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
-        for (key, state) in made {
-            resources[*key] = json!(state);
-        }
-        record.extra.insert("resources".into(), resources);
+    /// creation holds someone's commits and stays. The ledger (`set_resource`: `pending` before a
+    /// resource is made, `created` after) says what the creation made. The creation's own failure
+    /// is the one surfaced, so what the rollback could not undo is logged (Node attaches it to
+    /// that error as `rollback`, which nothing reads).
+    async fn undo_failed_creation(&self, record: &mut WorktreeRecord, failure: &ScmFailure, cancel: &CancellationToken) {
         match self.rollback_record(record, Some(&failure.to_string()), cancel).await {
             Ok((true, _)) => {}
             Ok((false, remaining)) => tracing::warn!(id = %record.id, remaining = %json!(remaining), "a failed creation was not fully rolled back"),
@@ -645,16 +738,21 @@ impl Worktrees {
         let target = path_text(path);
         let plain = |failure: ScmFailure| (failure, None);
         let reason = format!("mixdog session={}", request.session_id);
+        self.set_resource(record, "worktree", "created", cancel).await.map_err(plain)?;
+        self.set_resource(record, "lock", "pending", cancel).await.map_err(plain)?;
         git.run(cancel, &facts.project_path, &["worktree", "lock", "--reason", &reason, &target])
             .await
             .map_err(plain)?;
+        self.set_resource(record, "lock", "created", cancel).await.map_err(plain)?;
         if !request.runtime_token.trim().is_empty() {
             let owner = crate::worktree::ownership::Owner {
                 session_id: request.session_id.clone(),
                 runtime_token: request.runtime_token.clone(),
                 pid: Some(std::process::id()),
             };
+            self.set_resource(record, "owner", "pending", cancel).await.map_err(plain)?;
             self.write_owner_lease(record, &owner, cancel).await.map_err(plain)?;
+            self.set_resource(record, "owner", "created", cancel).await.map_err(plain)?;
         }
         // Carried before the include entries are copied, so an include never stands in the way
         // of a carried file; the status is read again inside, right before acting.
@@ -797,7 +895,7 @@ impl Worktrees {
         .await;
         if let Err(failure) = made {
             // `rollbackCreation` over the ledger as far as it got; the creation's failure is the one surfaced.
-            self.undo_failed_creation(&mut record, &[], &failure, cancel).await;
+            self.undo_failed_creation(&mut record, &failure, cancel).await;
             return Err(failure);
         }
         self.ledger.register(&record.id, &path);
@@ -1036,7 +1134,8 @@ impl Worktrees {
             return Err(errors::missing(Some(entry_id.to_owned()), None, None));
         };
         let project = PathBuf::from(&record.project_path);
-        let repo: Repo = self.scm.open(&project, cancel).await?;
+        // The lock follows the repository (the common dir when the project folder moved), as Node's `withRepoLock(record.repoCommonDir)`.
+        let repo: Repo = self.scm.open(&crate::worktree::housekeeping::repo_cwd(&record), cancel).await?;
         let _lock = repo.lock_repository().await?;
         let source = PathBuf::from(&record.path);
         let operation = self.scm.open(&source, cancel).await.ok().and_then(|r| operation_in_progress(&r.identity.git_dir));
@@ -1062,50 +1161,5 @@ impl Worktrees {
         }
         repo.touched();
         Ok(merged)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct Named(&'static str);
-
-    #[async_trait::async_trait]
-    impl crate::worktree::removal::RootCleanup for Named {
-        fn name(&self) -> &str {
-            self.0
-        }
-
-        async fn run(&self, _root: &Path, _entry_id: &str) -> Result<(), String> {
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn a_root_cleanup_given_twice_runs_once_and_another_still_joins_it() {
-        let scm = crate::engine::Scm::new(
-            crate::testing::TestProcesses::shared(),
-            mixdog_rt::testing::tokens().maintenance_io,
-            std::env::temp_dir(),
-        );
-        let same: Arc<dyn crate::worktree::removal::RootCleanup> = Arc::new(Named("same"));
-        let other: Arc<dyn crate::worktree::removal::RootCleanup> = Arc::new(Named("other"));
-        let worktrees = Worktrees::new(scm, std::env::temp_dir())
-            .with_root_cleanup(same.clone())
-            .with_root_cleanup(same.clone())
-            .with_root_cleanup(other);
-        let names: Vec<&str> = worktrees.cleanups().iter().map(|cleanup| cleanup.name()).collect();
-        assert_eq!(names, ["same", "other"]);
-    }
-
-    #[test]
-    fn the_porcelain_list_names_branch_detached_and_prunable_rows() {
-        let rows = parse_worktree_list(
-            "worktree /r\0HEAD aaa\0branch refs/heads/main\0\0worktree /w/x\0HEAD bbb\0detached\0prunable gitdir file points to non-existent location\0\0",
-        );
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].branch.as_deref(), Some("main"));
-        assert!(rows[1].detached && rows[1].prunable);
     }
 }

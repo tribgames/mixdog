@@ -91,7 +91,9 @@ mod tests {
     use mixdog_core_api::ids::ConnectionId;
     use mixdog_core_api::ids::Method;
     use mixdog_core_api::service::Admit;
+    #[cfg(node_twin)]
     use mixdog_rt::CancellationToken;
+    #[cfg(node_twin)]
     use mixdog_rt::LaneToken;
 
     use super::*;
@@ -124,6 +126,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     /// The text of a value with `from` replaced by `{data}` in every string, keys in order.
     fn portable(value: &Value, from: &str) -> Value {
         match value {
@@ -134,10 +137,12 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn golden() -> Value {
         serde_json::from_str(include_str!("../tests/golden/setup_status.json")).unwrap()
     }
 
+    #[cfg(node_twin)]
     /// `mcp`, `skills`, `plugins`: Node's reader over the runtime answers it recorded, through the
     /// real setup executor; the object is compared as text, so the key order counts.
     #[tokio::test]
@@ -157,6 +162,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     /// `hooks`: the real hook-bus status of a hooks file, read as the doctor reads it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_hooks_domain_answers_as_nodes_executor_does() {
@@ -194,5 +200,42 @@ mod tests {
             let shown = portable(&Value::Object(node), &dir.path().to_string_lossy()).to_string();
             assert_eq!(shown, case["text"].as_str().unwrap(), "{}", case["name"]);
         }
+    }
+
+    fn reader(runtime: Value, hooks: Value) -> ServiceStatus {
+        let service: Arc<dyn DomainService> = Arc::new(Canned(runtime));
+        ServiceStatus::new(service.clone(), service.clone(), service, Arc::new(Hooks(hooks)))
+    }
+
+    #[tokio::test]
+    async fn the_skills_status_carries_the_disabled_list_and_an_absent_one_is_empty() {
+        let thread = ThreadId::from("t1");
+        let with = reader(json!({ "skillsStatus": { "count": 2 }, "getDisabledSkills": { "disabled": ["beta"] } }), Value::Null);
+        assert_eq!(with.read("skills", false, &thread).await.unwrap().to_string(), r#"{"count":2,"disabled":["beta"]}"#);
+        let without = reader(json!({ "skillsStatus": { "count": 2 }, "getDisabledSkills": { "disabled": null } }), Value::Null);
+        assert_eq!(without.read("skills", false, &thread).await.unwrap().to_string(), r#"{"count":2,"disabled":[]}"#);
+    }
+
+    #[tokio::test]
+    async fn the_plugins_status_is_the_runtimes_answer_as_it_is() {
+        let rows = json!({ "plugins": [{ "id": "plug-a", "enabled": true }] });
+        let status = reader(json!({ "pluginsStatus": rows }), Value::Null);
+        assert_eq!(status.read("plugins", false, &ThreadId::from("t1")).await.unwrap(), rows);
+    }
+
+    #[tokio::test]
+    async fn the_hooks_status_keeps_its_public_keys_in_order_and_leaves_out_those_it_does_not_carry() {
+        let hooks = json!({ "enabled": true, "configMode": "file", "ruleCount": 0, "rules": [], "configuredEvents": ["PreToolUse"], "secret": "x" });
+        let status = reader(Value::Null, hooks);
+        let answer = status.read("hooks", false, &ThreadId::from("t1")).await.unwrap();
+        assert_eq!(answer.to_string(), r#"{"enabled":true,"configMode":"file","ruleCount":0,"rules":[],"configuredEvents":["PreToolUse"]}"#);
+        let off = reader(Value::Null, json!({ "enabled": "yes" }));
+        assert_eq!(off.read("hooks", false, &ThreadId::from("t1")).await.unwrap().to_string(), r#"{"enabled":false,"rules":[]}"#, "only `true` enables, and rules default to none");
+    }
+
+    #[tokio::test]
+    async fn an_unknown_status_domain_is_refused_by_name() {
+        let refused = reader(Value::Null, Value::Null).read("weather", false, &ThreadId::from("t1")).await;
+        assert!(matches!(refused, Err(PortError::Failed { message, .. }) if message == "setup: unknown status domain \"weather\""));
     }
 }

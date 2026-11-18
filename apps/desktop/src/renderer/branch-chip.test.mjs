@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
-const { overrideConfirmAction } = await import('./app-confirm.tsx');
+const { overrideConfirmAction, overridePromptAction } = await import('./app-confirm.tsx');
 
 installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
@@ -586,6 +586,51 @@ test('"Clean up worktrees" is usable while a refreshed preview is pending, and a
   assert.equal(document.querySelector('[data-kind="prune"]').getAttribute('aria-disabled'), null, 'unknown: usable');
   await act(async () => release({ hasCandidates: false }));
   assert.equal(document.querySelector('[data-kind="prune"]').getAttribute('aria-disabled'), 'true');
+});
+
+// The composer's refresh key follows `busy` and `commandBusy`, so an open menu is read again at each turn start and end; each
+// read is a fresh object, and the installed build asked the 12-13 s preview again for every one of them.
+test('an open menu reads the cleanup preview again only when what it depends on changed', async (t) => {
+  clearBranchMenuCache();
+  calls.length = 0;
+  handlers = {
+    getBranchMenu: () => menuFor(),
+    previewWorktreeCleanup: () => ({ hasCandidates: true }),
+  };
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = (refreshKey) =>
+    act(async () =>
+      root.render(React.createElement(BranchChip, { sessionId: 's1', draftId: '', projectPath: '/p', refreshKey }))
+    );
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
+  await render('idle');
+  await settle();
+  const previews = () => calls.filter((call) => call.capability === 'previewWorktreeCleanup').length;
+  const menuReads = () => calls.filter((call) => call.capability === 'getBranchMenu').length;
+  await openMenu(host.querySelector('.branch-chip-trigger'));
+  await settle();
+  assert.equal(previews(), 1, 'read when the menu opens');
+  const readsBefore = menuReads();
+  for (const key of ['busy', 'idle', 'command', 'idle-2']) {
+    await render(key);
+    await settle();
+  }
+  assert.equal(menuReads() - readsBefore, 4, 'the menu itself was read again on each key');
+  assert.equal(previews(), 1, 'same branches and holders: no preview read (was 5)');
+  handlers.getBranchMenu = () =>
+    menuFor({
+      occupancy: menuFor().occupancy.map((row) =>
+        row.branch === 'next-patch' ? { branch: 'next-patch', kind: 'session', sessionId: 's9' } : row
+      ),
+    });
+  await render('busy-2');
+  await settle();
+  assert.equal(previews(), 2, 'a holder changed: the preview is read again');
 });
 
 test('nothingToCleanUp disables only on an explicit "no candidates" answer', () => {
@@ -1550,9 +1595,8 @@ test('opening a history commit as a branch is the guarded checkout with a start 
       ),
     setError: () => {},
   };
-  const originalPrompt = window.prompt;
   const names = ['from-history', 'dirty-try'];
-  window.prompt = () => names.shift();
+  overridePromptAction(() => names.shift());
   overrideConfirmAction(() => true);
   const entry = { hash: 'a'.repeat(40), shortHash: 'aaaaaaa', subject: 'Base' };
   try {
@@ -1580,7 +1624,7 @@ test('opening a history commit as a branch is the guarded checkout with a start 
     await new Promise((resolve) => setTimeout(resolve, 0));
     await Promise.all(runs);
   } finally {
-    window.prompt = originalPrompt;
+    overridePromptAction(null);
     overrideConfirmAction(null);
   }
   assert.deepEqual(

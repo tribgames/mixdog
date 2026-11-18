@@ -429,11 +429,234 @@ mod tests {
         );
     }
 
+    /// The facade's route getters read off the thread's route cell: a requested effort the model does not take is shown as the
+    /// one it does (`high`), with the model's own options and the context percent; a route never refreshed shows its effort as
+    /// asked and no options. The `model` status is printed from the same properties.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_route_facade_reads_the_route_cell_and_shows_the_effort_the_model_takes() {
+        use mixdog_core_agents::setup::ModelStatus;
+        use mixdog_core_agents::setup::StatusReader;
+        let thread = ThreadId::from("sess_lead");
+        let cases = [
+            (
+                "a route with an effort, not refreshed",
+                json!({ "provider": "openai", "model": "gpt-5", "effort": "high" }),
+                json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "fast": false, "autoEffort": true, "fastCapable": false, "modelParameters": {},
+                    "effortOptions": [], "contextPercent": null, "contextTokens": null }),
+                json!([]),
+            ),
+            (
+                "an effort the model does not take",
+                json!({ "provider": "openai", "model": "gpt-5", "effort": "ultra", "fast": false, "fastCapable": false, "effectiveEffort": "high",
+                    "effortOptions": [{ "value": "low", "label": "Low", "description": "" }, { "value": "high", "label": "High", "description": "current" }],
+                    "contextPercent": 30, "contextDefaultPercent": 30, "selectedContextWindow": 272000, "modelDisplay": "GPT 5" }),
+                json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "fast": false, "autoEffort": true, "fastCapable": false, "modelParameters": {},
+                    "effortOptions": [{ "value": "low", "label": "Low", "description": "" }, { "value": "high", "label": "High", "description": "current" }],
+                    "contextPercent": 30, "contextTokens": null }),
+                json!([{ "value": "low", "label": "Low", "description": "" }, { "value": "high", "label": "High", "description": "current" }]),
+            ),
+        ];
+        for (name, route, facade, options) in cases {
+            let rig = Rig::new();
+            let directory = Arc::new(SessionDirectory::new(rig.deps()));
+            let positions = Arc::new(SessionRoutePositions::new(directory, Arc::new(NoBots), Arc::new(Obj::new)));
+            let live = Arc::new(SessionLiveRoute::new(positions, Arc::new(FixedRoute(obj(route)))));
+            assert_eq!(live.route(&thread), facade, "{name}");
+            let printed = ModelStatus::new(live).read("model", false, &thread).await.expect("model status");
+            assert_eq!(printed["effortOptions"], options, "{name}");
+            assert_eq!((&printed["route"]["effort"], &printed["route"]["model"]), (&facade["effort"], &facade["model"]), "{name}");
+        }
+    }
+    /// What the held sessions say of their fallback chains to a caller outside them: a bot at home and an agent worker with a
+    /// chain or a hop are listed in the order they were held, with the chain from the settings or from the session, the place
+    /// they stand on and the next one; a closed session, one with no agent, a lead that never left its primary and a worker
+    /// with no chain and no hop are not.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn held_sessions_list_their_fallback_positions_in_the_order_held() {
+        let failure = |provider: &str, model: &str, kind: &str, error: &str| json!({ "provider": provider, "model": model, "kind": kind, "error": error });
+        let hopped_bot = |id: &str, extra: Value| {
+            let mut session = json!({ "id": id, "owner": "user", "provider": "anthropic", "model": "opus", "routeFallbackIndex": 1,
+                "routeFallbackPrimary": { "provider": "openai", "model": "gpt", "effort": "high" },
+                "routeFallbackFailures": [failure("openai", "gpt", "quota_exhausted", "limit")] });
+            session.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            session
+        };
+        let sessions = [
+            hopped_bot("sess_home_helper", json!({ "agent": "helper" })),
+            json!({ "id": "sess_worker_chain", "owner": "agent", "agent": "worker", "provider": "openai", "model": "gpt",
+                "routeFallbacks": [{ "provider": "anthropic", "model": "opus" }, { "provider": "google", "model": "gemini" }] }),
+            json!({ "id": "sess_worker_bare", "owner": "agent", "agent": "worker", "provider": "openai", "model": "gpt", "routeFallbacks": [] }),
+            json!({ "id": "sess_worker_hopped", "owner": "agent", "agent": "worker", "provider": "openai", "model": "gpt", "routeFallbacks": [],
+                "routeFallbackIndex": 1, "routeFallbackFailures": [failure("openai", "gpt", "rate_limit", "slow")] }),
+            hopped_bot("sess_helper_closed", json!({ "agent": "helper", "closed": true })),
+            hopped_bot("sess_noagent", json!({})),
+            json!({ "id": "sess_lead_fresh", "owner": "user", "agent": "lead", "provider": "openai", "model": "gpt" }),
+        ];
+        let config = obj(json!({
+            "default": "workflow-lead",
+            "presets": [{ "id": "workflow-lead", "name": "WORKFLOW LEAD", "provider": "openai", "model": "gpt", "effort": "high",
+                "fallbacks": [{ "provider": "anthropic", "model": "opus" }, { "provider": "google", "model": "gemini" }] }],
+            "agents": { "helper": { "provider": "openai", "model": "gpt", "fallbacks": [{ "provider": "anthropic", "model": "opus" }, { "provider": "google", "model": "gemini" }] } }
+        }));
+        let rig = Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        for session in sessions {
+            let id = session["id"].as_str().expect("id").to_owned();
+            directory.create_with_id(ThreadId::from(id), obj(session), json!({})).await.expect("held");
+        }
+        let positions = SessionRoutePositions::new(directory, Arc::new(NoBots), Arc::new(move || config.clone()));
+        let rows = positions.others(&ThreadId::from("sess_other")).await.expect("positions");
+        let want = json!([
+            { "sessionId": "sess_home_helper", "kind": "bot", "agent": "helper", "current": { "provider": "anthropic", "model": "opus" },
+              "primary": { "provider": "openai", "model": "gpt" }, "onPrimary": false, "fallbackIndex": 1,
+              "fallbacks": [{ "provider": "anthropic", "model": "opus" }, { "provider": "google", "model": "gemini" }], "chainFrom": "settings",
+              "next": { "provider": "google", "model": "gemini" }, "failures": [failure("openai", "gpt", "quota_exhausted", "limit")] },
+            { "sessionId": "sess_worker_chain", "kind": "agent", "agent": "worker", "current": { "provider": "openai", "model": "gpt" },
+              "primary": { "provider": "openai", "model": "gpt" }, "onPrimary": true, "fallbackIndex": 0,
+              "fallbacks": [{ "provider": "anthropic", "model": "opus" }, { "provider": "google", "model": "gemini" }], "chainFrom": "session",
+              "next": { "provider": "anthropic", "model": "opus" }, "failures": [] },
+            { "sessionId": "sess_worker_hopped", "kind": "agent", "agent": "worker", "current": { "provider": "openai", "model": "gpt" },
+              "primary": { "provider": "openai", "model": "gpt" }, "onPrimary": true, "fallbackIndex": 1, "fallbacks": [], "chainFrom": "session",
+              "next": null, "failures": [failure("openai", "gpt", "rate_limit", "slow")] },
+        ]);
+        assert_eq!(Value::Array(rows), want);
+    }
+    /// The `model` status over the held sessions, row by row: the Lead preset's chain on the route, the caller's own place (a Lead,
+    /// a bot or a worker; none for a caller with no agent, one not held, or none), the other Lead conversations' places, and the
+    /// agents' sessions beside it; each in the order the sessions were held (`loaded_handles` sorts by `loaded_seq`, the order
+    /// they were loaded). A chain comes from the settings (the Lead preset, an agent's own) or from the session; a Lead preset with
+    /// no chain, or none at all, gives the route no fallbacks and its sessions no "other Lead" rows; a bot's chain is its own
+    /// configured route's whatever the Lead preset is (`owner_configured_route`, `route_chain.rs:174`), so its place stays "settings".
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_model_status_table_lists_the_callers_place_and_the_others_by_the_rules() {
+        use mixdog_core_agents::setup::ModelStatus;
+        use mixdog_core_agents::setup::StatusReader;
+        type Place = (&'static str, &'static str, &'static str, u64);
+        struct Row {
+            name: &'static str,
+            caller: &'static str,
+            config: &'static str,
+            empty_facts: bool,
+            held: &'static [&'static str],
+            fallbacks: usize,
+            session: Option<(&'static str, &'static str, &'static str, u64, Option<&'static str>)>,
+            sessions: &'static [(&'static str, u64)],
+            agents: &'static [Place],
+        }
+        const ALL: &[&str] = &["sess_lead_a", "sess_home_helper", "sess_lead_b", "sess_worker_chain", "sess_lead_closed", "sess_lead_plain", "sess_noagent"];
+        const HELPER: Place = ("sess_home_helper", "bot", "settings", 1);
+        const WORKER: Place = ("sess_worker_chain", "agent", "session", 0);
+        const LEAD_A: (&str, &str, &str, u64, Option<&str>) = ("sess_lead_a", "lead", "settings", 1, Some("google"));
+        const LEAD_NO_NEXT: (&str, &str, &str, u64, Option<&str>) = ("sess_lead_a", "lead", "settings", 1, None);
+        const LEAD_B: (&str, &str, &str, u64, Option<&str>) = ("sess_lead_b", "lead", "settings", 0, Some("anthropic"));
+        macro_rules! row {
+            ($name:expr, $caller:expr, $config:expr, $empty_facts:expr, $held:expr, $fallbacks:expr, $session:expr, $sessions:expr, $agents:expr) => {
+                Row { name: $name, caller: $caller, config: $config, empty_facts: $empty_facts, held: $held, fallbacks: $fallbacks, session: $session, sessions: $sessions, agents: $agents }
+            };
+        }
+        let rows = [
+            row!("a Lead caller with the Lead chain", "sess_lead_a", "chain", false, ALL, 2, Some(LEAD_A), &[("sess_lead_b", 0)], &[HELPER, WORKER]),
+            row!("a fresh Lead caller", "sess_lead_b", "chain", false, ALL, 2, Some(LEAD_B), &[("sess_lead_a", 1)], &[HELPER, WORKER]),
+            row!("a bot caller", "sess_home_helper", "chain", false, ALL, 2, Some(("sess_home_helper", "bot", "settings", 1, Some("google"))), &[("sess_lead_a", 1), ("sess_lead_b", 0)], &[WORKER]),
+            row!("a worker caller", "sess_worker_chain", "chain", false, ALL, 2, Some(("sess_worker_chain", "agent", "session", 0, Some("anthropic"))), &[("sess_lead_a", 1), ("sess_lead_b", 0)], &[HELPER]),
+            row!("a caller without an agent", "sess_noagent", "chain", false, ALL, 2, None, &[("sess_lead_a", 1), ("sess_lead_b", 0)], &[HELPER, WORKER]),
+            row!("a caller that is not held", "sess_other", "chain", false, ALL, 2, None, &[("sess_lead_a", 1), ("sess_lead_b", 0)], &[HELPER, WORKER]),
+            row!("no caller", "", "chain", false, ALL, 2, None, &[("sess_lead_a", 1), ("sess_lead_b", 0)], &[HELPER, WORKER]),
+            row!("nothing held", "sess_lead_a", "chain", false, &[], 2, None, &[], &[]),
+            row!("a Lead preset without a chain", "sess_lead_a", "bare", false, ALL, 0, Some(LEAD_NO_NEXT), &[], &[HELPER, WORKER]),
+            row!("a Lead preset with an empty chain", "sess_lead_a", "empty", false, ALL, 0, Some(LEAD_NO_NEXT), &[], &[HELPER, WORKER]),
+            row!("no Lead preset", "sess_lead_a", "none", false, ALL, 0, Some(LEAD_NO_NEXT), &[], &[HELPER, WORKER]),
+            row!("a facade with nothing set", "sess_lead_a", "chain", true, ALL, 2, Some(LEAD_A), &[("sess_lead_b", 0)], &[HELPER, WORKER]),
+            row!(
+                "held in another order",
+                "sess_lead_b",
+                "chain",
+                false,
+                &["sess_noagent", "sess_lead_plain", "sess_lead_closed", "sess_worker_chain", "sess_lead_b", "sess_home_helper", "sess_lead_a"],
+                2,
+                Some(LEAD_B),
+                &[("sess_lead_a", 1)],
+                &[WORKER, HELPER]
+            ),
+        ];
+        let chain = json!([{ "provider": "anthropic", "model": "opus" }, { "provider": "google", "model": "gemini" }]);
+        let hopped = |id: &str, agent: Option<&str>, owner: &str, extra: Value| {
+            let mut header = json!({ "id": id, "owner": owner, "provider": "anthropic", "model": "opus", "routeFallbackIndex": 1,
+                "routeFallbackPrimary": { "provider": "openai", "model": "gpt", "effort": "high" },
+                "routeFallbackFailures": [{ "provider": "openai", "model": "gpt", "kind": "quota_exhausted", "error": "limit" }] });
+            if let Some(agent) = agent {
+                header["agent"] = json!(agent);
+            }
+            header.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            header
+        };
+        let sessions = [
+            hopped("sess_lead_a", Some("lead"), "user", json!({})),
+            hopped("sess_home_helper", Some("helper"), "user", json!({})),
+            json!({ "id": "sess_lead_b", "owner": "user", "agent": "lead", "provider": "openai", "model": "gpt" }),
+            json!({ "id": "sess_worker_chain", "owner": "agent", "agent": "worker", "provider": "openai", "model": "gpt", "routeFallbacks": chain }),
+            hopped("sess_lead_closed", Some("lead"), "user", json!({ "closed": true })),
+            json!({ "id": "sess_lead_plain", "owner": "user", "agent": "lead", "provider": "openai", "model": "other" }),
+            json!({ "id": "sess_noagent", "owner": "user", "provider": "openai", "model": "gpt" }),
+        ];
+        let preset = |extra: Value| {
+            let mut preset = json!({ "id": "workflow-lead", "name": "WORKFLOW LEAD", "provider": "openai", "model": "gpt", "effort": "high" });
+            preset.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            preset
+        };
+        let configs = |kind: &str| match kind {
+            "chain" => json!({ "default": "workflow-lead", "presets": [preset(json!({ "fallbacks": chain }))], "agents": { "helper": { "provider": "openai", "model": "gpt", "fallbacks": chain } } }),
+            "bare" => json!({ "default": "workflow-lead", "presets": [preset(json!({}))], "agents": { "helper": { "provider": "openai", "model": "gpt", "fallbacks": chain } } }),
+            "empty" => json!({ "default": "workflow-lead", "presets": [preset(json!({ "fallbacks": [] }))], "agents": { "helper": { "provider": "openai", "model": "gpt", "fallbacks": chain } } }),
+            _ => json!({ "default": "main", "presets": [{ "id": "main", "name": "Main", "provider": "openai", "model": "gpt" }], "agents": { "helper": { "provider": "openai", "model": "gpt", "fallbacks": chain } } }),
+        };
+        let facts = json!({ "provider": "openai", "model": "gpt", "effort": "high", "fast": true, "fastCapable": true, "autoEffort": false, "modelParameters": { "tier": "x" },
+            "contextPercent": 34, "contextTokens": 1200, "effortOptions": ["low", "high"] });
+        for row in rows {
+            let rig = Rig::new();
+            let directory = Arc::new(SessionDirectory::new(rig.deps()));
+            for id in row.held {
+                let header = sessions.iter().find(|session| session["id"] == *id).expect("a known session").clone();
+                directory.create_with_id(ThreadId::from(*id), obj(header), json!({})).await.expect("held");
+            }
+            let config = obj(configs(row.config));
+            let positions = Arc::new(SessionRoutePositions::new(directory, Arc::new(NoBots), Arc::new(move || config.clone())));
+            let live = Arc::new(SessionLiveRoute::new(positions, Arc::new(FixedRoute(obj(if row.empty_facts { json!({}) } else { facts.clone() })))));
+            let caller = ThreadId::from(row.caller);
+            let printed = ModelStatus::new(live.clone()).read("model", false, &caller).await.expect("model status");
+            let name = row.name;
+            let fallbacks = printed["route"]["fallbacks"].as_array().map_or(0, Vec::len);
+            assert_eq!(fallbacks, row.fallbacks, "{name}: the route's chain");
+            assert_eq!(printed["route"]["provider"], if row.empty_facts { "" } else { "openai" }, "{name}: the route is the facade's");
+            assert_eq!(printed["effortOptions"], if row.empty_facts { json!([]) } else { json!(["low", "high"]) }, "{name}");
+            let place = |entry: &Value| {
+                (
+                    entry["sessionId"].as_str().unwrap().to_owned(),
+                    entry["kind"].as_str().unwrap().to_owned(),
+                    entry["chainFrom"].as_str().unwrap().to_owned(),
+                    entry["fallbackIndex"].as_u64().unwrap(),
+                    entry["next"]["provider"].as_str().map(str::to_owned),
+                )
+            };
+            let want = row.session.map(|(id, kind, from, at, next)| (id.to_owned(), kind.to_owned(), from.to_owned(), at, next.map(str::to_owned)));
+            assert_eq!((!printed["session"].is_null()).then(|| place(&printed["session"])), want, "{name}: the caller's own place");
+            let others: Vec<(String, u64)> = printed["sessions"].as_array().expect("sessions").iter().map(|entry| (place(entry).0, place(entry).3)).collect();
+            assert_eq!(others, row.sessions.iter().map(|(id, at)| ((*id).to_owned(), *at)).collect::<Vec<_>>(), "{name}: the other Lead conversations");
+            let agents = live.positions(&caller, false).await.expect("agents positions");
+            let listed: Vec<(String, String, String, u64)> = agents["sessions"].as_array().expect("agent sessions").iter().map(|entry| {
+                let (id, kind, from, at, _) = place(entry);
+                (id, kind, from, at)
+            }).collect();
+            assert_eq!(listed, row.agents.iter().map(|(id, kind, from, at)| ((*id).to_owned(), (*kind).to_owned(), (*from).to_owned(), *at)).collect::<Vec<_>>(), "{name}: the agents' sessions");
+        }
+    }
+    #[cfg(node_twin)]
     /// `routePositionsStatus({ caller, config, keep: kind !== 'lead' }).sessions` over the held
     /// sessions (`fixtures/route-positions`, Node's real `liveRouteFallbackPositions`): the
     /// rows, whole and in the order the sessions were held.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn held_sessions_answer_nodes_fallback_positions() {
+        #[cfg(node_twin)]
         const GOLDEN: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/route-positions/golden.json"));
         let golden: Value = serde_json::from_str(&GOLDEN).expect("golden");
         let mut rows_checked = 0;
@@ -454,6 +677,7 @@ mod tests {
         assert!(rows_checked >= 10, "the golden holds rows");
     }
 
+    #[cfg(node_twin)]
     /// The facade's route getters (`fixtures/live-route-facade`, Node's real `createRuntimeFacade`
     /// over a route its real `refreshRouteEffort` filled) read off the thread's route cell: the
     /// properties whole, and the `model` status printed from them.
@@ -461,6 +685,7 @@ mod tests {
     async fn the_route_facade_properties_are_read_off_the_route_cell() {
         use mixdog_core_agents::setup::ModelStatus;
         use mixdog_core_agents::setup::StatusReader;
+        #[cfg(node_twin)]
         const GOLDEN: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/live-route-facade/golden.json"));
         let golden: Value = serde_json::from_str(&GOLDEN).expect("golden");
         let thread = ThreadId::from("sess_lead");
@@ -479,6 +704,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     /// The `model` status domain over `SessionLiveRoute` (`fixtures/live-route`, Node's real setup
     /// executor over held sessions): the Lead preset's chain, the caller's own place, and the other
     /// Lead conversations' places, printed whole and in key order; and the `agents` domain's
@@ -487,6 +713,7 @@ mod tests {
     async fn the_model_status_prints_what_nodes_setup_executor_did() {
         use mixdog_core_agents::setup::ModelStatus;
         use mixdog_core_agents::setup::StatusReader;
+        #[cfg(node_twin)]
         const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/live-route/golden.json");
         let golden: Value = serde_json::from_str(&GOLDEN).expect("golden");
         for case in golden["cases"].as_array().expect("cases") {

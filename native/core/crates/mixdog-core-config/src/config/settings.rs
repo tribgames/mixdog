@@ -25,7 +25,7 @@ type Doc = Map<String, Value>;
 pub(crate) async fn save_and_adopt(config: &Config, before: &Doc, after: &Doc) -> Result<(), super::ConfigError> {
     // `after` descends from the adopted config, so it keeps the section `before` was stamped with: a Lead route it adds must not turn a fresh
     // profile into a grandfathered one.
-    let before = crate::tool_modules::with_grandfathered_builtins(before);
+    let before = crate::tool_modules::adopt(before, config.origin());
     let mut after = after.clone();
     if !after.contains_key("builtins") {
         after.insert("builtins".into(), before.get("builtins").cloned().unwrap_or(Value::Null));
@@ -279,6 +279,12 @@ impl Settings {
         after.insert("developer".into(), Value::Object(developer));
         self.save(&before, &after).await?;
         self.effects.sync_developer_option(name).await;
+        Ok(self.developer())
+    }
+
+    pub(super) async fn enable_confirmed_allow_all_actions(&self) -> Result<Value, ToolModulesError> {
+        self.config.enable_confirmed_allow_all_actions().await.map_err(ToolModulesError::Config)?;
+        self.effects.sync_developer_option("allowAllActions").await;
         Ok(self.developer())
     }
 

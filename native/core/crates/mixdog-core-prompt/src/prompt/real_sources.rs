@@ -440,6 +440,27 @@ fn read_instruction_file(path: &Path, root: Option<&Path>) -> String {
     }
     bounded_text(&head)
 }
+
+#[cfg(all(test, unix))]
+#[allow(clippy::disallowed_methods, reason = "test setup: a real FIFO")]
+mod fifo_tests {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    use super::read_instruction_file;
+
+    /// A FIFO named like an instruction file has no content and does not block the composition
+    /// (`instruction-files.mjs`: the type is checked before the open, which is non-blocking).
+    #[test]
+    fn a_fifo_instruction_file_is_skipped_without_blocking() {
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("AGENTS.md");
+        let name = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        assert_eq!(read_instruction_file(&fifo, Some(dir.path())), "");
+    }
+}
+
 impl PromptSources for RealSources<'_> {
     fn role_catalog(&self, agent: Option<&str>, _provider: Option<&str>) -> String {
         let agent = agent.filter(|agent| !agent.is_empty());
@@ -673,25 +694,5 @@ impl PromptSources for RealSources<'_> {
 
     fn system_locale(&self) -> String {
         self.host.locale.to_owned()
-    }
-}
-
-#[cfg(all(test, unix))]
-#[allow(clippy::disallowed_methods, reason = "test setup: a real FIFO")]
-mod fifo_tests {
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStrExt;
-
-    use super::read_instruction_file;
-
-    /// A FIFO named like an instruction file has no content and does not block the composition
-    /// (`instruction-files.mjs`: the type is checked before the open, which is non-blocking).
-    #[test]
-    fn a_fifo_instruction_file_is_skipped_without_blocking() {
-        let dir = tempfile::tempdir().unwrap();
-        let fifo = dir.path().join("AGENTS.md");
-        let name = CString::new(fifo.as_os_str().as_bytes()).unwrap();
-        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
-        assert_eq!(read_instruction_file(&fifo, Some(dir.path())), "");
     }
 }

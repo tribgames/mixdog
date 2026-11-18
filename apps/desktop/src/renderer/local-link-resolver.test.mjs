@@ -159,19 +159,19 @@ test('a conversation folder that is not a registered Project opens its files by 
           name: 'deck.pptx',
           dir: false,
           size: 1,
-          projectPath: 'C:/Project/mixdog',
+          projectPath: 'C:/Project/sample',
           relPath: 'out/A/deck.pptx',
         },
       ];
     },
   });
-  const expected = { project: 'C:/Project/mixdog', path: 'out/A/deck.pptx' };
-  assert.deepEqual(await resolveLocalLink('C:\\Project\\mixdog\\out\\A', 'deck.pptx'), expected);
+  const expected = { project: 'C:/Project/sample', path: 'out/A/deck.pptx' };
+  assert.deepEqual(await resolveLocalLink('C:\\Project\\sample\\out\\A', 'deck.pptx'), expected);
   assert.deepEqual(
-    await resolveLocalLink('C:\\Project\\mixdog\\out\\A', 'C:\\Project\\mixdog\\out\\A\\deck.pptx'),
+    await resolveLocalLink('C:\\Project\\sample\\out\\A', 'C:\\Project\\sample\\out\\A\\deck.pptx'),
     expected
   );
-  assert.deepEqual(resolved, ['C:/Project/mixdog/out/A/deck.pptx', 'C:/Project/mixdog/out/A/deck.pptx']);
+  assert.deepEqual(resolved, ['C:/Project/sample/out/A/deck.pptx', 'C:/Project/sample/out/A/deck.pptx']);
 });
 
 test('a registered Project whose folder is gone neither hides a match nor replaces a miss', async (t) => {
@@ -220,10 +220,10 @@ test('a refusal is told by its code: a file name or message wording never turns 
     throw Object.assign(new Error('registry has no such entry'), { code: 'PROJECT_UNAVAILABLE' });
   };
   calls.window.mixdogDesktop.resolveLocalPaths = async ([absolutePath]) => [
-    { absolutePath, projectPath: 'C:/Project/mixdog', relPath: 'docs/found.md' },
+    { absolutePath, projectPath: 'C:/Project/sample', relPath: 'docs/found.md' },
   ];
   assert.deepEqual(await resolveLocalLink(PROJECT, 'docs/found.md'), {
-    project: 'C:/Project/mixdog',
+    project: 'C:/Project/sample',
     path: 'docs/found.md',
   });
   calls.window.mixdogDesktop.statProjectFile = async () => {

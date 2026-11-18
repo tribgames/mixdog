@@ -392,6 +392,139 @@ pub fn in_place_reroot_patch(header: &Header, cwd: &str, context: &WorkspaceCont
     (change, undo)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(node_twin)]
+    const GOLDENS: &str = include_str!("worktree_goldens/reroot_goldens.json");
+
+    #[cfg(node_twin)]
+    fn header_of(state: &Value) -> Header {
+        state["header"].as_object().expect("header").clone()
+    }
+
+    #[cfg(node_twin)]
+    fn view<'a>(header: &'a Header, state: &'a Value) -> PromptView<'a> {
+        PromptView { header, tier3: state["tier3"].as_str(), env: state["env"].as_str() }
+    }
+
+    #[cfg(node_twin)]
+    /// The header and messages a rewrite leaves.
+    fn landed(before: &Value, rewrite: &PromptRewrite) -> Value {
+        let mut header = header_of(before);
+        for key in &rewrite.change.unset {
+            header.shift_remove(key);
+        }
+        for (key, value) in &rewrite.change.set {
+            header.insert(key.clone(), value.clone());
+        }
+        let pick = |new: &Option<String>, old: &Value| new.as_ref().map_or(old.clone(), |n| Value::String(n.clone()));
+        serde_json::json!({ "header": header, "tier3": pick(&rewrite.tier3, &before["tier3"]), "env": pick(&rewrite.env, &before["env"]) })
+    }
+
+    #[cfg(node_twin)]
+    /// Node's `updateSessionRoute` prompt effect, scenario by scenario, byte for byte.
+    #[test]
+    fn a_route_change_applies_the_staged_reroot_exactly_as_node_does() {
+        let cases: Vec<Value> = serde_json::from_str(GOLDENS).expect("goldens");
+        assert_eq!(cases.len(), 6);
+        for case in &cases {
+            let before = &case["before"];
+            let header = header_of(before);
+            assert!(pending_workspace_reroot(&header).is_some(), "{}: staged", case["name"]);
+            let applied = landed(before, &route_prompt_refresh(&view(&header, before), true));
+            assert_eq!(applied, case["applied"], "{}: applied", case["name"]);
+            let kept = landed(before, &route_prompt_refresh(&view(&header, before), false));
+            assert_eq!(kept, case["kept"], "{}: kept", case["name"]);
+        }
+    }
+
+    #[cfg(node_twin)]
+    /// Node's prompt state as the header holds it: the fields, the `tier3` message under its block
+    /// key (`bp3CoreContext` itself in the split layout, `promptTier3` in the combined one) and
+    /// the `env` message as `promptEnv`.
+    fn stored(state: &Value) -> Header {
+        let mut header = header_of(state);
+        let split = header.get("bp3EnvSplit") == Some(&Value::Bool(true));
+        if let Some(tier3) = state["tier3"].as_str() {
+            if split {
+                assert_eq!(header.get("bp3CoreContext").and_then(Value::as_str), Some(tier3), "the split tier3 message is bp3CoreContext");
+            } else {
+                header.insert("promptTier3".to_owned(), Value::String(tier3.to_owned()));
+            }
+        }
+        if let Some(env) = state["env"].as_str() {
+            header.insert("promptEnv".to_owned(), Value::String(env.to_owned()));
+        }
+        header
+    }
+
+    #[cfg(node_twin)]
+    fn patched(header: &Header, change: &HeaderChange) -> Header {
+        let mut next = header.clone();
+        for key in &change.unset {
+            next.shift_remove(key);
+        }
+        for (key, value) in &change.set {
+            next.insert(key.clone(), value.clone());
+        }
+        next
+    }
+
+    #[cfg(node_twin)]
+    /// `refreshWorkspacePrompt`'s context: an absent slice is `undefined` (kept).
+    fn context_of(context: &Value) -> WorkspaceContext {
+        let slice = |key: &str| context.get(key).and_then(Value::as_str).map(str::to_owned);
+        WorkspaceContext {
+            environment_context: slice("environmentContext"),
+            core_memory_context: slice("coreMemoryContext"),
+            instruction_files_context: slice("instructionFilesContext"),
+        }
+    }
+
+    #[cfg(node_twin)]
+    #[test]
+    fn the_pending_read_reports_the_staged_state_and_none_without_one() {
+        let cases: Vec<Value> = serde_json::from_str(GOLDENS).expect("goldens");
+        let header = header_of(&cases[0]["before"]);
+        let pending = pending_workspace_reroot(&header).expect("staged");
+        assert_eq!(pending.revision, 1);
+        assert_eq!(pending.root_cwd.as_deref(), Some("C:/repo"));
+        assert_eq!(pending.target["cwd"], "C:/data/worktrees-v1/abc/fix");
+        assert!(pending_workspace_reroot(&header_of(&cases[0]["applied"])).is_none());
+    }
+
+    #[test]
+    fn a_model_name_is_displayed_as_nodes_session_block_shows_it() {
+        assert_eq!(model_display("gpt-5.4-2026-01-02"), "GPT-5.4");
+        assert_eq!(model_display("claude-opus-4-1"), "Claude-Opus-4-1");
+        assert_eq!(model_display("  "), "");
+    }
+
+
+    #[cfg(node_twin)]
+    /// Node's `refreshSessionWorkspaceContext` on a session without a conversation
+    /// (`fixtures/prompt-reroot`), case by case, byte for byte; the undo puts every touched key
+    /// back (`snapshotPrompt`).
+    #[test]
+    fn a_session_without_a_conversation_is_rerooted_in_place_exactly_as_node_does() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/prompt-reroot/golden.json")).expect("golden");
+        let cases: Vec<&Value> = golden["cases"].as_array().expect("cases").iter().filter(|case| case["before"]["systemOnly"] == Value::Bool(true)).collect();
+        assert_eq!(cases.len(), 11);
+        for case in cases {
+            let name = &case["name"];
+            let before = stored(&case["before"]);
+            let cwd = case["context"]["cwd"].as_str().expect("cwd");
+            let (change, undo) = in_place_reroot_patch(&before, cwd, &context_of(&case["context"]));
+            let after = patched(&before, &change);
+            assert_eq!(after, stored(&case["after"]), "{name}: after");
+            assert_eq!(patched(&after, &undo), before, "{name}: the undo restores the prompt");
+        }
+    }
+}
+
+
 /// `HostRuntime::reroot_prompt`: the in-place re-root of a loaded session's prompt, landed in one
 /// durable header patch; the undo is one patch putting the touched keys back.
 pub struct PromptReroot {
@@ -399,7 +532,6 @@ pub struct PromptReroot {
     threads: Arc<dyn ThreadState>,
     surface: mixdog_core_base::surface::SurfaceGeneration,
 }
-
 impl PromptReroot {
     pub fn new(directory: Arc<SessionDirectory>, threads: Arc<dyn ThreadState>) -> Self {
         Self { directory, threads, surface: mixdog_core_base::surface::SurfaceGeneration::default() }
@@ -434,126 +566,5 @@ impl PromptReroot {
             })
         });
         Ok(undo)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const GOLDENS: &str = include_str!("worktree_goldens/reroot_goldens.json");
-
-    fn header_of(state: &Value) -> Header {
-        state["header"].as_object().expect("header").clone()
-    }
-
-    fn view<'a>(header: &'a Header, state: &'a Value) -> PromptView<'a> {
-        PromptView { header, tier3: state["tier3"].as_str(), env: state["env"].as_str() }
-    }
-
-    /// The header and messages a rewrite leaves.
-    fn landed(before: &Value, rewrite: &PromptRewrite) -> Value {
-        let mut header = header_of(before);
-        for key in &rewrite.change.unset {
-            header.shift_remove(key);
-        }
-        for (key, value) in &rewrite.change.set {
-            header.insert(key.clone(), value.clone());
-        }
-        let pick = |new: &Option<String>, old: &Value| new.as_ref().map_or(old.clone(), |n| Value::String(n.clone()));
-        serde_json::json!({ "header": header, "tier3": pick(&rewrite.tier3, &before["tier3"]), "env": pick(&rewrite.env, &before["env"]) })
-    }
-
-    /// Node's `updateSessionRoute` prompt effect, scenario by scenario, byte for byte.
-    #[test]
-    fn a_route_change_applies_the_staged_reroot_exactly_as_node_does() {
-        let cases: Vec<Value> = serde_json::from_str(GOLDENS).expect("goldens");
-        assert_eq!(cases.len(), 6);
-        for case in &cases {
-            let before = &case["before"];
-            let header = header_of(before);
-            assert!(pending_workspace_reroot(&header).is_some(), "{}: staged", case["name"]);
-            let applied = landed(before, &route_prompt_refresh(&view(&header, before), true));
-            assert_eq!(applied, case["applied"], "{}: applied", case["name"]);
-            let kept = landed(before, &route_prompt_refresh(&view(&header, before), false));
-            assert_eq!(kept, case["kept"], "{}: kept", case["name"]);
-        }
-    }
-
-    /// Node's prompt state as the header holds it: the fields, the `tier3` message under its block
-    /// key (`bp3CoreContext` itself in the split layout, `promptTier3` in the combined one) and
-    /// the `env` message as `promptEnv`.
-    fn stored(state: &Value) -> Header {
-        let mut header = header_of(state);
-        let split = header.get("bp3EnvSplit") == Some(&Value::Bool(true));
-        if let Some(tier3) = state["tier3"].as_str() {
-            if split {
-                assert_eq!(header.get("bp3CoreContext").and_then(Value::as_str), Some(tier3), "the split tier3 message is bp3CoreContext");
-            } else {
-                header.insert("promptTier3".to_owned(), Value::String(tier3.to_owned()));
-            }
-        }
-        if let Some(env) = state["env"].as_str() {
-            header.insert("promptEnv".to_owned(), Value::String(env.to_owned()));
-        }
-        header
-    }
-
-    fn patched(header: &Header, change: &HeaderChange) -> Header {
-        let mut next = header.clone();
-        for key in &change.unset {
-            next.shift_remove(key);
-        }
-        for (key, value) in &change.set {
-            next.insert(key.clone(), value.clone());
-        }
-        next
-    }
-
-    /// `refreshWorkspacePrompt`'s context: an absent slice is `undefined` (kept).
-    fn context_of(context: &Value) -> WorkspaceContext {
-        let slice = |key: &str| context.get(key).and_then(Value::as_str).map(str::to_owned);
-        WorkspaceContext {
-            environment_context: slice("environmentContext"),
-            core_memory_context: slice("coreMemoryContext"),
-            instruction_files_context: slice("instructionFilesContext"),
-        }
-    }
-
-    /// Node's `refreshSessionWorkspaceContext` on a session without a conversation
-    /// (`fixtures/prompt-reroot`), case by case, byte for byte; the undo puts every touched key
-    /// back (`snapshotPrompt`).
-    #[test]
-    fn a_session_without_a_conversation_is_rerooted_in_place_exactly_as_node_does() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/prompt-reroot/golden.json")).expect("golden");
-        let cases: Vec<&Value> = golden["cases"].as_array().expect("cases").iter().filter(|case| case["before"]["systemOnly"] == Value::Bool(true)).collect();
-        assert_eq!(cases.len(), 11);
-        for case in cases {
-            let name = &case["name"];
-            let before = stored(&case["before"]);
-            let cwd = case["context"]["cwd"].as_str().expect("cwd");
-            let (change, undo) = in_place_reroot_patch(&before, cwd, &context_of(&case["context"]));
-            let after = patched(&before, &change);
-            assert_eq!(after, stored(&case["after"]), "{name}: after");
-            assert_eq!(patched(&after, &undo), before, "{name}: the undo restores the prompt");
-        }
-    }
-
-    #[test]
-    fn the_pending_read_reports_the_staged_state_and_none_without_one() {
-        let cases: Vec<Value> = serde_json::from_str(GOLDENS).expect("goldens");
-        let header = header_of(&cases[0]["before"]);
-        let pending = pending_workspace_reroot(&header).expect("staged");
-        assert_eq!(pending.revision, 1);
-        assert_eq!(pending.root_cwd.as_deref(), Some("C:/repo"));
-        assert_eq!(pending.target["cwd"], "C:/data/worktrees-v1/abc/fix");
-        assert!(pending_workspace_reroot(&header_of(&cases[0]["applied"])).is_none());
-    }
-
-    #[test]
-    fn a_model_name_is_displayed_as_nodes_session_block_shows_it() {
-        assert_eq!(model_display("gpt-5.4-2026-01-02"), "GPT-5.4");
-        assert_eq!(model_display("claude-opus-4-1"), "Claude-Opus-4-1");
-        assert_eq!(model_display("  "), "");
     }
 }

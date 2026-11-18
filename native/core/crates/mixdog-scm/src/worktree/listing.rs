@@ -130,15 +130,16 @@ impl Worktrees {
         Ok(rows)
     }
 
-    /// The count/age limits' choice over already listed rows (uncapped), as the list shows it.
-    async fn listed_cleanup_reasons(&self, sessions: &Arc<dyn SessionSource>, listed: &Listed<'_>) -> HashMap<String, CleanupReason> {
+    /// The count/age limits' choice over already listed rows (uncapped), as the list shows it. `None`: the favorites the
+    /// choice depends on could not be read, so no row's reason is decided.
+    async fn listed_cleanup_reasons(&self, sessions: &Arc<dyn SessionSource>, listed: &Listed<'_>) -> Option<HashMap<String, CleanupReason>> {
         let settings = self.current_settings().await;
         if !settings.auto_cleanup {
-            return HashMap::new();
+            return Some(HashMap::new());
         }
-        let Some(favorites) = sessions.favorites().await else { return HashMap::new() };
+        let favorites = sessions.favorites().await?;
         if settings.max_worktrees == 0 && settings.unused_days == 0 {
-            return HashMap::new();
+            return Some(HashMap::new());
         }
         let mut policy_rows: Vec<CleanupRow> = listed.rows.iter().map(cleanup_row).collect();
         for (policy, row) in policy_rows.iter_mut().zip(listed.rows) {
@@ -155,7 +156,7 @@ impl Worktrees {
             repo_common_dir: None,
             max_removals: usize::MAX,
         };
-        select_worktree_cleanup(&policy_rows, &settings, &options).into_iter().map(|picked| (picked.id, picked.reason)).collect()
+        Some(select_worktree_cleanup(&policy_rows, &settings, &options).into_iter().map(|picked| (picked.id, picked.reason)).collect())
     }
 
     /// The manual list: every managed worktree with its retention. `details` adds what the
@@ -180,11 +181,13 @@ impl Worktrees {
         let rows = self.list_managed(&live, &retained, true, true, cancel).await?;
         let owners: Vec<String> = rows.iter().flat_map(owners_of).collect();
         let activity = sessions.activity(&owners).await;
-        let archived = sessions.archived().await.unwrap_or_default();
+        // `None`: the marks could not be read. A row then carries no `ownerArchived` and no `cleanupReason` (both optional in
+        // `DesktopManagedWorktreeRow`): unknown is not "not archived" and not "kept".
+        let archived = sessions.archived().await;
         let last_active: HashMap<String, i64> = activity.iter().filter_map(|(id, a)| a.last_active_at.map(|at| (id.clone(), at))).collect();
         let reasons = match &jobs {
             Some(jobs) => self.listed_cleanup_reasons(sessions, &Listed { rows: &rows, jobs, activity: &last_active, now }).await,
-            None => HashMap::new(),
+            None => Some(HashMap::new()),
         };
         Ok(rows
             .into_iter()
@@ -193,13 +196,17 @@ impl Worktrees {
                 let title = owner.as_ref().and_then(|id| activity.get(id)).and_then(|a| a.title.clone()).filter(|title| !title.is_empty());
                 let last = row_activity(&cleanup_row(&row), &last_active);
                 row["ownerTitle"] = json!(title);
-                row["ownerArchived"] = json!(owner.as_ref().is_some_and(|id| archived.contains(id)));
+                if let Some(archived) = &archived {
+                    row["ownerArchived"] = json!(owner.as_ref().is_some_and(|id| archived.contains(id)));
+                }
                 row["lastActiveAt"] = if last == 0 { Value::Null } else { json!(last) };
-                row["cleanupReason"] = match text(&row, "id").and_then(|id| reasons.get(&id).copied()) {
-                    Some(CleanupReason::Age) => json!("age"),
-                    Some(CleanupReason::Count) => json!("count"),
-                    None => Value::Null,
-                };
+                if let Some(reasons) = &reasons {
+                    row["cleanupReason"] = match text(&row, "id").and_then(|id| reasons.get(&id).copied()) {
+                        Some(CleanupReason::Age) => json!("age"),
+                        Some(CleanupReason::Count) => json!("count"),
+                        None => Value::Null,
+                    };
+                }
                 row
             })
             .collect())

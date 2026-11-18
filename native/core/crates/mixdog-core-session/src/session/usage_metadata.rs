@@ -55,15 +55,22 @@ impl SessionMetadata for SessionDirectory {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use std::sync::Arc;
 
+    #[cfg(node_twin)]
     use mixdog_store::sqlite::DirtyMark;
+    #[cfg(node_twin)]
     use mixdog_store::sqlite::SqliteStore;
+    #[cfg(node_twin)]
     use mixdog_store::summary::CatalogHead;
+    #[cfg(node_twin)]
     use serde_json::Value;
 
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     /// The index of a data dir holding each of `headers` as a listed session.
     async fn index(data: &std::path::Path, headers: &[Value]) -> Arc<SqliteStore> {
         let tokens = mixdog_rt::testing::tokens();
@@ -84,6 +91,7 @@ mod tests {
         store
     }
 
+    #[cfg(node_twin)]
     /// `ThreadStore::session_meta` of the real store, over the same index calls.
     async fn meta_of(store: &SqliteStore, id: &str) -> Option<SessionMeta> {
         let summary = store.summary(id).await.expect("summary")?;
@@ -91,6 +99,7 @@ mod tests {
         Some(SessionMeta::of(title, &summary))
     }
 
+    #[cfg(node_twin)]
     /// Every case of `fixtures/session-metadata/golden.json`: what Node's `readStoredSessionMetadata`
     /// gave for the log record of that header, whether `isLeadVisibleRow` takes it as the usage
     /// service asks, and the records Node reads as `null`.
@@ -123,3 +132,5 @@ mod tests {
         }
     }
 }
+
+

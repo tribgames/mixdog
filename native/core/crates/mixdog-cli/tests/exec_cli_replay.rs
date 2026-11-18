@@ -11,7 +11,7 @@
 //! connect goes to the stand-in, which serves TLS under a throwaway certificate for the recorded hosts. Ctrl+C is a
 //! CTRL_C_EVENT on the binary's own hidden console, sent by this test binary re-run as a helper; Windows only, as the
 //! recording is.
-#![cfg(windows)]
+#![cfg(all(windows, node_twin))]
 #![allow(clippy::disallowed_methods, reason = "the test lays out an install, runs a process and reads what it left on disk")]
 
 mod support {
@@ -48,19 +48,6 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const CTRL_C_TARGET: &str = "EXEC_CLI_CTRL_C_TARGET";
 const NO_SCRIPT: &str = "HTTP/1.1 404 Not Found\r\ncontent-type: text/plain\r\ncontent-length: 9\r\nconnection: close\r\n\r\nno script";
 
-fn fixture(name: &str) -> &'static str {
-    match name {
-        "text" => mixdog_testkit::fixture!("../../fixtures/exec-cli/text.json"),
-        "json" => mixdog_testkit::fixture!("../../fixtures/exec-cli/json.json"),
-        "provider-error" => mixdog_testkit::fixture!("../../fixtures/exec-cli/provider-error.json"),
-        "failed-turn" => mixdog_testkit::fixture!("../../fixtures/exec-cli/failed-turn.json"),
-        "ctrl-c" => mixdog_testkit::fixture!("../../fixtures/exec-cli/ctrl-c.json"),
-        "kill" => mixdog_testkit::fixture!("../../fixtures/exec-cli/kill.json"),
-        "beside-daemon" => mixdog_testkit::fixture!("../../fixtures/exec-cli/beside-daemon.json"),
-        other => panic!("no case {other}"),
-    }
-}
-
 /// An install of the binary under test: the binary hard-linked beside a `js-runtime.json` naming this tree's JS package
 /// and the `node` on `PATH`.
 fn install() -> PathBuf {
@@ -86,6 +73,8 @@ fn normalize(text: &str, sandbox: &str) -> String {
         (r"mixdog-headless-pristine-[A-Za-z0-9]+", "mixdog-headless-pristine-<id>"),
         (r"sess_[A-Za-z0-9_]+", "<session>"),
         (r"exec_[0-9a-f]{32}", "<thread>"),
+        // The core's own `[ask-error]` line names the turn by its time-ordered id (a declared core-side leave-out).
+        (r"(\[ask-error\] session=\S+ turn=)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "${1}<turn>"),
         (r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", "<time>"),
         (r#""(duration_ms|duration_api_ms|queue_ms|dispatch_ms|execution_ms|batch_wait_ms|postprocess_ms|total_ms)":\d+(?:\.\d+)?"#, r#""$1":0"#),
     ];
@@ -125,120 +114,11 @@ struct Declared {
     met: std::cell::Cell<bool>,
 }
 
-impl NotCompared {
-    fn from_manifest() -> Self {
-        let manifest: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/exec-cli/MANIFEST.json")).unwrap();
-        let declared = |key: &str, text: &str| -> Vec<Declared> {
-            manifest[key]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|entry| {
-                    assert!(!entry["reason"].as_str().unwrap().is_empty(), "{key}: {} has no reason", entry["name"]);
-                    Declared { side: entry["side"].as_str().unwrap().to_owned(), name: entry["name"].as_str().unwrap().to_owned(), text: entry[text].as_str().unwrap().to_owned(), timing: entry["timing"] == true, met: std::cell::Cell::new(false) }
-                })
-                .collect()
-        };
-        Self { stderr: declared("stderrNotCompared", "line"), others: declared("othersNotCompared", "request") }
-    }
-
-    /// The names of the declared leave-outs that no compared data of their side held.
-    fn unmet(&self) -> Vec<&str> {
-        self.stderr.iter().chain(&self.others).filter(|declared| !declared.timing && !declared.met.get()).map(|declared| declared.name.as_str()).collect()
-    }
-
-    /// Whether a leave-out of `side` names exactly `text`; the ones that do are met.
-    fn names(declared: &[Declared], side: &str, text: &str) -> bool {
-        let named: Vec<&Declared> = declared.iter().filter(|declared| declared.side == side && declared.text == text).collect();
-        named.iter().for_each(|declared| declared.met.set(true));
-        !named.is_empty()
-    }
-
-    /// `output` of `side` (`node` or `core`) without the stderr lines declared for that side; runs the leave-out empties are
-    /// joined again.
-    fn output(&self, output: &Value, side: &str) -> Value {
-        let mut joined: Vec<(String, String)> = Vec::new();
-        for chunk in output.as_array().unwrap() {
-            let stream = chunk["stream"].as_str().unwrap();
-            let text = chunk["text"].as_str().unwrap();
-            let left_out = |line: &str| Self::names(&self.stderr, side, line.trim_end_matches(['\r', '\n']));
-            let kept: String = if stream == "stderr" { text.split_inclusive('\n').filter(|line| !left_out(line)).collect() } else { text.to_owned() };
-            if kept.is_empty() {
-                continue;
-            }
-            match joined.last_mut() {
-                Some((last, text)) if last == stream => text.push_str(&kept),
-                _ => joined.push((stream.to_owned(), kept)),
-            }
-        }
-        Value::Array(joined.into_iter().map(|(stream, text)| json!({ "stream": stream, "text": text })).collect())
-    }
-
-    /// The requests outside the turn that `side` (`node` or `core`) makes, without those declared for that side only.
-    fn others(&self, others: &Value, side: &str) -> Value {
-        Value::Array(others.as_array().unwrap().iter().filter(|request| !Self::names(&self.others, side, request.as_str().unwrap())).cloned().collect())
-    }
-}
-
 /// The stand-in provider's record of a run.
 #[derive(Default)]
 struct Heard {
     requests: Vec<Value>,
     others: Vec<String>,
-}
-
-/// The stand-in: TLS under `cert` for every connect; each messages request gets the next recorded answer (the last again
-/// when the case repeats it, else a 404), a held answer is never written, any other request gets the recorder's 404.
-async fn serve(listener: tokio::net::TcpListener, config: Arc<rustls::ServerConfig>, names: Vec<String>, case: Arc<Value>, heard: Arc<Mutex<Heard>>, held: Arc<tokio::sync::Notify>) {
-    loop {
-        let Ok((tcp, _)) = listener.accept().await else { return };
-        let (config, names, case, heard, held) = (config.clone(), names.clone(), case.clone(), heard.clone(), held.clone());
-        tokio::spawn(async move {
-            let Ok(start) = tokio_rustls::LazyConfigAcceptor::new(rustls::server::Acceptor::default(), tcp).await else { return };
-            let sni = start.client_hello().server_name().map(str::to_owned);
-            if !sni.as_ref().is_some_and(|name| names.contains(name)) {
-                // A host the recording never reached: the connect is the record, the certificate does not cover it.
-                heard.lock().unwrap().others.push(format!("CONNECT {}", sni.as_deref().unwrap_or("<no name>")));
-            }
-            let Ok(mut io) = start.into_stream(config).await else { return };
-            let Some(request) = support::request::read_request(&mut io).await else { return };
-            let host = request.host.as_deref().unwrap_or_default().trim_end_matches(":443").to_owned();
-            let path = request.path.split('?').next().unwrap_or_default().to_owned();
-            if request.method != "POST" || !path.ends_with("/v1/messages") {
-                heard.lock().unwrap().others.push(format!("{} https://{host}{path}", request.method));
-                io.write_all(NO_SCRIPT.as_bytes()).await.ok();
-                io.shutdown().await.ok();
-                return;
-            }
-            let body: Value = serde_json::from_slice(&request.body).unwrap();
-            let index = {
-                let mut heard = heard.lock().unwrap();
-                let mut entry = json!({ "origin": format!("https://{host}"), "path": path });
-                entry.as_object_mut().unwrap().extend(support::request::heard(&body).as_object().unwrap().clone());
-                heard.requests.push(entry);
-                heard.requests.len() - 1
-            };
-            let replies = case["replies"].as_array().unwrap();
-            let reply = replies.get(index).or_else(|| (case["repeat"] == true).then(|| replies.last().unwrap()));
-            let Some(reply) = reply else {
-                io.write_all(NO_SCRIPT.as_bytes()).await.ok();
-                io.shutdown().await.ok();
-                return;
-            };
-            if reply["hold"] == true {
-                held.notify_one();
-                // The connection stays open, unanswered, until the run ends it.
-                let mut rest = Vec::new();
-                tokio::io::AsyncReadExt::read_to_end(&mut io, &mut rest).await.ok();
-                return;
-            }
-            let body = reply["body"].as_str().unwrap();
-            let head = format!("HTTP/1.1 {} X\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", reply["status"], reply["contentType"].as_str().unwrap(), body.len());
-            io.write_all(head.as_bytes()).await.ok();
-            io.write_all(body.as_bytes()).await.ok();
-            io.shutdown().await.ok();
-        });
-    }
 }
 
 /// The hosts the recording reached, which the stand-in's certificate covers.
@@ -399,6 +279,174 @@ struct Daemon {
     child: std::process::Child,
 }
 
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        end_tree(self.child.id());
+        self.child.wait().ok();
+    }
+}
+
+
+fn fixture(name: &str) -> &'static str {
+    match name {
+        "text" => mixdog_testkit::fixture!("../../fixtures/exec-cli/text.json"),
+        "json" => mixdog_testkit::fixture!("../../fixtures/exec-cli/json.json"),
+        "provider-error" => mixdog_testkit::fixture!("../../fixtures/exec-cli/provider-error.json"),
+        "failed-turn" => mixdog_testkit::fixture!("../../fixtures/exec-cli/failed-turn.json"),
+        "ctrl-c" => mixdog_testkit::fixture!("../../fixtures/exec-cli/ctrl-c.json"),
+        "kill" => mixdog_testkit::fixture!("../../fixtures/exec-cli/kill.json"),
+        "beside-daemon" => mixdog_testkit::fixture!("../../fixtures/exec-cli/beside-daemon.json"),
+        other => panic!("no case {other}"),
+    }
+}
+impl NotCompared {
+    fn from_manifest() -> Self {
+        let manifest: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/exec-cli/MANIFEST.json")).unwrap();
+        let declared = |key: &str, text: &str| -> Vec<Declared> {
+            manifest[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|entry| {
+                    assert!(!entry["reason"].as_str().unwrap().is_empty(), "{key}: {} has no reason", entry["name"]);
+                    Declared { side: entry["side"].as_str().unwrap().to_owned(), name: entry["name"].as_str().unwrap().to_owned(), text: entry[text].as_str().unwrap().to_owned(), timing: entry["timing"] == true, met: std::cell::Cell::new(false) }
+                })
+                .collect()
+        };
+        Self { stderr: declared("stderrNotCompared", "line"), others: declared("othersNotCompared", "request") }
+    }
+
+    /// The names of the declared leave-outs that no compared data of their side held.
+    fn unmet(&self) -> Vec<&str> {
+        self.stderr.iter().chain(&self.others).filter(|declared| !declared.timing && !declared.met.get()).map(|declared| declared.name.as_str()).collect()
+    }
+
+    /// Whether a leave-out of `side` names exactly `text`; the ones that do are met.
+    fn names(declared: &[Declared], side: &str, text: &str) -> bool {
+        let named: Vec<&Declared> = declared.iter().filter(|declared| declared.side == side && declared.text == text).collect();
+        named.iter().for_each(|declared| declared.met.set(true));
+        !named.is_empty()
+    }
+
+    /// `output` of `side` (`node` or `core`) without the stderr lines declared for that side; runs the leave-out empties are
+    /// joined again.
+    fn output(&self, output: &Value, side: &str) -> Value {
+        let mut joined: Vec<(String, String)> = Vec::new();
+        for chunk in output.as_array().unwrap() {
+            let stream = chunk["stream"].as_str().unwrap();
+            let text = chunk["text"].as_str().unwrap();
+            let left_out = |line: &str| Self::names(&self.stderr, side, line.trim_end_matches(['\r', '\n']));
+            let kept: String = if stream == "stderr" { text.split_inclusive('\n').filter(|line| !left_out(line)).collect() } else { text.to_owned() };
+            if kept.is_empty() {
+                continue;
+            }
+            match joined.last_mut() {
+                Some((last, text)) if last == stream => text.push_str(&kept),
+                _ => joined.push((stream.to_owned(), kept)),
+            }
+        }
+        Value::Array(joined.into_iter().map(|(stream, text)| json!({ "stream": stream, "text": text })).collect())
+    }
+
+    /// The requests outside the turn that `side` (`node` or `core`) makes, without those declared for that side only.
+    fn others(&self, others: &Value, side: &str) -> Value {
+        Value::Array(others.as_array().unwrap().iter().filter(|request| !Self::names(&self.others, side, request.as_str().unwrap())).cloned().collect())
+    }
+}
+#[test]
+fn the_exec_binary_does_what_nodes_cli_process_recorded_for_every_case() {
+    let exe = install();
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let mut differences = Vec::new();
+    let declared = NotCompared::from_manifest();
+    for name in CASES {
+        let case: Value = serde_json::from_str(fixture(name)).unwrap();
+        let got = run_case(&exe, &runtime, &case);
+        // Node's recorded requests with the decided departures of tool definitions applied to the tools they offered.
+        let mut expected = case.clone();
+        for request in expected["requests"].as_array_mut().unwrap() {
+            if request.get("tools").is_some() {
+                request["tools"] = support::request::with_decided_departures(&request["tools"]);
+            }
+        }
+        for field in ["code", "requests", "files", "left", "daemon"] {
+            if got.get(field) != expected.get(field) {
+                differences.push(format!(
+                    "{name}: {field}\n  Node: {}\n  core: {}",
+                    serde_json::to_string(&expected.get(field)).unwrap(),
+                    serde_json::to_string(&got.get(field)).unwrap()
+                ));
+            }
+        }
+        // The output and the requests outside the turn, but for what the manifest declares (`stderrNotCompared`,
+        // `othersNotCompared`): the rest of each is compared whole.
+        let sides = [
+            ("output", declared.output(&case["output"], "node"), declared.output(&got["output"], "core")),
+            ("others", declared.others(&case["others"], "node"), declared.others(&got["others"], "core")),
+        ];
+        for (field, node, core) in sides {
+            if node != core {
+                differences.push(format!("{name}: {field}\n  Node: {node}\n  core: {core}"));
+            }
+        }
+    }
+    assert!(differences.is_empty(), "{} difference(s) from Node's CLI:\n{}", differences.len(), differences.join("\n"));
+    assert!(declared.unmet().is_empty(), "declared leave-outs that no compared data of their side held: {:?}", declared.unmet());
+}
+
+/// The stand-in: TLS under `cert` for every connect; each messages request gets the next recorded answer (the last again
+/// when the case repeats it, else a 404), a held answer is never written, any other request gets the recorder's 404.
+async fn serve(listener: tokio::net::TcpListener, config: Arc<rustls::ServerConfig>, names: Vec<String>, case: Arc<Value>, heard: Arc<Mutex<Heard>>, held: Arc<tokio::sync::Notify>) {
+    loop {
+        let Ok((tcp, _)) = listener.accept().await else { return };
+        let (config, names, case, heard, held) = (config.clone(), names.clone(), case.clone(), heard.clone(), held.clone());
+        tokio::spawn(async move {
+            let Ok(start) = tokio_rustls::LazyConfigAcceptor::new(rustls::server::Acceptor::default(), tcp).await else { return };
+            let sni = start.client_hello().server_name().map(str::to_owned);
+            if !sni.as_ref().is_some_and(|name| names.contains(name)) {
+                // A host the recording never reached: the connect is the record, the certificate does not cover it.
+                heard.lock().unwrap().others.push(format!("CONNECT {}", sni.as_deref().unwrap_or("<no name>")));
+            }
+            let Ok(mut io) = start.into_stream(config).await else { return };
+            let Some(request) = support::request::read_request(&mut io).await else { return };
+            let host = request.host.as_deref().unwrap_or_default().trim_end_matches(":443").to_owned();
+            let path = request.path.split('?').next().unwrap_or_default().to_owned();
+            if request.method != "POST" || !path.ends_with("/v1/messages") {
+                heard.lock().unwrap().others.push(format!("{} https://{host}{path}", request.method));
+                io.write_all(NO_SCRIPT.as_bytes()).await.ok();
+                io.shutdown().await.ok();
+                return;
+            }
+            let body: Value = serde_json::from_slice(&request.body).unwrap();
+            let index = {
+                let mut heard = heard.lock().unwrap();
+                let mut entry = json!({ "origin": format!("https://{host}"), "path": path });
+                entry.as_object_mut().unwrap().extend(support::request::heard(&body).as_object().unwrap().clone());
+                heard.requests.push(entry);
+                heard.requests.len() - 1
+            };
+            let replies = case["replies"].as_array().unwrap();
+            let reply = replies.get(index).or_else(|| (case["repeat"] == true).then(|| replies.last().unwrap()));
+            let Some(reply) = reply else {
+                io.write_all(NO_SCRIPT.as_bytes()).await.ok();
+                io.shutdown().await.ok();
+                return;
+            };
+            if reply["hold"] == true {
+                held.notify_one();
+                // The connection stays open, unanswered, until the run ends it.
+                let mut rest = Vec::new();
+                tokio::io::AsyncReadExt::read_to_end(&mut io, &mut rest).await.ok();
+                return;
+            }
+            let body = reply["body"].as_str().unwrap();
+            let head = format!("HTTP/1.1 {} X\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", reply["status"], reply["contentType"].as_str().unwrap(), body.len());
+            io.write_all(head.as_bytes()).await.ok();
+            io.write_all(body.as_bytes()).await.ok();
+            io.shutdown().await.ok();
+        });
+    }
+}
 impl Daemon {
     /// Started and waited for until it published its discovery file (`<temp>/mixdog/daemon.json` naming its pid), by watching the
     /// folder for the file to appear.
@@ -436,14 +484,6 @@ impl Daemon {
         status.success()
     }
 }
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        end_tree(self.child.id());
-        self.child.wait().ok();
-    }
-}
-
 /// One case: the binary run as Node's CLI was, and what it did, in the recording's shape.
 fn run_case(exe: &Path, runtime: &tokio::runtime::Runtime, case: &Value) -> Value {
     let label = case["case"].as_str().unwrap();
@@ -539,6 +579,11 @@ fn run_case(exe: &Path, runtime: &tokio::runtime::Runtime, case: &Value) -> Valu
     for reader in readers {
         reader.join().unwrap();
     }
+    // Independent of Node's recording: a successful run removes its pristine root.
+    if interrupt.is_none() && status.code() == Some(0) {
+        let remaining: Vec<_> = std::fs::read_dir(sandbox.path().join("tmp")).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).filter(|name| name.starts_with("mixdog-headless-pristine-")).collect();
+        assert!(remaining.is_empty(), "{label}: the pristine root of a successful run is removed, left: {remaining:?}");
+    }
     server.abort();
     let code = if interrupt == Some("kill") { Value::Null } else { json!(status.code().unwrap()) };
     let files: BTreeMap<String, String> = std::fs::read_dir(sandbox.path().join("work")).unwrap().map(|entry| entry.unwrap()).map(|entry| (entry.file_name().to_string_lossy().into_owned(), std::fs::read_to_string(entry.path()).unwrap())).collect();
@@ -560,38 +605,4 @@ fn run_case(exe: &Path, runtime: &tokio::runtime::Runtime, case: &Value) -> Valu
         got["daemon"] = beside;
     }
     got
-}
-
-#[test]
-fn the_exec_binary_does_what_nodes_cli_process_recorded_for_every_case() {
-    let exe = install();
-    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
-    let mut differences = Vec::new();
-    let declared = NotCompared::from_manifest();
-    for name in CASES {
-        let case: Value = serde_json::from_str(fixture(name)).unwrap();
-        let got = run_case(&exe, &runtime, &case);
-        for field in ["code", "requests", "files", "left", "daemon"] {
-            if got.get(field) != case.get(field) {
-                differences.push(format!(
-                    "{name}: {field}\n  Node: {}\n  core: {}",
-                    serde_json::to_string(&case.get(field)).unwrap(),
-                    serde_json::to_string(&got.get(field)).unwrap()
-                ));
-            }
-        }
-        // The output and the requests outside the turn, but for what the manifest declares (`stderrNotCompared`,
-        // `othersNotCompared`): the rest of each is compared whole.
-        let sides = [
-            ("output", declared.output(&case["output"], "node"), declared.output(&got["output"], "core")),
-            ("others", declared.others(&case["others"], "node"), declared.others(&got["others"], "core")),
-        ];
-        for (field, node, core) in sides {
-            if node != core {
-                differences.push(format!("{name}: {field}\n  Node: {node}\n  core: {core}"));
-            }
-        }
-    }
-    assert!(differences.is_empty(), "{} difference(s) from Node's CLI:\n{}", differences.len(), differences.join("\n"));
-    assert!(declared.unmet().is_empty(), "declared leave-outs that no compared data of their side held: {:?}", declared.unmet());
 }

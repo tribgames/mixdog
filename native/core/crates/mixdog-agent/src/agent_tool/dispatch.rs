@@ -445,7 +445,7 @@ impl AgentRuntime {
             return Err("agent close: tag or sessionId is required".into());
         }
         let task_id_out = task.as_ref().map(|t| t.task_id.clone());
-        let Some(session_id) = registry.resolve_tag(&target, &scope, ResolveOptions { scan_sessions: wants_session_scan(args), exclude_terminal_traces: false })? else {
+        let Some(session_id) = registry.resolve_tag(&target, &scope, ResolveOptions { scan_sessions: wants_session_scan(args), exclude_terminal_traces: false, skip_released: false })? else {
             if !target.starts_with("sess_") && registry.has_tag_agent(&target) && self.tag_bound_by_caller(&target, &scope) {
                 registry.unbind_tag(&target);
                 if let Some(id) = &task_id_out {
@@ -471,7 +471,7 @@ impl AgentRuntime {
         if !result_delivered(&**tasks, row, scope) {
             return IdleOutcome::Undelivered;
         }
-        let caller = Caller { scope: scope.clone(), cwd: String::new() };
+        let caller = Caller { scope: scope.clone(), cwd: String::new(), ..Caller::default() };
         match self.close(&json!({ "sessionId": row.session_id }), &caller, false).await {
             Ok(view) if view.session_gone => IdleOutcome::Gone,
             Ok(view) if view.closed => IdleOutcome::Closed { hide_failed: view.hide_failed },
@@ -721,12 +721,20 @@ impl AgentRuntime {
         let registry = &self.deps.registry;
         let caller_cwd = caller.cwd.as_str();
         let live_session_id = registry
-            .resolve_tag(tag, scope, ResolveOptions { scan_sessions: wants_session_scan(args), exclude_terminal_traces: true })
+            .resolve_tag(tag, scope, ResolveOptions { scan_sessions: wants_session_scan(args), exclude_terminal_traces: true, skip_released: true })
             .ok()
             .flatten();
         if let Some(id) = live_session_id
-            && registry.live_session(&id).is_some()
+            && let Some(live) = registry.live_session(&id)
         {
+            // A spawn reuses a session only when the request fits it, as a resume does (`request_fits`): the tag is
+            // taken, so a spawn that asks for another agent or directory is refused, not answered by this session.
+            if !self.resume.request_fits(&live.agent, &live.cwd, args, caller_cwd) {
+                return Err(format!(
+                    "agent spawn: tag \"{tag}\" is in use by agent \"{}\" in \"{}\"; use another tag for a different agent or directory, or close it first",
+                    live.agent, live.cwd
+                ));
+            }
             let mut named = args.clone();
             named["tag"] = Value::String(tag.to_owned());
             let mut prepared = self.deps.send_flow.prepare_send(&named, scope).await?;
@@ -827,7 +835,12 @@ struct Inherited {
 #[async_trait]
 impl AgentPort for AgentRuntime {
     async fn execute(&self, request: AgentRequest<'_>) -> Result<AgentReply, PortError> {
-        let caller = Caller { scope: self.deps.scopes.scope_of(request.thread), cwd: request.cwd.as_path().to_string_lossy().into_owned() };
+        let caller = Caller {
+            scope: self.deps.scopes.scope_of(request.thread),
+            cwd: request.cwd.as_path().to_string_lossy().into_owned(),
+            tool_call_id: Some(request.call.as_str().to_owned()),
+            hop: self.deps.scopes.turn_hop(request.thread),
+        };
         // The resolved image, PDF and file parts ride in the call's arguments, where the spawn and
         // send flows read them for the worker's turn (and its queued follow-up).
         let mut args = request.args;
@@ -836,6 +849,9 @@ impl AgentPort for AgentRuntime {
         {
             object.insert("attachmentParts".into(), Value::Array(request.attachment_parts));
         }
-        Ok(self.handle(&args, &caller).await)
+        self.run(&args, &caller).await.map_err(|message| PortError::Failed {
+            capability: "agent".to_owned(),
+            message: self.deps.errors.present(&message),
+        })
     }
 }

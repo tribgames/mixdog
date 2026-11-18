@@ -6,16 +6,41 @@
 
 use std::sync::Arc;
 
+#[cfg(node_twin)]
 use serde_json::Value;
 
-use super::{CoreMemoryContext, format_core_memory_lines};
+use super::CoreMemoryContext;
+#[cfg(node_twin)]
+use super::format_core_memory_lines;
 
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/memory/core-memory-context/golden.json");
-
+#[cfg(node_twin)]
 fn strings(value: &Value) -> Vec<String> {
     value.as_array().expect("array").iter().map(|v| v.as_str().expect("string").to_owned()).collect()
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_snapshot_rewritten_after_the_first_load_is_read_again() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let lane = mixdog_rt::testing::tokens().durability_io;
+    let context = CoreMemoryContext::new(lane, root.path().to_owned(), Arc::new(|| false));
+    let cwd = root.path().to_str().expect("utf-8 path");
+    assert_eq!(context.load(cwd, "").await, "");
+    let entry = |summary: &str| {
+        serde_json::json!({ "version": 1, "revision": 1, "updatedAt": 0, "curated": [
+            { "id": 1, "indexRevision": null, "summary": summary, "projectId": null, "agentId": null, "updatedAt": 0 }
+        ] })
+        .to_string()
+    };
+    std::fs::write(root.path().join("core-memory.json"), entry("first")).expect("snapshot");
+    assert_eq!(context.load(cwd, "").await, "- first");
+    std::fs::write(root.path().join("core-memory.json"), entry("second")).expect("snapshot");
+    assert_eq!(context.load(cwd, "").await, "- second");
+}
+
+
+#[cfg(node_twin)]
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/memory/core-memory-context/golden.json");
+#[cfg(node_twin)]
 #[tokio::test(flavor = "multi_thread")]
 async fn the_block_matches_what_node_injects() {
     let golden: Value = serde_json::from_str(&GOLDEN).expect("golden parses");
@@ -49,23 +74,4 @@ async fn the_block_matches_what_node_injects() {
         loaded += 1;
     }
     assert!(loaded > 50, "the golden holds the loader cases");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_snapshot_rewritten_after_the_first_load_is_read_again() {
-    let root = tempfile::tempdir().expect("temp dir");
-    let lane = mixdog_rt::testing::tokens().durability_io;
-    let context = CoreMemoryContext::new(lane, root.path().to_owned(), Arc::new(|| false));
-    let cwd = root.path().to_str().expect("utf-8 path");
-    assert_eq!(context.load(cwd, "").await, "");
-    let entry = |summary: &str| {
-        serde_json::json!({ "version": 1, "revision": 1, "updatedAt": 0, "curated": [
-            { "id": 1, "indexRevision": null, "summary": summary, "projectId": null, "agentId": null, "updatedAt": 0 }
-        ] })
-        .to_string()
-    };
-    std::fs::write(root.path().join("core-memory.json"), entry("first")).expect("snapshot");
-    assert_eq!(context.load(cwd, "").await, "- first");
-    std::fs::write(root.path().join("core-memory.json"), entry("second")).expect("snapshot");
-    assert_eq!(context.load(cwd, "").await, "- second");
 }

@@ -18,6 +18,7 @@ import { isRemoteHostRenderer } from './remote-ui-projection';
 import { MxIcon } from './MxIcon';
 import { parseLocalFileLocation } from '../shared/local-files';
 import { mediaUrl } from './studio-support';
+import { base64Bytes } from './studio-pane-support';
 import { openMediaAssetFromWindow, openMediaFolderFromWindow } from './studio-pane-media-actions';
 import { isSshConnectionWindow } from './desktop-connection';
 import { transcriptArtifacts, type TranscriptArtifact } from './transcript-artifacts';
@@ -324,15 +325,15 @@ function LocalImageArtifact({ artifact, square }: { artifact: TranscriptArtifact
 /** What a document card shows as its thumbnail. */
 type DocumentThumb =
   | { phase: 'loading' }
-  | { phase: 'page'; src: string; pageCount: number }
+  /** `owned`: `src` is an object URL this card created and revokes. */
+  | { phase: 'page'; src: string; pageCount: number; owned?: boolean }
   | { phase: 'table'; rows: string[][]; rowCount: number; columnCount: number }
   | { phase: 'failed' }
   | { phase: 'missing' };
 
-// Small first page: the thumbnail is at most 64px wide, so the preview
-// service's smallest width already covers a 2x screen.
+// Small first page: the thumbnail is 104px wide, so the preview service's
+// smallest width already covers a 3x screen.
 const THUMBNAIL_PAGE_WIDTH = 320;
-const WIDE_DOCUMENT = /\.(?:xlsx?|xlsm|ods|csv|tsv|pptx?|pptm|odp)$/i;
 const SLIDES = /\.(?:pptx?|pptm|odp)$/i;
 
 /** The first page through the document preview pipeline (PDF in place, office
@@ -358,7 +359,10 @@ async function documentThumb(match: ResolvedLocalLink, name: string, session: st
   });
   const page = reply?.pages.find((entry) => entry.page === 1);
   if (!reply || !page?.base64) return { phase: 'failed' };
-  return { phase: 'page', src: `data:${page.mime};base64,${page.base64}`, pageCount: reply.pageCount };
+  // An object URL over the page's bytes: state holds a short blob: URL, not
+  // the whole base64 data URL (revoked by DocumentArtifact).
+  const src = URL.createObjectURL(new Blob([base64Bytes(page.base64)], { type: page.mime }));
+  return { phase: 'page', src, pageCount: reply.pageCount, owned: true };
 }
 
 function byteSize(bytes: number): string {
@@ -388,6 +392,7 @@ function DocumentArtifact({ artifact }: { artifact: TranscriptArtifact }) {
     }
     setThumb({ phase: 'loading' });
     let active = true;
+    let owned = '';
     verifyLocalLink(project, parseLocalFileLocation(href).path).then(
       (match) => {
         if (!active) return;
@@ -399,7 +404,13 @@ function DocumentArtifact({ artifact }: { artifact: TranscriptArtifact }) {
         );
         documentThumb(match, artifact.name, session).then(
           (next) => {
-            if (active) setThumb(next);
+            const url = next.phase === 'page' && next.owned ? next.src : '';
+            if (!active) {
+              if (url) URL.revokeObjectURL(url);
+              return;
+            }
+            owned = url;
+            setThumb(next);
           },
           () => {
             if (active) setThumb({ phase: 'failed' });
@@ -412,12 +423,13 @@ function DocumentArtifact({ artifact }: { artifact: TranscriptArtifact }) {
     );
     return () => {
       active = false;
+      if (owned) URL.revokeObjectURL(owned);
+      owned = '';
     };
   }, [project, href, artifact.name, session]);
   const missing = thumb.phase === 'missing';
   const format = formatLabel(artifact.name);
   const tone = fileTone(artifact.name);
-  const wide = WIDE_DOCUMENT.test(artifact.name);
   const facts: string[] = [];
   if (missing) facts.push(t('Deleted'));
   else if (thumb.phase === 'loading') facts.push(t('Preparing preview…'));
@@ -436,7 +448,7 @@ function DocumentArtifact({ artifact }: { artifact: TranscriptArtifact }) {
   else if (thumb.phase === 'table') picture = <TableThumbnail rows={thumb.rows} />;
   const card = (
     <>
-      <span className={`transcript-artifact-thumb${wide ? ' wide' : ''}`} data-thumb={thumb.phase}>
+      <span className="transcript-artifact-thumb" data-thumb={thumb.phase}>
         {picture}
       </span>
       <span className="transcript-artifact-body">

@@ -17,10 +17,12 @@
 pub mod accounts;
 pub mod admission;
 pub mod broker;
+pub mod cache_tail;
 pub mod catalog;
 pub mod claude_floors;
 pub mod client_versions;
 pub mod effort;
+pub mod image_route;
 pub mod netproxy;
 pub mod oauth;
 pub mod pid;

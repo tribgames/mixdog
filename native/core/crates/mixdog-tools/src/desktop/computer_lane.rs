@@ -274,52 +274,6 @@ mod tests {
         assert_eq!(kind(json!({"action":"capture","delivery":"foreground"})), Kind::Guarded);
     }
 
-    #[tokio::test]
-    async fn a_second_foreground_command_waits_and_is_refused() {
-        let lane = Arc::new(Lane::default());
-        let cancel = CancellationToken::new();
-        let first = lane.enter(Kind::Command, &cancel).await.unwrap();
-        assert_eq!(lane.section(), Some(ComputerLaneSection { queued: 0, phase: "active_foreground".into() }));
-        let second = {
-            let (lane, cancel) = (lane.clone(), cancel.clone());
-            tokio::spawn(async move { lane.enter(Kind::Command, &cancel).await.map(drop) })
-        };
-        tokio::time::sleep(Duration::from_millis(30)).await;
-        assert_eq!(lane.section().map(|section| section.queued), Some(1));
-        drop(first);
-        match second.await.unwrap() {
-            Err(ComputerError::Failed { code, message }) => {
-                assert_eq!(code, RECAPTURE_CODE);
-                assert_eq!(message, "computer_foreground_available_recapture_required: desktop lane changed; capture fresh state");
-            }
-            other => panic!("expected the recapture refusal, got {other:?}"),
-        }
-        assert_eq!(lane.section(), None);
-    }
-
-    #[tokio::test]
-    async fn reads_guarded_and_release_requests_are_not_refused() {
-        let lane = Arc::new(Lane::default());
-        let cancel = CancellationToken::new();
-        let first = lane.enter(Kind::Command, &cancel).await.unwrap();
-        // A background command does not wait at all.
-        assert!(lane.enter(Kind::Background, &cancel).await.is_ok());
-        let waiting: Vec<_> = [Kind::Guarded, Kind::Release]
-            .into_iter()
-            .map(|kind| {
-                let (lane, cancel) = (lane.clone(), cancel.clone());
-                tokio::spawn(async move { lane.enter(kind, &cancel).await.map(drop) })
-            })
-            .collect();
-        tokio::time::sleep(Duration::from_millis(30)).await;
-        assert_eq!(lane.section().map(|section| section.queued), Some(2));
-        drop(first);
-        for request in waiting {
-            assert!(request.await.unwrap().is_ok());
-        }
-        assert_eq!(lane.section(), None);
-    }
-
     #[test]
     fn only_the_last_session_restores_and_takes_the_windows_handed_on() {
         let lane = Lane::default();
@@ -351,6 +305,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_listener_hears_the_queue_grow_and_shrink() {
+        let lane = Lane::default();
+        let heard = Arc::new(AtomicUsize::new(0));
+        let counted = heard.clone();
+        lane.on_change(Arc::new(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+        }));
+        let entered = lane.enter(Kind::Command, &CancellationToken::new()).await.unwrap();
+        assert_eq!(heard.load(Ordering::SeqCst), 1);
+        drop(entered);
+        assert_eq!(heard.load(Ordering::SeqCst), 2);
+        lane.enter(Kind::Background, &CancellationToken::new()).await.unwrap();
+        assert_eq!(heard.load(Ordering::SeqCst), 2, "a background command never waits");
+    }
+
+
+    #[tokio::test]
+    async fn a_second_foreground_command_waits_and_is_refused() {
+        let lane = Arc::new(Lane::default());
+        let cancel = CancellationToken::new();
+        let first = lane.enter(Kind::Command, &cancel).await.unwrap();
+        assert_eq!(lane.section(), Some(ComputerLaneSection { queued: 0, phase: "active_foreground".into() }));
+        let second = {
+            let (lane, cancel) = (lane.clone(), cancel.clone());
+            tokio::spawn(async move { lane.enter(Kind::Command, &cancel).await.map(drop) })
+        };
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert_eq!(lane.section().map(|section| section.queued), Some(1));
+        drop(first);
+        match second.await.unwrap() {
+            Err(ComputerError::Failed { code, message }) => {
+                assert_eq!(code, RECAPTURE_CODE);
+                assert_eq!(message, "computer_foreground_available_recapture_required: desktop lane changed; capture fresh state");
+            }
+            other => panic!("expected the recapture refusal, got {other:?}"),
+        }
+        assert_eq!(lane.section(), None);
+    }
+    #[tokio::test]
+    async fn reads_guarded_and_release_requests_are_not_refused() {
+        let lane = Arc::new(Lane::default());
+        let cancel = CancellationToken::new();
+        let first = lane.enter(Kind::Command, &cancel).await.unwrap();
+        // A background command does not wait at all.
+        assert!(lane.enter(Kind::Background, &cancel).await.is_ok());
+        let waiting: Vec<_> = [Kind::Guarded, Kind::Release]
+            .into_iter()
+            .map(|kind| {
+                let (lane, cancel) = (lane.clone(), cancel.clone());
+                tokio::spawn(async move { lane.enter(kind, &cancel).await.map(drop) })
+            })
+            .collect();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert_eq!(lane.section().map(|section| section.queued), Some(2));
+        drop(first);
+        for request in waiting {
+            assert!(request.await.unwrap().is_ok());
+        }
+        assert_eq!(lane.section(), None);
+    }
+    #[tokio::test]
     async fn a_cancelled_request_leaves_the_queue() {
         let lane = Arc::new(Lane::default());
         let first = lane.enter(Kind::Command, &CancellationToken::new()).await.unwrap();
@@ -365,21 +380,5 @@ mod tests {
         assert_eq!(lane.section().map(|section| section.queued), Some(0));
         drop(first);
         assert_eq!(lane.section(), None);
-    }
-
-    #[tokio::test]
-    async fn the_listener_hears_the_queue_grow_and_shrink() {
-        let lane = Lane::default();
-        let heard = Arc::new(AtomicUsize::new(0));
-        let counted = heard.clone();
-        lane.on_change(Arc::new(move || {
-            counted.fetch_add(1, Ordering::SeqCst);
-        }));
-        let entered = lane.enter(Kind::Command, &CancellationToken::new()).await.unwrap();
-        assert_eq!(heard.load(Ordering::SeqCst), 1);
-        drop(entered);
-        assert_eq!(heard.load(Ordering::SeqCst), 2);
-        lane.enter(Kind::Background, &CancellationToken::new()).await.unwrap();
-        assert_eq!(heard.load(Ordering::SeqCst), 2, "a background command never waits");
     }
 }

@@ -41,6 +41,19 @@ pub trait Pricer: Send + Sync + 'static {
     /// It must come from a warm catalog; a cold one would stamp an empty revision as checked.
     fn revision(&self) -> String;
 
+    /// What decides whether unpriced records are examined again ([`UsageRefresher`]): by default [`Self::revision`]. A
+    /// table whose revision moves when it is merely fetched again (its fetch time is part of it) answers here something
+    /// that moves only when its prices may: examining the unpriced records read about 53 MB of the ledger each time.
+    fn repricing_key(&self) -> String {
+        self.revision()
+    }
+
+    /// Whether the table can price at all: a refresh before it can (a catalog still loading at the start) has nothing to
+    /// do and is not recorded as a check.
+    fn ready(&self) -> bool {
+        true
+    }
+
     fn price(&self, request: &PriceRequest) -> Result<Priced>;
 
     /// The price of a daily sum of a restored legacy day (`historicalAggregate`): a sum cannot
@@ -58,13 +71,14 @@ pub struct Pending {
     pub latest: Option<i64>,
 }
 
-/// `+e.ts` keeps the planner off `usage_events_time`: a bound of "now" matches every row, and
-/// each index hit would cost a primary-key search (~300 ms against ~13 ms for a scan over 120k
-/// real rows).
+/// The unpriced routes first (`CROSS JOIN` keeps that order), then their records through `usage_events_route_time`: only
+/// the unpriced records are read. Driven from the records, the read scanned the covering time index whole, every record of
+/// the ledger (1.08M records, 64 unpriced routes and 9,274 unpriced records on one ledger: a cold start read most of the
+/// file for it). Before v4 merged the routes (72k of them) the scan was the cheaper plan.
 pub(crate) fn unpriced_pending(conn: &Connection, now: i64) -> Result<Pending> {
     Ok(conn.query_row(
-        "SELECT COUNT(*),MAX(e.ts) FROM usage_events e JOIN usage_routes r ON r.id=e.route
-         WHERE e.cost_usd IS NULL AND json_extract(r.signature,'$[4]')='unpriced' AND +e.ts<=?1",
+        "SELECT COUNT(*),MAX(e.ts) FROM usage_routes r CROSS JOIN usage_events e ON e.route=r.id
+         WHERE json_extract(r.signature,'$[4]')='unpriced' AND e.cost_usd IS NULL AND e.ts<=?1",
         params![now],
         |r| {
             Ok(Pending {
@@ -79,9 +93,9 @@ pub(crate) fn unpriced_pending(conn: &Connection, now: i64) -> Result<Pending> {
 /// the rows at or before it were already examined under this price table.
 pub(crate) fn unpriced_after(conn: &Connection, now: i64, latest: i64) -> Result<i64> {
     Ok(conn.query_row(
-        "SELECT COUNT(*) FROM usage_events e JOIN usage_routes r ON r.id=e.route
-         WHERE e.cost_usd IS NULL AND json_extract(r.signature,'$[4]')='unpriced'
-         AND +e.ts<=?1 AND +e.ts>?2",
+        "SELECT COUNT(*) FROM usage_routes r CROSS JOIN usage_events e ON e.route=r.id
+         WHERE json_extract(r.signature,'$[4]')='unpriced' AND e.cost_usd IS NULL
+         AND e.ts<=?1 AND e.ts>?2",
         params![now, latest],
         |r| r.get(0),
     )?)
@@ -107,9 +121,17 @@ struct Checked {
 #[derive(Default)]
 struct State {
     checked: Option<Checked>,
+    /// The last check was read back from the ledger ([`CHECK_NOTE`]), or there was none to read.
+    loaded: bool,
+    /// What the ledger holds as the last check (its revision and pending), so an unchanged one is not written again.
+    noted: Option<(String, Pending)>,
     running: bool,
     waiters: Vec<ReplyTx<()>>,
 }
+
+/// The `metadata` row the last check is kept in between starts (`{"key","count","latest"}`): without it each start
+/// examined every unpriced record again (about 73 MB of the ledger read at each start).
+const CHECK_NOTE: &str = "unpricedChecked";
 
 /// One refresh at a time per ledger; a caller that arrives meanwhile waits for it and then
 /// re-evaluates (an unchanged ledger skips).
@@ -208,15 +230,32 @@ impl UsageRefresher {
         reader: &Arc<UsageReader>,
         now: i64,
     ) -> Result<Refresh> {
-        let revision = self.pricer.revision();
+        if !self.pricer.ready() {
+            return Ok(Refresh::Skipped);
+        }
+        let revision = self.pricer.repricing_key();
         // Taken before anything is read: a commit landing later moves the stamp again, so the
         // next refresh can never skip it.
         let stamp = writer.commit_stamp().await?;
-        let previous = self.lock().checked.clone();
+        let held = self.lock().checked.clone();
+        let previous = match held {
+            Some(checked) => Some(checked),
+            None => self.noted_check(writer).await,
+        };
         if previous
             .as_ref()
             .is_some_and(|p| p.revision == revision && p.stamp == stamp)
         {
+            return Ok(Refresh::Skipped);
+        }
+        // Under the same table, records become unpriced only by being appended: when none appended since the last check is
+        // unpriced, nothing new is to be examined. Counting every unpriced record instead read about 20 MB of the ledger
+        // after each commit (each turn's usage), for an answer that had not moved.
+        if let Some(p) = previous.as_ref().filter(|p| p.revision == revision)
+            && let Some(latest) = p.pending.latest
+            && reader.unpriced_after(now, latest).await? == 0
+        {
+            self.keep(writer, Checked { revision, pending: p.pending, stamp }).await;
             return Ok(Refresh::Skipped);
         }
         let pending = reader.unpriced_pending(now).await?;
@@ -225,11 +264,7 @@ impl UsageRefresher {
                 .as_ref()
                 .is_some_and(|p| p.revision == revision && p.pending == pending)
         {
-            self.lock().checked = Some(Checked {
-                revision,
-                pending,
-                stamp,
-            });
+            self.keep(writer, Checked { revision, pending, stamp }).await;
             return Ok(Refresh::Skipped);
         }
         let incremental_from = match &previous {
@@ -271,12 +306,41 @@ impl UsageRefresher {
             return Ok(Refresh::Repaired(result));
         }
         let settled_stamp = writer.commit_stamp().await?;
-        let settled = reader.unpriced_pending(now).await?;
-        self.lock().checked = Some(Checked {
-            revision,
-            pending: settled,
-            stamp: settled_stamp,
-        });
+        // A pass that changed nothing left the unpriced records as they were counted.
+        let settled = if result.changes.is_empty() { pending } else { reader.unpriced_pending(now).await? };
+        self.keep(writer, Checked { revision, pending: settled, stamp: settled_stamp }).await;
         Ok(Refresh::Repaired(result))
+    }
+
+    /// The last check as the ledger keeps it ([`CHECK_NOTE`]), read once per process. Its stamp is empty: a commit stamp is
+    /// the process's own, so the first refresh after a start always looks at what was appended since.
+    async fn noted_check(&self, writer: &Arc<UsageWriter>) -> Option<Checked> {
+        if std::mem::replace(&mut self.lock().loaded, true) {
+            return None;
+        }
+        let text = writer.note(CHECK_NOTE).await.ok().flatten()?;
+        let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+        let revision = value.get("key")?.as_str()?.to_owned();
+        let pending = Pending { count: value.get("count")?.as_i64()?, latest: value.get("latest").and_then(serde_json::Value::as_i64) };
+        self.lock().noted = Some((revision.clone(), pending));
+        Some(Checked { revision, pending, stamp: String::new() })
+    }
+
+    /// Records `checked` as the last check, and in the ledger when its revision or pending moved. A failed write only means
+    /// the next start checks again.
+    async fn keep(&self, writer: &Arc<UsageWriter>, checked: Checked) {
+        let note = (checked.revision.clone(), checked.pending);
+        let changed = {
+            let mut state = self.lock();
+            state.checked = Some(checked);
+            state.loaded = true;
+            state.noted.as_ref() != Some(&note)
+        };
+        if changed {
+            let text = serde_json::json!({ "key": note.0, "count": note.1.count, "latest": note.1.latest }).to_string();
+            if writer.put_note(CHECK_NOTE, text).await.is_ok() {
+                self.lock().noted = Some(note);
+            }
+        }
     }
 }

@@ -246,6 +246,420 @@ fn preflight_refused(window_id: &str, planned: &[Map<String, Value>], refusal: &
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use mixdog_core_api::domain::computer::ComputerAction;
+    use mixdog_core_api::domain::computer::ComputerBackend;
+    use mixdog_core_api::domain::computer::ComputerRequest;
+
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
+
+    use super::super::computer_backend::ComputerConfig;
+    use super::super::computer_backend::ComputerShared;
+    use super::super::computer_targets::testing::Scripted;
+    use super::*;
+
+    fn backend(manager: &Arc<Scripted>) -> ProcessComputerBackend {
+        ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone())
+    }
+
+    /// A step the helper took, with no window change around it.
+    fn quiet_step(request: &Value) -> Value {
+        json!({ "step_result": { "text": "ok", "action": request["step"]["action"] }, "windows_before": [], "windows_after": [], "settle_delay_ms": 0 })
+    }
+
+    /// A helper that takes everything; `special` answers first for the requests a test scripts.
+    fn helper(special: impl Fn(&Value) -> Option<Result<Value, String>> + Send + Sync + 'static) -> Arc<Scripted> {
+        Scripted::new(move |request| {
+            if let Some(answer) = special(request) {
+                return answer;
+            }
+            Ok(match request["action"].as_str() {
+                Some("sequence_step") => quiet_step(request),
+                Some("snapshot") => json!({ "text": json!({ "ok": true, "action": "snapshot", "window_id": request["window_id"] }).to_string() }),
+                _ => json!({ "text": "ok" }),
+            })
+        })
+    }
+
+    fn act(actions: Value) -> ComputerRequest {
+        ComputerRequest { action: ComputerAction::Act, input: json!({ "window_id": "hwnd:0x2", "actions": actions }) }
+    }
+
+    fn payload(parts: &[ToolPart]) -> Value {
+        let Some(ToolPart::Text(text)) = parts.first() else { panic!("a text part") };
+        serde_json::from_str(text).expect("a JSON reply")
+    }
+
+    fn sent(manager: &Scripted, action: &str) -> Vec<Value> {
+        manager.lines().into_iter().filter(|line| line["action"] == action).collect()
+    }
+
+    fn two_keys() -> Value {
+        json!([{ "type": "key", "keys": "a" }, { "type": "key", "keys": "b" }])
+    }
+
+    /// A refused first step stops the sequence: the second is never sent and its row is skipped, holds are released, and the
+    /// reply says why.
+    #[tokio::test]
+    async fn a_refused_step_skips_the_rest() {
+        let manager = helper(|request| (request["action"] == "sequence_step").then(|| Err("background_unsupported|no route".to_owned())));
+        let parts = backend(&manager).run(act(two_keys()), CancellationToken::new()).await.unwrap();
+        let reply = payload(&parts);
+        assert_eq!(sent(&manager, "sequence_step").len(), 1);
+        assert_eq!(sent(&manager, "release_sequence_holds").len(), 1);
+        assert_eq!(reply["ok"], false);
+        assert_eq!((reply["stopped_reason"].clone(), reply["code"].clone()), (json!("background_unsupported"), json!("background_unsupported")));
+        assert_eq!(reply["steps"][0]["status"], "failed");
+        assert_eq!(reply["steps"][0]["verdict"], json!({ "decision": "escalate", "recommended": "inspect_failed_step" }));
+        assert_eq!(reply["steps"][1], json!({ "index": 2, "action": "key", "status": "skipped", "reason": "background_unsupported" }));
+        assert_eq!(reply["verdict"], json!({ "decision": "escalate", "recommended": "inspect_failed_step" }));
+        assert_eq!(reply["capture_after"]["target_reason"], "original_target");
+    }
+
+    /// Observation-only mode turned on after the sequence was admitted refuses the next step in the host's words before it is sent:
+    /// its row fails, and the steps left never reach the helper.
+    #[tokio::test]
+    async fn observation_only_turned_on_mid_sequence_stops_the_steps_left() {
+        let observing = Arc::new(AtomicBool::new(false));
+        let turned_on = observing.clone();
+        let manager = helper(move |request| {
+            (request["action"] == "sequence_step").then(|| {
+                turned_on.store(true, Ordering::SeqCst);
+                Ok(quiet_step(request))
+            })
+        });
+        let setting = observing.clone();
+        let shared = ComputerShared { observe_only: Arc::new(move || setting.load(Ordering::SeqCst)), ..ComputerShared::default() };
+        let actions = json!([{ "type": "key", "keys": "a" }, { "type": "key", "keys": "b" }, { "type": "key", "keys": "c" }]);
+        let parts = backend(&manager).with_shared(shared).run(act(actions), CancellationToken::new()).await.unwrap();
+        let reply = payload(&parts);
+        assert_eq!(sent(&manager, "sequence_step").len(), 1, "only the step admitted before the change was sent");
+        assert_eq!(reply["stopped_reason"], "observation_only");
+        assert_eq!(reply["steps"][1]["status"], "failed");
+        assert_eq!(reply["steps"][2], json!({ "index": 3, "action": "key", "status": "skipped", "reason": "observation_only" }));
+    }
+
+    /// A dialog the step opened (owned by the target) is the successor: the sequence stops there and the capture is of the dialog.
+    #[tokio::test]
+    async fn a_new_owned_dialog_stops_the_sequence_and_is_captured() {
+        let manager = helper(|request| {
+            (request["action"] == "sequence_step").then(|| {
+                let main = json!({ "id": "hwnd:0x2", "pid": 5, "title": "a.txt - Notepad" });
+                let dialog = json!({ "id": "hwnd:0x9", "pid": 5, "owner_id": "hwnd:0x2", "title": "Save As", "focused": true });
+                Ok(json!({ "step_result": { "text": "ok", "action": "click" }, "windows_before": [main], "windows_after": [main, dialog], "settle_delay_ms": 0 }))
+            })
+        });
+        let actions = json!([{ "type": "click", "ref": "e1" }, { "type": "type", "text": "name" }]);
+        let parts = backend(&manager).run(act(actions), CancellationToken::new()).await.unwrap();
+        let reply = payload(&parts);
+        assert_eq!(reply["stopped_reason"], "target_transition");
+        assert_eq!(reply["steps"][0]["window_transition"]["next_target"]["id"], "hwnd:0x9");
+        assert_eq!(reply["steps"][1]["status"], "skipped");
+        assert_eq!(reply["verdict"], json!({ "decision": "escalate", "recommended": "switch_target" }));
+        assert_eq!((reply["capture_after"]["target_reason"].clone(), reply["capture_after"]["previous_window_id"].clone()), (json!("sequence_successor"), json!("hwnd:0x2")));
+        assert_eq!(reply["capture_after"]["window_id"], "hwnd:0x9");
+        // observation_delta is the capture's own option (capture-finish.ts), never a field of the helper's snapshot request.
+        assert!(sent(&manager, "snapshot").iter().all(|line| line["window_id"] == "hwnd:0x9"));
+        assert_eq!(sent(&manager, "sequence_step").len(), 1);
+    }
+
+    /// More than 10 s of waits is refused before the helper is asked anything about the steps.
+    #[tokio::test]
+    async fn a_total_wait_over_ten_seconds_is_refused_before_any_write() {
+        let manager = helper(|_| None);
+        let actions = json!([{ "type": "key", "keys": "a" }, { "type": "wait", "duration": 5 }, { "type": "wait", "duration": 5 }, { "type": "wait", "duration": 1 }]);
+        let error = backend(&manager).run(act(actions), CancellationToken::new()).await.unwrap_err();
+        assert_eq!(error, refusal("sequence wait steps accept at most 10 total seconds; use verify for longer conditions"));
+        let lines = manager.lines();
+        assert!(lines.iter().all(|line| !matches!(line["action"].as_str(), Some("sequence_step" | "validate_background_input" | "release_sequence_holds"))), "{lines:?}");
+    }
+
+    /// A step that ends with a takeover code is the sequence's error, and the holds are released even so.
+    #[tokio::test]
+    async fn an_unconfirmed_cleanup_is_rethrown_and_the_holds_are_released() {
+        let manager = helper(|request| (request["action"] == "sequence_step").then(|| Err("input_cleanup_unconfirmed: keys may be held".to_owned())));
+        let error = backend(&manager).run(act(two_keys()), CancellationToken::new()).await.unwrap_err();
+        assert_eq!(error, ComputerError::Failed { code: "input_cleanup_unconfirmed".into(), message: "input_cleanup_unconfirmed: keys may be held".into() });
+        assert_eq!(sent(&manager, "release_sequence_holds").len(), 1);
+    }
+
+    /// A release the helper does not confirm outranks the steps, and the capture is never taken.
+    #[tokio::test]
+    async fn a_failed_hold_release_is_an_unconfirmed_cleanup() {
+        let manager = helper(|request| (request["action"] == "release_sequence_holds").then(|| Err("boom".to_owned())));
+        let error = backend(&manager).run(act(json!([{ "type": "key", "keys": "a" }])), CancellationToken::new()).await.unwrap_err();
+        assert_eq!(
+            error,
+            ComputerError::Failed {
+                code: "input_cleanup_unconfirmed".into(),
+                message: "input_cleanup_unconfirmed: sequence holds were not released: boom; completed 1/1 steps (last completed step 1)".into()
+            }
+        );
+        assert!(sent(&manager, "snapshot").is_empty());
+    }
+
+    /// `input_continues` is on every step but the last, `retain_refs` on the steps a later ref outlives (and on the envelope), and
+    /// `sequence_continuation` on the later step that addresses a ref.
+    #[tokio::test]
+    async fn each_step_line_carries_its_sequence_flags() {
+        let manager = helper(|_| None);
+        let actions = json!([{ "type": "click", "ref": "e1" }, { "type": "type", "text": "a" }, { "type": "click", "ref": "e2" }]);
+        backend(&manager).run(act(actions), CancellationToken::new()).await.unwrap();
+        let lines = sent(&manager, "sequence_step");
+        let flags = |line: &Value| ["input_continues", "retain_refs", "sequence_continuation"].map(|key| line["step"][key] == true);
+        assert_eq!(lines.iter().map(flags).collect::<Vec<_>>(), vec![[true, true, false], [true, true, false], [false, false, true]]);
+        assert_eq!(lines.iter().map(|line| line["retain_refs"] == true).collect::<Vec<_>>(), vec![true, true, false]);
+        assert!(lines.iter().all(|line| line["step"]["window_id"] == "hwnd:0x2" && line["step"]["session_id"] == line["session_id"]));
+    }
+
+    /// A background route that refuses a step is found by the preflight: no step is sent, and every row says so.
+    #[tokio::test]
+    async fn a_preflight_refusal_sends_nothing() {
+        let manager = helper(|request| (request["action"] == "validate_background_input").then(|| Err("background_unsupported|no route; no input sent".to_owned())));
+        let parts = backend(&manager).run(act(two_keys()), CancellationToken::new()).await.unwrap();
+        let reply = payload(&parts);
+        assert_eq!((reply["ok"].clone(), reply["stopped_reason"].clone()), (json!(false), json!("preflight_refused")));
+        assert_eq!(reply["steps"][1]["reason"], "preflight_refused");
+        assert!(sent(&manager, "sequence_step").is_empty() && sent(&manager, "release_sequence_holds").is_empty());
+    }
+
+    /// A dialog refusal keeps its own code in the reply, and sends nothing else.
+    #[tokio::test]
+    async fn a_dialog_refusal_is_a_preflight_refusal() {
+        let manager = helper(|request| (request["action"] == "validate_background_input").then(|| Err("focus_required|the dialog does not hold keyboard focus; no input was sent".to_owned())));
+        let parts = backend(&manager).run(act(two_keys()), CancellationToken::new()).await.unwrap();
+        let reply = payload(&parts);
+        assert_eq!((reply["stopped_reason"].clone(), reply["code"].clone()), (json!("preflight_refused"), json!("focus_required")));
+        assert!(sent(&manager, "sequence_step").is_empty());
+    }
+
+    /// `assertSequenceStep`'s refusals.
+    #[test]
+    fn a_step_must_fit_its_place_in_the_sequence() {
+        let refused = |step: Value, index: usize| assert_step(&step, index).unwrap_err();
+        assert_eq!(refused(json!({ "action": "wait", "duration": 1 }), 0), "sequence first step must be a supported input action");
+        assert_eq!(refused(json!({ "action": "click" }), 1), "sequence step 2 click requires a ref from the same observation");
+        assert_eq!(refused(json!({ "action": "key", "keys": "a", "delivery": "foreground" }), 1), "sequence step 2 cannot override root field(s): delivery");
+        assert_eq!(refused(json!({ "action": "type", "text": "a", "x": 1 }), 1), "sequence step 2 addresses elements by ref only");
+        assert_eq!(refused(json!({ "action": "wait", "duration": 6 }), 1), "sequence step 2 requires duration from 0 to 5 seconds");
+        assert_eq!(refused(json!({ "action": "key", "keys": "a", "text": "a" }), 1), "sequence step 2 does not accept field(s): text");
+        assert!(assert_step(&json!({ "action": "click", "x": 1, "y": 2, "frame_id": "f" }), 0).is_ok());
+        assert!(assert_step(&json!({ "action": "drag", "x": 1, "y": 2, "to_x": 3, "to_y": 4, "button": "right", "frame_id": "f" }), 0).is_ok());
+    }
+
+    /// A desktop that keeps what it is asked and answers the methods an `act` meets: the readiness of the arrow, the windows it owns,
+    /// the displays and the input into its own window.
+    #[derive(Default)]
+    struct Desk {
+        asked: std::sync::Mutex<Vec<(String, Value)>>,
+        displays: std::sync::Mutex<Value>,
+    }
+
+    #[async_trait::async_trait]
+    impl mixdog_core_api::HostChannel for Desk {
+        async fn request(&self, _: mixdog_core_api::HostCapability, method: mixdog_core_api::ids::Method, params: Value) -> Result<Value, mixdog_core_api::HostError> {
+            self.asked.lock().unwrap().push((method.0.to_owned(), params));
+            Ok(match method.0 {
+                "host/computer/cursorPrepare" => json!({"state": "ready"}),
+                "host/computer/appInput" => json!({"delivered": true, "effect": "delivered", "presses": 1}),
+                "host/computer/displays" => self.displays.lock().unwrap().clone(),
+                other => panic!("the act asked the desktop for {other}"),
+            })
+        }
+
+        fn notify(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<(), mixdog_core_api::CoreError> {
+            Ok(())
+        }
+    }
+
+    fn asked(desk: &Desk) -> Vec<String> {
+        desk.asked.lock().unwrap().iter().map(|(method, _)| method.clone()).collect()
+    }
+
+    /// The overlay readies the agent's arrow before a pointer action, with the point the step names and the window it is for; the answer
+    /// is a row of the session's failure bundle only when it is not "ready".
+    #[tokio::test]
+    async fn the_arrow_is_readied_before_a_pointer_step() {
+        let desk = Arc::new(Desk::default());
+        let manager = helper(|_| None);
+        let data = tempfile::tempdir().unwrap();
+        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "arrow-1") };
+        let with_desk = ProcessComputerBackend::new(config, manager.clone()).with_desktop(desk.clone());
+        let click = object(json!({"action": "click", "ref": "e1", "delivery": "background"}));
+        with_desk.send_step(click, "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap();
+        let sent = desk.asked.lock().unwrap().clone();
+        let prepare = sent.iter().find(|(method, _)| method == "host/computer/cursorPrepare").expect("the arrow was readied");
+        assert_eq!((prepare.1["sessionThreadId"].clone(), prepare.1["windowId"].clone()), (json!("arrow-1"), json!("hwnd:0x2")));
+        assert!(!data.path().join("computer-failures").exists(), "a ready arrow leaves no failure row");
+
+        // A step that is no pointer action asks nothing; a run with no overlay readies nothing and leaves the row.
+        let wait = object(json!({"action": "wait", "duration": 0, "delivery": "background"}));
+        let before = asked(&desk).len();
+        with_desk.send_step(wait, "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap();
+        assert_eq!(asked(&desk).len(), before);
+        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "arrow-2") };
+        let bare = ProcessComputerBackend::new(config, manager.clone());
+        bare.send_step(object(json!({"action": "click", "ref": "e1", "delivery": "background"})), "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap();
+        assert!(data.path().join("computer-failures").is_dir(), "an arrow that was not readied is a diagnostic row");
+    }
+
+    /// A step that names a display's frame is refused when the display layout changed since the frame was taken; a step with no frame
+    /// never asks for the layout.
+    #[tokio::test]
+    async fn a_step_on_a_display_frame_is_refused_when_the_layout_changed() {
+        use super::super::computer_frames::DisplaySource;
+        use super::super::computer_frames::Frame;
+        let desk = Arc::new(Desk::default());
+        let display = |width: u32| json!([{"index": 0, "id": "7", "primary": true, "scale_factor": 2.0, "width": width, "height": 750, "x": -3000, "y": 0}]);
+        *desk.displays.lock().unwrap() = display(1600);
+        let manager = helper(|_| None);
+        let with_desk = backend(&manager).with_desktop(desk.clone());
+        let shown = Frame {
+            id: "frame-d".into(),
+            window_id: None,
+            related_window_ids: None,
+            origin_x: -3000,
+            origin_y: 0,
+            physical_width: 3000,
+            physical_height: 1500,
+            capture_width: 1500,
+            capture_height: 750,
+            idle: None,
+        };
+        with_desk.frames.remember_display(shown, DisplaySource { display_id: "7".into(), x: -3000, y: 0, width: 3000, height: 1500, scale_factor: 2.0 });
+
+        let click = object(json!({"action": "click", "x": 10, "y": 10, "frame_id": "frame-d", "delivery": "background"}));
+        let error = with_desk.send_step(click, "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap_err();
+        assert_eq!(error, ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: display layout changed (frame-d)".into() });
+        assert_eq!(asked(&desk), ["host/computer/displays"]);
+
+        let before = asked(&desk).len();
+        let wait = object(json!({"action": "wait", "duration": 0, "delivery": "background"}));
+        with_desk.send_step(wait, "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap();
+        assert_eq!(asked(&desk).len(), before, "a step with no frame leaves the layout alone");
+    }
+
+    /// The capture that follows an action asks for the delta: the second `act` on the same window names the rows that did not change.
+    #[tokio::test]
+    async fn the_capture_after_an_action_is_a_delta_against_the_last_observation() {
+        let generation = std::sync::atomic::AtomicUsize::new(0);
+        let manager = Scripted::new(move |request| {
+            Ok(match request["action"].as_str() {
+                Some("sequence_step") => quiet_step(request),
+                Some("input_idle_state") => json!({"observer_ready": true, "monitor": "m1", "sequence": 4, "target_sequence": 4}),
+                Some("snapshot") => {
+                    let generation = generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                    let rows: Vec<Value> = (0..8)
+                        .map(|n| json!({"mark": n + 1, "ref": format!("s{generation}:e{n}"), "role": "Button", "name": format!("Item {n}"), "value": "", "state": "",
+                                        "enabled": true, "x": 10, "y": 10 + n * 30, "width": 80, "height": 20, "actions": ["click"]}))
+                        .collect();
+                    let lines: Vec<String> = rows.iter().map(|row| format!("[{}] Button \"{}\" @50,50", row["ref"].as_str().unwrap(), row["name"].as_str().unwrap())).collect();
+                    json!({"text": format!("Window: T [hwnd:0x2]\nElements: total=8 generation={generation}\n{}", lines.join("\n")), "window_id": "hwnd:0x2",
+                           "generation": generation, "total_elements": 8, "elements": rows})
+                }
+                _ => json!({"text": "ok"}),
+            })
+        });
+        let backend = backend(&manager);
+        let ask = || ComputerRequest { action: ComputerAction::Act, input: json!({"window_id": "hwnd:0x2", "actions": [{"type": "key", "keys": "a"}], "observe": "ax"}) };
+        let text_at = |parts: &[ToolPart], at: usize| match &parts[at] {
+            ToolPart::Text(text) => text.clone(),
+            other => panic!("a text part, got {other:?}"),
+        };
+        let first = backend.run(ask(), CancellationToken::new()).await.unwrap();
+        assert!(text_at(&first, 1).contains("[s1:e0] Button \"Item 0\"") && !text_at(&first, 1).contains("Elements delta"), "{first:?}");
+        let second = backend.run(ask(), CancellationToken::new()).await.unwrap();
+        let shown = text_at(&second, 1);
+        assert!(shown.contains("Elements delta: ") && !shown.contains("[s2:e0] Button \"Item 0\""), "the rows that did not change are named, not listed: {shown}");
+    }
+
+    /// A helper that names the action it took and shows one window when asked to observe it.
+    fn window_helper(reply: Value) -> Arc<Scripted> {
+        Scripted::new(move |request| {
+            Ok(match request["action"].as_str() {
+                Some("focus_window" | "close_window" | "launch") => reply.clone(),
+                Some("snapshot") => json!({ "text": "Window: T [hwnd:0x2]
+Elements: total=0", "window_id": "hwnd:0x2", "total_elements": 0, "elements": [] }),
+                Some("window_predicates") => json!({ "elements": [{ "role": "Button", "name": "a" }] }),
+                _ => json!({ "text": "ok" }),
+            })
+        })
+    }
+
+    /// `autoCapture`: a window operation's reply carries the observation of the window it named.
+    #[tokio::test]
+    async fn a_window_operation_is_followed_by_the_observation_of_its_window() {
+        let manager = window_helper(json!({ "action": "focus_window", "text": "focused", "window_id": "hwnd:0x2", "delivery_accepted": true }));
+        let request = ComputerRequest { action: ComputerAction::Window, input: json!({ "operation": "focus", "window_id": "hwnd:0x2" }) };
+        let reply = payload(&backend(&manager).run(request, CancellationToken::new()).await.unwrap());
+        assert_eq!(reply["action"], "focus_window");
+        assert_eq!(reply["capture_after"]["target_reason"], "original_target");
+        assert_eq!(sent(&manager, "snapshot").len(), 1);
+    }
+
+    /// A launch the shell accepted but whose window is not known is not a failed launch, and nothing is captured for it.
+    #[tokio::test]
+    async fn a_launch_without_a_window_is_not_followed_by_a_capture() {
+        let manager = window_helper(json!({ "action": "launch", "text": "launched", "delivery_accepted": true }));
+        let request = ComputerRequest { action: ComputerAction::Launch, input: json!({ "app": "notepad" }) };
+        let reply = payload(&backend(&manager).run(request, CancellationToken::new()).await.unwrap());
+        assert_eq!(reply["capture_after"], json!({ "ok": true, "action": "capture", "skipped": true, "target_reason": "launch_target_unresolved" }));
+        assert_eq!(reply["verdict"], json!({ "decision": "verify_fresh_state", "recommended": "list_windows" }));
+        assert!(reply["message"].as_str().unwrap().ends_with("do not launch again."));
+        assert!(sent(&manager, "snapshot").is_empty() && sent(&manager, "window_predicates").is_empty());
+    }
+
+    /// A launch with a window waits for its layout to settle: two reads that agree, then the capture.
+    #[tokio::test]
+    async fn a_launch_waits_for_the_layout_of_its_window() {
+        let manager = window_helper(json!({ "action": "launch", "text": "launched", "window_id": "hwnd:0x2", "delivery_accepted": true }));
+        let request = ComputerRequest { action: ComputerAction::Launch, input: json!({ "app": "notepad" }) };
+        let reply = payload(&backend(&manager).run(request, CancellationToken::new()).await.unwrap());
+        assert_eq!(sent(&manager, "window_predicates").len(), 2);
+        assert_eq!(sent(&manager, "snapshot").len(), 1);
+        assert_eq!(reply["capture_after"]["target_reason"], "original_target");
+    }
+
+
+    /// A key step into a window the desktop owns goes through the desktop's renderer, and is left out of the helper's background
+    /// preflight; any other window, and a run with no desktop, keep the helper.
+    #[tokio::test]
+    async fn a_key_step_into_the_desktops_own_window_goes_through_its_renderer() {
+        let desk = Arc::new(Desk::default());
+        let own = json!({"windows": [{"windowId": "hwnd:0x777", "kind": "main", "title": "Mixdog", "bounds": {"x": 0, "y": 0, "width": 800, "height": 600}, "scaleFactor": 1.0, "displayId": "1", "focused": true}]});
+        // The list is the process's, read again only when it is stale: wait out a read another test made.
+        for _ in 0..30 {
+            APP_OWNED.refresh_with(|| async { Ok(own.clone()) }).await;
+            if APP_OWNED.window("hwnd:0x777").is_some() {
+                break;
+            }
+            mixdog_rt::time::sleep(Duration::from_millis(100)).await;
+        }
+        let manager = helper(|_| None);
+        let with_desk = backend(&manager).with_desktop(desk.clone());
+        let step = object(json!({"action": "key", "keys": "^a", "delivery": "background"}));
+
+        let routed = with_desk.app_owned_input(&step, "hwnd:0x777", &CancellationToken::new()).await.unwrap().expect("the renderer took the step");
+        assert_eq!((routed["path"].clone(), routed["delivery"].clone()), (json!("electron_key_event"), json!("background")));
+        let asked = desk.asked.lock().unwrap().clone();
+        assert!(asked.iter().any(|(method, params)| method == "host/computer/appInput" && params["op"] == "key" && params["windowId"] == "hwnd:0x777"), "{asked:?}");
+
+        assert!(with_desk.app_owned_input(&step, "hwnd:0x2", &CancellationToken::new()).await.unwrap().is_none(), "a native window is the helper's");
+        assert!(backend(&manager).app_owned_input(&step, "hwnd:0x777", &CancellationToken::new()).await.unwrap().is_none(), "no desktop, no renderer");
+        let foreground = object(json!({"action": "key", "keys": "^a", "delivery": "foreground"}));
+        assert!(with_desk.app_owned_input(&foreground, "hwnd:0x777", &CancellationToken::new()).await.unwrap().is_none(), "foreground delivery is the helper's");
+
+        let planned = plan(&[json!({"action": "key", "keys": "^a"})], "hwnd:0x777", "background", "s1").unwrap();
+        assert!(with_desk.preflight(&planned, "hwnd:0x777", &CancellationToken::new()).await.unwrap().is_none());
+        assert!(sent(&manager, "validate_background_input").is_empty(), "the helper was not asked about a step it never sees");
+    }
+}
+
+
 impl ProcessComputerBackend {
     /// `runBoundedSequence`: the window the call names, its steps, and a capture of the window the sequence ended on.
     pub(super) async fn act(&self, mut command: Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
@@ -712,417 +1126,5 @@ impl ProcessComputerBackend {
             Err(error @ ComputerError::Failed { .. }) if lead_code(&error_text(&error)) == "user_input_active" => Err(error),
             Err(error) => Ok((object(json!({ "ok": false, "window_id": window_id, "error": error_text(&error) })), Vec::new())),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use mixdog_core_api::domain::computer::ComputerAction;
-    use mixdog_core_api::domain::computer::ComputerBackend;
-    use mixdog_core_api::domain::computer::ComputerRequest;
-
-    use std::sync::atomic::AtomicBool;
-    use std::sync::atomic::Ordering;
-
-    use super::super::computer_backend::ComputerConfig;
-    use super::super::computer_backend::ComputerShared;
-    use super::super::computer_targets::testing::Scripted;
-    use super::*;
-
-    fn backend(manager: &Arc<Scripted>) -> ProcessComputerBackend {
-        ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone())
-    }
-
-    /// A step the helper took, with no window change around it.
-    fn quiet_step(request: &Value) -> Value {
-        json!({ "step_result": { "text": "ok", "action": request["step"]["action"] }, "windows_before": [], "windows_after": [], "settle_delay_ms": 0 })
-    }
-
-    /// A helper that takes everything; `special` answers first for the requests a test scripts.
-    fn helper(special: impl Fn(&Value) -> Option<Result<Value, String>> + Send + Sync + 'static) -> Arc<Scripted> {
-        Scripted::new(move |request| {
-            if let Some(answer) = special(request) {
-                return answer;
-            }
-            Ok(match request["action"].as_str() {
-                Some("sequence_step") => quiet_step(request),
-                Some("snapshot") => json!({ "text": json!({ "ok": true, "action": "snapshot", "window_id": request["window_id"] }).to_string() }),
-                _ => json!({ "text": "ok" }),
-            })
-        })
-    }
-
-    fn act(actions: Value) -> ComputerRequest {
-        ComputerRequest { action: ComputerAction::Act, input: json!({ "window_id": "hwnd:0x2", "actions": actions }) }
-    }
-
-    fn payload(parts: &[ToolPart]) -> Value {
-        let Some(ToolPart::Text(text)) = parts.first() else { panic!("a text part") };
-        serde_json::from_str(text).expect("a JSON reply")
-    }
-
-    fn sent(manager: &Scripted, action: &str) -> Vec<Value> {
-        manager.lines().into_iter().filter(|line| line["action"] == action).collect()
-    }
-
-    fn two_keys() -> Value {
-        json!([{ "type": "key", "keys": "a" }, { "type": "key", "keys": "b" }])
-    }
-
-    /// A refused first step stops the sequence: the second is never sent and its row is skipped, holds are released, and the
-    /// reply says why.
-    #[tokio::test]
-    async fn a_refused_step_skips_the_rest() {
-        let manager = helper(|request| (request["action"] == "sequence_step").then(|| Err("background_unsupported|no route".to_owned())));
-        let parts = backend(&manager).run(act(two_keys()), CancellationToken::new()).await.unwrap();
-        let reply = payload(&parts);
-        assert_eq!(sent(&manager, "sequence_step").len(), 1);
-        assert_eq!(sent(&manager, "release_sequence_holds").len(), 1);
-        assert_eq!(reply["ok"], false);
-        assert_eq!((reply["stopped_reason"].clone(), reply["code"].clone()), (json!("background_unsupported"), json!("background_unsupported")));
-        assert_eq!(reply["steps"][0]["status"], "failed");
-        assert_eq!(reply["steps"][0]["verdict"], json!({ "decision": "escalate", "recommended": "inspect_failed_step" }));
-        assert_eq!(reply["steps"][1], json!({ "index": 2, "action": "key", "status": "skipped", "reason": "background_unsupported" }));
-        assert_eq!(reply["verdict"], json!({ "decision": "escalate", "recommended": "inspect_failed_step" }));
-        assert_eq!(reply["capture_after"]["target_reason"], "original_target");
-    }
-
-    /// Observation-only mode turned on after the sequence was admitted refuses the next step in the host's words before it is sent:
-    /// its row fails, and the steps left never reach the helper.
-    #[tokio::test]
-    async fn observation_only_turned_on_mid_sequence_stops_the_steps_left() {
-        let observing = Arc::new(AtomicBool::new(false));
-        let turned_on = observing.clone();
-        let manager = helper(move |request| {
-            (request["action"] == "sequence_step").then(|| {
-                turned_on.store(true, Ordering::SeqCst);
-                Ok(quiet_step(request))
-            })
-        });
-        let setting = observing.clone();
-        let shared = ComputerShared { observe_only: Arc::new(move || setting.load(Ordering::SeqCst)), ..ComputerShared::default() };
-        let actions = json!([{ "type": "key", "keys": "a" }, { "type": "key", "keys": "b" }, { "type": "key", "keys": "c" }]);
-        let parts = backend(&manager).with_shared(shared).run(act(actions), CancellationToken::new()).await.unwrap();
-        let reply = payload(&parts);
-        assert_eq!(sent(&manager, "sequence_step").len(), 1, "only the step admitted before the change was sent");
-        assert_eq!(reply["stopped_reason"], "observation_only");
-        assert_eq!(reply["steps"][1]["status"], "failed");
-        assert_eq!(reply["steps"][2], json!({ "index": 3, "action": "key", "status": "skipped", "reason": "observation_only" }));
-    }
-
-    /// A dialog the step opened (owned by the target) is the successor: the sequence stops there and the capture is of the dialog.
-    #[tokio::test]
-    async fn a_new_owned_dialog_stops_the_sequence_and_is_captured() {
-        let manager = helper(|request| {
-            (request["action"] == "sequence_step").then(|| {
-                let main = json!({ "id": "hwnd:0x2", "pid": 5, "title": "a.txt - Notepad" });
-                let dialog = json!({ "id": "hwnd:0x9", "pid": 5, "owner_id": "hwnd:0x2", "title": "Save As", "focused": true });
-                Ok(json!({ "step_result": { "text": "ok", "action": "click" }, "windows_before": [main], "windows_after": [main, dialog], "settle_delay_ms": 0 }))
-            })
-        });
-        let actions = json!([{ "type": "click", "ref": "e1" }, { "type": "type", "text": "name" }]);
-        let parts = backend(&manager).run(act(actions), CancellationToken::new()).await.unwrap();
-        let reply = payload(&parts);
-        assert_eq!(reply["stopped_reason"], "target_transition");
-        assert_eq!(reply["steps"][0]["window_transition"]["next_target"]["id"], "hwnd:0x9");
-        assert_eq!(reply["steps"][1]["status"], "skipped");
-        assert_eq!(reply["verdict"], json!({ "decision": "escalate", "recommended": "switch_target" }));
-        assert_eq!((reply["capture_after"]["target_reason"].clone(), reply["capture_after"]["previous_window_id"].clone()), (json!("sequence_successor"), json!("hwnd:0x2")));
-        assert_eq!(reply["capture_after"]["window_id"], "hwnd:0x9");
-        // observation_delta is the capture's own option (capture-finish.ts), never a field of the helper's snapshot request.
-        assert!(sent(&manager, "snapshot").iter().all(|line| line["window_id"] == "hwnd:0x9"));
-        assert_eq!(sent(&manager, "sequence_step").len(), 1);
-    }
-
-    /// More than 10 s of waits is refused before the helper is asked anything about the steps.
-    #[tokio::test]
-    async fn a_total_wait_over_ten_seconds_is_refused_before_any_write() {
-        let manager = helper(|_| None);
-        let actions = json!([{ "type": "key", "keys": "a" }, { "type": "wait", "duration": 5 }, { "type": "wait", "duration": 5 }, { "type": "wait", "duration": 1 }]);
-        let error = backend(&manager).run(act(actions), CancellationToken::new()).await.unwrap_err();
-        assert_eq!(error, refusal("sequence wait steps accept at most 10 total seconds; use verify for longer conditions"));
-        let lines = manager.lines();
-        assert!(lines.iter().all(|line| !matches!(line["action"].as_str(), Some("sequence_step" | "validate_background_input" | "release_sequence_holds"))), "{lines:?}");
-    }
-
-    /// A step that ends with a takeover code is the sequence's error, and the holds are released even so.
-    #[tokio::test]
-    async fn an_unconfirmed_cleanup_is_rethrown_and_the_holds_are_released() {
-        let manager = helper(|request| (request["action"] == "sequence_step").then(|| Err("input_cleanup_unconfirmed: keys may be held".to_owned())));
-        let error = backend(&manager).run(act(two_keys()), CancellationToken::new()).await.unwrap_err();
-        assert_eq!(error, ComputerError::Failed { code: "input_cleanup_unconfirmed".into(), message: "input_cleanup_unconfirmed: keys may be held".into() });
-        assert_eq!(sent(&manager, "release_sequence_holds").len(), 1);
-    }
-
-    /// A release the helper does not confirm outranks the steps, and the capture is never taken.
-    #[tokio::test]
-    async fn a_failed_hold_release_is_an_unconfirmed_cleanup() {
-        let manager = helper(|request| (request["action"] == "release_sequence_holds").then(|| Err("boom".to_owned())));
-        let error = backend(&manager).run(act(json!([{ "type": "key", "keys": "a" }])), CancellationToken::new()).await.unwrap_err();
-        assert_eq!(
-            error,
-            ComputerError::Failed {
-                code: "input_cleanup_unconfirmed".into(),
-                message: "input_cleanup_unconfirmed: sequence holds were not released: boom; completed 1/1 steps (last completed step 1)".into()
-            }
-        );
-        assert!(sent(&manager, "snapshot").is_empty());
-    }
-
-    /// `input_continues` is on every step but the last, `retain_refs` on the steps a later ref outlives (and on the envelope), and
-    /// `sequence_continuation` on the later step that addresses a ref.
-    #[tokio::test]
-    async fn each_step_line_carries_its_sequence_flags() {
-        let manager = helper(|_| None);
-        let actions = json!([{ "type": "click", "ref": "e1" }, { "type": "type", "text": "a" }, { "type": "click", "ref": "e2" }]);
-        backend(&manager).run(act(actions), CancellationToken::new()).await.unwrap();
-        let lines = sent(&manager, "sequence_step");
-        let flags = |line: &Value| ["input_continues", "retain_refs", "sequence_continuation"].map(|key| line["step"][key] == true);
-        assert_eq!(lines.iter().map(flags).collect::<Vec<_>>(), vec![[true, true, false], [true, true, false], [false, false, true]]);
-        assert_eq!(lines.iter().map(|line| line["retain_refs"] == true).collect::<Vec<_>>(), vec![true, true, false]);
-        assert!(lines.iter().all(|line| line["step"]["window_id"] == "hwnd:0x2" && line["step"]["session_id"] == line["session_id"]));
-    }
-
-    /// A background route that refuses a step is found by the preflight: no step is sent, and every row says so.
-    #[tokio::test]
-    async fn a_preflight_refusal_sends_nothing() {
-        let manager = helper(|request| (request["action"] == "validate_background_input").then(|| Err("background_unsupported|no route; no input sent".to_owned())));
-        let parts = backend(&manager).run(act(two_keys()), CancellationToken::new()).await.unwrap();
-        let reply = payload(&parts);
-        assert_eq!((reply["ok"].clone(), reply["stopped_reason"].clone()), (json!(false), json!("preflight_refused")));
-        assert_eq!(reply["steps"][1]["reason"], "preflight_refused");
-        assert!(sent(&manager, "sequence_step").is_empty() && sent(&manager, "release_sequence_holds").is_empty());
-    }
-
-    /// A dialog refusal keeps its own code in the reply, and sends nothing else.
-    #[tokio::test]
-    async fn a_dialog_refusal_is_a_preflight_refusal() {
-        let manager = helper(|request| (request["action"] == "validate_background_input").then(|| Err("focus_required|the dialog does not hold keyboard focus; no input was sent".to_owned())));
-        let parts = backend(&manager).run(act(two_keys()), CancellationToken::new()).await.unwrap();
-        let reply = payload(&parts);
-        assert_eq!((reply["stopped_reason"].clone(), reply["code"].clone()), (json!("preflight_refused"), json!("focus_required")));
-        assert!(sent(&manager, "sequence_step").is_empty());
-    }
-
-    /// `assertSequenceStep`'s refusals.
-    #[test]
-    fn a_step_must_fit_its_place_in_the_sequence() {
-        let refused = |step: Value, index: usize| assert_step(&step, index).unwrap_err();
-        assert_eq!(refused(json!({ "action": "wait", "duration": 1 }), 0), "sequence first step must be a supported input action");
-        assert_eq!(refused(json!({ "action": "click" }), 1), "sequence step 2 click requires a ref from the same observation");
-        assert_eq!(refused(json!({ "action": "key", "keys": "a", "delivery": "foreground" }), 1), "sequence step 2 cannot override root field(s): delivery");
-        assert_eq!(refused(json!({ "action": "type", "text": "a", "x": 1 }), 1), "sequence step 2 addresses elements by ref only");
-        assert_eq!(refused(json!({ "action": "wait", "duration": 6 }), 1), "sequence step 2 requires duration from 0 to 5 seconds");
-        assert_eq!(refused(json!({ "action": "key", "keys": "a", "text": "a" }), 1), "sequence step 2 does not accept field(s): text");
-        assert!(assert_step(&json!({ "action": "click", "x": 1, "y": 2, "frame_id": "f" }), 0).is_ok());
-        assert!(assert_step(&json!({ "action": "drag", "x": 1, "y": 2, "to_x": 3, "to_y": 4, "button": "right", "frame_id": "f" }), 0).is_ok());
-    }
-
-    /// A desktop that keeps what it is asked and answers the methods an `act` meets: the readiness of the arrow, the windows it owns,
-    /// the displays and the input into its own window.
-    #[derive(Default)]
-    struct Desk {
-        asked: std::sync::Mutex<Vec<(String, Value)>>,
-        displays: std::sync::Mutex<Value>,
-    }
-
-    #[async_trait::async_trait]
-    impl mixdog_core_api::HostChannel for Desk {
-        async fn request(&self, _: mixdog_core_api::HostCapability, method: mixdog_core_api::ids::Method, params: Value) -> Result<Value, mixdog_core_api::HostError> {
-            self.asked.lock().unwrap().push((method.0.to_owned(), params));
-            Ok(match method.0 {
-                "host/computer/cursorPrepare" => json!({"state": "ready"}),
-                "host/computer/appInput" => json!({"delivered": true, "effect": "delivered", "presses": 1}),
-                "host/computer/displays" => self.displays.lock().unwrap().clone(),
-                other => panic!("the act asked the desktop for {other}"),
-            })
-        }
-
-        fn notify(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<(), mixdog_core_api::CoreError> {
-            Ok(())
-        }
-    }
-
-    fn asked(desk: &Desk) -> Vec<String> {
-        desk.asked.lock().unwrap().iter().map(|(method, _)| method.clone()).collect()
-    }
-
-    /// A key step into a window the desktop owns goes through the desktop's renderer, and is left out of the helper's background
-    /// preflight; any other window, and a run with no desktop, keep the helper.
-    #[tokio::test]
-    async fn a_key_step_into_the_desktops_own_window_goes_through_its_renderer() {
-        let desk = Arc::new(Desk::default());
-        let own = json!({"windows": [{"windowId": "hwnd:0x777", "kind": "main", "title": "Mixdog", "bounds": {"x": 0, "y": 0, "width": 800, "height": 600}, "scaleFactor": 1.0, "displayId": "1", "focused": true}]});
-        // The list is the process's, read again only when it is stale: wait out a read another test made.
-        for _ in 0..30 {
-            APP_OWNED.refresh_with(|| async { Ok(own.clone()) }).await;
-            if APP_OWNED.window("hwnd:0x777").is_some() {
-                break;
-            }
-            mixdog_rt::time::sleep(Duration::from_millis(100)).await;
-        }
-        let manager = helper(|_| None);
-        let with_desk = backend(&manager).with_desktop(desk.clone());
-        let step = object(json!({"action": "key", "keys": "^a", "delivery": "background"}));
-
-        let routed = with_desk.app_owned_input(&step, "hwnd:0x777", &CancellationToken::new()).await.unwrap().expect("the renderer took the step");
-        assert_eq!((routed["path"].clone(), routed["delivery"].clone()), (json!("electron_key_event"), json!("background")));
-        let asked = desk.asked.lock().unwrap().clone();
-        assert!(asked.iter().any(|(method, params)| method == "host/computer/appInput" && params["op"] == "key" && params["windowId"] == "hwnd:0x777"), "{asked:?}");
-
-        assert!(with_desk.app_owned_input(&step, "hwnd:0x2", &CancellationToken::new()).await.unwrap().is_none(), "a native window is the helper's");
-        assert!(backend(&manager).app_owned_input(&step, "hwnd:0x777", &CancellationToken::new()).await.unwrap().is_none(), "no desktop, no renderer");
-        let foreground = object(json!({"action": "key", "keys": "^a", "delivery": "foreground"}));
-        assert!(with_desk.app_owned_input(&foreground, "hwnd:0x777", &CancellationToken::new()).await.unwrap().is_none(), "foreground delivery is the helper's");
-
-        let planned = plan(&[json!({"action": "key", "keys": "^a"})], "hwnd:0x777", "background", "s1").unwrap();
-        assert!(with_desk.preflight(&planned, "hwnd:0x777", &CancellationToken::new()).await.unwrap().is_none());
-        assert!(sent(&manager, "validate_background_input").is_empty(), "the helper was not asked about a step it never sees");
-    }
-
-    /// The overlay readies the agent's arrow before a pointer action, with the point the step names and the window it is for; the answer
-    /// is a row of the session's failure bundle only when it is not "ready".
-    #[tokio::test]
-    async fn the_arrow_is_readied_before_a_pointer_step() {
-        let desk = Arc::new(Desk::default());
-        let manager = helper(|_| None);
-        let data = tempfile::tempdir().unwrap();
-        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "arrow-1") };
-        let with_desk = ProcessComputerBackend::new(config, manager.clone()).with_desktop(desk.clone());
-        let click = object(json!({"action": "click", "ref": "e1", "delivery": "background"}));
-        with_desk.send_step(click, "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap();
-        let sent = desk.asked.lock().unwrap().clone();
-        let prepare = sent.iter().find(|(method, _)| method == "host/computer/cursorPrepare").expect("the arrow was readied");
-        assert_eq!((prepare.1["sessionThreadId"].clone(), prepare.1["windowId"].clone()), (json!("arrow-1"), json!("hwnd:0x2")));
-        assert!(!data.path().join("computer-failures").exists(), "a ready arrow leaves no failure row");
-
-        // A step that is no pointer action asks nothing; a run with no overlay readies nothing and leaves the row.
-        let wait = object(json!({"action": "wait", "duration": 0, "delivery": "background"}));
-        let before = asked(&desk).len();
-        with_desk.send_step(wait, "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap();
-        assert_eq!(asked(&desk).len(), before);
-        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "arrow-2") };
-        let bare = ProcessComputerBackend::new(config, manager.clone());
-        bare.send_step(object(json!({"action": "click", "ref": "e1", "delivery": "background"})), "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap();
-        assert!(data.path().join("computer-failures").is_dir(), "an arrow that was not readied is a diagnostic row");
-    }
-
-    /// A step that names a display's frame is refused when the display layout changed since the frame was taken; a step with no frame
-    /// never asks for the layout.
-    #[tokio::test]
-    async fn a_step_on_a_display_frame_is_refused_when_the_layout_changed() {
-        use super::super::computer_frames::DisplaySource;
-        use super::super::computer_frames::Frame;
-        let desk = Arc::new(Desk::default());
-        let display = |width: u32| json!([{"index": 0, "id": "7", "primary": true, "scale_factor": 2.0, "width": width, "height": 750, "x": -3000, "y": 0}]);
-        *desk.displays.lock().unwrap() = display(1600);
-        let manager = helper(|_| None);
-        let with_desk = backend(&manager).with_desktop(desk.clone());
-        let shown = Frame {
-            id: "frame-d".into(),
-            window_id: None,
-            related_window_ids: None,
-            origin_x: -3000,
-            origin_y: 0,
-            physical_width: 3000,
-            physical_height: 1500,
-            capture_width: 1500,
-            capture_height: 750,
-            idle: None,
-        };
-        with_desk.frames.remember_display(shown, DisplaySource { display_id: "7".into(), x: -3000, y: 0, width: 3000, height: 1500, scale_factor: 2.0 });
-
-        let click = object(json!({"action": "click", "x": 10, "y": 10, "frame_id": "frame-d", "delivery": "background"}));
-        let error = with_desk.send_step(click, "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap_err();
-        assert_eq!(error, ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: display layout changed (frame-d)".into() });
-        assert_eq!(asked(&desk), ["host/computer/displays"]);
-
-        let before = asked(&desk).len();
-        let wait = object(json!({"action": "wait", "duration": 0, "delivery": "background"}));
-        with_desk.send_step(wait, "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap();
-        assert_eq!(asked(&desk).len(), before, "a step with no frame leaves the layout alone");
-    }
-
-    /// The capture that follows an action asks for the delta: the second `act` on the same window names the rows that did not change.
-    #[tokio::test]
-    async fn the_capture_after_an_action_is_a_delta_against_the_last_observation() {
-        let generation = std::sync::atomic::AtomicUsize::new(0);
-        let manager = Scripted::new(move |request| {
-            Ok(match request["action"].as_str() {
-                Some("sequence_step") => quiet_step(request),
-                Some("input_idle_state") => json!({"observer_ready": true, "monitor": "m1", "sequence": 4, "target_sequence": 4}),
-                Some("snapshot") => {
-                    let generation = generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-                    let rows: Vec<Value> = (0..8)
-                        .map(|n| json!({"mark": n + 1, "ref": format!("s{generation}:e{n}"), "role": "Button", "name": format!("Item {n}"), "value": "", "state": "",
-                                        "enabled": true, "x": 10, "y": 10 + n * 30, "width": 80, "height": 20, "actions": ["click"]}))
-                        .collect();
-                    let lines: Vec<String> = rows.iter().map(|row| format!("[{}] Button \"{}\" @50,50", row["ref"].as_str().unwrap(), row["name"].as_str().unwrap())).collect();
-                    json!({"text": format!("Window: T [hwnd:0x2]\nElements: total=8 generation={generation}\n{}", lines.join("\n")), "window_id": "hwnd:0x2",
-                           "generation": generation, "total_elements": 8, "elements": rows})
-                }
-                _ => json!({"text": "ok"}),
-            })
-        });
-        let backend = backend(&manager);
-        let ask = || ComputerRequest { action: ComputerAction::Act, input: json!({"window_id": "hwnd:0x2", "actions": [{"type": "key", "keys": "a"}], "observe": "ax"}) };
-        let text_at = |parts: &[ToolPart], at: usize| match &parts[at] {
-            ToolPart::Text(text) => text.clone(),
-            other => panic!("a text part, got {other:?}"),
-        };
-        let first = backend.run(ask(), CancellationToken::new()).await.unwrap();
-        assert!(text_at(&first, 1).contains("[s1:e0] Button \"Item 0\"") && !text_at(&first, 1).contains("Elements delta"), "{first:?}");
-        let second = backend.run(ask(), CancellationToken::new()).await.unwrap();
-        let shown = text_at(&second, 1);
-        assert!(shown.contains("Elements delta: ") && !shown.contains("[s2:e0] Button \"Item 0\""), "the rows that did not change are named, not listed: {shown}");
-    }
-
-    /// A helper that names the action it took and shows one window when asked to observe it.
-    fn window_helper(reply: Value) -> Arc<Scripted> {
-        Scripted::new(move |request| {
-            Ok(match request["action"].as_str() {
-                Some("focus_window" | "close_window" | "launch") => reply.clone(),
-                Some("snapshot") => json!({ "text": "Window: T [hwnd:0x2]
-Elements: total=0", "window_id": "hwnd:0x2", "total_elements": 0, "elements": [] }),
-                Some("window_predicates") => json!({ "elements": [{ "role": "Button", "name": "a" }] }),
-                _ => json!({ "text": "ok" }),
-            })
-        })
-    }
-
-    /// `autoCapture`: a window operation's reply carries the observation of the window it named.
-    #[tokio::test]
-    async fn a_window_operation_is_followed_by_the_observation_of_its_window() {
-        let manager = window_helper(json!({ "action": "focus_window", "text": "focused", "window_id": "hwnd:0x2", "delivery_accepted": true }));
-        let request = ComputerRequest { action: ComputerAction::Window, input: json!({ "operation": "focus", "window_id": "hwnd:0x2" }) };
-        let reply = payload(&backend(&manager).run(request, CancellationToken::new()).await.unwrap());
-        assert_eq!(reply["action"], "focus_window");
-        assert_eq!(reply["capture_after"]["target_reason"], "original_target");
-        assert_eq!(sent(&manager, "snapshot").len(), 1);
-    }
-
-    /// A launch the shell accepted but whose window is not known is not a failed launch, and nothing is captured for it.
-    #[tokio::test]
-    async fn a_launch_without_a_window_is_not_followed_by_a_capture() {
-        let manager = window_helper(json!({ "action": "launch", "text": "launched", "delivery_accepted": true }));
-        let request = ComputerRequest { action: ComputerAction::Launch, input: json!({ "app": "notepad" }) };
-        let reply = payload(&backend(&manager).run(request, CancellationToken::new()).await.unwrap());
-        assert_eq!(reply["capture_after"], json!({ "ok": true, "action": "capture", "skipped": true, "target_reason": "launch_target_unresolved" }));
-        assert_eq!(reply["verdict"], json!({ "decision": "verify_fresh_state", "recommended": "list_windows" }));
-        assert!(reply["message"].as_str().unwrap().ends_with("do not launch again."));
-        assert!(sent(&manager, "snapshot").is_empty() && sent(&manager, "window_predicates").is_empty());
-    }
-
-    /// A launch with a window waits for its layout to settle: two reads that agree, then the capture.
-    #[tokio::test]
-    async fn a_launch_waits_for_the_layout_of_its_window() {
-        let manager = window_helper(json!({ "action": "launch", "text": "launched", "window_id": "hwnd:0x2", "delivery_accepted": true }));
-        let request = ComputerRequest { action: ComputerAction::Launch, input: json!({ "app": "notepad" }) };
-        let reply = payload(&backend(&manager).run(request, CancellationToken::new()).await.unwrap());
-        assert_eq!(sent(&manager, "window_predicates").len(), 2);
-        assert_eq!(sent(&manager, "snapshot").len(), 1);
-        assert_eq!(reply["capture_after"]["target_reason"], "original_target");
     }
 }

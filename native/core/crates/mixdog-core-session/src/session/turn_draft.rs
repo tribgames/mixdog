@@ -25,8 +25,8 @@ pub struct RunDraft {
     /// turn whose reply row never landed is recovered finished with it.
     pub sealed: Option<Value>,
     /// The last request's context reading the draft carried (the checkpoint's `contextState`), restored as the session's
-    /// `lastContextTokens` at recovery (`restoreCheckpointContext`).
-    pub context_tokens: Option<u64>,
+    /// `lastContextTokens` at recovery (`restoreCheckpointContext`): absent, explicitly cleared, or measured.
+    pub context_tokens: Option<Option<u64>>,
 }
 
 impl RunDraft {
@@ -42,8 +42,14 @@ impl RunDraft {
         if body.get("reset") == Some(&Value::Bool(true)) {
             *self = RunDraft { input: self.input.take(), started: self.started, context_tokens: self.context_tokens, ..RunDraft::default() };
         }
-        if let Some(tokens) = body.get("contextTokens").and_then(Value::as_u64) {
-            self.context_tokens = Some(tokens);
+        match body.get("contextTokens") {
+            Some(Value::Null) => self.context_tokens = Some(None),
+            Some(value) => {
+                if let Some(tokens) = value.as_u64() {
+                    self.context_tokens = Some(Some(tokens));
+                }
+            }
+            None => {}
         }
         let text = |key: &str| body.get(key).and_then(Value::as_str).filter(|text| !text.is_empty());
         if let Some(text) = text("text") {
@@ -120,8 +126,9 @@ pub struct DraftJournal {
     tools: Option<bool>,
     written_text: String,
     written_reasoning: String,
-    /// The last request's context reading, not written yet: it goes with the next write.
-    context: Option<u64>,
+    /// Kept after appending so a full rewrite of the file still carries the reading (including a clear).
+    context: Option<Option<u64>>,
+    context_pending: bool,
     /// Something of the draft is in its file.
     written: bool,
     /// The file is gone (a redaction that could not be written removed it): the next write is the whole draft.
@@ -148,14 +155,15 @@ impl DraftJournal {
     }
 
     /// A request's context reading, written with the draft's next chunk.
-    pub fn context(&mut self, tokens: u64) {
+    pub fn context(&mut self, tokens: Option<u64>) {
         self.context = Some(tokens);
+        self.context_pending = true;
     }
 
-    /// The reading still waiting goes into `out`, when `out` is written.
-    fn with_context(&mut self, out: &mut serde_json::Map<String, Value>) {
-        if let Some(tokens) = self.context.take() {
-            out.insert("contextTokens".into(), Value::from(tokens));
+    fn with_context(&mut self, out: &mut serde_json::Map<String, Value>, whole: bool) {
+        if (whole || self.context_pending) && let Some(tokens) = self.context {
+            out.insert("contextTokens".into(), serde_json::json!(tokens));
+            self.context_pending = false;
         }
     }
 
@@ -211,10 +219,10 @@ impl DraftJournal {
         if let Some(row) = body.get("sealed") {
             out.insert("sealed".into(), marks.redacted(thread, std::slice::from_ref(row)).into_iter().next().unwrap_or_default());
         }
+        self.with_context(&mut out, false);
         if out.is_empty() {
             return None;
         }
-        self.with_context(&mut out);
         self.written = true;
         Some((Value::Object(out), false))
     }
@@ -234,7 +242,7 @@ impl DraftJournal {
         if let Some(tools) = self.tools {
             out.insert("tools".into(), Value::Bool(tools));
         }
-        self.with_context(&mut out);
+        self.with_context(&mut out, true);
         Value::Object(out)
     }
 
@@ -248,4 +256,31 @@ impl DraftJournal {
 fn redact_calls(marks: &dyn super::seams::SensitiveMarks, thread: &ThreadId, calls: &[Value]) -> Value {
     let message = serde_json::json!({ "role": "assistant", "toolCalls": calls });
     marks.redacted(thread, &[message]).into_iter().next().and_then(|message| message.get("toolCalls").cloned()).unwrap_or(Value::Array(Vec::new()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn recovery_keeps_an_explicit_context_clear_through_a_draft_rewrite() {
+        let marks = super::super::store::SensitiveMarksOf::new(std::sync::Arc::new(
+            mixdog_services::memory::sensitive::SensitiveStore::default(),
+        ));
+        let thread = ThreadId::from("draft-context-test");
+        let mut journal = DraftJournal::default();
+        let mut draft = RunDraft::default();
+        for (tokens, expected) in [(Some(8000), json!(8000)), (Some(0), json!(0)), (None, Value::Null)] {
+            journal.context(tokens);
+            let (append, whole) = journal.chunk(&json!({}), &marks, &thread).unwrap();
+            assert!(!whole);
+            assert_eq!(append.get("contextTokens"), Some(&expected));
+            draft.apply_file(&[append, json!({ "text": "continued" })], |_| false);
+            assert_eq!(draft.context_tokens, Some(tokens));
+        }
+        let mut recovered = RunDraft::default();
+        recovered.apply_file(&[journal.reset(&marks, &thread)], |_| false);
+        assert_eq!(recovered.context_tokens, Some(None));
+    }
 }

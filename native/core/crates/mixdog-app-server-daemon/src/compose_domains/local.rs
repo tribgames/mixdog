@@ -85,6 +85,8 @@ pub(super) struct Local {
     /// The one media job table and store the media domain service holds: the `media` tool's `StudioGraph` takes the same two.
     pub media_jobs: Arc<MediaJobs>,
     pub media_store: Arc<MediaStore>,
+    /// The media domain service itself, for the relay media lane's gallery source (`MediaService::lane_file`).
+    pub media_service: Arc<MediaService>,
     pub services: Vec<Arc<dyn DomainService>>,
     pub transfer_sources: Vec<Arc<dyn TransferSource>>,
     pub tool_modules_host: Arc<ServicesToolModulesHost>,
@@ -209,7 +211,8 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
     let store = Arc::new(MediaStore::new(data_dir, tokens.durability_io));
     let renditions = StillRenditions::new(Arc::new(ExtImageCodec::new(inputs.ext_host.clone())), tokens.durability_io, store.renditions_dir());
     let jobs = MediaJobs::with_ledger(store.clone(), seams.media_generator.clone(), media_max_active(&inputs.env), Some(renditions.clone()), seams.media_ledger.clone());
-    services.push(Arc::new(MediaService::new(store.clone(), jobs.clone(), processes.clone(), renditions.clone())));
+    let media_service = Arc::new(MediaService::new(store.clone(), jobs.clone(), processes.clone(), renditions.clone()));
+    services.push(media_service.clone());
     // The `mediaJobs` section, keyed by job id, on the scoped feed `media:<jobId>` (SPEC R14).
     mixdog_services::media::section::spawn_media_section(&jobs, inputs.state.publisher.clone(), inputs.state.scoped_sections(inputs.scoped_feeds.clone()), inputs.cancel.clone());
     let media_status = Arc::new(MediaStatus::new(store.clone()));
@@ -231,5 +234,5 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
     let setup = Arc::new(VoiceSetup::new(pipeline.clone(), Arc::new(ConfigVoiceEnabled::new(config.clone())), seams.voice_installer.clone()));
     services.push(Arc::new(VoiceService::new(pipeline, setup.clone(), seams.voice_progress.clone())));
 
-    Ok(Local { media_status, voice_setup: setup, media_jobs: jobs, media_store: store, services, transfer_sources, tool_modules_host, service: local_service })
+    Ok(Local { media_status, voice_setup: setup, media_jobs: jobs, media_store: store, media_service, services, transfer_sources, tool_modules_host, service: local_service })
 }

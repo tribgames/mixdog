@@ -20,7 +20,7 @@ function parseTag(tag) {
   return match.slice(1).map(Number);
 }
 
-function compareTags(left, right) {
+export function compareTags(left, right) {
   const a = parseTag(left);
   const b = parseTag(right);
   for (let index = 0; index < 3; index += 1) {
@@ -29,12 +29,26 @@ function compareTags(left, right) {
   return 0;
 }
 
+export function nextRuntimeTag(tag) {
+  const [major, minor, patch] = parseTag(tag);
+  return `runtime-v${major}.${minor}.${patch + 1}`;
+}
+
+/** Reuse this commit's pending release, but never publish into someone else's tag. */
+export function selectRuntimeRelease({ requested, shipped, inspect }) {
+  let tag = compareTags(requested, shipped) > 0 ? requested : nextRuntimeTag(shipped);
+  for (;;) {
+    const { state, belongsToCommit } = inspect(tag);
+    if (belongsToCommit) return { tag, mode: state === 'public' ? 'recover' : 'build' };
+    tag = nextRuntimeTag(tag);
+  }
+}
+
 export function planRuntimeReleaseTag({ requestedTag, shippedTag, neededAssets, publishedAssets }) {
   const published = new Set(publishedAssets);
   const replacesPublished = neededAssets.some((name) => published.has(name));
   if (!replacesPublished || compareTags(requestedTag, shippedTag) > 0) return requestedTag;
-  const [major, minor, patch] = parseTag(shippedTag);
-  return `runtime-v${major}.${minor}.${patch + 1}`;
+  return nextRuntimeTag(shippedTag);
 }
 
 function readNames(path) {

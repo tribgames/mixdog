@@ -104,6 +104,7 @@ fn ctx() -> SendContext {
         bound_hint: None,
         cancel: CancellationToken::new(),
         implicit_plan_usage: None,
+        plan_meters_apply: true,
     }
 }
 
@@ -241,6 +242,90 @@ async fn a_provider_without_a_roster_sends_unscoped() {
     assert_eq!(rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap(), "plain");
 }
 
+fn implicit_reading(used_pct: f64, reset_at: Option<i64>, checked_at: i64) -> Account {
+    let window = Window { label: "7D".into(), used_pct: Some(used_pct), reset_at, ..Window::default() };
+    Account { usage: Some(Usage { windows: vec![window], checked_at }), ..Account::new("default") }
+}
+
+/// A provider with no roster is refused before the wire only on a reading that proves its window spent now; a stale
+/// reading with no reset, a reading whose reset has passed and a recovered one all leave the send to go out.
+#[tokio::test]
+async fn a_provider_without_a_roster_is_refused_only_on_a_proven_spent_plan_window() {
+    mixdog_rt::testing::tokens();
+    let now = 1_800_000_000_000;
+    let dir = tempfile::tempdir().unwrap();
+    let rotation = AccountRotation::new(store(&dir), Arc::new(NoProbe), clock());
+
+    let mut spent = ctx();
+    spent.implicit_plan_usage = Some(implicit_reading(100.0, Some(now + 60_000), now - 1_000));
+    let script = Script::new(vec![]);
+    let err = rotation.pool_send(PROVIDER, &spent, &script).await.unwrap_err();
+    assert_eq!(err.quota_exhausted.expect("quota proof").reset_at, Some(now + 60_000));
+    assert!(script.calls().is_empty(), "no wire call for a proven exhaustion");
+
+    for (used, reset, checked) in [
+        (100.0, None, now - 24 * 60 * 60 * 1_000),
+        (100.0, Some(now - 1), now - 1_000),
+        (40.0, Some(now + 60_000), now - 1_000),
+    ] {
+        let mut ordinary = ctx();
+        ordinary.implicit_plan_usage = Some(implicit_reading(used, reset, checked));
+        let script = Script::new(vec![("default", vec![Ok("plain")])]);
+        assert_eq!(rotation.pool_send(PROVIDER, &ordinary, &script).await.unwrap(), "plain");
+    }
+}
+
+/// The stored plan meters steer a roster as they do no roster: full meters refuse before the wire; a full percent that
+/// states credit remaining does not (the percent is stored as observed); and where the meters were not proven for the
+/// destination they steer nothing.
+#[tokio::test]
+async fn full_plan_meters_refuse_a_roster_only_where_they_apply_and_state_no_credit_left() {
+    mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let (rotation, s) = rotation(&dir, clock()).await;
+    let full = |remaining: Option<f64>| QuotaWindowInput { label: "7D".into(), used_pct: Some(100.0), reset_at: Some(1_900_000_000_000), remaining, ..QuotaWindowInput::default() };
+    for id in [ID_A, ID_B] {
+        s.record_usage(PROVIDER, id, vec![full(None)]).await.unwrap();
+    }
+
+    let script = Script::new(vec![]);
+    let err = rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap_err();
+    assert_eq!(err.quota_exhausted.expect("proof").reset_at, Some(1_900_000_000_000));
+    assert!(script.calls().is_empty(), "no wire call for proven exhaustion");
+
+    let mut elsewhere = ctx();
+    elsewhere.plan_meters_apply = false;
+    let script = Script::new(vec![(ID_A, vec![Ok("sent")])]);
+    assert!(rotation.pool_send(PROVIDER, &elsewhere, &script).await.unwrap().starts_with("sent"));
+
+    for id in [ID_A, ID_B] {
+        s.record_usage(PROVIDER, id, vec![full(Some(2.5))]).await.unwrap();
+    }
+    let script = Script::new(vec![(ID_A, vec![Ok("sent")])]);
+    assert!(rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap().starts_with("sent"));
+    let stored = s.pool(PROVIDER).await.unwrap();
+    assert_eq!(stored.account(ID_A).unwrap().usage.as_ref().unwrap().windows[0].used_pct, Some(100.0));
+}
+
+/// A refusal is classified against the same service as admission: a full plan meter makes a plain 429 quota evidence
+/// where the meters describe the destination, and says nothing where they do not.
+#[tokio::test]
+async fn a_refusal_takes_quota_evidence_from_plan_meters_only_where_they_apply() {
+    mixdog_rt::testing::tokens();
+    for (applies, evidence) in [(true, Some(true)), (false, None)] {
+        let dir = tempfile::tempdir().unwrap();
+        let (rotation, s) = rotation(&dir, clock()).await;
+        let full = QuotaWindowInput { label: "7D".into(), used_pct: Some(100.0), reset_at: Some(1_900_000_000_000), ..QuotaWindowInput::default() };
+        s.record_usage(PROVIDER, ID_A, vec![full]).await.unwrap();
+        let mut send = ctx();
+        send.plan_meters_apply = applies;
+        let script = Script::new(vec![(ID_A, vec![Err(refusal(ErrorKind::RateLimited, 429))]), (ID_B, vec![Ok("answer")])]);
+        let _ = rotation.pool_send(PROVIDER, &send, &script).await;
+        let blocked = s.pool(PROVIDER).await.unwrap();
+        assert_eq!(blocked.account(ID_A).unwrap().blocked_quota, evidence, "meters apply: {applies}");
+    }
+}
+
 /// A probe whose reading of one account shows a full window; it keeps which accounts it was asked to measure.
 struct FullReading {
     store: AccountStore,
@@ -253,7 +338,7 @@ impl UsageProbe for FullReading {
     async fn measure(&self, provider: &str, account_id: &str, _force: bool) {
         self.measured.lock().unwrap().push(account_id.to_owned());
         let used_pct = if account_id == self.full { 100.0 } else { 10.0 };
-        let window = QuotaWindowInput { label: "7D".into(), used_pct: Some(used_pct), reset_at: Some(1_900_000_000_000), models: None, except: None, limit: None };
+        let window = QuotaWindowInput { label: "7D".into(), used_pct: Some(used_pct), reset_at: Some(1_900_000_000_000), ..QuotaWindowInput::default() };
         self.store.record_usage(provider, account_id, vec![window]).await.unwrap();
     }
 }

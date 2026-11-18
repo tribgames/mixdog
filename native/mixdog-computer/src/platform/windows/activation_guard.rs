@@ -14,11 +14,11 @@ use super::native;
 use crate::lease_api::{ForegroundLease, LeaseAnswer};
 use crate::observer::{Shared, Snapshot};
 use crate::platform::Wid;
+use crate::port::windows::WinPort;
 use crate::protocol::Obj;
 use serde_json::Value;
 use std::sync::atomic::{AtomicU32, Ordering};
 use windows::core::w;
-use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows::Win32::UI::WindowsAndMessaging::FindWindowExW;
 
 /// How long a self-activating host's hold lasts, and any other's
@@ -59,6 +59,10 @@ trait GuardPlatform {
     fn facts(&self) -> Obj;
     fn now_ms(&self) -> f64;
     fn sleep_ms(&self, ms: u32);
+    /// The automation scope the call runs under was revoked (during a `sleep_ms`): no restore may follow.
+    fn revoked(&self) -> bool {
+        false
+    }
     fn restore(
         &self,
         target: Wid,
@@ -70,6 +74,8 @@ trait GuardPlatform {
 
 struct Live<'a> {
     shared: &'a Shared,
+    /// The executor's port: the hold, the shield and the restore's focus all go through it.
+    port: &'a WinPort,
 }
 
 impl GuardPlatform for Live<'_> {
@@ -107,10 +113,10 @@ impl GuardPlatform for Live<'_> {
         activation_restore::superseded(self.shared, &observed.generation, observed.sequence, target)
     }
     fn hold(&self, target: Wid) -> Wid {
-        hold_inactive(target)
+        hold_inactive(self.port, target)
     }
     fn unhold(&self, root: Wid) -> Result<(), String> {
-        release_inactive(root)
+        release_inactive(self.port, root)
     }
     fn shield(&self, target: Wid) -> bool {
         if !native::is_window(target) {
@@ -125,15 +131,15 @@ impl GuardPlatform for Live<'_> {
         if !ledger::record_shield(true, target) {
             return false;
         }
-        // SAFETY: plain value arguments.
-        let _ = unsafe { EnableWindow(native::hwnd(target), false) };
+        // Refused once revoked: nothing is disabled, so nothing is enabled again.
+        if self.port.shield(target).is_err() {
+            ledger::record_shield(false, target);
+            return false;
+        }
         true
     }
     fn unshield(&self, target: Wid) {
-        if native::is_window(target) {
-            // SAFETY: plain value arguments.
-            let _ = unsafe { EnableWindow(native::hwnd(target), true) };
-        }
+        self.port.unshield(target);
         ledger::record_shield(false, target);
     }
     fn lock(&self, hold_ms: u32) -> Acquired {
@@ -158,7 +164,12 @@ impl GuardPlatform for Live<'_> {
         foreground_lock::lease_now_ms()
     }
     fn sleep_ms(&self, ms: u32) {
+        // The watch holds nothing; revoked meanwhile, it ends before any restore (`revoked`), and a restore that still ran
+        // would be refused at the port.
         std::thread::sleep(std::time::Duration::from_millis(u64::from(ms)));
+    }
+    fn revoked(&self) -> bool {
+        self.port.scope().is_revoked()
     }
     fn restore(
         &self,
@@ -169,6 +180,7 @@ impl GuardPlatform for Live<'_> {
     ) -> String {
         activation_restore::restore(
             self.shared,
+            self.port,
             &observed.generation,
             observed.sequence,
             target,
@@ -373,6 +385,10 @@ fn run(
             break;
         }
         platform.sleep_ms(POLL_MS);
+        // Revoked while the guard watched: the focus restore is not the revoked scope's to do; the holds below are let go.
+        if platform.revoked() {
+            break;
+        }
     }
     // Unconditional: a second release after the restore's own only reads how
     // that one ended.
@@ -390,12 +406,13 @@ fn run(
 /// are None when the person was already in the target.
 pub fn guard(
     shared: &Shared,
+    port: &WinPort,
     target: Wid,
     request_id: i64,
     lease: &dyn ForegroundLease,
     op: &mut dyn FnMut() -> Result<Obj, String>,
 ) -> (Result<Obj, String>, Option<Value>) {
-    run(&Live { shared }, lease, target, request_id, op)
+    run(&Live { shared, port }, lease, target, request_id, op)
 }
 
 #[cfg(test)]

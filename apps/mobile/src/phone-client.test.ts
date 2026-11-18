@@ -218,6 +218,32 @@ test('a revoked pairing is terminal: reported, closed, no retry', async () => {
   assert.deepEqual(states.map((s) => s.state), ['connecting', 'pairing-lost']);
 });
 
+test('initialize refusal preserves which side is out of date without retrying', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  for (const reason of ['clientOutdated', 'serverOutdated'] as const) {
+    const far = relayPair(identity, false);
+    const states: PhoneConnection[] = [];
+    const result = connectPhone({
+      deviceId: 'dev',
+      version: '2.0.0',
+      pairing: () => relayE2EEPairingMaterial(identity),
+      socketUrl: () => 'wss://relay.invalid/d/dev',
+      createSocket: () => far.ws,
+      onConnection: (state) => states.push(state),
+    });
+    const rejected = assert.rejects(result, { message: 'versionRefused' });
+    far.start();
+    const init = await far.next();
+    assert.equal(init.method, 'initialize');
+    await far.send({
+      id: init.id,
+      error: { code: -32600, message: 'Version refused', data: { reason, clientVersion: '2.0.0', serverVersion: reason === 'clientOutdated' ? '3.0.0' : '1.0.0' } },
+    });
+    await rejected;
+    assert.deepEqual(states, [{ state: 'connecting' }, { state: 'update-required', reason }]);
+  }
+});
+
 test('a close 4002 is the relay saying the PC is offline: reconnecting, never a terminal state', async () => {
   const identity = await generateRelayE2EEServerIdentity();
   const far = relayPair(identity, false);
@@ -243,7 +269,7 @@ test('a close 4002 is the relay saying the PC is offline: reconnecting, never a 
   await phone.client.close();
 });
 
-test('a frame still sealing when its socket ends never settles its claim; the next connection\'s frame settles its own', async () => {
+test('a frame still sealing when its socket ends rejects its claim; the next connection\'s frame settles its own', async () => {
   const identity = await generateRelayE2EEServerIdentity();
   const legs = [relayPair(identity, false), relayPair(identity, false)];
   let made = 0;
@@ -294,8 +320,11 @@ test('a frame still sealing when its socket ends never settles its claim; the ne
       void phone.client.call('thread/list', {} as never, { sent: (sent) => resolve({ sent }) }).catch(() => undefined);
     });
     const deadFrame = (await dead).sent;
-    let deadSettled = false;
-    void deadFrame.then(() => (deadSettled = true));
+    let deadSettled: 'left' | 'rejected' | null = null;
+    deadFrame.then(
+      () => (deadSettled = 'left'),
+      () => (deadSettled = 'rejected')
+    );
     // The frame is mid-seal, not merely queued: only then does the socket end.
     await sealStarted;
     legs[0].ws.onclose!({ code: 1006, reason: '' });
@@ -304,7 +333,7 @@ test('a frame still sealing when its socket ends never settles its claim; the ne
     await sealed;
     // One macrotask: everything the sealing's continuation queued has run, so a settle that was going to happen has happened.
     await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.equal(deadSettled, false, 'the dead leg\'s frame never leaves, so its claim never settles');
+    assert.equal(deadSettled, 'rejected', 'the dead leg\'s frame never leaves, so its claim is rejected, never left pending or resolved');
 
     await served[1];
     const live = new Promise<{ sent: Promise<void> }>((resolve) => {

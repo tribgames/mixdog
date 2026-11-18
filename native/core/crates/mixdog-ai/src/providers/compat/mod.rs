@@ -20,15 +20,20 @@ pub mod schema;
 pub mod sse;
 pub mod wire_route;
 pub(crate) mod xai_cache;
+pub(crate) mod xai_transport;
 
+#[cfg(node_twin)]
 #[cfg(test)]
 mod chat_stream_replay_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod deepseek_replay_tests;
 #[cfg(test)]
 mod tests;
 
 pub use chat::{CompatChatCodec, CompatConfig};
+pub use profile::CompatProfile;
+
 
 /// The profile's per-send session header ([`profile::ChatDialect::session_header`]): the trimmed session id, else a
 /// UUID drawn for the send.
@@ -43,4 +48,3 @@ pub(crate) fn session_header(profile: &CompatProfile, request: &mixdog_core_api:
         .unwrap_or_else(crate::registry::accounting::random_uuid);
     Some((name.to_owned(), session))
 }
-pub use profile::CompatProfile;

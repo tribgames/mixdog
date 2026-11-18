@@ -17,6 +17,7 @@ use super::provider::{ModelRequest, ProviderError};
 pub struct WarmUsage {
     pub input: f64,
     pub output: f64,
+    pub output_known: bool,
     pub cached: f64,
     pub cache_write: f64,
     /// The 1-hour-TTL share of the writes, when the provider reported one.

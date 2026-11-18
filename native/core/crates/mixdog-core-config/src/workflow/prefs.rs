@@ -87,11 +87,12 @@ fn object_of(value: Option<&Value>) -> Map<String, Value> {
 pub(crate) fn prepare(agent: &Doc, provider: &Value, changes: &Value, host: &dyn WorkflowHost) -> Result<Preferences, String> {
     let provider = provider_text(provider);
     let changes = changes_of(changes)?;
+    let custom = is_custom_provider_id(&provider);
     let full = Value::Object(agent.clone());
-    if !is_known_provider(&provider, &full, &|id| host.provider_available(id)) {
+    let known_proxy = custom && changes.iter().all(|change| change.hidden.is_none()) && host.proxy_provider_registered(&provider);
+    if !known_proxy && !is_known_provider(&provider, &full, &|id| host.provider_available(id)) {
         return Err(format!("unknown provider \"{provider}\""));
     }
-    let custom = is_custom_provider_id(&provider);
     let mut model_settings = object_of(agent.get("modelSettings"));
     for change in &changes {
         let key = format!("{provider}/{}", change.model);

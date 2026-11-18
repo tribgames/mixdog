@@ -108,8 +108,6 @@ impl fmt::Display for HeaderError {
     }
 }
 
-impl std::error::Error for HeaderError {}
-
 /// What the response needs to know of its request.
 #[derive(Debug, Clone)]
 pub(crate) struct ResponseMeta {
@@ -589,3 +587,6 @@ mod tests {
         assert!(valid_value("caf\u{e9}\t") && !valid_value("a\nb") && !valid_value("\u{100}"));
     }
 }
+
+
+impl std::error::Error for HeaderError {}

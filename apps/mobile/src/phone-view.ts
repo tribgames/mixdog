@@ -20,7 +20,28 @@ export const VIEW_WINDOW = { lastItems: 50 } as const;
 
 const APP_FEED = 'app';
 
-export type ViewClient = Pick<ProtocolClient<SessionFold>, 'resumeThread' | 'unsubscribeThread' | 'subscribeApp' | 'status' | 'on'> & {
+/** Opened once; or shut, which rejects what waits on it (its own rejection is never left unhandled). */
+function newGate() {
+  let settle!: () => void;
+  let shut!: (error: Error) => void;
+  let isOpen = false;
+  const promise = new Promise<void>((resolve, reject) => {
+    settle = resolve;
+    shut = reject;
+  });
+  promise.catch(() => undefined);
+  return {
+    promise,
+    open: () => {
+      isOpen = true;
+      settle();
+    },
+    shut,
+    isOpen: () => isOpen,
+  };
+}
+
+export type ViewClient = Pick<ProtocolClient<SessionFold>, 'resumeThread' | 'unsubscribeThread' | 'subscribeApp' | 'confirmFeeds' | 'status' | 'on'> & {
   readonly store: Pick<ProtocolClient<SessionFold>['store'], 'subscribe'>;
 };
 
@@ -29,6 +50,11 @@ export interface ViewManager {
   set(threadIds: readonly string[]): Promise<boolean>;
   /** Asks the core again for the app feed and every open thread (they resume from where they were): the page doubts the stream, e.g. after a wake. Settles like `set`. */
   resync(): Promise<boolean>;
+  /** Checks continuity in one core request. False means gap recovery is needed. */
+  wake(expectedFeeds?: readonly string[]): Promise<boolean>;
+  /** The gate of what needs only the app feed (the conversation list): the connection's app subscription is attached, whatever its
+   *  threads are doing. Rejects as interrupted when the connection ends first. */
+  appSynced(): Promise<void>;
   /** The gate of the app's calls (Node: `viewSync.ready()` after `connect()`): a caller that arrives while no connection is up waits for the next one; then it waits for everything asked of the core to be attached, retries included, and rejects as interrupted when that connection ends first. */
   synced(): Promise<void>;
   stop(): void;
@@ -67,6 +93,7 @@ export function createViewManager(
   let connection = 0;
   // A connection is live for the view once its sync is open, not merely once the client is ready (the first sync opens a turn later).
   let opened = false;
+  let stopped = false;
   const live = (): boolean => opened;
   const readyWaiters = new Set<() => void>();
   const target = (): Set<string> => new Set([...wanted, ...restored]);
@@ -93,28 +120,49 @@ export function createViewManager(
         }
         if (pending.size === 0) finish();
       });
-      cancelReattach = off;
+      cancelReattach = () => {
+        off();
+        reject(remoteConnectionInterruptedError());
+      };
       if (pending.size === 0) finish();
     });
   };
 
-  /** `c` is the sync's own client: the frames it writes carry this sync's claim, whichever connection they end up on. */
+  // The app feed's attach of the connection that is up, apart from its threads': the list needs nothing else.
+  let appGate = newGate();
+  let watchApp: (() => void) | undefined;
+
+  /** `c` is the sync's own client: the frames it writes carry this sync's claim, whichever connection they end up on. The app feed and
+   *  every thread go out together, one request per feed (so each feed's order is its own); a thread's resume joins one the page already
+   *  has in flight rather than replacing it. */
   const attach = async (force: boolean, c: ViewClient): Promise<void> => {
     const want = target();
+    const gate = appGate;
+    const sent: Array<Promise<void>> = [];
     if (!appOpen || force) {
-      await c.subscribeApp();
-      appOpen = true;
-    }
+      sent.push(
+        c.subscribeApp().then(() => {
+          appOpen = true;
+          gate.open();
+        })
+      );
+    } else gate.open();
     for (const id of [...open]) {
       if (want.has(id)) continue;
       open.delete(id);
-      await c.unsubscribeThread(id);
+      sent.push(c.unsubscribeThread(id));
     }
     for (const id of want) {
       if (open.has(id) && !force) continue;
-      await c.resumeThread(id, VIEW_WINDOW);
-      open.add(id);
+      sent.push(
+        c.resumeThread(id, VIEW_WINDOW, force ? { force: true, follow: true } : { join: true, follow: true }).then(() => {
+          open.add(id);
+        })
+      );
     }
+    const outcomes = await Promise.allSettled(sent);
+    const failed = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected');
+    if (failed) throw failed.reason;
   };
 
   const inFlight = new Map<number, true>();
@@ -170,12 +218,24 @@ export function createViewManager(
 
   // Node's `connect()`: a caller that finds no connection up waits for the next one.
   const connected = async (): Promise<void> => {
-    while (!live()) await new Promise<void>((resolve) => readyWaiters.add(resolve));
+    while (!live() && !stopped) await new Promise<void>((resolve) => readyWaiters.add(resolve));
+    if (stopped) throw remoteConnectionInterruptedError();
   };
   const begin = (): void => {
     connection += 1;
     opened = true;
     reattach = appOpen || open.size > 0;
+    appGate = newGate();
+    // What the library restores on its own: the app feed is attached again once its subscription is restored, before the threads'.
+    if (appOpen) {
+      const gate = appGate;
+      const off = client.store.subscribe((change: StoreChange) => {
+        if (change.type !== 'subscription' || change.feedId !== APP_FEED || change.state !== 'restored') return;
+        gate.open();
+        off();
+      });
+      watchApp = off;
+    }
     sync.open();
     for (const wake of [...readyWaiters]) wake();
     readyWaiters.clear();
@@ -189,6 +249,9 @@ export function createViewManager(
     if (event.status.state !== 'ready') {
       connection += 1;
       opened = false;
+      watchApp?.();
+      watchApp = undefined;
+      appGate.shut(remoteConnectionInterruptedError());
       cancelReattach?.();
       cancelReattach = undefined;
       // A refresh still owed to the connection that ended is not asked again of the next one: its first sync is the full one.
@@ -216,15 +279,38 @@ export function createViewManager(
     async resync() {
       if (!live()) return true;
       refresh = true;
+      if (appGate.isOpen()) appGate = newGate();
       await sync.request();
       return true;
+    },
+    async wake(expectedFeeds = []) {
+      if (!live()) return true;
+      const mine = connection;
+      try {
+        await sync.ready();
+        if (mine !== connection) return true;
+        const confirmed = await client.confirmFeeds([APP_FEED, ...open, ...expectedFeeds]);
+        return mine !== connection || confirmed;
+      } catch (error) {
+        if (mine !== connection) return true;
+        throw error;
+      }
+    },
+    async appSynced() {
+      await connected();
+      await appGate.promise;
     },
     async synced() {
       await connected();
       await sync.ready();
     },
     stop() {
+      stopped = true;
+      for (const wake of readyWaiters) wake();
+      readyWaiters.clear();
       clearTimeout(firstTurn);
+      watchApp?.();
+      appGate.shut(remoteConnectionInterruptedError());
       offStatus();
       cancelReattach?.();
       sync.close();

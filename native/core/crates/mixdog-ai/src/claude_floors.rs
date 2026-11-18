@@ -179,15 +179,20 @@ pub(crate) fn reset_process() {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use serde_json::Value;
+    #[cfg(node_twin)]
     use serde_json::json;
 
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     fn golden() -> Value {
         serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/claude-floors/golden.json")).expect("fixture")
     }
 
+    #[cfg(node_twin)]
     /// A version number as the recording holds it: the text `JSON.stringify` writes for it (an integer's digits, `null`
     /// for an infinite one) read back by serde_json, which is what the golden's number was read as.
     fn as_recorded(number: f64) -> Value {
@@ -198,6 +203,7 @@ mod tests {
     }
 
     /// Every predicate, the key and the family version they read, for the whole recorded id table.
+    #[cfg(node_twin)]
     #[test]
     fn the_floors_answer_as_node_for_the_whole_recorded_table() {
         let golden = golden();
@@ -219,6 +225,7 @@ mod tests {
         assert_eq!(&ours, recorded);
     }
 
+    #[cfg(node_twin)]
     #[test]
     fn rejections_name_the_feature_node_names() {
         let golden = golden();
@@ -234,6 +241,8 @@ mod tests {
         assert_eq!(&ours, recorded);
     }
 }
+
+
 
 /// `claudeGeneration` (`anthropic-thinking-contract.mjs`): major*100 + minor of the version
 /// token, `INFINITY` for a claude id without one, `None` for a non-claude id.

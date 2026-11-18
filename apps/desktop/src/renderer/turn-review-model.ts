@@ -4,7 +4,7 @@ import type { TranscriptItem } from './desktop-types';
 import { analyzePatchFiles, type parseUnifiedDiff } from './renderer-logic.mjs';
 import { toolRowRevision, uiDiffDigest, type UiDiffSummary } from './transcript-tool-core';
 import {
-  buildSessionDiffRows,
+  sessionDiffRowsOf,
   isAbsolutePath,
   PATCH_TOO_LARGE,
   sessionDiffFileOmitted,
@@ -501,7 +501,8 @@ export function resolveSessionRows(
   items: TranscriptItem[],
   cwd = ''
 ): SessionDiffRow[] {
-  const rows = buildSessionDiffRows(result);
+  // The read parsed it (a file per task); this only looks it up.
+  const rows = sessionDiffRowsOf(result);
   if (result?.supported === false || result?.authoritative !== true) return rows;
   const transcript = summarizeSessionTranscriptReview(items, cwd);
   if (result.complete !== true) return mergeTranscriptIntoRows(rows, transcript);

@@ -326,35 +326,31 @@ async fn a_model_proxy_serves_from_initialize_and_streams_its_events_ahead_of_th
     assert!(!rig.outgoing.stream_event(ConnectionId(2), &request["id"], json!({})));
 }
 
-/// Every free-text field of a `host/*` answer ([`FREE_TEXT`], a model proxy's provider text): a lone surrogate in it answers
-/// the request with U+FFFD there, whole as with a real U+FFFD; the same answer holding one outside them fails the request.
+/// What the caller of a duplex streamed request says while the claimant works reaches that claimant, stamped with the
+/// request's id, between its events and before its answer.
 #[tokio::test(start_paused = true)]
-async fn every_free_text_field_of_a_host_answer_answers_the_request_as_u_fffd() {
-    use mixdog_app_protocol::free_text::FREE_TEXT;
-    use mixdog_app_protocol::free_text::Kind;
-    const MARK: &str = "lone-surrogate-mark";
+async fn a_duplex_model_proxy_call_answers_its_claimant_on_the_same_request() {
+    use mixdog_core_api::ids::ConnectionId;
     let rig = Rig::new();
     let pc = rig.ready(1, json!({ "modelProxy": true }));
-    let samples = super::sample::Samples::new();
-    let listed: Vec<&str> = FREE_TEXT
-        .iter()
-        .filter(|(kind, method, _)| *kind == Kind::Answer && *method == EXECUTE.as_str())
-        .flat_map(|(_, _, patterns)| patterns.iter().copied())
-        .collect();
-    assert!(!listed.is_empty());
-    let lone = |value: serde_json::Value| value.to_string().replace(&format!("\"{MARK}\""), r#""a\ud800""#);
-    for pattern in listed.iter().copied().chain(["/result/model"]) {
-        let outgoing = rig.outgoing.clone();
-        let call = tokio::spawn(async move { outgoing.request(HostCapability::ModelProxy, EXECUTE, json!({ "call": 1 })).await });
-        let request = pc.frames(1).await.remove(0).body;
-        pc.send_text(&format!(r#"{{"id":{},"result":{}}}"#, request["id"], lone(samples.untyped_with_text(pattern, MARK))));
-        let expected = if listed.contains(&pattern) {
-            Ok(samples.untyped_with_text(pattern, "a\u{fffd}"))
-        } else {
-            Err(HostError::Rpc { code: -32602, message: "The answer contains unpaired Unicode surrogates.".into(), data: None })
-        };
-        assert_eq!(call.await.unwrap(), expected, "{pattern}");
-    }
+    let outgoing = rig.outgoing.clone();
+    let (say, back) = tokio::sync::mpsc::unbounded_channel();
+    let call = tokio::spawn(async move {
+        let mut seen = Vec::new();
+        let result = outgoing
+            .request_streamed_duplex(HostCapability::ModelProxy, EXECUTE, json!({ "call": 1 }), &mut |e| seen.push(e), Method("model/proxy/tail"), back)
+            .await;
+        (result, seen)
+    });
+    let request = pc.frames(1).await.remove(0).body;
+    assert!(rig.outgoing.stream_event(ConnectionId(1), &request["id"], json!({ "ask": 7 })));
+    say.send(json!({ "ask": 7, "verdict": { "verdict": "send" } })).unwrap();
+    let tail = pc.frames(1).await.remove(0).body;
+    assert_eq!(tail["method"], json!("model/proxy/tail"));
+    assert_eq!(tail["params"], json!({ "ask": 7, "verdict": { "verdict": "send" }, "requestId": request["id"] }));
+    pc.send(json!({ "id": request["id"], "result": "done" }));
+    let (result, seen) = call.await.unwrap();
+    assert_eq!((result, seen), (Ok(json!("done")), vec![json!({ "ask": 7 })]));
 }
 
 #[tokio::test(start_paused = true)]
@@ -423,68 +419,6 @@ async fn a_model_proxy_call_given_up_is_cancelled_on_the_connection_and_an_answe
     pc.send(json!({ "id": request["id"], "result": 1 }));
     assert_eq!(call.await.unwrap(), Ok(json!(1)));
     assert!(pc.drain().is_empty());
-}
-
-/// Node's claim window and lease (model-proxy-channel.mjs `CLAIM_TIMEOUT_MS`, `MODEL_PROXY_LEASE_MS`).
-#[tokio::test(start_paused = true)]
-async fn a_model_proxy_call_nobody_claims_is_given_up_at_the_claim_window_and_the_pc_told() {
-    use std::time::Duration;
-    let rig = Rig::new();
-    let pc = rig.ready(1, json!({ "modelProxy": true }));
-    let outgoing = rig.outgoing.clone();
-    let call = tokio::spawn(async move {
-        outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await
-    });
-    let request = pc.frames(1).await.remove(0).body;
-    tokio::time::advance(Duration::from_secs(9)).await;
-    tokio::task::yield_now().await;
-    assert!(!call.is_finished(), "inside the claim window");
-    tokio::time::advance(Duration::from_secs(2)).await;
-    assert_eq!(call.await.unwrap(), Err(unavailable("notClaimed")));
-    let cancel = pc.frames(1).await.remove(0).body;
-    assert_eq!((&cancel["method"], &cancel["params"]), (&json!("model/proxy/cancel"), &json!({ "requestId": request["id"] })));
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_claimed_model_proxy_call_lives_on_heartbeats_and_events_and_lapses_when_the_pc_goes_silent() {
-    use mixdog_core_api::ids::ConnectionId;
-    use std::time::Duration;
-    let rig = Rig::new();
-    let pc = rig.ready(1, json!({ "modelProxy": true }));
-    let outgoing = rig.outgoing.clone();
-    let call = tokio::spawn(async move {
-        let mut seen = 0;
-        let result = outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| seen += 1).await;
-        (result, seen)
-    });
-    let request = pc.frames(1).await.remove(0).body;
-    let id = &request["id"];
-    // A beat for a request that is not pending, or from another connection, vouches for nothing.
-    assert!(!rig.outgoing.stream_alive(ConnectionId(1), &json!("host-none")));
-    assert!(!rig.outgoing.stream_alive(ConnectionId(2), id));
-    let silent = |seconds: u64| async move {
-        tokio::time::advance(Duration::from_secs(seconds)).await;
-        tokio::task::yield_now().await;
-    };
-    // The first beat claims; each beat and each event renews the 20 s lease. The waiting task
-    // reads a sign of life before the clock moves on.
-    silent(9).await;
-    assert!(rig.outgoing.stream_alive(ConnectionId(1), id));
-    silent(0).await;
-    silent(19).await;
-    assert!(!call.is_finished());
-    assert!(rig.outgoing.stream_alive(ConnectionId(1), id));
-    silent(0).await;
-    silent(19).await;
-    assert!(!call.is_finished());
-    assert!(rig.outgoing.stream_event(ConnectionId(1), id, json!({ "n": 1 })));
-    silent(0).await;
-    silent(19).await;
-    assert!(!call.is_finished());
-    silent(2).await;
-    let (result, seen) = call.await.unwrap();
-    assert_eq!((result, seen), (Err(unavailable("leaseLapsed")), 1));
-    assert_eq!(pc.frames(1).await.remove(0).body["method"], json!("model/proxy/cancel"));
 }
 
 #[tokio::test(start_paused = true)]
@@ -566,52 +500,6 @@ async fn a_model_proxy_call_asked_without_a_stream_is_cancelled_in_its_own_word(
 }
 
 const CAPTURE: Method = Method("host/computer/capture");
-
-/// A computer capture past its 150 s deadline is ended on the claimant as a cancelled one is; an answered one sends nothing.
-#[tokio::test(start_paused = true)]
-async fn a_computer_capture_given_up_is_ended_on_the_claimant_and_an_answered_one_is_not() {
-    use std::time::Duration;
-    let rig = Rig::new();
-    let host = claimed_as(&rig, 1, "pc", json!({ "computer": true })).await;
-    let cancel = mixdog_rt::CancellationToken::new();
-    let outgoing = rig.outgoing.clone();
-    let call = tokio::spawn({
-        let cancel = cancel.clone();
-        async move { outgoing.request_scoped(HostCapability::Computer, CAPTURE, json!({}), &cancel).await }
-    });
-    let request = host.frames(1).await.remove(0).body;
-    cancel.cancel();
-    assert_eq!(call.await.unwrap(), Err(unavailable("cancelled")));
-    assert_abandoned(&host.frames(1).await.remove(0).body, &request);
-
-    let outgoing = rig.outgoing.clone();
-    let call = tokio::spawn(async move { outgoing.request(HostCapability::Computer, CAPTURE, json!({})).await });
-    let request = host.frames(1).await.remove(0).body;
-    tokio::time::advance(Duration::from_secs(151)).await;
-    assert_eq!(call.await.unwrap(), Err(unavailable("timedOut")));
-    assert_abandoned(&host.frames(1).await.remove(0).body, &request);
-
-    let outgoing = rig.outgoing.clone();
-    let call = tokio::spawn(async move { outgoing.request(HostCapability::Computer, CAPTURE, json!({})).await });
-    let request = host.frames(1).await.remove(0).body;
-    host.send(json!({ "id": request["id"], "result": 1 }));
-    assert_eq!(call.await.unwrap(), Ok(json!(1)));
-    assert!(host.drain().is_empty());
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_host_request_the_claimant_never_answers_ends_at_its_capability_deadline() {
-    let rig = Rig::new();
-    let host = claimed(&rig, 1).await;
-    let outgoing = rig.outgoing.clone();
-    let call = tokio::spawn(async move { outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" })).await });
-    let request = host.frames(1).await.remove(0).body;
-    assert!(!call.is_finished(), "still inside its deadline");
-    let limit = HostCapability::SystemProxy.deadline().expect("Node bounds the system proxy read");
-    tokio::time::advance(limit + std::time::Duration::from_secs(1)).await;
-    assert_eq!(call.await.unwrap(), Err(unavailable("timedOut")));
-    assert_abandoned(&host.frames(1).await.remove(0).body, &request);
-}
 /// Counts what a [`ClaimHook`] attached and detached.
 struct Attach(std::sync::Arc<std::sync::atomic::AtomicUsize>);
 
@@ -754,4 +642,140 @@ async fn non_claimant_connection_list_ignored() {
         rig.outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({})).await,
         Err(unavailable("noClaimant"))
     );
+}
+
+
+/// Every free-text field of a `host/*` answer ([`FREE_TEXT`], a model proxy's provider text): a lone surrogate in it answers
+/// the request with U+FFFD there, whole as with a real U+FFFD; the same answer holding one outside them fails the request.
+#[tokio::test(start_paused = true)]
+async fn every_free_text_field_of_a_host_answer_answers_the_request_as_u_fffd() {
+    use mixdog_app_protocol::free_text::FREE_TEXT;
+    use mixdog_app_protocol::free_text::Kind;
+    const MARK: &str = "lone-surrogate-mark";
+    let rig = Rig::new();
+    let pc = rig.ready(1, json!({ "modelProxy": true }));
+    let samples = super::samples::Samples::new();
+    let listed: Vec<&str> = FREE_TEXT
+        .iter()
+        .filter(|(kind, method, _)| *kind == Kind::Answer && *method == EXECUTE.as_str())
+        .flat_map(|(_, _, patterns)| patterns.iter().copied())
+        .collect();
+    assert!(!listed.is_empty());
+    let lone = |value: serde_json::Value| value.to_string().replace(&format!("\"{MARK}\""), r#""a\ud800""#);
+    for pattern in listed.iter().copied().chain(["/result/model"]) {
+        let outgoing = rig.outgoing.clone();
+        let call = tokio::spawn(async move { outgoing.request(HostCapability::ModelProxy, EXECUTE, json!({ "call": 1 })).await });
+        let request = pc.frames(1).await.remove(0).body;
+        pc.send_text(&format!(r#"{{"id":{},"result":{}}}"#, request["id"], lone(samples.untyped_with_text(pattern, MARK))));
+        let expected = if listed.contains(&pattern) {
+            Ok(samples.untyped_with_text(pattern, "a\u{fffd}"))
+        } else {
+            Err(HostError::Rpc { code: -32602, message: "The answer contains unpaired Unicode surrogates.".into(), data: None })
+        };
+        assert_eq!(call.await.unwrap(), expected, "{pattern}");
+    }
+}
+/// Node's claim window and lease (model-proxy-channel.mjs `CLAIM_TIMEOUT_MS`, `MODEL_PROXY_LEASE_MS`).
+#[tokio::test(start_paused = true)]
+async fn a_model_proxy_call_nobody_claims_is_given_up_at_the_claim_window_and_the_pc_told() {
+    use std::time::Duration;
+    let rig = Rig::new();
+    let pc = rig.ready(1, json!({ "modelProxy": true }));
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move {
+        outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await
+    });
+    let request = pc.frames(1).await.remove(0).body;
+    tokio::time::advance(Duration::from_secs(9)).await;
+    tokio::task::yield_now().await;
+    assert!(!call.is_finished(), "inside the claim window");
+    tokio::time::advance(Duration::from_secs(2)).await;
+    assert_eq!(call.await.unwrap(), Err(unavailable("notClaimed")));
+    let cancel = pc.frames(1).await.remove(0).body;
+    assert_eq!((&cancel["method"], &cancel["params"]), (&json!("model/proxy/cancel"), &json!({ "requestId": request["id"] })));
+}
+#[tokio::test(start_paused = true)]
+async fn a_claimed_model_proxy_call_lives_on_heartbeats_and_events_and_lapses_when_the_pc_goes_silent() {
+    use mixdog_core_api::ids::ConnectionId;
+    use std::time::Duration;
+    let rig = Rig::new();
+    let pc = rig.ready(1, json!({ "modelProxy": true }));
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move {
+        let mut seen = 0;
+        let result = outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| seen += 1).await;
+        (result, seen)
+    });
+    let request = pc.frames(1).await.remove(0).body;
+    let id = &request["id"];
+    // A beat for a request that is not pending, or from another connection, vouches for nothing.
+    assert!(!rig.outgoing.stream_alive(ConnectionId(1), &json!("host-none")));
+    assert!(!rig.outgoing.stream_alive(ConnectionId(2), id));
+    let silent = |seconds: u64| async move {
+        tokio::time::advance(Duration::from_secs(seconds)).await;
+        tokio::task::yield_now().await;
+    };
+    // The first beat claims; each beat and each event renews the 20 s lease. The waiting task
+    // reads a sign of life before the clock moves on.
+    silent(9).await;
+    assert!(rig.outgoing.stream_alive(ConnectionId(1), id));
+    silent(0).await;
+    silent(19).await;
+    assert!(!call.is_finished());
+    assert!(rig.outgoing.stream_alive(ConnectionId(1), id));
+    silent(0).await;
+    silent(19).await;
+    assert!(!call.is_finished());
+    assert!(rig.outgoing.stream_event(ConnectionId(1), id, json!({ "n": 1 })));
+    silent(0).await;
+    silent(19).await;
+    assert!(!call.is_finished());
+    silent(2).await;
+    let (result, seen) = call.await.unwrap();
+    assert_eq!((result, seen), (Err(unavailable("leaseLapsed")), 1));
+    assert_eq!(pc.frames(1).await.remove(0).body["method"], json!("model/proxy/cancel"));
+}
+/// A computer capture past its 150 s deadline is ended on the claimant as a cancelled one is; an answered one sends nothing.
+#[tokio::test(start_paused = true)]
+async fn a_computer_capture_given_up_is_ended_on_the_claimant_and_an_answered_one_is_not() {
+    use std::time::Duration;
+    let rig = Rig::new();
+    let host = claimed_as(&rig, 1, "pc", json!({ "computer": true })).await;
+    let cancel = mixdog_rt::CancellationToken::new();
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn({
+        let cancel = cancel.clone();
+        async move { outgoing.request_scoped(HostCapability::Computer, CAPTURE, json!({}), &cancel).await }
+    });
+    let request = host.frames(1).await.remove(0).body;
+    cancel.cancel();
+    assert_eq!(call.await.unwrap(), Err(unavailable("cancelled")));
+    assert_abandoned(&host.frames(1).await.remove(0).body, &request);
+
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::Computer, CAPTURE, json!({})).await });
+    let request = host.frames(1).await.remove(0).body;
+    tokio::time::advance(Duration::from_secs(151)).await;
+    assert_eq!(call.await.unwrap(), Err(unavailable("timedOut")));
+    assert_abandoned(&host.frames(1).await.remove(0).body, &request);
+
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::Computer, CAPTURE, json!({})).await });
+    let request = host.frames(1).await.remove(0).body;
+    host.send(json!({ "id": request["id"], "result": 1 }));
+    assert_eq!(call.await.unwrap(), Ok(json!(1)));
+    assert!(host.drain().is_empty());
+}
+#[tokio::test(start_paused = true)]
+async fn a_host_request_the_claimant_never_answers_ends_at_its_capability_deadline() {
+    let rig = Rig::new();
+    let host = claimed(&rig, 1).await;
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" })).await });
+    let request = host.frames(1).await.remove(0).body;
+    assert!(!call.is_finished(), "still inside its deadline");
+    let limit = HostCapability::SystemProxy.deadline().expect("Node bounds the system proxy read");
+    tokio::time::advance(limit + std::time::Duration::from_secs(1)).await;
+    assert_eq!(call.await.unwrap(), Err(unavailable("timedOut")));
+    assert_abandoned(&host.frames(1).await.remove(0).body, &request);
 }

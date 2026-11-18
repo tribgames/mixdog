@@ -314,6 +314,23 @@ impl LiveRows {
         Arc::new(Self { list, app, edges, in_flight })
     }
 
+    /// An internal restore has no `thread/unarchived` edge. Send the whole current row after
+    /// queued header writes (such as clearing a bot's retirement mark) reach the app feed.
+    pub(super) async fn restored(&self, thread: &ThreadId) {
+        self.list.caught_up().await;
+        self.edges.settled().await;
+        Self::publish_current(&self.list, &self.app, thread, true).await;
+    }
+
+    async fn publish_current(list: &ThreadListService, app: &SectionFeedState, id: &ThreadId, restored: bool) {
+        match list.summary(id).await {
+            Ok(Some(row)) if restored => list.announce_restored(app, row),
+            Ok(Some(row)) => list.announce(app, row, false),
+            Ok(None) => {}
+            Err(error) => tracing::warn!(?error, thread = id.as_str(), "the live row of a session could not be read"),
+        }
+    }
+
     /// `thread`'s live facts moved; its row goes out off the caller.
     pub fn changed(&self, thread: &ThreadId) {
         let (list, app, edges, in_flight, id) = (self.list.clone(), self.app.clone(), self.edges.clone(), self.in_flight.clone(), thread.clone());
@@ -321,11 +338,7 @@ impl LiveRows {
         drop(mixdog_rt::spawn("live-roster-row", mixdog_rt::TaskClass::Work, async move {
             // The writes before this change publish first: a row's `thread/started` precedes any update of it.
             edges.settled().await;
-            match list.summary(&id).await {
-                Ok(Some(row)) => list.announce(&app, row, false),
-                Ok(None) => {}
-                Err(error) => tracing::warn!(?error, thread = id.as_str(), "the live row of a session could not be read"),
-            }
+            Self::publish_current(&list, &app, &id, false).await;
             in_flight.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
             #[cfg(feature = "replay-settled")]
             super::replay_settled::changed();

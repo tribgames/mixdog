@@ -79,8 +79,6 @@ impl std::fmt::Display for LaneFull {
     }
 }
 
-impl std::error::Error for LaneFull {}
-
 /// How a [`crate::LaneToken::submit_wait`] job entered its lane's queue ([`crate::Backend::enter`]).
 pub enum Entered {
     /// Queued and admitted: fewer than the lane's room of jobs are ahead of it.
@@ -167,8 +165,6 @@ impl std::fmt::Display for LaneWedged {
     }
 }
 
-impl std::error::Error for LaneWedged {}
-
 /// Why [`crate::LaneToken::submit_wait`] gave up without enqueuing the job.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SubmitWaitError {
@@ -192,8 +188,6 @@ impl std::fmt::Display for SubmitWaitError {
         }
     }
 }
-
-impl std::error::Error for SubmitWaitError {}
 
 tokio::task_local! {
     /// The tool whose call the current task runs ([`in_tool_call`]).
@@ -337,8 +331,6 @@ impl std::fmt::Display for JobDropped {
     }
 }
 
-impl std::error::Error for JobDropped {}
-
 /// Result of a submitted job. Cancel-safe: dropping the handle does not cancel the job; the
 /// job's [`CancellationToken`] does. A running job's handle resolves only when the job ends,
 /// however late: a lane lease never abandons a running job, because its effect (a committed
@@ -379,3 +371,9 @@ mod tests {
         assert_eq!(queued().tool(), None);
     }
 }
+
+
+impl std::error::Error for LaneFull {}
+impl std::error::Error for LaneWedged {}
+impl std::error::Error for SubmitWaitError {}
+impl std::error::Error for JobDropped {}

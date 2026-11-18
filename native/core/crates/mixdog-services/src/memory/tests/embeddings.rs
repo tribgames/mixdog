@@ -4,71 +4,30 @@
 
 use std::path::PathBuf;
 
+#[cfg(node_twin)]
 use serde_json::Value;
 
-use crate::memory::embed::config::{self, InputType, MAX_TEXT_UNITS};
+use crate::memory::embed::config::{self, InputType};
+#[cfg(node_twin)]
+use crate::memory::embed::config::MAX_TEXT_UNITS;
 use crate::memory::embed::engine::{EmbedConfig, Embedder};
+#[cfg(node_twin)]
 use crate::memory::embed::tokenizer::UnigramTokenizer;
 
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/memory/embeddings/golden.json");
-
-fn golden() -> Value {
-    serde_json::from_str(&GOLDEN).expect("golden parses")
-}
-
+#[cfg(node_twin)]
 fn model_dir() -> (PathBuf, String) {
     let cache = PathBuf::from(std::env::var_os("MIXDOG_MEMORY_MODELS").expect("MIXDOG_MEMORY_MODELS names the model cache"));
     (cache, config::DEFAULT_MODEL_ID.to_owned())
 }
 
+#[cfg(node_twin)]
 fn input_type(case: &Value) -> InputType {
     InputType::parse(case["inputType"].as_str())
 }
 
+#[cfg(node_twin)]
 fn prepared(case: &Value) -> String {
     config::prepare_input(case["text"].as_str().unwrap_or_default(), input_type(case), config::DEFAULT_MODEL_ID)
-}
-
-#[test]
-fn profile_matches_recorded_artifacts() {
-    let artifacts = &golden()["artifacts"];
-    let id = config::DEFAULT_MODEL_ID;
-    assert_eq!(artifacts["modelId"], id);
-    assert_eq!(artifacts["graphFile"], config::graph_file(id, None));
-    assert_eq!(artifacts["dims"].as_u64(), config::known_dims(id).map(|d| d as u64));
-    assert_eq!(artifacts["dtype"], config::normalize_dtype(id, None));
-    assert_eq!(artifacts["workerMaxChars"].as_u64(), Some(MAX_TEXT_UNITS as u64));
-    assert_eq!(artifacts["pooling"], "mean");
-    assert_eq!(config::pooling(id), config::Pooling::Mean);
-    assert_eq!(config::normalize_dtype(id, Some("fp32")), "q8", "unsupported dtype falls back");
-    assert_eq!(config::graph_file("Xenova/bge-m3", Some("q4")), "onnx/model_q4.onnx");
-}
-
-#[test]
-fn preprocessing_matches_recorded_text() {
-    for case in golden()["cases"].as_array().expect("cases") {
-        let prepared = prepared(case);
-        assert_eq!(prepared.encode_utf16().count() as u64, case["preparedLength"].as_u64().unwrap_or(0), "{case}");
-        if let Some(expected) = case["prepared"].as_str() {
-            assert_eq!(prepared, expected);
-        }
-    }
-}
-
-#[test]
-#[ignore = "integration: needs the e5 files (MIXDOG_MEMORY_MODELS)"]
-fn tokenizer_ids_match_recorded_ids() {
-    let (cache, id) = model_dir();
-    let max_length = golden()["artifacts"]["modelMaxLength"].as_u64().expect("max length") as usize;
-    let tokenizer = UnigramTokenizer::load(&cache.join(id).join("tokenizer.json"), max_length).expect("tokenizer loads");
-    for case in golden()["cases"].as_array().expect("cases") {
-        let prepared = prepared(case);
-        if prepared.is_empty() {
-            continue;
-        }
-        let expected: Vec<i64> = case["ids"].as_array().expect("ids").iter().filter_map(Value::as_i64).collect();
-        assert_eq!(tokenizer.encode(&prepared), expected, "{}", case["text"].as_str().unwrap_or_default().chars().take(40).collect::<String>());
-    }
 }
 
 /// `scripts/verify-embedding-runtime.mjs` on the Rust core: the shipped model is installed the way the core installs it
@@ -95,6 +54,56 @@ async fn the_shipped_model_installs_and_embeds_a_probe_string() {
     assert!(vector.iter().all(|value| value.is_finite()) && vector.iter().any(|value| *value != 0.0), "a real vector");
 }
 
+
+#[cfg(node_twin)]
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/memory/embeddings/golden.json");
+#[cfg(node_twin)]
+fn golden() -> Value {
+    serde_json::from_str(&GOLDEN).expect("golden parses")
+}
+#[cfg(node_twin)]
+#[test]
+fn profile_matches_recorded_artifacts() {
+    let artifacts = &golden()["artifacts"];
+    let id = config::DEFAULT_MODEL_ID;
+    assert_eq!(artifacts["modelId"], id);
+    assert_eq!(artifacts["graphFile"], config::graph_file(id, None));
+    assert_eq!(artifacts["dims"].as_u64(), config::known_dims(id).map(|d| d as u64));
+    assert_eq!(artifacts["dtype"], config::normalize_dtype(id, None));
+    assert_eq!(artifacts["workerMaxChars"].as_u64(), Some(MAX_TEXT_UNITS as u64));
+    assert_eq!(artifacts["pooling"], "mean");
+    assert_eq!(config::pooling(id), config::Pooling::Mean);
+    assert_eq!(config::normalize_dtype(id, Some("fp32")), "q8", "unsupported dtype falls back");
+    assert_eq!(config::graph_file("Xenova/bge-m3", Some("q4")), "onnx/model_q4.onnx");
+}
+#[cfg(node_twin)]
+#[test]
+fn preprocessing_matches_recorded_text() {
+    for case in golden()["cases"].as_array().expect("cases") {
+        let prepared = prepared(case);
+        assert_eq!(prepared.encode_utf16().count() as u64, case["preparedLength"].as_u64().unwrap_or(0), "{case}");
+        if let Some(expected) = case["prepared"].as_str() {
+            assert_eq!(prepared, expected);
+        }
+    }
+}
+#[cfg(node_twin)]
+#[test]
+#[ignore = "integration: needs the e5 files (MIXDOG_MEMORY_MODELS)"]
+fn tokenizer_ids_match_recorded_ids() {
+    let (cache, id) = model_dir();
+    let max_length = golden()["artifacts"]["modelMaxLength"].as_u64().expect("max length") as usize;
+    let tokenizer = UnigramTokenizer::load(&cache.join(id).join("tokenizer.json"), max_length).expect("tokenizer loads");
+    for case in golden()["cases"].as_array().expect("cases") {
+        let prepared = prepared(case);
+        if prepared.is_empty() {
+            continue;
+        }
+        let expected: Vec<i64> = case["ids"].as_array().expect("ids").iter().filter_map(Value::as_i64).collect();
+        assert_eq!(tokenizer.encode(&prepared), expected, "{}", case["text"].as_str().unwrap_or_default().chars().take(40).collect::<String>());
+    }
+}
+#[cfg(node_twin)]
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
 async fn vectors_match_recorded_vectors() {

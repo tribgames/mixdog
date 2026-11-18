@@ -84,6 +84,15 @@ test('a window the core could not open, or opened on a closed connection, is not
   assert.deepEqual([...calls.report, ...reopened.calls.report], []);
 });
 
+test('a late close from a retired window cannot consume the current window lease', async () => {
+  const { host, calls } = build({ open: async () => ({ opened: true, created: true }) });
+  await host.handlers['host/window/open']({ ...open, windowToken: 'old' });
+  await host.handlers['host/window/open']({ ...open, windowToken: 'current' });
+  host.windowClosed('c1', true, 'old');
+  host.windowClosed('c1', true, 'current');
+  assert.deepEqual(calls.report, [['host/window/closed', { connectionId: 'c1', byUser: true, windowToken: 'current' }]]);
+});
+
 test('a burst of focus changes is one windowFocus report, and an unchanged state is not re-sent', async () => {
   const { host, calls } = build();
   const win = (focused) => [{ connectionId: 'local', visible: true, focused }];

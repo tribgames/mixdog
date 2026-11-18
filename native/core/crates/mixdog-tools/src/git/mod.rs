@@ -9,6 +9,8 @@ pub mod path_locks;
 mod run;
 mod stage;
 #[cfg(test)]
+mod feature_tests;
+#[cfg(all(test, node_twin))]
 mod tests;
 mod worktree;
 
@@ -437,6 +439,202 @@ fn run_dir_name() -> String {
     )
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs only as a maintenance-lane job body (Runner::blocking)")]
+fn write_patch_file(directory: &Path, patch_path: &Path, patch: &str) -> bool {
+    std::fs::create_dir_all(directory).and_then(|()| std::fs::write(patch_path, patch)).is_ok()
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs only as a maintenance-lane job body (Runner::blocking)")]
+fn folder_exists(path: &Path) -> bool {
+    path.exists()
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs only as a maintenance-lane job body (Runner::blocking)")]
+fn remove_dir(path: &Path) {
+    let _ = std::fs::remove_dir_all(path);
+}
+
+async fn remove_run_dir(runner: &Runner<'_>, directory: &Path) {
+    let directory = directory.to_path_buf();
+    runner.blocking_cleanup(move || remove_dir(&directory)).await;
+}
+
+fn object(value: JsonValue) -> Object {
+    match value {
+        JsonValue::Object(map) => map,
+        _ => Object::new(),
+    }
+}
+
+struct CallEnv<'a> {
+    locks: &'a Arc<RepoLocks>,
+    runner: &'a Runner<'a>,
+    session_id: String,
+    tool_call_id: String,
+    work_dir: PathBuf,
+    services: Option<&'a Arc<WorktreeServices>>,
+}
+
+impl CallEnv<'_> {
+    /// `input` carries the user's `confirm_large` answer, which a mapped `git worktree add`
+    /// forwards exactly as `action:"worktree"` does.
+    fn worktree_env(&self, input: &Object) -> Env<'_> {
+        Env {
+            runner: self.runner,
+            session_id: self.session_id.clone(),
+            tool_call_id: self.tool_call_id.clone(),
+            services: self.services,
+            confirm_large: input.get("confirm_large") == Some(&JsonValue::Bool(true)),
+        }
+    }
+}
+
+async fn execute_single(call: &CallEnv<'_>, input: &Object, char_budget: Option<usize>) -> Rendered {
+    let command = input.get("command").and_then(JsonValue::as_str).filter(|c| !c.trim().is_empty());
+    let Some(command) = command else {
+        return rejected(if input.get("include_stage_ids") == Some(&json!(true)) {
+            "git requires command; staging IDs come from command:\"git diff\" (or \"git diff -- <paths>\") with include_stage_ids:true"
+        } else {
+            "git requires command: a full command starting with git, e.g. command:\"git status\""
+        });
+    };
+    let plan = match parse_command(command, &call.work_dir).and_then(localize_config_plan) {
+        Ok(plan) => plan,
+        Err(message) => return rejected(&message),
+    };
+    execute_plan(call, input, &plan, char_budget).await
+}
+
+async fn execute_plan(call: &CallEnv<'_>, input: &Object, plan: &Plan, char_budget: Option<usize>) -> Rendered {
+    // No unmanaged worktree is ever made here: worktree commands run as their managed
+    // operations; only `list --porcelain` stays git.
+    if plan.operation == "worktree"
+        && let Some(mapped) = worktree::execute_raw_worktree(plan, &call.worktree_env(input)).await
+    {
+        return Rendered { text: mapped.text, failed: mapped.failed };
+    }
+    if plan.operation == "archive"
+        && !plan.args.iter().any(|v| v == "-o" || v == "--output" || v.starts_with("--output="))
+    {
+        return rejected("git archive requires -o/--output; binary stdout is not returned");
+    }
+    let default_lines = if plan.operation == "log" { LOG_LINES_DEFAULT } else { OUTPUT_LINES_DEFAULT };
+    let cap = Cap {
+        lines: output_limit(input.get("output_limit"), default_lines),
+        chars: char_budget.unwrap_or(COMMAND_CHAR_BUDGET),
+    };
+    let runner = call.runner;
+    if plan.operation == "init" || plan.operation == "clone" {
+        let target = creation_target(plan);
+        let (_guard, waited) = match acquire(call.locks, runner, &target, None, &target).await {
+            Ok(held) => held,
+            Err(aborted) => return aborted,
+        };
+        let mut argv = vec![plan.operation.clone()];
+        argv.extend(plan.args.iter().cloned());
+        let result = runner.run(plan, &argv, false).await;
+        let mut rendered = command_result(plan, &result, cap);
+        rendered.text = append_text(&rendered.text, &lock_wait_note(waited, None));
+        return rendered;
+    }
+    if REPO_FREE_OPERATIONS.contains(&plan.operation.as_str()) {
+        let mut argv = vec![plan.operation.clone()];
+        argv.extend(plan.args.iter().cloned());
+        let result = runner.run(plan, &argv, false).await;
+        return command_result(plan, &result, cap);
+    }
+    // Report the command the caller actually ran, not the internal probe.
+    let info = resolve_repo(runner, plan).await;
+    let (Some(repo), Some(lock_key)) = (info.root.clone(), info.common_dir.clone()) else {
+        let missing = match info.probe {
+            Some(probe) => probe,
+            None => runner.run(plan, &strings(&["rev-parse", "--show-toplevel"]), false).await,
+        };
+        return command_result(plan, &missing, cap);
+    };
+    // A command in a snapshot worktree uses it like a worker would: it holds a workspace lease
+    // while it runs, and a snapshot being removed refuses it.
+    let _lease = match call.services {
+        Some(services) => {
+            let ledger = services.worktrees.ledger();
+            match ledger.admit(&repo) {
+                Ok(lease) => Some(lease),
+                Err(()) => {
+                    let held = ledger.containing(&repo).map_or_else(String::new, |(_, path)| path.display().to_string());
+                    return rejected(&format!("the snapshot worktree {held} is being removed; nothing ran"));
+                }
+            }
+        }
+        None => None,
+    };
+    run_in_repository(call, input, plan, &repo, &lock_key, cap).await
+}
+
+async fn run_in_repository(
+    call: &CallEnv<'_>,
+    input: &Object,
+    plan: &Plan,
+    repo: &Path,
+    lock_key: &Path,
+    cap: Cap,
+) -> Rendered {
+    let runner = call.runner;
+    let mut argv = prepare(plan);
+    let stageable_request = plan.operation == "diff" && (plan.args.is_empty() || plan.args[0] == "--");
+    if stageable_request {
+        for (offset, flag) in ["--no-textconv", "--src-prefix=a/", "--dst-prefix=b/"].iter().enumerate() {
+            argv.insert(1 + offset, (*flag).to_owned());
+        }
+    }
+    // A read takes no lock, so it never waits behind another read or a write.
+    if plan.read_only() {
+        let result = if stageable_request {
+            run_stageable_diff(runner, plan, &argv, repo).await
+        } else {
+            runner.run(plan, &argv, true).await
+        };
+        if !result.succeeded() {
+            return command_result(plan, &result, cap);
+        }
+        if stageable_request && input.get("include_stage_ids") == Some(&json!(true)) {
+            if result.not_utf8 {
+                let mut rendered = command_result(plan, &result, cap);
+                rendered.text = append_text(&rendered.text, NOT_UTF8_STAGE_NOTE);
+                return rendered;
+            }
+            let snapshot = stage::create_diff_snapshot(
+                repo,
+                &call.work_dir,
+                SnapshotPlan { cwd: plan.cwd.clone(), global_args: plan.global_args.clone(), args: plan.args.clone() },
+                &argv,
+                &result.out(),
+            );
+            return stageable_diff_result(plan, &result, &snapshot, cap);
+        }
+        return command_result(plan, &result, cap);
+    }
+    let repo_wide = REPO_WIDE_OPERATIONS.contains(&plan.operation.as_str());
+    let scopes = [repo];
+    let (_guard, waited) = match acquire(call.locks, runner, lock_key, (!repo_wide).then_some(&scopes[..]), repo).await {
+        Ok(held) => held,
+        Err(aborted) => return aborted,
+    };
+    // A managed removal holds the same folder lock while it deletes: once it is ours, a folder
+    // that is gone was removed, and nothing runs there.
+    let present = {
+        let repo = repo.to_path_buf();
+        runner.blocking(move || folder_exists(&repo)).await
+    };
+    if present == Some(false) {
+        return rejected(&format!("the worktree folder {} was removed meanwhile; nothing ran", repo.display()));
+    }
+    let result = runner.run_write(plan, &argv).await;
+    let mut rendered = command_result(plan, &result, cap);
+    rendered.text = append_text(&rendered.text, &lock_wait_note(waited, Some(&result)));
+    rendered
+}
+
+
 async fn execute_git_stage(locks: &Arc<RepoLocks>, runner: &Runner<'_>, input: &Object, work_dir: &Path) -> String {
     let diff_id = input.get("diff_id").and_then(JsonValue::as_str).map(str::trim).unwrap_or("").to_owned();
     let raw_ids: Vec<JsonValue> = match input.get("change_ids") {
@@ -559,198 +757,6 @@ async fn execute_git_stage(locks: &Arc<RepoLocks>, runner: &Runner<'_>, input: &
     remove_run_dir(runner, &directory).await;
     text
 }
-
-#[allow(clippy::disallowed_methods, reason = "runs only as a maintenance-lane job body (Runner::blocking)")]
-fn write_patch_file(directory: &Path, patch_path: &Path, patch: &str) -> bool {
-    std::fs::create_dir_all(directory).and_then(|()| std::fs::write(patch_path, patch)).is_ok()
-}
-
-#[allow(clippy::disallowed_methods, reason = "runs only as a maintenance-lane job body (Runner::blocking)")]
-fn folder_exists(path: &Path) -> bool {
-    path.exists()
-}
-
-#[allow(clippy::disallowed_methods, reason = "runs only as a maintenance-lane job body (Runner::blocking)")]
-fn remove_dir(path: &Path) {
-    let _ = std::fs::remove_dir_all(path);
-}
-
-async fn remove_run_dir(runner: &Runner<'_>, directory: &Path) {
-    let directory = directory.to_path_buf();
-    runner.blocking_cleanup(move || remove_dir(&directory)).await;
-}
-
-fn object(value: JsonValue) -> Object {
-    match value {
-        JsonValue::Object(map) => map,
-        _ => Object::new(),
-    }
-}
-
-struct CallEnv<'a> {
-    locks: &'a Arc<RepoLocks>,
-    runner: &'a Runner<'a>,
-    session_id: String,
-    tool_call_id: String,
-    work_dir: PathBuf,
-    services: Option<&'a Arc<WorktreeServices>>,
-}
-
-impl CallEnv<'_> {
-    /// `input` carries the user's `confirm_large` answer, which a mapped `git worktree add`
-    /// forwards exactly as `action:"worktree"` does.
-    fn worktree_env(&self, input: &Object) -> Env<'_> {
-        Env {
-            runner: self.runner,
-            session_id: self.session_id.clone(),
-            tool_call_id: self.tool_call_id.clone(),
-            services: self.services,
-            confirm_large: input.get("confirm_large") == Some(&JsonValue::Bool(true)),
-        }
-    }
-}
-
-async fn execute_single(call: &CallEnv<'_>, input: &Object, char_budget: Option<usize>) -> Rendered {
-    let command = input.get("command").and_then(JsonValue::as_str).filter(|c| !c.trim().is_empty());
-    let Some(command) = command else {
-        return rejected(if input.get("include_stage_ids") == Some(&json!(true)) {
-            "git requires command; staging IDs come from command:\"git diff\" (or \"git diff -- <paths>\") with include_stage_ids:true"
-        } else {
-            "git requires command: a full command starting with git, e.g. command:\"git status\""
-        });
-    };
-    let plan = match parse_command(command, &call.work_dir).and_then(localize_config_plan) {
-        Ok(plan) => plan,
-        Err(message) => return rejected(&message),
-    };
-    // No unmanaged worktree is ever made here: worktree commands run as their managed
-    // operations; only `list --porcelain` stays git.
-    if plan.operation == "worktree"
-        && let Some(mapped) = worktree::execute_raw_worktree(&plan, &call.worktree_env(input)).await
-    {
-        return Rendered { text: mapped.text, failed: mapped.failed };
-    }
-    if plan.operation == "archive"
-        && !plan.args.iter().any(|v| v == "-o" || v == "--output" || v.starts_with("--output="))
-    {
-        return rejected("git archive requires -o/--output; binary stdout is not returned");
-    }
-    let default_lines = if plan.operation == "log" { LOG_LINES_DEFAULT } else { OUTPUT_LINES_DEFAULT };
-    let cap = Cap {
-        lines: output_limit(input.get("output_limit"), default_lines),
-        chars: char_budget.unwrap_or(COMMAND_CHAR_BUDGET),
-    };
-    let runner = call.runner;
-    if plan.operation == "init" || plan.operation == "clone" {
-        let target = creation_target(&plan);
-        let (_guard, waited) = match acquire(call.locks, runner, &target, None, &target).await {
-            Ok(held) => held,
-            Err(aborted) => return aborted,
-        };
-        let mut argv = vec![plan.operation.clone()];
-        argv.extend(plan.args.iter().cloned());
-        let result = runner.run(&plan, &argv, false).await;
-        let mut rendered = command_result(&plan, &result, cap);
-        rendered.text = append_text(&rendered.text, &lock_wait_note(waited, None));
-        return rendered;
-    }
-    if REPO_FREE_OPERATIONS.contains(&plan.operation.as_str()) {
-        let mut argv = vec![plan.operation.clone()];
-        argv.extend(plan.args.iter().cloned());
-        let result = runner.run(&plan, &argv, false).await;
-        return command_result(&plan, &result, cap);
-    }
-    // Report the command the caller actually ran, not the internal probe.
-    let info = resolve_repo(runner, &plan).await;
-    let (Some(repo), Some(lock_key)) = (info.root.clone(), info.common_dir.clone()) else {
-        let missing = match info.probe {
-            Some(probe) => probe,
-            None => runner.run(&plan, &strings(&["rev-parse", "--show-toplevel"]), false).await,
-        };
-        return command_result(&plan, &missing, cap);
-    };
-    // A command in a snapshot worktree uses it like a worker would: it holds a workspace lease
-    // while it runs, and a snapshot being removed refuses it.
-    let _lease = match call.services {
-        Some(services) => {
-            let ledger = services.worktrees.ledger();
-            match ledger.admit(&repo) {
-                Ok(lease) => Some(lease),
-                Err(()) => {
-                    let held = ledger.containing(&repo).map_or_else(String::new, |(_, path)| path.display().to_string());
-                    return rejected(&format!("the snapshot worktree {held} is being removed; nothing ran"));
-                }
-            }
-        }
-        None => None,
-    };
-    run_in_repository(call, input, &plan, &repo, &lock_key, cap).await
-}
-
-async fn run_in_repository(
-    call: &CallEnv<'_>,
-    input: &Object,
-    plan: &Plan,
-    repo: &Path,
-    lock_key: &Path,
-    cap: Cap,
-) -> Rendered {
-    let runner = call.runner;
-    let mut argv = prepare(plan);
-    let stageable_request = plan.operation == "diff" && (plan.args.is_empty() || plan.args[0] == "--");
-    if stageable_request {
-        for (offset, flag) in ["--no-textconv", "--src-prefix=a/", "--dst-prefix=b/"].iter().enumerate() {
-            argv.insert(1 + offset, (*flag).to_owned());
-        }
-    }
-    // A read takes no lock, so it never waits behind another read or a write.
-    if plan.read_only() {
-        let result = if stageable_request {
-            run_stageable_diff(runner, plan, &argv, repo).await
-        } else {
-            runner.run(plan, &argv, true).await
-        };
-        if !result.succeeded() {
-            return command_result(plan, &result, cap);
-        }
-        if stageable_request && input.get("include_stage_ids") == Some(&json!(true)) {
-            if result.not_utf8 {
-                let mut rendered = command_result(plan, &result, cap);
-                rendered.text = append_text(&rendered.text, NOT_UTF8_STAGE_NOTE);
-                return rendered;
-            }
-            let snapshot = stage::create_diff_snapshot(
-                repo,
-                &call.work_dir,
-                SnapshotPlan { cwd: plan.cwd.clone(), global_args: plan.global_args.clone(), args: plan.args.clone() },
-                &argv,
-                &result.out(),
-            );
-            return stageable_diff_result(plan, &result, &snapshot, cap);
-        }
-        return command_result(plan, &result, cap);
-    }
-    let repo_wide = REPO_WIDE_OPERATIONS.contains(&plan.operation.as_str());
-    let scopes = [repo];
-    let (_guard, waited) = match acquire(call.locks, runner, lock_key, (!repo_wide).then_some(&scopes[..]), repo).await {
-        Ok(held) => held,
-        Err(aborted) => return aborted,
-    };
-    // A managed removal holds the same folder lock while it deletes: once it is ours, a folder
-    // that is gone was removed, and nothing runs there.
-    let present = {
-        let repo = repo.to_path_buf();
-        runner.blocking(move || folder_exists(&repo)).await
-    };
-    if present == Some(false) {
-        return rejected(&format!("the worktree folder {} was removed meanwhile; nothing ran", repo.display()));
-    }
-    let result = runner.run_write(plan, &argv).await;
-    let mut rendered = command_result(plan, &result, cap);
-    rendered.text = append_text(&rendered.text, &lock_wait_note(waited, Some(&result)));
-    rendered
-}
-
 async fn execute_git_tool(
     locks: &Arc<RepoLocks>,
     services: Option<&Arc<WorktreeServices>>,
@@ -824,27 +830,23 @@ async fn execute_git_tool(
     if commands.is_empty() || commands.len() > COMMAND_ARRAY_LIMIT {
         return fail(&format!("git command array requires 1 to {COMMAND_ARRAY_LIMIT} commands"));
     }
-    let mut operations: Vec<String> = Vec::new();
-    let mut texts: Vec<String> = Vec::new();
+    let mut plans = Vec::with_capacity(commands.len());
     for (index, command) in commands.iter().enumerate() {
         let Some(text) = command.as_str().filter(|c| !c.trim().is_empty()) else {
             return fail(&format!("git command {} must be a non-empty string", index + 1));
         };
         match parse_command(text, &call.work_dir).and_then(localize_config_plan) {
-            Ok(plan) => operations.push(plan.operation),
+            Ok(plan) => plans.push(plan),
             Err(message) => return fail(&format!("git command {}: {message}", index + 1)),
         }
-        texts.push(text.to_owned());
     }
     // Ordered execution with fail-fast; every command is parsed above before any runs.
     let mut results: Vec<String> = Vec::new();
     let mut used = 0usize;
-    for (index, text) in texts.iter().enumerate() {
-        let label = format!("{}: git {}", index + 1, operations[index]);
+    for (index, plan) in plans.iter().enumerate() {
+        let label = format!("{}: git {}", index + 1, plan.operation);
         let budget = COMMAND_CHAR_BUDGET.min(MIN_COMMAND_CHARS.max(ARRAY_CHAR_BUDGET.saturating_sub(used)));
-        let mut single = input.clone();
-        single.insert("command".into(), JsonValue::String(text.clone()));
-        let result = execute_single(&call, &single, Some(budget)).await;
+        let result = execute_plan(&call, &input, plan, Some(budget)).await;
         let section = format!("## {label}\n{}", result.text);
         used += u16len(&section);
         results.push(section);
@@ -854,7 +856,6 @@ async fn execute_git_tool(
     }
     results.join("\n")
 }
-
 #[async_trait]
 impl Tool for GitTool {
     fn spec(&self) -> &ToolSpec {

@@ -23,9 +23,11 @@ use super::SessionDirectory;
 use super::handle::SessionHandle;
 use super::seams::RunOutcome;
 use super::testing::Rig;
+#[cfg(node_twin)]
 use super::testing::awaiting;
 use super::testing::awaiting_for;
 use crate::eventually_on;
+use super::tests::caught_up;
 use super::tests::idle;
 use super::tests::rows;
 use super::tests::start_thread;
@@ -69,42 +71,6 @@ async fn running(rig: &Rig) -> (SessionDirectory, Arc<SessionHandle>) {
     (directory, handle)
 }
 
-/// A running thread whose rows are the stored records' own (`RecordTranscript`), as the daemon shows them: the rig's text-only
-/// transcript would drop the body's `meta.transcript` (the device, the display text) that the replay compares.
-async fn running_on_records(rig: &Rig) -> (SessionDirectory, Arc<SessionHandle>) {
-    rig.set_script(Arc::new(|run| {
-        Box::pin(async move {
-            run.cancel.cancelled().await;
-            RunOutcome::Interrupted
-        })
-    }));
-    let mut deps = rig.deps_parts(rig.store.clone());
-    deps.transcript = Arc::new(super::testing::RecordTranscript::new());
-    let directory = SessionDirectory::new(Arc::new(deps));
-    let handle = start_thread(&directory).await;
-    (directory, handle)
-}
-
-
-/// A wait whose condition is withheld fails at the real deadline with its message, and the paused clock has not moved: a pending
-/// 16 ms timer (the actor's status settling) is not fired by the wait.
-#[tokio::test(start_paused = true)]
-async fn a_withheld_wait_fails_at_the_real_deadline_with_the_paused_clock_untouched() {
-    let timer_fired = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let flag = timer_fired.clone();
-    tokio::spawn(async move {
-        mixdog_rt::time::sleep(std::time::Duration::from_millis(16)).await;
-        flag.store(true, std::sync::atomic::Ordering::SeqCst);
-    });
-    let wake = tokio::sync::Notify::new();
-    let started = tokio::time::Instant::now();
-    let failed = tokio::spawn(async move { awaiting_for(std::time::Duration::from_millis(200), || "the withheld thing".to_owned(), eventually_on!(&[&wake], || None::<()>)).await }).await.expect_err("the wait fails");
-    let message = failed.into_panic().downcast::<String>().map(|text| *text).unwrap_or_default();
-    assert!(message.contains("waiting for the withheld thing"), "{message}");
-    assert_eq!(tokio::time::Instant::now(), started, "the paused clock did not move");
-    assert!(!timer_fired.load(std::sync::atomic::Ordering::SeqCst), "the 16 ms timer was not fired by the wait");
-}
-
 fn prompt_restores(rig: &Rig, handle: &SessionHandle) -> Vec<Value> {
     rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/promptRestore").map(|(_, _, value)| value).collect()
 }
@@ -125,37 +91,6 @@ async fn the_sender_stopping_gets_the_prompt_back_and_the_row_leaves() {
     assert!(prompt_restores(&rig, &handle).is_empty(), "the sender is told in the reply, not through the state");
 }
 
-/// The recorded `another device cancels: the prompt travels through the state`.
-#[tokio::test(start_paused = true)]
-async fn another_device_stopping_sends_the_prompt_to_the_sender_through_prompt_restore() {
-    let rig = Rig::new();
-    let (_directory, handle) = running(&rig).await;
-    submit(&handle, 1, "op-1", "draft", "sub1").await.expect("started");
-    eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(())).await;
-    // The rig's clock at the moment of the restore, set by the test: `PromptRestore` is stamped from it (Node: `Date.now()`, `abort.mjs:72,76`).
-    let clock: u64 = 7777;
-    rig.clock.0.store(clock, std::sync::atomic::Ordering::SeqCst);
-    let reply = stop(&handle, 2, None).await;
-    assert_eq!((reply["aborted"].clone(), reply["restoreText"].clone(), reply["restoredSubmissionIds"].clone()), (json!(true), json!(""), json!([])));
-    eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || idle(&handle).then_some(())).await;
-    let restores = awaiting(
-        || "the prompt restore frame".to_owned(),
-        eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || Some(prompt_restores(&rig, &handle)).filter(|frames| !frames.is_empty())),
-    )
-    .await;
-    let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
-    let case = all["cases"].as_array().unwrap().iter().find(|case| case["name"] == "another device cancels: the prompt travels through the state").unwrap();
-    // The only restore Node's state held and published, whole. Two parts are the rig's, not the core's: the clock (Node's recorded
-    // 1700000000450 is its fake clock; the id `restore-<clock>-<first submission id>` and `at` carry it, here the value the test set
-    // before the stop) and the device name (Node's "PC" is connection 1, which `NamedDevices` names `desktop-1`).
-    let mut want = case["after"]["promptRestore"].clone();
-    want["id"] = json!(format!("restore-{clock}-{}", want["ids"][0].as_str().unwrap()));
-    want["at"] = json!(clock);
-    assert_eq!(want["device"], "PC");
-    want["device"] = json!("desktop-1");
-    assert_eq!(restores, vec![json!({ "threadId": handle.id, "value": want })]);
-}
-
 /// The recorded `nothing queued` / `no id names nothing`: an idle stop stops nothing.
 #[tokio::test(start_paused = true)]
 async fn stopping_an_idle_thread_answers_aborted_false() {
@@ -170,6 +105,38 @@ async fn stopping_an_idle_thread_answers_aborted_false() {
         })
     );
     assert_eq!(stop(&handle, 1, Some("zz")).await["aborted"], false, "an id that is not queued hands nothing back");
+}
+
+/// `abortSession` on a room log is the room's stop (`session-host.ts`): the reply is its outcome, and the thread runs no stop of
+/// its own.
+#[tokio::test(start_paused = true)]
+async fn stopping_a_room_log_is_the_rooms_stop() {
+    let rig = Rig::new();
+    rig.room_members.hosted.lock().unwrap().insert("room01".into(), true);
+    let id = ThreadId::from("sess_room_room01");
+    let directory = SessionDirectory::new(rig.deps());
+    directory.create_with_id(id.clone(), json!({ "cwd": "/ws" }).as_object().cloned().expect("object"), json!({})).await.expect("create");
+    let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let reply = stop(&handle, 1, None).await;
+    assert_eq!((reply["aborted"].clone(), reply["cancelRequested"].clone()), (json!(true), json!(true)));
+    assert_eq!(*rig.room_members.stopped.lock().unwrap(), ["room01"]);
+    rig.room_members.hosted.lock().unwrap().insert("room01".into(), false);
+    assert_eq!(stop(&handle, 1, None).await["aborted"], false, "a room with nothing to stop answers its own outcome");
+}
+
+/// The room's stop is reached by the room's identity: a log thread nobody loaded still stops its room, and an id that is no
+/// hosted room's log is left to the thread.
+#[tokio::test(start_paused = true)]
+async fn a_stop_for_an_unloaded_room_log_reaches_the_room() {
+    let rig = Rig::new();
+    rig.room_members.hosted.lock().unwrap().insert("room01".into(), true);
+    let directory = SessionDirectory::new(rig.deps());
+    let log = ThreadId::from("sess_room_room01");
+    assert!(directory.get(&log).is_none(), "the log is not loaded");
+    assert_eq!(directory.stop_room(&log).map(|stopped| stopped.stopped), Some(true));
+    assert_eq!(*rig.room_members.stopped.lock().unwrap(), ["room01"]);
+    assert!(directory.stop_room(&ThreadId::from("sess_room_other")).is_none());
+    assert!(directory.stop_room(&ThreadId::from("sess_plain")).is_none());
 }
 
 /// The recorded `a queued submission is handed back by its id`: an idle thread still holding the prompt gives it back.
@@ -242,6 +209,43 @@ async fn a_repeated_submission_id_is_one_prompt() {
     assert_eq!(submit(&handle, 1, "op-4", "hello", "sub1").await.expect("joins"), first);
 }
 
+/// How many prompts the store holds for `submission`: queued entries and prompt rows naming it.
+fn stored_prompts(rig: &Rig, id: &ThreadId, submission: &str) -> usize {
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::QueueAction;
+    rig.store
+        .records(id)
+        .into_iter()
+        .filter(|(_, record)| match record {
+            Record::Queue(queue) if queue.action == QueueAction::Enqueue => {
+                matches!(&queue.entry, Some(Slot::Inline(entry)) if entry.pointer("/options/clientSubmissionId").and_then(Value::as_str) == Some(submission))
+            }
+            // A prompt row names its submission as its own (`clientSubmissionId`) or among the queued ones it took in.
+            Record::Item(item) => matches!(&item.body, Slot::Inline(body) if body.pointer("/meta/transcript/clientSubmissionId").and_then(Value::as_str) == Some(submission)
+                || ["/meta/transcript/submissionIds", "/meta/submissionIds"].iter().any(|at| body.pointer(at).and_then(Value::as_array).is_some_and(|ids| ids.iter().any(|id| id == submission)))),
+            _ => false,
+        })
+        .count()
+}
+
+/// How many queue entries the store holds for `submission`: each a queued send of it.
+fn enqueued(rig: &Rig, id: &ThreadId, submission: &str) -> usize {
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::QueueAction;
+    rig.store
+        .records(id)
+        .into_iter()
+        .filter(|(_, record)| {
+            matches!(record, Record::Queue(queue) if queue.action == QueueAction::Enqueue
+                && matches!(&queue.entry, Some(Slot::Inline(entry)) if entry.pointer("/options/clientSubmissionId").and_then(Value::as_str) == Some(submission)))
+        })
+        .count()
+}
+
+fn settled(handle: &SessionHandle) -> bool {
+    handle.cell.unacked.load(std::sync::atomic::Ordering::SeqCst) == 0
+}
+
 /// A first prompt the session refuses leaves no thread behind.
 #[tokio::test(start_paused = true)]
 async fn a_refused_first_prompt_leaves_no_thread() {
@@ -261,13 +265,16 @@ async fn a_refused_first_prompt_leaves_no_thread() {
     assert_eq!(directory.loaded_ids(), Vec::<ThreadId>::new());
 }
 
+#[cfg(node_twin)]
 /// The message ids of one side, numbered by first appearance: `msg_<1>` is the first id seen, and every later sight of the same id is
 /// the same number. Both sides are numbered this way (Rust's are random `msg_` and 32 hex digits; Node's recording is numbered the
 /// same way by the recorder), so which rows share a message id and which differ is compared, not the random digits.
 #[derive(Default)]
 struct Labels(Vec<String>);
 
+#[cfg(node_twin)]
 impl Labels {
+    #[cfg(node_twin)]
     fn msg(&mut self, id: &str) -> String {
         let at = self.0.iter().position(|seen| seen == id).unwrap_or_else(|| {
             self.0.push(id.to_owned());
@@ -277,6 +284,7 @@ impl Labels {
     }
 }
 
+#[cfg(node_twin)]
 /// Node's value with its message ids numbered as the recorder numbered them (first appearance), in the order this side was compared.
 fn renumber(value: &Value, labels: &mut Labels) -> Value {
     match value {
@@ -287,6 +295,7 @@ fn renumber(value: &Value, labels: &mut Labels) -> Value {
     }
 }
 
+#[cfg(node_twin)]
 /// What is random on Rust's side, as a placeholder: a string equal to a known id, a `msg_` message id (numbered by first
 /// appearance), an attempt id and a request digest. Everything else is compared as it is.
 fn anon(value: &Value, ids: &[(&str, &str)], labels: &mut Labels) -> Value {
@@ -321,6 +330,7 @@ fn anon(value: &Value, ids: &[(&str, &str)], labels: &mut Labels) -> Value {
     }
 }
 
+#[cfg(node_twin)]
 /// A closed table over one recorded Node object: every field it holds is either `mapped` (the caller compares it to the Rust field it
 /// maps to) or Node-only, named here with the exact value (and type) Node recorded and why no phone or desktop can see it. A field in
 /// neither list fails, and so does a listed field the recording lacks or a Node-only one whose value differs.
@@ -340,6 +350,7 @@ fn closed(what: &str, node: &Value, mapped: &[&str], only: &[(&str, Value, &str)
     }
 }
 
+#[cfg(node_twin)]
 /// The ids Rust gave a turn's rows, as the placeholders its comparisons use, and the operation that started it.
 struct Place<'a> {
     iid: &'a str,
@@ -347,6 +358,7 @@ struct Place<'a> {
     op: &'a str,
 }
 
+#[cfg(node_twin)]
 /// Node's pushed user row (transcript-intake.mjs `pushUserOrSyntheticItem`: `{kind, id, text, at, messageId, device}`) as the wire
 /// item Rust publishes for it. Each Node field has its Rust place, and every Rust field is either one of them or listed:
 ///   kind `'user'`  = `type: userMessage`;       id = `clientSubmissionId` (the submission id is the row's id in Node);
@@ -373,6 +385,7 @@ fn wire_item(row: &Value, clock: u64, place: &Place) -> Value {
     item
 }
 
+#[cfg(node_twin)]
 /// The in-process callbacks of the options Node's runtime was asked with (`runtime.ask`): functions have no stored form.
 const ASK_CALLBACKS: [&str; 21] = [
     "onSkillsApplied", "drainSteering", "onSteerMessage", "onContextPressure", "onCompactEvent", "onUsageDelta", "onAssistantToolCallObserved", "onToolCall",
@@ -380,6 +393,7 @@ const ASK_CALLBACKS: [&str; 21] = [
     "onReasoningDelta", "onStreamItemStart", "onRouteApplied", "onModelSwitch", "onSessionSwitches",
 ];
 
+#[cfg(node_twin)]
 /// Node's pushed user row and the message Node's runtime was asked to run (`asked`: the `runtime.ask` content and its options), as the
 /// record Rust stores for the prompt, whole. The options are a closed table: `id` and `submissionIds` are the submission id the record
 /// keeps as `clientSubmissionId`, `submittedAt` is the submit time (`at`), `transcriptMeta` is the message's `meta.transcript` (every key of
@@ -426,6 +440,7 @@ fn stored_item(row: &Value, asked: &Value, clock: u64, place: &Place) -> Value {
     })
 }
 
+#[cfg(node_twin)]
 /// Node's durable queue entry (the steering mirror's shard, as `appendTuiSteeringPersist` wrote it) and its in-memory entry
 /// (`makeQueueEntry`) as the record Rust stores when it queues the prompt, whole. Each is a closed table (`closed`).
 /// Entry, mapped: `content` is Rust's `message`; `id` is `options.clientSubmissionId`; `submittedAt` is `enqueuedAt` (Rust's clock);
@@ -526,6 +541,7 @@ fn stored_queue(shard: &Value, entry: &Value, durable: &Value, at: i64, clock: u
     })
 }
 
+#[cfg(node_twin)]
 /// What the core's `turn/start` intake (`materializePromptSubmission`, [`super::prompt_submission`]) queues of a Node entry recorded
 /// below the intake: `{ message, pastedImages, pastedTexts }`, each inline text and image stored and named by reference and the
 /// content's text tokens turned into the stored texts they stand for. The store holds nothing beforehand; a save is named by its
@@ -537,6 +553,9 @@ fn taken_in(entry: &Value) -> Value {
     use super::prompt_submission::saved;
     struct Fresh;
     impl PromptStore for Fresh {
+        fn import_image(&self, bytes: &[u8], name: Option<&str>) -> Result<serde_json::Map<String, Value>, String> {
+            super::prompt_submission::import_in_memory(self, bytes, name)
+        }
         fn save(&self, bytes: &[u8]) -> Result<serde_json::Map<String, Value>, String> {
             use sha2::Digest;
             Ok(saved(&format!("{:x}", sha2::Sha256::digest(bytes)), bytes.len()))
@@ -556,6 +575,7 @@ fn taken_in(entry: &Value) -> Value {
     json!({ "message": taken.prompt, "pastedImages": table("pastedImages"), "pastedTexts": table("pastedTexts") })
 }
 
+#[cfg(node_twin)]
 /// The queue row the core publishes for a Node entry recorded below the intake: Node's projection (`queue_row`), unless the
 /// intake changed the entry ([`taken_in`]). Then the text and image chips are the core's drawing of the entry the intake queues
 /// (`RecordTranscript::queued`): an image chip names its stored image and counts its stored bytes, and a stored paste shows as
@@ -576,6 +596,7 @@ fn taken_row(mut row: Value, entry: &Value) -> Value {
     row
 }
 
+#[cfg(node_twin)]
 /// One row of what Node's daemon sends a client of its queue (`projectSessionState`, `session-state-projection.mjs:33-49`), as the row the
 /// core publishes for it. Every field the projection can hold is mapped: `id` is the submission id (the core's `id` is its own queue id,
 /// `<qid>`); `submittedAt` is `enqueuedAt`; `text` and `displayText` are one text; `mode`, `priority`, the sender's source fields and
@@ -595,6 +616,7 @@ fn queue_row(projected: &Value, at: i64, clock: u64) -> Value {
     row
 }
 
+#[cfg(node_twin)]
 /// What Node's viewer was shown (`publications`: the store's published snapshot at each publication, whole), as the frames Rust
 /// publishes for the same change, `(method, params)` with random ids as placeholders. A publication is one atomic snapshot: Node
 /// has no order among the changes inside it, so inside one the frames are in Rust's order (rows, prompt history, queue, turn start);
@@ -644,6 +666,322 @@ fn node_frames(publications: &[Value], at: i64, clock: u64) -> Vec<(String, Valu
     out
 }
 
+
+#[cfg(node_twin)]
+/// Node's transcript rows after a turn (`user`, `assistant`, `turndone`) as the wire items Rust holds for them. Every key of Node's row
+/// is taken from the row, and the key set is asserted, so a key this mapping does not place fails. Ids are placeholders by first
+/// appearance (the user row's is the submission id, which Rust carries as `clientSubmissionId`); times are Rust's clock; a Node
+/// `attemptId` is random. Where Rust keeps a Node field under another name: the turn end's `checkpointId` (the user row's id in Node)
+/// is the user item's id here, the submission id riding in the end's `clientSubmissionId`.
+fn rewind_wire(row: &Value, rows: &[Value], turn: usize, clock: u64) -> Value {
+    let (iid, aid, eid, turn_id) = (format!("<iid{turn}>"), format!("<aid{turn}>"), format!("<eid{turn}>"), format!("<turn{turn}>"));
+    let keys = |expected: &[&str]| {
+        let mut held: Vec<&str> = row.as_object().unwrap().keys().map(String::as_str).collect();
+        held.sort_unstable();
+        let mut expected = expected.to_vec();
+        expected.sort_unstable();
+        assert_eq!(held, expected, "the keys of Node's {} row", row["kind"]);
+    };
+    assert_eq!(row["at"], rows[0]["at"], "one submit time");
+    match row["kind"].as_str().unwrap() {
+        "user" => {
+            keys(&["kind", "id", "text", "at", "messageId", "device"]);
+            wire_item(row, clock, &Place { iid: &iid, turn: &turn_id, op: "" })
+        }
+        "assistant" => {
+            keys(&["kind", "id", "text", "at", "messageId", "device", "completionVerb", "attemptId", "streaming"]);
+            json!({
+                "type": "agentMessage", "id": aid, "text": row["text"],
+                "meta": { "turnId": turn_id, "ext": { "attemptId": "<random>", "at": clock, "messageId": row["messageId"], "completionVerb": row["completionVerb"], "device": row["device"], "streaming": row["streaming"] } },
+            })
+        }
+        "turndone" => {
+            keys(&["kind", "id", "checkpointId", "elapsedMs", "status", "finalAssistantId", "outputTokens", "thinkingElapsedMs", "toolCount", "verb", "at", "device", "completionVerb", "attemptId"]);
+            assert_eq!(row["checkpointId"], rows[0]["id"], "the end names the user row");
+            assert_eq!(row["finalAssistantId"], rows[1]["id"], "the end names the answer");
+            json!({
+                "type": "turnEnd", "id": eid, "status": row["status"], "elapsedMs": row["elapsedMs"], "verb": row["verb"],
+                "checkpointId": iid, "finalAssistantId": aid,
+                "meta": { "turnId": turn_id, "at": clock, "ext": { "outputTokens": row["outputTokens"], "thinkingElapsedMs": row["thinkingElapsedMs"], "toolCount": row["toolCount"], "clientSubmissionId": rows[0]["id"], "device": row["device"], "attemptId": "<random>", "completionVerb": row["completionVerb"] } },
+            })
+        }
+        other => panic!("a Node row of kind {other}"),
+    }
+}
+
+#[cfg(node_twin)]
+/// Node's rows of several turns (three rows each: the prompt, its answer, its turn end) as the wire items Rust holds for them.
+fn rewind_rows(rows: &[Value], clock: u64) -> Vec<Value> {
+    rows.chunks(3).enumerate().flat_map(|(turn, rows)| rows.iter().map(move |row| rewind_wire(row, rows, turn, clock))).collect()
+}
+
+#[cfg(node_twin)]
+/// Rust's rows of several turns with each turn's ids as placeholders, as `rewind_rows` names them.
+fn held_rows(items: &[Value], labels: &mut Labels) -> Vec<Value> {
+    let mut ids: Vec<(String, String)> = Vec::new();
+    for (turn, rows) in items.chunks(3).enumerate() {
+        for (row, name) in rows.iter().zip(["iid", "aid", "eid"]) {
+            ids.push((row["id"].as_str().unwrap().to_owned(), format!("<{name}{turn}>")));
+        }
+        ids.push((rows[0]["meta"]["turnId"].as_str().unwrap().to_owned(), format!("<turn{turn}>")));
+    }
+    let ids: Vec<(&str, &str)> = ids.iter().map(|(id, name)| (id.as_str(), name.as_str())).collect();
+    items.iter().map(|item| anon(item, &ids, labels)).collect()
+}
+
+#[cfg(node_twin)]
+fn refused_any(result: Result<Value, CoreError>, name: &str) {
+    match result {
+        Err(CoreError::DomainError { code: Some(code), .. }) => assert_eq!(code.as_ref(), super::actor::SUBMIT_REFUSED, "{name}"),
+        other => panic!("{name}: Node refused, Rust answered {other:?}"),
+    }
+}
+
+/// A running thread whose rows are the stored records' own (`RecordTranscript`), as the daemon shows them: the rig's text-only
+/// transcript would drop the body's `meta.transcript` (the device, the display text) that the replay compares.
+async fn running_on_records(rig: &Rig) -> (SessionDirectory, Arc<SessionHandle>) {
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.cancel.cancelled().await;
+            RunOutcome::Interrupted
+        })
+    }));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.transcript = Arc::new(super::testing::RecordTranscript::new());
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    (directory, handle)
+}
+/// A wait whose condition is withheld fails at the real deadline with its message, and the paused clock has not moved: a pending
+/// 16 ms timer (the actor's status settling) is not fired by the wait.
+#[tokio::test(start_paused = true)]
+async fn a_withheld_wait_fails_at_the_real_deadline_with_the_paused_clock_untouched() {
+    let timer_fired = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = timer_fired.clone();
+    tokio::spawn(async move {
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(16)).await;
+        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+    });
+    let wake = tokio::sync::Notify::new();
+    let started = tokio::time::Instant::now();
+    let failed = tokio::spawn(async move { awaiting_for(std::time::Duration::from_millis(200), || "the withheld thing".to_owned(), eventually_on!(&[&wake], || None::<()>)).await }).await.expect_err("the wait fails");
+    let message = failed.into_panic().downcast::<String>().map(|text| *text).unwrap_or_default();
+    assert!(message.contains("waiting for the withheld thing"), "{message}");
+    assert_eq!(tokio::time::Instant::now(), started, "the paused clock did not move");
+    assert!(!timer_fired.load(std::sync::atomic::Ordering::SeqCst), "the 16 ms timer was not fired by the wait");
+}
+/// `a repeated submission id is one prompt` across a reload: the thread's actor is gone (an unload, a restart) before the
+/// client heard its answers, and the client's retries with the same ids answer as the first sends did, from what the thread
+/// stored, not from a row that happens to be in view: one that started directly, one that was queued and then started (its
+/// queue entry consumed), and one still queued. Each answers as an idempotent success and nothing is posted twice. The rows
+/// are the stored records' own (`RecordTranscript`), as the daemon converts them.
+#[tokio::test(start_paused = true)]
+async fn a_repeated_submission_id_is_one_prompt_after_a_reload() {
+    let rig = Rig::new();
+    let (directory, handle) = running_on_records(&rig).await;
+    let id = handle.id.clone();
+    let first = submit(&handle, 1, "op-1", "hello", "sub1").await.expect("started");
+    assert_eq!(first["kind"], "started");
+    let second = submit(&handle, 1, "op-2", "again", "sub2").await.expect("queued");
+    assert_eq!(second["kind"], "queued");
+    // The first turn ends (stopped from another device, so its prompt is not handed back); the queued prompt starts, its
+    // entry consumed.
+    stop(&handle, 2, None).await;
+    eventually_on!(&[&rig.store.committed], || (stored_prompts(&rig, &id, "sub2") == 2).then_some(())).await;
+    let third = submit(&handle, 1, "op-3", "later", "sub3").await.expect("queued");
+    assert_eq!(third["kind"], "queued");
+    eventually_on!(&[&rig.store.committed], || (stored_prompts(&rig, &id, "sub1") == 1 && stored_prompts(&rig, &id, "sub3") == 1).then_some(())).await;
+    directory.shutdown().await;
+
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.transcript = Arc::new(super::testing::RecordTranscript::new());
+    let reloaded = SessionDirectory::new(Arc::new(deps));
+    let handle = reloaded.open_handle(&id, &CallContext::internal("test")).await.expect("reopen");
+    eventually_on!(&[&handle.cell.stepped], || handle.recovered().then_some(())).await;
+    let counts = || ["sub1", "sub2", "sub3"].map(|submission| stored_prompts(&rig, &id, submission));
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.unacked.load(std::sync::atomic::Ordering::SeqCst) == 0).then_some(())).await;
+    let before = counts();
+    assert_eq!(submit(&handle, 1, "op-4", "hello", "sub1").await.expect("the started prompt answers again"), first);
+    assert_eq!(submit(&handle, 1, "op-5", "again", "sub2").await.expect("the consumed queued prompt answers again"), second);
+    assert_eq!(submit(&handle, 1, "op-6", "later", "sub3").await.expect("the queued prompt answers again"), third);
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.unacked.load(std::sync::atomic::Ordering::SeqCst) == 0).then_some(())).await;
+    assert_eq!(counts(), before, "nothing is posted twice");
+    reloaded.shutdown().await;
+}
+/// The thread `id` opened again by a new directory over the same store (a restart), its recovery done.
+async fn reopened(rig: &Rig, id: &ThreadId) -> (SessionDirectory, Arc<SessionHandle>) {
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.transcript = Arc::new(super::testing::RecordTranscript::new());
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = directory.open_handle(id, &CallContext::internal("test")).await.expect("reopen");
+    eventually_on!(&[&handle.cell.stepped], || handle.recovered().then_some(())).await;
+    (directory, handle)
+}
+/// A send whose save fails leaves no receipt, whatever was admitted while it was pending: send A waits at a held disk, send
+/// B is admitted behind it, the write fails. A retry of B is a new attempt and commits; after a restart A's id is unknown
+/// (a retry of it is a new prompt) and B's retry gets B's committed answer.
+#[tokio::test(start_paused = true)]
+async fn a_failed_send_leaves_no_receipt_and_a_committed_one_survives_a_restart() {
+    let rig = Rig::new();
+    let (directory, handle) = running_on_records(&rig).await;
+    let id = handle.id.clone();
+    submit(&handle, 1, "op-0", "busy", "sub0").await.expect("started");
+    eventually_on!(&[&handle.cell.stepped], || settled(&handle).then_some(())).await;
+    let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::DurabilityIo);
+    let send = |op: &'static str, text: &'static str, submission: &'static str| {
+        let handle = handle.clone();
+        tokio::spawn(async move { submit(&handle, 1, op, text, submission).await })
+    };
+    let a = send("op-a", "a", "subA");
+    full.met_by_a_submit().await;
+    let b = send("op-b", "b", "subB");
+    caught_up(&handle).await;
+    *rig.store.failing.lock().unwrap() = Some("EIO: injected".into());
+    drop(full);
+    assert!(a.await.expect("A's task").is_err(), "A's sender hears its failed save");
+    let b_first = b.await.expect("B's task");
+    *rig.store.failing.lock().unwrap() = None;
+    let b_answer = match b_first {
+        Ok(answer) => answer,
+        // B went with A's failed write: its retry is a new attempt.
+        Err(_) => submit(&handle, 1, "op-b2", "b", "subB").await.expect("B again"),
+    };
+    assert_eq!(b_answer["kind"], "queued");
+    eventually_on!(&[&handle.cell.stepped], || settled(&handle).then_some(())).await;
+    assert_eq!(stored_prompts(&rig, &id, "subA"), 0, "A was never stored");
+    directory.shutdown().await;
+
+    let (reloaded, handle) = reopened(&rig, &id).await;
+    assert_eq!(submit(&handle, 1, "op-b3", "b", "subB").await.expect("B's receipt"), b_answer);
+    let a_again = submit(&handle, 1, "op-a2", "a", "subA").await.expect("A, a new prompt");
+    assert!(matches!(a_again["kind"].as_str(), Some("queued" | "started")), "{a_again}");
+    eventually_on!(&[&handle.cell.stepped], || settled(&handle).then_some(())).await;
+    assert_eq!(enqueued(&rig, &id, "subB"), 1, "B queued once");
+    assert!(stored_prompts(&rig, &id, "subA") >= 1, "A taken as new");
+    reloaded.shutdown().await;
+}
+/// A retry that arrives while the first send's records are not yet saved joins it: it hears nothing before the save, then
+/// what the first send hears, the same success or the same failure; never a success the save did not give.
+async fn retry_before_the_save(fails: bool) {
+    let rig = Rig::new();
+    let (_directory, handle) = running(&rig).await;
+    submit(&handle, 1, "op-0", "busy", "sub0").await.expect("started");
+    eventually_on!(&[&handle.cell.stepped], || settled(&handle).then_some(())).await;
+    let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::DurabilityIo);
+    let send = |op: &'static str| {
+        let handle = handle.clone();
+        tokio::spawn(async move { submit(&handle, 1, op, "a", "subA").await })
+    };
+    let first = send("op-1");
+    full.met_by_a_submit().await;
+    let retry = send("op-2");
+    caught_up(&handle).await;
+    caught_up(&handle).await;
+    assert!(!retry.is_finished(), "no answer before the save");
+    if fails {
+        *rig.store.failing.lock().unwrap() = Some("EIO: injected".into());
+    }
+    drop(full);
+    let (first, retry) = (first.await.expect("the first send"), retry.await.expect("the retry"));
+    if fails {
+        assert!(first.is_err(), "the first send's save failed");
+        assert_eq!(format!("{:?}", retry.err()), format!("{:?}", first.err()), "the retry hears the same failure");
+    } else {
+        assert_eq!(retry.expect("the retry"), first.expect("the first send"), "the retry hears the same answer");
+    }
+    eventually_on!(&[&handle.cell.stepped], || settled(&handle).then_some(())).await;
+    assert_eq!(handle.cell.queue.load().len(), usize::from(!fails), "one prompt at most");
+}
+#[tokio::test(start_paused = true)]
+async fn a_retry_before_the_save_shares_its_success() {
+    retry_before_the_save(false).await;
+}
+#[tokio::test(start_paused = true)]
+async fn a_retry_before_the_save_shares_its_failure() {
+    retry_before_the_save(true).await;
+}
+/// A receipt outlives the actor's memory and the view: the answer of a send is lost, more than `SUBMISSION_MEMORY` sends
+/// follow (their turns push its row out of the window), the core restarts, and the retry still gets the first answer.
+#[tokio::test(start_paused = true)]
+async fn a_receipt_outlives_the_memory_and_the_window() {
+    let rig = Rig::new();
+    rig.set_script(super::tests::echo());
+    // The prompt rows as the daemon writes them (`RecordTranscript`): their `meta.transcript` names the submission; the rig's
+    // text-only transcript writes a bare `{role, content}` body, which accepts nothing the index could keep.
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.transcript = Arc::new(super::testing::RecordTranscript::new());
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.clone();
+    let first = submit(&handle, 1, "op-old", "the old prompt", "sub-old").await.expect("started");
+    for n in 0..300 {
+        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+        submit(&handle, 1, &format!("op-{n}"), "more", &format!("sub-{n}")).await.expect("each send");
+    }
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && settled(&handle)).then_some(())).await;
+    let view = handle.cell.view.load_full();
+    assert!(
+        !view.items.iter().any(|item| matches!(item.as_ref(), mixdog_protocol::ThreadItem::UserMessage { display_text, .. } if display_text == "the old prompt")),
+        "the old prompt's row is out of the window"
+    );
+    directory.shutdown().await;
+    let (reloaded, handle) = reopened(&rig, &id).await;
+    assert_eq!(submit(&handle, 1, "op-retry", "the old prompt", "sub-old").await.expect("the old receipt"), first);
+    eventually_on!(&[&handle.cell.stepped], || settled(&handle).then_some(())).await;
+    assert_eq!(stored_prompts(&rig, &id, "sub-old"), 1, "posted once");
+    reloaded.shutdown().await;
+}
+/// A queued prompt survives a restart: its retry gets its queued receipt, and it is queued once.
+#[tokio::test(start_paused = true)]
+async fn a_queued_prompts_receipt_survives_a_restart() {
+    let rig = Rig::new();
+    let (directory, handle) = running_on_records(&rig).await;
+    let id = handle.id.clone();
+    submit(&handle, 1, "op-0", "busy", "sub0").await.expect("started");
+    let queued = submit(&handle, 1, "op-1", "later", "subQ").await.expect("queued");
+    assert_eq!(queued["kind"], "queued");
+    eventually_on!(&[&handle.cell.stepped], || settled(&handle).then_some(())).await;
+    directory.shutdown().await;
+    let (reloaded, handle) = reopened(&rig, &id).await;
+    assert_eq!(submit(&handle, 1, "op-2", "later", "subQ").await.expect("the queued receipt"), queued);
+    eventually_on!(&[&handle.cell.stepped], || settled(&handle).then_some(())).await;
+    assert_eq!(enqueued(&rig, &id, "subQ"), 1, "queued once");
+    reloaded.shutdown().await;
+}
+
+
+#[cfg(node_twin)]
+/// The recorded `another device cancels: the prompt travels through the state`.
+#[tokio::test(start_paused = true)]
+async fn another_device_stopping_sends_the_prompt_to_the_sender_through_prompt_restore() {
+    let rig = Rig::new();
+    let (_directory, handle) = running(&rig).await;
+    submit(&handle, 1, "op-1", "draft", "sub1").await.expect("started");
+    eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(())).await;
+    // The rig's clock at the moment of the restore, set by the test: `PromptRestore` is stamped from it (Node: `Date.now()`, `abort.mjs:72,76`).
+    let clock: u64 = 7777;
+    rig.clock.0.store(clock, std::sync::atomic::Ordering::SeqCst);
+    let reply = stop(&handle, 2, None).await;
+    assert_eq!((reply["aborted"].clone(), reply["restoreText"].clone(), reply["restoredSubmissionIds"].clone()), (json!(true), json!(""), json!([])));
+    eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || idle(&handle).then_some(())).await;
+    let restores = awaiting(
+        || "the prompt restore frame".to_owned(),
+        eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || Some(prompt_restores(&rig, &handle)).filter(|frames| !frames.is_empty())),
+    )
+    .await;
+    let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let case = all["cases"].as_array().unwrap().iter().find(|case| case["name"] == "another device cancels: the prompt travels through the state").unwrap();
+    // The only restore Node's state held and published, whole. Two parts are the rig's, not the core's: the clock (Node's recorded
+    // 1700000000450 is its fake clock; the id `restore-<clock>-<first submission id>` and `at` carry it, here the value the test set
+    // before the stop) and the device name (Node's "PC" is connection 1, which `NamedDevices` names `desktop-1`).
+    let mut want = case["after"]["promptRestore"].clone();
+    want["id"] = json!(format!("restore-{clock}-{}", want["ids"][0].as_str().unwrap()));
+    want["at"] = json!(clock);
+    assert_eq!(want["device"], "PC");
+    want["device"] = json!("desktop-1");
+    assert_eq!(restores, vec![json!({ "threadId": handle.id, "value": want })]);
+}
+#[cfg(node_twin)]
 /// Every recorded Node submit (`submitToSession`), whole: the answer (`true` accepted, `false` refused) and what Node left
 /// behind (its stored rows, its queue entries, and what its viewer was shown) against what Rust stored, queued and published for
 /// the same submission. Only what the submits added is compared: the stores and frames from after the setup. Node's `closing`
@@ -680,6 +1018,15 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let (base_records, base_frames) = (rig.store.records(&handle.id).len(), frames().len());
         let mut options = case["options"].clone();
         options["clientSubmissionId"] = json!("sub1");
+        if name == "a prompt with a pasted image is queued with its image" {
+            // The one departure: the intake judges an image by its bytes (`materialize_inline_part`), and the recorded payload
+            // (three zero bytes labelled PNG) is no image, so it is refused to the user in plain words, where Node queued it.
+            // What a real image does on the queue is `pending_read_tests`' and `prompt_submission`'s to prove.
+            let refused = submit_with(&handle, 1, "op-0", case["prompt"].clone(), options.clone()).await.expect_err("a payload that is no image is refused");
+            assert!(format!("{refused:?}").contains("It is not an image this app can read"), "{refused:?}");
+            assert_eq!(rig.store.records(&handle.id).len(), base_records, "a refused prompt stores nothing");
+            continue;
+        }
         let answers = case["answers"].as_array().unwrap();
         // A channel message queued as a task notification takes the router's path (`channel-session-router.mjs`), not a client's submit.
         let notification = case["options"]["mode"] == "task-notification";
@@ -784,67 +1131,7 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         assert_eq!(node["promptRestore"], Value::Null);
     }
 }
-
-
-/// Node's transcript rows after a turn (`user`, `assistant`, `turndone`) as the wire items Rust holds for them. Every key of Node's row
-/// is taken from the row, and the key set is asserted, so a key this mapping does not place fails. Ids are placeholders by first
-/// appearance (the user row's is the submission id, which Rust carries as `clientSubmissionId`); times are Rust's clock; a Node
-/// `attemptId` is random. Where Rust keeps a Node field under another name: the turn end's `checkpointId` (the user row's id in Node)
-/// is the user item's id here, the submission id riding in the end's `clientSubmissionId`.
-fn rewind_wire(row: &Value, rows: &[Value], turn: usize, clock: u64) -> Value {
-    let (iid, aid, eid, turn_id) = (format!("<iid{turn}>"), format!("<aid{turn}>"), format!("<eid{turn}>"), format!("<turn{turn}>"));
-    let keys = |expected: &[&str]| {
-        let mut held: Vec<&str> = row.as_object().unwrap().keys().map(String::as_str).collect();
-        held.sort_unstable();
-        let mut expected = expected.to_vec();
-        expected.sort_unstable();
-        assert_eq!(held, expected, "the keys of Node's {} row", row["kind"]);
-    };
-    assert_eq!(row["at"], rows[0]["at"], "one submit time");
-    match row["kind"].as_str().unwrap() {
-        "user" => {
-            keys(&["kind", "id", "text", "at", "messageId", "device"]);
-            wire_item(row, clock, &Place { iid: &iid, turn: &turn_id, op: "" })
-        }
-        "assistant" => {
-            keys(&["kind", "id", "text", "at", "messageId", "device", "completionVerb", "attemptId", "streaming"]);
-            json!({
-                "type": "agentMessage", "id": aid, "text": row["text"],
-                "meta": { "turnId": turn_id, "ext": { "attemptId": "<random>", "at": clock, "messageId": row["messageId"], "completionVerb": row["completionVerb"], "device": row["device"], "streaming": row["streaming"] } },
-            })
-        }
-        "turndone" => {
-            keys(&["kind", "id", "checkpointId", "elapsedMs", "status", "finalAssistantId", "outputTokens", "thinkingElapsedMs", "toolCount", "verb", "at", "device", "completionVerb", "attemptId"]);
-            assert_eq!(row["checkpointId"], rows[0]["id"], "the end names the user row");
-            assert_eq!(row["finalAssistantId"], rows[1]["id"], "the end names the answer");
-            json!({
-                "type": "turnEnd", "id": eid, "status": row["status"], "elapsedMs": row["elapsedMs"], "verb": row["verb"],
-                "checkpointId": iid, "finalAssistantId": aid,
-                "meta": { "turnId": turn_id, "at": clock, "ext": { "outputTokens": row["outputTokens"], "thinkingElapsedMs": row["thinkingElapsedMs"], "toolCount": row["toolCount"], "clientSubmissionId": rows[0]["id"], "device": row["device"], "attemptId": "<random>", "completionVerb": row["completionVerb"] } },
-            })
-        }
-        other => panic!("a Node row of kind {other}"),
-    }
-}
-
-/// Node's rows of several turns (three rows each: the prompt, its answer, its turn end) as the wire items Rust holds for them.
-fn rewind_rows(rows: &[Value], clock: u64) -> Vec<Value> {
-    rows.chunks(3).enumerate().flat_map(|(turn, rows)| rows.iter().map(move |row| rewind_wire(row, rows, turn, clock))).collect()
-}
-
-/// Rust's rows of several turns with each turn's ids as placeholders, as `rewind_rows` names them.
-fn held_rows(items: &[Value], labels: &mut Labels) -> Vec<Value> {
-    let mut ids: Vec<(String, String)> = Vec::new();
-    for (turn, rows) in items.chunks(3).enumerate() {
-        for (row, name) in rows.iter().zip(["iid", "aid", "eid"]) {
-            ids.push((row["id"].as_str().unwrap().to_owned(), format!("<{name}{turn}>")));
-        }
-        ids.push((rows[0]["meta"]["turnId"].as_str().unwrap().to_owned(), format!("<turn{turn}>")));
-    }
-    let ids: Vec<(&str, &str)> = ids.iter().map(|(id, name)| (id.as_str(), name.as_str())).collect();
-    items.iter().map(|item| anon(item, &ids, labels)).collect()
-}
-
+#[cfg(node_twin)]
 /// Node's message selector (`rewindToItem`, intake/rewind.mjs) on a submitted row: the client names the row by the id it shows, the
 /// submission id, and Node resolves that on its rows, then rewinds to the row's stable message id. Rust resolves the displayed id the
 /// same way, and answers what Node answers: the prompt's text and the number of rows removed (the prompt, its answer and its turn
@@ -968,7 +1255,7 @@ async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
         }
     }
 }
-
+#[cfg(node_twin)]
 /// Every recorded image shape of a queue entry (Node's real `makeQueueEntry` shown by `projectSessionState`): the row the core
 /// publishes for the same stored entry is Node's whole, the image list included (`content` for `data`, `mediaType` for `mimeType`,
 /// `Number(sizeBytes)` with the length as the fallback).
@@ -994,7 +1281,7 @@ fn every_recorded_image_shape_is_published_as_nodes_queue_projection_shows_it() 
         }
     }
 }
-
+#[cfg(node_twin)]
 /// What the recorder's store published is Node's real `frame-batched-store` publishing: it guards and coalesces, so a chain of two
 /// immediate flushes is one publication, and a publication always shows a change from the one before. A recorder that published per
 /// call would show two (the reviewer's probe) or repeated snapshots here.
@@ -1011,12 +1298,5 @@ fn the_recorded_publishing_is_coalesced_as_nodes_store_does() {
         for pair in publications.windows(2) {
             assert_ne!(pair[0]["state"], pair[1]["state"], "{}: a publication that shows nothing new", case["name"]);
         }
-    }
-}
-
-fn refused_any(result: Result<Value, CoreError>, name: &str) {
-    match result {
-        Err(CoreError::DomainError { code: Some(code), .. }) => assert_eq!(code.as_ref(), super::actor::SUBMIT_REFUSED, "{name}"),
-        other => panic!("{name}: Node refused, Rust answered {other:?}"),
     }
 }

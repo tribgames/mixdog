@@ -606,7 +606,7 @@ async fn run(shared: Arc<Shared>, mut events: broadcast::Receiver<ClientEvent>, 
         tokio::select! {
             event = events.recv() => match event {
                 Ok(ClientEvent::Notification(notification)) => shared.on_notification(&notification),
-                Ok(ClientEvent::ServerRequest(request)) => shared.refresh_approvals(Some(&request), None, false),
+                Ok(ClientEvent::ServerRequest(request, _)) => shared.refresh_approvals(Some(&request), None, false),
                 Ok(ClientEvent::ServerRequestResolved(done)) => shared.refresh_approvals(None, Some(&done.request_id), false),
                 Ok(ClientEvent::SubscriptionLost { thread_id, .. }) => shared.on_thread_gone(&thread_id),
                 Ok(ClientEvent::Status(ConnectionStatus::Ready { .. })) => {

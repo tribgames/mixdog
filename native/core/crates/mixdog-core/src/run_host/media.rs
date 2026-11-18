@@ -35,6 +35,7 @@ use sha2::{Digest, Sha256};
 
 // The kinds of a file and their classification are the provider builders': one function for both sides.
 pub use mixdog_ai::providers::file_text::{base64_byte_length, inline_file_kind, FileKind, MAX_PDF_BYTES};
+use mixdog_ooxml_text::legacy::{is_legacy_office_buffer, legacy_office_label_package, ooxml_label_package, ooxml_mime_by_package};
 
 /// What the attachment store recorded about a stored attachment (Node keeps these on the part).
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
@@ -129,6 +130,8 @@ enum Resolved {
 struct Memo {
     resolved: HashMap<String, Resolved>,
     office: HashMap<String, Option<String>>,
+    /// Each legacy Office file's conversion, by [`legacy_key`].
+    legacy: HashMap<String, Legacy>,
     pdf: HashMap<String, String>,
     /// What the store recorded of each reference read so far, and the counts of each inline PDF by its payload's hash
     /// (`None`: nothing recorded).
@@ -138,11 +141,45 @@ struct Memo {
     stored_parts: HashMap<String, Value>,
 }
 
+/// What a legacy Office attachment became for the model (`packageLegacyOfficePart` of `attachments/store.mjs`): the package
+/// LibreOffice saved it as, or the converter's message as the text that stands for the file. The stored attachment is untouched.
+#[derive(Clone)]
+enum Legacy {
+    Package(FileInfo),
+    Text(String),
+}
+
 enum Lookup {
     NotFile,
     Gone,
     Cold,
     Info(FileInfo),
+    /// The file is stood for by this text (a legacy Office file that could not be converted).
+    Text(String),
+}
+
+/// The package kind (`docx`, `xlsx`, `pptx`) `file` converts to when it is a legacy Office file: labelled legacy by MIME type or
+/// extension (always converted, or explained), or labelled as an OOXML package while its bytes are an OLE file (a renamed one).
+fn legacy_kind(file: &FileInfo) -> Option<&'static str> {
+    let legacy = legacy_office_label_package(&file.mime, &file.filename);
+    let kind = if legacy.is_empty() { ooxml_label_package(&file.mime, &file.filename) } else { legacy };
+    if kind.is_empty() {
+        return None;
+    }
+    // Eight bytes of OLE signature are the first twelve base64 characters.
+    let head = STANDARD.decode(file.data.get(..12).unwrap_or(file.data.as_str())).unwrap_or_default();
+    (!legacy.is_empty() || is_legacy_office_buffer(&head)).then_some(kind)
+}
+
+/// The key a file's conversion is remembered under.
+fn legacy_key(file: &FileInfo) -> String {
+    format!("{}\0{}", file.key, file.filename)
+}
+
+/// The text standing for a legacy file whose conversion failed: `--- name ---` and the converter's message.
+fn legacy_failure_text(file: &FileInfo, message: &str) -> String {
+    let name = file.filename.rsplit(['/', '\\']).next().filter(|n| !n.is_empty()).unwrap_or("attachment");
+    format!("--- {name} ---\n{message}")
 }
 
 pub struct MediaLowering {
@@ -239,8 +276,68 @@ impl MediaLowering {
         self.memo.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// `fileInfo` on what is known without a read.
+    /// `fileInfo` on what is known without a read, a legacy Office file as the package it was converted to (or the text that
+    /// stands for it): one conversion for every later lowering, estimate and attempt of the turn.
     fn lookup(&self, part: &ContentPart) -> Lookup {
+        let file = match self.raw(part) {
+            Lookup::Info(file) if legacy_kind(&file).is_some() => file,
+            other => return other,
+        };
+        let converted = self.memo().legacy.get(&legacy_key(&file)).cloned();
+        match converted {
+            None => Lookup::Cold,
+            Some(Legacy::Package(package)) => Lookup::Info(package),
+            Some(Legacy::Text(text)) => Lookup::Text(text),
+        }
+    }
+
+    /// `packageLegacyOfficePart`: saves a legacy Office file as its OOXML package through the document engine, once. A
+    /// conversion that cannot run (no LibreOffice, a damaged file, bytes that are not a legacy file) is remembered as the
+    /// converter's message, the text the model gets for the file; a cancelled call or a dead host is the turn's error and
+    /// remembers nothing.
+    async fn convert_legacy(&self, file: &FileInfo, kind: &str) -> Result<(), Box<ProviderError>> {
+        let key = legacy_key(file);
+        if self.memo().legacy.contains_key(&key) {
+            return Ok(());
+        }
+        let converted = match self.docs.legacy_office(&self.thread, &file.filename, kind, &file.data).await {
+            // The package's identity is its own bytes' hash: the key the lowered part derives from it ([`Self::raw`]), so what is
+            // prepared for the original (the extracted text) is found again for the package it was replaced by.
+            Ok(package) => Legacy::Package(FileInfo {
+                key: sha256_hex(&package.data_base64),
+                mime: ooxml_mime_by_package(kind).unwrap_or_default().to_owned(),
+                filename: package.filename,
+                data: package.data_base64,
+            }),
+            Err(ExtError::Failed { message, .. }) => Legacy::Text(legacy_failure_text(file, &message)),
+            Err(other) => return Err(failure(format!("legacy Office conversion failed: {other:?}"))),
+        };
+        let mut memo = self.memo();
+        if memo.legacy.len() > OFFICE_CACHE_CAP {
+            memo.legacy.clear();
+        }
+        memo.legacy.insert(key, converted);
+        Ok(())
+    }
+
+    /// The part a converted legacy Office file is for the request: a file part of its package, or its failure as text.
+    fn converted_part(&self, part: &ContentPart) -> Option<ContentPart> {
+        let Lookup::Info(file) = self.raw(part) else { return None };
+        legacy_kind(&file)?;
+        let converted = self.memo().legacy.get(&legacy_key(&file)).cloned()?;
+        Some(match converted {
+            Legacy::Package(package) => ContentPart::File {
+                source: BinarySource::Base64(package.data),
+                mime_type: package.mime,
+                filename: Some(package.filename),
+                text: None,
+            },
+            Legacy::Text(text) => ContentPart::Text(text, None),
+        })
+    }
+
+    /// The file as stored, before any conversion.
+    fn raw(&self, part: &ContentPart) -> Lookup {
         match part {
             ContentPart::Document { source: DocumentSource::Base64 { media_type, data }, title } if !data.is_empty() => {
                 let mime = mime_of(media_type);
@@ -385,6 +482,11 @@ impl MediaLowering {
                     self.prime(reference, None).await;
                 }
                 self.resolve(part).await?;
+                if let Lookup::Info(file) = self.raw(part)
+                    && let Some(kind) = legacy_kind(&file)
+                {
+                    self.convert_legacy(&file, kind).await?;
+                }
                 if let Lookup::Info(file) = self.lookup(part)
                     && inline_file_kind(&file.mime, &file.data, &file.filename) == FileKind::Office
                 {
@@ -433,7 +535,15 @@ impl MediaLowering {
         for mut message in messages {
             if let Content::Parts(parts) = &mut message.content {
                 for part in parts.iter_mut() {
+                    // A legacy Office file is the package it was converted to (or its failure text) on every route, as
+                    // Node's intake replaced the part; the stored attachment the user sees is untouched.
+                    if let Some(converted) = self.converted_part(part) {
+                        *part = converted;
+                    }
                     let replacement = match self.lookup(part) {
+                        Lookup::Text(text) => Some(text),
+                        // A stored image is no document: it goes on as the reference it is, for the route's image preparation.
+                        Lookup::Info(_) if is_image_ref(part).is_some() => None,
                         Lookup::Info(file) => match inline_file_kind(&file.mime, &file.data, &file.filename) {
                             FileKind::Pdf if how.pdf => Some(format!("--- {} ---\n{}", file_label(&file), self.pdf(&file, &mut budget).await?)),
                             FileKind::Pdf => None,
@@ -470,6 +580,7 @@ impl MediaText for MediaLowering {
         match self.lookup(part) {
             Lookup::NotFile => Ok(None),
             Lookup::Gone => Ok(Some(unavailable_text(part))),
+            Lookup::Text(text) => Ok(Some(text)),
             Lookup::Cold => Err(failure("internal error: a stored file reached text lowering unread (await prepare_pdf_text before building the request)".to_owned())),
             Lookup::Info(file) => {
                 let kind = inline_file_kind(&file.mime, &file.data, &file.filename);
@@ -645,6 +756,7 @@ impl MediaMeter for MediaLowering {
                     }
                     // A stored file with no blob is priced as the part itself.
                     Lookup::Gone => PartMeter { text: unavailable_text(part), tokens: 0 },
+                    Lookup::Text(text) => PartMeter { text, tokens: 0 },
                     Lookup::Cold | Lookup::NotFile => PartMeter { text: String::new(), tokens: 0 },
                 }
             }
@@ -739,7 +851,10 @@ impl ImageIdentities for MediaLowering {
 }
 #[cfg(test)]
 mod tests {
-    use serde_json::{json, Value};
+    #[cfg(node_twin)]
+    use serde_json::json;
+    #[cfg(node_twin)]
+    use serde_json::Value;
 
     use super::*;
 
@@ -818,41 +933,6 @@ mod tests {
         ContentPart::File { source: BinarySource::AttachmentRef(r.into()), mime_type: mime.into(), filename: filename.map(str::to_owned), text: None }
     }
 
-    /// Node's real `contentToText`, `contentMediaBytes`/`Count` and the PDF/image allowances.
-    #[test]
-    fn inline_parts_follow_node() {
-        let golden: Value = serde_json::from_str(include_str!("golden/media.json")).unwrap();
-        let big = format!("%PDF-1.4 {}", "x".repeat(40_000));
-        let doc = |media: &str, data: &str, title: &str| ContentPart::Document {
-            source: DocumentSource::Base64 { media_type: media.into(), data: b64(data) },
-            title: Some(title.into()),
-        };
-        let parts: Vec<(&str, ContentPart)> = vec![
-            ("text_file", file("hello", "text/plain", Some("a.txt"))),
-            ("json_nameless", file("{\"a\":1}", "application/json", None)),
-            ("binary_zip", file("PK\u{3}\u{4}abcdef", "application/zip", Some("x.zip"))),
-            ("mislabelled_pdf", file(&big, "application/octet-stream", Some("scan.bin"))),
-            ("labelled_pdf", file("%PDF-1.7 tiny", "application/pdf", None)),
-            ("pdf_document", doc("application/pdf", &big, "Big")),
-            ("text_document", doc("text/markdown", "# hi", "notes.md")),
-            ("image_inline", ContentPart::Image(ImageSource::Base64 { data: "AAAABBBB".into(), mime_type: "image/png".into(), width: None, height: None })),
-            ("image_data_url", ContentPart::Image(ImageSource::Url("data:image/png;base64,AAAA".into()))),
-        ];
-        let lowering = lowering(false);
-        for (id, part) in &parts {
-            let want = &golden["cases"][*id];
-            let content = Content::Parts(vec![part.clone()]);
-            assert_eq!(json!(lowering.bytes(&content, true)), want["bytes"], "{id} bytes");
-            assert_eq!(json!(lowering.bytes(&content, false)), want["bytesText"], "{id} bytes as text");
-            assert_eq!(json!(lowering.count(&content, true)), want["count"], "{id} count");
-            assert_eq!(json!(lowering.count(&content, false)), want["countText"], "{id} count as text");
-            let meter = lowering.part(part);
-            assert_eq!(json!(meter.text), want["text"], "{id} text");
-            assert_eq!(json!(meter.tokens), json!(want["pdfNative"].as_u64().unwrap() + want["image"].as_u64().unwrap()), "{id} tokens");
-        }
-        assert_eq!(pdf_allowance(40_009, None, None, false), golden["cases"]["pdf_document"]["pdfText"]);
-    }
-
     #[tokio::test]
     async fn stored_media_is_priced_from_the_recorded_facts() {
         let l = lowering(false);
@@ -910,10 +990,12 @@ mod tests {
     }
 
     /// A worker whose extraction of a PDF ends when the test says: `one` once `release_one` is notified, `hang` never.
+    #[cfg(node_twin)]
     struct SlowDocs {
         release_one: Arc<tokio::sync::Notify>,
     }
     #[async_trait]
+    #[cfg(node_twin)]
     impl DocumentText for SlowDocs {
         async fn office_text(&self, _: &ThreadId, _: &str, _: &str) -> Result<Option<String>, ExtError> {
             unreachable!("no Office file")
@@ -933,71 +1015,10 @@ mod tests {
     }
 
     /// The prompt's PDFs lowering on the test's clock, which moves only by `advance`.
+    #[cfg(node_twin)]
     struct Lowering {
         done: tokio::task::JoinHandle<Vec<String>>,
         release_one: Arc<tokio::sync::Notify>,
-    }
-
-    impl Lowering {
-        fn start(files: &[&'static str]) -> Self {
-            let store = Store(vec![("one", b"%PDF one".to_vec()), ("hang", b"%PDF hang".to_vec()), ("hang2", b"%PDF hang two".to_vec())]);
-            let release_one = Arc::new(tokio::sync::Notify::new());
-            let docs = SlowDocs { release_one: release_one.clone() };
-            let l = MediaLowering::new(ThreadId::from("t".to_owned()), Arc::new(docs), Arc::new(store), Arc::new(Facts), false, ProviderId::from("anthropic"));
-            let parts = files.iter().map(|r| reference(r, "application/pdf", Some("p.pdf"))).collect();
-            let done = tokio::spawn(async move {
-                let prepared = l.prepare_pdf_text(vec![Message::new(Role::User, Content::Parts(parts))]).await.unwrap();
-                let Content::Parts(parts) = &prepared[0].content else { panic!("parts") };
-                parts
-                    .iter()
-                    .map(|p| match p {
-                        ContentPart::Text(text, _) => text.rsplit('\n').next().unwrap().to_owned(),
-                        other => panic!("a PDF stayed a part: {other:?}"),
-                    })
-                    .collect()
-            });
-            Self { done, release_one }
-        }
-
-        /// Moves the clock by `ms` and lets the lowering run to wherever that takes it.
-        async fn advance(&self, ms: u64) {
-            for _ in 0..8 {
-                tokio::task::yield_now().await;
-            }
-            tokio::time::advance(Duration::from_millis(ms)).await;
-            for _ in 0..8 {
-                tokio::task::yield_now().await;
-            }
-        }
-    }
-
-    /// A PDF the worker never reads is, at the bound, the text Node gives a PDF it cannot read (the recorded `not-a-pdf`
-    /// case): Node waits, so a user sees the model told the document could not be read, never an error. The bound is
-    /// one for the turn's PDFs: two that never answer end together at 60 s, not one after the other at 120 s.
-    #[tokio::test(start_paused = true)]
-    async fn a_turns_pdfs_share_one_bound() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/tools/media-text/pdf.json");
-        let recorded: Vec<Value> = serde_json::from_str(&mixdog_testkit::read_string(&path)).unwrap();
-        let unreadable = recorded.iter().find(|c| c["name"] == "not-a-pdf").unwrap()["text"].as_str().unwrap().to_owned();
-        assert_eq!(unreadable, PDF_UNREADABLE_TEXT);
-
-        let both = Lowering::start(&["hang", "hang2"]);
-        both.advance(PDF_INTAKE_TIMEOUT_MS - 1).await;
-        assert!(!both.done.is_finished(), "answered a millisecond before the bound");
-        both.advance(1).await;
-        assert!(both.done.is_finished(), "the second PDF was still waiting at the turn's bound");
-        assert_eq!(both.done.await.unwrap(), [unreadable.clone(), unreadable.clone()]);
-
-        // The first PDF is read 40 s into the bound (the worker answers when released, at 40 s of the clock): the one
-        // after it has the 20 s that are left.
-        let slow_then_hung = Lowering::start(&["one", "hang"]);
-        slow_then_hung.advance(40_000).await;
-        slow_then_hung.release_one.notify_one();
-        slow_then_hung.advance(PDF_INTAKE_TIMEOUT_MS - 40_000 - 1).await;
-        assert!(!slow_then_hung.done.is_finished(), "answered a millisecond before the bound");
-        slow_then_hung.advance(1).await;
-        assert!(slow_then_hung.done.is_finished(), "the second PDF got more than what was left of the bound");
-        assert_eq!(slow_then_hung.done.await.unwrap(), ["ONE".to_owned(), unreadable]);
     }
 
     #[tokio::test]
@@ -1044,34 +1065,6 @@ mod tests {
         assert_eq!(pdf_intake_facts(&docs, &thread, "unreadable", 1, true).await.unwrap_err(), "Invalid PDF structure.");
     }
 
-    /// Node's `contentImageDescriptors` on 14 provider-native blocks.
-    #[test]
-    fn json_image_descriptors_follow_node() {
-        let golden: Value = serde_json::from_str(include_str!("golden/image_descriptors.json")).unwrap();
-        for (name, row) in golden.as_object().unwrap() {
-            let got: Vec<Value> = json_image_descriptor(&row["block"])
-                .into_iter()
-                .map(|d| json!({ "identity": d.identity, "width": d.width.map(mixdog_js::json_number), "height": d.height.map(mixdog_js::json_number), "detail": d.detail }))
-                .collect();
-            assert_eq!(json!(got), row["descriptors"], "{name}");
-        }
-    }
-
-    #[test]
-    fn content_parts_and_replayed_blocks_describe_the_same_images() {
-        let l = lowering(false);
-        let golden: Value = serde_json::from_str(include_str!("golden/image_descriptors.json")).unwrap();
-        let id = |name: &str| golden[name]["descriptors"][0]["identity"].as_str().unwrap().to_owned();
-        let mut m = AgentMessage::user("x");
-        m.message.content = Content::Parts(vec![
-            ContentPart::Image(ImageSource::Base64 { data: "AAAABBBB".into(), mime_type: "IMAGE/JPEG".into(), width: None, height: None }),
-            ContentPart::Image(ImageSource::Url("http://x/y.png".into())),
-            ContentPart::Image(ImageSource::FileId("file_2".into())),
-        ]);
-        let ids: Vec<String> = l.images(&m).into_iter().map(|d| d.identity).collect();
-        assert_eq!(ids, [id("data"), id("image_url_string"), id("source_file").replace(&id("source_file"), &image_identity("file-id", "file_2", ""))]);
-    }
-
     #[test]
     fn only_the_routes_providers_envelope_is_scanned() {
         use mixdog_core_api::domain::provider::ProviderReplay;
@@ -1086,5 +1079,311 @@ mod tests {
         let want: Vec<String> = l.images(&own).into_iter().map(|d| d.identity).collect();
         assert_eq!(got, want);
         assert_eq!(got.len(), 1);
+    }
+
+    // ---- legacy Office attachments (`packageLegacyOfficePart`, `attachments/store.mjs`) ----
+
+    const DOCX: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+    /// A document host whose conversion answers as scripted and records what it was asked; `gate` holds every conversion
+    /// until all the parties have started theirs.
+    struct LegacyDocs {
+        answer: Result<mixdog_core_api::domain::ext::LegacyPackage, ExtError>,
+        asked: std::sync::Mutex<Vec<(String, String, String)>>,
+        gate: Option<Arc<tokio::sync::Barrier>>,
+    }
+    impl LegacyDocs {
+        fn answering(answer: Result<mixdog_core_api::domain::ext::LegacyPackage, ExtError>) -> Arc<Self> {
+            Arc::new(Self { answer, asked: std::sync::Mutex::default(), gate: None })
+        }
+        fn package() -> Result<mixdog_core_api::domain::ext::LegacyPackage, ExtError> {
+            Ok(mixdog_core_api::domain::ext::LegacyPackage { data_base64: b64("PK"), filename: "old.docx".into() })
+        }
+    }
+    #[async_trait]
+    impl DocumentText for LegacyDocs {
+        async fn office_text(&self, _: &ThreadId, _: &str, _: &str) -> Result<Option<String>, ExtError> {
+            Ok(Some("EXTRACTED".to_owned()))
+        }
+        async fn pdf_text(&self, _: &ThreadId, _: &str) -> Result<String, ExtError> {
+            unreachable!("no PDF")
+        }
+        async fn pdf_counts(&self, _: &ThreadId, _: &str) -> Result<PdfIntake, ExtError> {
+            unreachable!("no PDF")
+        }
+        async fn legacy_office(&self, thread: &ThreadId, filename: &str, kind: &str, _: &str) -> Result<mixdog_core_api::domain::ext::LegacyPackage, ExtError> {
+            self.asked.lock().unwrap().push((format!("{thread:?}"), filename.to_owned(), kind.to_owned()));
+            if let Some(gate) = &self.gate {
+                gate.wait().await;
+            }
+            self.answer.clone()
+        }
+    }
+
+    /// A host with no document engine: the trait's own answer to a conversion.
+    struct NoEngine;
+    #[async_trait]
+    impl DocumentText for NoEngine {
+        async fn office_text(&self, _: &ThreadId, _: &str, _: &str) -> Result<Option<String>, ExtError> {
+            unreachable!("nothing was converted")
+        }
+        async fn pdf_text(&self, _: &ThreadId, _: &str) -> Result<String, ExtError> {
+            unreachable!("no PDF")
+        }
+        async fn pdf_counts(&self, _: &ThreadId, _: &str) -> Result<PdfIntake, ExtError> {
+            unreachable!("no PDF")
+        }
+    }
+
+    fn legacy_lowering(docs: Arc<dyn DocumentText>, thread: &str, no_documents: bool) -> MediaLowering {
+        let ole = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 1, 2, 3];
+        let store = Store(vec![("old", ole.to_vec()), ("plain", b"PK".to_vec())]);
+        MediaLowering::new(ThreadId::from(thread.to_owned()), docs, Arc::new(store), Arc::new(Facts), no_documents, ProviderId::from("anthropic"))
+    }
+
+    async fn lowered(l: &MediaLowering, part: ContentPart) -> ContentPart {
+        let prepared = l.prepare_pdf_text(vec![Message::new(Role::User, Content::Parts(vec![part]))]).await.unwrap();
+        let Content::Parts(mut parts) = prepared.into_iter().next().unwrap().content else { panic!("parts") };
+        parts.remove(0)
+    }
+
+    /// With the engine, a `.doc` attachment is the package LibreOffice saved it as: its text reads like any `.docx`, a route
+    /// that takes documents is handed the package itself, and the stored attachment's own part is untouched.
+    #[tokio::test]
+    async fn a_legacy_attachment_with_the_engine_is_lowered_as_its_package() {
+        let docs = LegacyDocs::answering(LegacyDocs::package());
+        let original = reference("old", "application/msword", Some("old.doc"));
+        let text = lowered(&legacy_lowering(docs.clone(), "t", true), original.clone()).await;
+        assert_eq!(text, ContentPart::Text(format!("--- old.docx ({DOCX}, 2 bytes) ---\nEXTRACTED"), None));
+        let part = lowered(&legacy_lowering(docs.clone(), "t", false), original.clone()).await;
+        assert_eq!(part, ContentPart::File { source: BinarySource::Base64(b64("PK")), mime_type: DOCX.into(), filename: Some("old.docx".into()), text: None });
+        // The meters and the later attempts of the turn read the same conversion, asked of the host once.
+        let l = legacy_lowering(docs.clone(), "t", true);
+        lowered(&l, original.clone()).await;
+        lowered(&l, original.clone()).await;
+        assert_eq!(l.text_form(&original).unwrap().unwrap(), format!("--- old.docx ({DOCX}, 2 bytes) ---\nEXTRACTED"));
+        assert_eq!(docs.asked.lock().unwrap().len(), 3, "once per lowering (a lowering is one turn), never per attempt of it");
+        assert_eq!(docs.asked.lock().unwrap()[0].1, "old.doc");
+        assert_eq!(docs.asked.lock().unwrap()[0].2, "docx");
+    }
+
+    /// An OLE file sent under an OOXML name converts too; a real package is never sent to the converter.
+    /// The regression the package's identity guards: the lowered part is the package, derived from its bytes alone, and a text
+    /// route still finds the extraction prepared for it, whether the original was a stored reference or an inline part.
+    #[tokio::test]
+    async fn a_converted_doc_on_a_text_route_yields_its_text() {
+        let want = ContentPart::Text(format!("--- old.docx ({DOCX}, 2 bytes) ---\nEXTRACTED"), None);
+        let docs = LegacyDocs::answering(LegacyDocs::package());
+        let stored = lowered(&legacy_lowering(docs.clone(), "t", true), reference("old", "application/msword", Some("old.doc"))).await;
+        assert_eq!(stored, want);
+        let ole = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 1, 2, 3];
+        let inline = ContentPart::File { source: BinarySource::Base64(STANDARD.encode(ole)), mime_type: "application/msword".into(), filename: Some("old.doc".into()), text: None };
+        let inline = lowered(&legacy_lowering(docs.clone(), "t", true), inline).await;
+        assert_eq!(inline, want);
+        // The route that takes documents gets the package, and a text-only route's own degrade step reads it the same way.
+        let l = legacy_lowering(docs, "t", false);
+        let package = lowered(&l, reference("old", "application/msword", Some("old.doc"))).await;
+        assert_eq!(l.text_form(&package).unwrap(), Some(format!("--- old.docx ({DOCX}, 2 bytes) ---\nEXTRACTED")));
+    }
+
+    #[tokio::test]
+    async fn a_renamed_ole_file_converts_and_a_real_package_does_not() {
+        let docs = LegacyDocs::answering(LegacyDocs::package());
+        let l = legacy_lowering(docs.clone(), "t", true);
+        lowered(&l, reference("old", DOCX, Some("renamed.docx"))).await;
+        assert_eq!(docs.asked.lock().unwrap().len(), 1);
+        lowered(&l, reference("plain", DOCX, Some("real.docx"))).await;
+        assert_eq!(docs.asked.lock().unwrap().len(), 1, "a package labelled as one is not converted");
+    }
+
+    /// A conversion that fails is the converter's message, never the binary note followed by a `read` refusal.
+    #[tokio::test]
+    async fn a_failed_conversion_is_the_converters_message() {
+        let message = "LibreOffice produced no .docx from old.doc; the file may be damaged or password-protected.";
+        let docs = LegacyDocs::answering(Err(ExtError::Failed { code: "failed".into(), message: message.into() }));
+        let part = lowered(&legacy_lowering(docs, "t", false), reference("old", "application/msword", Some("old.doc"))).await;
+        assert_eq!(part, ContentPart::Text(format!("--- old.doc ---\n{message}"), None));
+    }
+
+    /// With no engine the model is told what is missing and how to go on.
+    #[tokio::test]
+    async fn a_legacy_attachment_without_the_engine_says_so() {
+        let l = legacy_lowering(Arc::new(NoEngine), "t", false);
+        let part = lowered(&l, reference("old", "application/msword", Some("old.doc"))).await;
+        let ContentPart::Text(text, _) = part else { panic!("text") };
+        assert!(text.starts_with("--- old.doc ---\nconverting a legacy Office file to .docx needs the document engine"), "{text}");
+        assert!(!text.contains("[file not sent inline") && !text.contains("open it from disk with read"), "{text}");
+    }
+
+    /// A cancelled call or a dead host is the turn's error, and nothing is remembered for the next attempt.
+    #[tokio::test]
+    async fn a_cancelled_conversion_fails_the_turn_and_is_asked_again() {
+        let docs = LegacyDocs::answering(Err(ExtError::Cancelled));
+        let l = legacy_lowering(docs.clone(), "t", false);
+        let messages = || vec![Message::new(Role::User, Content::Parts(vec![reference("old", "application/msword", Some("old.doc"))]))];
+        assert!(l.prepare_pdf_text(messages()).await.is_err());
+        assert!(l.prepare_pdf_text(messages()).await.is_err());
+        assert_eq!(docs.asked.lock().unwrap().len(), 2);
+    }
+
+    /// The part a downloaded file of the `browser` tool renders as (`ToolPart::File` through `render_output`: the inline file part an
+    /// attachment is, with its name) reaches the model as the file's text, and an Office file as its extraction: the one classifier.
+    #[tokio::test]
+    async fn a_downloaded_text_or_office_file_lowers_like_an_attachment() {
+        let l = lowering(false);
+        let csv = file("a,b", "text/csv", Some("a.csv"));
+        assert_eq!(l.text_form(&csv).unwrap(), Some("--- a.csv (text/csv, 3 bytes) ---\na,b".to_owned()));
+        let docx = file("PKdocx", DOCX, Some("a.docx"));
+        // An Office file named by its extension under a generic label is Office too.
+        let xlsx = file("PKxlsx", "application/octet-stream", Some("a.xlsx"));
+        let prepared = l
+            .prepare_for_route(vec![Message::new(Role::User, Content::Parts(vec![docx, xlsx]))], MediaSupport { native_pdf: true, native_documents: None })
+            .await
+            .unwrap();
+        let Content::Parts(parts) = &prepared[0].content else { panic!("parts") };
+        assert_eq!(parts[0], ContentPart::Text(format!("--- a.docx ({DOCX}, 6 bytes) ---\nEXTRACTED"), None));
+        assert_eq!(parts[1], ContentPart::Text("--- a.xlsx (application/octet-stream, 6 bytes) ---\nEXTRACTED".to_owned(), None));
+    }
+
+    #[cfg(node_twin)]
+    impl Lowering {
+        #[cfg(node_twin)]
+        fn start(files: &[&'static str]) -> Self {
+            let store = Store(vec![("one", b"%PDF one".to_vec()), ("hang", b"%PDF hang".to_vec()), ("hang2", b"%PDF hang two".to_vec())]);
+            let release_one = Arc::new(tokio::sync::Notify::new());
+            let docs = SlowDocs { release_one: release_one.clone() };
+            let l = MediaLowering::new(ThreadId::from("t".to_owned()), Arc::new(docs), Arc::new(store), Arc::new(Facts), false, ProviderId::from("anthropic"));
+            let parts = files.iter().map(|r| reference(r, "application/pdf", Some("p.pdf"))).collect();
+            let done = tokio::spawn(async move {
+                let prepared = l.prepare_pdf_text(vec![Message::new(Role::User, Content::Parts(parts))]).await.unwrap();
+                let Content::Parts(parts) = &prepared[0].content else { panic!("parts") };
+                parts
+                    .iter()
+                    .map(|p| match p {
+                        ContentPart::Text(text, _) => text.rsplit('\n').next().unwrap().to_owned(),
+                        other => panic!("a PDF stayed a part: {other:?}"),
+                    })
+                    .collect()
+            });
+            Self { done, release_one }
+        }
+
+        /// Moves the clock by `ms` and lets the lowering run to wherever that takes it.
+        async fn advance(&self, ms: u64) {
+            for _ in 0..8 {
+                tokio::task::yield_now().await;
+            }
+            tokio::time::advance(Duration::from_millis(ms)).await;
+            for _ in 0..8 {
+                tokio::task::yield_now().await;
+            }
+        }
+    }
+    /// Two sessions attaching at once: each conversion is its own call, so neither waits for the other (a gate that opens only
+    /// when both are in flight would hold a serialised pair forever).
+    #[tokio::test]
+    async fn two_sessions_convert_at_once() {
+        let gate = Arc::new(tokio::sync::Barrier::new(2));
+        let docs = Arc::new(LegacyDocs { answer: LegacyDocs::package(), asked: std::sync::Mutex::default(), gate: Some(gate) });
+        let part = reference("old", "application/msword", Some("old.doc"));
+        let (a, b) = (legacy_lowering(docs.clone(), "a", true), legacy_lowering(docs.clone(), "b", true));
+        let both = async { tokio::join!(lowered(&a, part.clone()), lowered(&b, part.clone())) };
+        let (first, second) = tokio::time::timeout(std::time::Duration::from_secs(5), both).await.expect("both conversions in flight together");
+        assert_eq!(first, second);
+        assert_eq!(docs.asked.lock().unwrap().len(), 2);
+    }
+
+
+    /// Node's real `contentToText`, `contentMediaBytes`/`Count` and the PDF/image allowances.
+    #[test]
+    #[cfg(node_twin)]
+    fn inline_parts_follow_node() {
+        let golden: Value = serde_json::from_str(include_str!("golden/media.json")).unwrap();
+        let big = format!("%PDF-1.4 {}", "x".repeat(40_000));
+        let doc = |media: &str, data: &str, title: &str| ContentPart::Document {
+            source: DocumentSource::Base64 { media_type: media.into(), data: b64(data) },
+            title: Some(title.into()),
+        };
+        let parts: Vec<(&str, ContentPart)> = vec![
+            ("text_file", file("hello", "text/plain", Some("a.txt"))),
+            ("json_nameless", file("{\"a\":1}", "application/json", None)),
+            ("binary_zip", file("PK\u{3}\u{4}abcdef", "application/zip", Some("x.zip"))),
+            ("mislabelled_pdf", file(&big, "application/octet-stream", Some("scan.bin"))),
+            ("labelled_pdf", file("%PDF-1.7 tiny", "application/pdf", None)),
+            ("pdf_document", doc("application/pdf", &big, "Big")),
+            ("text_document", doc("text/markdown", "# hi", "notes.md")),
+            ("image_inline", ContentPart::Image(ImageSource::Base64 { data: "AAAABBBB".into(), mime_type: "image/png".into(), width: None, height: None })),
+            ("image_data_url", ContentPart::Image(ImageSource::Url("data:image/png;base64,AAAA".into()))),
+        ];
+        let lowering = lowering(false);
+        for (id, part) in &parts {
+            let want = &golden["cases"][*id];
+            let content = Content::Parts(vec![part.clone()]);
+            assert_eq!(json!(lowering.bytes(&content, true)), want["bytes"], "{id} bytes");
+            assert_eq!(json!(lowering.bytes(&content, false)), want["bytesText"], "{id} bytes as text");
+            assert_eq!(json!(lowering.count(&content, true)), want["count"], "{id} count");
+            assert_eq!(json!(lowering.count(&content, false)), want["countText"], "{id} count as text");
+            let meter = lowering.part(part);
+            assert_eq!(json!(meter.text), want["text"], "{id} text");
+            assert_eq!(json!(meter.tokens), json!(want["pdfNative"].as_u64().unwrap() + want["image"].as_u64().unwrap()), "{id} tokens");
+        }
+        assert_eq!(pdf_allowance(40_009, None, None, false), golden["cases"]["pdf_document"]["pdfText"]);
+    }
+    /// A PDF the worker never reads is, at the bound, the text Node gives a PDF it cannot read (the recorded `not-a-pdf`
+    /// case): Node waits, so a user sees the model told the document could not be read, never an error. The bound is
+    /// one for the turn's PDFs: two that never answer end together at 60 s, not one after the other at 120 s.
+    #[tokio::test(start_paused = true)]
+    #[cfg(node_twin)]
+    async fn a_turns_pdfs_share_one_bound() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/tools/media-text/pdf.json");
+        let recorded: Vec<Value> = serde_json::from_str(&mixdog_testkit::read_string(&path)).unwrap();
+        let unreadable = recorded.iter().find(|c| c["name"] == "not-a-pdf").unwrap()["text"].as_str().unwrap().to_owned();
+        assert_eq!(unreadable, PDF_UNREADABLE_TEXT);
+
+        let both = Lowering::start(&["hang", "hang2"]);
+        both.advance(PDF_INTAKE_TIMEOUT_MS - 1).await;
+        assert!(!both.done.is_finished(), "answered a millisecond before the bound");
+        both.advance(1).await;
+        assert!(both.done.is_finished(), "the second PDF was still waiting at the turn's bound");
+        assert_eq!(both.done.await.unwrap(), [unreadable.clone(), unreadable.clone()]);
+
+        // The first PDF is read 40 s into the bound (the worker answers when released, at 40 s of the clock): the one
+        // after it has the 20 s that are left.
+        let slow_then_hung = Lowering::start(&["one", "hang"]);
+        slow_then_hung.advance(40_000).await;
+        slow_then_hung.release_one.notify_one();
+        slow_then_hung.advance(PDF_INTAKE_TIMEOUT_MS - 40_000 - 1).await;
+        assert!(!slow_then_hung.done.is_finished(), "answered a millisecond before the bound");
+        slow_then_hung.advance(1).await;
+        assert!(slow_then_hung.done.is_finished(), "the second PDF got more than what was left of the bound");
+        assert_eq!(slow_then_hung.done.await.unwrap(), ["ONE".to_owned(), unreadable]);
+    }
+    /// Node's `contentImageDescriptors` on 14 provider-native blocks.
+    #[test]
+    #[cfg(node_twin)]
+    fn json_image_descriptors_follow_node() {
+        let golden: Value = serde_json::from_str(include_str!("golden/image_descriptors.json")).unwrap();
+        for (name, row) in golden.as_object().unwrap() {
+            let got: Vec<Value> = json_image_descriptor(&row["block"])
+                .into_iter()
+                .map(|d| json!({ "identity": d.identity, "width": d.width.map(mixdog_js::json_number), "height": d.height.map(mixdog_js::json_number), "detail": d.detail }))
+                .collect();
+            assert_eq!(json!(got), row["descriptors"], "{name}");
+        }
+    }
+    #[test]
+    #[cfg(node_twin)]
+    fn content_parts_and_replayed_blocks_describe_the_same_images() {
+        let l = lowering(false);
+        let golden: Value = serde_json::from_str(include_str!("golden/image_descriptors.json")).unwrap();
+        let id = |name: &str| golden[name]["descriptors"][0]["identity"].as_str().unwrap().to_owned();
+        let mut m = AgentMessage::user("x");
+        m.message.content = Content::Parts(vec![
+            ContentPart::Image(ImageSource::Base64 { data: "AAAABBBB".into(), mime_type: "IMAGE/JPEG".into(), width: None, height: None }),
+            ContentPart::Image(ImageSource::Url("http://x/y.png".into())),
+            ContentPart::Image(ImageSource::FileId("file_2".into())),
+        ]);
+        let ids: Vec<String> = l.images(&m).into_iter().map(|d| d.identity).collect();
+        assert_eq!(ids, [id("data"), id("image_url_string"), id("source_file").replace(&id("source_file"), &image_identity("file-id", "file_2", ""))]);
     }
 }

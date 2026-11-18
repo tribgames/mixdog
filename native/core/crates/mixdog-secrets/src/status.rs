@@ -145,9 +145,18 @@ impl TrackedStore {
 
 #[async_trait]
 impl SecretStore for TrackedStore {
+    async fn probe_keychain(&self, interactive: bool) -> Result<(), SecretError> {
+        let result = self.inner.probe_keychain(interactive).await;
+        self.note(&result);
+        result
+    }
+
     async fn get(&self, account: &str) -> Result<Option<String>, SecretError> {
         let result = self.inner.get(account).await;
-        self.note(&result);
+        // A missing item says nothing about whether the collection is locked.
+        if !matches!(&result, Ok(None)) || !self.tracker.is_linux() || self.tracker.snapshot().state != "locked" {
+            self.note(&result);
+        }
         result
     }
 

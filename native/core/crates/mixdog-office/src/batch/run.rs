@@ -151,35 +151,6 @@ struct SafetyPlan {
     replacement_source: String,
 }
 
-fn batch_safety_plan(facts: &Facts, target: &str, operations: &[Value]) -> SafetyPlan {
-    let first = &operations[0];
-    let op = |operation: &Value| operation.get("op").and_then(Value::as_str).unwrap_or("").to_owned();
-    let imports = operations.iter().find(|operation| op(operation) == "import_slides");
-    let fresh = facts.created && facts.snapshot_version == 0;
-    let after = first.get("after").filter(|after| truthy(after)).map_or(0.0, to_number);
-    let empty_deck_replacement = facts.microsoft_office()
-        && facts.format == "pptx"
-        && facts.mode == Mode::Background
-        && fresh
-        && op(first) == "import_slides"
-        && after == 0.0
-        && extension_of(&first.get("path").map(value_to_string).unwrap_or_default()) == extension_of(target);
-    let portable_template_seed = match imports {
-        Some(import) if facts.backend == Backend::MixdogOoxml && facts.format == "pptx" && fresh => {
-            import.get("path").filter(|path| truthy(path)).map(value_to_string).unwrap_or_default()
-        }
-        _ => String::new(),
-    };
-    let needs_com_checkpoint = facts.microsoft_office() && facts.mode == Mode::Background && imports.is_some();
-    let backup = if !facts.microsoft_office() || needs_com_checkpoint { format!("{target}.mixdog-backup-{}", unique_dashed()) } else { String::new() };
-    let replacement_source = if empty_deck_replacement && first.get("slides").is_some_and(Value::is_array) {
-        std::env::temp_dir().join(format!("mixdog-pptx-selection-{}.pptx", unique_dashed())).to_string_lossy().into_owned()
-    } else {
-        String::new()
-    };
-    SafetyPlan { empty_deck_replacement, portable_template_seed, needs_com_checkpoint, backup, replacement_source }
-}
-
 /// A random token in the shape of a UUID.
 fn unique_dashed() -> String {
     let token = unique_token();
@@ -282,30 +253,6 @@ async fn run_microsoft_batch<P: WriteProof, H: ComHost, B>(cx: &BatchContext<'_,
     Ok(Outcome { results: Value::Array(results), saved: result.get("saved").cloned(), undo_units: number_or_zero(result.get("undoUnits")), background_isolation: isolation_of(&result, isolation) })
 }
 
-/// Runs the operations on the session's backend and returns the raw results with what the Office host reports about the save and its
-/// undo units.
-async fn run_batch_backend<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, args: &Value, target: &str, operations: &[Value], plan: &SafetyPlan) -> Result<Outcome, String> {
-    if facts.microsoft_office() {
-        return run_microsoft_batch(cx, facts, args, target, operations, plan).await;
-    }
-    let snapshot = &cx.inspect.snapshot;
-    let lane = cx.lane();
-    let path = Path::new(target);
-    let results = if facts.format == "pdf" {
-        let content = cx.host.pdf_operations(&facts.data_dir, facts.signal.clone());
-        apply_pdf_batch(lane, cx.note, path, operations, &content).map_err(|error| error.to_string())?
-    } else if let Some(delimited) = Format::from_name(&facts.format) {
-        tabular::apply_batch(lane, cx.note, path, delimited, operations)?
-    } else {
-        if !plan.portable_template_seed.is_empty() {
-            mixdog_fsio::copy(lane, &plan.portable_template_seed, target).map_err(|error| error.to_string())?;
-            clear_portable_presentation_slides(lane, cx.note, path)?;
-        }
-        apply_portable_ooxml_batch(lane, cx.note, snapshot.measurer, path, &facts.format, operations)?
-    };
-    Ok(Outcome { results: Value::Array(results), saved: Some(json!(true)), undo_units: 0, background_isolation: facts.background_isolation.clone() })
-}
-
 /// `normalizeBatchResults`: the objects among the results.
 fn normalize_batch_results(results: &Value) -> Vec<Value> {
     results_list(Some(results)).into_iter().filter(Value::is_object).collect()
@@ -336,6 +283,13 @@ fn unchanged_results(operations: &[Value], results: &[Value]) -> Vec<Value> {
         .filter(|(index, entry)| entry.get("changed") == Some(&Value::Bool(false)) && !(aligned && operations[*index].get("allowNoChange") == Some(&Value::Bool(true))))
         .map(|(_, entry)| entry)
         .collect()
+}
+
+/// What the batch did, counted from its results: every operation that changed nothing counts as `noChange`, the ones that declared
+/// `allowNoChange` too, so `requested` is `changed` and `noChange` together.
+fn change_summary(requested: usize, results: &[Value]) -> Value {
+    let counted = |wanted: bool| results.iter().filter(|entry| entry.get("changed") == Some(&Value::Bool(wanted))).count();
+    json!({ "requested": requested, "changed": counted(true), "noChange": counted(false) })
 }
 
 fn assert_batch_changed(facts: &Facts, args: &Value, no_change: &[Value]) -> Result<(), String> {
@@ -518,9 +472,9 @@ async fn commit_batch<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext
         result.insert("saved".to_owned(), saved.clone());
     }
     result.insert("atomic".to_owned(), json!(true));
-    let changed = results.iter().filter(|entry| entry.get("changed") == Some(&Value::Bool(true))).count();
+    let summary = change_summary(operations.len(), &results);
     result.insert("results".to_owned(), Value::Array(results));
-    result.insert("changeSummary".to_owned(), json!({ "requested": operations.len(), "changed": changed, "noChange": no_change.len() }));
+    result.insert("changeSummary".to_owned(), summary);
     if let Some(audit) = audit {
         result.insert("audit".to_owned(), audit);
     }
@@ -538,42 +492,6 @@ async fn commit_batch<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext
         result.insert("transaction".to_owned(), transaction);
     }
     Ok(Value::Object(result))
-}
-
-/// `applyBatch(session, args)`: the batch of `args.operations` applied to the session's document, all together or not at all.
-pub async fn apply_batch<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, handle: &SessionHandle, args: &Value) -> Result<Value, TransactionError> {
-    let trust = trust_for_mutation(&cx.inspect.snapshot, handle).await?;
-    assert_office_mutation_allowed(Some(&trust), args.get("acknowledgeUntrustedContent") == Some(&Value::Bool(true)))?;
-    let prepared = prepare_batch_operations(cx, handle, args).await?;
-    // A session that was opened to read holds the user's file; the first edit moves it onto a working copy first.
-    materialize_working_copy(cx.lane(), cx.note, cx.env, cx.registry, handle)?;
-    let has_transaction = mark_transaction_applying(cx, handle).await?;
-    let facts = Facts::of(handle);
-    let target = facts.target.clone();
-    let operations = prepared.operations.clone();
-    let plan = batch_safety_plan(&facts, &target, &operations);
-    let staged = stage_batch_backup(cx, &facts, &target, &operations, &plan).await;
-    if let Err(error) = staged {
-        return Err(TransactionError::Failed(error));
-    }
-    let attempt = async {
-        let outcome = run_batch_backend(cx, &facts, args, &target, &operations, &plan).await?;
-        commit_batch(cx, handle, &facts, args, Applied { trust: &trust, prepared: &prepared, operations: &operations, has_transaction, target: &target, outcome }).await
-    }
-    .await;
-    if attempt.is_err() {
-        restore_batch_target(cx, &facts, &target, &plan).await;
-        if has_transaction {
-            update_transaction(handle, |transaction| transaction.phase = crate::session::TransactionPhase::Active);
-            let _ = persist_office_transaction(&cx.transactions(), handle, None);
-        }
-    }
-    remove_quietly(cx.lane(), &plan.backup);
-    remove_quietly(cx.lane(), &plan.replacement_source);
-    for directory in &prepared.scratch {
-        let _ = mixdog_fsio::remove_dir_all(cx.lane(), directory);
-    }
-    Ok(attempt?)
 }
 
 #[cfg(test)]
@@ -596,39 +514,6 @@ mod tests {
     }
 
     #[test]
-    fn a_portable_batch_keeps_a_backup_beside_the_target_and_office_keeps_none() {
-        let portable = batch_safety_plan(&facts(Backend::MixdogOoxml, "docx", Mode::Portable, false, 0), "C:/w/a.docx", &[json!({ "op": "append_text" })]);
-        assert!(portable.backup.starts_with("C:/w/a.docx.mixdog-backup-"));
-        assert!(!portable.empty_deck_replacement && !portable.needs_com_checkpoint && portable.replacement_source.is_empty());
-        let office = batch_safety_plan(&facts(Backend::MicrosoftOfficeCom, "docx", Mode::Background, false, 0), "C:/w/a.docx", &[json!({ "op": "append_text" })]);
-        assert!(office.backup.is_empty());
-    }
-
-    #[test]
-    fn an_import_into_a_background_office_deck_is_checkpointed_by_a_saved_copy() {
-        let imports = [json!({ "op": "import_slides", "path": "C:/t/t.pptx", "after": 0, "slides": [1, 2] })];
-        let plan = batch_safety_plan(&facts(Backend::MicrosoftOfficeCom, "pptx", Mode::Background, true, 0), "C:/w/d.pptx", &imports);
-        assert!(plan.needs_com_checkpoint && plan.empty_deck_replacement);
-        assert!(!plan.backup.is_empty());
-        assert!(plan.replacement_source.ends_with(".pptx") && plan.replacement_source.contains("mixdog-pptx-selection-"));
-        let later = batch_safety_plan(&facts(Backend::MicrosoftOfficeCom, "pptx", Mode::Background, true, 1), "C:/w/d.pptx", &imports);
-        assert!(later.needs_com_checkpoint && !later.empty_deck_replacement && later.replacement_source.is_empty());
-        let other_kind = [json!({ "op": "import_slides", "path": "C:/t/t.potx", "after": 0 })];
-        assert!(!batch_safety_plan(&facts(Backend::MicrosoftOfficeCom, "pptx", Mode::Background, true, 0), "C:/w/d.pptx", &other_kind).empty_deck_replacement);
-    }
-
-    #[test]
-    fn a_portable_new_deck_seeds_itself_from_the_template_it_imports() {
-        let imports = [json!({ "op": "import_slides", "path": "C:/t/t.pptx" })];
-        let plan = batch_safety_plan(&facts(Backend::MixdogOoxml, "pptx", Mode::Portable, true, 0), "C:/w/d.pptx", &imports);
-        assert_eq!(plan.portable_template_seed, "C:/t/t.pptx");
-        let edited = batch_safety_plan(&facts(Backend::MixdogOoxml, "pptx", Mode::Portable, true, 2), "C:/w/d.pptx", &imports);
-        assert!(edited.portable_template_seed.is_empty());
-        let unnamed = batch_safety_plan(&facts(Backend::MixdogOoxml, "pptx", Mode::Portable, true, 0), "C:/w/d.pptx", &[json!({ "op": "import_slides" })]);
-        assert!(unnamed.portable_template_seed.is_empty());
-    }
-
-    #[test]
     fn a_phrase_that_matched_nothing_says_so_and_allow_no_change_is_honoured() {
         let operations = [json!({ "op": "replace_text", "find": "x".repeat(50), "slide": 3 }), json!({ "op": "normalize_runs", "allowNoChange": true }), json!({ "op": "set_text" })];
         let results = [json!({ "op": "replace_text", "changed": false }), json!({ "op": "normalize_runs", "changed": false }), json!({ "op": "set_text", "changed": true })];
@@ -638,6 +523,12 @@ mod tests {
         let misaligned = unchanged_results(&operations, &results[..2]);
         assert_eq!(misaligned.len(), 2);
         assert!(misaligned[0].get("unchangedReason").is_none());
+    }
+
+    #[test]
+    fn an_allowed_no_change_counts_in_the_change_summary() {
+        let results = [json!({ "changed": true }), json!({ "changed": true }), json!({ "changed": false }), json!({ "changed": true })];
+        assert_eq!(change_summary(4, &results), json!({ "requested": 4, "changed": 3, "noChange": 1 }));
     }
 
     #[test]
@@ -732,4 +623,124 @@ mod tests {
         assert_eq!(held.design_state.compositions, [json!({ "name": "a" })]);
         assert_eq!(held.design_state.slide_plans, Some(vec![json!({ "slide": 1, "kind": "body", "slideRole": "content" }), json!({ "slide": 2, "kind": "cover" })]));
     }
+
+
+    #[test]
+    fn a_portable_batch_keeps_a_backup_beside_the_target_and_office_keeps_none() {
+        let portable = batch_safety_plan(&facts(Backend::MixdogOoxml, "docx", Mode::Portable, false, 0), "C:/w/a.docx", &[json!({ "op": "append_text" })]);
+        assert!(portable.backup.starts_with("C:/w/a.docx.mixdog-backup-"));
+        assert!(!portable.empty_deck_replacement && !portable.needs_com_checkpoint && portable.replacement_source.is_empty());
+        let office = batch_safety_plan(&facts(Backend::MicrosoftOfficeCom, "docx", Mode::Background, false, 0), "C:/w/a.docx", &[json!({ "op": "append_text" })]);
+        assert!(office.backup.is_empty());
+    }
+    #[test]
+    fn an_import_into_a_background_office_deck_is_checkpointed_by_a_saved_copy() {
+        let imports = [json!({ "op": "import_slides", "path": "C:/t/t.pptx", "after": 0, "slides": [1, 2] })];
+        let plan = batch_safety_plan(&facts(Backend::MicrosoftOfficeCom, "pptx", Mode::Background, true, 0), "C:/w/d.pptx", &imports);
+        assert!(plan.needs_com_checkpoint && plan.empty_deck_replacement);
+        assert!(!plan.backup.is_empty());
+        assert!(plan.replacement_source.ends_with(".pptx") && plan.replacement_source.contains("mixdog-pptx-selection-"));
+        let later = batch_safety_plan(&facts(Backend::MicrosoftOfficeCom, "pptx", Mode::Background, true, 1), "C:/w/d.pptx", &imports);
+        assert!(later.needs_com_checkpoint && !later.empty_deck_replacement && later.replacement_source.is_empty());
+        let other_kind = [json!({ "op": "import_slides", "path": "C:/t/t.potx", "after": 0 })];
+        assert!(!batch_safety_plan(&facts(Backend::MicrosoftOfficeCom, "pptx", Mode::Background, true, 0), "C:/w/d.pptx", &other_kind).empty_deck_replacement);
+    }
+    #[test]
+    fn a_portable_new_deck_seeds_itself_from_the_template_it_imports() {
+        let imports = [json!({ "op": "import_slides", "path": "C:/t/t.pptx" })];
+        let plan = batch_safety_plan(&facts(Backend::MixdogOoxml, "pptx", Mode::Portable, true, 0), "C:/w/d.pptx", &imports);
+        assert_eq!(plan.portable_template_seed, "C:/t/t.pptx");
+        let edited = batch_safety_plan(&facts(Backend::MixdogOoxml, "pptx", Mode::Portable, true, 2), "C:/w/d.pptx", &imports);
+        assert!(edited.portable_template_seed.is_empty());
+        let unnamed = batch_safety_plan(&facts(Backend::MixdogOoxml, "pptx", Mode::Portable, true, 0), "C:/w/d.pptx", &[json!({ "op": "import_slides" })]);
+        assert!(unnamed.portable_template_seed.is_empty());
+    }
+}
+
+
+fn batch_safety_plan(facts: &Facts, target: &str, operations: &[Value]) -> SafetyPlan {
+    let first = &operations[0];
+    let op = |operation: &Value| operation.get("op").and_then(Value::as_str).unwrap_or("").to_owned();
+    let imports = operations.iter().find(|operation| op(operation) == "import_slides");
+    let fresh = facts.created && facts.snapshot_version == 0;
+    let after = first.get("after").filter(|after| truthy(after)).map_or(0.0, to_number);
+    let empty_deck_replacement = facts.microsoft_office()
+        && facts.format == "pptx"
+        && facts.mode == Mode::Background
+        && fresh
+        && op(first) == "import_slides"
+        && after == 0.0
+        && extension_of(&first.get("path").map(value_to_string).unwrap_or_default()) == extension_of(target);
+    let portable_template_seed = match imports {
+        Some(import) if facts.backend == Backend::MixdogOoxml && facts.format == "pptx" && fresh => {
+            import.get("path").filter(|path| truthy(path)).map(value_to_string).unwrap_or_default()
+        }
+        _ => String::new(),
+    };
+    let needs_com_checkpoint = facts.microsoft_office() && facts.mode == Mode::Background && imports.is_some();
+    let backup = if !facts.microsoft_office() || needs_com_checkpoint { format!("{target}.mixdog-backup-{}", unique_dashed()) } else { String::new() };
+    let replacement_source = if empty_deck_replacement && first.get("slides").is_some_and(Value::is_array) {
+        std::env::temp_dir().join(format!("mixdog-pptx-selection-{}.pptx", unique_dashed())).to_string_lossy().into_owned()
+    } else {
+        String::new()
+    };
+    SafetyPlan { empty_deck_replacement, portable_template_seed, needs_com_checkpoint, backup, replacement_source }
+}
+/// Runs the operations on the session's backend and returns the raw results with what the Office host reports about the save and its
+/// undo units.
+async fn run_batch_backend<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, args: &Value, target: &str, operations: &[Value], plan: &SafetyPlan) -> Result<Outcome, String> {
+    if facts.microsoft_office() {
+        return run_microsoft_batch(cx, facts, args, target, operations, plan).await;
+    }
+    let snapshot = &cx.inspect.snapshot;
+    let lane = cx.lane();
+    let path = Path::new(target);
+    let results = if facts.format == "pdf" {
+        let content = cx.host.pdf_operations(&facts.data_dir, facts.signal.clone());
+        apply_pdf_batch(lane, cx.note, path, operations, &content).map_err(|error| error.to_string())?
+    } else if let Some(delimited) = Format::from_name(&facts.format) {
+        tabular::apply_batch(lane, cx.note, path, delimited, operations)?
+    } else {
+        if !plan.portable_template_seed.is_empty() {
+            mixdog_fsio::copy(lane, &plan.portable_template_seed, target).map_err(|error| error.to_string())?;
+            clear_portable_presentation_slides(lane, cx.note, path)?;
+        }
+        apply_portable_ooxml_batch(lane, cx.note, snapshot.measurer, path, &facts.format, operations)?
+    };
+    Ok(Outcome { results: Value::Array(results), saved: Some(json!(true)), undo_units: 0, background_isolation: facts.background_isolation.clone() })
+}
+/// `applyBatch(session, args)`: the batch of `args.operations` applied to the session's document, all together or not at all.
+pub async fn apply_batch<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, handle: &SessionHandle, args: &Value) -> Result<Value, TransactionError> {
+    let trust = trust_for_mutation(&cx.inspect.snapshot, handle).await?;
+    assert_office_mutation_allowed(Some(&trust), args.get("acknowledgeUntrustedContent") == Some(&Value::Bool(true)))?;
+    let prepared = prepare_batch_operations(cx, handle, args).await?;
+    // A session that was opened to read holds the user's file; the first edit moves it onto a working copy first.
+    materialize_working_copy(cx.lane(), cx.note, cx.env, cx.registry, handle)?;
+    let has_transaction = mark_transaction_applying(cx, handle).await?;
+    let facts = Facts::of(handle);
+    let target = facts.target.clone();
+    let operations = prepared.operations.clone();
+    let plan = batch_safety_plan(&facts, &target, &operations);
+    let staged = stage_batch_backup(cx, &facts, &target, &operations, &plan).await;
+    if let Err(error) = staged {
+        return Err(TransactionError::Failed(error));
+    }
+    let attempt = async {
+        let outcome = run_batch_backend(cx, &facts, args, &target, &operations, &plan).await?;
+        commit_batch(cx, handle, &facts, args, Applied { trust: &trust, prepared: &prepared, operations: &operations, has_transaction, target: &target, outcome }).await
+    }
+    .await;
+    if attempt.is_err() {
+        restore_batch_target(cx, &facts, &target, &plan).await;
+        if has_transaction {
+            update_transaction(handle, |transaction| transaction.phase = crate::session::TransactionPhase::Active);
+            let _ = persist_office_transaction(&cx.transactions(), handle, None);
+        }
+    }
+    remove_quietly(cx.lane(), &plan.backup);
+    remove_quietly(cx.lane(), &plan.replacement_source);
+    for directory in &prepared.scratch {
+        let _ = mixdog_fsio::remove_dir_all(cx.lane(), directory);
+    }
+    Ok(attempt?)
 }

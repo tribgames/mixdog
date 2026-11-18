@@ -32,6 +32,7 @@ mod ask_usage;
 mod usage_metrics;
 
 pub use ask_usage::Books;
+pub use ask_usage::with_prompt_cache_evidence;
 pub use ask_usage::Settled;
 pub use ask_usage::check_change;
 pub use ask_usage::estimate_transcript_context_usage;
@@ -288,12 +289,13 @@ impl TranscriptSigner<'_> {
         Self::digest(messages, |m| {
             let images = self.images.images(m);
             let allowance: u64 = images.iter().map(ImageDescriptor::allowance).sum();
-            json!([
-                role_name(m),
-                m.tool_call_id().unwrap_or_default(),
-                self.meter.estimate_text(m),
-                allowance,
-                images.iter().map(ImageDescriptor::json).collect::<Vec<_>>(),
+            // The text moves into the identity: `json!` would copy it.
+            Value::Array(vec![
+                Value::from(role_name(m)),
+                Value::from(m.tool_call_id().unwrap_or_default()),
+                Value::String(self.meter.estimate_text(m)),
+                Value::from(allowance),
+                Value::Array(images.iter().map(ImageDescriptor::json).collect()),
             ])
         })
     }
@@ -303,7 +305,13 @@ impl TranscriptSigner<'_> {
     pub fn shape(&self, messages: &[AgentMessage]) -> String {
         Self::digest(messages, |m| {
             let (text, placeholders) = shape_text(&self.meter.estimate_text(m));
-            json!([role_name(m), m.tool_call_id().unwrap_or_default(), text, self.images.images(m).len() as u64 + placeholders])
+            // The text moves into the identity: `json!` would copy it.
+            Value::Array(vec![
+                Value::from(role_name(m)),
+                Value::from(m.tool_call_id().unwrap_or_default()),
+                Value::String(text),
+                Value::from(self.images.images(m).len() as u64 + placeholders),
+            ])
         })
     }
 }

@@ -334,16 +334,6 @@ mod tests {
         assert_eq!(logins.vault().value("https://login.example.com", "a", SavedLoginField::Password).await.err().unwrap(), "saved login answer is malformed");
     }
 
-    #[test]
-    fn a_wiped_value_is_zeros_and_a_request_loses_every_string() {
-        let mut text = String::from("Pa55-word");
-        assert_eq!(super::super::saved_login::zeroed(&mut text), vec![0u8; 9]);
-        assert!(text.is_empty());
-        let mut request = json!({ "text": "secret", "nested": [{ "k": "also" }], "n": 3 });
-        wipe_json(&mut request);
-        assert_eq!(request, json!({ "text": "", "nested": [{ "k": "" }], "n": 3 }));
-    }
-
     /// The computer helper: it keeps what it was asked and lists windows as the host's reads do.
     struct Helper(Mutex<Vec<Value>>, Result<Value, String>);
 
@@ -470,6 +460,16 @@ mod tests {
         assert_eq!(failing.window_pid("hwnd:0x1").await, Err("helper gone".to_owned()));
     }
 
+
+    #[test]
+    fn a_wiped_value_is_zeros_and_a_request_loses_every_string() {
+        let mut text = String::from("Pa55-word");
+        assert_eq!(super::super::saved_login::zeroed(&mut text), vec![0u8; 9]);
+        assert!(text.is_empty());
+        let mut request = json!({ "text": "secret", "nested": [{ "k": "also" }], "n": 3 });
+        wipe_json(&mut request);
+        assert_eq!(request, json!({ "text": "", "nested": [{ "k": "" }], "n": 3 }));
+    }
     /// The capture gate over the helper's list: another window of the guarded browser process is withheld.
     #[tokio::test]
     async fn the_capture_gate_reads_the_process_of_a_window_through_the_helper() {

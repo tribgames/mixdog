@@ -6,6 +6,7 @@ use std::time::UNIX_EPOCH;
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::fs::Descent;
+use mixdog_core_api::domain::fs::NameGuard;
 use mixdog_core_api::domain::fs::DirEntry;
 use mixdog_core_api::domain::fs::EntryKind;
 use mixdog_core_api::domain::fs::FileStat;
@@ -15,8 +16,10 @@ use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolOutcome;
+use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
+use mixdog_rt::LaneToken;
 
 use super::common::*;
 use super::not_found::list_absent;
@@ -143,7 +146,7 @@ async fn native_rows(ctx: &ToolContext, abs: &AbsPath, depth: usize, hidden: boo
             && (hidden || parts.iter().all(|p| !p.starts_with('.')))
             && (include_noise || !parts[..parts.len() - 1].iter().any(|p| NOISE_DIRS.iter().any(|noise| *noise == &**p)))
     };
-    let descent = Descent { max_depth: Some(depth), bare: if include_noise { Vec::new() } else { noise_bare() }, bare_dotted: !hidden };
+    let descent = Descent { max_depth: Some(depth), bare: if include_noise { Vec::new() } else { noise_bare() }, bare_dotted: !hidden, guard: None };
     match super::search::broad_listing(ctx, abs, descent, keep, ABSOLUTE_CAP).await {
         Ok(walked) if walked.complete && !walked.capped => {
             Ok(Some(walked.entries.into_iter().map(|entry| row_under(abs.as_path(), entry)).collect()))
@@ -295,12 +298,39 @@ fn iso_utc(t: SystemTime) -> String {
     )
 }
 
-fn mode_octal(stat: &FileStat) -> &'static str {
+/// The mode Node's native list-metadata server reports where the OS has no permission bits (`list_metadata_mode` of
+/// serve_search/protocol.rs): 777 for a directory, else 444 with the read-only attribute and 666 without.
+fn windows_mode_octal(stat: &FileStat) -> &'static str {
     match (stat.kind, stat.readonly) {
-        (EntryKind::Dir, false) => "777",
-        (EntryKind::Dir, true) => "555",
-        (_, false) => "666",
+        (EntryKind::Dir, _) => "777",
         (_, true) => "444",
+        (_, false) => "666",
+    }
+}
+
+#[cfg(unix)]
+#[allow(clippy::disallowed_methods, reason = "runs only as an interactive-lane job body (mode_octal)")]
+fn unix_mode(path: &std::path::Path) -> Option<u32> {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::symlink_metadata(path).ok().map(|meta| meta.permissions().mode())
+}
+
+#[cfg(not(unix))]
+fn unix_mode(_: &std::path::Path) -> Option<u32> {
+    None
+}
+
+/// `_metaModeOctal`: `mode & 0o7777` of the entry's own `lstat` in at least three octal digits. `?` is for a mode that
+/// cannot be read: the whole `st_mode`, file type included, is tested, so a file of mode 000 is `000`.
+async fn mode_octal(ctx: &ToolContext, path: &AbsPath, stat: &FileStat) -> String {
+    if cfg!(windows) {
+        return windows_mode_octal(stat).to_owned();
+    }
+    let full = path.as_path().to_path_buf();
+    let Ok(job) = ctx.io.interactive.submit(&ctx.cancel, move |_| unix_mode(&full)) else { return "?".to_owned() };
+    match job.await {
+        Ok(Some(mode)) if mode > 0 => format!("{:03o}", mode & 0o7777),
+        _ => "?".to_owned(),
     }
 }
 
@@ -336,7 +366,7 @@ async fn meta_suffix(ctx: &ToolContext, path: &AbsPath, known: Option<FileStat>)
     } else {
         String::new()
     };
-    format!("\t{}\t{mtime}\t{}{lines}", stat.len, mode_octal(&stat))
+    format!("\t{}\t{mtime}\t{}{lines}", stat.len, mode_octal(ctx, path, &stat).await)
 }
 
 /// The integer argument `key` of list as Node's guard leaves it (arg-guard.mjs `guardList`, `checkHeadLimit`,
@@ -437,7 +467,10 @@ impl Tool for ListTool {
         let walk = Walk { raw, depth, hidden, include_noise, kind };
         let Rows { mut rows, visited, truncated, warnings } = collect_rows(ctx, &abs, &walk).await?;
         // A sort by size or time reads every row's metadata first (`needsGlobalStat`).
+        let mut missing_sort_stat = false;
+        let mut cache_safe = !meta;
         if sort != SortMode::Name {
+            cache_safe &= rows.iter().all(|row| row.kind != EntryKind::Symlink);
             use futures::StreamExt as _;
             let paths: Vec<AbsPath> = rows.iter().map(|row| row.path.clone()).collect();
             let stats: Vec<Option<FileStat>> = guarded(
@@ -449,6 +482,7 @@ impl Tool for ListTool {
             )
             .await?;
             for (row, stat) in rows.iter_mut().zip(stats) {
+                missing_sort_stat |= stat.is_none();
                 row.stat = stat;
             }
         }
@@ -465,15 +499,20 @@ impl Tool for ListTool {
         });
         // Node's `recordDirectoryWalkTelemetry` (`list-tool.mjs:61`): the walk's entries after the hidden and noise
         // filters, up to the cap; the trace row's `payload.integrity`.
+        let complete = !truncated && warnings.is_empty() && !missing_sort_stat;
         let integrity = serde_json::json!({
             "kind": "directory-walk",
-            "status": if !warnings.is_empty() { "partial" } else if visited == 0 { "empty" } else if rows.is_empty() { "filtered-empty" } else { "complete" },
+            "status": if !complete { "partial" } else if visited == 0 { "empty" } else if rows.is_empty() { "filtered-empty" } else { "complete" },
             "entriesVisited": visited,
             "warnings": warnings.len(),
         });
-        let text_output = |text: String| {
+        let text_output = |text: String, complete| {
             let mut output = text_output(text);
-            output.meta = Some(serde_json::json!({ RESULT_TELEMETRY_META: { "integrity": integrity } }));
+            output.meta = Some(serde_json::json!({
+                "complete": complete,
+                "cacheSafe": cache_safe,
+                RESULT_TELEMETRY_META: { "integrity": integrity },
+            }));
             output
         };
         let total = rows.len();
@@ -507,7 +546,7 @@ impl Tool for ListTool {
         }
         lines.extend(warnings);
         if lines.is_empty() {
-            return Ok(text_output(empty_message(ctx, &abs, raw, offset, total, hidden, kind).await));
+            return Ok(text_output(empty_message(ctx, &abs, raw, offset, total, hidden, kind).await, complete && !meta));
         }
         let text = lines.join("\n");
         if text.len() > locator_max_bytes() {
@@ -519,9 +558,10 @@ impl Tool for ListTool {
                 Some((offset + shown) as u64),
                 "",
             );
-            return Ok(text_output(format!("{kept}\n{marker}")));
+            return Ok(text_output(format!("{kept}\n{marker}"), false));
         }
-        Ok(text_output(text))
+        // Per-entry metadata may follow a symlink or fail without changing the listing.
+        Ok(text_output(text, complete && !meta))
     }
 }
 
@@ -689,17 +729,24 @@ const FIND_STAT_DEADLINE: std::time::Duration = std::time::Duration::from_millis
 const RELATIVE_WINDOW_MS: [(char, f64); 3] = [('m', 60_000.0), ('h', 3_600_000.0), ('d', 86_400_000.0)];
 
 /// `parseModifiedTime`: a relative window (`90m`, `12h`, `7d`) back from now, or an ISO date/time; `None` when it is neither.
+fn relative_window(text: &str) -> Option<f64> {
+    let split = text.len().checked_sub(1).filter(|end| *end > 0 && text.is_char_boundary(*end))?;
+    let (count, unit) = text.split_at(split);
+    if !count.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let (_, window) = RELATIVE_WINDOW_MS.iter().find(|(u, _)| unit.starts_with(*u))?;
+    Some(count.parse::<f64>().ok()? * window)
+}
+
+pub(super) fn uses_relative_time(args: &JsonValue) -> bool {
+    ["modified_after", "modified_before"].iter().any(|key| arg_str(args, key).and_then(relative_window).is_some())
+}
+
 fn parse_modified_time(value: &JsonValue) -> Option<f64> {
     let text = value.as_str()?;
-    let split = text.len().checked_sub(1).filter(|end| *end > 0 && text.is_char_boundary(*end));
-    if let Some(split) = split {
-        let (count, unit) = text.split_at(split);
-        if count.bytes().all(|b| b.is_ascii_digit())
-            && let Some((_, window)) = RELATIVE_WINDOW_MS.iter().find(|(u, _)| unit.starts_with(*u))
-            && let Ok(n) = count.parse::<f64>()
-        {
-            return Some(chrono::Utc::now().timestamp_millis() as f64 - n * window);
-        }
+    if let Some(window) = relative_window(text) {
+        return Some(chrono::Utc::now().timestamp_millis() as f64 - window);
     }
     let time = mixdog_js::time::date_parse(text);
     (!time.is_nan()).then_some(time)
@@ -810,8 +857,19 @@ async fn find_files(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
             (None, None) => true,
         }
     };
-    let walked = super::search::walk_inventory(ctx, &root, |entry| {
-        let Ok(rel) = entry.path.as_path().strip_prefix(&root_path) else { return false };
+    // The same rule the `keep` below applies to each ancestor, handed to the walk as data: a folder it fails is not entered.
+    // With no name no folder is named, so a folder inside a noise folder (unless `include_noise`), or a dotted one (without
+    // `hidden`), fails; the noise folder itself is entered, as `keep` keeps its direct children.
+    let guard = NameGuard {
+        whole: compiled.as_ref().map(|(whole, _)| whole.as_str().to_owned()),
+        rest: compiled.as_ref().and_then(|(_, rest)| rest.as_ref()).map(|rest| rest.as_str().to_owned()),
+        fragment: if compiled.is_none() { lowered.clone() } else { None },
+        path: has_path,
+        noise: if include_noise { Vec::new() } else { NOISE_DIRS.iter().map(|n| (*n).to_owned()).collect() },
+        dotted: !hidden,
+    };
+    let descent = Descent { max_depth: depth, guard: Some(guard), ..Descent::default() };
+    let walked = super::search::walk_inventory(ctx, &root, descent, |entry| {        let Ok(rel) = entry.path.as_path().strip_prefix(&root_path) else { return false };
         let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
         if parts.is_empty() || depth.is_some_and(|d| parts.len() > d) || !named(&parts) {
             return false;
@@ -850,7 +908,11 @@ async fn find_files(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
     let filters_need_stat = kind != TypeFilter::Any || size_filtered || after.is_some() || before.is_some();
     let mut rows = Vec::with_capacity(stats.len());
     let mut unstatted = 0usize;
+    let mut cache_safe = !uses_relative_time(args);
     for (entry, stat) in stats {
+        // Filtering and ordering use stat, which follows even links that do
+        // not survive the final filter.
+        cache_safe &= entry.kind != EntryKind::Symlink;
         match stat {
             Some(s) => {
                 let mtime = s.modified.and_then(|m| m.duration_since(UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_secs_f64() * 1000.0);
@@ -924,10 +986,15 @@ async fn find_files(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
             if filters_need_stat { "excluded because a size/type/date filter is active" } else { "listed with \"-\" for size/date" }
         ));
     }
-    if lines.is_empty() {
-        return Ok(text_output("(no matches)"));
-    }
-    Ok(text_output(lines.join("\n")))
+    let complete = walked.complete && !walked.capped && unstatted == 0;
+    let text = if lines.is_empty() { "(no matches)".to_owned() } else { lines.join("\n") };
+    Ok(list_completion(text, complete, cache_safe))
+}
+
+fn list_completion(text: String, complete: bool, cache_safe: bool) -> ToolOutput {
+    let mut output = text_output(text);
+    output.meta = Some(serde_json::json!({ "complete": complete, "cacheSafe": cache_safe }));
+    output
 }
 
 /// `TREE_BRANCH_LINE_CAP`: the body rows a tree shows when its walk has no `head_limit` to stop at.
@@ -1017,11 +1084,12 @@ async fn tree_list(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
         let next = offset + shown.len();
         lines.push(format!("[entries {}-{next} of {total}; offset:{next} for more]", offset + 1));
     }
+    let complete = warnings.is_empty();
     lines.extend(warnings);
     let text = lines.join("\n");
     if text.len() > super::common::output_max_bytes() {
         let kept = byte_prefix(&text, super::common::output_max_bytes());
-        return Ok(text_output(format!("{kept}\n{}", cap_marker(&format_cap_size(super::common::output_max_bytes()), "", None, "narrow path or lower depth"))));
+        return Ok(list_completion(format!("{kept}\n{}", cap_marker(&format_cap_size(super::common::output_max_bytes()), "", None, "narrow path or lower depth")), false, true));
     }
-    Ok(text_output(text))
+    Ok(list_completion(text, complete, true))
 }

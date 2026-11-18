@@ -43,6 +43,7 @@ pub use host::ProcessImage;
 pub use host::ServerCore;
 pub use install::GcReport;
 pub use install::InstallState;
+pub use install::running_build;
 pub use layout::BINARY_NAME;
 pub use layout::RemotePaths;
 pub use os::main;

@@ -57,6 +57,6 @@
   },
   {
     "node": "apps/relay/security.test.mjs::an oversize frame is a payload error both phone kinds surface",
-    "rust": "legs_policy::oversize_notices_are_the_bytes_node_writes"
+    "rust": "legs_policy::oversize_notices_have_their_published_bytes"
   }
 ]

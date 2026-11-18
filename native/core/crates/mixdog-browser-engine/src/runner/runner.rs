@@ -171,7 +171,9 @@ use crate::reply::snapshot_format::SnapshotDiagnostics;
 use crate::reply::snapshot_format::SnapshotExtras;
 use crate::reply::snapshot_format::format_snapshot;
 use crate::reply::tabs_text::closed_background_tab;
+use crate::reply::tabs_text::is_visible_tab_id;
 use crate::reply::tabs_text::list_tabs_text;
+use crate::reply::tabs_text::status_without_visible_page;
 use crate::reply::tabs_text::unknown_background_tab;
 use crate::reply::tabs_text::visible_tab_close_refusal;
 use crate::settle::actionability::ACTIONABILITY_TIMEOUT;
@@ -651,6 +653,8 @@ enum RunError {
     Tool(ToolError),
     /// The command ends with this reply instead of failing (a dialog blocks the page).
     Reply(ToolReply),
+    /// The host connection was lost after a request of the command was handed to it ([`HostCallError::ConnectionLost`]).
+    ConnectionLost,
 }
 
 impl From<Cancelled> for RunError {
@@ -673,6 +677,7 @@ impl From<HostCallError> for RunError {
     fn from(error: HostCallError) -> Self {
         match error {
             HostCallError::Cancelled => Self::Cancelled(None),
+            HostCallError::ConnectionLost => Self::ConnectionLost,
             HostCallError::DialogBlocking { dialog } => Self::Reply(blocking_dialog_reply(&dialog, false, &|text: &str| redact_browser_text(text))),
             HostCallError::PageGone => Self::Failed("the page is gone; call list_tabs to see what is open, then navigate or use background:true".to_owned()),
             HostCallError::UserInput { .. } => Self::Failed(LOCAL_INPUT_TAKEOVER.to_owned()),
@@ -733,10 +738,20 @@ impl From<UploadError> for RunError {
     }
 }
 
+impl From<SettleError> for RunError {
+    fn from(error: SettleError) -> Self {
+        match error {
+            SettleError::Cancelled(cancelled) => cancelled.into(),
+            SettleError::ConnectionLost => Self::ConnectionLost,
+            SettleError::Failed(text) => Self::Failed(text),
+        }
+    }
+}
+
 impl From<ReplyWaitError> for RunError {
     fn from(error: ReplyWaitError) -> Self {
         match error {
-            ReplyWaitError::Settle(SettleError::Cancelled(cancelled)) => cancelled.into(),
+            ReplyWaitError::Settle(error) => error.into(),
             other => Self::Failed(other.to_string()),
         }
     }
@@ -774,6 +789,10 @@ impl RunError {
             Self::Cancelled(reason) => ToolError::new(ToolErrorCode::Cancelled, reason.map_or_else(|| "browser command cancelled".to_owned(), |reason| reason.to_string())),
             Self::TimedOut(message) => ToolError::new(ToolErrorCode::DeadlineExceeded { partial: false }, message),
             Self::Tool(error) => error,
+            Self::ConnectionLost => {
+                let message = HostCallError::ConnectionLost.to_string();
+                ToolError::new(ToolErrorCode::Failed { reason: message.clone() }, message)
+            }
         }
     }
 }
@@ -787,6 +806,9 @@ type BoxedFuture<'a, T> = std::pin::Pin<Box<dyn Future<Output = T> + Send + 'a>>
 pub struct CommandFailure {
     pub error: ToolError,
     pub timing: Option<CommandTiming>,
+    /// The host connection was lost after a request of the command was handed to it: the command may have run. Set from the typed
+    /// [`HostCallError::ConnectionLost`], never from the error's text.
+    pub connection_lost: bool,
 }
 
 /// [`CommandFailure`] before the secret guard has worded the error.
@@ -835,78 +857,6 @@ impl UrlPolicyOfRun {
 impl Drop for UrlPolicyOfRun {
     fn drop(&mut self) {
         *locked(&URL_POLICY_OF_RUN) = None;
-    }
-}
-
-impl BrowserEngine {
-    /// An engine over the host lane `host`, with the services of the core around it.
-    pub fn new(host: Arc<dyn BrowserHost>, ports: EnginePorts) -> Self {
-        let store = Arc::new(FactsStore::default());
-        let queue = CommandQueue::new(ports.hold.clone());
-        let host = Arc::new(FactsHost { inner: host, store: store.clone() });
-        Self {
-            inner: Arc::new(Inner {
-                host,
-                ports,
-                store,
-                queue,
-                slots: Mutex::new(HashMap::new()),
-                directory: Mutex::new(Directory::default()),
-                tasks: Mutex::new(TaskPages::default()),
-                commands: AtomicU64::new(0),
-                in_flight: Mutex::new(HashMap::new()),
-                download_files: OnceLock::new(),
-                download_reports: Mutex::default(),
-            }),
-        }
-    }
-
-    /// The reader of saved downloads a `downloads` attach returns inline; set once by the core that composes the engine. A second
-    /// call changes nothing.
-    pub fn set_download_files(&self, files: Arc<dyn DownloadFiles>) {
-        let _ = self.inner.download_files.set(files);
-    }
-
-    /// What the host pushes goes through this: it is `inner` (the lane's sink), and the engine keeps the facts that pass.
-    pub fn sink(&self, inner: Arc<dyn EngineSink>) -> Arc<dyn EngineSink> {
-        Arc::new(FactsSink { inner, store: self.inner.store.clone() })
-    }
-
-    /// One Browser Use command of `thread`. `input` is the tool's arguments without `action`, with the runtime-set fields the
-    /// runtime adds (`unattended_run`, `unattended_agent`, `session_life`, `mail_link`). The command belongs to the session's
-    /// running turn (`TurnEvents` ends it).
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    pub async fn run(&self, thread: &ThreadId, action: &str, input: &Map<String, Value>, cancel: &CancellationToken) -> Result<ToolReply, CommandFailure> {
-        let inner = &self.inner;
-        let turn = locked(&inner.tasks).current(thread.as_str());
-        match inner.run_command(thread, turn, action, input, cancel).await {
-            Ok(reply) => Ok(guard_reply(&*inner.ports.secrets, thread.as_str(), reply)),
-            Err(Failed { error, timing }) => Err(CommandFailure { error: error.into_tool_error(&*inner.ports.secrets, thread.as_str()), timing }),
-        }
-    }
-
-    /// The running turn of `thread` ended (`finishBrowserTurn`): the pages it opened for itself are released when it was aborted (a
-    /// dialog that needs a person keeps its page), no later command of that turn runs, and the host drops what it remembered of the
-    /// turn and the untouched blank page the agent has since left behind. A turn nobody ran a command in is nothing to finish.
-    /// Answers how many pages were closed.
-    pub async fn finish_turn(&self, thread: &ThreadId, aborted: bool) -> usize {
-        match self.inner.end_turn(thread, aborted) {
-            Some(ended) => self.inner.close_ended(thread, ended, aborted).await,
-            None => 0,
-        }
-    }
-
-    /// The session is released: the pages it owned are no longer tracked, and the host forgets what it remembered of it.
-    pub async fn forget_session(&self, thread: &ThreadId) {
-        locked(&self.inner.tasks).forget(thread.as_str());
-        // The session's pages are gone with it, and so is the person's hold on them (`releaseLocal`): a hold left behind would
-        // refuse the next agent command on a page id the host never reuses, and keep a record for ever.
-        if let Some(held) = locked(&self.inner.directory).sessions.remove(thread.as_str()) {
-            for page_id in held.current.iter().chain(held.backgrounds.values()) {
-                self.inner.ports.hold.release_page(page_id);
-            }
-        }
-        self.inner.turn_note(thread, BrowserTurnOp::Forget, None, false).await;
     }
 }
 
@@ -1109,6 +1059,13 @@ impl Inner {
             return self.tabless(action, &command, session, &tab, ctx).await;
         }
         locked(&self.tasks).begin(session, turn).map_err(RunError::Failed)?;
+        if action == Action::Status && tab.is_empty() && background_asked != Some(true) {
+            let listed = self.host.pages_list(HostBrowserPagesListParams { session_id: session.to_owned() }, ctx.cancel.token()).await?;
+            locked(&self.directory).observe_list(session, &listed.pages, listed.active_page_id.as_deref());
+            if let Some(text) = status_without_visible_page(&listed.pages, listed.active_page_id.as_deref()) {
+                return Ok(ToolReply::text(text));
+            }
+        }
         let (descriptor, placement, _lease) = self.resolve_page(session, action, background, background_asked, &tab, &ctx.cancel).await?;
         let page_id = descriptor.page_id.clone();
         {
@@ -1212,12 +1169,20 @@ impl Inner {
                 Ok(ToolReply::text(list_tabs_text(&listed.pages, listed.active_page_id.as_deref())))
             }
             Action::CloseTab => {
+                // `normalizeBackgroundTabName(tab, { required: true })` of `backgroundTabEntry`.
+                if tab.trim().is_empty() {
+                    return Err(RunError::Failed("a background tab name is required".to_owned()));
+                }
                 let listed = self.host.pages_list(HostBrowserPagesListParams { session_id: session.to_owned() }, cancel).await?;
                 locked(&self.directory).observe_list(session, &listed.pages, listed.active_page_id.as_deref());
-                let Some(found) = listed.pages.iter().find(|page| page.page_id == tab || page.tab_id == tab) else {
+                // A page id and a visible `vN` match in any case (`PAGE_ID` and `VISIBLE_POSITION` are `/i`); a name is exact.
+                let Some(found) = listed.pages.iter().find(|page| {
+                    page.page_id.eq_ignore_ascii_case(tab) || page.tab_id == tab.trim() || (is_visible_tab_id(&page.tab_id) && page.tab_id.eq_ignore_ascii_case(tab))
+                }) else {
                     return Err(RunError::Failed(unknown_background_tab(tab)));
                 };
-                if !found.background {
+                // Only the pane's own visible tab stays with the panel; a tab the person opened with "+" closes like any other.
+                if is_visible_tab_id(&found.tab_id) {
                     return Err(RunError::Failed(visible_tab_close_refusal(tab)));
                 }
                 let params = HostBrowserPagesCloseParams { page_id: found.page_id.clone(), reason: BrowserPageCloseReason::Agent };
@@ -1361,12 +1326,14 @@ impl RunError {
             Self::Reply(reply) => reply.text.clone(),
             Self::Tool(error) => error.message_for_model.clone(),
             Self::Cancelled(reason) => reason.as_ref().map_or_else(|| "browser command cancelled".to_owned(), |reason| reason.to_string()),
+            Self::ConnectionLost => HostCallError::ConnectionLost.to_string(),
         }
     }
 
     fn into_observe(self) -> observe::ActionError {
         match self {
             Self::Cancelled(reason) => observe::ActionError::Cancelled(Cancelled { reason }),
+            Self::ConnectionLost => observe::ActionError::Host(HostCallError::ConnectionLost),
             other => observe::ActionError::Failed(other.message()),
         }
     }
@@ -1374,6 +1341,7 @@ impl RunError {
     fn into_action(self) -> ActionError {
         match self {
             Self::Cancelled(reason) => ActionError::Cancelled(Cancelled { reason }),
+            Self::ConnectionLost => ActionError::Host(HostCallError::ConnectionLost),
             other => ActionError::Failed(other.message()),
         }
     }
@@ -1381,6 +1349,7 @@ impl RunError {
     fn into_ref(self) -> RefError {
         match self {
             Self::Cancelled(_) => RefError::Host(HostCallError::Cancelled),
+            Self::ConnectionLost => RefError::Host(HostCallError::ConnectionLost),
             other => RefError::Failed(other.message()),
         }
     }
@@ -1447,847 +1416,6 @@ impl PageProbe for PageCtx {
         mixdog_rt::spawn("browser-page-stop", mixdog_rt::TaskClass::Work, async move {
             let _ = host.page_stop(params, &CancellationToken::new()).await;
         });
-    }
-}
-
-impl PageCtx {
-    fn host(&self) -> &dyn BrowserHost {
-        &*self.inner.host
-    }
-
-    fn session(&self) -> &str {
-        self.thread.as_str()
-    }
-
-    fn token(&self) -> &CancellationToken {
-        self.cancel.token()
-    }
-
-    fn settle_page(&self) -> Page<'_> {
-        Page { host: self.host(), id: &self.page_id, probe: self }
-    }
-
-    /// The page's present facts, as the host last said them.
-    fn page_facts(&self) -> PageFacts {
-        self.inner.store.get(&self.page_id).unwrap_or_else(|| gone_facts(&self.page_id))
-    }
-
-    fn state_lock(&self) -> MutexGuard<'_, SlotState> {
-        locked(&self.slot.state)
-    }
-
-    /// The text as the agent may read it: the patterns of `redact_browser_text`, then what the session filled into pages.
-    fn redact(&self, text: &str) -> String {
-        self.inner.ports.secrets.redact(self.session(), &redact_browser_text(text))
-    }
-
-    /// The latest observation; one of a document that has since been replaced holds no refs.
-    fn latest_refs(&self) -> Option<RefSet> {
-        let document_id = self.page_facts().document_id;
-        let mut state = self.state_lock();
-        if let Some(refs) = state.refs.as_mut() {
-            refs.invalidate_on(&document_id);
-        }
-        state.refs.clone()
-    }
-
-    /// The state a mutating call is decided against. A page that has committed no document reports no address (a tab this command
-    /// just opened, whose first blank load is under way): there is none to bind the call to, and the one the page then commits is its
-    /// own first, not a change under the caller (the old runner acted on such a page as it stood: `runResolvedCommand` of
-    /// `command-runner.ts`). The document binds the call as on any page.
-    fn page_precondition(&self) -> Precondition {
-        let facts = self.page_facts();
-        let origin = origin_of_url(&facts.url);
-        Precondition {
-            document_id: facts.document_id.clone(),
-            origin: (!origin.is_empty()).then_some(origin),
-            url: (!facts.url.is_empty()).then(|| facts.url.clone()),
-            child_sessions: Some(facts.child_sessions.iter().map(|child| child.session_id.clone()).collect()),
-            receiver_key: None,
-            snapshot_id: self.latest_refs().map(|refs| refs.snapshot_id),
-        }
-    }
-
-    /// The guard of a move between documents (`navigate` to a URL, a reload, `back`). The move replaces the document: the address,
-    /// the origin, the frames and the observation the page holds are what it discards, so none of them is a state the move is decided
-    /// against (the old handlers checked nothing: `navigate` and `back` of `actions/navigation.ts` loaded into whatever the page
-    /// held). The document is named because the wire has no guard without one.
-    fn navigation_precondition(&self) -> Precondition {
-        Precondition { document_id: self.page_facts().document_id, origin: None, url: None, child_sessions: None, receiver_key: None, snapshot_id: None }
-    }
-
-    /// The URL policy a navigation is decided under: the engine's own, or (a test build only) the one a test run names for the
-    /// command (`UrlPolicyOfRun`).
-    fn urls(&self) -> mixdog_browser_policy::url_policy::UrlPolicy {
-        #[cfg(feature = "test-support")]
-        if let Some(named) = locked(&URL_POLICY_OF_RUN).clone() {
-            return named;
-        }
-        self.inner.ports.urls.clone()
-    }
-
-    /// One move, decided against the document the page holds now.
-    async fn move_once(&self, action: Action, command: &Value) -> Result<NavigateOutcome, observe::ActionError> {
-        let precondition = self.navigation_precondition();
-        let call = NavigateCall { host: self.host(), page_id: &self.page_id, expect: &precondition, cancel: &self.cancel };
-        if action == Action::Back { navigation::back(&call).await } else { navigation::navigate(&call, command, &self.urls(), wall_clock_ms()).await }
-    }
-
-    /// The move, sent once more when the host refused the document it named. The refusal sent nothing and told the page's present
-    /// facts (the lane keeps them): the page replaced its document meanwhile (a tab this command opened starting its first blank load,
-    /// a redirect), and a move has no earlier document to protect. A second refusal is the failure.
-    async fn moved(&self, action: Action, command: &Value) -> Result<NavigateOutcome, observe::ActionError> {
-        match self.move_once(action, command).await {
-            Err(observe::ActionError::Host(HostCallError::PreconditionFailed { .. })) => self.move_once(action, command).await,
-            outcome => outcome,
-        }
-    }
-
-    fn invalidate(&self) {
-        let mut state = self.state_lock();
-        state.refs = None;
-        state.grounding = None;
-    }
-
-    /// Runs `read` on the page's ledgers (a page the mirror never heard of reads empty ones).
-    fn with_ledgers<R>(&self, read: impl FnOnce(&mut PageLedgers) -> R) -> R {
-        let mut pending = Some(read);
-        let mut done: Option<R> = None;
-        self.inner.ports.mirror.with_ledgers(&self.page_id, |ledgers| {
-            if let Some(read) = pending.take() {
-                done = Some(read(ledgers));
-            }
-        });
-        match (done, pending) {
-            (Some(value), _) => value,
-            (None, Some(read)) => read(&mut PageLedgers::new(Arc::new(|text: &str| redact_browser_text(text)))),
-            (None, None) => unreachable!("a read runs on the ledgers or on empty ones"),
-        }
-    }
-
-    fn call(&self) -> page::PageCall<'_> {
-        page::PageCall { host: self.host(), page_id: &self.page_id, cancel: self.token() }
-    }
-
-    fn observe_call<'a>(&'a self, expect: Option<&'a Precondition>) -> observe::PageCall<'a> {
-        observe::PageCall { host: self.host(), page_id: &self.page_id, expect, cancel: &self.cancel }
-    }
-
-    /// One sign-in question to the host about this page. The hooks add to a command that already ran, so a host that cannot answer
-    /// them (a failure of its own) says nothing; a command the caller cancelled, or a person who took the page, still ends it.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn sign_in(&self, op: BrowserSignInOp, action: Option<&str>, command: Option<Value>, explicit_fill: Option<bool>) -> Result<Option<HostBrowserSignInResult>, RunError> {
-        let params = HostBrowserSignInParams {
-            session_id: self.session().to_owned(),
-            page_id: self.page_id.clone(),
-            op,
-            turn: i64::try_from(self.turn).ok(),
-            action: action.map(str::to_owned),
-            command,
-            explicit_fill,
-        };
-        match self.host().sign_in(params, self.token()).await {
-            Ok(said) => Ok(Some(said)),
-            Err(error @ (HostCallError::Cancelled | HostCallError::UserInput { .. })) => Err(error.into()),
-            Err(_) => Ok(None),
-        }
-    }
-
-    /// Before a click, fill or type is sent (`linkedSignIn.beforeAction`): the host notes which field of a provider's sign-in the agent is
-    /// about to name, from the command's own `ref`, `target`, `text` and `fields`.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn before_action(&self, action: Action, command: &Value) -> Result<(), RunError> {
-        if !matches!(action, Action::Click | Action::Fill | Action::Type) {
-            return Ok(());
-        }
-        let named: Map<String, Value> = ["ref", "target", "text", "fields"].into_iter().filter_map(|key| command.get(key).map(|value| (key.to_owned(), value.clone()))).collect();
-        self.sign_in(BrowserSignInOp::BeforeAction, Some(action.name()), Some(Value::Object(named)), None).await?;
-        Ok(())
-    }
-
-    /// After the action: a page that asks for a sign-in a saved login fits is signed in by the host once per site and turn, and its
-    /// note leads a fresh observation that replaces the reply (`autoSignIn.afterCommand`); the identity a provider flow last used
-    /// is a line ahead of the reply (`linkedSignIn.replyLine`). An `open` answers with its placement, the note and the line.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn after_command(&self, action: Action, background: bool, placement: Option<BrowserPlacement>, hints: &SignInHints, mut reply: ToolReply) -> Result<ToolReply, RunError> {
-        let said = self.sign_in(BrowserSignInOp::AfterCommand, None, None, Some(hints.explicit_fill)).await?;
-        let note = said.as_ref().and_then(|said| said.note.clone()).filter(|note| !note.is_empty());
-        let line = said.as_ref().and_then(|said| said.line.clone()).filter(|line| !line.is_empty());
-        if action == Action::Open && !background {
-            // An open always answers with its placement: exactly one of shown or pending (a failure to place is thrown).
-            let placed = placement_line(&self.page_facts(), placement)?;
-            reply.text = self.redact(&[Some(placed), note, line].into_iter().flatten().collect::<Vec<_>>().join("\n\n"));
-            return Ok(reply);
-        }
-        if let Some(note) = &note {
-            let mut observe = json!({"action": "snapshot"});
-            if let Some(max_chars) = &hints.max_chars {
-                observe["maxChars"] = max_chars.clone();
-            }
-            self.invalidate();
-            let after = match self.snapshot_reply(&observe, &ReplyOptions::default()).await {
-                Ok(after) | Err(RunError::Reply(after)) => after,
-                Err(error) => return Err(error),
-            };
-            reply = ToolReply { text: format!("{note}\n\n{}", after.text), ..after };
-        }
-        if let Some(line) = &line {
-            reply.text = format!("{line}\n\n{}", reply.text);
-        }
-        if note.is_some() || line.is_some() {
-            reply.text = self.redact(&reply.text);
-        }
-        Ok(reply)
-    }
-
-    /// The session's download ledger as the host keeps it; a reply is still given when it cannot be read.
-    async fn session_downloads(&self) -> Vec<DownloadItem> {
-        let params = HostBrowserDownloadsParams { session_id: self.session().to_owned(), op: BrowserDownloadsOp::List, since: None, id: None };
-        self.host().downloads(params, self.token()).await.map(|answer| answer.items).unwrap_or_default()
-    }
-
-    fn snapshot_params(&self, command: &Value) -> HostBrowserSnapshotParams {
-        let query = command.get("query").and_then(Value::as_str).map(|query| mixdog_js::js_trim(query).to_owned()).filter(|query| !query.is_empty());
-        let mode = if command.get("viewportOnly") == Some(&Value::Bool(true)) {
-            BrowserSnapshotMode::Viewport
-        } else if query.is_some() {
-            BrowserSnapshotMode::Query
-        } else {
-            BrowserSnapshotMode::Full
-        };
-        let max_elements = command.get("maxElements").filter(|value| truthy(Some(value))).and_then(Value::as_f64).filter(|number| number.is_finite());
-        let max_elements = max_elements.map_or(SNAPSHOT_MAX_ELEMENTS as i64, |number| number.trunc() as i64).clamp(1, SNAPSHOT_TOOL_MAX_ELEMENTS as i64);
-        // An evaluate's reply keeps page text short: the script result already occupies it.
-        let text_chars = if command.get("action").and_then(Value::as_str) == Some("evaluate") {
-            SNAPSHOT_TEXT_CHARS as i64
-        } else {
-            bounded(command.get("maxChars"), SNAPSHOT_TEXT_CHARS as i64, 1, READ_MAX_CHARS as i64)
-        };
-        HostBrowserSnapshotParams {
-            page_id: self.page_id.clone(),
-            mode,
-            query,
-            max_elements: u32::try_from(max_elements).ok(),
-            text_chars: u32::try_from(text_chars).ok(),
-            frame: None,
-        }
-    }
-
-    /// The snapshot as a reply shows it, for a covered element's refusal and a recovery's report.
-    fn format_snapshot_text(&self, snapshot: &HostBrowserSnapshotResult) -> String {
-        let facts = self.page_facts();
-        self.with_ledgers(|ledgers| {
-            let mut diagnostics = SnapshotDiagnostics {
-                pending_dialog: facts.pending_dialog.as_ref(),
-                dismissed_dialog: None,
-                pending_file_chooser: facts.pending_file_chooser.as_ref(),
-                ledgers,
-            };
-            self.redact(&format_snapshot(&snapshot.payload, &mut diagnostics, &SnapshotExtras { downloads: &[], brief_against: None }))
-        })
-    }
-
-    /// What this page's reply has not said yet, without a snapshot (`reportPage`); empty when nothing is new.
-    fn page_report(&self, downloads: &[DownloadItem]) -> String {
-        let facts = self.page_facts();
-        let redact = |text: &str| self.redact(text);
-        let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
-        let mut state = self.state_lock();
-        let SlotState { reply, .. } = &mut *state;
-        let mut reports = locked(&self.inner.download_reports);
-        let mut page = ReplyPage { facts: &facts, state: reply, downloads, download_reports: &mut reports, now_ms: wall_clock_ms() };
-        self.with_ledgers(|ledgers| page_report_text(&ctx, &mut page, ledgers))
-    }
-
-    /// The handles one command acts on its page's elements with.
-    fn ref_actions(&self) -> RefActions {
-        let host: Arc<dyn BrowserHost> = self.inner.host.clone();
-        let redacting = self.clone();
-        let formatting = self.clone();
-        let secrets = self.inner.ports.secrets.clone();
-        let session = self.session().to_owned();
-        RefActions {
-            host,
-            page_id: self.page_id.clone(),
-            expect: self.page_precondition(),
-            cancel: self.cancel.clone(),
-            redact: Arc::new(move |text: &str| redacting.redact(text)),
-            remember_secret: Arc::new(move |secret: &str| secrets.remember(&session, secret)),
-            format_snapshot: Arc::new(move |snapshot: &HostBrowserSnapshotResult| formatting.format_snapshot_text(snapshot)),
-            dropdown_timeout: CUSTOM_DROPDOWN_TIMEOUT,
-            dropdown_poll: CUSTOM_DROPDOWN_POLL,
-            timer: Some(self.timer.clone()),
-        }
-    }
-
-    /// Every target resolved against ONE fresh observation, waiting out a target that matched nothing yet (`resolveTargetRefs`).
-    async fn resolve_targets(&self, raw: &[Value]) -> Result<Vec<ResolvedTarget>, ActionError> {
-        let expect = self.page_precondition();
-        let (host, cancel, page_id) = (self.host(), &self.cancel, self.page_id.as_str());
-        let expect_ref = &expect;
-        let resolved = self
-            .timer
-            .phase(
-                Phase::Target,
-                wait_for_actionable(
-                    move || async move {
-                        let target = TargetContext { host, page_id, expect: Some(expect_ref), cancel: cancel.token() };
-                        resolve_targets(&target, raw).await.map_err(|error| match error {
-                            TargetError::Missing(message) => ProbeFailure::NotActionable(ActionabilityError::new(message, ActionabilityReason::Missing)),
-                            other => ProbeFailure::Other(other),
-                        })
-                    },
-                    cancel,
-                    ACTIONABILITY_TIMEOUT,
-                ),
-            )
-            .await?;
-        self.register_minted(&resolved);
-        Ok(resolved)
-    }
-
-    /// The selector matches this resolution minted refs for join the page's ref set (the one the page reports against, and the
-    /// snapshot's own in the store).
-    fn register_minted(&self, resolved: &[ResolvedTarget]) {
-        for (snapshot_id, minted) in resolved.iter().fold(Vec::<(&str, Vec<BrowserSnapshotElement>)>::new(), |mut grouped, target| {
-            if let Some(element) = &target.minted {
-                match grouped.iter_mut().find(|(id, _)| *id == target.snapshot_id) {
-                    Some((_, elements)) => elements.push(element.clone()),
-                    None => grouped.push((target.snapshot_id.as_str(), vec![element.clone()])),
-                }
-            }
-            grouped
-        }) {
-            self.inner.store.register_minted(&self.page_id, snapshot_id, &minted);
-            let Some(joined) = self.inner.store.snapshot(&self.page_id, snapshot_id) else { continue };
-            let mut state = self.state_lock();
-            if let Some(held) = state.refs.as_mut().filter(|held| held.snapshot_id == snapshot_id && held.len() != joined.refs.len()) {
-                *held = joined.refs.clone().with_observation(held.observation.as_deref());
-            }
-        }
-    }
-
-    // ---- the reply ----
-
-    /// The reply of a command that observed the page (`snapshotResult`): the page settled, its postcondition verified, a snapshot
-    /// taken and put into words, and the screenshot the command asked for bound to it.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn snapshot_reply(&self, command: &Value, options: &ReplyOptions) -> Result<ToolReply, RunError> {
-        let action = text_of(command.get("action"));
-        let blocked = |facts: &PageFacts| facts.pending_dialog.as_ref().map(|dialog| blocking_dialog_reply(dialog, true, &|text: &str| self.redact(text)));
-        if let Some(reply) = blocked(&self.page_facts()) {
-            return Ok(reply);
-        }
-        let wait_options = ReplyWaitOptions {
-            settle_action: options.settle_action,
-            preexisting_postcondition: options.preexisting,
-            baseline_url: options.baseline.as_ref().map(|refs| refs.url.clone()),
-            expected: Some(options.expected.clone()),
-        };
-        let wait = self
-            .timer
-            .phase(Phase::Wait, await_reply_ready(&self.settle_page(), &SettlePolicy::default(), command.get("settleMs"), command.get("expect"), &wait_options, &self.cancel))
-            .await?;
-        let facts = self.page_facts();
-        if let Some(reply) = blocked(&facts) {
-            return Ok(reply);
-        }
-        if let Some(fault) = facts.fault.as_deref().filter(|fault| !fault.is_empty()) {
-            return Err(RunError::Failed(format!("{fault}; navigate to reload this page or choose another tab")));
-        }
-        let params = self.snapshot_params(command);
-        let result = self.timer.phase(Phase::Snapshot, self.host().snapshot(params, self.token())).await?;
-        let refs = RefSet::from_payload(&result.snapshot_id, &result.payload).with_document(&result.document_id, result.revision).with_observation(result.observation.as_deref());
-        {
-            let mut state = self.state_lock();
-            state.refs = Some(refs.clone());
-            state.grounding = None;
-            state.scroll_y = Some(result.payload.scroll_y);
-        }
-        let facts = self.page_facts();
-        let downloads = self.session_downloads().await;
-        let brief = command.get("brief") == Some(&Value::Bool(true));
-        let brief_against = options.report_baseline.clone().or_else(|| options.baseline.clone());
-        let request = ReplyRequest {
-            action: &action,
-            brief,
-            brief_against: brief_against.as_ref(),
-            effect: ReplyEffect {
-                settle_ms: u64::try_from(wait.settle.as_millis()).ok(),
-                expected: wait.expected.as_ref().map(|expected| describe(expected.expected())),
-                postcondition_matched: wait.postcondition_matched,
-                postcondition_elapsed_ms: u64::try_from(wait.postcondition_elapsed.as_millis()).unwrap_or(u64::MAX),
-                preexisting_postcondition: options.preexisting,
-                settle_action: options.settle_action,
-                baseline: options.baseline.as_ref().map(EffectBaseline::of),
-            },
-        };
-        let redact = |text: &str| self.redact(text);
-        let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
-        let capture = SnapshotCapture { payload: &result.payload, observation: result.observation.as_deref() };
-        let mut reply = {
-            let mut state = self.state_lock();
-            let SlotState { reply, .. } = &mut *state;
-            let mut reports = locked(&self.inner.download_reports);
-            let mut page = ReplyPage { facts: &facts, state: reply, downloads: &downloads, download_reports: &mut reports, now_ms: wall_clock_ms() };
-            self.with_ledgers(|ledgers| finish_now(build_reply(&ctx, &request, &mut page, ledgers, Some(capture), None)))?
-        };
-        if command.get("includeScreenshot") == Some(&Value::Bool(true)) {
-            self.attach_shot(command, &mut reply).await?;
-        }
-        Ok(reply)
-    }
-
-    /// The screenshot of the command, bound to the snapshot just taken; coordinate actions are then expressed in it.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn attach_shot(&self, command: &Value, reply: &mut ToolReply) -> Result<(), RunError> {
-        let params = observe::screenshot_params(&self.page_id, command, self.background)?;
-        let full_page = params.full_page == Some(true);
-        let bound = self.latest_refs();
-        let answer = self.timer.phase(Phase::Screenshot, self.host().screenshot(params, self.token())).await?;
-        let capture = read_capture(&answer, full_page, &*self.inner.ports.blobs).await?;
-        let latest = self.latest_refs();
-        let input = ScreenshotInput {
-            capture: &capture,
-            bound: bound.as_ref(),
-            latest: latest.as_ref(),
-            output: ImageOutput::from_command(command.get("image_output").and_then(Value::as_str)),
-            frame_dir: &self.inner.ports.frame_dir,
-            now: std::time::Instant::now(),
-        };
-        attach_screenshot(&*self.inner.ports.files, reply, input).await?;
-        self.state_lock().grounding = reply.grounding.clone();
-        Ok(())
-    }
-
-    /// What follows a gesture: the settled snapshot reply, or, for a step of a sequence, only whether the page settled.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn settled(&self, command: &Value, options: &ReplyOptions) -> Result<ToolReply, RunError> {
-        if command.get("internalStep") != Some(&Value::Bool(true)) {
-            return self.snapshot_reply(command, options).await;
-        }
-        let step = step_settle_result(&self.settle_page(), &SettlePolicy::default(), &self.cancel).await?;
-        let outcome = match step.outcome {
-            StepKind::Completed => ReplyOutcome::Completed,
-            StepKind::Inconclusive => ReplyOutcome::Inconclusive,
-            StepKind::Blocked => ReplyOutcome::Blocked,
-        };
-        Ok(ToolReply { text: step.text, outcome: Some(outcome), ..ToolReply::default() })
-    }
-
-    /// The reply of an action that is not an observation: its own lead, the recovery notes when it asked for them, the settled page.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn gesture_reply(&self, output: ActionOutput, command: &Value, recovery: &RefRecoveryContext, options: &ReplyOptions) -> Result<ToolReply, RunError> {
-        self.timer.merge_input(&output.input);
-        let mut reply = self.settled(command, options).await?;
-        let text = if output.decorate_recovery { decorate_recovery(&reply.text, recovery) } else { reply.text.clone() };
-        reply.text = format!("{}{text}", output.lead);
-        Ok(reply)
-    }
-
-    // ---- the actions ----
-
-    /// One action on the page, after the command was admitted: the dialog check, the approval, the action itself and its reply. A
-    /// step of a sequence comes back through here (`internalStep`), without the approval.
-    /// What a page held by a dialog answers to an action that needs the page: a blocked page accepts no gesture (the input would
-    /// queue behind the dialog and replay after handle_dialog, which nobody asked for).
-    fn dialog_block(&self, action: Action) -> Option<ToolReply> {
-        if DIALOG_TOLERANT_ACTIONS.contains(&action.name()) {
-            return None;
-        }
-        self.page_facts().pending_dialog.map(|dialog| blocking_dialog_reply(&dialog, false, &|text: &str| self.redact(text)))
-    }
-
-    /// One step of a sequence: the dialog's answer when the page is blocked, else the action.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn dispatch(&self, action: Action, command: Value, expected: Option<Postcondition>, has_screenshot_options: bool) -> Result<ToolReply, RunError> {
-        match self.dialog_block(action) {
-            Some(blocked) => Ok(blocked),
-            None => self.act(action, command, expected, has_screenshot_options).await,
-        }
-    }
-
-    /// `act` behind a box made in a frame that is gone when this returns (see `execute_resolved_boxed`).
-    #[inline(never)]
-    fn act_boxed<'a>(&'a self, action: Action, command: Value, expected: Option<Postcondition>, has_screenshot_options: bool) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(self.act(action, command, expected, has_screenshot_options))
-    }
-
-    /// `after_command` behind a box made in a frame that is gone when this returns (see `execute_resolved_boxed`).
-    #[inline(never)]
-    fn after_command_boxed<'a>(&'a self, action: Action, background: bool, placement: Option<BrowserPlacement>, hints: &'a SignInHints, reply: ToolReply) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(self.after_command(action, background, placement, hints, reply))
-    }
-
-    /// The action itself, on a page no dialog blocks for it.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn act(&self, action: Action, mut command: Value, expected: Option<Postcondition>, has_screenshot_options: bool) -> Result<ToolReply, RunError> {
-        let internal = command.get("internalStep") == Some(&Value::Bool(true));
-        let facts = self.page_facts();
-        let mut recovery = RefRecoveryContext::new(self.latest_refs());
-        let report_baseline = self.latest_refs();
-        // The latest observation of this page is what the gesture starts from; a target resolution moves it to a fresher one.
-        let mut baseline = self.latest_refs();
-        let preexisting = match &expected {
-            Some(condition) if action != Action::Navigate && facts.pending_dialog.is_none() => postcondition_matches_page(&self.settle_page(), condition, &self.cancel).await?,
-            _ => false,
-        };
-        if action == Action::Upload && !internal && !truthy(command.get("ref")) {
-            // An upload resolves its real target before the person is asked: a `target` becomes the ref the handler then uses.
-            if let Some(target) = command.get("target").filter(|target| !target.is_null()).cloned() {
-                let resolved = self.resolve_targets(std::slice::from_ref(&target)).await?;
-                let mut cx = ActionContext { host: self.host(), page: self, command: &command, cancel: &self.cancel, recovery: &mut recovery, effect_baseline: &mut baseline };
-                adopt_resolved_targets(&mut cx, &resolved);
-                if let Some(first) = resolved.first() {
-                    command["ref"] = Value::String(first.ref_id.clone());
-                }
-            }
-        }
-        let approved = if internal { None } else { self.inner.approve(&self.thread, &mut command, Some(self), &self.cancel, &self.user_wait).await? };
-        self.before_action(action, &command).await?;
-        let options = |settle_action: bool, baseline: &Option<RefSet>| ReplyOptions {
-            expected: expected.clone(),
-            preexisting,
-            settle_action,
-            baseline: baseline.clone(),
-            report_baseline: report_baseline.clone(),
-        };
-        // Every arm that awaits is its own boxed call: a debug frame keeps a slot for each future the function builds, and the whole
-        // match in this frame held about a megabyte on the stack of the worker thread (2 MB) for any action.
-        match action {
-            Action::Open => Ok(navigation::open(self.background)),
-            Action::Snapshot => self.snapshot_boxed(&command).await,
-            Action::Locate => self.locate_boxed(&command).await,
-            Action::Read => self.read_boxed(&command).await,
-            Action::Extract => self.extract_boxed(&command).await,
-            Action::Status => Ok(self.with_ledgers(|ledgers| diagnostics::status(&facts, ledgers))),
-            Action::Console => Ok(self.with_ledgers(|ledgers| diagnostics::console(ledgers, &command))?),
-            Action::Network => self.network_boxed(&command).await,
-            Action::Wait => self.wait_boxed(&command).await,
-            Action::Navigate | Action::Back => self.navigate_boxed(action, &command, &options(true, &baseline)).await,
-            Action::Evaluate => self.evaluate_boxed(&command, expected.is_some(), has_screenshot_options, &options(true, &baseline)).await,
-            Action::Emulate => self.emulate_boxed(&command, &options(true, &baseline)).await,
-            Action::Cookies => self.cookies_boxed(&command, &facts.url).await,
-            Action::Storage => self.storage_boxed(&command).await,
-            Action::Intercept => self.intercept_boxed(&command).await,
-            Action::InitScript => self.init_script_boxed(&command).await,
-            Action::Performance => self.performance_boxed(&command).await,
-            Action::Click | Action::Hover | Action::Drag | Action::Press | Action::Scroll | Action::Sequence => self.gesture_boxed(action, &command, &mut recovery, &mut baseline, &options).await,
-            Action::Fill | Action::Type | Action::Select | Action::HandleDialog => {
-                self.form_boxed(action, &command, &mut recovery, &mut baseline, &expected, preexisting, &report_baseline).await
-            }
-            Action::Upload => self.upload_boxed(&command, &facts, approved.as_ref(), &mut recovery, &mut baseline, &options).await,
-            Action::ListTabs | Action::CloseTab | Action::Downloads | Action::Hide => Err(RunError::Failed(format!("{} addresses the session, not a page", action.name()))),
-        }
-    }
-
-    // The boxed arms of `act`: each builds its future in a frame that is gone when it returns (see `execute_resolved_boxed`).
-
-    #[inline(never)]
-    fn snapshot_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(self.snapshot_action(command))
-    }
-
-    #[inline(never)]
-    fn locate_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(self.locate_action(command))
-    }
-
-    #[inline(never)]
-    fn network_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(self.network_action(command))
-    }
-
-    #[inline(never)]
-    fn navigate_boxed<'a>(&'a self, action: Action, command: &'a Value, options: &'a ReplyOptions) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(self.navigate_action(action, command, options))
-    }
-
-    #[inline(never)]
-    fn evaluate_boxed<'a>(&'a self, command: &'a Value, has_postcondition: bool, has_screenshot_options: bool, options: &'a ReplyOptions) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(self.evaluate_action(command, has_postcondition, has_screenshot_options, options))
-    }
-
-    #[inline(never)]
-    fn read_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(async move {
-            let precondition = self.page_precondition();
-            let redact = |text: &str| self.redact(text);
-            Ok(observe::read(&self.observe_call(Some(&precondition)), command, &redact).await?)
-        })
-    }
-
-    #[inline(never)]
-    fn extract_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(async move {
-            let precondition = self.page_precondition();
-            Ok(observe::extract(&self.observe_call(Some(&precondition)), command).await?)
-        })
-    }
-
-    #[inline(never)]
-    fn wait_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(async move {
-            let report = WaitSnapshot { page: self, command };
-            Ok(self.timer.phase(Phase::Wait, flow::wait(&self.settle_page(), &self.cancel, command, &report)).await?)
-        })
-    }
-
-    #[inline(never)]
-    fn emulate_boxed<'a>(&'a self, command: &'a Value, options: &'a ReplyOptions) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(async move {
-            let input = command.as_object().cloned().unwrap_or_default();
-            let applied = crate::actions::emulation::emulate(&self.call(), &input).await?;
-            self.invalidate();
-            let snapshot = self.settled(command, options).await?;
-            Ok(emulation::configured_reply(&applied, snapshot))
-        })
-    }
-
-    #[inline(never)]
-    fn cookies_boxed<'a>(&'a self, command: &'a Value, url: &'a str) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(async move {
-            let input = command.as_object().cloned().unwrap_or_default();
-            Ok(page::cookies(&self.call(), url, &input).await?)
-        })
-    }
-
-    #[inline(never)]
-    fn storage_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(async move {
-            let input = command.as_object().cloned().unwrap_or_default();
-            let redact = |text: &str| self.redact(text);
-            let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
-            let outcome = page::storage(&self.call(), &ctx, &input).await?;
-            if outcome.invalidates_refs {
-                self.invalidate();
-            }
-            Ok::<ToolReply, RunError>(outcome.reply)
-        })
-    }
-
-    #[inline(never)]
-    fn intercept_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(async move { Ok(page::intercept(&self.call(), &command.as_object().cloned().unwrap_or_default()).await?) })
-    }
-
-    #[inline(never)]
-    fn init_script_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(async move { Ok(page::init_script(&self.call(), &command.as_object().cloned().unwrap_or_default()).await?) })
-    }
-
-    #[inline(never)]
-    fn performance_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(async move {
-            let input = command.as_object().cloned().unwrap_or_default();
-            Ok(page::performance(&self.call(), &*self.inner.ports.files, &input, || self.reload_and_settle()).await?)
-        })
-    }
-
-    #[inline(never)]
-    fn gesture_boxed<'a, F>(&'a self, action: Action, command: &'a Value, recovery: &'a mut RefRecoveryContext, baseline: &'a mut Option<RefSet>, options: &'a F) -> BoxedFuture<'a, Result<ToolReply, RunError>>
-    where
-        F: Fn(bool, &Option<RefSet>) -> ReplyOptions + Sync,
-    {
-        Box::pin(async move {
-            let output = {
-                let mut cx = ActionContext { host: self.host(), page: self, command, cancel: &self.cancel, recovery: &mut *recovery, effect_baseline: &mut *baseline };
-                match action {
-                    Action::Click => pointer::click(&mut cx).await,
-                    Action::Hover => pointer::hover(&mut cx).await,
-                    Action::Drag => pointer::drag(&mut cx).await,
-                    Action::Press => pointer::press(&mut cx).await,
-                    Action::Scroll => pointer::scroll(&mut cx).await,
-                    _ => sequence(&mut cx, &SequenceSteps { page: self }).await,
-                }
-            }?;
-            self.gesture_reply(output, command, recovery, &options(true, baseline)).await
-        })
-    }
-
-    #[inline(never)]
-    #[allow(clippy::too_many_arguments)]
-    fn form_boxed<'a>(
-        &'a self,
-        action: Action,
-        command: &'a Value,
-        recovery: &'a mut RefRecoveryContext,
-        baseline: &'a mut Option<RefSet>,
-        expected: &'a Option<Postcondition>,
-        preexisting: bool,
-        report_baseline: &'a Option<RefSet>,
-    ) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
-        Box::pin(async move {
-            let mut form = FormCtx { page: self, command, recovery, baseline, expected, preexisting, report_baseline };
-            let reply = match action {
-                Action::Fill => forms::fill(&mut form).await,
-                Action::Type => forms::type_text(&mut form).await,
-                Action::Select => forms::select(&mut form).await,
-                _ => forms::handle_dialog(&mut form).await,
-            };
-            Ok::<ToolReply, RunError>(reply?)
-        })
-    }
-
-    #[inline(never)]
-    fn upload_boxed<'a, F>(
-        &'a self,
-        command: &'a Value,
-        facts: &'a PageFacts,
-        approved: Option<&'a Binding>,
-        recovery: &'a mut RefRecoveryContext,
-        baseline: &'a mut Option<RefSet>,
-        options: &'a F,
-    ) -> BoxedFuture<'a, Result<ToolReply, RunError>>
-    where
-        F: Fn(bool, &Option<RefSet>) -> ReplyOptions + Sync,
-    {
-        Box::pin(async move {
-            let paths: Vec<String> = command.get("paths").and_then(Value::as_array).map(|paths| paths.iter().map(|path| text_of(Some(path))).collect()).unwrap_or_default();
-            let ref_id = truthy(command.get("ref")).then(|| text_of(command.get("ref")));
-            let snapshot_id = ref_id.as_deref().map(|id| snapshot_of_ref(id).to_owned()).or_else(|| self.latest_refs().map(|refs| refs.snapshot_id)).unwrap_or_default();
-            let target = UploadTarget { page_id: &self.page_id, snapshot_id: &snapshot_id, ref_id: ref_id.as_deref() };
-            let outcome = upload::upload_files(self.host(), &*self.inner.ports.files, &target, &paths, facts, approved, self.token()).await?;
-            self.invalidate();
-            let summary = outcome.summary();
-            let output = ActionOutput { lead: if summary.is_empty() { String::new() } else { format!("{summary}\n\n") }, decorate_recovery: true, input: Vec::new() };
-            self.gesture_reply(output, command, recovery, &options(true, baseline)).await
-        })
-    }
-
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn snapshot_action(&self, command: &Value) -> Result<ToolReply, RunError> {
-        let plan = observe::plan_snapshot(command)?;
-        let precondition = self.page_precondition();
-        let call = self.observe_call(Some(&precondition));
-        let ports = ShotPorts { blobs: &*self.inner.ports.blobs, files: &*self.inner.ports.files, frame_dir: &self.inner.ports.frame_dir };
-        match plan {
-            SnapshotPlan::Semantic => self.snapshot_reply(command, &ReplyOptions::default()).await,
-            SnapshotPlan::Both => {
-                let mut with_screenshot = command.clone();
-                with_screenshot["includeScreenshot"] = Value::Bool(true);
-                self.snapshot_reply(&with_screenshot, &ReplyOptions::default()).await
-            }
-            SnapshotPlan::Visual => Ok(observe::visual_screenshot(&call, &ports, command, self.background).await?),
-            SnapshotPlan::Pdf => Ok(observe::print_pdf(&call, &ports).await?),
-            SnapshotPlan::Element => {
-                let (snapshot_id, ref_id) = if truthy(command.get("ref")) {
-                    let ref_id = text_of(command.get("ref"));
-                    (snapshot_of_ref(&ref_id).to_owned(), ref_id)
-                } else if let Some(target) = command.get("target").filter(|target| !target.is_null()) {
-                    let resolved = self.resolve_targets(std::slice::from_ref(target)).await?;
-                    let Some(first) = resolved.into_iter().next() else { return Err(RunError::Failed("the target resolved to nothing".to_owned())) };
-                    (first.snapshot_id, first.ref_id)
-                } else {
-                    return Err(RunError::Failed("snapshot mode=element requires ref or target".to_owned()));
-                };
-                Ok(observe::element_screenshot(&call, &ports, command, &snapshot_id, &ref_id, self.background).await?)
-            }
-        }
-    }
-
-    /// `locate`: a semantic snapshot (the command's query cleared) and, on top of it, the visual candidates for the query.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn locate_action(&self, command: &Value) -> Result<ToolReply, RunError> {
-        let mut observing = command.clone();
-        if let Some(fields) = observing.as_object_mut() {
-            fields.shift_remove("query");
-        }
-        let snapshot = self.snapshot_reply(&observing, &ReplyOptions::default()).await?;
-        if self.page_facts().pending_dialog.is_some() {
-            return Ok(snapshot);
-        }
-        let Some(refs) = self.latest_refs() else { return Err(RunError::Failed("locate could not observe the page; take a fresh snapshot".to_owned())) };
-        let precondition = self.page_precondition();
-        let input = LocateInput {
-            page: self.observe_call(Some(&precondition)),
-            blobs: &*self.inner.ports.blobs,
-            command,
-            snapshot,
-            ref_set: &refs,
-            background: self.background,
-            now: std::time::Instant::now(),
-        };
-        let reply = observe::locate(input).await?;
-        self.state_lock().grounding = reply.grounding.clone();
-        Ok(reply)
-    }
-
-    /// `network`: the recorded requests, or one request's detail. The detail reads bodies from the page, so the request is copied
-    /// out of the ledger first (the mirror lends its ledgers only synchronously).
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn network_action(&self, command: &Value) -> Result<ToolReply, RunError> {
-        let precondition = self.page_precondition();
-        let call = self.observe_call(Some(&precondition));
-        let now = wall_clock_ms();
-        let request_id = diagnostics::network_request_id(command);
-        if request_id.is_empty() {
-            return Ok(self.with_ledgers(|ledgers| diagnostics::network_list(ledgers, command, now)));
-        }
-        let request = self.with_ledgers(|ledgers| diagnostics::network_request(ledgers, &request_id))?;
-        Ok(diagnostics::network_detail(&call, &request, command, now).await?)
-    }
-
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn navigate_action(&self, action: Action, command: &Value, options: &ReplyOptions) -> Result<ToolReply, RunError> {
-        self.invalidate();
-        match self.moved(action, command).await? {
-            NavigateOutcome::Refused(text) if action == Action::Back => Ok(ToolReply::text(text)),
-            NavigateOutcome::Refused(text) => Err(RunError::Failed(text)),
-            NavigateOutcome::Moved(facts) => match &facts.pending_dialog {
-                Some(dialog) => Ok(blocking_dialog_reply(dialog, true, &|text: &str| self.redact(text))),
-                None => self.settled(command, options).await,
-            },
-        }
-    }
-
-    /// A reload and the settle after it (what a performance trace over a reload waits for).
-    async fn reload_and_settle(&self) -> Result<(), page::PageActionError> {
-        let reload = json!({"action": "navigate", "reload": true});
-        self.moved(Action::Navigate, &reload).await.map_err(|error| match error {
-            observe::ActionError::Host(error) => page::PageActionError::Host(error),
-            observe::ActionError::Cancelled(_) => page::PageActionError::Host(HostCallError::Cancelled),
-            observe::ActionError::Failed(message) => page::PageActionError::invalid(message),
-        })?;
-        let after = AfterAction { require_quiet: false, previous_url: None };
-        settle_after_action(&self.settle_page(), &SettlePolicy::default(), &self.cancel, None, &after).await.map_err(|error| match error {
-            SettleError::Cancelled(_) => page::PageActionError::Host(HostCallError::Cancelled),
-            SettleError::Failed(message) => page::PageActionError::invalid(message),
-        })
-    }
-
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn evaluate_action(&self, command: &Value, has_postcondition: bool, has_screenshot_options: bool, options: &ReplyOptions) -> Result<ToolReply, RunError> {
-        let input = command.as_object().cloned().unwrap_or_default();
-        let refs = self.latest_refs();
-        let request = page::EvaluateRequest { input: &input, refs: refs.as_ref(), precondition: Some(self.page_precondition()), has_postcondition, has_screenshot_options };
-        let redact = |text: &str| self.redact(text);
-        let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
-        match page::evaluate(&self.call(), &ctx, &request).await {
-            Ok(done) if done.kept_snapshot().is_some() => {
-                let downloads = self.session_downloads().await;
-                Ok(done.unchanged_reply(&self.page_report(&downloads)))
-            }
-            Ok(done) => {
-                self.invalidate();
-                let snapshot = self.settled(command, options).await?;
-                Ok(done.changed_reply(snapshot))
-            }
-            Err(error) => {
-                if error.refs_stale {
-                    self.invalidate();
-                }
-                Err(error.error.into())
-            }
-        }
-    }
-
-    /// The frame document that would receive an upload's files now, for the approval to bind.
-    async fn upload_receiver(&self, command: &Value) -> Result<upload::Receiver, UploadError> {
-        let ref_id = truthy(command.get("ref")).then(|| text_of(command.get("ref")));
-        let snapshot_id = ref_id.as_deref().map(|id| snapshot_of_ref(id).to_owned()).or_else(|| self.latest_refs().map(|refs| refs.snapshot_id)).unwrap_or_default();
-        let target = UploadTarget { page_id: &self.page_id, snapshot_id: &snapshot_id, ref_id: ref_id.as_deref() };
-        upload::receiver(self.host(), &target, &self.page_facts(), self.token()).await
     }
 }
 
@@ -3171,7 +2299,7 @@ mod tests {
         // A host that cannot close the tab (its claim ended meanwhile) changes nothing of the refusal the agent reads.
         let closing = Arc::new(FakeHost::scripted(vec![
             resolved_blank("p1", "policy"),
-            Expect::err("host/browser/pages/close", HostCallError::Unavailable { detail: "claimantClosed".into() }),
+            Expect::err("host/browser/pages/close", HostCallError::ConnectionLost),
         ]));
         let error = run(&engine(&closing, None), "navigate", json!({"url": "file:///C:/Windows/win.ini", "background": true, "tab": "policy"})).await.expect_err("refused");
         assert_eq!(error.message_for_model, "only http(s) navigation is allowed (got file:)");
@@ -3331,6 +2459,34 @@ mod tests {
         }
     }
 
+    /// The connection loss is the typed cause, not a wording: a page exception whose text equals the transport message stays an
+    /// ordinary failure.
+    #[test]
+    fn only_the_typed_connection_loss_marks_a_command_failure_as_lost() {
+        let lost = RunError::from(HostCallError::ConnectionLost);
+        assert!(matches!(lost, RunError::ConnectionLost));
+        let message = HostCallError::ConnectionLost.to_string();
+        let thrown = RunError::from(HostCallError::Failed { message: message.clone() });
+        assert!(matches!(&thrown, RunError::Failed(text) if *text == message));
+        let unsupported = RunError::from(HostCallError::Unavailable { detail: "unsupportedMethod".into() });
+        assert!(matches!(unsupported, RunError::Failed(_)));
+        assert_eq!(lost.into_tool_error(&Masks, "s1").message_for_model, message);
+    }
+
+    /// Every conversion between the host call and the tool answer keeps the typed loss: the follow-up snapshot of a form edit
+    /// (`into_ref`), a step (`into_action`), an observation (`into_observe`), and the settle's and the reply wait's errors.
+    #[test]
+    fn the_typed_connection_loss_survives_every_conversion() {
+        assert_eq!(RunError::ConnectionLost.into_ref(), RefError::Host(HostCallError::ConnectionLost));
+        assert_eq!(RunError::ConnectionLost.into_action(), ActionError::Host(HostCallError::ConnectionLost));
+        assert_eq!(RunError::ConnectionLost.into_observe(), observe::ActionError::Host(HostCallError::ConnectionLost));
+        assert!(matches!(RunError::from(SettleError::ConnectionLost), RunError::ConnectionLost));
+        assert!(matches!(RunError::from(ReplyWaitError::Settle(SettleError::ConnectionLost)), RunError::ConnectionLost));
+        // Down the other way: a ref error that carries it is a host error that carries it.
+        assert_eq!(ref_to_host(RefError::Host(HostCallError::ConnectionLost)), HostCallError::ConnectionLost);
+        assert_eq!(action_to_ref(ActionError::Host(HostCallError::ConnectionLost)), RefError::Host(HostCallError::ConnectionLost));
+    }
+
     #[test]
     fn a_failure_leaves_through_the_secret_guard_and_a_refusal_keeps_its_type() {
         let failed = RunError::Failed("could not type hunter2".into()).into_tool_error(&Masks, "s1");
@@ -3471,68 +2627,6 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn an_upload_is_handed_to_the_approval_port_with_its_files_before_they_move_whatever_folder_they_are_in_from_every_session() {
-        let file = std::env::temp_dir().join("mixdog-live-upload").join("live-upload.txt").to_string_lossy().into_owned();
-        for session in ASKING_SESSIONS {
-            let receiver = Expect::ok("host/browser/upload/receiver", json!({"key": "frame-1", "url": LOOPBACK_PAGE, "facts": loopback_facts(2)}))
-                .with_params(json!({"pageId": "p1", "snapshotId": "p1-s1", "ref": "p1-s1-e1"}));
-            let host = Arc::new(FakeHost::scripted(vec![resolved_on_loopback(session), receiver]));
-            let approvals = Asked::answering(false);
-            let engine = engine_asking(&host, &approvals, ActionPolicy::from_env(None, None, None, is_action));
-            let denied = run_in(&engine, session, "upload", json!({"ref": "p1-s1-e1", "paths": [file]})).await.expect_err("the person said no");
-            assert_eq!(denied.message_for_model, browser_not_approved(""), "{session}");
-            let prompts = approvals.prompts();
-            assert_eq!(prompts.len(), 1, "{session}: asked once");
-            let prompt = &prompts[0];
-            assert_eq!(prompt.kinds, [BrowserApprovalRememberKind::Upload], "{session}");
-            assert_eq!((prompt.action.as_str(), prompt.url.as_str(), prompt.target.as_str()), ("upload", LOOPBACK_PAGE, "p1-s1-e1"), "{session}");
-            assert_eq!((prompt.session_id.as_str(), prompt.thread_id.as_ref().map(ThreadId::as_str)), (session, Some(session)), "{session}");
-            assert_eq!(prompt.paths, [file.clone()], "{session}");
-            let named: Vec<(&str, &str, i64, bool)> = prompt.files.iter().map(|file| (file.name.as_str(), file.path.as_str(), file.size, file.outside)).collect();
-            assert_eq!(named, [("live-upload.txt", file.as_str(), 16, false)], "{session}");
-            assert_eq!(prompt.receiver_origin, "http://127.0.0.1:5173", "{session}");
-            assert!(!prompt.payment, "{session}: an upload reads no payment evidence");
-            // The receiving frame was read for the card; the files never reached the page.
-            assert_eq!(asked_of(&host), ["host/browser/pages/resolve", "host/browser/upload/receiver"], "{session}");
-            host.finish().expect("no call beyond the script");
-        }
-    }
-
-    #[tokio::test]
-    async fn a_step_that_neither_submits_posts_nor_uploads_goes_on_with_no_question_and_the_operators_opt_out_asks_none() {
-        // The port of this test denies whatever it is asked, so a step that was asked ends as not approved. A step that was not
-        // asked goes on to the action itself, which refuses the ref of a snapshot this page never took (an upload reads its
-        // element first).
-        const WENT_ON: &str = "ref p1-s1-e1 is not from the latest snapshot; take a fresh snapshot first";
-        let file = std::env::temp_dir().join("mixdog-live-upload").join("live-upload.txt").to_string_lossy().into_owned();
-        let default = || ActionPolicy::from_env(None, None, None, is_action);
-        // `MIXDOG_BROWSER_CONFIRM_SUBMIT=0`: the operator turned the default asks off.
-        let opted_out = || ActionPolicy::from_env(None, None, Some("0"), is_action);
-        let steps: [(&str, Value, ActionPolicy); 5] = [
-            // Typing with no submit, and a click or a hover on a ref (a control's name is read from a `target` only, as
-            // `action-approval.ts` reads it: a ref names no send or post control).
-            ("type", json!({"ref": "p1-s1-e1", "text": "live"}), default()),
-            ("click", json!({"ref": "p1-s1-e1"}), default()),
-            ("hover", json!({"ref": "p1-s1-e1"}), default()),
-            ("type", json!({"ref": "p1-s1-e1", "text": "live", "submit": true}), opted_out()),
-            ("upload", json!({"ref": "p1-s1-e1", "paths": [file]}), opted_out()),
-        ];
-        for (action, command, policy) in steps {
-            let host = Arc::new(FakeHost::scripted(vec![resolved_on_loopback("sess_home_ann")]));
-            let approvals = Asked::answering(false);
-            let engine = engine_asking(&host, &approvals, policy);
-            let outcome = run_in(&engine, "sess_home_ann", action, command.clone()).await.map(|reply| reply.text).map_err(|error| error.message_for_model);
-            assert!(approvals.prompts().is_empty(), "{action} {command} asked");
-            match action {
-                // The upload went on to read the element it hands the files to (which this script does not answer); no receiving
-                // frame was read for a card.
-                "upload" => assert_eq!(asked_of(&host), ["host/browser/pages/resolve", "host/browser/ref/call"], "{action} {command}: {outcome:?}"),
-                _ => assert_eq!(outcome, Err(WENT_ON.to_owned()), "{action} {command}"),
-            }
-        }
-    }
-
     #[test]
     fn the_directory_knows_the_selected_page_and_the_named_background_pages_of_a_session() {
         let page = |id: &str, tab: &str, background: bool| -> PageDescriptor {
@@ -3553,12 +2647,18 @@ mod tests {
     #[tokio::test]
     async fn close_tab_closes_a_background_page_by_its_name_and_refuses_the_visible_tab() {
         let background = json!({"pageId": "p2", "tabId": "research", "sessionId": "s1", "background": true, "facts": page_facts("p2", 1)});
-        let listing = || Expect::ok("host/browser/pages/list", json!({"pages": [page_row("p1", "v1"), background.clone()], "activePageId": "p1"}));
+        // A tab the person opened with "+": shown (`background: false`) but named, so it is no visible `vN`.
+        let user = json!({"pageId": "p3", "tabId": "user-tab-1", "sessionId": "s1", "background": false, "facts": page_facts("p3", 1)});
+        let listing = || Expect::ok("host/browser/pages/list", json!({"pages": [page_row("p1", "v1"), background.clone(), user.clone()], "activePageId": "p1"}));
         let host = Arc::new(FakeHost::scripted(vec![
             listing(),
             Expect::ok("host/browser/pages/close", json!({"closed": true})).with_params(json!({"pageId": "p2", "reason": "agent"})),
             listing(),
             listing(),
+            listing(),
+            Expect::ok("host/browser/pages/close", json!({"closed": true})).with_params(json!({"pageId": "p3", "reason": "agent"})),
+            listing(),
+            Expect::ok("host/browser/pages/close", json!({"closed": true})).with_params(json!({"pageId": "p3", "reason": "agent"})),
         ]));
         let engine = engine(&host, None);
         let closed = run(&engine, "close_tab", json!({"tab": "research"})).await.expect("closes");
@@ -3567,7 +2667,62 @@ mod tests {
         assert!(visible.message_for_model.starts_with("\"v1\" is the visible tab"), "{}", visible.message_for_model);
         let unknown = run(&engine, "close_tab", json!({"tab": "nowhere"})).await.expect_err("unknown");
         assert_eq!(unknown.message_for_model, "unknown background tab \"nowhere\"; call list_tabs");
-        host.finish().expect("list, close, list, list");
+        // The user-opened tab closes by its page id in any case, and by its name.
+        let by_id = run(&engine, "close_tab", json!({"tab": "P3"})).await.expect("closes");
+        assert_eq!(by_id.text, "Closed background tab \"user-tab-1\".");
+        let by_name = run(&engine, "close_tab", json!({"tab": "user-tab-1"})).await.expect("closes");
+        assert_eq!(by_name.text, "Closed background tab \"user-tab-1\".");
+        // An empty name is refused before the host is asked.
+        let empty = run(&engine, "close_tab", json!({"tab": ""})).await.expect_err("empty");
+        assert_eq!(empty.message_for_model, "a background tab name is required");
+        host.finish().expect("list, close, list, list, list, close, list, close");
+    }
+
+    #[tokio::test]
+    async fn status_without_a_tab_reports_the_background_pages_when_no_visible_page_is_open() {
+        let background = |id: &str, name: &str| json!({"pageId": id, "tabId": name, "sessionId": "s1", "background": true, "facts": page_facts(id, 1)});
+        let host = Arc::new(FakeHost::scripted(vec![Expect::ok("host/browser/pages/list", json!({"pages": [background("p1", "alpha"), background("p2", "beta")]}))]));
+        let reply = run(&engine(&host, None), "status", json!({})).await.expect("reports the session's pages");
+        assert!(!reply.text.contains("No browser page is open"), "{}", reply.text);
+        assert!(reply.text.contains("- p1 [\"alpha\"] (background):") && reply.text.contains("- p2 [\"beta\"] (background):"), "{}", reply.text);
+        host.finish().expect("the listing only: no page was resolved");
+    }
+
+    #[tokio::test]
+    async fn status_asking_for_the_visible_page_reports_the_background_pages_when_none_is_visible() {
+        let background = |id: &str, name: &str| json!({"pageId": id, "tabId": name, "sessionId": "s1", "background": true, "facts": page_facts(id, 1)});
+        let host = Arc::new(FakeHost::scripted(vec![Expect::ok("host/browser/pages/list", json!({"pages": [background("p1", "alpha")]}))]));
+        let reply = run(&engine(&host, None), "status", json!({"background": false})).await.expect("reports the session's pages");
+        assert!(!reply.text.contains("No browser page is open"), "{}", reply.text);
+        assert!(reply.text.contains("- p1 [\"alpha\"] (background):"), "{}", reply.text);
+        host.finish().expect("the listing only: no page was resolved");
+    }
+
+    #[tokio::test]
+    async fn status_without_a_tab_still_reads_the_page_when_a_visible_one_is_open() {
+        let host = Arc::new(FakeHost::scripted(vec![Expect::ok("host/browser/pages/list", json!({"pages": [page_row("p1", "v1")], "activePageId": "p1"})), resolved("p1")]));
+        let reply = run(&engine(&host, None), "status", json!({})).await.expect("status");
+        assert!(reply.text.contains("Page: p1"), "{}", reply.text);
+    }
+
+    #[tokio::test]
+    async fn list_tabs_numbers_only_the_visible_tab_and_names_a_user_opened_one() {
+        let user = json!({"pageId": "p3", "tabId": "user-tab-1", "sessionId": "s1", "background": false, "facts": page_facts("p3", 1)});
+        let host = Arc::new(FakeHost::scripted(vec![Expect::ok("host/browser/pages/list", json!({"pages": [page_row("p1", "v1"), user], "activePageId": "p3"}))]));
+        let reply = run(&engine(&host, None), "list_tabs", json!({})).await.expect("lists");
+        assert!(reply.text.contains("- p1 [v1]:") && reply.text.contains("- p3 [\"user-tab-1\"] (background):") && !reply.text.contains("(active)"), "{}", reply.text);
+        host.finish().expect("one call");
+    }
+
+    /// A `tab:` target goes to the host as it was named, `v1` for the pane's tab and the name for a user-opened one.
+    #[tokio::test]
+    async fn a_tab_target_is_handed_to_the_host_as_named() {
+        for tab in ["v1", "user-tab-1"] {
+            let host = Arc::new(FakeHost::scripted(vec![resolved("p1"), Expect::ok("host/browser/snapshot", json!({"facts": page_facts("p1", 2)}))]));
+            let _ = run(&engine(&host, None), "snapshot", json!({"tab": tab})).await;
+            let resolve = host.calls().into_iter().find(|call| call.method == "host/browser/pages/resolve").expect("resolve call");
+            assert_eq!(resolve.params["tab"]["pageId"], json!(tab));
+        }
     }
 
     #[tokio::test]
@@ -3676,5 +2831,992 @@ mod tests {
         // A ref of another snapshot is not this one's.
         store.register_minted("p1", "p1-s9", &[crate::refs::target_resolve::css_element("p1-s9-t1".into(), "div".into(), "x".into())]);
         assert!(store.snapshot("p1", "p1-s1").expect("kept").refs.get("p1-s9-t1").is_none());
+    }
+
+
+    #[tokio::test]
+    async fn an_upload_is_handed_to_the_approval_port_with_its_files_before_they_move_whatever_folder_they_are_in_from_every_session() {
+        let file = std::env::temp_dir().join("mixdog-live-upload").join("live-upload.txt").to_string_lossy().into_owned();
+        for session in ASKING_SESSIONS {
+            let receiver = Expect::ok("host/browser/upload/receiver", json!({"key": "frame-1", "url": LOOPBACK_PAGE, "facts": loopback_facts(2)}))
+                .with_params(json!({"pageId": "p1", "snapshotId": "p1-s1", "ref": "p1-s1-e1"}));
+            let host = Arc::new(FakeHost::scripted(vec![resolved_on_loopback(session), receiver]));
+            let approvals = Asked::answering(false);
+            let engine = engine_asking(&host, &approvals, ActionPolicy::from_env(None, None, None, is_action));
+            let denied = run_in(&engine, session, "upload", json!({"ref": "p1-s1-e1", "paths": [file]})).await.expect_err("the person said no");
+            assert_eq!(denied.message_for_model, browser_not_approved(""), "{session}");
+            let prompts = approvals.prompts();
+            assert_eq!(prompts.len(), 1, "{session}: asked once");
+            let prompt = &prompts[0];
+            assert_eq!(prompt.kinds, [BrowserApprovalRememberKind::Upload], "{session}");
+            assert_eq!((prompt.action.as_str(), prompt.url.as_str(), prompt.target.as_str()), ("upload", LOOPBACK_PAGE, "p1-s1-e1"), "{session}");
+            assert_eq!((prompt.session_id.as_str(), prompt.thread_id.as_ref().map(ThreadId::as_str)), (session, Some(session)), "{session}");
+            assert_eq!(prompt.paths, [file.clone()], "{session}");
+            let named: Vec<(&str, &str, i64, bool)> = prompt.files.iter().map(|file| (file.name.as_str(), file.path.as_str(), file.size, file.outside)).collect();
+            assert_eq!(named, [("live-upload.txt", file.as_str(), 16, false)], "{session}");
+            assert_eq!(prompt.receiver_origin, "http://127.0.0.1:5173", "{session}");
+            assert!(!prompt.payment, "{session}: an upload reads no payment evidence");
+            // The receiving frame was read for the card; the files never reached the page.
+            assert_eq!(asked_of(&host), ["host/browser/pages/resolve", "host/browser/upload/receiver"], "{session}");
+            host.finish().expect("no call beyond the script");
+        }
+    }
+    #[tokio::test]
+    async fn a_step_that_neither_submits_posts_nor_uploads_goes_on_with_no_question_and_the_operators_opt_out_asks_none() {
+        // The port of this test denies whatever it is asked, so a step that was asked ends as not approved. A step that was not
+        // asked goes on to the action itself, which refuses the ref of a snapshot this page never took (an upload reads its
+        // element first).
+        const WENT_ON: &str = "ref p1-s1-e1 is not from the latest snapshot; take a fresh snapshot first";
+        let file = std::env::temp_dir().join("mixdog-live-upload").join("live-upload.txt").to_string_lossy().into_owned();
+        let default = || ActionPolicy::from_env(None, None, None, is_action);
+        // `MIXDOG_BROWSER_CONFIRM_SUBMIT=0`: the operator turned the default asks off.
+        let opted_out = || ActionPolicy::from_env(None, None, Some("0"), is_action);
+        let steps: [(&str, Value, ActionPolicy); 5] = [
+            // Typing with no submit, and a click or a hover on a ref (a control's name is read from a `target` only, as
+            // `action-approval.ts` reads it: a ref names no send or post control).
+            ("type", json!({"ref": "p1-s1-e1", "text": "live"}), default()),
+            ("click", json!({"ref": "p1-s1-e1"}), default()),
+            ("hover", json!({"ref": "p1-s1-e1"}), default()),
+            ("type", json!({"ref": "p1-s1-e1", "text": "live", "submit": true}), opted_out()),
+            ("upload", json!({"ref": "p1-s1-e1", "paths": [file]}), opted_out()),
+        ];
+        for (action, command, policy) in steps {
+            let host = Arc::new(FakeHost::scripted(vec![resolved_on_loopback("sess_home_ann")]));
+            let approvals = Asked::answering(false);
+            let engine = engine_asking(&host, &approvals, policy);
+            let outcome = run_in(&engine, "sess_home_ann", action, command.clone()).await.map(|reply| reply.text).map_err(|error| error.message_for_model);
+            assert!(approvals.prompts().is_empty(), "{action} {command} asked");
+            match action {
+                // The upload went on to read the element it hands the files to (which this script does not answer); no receiving
+                // frame was read for a card.
+                "upload" => assert_eq!(asked_of(&host), ["host/browser/pages/resolve", "host/browser/ref/call"], "{action} {command}: {outcome:?}"),
+                _ => assert_eq!(outcome, Err(WENT_ON.to_owned()), "{action} {command}"),
+            }
+        }
+    }
+}
+
+
+impl BrowserEngine {
+    /// An engine over the host lane `host`, with the services of the core around it.
+    pub fn new(host: Arc<dyn BrowserHost>, ports: EnginePorts) -> Self {
+        let store = Arc::new(FactsStore::default());
+        let queue = CommandQueue::new(ports.hold.clone());
+        let host = Arc::new(FactsHost { inner: host, store: store.clone() });
+        Self {
+            inner: Arc::new(Inner {
+                host,
+                ports,
+                store,
+                queue,
+                slots: Mutex::new(HashMap::new()),
+                directory: Mutex::new(Directory::default()),
+                tasks: Mutex::new(TaskPages::default()),
+                commands: AtomicU64::new(0),
+                in_flight: Mutex::new(HashMap::new()),
+                download_files: OnceLock::new(),
+                download_reports: Mutex::default(),
+            }),
+        }
+    }
+
+    /// The reader of saved downloads a `downloads` attach returns inline; set once by the core that composes the engine. A second
+    /// call changes nothing.
+    pub fn set_download_files(&self, files: Arc<dyn DownloadFiles>) {
+        let _ = self.inner.download_files.set(files);
+    }
+
+    /// What the host pushes goes through this: it is `inner` (the lane's sink), and the engine keeps the facts that pass.
+    pub fn sink(&self, inner: Arc<dyn EngineSink>) -> Arc<dyn EngineSink> {
+        Arc::new(FactsSink { inner, store: self.inner.store.clone() })
+    }
+
+    /// One Browser Use command of `thread`. `input` is the tool's arguments without `action`, with the runtime-set fields the
+    /// runtime adds (`unattended_run`, `unattended_agent`, `session_life`, `mail_link`). The command belongs to the session's
+    /// running turn (`TurnEvents` ends it).
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
+    pub async fn run(&self, thread: &ThreadId, action: &str, input: &Map<String, Value>, cancel: &CancellationToken) -> Result<ToolReply, CommandFailure> {
+        let inner = &self.inner;
+        let turn = locked(&inner.tasks).current(thread.as_str());
+        // The loss is latched where the host lane produces it, for this command: whatever a layer between the lane and here did with the
+        // error (worded it, swallowed it as a best-effort read), the answer still knows a request of this command was lost.
+        let (outcome, latched) = crate::error::track_connection_loss(inner.run_command(thread, turn, action, input, cancel)).await;
+        match outcome {
+            Ok(_) if latched => Err(CommandFailure {
+                error: RunError::ConnectionLost.into_tool_error(&*inner.ports.secrets, thread.as_str()),
+                timing: None,
+                connection_lost: true,
+            }),
+            Ok(reply) => Ok(guard_reply(&*inner.ports.secrets, thread.as_str(), reply)),
+            Err(Failed { error, timing }) => {
+                let connection_lost = latched || matches!(error, RunError::ConnectionLost);
+                Err(CommandFailure { error: error.into_tool_error(&*inner.ports.secrets, thread.as_str()), timing, connection_lost })
+            }
+        }
+    }
+
+    /// The running turn of `thread` ended (`finishBrowserTurn`): the pages it opened for itself are released when it was aborted (a
+    /// dialog that needs a person keeps its page), no later command of that turn runs, and the host drops what it remembered of the
+    /// turn and the untouched blank page the agent has since left behind. A turn nobody ran a command in is nothing to finish.
+    /// Answers how many pages were closed.
+    pub async fn finish_turn(&self, thread: &ThreadId, aborted: bool) -> usize {
+        match self.inner.end_turn(thread, aborted) {
+            Some(ended) => self.inner.close_ended(thread, ended, aborted).await,
+            None => 0,
+        }
+    }
+
+    /// The session is released: the pages it owned are no longer tracked, and the host forgets what it remembered of it.
+    pub async fn forget_session(&self, thread: &ThreadId) {
+        locked(&self.inner.tasks).forget(thread.as_str());
+        // The session's pages are gone with it, and so is the person's hold on them (`releaseLocal`): a hold left behind would
+        // refuse the next agent command on a page id the host never reuses, and keep a record for ever.
+        if let Some(held) = locked(&self.inner.directory).sessions.remove(thread.as_str()) {
+            for page_id in held.current.iter().chain(held.backgrounds.values()) {
+                self.inner.ports.hold.release_page(page_id);
+            }
+        }
+        self.inner.turn_note(thread, BrowserTurnOp::Forget, None, false).await;
+    }
+}
+impl PageCtx {
+    fn host(&self) -> &dyn BrowserHost {
+        &*self.inner.host
+    }
+
+    fn session(&self) -> &str {
+        self.thread.as_str()
+    }
+
+    fn token(&self) -> &CancellationToken {
+        self.cancel.token()
+    }
+
+    fn settle_page(&self) -> Page<'_> {
+        Page { host: self.host(), id: &self.page_id, probe: self }
+    }
+
+    /// The page's present facts, as the host last said them.
+    fn page_facts(&self) -> PageFacts {
+        self.inner.store.get(&self.page_id).unwrap_or_else(|| gone_facts(&self.page_id))
+    }
+
+    fn state_lock(&self) -> MutexGuard<'_, SlotState> {
+        locked(&self.slot.state)
+    }
+
+    /// The text as the agent may read it: the patterns of `redact_browser_text`, then what the session filled into pages.
+    fn redact(&self, text: &str) -> String {
+        self.inner.ports.secrets.redact(self.session(), &redact_browser_text(text))
+    }
+
+    /// The latest observation; one of a document that has since been replaced holds no refs.
+    fn latest_refs(&self) -> Option<RefSet> {
+        let document_id = self.page_facts().document_id;
+        let mut state = self.state_lock();
+        if let Some(refs) = state.refs.as_mut() {
+            refs.invalidate_on(&document_id);
+        }
+        state.refs.clone()
+    }
+
+    /// The state a mutating call is decided against. A page that has committed no document reports no address (a tab this command
+    /// just opened, whose first blank load is under way): there is none to bind the call to, and the one the page then commits is its
+    /// own first, not a change under the caller (the old runner acted on such a page as it stood: `runResolvedCommand` of
+    /// `command-runner.ts`). The document binds the call as on any page.
+    fn page_precondition(&self) -> Precondition {
+        let facts = self.page_facts();
+        let origin = origin_of_url(&facts.url);
+        Precondition {
+            document_id: facts.document_id.clone(),
+            origin: (!origin.is_empty()).then_some(origin),
+            url: (!facts.url.is_empty()).then(|| facts.url.clone()),
+            child_sessions: Some(facts.child_sessions.iter().map(|child| child.session_id.clone()).collect()),
+            receiver_key: None,
+            snapshot_id: self.latest_refs().map(|refs| refs.snapshot_id),
+        }
+    }
+
+    /// The guard of a move between documents (`navigate` to a URL, a reload, `back`). The move replaces the document: the address,
+    /// the origin, the frames and the observation the page holds are what it discards, so none of them is a state the move is decided
+    /// against (the old handlers checked nothing: `navigate` and `back` of `actions/navigation.ts` loaded into whatever the page
+    /// held). The document is named because the wire has no guard without one.
+    fn navigation_precondition(&self) -> Precondition {
+        Precondition { document_id: self.page_facts().document_id, origin: None, url: None, child_sessions: None, receiver_key: None, snapshot_id: None }
+    }
+
+    /// The URL policy a navigation is decided under: the engine's own, or (a test build only) the one a test run names for the
+    /// command (`UrlPolicyOfRun`).
+    fn urls(&self) -> mixdog_browser_policy::url_policy::UrlPolicy {
+        #[cfg(feature = "test-support")]
+        if let Some(named) = locked(&URL_POLICY_OF_RUN).clone() {
+            return named;
+        }
+        self.inner.ports.urls.clone()
+    }
+
+    /// One move, decided against the document the page holds now.
+    async fn move_once(&self, action: Action, command: &Value) -> Result<NavigateOutcome, observe::ActionError> {
+        let precondition = self.navigation_precondition();
+        let call = NavigateCall { host: self.host(), page_id: &self.page_id, expect: &precondition, cancel: &self.cancel };
+        if action == Action::Back { navigation::back(&call).await } else { navigation::navigate(&call, command, &self.urls(), wall_clock_ms()).await }
+    }
+
+    /// The move, sent once more when the host refused the document it named. The refusal sent nothing and told the page's present
+    /// facts (the lane keeps them): the page replaced its document meanwhile (a tab this command opened starting its first blank load,
+    /// a redirect), and a move has no earlier document to protect. A second refusal is the failure.
+    async fn moved(&self, action: Action, command: &Value) -> Result<NavigateOutcome, observe::ActionError> {
+        match self.move_once(action, command).await {
+            Err(observe::ActionError::Host(HostCallError::PreconditionFailed { .. })) => self.move_once(action, command).await,
+            outcome => outcome,
+        }
+    }
+
+    fn invalidate(&self) {
+        let mut state = self.state_lock();
+        state.refs = None;
+        state.grounding = None;
+    }
+
+    /// Runs `read` on the page's ledgers (a page the mirror never heard of reads empty ones).
+    fn with_ledgers<R>(&self, read: impl FnOnce(&mut PageLedgers) -> R) -> R {
+        let mut pending = Some(read);
+        let mut done: Option<R> = None;
+        self.inner.ports.mirror.with_ledgers(&self.page_id, |ledgers| {
+            if let Some(read) = pending.take() {
+                done = Some(read(ledgers));
+            }
+        });
+        match (done, pending) {
+            (Some(value), _) => value,
+            (None, Some(read)) => read(&mut PageLedgers::new(Arc::new(|text: &str| redact_browser_text(text)))),
+            (None, None) => unreachable!("a read runs on the ledgers or on empty ones"),
+        }
+    }
+
+    fn call(&self) -> page::PageCall<'_> {
+        page::PageCall { host: self.host(), page_id: &self.page_id, cancel: self.token() }
+    }
+
+    fn observe_call<'a>(&'a self, expect: Option<&'a Precondition>) -> observe::PageCall<'a> {
+        observe::PageCall { host: self.host(), page_id: &self.page_id, expect, cancel: &self.cancel }
+    }
+
+    /// One sign-in question to the host about this page. The hooks add to a command that already ran, so a host that cannot answer
+    /// them (a failure of its own) says nothing; a command the caller cancelled, or a person who took the page, still ends it.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
+    async fn sign_in(&self, op: BrowserSignInOp, action: Option<&str>, command: Option<Value>, explicit_fill: Option<bool>) -> Result<Option<HostBrowserSignInResult>, RunError> {
+        let params = HostBrowserSignInParams {
+            session_id: self.session().to_owned(),
+            page_id: self.page_id.clone(),
+            op,
+            turn: i64::try_from(self.turn).ok(),
+            action: action.map(str::to_owned),
+            command,
+            explicit_fill,
+        };
+        match self.host().sign_in(params, self.token()).await {
+            Ok(said) => Ok(Some(said)),
+            Err(error @ (HostCallError::Cancelled | HostCallError::UserInput { .. })) => Err(error.into()),
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// Before a click, fill or type is sent (`linkedSignIn.beforeAction`): the host notes which field of a provider's sign-in the agent is
+    /// about to name, from the command's own `ref`, `target`, `text` and `fields`.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
+    async fn before_action(&self, action: Action, command: &Value) -> Result<(), RunError> {
+        if !matches!(action, Action::Click | Action::Fill | Action::Type) {
+            return Ok(());
+        }
+        let named: Map<String, Value> = ["ref", "target", "text", "fields"].into_iter().filter_map(|key| command.get(key).map(|value| (key.to_owned(), value.clone()))).collect();
+        self.sign_in(BrowserSignInOp::BeforeAction, Some(action.name()), Some(Value::Object(named)), None).await?;
+        Ok(())
+    }
+
+    /// After the action: a page that asks for a sign-in a saved login fits is signed in by the host once per site and turn, and its
+    /// note leads a fresh observation that replaces the reply (`autoSignIn.afterCommand`); the identity a provider flow last used
+    /// is a line ahead of the reply (`linkedSignIn.replyLine`). An `open` answers with its placement, the note and the line.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
+    async fn after_command(&self, action: Action, background: bool, placement: Option<BrowserPlacement>, hints: &SignInHints, mut reply: ToolReply) -> Result<ToolReply, RunError> {
+        let said = self.sign_in(BrowserSignInOp::AfterCommand, None, None, Some(hints.explicit_fill)).await?;
+        let note = said.as_ref().and_then(|said| said.note.clone()).filter(|note| !note.is_empty());
+        let line = said.as_ref().and_then(|said| said.line.clone()).filter(|line| !line.is_empty());
+        if action == Action::Open && !background {
+            // An open always answers with its placement: exactly one of shown or pending (a failure to place is thrown).
+            let placed = placement_line(&self.page_facts(), placement)?;
+            reply.text = self.redact(&[Some(placed), note, line].into_iter().flatten().collect::<Vec<_>>().join("\n\n"));
+            return Ok(reply);
+        }
+        if let Some(note) = &note {
+            let mut observe = json!({"action": "snapshot"});
+            if let Some(max_chars) = &hints.max_chars {
+                observe["maxChars"] = max_chars.clone();
+            }
+            self.invalidate();
+            let after = match self.snapshot_reply(&observe, &ReplyOptions::default()).await {
+                Ok(after) | Err(RunError::Reply(after)) => after,
+                Err(error) => return Err(error),
+            };
+            reply = ToolReply { text: format!("{note}\n\n{}", after.text), ..after };
+        }
+        if let Some(line) = &line {
+            reply.text = format!("{line}\n\n{}", reply.text);
+        }
+        if note.is_some() || line.is_some() {
+            reply.text = self.redact(&reply.text);
+        }
+        Ok(reply)
+    }
+
+    /// The session's download ledger as the host keeps it; a reply is still given when it cannot be read.
+    async fn session_downloads(&self) -> Vec<DownloadItem> {
+        let params = HostBrowserDownloadsParams { session_id: self.session().to_owned(), op: BrowserDownloadsOp::List, since: None, id: None };
+        self.host().downloads(params, self.token()).await.map(|answer| answer.items).unwrap_or_default()
+    }
+
+    fn snapshot_params(&self, command: &Value) -> HostBrowserSnapshotParams {
+        let query = command.get("query").and_then(Value::as_str).map(|query| mixdog_js::js_trim(query).to_owned()).filter(|query| !query.is_empty());
+        let mode = if command.get("viewportOnly") == Some(&Value::Bool(true)) {
+            BrowserSnapshotMode::Viewport
+        } else if query.is_some() {
+            BrowserSnapshotMode::Query
+        } else {
+            BrowserSnapshotMode::Full
+        };
+        let max_elements = command.get("maxElements").filter(|value| truthy(Some(value))).and_then(Value::as_f64).filter(|number| number.is_finite());
+        let max_elements = max_elements.map_or(SNAPSHOT_MAX_ELEMENTS as i64, |number| number.trunc() as i64).clamp(1, SNAPSHOT_TOOL_MAX_ELEMENTS as i64);
+        // An evaluate's reply keeps page text short: the script result already occupies it.
+        let text_chars = if command.get("action").and_then(Value::as_str) == Some("evaluate") {
+            SNAPSHOT_TEXT_CHARS as i64
+        } else {
+            bounded(command.get("maxChars"), SNAPSHOT_TEXT_CHARS as i64, 1, READ_MAX_CHARS as i64)
+        };
+        HostBrowserSnapshotParams {
+            page_id: self.page_id.clone(),
+            mode,
+            query,
+            max_elements: u32::try_from(max_elements).ok(),
+            text_chars: u32::try_from(text_chars).ok(),
+            frame: None,
+        }
+    }
+
+    /// The snapshot as a reply shows it, for a covered element's refusal and a recovery's report.
+    fn format_snapshot_text(&self, snapshot: &HostBrowserSnapshotResult) -> String {
+        let facts = self.page_facts();
+        self.with_ledgers(|ledgers| {
+            let mut diagnostics = SnapshotDiagnostics {
+                pending_dialog: facts.pending_dialog.as_ref(),
+                dismissed_dialog: None,
+                pending_file_chooser: facts.pending_file_chooser.as_ref(),
+                ledgers,
+            };
+            self.redact(&format_snapshot(&snapshot.payload, &mut diagnostics, &SnapshotExtras { downloads: &[], brief_against: None }))
+        })
+    }
+
+    /// What this page's reply has not said yet, without a snapshot (`reportPage`); empty when nothing is new.
+    fn page_report(&self, downloads: &[DownloadItem]) -> String {
+        let facts = self.page_facts();
+        let redact = |text: &str| self.redact(text);
+        let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
+        let mut state = self.state_lock();
+        let SlotState { reply, .. } = &mut *state;
+        let mut reports = locked(&self.inner.download_reports);
+        let mut page = ReplyPage { facts: &facts, state: reply, downloads, download_reports: &mut reports, now_ms: wall_clock_ms() };
+        self.with_ledgers(|ledgers| page_report_text(&ctx, &mut page, ledgers))
+    }
+
+    /// The handles one command acts on its page's elements with.
+    fn ref_actions(&self) -> RefActions {
+        let host: Arc<dyn BrowserHost> = self.inner.host.clone();
+        let redacting = self.clone();
+        let formatting = self.clone();
+        let secrets = self.inner.ports.secrets.clone();
+        let session = self.session().to_owned();
+        RefActions {
+            host,
+            page_id: self.page_id.clone(),
+            expect: self.page_precondition(),
+            cancel: self.cancel.clone(),
+            redact: Arc::new(move |text: &str| redacting.redact(text)),
+            remember_secret: Arc::new(move |secret: &str| secrets.remember(&session, secret)),
+            format_snapshot: Arc::new(move |snapshot: &HostBrowserSnapshotResult| formatting.format_snapshot_text(snapshot)),
+            dropdown_timeout: CUSTOM_DROPDOWN_TIMEOUT,
+            dropdown_poll: CUSTOM_DROPDOWN_POLL,
+            timer: Some(self.timer.clone()),
+        }
+    }
+
+    /// Every target resolved against ONE fresh observation, waiting out a target that matched nothing yet (`resolveTargetRefs`).
+    async fn resolve_targets(&self, raw: &[Value]) -> Result<Vec<ResolvedTarget>, ActionError> {
+        let expect = self.page_precondition();
+        let (host, cancel, page_id) = (self.host(), &self.cancel, self.page_id.as_str());
+        let expect_ref = &expect;
+        let resolved = self
+            .timer
+            .phase(
+                Phase::Target,
+                wait_for_actionable(
+                    move || async move {
+                        let target = TargetContext { host, page_id, expect: Some(expect_ref), cancel: cancel.token() };
+                        resolve_targets(&target, raw).await.map_err(|error| match error {
+                            TargetError::Missing(message) => ProbeFailure::NotActionable(ActionabilityError::new(message, ActionabilityReason::Missing)),
+                            other => ProbeFailure::Other(other),
+                        })
+                    },
+                    cancel,
+                    ACTIONABILITY_TIMEOUT,
+                ),
+            )
+            .await?;
+        self.register_minted(&resolved);
+        Ok(resolved)
+    }
+
+    /// The selector matches this resolution minted refs for join the page's ref set (the one the page reports against, and the
+    /// snapshot's own in the store).
+    fn register_minted(&self, resolved: &[ResolvedTarget]) {
+        for (snapshot_id, minted) in resolved.iter().fold(Vec::<(&str, Vec<BrowserSnapshotElement>)>::new(), |mut grouped, target| {
+            if let Some(element) = &target.minted {
+                match grouped.iter_mut().find(|(id, _)| *id == target.snapshot_id) {
+                    Some((_, elements)) => elements.push(element.clone()),
+                    None => grouped.push((target.snapshot_id.as_str(), vec![element.clone()])),
+                }
+            }
+            grouped
+        }) {
+            self.inner.store.register_minted(&self.page_id, snapshot_id, &minted);
+            let Some(joined) = self.inner.store.snapshot(&self.page_id, snapshot_id) else { continue };
+            let mut state = self.state_lock();
+            if let Some(held) = state.refs.as_mut().filter(|held| held.snapshot_id == snapshot_id && held.len() != joined.refs.len()) {
+                *held = joined.refs.clone().with_observation(held.observation.as_deref());
+            }
+        }
+    }
+
+    // ---- the reply ----
+
+    /// The reply of a command that observed the page (`snapshotResult`): the page settled, its postcondition verified, a snapshot
+    /// taken and put into words, and the screenshot the command asked for bound to it.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
+    async fn snapshot_reply(&self, command: &Value, options: &ReplyOptions) -> Result<ToolReply, RunError> {
+        let action = text_of(command.get("action"));
+        let blocked = |facts: &PageFacts| facts.pending_dialog.as_ref().map(|dialog| blocking_dialog_reply(dialog, true, &|text: &str| self.redact(text)));
+        if let Some(reply) = blocked(&self.page_facts()) {
+            return Ok(reply);
+        }
+        let wait_options = ReplyWaitOptions {
+            settle_action: options.settle_action,
+            preexisting_postcondition: options.preexisting,
+            baseline_url: options.baseline.as_ref().map(|refs| refs.url.clone()),
+            expected: Some(options.expected.clone()),
+        };
+        let wait = self
+            .timer
+            .phase(Phase::Wait, await_reply_ready(&self.settle_page(), &SettlePolicy::default(), command.get("settleMs"), command.get("expect"), &wait_options, &self.cancel))
+            .await?;
+        let facts = self.page_facts();
+        if let Some(reply) = blocked(&facts) {
+            return Ok(reply);
+        }
+        if let Some(fault) = facts.fault.as_deref().filter(|fault| !fault.is_empty()) {
+            return Err(RunError::Failed(format!("{fault}; navigate to reload this page or choose another tab")));
+        }
+        let params = self.snapshot_params(command);
+        let result = self.timer.phase(Phase::Snapshot, self.host().snapshot(params, self.token())).await?;
+        let refs = RefSet::from_payload(&result.snapshot_id, &result.payload).with_document(&result.document_id, result.revision).with_observation(result.observation.as_deref());
+        {
+            let mut state = self.state_lock();
+            state.refs = Some(refs.clone());
+            state.grounding = None;
+            state.scroll_y = Some(result.payload.scroll_y);
+        }
+        let facts = self.page_facts();
+        let downloads = self.session_downloads().await;
+        let brief = command.get("brief") == Some(&Value::Bool(true));
+        let brief_against = options.report_baseline.clone().or_else(|| options.baseline.clone());
+        let request = ReplyRequest {
+            action: &action,
+            brief,
+            brief_against: brief_against.as_ref(),
+            effect: ReplyEffect {
+                settle_ms: u64::try_from(wait.settle.as_millis()).ok(),
+                expected: wait.expected.as_ref().map(|expected| describe(expected.expected())),
+                postcondition_matched: wait.postcondition_matched,
+                postcondition_elapsed_ms: u64::try_from(wait.postcondition_elapsed.as_millis()).unwrap_or(u64::MAX),
+                preexisting_postcondition: options.preexisting,
+                settle_action: options.settle_action,
+                baseline: options.baseline.as_ref().map(EffectBaseline::of),
+            },
+        };
+        let redact = |text: &str| self.redact(text);
+        let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
+        let capture = SnapshotCapture { payload: &result.payload, observation: result.observation.as_deref() };
+        let mut reply = {
+            let mut state = self.state_lock();
+            let SlotState { reply, .. } = &mut *state;
+            let mut reports = locked(&self.inner.download_reports);
+            let mut page = ReplyPage { facts: &facts, state: reply, downloads: &downloads, download_reports: &mut reports, now_ms: wall_clock_ms() };
+            self.with_ledgers(|ledgers| finish_now(build_reply(&ctx, &request, &mut page, ledgers, Some(capture), None)))?
+        };
+        if command.get("includeScreenshot") == Some(&Value::Bool(true)) {
+            self.attach_shot(command, &mut reply).await?;
+        }
+        Ok(reply)
+    }
+
+    /// The screenshot of the command, bound to the snapshot just taken; coordinate actions are then expressed in it.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
+    async fn attach_shot(&self, command: &Value, reply: &mut ToolReply) -> Result<(), RunError> {
+        let params = observe::screenshot_params(&self.page_id, command, self.background)?;
+        let full_page = params.full_page == Some(true);
+        let bound = self.latest_refs();
+        let answer = self.timer.phase(Phase::Screenshot, self.host().screenshot(params, self.token())).await?;
+        let capture = read_capture(&answer, full_page, &*self.inner.ports.blobs).await?;
+        let latest = self.latest_refs();
+        let input = ScreenshotInput {
+            capture: &capture,
+            bound: bound.as_ref(),
+            latest: latest.as_ref(),
+            output: ImageOutput::from_command(command.get("image_output").and_then(Value::as_str)),
+            frame_dir: &self.inner.ports.frame_dir,
+            now: std::time::Instant::now(),
+        };
+        attach_screenshot(&*self.inner.ports.files, reply, input).await?;
+        self.state_lock().grounding = reply.grounding.clone();
+        Ok(())
+    }
+
+    /// What follows a gesture: the settled snapshot reply, or, for a step of a sequence, only whether the page settled.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
+    async fn settled(&self, command: &Value, options: &ReplyOptions) -> Result<ToolReply, RunError> {
+        if command.get("internalStep") != Some(&Value::Bool(true)) {
+            return self.snapshot_reply(command, options).await;
+        }
+        let step = step_settle_result(&self.settle_page(), &SettlePolicy::default(), &self.cancel).await?;
+        let outcome = match step.outcome {
+            StepKind::Completed => ReplyOutcome::Completed,
+            StepKind::Inconclusive => ReplyOutcome::Inconclusive,
+            StepKind::Blocked => ReplyOutcome::Blocked,
+        };
+        Ok(ToolReply { text: step.text, outcome: Some(outcome), ..ToolReply::default() })
+    }
+
+    /// The reply of an action that is not an observation: its own lead, the recovery notes when it asked for them, the settled page.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
+    async fn gesture_reply(&self, output: ActionOutput, command: &Value, recovery: &RefRecoveryContext, options: &ReplyOptions) -> Result<ToolReply, RunError> {
+        self.timer.merge_input(&output.input);
+        let mut reply = self.settled(command, options).await?;
+        let text = if output.decorate_recovery { decorate_recovery(&reply.text, recovery) } else { reply.text.clone() };
+        reply.text = format!("{}{text}", output.lead);
+        Ok(reply)
+    }
+
+    // ---- the actions ----
+
+    /// One action on the page, after the command was admitted: the dialog check, the approval, the action itself and its reply. A
+    /// step of a sequence comes back through here (`internalStep`), without the approval.
+    /// What a page held by a dialog answers to an action that needs the page: a blocked page accepts no gesture (the input would
+    /// queue behind the dialog and replay after handle_dialog, which nobody asked for).
+    fn dialog_block(&self, action: Action) -> Option<ToolReply> {
+        if DIALOG_TOLERANT_ACTIONS.contains(&action.name()) {
+            return None;
+        }
+        self.page_facts().pending_dialog.map(|dialog| blocking_dialog_reply(&dialog, false, &|text: &str| self.redact(text)))
+    }
+
+    /// One step of a sequence: the dialog's answer when the page is blocked, else the action.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
+    async fn dispatch(&self, action: Action, command: Value, expected: Option<Postcondition>, has_screenshot_options: bool) -> Result<ToolReply, RunError> {
+        match self.dialog_block(action) {
+            Some(blocked) => Ok(blocked),
+            None => self.act(action, command, expected, has_screenshot_options).await,
+        }
+    }
+
+    /// `act` behind a box made in a frame that is gone when this returns (see `execute_resolved_boxed`).
+    #[inline(never)]
+    fn act_boxed<'a>(&'a self, action: Action, command: Value, expected: Option<Postcondition>, has_screenshot_options: bool) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(self.act(action, command, expected, has_screenshot_options))
+    }
+
+    /// `after_command` behind a box made in a frame that is gone when this returns (see `execute_resolved_boxed`).
+    #[inline(never)]
+    fn after_command_boxed<'a>(&'a self, action: Action, background: bool, placement: Option<BrowserPlacement>, hints: &'a SignInHints, reply: ToolReply) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(self.after_command(action, background, placement, hints, reply))
+    }
+
+    /// The action itself, on a page no dialog blocks for it.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
+    async fn act(&self, action: Action, mut command: Value, expected: Option<Postcondition>, has_screenshot_options: bool) -> Result<ToolReply, RunError> {
+        let internal = command.get("internalStep") == Some(&Value::Bool(true));
+        let facts = self.page_facts();
+        let mut recovery = RefRecoveryContext::new(self.latest_refs());
+        let report_baseline = self.latest_refs();
+        // The latest observation of this page is what the gesture starts from; a target resolution moves it to a fresher one.
+        let mut baseline = self.latest_refs();
+        let preexisting = match &expected {
+            Some(condition) if action != Action::Navigate && facts.pending_dialog.is_none() => postcondition_matches_page(&self.settle_page(), condition, &self.cancel).await?,
+            _ => false,
+        };
+        if action == Action::Upload && !internal && !truthy(command.get("ref")) {
+            // An upload resolves its real target before the person is asked: a `target` becomes the ref the handler then uses.
+            if let Some(target) = command.get("target").filter(|target| !target.is_null()).cloned() {
+                let resolved = self.resolve_targets(std::slice::from_ref(&target)).await?;
+                let mut cx = ActionContext { host: self.host(), page: self, command: &command, cancel: &self.cancel, recovery: &mut recovery, effect_baseline: &mut baseline };
+                adopt_resolved_targets(&mut cx, &resolved);
+                if let Some(first) = resolved.first() {
+                    command["ref"] = Value::String(first.ref_id.clone());
+                }
+            }
+        }
+        let approved = if internal { None } else { self.inner.approve(&self.thread, &mut command, Some(self), &self.cancel, &self.user_wait).await? };
+        self.before_action(action, &command).await?;
+        let options = |settle_action: bool, baseline: &Option<RefSet>| ReplyOptions {
+            expected: expected.clone(),
+            preexisting,
+            settle_action,
+            baseline: baseline.clone(),
+            report_baseline: report_baseline.clone(),
+        };
+        // Every arm that awaits is its own boxed call: a debug frame keeps a slot for each future the function builds, and the whole
+        // match in this frame held about a megabyte on the stack of the worker thread (2 MB) for any action.
+        match action {
+            Action::Open => Ok(navigation::open(self.background)),
+            Action::Snapshot => self.snapshot_boxed(&command).await,
+            Action::Locate => self.locate_boxed(&command).await,
+            Action::Read => self.read_boxed(&command).await,
+            Action::Extract => self.extract_boxed(&command).await,
+            Action::Status => Ok(self.with_ledgers(|ledgers| diagnostics::status(&facts, ledgers))),
+            Action::Console => Ok(self.with_ledgers(|ledgers| diagnostics::console(ledgers, &command))?),
+            Action::Network => self.network_boxed(&command).await,
+            Action::Wait => self.wait_boxed(&command).await,
+            Action::Navigate | Action::Back => self.navigate_boxed(action, &command, &options(true, &baseline)).await,
+            Action::Evaluate => self.evaluate_boxed(&command, expected.is_some(), has_screenshot_options, &options(true, &baseline)).await,
+            Action::Emulate => self.emulate_boxed(&command, &options(true, &baseline)).await,
+            Action::Cookies => self.cookies_boxed(&command, &facts.url).await,
+            Action::Storage => self.storage_boxed(&command).await,
+            Action::Intercept => self.intercept_boxed(&command).await,
+            Action::InitScript => self.init_script_boxed(&command).await,
+            Action::Performance => self.performance_boxed(&command).await,
+            Action::Click | Action::Hover | Action::Drag | Action::Press | Action::Scroll | Action::Sequence => self.gesture_boxed(action, &command, &mut recovery, &mut baseline, &options).await,
+            Action::Fill | Action::Type | Action::Select | Action::HandleDialog => {
+                self.form_boxed(action, &command, &mut recovery, &mut baseline, &expected, preexisting, &report_baseline).await
+            }
+            Action::Upload => self.upload_boxed(&command, &facts, approved.as_ref(), &mut recovery, &mut baseline, &options).await,
+            Action::ListTabs | Action::CloseTab | Action::Downloads | Action::Hide => Err(RunError::Failed(format!("{} addresses the session, not a page", action.name()))),
+        }
+    }
+
+    // The boxed arms of `act`: each builds its future in a frame that is gone when it returns (see `execute_resolved_boxed`).
+
+    #[inline(never)]
+    fn snapshot_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(self.snapshot_action(command))
+    }
+
+    #[inline(never)]
+    fn locate_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(self.locate_action(command))
+    }
+
+    #[inline(never)]
+    fn network_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(self.network_action(command))
+    }
+
+    #[inline(never)]
+    fn navigate_boxed<'a>(&'a self, action: Action, command: &'a Value, options: &'a ReplyOptions) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(self.navigate_action(action, command, options))
+    }
+
+    #[inline(never)]
+    fn evaluate_boxed<'a>(&'a self, command: &'a Value, has_postcondition: bool, has_screenshot_options: bool, options: &'a ReplyOptions) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(self.evaluate_action(command, has_postcondition, has_screenshot_options, options))
+    }
+
+    #[inline(never)]
+    fn read_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let precondition = self.page_precondition();
+            let redact = |text: &str| self.redact(text);
+            Ok(observe::read(&self.observe_call(Some(&precondition)), command, &redact).await?)
+        })
+    }
+
+    #[inline(never)]
+    fn extract_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let precondition = self.page_precondition();
+            Ok(observe::extract(&self.observe_call(Some(&precondition)), command).await?)
+        })
+    }
+
+    #[inline(never)]
+    fn wait_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let report = WaitSnapshot { page: self, command };
+            Ok(self.timer.phase(Phase::Wait, flow::wait(&self.settle_page(), &self.cancel, command, &report)).await?)
+        })
+    }
+
+    #[inline(never)]
+    fn emulate_boxed<'a>(&'a self, command: &'a Value, options: &'a ReplyOptions) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let input = command.as_object().cloned().unwrap_or_default();
+            let applied = crate::actions::emulation::emulate(&self.call(), &input).await?;
+            self.invalidate();
+            let snapshot = self.settled(command, options).await?;
+            Ok(emulation::configured_reply(&applied, snapshot))
+        })
+    }
+
+    #[inline(never)]
+    fn cookies_boxed<'a>(&'a self, command: &'a Value, url: &'a str) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let input = command.as_object().cloned().unwrap_or_default();
+            Ok(page::cookies(&self.call(), url, &input).await?)
+        })
+    }
+
+    #[inline(never)]
+    fn storage_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let input = command.as_object().cloned().unwrap_or_default();
+            let redact = |text: &str| self.redact(text);
+            let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
+            let outcome = page::storage(&self.call(), &ctx, &input).await?;
+            if outcome.invalidates_refs {
+                self.invalidate();
+            }
+            Ok::<ToolReply, RunError>(outcome.reply)
+        })
+    }
+
+    #[inline(never)]
+    fn intercept_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move { Ok(page::intercept(&self.call(), &command.as_object().cloned().unwrap_or_default()).await?) })
+    }
+
+    #[inline(never)]
+    fn init_script_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move { Ok(page::init_script(&self.call(), &command.as_object().cloned().unwrap_or_default()).await?) })
+    }
+
+    #[inline(never)]
+    fn performance_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let input = command.as_object().cloned().unwrap_or_default();
+            Ok(page::performance(&self.call(), &*self.inner.ports.files, &input, || self.reload_and_settle()).await?)
+        })
+    }
+
+    #[inline(never)]
+    fn gesture_boxed<'a, F>(&'a self, action: Action, command: &'a Value, recovery: &'a mut RefRecoveryContext, baseline: &'a mut Option<RefSet>, options: &'a F) -> BoxedFuture<'a, Result<ToolReply, RunError>>
+    where
+        F: Fn(bool, &Option<RefSet>) -> ReplyOptions + Sync,
+    {
+        Box::pin(async move {
+            let output = {
+                let mut cx = ActionContext { host: self.host(), page: self, command, cancel: &self.cancel, recovery: &mut *recovery, effect_baseline: &mut *baseline };
+                match action {
+                    Action::Click => pointer::click(&mut cx).await,
+                    Action::Hover => pointer::hover(&mut cx).await,
+                    Action::Drag => pointer::drag(&mut cx).await,
+                    Action::Press => pointer::press(&mut cx).await,
+                    Action::Scroll => pointer::scroll(&mut cx).await,
+                    _ => sequence(&mut cx, &SequenceSteps { page: self }).await,
+                }
+            }?;
+            self.gesture_reply(output, command, recovery, &options(true, baseline)).await
+        })
+    }
+
+    #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
+    fn form_boxed<'a>(
+        &'a self,
+        action: Action,
+        command: &'a Value,
+        recovery: &'a mut RefRecoveryContext,
+        baseline: &'a mut Option<RefSet>,
+        expected: &'a Option<Postcondition>,
+        preexisting: bool,
+        report_baseline: &'a Option<RefSet>,
+    ) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let mut form = FormCtx { page: self, command, recovery, baseline, expected, preexisting, report_baseline };
+            let reply = match action {
+                Action::Fill => forms::fill(&mut form).await,
+                Action::Type => forms::type_text(&mut form).await,
+                Action::Select => forms::select(&mut form).await,
+                _ => forms::handle_dialog(&mut form).await,
+            };
+            Ok::<ToolReply, RunError>(reply?)
+        })
+    }
+
+    #[inline(never)]
+    fn upload_boxed<'a, F>(
+        &'a self,
+        command: &'a Value,
+        facts: &'a PageFacts,
+        approved: Option<&'a Binding>,
+        recovery: &'a mut RefRecoveryContext,
+        baseline: &'a mut Option<RefSet>,
+        options: &'a F,
+    ) -> BoxedFuture<'a, Result<ToolReply, RunError>>
+    where
+        F: Fn(bool, &Option<RefSet>) -> ReplyOptions + Sync,
+    {
+        Box::pin(async move {
+            let paths: Vec<String> = command.get("paths").and_then(Value::as_array).map(|paths| paths.iter().map(|path| text_of(Some(path))).collect()).unwrap_or_default();
+            let ref_id = truthy(command.get("ref")).then(|| text_of(command.get("ref")));
+            let snapshot_id = ref_id.as_deref().map(|id| snapshot_of_ref(id).to_owned()).or_else(|| self.latest_refs().map(|refs| refs.snapshot_id)).unwrap_or_default();
+            let target = UploadTarget { page_id: &self.page_id, snapshot_id: &snapshot_id, ref_id: ref_id.as_deref() };
+            let outcome = upload::upload_files(self.host(), &*self.inner.ports.files, &target, &paths, facts, approved, self.token()).await?;
+            self.invalidate();
+            let summary = outcome.summary();
+            let output = ActionOutput { lead: if summary.is_empty() { String::new() } else { format!("{summary}\n\n") }, decorate_recovery: true, input: Vec::new() };
+            self.gesture_reply(output, command, recovery, &options(true, baseline)).await
+        })
+    }
+
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
+    async fn snapshot_action(&self, command: &Value) -> Result<ToolReply, RunError> {
+        let plan = observe::plan_snapshot(command)?;
+        let precondition = self.page_precondition();
+        let call = self.observe_call(Some(&precondition));
+        let ports = ShotPorts { blobs: &*self.inner.ports.blobs, files: &*self.inner.ports.files, frame_dir: &self.inner.ports.frame_dir };
+        match plan {
+            SnapshotPlan::Semantic => self.snapshot_reply(command, &ReplyOptions::default()).await,
+            SnapshotPlan::Both => {
+                let mut with_screenshot = command.clone();
+                with_screenshot["includeScreenshot"] = Value::Bool(true);
+                self.snapshot_reply(&with_screenshot, &ReplyOptions::default()).await
+            }
+            SnapshotPlan::Visual => Ok(observe::visual_screenshot(&call, &ports, command, self.background).await?),
+            SnapshotPlan::Pdf => Ok(observe::print_pdf(&call, &ports).await?),
+            SnapshotPlan::Element => {
+                let (snapshot_id, ref_id) = if truthy(command.get("ref")) {
+                    let ref_id = text_of(command.get("ref"));
+                    (snapshot_of_ref(&ref_id).to_owned(), ref_id)
+                } else if let Some(target) = command.get("target").filter(|target| !target.is_null()) {
+                    let resolved = self.resolve_targets(std::slice::from_ref(target)).await?;
+                    let Some(first) = resolved.into_iter().next() else { return Err(RunError::Failed("the target resolved to nothing".to_owned())) };
+                    (first.snapshot_id, first.ref_id)
+                } else {
+                    return Err(RunError::Failed("snapshot mode=element requires ref or target".to_owned()));
+                };
+                Ok(observe::element_screenshot(&call, &ports, command, &snapshot_id, &ref_id, self.background).await?)
+            }
+        }
+    }
+
+    /// `locate`: a semantic snapshot (the command's query cleared) and, on top of it, the visual candidates for the query.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
+    async fn locate_action(&self, command: &Value) -> Result<ToolReply, RunError> {
+        let mut observing = command.clone();
+        if let Some(fields) = observing.as_object_mut() {
+            fields.shift_remove("query");
+        }
+        let snapshot = self.snapshot_reply(&observing, &ReplyOptions::default()).await?;
+        if self.page_facts().pending_dialog.is_some() {
+            return Ok(snapshot);
+        }
+        let Some(refs) = self.latest_refs() else { return Err(RunError::Failed("locate could not observe the page; take a fresh snapshot".to_owned())) };
+        let precondition = self.page_precondition();
+        let input = LocateInput {
+            page: self.observe_call(Some(&precondition)),
+            blobs: &*self.inner.ports.blobs,
+            command,
+            snapshot,
+            ref_set: &refs,
+            background: self.background,
+            now: std::time::Instant::now(),
+        };
+        let reply = observe::locate(input).await?;
+        self.state_lock().grounding = reply.grounding.clone();
+        Ok(reply)
+    }
+
+    /// `network`: the recorded requests, or one request's detail. The detail reads bodies from the page, so the request is copied
+    /// out of the ledger first (the mirror lends its ledgers only synchronously).
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
+    async fn network_action(&self, command: &Value) -> Result<ToolReply, RunError> {
+        let precondition = self.page_precondition();
+        let call = self.observe_call(Some(&precondition));
+        let now = wall_clock_ms();
+        let request_id = diagnostics::network_request_id(command);
+        if request_id.is_empty() {
+            return Ok(self.with_ledgers(|ledgers| diagnostics::network_list(ledgers, command, now)));
+        }
+        let request = self.with_ledgers(|ledgers| diagnostics::network_request(ledgers, &request_id))?;
+        Ok(diagnostics::network_detail(&call, &request, command, now).await?)
+    }
+
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
+    async fn navigate_action(&self, action: Action, command: &Value, options: &ReplyOptions) -> Result<ToolReply, RunError> {
+        self.invalidate();
+        match self.moved(action, command).await? {
+            NavigateOutcome::Refused(text) if action == Action::Back => Ok(ToolReply::text(text)),
+            NavigateOutcome::Refused(text) => Err(RunError::Failed(text)),
+            NavigateOutcome::Moved(facts) => match &facts.pending_dialog {
+                Some(dialog) => Ok(blocking_dialog_reply(dialog, true, &|text: &str| self.redact(text))),
+                None => self.settled(command, options).await,
+            },
+        }
+    }
+
+    /// A reload and the settle after it (what a performance trace over a reload waits for).
+    async fn reload_and_settle(&self) -> Result<(), page::PageActionError> {
+        let reload = json!({"action": "navigate", "reload": true});
+        self.moved(Action::Navigate, &reload).await.map_err(|error| match error {
+            observe::ActionError::Host(error) => page::PageActionError::Host(error),
+            observe::ActionError::Cancelled(_) => page::PageActionError::Host(HostCallError::Cancelled),
+            observe::ActionError::Failed(message) => page::PageActionError::invalid(message),
+        })?;
+        let after = AfterAction { require_quiet: false, previous_url: None };
+        settle_after_action(&self.settle_page(), &SettlePolicy::default(), &self.cancel, None, &after).await.map_err(|error| match error {
+            SettleError::Cancelled(_) => page::PageActionError::Host(HostCallError::Cancelled),
+            SettleError::ConnectionLost => page::PageActionError::Host(HostCallError::ConnectionLost),
+            SettleError::Failed(message) => page::PageActionError::invalid(message),
+        })
+    }
+
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
+    async fn evaluate_action(&self, command: &Value, has_postcondition: bool, has_screenshot_options: bool, options: &ReplyOptions) -> Result<ToolReply, RunError> {
+        let input = command.as_object().cloned().unwrap_or_default();
+        let refs = self.latest_refs();
+        let request = page::EvaluateRequest { input: &input, refs: refs.as_ref(), precondition: Some(self.page_precondition()), has_postcondition, has_screenshot_options };
+        let redact = |text: &str| self.redact(text);
+        let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
+        match page::evaluate(&self.call(), &ctx, &request).await {
+            Ok(done) if done.kept_snapshot().is_some() => {
+                let downloads = self.session_downloads().await;
+                Ok(done.unchanged_reply(&self.page_report(&downloads)))
+            }
+            Ok(done) => {
+                self.invalidate();
+                let snapshot = self.settled(command, options).await?;
+                Ok(done.changed_reply(snapshot))
+            }
+            Err(error) => {
+                if error.refs_stale {
+                    self.invalidate();
+                }
+                Err(error.error.into())
+            }
+        }
+    }
+
+    /// The frame document that would receive an upload's files now, for the approval to bind.
+    async fn upload_receiver(&self, command: &Value) -> Result<upload::Receiver, UploadError> {
+        let ref_id = truthy(command.get("ref")).then(|| text_of(command.get("ref")));
+        let snapshot_id = ref_id.as_deref().map(|id| snapshot_of_ref(id).to_owned()).or_else(|| self.latest_refs().map(|refs| refs.snapshot_id)).unwrap_or_default();
+        let target = UploadTarget { page_id: &self.page_id, snapshot_id: &snapshot_id, ref_id: ref_id.as_deref() };
+        upload::receiver(self.host(), &target, &self.page_facts(), self.token()).await
     }
 }

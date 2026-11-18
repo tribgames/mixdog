@@ -48,11 +48,6 @@ const FILE: &str = "mixdog-workspace-admission.json";
 const VERSION: i64 = 2;
 const LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 
-fn env_ms(name: &str, fallback: u64) -> Duration {
-    let value = std::env::var(name).ok().and_then(|v| v.trim().parse::<f64>().ok()).filter(|v| v.is_finite() && *v > 0.0);
-    Duration::from_millis(value.map_or(fallback, |v| v as u64))
-}
-
 fn unverifiable() -> ScmFailure {
     busy(RefusalReason::WorkspaceAdmissionUnreadable)
 }
@@ -504,43 +499,6 @@ struct Request {
     reply: oneshot::Sender<Result<Option<Vec<Handle>>, ScmFailure>>,
 }
 
-fn run(mut ledger: Ledger, requests: mpsc::Receiver<Request>) {
-    let heal = env_ms("MIXDOG_ADMISSION_HEAL_MS", 2_000);
-    loop {
-        let request = if ledger.needs_heal() {
-            match requests.recv_timeout(heal) {
-                Ok(request) => request,
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    ledger.heal_held();
-                    continue;
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => break,
-            }
-        } else {
-            match requests.recv() {
-                Ok(request) => request,
-                Err(_) => break,
-            }
-        };
-        let answer = match request.op {
-            Op::Admit { session_id, cwd, pid, kind } => ledger.admit(session_id, &cwd, pid, &kind),
-            Op::Hold { folders, session_id } => ledger.hold(&folders, session_id.as_deref()).map(Some),
-            Op::Release(handles) => {
-                ledger.release(&handles);
-                Ok(Some(Vec::new()))
-            }
-        };
-        let answered = request.claim.as_ref().is_none_or(|claim| claim.compare_exchange(0, 2, Ordering::SeqCst, Ordering::SeqCst).is_ok());
-        if answered {
-            let _ = request.reply.send(answer);
-        } else if let Ok(Some(handles)) = &answer {
-            // Its caller stopped waiting and reported the outcome unknown: nobody holds this
-            // grant, so it is withdrawn here.
-            ledger.release(handles);
-        }
-    }
-}
-
 fn stopped(posted: bool) -> ScmFailure {
     if posted { admission_unreadable(Some("unknown"), Some("stopped")) } else { admission_unreadable(None, Some("stopped")) }
 }
@@ -577,66 +535,6 @@ pub async fn release_all(activity: &Activity, grants: &[Grant]) -> Result<(), Sc
 pub struct Activity {
     requests: Option<mpsc::Sender<Request>>,
     thread: Option<std::thread::JoinHandle<()>>,
-}
-
-impl Activity {
-    pub fn new(data_dir: &Path) -> Self {
-        let (tx, rx) = mpsc::channel();
-        let ledger = Ledger { data_dir: data_dir.to_owned(), held: HashMap::new(), pending: HashMap::new() };
-        let thread = std::thread::Builder::new().name("mixdog-admission".into()).spawn(move || run(ledger, rx)).ok();
-        Self { requests: thread.as_ref().map(|_| tx), thread }
-    }
-
-    async fn request(&self, op: Op, bounded: bool) -> Result<Option<Vec<Handle>>, ScmFailure> {
-        let (reply, mut answer) = oneshot::channel();
-        let claim = bounded.then(|| Arc::new(AtomicU8::new(0)));
-        let sender = self.requests.as_ref().ok_or_else(|| admission_unreadable(None, Some("unavailable")))?;
-        sender.send(Request { op, claim: claim.clone(), reply }).map_err(|_| stopped(false))?;
-        let Some(claim) = claim else {
-            return answer.await.unwrap_or_else(|_| Err(stopped(true)));
-        };
-        match mixdog_rt::time::timeout(env_ms("MIXDOG_ADMISSION_SYNC_TIMEOUT_MS", 60_000), &mut answer).await {
-            Ok(done) => done.unwrap_or_else(|_| Err(stopped(true))),
-            // Lost the race when the admission thread already claimed it: its answer is coming.
-            Err(_) if claim.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst).is_ok() => Err(admission_unreadable(Some("unknown"), None)),
-            Err(_) => answer.await.unwrap_or_else(|_| Err(stopped(true))),
-        }
-    }
-
-    /// A reader (`turn` or `command`) of `cwd`. `None`: a management writer owns the checkout.
-    pub async fn try_admit(&self, session_id: Option<&str>, cwd: &Path, kind: &str, bounded: bool) -> Result<Option<Grant>, ScmFailure> {
-        assert!(matches!(kind, "turn" | "command"), "Invalid workspace reader kind.");
-        let op = Op::Admit { session_id: session_id.map(str::to_owned), cwd: cwd.to_owned(), pid: std::process::id(), kind: kind.to_owned() };
-        let granted = self.request(op, bounded).await?;
-        Ok(granted.map(|handles| Grant { handles, released: AtomicBool::new(false) }))
-    }
-
-    /// Waits (polling) until a reader is admitted; a cancel registers nothing.
-    pub async fn admit(&self, session_id: Option<&str>, cwd: &Path, kind: &str, cancel: &tokio_util::sync::CancellationToken) -> Result<Grant, ScmFailure> {
-        loop {
-            if cancel.is_cancelled() {
-                return Err(ScmFailure::Cancelled);
-            }
-            if let Some(grant) = self.try_admit(session_id, cwd, kind, false).await? {
-                if cancel.is_cancelled() {
-                    let _ = grant.release(self).await;
-                    return Err(ScmFailure::Cancelled);
-                }
-                return Ok(grant);
-            }
-            tokio::select! {
-                () = mixdog_rt::time::sleep(Duration::from_millis(100)) => {}
-                () = cancel.cancelled() => return Err(ScmFailure::Cancelled),
-            }
-        }
-    }
-
-    /// A management hold over `folders`; the acting session's own readers in this process do not count.
-    pub async fn hold(&self, folders: &[PathBuf], session_id: Option<&str>, bounded: bool) -> Result<Grant, ScmFailure> {
-        let op = Op::Hold { folders: folders.to_vec(), session_id: session_id.map(str::to_owned) };
-        let handles = self.request(op, bounded).await?.unwrap_or_default();
-        Ok(Grant { handles, released: AtomicBool::new(false) })
-    }
 }
 
 impl Drop for Activity {
@@ -735,5 +633,106 @@ mod tests {
         let activity = Activity::new(&dir.path().join("data"));
         assert!(activity.try_admit(Some("s"), &root, "turn", false).await.is_err());
         assert_eq!(std::fs::read(&primary).unwrap(), br#"{"version":3,"leases":[]}"#);
+    }
+}
+
+
+fn env_ms(name: &str, fallback: u64) -> Duration {
+    let value = std::env::var(name).ok().and_then(|v| v.trim().parse::<f64>().ok()).filter(|v| v.is_finite() && *v > 0.0);
+    Duration::from_millis(value.map_or(fallback, |v| v as u64))
+}
+fn run(mut ledger: Ledger, requests: mpsc::Receiver<Request>) {
+    let heal = env_ms("MIXDOG_ADMISSION_HEAL_MS", 2_000);
+    loop {
+        let request = if ledger.needs_heal() {
+            match requests.recv_timeout(heal) {
+                Ok(request) => request,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    ledger.heal_held();
+                    continue;
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        } else {
+            match requests.recv() {
+                Ok(request) => request,
+                Err(_) => break,
+            }
+        };
+        let answer = match request.op {
+            Op::Admit { session_id, cwd, pid, kind } => ledger.admit(session_id, &cwd, pid, &kind),
+            Op::Hold { folders, session_id } => ledger.hold(&folders, session_id.as_deref()).map(Some),
+            Op::Release(handles) => {
+                ledger.release(&handles);
+                Ok(Some(Vec::new()))
+            }
+        };
+        let answered = request.claim.as_ref().is_none_or(|claim| claim.compare_exchange(0, 2, Ordering::SeqCst, Ordering::SeqCst).is_ok());
+        if answered {
+            let _ = request.reply.send(answer);
+        } else if let Ok(Some(handles)) = &answer {
+            // Its caller stopped waiting and reported the outcome unknown: nobody holds this
+            // grant, so it is withdrawn here.
+            ledger.release(handles);
+        }
+    }
+}
+impl Activity {
+    pub fn new(data_dir: &Path) -> Self {
+        let (tx, rx) = mpsc::channel();
+        let ledger = Ledger { data_dir: data_dir.to_owned(), held: HashMap::new(), pending: HashMap::new() };
+        let thread = std::thread::Builder::new().name("mixdog-admission".into()).spawn(move || run(ledger, rx)).ok();
+        Self { requests: thread.as_ref().map(|_| tx), thread }
+    }
+
+    async fn request(&self, op: Op, bounded: bool) -> Result<Option<Vec<Handle>>, ScmFailure> {
+        let (reply, mut answer) = oneshot::channel();
+        let claim = bounded.then(|| Arc::new(AtomicU8::new(0)));
+        let sender = self.requests.as_ref().ok_or_else(|| admission_unreadable(None, Some("unavailable")))?;
+        sender.send(Request { op, claim: claim.clone(), reply }).map_err(|_| stopped(false))?;
+        let Some(claim) = claim else {
+            return answer.await.unwrap_or_else(|_| Err(stopped(true)));
+        };
+        match mixdog_rt::time::timeout(env_ms("MIXDOG_ADMISSION_SYNC_TIMEOUT_MS", 60_000), &mut answer).await {
+            Ok(done) => done.unwrap_or_else(|_| Err(stopped(true))),
+            // Lost the race when the admission thread already claimed it: its answer is coming.
+            Err(_) if claim.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst).is_ok() => Err(admission_unreadable(Some("unknown"), None)),
+            Err(_) => answer.await.unwrap_or_else(|_| Err(stopped(true))),
+        }
+    }
+
+    /// A reader (`turn` or `command`) of `cwd`. `None`: a management writer owns the checkout.
+    pub async fn try_admit(&self, session_id: Option<&str>, cwd: &Path, kind: &str, bounded: bool) -> Result<Option<Grant>, ScmFailure> {
+        assert!(matches!(kind, "turn" | "command"), "Invalid workspace reader kind.");
+        let op = Op::Admit { session_id: session_id.map(str::to_owned), cwd: cwd.to_owned(), pid: std::process::id(), kind: kind.to_owned() };
+        let granted = self.request(op, bounded).await?;
+        Ok(granted.map(|handles| Grant { handles, released: AtomicBool::new(false) }))
+    }
+
+    /// Waits (polling) until a reader is admitted; a cancel registers nothing.
+    pub async fn admit(&self, session_id: Option<&str>, cwd: &Path, kind: &str, cancel: &tokio_util::sync::CancellationToken) -> Result<Grant, ScmFailure> {
+        loop {
+            if cancel.is_cancelled() {
+                return Err(ScmFailure::Cancelled);
+            }
+            if let Some(grant) = self.try_admit(session_id, cwd, kind, false).await? {
+                if cancel.is_cancelled() {
+                    let _ = grant.release(self).await;
+                    return Err(ScmFailure::Cancelled);
+                }
+                return Ok(grant);
+            }
+            tokio::select! {
+                () = mixdog_rt::time::sleep(Duration::from_millis(100)) => {}
+                () = cancel.cancelled() => return Err(ScmFailure::Cancelled),
+            }
+        }
+    }
+
+    /// A management hold over `folders`; the acting session's own readers in this process do not count.
+    pub async fn hold(&self, folders: &[PathBuf], session_id: Option<&str>, bounded: bool) -> Result<Grant, ScmFailure> {
+        let op = Op::Hold { folders: folders.to_vec(), session_id: session_id.map(str::to_owned) };
+        let handles = self.request(op, bounded).await?.unwrap_or_default();
+        Ok(Grant { handles, released: AtomicBool::new(false) })
     }
 }

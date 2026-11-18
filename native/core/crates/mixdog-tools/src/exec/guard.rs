@@ -2,10 +2,15 @@
 //! before policy, hooks and execution:
 //!   1. a leading whole-second sleep of 2 s or more is rejected (a wait belongs to background +
 //!      task wait);
-//!   2. a plain leading `cd <dir>` moves into the `cwd` argument;
-//!   3. a shell file read (cat/Get-Content/grep/ls …) gets a pointer to the read / grep / list
-//!      tools as a note; a command the built-in tools cover whole (cover.rs) is refused instead,
-//!      naming the call that replaces it, when the session offers those tools;
+//!   2. a plain leading `cd <dir>` moves into the `cwd` argument, silently (a `cd` that cannot be
+//!      moved without changing the command's meaning is left in the command);
+//!   3. the hint rule — a hint is printed only when it is true and names an invocation the
+//!      offered replacement tool accepts and that preserves what the command asked for: the only
+//!      hint is the refusal of [guard_call], issued when `cover::covering_tool_calls` proves the
+//!      whole command (every statement, flag and pipeline stage) is covered and the session offers
+//!      the named tool; it names the tool and its arguments. A command with a part no tool covers
+//!      runs without a note (Node's generic "use the read / grep / list tools" note and its
+//!      "Moved `cd …` into cwd." note are deliberately gone);
 //!   4. a command mentioning `git … worktree add` is rejected (worktrees go through the git
 //!      tool; a textual check, so mentions as data are too).
 
@@ -16,9 +21,6 @@ use mixdog_js::JsRegex;
 use mixdog_js::is_js_space;
 use mixdog_js::js_trim;
 
-use super::benign::split_pipeline_segments;
-use super::benign::split_segments;
-use super::benign::tokenize;
 use super::scan::decode_base64_lenient;
 
 macro_rules! lazy_re {
@@ -27,8 +29,6 @@ macro_rules! lazy_re {
         &*RE
     }};
 }
-
-pub const SHELL_FILE_READ_NOTE: &str = "Note: use the read / grep / list tools for files instead of the shell.";
 
 const LEADING_SLEEP_MIN_SECONDS: f64 = 2.0;
 
@@ -85,99 +85,6 @@ fn split_leading_cd(command: &str, powershell: bool) -> Option<(String, String)>
         return None;
     }
     Some((dir.to_owned(), rest.to_owned()))
-}
-
-fn reader_tool(powershell: bool, name: &str) -> Option<&'static str> {
-    if powershell {
-        match name {
-            "get-content" | "gc" | "cat" | "type" => Some("read"),
-            "select-string" | "sls" | "rg" => Some("grep"),
-            "get-childitem" | "gci" | "ls" | "dir" => Some("list"),
-            _ => None,
-        }
-    } else {
-        match name {
-            "cat" | "head" | "tail" | "less" => Some("read"),
-            "grep" | "rg" => Some("grep"),
-            "ls" | "find" => Some("list"),
-            _ => None,
-        }
-    }
-}
-
-const OPERAND_FLAGS: [&str; 7] = ["-path", "-literalpath", "-pattern", "-e", "--regexp", "-f", "--file"];
-const VALUE_FLAGS: [&str; 8] = ["-encoding", "-filter", "-include", "-exclude", "-g", "--glob", "-t", "--type"];
-const TEXT_FILTERS: [&str; 23] = [
-    "select-object", "select", "select-string", "sls", "where-object", "sort-object", "sort",
-    "measure-object", "format-table", "format-list", "ft", "fl", "out-string", "out-host", "head",
-    "tail", "grep", "egrep", "rg", "wc", "uniq", "cut", "findstr",
-];
-const FIND_WRITERS: [&str; 8] = ["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprintf", "-fls"];
-
-fn command_name(token: &str) -> String {
-    let lower = token.to_lowercase();
-    let base = lower.rsplit(['\\', '/']).next().unwrap_or("");
-    base.strip_suffix(".exe").unwrap_or(base).to_owned()
-}
-
-/// The path/pattern operands of a stage, or `None` when it writes a file.
-fn stage_operands(args: &[String]) -> Option<Vec<String>> {
-    let mut operands = Vec::new();
-    let mut i = 0;
-    while i < args.len() {
-        let token = &args[i];
-        if token == ">" || token == ">>" {
-            let target = args.get(i + 1).map_or("", String::as_str);
-            if !lazy_re!(r"^(?:&\d|\$null|/dev/null|nul)$", "i").is_match(target) {
-                return None;
-            }
-            i += 2;
-            continue;
-        }
-        let flag = token.to_lowercase();
-        if flag.starts_with('-') && flag.chars().count() > 1 {
-            if OPERAND_FLAGS.contains(&flag.as_str()) && i + 1 < args.len() {
-                i += 1;
-                operands.push(args[i].clone());
-            } else if VALUE_FLAGS.contains(&flag.as_str()) {
-                i += 1;
-            }
-            i += 1;
-            continue;
-        }
-        // A bare count (`head -n 5`, `tail -n +5`) is a flag value, not an operand.
-        if !lazy_re!(r"^[+-]?\d+$", "").is_match(token) {
-            operands.push(token.clone());
-        }
-        i += 1;
-    }
-    Some(operands)
-}
-
-/// Whether the command's first statement starts with a read-only file command on a path.
-fn is_shell_file_read(command: &str, powershell: bool) -> bool {
-    let segments = split_segments(command);
-    let Some(first) = segments.first() else { return false };
-    let stages = split_pipeline_segments(first);
-    let Some(tokens) = tokenize(stages.first().map_or("", String::as_str)) else { return false };
-    let Some(head) = tokens.first() else { return false };
-    let name = command_name(head);
-    let Some(tool) = reader_tool(powershell, &name) else { return false };
-    for stage in stages.iter().skip(1) {
-        let first_word = js_trim(stage).split(is_js_space).next().unwrap_or("");
-        if !TEXT_FILTERS.contains(&command_name(first_word).as_str()) {
-            return false;
-        }
-    }
-    let args = &tokens[1..];
-    if name == "find" {
-        let lowered: Vec<String> = args.iter().map(|t| t.to_lowercase()).collect();
-        let names = lowered.iter().any(|t| ["-name", "-iname", "-path", "-regex"].contains(&t.as_str()));
-        return names && !lowered.iter().any(|t| FIND_WRITERS.contains(&t.as_str()));
-    }
-    let Some(operands) = stage_operands(args) else { return false };
-    // A search names its pattern and then the path it reads; with one operand it reads piped input.
-    operands.len() >= if tool == "grep" { 2 } else { 1 }
 }
 
 // ---- worktree-add-guard.mjs ----
@@ -268,16 +175,14 @@ pub enum Guarded {
     /// The call is refused; the text is the whole result.
     Refused(String),
     /// The call runs with this command and cwd (a leading `cd` moved into `cwd`) and these
-    /// lines added to its result.
+    /// lines added to its result. No guard adds a line any more; the field stays for the shell tool's result framing.
     Run { command: String, cwd: Option<String>, notes: Vec<String> },
 }
 
-/// Applies the four guards to a shell call.
+/// Applies the guards to a shell call.
 pub fn guard_shell_call(command: &str, cwd: Option<&str>, background: bool, powershell: bool) -> Guarded {
-    let mut notes = Vec::new();
     let (mut command, mut cwd) = (command.to_owned(), cwd.map(str::to_owned));
     if cwd.is_none() && let Some((dir, rest)) = split_leading_cd(&command, powershell) {
-        notes.push(format!("Moved `cd {dir}` into cwd."));
         command = rest;
         cwd = Some(dir);
     }
@@ -287,10 +192,7 @@ pub fn guard_shell_call(command: &str, cwd: Option<&str>, background: bool, powe
     if adds_unmanaged_worktree(&command) {
         return Guarded::Refused(super::shell::tool_failure(SHELL_WORKTREE_ADD_BLOCK));
     }
-    if is_shell_file_read(&command, powershell) {
-        notes.push(SHELL_FILE_READ_NOTE.to_owned());
-    }
-    Guarded::Run { command, cwd, notes }
+    Guarded::Run { command, cwd, notes: Vec::new() }
 }
 
 /// [guard_shell_call] with the session's tool surface (guardShellCall with offers): a command the built-in tools cover whole
@@ -308,38 +210,358 @@ pub(crate) async fn guard_call(ctx: &ToolContext, command: &str, cwd: Option<&st
     }
 }
 
+
+/// The decided departures of a Node recording (`departures.json`, `guard_node_departures.json`) by the index of the recorded
+/// case they replace, each checked to name that very case, to differ from it only by the removed notes, and to be complete: every
+/// recorded run that carried a note is listed, so no change of expectation goes unmarked.
+#[cfg(all(test, node_twin))]
+pub(super) fn departed(recorded: &[mixdog_protocol::JsonValue], file: &str) -> std::collections::HashMap<usize, mixdog_protocol::JsonValue> {
+    let doc: mixdog_protocol::JsonValue = serde_json::from_str(file).unwrap();
+    let mut out = std::collections::HashMap::new();
+    for d in doc["departures"].as_array().unwrap() {
+        let case = d["case"].as_u64().unwrap() as usize;
+        let rec = &recorded[case];
+        for key in ["shellType", "args", "offers"] {
+            assert_eq!(d.get(key), rec.get(key), "departure {case} names another case ({key})");
+        }
+        assert!(!d["reason"].as_str().unwrap().is_empty(), "departure {case} has no reason");
+        assert!(d["result"]["notes"].as_array().unwrap().is_empty(), "departure {case}");
+        let mut without_notes = rec["result"].clone();
+        without_notes["notes"] = serde_json::json!([]);
+        assert_eq!(without_notes, d["result"], "departure {case} changes more than the notes");
+        assert_ne!(rec["result"], d["result"], "departure {case} does not depart");
+        assert!(out.insert(case, d["result"].clone()).is_none(), "departure {case} twice");
+    }
+    let noted = recorded.iter().filter(|c| c["result"]["failure"].is_null() && !c["result"]["notes"].as_array().unwrap().is_empty()).count();
+    assert_eq!(noted, out.len(), "a recorded note is neither kept nor marked as a departure");
+    out
+}
+
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods, reason = "tests write their fixture tree on the test thread")]
+
+    use std::sync::Arc;
+
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_core_api::domain::mock::MockApprovalGate;
+    use mixdog_core_api::domain::mock::MockProcessManager;
+    use mixdog_core_api::domain::mock::MockProgress;
+    use mixdog_core_api::domain::tool::SurfaceKind;
+    use mixdog_core_api::domain::tool::Tool;
+    use mixdog_core_api::domain::tool::ToolIo;
+    use mixdog_core_api::domain::tool::ToolPart;
+    use mixdog_protocol::JsonValue;
+    use mixdog_protocol::ThreadId;
+    use mixdog_protocol::ToolCallId;
+    use mixdog_protocol::TurnId;
+    use tokio_util::sync::CancellationToken;
+
     use super::*;
 
-    /// Node's `guardShellCall` on 58 calls × both shell families, notes and refusals equal.
+    /// A call's context over a fixture tree (the session directory), offering `offers` (`None`: no session information).
+    fn session(offers: Option<&[&str]>) -> (tempfile::TempDir, ToolContext) {
+        let dir = tempfile::tempdir().unwrap();
+        for (rel, text) in [
+            ("small.txt", "alpha\nFoo bar\nomega foo\n"),
+            ("other.txt", "beta\n"),
+            ("d/one.txt", "1\n"),
+            ("d/.hidden", "h\n"),
+            ("d/inner/deep.txt", "deep\n"),
+            ("my dir/small.txt", "quoted\n"),
+        ] {
+            let path = dir.path().join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        let tokens = mixdog_rt::testing::tokens();
+        let mut ctx = ToolContext {
+            call_id: ToolCallId::from("c"),
+            thread_id: ThreadId::from("t"),
+            turn_id: TurnId::from("r"),
+            tool: "shell".into(),
+            cwd: AbsPath::new(dir.path()).unwrap(),
+            surface: SurfaceKind::Lead,
+            cancel: CancellationToken::new(),
+            deadline: None,
+            progress: Arc::new(MockProgress::default()),
+            io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+            approvals: Arc::new(MockApprovalGate::default()),
+            files: Arc::new(mixdog_workspace::localfs::LocalFileService::new()),
+            processes: Arc::new(MockProcessManager::default()),
+            options: Default::default(),
+            review: None,
+        };
+        ctx.options.offered_tools = offers.map(|tools| Arc::new(tools.iter().map(|t| (*t).to_owned()).collect()));
+        (dir, ctx)
+    }
+
+    const ALL: Option<&[&str]> = Some(&["read", "grep", "list"]);
+
+    fn runs_unchanged(guarded: Guarded, command: &str) {
+        assert_eq!(guarded, Guarded::Run { command: command.to_owned(), cwd: None, notes: Vec::new() }, "{command}");
+    }
+
+    /// The published spec of `tool`, applied by hand: only its properties, of their types and ranges, and its required ones.
+    fn assert_in_spec(tool: &str, args: &JsonValue) {
+        let def = match tool {
+            "read" => include_str!("../fs/specs/read.json"),
+            "grep" => include_str!("../fs/specs/grep.json"),
+            "list" => include_str!("../fs/specs/list.json"),
+            other => panic!("{other} is not a replacement tool"),
+        };
+        let schema = serde_json::from_str::<JsonValue>(def).unwrap()["inputSchema"].clone();
+        fn fits(value: &JsonValue, schema: &JsonValue) -> bool {
+            if let Some(options) = schema["anyOf"].as_array() {
+                return options.iter().any(|o| fits(value, o));
+            }
+            match schema["type"].as_str() {
+                Some("string") => value.is_string(),
+                Some("boolean") => value.is_boolean(),
+                Some("integer") => value.as_i64().is_some_and(|n| {
+                    schema["minimum"].as_i64().is_none_or(|min| n >= min) && schema["maximum"].as_i64().is_none_or(|max| n <= max)
+                }),
+                _ => true,
+            }
+        }
+        for (key, value) in args.as_object().unwrap() {
+            let property = schema["properties"].get(key).unwrap_or_else(|| panic!("{tool} has no argument {key}"));
+            assert!(fits(value, property), "{tool} {key}: {value}");
+        }
+        for key in schema["required"].as_array().into_iter().flatten() {
+            assert!(args.get(key.as_str().unwrap()).is_some(), "{tool} needs {key}");
+        }
+    }
+
+    async fn answer(tool: &str, ctx: &ToolContext, args: JsonValue) -> String {
+        let outcome = match tool {
+            "read" => crate::fs::ReadTool::new(None, None).call(ctx, args).await,
+            "grep" => crate::fs::GrepTool::new().call(ctx, args).await,
+            "list" => crate::fs::ListTool::new().call(ctx, args).await,
+            other => panic!("{other} is not a replacement tool"),
+        };
+        match outcome {
+            Ok(out) => match &out.parts[0] {
+                ToolPart::Text(text) => text.clone(),
+                _ => panic!("not text"),
+            },
+            Err(e) => panic!("{}", e.message_for_model),
+        }
+    }
+
+    /// Every command the table covers is refused with the call that replaces it; the named call is inside the tool's spec and,
+    /// run on the fixture tree, shows what the shell command printed (`shows`) and nothing it did not (`hides`).
+    #[tokio::test]
+    async fn a_covered_command_names_a_call_that_is_in_the_spec_and_returns_what_the_command_printed() {
+        let (_dir, ctx) = session(ALL);
+        let cases: [(&str, bool, &str, &[&str], &[&str]); 8] = [
+            ("cat small.txt", false, "read", &["alpha", "Foo bar", "omega foo"], &[]),
+            ("head -n 2 small.txt", false, "read", &["alpha", "Foo bar"], &["omega foo"]),
+            ("tail -n 1 small.txt", false, "read", &["omega foo"], &["alpha"]),
+            ("grep -i foo small.txt", false, "grep", &["Foo bar", "omega foo"], &["alpha"]),
+            ("ls d", false, "list", &["one.txt", "inner"], &[".hidden", "deep.txt"]),
+            ("Get-Content small.txt -TotalCount 1", true, "read", &["alpha"], &["Foo bar"]),
+            ("Select-String foo small.txt", true, "grep", &["Foo bar", "omega foo"], &["alpha"]),
+            ("cat small.txt | head -n 2", false, "read", &["alpha", "Foo bar"], &["omega foo"]),
+        ];
+        for (command, powershell, tool, shows, hides) in cases {
+            let calls = super::super::cover::covering_tool_calls(&ctx, command, powershell).await.unwrap_or_else(|| panic!("{command} is covered"));
+            assert_eq!(calls.len(), 1, "{command}");
+            assert_eq!(calls[0].tool, tool, "{command}");
+            assert_in_spec(tool, &calls[0].args);
+            let refusal = guard_call(&ctx, command, None, false, powershell).await;
+            let want = super::super::shell::tool_failure(&super::super::cover::blocked_text(&calls));
+            assert_eq!(refusal, Guarded::Refused(want), "{command}");
+            let text = answer(tool, &ctx, calls[0].args.clone()).await;
+            for line in shows {
+                assert!(text.contains(line), "{command}: {line} missing from {text}");
+            }
+            for line in hides {
+                assert!(!text.contains(line), "{command}: {line} in {text}");
+            }
+        }
+    }
+
+    /// Commands with a part no tool covers run with no note and no suggestion: a recursive listing (with a size column), a
+    /// flag that changes the output, a sort / filter pipeline, several statements.
+    #[tokio::test]
+    async fn a_command_with_a_part_no_tool_covers_runs_without_a_note() {
+        let (_dir, ctx) = session(ALL);
+        for (command, powershell) in [
+            ("ls -lR d | sort -k5 -n", false),
+            ("ls -lR d", false),
+            ("ls -l d", false),
+            ("ls -a d", false),
+            ("find d -type f -size +0 | sort", false),
+            ("du -a d | sort -n", false),
+            ("Get-ChildItem d -Recurse | Sort-Object Length", true),
+            ("Get-ChildItem d", true),
+            ("ls d", true),
+            ("grep -c foo small.txt", false),
+            ("cat small.txt | sort", false),
+            ("cat small.txt | sort | head -n 2", false),
+            ("grep foo small.txt | wc -l", false),
+            ("Get-Content small.txt | Sort-Object", true),
+            ("cat small.txt; cat other.txt", false),
+            ("cat small.txt && ls d", false),
+            ("cat small.txt\ncat other.txt", false),
+            ("Get-Content small.txt; Get-Content other.txt", true),
+        ] {
+            runs_unchanged(guard_call(&ctx, command, None, false, powershell).await, command);
+        }
+    }
+
+    /// A tool the session does not offer is never named: the same covered commands run when the replacement is missing or
+    /// the session says nothing about its tools.
+    #[tokio::test]
+    async fn a_replacement_the_session_does_not_offer_is_not_suggested() {
+        for (offers, command, powershell) in [
+            (Some(&["grep", "list"][..]), "cat small.txt", false),
+            (Some(&["read", "list"][..]), "grep foo small.txt", false),
+            (Some(&["read", "grep"][..]), "ls d", false),
+            (Some(&[][..]), "cat small.txt", false),
+            (Some(&["grep", "list"][..]), "Get-Content small.txt", true),
+            (None, "cat small.txt", false),
+            (None, "ls d", false),
+        ] {
+            let (_dir, ctx) = session(offers);
+            assert!(super::super::cover::covering_tool_calls(&ctx, command, powershell).await.is_some(), "{command} is covered");
+            runs_unchanged(guard_call(&ctx, command, None, false, powershell).await, command);
+        }
+    }
+
+    /// A leading `cd` moves into `cwd` without a word; with an explicit `cwd` it stays in the command; a command that ran
+    /// elsewhere than the session directory is never covered; a quoted directory moves, one the shell would expand does not.
+    #[tokio::test]
+    async fn a_leading_cd_is_moved_silently_and_left_alone_when_it_cannot_be_moved() {
+        let (_dir, ctx) = session(ALL);
+        let moved = |command: &str, cwd: Option<&str>, powershell| guard_shell_call(command, cwd, false, powershell);
+        let run = |command: &str, cwd: Option<&str>| Guarded::Run { command: command.to_owned(), cwd: cwd.map(str::to_owned), notes: Vec::new() };
+
+        assert_eq!(moved("cd /tmp && ls", None, false), run("ls", Some("/tmp")));
+        assert_eq!(moved("Set-Location src; Get-ChildItem", None, true), run("Get-ChildItem", Some("src")));
+        // quoted
+        assert_eq!(moved(r#"cd "my dir" && cat small.txt"#, None, false), run("cat small.txt", Some("my dir")));
+        assert_eq!(moved("cd 'my dir' && cat small.txt", None, false), run("cat small.txt", Some("my dir")));
+        for command in [r#"cd "$HOME/x" && ls"#, "cd '~' && ls", "cd ~root && ls", "cd -- x && ls", "cd a && cd b && ls"] {
+            assert_eq!(moved(command, None, false), run(command, None), "{command}");
+        }
+        // an explicit cwd: the cd is the command's own
+        assert_eq!(moved("cd d && cat small.txt", Some("my dir"), false), run("cd d && cat small.txt", Some("my dir")));
+        assert_eq!(guard_call(&ctx, "cd d && cat small.txt", Some("my dir"), false, false).await, run("cd d && cat small.txt", Some("my dir")));
+        // `small.txt` is not in `d`: covering the moved command in the session directory would name the wrong file
+        assert_eq!(guard_call(&ctx, "cd d && cat small.txt", None, false, false).await, run("cat small.txt", Some("d")));
+        assert_eq!(guard_call(&ctx, r#"cd "my dir" && cat small.txt"#, None, false, false).await, run("cat small.txt", Some("my dir")));
+        assert_eq!(guard_call(&ctx, "cat small.txt", Some("d"), false, false).await, run("cat small.txt", Some("d")));
+    }
+
+
+    fn guarded(command: &str, cwd: Option<&str>, background: bool, powershell: bool) -> Guarded {
+        guard_shell_call(command, cwd, background, powershell)
+    }
+
+    fn refusal_text(guarded: Guarded) -> String {
+        match guarded {
+            Guarded::Refused(text) => text,
+            Guarded::Run { command, .. } => panic!("expected a refusal, {command:?} runs"),
+        }
+    }
+
     #[test]
-    fn the_guard_equals_nodes() {
-        let vectors: Vec<serde_json::Value> =
-            serde_json::from_str(include_str!("testdata/guard_node_vectors.json")).unwrap();
+    fn a_leading_sleep_of_two_seconds_or_more_is_refused_in_a_foreground_command() {
+        for (command, seconds) in [("sleep 5", "5"), ("sleep 2; echo done", "2"), ("sleep 3 && ls", "3"), ("  sleep 3\nls", "3")] {
+            let want = format!("Error: [shell-tool-failed] Blocked: the leading sleep of {seconds} s was not run. For a long-running command use background:true; its completion arrives automatically. To wait for a specific task when the result is needed now, use task wait — do not poll in a sleep loop. A deliberate delay under 2 seconds is allowed.");
+            assert_eq!(refusal_text(guarded(command, None, false, false)), want, "{command:?}");
+        }
+    }
+
+    #[test]
+    fn a_short_or_background_or_later_sleep_is_not_refused() {
+        for (command, background) in [("sleep 1", false), ("sleep 2.5", false), ("sleep 10", true), ("sleep 3 | cat", false), ("echo a; sleep 9", false), ("Start-Sleep 5", false)] {
+            assert!(matches!(guarded(command, None, background, false), Guarded::Run { .. }), "{command:?}");
+        }
+    }
+
+    #[test]
+    fn a_managed_worktree_creation_is_refused_in_any_spelling_and_other_worktree_commands_run() {
+        for command in ["git worktree add ../x", "git -C d worktree add -b b p", "echo \"git worktree add\"", "g\\\nit worktree add p", "echo $'\\x67it' worktree add"] {
+            let text = refusal_text(guarded(command, None, false, false));
+            assert!(text.starts_with("Error: [shell-tool-failed] Blocked: this shell command mentions `git … worktree add`, which does not run from the shell;"), "{command:?}: {text}");
+            assert!(text.contains("The check is textual: to search for that text use the grep tool"), "{text}");
+        }
+        for command in ["git status", "git worktree list"] {
+            assert!(matches!(guarded(command, None, false, false), Guarded::Run { .. }), "{command:?}");
+        }
+    }
+
+    #[test]
+    fn a_file_reading_command_runs_unchanged_and_without_a_note() {
+        for command in ["cat file.txt", "cat a b | head -5", "head -n 5 file", "tail -n +5 file", "grep foo file", "grep -e foo file", "ls src", "ls src | wc -l", "find . -name \"*.rs\"", "rg foo src", "cat a > /dev/null"] {
+            let Guarded::Run { command: run, notes, .. } = guarded(command, None, false, false) else { panic!("{command:?} was refused") };
+            assert_eq!((run.as_str(), notes), (command, Vec::new()), "{command:?}");
+        }
+        for command in ["cat", "grep foo", "ls", "ls src | xargs rm", "find . -name x -delete", "find . -type f", "cat a > b", "Get-Content a.txt"] {
+            let Guarded::Run { notes, .. } = guarded(command, None, false, false) else { panic!("{command:?} was refused") };
+            assert!(notes.is_empty(), "{command:?}: {notes:?}");
+        }
+    }
+
+    #[test]
+    fn a_leading_cd_moves_into_the_working_folder_only_when_it_is_one_plain_literal_directory() {
+        for powershell in [false, true] {
+            for (command, want_command, cwd) in [("cd /tmp && ls", "ls", "/tmp"), ("cd /tmp; ls", "ls", "/tmp"), ("cd \"/my dir\" && ls", "ls", "/my dir"), ("cd ~ && ls", "ls", "~"), ("cd 'a\\b' && ls", "ls", "a\\b")] {
+                let Guarded::Run { command: run, cwd: got, .. } = guarded(command, None, false, powershell) else { panic!("{command:?} was refused") };
+                assert_eq!((run.as_str(), got.as_deref()), (want_command, Some(cwd)), "{command:?}");
+            }
+            for command in ["cd $HOME && ls", "cd ~user && ls", "cd - && ls", "cd /tmp && cd /var && ls", "cd /tmp", "cd src/*; ls", "pushd x; ls"] {
+                let Guarded::Run { command: run, cwd: got, .. } = guarded(command, None, false, powershell) else { panic!("{command:?} was refused") };
+                assert_eq!((run.as_str(), got), (command, None), "{command:?}");
+            }
+            // An unquoted backslash escapes in a POSIX shell, so the directory is not the literal text; PowerShell takes it as is.
+            for (command, want_command, cwd) in [("cd a\\b && ls", "ls", "a\\b"), ("Set-Location -Path C:\\x; Get-ChildItem", "Get-ChildItem", "C:\\x")] {
+                let Guarded::Run { command: run, cwd: got, .. } = guarded(command, None, false, powershell) else { panic!("{command:?} was refused") };
+                let want = if powershell { (want_command, Some(cwd)) } else { (command, None) };
+                assert_eq!((run.as_str(), got.as_deref()), want, "{command:?} powershell={powershell}");
+            }
+            let Guarded::Run { command: run, cwd: got, .. } = guarded("cd /tmp && ls", Some("/x"), false, powershell) else { panic!("refused") };
+            assert_eq!((run.as_str(), got.as_deref()), ("cd /tmp && ls", Some("/x")), "an explicit working folder keeps the cd as the command's own");
+        }
+    }
+
+    /// The recorded guard calls (`guard_node_departures.json`, each with its reason).
+    #[cfg(node_twin)]
+    #[test]
+    fn the_guard_equals_nodes_except_where_it_decided_otherwise() {
+        let vectors: Vec<JsonValue> = serde_json::from_str(include_str!("testdata/guard_node_vectors.json")).unwrap();
         assert_eq!(vectors.len(), 116);
-        for v in &vectors {
+        let departed = departed(&vectors, include_str!("testdata/guard_node_departures.json"));
+        assert_eq!(departed.len(), 34);
+        for (i, v) in vectors.iter().enumerate() {
             let args = &v["args"];
             let command = args["command"].as_str().unwrap();
             let powershell = v["shellType"] == "powershell";
-            let got = guard_shell_call(
-                command,
-                args["cwd"].as_str(),
-                args["background"] == true,
-                powershell,
-            );
-            let want = &v["result"];
+            let got = guard_shell_call(command, args["cwd"].as_str(), args["background"] == true, powershell);
+            let want = departed.get(&i).unwrap_or(&v["result"]);
             match got {
                 Guarded::Refused(text) => assert_eq!(want["failure"].as_str(), Some(text.as_str()), "{args} {powershell}"),
                 Guarded::Run { command, cwd, notes } => {
                     assert!(want["failure"].is_null(), "{args} {powershell}: {want}");
                     assert_eq!(want["args"]["command"].as_str(), Some(command.as_str()), "{args} {powershell}");
                     assert_eq!(want["args"]["cwd"].as_str(), cwd.as_deref(), "{args} {powershell}");
-                    let want_notes: Vec<&str> =
-                        want["notes"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).collect();
+                    let want_notes: Vec<&str> = want["notes"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).collect();
                     assert_eq!(want_notes, notes, "{args} {powershell}");
                 }
             }
         }
+    }
+    /// The shell-cover recording: its departures name their cases and cover every recorded note (455 of 1056 cases).
+    #[cfg(node_twin)]
+    #[test]
+    fn the_cover_table_departures_name_their_cases_and_leave_the_rest_as_recorded() {
+        let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-cover/cases.json")).unwrap();
+        let recorded = doc["cases"].as_array().unwrap();
+        assert_eq!(recorded.len(), 1056);
+        let departed = departed(recorded, mixdog_testkit::fixture!("../../fixtures/shell-cover/departures.json"));
+        assert_eq!(departed.len(), 455);
     }
 }

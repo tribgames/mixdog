@@ -1,45 +1,158 @@
 /**
  * Turning ON "Allow all actions" (developer option `allowAllActions`) removes
  * the approval cards an agent would otherwise meet, so an agent must never be
- * able to do it to itself. The renderer's own confirmation is not enough: Computer Use
- * can click a toggle and then its ordinary in-page confirmation. Enabling is
- * therefore confirmed here, in the main process, under the human-only
- * approval lock (human-only-approval.ts): while the native dialog is open
- * Computer Use refuses every new operation, as for a Browser Use approval
- * card, so only the person can answer it. Turning the option off needs none.
+ * able to do it to itself. Enabling is decided here, in the main process,
+ * under the human-only approval lock (human-only-approval.ts): while the
+ * question is open Computer Use (this host's and the core's) refuses every new
+ * operation, as for a Browser Use approval card.
+ *
+ * The question is drawn on a surface main owns, not by the app's renderer: a
+ * modal child window of the asking window (host-confirm-window.ts) with its
+ * own static page (host-confirm-page.ts) and preload (preload/host-confirm.ts).
+ * The app renderer, a phone or remote client, a guest page or a frame can
+ * neither script it nor reach its channel: the answer is read only from that
+ * surface's own webContents and main frame, and its preload sends it only for
+ * a trusted activation of the page's own buttons. Anything that ends the
+ * question without an answer (the surface failing to open or load, its crash
+ * or close, the asking window's reload, navigation, crash or close) is a no,
+ * so the lock is always freed. Turning the option off needs none.
  */
-import type { BrowserWindow, Dialog } from 'electron';
+import type { BrowserWindow, IpcMainEvent } from 'electron';
+import { HOST_CONFIRM_SURFACE_IPC, type HostConfirmSurfaceMessage } from '../shared/host-confirm-surface';
+import { isAllowAllActionsEnable } from '../shared/remote-blocked-capabilities';
+import { hostConfirmPageUrl, type HostConfirmText } from './host-confirm-page';
 import { withHumanOnlyApproval } from './human-only-approval';
 
-/** Whether a capability call turns ON "Allow all actions". */
-export function isAllowAllActionsEnable(capability: string, args: readonly unknown[] = []): boolean {
-  return capability === 'setDeveloperOption' && args[0] === 'allowAllActions' && args[1] === true;
+/** Opens the hidden, unloaded surface over `parent` (host-confirm-window.ts). */
+export type OpenHostConfirmSurface = (parent: BrowserWindow) => BrowserWindow | Promise<BrowserWindow>;
+
+const openRealSurface: OpenHostConfirmSurface = async (parent) =>
+  (await import('./host-confirm-window')).openHostConfirmWindow(parent);
+
+/** Centers the surface over the parent's content at the card's height, then shows it. */
+function present(parent: BrowserWindow, surface: BrowserWindow, height?: number): void {
+  if (parent.isDestroyed() || surface.isDestroyed()) return;
+  const area = parent.getContentBounds();
+  const current = surface.getBounds();
+  const nextHeight = Math.min(Math.max(Math.ceil(height ?? current.height), 120), Math.max(area.height, 120));
+  surface.setBounds({
+    x: Math.round(area.x + (area.width - current.width) / 2),
+    y: Math.round(area.y + (area.height - nextHeight) / 2),
+    width: current.width,
+    height: nextHeight,
+  });
+  if (!surface.isVisible()) surface.show();
 }
+
+/** Asks `text` on main's surface over `parent`; true only for the person's yes. */
+async function askOnSurface(
+  parent: BrowserWindow,
+  text: HostConfirmText,
+  openSurface: OpenHostConfirmSurface
+): Promise<boolean> {
+  if (parent.isDestroyed() || parent.webContents.isDestroyed()) return false;
+  const parentContents = parent.webContents;
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    let surface: BrowserWindow | null = null;
+    let detachSurface = () => {};
+    const decline = () => finish(false);
+    const onParentNavigation = (details: { isMainFrame: boolean; isSameDocument: boolean }) => {
+      if (details.isMainFrame && !details.isSameDocument) decline();
+    };
+    const finish = (accepted: boolean) => {
+      if (settled) return;
+      settled = true;
+      detachSurface();
+      parentContents.removeListener('did-start-navigation', onParentNavigation as never);
+      parentContents.removeListener('render-process-gone', decline);
+      parentContents.removeListener('destroyed', decline);
+      parent.removeListener('closed', decline);
+      if (surface && !surface.isDestroyed()) surface.destroy();
+      resolve(accepted);
+    };
+    // The asking window is watched from before the surface opens: leaving it meanwhile is a no.
+    parentContents.on('did-start-navigation', onParentNavigation as never);
+    parentContents.on('render-process-gone', decline);
+    parentContents.once('destroyed', decline);
+    parent.once('closed', decline);
+
+    const ask = (opened: BrowserWindow) => {
+      // Abandoned while it opened: the surface returned afterwards is closed unused.
+      if (settled) {
+        if (!opened.isDestroyed()) opened.destroy();
+        return;
+      }
+      surface = opened;
+      const contents = opened.webContents;
+      let initialLoad = true;
+      const onMessage = (event: IpcMainEvent, raw: unknown) => {
+        if (event.senderFrame !== contents.mainFrame) return;
+        const message = raw as Partial<HostConfirmSurfaceMessage> | null;
+        if (message?.type === 'answer') finish((message as { accepted?: unknown }).accepted === true);
+        else if (message?.type === 'size')
+          present(parent, opened, Number((message as { height?: unknown }).height) || undefined);
+      };
+      // Only the page main loads; any later document (a reload) is a no.
+      const onNavigation = (details: { isMainFrame: boolean; isSameDocument: boolean }) => {
+        if (!details.isMainFrame || details.isSameDocument) return;
+        if (initialLoad) initialLoad = false;
+        else decline();
+      };
+      // A page whose preload never measured it still shows, at the default height.
+      const onLoaded = () => {
+        if (!opened.isDestroyed() && !opened.isVisible()) present(parent, opened);
+      };
+      detachSurface = () => {
+        contents.ipc.removeListener(HOST_CONFIRM_SURFACE_IPC, onMessage);
+        contents.removeListener('did-start-navigation', onNavigation as never);
+        contents.removeListener('did-finish-load', onLoaded);
+        contents.removeListener('preload-error', decline);
+        contents.removeListener('render-process-gone', decline);
+        opened.removeListener('unresponsive', decline);
+        opened.removeListener('closed', decline);
+      };
+      contents.ipc.on(HOST_CONFIRM_SURFACE_IPC, onMessage);
+      contents.on('did-start-navigation', onNavigation as never);
+      contents.on('did-finish-load', onLoaded);
+      contents.on('preload-error', decline);
+      contents.on('render-process-gone', decline);
+      opened.on('unresponsive', decline);
+      opened.once('closed', decline);
+      opened.loadURL(hostConfirmPageUrl(text)).catch(decline);
+    };
+    Promise.resolve()
+      .then(() => openSurface(parent))
+      .then(ask, decline);
+  });
+}
+
 
 /** The person's confirmation to turn on "Allow all actions", resolved true only
  *  when they accept the risk. Text mirrors the runtime registry entry
  *  (src/runtime/shared/developer-options.mjs); a test keeps them equal. */
 export function createAllowAllActionsConfirm(deps: {
-  dialog: Pick<Dialog, 'showMessageBox'>;
   window: BrowserWindow;
   nativeT: (key: string) => string;
+  openSurface?: OpenHostConfirmSurface;
 }): () => Promise<boolean> {
-  const { dialog, window, nativeT } = deps;
+  const { window, nativeT, openSurface = openRealSurface } = deps;
   return () =>
-    withHumanOnlyApproval(async () => {
-      if (window.isDestroyed()) return false;
-      const { response } = await dialog.showMessageBox(window, {
-        type: 'warning',
-        title: nativeT('Allow all actions'),
-        message: nativeT('Allow all actions'),
-        detail: nativeT(
-          'Turning this on lets agents act without asking you first, except for payments and permanent deletes. Use it only if you accept that risk.'
-        ),
-        buttons: [nativeT('Accept risk and turn on'), nativeT('Cancel')],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
-      });
-      return response === 0;
-    });
+    withHumanOnlyApproval(() =>
+      askOnSurface(
+        window,
+        {
+          title: nativeT('Allow all actions'),
+          description: nativeT(
+            'Turning this on lets agents act without asking you first, except for payments and permanent deletes. Use it only if you accept that risk.'
+          ),
+          confirmLabel: nativeT('Accept risk and turn on'),
+          cancelLabel: nativeT('Cancel'),
+          danger: true,
+        },
+        openSurface
+      )
+    );
 }
+
+export { isAllowAllActionsEnable };

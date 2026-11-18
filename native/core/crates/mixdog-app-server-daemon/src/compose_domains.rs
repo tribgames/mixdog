@@ -144,6 +144,9 @@ pub struct DomainPaths {
     pub user_data_dir: PathBuf,
     /// The package root: the shipped `orchestration/`, `output-styles/`, `workflows/` and `agents/` are under its `src/` (`mixdogRoot()`).
     pub package_root: PathBuf,
+    /// This core is the packaged desktop's (`js-runtime.json` of the install says `electron`): the desktop's own updater
+    /// replaces the app and the core in it, so the core never stages an update of its own.
+    pub packaged_desktop: bool,
 }
 
 /// Traits the other owners' services implement; each field says whose.
@@ -170,6 +173,8 @@ pub struct DomainSeams {
     pub screen_events: Arc<dyn mixdog_core_domains::domains::host::ScreenEvents>,
     /// The visualize tabs the desktop sets (`host/state/set`), folded for the phone's pane pages (`document/previewPages`).
     pub visualize_panes: Arc<mixdog_exthost::VisualizePanes>,
+    /// Whether the live view's data channel owns a phone's browser input; bound once the live view is built.
+    pub browser_input: Arc<mixdog_exthost::InputGateSlot>,
     /// Drops the prompt-rules and context-status caches and publishes the profile change: WP-SESSION.
     pub instructions_changed: Arc<dyn InstructionsChanged>,
     /// The one OS proxy decision of the process: WP-AI-SVC.
@@ -276,6 +281,7 @@ pub struct ComposedDomains {
     pub late: Arc<LateDomains>,
     /// Call connection_closed(id) when a connection closes.
     pub system: Arc<mixdog_spawn::service::SystemService>,
+    pub host: Arc<mixdog_core_domains::domains::host::HostService>,
     /// The agent config as the extension services read it; the `ExtensionHost` flushes it.
     pub extensions: Arc<ConfigExtensions>,
     /// The broker the setup tool's desktop requests go through (`SetupRuntime` shares it).
@@ -307,6 +313,8 @@ pub struct PreDomains {
     /// The media domain's job table and store, for the `media` tool's `StudioGraph` (one table, one store).
     pub media_jobs: Arc<mixdog_services::media::MediaJobs>,
     pub media_store: Arc<mixdog_services::media::MediaStore>,
+    /// The media domain service, for the relay media lane's gallery source.
+    pub media_service: Arc<mixdog_services::media::MediaService>,
     /// The setup actions this composition serves (local models, the domain-backed settings, the
     /// scalar settings): register each with SetupService::with_actions in the MCP stage.
     pub setup_actions: Vec<Arc<dyn SetupActions>>,
@@ -359,8 +367,8 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
         .map_err(|error| ComposeDomainsError::Watch(mixdog_core_config::config::ConfigError::Io(std::io::Error::other(error.to_string()))))?;
     let workflow: Arc<dyn DomainService> = workflow_config.clone();
     services.push(workflow.clone());
-    services.push(Arc::new(BrowserService::new(inputs.host.clone())));
-    services.push(Arc::new(VisualizeService::new(inputs.host.clone())));
+    services.push(Arc::new(BrowserService::new(inputs.host.clone()).with_input_gate(inputs.seams.browser_input.clone())));
+    services.push(Arc::new(VisualizeService::new(inputs.host.clone()).with_panes(inputs.seams.visualize_panes.clone())));
     let extensions = Arc::new(ConfigExtensions::new(config.clone()));
     let plugins: Arc<dyn DomainService> = Arc::new(PluginsService::new(
         Arc::new(PluginAdmin::new(inputs.paths.data_dir.clone(), inputs.seams.plugins.git.clone(), inputs.seams.plugins.announce.clone())),
@@ -408,6 +416,7 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
         voice_setup: local.voice_setup,
         media_jobs: local.media_jobs,
         media_store: local.media_store,
+        media_service: local.media_service,
         setup_actions,
         status_readers,
         update_cell,
@@ -455,6 +464,7 @@ pub async fn compose_domains_post(inputs: &DomainInputs, post: PostSeams, pre: P
         watcher,
         late,
         system: rows.system,
+        host: rows.host,
         extensions,
         setup_requests,
     })

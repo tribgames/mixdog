@@ -184,41 +184,80 @@ pub fn rewrite_wmic_process(text: &str) -> Option<Result<WmicRewrite, String>> {
 mod tests {
     use super::*;
 
-    fn vectors() -> serde_json::Value {
-        serde_json::from_str(include_str!("testdata/psfix_node_vectors.json")).unwrap()
+    /// The rewrite's command for the PowerShell `script` it must run.
+    fn encoded(script: &str) -> String {
+        format!("powershell.exe -NoProfile -EncodedCommand {}", base64_utf16le(script))
     }
 
-    /// Node's `maybeRewriteWmicProcessCommand` on 12 commands: the result must be equal.
+    fn rewritten(command: &str) -> Option<String> {
+        let rewrite = rewrite_wmic_process(command)?.unwrap_or_else(|error| panic!("{command:?} was refused: {error}"));
+        assert_eq!(rewrite.timeout_ms, 30_000, "{command:?}");
+        assert_eq!(rewrite.note, "[auto-rewrite: deprecated wmic process query -> PowerShell Get-CimInstance; timeout capped at 30000ms]");
+        Some(rewrite.command)
+    }
+
     #[test]
-    fn the_wmic_rewrite_equals_nodes() {
-        let vectors = vectors();
-        let cases = vectors["wmic"].as_array().unwrap();
-        assert_eq!(cases.len(), 12);
-        for case in cases {
-            let command = case["command"].as_str().unwrap();
-            let got = rewrite_wmic_process(command);
-            let want = &case["result"];
-            match got {
-                None => assert!(want.is_null(), "{command:?}"),
-                Some(Err(error)) => assert_eq!(want["error"].as_str(), Some(error.as_str()), "{command:?}"),
-                Some(Ok(r)) => {
-                    assert_eq!(want["command"].as_str(), Some(r.command.as_str()), "{command:?}");
-                    assert_eq!(want["timeoutMs"].as_u64(), Some(r.timeout_ms), "{command:?}");
-                    assert_eq!(want["note"].as_str(), Some(r.note.as_str()), "{command:?}");
-                }
-            }
+    fn a_wmic_process_query_becomes_a_get_ciminstance_script_with_the_same_fields_and_filter() {
+        for (command, script) in [
+            (
+                "wmic process get name,processid",
+                "$fields = @('Name', 'ProcessId'); $ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | Select-Object -Property $fields | Format-List",
+            ),
+            (
+                "wmic process where \"name='node.exe'\" get processid,commandline",
+                "$fields = @('ProcessId', 'CommandLine'); $names = @('node.exe'); $ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | Where-Object { ($names -contains $_.Name) } | Select-Object -Property $fields | Format-List",
+            ),
+            (
+                "wmic process where processid=1234 get name",
+                "$fields = @('Name'); $pids = @(1234); $ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | Where-Object { ($pids -contains [int]$_.ProcessId) } | Select-Object -Property $fields | Format-List",
+            ),
+            (
+                "cmd /c \"wmic process where name='a.exe' get ProcessId /format:list\"",
+                "$fields = @('ProcessId'); $names = @('a.exe'); $ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | Where-Object { ($names -contains $_.Name) } | Select-Object -Property $fields | Format-List",
+            ),
+            (
+                "wmic process where (name=\"a.exe\" or name=\"b.exe\") get handlecount, threadcount",
+                "$fields = @('HandleCount', 'ThreadCount'); $names = @('a.exe', 'b.exe'); $ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | Where-Object { ($names -contains $_.Name) } | Select-Object -Property $fields | Format-List",
+            ),
+            // A field WMIC would not know falls back to the usual set.
+            (
+                "wmic process get bogus",
+                "$fields = @('ProcessId', 'Name', 'CreationDate', 'ExecutablePath', 'CommandLine'); $ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | Select-Object -Property $fields | Format-List",
+            ),
+        ] {
+            assert_eq!(rewritten(command), Some(encoded(script)), "{command:?}");
         }
     }
 
-    /// Node's `_powershellBashismHint` on 10 command/stderr pairs.
     #[test]
-    fn the_bashism_hint_equals_nodes() {
-        let vectors = vectors();
-        let cases = vectors["hints"].as_array().unwrap();
-        assert_eq!(cases.len(), 10);
-        for case in cases {
-            let (command, stderr) = (case["command"].as_str().unwrap(), case["stderr"].as_str().unwrap());
-            assert_eq!(powershell_bashism_hint(command, stderr), case["hint"].as_str().unwrap(), "{command:?} {stderr:?}");
+    fn a_wmic_process_listing_without_a_query_is_refused_and_other_commands_are_not_touched() {
+        for command in ["WMIC.EXE process list", "wmic process"] {
+            let refusal = rewrite_wmic_process(command).expect("a decision").expect_err("refused");
+            assert_eq!(refusal, "wmic process commands are disabled because WMIC can stall for minutes; use PowerShell Get-CimInstance/Get-Process instead.");
         }
+        for command in ["& C:\\Windows\\System32\\wbem\\wmic.exe process get executablepath", "wmic process get name | findstr node", "echo wmic process get name", "wmic os get caption"] {
+            assert!(rewrite_wmic_process(command).is_none(), "{command:?}");
+        }
+    }
+
+    #[test]
+    fn a_failed_powershell_run_names_the_bash_habit_that_caused_it() {
+        for (command, stderr, hint) in [
+            ("cat x </dev/null", "ParserError: nope", "hint: PowerShell has no `<` redirection; drop </dev/null."),
+            ("cat <<EOF\nx\nEOF", "ParserError: nope", "hint: PowerShell has no heredoc; use @'\\n…\\n'@ | python - (or node -)."),
+            ("ls 2>/dev/null", "Out-File : Could not find a part of the path 'C:\\dev\\null'.", "hint: use 2>$null in PowerShell."),
+            ("ls | head -5", "head: The term 'head' is not recognized as a name of a cmdlet.\nCommandNotFoundException\n", "hint: no `head` in PowerShell; use Select-Object -First N."),
+            ("wc -l f", "wc: \n The term 'wc' is not recognized\n", "hint: no `wc` in PowerShell; use Measure-Object -Line."),
+            ("x | grep y", "CommandNotFoundException\n ObjectNotFound: (grep:String)", "hint: no `grep` in PowerShell; use the grep tool."),
+            ("pgrep node", "ObjectNotFound: (pgrep:String) CommandNotFoundException", "hint: no `pgrep` in PowerShell; use Get-Process -Name <name>."),
+        ] {
+            assert_eq!(powershell_bashism_hint(command, stderr), hint, "{command:?}");
+        }
+        // No hint when the error is not the one the habit causes, or when nothing failed.
+        assert_eq!(powershell_bashism_hint("cat <<EOF\nx\nEOF", "other error"), "");
+        assert_eq!(powershell_bashism_hint("foo | head", "ObjectNotFound: (bar:String) CommandNotFoundException"), "");
+        assert_eq!(powershell_bashism_hint("echo hi", ""), "");
     }
 }
+
+

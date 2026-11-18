@@ -43,8 +43,17 @@ mod tests {
         }
     }
 
+    #[test]
+    fn pseudo_locale_does_not_block_later_candidates() {
+        let lang = detect_device_language([None, Some("C.UTF-8"), Some("ko_KR.UTF-8"), Some("en")]);
+        assert_eq!(lang, "ko");
+        assert_eq!(detect_device_language([None, Some("C")]), "auto");
+    }
+
+
     /// Node-recorded twin `fixtures/services/voice-language-twin.json`
     /// (`benchmarks/rust-core/recorders/record-voice-language.mjs`); `MIXDOG_FIXTURES_ROOT` overrides the location.
+    #[cfg(node_twin)]
     #[test]
     fn matches_the_node_recorded_answers() {
         let root = std::env::var("MIXDOG_FIXTURES_ROOT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").to_owned());
@@ -56,12 +65,5 @@ mod tests {
             let expected = case["output"].as_str().map(str::to_owned);
             assert_eq!(normalize_whisper_language(input), expected, "input {:?}", case["input"]);
         }
-    }
-
-    #[test]
-    fn pseudo_locale_does_not_block_later_candidates() {
-        let lang = detect_device_language([None, Some("C.UTF-8"), Some("ko_KR.UTF-8"), Some("en")]);
-        assert_eq!(lang, "ko");
-        assert_eq!(detect_device_language([None, Some("C")]), "auto");
     }
 }

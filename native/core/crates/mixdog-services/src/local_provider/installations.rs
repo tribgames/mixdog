@@ -16,6 +16,8 @@ use crate::media::store::now_ms;
 pub type Progress = Arc<dyn Fn(Map<String, Value>) + Send + Sync>;
 /// `None` while running, then the operation's result.
 pub type Completion = watch::Receiver<Option<Result<Value, String>>>;
+/// Claims the commit point after the operation succeeds, unless Stop won.
+pub(super) type BeginCommit = Box<dyn FnOnce() -> bool + Send>;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InstallError {
@@ -32,6 +34,7 @@ pub enum InstallError {
 struct Entry {
     status: Map<String, Value>,
     running: bool,
+    committing: bool,
     cancel: CancellationToken,
     /// This installation's one result channel. A waiter subscribes (and the operation settles it)
     /// under the `entries` lock, so a waiter is bound to exactly the installation it joined and
@@ -74,6 +77,14 @@ impl Installations {
         F: FnOnce(Progress, CancellationToken) -> Fut + Send + 'static,
         Fut: Future<Output = Result<Value, String>> + Send + 'static,
     {
+        self.track_with_commit(phase, model_id, |progress, cancel, _| operation(progress, cancel))
+    }
+
+    pub(super) fn track_with_commit<F, Fut>(self: &Arc<Self>, phase: &str, model_id: Option<&str>, operation: F) -> (Value, Completion)
+    where
+        F: FnOnce(Progress, CancellationToken, BeginCommit) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<Value, String>> + Send + 'static,
+    {
         let key = key(phase, model_id);
         let (tx, rx) = watch::channel(None);
         let (cancel, snapshot) = {
@@ -92,7 +103,7 @@ impl Installations {
                 ("percent".into(), Value::Null),
             ]);
             let snapshot = Value::Object(status.clone());
-            entries.insert(key.clone(), Entry { status, running: true, cancel: cancel.clone(), done: tx });
+            entries.insert(key.clone(), Entry { status, running: true, committing: false, cancel: cancel.clone(), done: tx });
             (cancel, snapshot)
         };
         self.signal.notify();
@@ -105,16 +116,31 @@ impl Installations {
                 this.publish(&key, update);
             })
         };
+        let begin_commit: BeginCommit = {
+            let (this, key) = (this.clone(), key.clone());
+            Box::new(move || {
+                let mut entries = this.entries.lock().unwrap();
+                let Some(entry) = entries.get_mut(&key).filter(|entry| !entry.cancel.is_cancelled()) else {
+                    return false;
+                };
+                entry.committing = true;
+                true
+            })
+        };
         tokio::spawn(async move {
-            let result = operation(progress, cancel.clone()).await;
-            let update = match &result {
-                Ok(_) => Map::from_iter([("state".into(), json!("complete")), ("stage".into(), json!("complete")), ("percent".into(), json!(100))]),
-                Err(_) if cancel.is_cancelled() => Map::from_iter([("state".into(), json!("paused")), ("stage".into(), json!("paused")), ("error".into(), Value::Null)]),
-                Err(message) => Map::from_iter([("state".into(), json!("failed")), ("error".into(), json!(message))]),
-            };
+            let result = operation(progress, cancel, begin_commit).await;
             // The final status, the end of "running" and the result are one step, so no joiner
             // can see a finished installation as running or a new one as the old.
             if let Some(entry) = this.entries.lock().unwrap().get_mut(&key) {
+                let (result, update) = if entry.cancel.is_cancelled() {
+                    (Err("aborted".to_owned()), Map::from_iter([("state".into(), json!("paused")), ("stage".into(), json!("paused")), ("error".into(), Value::Null)]))
+                } else {
+                    let update = match &result {
+                        Ok(_) => Map::from_iter([("state".into(), json!("complete")), ("stage".into(), json!("complete")), ("percent".into(), json!(100))]),
+                        Err(message) => Map::from_iter([("state".into(), json!("failed")), ("error".into(), json!(message))]),
+                    };
+                    (result, update)
+                };
                 entry.status.extend(update);
                 entry.status.insert("updatedAt".into(), json!(now_ms()));
                 entry.running = false;
@@ -132,7 +158,7 @@ impl Installations {
         }
         let mut entries = self.entries.lock().unwrap();
         let entry = entries.values_mut().find(|e| e.status.get("jobId").and_then(Value::as_str) == Some(job_id)).ok_or(InstallError::NotFound)?;
-        if entry.running && !entry.cancel.is_cancelled() {
+        if entry.running && !entry.committing && !entry.cancel.is_cancelled() {
             entry.status.insert("state".into(), json!("cancelling"));
             entry.status.insert("updatedAt".into(), json!(now_ms()));
             entry.cancel.cancel();
@@ -221,6 +247,21 @@ mod tests {
         assert_eq!(installs.cancel("nope").unwrap_err(), InstallError::NotFound);
         installs.forget("model", Some("m")).unwrap();
         assert!(installs.status().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_stopped_runtime_job_cannot_commit_a_successful_late_download() {
+        let installs = Arc::new(Installations::default());
+        let (release, wait_for_download) = tokio::sync::oneshot::channel();
+        let (status, done) = installs.track_with_commit("runtime", None, |_, _, begin_commit| async move {
+            wait_for_download.await.unwrap();
+            assert!(!begin_commit(), "Stop won before runtime activation");
+            Ok(Value::Null)
+        });
+        assert_eq!(installs.cancel(status["jobId"].as_str().unwrap()).unwrap()["state"], "cancelling");
+        release.send(()).unwrap();
+        assert!(wait(done).await.is_err());
+        assert_eq!(installs.status()[0]["state"], "paused");
     }
 
     /// Callers racing installs that finish at once: each must resolve, and with the result of the

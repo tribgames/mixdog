@@ -218,10 +218,6 @@ mod tests {
                "headers": {"content-type": "application/json", "x-demo": "yes"}, "body": B64.encode(body)})
     }
 
-    fn starter(dir: &std::path::Path, url: &str) -> RelayTunnelStarter {
-        RelayTunnelStarter::new(mixdog_rt::testing::tokens().durability_io, dir.to_path_buf(), Some(url.to_owned()))
-    }
-
     fn stored_identity(dir: &std::path::Path) -> Value {
         serde_json::from_slice(&std::fs::read(dir.join(IDENTITY_FILE)).unwrap()).unwrap()
     }
@@ -241,6 +237,10 @@ mod tests {
         assert_eq!(hook_public_base("ws://127.0.0.1:9800/x?y#z", "dev-1").unwrap(), "http://127.0.0.1:9800/hook/dev-1");
     }
 
+
+    fn starter(dir: &std::path::Path, url: &str) -> RelayTunnelStarter {
+        RelayTunnelStarter::new(mixdog_rt::testing::tokens().durability_io, dir.to_path_buf(), Some(url.to_owned()))
+    }
     /// Node `relay-tunnel-connect.test.mjs`: a relay URL that fails the dial check is an error
     /// result, never a panic, and no leg is started.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -251,7 +251,6 @@ mod tests {
         let off = starter(dir.path(), "off").start(LocalPort::with(0)).await;
         assert!(off.unwrap().is_none());
     }
-
     /// Node `relay-tunnel.identity.test.mjs`: a NUL-filled identity is kept aside and a fresh one
     /// is persisted, then stays stable.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -269,7 +268,6 @@ mod tests {
         again.close();
         assert_eq!(again.public_base(), first.public_base(), "the repaired identity is stable");
     }
-
     /// Node logs an identity it can neither read nor write and runs on an in-memory one.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_unreadable_identity_file_leaves_the_tunnel_running_on_a_fresh_identity() {
@@ -281,7 +279,6 @@ mod tests {
         assert!(dir.path().join(IDENTITY_FILE).is_dir(), "nothing was written over the unreadable path");
         tunnel.close();
     }
-
     /// Node `relay-tunnel.tunnel.test.mjs`: the leg authenticates with the persisted identity on
     /// `/hookleg`, and frames are replayed against the local server.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -319,7 +316,6 @@ mod tests {
         assert!(String::from_utf8(B64.decode(invalid["body"].as_str().unwrap()).unwrap()).unwrap().contains("method must be POST"));
         tunnel.close();
     }
-
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn without_a_local_listener_the_tunnel_answers_503_and_redials_after_the_relay_drops_the_leg() {
         let dir = tempfile::tempdir().unwrap();
@@ -335,7 +331,6 @@ mod tests {
         assert_eq!(second.path, "/hookleg", "a fresh leg is dialed after the close");
         tunnel.close();
     }
-
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn close_ends_the_leg_and_stops_redialing() {
         let dir = tempfile::tempdir().unwrap();

@@ -53,42 +53,8 @@ mod tests {
 
     use super::*;
 
-    fn judge_over(dir: &std::path::Path, timing: JudgeTiming) -> ModelTurnJudge {
-        let config = ModelConfig { dir: dir.to_owned(), explicit: true, ort_library: OrtRuntime::Library(dir.join("no-ort")) };
-        let model = EffortJudgeModel::new(config, mixdog_services::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens())).unwrap();
-        ModelTurnJudge::with_timing(model, timing)
-    }
-
     fn request() -> TurnJudgeInput {
         TurnJudgeInput { request: "fix the bug".into(), prev: "ok".into(), prev_request: "hi".into() }
-    }
-
-    #[tokio::test]
-    async fn a_turn_that_judges_holds_the_model_loaded_even_when_the_judgment_is_skipped() {
-        let dir = tempfile::tempdir().unwrap();
-        let judge = judge_over(dir.path(), JudgeTiming::from_env(&|_| None));
-        assert!(!judge.model.is_held_warm());
-        assert_eq!(judge.judge(request()).await, JudgeAnswer::Skipped("model-missing".into()));
-        assert!(judge.model.is_held_warm(), "the lease is renewed before the judgment, as Node's turn does");
-    }
-
-    #[tokio::test]
-    async fn a_model_that_is_not_installed_skips_the_turn_as_nodes_judge_client_does() {
-        let dir = tempfile::tempdir().unwrap();
-        let judge = judge_over(dir.path(), JudgeTiming::from_env(&|_| None));
-        assert_eq!(judge.judge(request()).await, JudgeAnswer::Skipped("model-missing".into()));
-    }
-
-    #[tokio::test]
-    async fn a_model_that_fails_to_load_skips_with_the_load_error_and_is_not_retried_inside_the_back_off() {
-        let dir = tempfile::tempdir().unwrap();
-        crate::run_host::fixture_fs::write(dir.path().join("model.onnx"), b"not a model");
-        crate::run_host::fixture_fs::write(dir.path().join("tokenizer.json"), b"{}");
-        let judge = judge_over(dir.path(), JudgeTiming::from_env(&|_| None));
-        let JudgeAnswer::Skipped(first) = judge.judge(request()).await else { panic!("a broken model cannot answer") };
-        assert!(first.starts_with("load-error: "), "{first}");
-        // The next turn is turned away with the same reason, without loading again.
-        assert_eq!(judge.judge(request()).await, JudgeAnswer::Skipped(first));
     }
 
     #[test]
@@ -104,5 +70,37 @@ mod tests {
             let kept = set(bad, bad);
             assert_eq!((kept.warm, kept.cold), (Duration::from_millis(500), Duration::from_secs(3)), "{bad:?}");
         }
+    }
+
+
+    fn judge_over(dir: &std::path::Path, timing: JudgeTiming) -> ModelTurnJudge {
+        let config = ModelConfig { dir: dir.to_owned(), explicit: true, ort_library: OrtRuntime::Library(dir.join("no-ort")) };
+        let model = EffortJudgeModel::new(config, mixdog_services::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens())).unwrap();
+        ModelTurnJudge::with_timing(model, timing)
+    }
+    #[tokio::test]
+    async fn a_turn_that_judges_holds_the_model_loaded_even_when_the_judgment_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let judge = judge_over(dir.path(), JudgeTiming::from_env(&|_| None));
+        assert!(!judge.model.is_held_warm());
+        assert_eq!(judge.judge(request()).await, JudgeAnswer::Skipped("model-missing".into()));
+        assert!(judge.model.is_held_warm(), "the lease is renewed before the judgment, as Node's turn does");
+    }
+    #[tokio::test]
+    async fn a_model_that_is_not_installed_skips_the_turn_as_nodes_judge_client_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let judge = judge_over(dir.path(), JudgeTiming::from_env(&|_| None));
+        assert_eq!(judge.judge(request()).await, JudgeAnswer::Skipped("model-missing".into()));
+    }
+    #[tokio::test]
+    async fn a_model_that_fails_to_load_skips_with_the_load_error_and_is_not_retried_inside_the_back_off() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::run_host::fixture_fs::write(dir.path().join("model.onnx"), b"not a model");
+        crate::run_host::fixture_fs::write(dir.path().join("tokenizer.json"), b"{}");
+        let judge = judge_over(dir.path(), JudgeTiming::from_env(&|_| None));
+        let JudgeAnswer::Skipped(first) = judge.judge(request()).await else { panic!("a broken model cannot answer") };
+        assert!(first.starts_with("load-error: "), "{first}");
+        // The next turn is turned away with the same reason, without loading again.
+        assert_eq!(judge.judge(request()).await, JudgeAnswer::Skipped(first));
     }
 }

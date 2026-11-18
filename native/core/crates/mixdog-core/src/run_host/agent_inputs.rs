@@ -55,6 +55,10 @@ impl LiveSessions for LateLiveSessions {
         LiveSessions::header(&*self.0.directory()?, session)
     }
 
+    fn shared_header(&self, session: &str) -> Option<Arc<Row>> {
+        LiveSessions::shared_header(&*self.0.directory()?, session)
+    }
+
     fn running(&self, session: &str) -> bool {
         self.0.directory().is_some_and(|directory| LiveSessions::running(&*directory, session))
     }
@@ -142,38 +146,6 @@ mod tests {
         assert!(LateTurnSource(late).observe_session_turns("s", Arc::new(Quiet)).is_none());
     }
 
-    /// `isExistingDirectory`, `readFileSync(target, 'utf8')` and `toISOString()` as the agent tool
-    /// asks them.
-    #[tokio::test]
-    async fn the_agent_environment_reads_what_node_reads() {
-        use mixdog_core_api::domain::fs::{WritePrecondition, WriteRequest};
-        use mixdog_core_api::domain::mock::MockFileService;
-
-        let tokens = mixdog_rt::testing::tokens();
-        let files = Arc::new(MockFileService::default());
-        let root = std::env::temp_dir().join("agent-environment");
-        let dir = AbsPath::new(root.clone()).unwrap();
-        let file = AbsPath::new(root.join("prompt.txt")).unwrap();
-        files.create_dir(tokens.durability_io, dir, true).await.unwrap();
-        let request = WriteRequest { path: file, content: b"ask \xff here".to_vec(), precondition: WritePrecondition::Unconditional };
-        files.write(tokens.durability_io, request).await.unwrap();
-        let env = FileEnvironment::new(files, tokens.interactive_io, "/start".into());
-
-        assert!(env.is_directory(&root.to_string_lossy()).await);
-        assert!(!env.is_directory(&root.join("prompt.txt").to_string_lossy()).await, "a file is not a directory");
-        assert!(!env.is_directory(&root.join("gone").to_string_lossy()).await);
-        assert!(!env.is_directory("relative").await);
-        assert_eq!(env.read_text(&root.join("prompt.txt").to_string_lossy()).await.as_deref(), Ok("ask \u{fffd} here"));
-        let missing = root.join("gone.txt");
-        assert_eq!(
-            env.read_text(&missing.to_string_lossy()).await,
-            Err(format!("ENOENT: no such file or directory, open '{}'", missing.display()))
-        );
-        assert_eq!(env.current_dir(), "/start");
-        let stamp = env.now_iso();
-        assert!(stamp.len() == 24 && stamp.ends_with('Z') && stamp.as_bytes()[10] == b'T', "{stamp}");
-    }
-
     /// The work `decisions.md` "Node daemon hot paths found by profiling" 6 forbids a reader of non-credential settings,
     /// counted where every route passes (the `work` modules of the two crates, on only in this crate's test builds): a
     /// config file read by any instance, a rebuild of the agent section, a load of the provider map, the construction of
@@ -215,6 +187,51 @@ mod tests {
         }
         assert_eq!(config.revision(), revision, "a reap-window read installed a document");
     }
+
+    /// `resolveAgentTerminalReapMs`: openai-oauth keeps the finite hour its unlimited cache needs, a
+    /// provider with an override uses it, an unknown provider the `default` row.
+    #[test]
+    fn the_reap_window_is_the_agent_terminal_retention() {
+        let hour = 3_600_000.0;
+        assert_eq!(agent_terminal_reap_ms(None, "openai-oauth"), hour);
+        let section = json!({ "providerIdleMs": { "openai": 120_000, "default": 180_000 } });
+        assert_eq!(agent_terminal_reap_ms(Some(&section), "openai"), 120_000.0);
+        assert_eq!(agent_terminal_reap_ms(Some(&section), "nowhere"), 180_000.0);
+    }
+
+
+    /// `isExistingDirectory`, `readFileSync(target, 'utf8')` and `toISOString()` as the agent tool
+    /// asks them.
+    #[tokio::test]
+    async fn the_agent_environment_reads_what_node_reads() {
+        use mixdog_core_api::domain::fs::{WritePrecondition, WriteRequest};
+        use mixdog_core_api::domain::mock::MockFileService;
+
+        let tokens = mixdog_rt::testing::tokens();
+        let files = Arc::new(MockFileService::default());
+        let root = std::env::temp_dir().join("agent-environment");
+        let dir = AbsPath::new(root.clone()).unwrap();
+        let file = AbsPath::new(root.join("prompt.txt")).unwrap();
+        files.create_dir(tokens.durability_io, dir, true).await.unwrap();
+        let request = WriteRequest { path: file, content: b"ask \xff here".to_vec(), precondition: WritePrecondition::Unconditional };
+        files.write(tokens.durability_io, request).await.unwrap();
+        let env = FileEnvironment::new(files, tokens.interactive_io, "/start".into());
+
+        assert!(env.is_directory(&root.to_string_lossy()).await);
+        assert!(!env.is_directory(&root.join("prompt.txt").to_string_lossy()).await, "a file is not a directory");
+        assert!(!env.is_directory(&root.join("gone").to_string_lossy()).await);
+        assert!(!env.is_directory("relative").await);
+        assert_eq!(env.read_text(&root.join("prompt.txt").to_string_lossy()).await.as_deref(), Ok("ask \u{fffd} here"));
+        let missing = root.join("gone.txt");
+        assert_eq!(
+            env.read_text(&missing.to_string_lossy()).await,
+            Err(format!("ENOENT: no such file or directory, open '{}'", missing.display()))
+        );
+        assert_eq!(env.current_dir(), "/start");
+        let stamp = env.now_iso();
+        assert!(stamp.len() == 24 && stamp.ends_with('Z') && stamp.as_bytes()[10] == b'T', "{stamp}");
+    }
+
 
     /// The counters of the test above are live on every route the forbidden work can take, including the ones that do not
     /// pass through the instance under test: another `Config` opening or reloading the file, each provider adapter's
@@ -312,16 +329,5 @@ mod tests {
         let before = forbidden_work();
         effective.load(&agent, true).await.expect("loaded with secrets");
         moved("EffectiveProviders::load with secrets", before, 4);
-    }
-
-    /// `resolveAgentTerminalReapMs`: openai-oauth keeps the finite hour its unlimited cache needs, a
-    /// provider with an override uses it, an unknown provider the `default` row.
-    #[test]
-    fn the_reap_window_is_the_agent_terminal_retention() {
-        let hour = 3_600_000.0;
-        assert_eq!(agent_terminal_reap_ms(None, "openai-oauth"), hour);
-        let section = json!({ "providerIdleMs": { "openai": 120_000, "default": 180_000 } });
-        assert_eq!(agent_terminal_reap_ms(Some(&section), "openai"), 120_000.0);
-        assert_eq!(agent_terminal_reap_ms(Some(&section), "nowhere"), 180_000.0);
     }
 }

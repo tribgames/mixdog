@@ -5,7 +5,7 @@ import { createVisualizePublisher } from './visualize-publish.ts';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-test('a visualize change reaches Node and the core as host/state/set{key:visualize}', async () => {
+test('a visualize change reaches the core only through the host role, as host/state/set{key:visualize}', async () => {
   const sent = [];
   const connection = {
     handleRequest() {},
@@ -19,50 +19,29 @@ test('a visualize change reaches Node and the core as host/state/set{key:visuali
     () => ({ execute: async () => ({}), snapshot: () => [] }),
     (error) => assert.fail(`unexpected snapshot failure: ${error}`)
   );
-  const toNode = [];
   const publish = createVisualizePublisher({
-    node: async (event) => void toNode.push(event),
     host: () => host.publish,
     onFailure: (target, error) => assert.fail(`unexpected ${target} failure: ${error}`),
   });
-  const event = { sessionId: 's1', state: { active: 't1', tabs: [{ id: 't1' }] } };
+  const event = { sessionId: 's1', state: { active: 't1', tabs: [{ id: 't1', panes: [] }] } };
   publish(event);
   await tick();
-  assert.deepEqual(toNode, [event]);
-  assert.deepEqual(sent, [['host/state/set', { key: 'visualize', value: event }]]);
+  assert.equal(sent.length, 1, 'one path, one request');
+  assert.equal(sent[0][0], 'host/state/set');
+  assert.deepEqual(sent[0][1], { key: 'visualize', value: event });
 });
 
-test('a failing consumer does not stop the other, and a missing host role is skipped', async () => {
-  const seen = [];
+test('a failing host publish is reported, and a missing host role is skipped', async () => {
   const failures = [];
   const onFailure = (target, error) => failures.push([target, error.message]);
-  const failingNode = createVisualizePublisher({
-    node: async () => {
-      throw new Error('daemon down');
-    },
-    host: () => async (event) => void seen.push(event),
-    onFailure,
-  });
-  failingNode({ sessionId: 'a' });
-  const noHost = createVisualizePublisher({
-    node: async (event) => void seen.push(event),
-    host: () => undefined,
-    onFailure,
-  });
-  noHost({ sessionId: 'b' });
-  const failingHost = createVisualizePublisher({
-    node: async (event) => void seen.push(event),
+  createVisualizePublisher({ host: () => undefined, onFailure })({ sessionId: 'b' });
+  createVisualizePublisher({
     host: () => async () => {
       throw new Error('not claimed');
     },
     onFailure,
-  });
-  failingHost({ sessionId: 'c' });
+  })({ sessionId: 'c' });
   await tick();
-  assert.deepEqual(seen, [{ sessionId: 'a' }, { sessionId: 'b' }, { sessionId: 'c' }]);
-  // Each failure is reported with the consumer it came from; a missing host role is not a failure.
-  assert.deepEqual(failures, [
-    ['node', 'daemon down'],
-    ['host', 'not claimed'],
-  ]);
+  // A missing host role is not a failure.
+  assert.deepEqual(failures, [['host', 'not claimed']]);
 });

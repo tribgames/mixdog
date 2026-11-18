@@ -10,14 +10,20 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 #[cfg(target_os = "linux")]
-mod linux;
+pub(crate) mod linux;
 #[cfg(target_os = "macos")]
-mod macos;
+pub(crate) mod macos;
 mod unsupported;
 #[cfg(windows)]
-mod windows;
+pub(crate) mod windows;
 #[cfg(windows)]
 pub(crate) use windows::lease_now_ms;
+#[cfg(windows)]
+pub(crate) use windows::input::receipt as windows_input;
+
+/// The host's own check right before one action of a request that runs several (a menu level, a saved-login write): its
+/// grant's expiry and target. It holds no permission: each action is still arbitrated by the platform's effect port.
+pub type Authorize<'a> = &'a dyn Fn() -> Result<(), String>;
 
 /// A native top-level window number: a CGWindowID on macOS, an XID on X11,
 /// an HWND on Windows.
@@ -244,13 +250,7 @@ pub trait SavedLoginReads {
     /// `runtime_id` of process `pid`: `authorize` runs right before it. Err
     /// means nothing was written; Ok says whether the field's length
     /// confirmed the write.
-    fn set_value(
-        &self,
-        pid: u32,
-        runtime_id: &str,
-        value: &str,
-        authorize: &dyn Fn() -> Result<(), String>,
-    ) -> Result<bool, String>;
+    fn set_value(&self, pid: u32, runtime_id: &str, value: &str, authorize: Authorize<'_>) -> Result<bool, String>;
 }
 
 /// A native edit selection on a desktop that cannot select by messages.
@@ -413,8 +413,9 @@ pub trait Desktop {
     fn set_window_state(&self, handle: Wid, state: WinState) -> Result<(), String>;
     fn close_window(&self, handle: Wid) -> Result<bool, String>;
     fn is_responding(&self, handle: Wid) -> bool;
+    /// Ends a process, through the desktop's effect port; a desktop without one ends none.
     fn terminate(&self, pid: i64) -> Result<(), String> {
-        terminate_pid(pid)
+        Err(format!("terminating pid {pid} is not supported on this desktop"))
     }
 
     fn cursor(&self) -> (i32, i32);
@@ -533,21 +534,28 @@ pub trait Desktop {
     fn release_process_holds(&self) {}
 }
 
-pub fn create(observer: Arc<Shared>, marker: i64) -> Box<dyn Desktop> {
+/// The desktop of this executor: every effect it makes goes through a port bound to `scope`.
+pub fn create(observer: Arc<Shared>, marker: i64, scope: &crate::port::Scope) -> Box<dyn Desktop> {
     #[cfg(target_os = "macos")]
-    return Box::new(macos::MacDesktop::new(observer, marker));
+    return Box::new(macos::MacDesktop::new(observer, marker, scope));
     #[cfg(target_os = "linux")]
-    return linux::create(observer, marker);
+    return linux::create(observer, marker, scope);
     #[cfg(windows)]
-    return Box::new(windows::WinDesktop::new(observer, marker));
+    return Box::new(windows::WinDesktop::new(observer, marker, scope));
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
-        let _ = (observer, marker);
+        let _ = (observer, marker, scope);
         Box::new(unsupported::Unsupported::new(
             "platform_unsupported: this build has no desktop backend",
         ))
     }
 }
+
+/// The elevated supervisor's control lines to its input child (after the request on its stdin), and the child's
+/// acknowledgement on its stderr that its admission is closed.
+pub const ELEVATED_GRANT_LINE: &str = "@@MIXDOG_GRANT@@";
+pub const ELEVATED_REVOKE_LINE: &str = "@@MIXDOG_REVOKE@@";
+pub const ELEVATED_REVOKED_LINE: &str = "@@MIXDOG_REVOKED@@";
 
 /// Releases every key and button this process may still hold, from a fresh
 /// process after the resident host is gone.
@@ -564,16 +572,12 @@ pub fn release_owned_input() -> Result<(), String> {
 
 /// The `--elevated-request` worker: vets and serves the one request a UAC
 /// launch staged; the process exit code.
-pub fn elevated_worker(
-    args: &[String],
-    validate: fn(&Req) -> Result<(), String>,
-    serve: fn(&str) -> Value,
-) -> i32 {
+pub fn elevated_worker(args: &[String], validate: fn(&Req) -> Result<(), String>) -> i32 {
     #[cfg(windows)]
-    return windows::elevated::worker(args, validate, serve);
+    return windows::elevated::worker(args, validate);
     #[cfg(not(windows))]
     {
-        let _ = (args, validate, serve);
+        let _ = (args, validate);
         eprintln!("mixdog-computer --elevated-request: not available on this platform");
         2
     }
@@ -627,36 +631,16 @@ pub fn recover_inactive_ledger() -> Result<(), String> {
     return Ok(());
 }
 
+/// Waits for a process its port was told to kill to be gone; the wait holds nothing.
 #[cfg(unix)]
-pub fn terminate_pid(pid: i64) -> Result<(), String> {
-    if pid <= 0 || pid > i32::MAX as i64 {
-        return Err(format!("invalid pid {pid}"));
-    }
-    // SAFETY: kill takes a plain pid and signal; it has no memory effects here.
-    let status = unsafe { libc::kill(pid as i32, libc::SIGKILL) };
-    if status != 0 {
-        return Err(std::io::Error::last_os_error().to_string());
-    }
+pub(crate) fn await_exit(pid: i64) {
     for _ in 0..40 {
         // SAFETY: signal 0 only probes whether the process still exists.
         if unsafe { libc::kill(pid as i32, 0) } != 0 {
-            return Ok(());
+            return;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    Ok(())
-}
-
-#[cfg(windows)]
-pub fn terminate_pid(pid: i64) -> Result<(), String> {
-    windows::terminate_pid(pid)
-}
-
-#[cfg(not(any(unix, windows)))]
-pub fn terminate_pid(pid: i64) -> Result<(), String> {
-    Err(format!(
-        "terminating pid {pid} is not supported on this platform"
-    ))
 }
 
 /// The process's parent pid, read from the OS process table.

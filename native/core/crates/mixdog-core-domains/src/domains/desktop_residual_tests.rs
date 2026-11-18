@@ -299,12 +299,21 @@ fn a_platform_without_a_listing_answers_an_empty_list_and_free_text_stays() {
     assert!(list_system_fonts_uncached("aix").is_empty());
 }
 
+#[test]
+fn a_session_id_is_trimmed_and_holds_only_id_characters() {
+    assert_eq!(required_session_id("  s_1-A "), Some("s_1-A"));
+    for bad in ["", "   ", "a b", "a/b", "..", "é", &"x".repeat(257)] {
+        assert_eq!(required_session_id(bad), None, "{bad:?}");
+    }
+    assert!(required_session_id(&"x".repeat(256)).is_some());
+}
+
+
 // ---- the service -----------------------------------------------------------------------------------------------------
 
 fn service(host: Fixture) -> DesktopResidualService {
     DesktopResidualService::new(Arc::new(host), &mixdog_rt::testing::tokens())
 }
-
 #[tokio::test]
 async fn the_service_answers_links_attachments_and_settings() {
     let host = fixture(true);
@@ -336,13 +345,4 @@ async fn the_service_answers_links_attachments_and_settings() {
     std::fs::write(&file, "{ \"a\": 1, }").unwrap();
     assert_eq!(ask("desktop/workflowConfig/read", json!({ "path": file })).await.unwrap(), json!({ "config": { "a": 1 } }));
     assert_eq!(ask("desktop/workflowConfig/read", json!({ "path": dir.path().join("none.jsonc") })).await.unwrap(), json!({ "config": null }));
-}
-
-#[test]
-fn a_session_id_is_trimmed_and_holds_only_id_characters() {
-    assert_eq!(required_session_id("  s_1-A "), Some("s_1-A"));
-    for bad in ["", "   ", "a b", "a/b", "..", "é", &"x".repeat(257)] {
-        assert_eq!(required_session_id(bad), None, "{bad:?}");
-    }
-    assert!(required_session_id(&"x".repeat(256)).is_some());
 }

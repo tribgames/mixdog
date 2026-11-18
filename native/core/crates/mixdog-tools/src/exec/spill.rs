@@ -188,10 +188,15 @@ pub async fn sweep_expired(lane: impl LaneToken, cancel: &CancellationToken, dir
         for name in &names {
             let Some(id) = name.strip_suffix(OWNER_SUFFIX) else { continue };
             let owner = dir.join(name);
+            let logs = log_paths(&dir, id);
+            // The file times first: only a record that is old enough is opened. Read first, every record of the folder was
+            // parsed at each start (8,497 of them, 35 MB here) though nearly all were too recent to remove.
+            if !(aged(&owner) && logs.iter().all(|log| aged(log))) {
+                continue;
+            }
             let finished =
                 parse_record(&owner).is_some_and(|record| record.get("state").and_then(serde_json::Value::as_str) == Some("finished"));
-            let logs = log_paths(&dir, id);
-            if finished && aged(&owner) && logs.iter().all(|log| aged(log)) {
+            if finished {
                 for log in &logs {
                     let _ = std::fs::remove_file(log);
                 }

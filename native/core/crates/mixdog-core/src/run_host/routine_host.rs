@@ -166,6 +166,7 @@ impl ExecutorAgents for Arc<SpawnFlowImpl> {
             session_id: None,
             owner_session_id: Some(caller.to_owned()),
             client_host_pid: None,
+            ..SpawnContext::default()
         };
         SpawnFlowImpl::run_to_completion(self, args, "", &context, cancel).await.map(|(_, content)| content)
     }
@@ -489,18 +490,6 @@ mod tests {
     }
 
     struct Files;
-    #[async_trait]
-    impl AttachmentFiles for Files {
-        async fn store_inline(&self, base64: &str, mime: &str, filename: &str) -> Option<super::super::attachment_reference::StoredFile> {
-            Some(super::super::attachment_reference::StoredFile { reference: format!("{}:{mime}:{filename}", base64.len()), size_bytes: 3 })
-        }
-        async fn named_file(&self, _: &str, _: &str, _: &str, _: Option<&super::super::attachment_reference::OriginalFile>) -> Result<String, ()> {
-            Err(())
-        }
-        fn blob_path(&self, reference: &str) -> Result<String, super::super::attachment_reference::InvalidReference> {
-            Ok(reference.to_owned())
-        }
-    }
 
     #[derive(Default)]
     struct Delivery(Mutex<Vec<String>>);
@@ -513,25 +502,6 @@ mod tests {
         async fn announce(&self, owner: &str, name: &str, run: &AnnouncedRun) {
             self.0.lock().unwrap().push(format!("announce {owner} {name} {}", run.state));
         }
-    }
-
-    struct Setup {
-        sessions: Arc<CoreRoutineSessions>,
-        registry: Arc<UnattendedRunRegistry>,
-        directory: Arc<SessionDirectory>,
-        agent: Arc<Agent>,
-        delivery: Arc<Delivery>,
-        rig: Rig,
-    }
-
-    fn setup() -> Setup {
-        let rig = Rig::new();
-        let directory = Arc::new(SessionDirectory::new(rig.deps()));
-        let registry = UnattendedRunRegistry::new(Arc::new(NoStamps));
-        let (agent, delivery) = (Arc::new(Agent::default()), Arc::new(Delivery::default()));
-        *agent.registry.lock().unwrap() = Some(registry.clone());
-        let sessions = CoreRoutineSessions::new(directory.clone(), registry.clone(), agent.clone(), Arc::new(Files), delivery.clone());
-        Setup { sessions, registry, directory, agent, delivery, rig }
     }
 
     fn turn(thread: &str) -> RoutineTurn {
@@ -547,53 +517,6 @@ mod tests {
         }
     }
 
-    /// The thread is an unattended run of its owner exactly while the routine's turn runs.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_routine_turn_is_an_unattended_run_only_while_it_runs() {
-        let s = setup();
-        let seen: Arc<Mutex<Vec<Option<(RunKind, String)>>>> = Arc::default();
-        let (registry, record) = (s.registry.clone(), seen.clone());
-        s.rig.set_script(Arc::new(move |run| {
-            let (registry, record) = (registry.clone(), record.clone());
-            Box::pin(async move {
-                run.port.input_durable().await.expect("input durable");
-                let marked = registry.run_of(&run.thread).await.map(|r| (r.kind, r.agent_id));
-                record.lock().unwrap().push(marked);
-                mixdog_core_session::session::RunOutcome::Completed(Box::new(mixdog_agent::agent_tool::flow::seams::TurnResult { content: "ok".into(), ..Default::default() }))
-            })
-        }));
-        let thread = ThreadId::from("sess_home_lead");
-        s.directory.create_with_id(thread.clone(), serde_json::Map::new(), json!({})).await.unwrap();
-        assert!(s.sessions.home_thread_open(thread.as_str()).await.unwrap());
-        assert!(!s.sessions.home_thread_open("sess_none").await.unwrap());
-        let settle = s.sessions.run_turn(turn(thread.as_str()), CancellationToken::new()).await;
-        assert_eq!(settle, Settle::Done { result: "ok".into() });
-        assert_eq!(*seen.lock().unwrap(), [Some((RunKind::Schedule, "lead".to_owned()))]);
-        assert!(s.registry.run_of(&thread).await.is_none(), "unmarked once it settled");
-    }
-
-    /// A step only a person can do ends the turn with the human-needed text, whatever the turn did.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_step_for_a_person_ends_the_routine_with_its_text() {
-        let s = setup();
-        let registry = s.registry.clone();
-        s.rig.set_script(Arc::new(move |run| {
-            let registry = registry.clone();
-            Box::pin(async move {
-                run.port.input_durable().await.expect("input durable");
-                assert!(registry.fail_for_human(run.thread.as_str(), "login_required", "  example.com \n login "));
-                mixdog_core_session::session::RunOutcome::Completed(Box::default())
-            })
-        }));
-        let thread = ThreadId::from("sess_home_lead");
-        s.directory.create_with_id(thread.clone(), serde_json::Map::new(), json!({})).await.unwrap();
-        let settle = s.sessions.run_turn(turn(thread.as_str()), CancellationToken::new()).await;
-        assert_eq!(settle, Settle::HumanNeeded("Sign-in required: example.com login".into()));
-        assert!(!s.registry.fail_for_human("sess_not_a_run", "login_required", "x"));
-        assert_eq!(human_needed_text("anything", ""), "Action required: the site");
-        assert_eq!(human_needed_text("sensitive_confirmation_required", "bank"), "Confirmation required: bank");
-    }
-
     fn executor_run(attachments: Vec<Value>) -> ExecutorRun {
         ExecutorRun {
             agent_id: "worker".into(),
@@ -607,40 +530,19 @@ mod tests {
         }
     }
 
-    /// The executor runs under a `routine_exec_` id marked as the routine's run, with the stored
-    /// references of its attachments; its report is trimmed; a failure names the routine and the
-    /// agent unless the caller cancelled.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_executor_runs_marked_with_references_and_its_failure_is_named() {
-        let s = setup();
-        let png = STANDARD.encode(b"abc");
-        let parts = vec![
-            json!({ "type": "image", "data": png, "mimeType": "image/png", "filename": "a.png" }),
-            json!({ "type": "image", "data": "not base64!" }),
-            json!({ "type": "image", "attachmentRef": "a".repeat(64) }),
-        ];
-        *s.agent.answer.lock().unwrap() = Some(Ok("  report \n".into()));
-        assert_eq!(s.sessions.run_executor(executor_run(parts), CancellationToken::new()).await, Ok("report".into()));
-        let (args, caller) = s.agent.calls.lock().unwrap()[0].clone();
-        assert!(caller.starts_with("routine_exec_"));
-        assert_eq!(args["agent"], "worker");
-        assert_eq!(args["prompt"], "Do it");
-        assert_eq!(args["skillSelection"], "skills");
-        assert_eq!(args["cwd"], "/work");
-        assert_eq!(args["attachmentParts"], json!([{ "type": "image", "mimeType": "image/png", "filename": "a.png", "attachmentRef": "4:image/png:a.png", "sizeBytes": 3 }]));
-        assert_eq!(*s.agent.marked_during.lock().unwrap(), [true]);
-        assert!(s.registry.run_of(&ThreadId::from(caller.as_str())).await.is_none(), "unmarked when it ends");
 
-        *s.agent.answer.lock().unwrap() = Some(Err("boom".into()));
-        assert_eq!(
-            s.sessions.run_executor(executor_run(Vec::new()), CancellationToken::new()).await,
-            Err("webhook \"hook\": executor agent \"worker\" failed: boom".into())
-        );
-        let cancelled = CancellationToken::new();
-        cancelled.cancel();
-        assert_eq!(s.sessions.run_executor(executor_run(Vec::new()), cancelled).await, Err("boom".into()));
+    #[async_trait]
+    impl AttachmentFiles for Files {
+        async fn store_inline(&self, base64: &str, mime: &str, filename: &str) -> Option<super::super::attachment_reference::StoredFile> {
+            Some(super::super::attachment_reference::StoredFile { reference: format!("{}:{mime}:{filename}", base64.len()), size_bytes: 3 })
+        }
+        async fn named_file(&self, _: &str, _: &str, _: &str, _: Option<&super::super::attachment_reference::OriginalFile>) -> Result<String, ()> {
+            Err(())
+        }
+        fn blob_path(&self, reference: &str) -> Result<String, super::super::attachment_reference::InvalidReference> {
+            Ok(reference.to_owned())
+        }
     }
-
     /// Node's `storeInlineImagePart`/`storeInlineDocumentPart` (real module, recorded): a removed
     /// key leaves the others in place and the keys they add come last, in Node's order.
     #[tokio::test]
@@ -675,6 +577,102 @@ mod tests {
         }
     }
 
+
+    struct Setup {
+        sessions: Arc<CoreRoutineSessions>,
+        registry: Arc<UnattendedRunRegistry>,
+        directory: Arc<SessionDirectory>,
+        agent: Arc<Agent>,
+        delivery: Arc<Delivery>,
+        rig: Rig,
+    }
+    fn setup() -> Setup {
+        let rig = Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let registry = UnattendedRunRegistry::new(Arc::new(NoStamps));
+        let (agent, delivery) = (Arc::new(Agent::default()), Arc::new(Delivery::default()));
+        *agent.registry.lock().unwrap() = Some(registry.clone());
+        let sessions = CoreRoutineSessions::new(directory.clone(), registry.clone(), agent.clone(), Arc::new(Files), delivery.clone());
+        Setup { sessions, registry, directory, agent, delivery, rig }
+    }
+    /// The thread is an unattended run of its owner exactly while the routine's turn runs.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_routine_turn_is_an_unattended_run_only_while_it_runs() {
+        let s = setup();
+        let seen: Arc<Mutex<Vec<Option<(RunKind, String)>>>> = Arc::default();
+        let (registry, record) = (s.registry.clone(), seen.clone());
+        s.rig.set_script(Arc::new(move |run| {
+            let (registry, record) = (registry.clone(), record.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let marked = registry.run_of(&run.thread).await.map(|r| (r.kind, r.agent_id));
+                record.lock().unwrap().push(marked);
+                mixdog_core_session::session::RunOutcome::Completed(Box::new(mixdog_agent::agent_tool::flow::seams::TurnResult { content: "ok".into(), ..Default::default() }))
+            })
+        }));
+        let thread = ThreadId::from("sess_home_lead");
+        s.directory.create_with_id(thread.clone(), serde_json::Map::new(), json!({})).await.unwrap();
+        assert!(s.sessions.home_thread_open(thread.as_str()).await.unwrap());
+        assert!(!s.sessions.home_thread_open("sess_none").await.unwrap());
+        let settle = s.sessions.run_turn(turn(thread.as_str()), CancellationToken::new()).await;
+        assert_eq!(settle, Settle::Done { result: "ok".into() });
+        assert_eq!(*seen.lock().unwrap(), [Some((RunKind::Schedule, "lead".to_owned()))]);
+        assert!(s.registry.run_of(&thread).await.is_none(), "unmarked once it settled");
+    }
+    /// A step only a person can do ends the turn with the human-needed text, whatever the turn did.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_step_for_a_person_ends_the_routine_with_its_text() {
+        let s = setup();
+        let registry = s.registry.clone();
+        s.rig.set_script(Arc::new(move |run| {
+            let registry = registry.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                assert!(registry.fail_for_human(run.thread.as_str(), "login_required", "  example.com \n login "));
+                mixdog_core_session::session::RunOutcome::Completed(Box::default())
+            })
+        }));
+        let thread = ThreadId::from("sess_home_lead");
+        s.directory.create_with_id(thread.clone(), serde_json::Map::new(), json!({})).await.unwrap();
+        let settle = s.sessions.run_turn(turn(thread.as_str()), CancellationToken::new()).await;
+        assert_eq!(settle, Settle::HumanNeeded("Sign-in required: example.com login".into()));
+        assert!(!s.registry.fail_for_human("sess_not_a_run", "login_required", "x"));
+        assert_eq!(human_needed_text("anything", ""), "Action required: the site");
+        assert_eq!(human_needed_text("sensitive_confirmation_required", "bank"), "Confirmation required: bank");
+    }
+    /// The executor runs under a `routine_exec_` id marked as the routine's run, with the stored
+    /// references of its attachments; its report is trimmed; a failure names the routine and the
+    /// agent unless the caller cancelled.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_executor_runs_marked_with_references_and_its_failure_is_named() {
+        let s = setup();
+        let png = STANDARD.encode(b"abc");
+        let parts = vec![
+            json!({ "type": "image", "data": png, "mimeType": "image/png", "filename": "a.png" }),
+            json!({ "type": "image", "data": "not base64!" }),
+            json!({ "type": "image", "attachmentRef": "a".repeat(64) }),
+        ];
+        *s.agent.answer.lock().unwrap() = Some(Ok("  report \n".into()));
+        assert_eq!(s.sessions.run_executor(executor_run(parts), CancellationToken::new()).await, Ok("report".into()));
+        let (args, caller) = s.agent.calls.lock().unwrap()[0].clone();
+        assert!(caller.starts_with("routine_exec_"));
+        assert_eq!(args["agent"], "worker");
+        assert_eq!(args["prompt"], "Do it");
+        assert_eq!(args["skillSelection"], "skills");
+        assert_eq!(args["cwd"], "/work");
+        assert_eq!(args["attachmentParts"], json!([{ "type": "image", "mimeType": "image/png", "filename": "a.png", "attachmentRef": "4:image/png:a.png", "sizeBytes": 3 }]));
+        assert_eq!(*s.agent.marked_during.lock().unwrap(), [true]);
+        assert!(s.registry.run_of(&ThreadId::from(caller.as_str())).await.is_none(), "unmarked when it ends");
+
+        *s.agent.answer.lock().unwrap() = Some(Err("boom".into()));
+        assert_eq!(
+            s.sessions.run_executor(executor_run(Vec::new()), CancellationToken::new()).await,
+            Err("webhook \"hook\": executor agent \"worker\" failed: boom".into())
+        );
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        assert_eq!(s.sessions.run_executor(executor_run(Vec::new()), cancelled).await, Err("boom".into()));
+    }
     /// Results and run rows go to the one home delivery.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn results_and_run_rows_go_to_the_home_delivery() {

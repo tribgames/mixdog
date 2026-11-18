@@ -304,20 +304,6 @@ mod tests {
         assert!(!directory.home_thread_open(&ThreadId::from("sess_none")).await.unwrap());
     }
 
-    /// A record read that the lane refuses is an error: not a closed or missing thread.
-    #[tokio::test]
-    async fn a_home_thread_record_that_was_not_read_is_an_error_not_a_closed_thread() {
-        let rig = Rig::new();
-        let directory = SessionDirectory::new(rig.deps());
-        let id = ThreadId::from("sess_none");
-        assert!(!directory.home_thread_open(&id).await.unwrap());
-        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
-        assert!(directory.home_thread_open(&id).await.is_err());
-        assert!(directory.try_stored_header(&id).await.is_err());
-        // The lossy view for read-only callers still reads as unknown.
-        assert!(directory.stored_header(&id).await.is_none());
-    }
-
     /// A wake is one turn with the prompt as its input row, the submission id and the hop in its
     /// transcript meta (no marker row); its receiver answers with the end status.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -414,4 +400,20 @@ mod tests {
         eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
         assert_eq!(runs.lock().unwrap().len(), 1, "the dropped fire never ran");
     }
+
+
+    /// A record read that the lane refuses is an error: not a closed or missing thread.
+    #[tokio::test]
+    async fn a_home_thread_record_that_was_not_read_is_an_error_not_a_closed_thread() {
+        let rig = Rig::new();
+        let directory = SessionDirectory::new(rig.deps());
+        let id = ThreadId::from("sess_none");
+        assert!(!directory.home_thread_open(&id).await.unwrap());
+        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+        assert!(directory.home_thread_open(&id).await.is_err());
+        assert!(directory.try_stored_header(&id).await.is_err());
+        // The lossy view for read-only callers still reads as unknown.
+        assert!(directory.stored_header(&id).await.is_none());
+    }
 }
+

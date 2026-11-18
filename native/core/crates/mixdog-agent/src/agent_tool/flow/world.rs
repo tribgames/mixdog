@@ -20,6 +20,9 @@ pub struct SpawnContext {
     pub session_id: Option<String>,
     pub owner_session_id: Option<String>,
     pub client_host_pid: Option<u64>,
+    /// The tool call that starts the job, and the bot-chain hop of the turn making it (0: none).
+    pub tool_call_id: Option<String>,
+    pub hop: u32,
 }
 
 fn first_set(values: &[&Option<String>]) -> String {
@@ -55,6 +58,8 @@ impl From<&Caller> for SpawnContext {
             session_id: caller.scope.caller_session_id.clone(),
             owner_session_id: None,
             client_host_pid: caller.scope.host_pid,
+            tool_call_id: caller.tool_call_id.clone(),
+            hop: caller.hop,
         }
     }
 }

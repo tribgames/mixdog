@@ -14,6 +14,7 @@ pub mod fault;
 pub mod guard;
 pub mod http;
 pub mod link;
+pub mod model_driver;
 pub mod node_http;
 pub mod preconnect;
 pub mod tcp;
@@ -34,6 +35,10 @@ pub mod redirect;
 
 #[cfg(test)]
 pub(crate) mod site_probe;
+#[cfg(test)]
+pub(crate) mod timeout_probe;
+#[cfg(test)]
+mod model_driver_tests;
 
 pub use link::BidiOpen;
 pub use link::ABORTED;

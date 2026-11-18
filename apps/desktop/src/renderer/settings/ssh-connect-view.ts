@@ -46,7 +46,11 @@ export function viewForHostKey(check: Exclude<DesktopSshHostKeyCheck, { status: 
       kind: 'changed',
       previous: check.previous,
       current: check.current,
-      replace: { host: check.host, command: check.removeCommand, replaceable: check.replaceable },
+      replace: {
+        host: check.host,
+        command: check.removeCommand,
+        replaceable: check.replaceable,
+      },
       hops: check.hops,
     };
   }
@@ -54,5 +58,5 @@ export function viewForHostKey(check: Exclude<DesktopSshHostKeyCheck, { status: 
     return { kind: 'trust', fingerprint: check.fingerprint, keyType: check.keyType, hops: check.hops };
   if (check.status === 'revoked') return { kind: 'failure', failure: { kind: 'host-key-revoked' } };
   if (check.sshMissing) return { kind: 'failure', failure: { kind: 'ssh-missing', command: check.sshMissing.command } };
-  return { kind: 'failure', failure: { kind: 'failed', message: check.message } };
+  return { kind: 'failure', failure: { kind: 'failed', message: check.message, notice: check.notice } };
 }

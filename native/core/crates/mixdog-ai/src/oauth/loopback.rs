@@ -181,7 +181,9 @@ pub async fn bind(port: u16, also_v6: bool) -> io::Result<(Vec<TcpListener>, u16
     Ok((listeners, port))
 }
 
-/// Serves until a handler yields a value.
+/// Serves until a handler yields a value. The listeners are owned by this future and accepted from inside it, so the
+/// ports are closed when it ends or is dropped (a cancelled login), before whoever awaited it goes on: no task outlives
+/// it holding a bound socket.
 pub async fn serve<T, H>(listeners: Vec<TcpListener>, handler: H) -> T
 where
     T: Send + 'static,
@@ -191,15 +193,11 @@ where
     let (tx, mut rx) = mpsc::unbounded_channel::<T>();
     let stop = CancellationToken::new();
     let _close_on_drop = stop.clone().drop_guard();
-    let mut accepting = Vec::new();
-    for listener in listeners {
-        let (handler, tx, stop) = (handler.clone(), tx.clone(), stop.clone());
-        accepting.push(mixdog_rt::spawn("ai.oauth.loopback", TaskClass::Work, async move {
-            loop {
-                let accepted = tokio::select! {
-                    () = stop.cancelled() => return,
-                    accepted = listener.accept() => accepted,
-                };
+    let value = loop {
+        tokio::select! {
+            // `tx` is held here, so the channel never closes: the loop ends only with a value.
+            Some(value) = rx.recv() => break value,
+            (accepted, _, _) = futures::future::select_all(listeners.iter().map(|listener| Box::pin(listener.accept()))) => {
                 let Ok((mut stream, _)) = accepted else {
                     continue;
                 };
@@ -222,24 +220,13 @@ where
                     }
                 });
             }
-        }));
-    }
-    drop(tx);
-    // The listener tasks hold the senders; the loop ends only with a value.
-    let value = loop {
-        if let Some(value) = rx.recv().await {
-            break value;
         }
-        std::future::pending::<()>().await;
     };
     // The login is over (Node closes its server first): no connection is accepted once this returns.
     stop.cancel();
-    for task in accepting {
-        let _ = task.await;
-    }
+    drop(listeners);
     value
 }
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -272,6 +259,20 @@ pub(crate) mod tests {
         let ok = exchange(port, "GET /?u=a%20b HTTP/1.1\r\nHost: x\r\n\r\n").await;
         assert!(ok.starts_with("HTTP/1.1 200") && ok.ends_with("ok"));
         assert_eq!(server.await.unwrap(), "a b");
+    }
+
+    /// A cancelled login (its serving future dropped) has closed its port by the time the drop returns: the slot a
+    /// newer login takes is free, and the same port binds at once.
+    #[tokio::test]
+    async fn a_dropped_serving_has_closed_its_port_before_it_returns() {
+        mixdog_rt::testing::tokens();
+        let (listeners, port) = bind(0, false).await.unwrap();
+        let serving = serve(listeners, |_: Request| -> Handled<()> { Box::pin(async move { (Response::new(404), None) }) });
+        tokio::select! {
+            () = serving => unreachable!("nothing ends this serving"),
+            () = tokio::time::sleep(std::time::Duration::from_millis(20)) => {}
+        }
+        TcpListener::bind(("127.0.0.1", port)).await.expect("the port is free as the serving is dropped");
     }
 
     #[tokio::test]

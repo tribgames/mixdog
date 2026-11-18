@@ -42,9 +42,6 @@ use mixdog_core_config::config::DesktopSettings;
 /// `DISCOVERY_MAX_AGE_MS`: the bridge heartbeat touches the file every 60 s; anything older is a
 /// crash leftover.
 const MAX_AGE_MS: f64 = 5.0 * 60_000.0;
-/// `RELOAD_DEBOUNCE_MS` of `watched-file-cache.mjs`: one replace brings several events, the file
-/// is read once.
-const RELOAD_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(50);
 /// The id of the one watch this module holds on the core's `FolderWatcher`.
 const WATCH_ID: &str = "mcp.bridge";
 const FEATURES: [&str; 4] = ["browser", "computer", "terminal", "visualize"];
@@ -184,6 +181,451 @@ fn truthy(value: &Value) -> bool {
     }
 }
 
+/// [`BridgeFiles`] shared: a read of an entry may have to schedule a re-read, which needs the `Arc`.
+pub struct SharedBridgeFiles(pub Arc<BridgeFiles>);
+
+impl BridgeFeatures for SharedBridgeFiles {
+    fn present(&self, feature: &str) -> bool {
+        let Some(id) = FEATURES.iter().find(|id| **id == feature) else { return false };
+        let answer = self.0.slots().get(id).is_some_and(|slot| self.0.up(&slot.advert));
+        self.0.demand(id);
+        answer
+    }
+}
+
+/// The composition's one bridge fact, decided here for the skill gate, the setup status, the doctor and the feature probes: what the
+/// core itself knows, not a file the desktop wrote. `terminal` exists whenever the core composed its terminal (it always does);
+/// `browser` exists while `desktop.browserControl` is on (the desktop published `browser-bridge.json` only then) and a connection
+/// holds the host claim that declared it; `visualize` exists while a claim declared it; `computer` exists while
+/// `desktop.computerControl` is on and a claimed host or a resolved helper can serve it (`computer_gate`). The `<id>-bridge.json`
+/// files ([`BridgeFiles`]) are not read for these facts.
+pub struct ToolBridges {
+    /// The host channel: which capabilities a claimant serves now.
+    pub host: Arc<dyn mixdog_core_api::HostChannel>,
+    /// `desktop.computerControl`, read on every call so a change in Settings applies at once.
+    pub desktop: Arc<dyn Fn() -> DesktopSettings + Send + Sync>,
+    pub computer: Arc<crate::late_session::LateComputerHosts>,
+}
+
+/// [`HostPresence`] over the host claims and the helper pool.
+struct Presence {
+    claimed: bool,
+    helper: bool,
+}
+
+impl HostPresence for Presence {
+    fn computer_claimed(&self) -> bool {
+        self.claimed
+    }
+
+    fn tui_helper_resolvable(&self) -> bool {
+        self.helper
+    }
+}
+
+/// The one decision of whether a bridge-gated feature exists: `serves` says whether a claimant serves a host capability,
+/// `helper` whether the computer helper binary resolves now.
+fn feature_up(feature: &str, serves: &dyn Fn(HostCapability) -> bool, desktop: &DesktopSettings, helper: bool) -> bool {
+    match feature {
+        "terminal" => true,
+        "browser" => desktop.browser_control && serves(HostCapability::Browser),
+        "visualize" => serves(HostCapability::Visualize),
+        "computer" => computer_feature_present(desktop, &Presence { claimed: serves(HostCapability::Computer), helper }),
+        _ => false,
+    }
+}
+
+/// The method a claimant must take for a feature's capability to count: a claim that declared the capability but lists other
+/// methods in its `serves` does not serve the feature (`host/browser/command`, `host/visualize/command`, and the screen read
+/// `host/computer/capture` of Computer Use).
+fn feature_method(capability: HostCapability) -> Option<Method> {
+    match capability {
+        HostCapability::Browser => Some(Method("host/browser/command")),
+        HostCapability::Visualize => Some(Method("host/visualize/command")),
+        HostCapability::Computer => Some(Method("host/computer/capture")),
+        _ => None,
+    }
+}
+
+#[async_trait::async_trait]
+impl BridgeFeatures for ToolBridges {
+    async fn refresh(&self) {
+        self.computer.probe().await;
+    }
+
+    fn present(&self, feature: &str) -> bool {
+        let serves = |capability| match feature_method(capability) {
+            Some(method) => self.host.serves_method(capability, method),
+            None => self.host.serves(capability),
+        };
+        feature_up(feature, &serves, &(self.desktop)(), self.computer.helper_resolvable())
+    }
+
+    fn registered(&self, feature: &str) -> bool {
+        feature != "computer" || self.computer.registered()
+    }
+}
+
+/// Opens a URL in the user's default browser (`openInBrowser`, `runtime/shared/open-url.mjs`).
+pub struct UrlOpener {
+    io: SpawnIo,
+    system_root: Option<String>,
+    wsl: bool,
+}
+
+/// The program and arguments to try, in order.
+fn candidates(url: &str, windows: bool, macos: bool, wsl: bool, system_root: &str) -> Vec<(String, Vec<String>)> {
+    let own = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    if windows {
+        return vec![(format!("{system_root}\\System32\\rundll32.exe"), vec!["url.dll,FileProtocolHandler".to_owned(), url.to_owned()])];
+    }
+    if macos {
+        return vec![("open".to_owned(), vec![url.to_owned()])];
+    }
+    if wsl {
+        let quoted = format!("'{}'", url.replace('\'', "''"));
+        let mut command = own(&["-NoProfile", "-NonInteractive", "-Command"]);
+        command.push(format!("Start-Process -FilePath {quoted}"));
+        return vec![("wslview".to_owned(), vec![url.to_owned()]), ("powershell.exe".to_owned(), command)];
+    }
+    vec![("xdg-open".to_owned(), vec![url.to_owned()])]
+}
+
+impl UrlOpener {
+    /// `system_root` is `SystemRoot || WINDIR` of the environment; `wsl` is `isWSL()`.
+    pub fn new(io: SpawnIo, system_root: Option<String>, wsl: bool) -> Arc<Self> {
+        Arc::new(Self { io, system_root, wsl })
+    }
+
+    /// `isWSL()`: `WSL_DISTRO_NAME` / `WSL_INTEROP`, else a Microsoft kernel in `/proc/version`.
+    pub fn is_wsl(env: &EnvReader) -> bool {
+        if !cfg!(target_os = "linux") {
+            return false;
+        }
+        if ["WSL_DISTRO_NAME", "WSL_INTEROP"].iter().any(|name| env(name).is_some_and(|value| !value.is_empty())) {
+            return true;
+        }
+        mixdog_statefile::read_content(Path::new("/proc/version"))
+            .ok()
+            .flatten()
+            .map(|bytes| String::from_utf8_lossy(&bytes).to_lowercase())
+            .is_some_and(|text| text.contains("microsoft") || text.contains("wsl"))
+    }
+
+    /// `openInBrowser`: best effort and non-blocking. Each candidate is spawned detached with its
+    /// output ignored (`mixdog_spawn::detached`); one that cannot start (Node's `error` event or
+    /// a throw) gives way to the next, one that started is left alone whatever its exit.
+    pub fn open(&self, url: &str) {
+        let list = candidates(url, cfg!(windows), cfg!(target_os = "macos"), self.wsl, self.system_root.as_deref().unwrap_or("C:\\Windows"));
+        let job = self.io.submit(&CancellationToken::new(), move |_lane| {
+            for (program, args) in list {
+                if mixdog_spawn::detached::spawn_detached(&program, &args).is_ok() {
+                    return;
+                }
+            }
+        });
+        if let Err(error) = job {
+            tracing::warn!(?error, "the browser could not be opened: the spawn lane is full");
+        }
+    }
+}
+
+impl mixdog_core_domains::domains::ai_account::collaborators::LoginBrowser for UrlOpener {
+    fn open(&self, url: &str) {
+        UrlOpener::open(self, url);
+    }
+}
+
+/// The session layer's answers to the MCP side.
+pub struct DaemonMcpSurface {
+    cwd: UserCwd,
+    headers: Arc<dyn ThreadHeaders>,
+    surface: Arc<dyn ToolSurfaceStatus>,
+    extensions: Arc<ConfigExtensions>,
+    announce: Arc<dyn Fn() + Send + Sync>,
+    opener: Arc<UrlOpener>,
+    generation: mixdog_core::run_host::surface_host::SurfaceGeneration,
+}
+
+impl DaemonMcpSurface {
+    /// `cwd` reads `user-cwd.txt` of the data folder; `announce` is `announceStoredStateChange('plugins')`
+    /// (`McpInputs`' `PluginSeams.announce`).
+    pub fn new(
+        cwd: UserCwd,
+        headers: Arc<dyn ThreadHeaders>,
+        surface: Arc<dyn ToolSurfaceStatus>,
+        extensions: Arc<ConfigExtensions>,
+        announce: Arc<dyn Fn() + Send + Sync>,
+        opener: Arc<UrlOpener>,
+        generation: mixdog_core::run_host::surface_host::SurfaceGeneration,
+    ) -> Arc<Self> {
+        Arc::new(Self { cwd, headers, surface, extensions, announce, opener, generation })
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixtures are written straight to a temp dir")]
+mod tests {
+    use serde_json::Map;
+    use serde_json::json;
+
+    use super::*;
+
+    #[cfg(node_twin)]
+    /// The environment of one recorded case, folders under `base`.
+    fn env_of(case: &Value, base: &Path) -> (EnvReader, PathBuf) {
+        let mut vars: HashMap<String, String> = HashMap::new();
+        let folder = |name: &str| base.join(name);
+        let where_ = case["where"].as_str().unwrap();
+        let dir = match where_ {
+            "discovery" => folder("discovery"),
+            "data" => folder("data"),
+            _ => folder("home").join("data"),
+        };
+        match where_ {
+            "discovery" => {
+                vars.insert("MIXDOG_BRIDGE_DISCOVERY_DIR".into(), folder("discovery").to_string_lossy().into_owned());
+                vars.insert("MIXDOG_HOME".into(), folder("unused-home").to_string_lossy().into_owned());
+            }
+            "data" => {
+                vars.insert("MIXDOG_DATA_DIR".into(), folder("data").to_string_lossy().into_owned());
+                vars.insert("MIXDOG_HOME".into(), folder("unused-home").to_string_lossy().into_owned());
+            }
+            _ => {
+                vars.insert("MIXDOG_HOME".into(), folder("home").to_string_lossy().into_owned());
+            }
+        }
+        for (name, value) in case["env"].as_object().unwrap() {
+            vars.insert(name.clone(), value.as_str().unwrap().replace("{other}", &folder("other").to_string_lossy()));
+        }
+        (Arc::new(move |name| vars.get(name).cloned()), dir)
+    }
+
+    struct Doc(Map<String, Value>);
+
+    #[async_trait]
+    impl mixdog_mcp::extension_service::ExtensionConfig for Doc {
+        fn agent(&self) -> Map<String, Value> {
+            self.0.clone()
+        }
+        async fn save_agent(&self, _: &Map<String, Value>, _: &Map<String, Value>) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_disabled_skills(&self, _: &[String]) {}
+    }
+
+    #[test]
+    fn the_default_folder_is_under_the_home() {
+        let env: EnvReader = Arc::new(|_| None);
+        assert_eq!(discovery_dir(&env, Path::new("/h")), Path::new("/h").join(".mixdog").join("data"));
+    }
+
+    /// A started copy over a real `FolderWatcher`.
+    async fn started(dir: PathBuf, io: MaintenanceIo) -> Arc<SharedBridgeFiles> {
+        let files = BridgeFiles::new(dir, io);
+        let watcher = Arc::new(FolderWatcher::new(files.sink()).unwrap());
+        files.start(watcher).await;
+        Arc::new(SharedBridgeFiles(files))
+    }
+
+    /// Waits until the answer for `browser` is `want`, woken by each read the copy takes in (the
+    /// receiver is made before the answer is looked at, so no read is missed).
+    async fn browser_becomes(bridges: &SharedBridgeFiles, want: bool) {
+        let mut applied = bridges.0.applied();
+        while bridges.present("browser") != want {
+            applied.changed().await.expect("the copy is alive");
+        }
+    }
+
+    fn advert() -> String {
+        format!(r#"{{"version":1,"port":9,"token":"t","pid":{}}}"#, std::process::id())
+    }
+
+    #[test]
+    fn the_browser_is_opened_by_the_platform_opener() {
+        assert_eq!(candidates("http://x/?a=1", true, false, false, "C:\\W"), vec![("C:\\W\\System32\\rundll32.exe".to_owned(), vec!["url.dll,FileProtocolHandler".to_owned(), "http://x/?a=1".to_owned()])]);
+        assert_eq!(candidates("u", false, true, false, "").first().map(|c| c.0.as_str()), Some("open"));
+        assert_eq!(candidates("u", false, false, false, "").first().map(|c| c.0.as_str()), Some("xdg-open"));
+        let wsl = candidates("it's", false, false, true, "");
+        assert_eq!(wsl.iter().map(|c| c.0.as_str()).collect::<Vec<_>>(), ["wslview", "powershell.exe"]);
+        assert_eq!(wsl[1].1[3], "Start-Process -FilePath 'it''s'");
+    }
+
+    fn desktop(control: bool) -> DesktopSettings {
+        let doc = serde_json::json!({ "desktop": { "computerControl": control, "browserControl": control } });
+        mixdog_core_config::config::desktop_settings(doc.as_object().unwrap())
+    }
+
+    /// Terminal needs no bridge file and no claim; browser and visualize follow the claim that declared them, each its own, and
+    /// browser also the `desktop.browserControl` switch.
+    #[test]
+    fn terminal_is_present_and_browser_follows_its_claim() {
+        let none = |_: HostCapability| false;
+        let browser_only = |capability: HostCapability| capability == HostCapability::Browser;
+        assert!(feature_up("terminal", &none, &desktop(false), false));
+        assert!(!feature_up("browser", &none, &desktop(true), true));
+        assert!(feature_up("browser", &browser_only, &desktop(true), false));
+        assert!(!feature_up("browser", &browser_only, &desktop(false), true));
+        assert!(!feature_up("visualize", &browser_only, &desktop(true), true));
+        assert!(feature_up("visualize", &|capability| capability == HostCapability::Visualize, &desktop(false), false));
+        assert!(!feature_up("unknown", &|_| true, &desktop(true), true));
+    }
+
+    /// Computer: the switch and a claim or a resolved helper; a claim for another capability does not count.
+    #[test]
+    fn computer_needs_the_switch_and_a_claim_or_helper() {
+        let claims = |capability: HostCapability| capability == HostCapability::Computer;
+        let others = |capability: HostCapability| capability == HostCapability::Browser;
+        assert!(feature_up("computer", &claims, &desktop(true), false));
+        assert!(feature_up("computer", &others, &desktop(true), true));
+        assert!(!feature_up("computer", &others, &desktop(true), false));
+        assert!(!feature_up("computer", &claims, &desktop(false), true));
+    }
+
+    /// A feature's claim is checked at the method that feature sends, not at the capability alone.
+    #[test]
+    fn a_feature_is_checked_at_the_method_it_sends() {
+        assert_eq!(feature_method(HostCapability::Browser), Some(Method("host/browser/command")));
+        assert_eq!(feature_method(HostCapability::Visualize), Some(Method("host/visualize/command")));
+        assert_eq!(feature_method(HostCapability::Computer), Some(Method("host/computer/capture")));
+        assert_eq!(feature_method(HostCapability::Notifications), None);
+    }
+
+    #[cfg(node_twin)]
+    fn lay_out(case: &Value, dir: &Path) {
+        std::fs::create_dir_all(dir).unwrap();
+        let now = std::time::SystemTime::now();
+        for (file, entry) in case["files"].as_object().unwrap() {
+            let path = dir.join(file);
+            std::fs::write(&path, entry["text"].as_str().unwrap().replace("{alive}", &std::process::id().to_string())).unwrap();
+            let age = std::time::Duration::from_secs(entry["ageSec"].as_u64().unwrap());
+            std::fs::File::options().write(true).open(&path).unwrap().set_modified(now - age).unwrap();
+        }
+        for folder in case["dirs"].as_array().unwrap() {
+            std::fs::create_dir_all(dir.join(folder.as_str().unwrap())).unwrap();
+        }
+    }
+    /// A change of a watched file reaches the copy through the watch, with nobody asking for it;
+    /// a removal does too.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_watch_keeps_the_copy_current() {
+        let base = tempfile::tempdir().unwrap();
+        let bridges = started(base.path().to_path_buf(), mixdog_rt::testing::tokens().maintenance_io).await;
+        assert!(!bridges.present("browser"));
+        std::fs::write(base.path().join("browser-bridge.json"), advert()).unwrap();
+        browser_becomes(&bridges, true).await;
+        assert!(!bridges.present("computer"));
+        std::fs::remove_file(base.path().join("browser-bridge.json")).unwrap();
+        browser_becomes(&bridges, false).await;
+        assert!(!bridges.present("nothing"));
+    }
+    /// A folder that does not exist yet is followed from the nearest ancestor: when it appears
+    /// the watch moves onto it and the files in it are read.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_folder_created_later_is_followed() {
+        let base = tempfile::tempdir().unwrap();
+        let dir = base.path().join("later");
+        let bridges = started(dir.clone(), mixdog_rt::testing::tokens().maintenance_io).await;
+        assert!(!bridges.present("browser"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("browser-bridge.json"), advert()).unwrap();
+        browser_becomes(&bridges, true).await;
+    }
+
+
+    fn advert_with(pid: &str) -> String {
+        format!(r#"{{"version":1,"port":4100,"token":"t0k","pid":{pid}}}"#)
+    }
+
+    /// Which of the four features are up for the bridge files laid in a folder: the folder's `files` (name, text), under `agent`'s
+    /// config.
+    async fn features_up(files: &[(String, String)], agent: Value) -> Vec<&'static str> {
+        use mixdog_mcp::skill_catalog::SkillSettingsSource;
+        let base = tempfile::tempdir().unwrap();
+        for (name, text) in files {
+            std::fs::write(base.path().join(name), text).unwrap();
+        }
+        let bridges = started(base.path().to_path_buf(), mixdog_rt::testing::tokens().maintenance_io).await;
+        let Value::Object(agent) = agent else { unreachable!() };
+        let env: EnvReader = Arc::new(|_| None);
+        let settings = crate::compose_mcp::ConfigSkillSettings::new(Arc::new(Doc(agent)), env, bridges);
+        let active = settings.current().gate.active_features;
+        FEATURES.iter().copied().filter(|id| active.contains(*id)).collect()
+    }
+
+    fn all_four(text: &str) -> Vec<(String, String)> {
+        FEATURES.iter().map(|id| (format!("{id}-bridge.json"), text.to_owned())).collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_feature_is_up_when_its_bridge_file_names_a_live_owner() {
+        let alive = advert_with(&std::process::id().to_string());
+        assert_eq!(features_up(&[], json!({})).await.len(), 0, "no files, nothing up");
+        assert_eq!(features_up(&all_four(&alive), json!({})).await, FEATURES.to_vec(), "all four files");
+        assert_eq!(features_up(&[("browser-bridge.json".to_owned(), alive.clone())], json!({})).await, vec!["browser"], "only the one that has a file");
+        assert_eq!(features_up(&[("visualize-bridge.json".to_owned(), alive.clone())], json!({})).await, vec!["visualize"]);
+        let text_pid = advert_with(&format!("\"{}\"", std::process::id()));
+        assert_eq!(features_up(&all_four(&text_pid), json!({})).await, FEATURES.to_vec(), "a pid given as numeric text counts");
+        for odd in ["null", "0", "-4", "2.5", "\"abc\""] {
+            assert_eq!(features_up(&all_four(&advert_with(odd)), json!({})).await, FEATURES.to_vec(), "a pid of {odd} is not a reason to refuse the file");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_bridge_file_of_an_exited_owner_or_another_version_is_not_up() {
+        let exited = if cfg!(windows) { std::process::Command::new("cmd").args(["/C", "exit"]).spawn() } else { std::process::Command::new("sh").args(["-c", "exit 0"]).spawn() };
+        let mut child = exited.unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        assert!(features_up(&all_four(&advert_with(&pid.to_string())), json!({})).await.is_empty(), "the owner has exited");
+        let other_version = r#"{"version":2,"port":4100,"token":"t0k"}"#;
+        assert!(features_up(&all_four(other_version), json!({})).await.is_empty(), "an unknown version");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_visualize_module_switch_turns_the_feature_off_even_with_its_file() {
+        let alive = advert_with(&std::process::id().to_string());
+        let off = json!({ "modules": { "visualize": { "enabled": false } } });
+        let up = features_up(&all_four(&alive), off.clone()).await;
+        assert_eq!(up, vec!["browser", "computer", "terminal"], "the other three stay up");
+        assert!(features_up(&[], off).await.is_empty());
+    }
+
+    #[cfg(node_twin)]
+    fn golden() -> Value {
+        serde_json::from_str(include_str!("../tests/golden/bridge.json")).unwrap()
+    }
+    #[cfg(node_twin)]
+    /// Every recorded case: the four ids Node's `builtinFeatureActive` answers, which is the
+    /// feature switch first, then (visualize) its module toggle, then the bridge file.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_bridges_found_up_are_the_ones_node_finds_up() {
+        use mixdog_mcp::skill_catalog::SkillSettingsSource;
+        let g = golden();
+        let tokens = mixdog_rt::testing::tokens();
+        for case in g["cases"].as_array().unwrap() {
+            let base = tempfile::tempdir().unwrap();
+            let (env, dir) = env_of(case, base.path());
+            lay_out(case, &dir);
+            let found = discovery_dir(&env, &base.path().join("no-home"));
+            // The files lie in `dir`; a non-empty discovery variable names another folder to read.
+            let read_from = case["env"]["MIXDOG_BRIDGE_DISCOVERY_DIR"].as_str().filter(|set| !set.is_empty()).map_or_else(|| dir.clone(), |set| PathBuf::from(set.replace("{other}", &base.path().join("other").to_string_lossy())));
+            assert_eq!(found, read_from, "{}: the folder", case["name"]);
+            let bridges = started(found, tokens.maintenance_io).await;
+            let agent = case["config"].as_object().cloned().unwrap_or_default();
+            let settings = crate::compose_mcp::ConfigSkillSettings::new(Arc::new(Doc(agent)), env, bridges);
+            let active = settings.current().gate.active_features;
+            for id in FEATURES {
+                assert_eq!(active.contains(id), case["answer"][id].as_bool().unwrap(), "{}: {id}", case["name"]);
+            }
+        }
+    }
+}
+
+
+/// `RELOAD_DEBOUNCE_MS` of `watched-file-cache.mjs`: one replace brings several events, the file
+/// is read once.
+const RELOAD_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(50);
 impl BridgeFiles {
     /// Nothing is watched or read until [`Self::start`]; a bridge asked about before that is not up.
     pub fn new(dir: PathBuf, io: MaintenanceIo) -> Arc<Self> {
@@ -352,178 +794,6 @@ impl BridgeFiles {
         }
     }
 }
-
-/// [`BridgeFiles`] shared: a read of an entry may have to schedule a re-read, which needs the `Arc`.
-pub struct SharedBridgeFiles(pub Arc<BridgeFiles>);
-
-impl BridgeFeatures for SharedBridgeFiles {
-    fn present(&self, feature: &str) -> bool {
-        let Some(id) = FEATURES.iter().find(|id| **id == feature) else { return false };
-        let answer = self.0.slots().get(id).is_some_and(|slot| self.0.up(&slot.advert));
-        self.0.demand(id);
-        answer
-    }
-}
-
-/// The composition's one bridge fact, decided here for the skill gate, the setup status, the doctor and the feature probes: what the
-/// core itself knows, not a file the desktop wrote. `terminal` exists whenever the core composed its terminal (it always does);
-/// `browser` exists while `desktop.browserControl` is on (the desktop published `browser-bridge.json` only then) and a connection
-/// holds the host claim that declared it; `visualize` exists while a claim declared it; `computer` exists while
-/// `desktop.computerControl` is on and a claimed host or a resolved helper can serve it (`computer_gate`). The `<id>-bridge.json`
-/// files ([`BridgeFiles`]) are not read for these facts.
-pub struct ToolBridges {
-    /// The host channel: which capabilities a claimant serves now.
-    pub host: Arc<dyn mixdog_core_api::HostChannel>,
-    /// `desktop.computerControl`, read on every call so a change in Settings applies at once.
-    pub desktop: Arc<dyn Fn() -> DesktopSettings + Send + Sync>,
-    pub computer: Arc<crate::late_session::LateComputerHosts>,
-}
-
-/// [`HostPresence`] over the host claims and the helper pool.
-struct Presence {
-    claimed: bool,
-    helper: bool,
-}
-
-impl HostPresence for Presence {
-    fn computer_claimed(&self) -> bool {
-        self.claimed
-    }
-
-    fn tui_helper_resolvable(&self) -> bool {
-        self.helper
-    }
-}
-
-/// The one decision of whether a bridge-gated feature exists: `serves` says whether a claimant serves a host capability,
-/// `helper` whether the computer helper pool was built (the helper binary resolved).
-fn feature_up(feature: &str, serves: &dyn Fn(HostCapability) -> bool, desktop: &DesktopSettings, helper: bool) -> bool {
-    match feature {
-        "terminal" => true,
-        "browser" => desktop.browser_control && serves(HostCapability::Browser),
-        "visualize" => serves(HostCapability::Visualize),
-        "computer" => computer_feature_present(desktop, &Presence { claimed: serves(HostCapability::Computer), helper }),
-        _ => false,
-    }
-}
-
-/// The method a claimant must take for a feature's capability to count: a claim that declared the capability but lists other
-/// methods in its `serves` does not serve the feature (`host/browser/command`, `host/visualize/command`, and the screen read
-/// `host/computer/capture` of Computer Use).
-fn feature_method(capability: HostCapability) -> Option<Method> {
-    match capability {
-        HostCapability::Browser => Some(Method("host/browser/command")),
-        HostCapability::Visualize => Some(Method("host/visualize/command")),
-        HostCapability::Computer => Some(Method("host/computer/capture")),
-        _ => None,
-    }
-}
-
-impl BridgeFeatures for ToolBridges {
-    fn present(&self, feature: &str) -> bool {
-        let serves = |capability| match feature_method(capability) {
-            Some(method) => self.host.serves_method(capability, method),
-            None => self.host.serves(capability),
-        };
-        feature_up(feature, &serves, &(self.desktop)(), self.computer.registered())
-    }
-
-    fn registered(&self, feature: &str) -> bool {
-        feature != "computer" || self.computer.registered()
-    }
-}
-
-/// Opens a URL in the user's default browser (`openInBrowser`, `runtime/shared/open-url.mjs`).
-pub struct UrlOpener {
-    io: SpawnIo,
-    system_root: Option<String>,
-    wsl: bool,
-}
-
-/// The program and arguments to try, in order.
-fn candidates(url: &str, windows: bool, macos: bool, wsl: bool, system_root: &str) -> Vec<(String, Vec<String>)> {
-    let own = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
-    if windows {
-        return vec![(format!("{system_root}\\System32\\rundll32.exe"), vec!["url.dll,FileProtocolHandler".to_owned(), url.to_owned()])];
-    }
-    if macos {
-        return vec![("open".to_owned(), vec![url.to_owned()])];
-    }
-    if wsl {
-        let quoted = format!("'{}'", url.replace('\'', "''"));
-        let mut command = own(&["-NoProfile", "-NonInteractive", "-Command"]);
-        command.push(format!("Start-Process -FilePath {quoted}"));
-        return vec![("wslview".to_owned(), vec![url.to_owned()]), ("powershell.exe".to_owned(), command)];
-    }
-    vec![("xdg-open".to_owned(), vec![url.to_owned()])]
-}
-
-impl UrlOpener {
-    /// `system_root` is `SystemRoot || WINDIR` of the environment; `wsl` is `isWSL()`.
-    pub fn new(io: SpawnIo, system_root: Option<String>, wsl: bool) -> Arc<Self> {
-        Arc::new(Self { io, system_root, wsl })
-    }
-
-    /// `isWSL()`: `WSL_DISTRO_NAME` / `WSL_INTEROP`, else a Microsoft kernel in `/proc/version`.
-    pub fn is_wsl(env: &EnvReader) -> bool {
-        if !cfg!(target_os = "linux") {
-            return false;
-        }
-        if ["WSL_DISTRO_NAME", "WSL_INTEROP"].iter().any(|name| env(name).is_some_and(|value| !value.is_empty())) {
-            return true;
-        }
-        mixdog_statefile::read_content(Path::new("/proc/version"))
-            .ok()
-            .flatten()
-            .map(|bytes| String::from_utf8_lossy(&bytes).to_lowercase())
-            .is_some_and(|text| text.contains("microsoft") || text.contains("wsl"))
-    }
-
-    /// `openInBrowser`: best effort and non-blocking. Each candidate is spawned detached with its
-    /// output ignored (`mixdog_spawn::detached`); one that cannot start (Node's `error` event or
-    /// a throw) gives way to the next, one that started is left alone whatever its exit.
-    pub fn open(&self, url: &str) {
-        let list = candidates(url, cfg!(windows), cfg!(target_os = "macos"), self.wsl, self.system_root.as_deref().unwrap_or("C:\\Windows"));
-        let job = self.io.submit(&CancellationToken::new(), move |_lane| {
-            for (program, args) in list {
-                if mixdog_spawn::detached::spawn_detached(&program, &args).is_ok() {
-                    return;
-                }
-            }
-        });
-        if let Err(error) = job {
-            tracing::warn!(?error, "the browser could not be opened: the spawn lane is full");
-        }
-    }
-}
-
-/// The session layer's answers to the MCP side.
-pub struct DaemonMcpSurface {
-    cwd: UserCwd,
-    headers: Arc<dyn ThreadHeaders>,
-    surface: Arc<dyn ToolSurfaceStatus>,
-    extensions: Arc<ConfigExtensions>,
-    announce: Arc<dyn Fn() + Send + Sync>,
-    opener: Arc<UrlOpener>,
-    generation: mixdog_core::run_host::surface_host::SurfaceGeneration,
-}
-
-impl DaemonMcpSurface {
-    /// `cwd` reads `user-cwd.txt` of the data folder; `announce` is `announceStoredStateChange('plugins')`
-    /// (`McpInputs`' `PluginSeams.announce`).
-    pub fn new(
-        cwd: UserCwd,
-        headers: Arc<dyn ThreadHeaders>,
-        surface: Arc<dyn ToolSurfaceStatus>,
-        extensions: Arc<ConfigExtensions>,
-        announce: Arc<dyn Fn() + Send + Sync>,
-        opener: Arc<UrlOpener>,
-        generation: mixdog_core::run_host::surface_host::SurfaceGeneration,
-    ) -> Arc<Self> {
-        Arc::new(Self { cwd, headers, surface, extensions, announce, opener, generation })
-    }
-}
-
 #[async_trait]
 impl McpSurface for DaemonMcpSurface {
     /// `rt.currentCwd`: the thread's own folder, else the explicit session folder, else the
@@ -579,203 +849,5 @@ impl McpSurface for DaemonMcpSurface {
 
     async fn flush_skills_save(&self) {
         self.extensions.flush_skills_save().await;
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixtures are written straight to a temp dir")]
-mod tests {
-    use serde_json::Map;
-
-    use super::*;
-
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../tests/golden/bridge.json")).unwrap()
-    }
-
-    /// The environment of one recorded case, folders under `base`.
-    fn env_of(case: &Value, base: &Path) -> (EnvReader, PathBuf) {
-        let mut vars: HashMap<String, String> = HashMap::new();
-        let folder = |name: &str| base.join(name);
-        let where_ = case["where"].as_str().unwrap();
-        let dir = match where_ {
-            "discovery" => folder("discovery"),
-            "data" => folder("data"),
-            _ => folder("home").join("data"),
-        };
-        match where_ {
-            "discovery" => {
-                vars.insert("MIXDOG_BRIDGE_DISCOVERY_DIR".into(), folder("discovery").to_string_lossy().into_owned());
-                vars.insert("MIXDOG_HOME".into(), folder("unused-home").to_string_lossy().into_owned());
-            }
-            "data" => {
-                vars.insert("MIXDOG_DATA_DIR".into(), folder("data").to_string_lossy().into_owned());
-                vars.insert("MIXDOG_HOME".into(), folder("unused-home").to_string_lossy().into_owned());
-            }
-            _ => {
-                vars.insert("MIXDOG_HOME".into(), folder("home").to_string_lossy().into_owned());
-            }
-        }
-        for (name, value) in case["env"].as_object().unwrap() {
-            vars.insert(name.clone(), value.as_str().unwrap().replace("{other}", &folder("other").to_string_lossy()));
-        }
-        (Arc::new(move |name| vars.get(name).cloned()), dir)
-    }
-
-    fn lay_out(case: &Value, dir: &Path) {
-        std::fs::create_dir_all(dir).unwrap();
-        let now = std::time::SystemTime::now();
-        for (file, entry) in case["files"].as_object().unwrap() {
-            let path = dir.join(file);
-            std::fs::write(&path, entry["text"].as_str().unwrap().replace("{alive}", &std::process::id().to_string())).unwrap();
-            let age = std::time::Duration::from_secs(entry["ageSec"].as_u64().unwrap());
-            std::fs::File::options().write(true).open(&path).unwrap().set_modified(now - age).unwrap();
-        }
-        for folder in case["dirs"].as_array().unwrap() {
-            std::fs::create_dir_all(dir.join(folder.as_str().unwrap())).unwrap();
-        }
-    }
-
-    struct Doc(Map<String, Value>);
-
-    #[async_trait]
-    impl mixdog_mcp::extension_service::ExtensionConfig for Doc {
-        fn agent(&self) -> Map<String, Value> {
-            self.0.clone()
-        }
-        async fn save_agent(&self, _: &Map<String, Value>, _: &Map<String, Value>) -> Result<(), String> {
-            Ok(())
-        }
-        fn set_disabled_skills(&self, _: &[String]) {}
-    }
-
-    /// Every recorded case: the four ids Node's `builtinFeatureActive` answers, which is the
-    /// feature switch first, then (visualize) its module toggle, then the bridge file.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_bridges_found_up_are_the_ones_node_finds_up() {
-        use mixdog_mcp::skill_catalog::SkillSettingsSource;
-        let g = golden();
-        let tokens = mixdog_rt::testing::tokens();
-        for case in g["cases"].as_array().unwrap() {
-            let base = tempfile::tempdir().unwrap();
-            let (env, dir) = env_of(case, base.path());
-            lay_out(case, &dir);
-            let found = discovery_dir(&env, &base.path().join("no-home"));
-            // The files lie in `dir`; a non-empty discovery variable names another folder to read.
-            let read_from = case["env"]["MIXDOG_BRIDGE_DISCOVERY_DIR"].as_str().filter(|set| !set.is_empty()).map_or_else(|| dir.clone(), |set| PathBuf::from(set.replace("{other}", &base.path().join("other").to_string_lossy())));
-            assert_eq!(found, read_from, "{}: the folder", case["name"]);
-            let bridges = started(found, tokens.maintenance_io).await;
-            let agent = case["config"].as_object().cloned().unwrap_or_default();
-            let settings = crate::compose_mcp::ConfigSkillSettings::new(Arc::new(Doc(agent)), env, bridges);
-            let active = settings.current().gate.active_features;
-            for id in FEATURES {
-                assert_eq!(active.contains(id), case["answer"][id].as_bool().unwrap(), "{}: {id}", case["name"]);
-            }
-        }
-    }
-
-    #[test]
-    fn the_default_folder_is_under_the_home() {
-        let env: EnvReader = Arc::new(|_| None);
-        assert_eq!(discovery_dir(&env, Path::new("/h")), Path::new("/h").join(".mixdog").join("data"));
-    }
-
-    /// A started copy over a real `FolderWatcher`.
-    async fn started(dir: PathBuf, io: MaintenanceIo) -> Arc<SharedBridgeFiles> {
-        let files = BridgeFiles::new(dir, io);
-        let watcher = Arc::new(FolderWatcher::new(files.sink()).unwrap());
-        files.start(watcher).await;
-        Arc::new(SharedBridgeFiles(files))
-    }
-
-    /// Waits until the answer for `browser` is `want`, woken by each read the copy takes in (the
-    /// receiver is made before the answer is looked at, so no read is missed).
-    async fn browser_becomes(bridges: &SharedBridgeFiles, want: bool) {
-        let mut applied = bridges.0.applied();
-        while bridges.present("browser") != want {
-            applied.changed().await.expect("the copy is alive");
-        }
-    }
-
-    fn advert() -> String {
-        format!(r#"{{"version":1,"port":9,"token":"t","pid":{}}}"#, std::process::id())
-    }
-
-    /// A change of a watched file reaches the copy through the watch, with nobody asking for it;
-    /// a removal does too.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_watch_keeps_the_copy_current() {
-        let base = tempfile::tempdir().unwrap();
-        let bridges = started(base.path().to_path_buf(), mixdog_rt::testing::tokens().maintenance_io).await;
-        assert!(!bridges.present("browser"));
-        std::fs::write(base.path().join("browser-bridge.json"), advert()).unwrap();
-        browser_becomes(&bridges, true).await;
-        assert!(!bridges.present("computer"));
-        std::fs::remove_file(base.path().join("browser-bridge.json")).unwrap();
-        browser_becomes(&bridges, false).await;
-        assert!(!bridges.present("nothing"));
-    }
-
-    /// A folder that does not exist yet is followed from the nearest ancestor: when it appears
-    /// the watch moves onto it and the files in it are read.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_folder_created_later_is_followed() {
-        let base = tempfile::tempdir().unwrap();
-        let dir = base.path().join("later");
-        let bridges = started(dir.clone(), mixdog_rt::testing::tokens().maintenance_io).await;
-        assert!(!bridges.present("browser"));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("browser-bridge.json"), advert()).unwrap();
-        browser_becomes(&bridges, true).await;
-    }
-
-    #[test]
-    fn the_browser_is_opened_by_the_platform_opener() {
-        assert_eq!(candidates("http://x/?a=1", true, false, false, "C:\\W"), vec![("C:\\W\\System32\\rundll32.exe".to_owned(), vec!["url.dll,FileProtocolHandler".to_owned(), "http://x/?a=1".to_owned()])]);
-        assert_eq!(candidates("u", false, true, false, "").first().map(|c| c.0.as_str()), Some("open"));
-        assert_eq!(candidates("u", false, false, false, "").first().map(|c| c.0.as_str()), Some("xdg-open"));
-        let wsl = candidates("it's", false, false, true, "");
-        assert_eq!(wsl.iter().map(|c| c.0.as_str()).collect::<Vec<_>>(), ["wslview", "powershell.exe"]);
-        assert_eq!(wsl[1].1[3], "Start-Process -FilePath 'it''s'");
-    }
-
-    fn desktop(control: bool) -> DesktopSettings {
-        let doc = serde_json::json!({ "desktop": { "computerControl": control, "browserControl": control } });
-        mixdog_core_config::config::desktop_settings(doc.as_object().unwrap())
-    }
-
-    /// Terminal needs no bridge file and no claim; browser and visualize follow the claim that declared them, each its own, and
-    /// browser also the `desktop.browserControl` switch.
-    #[test]
-    fn terminal_is_present_and_browser_follows_its_claim() {
-        let none = |_: HostCapability| false;
-        let browser_only = |capability: HostCapability| capability == HostCapability::Browser;
-        assert!(feature_up("terminal", &none, &desktop(false), false));
-        assert!(!feature_up("browser", &none, &desktop(true), true));
-        assert!(feature_up("browser", &browser_only, &desktop(true), false));
-        assert!(!feature_up("browser", &browser_only, &desktop(false), true));
-        assert!(!feature_up("visualize", &browser_only, &desktop(true), true));
-        assert!(feature_up("visualize", &|capability| capability == HostCapability::Visualize, &desktop(false), false));
-        assert!(!feature_up("unknown", &|_| true, &desktop(true), true));
-    }
-
-    /// Computer: the switch and a claim or a resolved helper; a claim for another capability does not count.
-    #[test]
-    fn computer_needs_the_switch_and_a_claim_or_helper() {
-        let claims = |capability: HostCapability| capability == HostCapability::Computer;
-        let others = |capability: HostCapability| capability == HostCapability::Browser;
-        assert!(feature_up("computer", &claims, &desktop(true), false));
-        assert!(feature_up("computer", &others, &desktop(true), true));
-        assert!(!feature_up("computer", &others, &desktop(true), false));
-        assert!(!feature_up("computer", &claims, &desktop(false), true));
-    }
-
-    /// A feature's claim is checked at the method that feature sends, not at the capability alone.
-    #[test]
-    fn a_feature_is_checked_at_the_method_it_sends() {
-        assert_eq!(feature_method(HostCapability::Browser), Some(Method("host/browser/command")));
-        assert_eq!(feature_method(HostCapability::Visualize), Some(Method("host/visualize/command")));
-        assert_eq!(feature_method(HostCapability::Computer), Some(Method("host/computer/capture")));
-        assert_eq!(feature_method(HostCapability::Notifications), None);
     }
 }

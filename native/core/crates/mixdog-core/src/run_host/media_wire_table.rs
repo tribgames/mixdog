@@ -126,6 +126,8 @@ struct Family {
     support: MediaSupport,
     /// The model takes images (`modelRow?.supportsVision` of the Devin row, the local runtime's `takesImages`).
     vision: bool,
+    /// The wire branch the family's codec declares for its images.
+    branch: mixdog_image_egress::route::WireBranch,
     encode: Encode,
     bodies: Mutex<Vec<Value>>,
     /// The Messages wire's image preparation, which every Messages adapter runs before it builds its request.
@@ -157,6 +159,10 @@ impl ProviderAdapter for Family {
     }
     async fn takes_vision(&self, _: &ModelRequest) -> bool {
         self.vision
+    }
+    async fn image_route(&self, request: &ModelRequest) -> mixdog_image_egress::route::RouteFacts {
+        use mixdog_image_egress::route::{RouteFacts, Vision};
+        RouteFacts::declared(self.id.as_str(), &request.model, self.branch, if self.vision { Vision::Yes } else { Vision::No })
     }
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         let mut wire = WireRequest {
@@ -214,6 +220,20 @@ impl mixdog_ai::providers::openai::config::WireContext for WireCtx {
     }
     fn turn_state(&self, _: &str, _: &str) -> Option<String> {
         None
+    }
+}
+
+/// The wire branch each family's codec declares (`WireCodec::image_branch`).
+fn branch(family: &str) -> mixdog_image_egress::route::WireBranch {
+    use mixdog_image_egress::route::WireBranch;
+    match family {
+        "anthropic-messages" => WireBranch::AnthropicMessages,
+        "openai-chat" => WireBranch::CompatChat,
+        "openai-chat-text-only" => WireBranch::Local,
+        "openai-responses-compat" | "openai-responses" => WireBranch::OpenAiResponses,
+        "gemini" => WireBranch::GeminiNative,
+        "cursor" | "devin" => WireBranch::InlineOnly,
+        other => panic!("no branch for the family {other}"),
     }
 }
 
@@ -283,7 +303,8 @@ fn encoder(family: &str) -> Encode {
                     cascade_id: "cascade",
                     execution_id: "execution",
                 },
-            );
+            )
+            .expect("the Devin chat request builds");
             json!({ "chatRequest": base64::engine::general_purpose::STANDARD.encode(chat.encode()) })
         }),
         other => panic!("a family of the table: {other}"),
@@ -401,6 +422,7 @@ fn first_difference(core: &Value, node: &Value, at: String) -> Option<String> {
 /// Every row of the table through the run loop: the request body the core sends equals the one Node's family builds.
 const SLICES: usize = 8;
 
+#[cfg(node_twin)]
 async fn replay_slice(slice: usize) {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/media-wire/table.json");
     let table: Value = serde_json::from_str(&mixdog_testkit::read_string(&path)).expect("the table is JSON");
@@ -428,8 +450,17 @@ async fn replay_slice(slice: usize) {
     let blobs = mixdog_store::blobs::BlobStore::new(dir.path());
     for data in table["blobs"].as_object().unwrap().values() {
         let bytes = base64::engine::general_purpose::STANDARD.decode(data.as_str().unwrap()).unwrap();
-        crate::run_host::fixture_fs::write(blobs.path(&mixdog_store::blobs::digest_of(&bytes)), bytes);
+        crate::run_host::fixture_fs::write(blobs.path(&mixdog_store::blobs::digest_of(&bytes)), bytes.clone());
+        // An image is taken in through the vault at intake (`PromptStore::import_image`); a blob that is no image stays as written.
+        let (store, digest) = (blobs.clone(), mixdog_store::blobs::digest_of(&bytes));
+        let import = move |lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>| mixdog_core_session::session::prompt_submission::import_through_vault(&store, lane, &bytes, None).is_ok();
+        mixdog_rt::LaneToken::submit(tokens.durability_io, &CancellationToken::new(), import).unwrap().await.unwrap();
+        let store = blobs.clone();
+        let read = move |lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>| store.read(lane, &digest).map(drop).map_err(|error| error.to_string());
+        mixdog_rt::LaneToken::submit(tokens.durability_io, &CancellationToken::new(), read).unwrap().await.unwrap().expect("the table's file is stored");
     }
+    // Every send reads its images' verdicts and bytes from the store, as the host wires it (`TurnPath::new`).
+    mixdog_core_api::domain::image_supply::install(Arc::new(crate::run_host::image_supply::VaultSupply::new(blobs.clone(), dir.path(), &tokens)));
     let store = Arc::new(StoreAttachments { store: blobs, interactive: tokens.interactive_io });
     let thread = ThreadId::from("sess_media".to_owned());
     let mut differences = Vec::new();
@@ -450,6 +481,7 @@ async fn replay_slice(slice: usize) {
             // `providerTakesNativePdf`: only an explicit `false` lowers a PDF to text.
             support: MediaSupport { native_pdf: capabilities["nativePdf"] != json!(false), native_documents: capabilities["nativeDocuments"].as_bool() },
             vision: capabilities["vision"] != json!(false),
+            branch: branch(family),
             encode: encoder(family),
             bodies: Mutex::new(Vec::new()),
             images: (family == "anthropic-messages").then(|| mixdog_ai::providers::anthropic::images::ImageFitter::new(resizer.clone(), tokens.cpu_bulk)),
@@ -503,15 +535,29 @@ async fn replay_slice(slice: usize) {
         } else {
             config.file_text = Some(lowering);
         }
-        let run = Run::new(env, CancellationToken::new(), provider.clone(), ToolSet::new(Vec::new()), tool_env, config, transcript, RunCarry::default())
+        // Every registered provider is reached through the image guard (`ProviderRegistry::accounted`).
+        let guarded = mixdog_ai::registry::egress::EgressGuard::wrap(provider.clone());
+        let run = Run::new(env, CancellationToken::new(), guarded, ToolSet::new(Vec::new()), tool_env, config, transcript, RunCarry::default())
             .run()
             .await;
-        // A request Node refuses (an image it cannot prepare) is refused by the core's preparation with the same message; the
-        // run loop then recovers by sending again without the image, which the table does not record.
-        if let Some(expected) = row.get("error").and_then(Value::as_str) {
-            let refusals = provider.refusals.lock().unwrap().clone();
-            if refusals.first().map(String::as_str) != Some(expected) {
-                differences.push(format!("{name}: refused with {refusals:?}, Node: {expected}"));
+        // Decided: an image its route cannot take ends the send with the image named, and nothing goes out. Node refused an
+        // image it could not prepare with its own sentence, and sent a model without vision a placeholder text in the
+        // image's place; here both are the same named refusal, which the person answers.
+        let carries_image = row["messages"].as_array().unwrap().iter().any(|m| m["content"].as_array().is_some_and(|parts| parts.iter().any(|part| part["type"] == "image")));
+        // A stored image that is gone is lowered to its notice before the route is asked (`MediaLowering`): no image is left
+        // for the route to refuse. The text-only route reads the message itself, so it still names the image.
+        let lowered_away = row["kind"] == "gone-image" && family != "openai-chat-text-only";
+        if row.get("error").is_some() || (capabilities["vision"] == json!(false) && carries_image && !lowered_away) {
+            let refused = matches!(&run, Err(failure) if matches!(&failure.error, mixdog_agent::run::AgentError::Provider(error) if error.image_refusal.is_some()));
+            if !refused || !provider.bodies.lock().unwrap().is_empty() {
+                differences.push(format!("{name}: not refused for its image: {:?}", run.as_ref().err().map(|failure| &failure.error)));
+            }
+            continue;
+        }
+        if lowered_away && capabilities["vision"] == json!(false) {
+            // Node's body holds its text-only placeholder, which the core never sends: only the send itself is checked.
+            if run.is_err() || provider.bodies.lock().unwrap().len() != 1 {
+                differences.push(format!("{name}: the notice of its gone image was not sent: {:?}", run.as_ref().err().map(|failure| &failure.error)));
             }
             continue;
         }
@@ -557,7 +603,9 @@ media_table_slices! {
     every_row_of_nodes_media_table_replays_equal_slice_7 => 7,
 }
 
+
 #[test]
+#[cfg(node_twin)]
 fn media_slices_register_every_row_once() {
     assert_eq!(REGISTERED_SLICES, &(0..SLICES).collect::<Vec<_>>());
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/media-wire/table.json");

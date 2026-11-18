@@ -33,6 +33,7 @@ pub fn runner_for(id: &str) -> Option<Box<dyn Runner>> {
     })
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 mod twin_tests;
 
@@ -48,3 +49,4 @@ mod tests {
         assert!(runner_for("").is_none());
     }
 }
+

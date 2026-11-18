@@ -329,33 +329,6 @@ impl ThreadScmService {
     }
 }
 
-/// [`NewThreadPlace`](super::NewThreadPlace) over the workspace service and the registered Projects.
-pub struct ScmNewThreadPlace {
-    scm: Arc<ThreadScmService>,
-    folders: Arc<dyn crate::session::thread_settings::ProjectFolders>,
-}
-
-impl ScmNewThreadPlace {
-    pub fn new(scm: Arc<ThreadScmService>, folders: Arc<dyn crate::session::thread_settings::ProjectFolders>) -> Self {
-        Self { scm, folders }
-    }
-}
-
-#[async_trait]
-impl crate::session::NewThreadPlace for ScmNewThreadPlace {
-    async fn projects(&self) -> Result<Vec<String>, String> {
-        self.folders.projects().await
-    }
-
-    async fn touch_project(&self, path: &str) -> Result<(), String> {
-        self.folders.touch_selected(path).await
-    }
-
-    async fn enter_worktree(&self, thread: &ThreadId, worktree: &JsonValue, input: Option<&JsonValue>, cancel: &CancellationToken) -> Result<(), CoreError> {
-        self.scm.enter_new_thread_worktree(thread, worktree, input, cancel).await
-    }
-}
-
 #[async_trait]
 impl DomainService for ThreadScmService {
     fn methods(&self) -> &'static [&'static str] {
@@ -424,5 +397,31 @@ mod draft_branch_tests {
         assert_eq!(draft_branch(&json!({})), "");
         assert_eq!(draft_branch(&json!({ "branch": "   " })), "");
         assert_eq!(draft_branch(&json!({ "branch": 3 })), "");
+    }
+}
+
+
+/// [`NewThreadPlace`](super::NewThreadPlace) over the workspace service and the registered Projects.
+pub struct ScmNewThreadPlace {
+    scm: Arc<ThreadScmService>,
+    folders: Arc<dyn crate::session::thread_settings::ProjectFolders>,
+}
+impl ScmNewThreadPlace {
+    pub fn new(scm: Arc<ThreadScmService>, folders: Arc<dyn crate::session::thread_settings::ProjectFolders>) -> Self {
+        Self { scm, folders }
+    }
+}
+#[async_trait]
+impl crate::session::NewThreadPlace for ScmNewThreadPlace {
+    async fn projects(&self) -> Result<Vec<String>, String> {
+        self.folders.projects().await
+    }
+
+    async fn touch_project(&self, path: &str) -> Result<(), String> {
+        self.folders.touch_selected(path).await
+    }
+
+    async fn enter_worktree(&self, thread: &ThreadId, worktree: &JsonValue, input: Option<&JsonValue>, cancel: &CancellationToken) -> Result<(), CoreError> {
+        self.scm.enter_new_thread_worktree(thread, worktree, input, cancel).await
     }
 }

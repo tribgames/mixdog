@@ -9,51 +9,89 @@
 //! caller's result (Node's `AbortError` is the broker's `Cancelled`), and the admission slot released. The cancel in the
 //! retry wait ends the send under a paused clock that has not moved. Every wait has one deadline naming its step.
 
+#[cfg(node_twin)]
 use std::future::Future;
+#[cfg(node_twin)]
 use std::sync::Arc;
+#[cfg(node_twin)]
 use std::sync::Mutex;
+#[cfg(node_twin)]
 use std::sync::atomic::AtomicBool;
+#[cfg(node_twin)]
 use std::sync::atomic::Ordering;
+#[cfg(node_twin)]
 use std::task::Poll;
+#[cfg(node_twin)]
 use std::time::Duration;
 
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::StreamEvent;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::WireRequest;
+#[cfg(node_twin)]
 use serde_json::Value;
+#[cfg(node_twin)]
 use serde_json::json;
+#[cfg(node_twin)]
 use tokio_util::sync::CancellationToken;
 
+#[cfg(node_twin)]
 use crate::admission::Admission;
+#[cfg(node_twin)]
 use crate::admission::AdmissionRequest;
+#[cfg(node_twin)]
 use crate::admission::LaneKey;
+#[cfg(node_twin)]
 use crate::admission::LaneSettings;
+#[cfg(node_twin)]
 use crate::broker::AttemptSink;
+#[cfg(node_twin)]
 use crate::broker::ModelBroker;
+#[cfg(node_twin)]
 use crate::broker::SendError;
+#[cfg(node_twin)]
 use crate::broker::SendRequest;
+#[cfg(node_twin)]
 use crate::providers::anthropic::ModelCaps;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::Inputs;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::Recorded;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::assert_minted_bearer;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::assert_same_events;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::assert_same_requests;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::built_on;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::load;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::request_of;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::scenarios;
+#[cfg(node_twin)]
 use crate::retry::StandardRetryDecider;
+#[cfg(node_twin)]
 use crate::transport::KeepaliveSchedule;
+#[cfg(node_twin)]
 use crate::transport::ReqwestLink;
+#[cfg(node_twin)]
 use crate::transport::loopback::Loopback;
+#[cfg(node_twin)]
 use crate::transport::loopback::Script;
 
+#[cfg(node_twin)]
 /// The one deadline of each wait: a step that does not come fails the replay naming it.
 const DEADLINE: Duration = Duration::from_secs(30);
 
+#[cfg(node_twin)]
 async fn within<T>(what: &str, step: impl Future<Output = T>) -> T {
     mixdog_rt::time::timeout(DEADLINE, step).await.unwrap_or_else(|_| panic!("{what}: not within {DEADLINE:?}"))
 }
 
+#[cfg(node_twin)]
 /// The caller: keeps the events, and cancels at the scenario's step.
 struct Caller {
     events: Vec<StreamEvent>,
@@ -62,6 +100,7 @@ struct Caller {
     discarded: Arc<AtomicBool>,
 }
 
+#[cfg(node_twin)]
 impl AttemptSink for Caller {
     fn event(&mut self, event: StreamEvent) {
         let text = matches!(event, StreamEvent::TextDelta(_));
@@ -79,6 +118,7 @@ impl AttemptSink for Caller {
 
 /// The endpoint Node's recorded: each request answered with the status, headers and body Node's endpoint gave it, a held
 /// answer held the same way (`head`: nothing; `part`: the head and the bytes, then nothing).
+#[cfg(node_twin)]
 async fn endpoint(recorded: &Recorded) -> Loopback {
     let records = recorded.exchange["records"].as_array().expect("records");
     let hosts: Vec<String> = records.iter().map(|r| url::Url::parse(r["origin"].as_str().expect("origin")).expect("url").host_str().expect("host").to_owned()).collect();
@@ -98,6 +138,7 @@ async fn endpoint(recorded: &Recorded) -> Loopback {
     loopback
 }
 
+#[cfg(node_twin)]
 #[tokio::test]
 async fn a_cancelled_claude_send_ends_as_node_ends_it() {
     let names = scenarios("vertex-claude-cancel");

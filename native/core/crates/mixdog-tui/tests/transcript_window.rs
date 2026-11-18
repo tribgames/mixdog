@@ -9,30 +9,25 @@ use std::collections::HashSet;
 use mixdog_tui::transcript::window::geometry::FrameProps;
 use mixdog_tui::transcript::window::heights::{HeightParams, ItemHeights};
 use mixdog_tui::transcript::window::instance_state::WindowState;
-use mixdog_tui::transcript::window::render_window::{
-    AnchorPoint, WindowTuning, resolve_anchor_scroll_offset, transcript_render_window, transcript_swap_returns_to_tail, upper_bound,
-};
+use mixdog_tui::transcript::window::render_window::{AnchorPoint, WindowTuning, resolve_anchor_scroll_offset, upper_bound};
+#[cfg(node_twin)]
+use mixdog_tui::transcript::window::render_window::{transcript_render_window, transcript_swap_returns_to_tail};
 use mixdog_tui::transcript::window::row_index::{Items, RowIndex};
-use mixdog_tui::transcript::window::selection_shift::{
-    Cell, SelectionRect, compare_cell_order, selection_rect_is_degenerate, selection_rects_equal, shift_selection_rect_y,
-    status_band_row_range, transcript_viewport_row_range,
-};
+#[cfg(node_twin)]
+use mixdog_tui::transcript::window::selection_shift::{Cell, SelectionRect, compare_cell_order, selection_rect_is_degenerate, selection_rects_equal, shift_selection_rect_y, status_band_row_range, transcript_viewport_row_range};
 use serde_json::{Value, json};
 
-const GOLDEN: &str = include_str!("goldens/window.json");
-
-fn golden() -> Value {
-    serde_json::from_str(GOLDEN).expect("the golden parses")
-}
-
+#[cfg(node_twin)]
 fn number(value: &Value) -> f64 {
     value.as_f64().unwrap_or(f64::NAN)
 }
 
+#[cfg(node_twin)]
 fn count(value: &Value) -> usize {
     value.as_u64().expect("a count") as usize
 }
 
+#[cfg(node_twin)]
 fn row_index(rows: &[usize]) -> RowIndex {
     let mut prefix_rows = vec![0];
     for row in rows {
@@ -41,56 +36,17 @@ fn row_index(rows: &[usize]) -> RowIndex {
     RowIndex { rows: rows.to_vec(), total_rows: prefix_rows.last().copied().unwrap_or(0), prefix_rows }
 }
 
+#[cfg(node_twin)]
 fn rows_of(value: &Value) -> Vec<usize> {
     value.as_array().expect("rows").iter().map(count).collect()
 }
 
+#[cfg(node_twin)]
 fn items_of(count: usize) -> Vec<Value> {
     (0..count).map(|index| json!({"id": format!("i{index}"), "kind": "user"})).collect()
 }
 
-#[test]
-fn render_windows_match_node() {
-    let golden = golden();
-    let tuning = WindowTuning::default();
-    let mut checked = 0;
-    for table in golden["windows"].as_array().expect("windows") {
-        let index = row_index(&rows_of(&table["rows"]));
-        for case in table["cases"].as_array().expect("cases") {
-            let window = transcript_render_window(&index, number(&case["offset"]), number(&case["view"]), &tuning);
-            let got = [window.start_index, window.end_index, window.bottom_spacer_rows, window.total_rows, window.max_scroll_rows, window.effective_scroll_offset];
-            let want: Vec<usize> = case["out"].as_array().expect("out").iter().map(count).collect();
-            assert_eq!(got.to_vec(), want, "{} table of {} items, view {}, offset {}", table["kind"], index.rows.len(), case["view"], case["offset"]);
-            checked += 1;
-        }
-    }
-    assert!(checked > 1000);
-}
-
-#[test]
-fn anchors_resolve_as_in_node() {
-    let golden = golden();
-    for case in golden["anchors"].as_array().expect("anchors") {
-        let rows = rows_of(&case["rows"]);
-        let index = row_index(&rows);
-        let settled = items_of(count(&case["count"]));
-        let items = Items::new(&settled, None);
-        let anchor = case["anchor"].as_object().map(|anchor| AnchorPoint { id: anchor["id"].as_str().expect("id").to_owned(), offset: count(&anchor["offset"]) });
-        let got = resolve_anchor_scroll_offset(anchor.as_ref(), &items, &index.prefix_rows, count(&case["totalRows"]), count(&case["view"]), count(&case["maxRows"]));
-        let want = case["out"].as_u64().map(|offset| offset as usize);
-        assert_eq!(got, want, "{case}");
-    }
-}
-
-#[test]
-fn swaps_return_to_the_tail_as_in_node() {
-    let golden = golden();
-    for case in golden["swaps"].as_array().expect("swaps") {
-        let got = transcript_swap_returns_to_tail(count(&case["count"]), count(&case["previousCount"]), case["firstId"].as_str(), case["previousFirstId"].as_str());
-        assert_eq!(Some(got), case["out"].as_bool(), "{case}");
-    }
-}
-
+#[cfg(node_twin)]
 fn rect_of(value: &Value) -> SelectionRect {
     let int = |key: &str| value[key].as_i64().expect("a coordinate");
     SelectionRect {
@@ -105,38 +61,9 @@ fn rect_of(value: &Value) -> SelectionRect {
     }
 }
 
+#[cfg(node_twin)]
 fn cell_of(value: &Value) -> Cell {
     Cell { x: value["x"].as_i64().expect("x"), y: value["y"].as_i64().expect("y") }
-}
-
-#[test]
-fn selection_helpers_match_node() {
-    let golden = golden();
-    let selection = &golden["selection"];
-    for case in selection["degenerate"].as_array().expect("degenerate") {
-        assert_eq!(Some(selection_rect_is_degenerate(&rect_of(&case["rect"]))), case["out"].as_bool(), "{case}");
-    }
-    for case in selection["equal"].as_array().expect("equal") {
-        assert_eq!(Some(selection_rects_equal(Some(&rect_of(&case["a"])), Some(&rect_of(&case["b"])))), case["out"].as_bool(), "{case}");
-    }
-    for case in selection["shift"].as_array().expect("shift") {
-        let got = shift_selection_rect_y(Some(&rect_of(&case["rect"])), number(&case["delta"]));
-        assert_eq!(got, Some(rect_of(&case["out"])), "{case}");
-    }
-    for case in selection["shiftNone"].as_array().expect("shiftNone") {
-        assert_eq!(shift_selection_rect_y(None, number(&case["delta"])), None);
-    }
-    for case in selection["compare"].as_array().expect("compare") {
-        assert_eq!(Some(i64::from(compare_cell_order(cell_of(&case["a"]), cell_of(&case["b"])))), case["out"].as_i64(), "{case}");
-    }
-    for case in selection["viewport"].as_array().expect("viewport") {
-        let got = transcript_viewport_row_range(case["top"].as_f64(), case["bottom"].as_f64());
-        assert_eq!((got.top, got.bottom), (case["out"]["top"].as_i64().expect("top"), case["out"]["bottom"].as_i64().expect("bottom")), "{case}");
-    }
-    for case in selection["band"].as_array().expect("band") {
-        let got = status_band_row_range(number(&case["frameRows"]), count(&case["band"]));
-        assert_eq!((got.top, got.bottom), (case["out"]["top"].as_i64().expect("top"), case["out"]["bottom"].as_i64().expect("bottom")), "{case}");
-    }
 }
 
 fn params(columns: usize, tool_output_expanded: bool) -> HeightParams {
@@ -286,3 +213,7 @@ fn a_session_switch_never_lends_the_old_rows_to_the_new_transcript() {
     assert_eq!(frame.window.end_index, 3);
     assert_eq!(state.commit_total_rows(frame.geometry.total_rows), 0);
 }
+
+#[cfg(node_twin)]
+#[path = "node-twin/transcript_window.rs"]
+mod node_twin;

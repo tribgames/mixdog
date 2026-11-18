@@ -14,6 +14,7 @@
 
 mod core;
 mod feed;
+mod image_supply;
 mod transport;
 
 pub mod conformance;
@@ -41,6 +42,8 @@ pub use self::core::MockServerRequests;
 pub use self::core::MockStatePublisher;
 pub use self::core::MockThread;
 pub use self::core::ServerRequestEvent;
+pub use self::image_supply::MockImageSupply;
+pub use self::image_supply::install_mock_image_supply;
 pub use self::feed::FeedTap;
 pub use self::feed::MockFeed;
 pub use self::feed::MockScopedFeeds;

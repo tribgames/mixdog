@@ -46,6 +46,7 @@ struct Stored {
 pub struct AccessSettings {
     dir: PathBuf,
     default_name: Arc<dyn Fn() -> String + Send + Sync>,
+    migrated_activation: bool,
     /// One write at a time, and a read never sees half of one.
     writes: Mutex<()>,
 }
@@ -57,7 +58,13 @@ fn clip(text: &str, max: usize) -> String {
 impl AccessSettings {
     /// `default_name` is the OS host name; it is clipped to the name limit.
     pub fn new(dir: impl Into<PathBuf>, default_name: Arc<dyn Fn() -> String + Send + Sync>) -> Self {
-        Self { dir: dir.into(), default_name, writes: Mutex::new(()) }
+        Self { dir: dir.into(), default_name, migrated_activation: false, writes: Mutex::new(()) }
+    }
+
+    /// The profile migration puts the activation stamp in the core config, not in `dir`.
+    pub fn with_migrated_activation(mut self, activated: bool) -> Self {
+        self.migrated_activation = activated;
+        self
     }
 
     pub fn dir(&self) -> &Path {
@@ -152,7 +159,7 @@ impl AccessSettings {
     /// relay (trust-on-first-use) until the user asks for it; an install that already holds a
     /// relay identity or the legacy client-trust file counts as activated.
     pub fn is_activated(&self) -> bool {
-        if self.dir.join(ACTIVATION_FILE).exists() {
+        if self.migrated_activation || self.dir.join(ACTIVATION_FILE).exists() {
             return true;
         }
         if LEGACY_EVIDENCE_FILES.iter().any(|name| self.dir.join(name).exists()) {
@@ -176,31 +183,24 @@ impl AccessSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::Value;
-
-    /// `native/core/fixtures/lone-surrogate-files`: Node's settings file with a name cut at 64 units and an alias cut at
-    /// 80, each inside an emoji (record-lone-surrogate-files.mjs).
-    fn recorded(name: &str) -> (Value, PathBuf) {
-        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
-        let cases: Value = serde_json::from_slice(&std::fs::read(set.join("cases.json")).unwrap()).unwrap();
-        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == name).unwrap().clone();
-        (case, set.join(name))
-    }
 
     #[test]
-    fn a_settings_file_node_cut_inside_an_emoji_keeps_every_field_and_survives_the_next_write() {
-        let (case, files) = recorded("remote-access-settings");
+    fn a_settings_file_cut_inside_an_emoji_keeps_every_field_and_survives_the_next_write() {
         let dir = tempfile::tempdir().unwrap();
-        let file = case["file"].as_str().unwrap();
-        // Node's file under the name it has in `<data>/remote`.
-        std::fs::copy(files.join("before").join(file), dir.path().join(SETTINGS_FILE)).unwrap();
+        // A name and an alias cut by UTF-16 units leave half an emoji: a lone surrogate escape in the file.
+        let name = format!("{}\\ud83d", "n".repeat(63));
+        let alias = format!("{}\\ud83d", "a".repeat(79));
+        let body = format!("{{\"enabled\":false,\"name\":\"{name}\",\"deviceAliases\":{{\"c1\":\"{alias}\"}}}}");
+        std::fs::write(dir.path().join(SETTINGS_FILE), body).unwrap();
         let settings = AccessSettings::new(dir.path(), Arc::new(|| "HOST".to_owned()));
-        assert_eq!(serde_json::to_value(settings.read()).unwrap(), case["nodeRead"]["settings"]);
-        assert_eq!(serde_json::to_value(settings.device_aliases()).unwrap(), case["nodeRead"]["deviceAliases"]);
-        let op = &case["op"]["setDeviceAlias"];
-        settings.set_device_alias(op[0].as_str().unwrap(), op[1].as_str().unwrap()).unwrap();
-        let written: Value = serde_json::from_slice(&std::fs::read(dir.path().join(SETTINGS_FILE)).unwrap()).unwrap();
-        // As text: key order counts too.
-        assert_eq!(written.to_string(), case["after"][file].to_string());
+        let view = settings.read();
+        assert!(!view.enabled);
+        assert_eq!(view.name, format!("{}\u{fffd}", "n".repeat(63)));
+        assert_eq!(settings.device_aliases().get("c1"), Some(&format!("{}\u{fffd}", "a".repeat(79))));
+        settings.set_device_alias("c2", "second").unwrap();
+        let after = settings.device_aliases();
+        assert_eq!(after.get("c2").map(String::as_str), Some("second"));
+        assert_eq!(after.get("c1"), Some(&format!("{}\u{fffd}", "a".repeat(79))));
+        assert!(!settings.read().enabled && settings.read().name.starts_with("nnn"));
     }
 }

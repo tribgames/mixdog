@@ -1,7 +1,7 @@
 //! The session store a terminal UI drives: the facade over `mixdog-app-server-client` that the Node terminal UI's session store was.
 //!
 //! - It opens a session (`thread/start`, or `thread/resume` of a stored one) and follows its feed with the session fold as the thread
-//!   reducer (`connect`); `state()` is the projection the UI reads (`tests/fixtures/tui-state-fields.json`), published at most once
+//!   reducer (`connect`); `state()` is the projection the UI reads, published at most once
 //!   per terminal frame: the app calls [`SessionStore::tick`] once per frame and a changed state is then published
 //!   (`frame-batched-store.mjs`).
 //! - `subscribe()` yields the [`StoreEvent`]s: the published state, the notices and toasts, the connection status, the setup
@@ -268,7 +268,7 @@ impl Inner {
                 }));
                 self.mark_dirty();
             }
-            ClientEvent::ServerRequest(_) | ClientEvent::ServerRequestResolved(_) => self.mark_dirty(),
+            ClientEvent::ServerRequest(..) | ClientEvent::ServerRequestResolved(_) => self.mark_dirty(),
             ClientEvent::SubscriptionLost { thread_id, error } => {
                 if self.is_bound(&thread_id) {
                     self.emit(StoreEvent::SessionLost { reason: error.to_string() });
@@ -505,7 +505,9 @@ impl SessionStore {
         let Some(Target::Method(Resolved { method, params: filter })) = target_of("listSessions", args, thread.as_deref(), false) else {
             return Err(StoreError::Protocol("listSessions has no request".to_owned()));
         };
-        let data = |page: &Value| page["data"].as_array().cloned().unwrap_or_default();
+        let take_rows = |page: &mut Value| {
+            page.get_mut("data").and_then(Value::as_array_mut).map(std::mem::take).unwrap_or_default()
+        };
         if let Some(page) = args.first().map(|options| &options["page"]).filter(|page| page.is_object()) {
             let mut params = filter;
             for key in ["limit", "cursor"] {
@@ -513,7 +515,7 @@ impl SessionStore {
                     params[key] = value.clone();
                 }
             }
-            return Ok(Value::Array(data(&self.send(Resolved { method, params }).await?)));
+            return Ok(Value::Array(take_rows(&mut self.send(Resolved { method, params }).await?)));
         }
         let mut sessions = Vec::new();
         let mut cursor = filter.get("cursor").cloned();
@@ -527,8 +529,8 @@ impl SessionStore {
                     }
                 }
             }
-            let page = self.send(Resolved { method: method.clone(), params }).await?;
-            sessions.extend(data(&page));
+            let mut page = self.send(Resolved { method: method.clone(), params }).await?;
+            sessions.extend(take_rows(&mut page));
             let next = page.get("nextCursor").filter(|next| next.as_str().is_some_and(|next| !next.is_empty())).cloned();
             // A page that names the cursor it was read at again would never end the listing.
             if next.is_none() || next == cursor {

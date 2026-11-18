@@ -1,0 +1,109 @@
+//! The media a `browser` result carries beside its text: what `attachBrowserMedia` of the Node bridge client (`client.mjs`) made of the
+//! image and of the attached download (`result.file`), and the one place `browser_output` turns a download into what the model reads.
+//!
+//! The single classifier of inline file kinds is `mixdog_ai::providers::file_text::inline_file_kind` (`inlineFileKind` of
+//! `shared/inline-file-kind.mjs`): the providers lower their files through it and the host's media layer classifies by it. This
+//! module only decides which part each kind becomes. (`mixdog-mcp`'s `result.rs` keeps a private copy of the same rules for its own
+//! results; it is not used here.)
+//!
+//! | kind | part |
+//! |---|---|
+//! | png, jpeg, gif, webp (by label) | an image |
+//! | PDF (label or `%PDF-` bytes) | a document |
+//! | text, office | a `ToolPart::File`: rendered as the inline file part an attachment is, which the media lowering (`mixdog-core`'s `run_host/media.rs`, same classifier) turns into the file's text or its Office extraction |
+//! | binary | no part: a note that the file stays on disk, and the reply's "Attached" sentence says it was not attached |
+
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
+use mixdog_ai::providers::file_text::FileKind;
+use mixdog_ai::providers::file_text::base64_byte_length;
+use mixdog_ai::providers::file_text::inline_file_kind;
+use mixdog_browser_engine::limits::DOWNLOAD_ATTACH_MAX_BYTES;
+use mixdog_browser_engine::reply::screenshot::MAX_INLINE_IMAGE_BYTES;
+use mixdog_core_api::domain::tool::ImageData;
+use mixdog_core_api::domain::tool::ToolError;
+use mixdog_core_api::domain::tool::ToolPart;
+use serde_json::Map;
+use serde_json::Value;
+
+use super::host::bridge_error;
+
+/// `SUPPORTED_IMAGE_MIME_TYPES` (`attachments/limits.mjs`).
+const SUPPORTED_IMAGE_MIME: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+/// What the engine's reply says after it attached a download (`attached_note` of the engine's `downloads_text`).
+const ATTACHED: &str = "\n\nAttached download ";
+
+fn invalid_image() -> ToolError {
+    bridge_error("browser bridge returned an invalid image")
+}
+
+fn invalid_file() -> ToolError {
+    bridge_error("browser bridge returned an invalid file")
+}
+
+/// `result.image`: a jpeg or png within the image limit.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured tool error by value, as the other browser reply mappings do")]
+pub fn image_part(image: &Map<String, Value>) -> Result<Option<ToolPart>, ToolError> {
+    let mime = image.get("mimeType").and_then(Value::as_str).unwrap_or_default();
+    let data = image.get("data").and_then(Value::as_str).unwrap_or_default();
+    if data.is_empty() || mime.is_empty() {
+        return Ok(None);
+    }
+    let bytes = (mime == "image/jpeg" || mime == "image/png").then(|| STANDARD.decode(data).ok()).flatten().filter(|b| b.len() <= MAX_INLINE_IMAGE_BYTES);
+    match bytes {
+        Some(bytes) => Ok(Some(ToolPart::Image { mime: mime.to_owned(), data: ImageData::Bytes(bytes), width: None, height: None })),
+        None => Err(invalid_image()),
+    }
+}
+
+/// A mime type of the `type/subtype` form Node accepted for a file (`/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i`).
+fn plain_mime(mime: &str) -> bool {
+    let word = |part: &str| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '-'));
+    mime.split_once('/').is_some_and(|(kind, subtype)| word(kind) && word(subtype))
+}
+
+/// A file name Node accepted: at most 255 units, no control character, no path separator.
+fn plain_name(name: &str) -> bool {
+    mixdog_js::utf16_len(name) <= 255 && !name.chars().any(|c| c <= '\u{1f}' || c == '/' || c == '\\')
+}
+
+/// The reply's "Attached download <id> as <name>." sentence for a file that was not attached: the one claim the engine makes before
+/// the kind of the file is known.
+fn retract_attached(text: &mut String, name: &str) {
+    let Some(at) = text.rfind(ATTACHED) else { return };
+    let tail = &text[at + ATTACHED.len()..];
+    if let Some(id) = tail.strip_suffix(&format!(" as {name}.")) {
+        let sentence = format!("\n\nDownload {id} ({name}) was not attached inline.");
+        text.truncate(at);
+        text.push_str(&sentence);
+    }
+}
+
+/// `result.file`: an attached download as the part its kind is, appended to `parts`; a binary one adds only its note and takes the
+/// reply's "Attached" sentence back in `text`, so the text never says more than was done.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured tool error by value, as the other browser reply mappings do")]
+pub fn file_parts(file: &Map<String, Value>, text: &mut String, parts: &mut Vec<ToolPart>) -> Result<(), ToolError> {
+    let mime = file.get("mimeType").and_then(Value::as_str).filter(|m| !m.is_empty()).unwrap_or("application/octet-stream");
+    let name = file.get("name").and_then(Value::as_str).filter(|n| !n.is_empty()).unwrap_or("download");
+    let data = file.get("data").and_then(Value::as_str).unwrap_or_default();
+    let bytes = STANDARD.decode(data).map_err(|_| invalid_file())?;
+    if !plain_mime(mime) || !plain_name(name) || bytes.len() as u64 > DOWNLOAD_ATTACH_MAX_BYTES {
+        return Err(invalid_file());
+    }
+    if SUPPORTED_IMAGE_MIME.contains(&mime.to_ascii_lowercase().as_str()) {
+        parts.push(ToolPart::Image { mime: mime.to_ascii_lowercase(), data: ImageData::Bytes(bytes), width: None, height: None });
+        return Ok(());
+    }
+    match inline_file_kind(mime, data, name) {
+        FileKind::Pdf => parts.push(ToolPart::Document { mime: "application/pdf".to_owned(), data: bytes }),
+        FileKind::Text | FileKind::Office => parts.push(ToolPart::File { mime: mime.to_owned(), data: bytes, filename: Some(name.to_owned()) }),
+        FileKind::Binary => {
+            retract_attached(text, name);
+            parts.push(ToolPart::Text(format!(
+                "Download {name} ({mime}, {} bytes) is binary and stays on disk; open it from the path listed above with read.",
+                base64_byte_length(data)
+            )));
+        }
+    }
+    Ok(())
+}

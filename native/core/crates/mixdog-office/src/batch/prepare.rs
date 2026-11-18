@@ -481,48 +481,6 @@ fn chart_description(block: &Value) -> String {
     format!("{title}{}", figures.join(", "))
 }
 
-/// A Word document's chart is the picture the PDF writer draws for the same block: Word draws no chart without Excel behind it,
-/// and a report's figure had come in as a hand-made picture with no names or values on it. `add_chart` turns into `add_image` of
-/// that picture before either backend sees it, so both place the same one. The pictures are written into a scratch folder the
-/// batch removes once it is done.
-async fn with_document_charts<P: WriteProof, H, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, format: &str, operations: Vec<Value>, scratch: &mut Vec<PathBuf>) -> Result<Vec<Value>, String> {
-    if format != "docx" || !operations.iter().any(|operation| op_of(operation) == "add_chart") {
-        return Ok(operations);
-    }
-    let directory = std::env::temp_dir().join(format!("mixdog-docx-chart-{}", &crate::transactions::unique_token()[..6]));
-    mixdog_fsio::create_dir_all(cx.lane(), &directory).map_err(|error| error.to_string())?;
-    scratch.push(directory.clone());
-    let mut out = Vec::with_capacity(operations.len());
-    for (index, operation) in operations.iter().enumerate() {
-        if op_of(operation) != "add_chart" {
-            out.push(operation.clone());
-            continue;
-        }
-        let mut block = operation.as_object().cloned().unwrap_or_default();
-        for key in ["op", "paragraph", "width", "altText", "properties"] {
-            block.shift_remove(key);
-        }
-        let block = Value::Object(block);
-        let wide = operation.get("width").map_or(f64::NAN, to_number);
-        let points_wide = if wide > 0.0 { wide } else { DOCUMENT_CHART_WIDTH };
-        let pdf = directory.join(format!("chart-{}.pdf", index + 1));
-        let image = cx.host.chart_picture(&block, points_wide, &pdf).await?;
-        let alt = js_trim(&text_of(operation.get("altText"))).to_owned();
-        let mut picture = Map::new();
-        picture.insert("op".to_owned(), json!("add_image"));
-        picture.insert("path".to_owned(), json!(image));
-        picture.insert("width".to_owned(), json_number(points_wide));
-        picture.insert("altText".to_owned(), json!(if alt.is_empty() { chart_description(&block) } else { alt }));
-        for key in ["paragraph", "properties"] {
-            if let Some(value) = operation.get(key).filter(|value| truthy(value)) {
-                picture.insert(key.to_owned(), value.clone());
-            }
-        }
-        out.push(Value::Object(picture));
-    }
-    Ok(out)
-}
-
 /// PowerPoint's InsertFromFile gives each imported slide the deck's own design and drops the background it had: a template's dark
 /// quote and closing pages arrived on the deck's light paper, their white words unreadable, where the portable import keeps them.
 /// Each slide imported at a known place takes its source's background again, resolved through its layout and master as the
@@ -597,119 +555,6 @@ impl Facts {
             microsoft_office: session.is_microsoft_office(),
         }
     }
-}
-
-/// `prepareBatchOperations(session, args)`: the design-expanded, cwd-localised, contract-checked operation list and the design plan
-/// it came from. The session takes the merged design request, the design in force and, for a Word document or workbook written to a
-/// brief, that brief.
-pub async fn prepare_batch_operations<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, handle: &SessionHandle, args: &Value) -> Result<Prepared, String> {
-    let facts = Facts::of(handle);
-    let design_request = merge_office_design_request(facts.design_request.as_ref(), args.get("design"));
-    let mut requested: Vec<Value> = args.get("operations").and_then(Value::as_array).cloned().unwrap_or_default();
-    assert_office_operation_contracts(&facts.format, facts.backend.as_str(), &mut requested)?;
-    let requested = Value::Array(requested);
-    let expanded = expand_office_design_operations(&ExpandRequest {
-        format: &facts.format,
-        operations: &requested,
-        design: &design_request,
-        library: facts.design_library.as_ref(),
-        created: facts.created,
-        snapshot_version: facts.snapshot_version as f64,
-    })?;
-    let design = expanded.get("design").cloned().unwrap_or(Value::Null);
-    {
-        let mut session = lock(handle);
-        session.design_request = Some(design_request);
-        session.design = Some(design.clone());
-    }
-    // A Word document or workbook written to a brief (design.brief, the deck's key: value lines) is held to it as an authored deck is:
-    // its figures against the facts, and a scored page review at finalize.
-    if matches!(facts.format.as_str(), "docx" | "xlsx")
-        && let Some(text) = args.get("design").and_then(|design| design.get("brief")).and_then(Value::as_str)
-        && let Some(brief) = document_brief(cx.host.brief_readings(), text)
-    {
-        lock(handle).authored.brief = Some(brief);
-    }
-    let cwd = text_of(args.get("__cwd"));
-    let base_dir = if cwd.is_empty() { dirname(&facts.target) } else { cwd };
-    let semantic: Vec<Value> = expanded.get("semantic").and_then(Value::as_array).cloned().unwrap_or_default();
-    let mut operations: Vec<Value> = Vec::new();
-    for operation in expanded.get("operations").and_then(Value::as_array).map_or(&[][..], Vec::as_slice) {
-        operations.push(localize_operation(operation, &base_dir)?);
-    }
-    if operations.is_empty() {
-        return Err("batch requires at least one operation".to_owned());
-    }
-    if facts.format == "pptx" && operations.iter().any(|operation| op_of(operation) == "import_slides") && operations.iter().any(|operation| op_of(operation) == "keep_slides") {
-        return Err("Run keep_slides in a later batch after import_slides has been saved".to_owned());
-    }
-    assert_office_operation_contracts(&facts.format, facts.backend.as_str(), &mut operations)?;
-    let mut scratch: Vec<PathBuf> = Vec::new();
-    match finish_operations(cx, &facts, operations, &mut scratch).await {
-        Ok((operations, template_data)) => Ok(Prepared { operations, design, semantic, template_data, scratch }),
-        Err(error) => {
-            for directory in &scratch {
-                let _ = mixdog_fsio::remove_dir_all(cx.lane(), directory);
-            }
-            Err(error)
-        }
-    }
-}
-
-/// The rest of the preparation, after the contract: template pages, imported backgrounds, Word charts, filled formulas, the sheet
-/// contract and the shared defaults.
-async fn finish_operations<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, operations: Vec<Value>, scratch: &mut Vec<PathBuf>) -> Result<(Vec<Value>, Vec<Value>), String> {
-    let snapshot = &cx.inspect.snapshot;
-    let proof: &P = snapshot.proof;
-    // A template page is chosen and filled before any backend sees the batch: it arrives as the import of that one page and the writes
-    // into its own slots, which both backends already perform.
-    let mut template_data: Vec<Value> = Vec::new();
-    let mut operations = expand_template_page_operations(proof, &facts.format, &operations, &mut template_data, &mut |path: &str| {
-        snapshot_portable_ooxml(proof, snapshot.measurer, Path::new(path), "pptx", &json!({}))
-    })?;
-    if facts.format == "pptx" && facts.microsoft_office && operations.iter().any(|operation| op_of(operation) == "import_slides") {
-        operations = with_imported_slide_backgrounds(cx, operations)?;
-    }
-    operations = with_document_charts(cx, &facts.format, operations, scratch).await?;
-    // set_formula over a range is written cell by cell, each formula moved as Excel's fill moves it, before either backend sees it: both
-    // then write cells they already write.
-    if facts.format == "xlsx" {
-        let failure: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
-        let translate = |formula: &str, rows: i64, columns: i64| match translate_shared_formula(formula, rows, columns) {
-            Ok(moved) => moved,
-            Err(error) => {
-                failure.borrow_mut().get_or_insert(error.to_string());
-                formula.to_owned()
-            }
-        };
-        operations = expand_filled_formulas(&operations, &translate)?;
-        if let Some(error) = failure.into_inner() {
-            return Err(error);
-        }
-    }
-    if facts.format == "xlsx" || is_tabular_format(&facts.format) {
-        validate_xlsx_operations(&mut operations)?;
-    }
-    // Excel rejects `My Sheet!A1` outright; the portable writer quotes it from the sheet list, and an Excel session gets the same courtesy
-    // here.
-    if facts.format == "xlsx" && facts.microsoft_office {
-        for operation in &mut operations {
-            if op_of(operation) != "set_formula" {
-                continue;
-            }
-            if let Some(formula) = operation.get("formula").and_then(Value::as_str).map(quote_unquoted_sheet_references)
-                && let Some(fields) = operation.as_object_mut()
-            {
-                fields.insert("formula".to_owned(), json!(formula));
-            }
-        }
-    }
-    let operations = with_page_size_points(&facts.format, operations)?;
-    let operations = with_title_leading(&facts.format, operations);
-    let operations = with_figure_column_alignments(&facts.format, operations);
-    let operations = with_slide_table_widths(snapshot.measurer, &facts.format, operations)?;
-    let operations = with_table_style_names(&facts.format, operations);
-    Ok((with_image_proportions(proof, &facts.format, operations), template_data))
 }
 
 #[cfg(test)]
@@ -794,19 +639,6 @@ mod tests {
     }
 
     #[test]
-    fn paths_resolve_against_the_callers_folder() {
-        let base = std::env::temp_dir().to_string_lossy().into_owned();
-        let at = |name: &str| full_path(name, &base).expect("path");
-        let localised = localize_operation(&json!({ "op": "merge_pdf", "path": "a.pdf", "sources": ["b.pdf", { "path": "c.pdf" }, { "label": "x" }] }), &base).expect("localised");
-        assert_eq!(localised["path"], json!(at("a.pdf")));
-        assert_eq!(localised["sources"], json!([at("b.pdf"), { "path": at("c.pdf") }, { "label": "x" }]));
-        let output = localize_operation(&json!({ "op": "split_pages", "output": "out" }), &base).expect("localised");
-        assert_eq!(output["output"], json!(at("out")));
-        let other = json!({ "op": "set_cell", "path": "stay" });
-        assert_eq!(localize_operation(&other, &base).expect("kept"), other);
-    }
-
-    #[test]
     fn figures_are_written_the_way_the_en_us_locale_does() {
         assert_eq!(en_us_number(1234567.891), "1,234,567.89");
         assert_eq!(en_us_number(0.005), "0.01");
@@ -827,4 +659,172 @@ mod tests {
         assert_eq!(round_to_hundredths(12.3456), json!(12.35));
         assert_eq!(round_to_hundredths(3.0), json!(3));
     }
+
+
+    #[test]
+    fn paths_resolve_against_the_callers_folder() {
+        let base = std::env::temp_dir().to_string_lossy().into_owned();
+        let at = |name: &str| full_path(name, &base).expect("path");
+        let localised = localize_operation(&json!({ "op": "merge_pdf", "path": "a.pdf", "sources": ["b.pdf", { "path": "c.pdf" }, { "label": "x" }] }), &base).expect("localised");
+        assert_eq!(localised["path"], json!(at("a.pdf")));
+        assert_eq!(localised["sources"], json!([at("b.pdf"), { "path": at("c.pdf") }, { "label": "x" }]));
+        let output = localize_operation(&json!({ "op": "split_pages", "output": "out" }), &base).expect("localised");
+        assert_eq!(output["output"], json!(at("out")));
+        let other = json!({ "op": "set_cell", "path": "stay" });
+        assert_eq!(localize_operation(&other, &base).expect("kept"), other);
+    }
+}
+
+
+/// A Word document's chart is the picture the PDF writer draws for the same block: Word draws no chart without Excel behind it,
+/// and a report's figure had come in as a hand-made picture with no names or values on it. `add_chart` turns into `add_image` of
+/// that picture before either backend sees it, so both place the same one. The pictures are written into a scratch folder the
+/// batch removes once it is done.
+async fn with_document_charts<P: WriteProof, H, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, format: &str, operations: Vec<Value>, scratch: &mut Vec<PathBuf>) -> Result<Vec<Value>, String> {
+    if format != "docx" || !operations.iter().any(|operation| op_of(operation) == "add_chart") {
+        return Ok(operations);
+    }
+    let directory = std::env::temp_dir().join(format!("mixdog-docx-chart-{}", &crate::transactions::unique_token()[..6]));
+    mixdog_fsio::create_dir_all(cx.lane(), &directory).map_err(|error| error.to_string())?;
+    scratch.push(directory.clone());
+    let mut out = Vec::with_capacity(operations.len());
+    for (index, operation) in operations.iter().enumerate() {
+        if op_of(operation) != "add_chart" {
+            out.push(operation.clone());
+            continue;
+        }
+        let mut block = operation.as_object().cloned().unwrap_or_default();
+        for key in ["op", "paragraph", "width", "altText", "properties"] {
+            block.shift_remove(key);
+        }
+        let block = Value::Object(block);
+        let wide = operation.get("width").map_or(f64::NAN, to_number);
+        let points_wide = if wide > 0.0 { wide } else { DOCUMENT_CHART_WIDTH };
+        let pdf = directory.join(format!("chart-{}.pdf", index + 1));
+        let image = cx.host.chart_picture(&block, points_wide, &pdf).await?;
+        let alt = js_trim(&text_of(operation.get("altText"))).to_owned();
+        let mut picture = Map::new();
+        picture.insert("op".to_owned(), json!("add_image"));
+        picture.insert("path".to_owned(), json!(image));
+        picture.insert("width".to_owned(), json_number(points_wide));
+        picture.insert("altText".to_owned(), json!(if alt.is_empty() { chart_description(&block) } else { alt }));
+        for key in ["paragraph", "properties"] {
+            if let Some(value) = operation.get(key).filter(|value| truthy(value)) {
+                picture.insert(key.to_owned(), value.clone());
+            }
+        }
+        out.push(Value::Object(picture));
+    }
+    Ok(out)
+}
+/// `prepareBatchOperations(session, args)`: the design-expanded, cwd-localised, contract-checked operation list and the design plan
+/// it came from. The session takes the merged design request, the design in force and, for a Word document or workbook written to a
+/// brief, that brief.
+pub async fn prepare_batch_operations<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, handle: &SessionHandle, args: &Value) -> Result<Prepared, String> {
+    let facts = Facts::of(handle);
+    let design_request = merge_office_design_request(facts.design_request.as_ref(), args.get("design"));
+    let mut requested: Vec<Value> = args.get("operations").and_then(Value::as_array).cloned().unwrap_or_default();
+    assert_office_operation_contracts(&facts.format, facts.backend.as_str(), &mut requested)?;
+    let requested = Value::Array(requested);
+    let expanded = expand_office_design_operations(&ExpandRequest {
+        format: &facts.format,
+        operations: &requested,
+        design: &design_request,
+        library: facts.design_library.as_ref(),
+        created: facts.created,
+        snapshot_version: facts.snapshot_version as f64,
+    })?;
+    let design = expanded.get("design").cloned().unwrap_or(Value::Null);
+    {
+        let mut session = lock(handle);
+        session.design_request = Some(design_request);
+        session.design = Some(design.clone());
+    }
+    // A Word document or workbook written to a brief (design.brief, the deck's key: value lines) is held to it as an authored deck is:
+    // its figures against the facts, and a scored page review at finalize.
+    if matches!(facts.format.as_str(), "docx" | "xlsx")
+        && let Some(text) = args.get("design").and_then(|design| design.get("brief")).and_then(Value::as_str)
+        && let Some(brief) = document_brief(cx.host.brief_readings(), text)
+    {
+        lock(handle).authored.brief = Some(brief);
+    }
+    let cwd = text_of(args.get("__cwd"));
+    let base_dir = if cwd.is_empty() { dirname(&facts.target) } else { cwd };
+    let semantic: Vec<Value> = expanded.get("semantic").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut operations: Vec<Value> = Vec::new();
+    for operation in expanded.get("operations").and_then(Value::as_array).map_or(&[][..], Vec::as_slice) {
+        operations.push(localize_operation(operation, &base_dir)?);
+    }
+    if operations.is_empty() {
+        return Err("batch requires at least one operation".to_owned());
+    }
+    if facts.format == "pptx" && operations.iter().any(|operation| op_of(operation) == "import_slides") && operations.iter().any(|operation| op_of(operation) == "keep_slides") {
+        return Err("Run keep_slides in a later batch after import_slides has been saved".to_owned());
+    }
+    assert_office_operation_contracts(&facts.format, facts.backend.as_str(), &mut operations)?;
+    let mut scratch: Vec<PathBuf> = Vec::new();
+    match finish_operations(cx, &facts, operations, &mut scratch).await {
+        Ok((operations, template_data)) => Ok(Prepared { operations, design, semantic, template_data, scratch }),
+        Err(error) => {
+            for directory in &scratch {
+                let _ = mixdog_fsio::remove_dir_all(cx.lane(), directory);
+            }
+            Err(error)
+        }
+    }
+}
+/// The rest of the preparation, after the contract: template pages, imported backgrounds, Word charts, filled formulas, the sheet
+/// contract and the shared defaults.
+async fn finish_operations<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, operations: Vec<Value>, scratch: &mut Vec<PathBuf>) -> Result<(Vec<Value>, Vec<Value>), String> {
+    let snapshot = &cx.inspect.snapshot;
+    let proof: &P = snapshot.proof;
+    // A template page is chosen and filled before any backend sees the batch: it arrives as the import of that one page and the writes
+    // into its own slots, which both backends already perform.
+    let mut template_data: Vec<Value> = Vec::new();
+    let mut operations = expand_template_page_operations(proof, &facts.format, &operations, &mut template_data, &mut |path: &str| {
+        snapshot_portable_ooxml(proof, snapshot.measurer, Path::new(path), "pptx", &json!({}))
+    })?;
+    if facts.format == "pptx" && facts.microsoft_office && operations.iter().any(|operation| op_of(operation) == "import_slides") {
+        operations = with_imported_slide_backgrounds(cx, operations)?;
+    }
+    operations = with_document_charts(cx, &facts.format, operations, scratch).await?;
+    // set_formula over a range is written cell by cell, each formula moved as Excel's fill moves it, before either backend sees it: both
+    // then write cells they already write.
+    if facts.format == "xlsx" {
+        let failure: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
+        let translate = |formula: &str, rows: i64, columns: i64| match translate_shared_formula(formula, rows, columns) {
+            Ok(moved) => moved,
+            Err(error) => {
+                failure.borrow_mut().get_or_insert(error.to_string());
+                formula.to_owned()
+            }
+        };
+        operations = expand_filled_formulas(&operations, &translate)?;
+        if let Some(error) = failure.into_inner() {
+            return Err(error);
+        }
+    }
+    if facts.format == "xlsx" || is_tabular_format(&facts.format) {
+        validate_xlsx_operations(&mut operations)?;
+    }
+    // Excel rejects `My Sheet!A1` outright; the portable writer quotes it from the sheet list, and an Excel session gets the same courtesy
+    // here.
+    if facts.format == "xlsx" && facts.microsoft_office {
+        for operation in &mut operations {
+            if op_of(operation) != "set_formula" {
+                continue;
+            }
+            if let Some(formula) = operation.get("formula").and_then(Value::as_str).map(quote_unquoted_sheet_references)
+                && let Some(fields) = operation.as_object_mut()
+            {
+                fields.insert("formula".to_owned(), json!(formula));
+            }
+        }
+    }
+    let operations = with_page_size_points(&facts.format, operations)?;
+    let operations = with_title_leading(&facts.format, operations);
+    let operations = with_figure_column_alignments(&facts.format, operations);
+    let operations = with_slide_table_widths(snapshot.measurer, &facts.format, operations)?;
+    let operations = with_table_style_names(&facts.format, operations);
+    Ok((with_image_proportions(proof, &facts.format, operations), template_data))
 }

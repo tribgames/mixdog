@@ -87,6 +87,9 @@ pub(crate) fn live_form(mut item: mixdog_protocol::ThreadItem, attempt: Option<&
             if run.result.is_none() {
                 run.completed_count = Some(0);
                 run.completed_at = None;
+                // The card starts when it shows (`startedAt: Date.now()`); the stored message may state no time, and a card
+                // without a start has no elapsed time on the desktop. A result update (it has a result) never restamps it.
+                run.started_at.get_or_insert(at);
                 meta.status = None;
                 *output = None;
             }
@@ -311,24 +314,6 @@ impl LiveCounts {
     }
 }
 
-/// `createTranscriptRouteMetadata(session)` without its time and workflow agent: the non-empty `modelId`, the display
-/// `model` (`displayModelName`) and `provider` of the route, in Node's order.
-pub(crate) fn route_meta(provider: &str, model: &str) -> Map<String, Value> {
-    let (provider, model) = (js_trim(provider), js_trim(model));
-    let mut meta = Map::new();
-    if !model.is_empty() {
-        meta.insert("modelId".into(), json!(model));
-        let name = mixdog_core_run::run_host::model_display::display_model_name(model, "");
-        if !name.is_empty() {
-            meta.insert("model".into(), json!(name));
-        }
-    }
-    if !provider.is_empty() {
-        meta.insert("provider".into(), json!(provider));
-    }
-    meta
-}
-
 /// `turnDoneItem` of a turn that ended with `status` (`turnOutcome`), as the row Node's transcript holds, keys in
 /// Node's order. `final_assistant` is the turn's last reply (`stream.currentAssistantId`, set when the turn finished
 /// normally). `record` is the `turnFailureRecord` of a failure (the turn's `failureDetail`, `failureDiagnostic`,
@@ -401,6 +386,15 @@ mod tests {
         let call = ThreadItem::ToolCall { id: "t".into(), name: "read".into(), input: json!({}), output: None, run: Box::new(ToolRun::default()), meta: ItemMeta::default() };
         let ThreadItem::ToolCall { run, .. } = live_form(call, None, None, None, None, 0) else { panic!("a call stays a call") };
         assert_eq!(run.live, Some(true));
+        assert_eq!(run.started_at, Some(0), "a live card without a stored time starts when it shows");
+        let stored = ToolRun { started_at: Some(5), ..ToolRun::default() };
+        let call = ThreadItem::ToolCall { id: "t".into(), name: "explore".into(), input: json!({}), output: None, run: Box::new(stored), meta: ItemMeta::default() };
+        let ThreadItem::ToolCall { run, .. } = live_form(call, None, None, None, None, 9) else { panic!("a call stays a call") };
+        assert_eq!(run.started_at, Some(5), "a stored start stays");
+        let done = ToolRun { result: Some(MaybeBlob::Inline("ok".into())), ..ToolRun::default() };
+        let call = ThreadItem::ToolCall { id: "t".into(), name: "explore".into(), input: json!({}), output: None, run: Box::new(done), meta: ItemMeta::default() };
+        let ThreadItem::ToolCall { run, .. } = live_form(call, None, None, None, None, 9) else { panic!("a call stays a call") };
+        assert_eq!(run.started_at, None, "a result update does not restamp the start");
     }
 
     /// The partial reply of a cancelled turn is stored as the bare message, so its live row reads the stream's text untrimmed and takes
@@ -482,4 +476,23 @@ mod tests {
         counts.usage(5);
         assert_eq!(counts.final_output_tokens(), 5);
     }
+}
+
+
+/// `createTranscriptRouteMetadata(session)` without its time and workflow agent: the non-empty `modelId`, the display
+/// `model` (`displayModelName`) and `provider` of the route, in Node's order.
+pub(crate) fn route_meta(provider: &str, model: &str) -> Map<String, Value> {
+    let (provider, model) = (js_trim(provider), js_trim(model));
+    let mut meta = Map::new();
+    if !model.is_empty() {
+        meta.insert("modelId".into(), json!(model));
+        let name = mixdog_core_run::run_host::model_display::display_model_name(model, "");
+        if !name.is_empty() {
+            meta.insert("model".into(), json!(name));
+        }
+    }
+    if !provider.is_empty() {
+        meta.insert("provider".into(), json!(provider));
+    }
+    meta
 }

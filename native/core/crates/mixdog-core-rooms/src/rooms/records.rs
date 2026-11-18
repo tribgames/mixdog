@@ -48,6 +48,12 @@ pub struct RoomRecord {
     pub last_preview: Option<String>,
     #[serde(default)]
     pub running: Option<Running>,
+    /// The single interruption slot written by the desktop-profile converter
+    /// (and by earlier cores). Fold it into the retry queue before delivery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interrupted_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub interrupted_rounds: Vec<i64>,
     /// Members of a user-addressed set the message cap cut off.
     #[serde(default)]
     pub owed: Option<Vec<String>>,
@@ -126,9 +132,17 @@ pub type RoomsChanged = Arc<dyn Fn(&RoomDoc) + Send + Sync>;
 /// Keeps who is in a room (its id, its members) on the room's own log, the one record a rebuilt room takes its members from.
 pub type MemberLog = Arc<dyn Fn(String, Vec<String>) -> Pin<Box<dyn Future<Output = Result<(), RoomError>> + Send>> + Send + Sync>;
 
+/// Told the room record a reset left, once it is saved.
+pub type RoomReset = Arc<dyn Fn(&RoomRecord) + Send + Sync>;
+
+/// A running room's own fields as the room host holds them now (`None`: the room is not hosted).
+pub type TurnView = Arc<dyn Fn(&str) -> Option<TurnFields> + Send + Sync>;
+
 pub struct Rooms<S: RoomStore> {
     store: S,
     listeners: Mutex<Vec<RoomsChanged>>,
+    resets: Mutex<Vec<RoomReset>>,
+    turn_view: Mutex<Option<TurnView>>,
     member_log: Mutex<Option<MemberLog>>,
     // The one room writer: a mutation loads, changes and saves on this chain, in arrival order.
     // Reads of the live records pass through it only for the first load.
@@ -139,7 +153,7 @@ pub struct Rooms<S: RoomStore> {
 
 impl<S: RoomStore> Rooms<S> {
     pub fn new(store: S) -> Self {
-        Self { store, listeners: Mutex::new(Vec::new()), member_log: Mutex::new(None), writer: SerialChain::new(), doc: Mutex::new(None) }
+        Self { store, listeners: Mutex::new(Vec::new()), resets: Mutex::new(Vec::new()), turn_view: Mutex::new(None), member_log: Mutex::new(None), writer: SerialChain::new(), doc: Mutex::new(None) }
     }
 
     /// Every save that changes who is in a room first has `log` record the members about to be saved ([`Self::log_members`]).
@@ -247,6 +261,27 @@ impl<S: RoomStore> Rooms<S> {
         self.listeners.lock().unwrap_or_else(|e| e.into_inner()).push(listener);
     }
 
+    /// `listener` hears the record every reset leaves.
+    pub fn on_reset(&self, listener: RoomReset) {
+        self.resets.lock().unwrap_or_else(|e| e.into_inner()).push(listener);
+    }
+
+    /// Lists and gets show the last line of a hosted room as the host holds it (Node's records are the host's: a post's preview
+    /// and a speech's time are in them before the exchange saves).
+    pub fn show_turns_of(&self, view: TurnView) {
+        *self.turn_view.lock().unwrap_or_else(|e| e.into_inner()) = Some(view);
+    }
+
+    fn with_turn(&self, mut room: RoomRecord) -> RoomRecord {
+        let view = self.turn_view.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(fields) = view.and_then(|view| view(&room.id)) {
+            room.last_speaker = fields.last_speaker;
+            room.last_at = fields.last_at;
+            room.last_preview = fields.last_preview;
+        }
+        room
+    }
+
     /// A running room saves its own fields (`persist` of the room host).
     pub async fn save_turn(&self, room_id: &str, fields: &TurnFields) -> Result<(), RoomError> {
         self.write(|doc| {
@@ -273,11 +308,11 @@ impl<S: RoomStore> Rooms<S> {
     }
 
     pub async fn list(&self) -> Result<Vec<RoomRecord>, RoomError> {
-        self.read(|doc| doc.values().cloned().collect()).await
+        Ok(self.read(|doc| doc.values().cloned().collect::<Vec<_>>()).await?.into_iter().map(|room| self.with_turn(room)).collect())
     }
 
     pub async fn get(&self, room_id: &str) -> Result<RoomRecord, RoomError> {
-        self.read(|doc| doc.get(room_id).cloned()).await?.ok_or_else(no_room)
+        self.read(|doc| doc.get(room_id).cloned()).await?.map(|room| self.with_turn(room)).ok_or_else(no_room)
     }
 
     pub async fn create(&self, input: &RoomConfigInput, room_id: &str, now_ms: i64) -> Result<RoomRecord, RoomError> {
@@ -292,6 +327,8 @@ impl<S: RoomStore> Rooms<S> {
             last_at: None,
             last_preview: None,
             running: None,
+            interrupted_at: None,
+            interrupted_rounds: Vec::new(),
             owed: None,
             submissions: Vec::new(),
         };
@@ -343,7 +380,7 @@ impl<S: RoomStore> Rooms<S> {
     /// "대화 초기화": the room keeps its id, members and limits; cursors and the last line restart.
     /// Refused while members are speaking.
     pub async fn reset(&self, room_id: &str, now_ms: i64) -> Result<RoomRecord, RoomError> {
-        self.write(|doc| {
+        let reset = self.write(|doc| {
             let room = doc.get_mut(room_id).ok_or_else(no_room)?;
             if room.running.is_some() {
                 return Err(RoomError::Invalid("The room is still talking; stop it or wait before resetting.".into()));
@@ -356,7 +393,12 @@ impl<S: RoomStore> Rooms<S> {
             room.last_at = Some(now_ms);
             Ok(room.clone())
         })
-        .await
+        .await?;
+        let told: Vec<RoomReset> = self.resets.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        for listener in told {
+            listener(&reset);
+        }
+        Ok(reset)
     }
 
 
@@ -378,18 +420,35 @@ impl<S: RoomStore> Rooms<S> {
         .await
     }
 
-    /// Start-up: exchanges a restart cut off. Their `running` mark is cleared; the caller posts an
-    /// `interrupted` row and aborts the members. Nothing resumes on its own.
+    /// Clear running before any recovery effects. An unacknowledged notice
+    /// survives restart, including one imported without a running mark.
     pub async fn recover(&self) -> Result<Vec<RoomRecord>, RoomError> {
         self.write(|doc| {
             let mut cut = Vec::new();
-            for room in doc.values_mut().filter(|room| room.running.is_some()) {
-                room.running = None;
-                cut.push(room.clone());
+            for room in doc.values_mut() {
+                let imported = room.interrupted_at.take();
+                let running = room.running.take().map(|round| round.started_at);
+                for round in imported.into_iter().chain(running) {
+                    if !room.interrupted_rounds.contains(&round) {
+                        room.interrupted_rounds.push(round);
+                    }
+                }
+                if !room.interrupted_rounds.is_empty() {
+                    cut.push(room.clone());
+                }
             }
             Ok(cut)
         })
         .await
+    }
+
+    pub(super) async fn interrupted_notice_committed(&self, room_id: &str, started_at: i64) -> Result<(), RoomError> {
+        self.write(|doc| {
+            if let Some(room) = doc.get_mut(room_id) {
+                room.interrupted_rounds.retain(|round| *round != started_at);
+            }
+            Ok(())
+        }).await
     }
 }
 
@@ -517,6 +576,15 @@ mod tests {
         let interrupted = cut.recover().await.unwrap();
         assert_eq!(interrupted.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["room01"]);
         assert!(cut.get("room01").await.unwrap().running.is_none());
+        // The notice failed, then another round started and the process died.
+        cut.save_turn("room01", &running_at(9)).await.unwrap();
+        *store.initial.lock().unwrap() = store.saved.lock().unwrap().last().unwrap().clone();
+        cut = Rooms::new(store);
+        let retried = cut.recover().await.unwrap();
+        assert_eq!(retried[0].interrupted_rounds, [5, 9]);
+        cut.interrupted_notice_committed("room01", 5).await.unwrap();
+        assert_eq!(cut.recover().await.unwrap()[0].interrupted_rounds, [9]);
+        cut.interrupted_notice_committed("room01", 9).await.unwrap();
         assert!(cut.recover().await.unwrap().is_empty());
     }
 

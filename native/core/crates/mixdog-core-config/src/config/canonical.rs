@@ -45,11 +45,12 @@ pub(super) fn canonicalize(mut next: Doc) -> Doc {
     }
 
     // `canonicalizeStoredChannelsConfig`: schedules live in the scheduler store and prompt
-    // injection moved to runtime hooks.
+    // injection moved to runtime hooks. The Discord channel is gone with its token.
     if let Some(channels) = next.get("channels").and_then(Value::as_object) {
         let mut channels = channels.clone();
         channels.shift_remove("promptInjection");
         channels.shift_remove("schedules");
+        channels.shift_remove("discord");
         next.insert("channels".into(), Value::Object(channels));
     }
 

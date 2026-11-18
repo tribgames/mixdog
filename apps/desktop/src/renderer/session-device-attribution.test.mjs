@@ -102,13 +102,13 @@ test('only a real timeout leaves an expired card; withdrawn and interrupted ends
 test('a handed-back prompt lands only in the composer of the device that sent it, beside any draft', () => {
   const mine = nextComposerSubmissionId();
   const restore = { id: 'r1', ids: [mine], text: 'my prompt', device: 'Pixel', at: 1 };
-  const applied = new Set();
+  const applied = new Map();
   assert.equal(
-    applyPromptRestore({ ...restore, id: 'r0', ids: ['desktop-submit-someone-else'] }, 'draft', applied),
+    applyPromptRestore({ ...restore, id: 'r0', ids: ['desktop-submit-someone-else'] }, 'draft', 's1', applied),
     null
   );
-  assert.equal(applyPromptRestore(restore, 'half typed', applied), draftWithRestoredPrompt('half typed', 'my prompt'));
-  assert.ok(applyPromptRestore(restore, 'half typed', new Set()), 'ownership, not the draft, decides');
-  assert.equal(applyPromptRestore(restore, 'half typed', applied), null, 'applied once');
+  assert.equal(applyPromptRestore(restore, 'half typed', 's1', applied), draftWithRestoredPrompt('half typed', 'my prompt'));
+  assert.ok(applyPromptRestore(restore, 'half typed', 's1', new Map()), 'ownership, not the draft, decides');
+  assert.equal(applyPromptRestore(restore, 'half typed', 's1', applied), null, 'applied once');
   assert.ok(draftWithRestoredPrompt('half typed', 'my prompt').includes('half typed'));
 });

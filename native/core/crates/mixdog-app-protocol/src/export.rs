@@ -126,6 +126,13 @@ fn operations_map() -> String {
     pretty(&json!({ "inventory": rows }))
 }
 
+/// The sentences of the connection code by stable code: `client` is what the desktop's own side says, `server` what the server
+/// program says. The interface needs a locale text for each; the English is the fallback for logs and unknown codes.
+fn ssh_messages() -> Value {
+    let list = |texts: &[crate::message::Text]| -> Vec<Value> { texts.iter().map(|text| json!({ "code": text.code, "english": text.english })).collect() };
+    json!({ "client": list(crate::message::client::ALL), "server": list(crate::message::server::ALL) })
+}
+
 fn constants() -> String {
     let sections: Vec<Value> = mixdog_protocol::SectionName::ALL
         .iter()
@@ -157,6 +164,7 @@ fn constants() -> String {
         "mediaFrame": crate::media::layout_description(),
         "sections": sections,
         "appFeedId": crate::v2::feed::APP_FEED_ID,
+        "sshMessages": ssh_messages(),
     }))
 }
 
@@ -295,8 +303,14 @@ fn typescript() -> String {
     out.push_str(pretty(&tables()).trim_end());
     out.push_str(
         " as const;\n\nexport type MethodTable = typeof methodTable;\n\
-         export type MethodSpec = MethodTable[\"clientMethods\"][number];\n",
+         export type MethodSpec = MethodTable[\"clientMethods\"][number];\n\n",
     );
+    out.push_str(
+        "/** The sentences of the connection code by stable code (same content as `schema/constants.json` `sshMessages`). */\n\
+         export const sshMessages = ",
+    );
+    out.push_str(pretty(&ssh_messages()).trim_end());
+    out.push_str(" as const;\n");
     out
 }
 

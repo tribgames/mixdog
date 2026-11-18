@@ -252,7 +252,7 @@ fn from_provider(error: ProviderError) -> FetchError {
 
 /// `antigravityHeaders()`: the hub client identity, whatever the platform the process runs on.
 pub fn antigravity_headers(version: &str) -> Vec<(String, String)> {
-    vec![("User-Agent".to_owned(), format!("antigravity/hub/{version} (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"))]
+    vec![("User-Agent".to_owned(), mixdog_ai::providers::google::auth::antigravity::user_agent(version))]
 }
 
 #[async_trait]

@@ -3,6 +3,7 @@
 // (`capabilities.host`) is declared by WP-DESKTOP-HOST through `capabilities`.
 import {
   connect,
+  DEFAULT_FIRST_CONNECT_DEADLINE_MS,
   sessionReducer,
   type InitializeCapabilities,
   type SectionName,
@@ -40,6 +41,8 @@ export function openCore({ resolve, version, build, capabilities, onInitialized,
       threadReducer: sessionReducer,
       clock: { sleep: (ms) => new Promise((done) => setTimeout(done, ms)) },
       random: Math.random,
+      // A first connection that fails (the core still starting) is tried again on the client's own ladder.
+      firstConnectDeadlineMs: DEFAULT_FIRST_CONNECT_DEADLINE_MS,
       ...(log ? { onDiagnostic: log } : {}),
     });
     // The library's reply type comes from the installed @mixdog/protocol, which is the repository's own package once installed from it.

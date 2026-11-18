@@ -428,7 +428,12 @@ pub(crate) fn agent_scope(thread: &ThreadId, header: &Map<String, Value>) -> Val
     json!({ "clientHostPid": positive_int(header.get("clientHostPid")).unwrap_or_else(|| u64::from(std::process::id())) })
 }
 
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod live_rows_usage_tests;

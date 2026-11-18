@@ -18,9 +18,7 @@ use mixdog_store::schema::blob::Slot;
 use mixdog_store::schema::record::Form;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::ItemRecord;
-use mixdog_store::summary::CatalogHead;
 use mixdog_store::summary::MessageStats;
-use mixdog_store::summary::catalog_row;
 use serde_json::Value;
 use serde_json::json;
 
@@ -146,8 +144,24 @@ pub struct StoredRows {
 
 #[derive(Default)]
 struct Rows {
-    by_id: HashMap<String, Value>,
-    unkeyed: Vec<(AgentMessage, Value)>,
+    /// Shared with the message's own `stored` row when it was registered from it ([`StoredRows::record_stored`]).
+    by_id: HashMap<String, std::sync::Arc<serde_json::Map<String, Value>>>,
+    unkeyed: Vec<(AgentMessage, Held)>,
+}
+
+/// The body of a message without an id: the message's own stored row, shared, or the body it was registered with.
+enum Held {
+    Shared(std::sync::Arc<serde_json::Map<String, Value>>),
+    Owned(Value),
+}
+
+impl Held {
+    fn value(&self) -> Value {
+        match self {
+            Self::Shared(body) => Value::Object(body.as_ref().clone()),
+            Self::Owned(body) => body.clone(),
+        }
+    }
 }
 
 /// `ATTACHMENT_REF_RE`: `^[a-f0-9]{64}$`.
@@ -193,16 +207,33 @@ impl StoredRows {
         let mut rows = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         match &message.message_id {
             Some(id) => {
-                rows.by_id.insert(id.clone(), body);
+                let body = match body {
+                    Value::Object(map) => map,
+                    other => serde_json::Map::from_iter([("body".to_owned(), other)]),
+                };
+                rows.by_id.insert(id.clone(), std::sync::Arc::new(body));
             }
-            None => rows.unkeyed.push((message.clone(), body)),
+            None => rows.unkeyed.push((message.clone(), Held::Owned(body))),
+        }
+    }
+
+    /// Registers `message` with its own `stored` row as the body, shared rather than copied: a turn registers its whole
+    /// context, and a second copy of every row was held for the turn. A message without a stored row registers nothing.
+    pub fn record_stored(&self, message: &AgentMessage) {
+        let Some(stored) = &message.stored else { return };
+        let mut rows = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        match &message.message_id {
+            Some(id) => {
+                rows.by_id.insert(id.clone(), stored.clone());
+            }
+            None => rows.unkeyed.push((message.clone(), Held::Shared(stored.clone()))),
         }
     }
 
     /// `f` over the stored body of the message whose `meta.transcript.messageId` is `message_id`.
-    pub fn with_body<R>(&self, message_id: &str, f: impl FnOnce(&Value) -> R) -> Option<R> {
+    pub fn with_body<R>(&self, message_id: &str, f: impl FnOnce(&serde_json::Map<String, Value>) -> R) -> Option<R> {
         let rows = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        rows.by_id.get(message_id).map(f)
+        rows.by_id.get(message_id).map(|body| f(body))
     }
 }
 
@@ -213,13 +244,13 @@ impl MessageRows for StoredRows {
         if let Some(id) = &message.message_id
             && let Some(body) = rows.by_id.get(id)
         {
-            return body.clone();
+            return Value::Object(body.as_ref().clone());
         }
         rows.unkeyed
             .iter()
             .rev()
             .find(|(known, _)| known == message)
-            .map_or(Value::Null, |(_, body)| body.clone())
+            .map_or(Value::Null, |(_, body)| body.value())
     }
 }
 
@@ -235,6 +266,68 @@ impl RecordTranscript {
         Self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn rows_are_the_stored_bodies_by_message_id_or_equality() {
+        let rows = StoredRows::new();
+        let mut keyed = AgentMessage::user("hi");
+        keyed.message_id = Some("m1".into());
+        let stored = json!({ "role": "user", "content": "hi", "meta": { "transcript": { "messageId": "m1" } } });
+        rows.record(&keyed, stored.clone());
+        let call = AgentMessage::assistant("", Vec::new());
+        let call_body = json!({ "role": "assistant", "content": "" });
+        rows.record(&call, call_body.clone());
+
+        assert_eq!(rows.row(&keyed), stored);
+        assert_eq!(rows.row(&call), call_body);
+        assert_eq!(rows.row(&AgentMessage::user("never stored")), Value::Null);
+    }
+
+    /// `handoffContent`'s parts are prompt parts as they are, and each stored attachment is a
+    /// record of the message (`attachmentsForIntake`: kinds, defaults, `text` only for `paste` and
+    /// `file`, a ref that is no digest skipped).
+    #[test]
+    fn a_forwarded_attachment_part_round_trips_and_is_recorded() {
+        let digest = "b".repeat(64);
+        let wire = json!([
+            { "type": "text", "text": "look" },
+            { "type": "text", "textKind": "file", "attachmentRef": digest, "sizeBytes": 5, "mimeType": "text/markdown", "filename": "n.md" },
+            { "type": "image", "attachmentRef": "c".repeat(64), "sizeBytes": 0, "mimeType": "image/png", "filename": "attachment" },
+            { "type": "file", "attachmentRef": "short", "mimeType": "x/y" },
+        ]);
+        let parts: Vec<PromptPart> = serde_json::from_value(wire.clone()).expect("parts");
+        assert_eq!(serde_json::to_value(&parts).unwrap(), wire);
+        let records: Vec<Option<Value>> = parts.iter().map(|part| part_attachment(part, None)).collect();
+        let sizes = std::collections::BTreeMap::from([(digest.clone(), 9_u32)]);
+        assert_eq!(part_attachment(&parts[1], Some(&sizes)).unwrap()["size"], json!(9), "the stored file's size wins");
+        assert_eq!(records[0], None);
+        assert_eq!(records[1], Some(json!({ "id": digest, "kind": "text", "name": "n.md", "mimeType": "text/markdown", "size": 5 })));
+        assert_eq!(records[2], Some(json!({ "id": "c".repeat(64), "kind": "image", "name": "attachment", "mimeType": "image/png", "size": 0 })));
+        assert_eq!(records[3], None);
+    }
+
+    /// `sizeBytes` is any JS number (`Number(claimed) || 0`, `attachments/store.mjs:410`): a fractional claim parses, is echoed as given and
+    /// is the record's size when no stored blob names one.
+    #[test]
+    fn a_fractional_size_bytes_parses_and_is_recorded_as_given() {
+        let wire = json!([
+            { "type": "image", "attachmentRef": "d".repeat(64), "sizeBytes": 1.5, "mimeType": "image/png" },
+            { "type": "file", "attachmentRef": "e".repeat(64), "sizeBytes": -5, "mimeType": "x/y" },
+        ]);
+        let parts: Vec<PromptPart> = serde_json::from_value(wire.clone()).expect("a fractional size parses");
+        assert_eq!(serde_json::to_value(&parts).unwrap(), wire);
+        assert_eq!(part_attachment(&parts[0], None).unwrap()["size"], json!(1.5));
+        let content: mixdog_protocol::PromptContent = serde_json::from_value(wire).expect("the untagged content parses");
+        assert!(matches!(content, mixdog_protocol::PromptContent::Parts(_)));
+    }
+}
+
 
 impl Transcript for RecordTranscript {
     fn items(&self, _lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<Shown> {
@@ -319,7 +412,7 @@ impl Transcript for RecordTranscript {
         row
     }
 
-    fn user_message(&self, input: &TurnInput) -> Value {
+    fn user_message(&self, input: &TurnInput, originals_missing: u32) -> Value {
         let content = match &input.prompt {
             PromptContent::Text(text) => json!(text),
             // The parts are the model content as they are: the same fields on the wire, a stored
@@ -341,6 +434,10 @@ impl Transcript for RecordTranscript {
         }
         if let Some(shown) = options.and_then(|o| o.display_text.as_deref()).filter(|t| !js_trim(t).is_empty()) {
             transcript["displayText"] = json!(shown);
+        }
+        // The images that went with only their smaller copy, recorded with the message: every surface words its note from it.
+        if originals_missing > 0 {
+            transcript["originalImagesMissing"] = json!(originals_missing);
         }
         let bare = |reference: &str| reference.trim_start_matches("sha256:").to_owned();
         let mut stored: Vec<Value> = Vec::new();
@@ -385,18 +482,11 @@ impl Transcript for RecordTranscript {
     }
 
     fn summary(&self, id: &ThreadId, header: &Header) -> ThreadSummary {
-        let head = CatalogHead {
-            session: id.as_str().to_owned(),
-            log_id: String::new(),
-            base_session: None,
-            header: header.clone(),
-        };
-        let row = catalog_row(&head, &MessageStats::default(), 0.0);
+        let row = mixdog_store::summary::catalog_row_of(id.as_str(), "", None, header, &MessageStats::default(), 0.0);
         let list: Value = serde_json::from_str(&row.summary).unwrap_or(Value::Null);
         summary_of_list_row(id, &list, row.archived)
     }
 }
-
 /// The thread's list row as the catalog index keeps it (`list`, Node's `_sessionSummary`) and
 /// the archived flag beside it.
 pub(super) fn summary_of_list_row(id: &ThreadId, list: &Value, archived: bool) -> ThreadSummary {
@@ -450,65 +540,4 @@ pub(super) fn summary_of_list_row(id: &ThreadId, list: &Value, archived: bool) -
         out["readRevision"] = json!(cursor.get("revision").and_then(Value::as_f64).unwrap_or(0.0) as i64);
     }
     serde_json::from_value(out).expect("summary shape")
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn rows_are_the_stored_bodies_by_message_id_or_equality() {
-        let rows = StoredRows::new();
-        let mut keyed = AgentMessage::user("hi");
-        keyed.message_id = Some("m1".into());
-        let stored = json!({ "role": "user", "content": "hi", "meta": { "transcript": { "messageId": "m1" } } });
-        rows.record(&keyed, stored.clone());
-        let call = AgentMessage::assistant("", Vec::new());
-        let call_body = json!({ "role": "assistant", "content": "" });
-        rows.record(&call, call_body.clone());
-
-        assert_eq!(rows.row(&keyed), stored);
-        assert_eq!(rows.row(&call), call_body);
-        assert_eq!(rows.row(&AgentMessage::user("never stored")), Value::Null);
-    }
-
-    /// `handoffContent`'s parts are prompt parts as they are, and each stored attachment is a
-    /// record of the message (`attachmentsForIntake`: kinds, defaults, `text` only for `paste` and
-    /// `file`, a ref that is no digest skipped).
-    #[test]
-    fn a_forwarded_attachment_part_round_trips_and_is_recorded() {
-        let digest = "b".repeat(64);
-        let wire = json!([
-            { "type": "text", "text": "look" },
-            { "type": "text", "textKind": "file", "attachmentRef": digest, "sizeBytes": 5, "mimeType": "text/markdown", "filename": "n.md" },
-            { "type": "image", "attachmentRef": "c".repeat(64), "sizeBytes": 0, "mimeType": "image/png", "filename": "attachment" },
-            { "type": "file", "attachmentRef": "short", "mimeType": "x/y" },
-        ]);
-        let parts: Vec<PromptPart> = serde_json::from_value(wire.clone()).expect("parts");
-        assert_eq!(serde_json::to_value(&parts).unwrap(), wire);
-        let records: Vec<Option<Value>> = parts.iter().map(|part| part_attachment(part, None)).collect();
-        let sizes = std::collections::BTreeMap::from([(digest.clone(), 9_u32)]);
-        assert_eq!(part_attachment(&parts[1], Some(&sizes)).unwrap()["size"], json!(9), "the stored file's size wins");
-        assert_eq!(records[0], None);
-        assert_eq!(records[1], Some(json!({ "id": digest, "kind": "text", "name": "n.md", "mimeType": "text/markdown", "size": 5 })));
-        assert_eq!(records[2], Some(json!({ "id": "c".repeat(64), "kind": "image", "name": "attachment", "mimeType": "image/png", "size": 0 })));
-        assert_eq!(records[3], None);
-    }
-
-    /// `sizeBytes` is any JS number (`Number(claimed) || 0`, `attachments/store.mjs:410`): a fractional claim parses, is echoed as given and
-    /// is the record's size when no stored blob names one.
-    #[test]
-    fn a_fractional_size_bytes_parses_and_is_recorded_as_given() {
-        let wire = json!([
-            { "type": "image", "attachmentRef": "d".repeat(64), "sizeBytes": 1.5, "mimeType": "image/png" },
-            { "type": "file", "attachmentRef": "e".repeat(64), "sizeBytes": -5, "mimeType": "x/y" },
-        ]);
-        let parts: Vec<PromptPart> = serde_json::from_value(wire.clone()).expect("a fractional size parses");
-        assert_eq!(serde_json::to_value(&parts).unwrap(), wire);
-        assert_eq!(part_attachment(&parts[0], None).unwrap()["size"], json!(1.5));
-        let content: mixdog_protocol::PromptContent = serde_json::from_value(wire).expect("the untagged content parses");
-        assert!(matches!(content, mixdog_protocol::PromptContent::Parts(_)));
-    }
 }

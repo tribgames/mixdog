@@ -6,22 +6,12 @@ import {
   useSessionDiffFileRequest,
 } from './session-diff-focus';
 import type { SessionDiffRow } from './session-diff-model';
-import { normalizeChangePath } from './turn-changes-model';
+import { requestedRowIndex, rowListIndex } from './session-diff-row-index';
 import type { useSessionDiffRefresh } from './use-session-diff-refresh';
 
-function findRequestedRow<T extends { path: string }>(
-  rows: readonly T[],
-  request: SessionDiffFileRequest
-): T | undefined {
-  // Drive-letter and UNC paths compare case-insensitively; POSIX paths exactly.
-  const windowsStyle = (path: string) => /^(?:[A-Za-z]:|\/\/)/.test(path);
-  const same = (left: string, right: string) =>
-    windowsStyle(left) || windowsStyle(right) ? left.toLowerCase() === right.toLowerCase() : left === right;
-  for (const wanted of sessionDiffRequestPaths(request)) {
-    const row = rows.find((candidate) => same(normalizeChangePath(candidate.path), wanted));
-    if (row) return row;
-  }
-  return undefined;
+/** The row a request names, looked up in the list's index. */
+function findRequestedRow(rows: readonly SessionDiffRow[], request: SessionDiffFileRequest): SessionDiffRow | undefined {
+  return rows[requestedRowIndex(rowListIndex(rows), sessionDiffRequestPaths(request))];
 }
 
 /** Serves the requests posted to this session's pane: the island's files
@@ -35,7 +25,7 @@ export function useSessionDiffRequests({
   error,
   refresh,
   adoptions,
-  expandPath,
+  expandRow,
   showAllFiles,
   openDiffTab,
   setChangesOpen,
@@ -48,7 +38,8 @@ export function useSessionDiffRequests({
   error: string;
   refresh: ReturnType<typeof useSessionDiffRefresh>['refresh'];
   adoptions: number;
-  expandPath(path: string): void;
+  /** Unfolds one file, by row ID. */
+  expandRow(id: string): void;
   showAllFiles(): void;
   openDiffTab(path: string): void;
   setChangesOpen(open: boolean): void;
@@ -109,7 +100,7 @@ export function useSessionDiffRequests({
     consumeSessionDiffFileRequest(fileRequest.seq);
     const row = findRequestedRow(rows, fileRequest);
     if (row) {
-      expandPath(row.path);
+      expandRow(row.id);
       openDiffTab(row.path);
     } else {
       // The file is gone (committed or reverted): show every file instead.

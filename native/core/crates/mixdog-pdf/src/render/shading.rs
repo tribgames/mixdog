@@ -149,47 +149,6 @@ impl RadialAxial {
     }
 }
 
-// ---- parsing ---------------------------------------------------------------------------------------------------------
-
-/// `Pattern.parseShading`: the shading `source` (a dictionary, or a stream for a mesh) as the display layer paints it.
-/// A shading that cannot be read is the dummy one, said at warn level; a cancellation or a limit is not swallowed.
-pub(super) fn read_shading(document: &Document, resources: &Dict, source: &Obj) -> Result<ShadingIr> {
-    match parse(document, resources, source) {
-        Ok(ir) => Ok(ir),
-        Err(error) if error.is_fatal() => Err(error),
-        Err(error) => {
-            tracing::warn!("{}", error.message());
-            Ok(ShadingIr::Dummy)
-        }
-    }
-}
-
-fn parse(document: &Document, resources: &Dict, source: &Obj) -> Result<ShadingIr> {
-    let xref = document.xref();
-    let dict = match source {
-        Obj::Stream(stream) => stream.dict.clone(),
-        Obj::Dict(dict) => dict.clone(),
-        _ => return Err(PdfError::format("Unsupported ShadingType: undefined")),
-    };
-    let number = xref.get(&dict, "ShadingType")?.as_num();
-    let shading_type = number.filter(|t| t.fract() == 0.0).map(|t| t as i64);
-    match shading_type {
-        Some(1) => function_based(document, resources, &dict),
-        Some(2) => radial_axial(document, resources, &dict, false),
-        Some(3) => radial_axial(document, resources, &dict, true),
-        Some(t @ 4..=7) => {
-            let Obj::Stream(stream) = source else {
-                return Err(PdfError::format("Mesh data is not a stream"));
-            };
-            mesh(document, resources, stream, t)
-        }
-        _ => Err(PdfError::format(format!(
-            "Unsupported ShadingType: {}",
-            number.map_or_else(|| "undefined".to_owned(), mixdog_js::number_to_string)
-        ))),
-    }
-}
-
 /// `isNumberArray(array, len)`: the numbers of an array of exactly `len` numbers.
 fn numbers(obj: &Obj, len: usize) -> Option<Vec<f64>> {
     let Obj::Array(items) = obj else {
@@ -214,16 +173,6 @@ fn number_list(obj: &Obj) -> Vec<f64> {
     }
 }
 
-/// `ColorSpaceUtils.parse` of `dict.getRaw("CS") || dict.getRaw("ColorSpace")`.
-fn colour_space(xref: &Xref, resources: &Dict, dict: &Dict) -> Result<Arc<ColorSpace>> {
-    let null = Obj::Null;
-    let raw = match dict.get_raw("CS") {
-        Some(value) if truthy(value) => value,
-        _ => dict.get_raw("ColorSpace").unwrap_or(&null),
-    };
-    color::parse(raw, xref, Some(resources))
-}
-
 /// `parseShadingFunction`.
 fn shading_function(xref: &Xref, dict: &Dict, inputs: usize, outputs: usize) -> Result<PdfFunction> {
     let null = Obj::Null;
@@ -245,74 +194,6 @@ fn read_background(xref: &Xref, dict: &Dict, space: &ColorSpace) -> Result<Optio
     }
     let values = number_list(&xref.get_array(dict, "Background")?);
     Ok(Some(space.get_rgb(&values, 0)?))
-}
-
-fn radial_axial(document: &Document, resources: &Dict, dict: &Arc<Dict>, radial: bool) -> Result<ShadingIr> {
-    let xref = document.xref();
-    let coords_len = if radial { 6 } else { 4 };
-    let coords = numbers(&xref.get_array(dict, "Coords")?, coords_len)
-        .ok_or_else(|| PdfError::format("RadialAxialShading: Invalid /Coords array."))?;
-    let space = colour_space(xref, resources, dict)?;
-    let bbox = normal_rect(&xref.get_array(dict, "BBox")?);
-    let (t0, t1) = numbers(&xref.get_array(dict, "Domain")?, 2).map_or((0.0, 1.0), |d| (d[0], d[1]));
-    let (extend_start, extend_end) = match xref.get_array(dict, "Extend")? {
-        Obj::Array(items) if items.len() == 2 && items.iter().all(|v| matches!(v, Obj::Bool(_))) => (
-            matches!(items[0], Obj::Bool(true)),
-            matches!(items[1], Obj::Bool(true)),
-        ),
-        _ => (false, false),
-    };
-    let function = shading_function(xref, dict, 1, space.num_comps())?;
-    let (p0, p1, r0, r1) = if radial {
-        ([coords[0], coords[1]], [coords[3], coords[4]], coords[2], coords[5])
-    } else {
-        ([coords[0], coords[1]], [coords[2], coords[3]], 0.0, 0.0)
-    };
-    let mut shading = RadialAxial {
-        radial,
-        bbox,
-        color_stops: Vec::new(),
-        p0,
-        p1,
-        r0,
-        r1,
-    };
-    let step = (t1 - t0) / NUMBER_OF_SAMPLES as f64;
-    if t0 >= t1 || step <= 0.0 {
-        tracing::info!("Bad shading domain.");
-        return Ok(ShadingIr::RadialAxial(shading));
-    }
-    let num_comps = space.num_comps();
-    let mut comps = vec![0.0f64; NUMBER_OF_SAMPLES * num_comps];
-    let mut output = vec![0.0f64; function.num_outputs().max(num_comps)];
-    for i in 0..NUMBER_OF_SAMPLES {
-        // `ratio` and `comps` are `Float32Array`s.
-        let ratio = f64::from((t0 + i as f64 * step) as f32);
-        function.call(&[ratio], &mut output)?;
-        for k in 0..num_comps {
-            comps[i * num_comps + k] = f64::from(output[k] as f32);
-        }
-    }
-    let mut rgb = vec![0u8; NUMBER_OF_SAMPLES * 3];
-    space.get_rgb_items(&comps, NUMBER_OF_SAMPLES, &mut rgb, 0, 0)?;
-    shading.color_stops = color_stops(&rgb);
-    let background_color = if dict.has("Background") {
-        let values = number_list(&xref.get_array(dict, "Background")?);
-        space.get_rgb_hex(&values, 0)?
-    } else {
-        "transparent".to_owned()
-    };
-    let stops = &mut shading.color_stops;
-    if !extend_start {
-        stops.insert(0, (0.0, background_color.clone()));
-        stops[1].0 += SMALL_NUMBER;
-    }
-    if !extend_end {
-        let last = stops.len() - 1;
-        stops[last].0 -= SMALL_NUMBER;
-        stops.push((1.0, background_color));
-    }
-    Ok(ShadingIr::RadialAxial(shading))
 }
 
 /// The colour stops of the 840 sampled colours: a stop is kept where a straight line between the stops can no longer
@@ -357,71 +238,6 @@ fn color_stops(rgb: &[u8]) -> Vec<(f64, String)> {
     }
     stops.push((1.0, hex(prev)));
     stops
-}
-
-/// `FunctionBasedShading`: the domain sampled on a grid of at most 512 steps a side, drawn as a lattice mesh.
-fn function_based(document: &Document, resources: &Dict, dict: &Arc<Dict>) -> Result<ShadingIr> {
-    let xref = document.xref();
-    let bbox = normal_rect(&xref.get_array(dict, "BBox")?);
-    let space = colour_space(xref, resources, dict)?;
-    let background = read_background(xref, dict, &space)?;
-    if !dict.get_raw("Function").is_some_and(truthy) {
-        return Err(PdfError::format("FunctionBasedShading: missing /Function"));
-    }
-    let function = shading_function(xref, dict, 2, space.num_comps())?;
-    let domain = numbers(&xref.get_array(dict, "Domain")?, 4).unwrap_or_else(|| vec![0.0, 1.0, 0.0, 1.0]);
-    let (x0, x1, y0, y1) = (domain[0], domain[1], domain[2], domain[3]);
-    let matrix: Matrix = numbers(&xref.get_array(dict, "Matrix")?, 6)
-        .map_or(gstate::IDENTITY, |m| [m[0], m[1], m[2], m[3], m[4], m[5]]);
-    let mut bounds = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
-    axial_bounding_box(&[x0, y0, x1, y1], &matrix, &mut bounds);
-    let steps = |extent: f64| extent.ceil().clamp(1.0, MAX_STEP_COUNT) as usize;
-    let steps_x = steps(bounds[2] - bounds[0]);
-    let steps_y = steps(bounds[3] - bounds[1]);
-    let vertices_per_row = steps_x + 1;
-    let total = (steps_y + 1) * vertices_per_row;
-    let num_comps = space.num_comps();
-    let mut coords = vec![0.0f32; total * 2];
-    let mut comps = vec![0.0f64; total * num_comps];
-    let mut output = vec![0.0f64; function.num_outputs().max(num_comps)];
-    let range_x = (x1 - x0) / steps_x as f64;
-    let range_y = (y1 - y0) / steps_y as f64;
-    let (half_x, half_y) = (range_x / 2.0, range_y / 2.0);
-    let mut vertex = 0usize;
-    for row in 0..=steps_y {
-        let y_domain = y0 + range_y * row as f64;
-        let input_y = if row == steps_y { y_domain - half_y } else { y_domain };
-        for col in 0..=steps_x {
-            let x_domain = x0 + range_x * col as f64;
-            let input_x = if col == steps_x { x_domain - half_x } else { x_domain };
-            function.call(&[f64::from(input_x as f32), f64::from(input_y as f32)], &mut output)?;
-            for k in 0..num_comps {
-                comps[vertex * num_comps + k] = f64::from(output[k] as f32);
-            }
-            // The position is stored single precision and then transformed in place.
-            let (px, py) = (f64::from(x_domain as f32), f64::from(y_domain as f32));
-            let (tx, ty) = gstate::apply_point(px, py, &matrix);
-            coords[vertex * 2] = tx as f32;
-            coords[vertex * 2 + 1] = ty as f32;
-            vertex += 1;
-        }
-    }
-    let mut colors = vec![0u8; total * 4];
-    space.get_rgb_items(&comps, total, &mut colors, 0, 1)?;
-    let figures = [Figure::Lattice {
-        coords: (0..total as i32).collect(),
-        colors: (0..total as i32).collect(),
-        vertices_per_row,
-    }];
-    let (pos_data, col_data, vertex_count) = build_vertex_data(&coords, &colors, &figures);
-    Ok(ShadingIr::Mesh(Mesh {
-        pos_data,
-        col_data,
-        vertex_count,
-        bounds,
-        bbox,
-        background,
-    }))
 }
 
 // ---- mesh shadings -------------------------------------------------------------------------------------------------
@@ -616,95 +432,6 @@ struct MeshData {
     figures: Vec<Figure>,
 }
 
-fn mesh(document: &Document, resources: &Dict, stream: &Arc<crate::stream::PdfStream>, shading_type: i64) -> Result<ShadingIr> {
-    let xref = document.xref();
-    let dict = &stream.dict;
-    let bbox = normal_rect(&xref.get_array(dict, "BBox")?);
-    let space = colour_space(xref, resources, dict)?;
-    let background = read_background(xref, dict, &space)?;
-    let color_function = if dict.get_raw("Function").is_some_and(truthy) {
-        Some(shading_function(xref, dict, 1, space.num_comps())?)
-    } else {
-        None
-    };
-    let bits = |key: &str| -> Result<u32> {
-        let value = xref.get(dict, key)?.as_num().unwrap_or(f64::NAN);
-        if value.is_finite() && (1.0..=32.0).contains(&value) {
-            Ok(value as u32)
-        } else {
-            Err(PdfError::format(format!("Invalid {key}")))
-        }
-    };
-    let bits_per_coordinate = bits("BitsPerCoordinate")?;
-    let bits_per_component = bits("BitsPerComponent")?;
-    let bits_per_flag = if shading_type == 5 { 0 } else { bits("BitsPerFlag")? };
-    let num_comps = if color_function.is_some() { 1 } else { space.num_comps() };
-    let decode = number_list(&xref.get_array(dict, "Decode")?);
-    if decode.len() < 4 + num_comps * 2 {
-        return Err(PdfError::format("Invalid Decode"));
-    }
-    let data = stream.decode(&**xref.filters(), document.guard())?;
-    let mut reader = MeshReader {
-        data: &data,
-        pos: 0,
-        plain: stream.chain().is_empty(),
-        buffer: 0,
-        buffer_length: 0,
-        bits_per_flag,
-        bits_per_coordinate,
-        bits_per_component,
-        decode,
-        color_function,
-        space,
-        num_comps,
-    };
-    let mut mesh = MeshData {
-        coords: Vec::new(),
-        colors: Vec::new(),
-        figures: Vec::new(),
-    };
-    let mut patch_mesh = false;
-    match shading_type {
-        4 => decode_type4(&mut reader, &mut mesh)?,
-        5 => {
-            let vertices_per_row = xref.get(dict, "VerticesPerRow")?.as_num().map_or(0, |v| v as i64);
-            if vertices_per_row < 2 {
-                return Err(PdfError::format("Invalid VerticesPerRow"));
-            }
-            decode_type5(&mut reader, &mut mesh, vertices_per_row as usize)?;
-        }
-        6 => {
-            decode_patches(&mut reader, &mut mesh, false)?;
-            patch_mesh = true;
-        }
-        _ => {
-            decode_patches(&mut reader, &mut mesh, true)?;
-            patch_mesh = true;
-        }
-    }
-    let mut bounds = mesh_bounds(&mesh.coords)?;
-    if patch_mesh {
-        for index in 0..mesh.figures.len() {
-            build_figure_from_patch(&mut mesh, index, &bounds);
-        }
-        bounds = mesh_bounds(&mesh.coords)?;
-    }
-    let coords: Vec<f32> = mesh.coords.iter().flat_map(|c| [c[0] as f32, c[1] as f32]).collect();
-    let mut colors = Vec::with_capacity(mesh.colors.len() * 4);
-    for color in &mesh.colors {
-        colors.extend_from_slice(&[color[0], color[1], color[2], 0]);
-    }
-    let (pos_data, col_data, vertex_count) = build_vertex_data(&coords, &colors, &mesh.figures);
-    Ok(ShadingIr::Mesh(Mesh {
-        pos_data,
-        col_data,
-        vertex_count,
-        bounds,
-        bbox,
-        background,
-    }))
-}
-
 /// `meshUpdateBounds`.
 fn mesh_bounds(coords: &[[f64; 2]]) -> Result<[f64; 4]> {
     let Some(first) = coords.first() else {
@@ -718,213 +445,6 @@ fn mesh_bounds(coords: &[[f64; 2]]) -> Result<[f64; 4]> {
         bounds[3] = bounds[3].max(c[1]);
     }
     Ok(bounds)
-}
-
-/// `_decodeType4Shading`: free-form triangles, each vertex with a flag.
-fn decode_type4(reader: &mut MeshReader<'_>, mesh: &mut MeshData) -> Result<()> {
-    let mut ps: Vec<i32> = Vec::new();
-    let mut vertices_left = 0;
-    let at = |ps: &Vec<i32>, back: usize| ps.len().checked_sub(back).map_or(0, |i| ps[i]);
-    while reader.has_data() {
-        let f = reader.read_flag();
-        let coord = reader.read_coordinate();
-        let color = reader.read_components()?;
-        if vertices_left == 0 {
-            match f {
-                0 => vertices_left = 3,
-                1 => {
-                    let (a, b) = (at(&ps, 2), at(&ps, 1));
-                    ps.push(a);
-                    ps.push(b);
-                    vertices_left = 1;
-                }
-                2 => {
-                    let (a, b) = (at(&ps, 3), at(&ps, 1));
-                    ps.push(a);
-                    ps.push(b);
-                    vertices_left = 1;
-                }
-                _ => return Err(PdfError::format("Unknown type4 flag")),
-            }
-        }
-        ps.push(mesh.coords.len() as i32);
-        mesh.coords.push(coord);
-        mesh.colors.push(color);
-        vertices_left -= 1;
-        reader.align();
-    }
-    mesh.figures.push(Figure::Triangles {
-        colors: ps.clone(),
-        coords: ps,
-    });
-    Ok(())
-}
-
-/// `_decodeType5Shading`: a lattice of vertices.
-fn decode_type5(reader: &mut MeshReader<'_>, mesh: &mut MeshData, vertices_per_row: usize) -> Result<()> {
-    let mut ps: Vec<i32> = Vec::new();
-    while reader.has_data() {
-        let coord = reader.read_coordinate();
-        let color = reader.read_components()?;
-        ps.push(mesh.coords.len() as i32);
-        mesh.coords.push(coord);
-        mesh.colors.push(color);
-    }
-    mesh.figures.push(Figure::Lattice {
-        colors: ps.clone(),
-        coords: ps,
-        vertices_per_row,
-    });
-    Ok(())
-}
-
-/// `_decodeType6Shading` (Coons, `tensor` false) and `_decodeType7Shading` (tensor): the patches, each by its flag
-/// either complete or sharing an edge with the one before. The index tables persist from one patch to the next.
-fn decode_patches(reader: &mut MeshReader<'_>, mesh: &mut MeshData, tensor: bool) -> Result<()> {
-    let mut ps = [0i32; 16];
-    let mut cs = [0i32; 4];
-    while reader.has_data() {
-        let f = reader.read_flag();
-        if !(0..=3).contains(&f) {
-            return Err(PdfError::format(format!("Unknown type{} flag", if tensor { 7 } else { 6 })));
-        }
-        let pi = mesh.coords.len() as i32;
-        let new_points = match (tensor, f != 0) {
-            (false, false) => 12,
-            (false, true) => 8,
-            (true, false) => 16,
-            (true, true) => 12,
-        };
-        for _ in 0..new_points {
-            let coord = reader.read_coordinate();
-            mesh.coords.push(coord);
-        }
-        let ci = mesh.colors.len() as i32;
-        for _ in 0..(if f != 0 { 2 } else { 4 }) {
-            let color = reader.read_components()?;
-            mesh.colors.push(color);
-        }
-        match f {
-            0 => {
-                ps[12] = pi + 3;
-                ps[13] = pi + 4;
-                ps[14] = pi + 5;
-                ps[15] = pi + 6;
-                ps[8] = pi + 2;
-                ps[4] = pi + 1;
-                ps[0] = pi;
-                ps[1] = pi + 11;
-                ps[2] = pi + 10;
-                ps[3] = pi + 9;
-                if tensor {
-                    ps[9] = pi + 13;
-                    ps[10] = pi + 14;
-                    ps[11] = pi + 7;
-                    ps[5] = pi + 12;
-                    ps[6] = pi + 15;
-                    ps[7] = pi + 8;
-                } else {
-                    ps[11] = pi + 7;
-                    ps[7] = pi + 8;
-                }
-                cs[2] = ci + 1;
-                cs[3] = ci + 2;
-                cs[0] = ci;
-                cs[1] = ci + 3;
-            }
-            1 => {
-                let (t1, t2, t3, t4) = (ps[12], ps[13], ps[14], ps[15]);
-                ps[12] = t4;
-                ps[13] = pi;
-                ps[14] = pi + 1;
-                ps[15] = pi + 2;
-                ps[8] = t3;
-                ps[11] = pi + 3;
-                ps[4] = t2;
-                ps[7] = pi + 4;
-                ps[0] = t1;
-                ps[1] = pi + 7;
-                ps[2] = pi + 6;
-                ps[3] = pi + 5;
-                if tensor {
-                    ps[9] = pi + 9;
-                    ps[10] = pi + 10;
-                    ps[5] = pi + 8;
-                    ps[6] = pi + 11;
-                }
-                let (c1, c2) = (cs[2], cs[3]);
-                cs[2] = c2;
-                cs[3] = ci;
-                cs[0] = c1;
-                cs[1] = ci + 1;
-            }
-            2 => {
-                let (t1, t2) = (ps[15], ps[11]);
-                ps[12] = ps[3];
-                ps[13] = pi;
-                ps[14] = pi + 1;
-                ps[15] = pi + 2;
-                ps[8] = ps[7];
-                ps[11] = pi + 3;
-                ps[4] = t2;
-                ps[7] = pi + 4;
-                ps[0] = t1;
-                ps[1] = pi + 7;
-                ps[2] = pi + 6;
-                ps[3] = pi + 5;
-                if tensor {
-                    ps[9] = pi + 9;
-                    ps[10] = pi + 10;
-                    ps[5] = pi + 8;
-                    ps[6] = pi + 11;
-                }
-                let t = cs[3];
-                cs[2] = cs[1];
-                cs[3] = ci;
-                cs[0] = t;
-                cs[1] = ci + 1;
-            }
-            _ => {
-                ps[12] = ps[0];
-                ps[13] = pi;
-                ps[14] = pi + 1;
-                ps[15] = pi + 2;
-                ps[8] = ps[1];
-                ps[11] = pi + 3;
-                ps[4] = ps[2];
-                ps[7] = pi + 4;
-                ps[0] = ps[3];
-                ps[1] = pi + 7;
-                ps[2] = pi + 6;
-                ps[3] = pi + 5;
-                if tensor {
-                    ps[9] = pi + 9;
-                    ps[10] = pi + 10;
-                    ps[5] = pi + 8;
-                    ps[6] = pi + 11;
-                }
-                cs[2] = cs[0];
-                cs[3] = ci;
-                cs[0] = cs[1];
-                cs[1] = ci + 1;
-            }
-        }
-        if !tensor {
-            // The four inner control points of a Coons patch follow from its boundary.
-            for (slot, terms) in [
-                (5usize, [0usize, 15, 4, 1, 12, 3, 13, 7]),
-                (6, [3, 12, 2, 7, 0, 15, 4, 14]),
-                (9, [12, 3, 8, 13, 0, 15, 11, 1]),
-                (10, [15, 0, 11, 14, 12, 3, 2, 8]),
-            ] {
-                let point = coons_inner(&mesh.coords, &ps, terms);
-                ps[slot] = mesh.coords.len() as i32;
-                mesh.coords.push(point);
-            }
-        }
-        mesh.figures.push(Figure::Patch { coords: ps, colors: cs });
-    }
-    Ok(())
 }
 
 /// One inner control point of a Coons patch: `(-4 * P[t0] - P[t1] + 6 * (P[t2] + P[t3]) - 2 * (P[t4] + P[t5]) + 3 *
@@ -953,94 +473,6 @@ fn bernstein(count: usize) -> Vec<[f32; 4]> {
             ]
         })
         .collect()
-}
-
-/// `_buildFigureFromPatch`: a patch is cut into a lattice of triangles, its colours blended across it.
-fn build_figure_from_patch(mesh: &mut MeshData, index: usize, bounds: &[f64; 4]) {
-    let Figure::Patch { coords: pi, colors: ci } = mesh.figures[index] else {
-        return;
-    };
-    let corner = |at: usize, axis: usize| mesh.coords[pi[at] as usize][axis];
-    let corners = [0usize, 3, 12, 15];
-    let figure_min_x = corners.iter().map(|&c| corner(c, 0)).fold(f64::INFINITY, f64::min);
-    let figure_min_y = corners.iter().map(|&c| corner(c, 1)).fold(f64::INFINITY, f64::min);
-    let figure_max_x = corners.iter().map(|&c| corner(c, 0)).fold(f64::NEG_INFINITY, f64::max);
-    let figure_max_y = corners.iter().map(|&c| corner(c, 1)).fold(f64::NEG_INFINITY, f64::max);
-    let chunks = |extent: f64, whole: f64| -> usize {
-        let split = (extent * TRIANGLE_DENSITY / whole).ceil();
-        if split.is_nan() {
-            return MIN_SPLIT_PATCH_CHUNKS_AMOUNT as usize;
-        }
-        split.clamp(MIN_SPLIT_PATCH_CHUNKS_AMOUNT, MAX_SPLIT_PATCH_CHUNKS_AMOUNT) as usize
-    };
-    let split_x = chunks(figure_max_x - figure_min_x, bounds[2] - bounds[0]);
-    let split_y = chunks(figure_max_y - figure_min_y, bounds[3] - bounds[1]);
-    let vertices_per_row = split_x + 1;
-    let mut figure_coords = vec![0i32; (split_y + 1) * vertices_per_row];
-    let mut figure_colors = vec![0i32; (split_y + 1) * vertices_per_row];
-    let (c0, c1, c2, c3) = (
-        mesh.colors[ci[0] as usize],
-        mesh.colors[ci[1] as usize],
-        mesh.colors[ci[2] as usize],
-        mesh.colors[ci[3] as usize],
-    );
-    let b_row = bernstein(split_y);
-    let b_col = bernstein(split_x);
-    let mut k = 0usize;
-    for row in 0..=split_y {
-        let blend = |a: u8, b: u8, at: usize, whole: usize| -> u8 {
-            ((f64::from(a) * (whole - at) as f64 + f64::from(b) * at as f64) / whole as f64) as i64 as u8
-        };
-        let cl = [
-            blend(c0[0], c2[0], row, split_y),
-            blend(c0[1], c2[1], row, split_y),
-            blend(c0[2], c2[2], row, split_y),
-        ];
-        let cr = [
-            blend(c1[0], c3[0], row, split_y),
-            blend(c1[1], c3[1], row, split_y),
-            blend(c1[2], c3[2], row, split_y),
-        ];
-        for col in 0..=split_x {
-            if (row == 0 || row == split_y) && (col == 0 || col == split_x) {
-                k += 1;
-                continue;
-            }
-            let (mut x, mut y) = (0.0f64, 0.0f64);
-            let mut q = 0;
-            for i in 0..4 {
-                for j in 0..4 {
-                    let m = f64::from(b_row[row][i] * b_col[col][j]);
-                    let point = mesh.coords[pi[q] as usize];
-                    x += point[0] * m;
-                    y += point[1] * m;
-                    q += 1;
-                }
-            }
-            figure_coords[k] = mesh.coords.len() as i32;
-            mesh.coords.push([x, y]);
-            figure_colors[k] = mesh.colors.len() as i32;
-            mesh.colors.push([
-                blend(cl[0], cr[0], col, split_x),
-                blend(cl[1], cr[1], col, split_x),
-                blend(cl[2], cr[2], col, split_x),
-            ]);
-            k += 1;
-        }
-    }
-    figure_coords[0] = pi[0];
-    figure_colors[0] = ci[0];
-    figure_coords[split_x] = pi[3];
-    figure_colors[split_x] = ci[1];
-    figure_coords[vertices_per_row * split_y] = pi[12];
-    figure_colors[vertices_per_row * split_y] = ci[2];
-    figure_coords[vertices_per_row * split_y + split_x] = pi[15];
-    figure_colors[vertices_per_row * split_y + split_x] = ci[3];
-    mesh.figures[index] = Figure::Lattice {
-        coords: figure_coords,
-        colors: figure_colors,
-        vertices_per_row,
-    };
 }
 
 // ---- painting a mesh -------------------------------------------------------------------------------------------------
@@ -1164,64 +596,6 @@ fn draw_triangle(bytes: &mut [u8], width: usize, context: &TriangleContext<'_>, 
             put(bytes, j + 3, 255);
             j += 4;
         }
-    }
-}
-
-impl Mesh {
-    /// `_createMeshCanvas`: the triangles drawn into an image of the size the page will show them at (`combined_scale`
-    /// is the scale of the matrices between the mesh and the device), the background colour behind them when there is
-    /// one, the transfer maps applied, and a border of two transparent pixels around it.
-    pub(super) fn create_canvas(
-        &self,
-        combined_scale: (f32, f32),
-        background: Option<[u8; 3]>,
-        transfer: Option<&TransferMaps>,
-    ) -> Result<MeshCanvas> {
-        let offset_x = self.bounds[0].floor();
-        let offset_y = self.bounds[1].floor();
-        let bounds_width = self.bounds[2].ceil() - offset_x;
-        let bounds_height = self.bounds[3].ceil() - offset_y;
-        let size = |extent: f64, scale: f32| {
-            let size = (extent * f64::from(scale) * EXPECTED_SCALE).abs().ceil().min(MAX_MESH_PATTERN_SIZE);
-            if size == 0.0 || size.is_nan() { 1.0 } else { size }
-        };
-        let width = size(bounds_width, combined_scale.0);
-        let height = size(bounds_height, combined_scale.1);
-        let scale_x = if bounds_width != 0.0 { bounds_width / width } else { 1.0 };
-        let scale_y = if bounds_height != 0.0 { bounds_height / height } else { 1.0 };
-        let context = TriangleContext {
-            coords: &self.pos_data,
-            colors: &self.col_data,
-            offset_x: -offset_x,
-            offset_y: -offset_y,
-            scale_x: 1.0 / scale_x,
-            scale_y: 1.0 / scale_y,
-        };
-        let (width_px, height_px) = (width as u32, height as u32);
-        let mut canvas = Canvas::new(width_px + BORDER_SIZE * 2, height_px + BORDER_SIZE * 2).map_err(raster)?;
-        let mut data = ImageData::new(width_px, height_px).map_err(raster)?;
-        if let Some(color) = background {
-            for pixel in data.data_mut().chunks_exact_mut(4) {
-                pixel.copy_from_slice(&[color[0], color[1], color[2], 255]);
-            }
-        }
-        for first in (0..self.vertex_count).step_by(3) {
-            if first + 2 >= self.vertex_count {
-                break;
-            }
-            draw_triangle(data.data_mut(), width_px as usize, &context, [first, first + 1, first + 2]);
-        }
-        canvas.put_image_data(&data, BORDER_SIZE as i32, BORDER_SIZE as i32, None);
-        if let Some(maps) = transfer {
-            apply_transfer(&mut canvas, maps)?;
-        }
-        Ok(MeshCanvas {
-            pattern: PatternStyle::smoothed(&Bitmap::from_canvas(&canvas), Repetition::NoRepeat),
-            offset_x: offset_x - f64::from(BORDER_SIZE) * scale_x,
-            offset_y: offset_y - f64::from(BORDER_SIZE) * scale_y,
-            scale_x,
-            scale_y,
-        })
     }
 }
 
@@ -1381,6 +755,7 @@ mod tests {
         assert_eq!(at(9, 9)[3], 0, "outside");
     }
 
+
     #[test]
     fn the_mesh_canvas_has_a_border_and_a_scale() {
         let mesh = Mesh {
@@ -1398,5 +773,622 @@ mod tests {
         assert_eq!(width, 22.0);
         assert!((canvas.scale_x - 10.0 / width).abs() < 1e-12);
         assert!((canvas.offset_x + 2.0 * canvas.scale_x).abs() < 1e-12);
+    }
+}
+
+
+// ---- parsing ---------------------------------------------------------------------------------------------------------
+
+/// `Pattern.parseShading`: the shading `source` (a dictionary, or a stream for a mesh) as the display layer paints it.
+/// A shading that cannot be read is the dummy one, said at warn level; a cancellation or a limit is not swallowed.
+pub(super) fn read_shading(document: &Document, resources: &Dict, source: &Obj) -> Result<ShadingIr> {
+    match parse(document, resources, source) {
+        Ok(ir) => Ok(ir),
+        Err(error) if error.is_fatal() => Err(error),
+        Err(error) => {
+            tracing::warn!("{}", error.message());
+            Ok(ShadingIr::Dummy)
+        }
+    }
+}
+fn parse(document: &Document, resources: &Dict, source: &Obj) -> Result<ShadingIr> {
+    let xref = document.xref();
+    let dict = match source {
+        Obj::Stream(stream) => stream.dict.clone(),
+        Obj::Dict(dict) => dict.clone(),
+        _ => return Err(PdfError::format("Unsupported ShadingType: undefined")),
+    };
+    let number = xref.get(&dict, "ShadingType")?.as_num();
+    let shading_type = number.filter(|t| t.fract() == 0.0).map(|t| t as i64);
+    match shading_type {
+        Some(1) => function_based(document, resources, &dict),
+        Some(2) => radial_axial(document, resources, &dict, false),
+        Some(3) => radial_axial(document, resources, &dict, true),
+        Some(t @ 4..=7) => {
+            let Obj::Stream(stream) = source else {
+                return Err(PdfError::format("Mesh data is not a stream"));
+            };
+            mesh(document, resources, stream, t)
+        }
+        _ => Err(PdfError::format(format!(
+            "Unsupported ShadingType: {}",
+            number.map_or_else(|| "undefined".to_owned(), mixdog_js::number_to_string)
+        ))),
+    }
+}
+/// `ColorSpaceUtils.parse` of `dict.getRaw("CS") || dict.getRaw("ColorSpace")`.
+fn colour_space(xref: &Xref, resources: &Dict, dict: &Dict) -> Result<Arc<ColorSpace>> {
+    let null = Obj::Null;
+    let raw = match dict.get_raw("CS") {
+        Some(value) if truthy(value) => value,
+        _ => dict.get_raw("ColorSpace").unwrap_or(&null),
+    };
+    color::parse(raw, xref, Some(resources))
+}
+fn radial_axial(document: &Document, resources: &Dict, dict: &Arc<Dict>, radial: bool) -> Result<ShadingIr> {
+    let xref = document.xref();
+    let coords_len = if radial { 6 } else { 4 };
+    let coords = numbers(&xref.get_array(dict, "Coords")?, coords_len)
+        .ok_or_else(|| PdfError::format("RadialAxialShading: Invalid /Coords array."))?;
+    let space = colour_space(xref, resources, dict)?;
+    let bbox = normal_rect(&xref.get_array(dict, "BBox")?);
+    let (t0, t1) = numbers(&xref.get_array(dict, "Domain")?, 2).map_or((0.0, 1.0), |d| (d[0], d[1]));
+    let (extend_start, extend_end) = match xref.get_array(dict, "Extend")? {
+        Obj::Array(items) if items.len() == 2 && items.iter().all(|v| matches!(v, Obj::Bool(_))) => (
+            matches!(items[0], Obj::Bool(true)),
+            matches!(items[1], Obj::Bool(true)),
+        ),
+        _ => (false, false),
+    };
+    let function = shading_function(xref, dict, 1, space.num_comps())?;
+    let (p0, p1, r0, r1) = if radial {
+        ([coords[0], coords[1]], [coords[3], coords[4]], coords[2], coords[5])
+    } else {
+        ([coords[0], coords[1]], [coords[2], coords[3]], 0.0, 0.0)
+    };
+    let mut shading = RadialAxial {
+        radial,
+        bbox,
+        color_stops: Vec::new(),
+        p0,
+        p1,
+        r0,
+        r1,
+    };
+    let step = (t1 - t0) / NUMBER_OF_SAMPLES as f64;
+    if t0 >= t1 || step <= 0.0 {
+        tracing::info!("Bad shading domain.");
+        return Ok(ShadingIr::RadialAxial(shading));
+    }
+    let num_comps = space.num_comps();
+    let mut comps = vec![0.0f64; NUMBER_OF_SAMPLES * num_comps];
+    let mut output = vec![0.0f64; function.num_outputs().max(num_comps)];
+    for i in 0..NUMBER_OF_SAMPLES {
+        // `ratio` and `comps` are `Float32Array`s.
+        let ratio = f64::from((t0 + i as f64 * step) as f32);
+        function.call(&[ratio], &mut output)?;
+        for k in 0..num_comps {
+            comps[i * num_comps + k] = f64::from(output[k] as f32);
+        }
+    }
+    let mut rgb = vec![0u8; NUMBER_OF_SAMPLES * 3];
+    space.get_rgb_items(&comps, NUMBER_OF_SAMPLES, &mut rgb, 0, 0)?;
+    shading.color_stops = color_stops(&rgb);
+    let background_color = if dict.has("Background") {
+        let values = number_list(&xref.get_array(dict, "Background")?);
+        space.get_rgb_hex(&values, 0)?
+    } else {
+        "transparent".to_owned()
+    };
+    let stops = &mut shading.color_stops;
+    if !extend_start {
+        stops.insert(0, (0.0, background_color.clone()));
+        stops[1].0 += SMALL_NUMBER;
+    }
+    if !extend_end {
+        let last = stops.len() - 1;
+        stops[last].0 -= SMALL_NUMBER;
+        stops.push((1.0, background_color));
+    }
+    Ok(ShadingIr::RadialAxial(shading))
+}
+/// `FunctionBasedShading`: the domain sampled on a grid of at most 512 steps a side, drawn as a lattice mesh.
+fn function_based(document: &Document, resources: &Dict, dict: &Arc<Dict>) -> Result<ShadingIr> {
+    let xref = document.xref();
+    let bbox = normal_rect(&xref.get_array(dict, "BBox")?);
+    let space = colour_space(xref, resources, dict)?;
+    let background = read_background(xref, dict, &space)?;
+    if !dict.get_raw("Function").is_some_and(truthy) {
+        return Err(PdfError::format("FunctionBasedShading: missing /Function"));
+    }
+    let function = shading_function(xref, dict, 2, space.num_comps())?;
+    let domain = numbers(&xref.get_array(dict, "Domain")?, 4).unwrap_or_else(|| vec![0.0, 1.0, 0.0, 1.0]);
+    let (x0, x1, y0, y1) = (domain[0], domain[1], domain[2], domain[3]);
+    let matrix: Matrix = numbers(&xref.get_array(dict, "Matrix")?, 6)
+        .map_or(gstate::IDENTITY, |m| [m[0], m[1], m[2], m[3], m[4], m[5]]);
+    let mut bounds = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+    axial_bounding_box(&[x0, y0, x1, y1], &matrix, &mut bounds);
+    let steps = |extent: f64| extent.ceil().clamp(1.0, MAX_STEP_COUNT) as usize;
+    let steps_x = steps(bounds[2] - bounds[0]);
+    let steps_y = steps(bounds[3] - bounds[1]);
+    let vertices_per_row = steps_x + 1;
+    let total = (steps_y + 1) * vertices_per_row;
+    let num_comps = space.num_comps();
+    let mut coords = vec![0.0f32; total * 2];
+    let mut comps = vec![0.0f64; total * num_comps];
+    let mut output = vec![0.0f64; function.num_outputs().max(num_comps)];
+    let range_x = (x1 - x0) / steps_x as f64;
+    let range_y = (y1 - y0) / steps_y as f64;
+    let (half_x, half_y) = (range_x / 2.0, range_y / 2.0);
+    let mut vertex = 0usize;
+    for row in 0..=steps_y {
+        let y_domain = y0 + range_y * row as f64;
+        let input_y = if row == steps_y { y_domain - half_y } else { y_domain };
+        for col in 0..=steps_x {
+            let x_domain = x0 + range_x * col as f64;
+            let input_x = if col == steps_x { x_domain - half_x } else { x_domain };
+            function.call(&[f64::from(input_x as f32), f64::from(input_y as f32)], &mut output)?;
+            for k in 0..num_comps {
+                comps[vertex * num_comps + k] = f64::from(output[k] as f32);
+            }
+            // The position is stored single precision and then transformed in place.
+            let (px, py) = (f64::from(x_domain as f32), f64::from(y_domain as f32));
+            let (tx, ty) = gstate::apply_point(px, py, &matrix);
+            coords[vertex * 2] = tx as f32;
+            coords[vertex * 2 + 1] = ty as f32;
+            vertex += 1;
+        }
+    }
+    let mut colors = vec![0u8; total * 4];
+    space.get_rgb_items(&comps, total, &mut colors, 0, 1)?;
+    let figures = [Figure::Lattice {
+        coords: (0..total as i32).collect(),
+        colors: (0..total as i32).collect(),
+        vertices_per_row,
+    }];
+    let (pos_data, col_data, vertex_count) = build_vertex_data(&coords, &colors, &figures);
+    Ok(ShadingIr::Mesh(Mesh {
+        pos_data,
+        col_data,
+        vertex_count,
+        bounds,
+        bbox,
+        background,
+    }))
+}
+fn mesh(document: &Document, resources: &Dict, stream: &Arc<crate::stream::PdfStream>, shading_type: i64) -> Result<ShadingIr> {
+    let xref = document.xref();
+    let dict = &stream.dict;
+    let bbox = normal_rect(&xref.get_array(dict, "BBox")?);
+    let space = colour_space(xref, resources, dict)?;
+    let background = read_background(xref, dict, &space)?;
+    let color_function = if dict.get_raw("Function").is_some_and(truthy) {
+        Some(shading_function(xref, dict, 1, space.num_comps())?)
+    } else {
+        None
+    };
+    let bits = |key: &str| -> Result<u32> {
+        let value = xref.get(dict, key)?.as_num().unwrap_or(f64::NAN);
+        if value.is_finite() && (1.0..=32.0).contains(&value) {
+            Ok(value as u32)
+        } else {
+            Err(PdfError::format(format!("Invalid {key}")))
+        }
+    };
+    let bits_per_coordinate = bits("BitsPerCoordinate")?;
+    let bits_per_component = bits("BitsPerComponent")?;
+    let bits_per_flag = if shading_type == 5 { 0 } else { bits("BitsPerFlag")? };
+    let num_comps = if color_function.is_some() { 1 } else { space.num_comps() };
+    let decode = number_list(&xref.get_array(dict, "Decode")?);
+    if decode.len() < 4 + num_comps * 2 {
+        return Err(PdfError::format("Invalid Decode"));
+    }
+    let data = stream.decode(&**xref.filters(), document.guard())?;
+    let mut reader = MeshReader {
+        data: &data,
+        pos: 0,
+        plain: stream.chain().is_empty(),
+        buffer: 0,
+        buffer_length: 0,
+        bits_per_flag,
+        bits_per_coordinate,
+        bits_per_component,
+        decode,
+        color_function,
+        space,
+        num_comps,
+    };
+    let mut mesh = MeshData {
+        coords: Vec::new(),
+        colors: Vec::new(),
+        figures: Vec::new(),
+    };
+    let mut patch_mesh = false;
+    match shading_type {
+        4 => decode_type4(&mut reader, &mut mesh)?,
+        5 => {
+            let vertices_per_row = xref.get(dict, "VerticesPerRow")?.as_num().map_or(0, |v| v as i64);
+            if vertices_per_row < 2 {
+                return Err(PdfError::format("Invalid VerticesPerRow"));
+            }
+            decode_type5(&mut reader, &mut mesh, vertices_per_row as usize)?;
+        }
+        6 => {
+            decode_patches(&mut reader, &mut mesh, false)?;
+            patch_mesh = true;
+        }
+        _ => {
+            decode_patches(&mut reader, &mut mesh, true)?;
+            patch_mesh = true;
+        }
+    }
+    let mut bounds = mesh_bounds(&mesh.coords)?;
+    if patch_mesh {
+        for index in 0..mesh.figures.len() {
+            build_figure_from_patch(&mut mesh, index, &bounds);
+        }
+        bounds = mesh_bounds(&mesh.coords)?;
+    }
+    let coords: Vec<f32> = mesh.coords.iter().flat_map(|c| [c[0] as f32, c[1] as f32]).collect();
+    let mut colors = Vec::with_capacity(mesh.colors.len() * 4);
+    for color in &mesh.colors {
+        colors.extend_from_slice(&[color[0], color[1], color[2], 0]);
+    }
+    let (pos_data, col_data, vertex_count) = build_vertex_data(&coords, &colors, &mesh.figures);
+    Ok(ShadingIr::Mesh(Mesh {
+        pos_data,
+        col_data,
+        vertex_count,
+        bounds,
+        bbox,
+        background,
+    }))
+}
+/// `_decodeType4Shading`: free-form triangles, each vertex with a flag.
+fn decode_type4(reader: &mut MeshReader<'_>, mesh: &mut MeshData) -> Result<()> {
+    let mut ps: Vec<i32> = Vec::new();
+    let mut vertices_left = 0;
+    let at = |ps: &Vec<i32>, back: usize| ps.len().checked_sub(back).map_or(0, |i| ps[i]);
+    while reader.has_data() {
+        let f = reader.read_flag();
+        let coord = reader.read_coordinate();
+        let color = reader.read_components()?;
+        if vertices_left == 0 {
+            match f {
+                0 => vertices_left = 3,
+                1 => {
+                    let (a, b) = (at(&ps, 2), at(&ps, 1));
+                    ps.push(a);
+                    ps.push(b);
+                    vertices_left = 1;
+                }
+                2 => {
+                    let (a, b) = (at(&ps, 3), at(&ps, 1));
+                    ps.push(a);
+                    ps.push(b);
+                    vertices_left = 1;
+                }
+                _ => return Err(PdfError::format("Unknown type4 flag")),
+            }
+        }
+        ps.push(mesh.coords.len() as i32);
+        mesh.coords.push(coord);
+        mesh.colors.push(color);
+        vertices_left -= 1;
+        reader.align();
+    }
+    mesh.figures.push(Figure::Triangles {
+        colors: ps.clone(),
+        coords: ps,
+    });
+    Ok(())
+}
+/// `_decodeType5Shading`: a lattice of vertices.
+fn decode_type5(reader: &mut MeshReader<'_>, mesh: &mut MeshData, vertices_per_row: usize) -> Result<()> {
+    let mut ps: Vec<i32> = Vec::new();
+    while reader.has_data() {
+        let coord = reader.read_coordinate();
+        let color = reader.read_components()?;
+        ps.push(mesh.coords.len() as i32);
+        mesh.coords.push(coord);
+        mesh.colors.push(color);
+    }
+    mesh.figures.push(Figure::Lattice {
+        colors: ps.clone(),
+        coords: ps,
+        vertices_per_row,
+    });
+    Ok(())
+}
+/// `_decodeType6Shading` (Coons, `tensor` false) and `_decodeType7Shading` (tensor): the patches, each by its flag
+/// either complete or sharing an edge with the one before. The index tables persist from one patch to the next.
+fn decode_patches(reader: &mut MeshReader<'_>, mesh: &mut MeshData, tensor: bool) -> Result<()> {
+    let mut ps = [0i32; 16];
+    let mut cs = [0i32; 4];
+    while reader.has_data() {
+        let f = reader.read_flag();
+        if !(0..=3).contains(&f) {
+            return Err(PdfError::format(format!("Unknown type{} flag", if tensor { 7 } else { 6 })));
+        }
+        let pi = mesh.coords.len() as i32;
+        let new_points = match (tensor, f != 0) {
+            (false, false) => 12,
+            (false, true) => 8,
+            (true, false) => 16,
+            (true, true) => 12,
+        };
+        for _ in 0..new_points {
+            let coord = reader.read_coordinate();
+            mesh.coords.push(coord);
+        }
+        let ci = mesh.colors.len() as i32;
+        for _ in 0..(if f != 0 { 2 } else { 4 }) {
+            let color = reader.read_components()?;
+            mesh.colors.push(color);
+        }
+        match f {
+            0 => {
+                ps[12] = pi + 3;
+                ps[13] = pi + 4;
+                ps[14] = pi + 5;
+                ps[15] = pi + 6;
+                ps[8] = pi + 2;
+                ps[4] = pi + 1;
+                ps[0] = pi;
+                ps[1] = pi + 11;
+                ps[2] = pi + 10;
+                ps[3] = pi + 9;
+                if tensor {
+                    ps[9] = pi + 13;
+                    ps[10] = pi + 14;
+                    ps[11] = pi + 7;
+                    ps[5] = pi + 12;
+                    ps[6] = pi + 15;
+                    ps[7] = pi + 8;
+                } else {
+                    ps[11] = pi + 7;
+                    ps[7] = pi + 8;
+                }
+                cs[2] = ci + 1;
+                cs[3] = ci + 2;
+                cs[0] = ci;
+                cs[1] = ci + 3;
+            }
+            1 => {
+                let (t1, t2, t3, t4) = (ps[12], ps[13], ps[14], ps[15]);
+                ps[12] = t4;
+                ps[13] = pi;
+                ps[14] = pi + 1;
+                ps[15] = pi + 2;
+                ps[8] = t3;
+                ps[11] = pi + 3;
+                ps[4] = t2;
+                ps[7] = pi + 4;
+                ps[0] = t1;
+                ps[1] = pi + 7;
+                ps[2] = pi + 6;
+                ps[3] = pi + 5;
+                if tensor {
+                    ps[9] = pi + 9;
+                    ps[10] = pi + 10;
+                    ps[5] = pi + 8;
+                    ps[6] = pi + 11;
+                }
+                let (c1, c2) = (cs[2], cs[3]);
+                cs[2] = c2;
+                cs[3] = ci;
+                cs[0] = c1;
+                cs[1] = ci + 1;
+            }
+            2 => {
+                let (t1, t2) = (ps[15], ps[11]);
+                ps[12] = ps[3];
+                ps[13] = pi;
+                ps[14] = pi + 1;
+                ps[15] = pi + 2;
+                ps[8] = ps[7];
+                ps[11] = pi + 3;
+                ps[4] = t2;
+                ps[7] = pi + 4;
+                ps[0] = t1;
+                ps[1] = pi + 7;
+                ps[2] = pi + 6;
+                ps[3] = pi + 5;
+                if tensor {
+                    ps[9] = pi + 9;
+                    ps[10] = pi + 10;
+                    ps[5] = pi + 8;
+                    ps[6] = pi + 11;
+                }
+                let t = cs[3];
+                cs[2] = cs[1];
+                cs[3] = ci;
+                cs[0] = t;
+                cs[1] = ci + 1;
+            }
+            _ => {
+                ps[12] = ps[0];
+                ps[13] = pi;
+                ps[14] = pi + 1;
+                ps[15] = pi + 2;
+                ps[8] = ps[1];
+                ps[11] = pi + 3;
+                ps[4] = ps[2];
+                ps[7] = pi + 4;
+                ps[0] = ps[3];
+                ps[1] = pi + 7;
+                ps[2] = pi + 6;
+                ps[3] = pi + 5;
+                if tensor {
+                    ps[9] = pi + 9;
+                    ps[10] = pi + 10;
+                    ps[5] = pi + 8;
+                    ps[6] = pi + 11;
+                }
+                cs[2] = cs[0];
+                cs[3] = ci;
+                cs[0] = cs[1];
+                cs[1] = ci + 1;
+            }
+        }
+        if !tensor {
+            // The four inner control points of a Coons patch follow from its boundary.
+            for (slot, terms) in [
+                (5usize, [0usize, 15, 4, 1, 12, 3, 13, 7]),
+                (6, [3, 12, 2, 7, 0, 15, 4, 14]),
+                (9, [12, 3, 8, 13, 0, 15, 11, 1]),
+                (10, [15, 0, 11, 14, 12, 3, 2, 8]),
+            ] {
+                let point = coons_inner(&mesh.coords, &ps, terms);
+                ps[slot] = mesh.coords.len() as i32;
+                mesh.coords.push(point);
+            }
+        }
+        mesh.figures.push(Figure::Patch { coords: ps, colors: cs });
+    }
+    Ok(())
+}
+/// `_buildFigureFromPatch`: a patch is cut into a lattice of triangles, its colours blended across it.
+fn build_figure_from_patch(mesh: &mut MeshData, index: usize, bounds: &[f64; 4]) {
+    let Figure::Patch { coords: pi, colors: ci } = mesh.figures[index] else {
+        return;
+    };
+    let corner = |at: usize, axis: usize| mesh.coords[pi[at] as usize][axis];
+    let corners = [0usize, 3, 12, 15];
+    let figure_min_x = corners.iter().map(|&c| corner(c, 0)).fold(f64::INFINITY, f64::min);
+    let figure_min_y = corners.iter().map(|&c| corner(c, 1)).fold(f64::INFINITY, f64::min);
+    let figure_max_x = corners.iter().map(|&c| corner(c, 0)).fold(f64::NEG_INFINITY, f64::max);
+    let figure_max_y = corners.iter().map(|&c| corner(c, 1)).fold(f64::NEG_INFINITY, f64::max);
+    let chunks = |extent: f64, whole: f64| -> usize {
+        let split = (extent * TRIANGLE_DENSITY / whole).ceil();
+        if split.is_nan() {
+            return MIN_SPLIT_PATCH_CHUNKS_AMOUNT as usize;
+        }
+        split.clamp(MIN_SPLIT_PATCH_CHUNKS_AMOUNT, MAX_SPLIT_PATCH_CHUNKS_AMOUNT) as usize
+    };
+    let split_x = chunks(figure_max_x - figure_min_x, bounds[2] - bounds[0]);
+    let split_y = chunks(figure_max_y - figure_min_y, bounds[3] - bounds[1]);
+    let vertices_per_row = split_x + 1;
+    let mut figure_coords = vec![0i32; (split_y + 1) * vertices_per_row];
+    let mut figure_colors = vec![0i32; (split_y + 1) * vertices_per_row];
+    let (c0, c1, c2, c3) = (
+        mesh.colors[ci[0] as usize],
+        mesh.colors[ci[1] as usize],
+        mesh.colors[ci[2] as usize],
+        mesh.colors[ci[3] as usize],
+    );
+    let b_row = bernstein(split_y);
+    let b_col = bernstein(split_x);
+    let mut k = 0usize;
+    for row in 0..=split_y {
+        let blend = |a: u8, b: u8, at: usize, whole: usize| -> u8 {
+            ((f64::from(a) * (whole - at) as f64 + f64::from(b) * at as f64) / whole as f64) as i64 as u8
+        };
+        let cl = [
+            blend(c0[0], c2[0], row, split_y),
+            blend(c0[1], c2[1], row, split_y),
+            blend(c0[2], c2[2], row, split_y),
+        ];
+        let cr = [
+            blend(c1[0], c3[0], row, split_y),
+            blend(c1[1], c3[1], row, split_y),
+            blend(c1[2], c3[2], row, split_y),
+        ];
+        for col in 0..=split_x {
+            if (row == 0 || row == split_y) && (col == 0 || col == split_x) {
+                k += 1;
+                continue;
+            }
+            let (mut x, mut y) = (0.0f64, 0.0f64);
+            let mut q = 0;
+            for i in 0..4 {
+                for j in 0..4 {
+                    let m = f64::from(b_row[row][i] * b_col[col][j]);
+                    let point = mesh.coords[pi[q] as usize];
+                    x += point[0] * m;
+                    y += point[1] * m;
+                    q += 1;
+                }
+            }
+            figure_coords[k] = mesh.coords.len() as i32;
+            mesh.coords.push([x, y]);
+            figure_colors[k] = mesh.colors.len() as i32;
+            mesh.colors.push([
+                blend(cl[0], cr[0], col, split_x),
+                blend(cl[1], cr[1], col, split_x),
+                blend(cl[2], cr[2], col, split_x),
+            ]);
+            k += 1;
+        }
+    }
+    figure_coords[0] = pi[0];
+    figure_colors[0] = ci[0];
+    figure_coords[split_x] = pi[3];
+    figure_colors[split_x] = ci[1];
+    figure_coords[vertices_per_row * split_y] = pi[12];
+    figure_colors[vertices_per_row * split_y] = ci[2];
+    figure_coords[vertices_per_row * split_y + split_x] = pi[15];
+    figure_colors[vertices_per_row * split_y + split_x] = ci[3];
+    mesh.figures[index] = Figure::Lattice {
+        coords: figure_coords,
+        colors: figure_colors,
+        vertices_per_row,
+    };
+}
+impl Mesh {
+    /// `_createMeshCanvas`: the triangles drawn into an image of the size the page will show them at (`combined_scale`
+    /// is the scale of the matrices between the mesh and the device), the background colour behind them when there is
+    /// one, the transfer maps applied, and a border of two transparent pixels around it.
+    pub(super) fn create_canvas(
+        &self,
+        combined_scale: (f32, f32),
+        background: Option<[u8; 3]>,
+        transfer: Option<&TransferMaps>,
+    ) -> Result<MeshCanvas> {
+        let offset_x = self.bounds[0].floor();
+        let offset_y = self.bounds[1].floor();
+        let bounds_width = self.bounds[2].ceil() - offset_x;
+        let bounds_height = self.bounds[3].ceil() - offset_y;
+        let size = |extent: f64, scale: f32| {
+            let size = (extent * f64::from(scale) * EXPECTED_SCALE).abs().ceil().min(MAX_MESH_PATTERN_SIZE);
+            if size == 0.0 || size.is_nan() { 1.0 } else { size }
+        };
+        let width = size(bounds_width, combined_scale.0);
+        let height = size(bounds_height, combined_scale.1);
+        let scale_x = if bounds_width != 0.0 { bounds_width / width } else { 1.0 };
+        let scale_y = if bounds_height != 0.0 { bounds_height / height } else { 1.0 };
+        let context = TriangleContext {
+            coords: &self.pos_data,
+            colors: &self.col_data,
+            offset_x: -offset_x,
+            offset_y: -offset_y,
+            scale_x: 1.0 / scale_x,
+            scale_y: 1.0 / scale_y,
+        };
+        let (width_px, height_px) = (width as u32, height as u32);
+        let mut canvas = Canvas::new(width_px + BORDER_SIZE * 2, height_px + BORDER_SIZE * 2).map_err(raster)?;
+        let mut data = ImageData::new(width_px, height_px).map_err(raster)?;
+        if let Some(color) = background {
+            for pixel in data.data_mut().chunks_exact_mut(4) {
+                pixel.copy_from_slice(&[color[0], color[1], color[2], 255]);
+            }
+        }
+        for first in (0..self.vertex_count).step_by(3) {
+            if first + 2 >= self.vertex_count {
+                break;
+            }
+            draw_triangle(data.data_mut(), width_px as usize, &context, [first, first + 1, first + 2]);
+        }
+        canvas.put_image_data(&data, BORDER_SIZE as i32, BORDER_SIZE as i32, None);
+        if let Some(maps) = transfer {
+            apply_transfer(&mut canvas, maps)?;
+        }
+        Ok(MeshCanvas {
+            pattern: PatternStyle::smoothed(&Bitmap::from_canvas(&canvas), Repetition::NoRepeat),
+            offset_x: offset_x - f64::from(BORDER_SIZE) * scale_x,
+            offset_y: offset_y - f64::from(BORDER_SIZE) * scale_y,
+            scale_x,
+            scale_y,
+        })
     }
 }

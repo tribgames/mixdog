@@ -131,53 +131,6 @@ pub(super) trait Runner: Send + Sync {
 /// The operating system's processes.
 struct ChildRunner;
 
-impl Runner for ChildRunner {
-    fn run(&self, file: &str, args: &[String], timeout: Duration) -> BoxFuture<RunOutput> {
-        let file = file.to_owned();
-        let args = args.to_vec();
-        Box::pin(async move { run_child(&file, &args, timeout).await })
-    }
-}
-
-async fn run_child(file: &str, args: &[String], timeout: Duration) -> RunOutput {
-    let mut command = tokio::process::Command::new(file);
-    command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
-    for name in SCRUBBED_VARS {
-        command.env_remove(name);
-    }
-    #[cfg(windows)]
-    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    let child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return RunOutput { code: -1, stdout: String::new(), stderr: "ENOENT".to_owned() };
-        }
-        Err(error) => return RunOutput { code: 1, stdout: String::new(), stderr: error.to_string() },
-    };
-    // execFile's error message names the whole command line: `Command failed: <file> <args...>`.
-    let failed = || {
-        let line: Vec<&str> = std::iter::once(file).chain(args.iter().map(String::as_str)).collect();
-        format!("Command failed: {}", line.join(" "))
-    };
-    // A child that outlives its budget is killed when the wait is dropped (`kill_on_drop`).
-    match mixdog_rt::time::timeout(timeout, child.wait_with_output()).await {
-        Ok(Ok(output)) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-            match output.status.code() {
-                Some(0) => RunOutput { code: 0, stdout, stderr },
-                code => RunOutput {
-                    code: code.unwrap_or(1),
-                    stdout,
-                    stderr: if stderr.is_empty() { failed() } else { stderr },
-                },
-            }
-        }
-        Ok(Err(error)) => RunOutput { code: 1, stdout: String::new(), stderr: error.to_string() },
-        Err(_) => RunOutput { code: 1, stdout: String::new(), stderr: failed() },
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 struct Found {
     version: String,
@@ -222,116 +175,6 @@ impl Drop for RefreshEnd<'_> {
     fn drop(&mut self) {
         self.soffice.state.lock().unwrap_or_else(PoisonError::into_inner).refreshing = None;
         self.done.send_replace(true);
-    }
-}
-
-fn home_dir() -> String {
-    let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-    std::env::var(key).unwrap_or_default()
-}
-
-impl Soffice {
-    /// The probe of this machine: its platform's candidates, its processes.
-    pub(super) fn for_platform() -> Self {
-        let platform = Platform::current();
-        Self::with(platform, Box::new(move || candidates(platform, &|name| std::env::var(name).ok(), &home_dir())), Arc::new(ChildRunner))
-    }
-
-    pub(super) fn with(platform: Platform, candidates: Box<dyn Fn() -> Vec<String> + Send + Sync>, runner: Arc<dyn Runner>) -> Self {
-        Self { platform, candidates, runner, state: Mutex::new(State::default()) }
-    }
-
-    async fn resolve(&self, refresh: bool) -> Option<Found> {
-        if !refresh && let Some(cached) = self.state.lock().unwrap_or_else(PoisonError::into_inner).cached.clone() {
-            return cached;
-        }
-        let mut found = None;
-        for candidate in (self.candidates)() {
-            if candidate.contains(['\\', '/']) && !mixdog_fsio::exists(&mixdog_fsio::Unlaned, &candidate).unwrap_or(false) {
-                continue;
-            }
-            let probe = self.runner.run(&candidate, &["--version".to_owned()], PROBE_TIMEOUT).await;
-            if probe.code == 0 {
-                found = Some(Found { version: version_of(&probe.stdout) });
-                break;
-            }
-        }
-        self.state.lock().unwrap_or_else(PoisonError::into_inner).cached = Some(found.clone());
-        found
-    }
-
-    /// `{installed: false}`, or `{installed: true}` with the version when the program printed one.
-    pub(super) async fn status(&self, refresh: bool) -> Value {
-        match self.resolve(refresh).await {
-            None => json!({"installed": false}),
-            Some(found) if found.version.is_empty() => json!({"installed": true}),
-            Some(found) => json!({"installed": true, "version": found.version}),
-        }
-    }
-
-    /// Re-probes (a failed Office preview regaining focus); concurrent refreshes share the probe already running.
-    pub(super) async fn refresh(&self) {
-        let lead = {
-            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            match &state.refreshing {
-                Some(running) => Err(running.clone()),
-                None => {
-                    let (done, running) = watch::channel(false);
-                    state.refreshing = Some(running);
-                    Ok(done)
-                }
-            }
-        };
-        match lead {
-            Err(mut running) => {
-                let _ = running.wait_for(|done| *done).await;
-            }
-            Ok(done) => {
-                let _end = RefreshEnd { soffice: self, done };
-                self.resolve(true).await;
-            }
-        }
-    }
-
-    /// Guided install: winget on Windows, brew on macOS, and an `install_unsupported` answer elsewhere. The install click may
-    /// race a probe that never ran (or ran before a manual install), and winget treats "already installed" as a failure, so a
-    /// fresh probe answers first. `fonts` runs after a successful install.
-    pub(super) async fn install(&self, fonts: BoxFuture<()>) -> Result<Value, CodedError> {
-        let existing = self.status(true).await;
-        if existing["installed"] == json!(true) {
-            return Ok(existing);
-        }
-        let spec = install_spec(self.platform)?;
-        let result = self.runner.run(spec.program, &spec.args, INSTALL_TIMEOUT).await;
-        if result.code == -1 {
-            return Err(CodedError::new(
-                "package_manager_unavailable",
-                format!("{} is unavailable. Install {LABEL} from {HOMEPAGE} and try again.", spec.manager_name),
-            ));
-        }
-        if result.code != 0 {
-            let output = if result.stderr.is_empty() { &result.stdout } else { &result.stderr };
-            let detail = output.trim().split('\n').rfind(|line| !line.is_empty()).map(str::to_owned);
-            return Err(CodedError::new(
-                "install_failed",
-                format!(
-                    "{} could not install {LABEL}: {}",
-                    spec.manager,
-                    detail.unwrap_or_else(|| format!("exit code {}", result.code))
-                ),
-            ));
-        }
-        let status = self.status(true).await;
-        if status["installed"] != json!(true) {
-            return Err(CodedError::new(
-                "executable_not_found",
-                "LibreOffice installed, but the executable was not found yet. Restart Mixdog Desktop to pick it up.",
-            ));
-        }
-        // The Noto faces LibreOffice renders with come in alongside it; a missing or offline provisioner never fails the
-        // install itself.
-        fonts.await;
-        Ok(status)
     }
 }
 
@@ -568,16 +411,172 @@ mod tests {
         assert!(error.message.starts_with("Automatic LibreOffice installation is not supported on Linux."));
     }
 
+    #[test]
+    fn a_path_joins_with_its_platforms_separator() {
+        assert_eq!(Platform::Windows.join(&["C:\\a\\", "b", "c.exe"]), "C:\\a\\b\\c.exe");
+        assert_eq!(Platform::Other.join(&["/home/a", ".local", "x"]), "/home/a/.local/x");
+    }
+
+
     #[tokio::test]
     async fn a_program_that_is_not_there_runs_as_code_minus_one() {
         let missing = std::env::temp_dir().join("mixdog-no-such-program-for-soffice-tests");
         let output = ChildRunner.run(&missing.to_string_lossy(), &[], Duration::from_secs(5)).await;
         assert_eq!(output, RunOutput { code: -1, stdout: String::new(), stderr: "ENOENT".to_owned() });
     }
+}
 
-    #[test]
-    fn a_path_joins_with_its_platforms_separator() {
-        assert_eq!(Platform::Windows.join(&["C:\\a\\", "b", "c.exe"]), "C:\\a\\b\\c.exe");
-        assert_eq!(Platform::Other.join(&["/home/a", ".local", "x"]), "/home/a/.local/x");
+
+impl Runner for ChildRunner {
+    fn run(&self, file: &str, args: &[String], timeout: Duration) -> BoxFuture<RunOutput> {
+        let file = file.to_owned();
+        let args = args.to_vec();
+        Box::pin(async move { run_child(&file, &args, timeout).await })
+    }
+}
+async fn run_child(file: &str, args: &[String], timeout: Duration) -> RunOutput {
+    let mut command = tokio::process::Command::new(file);
+    command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+    for name in SCRUBBED_VARS {
+        command.env_remove(name);
+    }
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    let child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return RunOutput { code: -1, stdout: String::new(), stderr: "ENOENT".to_owned() };
+        }
+        Err(error) => return RunOutput { code: 1, stdout: String::new(), stderr: error.to_string() },
+    };
+    // execFile's error message names the whole command line: `Command failed: <file> <args...>`.
+    let failed = || {
+        let line: Vec<&str> = std::iter::once(file).chain(args.iter().map(String::as_str)).collect();
+        format!("Command failed: {}", line.join(" "))
+    };
+    // A child that outlives its budget is killed when the wait is dropped (`kill_on_drop`).
+    match mixdog_rt::time::timeout(timeout, child.wait_with_output()).await {
+        Ok(Ok(output)) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+            match output.status.code() {
+                Some(0) => RunOutput { code: 0, stdout, stderr },
+                code => RunOutput {
+                    code: code.unwrap_or(1),
+                    stdout,
+                    stderr: if stderr.is_empty() { failed() } else { stderr },
+                },
+            }
+        }
+        Ok(Err(error)) => RunOutput { code: 1, stdout: String::new(), stderr: error.to_string() },
+        Err(_) => RunOutput { code: 1, stdout: String::new(), stderr: failed() },
+    }
+}
+fn home_dir() -> String {
+    let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var(key).unwrap_or_default()
+}
+impl Soffice {
+    /// The probe of this machine: its platform's candidates, its processes.
+    pub(super) fn for_platform() -> Self {
+        let platform = Platform::current();
+        Self::with(platform, Box::new(move || candidates(platform, &|name| std::env::var(name).ok(), &home_dir())), Arc::new(ChildRunner))
+    }
+
+    pub(super) fn with(platform: Platform, candidates: Box<dyn Fn() -> Vec<String> + Send + Sync>, runner: Arc<dyn Runner>) -> Self {
+        Self { platform, candidates, runner, state: Mutex::new(State::default()) }
+    }
+
+    async fn resolve(&self, refresh: bool) -> Option<Found> {
+        if !refresh && let Some(cached) = self.state.lock().unwrap_or_else(PoisonError::into_inner).cached.clone() {
+            return cached;
+        }
+        let mut found = None;
+        for candidate in (self.candidates)() {
+            if candidate.contains(['\\', '/']) && !mixdog_fsio::exists(&mixdog_fsio::Unlaned, &candidate).unwrap_or(false) {
+                continue;
+            }
+            let probe = self.runner.run(&candidate, &["--version".to_owned()], PROBE_TIMEOUT).await;
+            if probe.code == 0 {
+                found = Some(Found { version: version_of(&probe.stdout) });
+                break;
+            }
+        }
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).cached = Some(found.clone());
+        found
+    }
+
+    /// `{installed: false}`, or `{installed: true}` with the version when the program printed one.
+    pub(super) async fn status(&self, refresh: bool) -> Value {
+        match self.resolve(refresh).await {
+            None => json!({"installed": false}),
+            Some(found) if found.version.is_empty() => json!({"installed": true}),
+            Some(found) => json!({"installed": true, "version": found.version}),
+        }
+    }
+
+    /// Re-probes (a failed Office preview regaining focus); concurrent refreshes share the probe already running.
+    pub(super) async fn refresh(&self) {
+        let lead = {
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            match &state.refreshing {
+                Some(running) => Err(running.clone()),
+                None => {
+                    let (done, running) = watch::channel(false);
+                    state.refreshing = Some(running);
+                    Ok(done)
+                }
+            }
+        };
+        match lead {
+            Err(mut running) => {
+                let _ = running.wait_for(|done| *done).await;
+            }
+            Ok(done) => {
+                let _end = RefreshEnd { soffice: self, done };
+                self.resolve(true).await;
+            }
+        }
+    }
+
+    /// Guided install: winget on Windows, brew on macOS, and an `install_unsupported` answer elsewhere. The install click may
+    /// race a probe that never ran (or ran before a manual install), and winget treats "already installed" as a failure, so a
+    /// fresh probe answers first. `fonts` runs after a successful install.
+    pub(super) async fn install(&self, fonts: BoxFuture<()>) -> Result<Value, CodedError> {
+        let existing = self.status(true).await;
+        if existing["installed"] == json!(true) {
+            return Ok(existing);
+        }
+        let spec = install_spec(self.platform)?;
+        let result = self.runner.run(spec.program, &spec.args, INSTALL_TIMEOUT).await;
+        if result.code == -1 {
+            return Err(CodedError::new(
+                "package_manager_unavailable",
+                format!("{} is unavailable. Install {LABEL} from {HOMEPAGE} and try again.", spec.manager_name),
+            ));
+        }
+        if result.code != 0 {
+            let output = if result.stderr.is_empty() { &result.stdout } else { &result.stderr };
+            let detail = output.trim().split('\n').rfind(|line| !line.is_empty()).map(str::to_owned);
+            return Err(CodedError::new(
+                "install_failed",
+                format!(
+                    "{} could not install {LABEL}: {}",
+                    spec.manager,
+                    detail.unwrap_or_else(|| format!("exit code {}", result.code))
+                ),
+            ));
+        }
+        let status = self.status(true).await;
+        if status["installed"] != json!(true) {
+            return Err(CodedError::new(
+                "executable_not_found",
+                "LibreOffice installed, but the executable was not found yet. Restart Mixdog Desktop to pick it up.",
+            ));
+        }
+        // The Noto faces LibreOffice renders with come in alongside it; a missing or offline provisioner never fails the
+        // install itself.
+        fonts.await;
+        Ok(status)
     }
 }

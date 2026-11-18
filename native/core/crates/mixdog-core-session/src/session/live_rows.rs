@@ -206,67 +206,10 @@ pub(crate) fn compact_event_detail(event: &CompactEvent) -> String {
     parts.join(" · ")
 }
 
-/// The delta `accumulateCompactUsage` reports for a compaction pass's summary (`pre-send-compact.mjs`), key for key:
-/// no request facts, the source `fresh_context_compact`. The turn and epoch are the session's (`usage_books`).
-pub(crate) fn compact_usage_delta(session_id: &str, report: &super::run::CompactUsageReport, ts: i64) -> Value {
-    let usage = &report.usage;
-    json!({
-        "sessionId": session_id,
-        "iterationIndex": report.iteration,
-        "deltaInput": usage.input_tokens,
-        "deltaOutput": usage.output_tokens,
-        "reasoningTokens": report.reasoning_tokens,
-        "reasoningTokensComplete": report.reasoning_tokens_complete,
-        "deltaCachedRead": usage.cache_read_tokens,
-        "deltaCacheWrite": usage.cache_write_tokens,
-        "source": "fresh_context_compact",
-        "ts": ts,
-    })
-}
-
-/// `usageDeltaEvent` of one model call, in Node's key order. The provider facts Rust's `Usage`
-/// does not carry read as Node's defaults: the prompt and its cache split are known, and the
-/// context figures are the billed ones (`contextInputTokens ?? inputTokens`).
-pub(crate) fn usage_delta(session_id: &str, report: &super::run::UsageReport, ts: i64) -> Value {
-    let usage = &report.usage;
-    let tools: Vec<Value> = report
-        .send_tools
-        .iter()
-        .map(|tool| {
-            let mut out = json!({ "name": tool.name, "description": tool.description, "inputSchema": tool.input_schema });
-            if tool.defer_loading {
-                out["deferLoading"] = Value::Bool(true);
-            }
-            out
-        })
-        .collect();
-    json!({
-        "sessionId": session_id,
-        "iterationIndex": report.iteration,
-        "source": "provider_send",
-        "requestedModel": report.requested_model,
-        "model": report.model,
-        "deltaInput": usage.input_tokens,
-        "deltaOutput": usage.output_tokens,
-        "deltaToolCalls": report.delta_tool_calls,
-        "reasoningTokens": report.reasoning_tokens,
-        "reasoningTokensComplete": report.reasoning_tokens_complete,
-        "deltaPrompt": report.delta_prompt,
-        "requestMs": report.request_ms,
-        "promptKnown": true,
-        "deltaCachedRead": usage.cache_read_tokens,
-        "deltaCacheWrite": usage.cache_write_tokens,
-        "contextInputTokens": usage.input_tokens,
-        "contextOutputTokens": usage.output_tokens,
-        "contextPromptTokens": report.delta_prompt,
-        "contextCachedReadTokens": usage.cache_read_tokens,
-        "contextCacheWriteTokens": usage.cache_write_tokens,
-        "contextMeasuredTokens": mixdog_agent::compact::pressure::measured_context_tokens(usage),
-        "sendTools": tools,
-        "ts": ts,
-    })
-}
-
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "live_rows_usage_tests.rs"]
 mod usage_tests;
@@ -291,6 +234,47 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_marker_label_follows_status_and_trigger() {
+        let event = |failed: bool, changed: bool, trigger: CompactTrigger| CompactEvent {
+            dropped_count: 0,
+            dropped: None,
+            trigger,
+            status: if failed {
+                CompactStatus::Failed
+            } else if changed {
+                CompactStatus::Compacted
+            } else {
+                CompactStatus::NoChange
+            },
+            before_tokens: 0,
+            duration_ms: 0,
+            after_tokens: 0,
+            before_messages: 0,
+            after_messages: 0,
+            pressure_tokens: 0,
+            trigger_tokens: 0,
+            boundary_tokens: 0,
+            target_budget_tokens: 0,
+        };
+        assert_eq!(compact_event_label(&event(false, true, CompactTrigger::Auto)), "Compact complete");
+        assert_eq!(compact_event_label(&event(false, true, CompactTrigger::Reactive)), "Compact complete (overflow recovery)");
+        assert_eq!(compact_event_label(&event(true, false, CompactTrigger::Reactive)), "Compact failed (overflow retry)");
+        assert_eq!(compact_event_label(&event(false, false, CompactTrigger::Auto)), "Compact checked");
+        assert_eq!(compact_event_detail(&event(false, true, CompactTrigger::Auto)), "0s");
+        assert!(!compact_changed(&event(true, false, CompactTrigger::Auto)));
+        // The marker reads the pass's own numbers: seconds rounded up, and before→after tokens.
+        let timed = CompactEvent { duration_ms: 1_200, before_tokens: 12_345, pressure_tokens: 40_000, after_tokens: 3_400, ..event(false, true, CompactTrigger::Auto) };
+        assert_eq!(compact_event_detail(&timed), "2s · 12k→3.4k");
+        let same = CompactEvent { duration_ms: 40, before_tokens: 900, pressure_tokens: 900, after_tokens: 900, ..event(false, false, CompactTrigger::Auto) };
+        assert_eq!(compact_event_detail(&same), "1s");
+        let skipped = CompactEvent { status: CompactStatus::Skipped, ..event(false, false, CompactTrigger::Auto) };
+        assert_eq!(compact_event_label(&skipped), "Compact skipped");
+        assert!(!compact_changed(&skipped));
+    }
+
+
+#[cfg(node_twin)]
     #[test]
     #[allow(clippy::disallowed_methods)] // fixture loading in a test
     fn the_marker_text_equals_the_recorded_node_text() {
@@ -338,43 +322,65 @@ mod tests {
             assert_eq!(compact_event_label(&blank(status, trigger)), case["label"].as_str().unwrap(), "{case}");
         }
     }
+}
 
-    #[test]
-    fn the_marker_label_follows_status_and_trigger() {
-        let event = |failed: bool, changed: bool, trigger: CompactTrigger| CompactEvent {
-            dropped_count: 0,
-            dropped: None,
-            trigger,
-            status: if failed {
-                CompactStatus::Failed
-            } else if changed {
-                CompactStatus::Compacted
-            } else {
-                CompactStatus::NoChange
-            },
-            before_tokens: 0,
-            duration_ms: 0,
-            after_tokens: 0,
-            before_messages: 0,
-            after_messages: 0,
-            pressure_tokens: 0,
-            trigger_tokens: 0,
-            boundary_tokens: 0,
-            target_budget_tokens: 0,
-        };
-        assert_eq!(compact_event_label(&event(false, true, CompactTrigger::Auto)), "Compact complete");
-        assert_eq!(compact_event_label(&event(false, true, CompactTrigger::Reactive)), "Compact complete (overflow recovery)");
-        assert_eq!(compact_event_label(&event(true, false, CompactTrigger::Reactive)), "Compact failed (overflow retry)");
-        assert_eq!(compact_event_label(&event(false, false, CompactTrigger::Auto)), "Compact checked");
-        assert_eq!(compact_event_detail(&event(false, true, CompactTrigger::Auto)), "0s");
-        assert!(!compact_changed(&event(true, false, CompactTrigger::Auto)));
-        // The marker reads the pass's own numbers: seconds rounded up, and before→after tokens.
-        let timed = CompactEvent { duration_ms: 1_200, before_tokens: 12_345, pressure_tokens: 40_000, after_tokens: 3_400, ..event(false, true, CompactTrigger::Auto) };
-        assert_eq!(compact_event_detail(&timed), "2s · 12k→3.4k");
-        let same = CompactEvent { duration_ms: 40, before_tokens: 900, pressure_tokens: 900, after_tokens: 900, ..event(false, false, CompactTrigger::Auto) };
-        assert_eq!(compact_event_detail(&same), "1s");
-        let skipped = CompactEvent { status: CompactStatus::Skipped, ..event(false, false, CompactTrigger::Auto) };
-        assert_eq!(compact_event_label(&skipped), "Compact skipped");
-        assert!(!compact_changed(&skipped));
-    }
+
+/// The delta `accumulateCompactUsage` reports for a compaction pass's summary (`pre-send-compact.mjs`), key for key:
+/// no request facts, the source `fresh_context_compact`. The turn and epoch are the session's (`usage_books`).
+pub(crate) fn compact_usage_delta(session_id: &str, report: &super::run::CompactUsageReport, ts: i64) -> Value {
+    let usage = &report.usage;
+    json!({
+        "sessionId": session_id,
+        "iterationIndex": report.iteration,
+        "deltaInput": usage.input_tokens,
+        "deltaOutput": usage.output_tokens,
+        "reasoningTokens": report.reasoning_tokens,
+        "reasoningTokensComplete": report.reasoning_tokens_complete,
+        "deltaCachedRead": usage.cache_read_tokens,
+        "deltaCacheWrite": usage.cache_write_tokens,
+        "source": "fresh_context_compact",
+        "ts": ts,
+    })
+}
+/// `usageDeltaEvent` of one model call, in Node's key order. The provider facts Rust's `Usage`
+/// does not carry read as Node's defaults: the prompt and its cache split are known, and the
+/// context figures are the billed ones (`contextInputTokens ?? inputTokens`).
+pub(crate) fn usage_delta(session_id: &str, report: &super::run::UsageReport, ts: i64) -> Value {
+    let usage = &report.usage;
+    let tools: Vec<Value> = report
+        .send_tools
+        .iter()
+        .map(|tool| {
+            let mut out = json!({ "name": tool.name, "description": tool.description, "inputSchema": tool.input_schema });
+            if tool.defer_loading {
+                out["deferLoading"] = Value::Bool(true);
+            }
+            out
+        })
+        .collect();
+    json!({
+        "sessionId": session_id,
+        "iterationIndex": report.iteration,
+        "source": "provider_send",
+        "requestedModel": report.requested_model,
+        "model": report.model,
+        "deltaInput": usage.input_tokens,
+        "deltaOutput": usage.output_tokens,
+        "deltaToolCalls": report.delta_tool_calls,
+        "reasoningTokens": report.reasoning_tokens,
+        "reasoningTokensComplete": report.reasoning_tokens_complete,
+        "deltaPrompt": report.delta_prompt,
+        "requestMs": report.request_ms,
+        "promptKnown": true,
+        "deltaCachedRead": usage.cache_read_tokens,
+        "deltaCacheWrite": usage.cache_write_tokens,
+        "contextInputTokens": usage.input_tokens,
+        "contextOutputTokens": usage.output_tokens,
+        "contextPromptTokens": report.delta_prompt,
+        "contextCachedReadTokens": usage.cache_read_tokens,
+        "contextCacheWriteTokens": usage.cache_write_tokens,
+        "contextMeasuredTokens": mixdog_agent::compact::pressure::measured_context_tokens(usage),
+        "sendTools": tools,
+        "ts": ts,
+    })
 }

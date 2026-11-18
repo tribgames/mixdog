@@ -134,6 +134,11 @@ impl SessionThreads {
 #[async_trait]
 impl ThreadState for SessionThreads {
     async fn header(&self, thread: &ThreadId) -> Result<Header, PortError> {
+        // A read opens no session: the live header of a loaded thread, else the stored record. Only a session with no
+        // listed record (unconverted, row-only, unknown) goes the opening way.
+        if let Some(header) = self.directory.listed_header(thread).await {
+            return Ok(header);
+        }
         let value = self.call(thread, "thread/header/read", json!({ "threadId": thread })).await?;
         Ok(value.get("header").and_then(Value::as_object).cloned().unwrap_or_default())
     }
@@ -178,5 +183,11 @@ impl ThreadMessages for SessionThreads {
     async fn messages(&self, thread: &ThreadId) -> Result<Vec<Value>, PortError> {
         let value = self.call(thread, "thread/messages/read", json!({ "threadId": thread })).await?;
         Ok(value.get("messages").and_then(Value::as_array).cloned().unwrap_or_default())
+    }
+
+    async fn messages_until(&self, thread: &ThreadId, wanted: &(dyn for<'v> Fn(&'v Value) -> bool + Sync)) -> Result<Vec<Value>, PortError> {
+        let ctx = CallContext::internal("ports");
+        let handle = self.directory.open_handle(thread, &ctx).await.map_err(port_error)?;
+        handle.model_messages(Some(wanted)).await.map_err(port_error)
     }
 }

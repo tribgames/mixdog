@@ -42,6 +42,9 @@ impl ProtocolClient for Scripted {
     async fn notify(&self, _method: &str, _params: Json) -> Result<(), ClientError> {
         Ok(())
     }
+    async fn notify_on(&self, _attachment: mixdog_app_server_client::AttachmentId, _method: &str, _params: Json) -> Result<(), ClientError> {
+        Ok(())
+    }
     async fn resume_thread(&self, _thread_id: &ThreadId, _window: ResumeWindow) -> Result<ThreadResumeResponse, ClientError> {
         Err(ClientError::ClientClosed)
     }
@@ -54,7 +57,7 @@ impl ProtocolClient for Scripted {
     fn pending_server_requests(&self) -> Vec<ServerRequest> {
         Vec::new()
     }
-    async fn respond(&self, _id: mixdog_app_server_client::api::RequestId, _answer: ServerRequestAnswer) -> Result<(), ClientError> {
+    async fn respond(&self, _address: mixdog_app_server_client::ReplyAddress, _answer: ServerRequestAnswer) -> Result<(), ClientError> {
         Ok(())
     }
     async fn read_blob(&self, _blob: &BlobRef) -> Result<Vec<u8>, ClientError> {

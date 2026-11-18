@@ -26,7 +26,7 @@
       "limit": {
         "type": "integer",
         "minimum": 0,
-        "description": "Max paths; default 25; 0 unlimited."
+        "description": "Max paths; default 25; 0 uses the built-in cap of 1,000 paths. The output byte cap still applies."
       },
       "include_noise": {
         "type": "boolean",

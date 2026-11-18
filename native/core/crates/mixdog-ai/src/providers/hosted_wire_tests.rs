@@ -5,37 +5,65 @@
 //! the recorded answer (the search call, its sources and a citation as each wire reports them) whole with Node's result,
 //! and the stream callbacks in order.
 
+#[cfg(node_twin)]
 use std::sync::Arc;
 
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::Content;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::Message;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ModelRequest;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::RequestOptions;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::Role;
+#[cfg(node_twin)]
 use serde_json::Value;
 
+#[cfg(node_twin)]
 use super::anthropic::ModelCaps;
+#[cfg(node_twin)]
 use super::google::traits::ModelTraits;
+#[cfg(node_twin)]
 use super::google::traits::ThinkingControl;
+#[cfg(node_twin)]
 use super::hosted::web_search_from_node;
+#[cfg(node_twin)]
 use super::openai::config::CodexIdentity;
+#[cfg(node_twin)]
 use super::openai::config::ModelFacts;
+#[cfg(node_twin)]
 use super::openai::config::ModelFactsSource;
+#[cfg(node_twin)]
 use super::wire_fixtures::Hub;
+#[cfg(node_twin)]
 use super::wire_fixtures::Inputs;
+#[cfg(node_twin)]
 use super::wire_fixtures::Recorded;
+#[cfg(node_twin)]
 use super::wire_fixtures::assert_same_events;
+#[cfg(node_twin)]
 use super::wire_fixtures::assert_same_requests;
+#[cfg(node_twin)]
 use super::wire_fixtures::assert_same_result;
+#[cfg(node_twin)]
 use super::wire_fixtures::attempt;
+#[cfg(node_twin)]
 use super::wire_fixtures::built;
+#[cfg(node_twin)]
 use super::wire_fixtures::core_result;
+#[cfg(node_twin)]
 use super::wire_fixtures::load;
+#[cfg(node_twin)]
 use super::wire_fixtures::node_result;
+#[cfg(node_twin)]
 use super::wire_fixtures::scenarios;
 
+#[cfg(node_twin)]
 /// The catalog row of gpt-5.2: reasoning with summaries, verbosity, a 24 h cache lifetime.
 struct Gpt;
+#[cfg(node_twin)]
 impl ModelFactsSource for Gpt {
     fn facts(&self, _: &str) -> ModelFacts {
         ModelFacts {
@@ -49,7 +77,9 @@ impl ModelFactsSource for Gpt {
     }
 }
 
+#[cfg(node_twin)]
 struct Gemini;
+#[cfg(node_twin)]
 impl ModelTraits for Gemini {
     fn is_gemini_family(&self, model: &str) -> bool {
         model.starts_with("gemini")
@@ -62,6 +92,7 @@ impl ModelTraits for Gemini {
 /// What the recorder's providers read beside their configuration: Node's catalog for claude-sonnet-4-6 (adaptive
 /// thinking with effort, 16k output), the Gemini traits, the gpt-5.2 row, and the recording machine's Codex identity
 /// (its OS in the user agent; declared in the manifest).
+#[cfg(node_twin)]
 pub(crate) fn inputs() -> Inputs {
     Inputs {
         caps: Arc::new(|_: &str| {
@@ -88,6 +119,7 @@ pub(crate) fn inputs() -> Inputs {
 }
 
 /// The hosted sender's request (`request_of`, mixdog-tools `web/hosted_sender.rs`) for Node's send arguments.
+#[cfg(node_twin)]
 fn request(recorded: &Recorded) -> ModelRequest {
     let input = &recorded.input;
     let opts = &input["opts"];
@@ -116,6 +148,7 @@ fn request(recorded: &Recorded) -> ModelRequest {
     }
 }
 
+#[cfg(node_twin)]
 #[tokio::test]
 async fn every_provider_sends_its_hosted_search_as_node_does() {
     let names = scenarios("hosted-search");

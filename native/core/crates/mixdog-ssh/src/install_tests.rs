@@ -95,7 +95,8 @@ fn terminal_codes_are_the_ones_a_redial_cannot_fix() {
     for code in BootstrapCode::ALL {
         assert_eq!(BootstrapCode::parse(code.as_str()), Some(code));
     }
-    assert_eq!(TERMINAL_BOOTSTRAP_CODES.len(), 10);
+    assert_eq!(TERMINAL_BOOTSTRAP_CODES.len(), 11);
+    assert!(BootstrapCode::ServerUpgradeRequired.is_terminal(), "the server has to be upgraded on that computer: connecting again changes nothing");
     assert!(BootstrapCode::LocalPayload.is_terminal());
     assert!(!BootstrapCode::InstallFailed.is_terminal());
     assert!(!BootstrapCode::CoreExited.is_terminal());

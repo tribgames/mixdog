@@ -11,6 +11,34 @@
 //! priorities, queue caps, histograms) and the composition root calls [`install`] once at boot,
 //! which mints the only [`LaneTokens`] of the process. Tokens cannot be constructed elsewhere.
 
+
+/// Splits a recorded replay into tests nextest runs in parallel. `replay_chunks!(REGISTERED, #[tokio::test] async run;
+/// [name_00 = 0, name_01 = 1])` emits `async fn name_00() { run(0).await }` per entry (without `async`, a plain call)
+/// and `REGISTERED`, the chunk indices of the very tests it emitted, for the family's guard
+/// ([`testing::assert_chunks_registered`]).
+#[cfg(feature = "test-support")]
+#[macro_export]
+macro_rules! replay_chunks {
+    ($registered:ident, #[$attr:meta] async $run:path; [$($test:ident = $chunk:literal),* $(,)?]) => {
+        const $registered: &[usize] = &[$($chunk),*];
+        $(
+            #[$attr]
+            async fn $test() {
+                $run($chunk).await
+            }
+        )*
+    };
+    ($registered:ident, #[$attr:meta] $run:path; [$($test:ident = $chunk:literal),* $(,)?]) => {
+        const $registered: &[usize] = &[$($chunk),*];
+        $(
+            #[$attr]
+            fn $test() {
+                $run($chunk)
+            }
+        )*
+    };
+}
+
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -433,31 +461,4 @@ pub mod testing {
         registered.sort_unstable();
         assert_eq!(registered, (0..recorded.div_ceil(per)).collect::<Vec<_>>(), "the registered chunks of {recorded} recorded cases");
     }
-}
-
-/// Splits a recorded replay into tests nextest runs in parallel. `replay_chunks!(REGISTERED, #[tokio::test] async run;
-/// [name_00 = 0, name_01 = 1])` emits `async fn name_00() { run(0).await }` per entry (without `async`, a plain call)
-/// and `REGISTERED`, the chunk indices of the very tests it emitted, for the family's guard
-/// ([`testing::assert_chunks_registered`]).
-#[cfg(feature = "test-support")]
-#[macro_export]
-macro_rules! replay_chunks {
-    ($registered:ident, #[$attr:meta] async $run:path; [$($test:ident = $chunk:literal),* $(,)?]) => {
-        const $registered: &[usize] = &[$($chunk),*];
-        $(
-            #[$attr]
-            async fn $test() {
-                $run($chunk).await
-            }
-        )*
-    };
-    ($registered:ident, #[$attr:meta] $run:path; [$($test:ident = $chunk:literal),* $(,)?]) => {
-        const $registered: &[usize] = &[$($chunk),*];
-        $(
-            #[$attr]
-            fn $test() {
-                $run($chunk)
-            }
-        )*
-    };
 }

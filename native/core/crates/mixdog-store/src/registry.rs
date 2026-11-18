@@ -462,11 +462,130 @@ mod tests {
         })
     }
 
+    /// A registry in a fresh directory, its working directory `work`.
+    fn registry_in() -> (tempfile::TempDir, std::path::PathBuf, Registry) {
+        let dir = tempfile::tempdir().unwrap();
+        let work = dir.path().canonicalize().unwrap().join("work");
+        fs::create_dir_all(&work).unwrap();
+        let registry = Registry::new(work.join("projects.json"));
+        (dir, work, registry)
+    }
+
+    fn write_registry(work: &Path, projects: Value) {
+        fs::write(work.join("projects.json"), json!({ "projects": projects }).to_string()).unwrap();
+    }
+
+    fn names(entries: &[ProjectEntry]) -> Vec<&str> {
+        entries.iter().map(|e| e.name.as_str()).collect()
+    }
+
+    #[test]
+    fn adding_registers_the_resolved_path_once_under_the_folders_name() {
+        let (_dir, work, registry) = registry_in();
+        fs::create_dir_all(work.join("alpha")).unwrap();
+        let (added, again, relative, blank) = on_lane({
+            let work = work.clone();
+            move |lane| {
+                let registry = Registry::new(work.join("projects.json"));
+                let abs = work.join("alpha").to_string_lossy().into_owned();
+                (
+                    registry.add(lane, &work, &abs).unwrap().unwrap(),
+                    registry.add(lane, &work, &format!("{abs}{}", std::path::MAIN_SEPARATOR)).unwrap().unwrap(),
+                    registry.add(lane, &work, "alpha").unwrap().unwrap(),
+                    registry.add(lane, &work, "  ").unwrap(),
+                )
+            }
+        });
+        assert_eq!(added.name, "alpha");
+        assert_eq!(again, added, "a trailing separator is the same project");
+        assert_eq!(relative, added, "a relative path is resolved against the working directory");
+        assert_eq!(blank, None);
+        let listed = on_lane(move |lane| registry.list(lane));
+        assert_eq!(listed, vec![added]);
+        assert_eq!(
+            fs::read_to_string(work.join("alpha").join(".mixdog").join("project.id")).unwrap(),
+            "alpha\n",
+            "the project-id marker is written beside the project"
+        );
+    }
+
+    #[test]
+    fn projects_list_most_recently_selected_first_then_by_name_then_by_path() {
+        let (_dir, work, registry) = registry_in();
+        let at = |name: &str| work.join(name).to_string_lossy().into_owned();
+        write_registry(
+            &work,
+            json!([
+                {"name": "beta", "path": at("b"), "addedAt": 100},
+                {"name": "alpha", "path": at("a"), "addedAt": 100},
+                {"name": "newest", "path": at("n"), "addedAt": 300},
+                {"name": "picked", "path": at("p"), "addedAt": 50, "lastSelectedAt": 500},
+                {"name": "no path"},
+            ]),
+        );
+        let listed = on_lane(move |lane| registry.list(lane));
+        assert_eq!(names(&listed), ["picked", "newest", "alpha", "beta"]);
+    }
+
+    #[test]
+    fn a_strict_list_drops_relative_paths_that_a_tolerant_one_keeps() {
+        let (_dir, work, registry) = registry_in();
+        write_registry(&work, json!([{"name": "rel", "path": "some/where", "addedAt": 1}, {"path": "  ", "addedAt": 1}]));
+        let (tolerant, strict) = on_lane(move |lane| (registry.list(lane), registry.list_strict(lane).unwrap()));
+        assert_eq!(names(&tolerant), ["rel"]);
+        assert!(strict.is_empty());
+    }
+
+    #[test]
+    fn touching_renaming_and_removing_change_only_registered_projects() {
+        let (_dir, work, _) = registry_in();
+        let abs = work.join("proj").to_string_lossy().into_owned();
+        write_registry(&work, json!([{"name": "old", "path": abs, "addedAt": 5}]));
+        let (touched, missing, renamed, reset, gone, gone_again) = on_lane({
+            let (work, abs) = (work.clone(), abs.clone());
+            move |lane| {
+                let registry = Registry::new(work.join("projects.json"));
+                (
+                    registry.touch_selected(lane, &work, &abs).unwrap().unwrap(),
+                    registry.touch_selected(lane, &work, "unknown").unwrap(),
+                    registry.rename(lane, &work, &abs, "  Fancy ").unwrap().unwrap(),
+                    registry.rename(lane, &work, &abs, " ").unwrap().unwrap(),
+                    registry.remove(lane, &work, &abs).unwrap(),
+                    registry.remove(lane, &work, &abs).unwrap(),
+                )
+            }
+        });
+        assert!(touched.last_selected_at.is_some(), "touching stamps the selection time");
+        assert_eq!(missing, None);
+        assert_eq!(renamed.name, "Fancy");
+        assert_eq!(reset.name, "proj", "a blank name resets to the folder's name");
+        assert!(gone && !gone_again);
+        assert!(work.join("proj").exists() == false, "the directory itself is never touched");
+        let kept: Value = serde_json::from_str(&fs::read_to_string(work.join("projects.json")).unwrap()).unwrap();
+        assert_eq!(kept["projects"], json!([]));
+        let backup: Value = serde_json::from_str(&fs::read_to_string(work.join("projects.json.bak")).unwrap()).unwrap();
+        assert_eq!(backup["projects"][0]["name"], "proj", "the replaced version stays as the backup");
+    }
+
+    #[test]
+    fn a_damaged_registry_is_set_aside_and_the_last_good_backup_comes_back() {
+        let (_dir, work, registry) = registry_in();
+        let abs = work.join("proj").to_string_lossy().into_owned();
+        fs::write(work.join("projects.json"), "{\"projects\":").unwrap();
+        fs::write(work.join("projects.json.bak"), json!({"projects": [{"name": "kept", "path": abs, "addedAt": 1}]}).to_string()).unwrap();
+        let listed = on_lane(move |lane| registry.list(lane));
+        assert_eq!(names(&listed), ["kept"]);
+        let aside = fs::read_dir(&work).unwrap().filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains(".corrupt-")).count();
+        assert_eq!(aside, 1);
+    }
+
+    #[cfg(node_twin)]
     fn fixture() -> Value {
         serde_json::from_str(include_str!("../../../fixtures/store/registry/projects-registry.json")).expect("golden")
     }
 
     /// `<ABS>`-masked text with the recorded separators.
+    #[cfg(node_twin)]
     fn mask(value: &Value, base: &str) -> Value {
         match value {
             Value::String(s) => {
@@ -480,6 +599,7 @@ mod tests {
     }
 
     /// Timestamps the module stamped are `<now>`; the recorded ones are kept.
+    #[cfg(node_twin)]
     fn stamp(value: Value, start: i64) -> Value {
         match value {
             Value::Object(o) => Value::Object(
@@ -495,10 +615,12 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn entry_value(entry: &ProjectEntry) -> Value {
         serde_json::to_value(entry).unwrap()
     }
 
+    #[cfg(node_twin)]
     #[test]
     fn the_registry_matches_nodes_projects_module() {
         let golden = fixture();
@@ -593,3 +715,5 @@ mod tests {
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }
+
+

@@ -1,6 +1,6 @@
 // Settings → Browser: what sites may do in the built-in browser. One default
 // per permission kind, and the sites that have a setting of their own.
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 
 import {
   BROWSER_PERMISSION_KINDS,
@@ -17,8 +17,10 @@ import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
 import { ActionButton, Group, SelectRow } from './capability-controls';
 import { OpenSelect } from '../OpenSelect';
+import { writeDesktopStatus } from './desktop-status-cache';
+import { useDesktopStatus } from './use-desktop-status';
 
-type PermissionsApi = Partial<Pick<DesktopApi, 'readSettings' | 'setBrowserPermissions'>>;
+type PermissionsApi = Partial<Pick<DesktopApi, 'readSettings' | 'setBrowserPermissions' | 'subscribeSettingsChanged'>>;
 
 export function browserPermissionKindLabel(kind: BrowserPermissionKind): string {
   switch (kind) {
@@ -62,31 +64,19 @@ function settingOptions(): Array<{ value: BrowserPermissionSetting; label: strin
 const withoutScheme = (origin: string) => origin.replace(/^https?:\/\//, '');
 
 export function BrowserPermissionsGroup({ api, active }: { api: PermissionsApi; active: boolean }) {
-  const [policy, setPolicy] = useState<BrowserPermissionPolicy | null>(null);
+  // Hidden only while the policy is unknown; a late or failed first read is corrected by the next settings announcement.
+  const settings = useDesktopStatus(api, 'settings', active);
   const [error, setError] = useState('');
-  const latestRead = useRef(0);
+  const policy = settings?.browserPermissions;
 
-  useEffect(() => {
-    if (!active || !api.readSettings) return;
-    const read = ++latestRead.current;
-    void Promise.resolve(api.readSettings())
-      .then((settings) => {
-        if (read === latestRead.current && settings?.browserPermissions) setPolicy(settings.browserPermissions);
-      })
-      .catch(() => undefined);
-  }, [active, api]);
-
-  if (!policy || !api.setBrowserPermissions) return null;
+  if (!settings || !policy || !api.setBrowserPermissions) return null;
 
   const save = (next: BrowserPermissionPolicy) => {
-    setPolicy(next);
+    // The choice shows while the write is in flight.
     setError('');
-    latestRead.current += 1;
-    void Promise.resolve(api.setBrowserPermissions?.(next))
-      .then((settings) => {
-        if (settings?.browserPermissions) setPolicy(settings.browserPermissions);
-      })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
+    void writeDesktopStatus(api, 'settings', () => api.setBrowserPermissions?.(next), {
+      browserPermissions: next,
+    }).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
   };
   const options = settingOptions();
 

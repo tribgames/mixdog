@@ -562,6 +562,18 @@ impl CoreState {
         F: FnOnce(&StateTx<'_>) -> Result<R, DbError> + Send + 'static,
         R: Send + 'static,
     {
+        self.write_then(f, |_| {}).await
+    }
+
+    /// [`Self::write`], and `committed` runs on the writer right after the commit succeeded, before the next write starts:
+    /// an owner that keeps a view of its rows in memory publishes it there, in commit order, whether or not the caller is
+    /// still waiting for the answer.
+    pub async fn write_then<R, F, C>(&self, f: F, committed: C) -> Result<R, DbError>
+    where
+        F: FnOnce(&StateTx<'_>) -> Result<R, DbError> + Send + 'static,
+        C: FnOnce(&R) + Send + 'static,
+        R: Send + 'static,
+    {
         let (ack, rx) = oneshot::channel();
         #[cfg(any(test, feature = "test-support"))]
         let shared = self.shared.clone();
@@ -574,6 +586,7 @@ impl CoreState {
                     return Err(DbError::Write(std::io::Error::other("injected EIO at the commit").to_string()));
                 }
                 tx.commit()?;
+                committed(&out);
                 Ok(out)
             })();
             let _ = ack.send(result);

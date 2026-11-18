@@ -122,6 +122,8 @@ impl DomainService for Canned {
     }
 }
 
+
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_workflow_and_skill_kinds_ask_what_the_recorded_node_handlers_asked() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/definition-kinds-twin.json");

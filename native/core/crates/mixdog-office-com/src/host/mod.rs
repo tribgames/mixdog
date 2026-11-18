@@ -43,11 +43,22 @@ use apartment::Input;
 /// The flag of the long-lived host.
 pub const SESSION_FLAG: &str = "--session";
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_session_flag_is_the_one_the_transport_passes() {
+        assert_eq!(crate::session::host_args(true, std::path::Path::new("d"))[..2], [OsString::from("office-com-host"), OsString::from(SESSION_FLAG)]);
+    }
+}
+
+
+
 /// The host with the registered operations. `args` are the arguments after `office-com-host`. Answers the exit code.
 pub fn run(args: &[OsString]) -> i32 {
     run_with(args, handlers::registered())
 }
-
 /// The host with the given parts (the test host registers its own operations and apartment).
 pub fn run_with(args: &[OsString], parts: Handlers) -> i32 {
     let session = args.iter().any(|arg| arg == SESSION_FLAG);
@@ -91,7 +102,6 @@ pub fn run_with(args: &[OsString], parts: Handlers) -> i32 {
         }
     }
 }
-
 /// The apartment thread: enters the apartment, serves until the protocol ends, and gives everything back in order.
 fn host(lane: &InLane<MaintenanceIo>, session: bool, data_dir: Option<&std::path::Path>, parts: Handlers, inbox: &apartment::Inbox) -> i32 {
     let Handlers { apartment, one_shot, session: session_factory } = parts;
@@ -121,14 +131,4 @@ fn host(lane: &InLane<MaintenanceIo>, session: bool, data_dir: Option<&std::path
     };
     drop(apartment);
     code
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_session_flag_is_the_one_the_transport_passes() {
-        assert_eq!(crate::session::host_args(true, std::path::Path::new("d"))[..2], [OsString::from("office-com-host"), OsString::from(SESSION_FLAG)]);
-    }
 }

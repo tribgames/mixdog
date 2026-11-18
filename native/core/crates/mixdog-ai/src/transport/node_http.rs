@@ -24,6 +24,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bytes::Bytes;
 use mixdog_core_api::domain::keepalive::TcpKeepalive;
+use mixdog_core_api::domain::provider::ConnectionInfo;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ProviderError;
@@ -243,33 +244,6 @@ pub struct Pinned {
     pub tls: Arc<rustls::ClientConfig>,
 }
 
-/// The pin of a process a replay spawns: every connect goes to `REPLAY_PROVIDER_PIN` (the stand-in's address) and
-/// trusts the DER certificate at `REPLAY_PROVIDER_PIN_CERT` alone, so the real binary runs against a stand-in
-/// provider. Read once; neither set, nothing is pinned. Not `MIXDOG_*`: an exec's boundary removes those from the
-/// process before its core builds a client.
-#[cfg(any(test, feature = "test-support"))]
-#[allow(clippy::disallowed_methods, reason = "read once, when the first client is built; a test-only switch")]
-fn pin_from_env() -> Option<Pinned> {
-    static PIN: OnceLock<Option<(SocketAddr, Arc<rustls::ClientConfig>)>> = OnceLock::new();
-    PIN.get_or_init(|| {
-        let addr = std::env::var("REPLAY_PROVIDER_PIN").ok()?;
-        let addr: SocketAddr = addr.parse().expect("REPLAY_PROVIDER_PIN is a socket address");
-        let cert = std::env::var_os("REPLAY_PROVIDER_PIN_CERT").expect("REPLAY_PROVIDER_PIN_CERT names the stand-in's certificate");
-        let der = std::fs::read(cert).expect("the stand-in's certificate");
-        let mut roots = rustls::RootCertStore::empty();
-        roots.add(rustls::pki_types::CertificateDer::from(der)).expect("a DER certificate");
-        let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-            .with_safe_default_protocol_versions()
-            .expect("the default protocol versions")
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        config.alpn_protocols = ALPN.iter().map(|p| p.to_vec()).collect();
-        Some((addr, Arc::new(config)))
-    })
-    .as_ref()
-    .map(|(addr, tls)| Pinned { addr: *addr, tls: tls.clone() })
-}
-
 pub struct NodeClient {
     tcp: TcpKeepalive,
     policy: Option<Arc<NetworkProxy>>,
@@ -297,6 +271,19 @@ fn tls_config() -> Result<Arc<rustls::ClientConfig>, io::Error> {
         })
         .clone()
         .map_err(io::Error::other)
+}
+
+/// `scheme://host:port` of the target, and of the proxy it goes through, without a proxy's userinfo or path: what a log line
+/// may say of a route.
+fn loggable_route(url: &url::Url, proxy: &Option<String>) -> String {
+    let https = url.scheme() == "https";
+    let port = url.port_or_known_default().unwrap_or(if https { 443 } else { 80 });
+    let target = format!("{}://{}:{port}", url.scheme(), url.host_str().unwrap_or_default());
+    let Some(proxy) = proxy else { return target };
+    match url::Url::parse(proxy) {
+        Ok(p) => format!("{target} via {}://{}:{}", p.scheme(), p.host_str().unwrap_or_default(), p.port_or_known_default().unwrap_or(0)),
+        Err(_) => format!("{target} via proxy"),
+    }
 }
 
 fn tunnel_error(err: TunnelError, surface: Surface) -> ProviderError {
@@ -328,14 +315,6 @@ fn dns_error(surface: Surface) -> ProviderError {
 
 fn io_error(err: &io::Error, connecting: bool, delivery: DeliveryState, surface: Surface) -> ProviderError {
     let fault = fault_from_io(err, connecting);
-    let message = surface.text(|| format!("{fault:?}"));
-    let mut error = ProviderError::transport(fault, delivery);
-    error.message = message;
-    error
-}
-
-fn chain_error(err: &(dyn std::error::Error + 'static), delivery: DeliveryState, surface: Surface) -> ProviderError {
-    let fault = super::fault::fault_from_chain(err, false);
     let message = surface.text(|| format!("{fault:?}"));
     let mut error = ProviderError::transport(fault, delivery);
     error.message = message;
@@ -388,6 +367,259 @@ fn request_method(method: &str, writer: Writer) -> Result<String, String> {
     Ok(if normalized { upper } else { method.to_owned() })
 }
 
+/// The decoder of a response's body (undici's `onHeaders`): none for a body that cannot have codings (`HEAD`, 204,
+/// 304) or whose codings leave it as it came. More codings than undici takes fail the fetch, as its `controller.abort`.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+fn decoding(headers: &[(String, String)], method: &str, status: u16) -> Result<Option<Decoder>, Failure> {
+    if method == "HEAD" || matches!(status, 204 | 304) {
+        return Ok(None);
+    }
+    // `headersList.get('content-encoding')`: every line of the header, joined.
+    let lines: Vec<&str> = headers.iter().filter(|(name, _)| name.eq_ignore_ascii_case("content-encoding")).map(|(_, value)| value.as_str()).collect();
+    let joined = (!lines.is_empty()).then(|| lines.join(", "));
+    match Codings::of(joined.as_deref()) {
+        Codings::Plain => Ok(None),
+        Codings::Decode(decoder) => Ok(Some(decoder)),
+        Codings::TooMany(text) => {
+            // The provider answered and the response is refused: the reason is the text, not the network failure's `fetch failed`.
+            let mut error = ProviderError::transport(TransportFault::TooManyEncodings, DeliveryState::Accepted);
+            error.message = text;
+            Err(Failure { error, replay: false })
+        }
+    }
+}
+
+struct H2Body {
+    stream: h2::RecvStream,
+    decoder: Option<Decoder>,
+    /// The stream has ended (or failed in its decoding); only the decoder's steps are left.
+    ended: bool,
+    /// The connection's number, as its end is logged under.
+    id: u64,
+    _guard: pool::H2Guard,
+}
+
+#[cfg(test)]
+mod tests {
+    use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
+    use mixdog_core_api::domain::keepalive::TransportKind;
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+
+    use super::*;
+
+    const WITHIN: Duration = Duration::from_secs(20);
+
+    /// The route a log line names carries no proxy credentials, nor the path or query of the proxy URL.
+    #[test]
+    fn a_logged_route_has_no_proxy_credentials() {
+        let target = url::Url::parse("https://api.anthropic.com/v1/messages").unwrap();
+        let proxy = Some("http://user:s3cret@proxy.corp:3128/pac?token=abc".to_owned());
+        let line = loggable_route(&target, &proxy);
+        assert_eq!(line, "https://api.anthropic.com:443 via http://proxy.corp:3128");
+        assert!(!line.contains("s3cret") && !line.contains("user") && !line.contains("token"));
+        assert_eq!(loggable_route(&target, &Some("not a url user:pw@".to_owned())), "https://api.anthropic.com:443 via proxy");
+        assert_eq!(loggable_route(&target, &None), "https://api.anthropic.com:443");
+    }
+
+    /// How a response body ends mid-way.
+    #[derive(Clone, Copy)]
+    enum Cut {
+        /// The connection under it ends (the peer's socket is gone).
+        Connection,
+        /// Only this stream is reset (RST_STREAM); the connection lives.
+        Stream,
+    }
+
+
+    // H2 (recheck): a route change while a request dials retires the connection it dials. Held at the dial, the route
+    // changes; the connection serves its request and is then closed, not pooled under the old route.
+    #[tokio::test]
+    async fn a_route_change_during_the_dial_retires_the_dialled_connection() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut head = Vec::new();
+            let mut byte = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).await.unwrap();
+                head.push(byte[0]);
+            }
+            stream.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok").await.unwrap();
+            // The client's close shows as the end of the stream; a pooled connection never shows it.
+            stream.read(&mut byte).await.unwrap()
+        });
+        let tls = crate::netproxy::tunnel::tls_config().unwrap();
+        let client = NodeClient::pinned(KeepaliveSchedule::SPEC.tcp, Pinned { addr, tls });
+        let pool = client.pool.clone();
+        client.pool.hook(pool::At::Dial, move || pool.clear());
+        let request = WireRequest {
+            transport: TransportKind::Http1,
+            method: "GET".into(),
+            url: "http://pinned.test/x".into(),
+            headers: Vec::new(),
+            body: Vec::new(),
+        };
+        let mut response = mixdog_rt::time::timeout(WITHIN, client.send(&request, Writer::Fetch, Surface::Fetch)).await.expect("an answer within 20 s").unwrap();
+        while let Some(chunk) = mixdog_rt::time::timeout(WITHIN, response.body.next()).await.expect("the body within 20 s") {
+            chunk.unwrap();
+        }
+        let key = client.key(&url::Url::parse(&request.url).unwrap(), &None);
+        assert_eq!(client.pool.idle_count(&key), 0, "not pooled under the old route");
+        let read = mixdog_rt::time::timeout(WITHIN, server).await.expect("the peer sees the close within 20 s").unwrap();
+        assert_eq!(read, 0, "the peer sees the close");
+    }
+    /// A response streaming on a pooled HTTP/2 connection until it is cut: the fault the body gives, and how many connections
+    /// the pool still offers right after it. The connection's own task is not the pool's here, so only the body can have
+    /// taken the connection out.
+    async fn cut_body(cut: Cut) -> (TransportFault, usize) {
+        let (near, far) = tokio::io::duplex(1 << 16);
+        let read_part = Arc::new(tokio::sync::Notify::new());
+        let told = read_part.clone();
+        let server = tokio::spawn(async move {
+            let read_part = told;
+            let mut conn = h2::server::handshake(far).await.unwrap();
+            let (_request, mut respond) = conn.accept().await.unwrap().unwrap();
+            let mut stream = respond.send_response(hyper::http::Response::new(()), false).unwrap();
+            stream.send_data(Bytes::from_static(b"part"), false).unwrap();
+            match cut {
+                Cut::Connection => {
+                    // Flushed, then the socket goes with the connection.
+                    let _ = mixdog_rt::time::timeout(Duration::from_millis(50), conn.accept()).await;
+                }
+                Cut::Stream => {
+                    // The reset follows what the caller has read, as a later frame, not the head's.
+                    tokio::select! {
+                        _ = async { while conn.accept().await.is_some() {} } => return,
+                        _ = read_part.notified() => {}
+                    }
+                    stream.send_reset(h2::Reason::CANCEL);
+                    while conn.accept().await.is_some() {}
+                }
+            }
+        });
+        let (send, connection) = h2::client::handshake(near).await.unwrap();
+        tokio::spawn(async move {
+            let _ = connection.await;
+        });
+        let pool = Arc::new(pool::Pool::default());
+        let id = pool.birth();
+        let guard = pool.put_h2("k".into(), id, send.clone(), pool.generation());
+        let (response, _) = send.ready().await.unwrap().send_request(hyper::http::Request::get("https://k/x").body(()).unwrap(), true).unwrap();
+        let response = mixdog_rt::time::timeout(WITHIN, response).await.expect("the head within 20 s").unwrap();
+        let mut body = H2Body { stream: response.into_body(), decoder: None, ended: false, id, _guard: guard };
+        let first = mixdog_rt::time::timeout(WITHIN, body.next()).await.expect("a chunk within 20 s");
+        assert_eq!(first.unwrap().unwrap(), Bytes::from_static(b"part"));
+        read_part.notify_one();
+        let fault = mixdog_rt::time::timeout(WITHIN, body.next()).await.expect("the cut within 20 s").unwrap().expect_err("the body was cut");
+        let offered = pool.idle_count("k");
+        server.abort();
+        (fault, offered)
+    }
+    // The connection under a streaming response ends: the response fails with the connection's own cause, and the pool no
+    // longer offers that connection by the time the failure is in the caller's hands, so a retry dials a new one.
+    #[tokio::test]
+    async fn a_response_cut_by_its_connection_ending_takes_the_connection_out_of_the_pool() {
+        let (fault, offered) = cut_body(Cut::Connection).await;
+        assert!(!matches!(fault, TransportFault::H2RstStream { .. }), "a connection-level cause, not a stream's: {fault:?}");
+        assert_eq!(offered, 0);
+    }
+    // Two responses stream on one shared HTTP/2 connection when it ends: each fails with the connection's own cause and names
+    // the same connection. The first failure has already taken the connection out of the pool, so a retry dispatched in the
+    // same burst, before the second response has read its own failure, is offered no connection and dials a new one.
+    #[tokio::test]
+    async fn a_connection_ending_under_two_streams_fails_both_and_a_retry_in_the_burst_dials_anew() {
+        let (near, far) = tokio::io::duplex(1 << 16);
+        let server = tokio::spawn(async move {
+            let mut conn = h2::server::handshake(far).await.unwrap();
+            let mut open = Vec::new();
+            for _ in 0..2 {
+                let (_request, mut respond) = conn.accept().await.unwrap().unwrap();
+                let mut stream = respond.send_response(hyper::http::Response::new(()), false).unwrap();
+                stream.send_data(Bytes::from_static(b"part"), false).unwrap();
+                open.push(stream);
+            }
+            // Flushed, then the socket goes with the connection, both streams still open.
+            let _ = mixdog_rt::time::timeout(Duration::from_millis(50), conn.accept()).await;
+            drop(open);
+        });
+        let (send, connection) = h2::client::handshake(near).await.unwrap();
+        tokio::spawn(async move {
+            let _ = connection.await;
+        });
+        let pool = Arc::new(pool::Pool::default());
+        let id = pool.birth();
+        let first_guard = pool.put_h2("k".into(), id, send.clone(), pool.generation());
+        let Some(Taken::H2 { id: shared, send: second_send, guard: second_guard }) = pool.checkout("k") else {
+            panic!("the live connection is shared by the second request")
+        };
+        assert_eq!(shared, id);
+        let mut bodies = Vec::new();
+        for (send, guard) in [(send, first_guard), (second_send, second_guard)] {
+            let (response, _) = send.ready().await.unwrap().send_request(hyper::http::Request::get("https://k/x").body(()).unwrap(), true).unwrap();
+            let response = mixdog_rt::time::timeout(WITHIN, response).await.expect("the head within 20 s").unwrap();
+            let mut body = H2Body { stream: response.into_body(), decoder: None, ended: false, id, _guard: guard };
+            let first = mixdog_rt::time::timeout(WITHIN, body.next()).await.expect("a chunk within 20 s");
+            assert_eq!(first.unwrap().unwrap(), Bytes::from_static(b"part"));
+            bodies.push(body);
+        }
+        let mut faults = Vec::new();
+        for (n, body) in bodies.iter_mut().enumerate() {
+            let fault = mixdog_rt::time::timeout(WITHIN, body.next()).await.expect("the cut within 20 s").unwrap().expect_err("the body was cut");
+            if n == 0 {
+                assert!(pool.checkout("k").is_none(), "the retry of the first response finds no connection to reuse");
+            }
+            assert_eq!(body.connection(), Some(ConnectionInfo { id, protocol: "h2" }));
+            faults.push(fault);
+        }
+        assert!(!matches!(faults[0], TransportFault::H2RstStream { .. }), "a connection-level cause, not a stream's: {:?}", faults[0]);
+        assert_eq!(faults[0], faults[1], "both streams fail with the connection's one cause");
+        server.abort();
+    }
+    // A reset of one stream says nothing of the connection: the others on it go on, and it stays offered.
+    #[tokio::test]
+    async fn a_response_reset_alone_leaves_its_connection_in_the_pool() {
+        let (fault, offered) = cut_body(Cut::Stream).await;
+        assert_eq!(fault, TransportFault::H2RstStream { code: u32::from(h2::Reason::CANCEL) });
+        assert_eq!(offered, 1);
+    }
+}
+
+
+/// The pin of a process a replay spawns: every connect goes to `REPLAY_PROVIDER_PIN` (the stand-in's address) and
+/// trusts the DER certificate at `REPLAY_PROVIDER_PIN_CERT` alone, so the real binary runs against a stand-in
+/// provider. Read once; neither set, nothing is pinned. Not `MIXDOG_*`: an exec's boundary removes those from the
+/// process before its core builds a client.
+#[cfg(any(test, feature = "test-support"))]
+#[allow(clippy::disallowed_methods, reason = "read once, when the first client is built; a test-only switch")]
+fn pin_from_env() -> Option<Pinned> {
+    static PIN: OnceLock<Option<(SocketAddr, Arc<rustls::ClientConfig>)>> = OnceLock::new();
+    PIN.get_or_init(|| {
+        let addr = std::env::var("REPLAY_PROVIDER_PIN").ok()?;
+        let addr: SocketAddr = addr.parse().expect("REPLAY_PROVIDER_PIN is a socket address");
+        let cert = std::env::var_os("REPLAY_PROVIDER_PIN_CERT").expect("REPLAY_PROVIDER_PIN_CERT names the stand-in's certificate");
+        let der = std::fs::read(cert).expect("the stand-in's certificate");
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(rustls::pki_types::CertificateDer::from(der)).expect("a DER certificate");
+        let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .expect("the default protocol versions")
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        config.alpn_protocols = ALPN.iter().map(|p| p.to_vec()).collect();
+        Some((addr, Arc::new(config)))
+    })
+    .as_ref()
+    .map(|(addr, tls)| Pinned { addr: *addr, tls: tls.clone() })
+}
+fn chain_error(err: &(dyn std::error::Error + 'static), delivery: DeliveryState, surface: Surface) -> ProviderError {
+    let fault = super::fault::fault_from_chain(err, false);
+    let message = surface.text(|| format!("{fault:?}"));
+    let mut error = ProviderError::transport(fault, delivery);
+    error.message = message;
+    error
+}
 impl NodeClient {
     pub fn new(tcp: TcpKeepalive, policy: Option<Arc<NetworkProxy>>) -> Self {
         let pool = Arc::new(Pool::default());
@@ -601,11 +833,17 @@ impl NodeClient {
                         })?;
                         let id = self.pool.birth();
                         let (pool, origin) = (self.pool.clone(), key.clone());
+                        // The log names the connection by this, never by the pool key, which holds the proxy URL as configured.
+                        let route = loggable_route(&url, &proxy);
                         tokio::spawn(async move {
-                            // A failure reaches every request on the connection through h2; this one is for the idle
-                            // connection, which has none to tell.
+                            // A failure reaches every request on the connection through h2, each carrying this id
+                            // (`ProviderError::connection`); this line names what ended the connection itself, in the
+                            // daemon log, not `tracing`.
                             if let Err(error) = connection.await {
-                                tracing::debug!(%error, "http/2 connection ended with an error");
+                                mixdog_rt::node_stderr!(
+                                    "[http] connection={id} protocol=h2 route={route} ended with an error: {}",
+                                    super::fault::describe_h2_end(&error)
+                                );
                             }
                             pool.remove_h2(&origin, id);
                         });
@@ -643,6 +881,7 @@ impl NodeClient {
         conn.ready()
             .await
             .map_err(|e| Failure { error: chain_error(&e, DeliveryState::NotSent, surface), replay: true })?;
+        super::model_driver::connected();
         // Once the first byte may have left, the request is never sent again: undici fails the request that was running
         // when its socket dies (`client-h1.js` `onHttpSocketClose`) and re-queues only those not yet written. A write
         // error, wherever in the head, the body or the final flush, is therefore the request's error.
@@ -678,7 +917,7 @@ impl NodeClient {
             .and_then(|v| v.split(',').find_map(|part| part.trim().strip_prefix("timeout=")?.trim().parse::<u64>().ok()))
             .map(Duration::from_secs);
         let ttl = hint.map_or(KEEP_ALIVE, |h| h.saturating_sub(KEEP_ALIVE_THRESHOLD).min(KEEP_ALIVE_MAX));
-        let decoder = decoding(&headers, &request.method, status, surface)?;
+        let decoder = decoding(&headers, &request.method, status)?;
         let reuse = (!close && !server_closes && written).then(|| Reuse { pool: self.pool.clone(), key: key.to_owned(), ttl });
         Ok(HttpResponse { status, headers, body: super::link::replay_counted(url, Box::new(H1Body::new(incoming, conn, decoder, reuse))) })
     }
@@ -697,13 +936,17 @@ impl NodeClient {
         writer: Writer,
         surface: Surface,
     ) -> Result<HttpResponse, Failure> {
+        super::model_driver::connected();
         // A connection that errs is no longer offered to the next request.
         let failed = |e: &h2::Error, replay: bool| {
             self.pool.remove_h2(key, id);
             let fault = super::fault::fault_from_chain(e, false);
             let mut error = ProviderError::transport(fault, if replay { DeliveryState::NotSent } else { DeliveryState::Ambiguous });
             error.message = surface.text(|| e.to_string());
-            Failure { error, replay: replay || e.reason() == Some(h2::Reason::REFUSED_STREAM) }
+            error.connection = Some(ConnectionInfo { id, protocol: "h2" });
+            // A stream the peer's GOAWAY names (above its last processed id: h2 hands that error to those streams alone)
+            // was never processed, like a refused one: it is safe to send again on another connection.
+            Failure { error, replay: replay || e.reason() == Some(h2::Reason::REFUSED_STREAM) || (e.is_go_away() && e.is_remote()) }
         };
         let (headers, _) = match writer {
             Writer::Fetch => fetch_headers(&request.headers, true),
@@ -739,51 +982,25 @@ impl NodeClient {
             .iter()
             .map(|(k, v)| (k.as_str().to_owned(), String::from_utf8_lossy(v.as_bytes()).into_owned()))
             .collect();
-        let decoder = decoding(&list, &request.method, status, surface)?;
-        Ok(HttpResponse { status, headers: list, body: super::link::replay_counted(url, Box::new(H2Body { stream: response.into_body(), decoder, ended: false, _guard: guard })) })
+        let decoder = decoding(&list, &request.method, status)?;
+        Ok(HttpResponse { status, headers: list, body: super::link::replay_counted(url, Box::new(H2Body { stream: response.into_body(), decoder, ended: false, id, _guard: guard })) })
     }
 }
-
-/// The decoder of a response's body (undici's `onHeaders`): none for a body that cannot have codings (`HEAD`, 204,
-/// 304) or whose codings leave it as it came. More codings than undici takes fail the fetch, as its `controller.abort`.
-#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-fn decoding(headers: &[(String, String)], method: &str, status: u16, surface: Surface) -> Result<Option<Decoder>, Failure> {
-    if method == "HEAD" || matches!(status, 204 | 304) {
-        return Ok(None);
-    }
-    // `headersList.get('content-encoding')`: every line of the header, joined.
-    let lines: Vec<&str> = headers.iter().filter(|(name, _)| name.eq_ignore_ascii_case("content-encoding")).map(|(_, value)| value.as_str()).collect();
-    let joined = (!lines.is_empty()).then(|| lines.join(", "));
-    match Codings::of(joined.as_deref()) {
-        Codings::Plain => Ok(None),
-        Codings::Decode(decoder) => Ok(Some(decoder)),
-        Codings::TooMany(text) => {
-            let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
-            error.message = surface.text(|| text);
-            Err(Failure { error, replay: false })
-        }
-    }
-}
-
-struct H2Body {
-    stream: h2::RecvStream,
-    decoder: Option<Decoder>,
-    /// The stream has ended (or failed in its decoding); only the decoder's steps are left.
-    ended: bool,
-    _guard: pool::H2Guard,
-}
-
 #[async_trait]
 impl BodyStream for H2Body {
+    fn connection(&self) -> Option<ConnectionInfo> {
+        Some(ConnectionInfo { id: self.id, protocol: "h2" })
+    }
+
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
         loop {
             // The decoder's steps first, one at a time; the stream is read again only when it has nothing left.
             if let Some(decoder) = self.decoder.as_mut() {
                 match decoder.step() {
-                    Err(e) => {
+                    Err(_) => {
                         self.decoder = None;
                         self.ended = true;
-                        return Some(Err(fault_from_io(&e, false)));
+                        return Some(Err(TransportFault::CorruptBody));
                     }
                     Ok(Some(step)) => return Some(Ok(Bytes::from(step))),
                     Ok(None) if self.ended => {
@@ -813,7 +1030,23 @@ impl BodyStream for H2Body {
             };
             let raw = match data {
                 Ok(raw) => raw,
-                Err(e) => return Some(Err(super::fault::fault_from_chain(&e, false))),
+                Err(e) => {
+                    // h2 gives every stream of a connection that ended (an I/O error, a GOAWAY, a protocol error) that
+                    // connection's own error; only a RST_STREAM is this stream's alone. The connection leaves the pool
+                    // here, before the fault reaches the caller and its retry dials, and does not wait for its task.
+                    if !e.is_reset() {
+                        self._guard.retire();
+                    }
+                    // Each stream's own end, with its number: the streams a connection's end took, and which of them a GOAWAY
+                    // named (those above its last stream id fail with it at once).
+                    mixdog_rt::node_stderr!(
+                        "[http] connection={} stream={} protocol=h2 failed: {}",
+                        self.id,
+                        self.stream.stream_id().as_u32(),
+                        super::fault::describe_h2_end(&e)
+                    );
+                    return Some(Err(super::fault::fault_from_chain(&e, false)));
+                }
             };
             let _ = self.stream.flow_control().release_capacity(raw.len());
             match self.decoder.as_mut() {
@@ -822,56 +1055,5 @@ impl BodyStream for H2Body {
                 None => {}
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
-    use mixdog_core_api::domain::keepalive::TransportKind;
-    use tokio::io::AsyncReadExt;
-    use tokio::io::AsyncWriteExt;
-
-    use super::*;
-
-    const WITHIN: Duration = Duration::from_secs(20);
-
-    // H2 (recheck): a route change while a request dials retires the connection it dials. Held at the dial, the route
-    // changes; the connection serves its request and is then closed, not pooled under the old route.
-    #[tokio::test]
-    async fn a_route_change_during_the_dial_retires_the_dialled_connection() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
-            let mut head = Vec::new();
-            let mut byte = [0u8; 1];
-            while !head.ends_with(b"\r\n\r\n") {
-                stream.read_exact(&mut byte).await.unwrap();
-                head.push(byte[0]);
-            }
-            stream.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok").await.unwrap();
-            // The client's close shows as the end of the stream; a pooled connection never shows it.
-            stream.read(&mut byte).await.unwrap()
-        });
-        let tls = crate::netproxy::tunnel::tls_config().unwrap();
-        let client = NodeClient::pinned(KeepaliveSchedule::SPEC.tcp, Pinned { addr, tls });
-        let pool = client.pool.clone();
-        client.pool.hook(pool::At::Dial, move || pool.clear());
-        let request = WireRequest {
-            transport: TransportKind::Http1,
-            method: "GET".into(),
-            url: "http://pinned.test/x".into(),
-            headers: Vec::new(),
-            body: Vec::new(),
-        };
-        let mut response = mixdog_rt::time::timeout(WITHIN, client.send(&request, Writer::Fetch, Surface::Fetch)).await.expect("an answer within 20 s").unwrap();
-        while let Some(chunk) = mixdog_rt::time::timeout(WITHIN, response.body.next()).await.expect("the body within 20 s") {
-            chunk.unwrap();
-        }
-        let key = client.key(&url::Url::parse(&request.url).unwrap(), &None);
-        assert_eq!(client.pool.idle_count(&key), 0, "not pooled under the old route");
-        let read = mixdog_rt::time::timeout(WITHIN, server).await.expect("the peer sees the close within 20 s").unwrap();
-        assert_eq!(read, 0, "the peer sees the close");
     }
 }

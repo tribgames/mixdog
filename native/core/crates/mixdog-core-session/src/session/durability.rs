@@ -54,6 +54,8 @@ pub(crate) enum FromDurability {
     },
     Failed {
         generation: u64,
+        /// Entry IDs of the attempted batch, excluding queued units dropped with its generation.
+        entries: Vec<u64>,
         error: BarrierError,
     },
     /// Records wait behind an in-flight group commit (`durabilityPending`, RL §6.3).
@@ -271,7 +273,8 @@ impl DurabilityTask {
                     Err(error) => {
                         self.dropped_generation = Some(generation);
                         self.queue.retain(|unit| unit.generation > generation);
-                        FromDurability::Failed { generation, error }
+                        let entries = units.iter().flat_map(|unit| unit.records.iter().map(|(id, _, _)| *id)).collect();
+                        FromDurability::Failed { generation, entries, error }
                     }
                 }
             }

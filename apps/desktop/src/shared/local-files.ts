@@ -1,16 +1,13 @@
 import { fileExtension } from './file-extension';
+import { IMAGE_TYPES } from './image-types.generated';
+
+// The image media types are the generated table's (a browser-drawn type is served by its extension).
+const IMAGE_MIME_TYPES: Readonly<Record<string, string>> = Object.fromEntries(
+  IMAGE_TYPES.filter((type) => type.browserDraws).map((type) => [type.extension, type.mime]),
+);
 
 const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  jfif: 'image/jpeg',
-  gif: 'image/gif',
-  webp: 'image/webp',
-  avif: 'image/avif',
-  svg: 'image/svg+xml',
-  bmp: 'image/bmp',
-  ico: 'image/x-icon',
+  ...IMAGE_MIME_TYPES,
   pdf: 'application/pdf',
   json: 'application/json',
   jsonl: 'application/json',

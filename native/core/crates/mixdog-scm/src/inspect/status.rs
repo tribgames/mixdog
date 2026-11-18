@@ -293,41 +293,6 @@ fn parse_remotes(text: &str) -> (Vec<String>, String) {
     (names, url)
 }
 
-/// How long a directory's remote list is kept (GIT_METADATA_TTL_MS, git-read-utils.ts).
-const REMOTE_METADATA_TTL: std::time::Duration = std::time::Duration::from_secs(60);
-
-/// The remote names and primary url of a directory, read at most once per [REMOTE_METADATA_TTL] (remoteMetadata in git-status.ts).
-/// Node never drops the entry earlier, so a remote added a moment after a status shows in the next one only once the minute is
-/// out. A read git fails (no timeout) is kept as "no remotes" for the same time; a timeout is not kept.
-pub(crate) async fn remote_metadata(
-    git: &Git,
-    cancel: &CancellationToken,
-    root: &Path,
-    options: &RunOptions,
-) -> Result<(Vec<String>, String), ScmFailure> {
-    // The clock a replay of Node's recording moves only by an explicit advance (seam.rs), never by waiting out the minute.
-    let now = crate::seam::cache_clock();
-    type Entry = (std::time::Instant, (Vec<String>, String));
-    static CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<String, Entry>>> = std::sync::OnceLock::new();
-    let cache = CACHE.get_or_init(Default::default);
-    // gitCacheKey: the path, lower-cased on Windows.
-    let key = if cfg!(windows) { path_text(root).to_lowercase() } else { path_text(root) };
-    if let Some((read_at, value)) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key)
-        && now.saturating_duration_since(*read_at) < REMOTE_METADATA_TTL
-    {
-        return Ok(value.clone());
-    }
-    let text = match git.text(cancel, root, &["--no-optional-locks", "remote", "-v"], options).await {
-        Ok(text) => text,
-        // remoteMetadata: any failure but a deadline (or a cancel) reads as no remotes, a git that cannot start included.
-        Err(failure @ (ScmFailure::TimedOut { .. } | ScmFailure::Cancelled)) => return Err(failure),
-        Err(_) => String::new(),
-    };
-    let value = parse_remotes(&text);
-    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (now, value.clone()));
-    Ok(value)
-}
-
 /// Lines of an untracked file; 0 for what cannot be counted (binary, empty, oversized, gone).
 pub(crate) fn untracked_lines(root: &Path, path: &str) -> u64 {
     use std::io::Read;
@@ -448,115 +413,6 @@ fn revision_of(path: &Path) -> Option<String> {
 /// A folder outside any repository.
 pub fn not_a_repository() -> GitStatusJson {
     GitStatusJson::default()
-}
-
-/// Scans the work tree at `root`. Without `line_stats` no file has add/delete counts (the
-/// numstat reads and the untracked line counts are skipped), as the pane's `skipLineStats` asks.
-pub async fn scan(
-    git: &Git,
-    lane: MaintenanceIo,
-    cancel: &CancellationToken,
-    identity: &RepoIdentity,
-    head: Option<ObjectId>,
-    line_stats: bool,
-) -> Result<StatusScan, ScmFailure> {
-    let root = identity
-        .work_tree
-        .clone()
-        .ok_or(ScmFailure::NotARepository)?;
-    let read = RunOptions::read();
-    let status_options = RunOptions {
-        max_output: Some(STATUS_MAX_BYTES),
-        ..RunOptions::read()
-    };
-    git.prepare(cancel).await?;
-    // git-status.ts starts every read at once (the listing, both numstats, the remote list, the work-tree root) and leaves the
-    // siblings of a failed one running, so a git that cannot start is attempted by each of them: `join!`, not `try_join!`,
-    // which would drop the others at the first failure. The first failure in this order is the one reported.
-    let (porcelain, staged, unstaged, remotes, top_level) = tokio::join!(biased; 
-        git.text(
-            cancel,
-            &root,
-            &[
-                "--no-optional-locks",
-                "status",
-                "--porcelain=v2",
-                "-z",
-                "--branch",
-                "--untracked-files=all",
-            ],
-            &status_options,
-        ),
-        async {
-            if line_stats {
-                git.text(cancel, &root, &["--no-optional-locks", "diff", "--cached", "--numstat", "-z"], &read)
-                    .await
-            } else {
-                Ok(String::new())
-            }
-        },
-        async {
-            if line_stats {
-                git.text(cancel, &root, &["--no-optional-locks", "diff", "--numstat", "-z"], &read).await
-            } else {
-                Ok(String::new())
-            }
-        },
-        remote_metadata(git, cancel, &root, &read),
-        // cachedGitRoot: asked for its failure only (a timeout or a git that cannot start); the root itself is the identity's.
-        git.text(cancel, &root, &["--no-optional-locks", "rev-parse", "--show-toplevel"], &read),
-    );
-    let (porcelain, staged, unstaged, remotes) = (porcelain?, staged?, unstaged?, remotes?);
-    if let Err(failure @ (ScmFailure::Unavailable { .. } | ScmFailure::TimedOut { .. })) = top_level {
-        return Err(failure);
-    }
-    let mut parsed = parse_porcelain(&porcelain);
-    let staged = parse_numstat(&staged);
-    let unstaged = parse_numstat(&unstaged);
-    let (remote_names, remote_url) = remotes;
-    let git_dir = identity.git_dir.clone();
-    let operation = on_lane(lane, cancel, move || operation_in_progress(&git_dir)).await?;
-    let untracked_paths: Vec<String> = parsed
-        .files
-        .iter()
-        .filter(|file| line_stats && file.untracked)
-        .map(|file| file.path.clone())
-        .collect();
-    let counted_root: PathBuf = root.clone();
-    let untracked_counts = on_lane(lane, cancel, move || {
-        untracked_paths
-            .into_iter()
-            .map(|path| {
-                let lines = untracked_lines(&counted_root, &path);
-                (path, lines)
-            })
-            .collect::<HashMap<_, _>>()
-    })
-    .await?;
-    for file in &mut parsed.files {
-        let staged_row = staged.get(&file.path).copied().unwrap_or((0, 0));
-        let unstaged_row = unstaged.get(&file.path).copied().unwrap_or((0, 0));
-        file.staged_additions = staged_row.0;
-        file.staged_deletions = staged_row.1;
-        file.unstaged_additions = if file.untracked {
-            untracked_counts.get(&file.path).copied().unwrap_or(0)
-        } else {
-            unstaged_row.0
-        };
-        file.unstaged_deletions = unstaged_row.1;
-        file.additions = file.staged_additions + file.unstaged_additions;
-        file.deletions = file.staged_deletions + file.unstaged_deletions;
-    }
-    let (json, branch, upstream) = fold(path_text(&root), parsed, &remote_names, remote_url, operation);
-    let entries = json.files.iter().map(entry_view).collect();
-    Ok(StatusScan {
-        json,
-        head,
-        operation,
-        branch,
-        upstream,
-        entries,
-    })
 }
 
 /// The desktop's `GitStatusResult` of a parsed scan (git-status.ts `readGitStatus`'s last lines), with the branch and upstream
@@ -737,6 +593,232 @@ async fn read_numstat(git: &Git, cancel: &CancellationToken, cwd: &Path, args: &
 const STAGED_NUMSTAT: [&str; 5] = ["--no-optional-locks", "diff", "--cached", "--numstat", "-z"];
 const UNSTAGED_NUMSTAT: [&str; 4] = ["--no-optional-locks", "diff", "--numstat", "-z"];
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn porcelain_v2_rows_become_file_entries() {
+        let text = "# branch.oid 0123456789abcdef\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +2 -1\0\
+1 .M N... 100644 100644 100644 aaa bbb a.txt\0\
+2 R. N... 100644 100644 100644 aaa bbb R100 new name.txt\0old name.txt\0\
+u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.txt\0\
+? new.txt\0";
+        let parsed = parse_porcelain(text);
+        assert_eq!((parsed.ahead, parsed.behind), (2, 1));
+        let paths: Vec<_> = parsed.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["a.txt", "new name.txt", "conflict.txt", "new.txt"]);
+        assert_eq!(parsed.files[0].worktree, "M");
+        assert_eq!(parsed.files[0].index, " ");
+        assert_eq!(parsed.files[1].old_path.as_deref(), Some("old name.txt"));
+        assert!(parsed.files[2].conflicted);
+        assert!(parsed.files[3].untracked);
+    }
+
+    #[test]
+    fn untracked_rows_past_the_limit_are_only_counted() {
+        let mut text = String::new();
+        for n in 0..UNTRACKED_LIMIT + 3 {
+            text.push_str(&format!("? f{n}\0"));
+        }
+        let parsed = parse_porcelain(&text);
+        assert_eq!(parsed.files.len(), UNTRACKED_LIMIT);
+        assert_eq!(parsed.untracked_omitted, 3);
+    }
+
+    #[test]
+    fn numstat_reads_renames_and_binary_rows() {
+        let stats = parse_numstat("1\t0\ta.txt\0-\t-\timg.png\03\t1\t\0old\0new\0");
+        assert_eq!(stats["a.txt"], (1, 0));
+        assert_eq!(stats["img.png"], (0, 0));
+        assert_eq!(stats["new"], (3, 1));
+    }
+
+    #[test]
+    fn remote_urls_lose_credentials() {
+        let (names, url) = parse_remotes(
+            "origin\thttps://user:pw@example.com/a/b.git?token=x#f (fetch)\norigin\thttps://example.com/a/b.git (push)\n",
+        );
+        assert_eq!(names, ["origin"]);
+        assert_eq!(url, "https://example.com/a/b.git");
+    }
+
+    /// The live read on this host agrees with `std` where `std` exposes the field.
+    #[test]
+    fn a_revision_read_matches_std_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "hello").unwrap();
+        let revision = worktree_revision(dir.path(), "f.txt");
+        let parts: Vec<&str> = revision.split(':').collect();
+        assert_eq!(parts.len(), 4, "{revision}");
+        assert_eq!(parts[0], "5");
+        let modified = std::fs::metadata(dir.path().join("f.txt")).unwrap().modified().unwrap();
+        let nanos = modified.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        assert_eq!(parts[1].parse::<u128>().unwrap(), nanos);
+        assert!(parts[2].parse::<u128>().unwrap() > 0 && parts[3].parse::<u64>().unwrap() > 0);
+        // A directory opens too (libuv's backup semantics); a missing file is `deleted`.
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        assert_eq!(worktree_revision(dir.path(), "sub").split(':').count(), 4);
+        assert_eq!(worktree_revision(dir.path(), "missing"), "deleted");
+    }
+
+
+    #[cfg(node_twin)]
+    include!("node-twin/status.rs");
+
+    /// A work tree revision is `size:mtimeNs:ctimeNs:ino`; Windows file times (100 ns ticks since 1601) read back as the
+    /// nanoseconds since the Unix epoch they stand for.
+    #[test]
+    fn a_revision_joins_size_times_and_identity_and_file_times_convert_to_unix_nanoseconds() {
+        assert_eq!(revision_text(5, 1_700_000_001_654_321_600, 1_794_067_082_007_280_400, 9_570_149_213_248_497), "5:1700000001654321600:1794067082007280400:9570149213248497");
+        assert_eq!(revision_text(0, 1, 1, 0), "0:1:1:0");
+        assert_eq!(filetime_ns(116_444_736_000_000_000), 0);
+        let ticks = (1_700_000_001_654_321_600_i128 / 100 + 116_444_736_000_000_000) as i64;
+        assert_eq!(filetime_ns(ticks), 1_700_000_001_654_321_600);
+    }
+}
+
+
+/// How long a directory's remote list is kept (GIT_METADATA_TTL_MS, git-read-utils.ts).
+const REMOTE_METADATA_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+/// The remote names and primary url of a directory, read at most once per [REMOTE_METADATA_TTL] (remoteMetadata in git-status.ts).
+/// Node never drops the entry earlier, so a remote added a moment after a status shows in the next one only once the minute is
+/// out. A read git fails (no timeout) is kept as "no remotes" for the same time; a timeout is not kept.
+pub(crate) async fn remote_metadata(
+    git: &Git,
+    cancel: &CancellationToken,
+    root: &Path,
+    options: &RunOptions,
+) -> Result<(Vec<String>, String), ScmFailure> {
+    // The clock a replay of Node's recording moves only by an explicit advance (seam.rs), never by waiting out the minute.
+    let now = crate::seam::cache_clock();
+    type Entry = (std::time::Instant, (Vec<String>, String));
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<String, Entry>>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    // gitCacheKey: the path, lower-cased on Windows.
+    let key = if cfg!(windows) { path_text(root).to_lowercase() } else { path_text(root) };
+    if let Some((read_at, value)) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key)
+        && now.saturating_duration_since(*read_at) < REMOTE_METADATA_TTL
+    {
+        return Ok(value.clone());
+    }
+    let text = match git.text(cancel, root, &["--no-optional-locks", "remote", "-v"], options).await {
+        Ok(text) => text,
+        // remoteMetadata: any failure but a deadline (or a cancel) reads as no remotes, a git that cannot start included.
+        Err(failure @ (ScmFailure::TimedOut { .. } | ScmFailure::Cancelled)) => return Err(failure),
+        Err(_) => String::new(),
+    };
+    let value = parse_remotes(&text);
+    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (now, value.clone()));
+    Ok(value)
+}
+/// Scans the work tree at `root`. Without `line_stats` no file has add/delete counts (the
+/// numstat reads and the untracked line counts are skipped), as the pane's `skipLineStats` asks.
+pub async fn scan(
+    git: &Git,
+    lane: MaintenanceIo,
+    cancel: &CancellationToken,
+    identity: &RepoIdentity,
+    head: Option<ObjectId>,
+    line_stats: bool,
+) -> Result<StatusScan, ScmFailure> {
+    let root = identity
+        .work_tree
+        .clone()
+        .ok_or(ScmFailure::NotARepository)?;
+    let read = RunOptions::read();
+    let status_options = RunOptions {
+        max_output: Some(STATUS_MAX_BYTES),
+        ..RunOptions::read()
+    };
+    git.prepare(cancel).await?;
+    // git-status.ts starts every read at once (the listing, both numstats, the remote list, the work-tree root) and leaves the
+    // siblings of a failed one running, so a git that cannot start is attempted by each of them: `join!`, not `try_join!`,
+    // which would drop the others at the first failure. The first failure in this order is the one reported.
+    let (porcelain, staged, unstaged, remotes, top_level) = tokio::join!(biased; 
+        git.text(
+            cancel,
+            &root,
+            &[
+                "--no-optional-locks",
+                "status",
+                "--porcelain=v2",
+                "-z",
+                "--branch",
+                "--untracked-files=all",
+            ],
+            &status_options,
+        ),
+        async {
+            if line_stats {
+                git.text(cancel, &root, &["--no-optional-locks", "diff", "--cached", "--numstat", "-z"], &read)
+                    .await
+            } else {
+                Ok(String::new())
+            }
+        },
+        async {
+            if line_stats {
+                git.text(cancel, &root, &["--no-optional-locks", "diff", "--numstat", "-z"], &read).await
+            } else {
+                Ok(String::new())
+            }
+        },
+        remote_metadata(git, cancel, &root, &read),
+        // cachedGitRoot: asked for its failure only (a timeout or a git that cannot start); the root itself is the identity's.
+        git.text(cancel, &root, &["--no-optional-locks", "rev-parse", "--show-toplevel"], &read),
+    );
+    let (porcelain, staged, unstaged, remotes) = (porcelain?, staged?, unstaged?, remotes?);
+    if let Err(failure @ (ScmFailure::Unavailable { .. } | ScmFailure::TimedOut { .. })) = top_level {
+        return Err(failure);
+    }
+    let mut parsed = parse_porcelain(&porcelain);
+    let staged = parse_numstat(&staged);
+    let unstaged = parse_numstat(&unstaged);
+    let (remote_names, remote_url) = remotes;
+    let git_dir = identity.git_dir.clone();
+    let operation = on_lane(lane, cancel, move || operation_in_progress(&git_dir)).await?;
+    let untracked_paths: Vec<String> = parsed
+        .files
+        .iter()
+        .filter(|file| line_stats && file.untracked)
+        .map(|file| file.path.clone())
+        .collect();
+    let counted_root: PathBuf = root.clone();
+    let untracked_counts = on_lane(lane, cancel, move || {
+        untracked_paths
+            .into_iter()
+            .map(|path| {
+                let lines = untracked_lines(&counted_root, &path);
+                (path, lines)
+            })
+            .collect::<HashMap<_, _>>()
+    })
+    .await?;
+    for file in &mut parsed.files {
+        let staged_row = staged.get(&file.path).copied().unwrap_or((0, 0));
+        let unstaged_row = unstaged.get(&file.path).copied().unwrap_or((0, 0));
+        file.staged_additions = staged_row.0;
+        file.staged_deletions = staged_row.1;
+        file.unstaged_additions = if file.untracked {
+            untracked_counts.get(&file.path).copied().unwrap_or(0)
+        } else {
+            unstaged_row.0
+        };
+        file.unstaged_deletions = unstaged_row.1;
+        file.additions = file.staged_additions + file.unstaged_additions;
+        file.deletions = file.staged_deletions + file.unstaged_deletions;
+    }
+    let (json, branch, upstream) = fold(path_text(&root), parsed, &remote_names, remote_url, operation);
+    let entries = json.files.iter().map(entry_view).collect();
+    Ok(StatusScan {
+        json,
+        head,
+        operation,
+        branch,
+        upstream,
+        entries,
+    })
+}
 /// `gitStatus(cwd, options)`. `skip_line_stats` answers without add/delete counts; `reuse_line_stats` keeps the counts of the last
 /// read of this directory while the listed files and their states stand.
 pub async fn node_status(
@@ -861,92 +943,4 @@ pub async fn node_status(
     }
     let (names, url) = remotes;
     Ok(fold(root, parsed, &names, url, operation).0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Node's `worktreeRevision` strings, recorded by `fixtures/desktop/revision/record.mjs`: the
-    /// tick counts libuv reads are the recorded nanoseconds back at 100 ns resolution.
-    #[test]
-    fn a_revision_is_node_s_string_for_the_recorded_stat() {
-        let recorded: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../fixtures/desktop/revision/corpus.json"
-        )))
-        .unwrap();
-        for case in recorded["cases"].as_array().unwrap() {
-            let number = |key: &str| case[key].as_str().unwrap().parse::<i128>().unwrap();
-            let ticks = |key: &str| (number(key) / 100 + 116_444_736_000_000_000) as i64;
-            assert_eq!(filetime_ns(ticks("mtimeNs")), number("mtimeNs"), "{}", case["name"]);
-            assert_eq!(filetime_ns(ticks("ctimeNs")), number("ctimeNs"), "{}", case["name"]);
-            let text = revision_text(number("size") as u64, number("mtimeNs"), number("ctimeNs"), number("ino") as u64);
-            assert_eq!(text, case["revision"].as_str().unwrap(), "{}", case["name"]);
-        }
-    }
-
-    /// The live read on this host agrees with `std` where `std` exposes the field.
-    #[test]
-    fn a_revision_read_matches_std_metadata() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("f.txt"), "hello").unwrap();
-        let revision = worktree_revision(dir.path(), "f.txt");
-        let parts: Vec<&str> = revision.split(':').collect();
-        assert_eq!(parts.len(), 4, "{revision}");
-        assert_eq!(parts[0], "5");
-        let modified = std::fs::metadata(dir.path().join("f.txt")).unwrap().modified().unwrap();
-        let nanos = modified.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        assert_eq!(parts[1].parse::<u128>().unwrap(), nanos);
-        assert!(parts[2].parse::<u128>().unwrap() > 0 && parts[3].parse::<u64>().unwrap() > 0);
-        // A directory opens too (libuv's backup semantics); a missing file is `deleted`.
-        std::fs::create_dir(dir.path().join("sub")).unwrap();
-        assert_eq!(worktree_revision(dir.path(), "sub").split(':').count(), 4);
-        assert_eq!(worktree_revision(dir.path(), "missing"), "deleted");
-    }
-    #[test]
-    fn porcelain_v2_rows_become_file_entries() {
-        let text = "# branch.oid 0123456789abcdef\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +2 -1\0\
-1 .M N... 100644 100644 100644 aaa bbb a.txt\0\
-2 R. N... 100644 100644 100644 aaa bbb R100 new name.txt\0old name.txt\0\
-u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.txt\0\
-? new.txt\0";
-        let parsed = parse_porcelain(text);
-        assert_eq!((parsed.ahead, parsed.behind), (2, 1));
-        let paths: Vec<_> = parsed.files.iter().map(|f| f.path.as_str()).collect();
-        assert_eq!(paths, ["a.txt", "new name.txt", "conflict.txt", "new.txt"]);
-        assert_eq!(parsed.files[0].worktree, "M");
-        assert_eq!(parsed.files[0].index, " ");
-        assert_eq!(parsed.files[1].old_path.as_deref(), Some("old name.txt"));
-        assert!(parsed.files[2].conflicted);
-        assert!(parsed.files[3].untracked);
-    }
-
-    #[test]
-    fn untracked_rows_past_the_limit_are_only_counted() {
-        let mut text = String::new();
-        for n in 0..UNTRACKED_LIMIT + 3 {
-            text.push_str(&format!("? f{n}\0"));
-        }
-        let parsed = parse_porcelain(&text);
-        assert_eq!(parsed.files.len(), UNTRACKED_LIMIT);
-        assert_eq!(parsed.untracked_omitted, 3);
-    }
-
-    #[test]
-    fn numstat_reads_renames_and_binary_rows() {
-        let stats = parse_numstat("1\t0\ta.txt\0-\t-\timg.png\03\t1\t\0old\0new\0");
-        assert_eq!(stats["a.txt"], (1, 0));
-        assert_eq!(stats["img.png"], (0, 0));
-        assert_eq!(stats["new"], (3, 1));
-    }
-
-    #[test]
-    fn remote_urls_lose_credentials() {
-        let (names, url) = parse_remotes(
-            "origin\thttps://user:pw@example.com/a/b.git?token=x#f (fetch)\norigin\thttps://example.com/a/b.git (push)\n",
-        );
-        assert_eq!(names, ["origin"]);
-        assert_eq!(url, "https://example.com/a/b.git");
-    }
 }

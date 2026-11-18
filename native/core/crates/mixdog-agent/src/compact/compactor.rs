@@ -21,13 +21,11 @@ use super::fresh::AttachmentSeam;
 use super::fresh::FreshContext;
 use super::fresh::FreshError;
 use super::fresh::FreshOptions;
-use super::fresh::fresh_context_compact_messages;
+use super::fresh::fresh_context_compact_messages_with_skills;
+use super::skills::CurrentSkills;
 use crate::env::SummaryRouteUsed;
 use super::summary_run::ForkSource;
-use super::triggers::CacheExpiryInput;
-use super::triggers::CacheTail;
 use super::triggers::ToolMediaMeter;
-use super::triggers::should_compact_for_expired_agent_cache;
 use super::triggers::should_compact_for_request_media;
 use super::summary_run::RouteResolver;
 use super::summary_run::SummarizeContext;
@@ -43,6 +41,7 @@ use crate::env::CompactError;
 use crate::env::CompactOutput;
 use crate::env::CompactRequest;
 use crate::env::Compactor;
+use crate::env::SeatedRoute;
 use crate::message::AgentMessage;
 use crate::offload::ArtifactStore;
 
@@ -77,6 +76,13 @@ pub trait HandoffSource: Send + Sync {
 
     /// Cancel-safe. Called only when [`triggered`](Self::triggered).
     async fn handoff(&self, messages: &[AgentMessage], budget_tokens: u64) -> Result<Handoff, CompactError>;
+
+    /// This source for the route the run moved to: its window-derived budgets from the route's compaction settings, and
+    /// whatever it resolves from the session's route following the seated provider; `None` when it follows nothing.
+    fn resized(&self, seated: &SeatedRoute) -> Option<Arc<dyn HandoffSource>> {
+        let _ = seated;
+        None
+    }
 }
 
 /// Session facts the rebuild is sized by.
@@ -87,6 +93,18 @@ pub struct CompactorConfig {
     pub max_budget_tokens: u64,
     pub context_window: u64,
     pub handoff_token_cap: Option<u64>,
+}
+
+impl CompactorConfig {
+    /// The policy `settings` resolve to with `auto` forced on, and the sizing a compactor takes from it: a manual or
+    /// auto-clear compaction needs the same numbers while automatic compaction is off. `None` when no boundary is known.
+    fn sized_by(settings: &CompactSettings) -> Option<(CompactPolicy, Self)> {
+        let policy = CompactPolicy::resolve(&CompactSettings { auto: true, ..settings.clone() })?;
+        let context_window = policy.context_window.unwrap_or(policy.boundary_tokens);
+        let max_budget_tokens = 1.max((context_window as f64 / policy.token_calibration).floor() as u64);
+        let config = Self { reserve_tokens: policy.reserve_tokens, max_budget_tokens, context_window, handoff_token_cap: None };
+        Some((policy, config))
+    }
 }
 
 /// Everything a pass reads the transcript through.
@@ -101,6 +119,7 @@ pub struct FreshParts {
     pub redactor: Arc<dyn Redactor>,
     /// The attachment store the transcript reads user text from.
     pub blobs: Arc<dyn BlobReads>,
+    pub skills: Option<Arc<dyn CurrentSkills>>,
 }
 
 impl FreshParts {
@@ -116,12 +135,11 @@ impl FreshParts {
     }
 }
 
-/// The values the two always-arming triggers are judged from.
+/// The values the always-arming media trigger is judged from.
 pub struct TriggerSeams {
     pub tool_media: Arc<dyn ToolMediaMeter>,
     /// The provider takes PDFs natively (false: they lower to text).
     pub native_pdf: bool,
-    pub cache: Arc<dyn CacheTail>,
 }
 
 pub struct FreshCompactor {
@@ -183,9 +201,19 @@ impl FreshCompactor {
 
 #[async_trait]
 impl Compactor for FreshCompactor {
+    fn resized(&self, seated: &SeatedRoute) -> Option<Arc<dyn Compactor>> {
+        let (_, config) = CompactorConfig::sized_by(&seated.settings)?;
+        Some(Arc::new(Self {
+            parts: self.parts.clone(),
+            triggers: self.triggers.as_ref().map(|t| TriggerSeams { tool_media: t.tool_media.clone(), native_pdf: t.native_pdf }),
+            summary: self.summary.as_ref().map(|summary| summary.resized(seated).unwrap_or_else(|| summary.clone())),
+            config: CompactorConfig { handoff_token_cap: self.config.handoff_token_cap, ..config },
+        }))
+    }
+
     fn estimate_tokens(&self, messages: &[AgentMessage]) -> u64 {
         let meter = self.parts.meter();
-        let tokens = meter.messages(messages);
+        let tokens = meter.compact_messages(messages);
         // The transcript estimate prices every PDF as a native document; a provider that takes PDFs as text sends at most the extraction budget.
         match &self.triggers {
             Some(triggers) if !triggers.native_pdf => tokens.saturating_sub(meter.text_pdf_discount(messages)),
@@ -211,25 +239,13 @@ impl Compactor for FreshCompactor {
         };
         let ctx = self.parts.context(&meter, true);
         let options = self.options(request, String::new(), true, summary_triggered);
-        match fresh_context_compact_messages(&ctx, request.messages, request.budget_tokens, &options).await {
+        match fresh_context_compact_messages_with_skills(&ctx, request.messages, request.budget_tokens, &options, self.parts.skills.as_deref()).await {
             Ok(result) => {
-                let after = meter.messages(&result.messages) + if summary_triggered { SUMMARY_OUTPUT_TOKENS } else { 0 };
-                after < meter.messages(request.messages)
+                let after = meter.compact_messages(&result.messages) + if summary_triggered { SUMMARY_OUTPUT_TOKENS } else { 0 };
+                after < meter.compact_messages(request.messages)
             }
             Err(_) => false,
         }
-    }
-
-    fn cache_expired(&self) -> bool {
-        self.triggers.as_ref().is_some_and(|t| {
-            should_compact_for_expired_agent_cache(&CacheExpiryInput {
-                agent_owner: t.cache.agent_owner(),
-                five_minute_tail: t.cache.five_minute_tail(),
-                last_provider_send_at: t.cache.last_provider_send_at(),
-                now_ms: t.cache.now_ms(),
-                warm: &*t.cache,
-            })
-        })
     }
 
     async fn preflight_attachments(&self, messages: &[AgentMessage]) -> Option<crate::compact::fresh::Preflight> {
@@ -264,12 +280,12 @@ impl Compactor for FreshCompactor {
         let meter = self.parts.meter();
         let ctx = self.parts.context(&meter, false);
         let options = self.options(&request, handoff_text, false, false);
-        let result = fresh_context_compact_messages(&ctx, request.messages, request.budget_tokens, &options)
+        let result = fresh_context_compact_messages_with_skills(&ctx, request.messages, request.budget_tokens, &options, self.parts.skills.as_deref())
             .await
             .map_err(failure)?;
         // A generated summary can differ from its prediction: an automatic
         // result is never equal-sized or larger than the original.
-        let reduces = !request.require_reduction || meter.messages(&result.messages) < meter.messages(request.messages);
+        let reduces = !request.require_reduction || meter.compact_messages(&result.messages) < meter.compact_messages(request.messages);
         let pipeline_ms = elapsed_ms(started);
         if !reduces {
             return Ok(CompactOutput { messages: request.messages.to_vec(), usage, input_excludes_cache, dropped_count: 0, dropped: None, skipped: true, pipeline_ms, summary_ms, summary_route });
@@ -284,6 +300,15 @@ impl Compactor for FreshCompactor {
                 .map_err(|unavailable| CompactError::Failed(unavailable.to_string()))?
         };
         Ok(CompactOutput { messages: result.messages, usage, input_excludes_cache, dropped_count, dropped, skipped: false, pipeline_ms, summary_ms, summary_route })
+    }
+
+    async fn adopted(&self, messages: &[AgentMessage]) {
+        let Some(skills) = &self.parts.skills else { return };
+        for body in crate::skill_update::latest_skill_bodies(messages) {
+            if let Err(error) = skills.activate(&body.name, &body.body).await {
+                tracing::warn!(skill = %body.name, %error, "could not activate compacted skill dependencies");
+            }
+        }
     }
 }
 
@@ -313,9 +338,7 @@ pub struct PlannedHandoff {
 impl PlannedHandoff {
     /// The session's summary and the compactor's sizing, as [`FreshCompactor::for_session`] wires them.
     pub fn for_session(session: &SessionCompactor) -> Option<(Self, CompactorConfig)> {
-        let policy = CompactPolicy::resolve(&CompactSettings { auto: true, ..session.settings.clone() })?;
-        let context_window = policy.context_window.unwrap_or(policy.boundary_tokens);
-        let max_budget_tokens = 1.max((context_window as f64 / policy.token_calibration).floor() as u64);
+        let (policy, config) = CompactorConfig::sized_by(&session.settings)?;
         let summary = PlannedHandoff {
             parts: session.parts.clone(),
             fork: session.fork.clone(),
@@ -323,13 +346,31 @@ impl PlannedHandoff {
             config: SummaryConfig {
                 mode: session.summary_mode,
                 reserve_tokens: policy.reserve_tokens,
-                context_window,
+                context_window: config.context_window,
                 token_calibration: policy.token_calibration,
                 conversation_threshold_tokens: session.conversation_threshold_tokens,
                 timeout_ms: session.settings.handoff_timeout_ms,
             },
         };
-        Some((summary, CompactorConfig { reserve_tokens: policy.reserve_tokens, max_budget_tokens, context_window, handoff_token_cap: None }))
+        Some((summary, config))
+    }
+
+    /// This plan with the summary's budgets taken from `settings`, the compaction settings of the route the run moved to.
+    /// The fork source and the route resolver are the caller's to replace.
+    pub fn sized(&self, settings: &CompactSettings) -> Option<Self> {
+        let (policy, config) = CompactorConfig::sized_by(settings)?;
+        Some(Self {
+            parts: self.parts.clone(),
+            fork: self.fork.clone(),
+            resolver: self.resolver.clone(),
+            config: SummaryConfig {
+                reserve_tokens: policy.reserve_tokens,
+                context_window: config.context_window,
+                token_calibration: policy.token_calibration,
+                timeout_ms: settings.handoff_timeout_ms,
+                ..self.config.clone()
+            },
+        })
     }
 
     fn calibration(&self) -> f64 {
@@ -348,6 +389,10 @@ impl PlannedHandoff {
 
 #[async_trait]
 impl HandoffSource for PlannedHandoff {
+    fn resized(&self, seated: &SeatedRoute) -> Option<Arc<dyn HandoffSource>> {
+        Some(Arc::new(self.sized(&seated.settings)?))
+    }
+
     async fn triggered(&self, messages: &[AgentMessage]) -> bool {
         let meter = self.parts.meter();
         let ctx = self.parts.context(&meter, true);
@@ -359,7 +404,7 @@ impl HandoffSource for PlannedHandoff {
 
     async fn handoff(&self, messages: &[AgentMessage], budget_tokens: u64) -> Result<Handoff, CompactError> {
         let (step, generated) = self.summarize(messages, budget_tokens).await?;
-        let route = SummaryRouteUsed { step: step.name(), forked: generated.mode == "shared-prefix", provider: generated.provider_name, model: generated.model };
+        let route = SummaryRouteUsed { step: step.name(), forked: generated.mode == "shared-prefix", provider: generated.provider_name, model: generated.model, stop: generated.stop.as_ref().map(crate::response::stop_text) };
         Ok(Handoff { text: generated.summary, usage: generated.usage, input_excludes_cache: generated.input_excludes_cache, summary_ms: generated.duration_ms, route: Some(route) })
     }
 }

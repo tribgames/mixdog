@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use mixdog_fsio::{DirBuilder, OpenOptions, Unlaned};
 
-use crate::context::{ConfigFiles, SshConfigFiles, SshEnv};
+use crate::context::{SshConfigFiles, SshEnv};
 use crate::diagnostics::DiagnosticKind;
 use crate::private_dir::{lock_to_user, resolve_plain_dir, resolve_plain_dir_with};
 
@@ -31,15 +31,40 @@ pub fn word(path: &str) -> String {
 /// The config text. Mixdog's file comes first so that `StrictHostKeyChecking=yes` finds a pin there; ssh reads all
 /// the listed files.
 pub fn mixdog_ssh_config_text(known_hosts_file: &str, extra_user_files: &[String], home: &Path) -> String {
+    let user_config = home.join(".ssh").join("config");
+    format!("# Written by Mixdog; rewritten on every start.\n{}\nInclude {}\n", generic_block(known_hosts_file, extra_user_files), word(&user_config.to_string_lossy()))
+}
+
+/// The `Host *` block of the generic config: Mixdog's known_hosts, the default user files and `extra_user_files`.
+pub(crate) fn generic_block(known_hosts_file: &str, extra_user_files: &[String]) -> String {
     let mut files = vec![word(known_hosts_file)];
     files.extend(DEFAULT_USER_FILES.iter().map(|file| (*file).to_owned()));
     files.extend(extra_user_files.iter().map(|file| word(file)));
-    let user_config = home.join(".ssh").join("config");
-    format!(
-        "# Written by Mixdog; rewritten on every start.\nHost *\n  UserKnownHostsFile {}\n\nInclude {}\n",
-        files.join(" "),
-        word(&user_config.to_string_lossy())
-    )
+    format!("Host *\n  UpdateHostKeys no\n  StrictHostKeyChecking yes\n  UserKnownHostsFile {}\n", files.join(" "))
+}
+
+/// `extra` with the user files of `files` it lacks: not a default file (also spelled out with the home folder), not Mixdog's own,
+/// at most [`MAX_EXTRA_FILES`].
+fn grown(extra: &[String], files: &[String], own: &Path, home: &Path) -> Vec<String> {
+    let home = home.to_string_lossy().replace('\\', "/");
+    let own = own.to_string_lossy().replace('\\', "/");
+    let mut next = extra.to_vec();
+    for file in files {
+        let normalized = file.replace('\\', "/");
+        if next.len() >= MAX_EXTRA_FILES {
+            break;
+        }
+        if normalized.is_empty() || normalized == "none" || DEFAULT_USER_FILES.contains(&normalized.as_str()) {
+            continue;
+        }
+        if DEFAULT_USER_FILES.iter().any(|default| normalized == default.replacen('~', &home, 1)) || normalized == own {
+            continue;
+        }
+        if !next.contains(file) {
+            next.push(file.clone());
+        }
+    }
+    next
 }
 
 /// The folder every file of this module lives in: `ssh` under the core's data folder.
@@ -62,19 +87,64 @@ pub(crate) fn create_dir(dir: &Path) -> io::Result<()> {
     builder.create(&Unlaned, dir)
 }
 
-/// Appends `text` (which ends in a newline) to a file, creating it and its folder; a last line without a newline
-/// gets one first, so the new text starts a line of its own.
-pub(crate) fn append_text(files: &dyn ConfigFiles, file: &Path, text: &str) -> io::Result<()> {
-    if let Some(parent) = file.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-        create_dir(parent)?;
-    }
-    let lead = if files.read_text(file).is_some_and(|existing| !existing.is_empty() && !existing.ends_with('\n')) { "\n" } else { "" };
+const STATE_LOCK: &str = "state.lock";
+
+/// Runs `work` as the one writer of Mixdog's ssh state (known_hosts, the generic config, the import marker), in
+/// this process or any other: it holds an OS lock on `state.lock` beside them, so the work may reread, change and publish files
+/// without a concurrent writer's change being lost. The lock file itself is never truncated, renamed or removed (a lock on a
+/// replaceable file would lock nothing); closing the handle releases the lock, also when the process dies.
+///
+/// Blocking: async code goes through [`locked`]. `work` starts no child process, awaits nothing and does not take the lock again.
+pub(crate) fn with_state_lock<T>(dir: &Path, work: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+    create_dir(dir)?;
     let mut options = OpenOptions::new();
-    options.append(true).create(true);
+    options.read(true).write(true).create(true);
     #[cfg(unix)]
     options.mode(0o600);
-    let mut handle = options.open(&Unlaned, file)?;
-    io::Write::write_all(&mut handle, format!("{lead}{text}").as_bytes())
+    let handle = options.open(&Unlaned, dir.join(STATE_LOCK))?;
+    handle.lock(&Unlaned)?;
+    let result = work();
+    let _ = handle.unlock(&Unlaned);
+    result
+}
+
+/// [`with_state_lock`] for async code: the whole blocking transaction runs on a blocking thread and is awaited, never a guard.
+pub(crate) async fn locked<T: Send + 'static>(dir: PathBuf, work: impl FnOnce() -> io::Result<T> + Send + 'static) -> io::Result<T> {
+    tokio::task::spawn_blocking(move || with_state_lock(&dir, work)).await.map_err(io::Error::other)?
+}
+
+/// A state file as bytes; a file that is not there is empty, any other failure to read it is an error (never an empty state).
+pub(crate) fn read_state(path: &Path) -> io::Result<Vec<u8>> {
+    match mixdog_fsio::read(&Unlaned, path) {
+        Err(failure) if failure.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+        other => other,
+    }
+}
+
+/// Replaces a file's whole content in one step: a unique private file beside it is written, synced and renamed over it, so a
+/// lock-free reader sees the old file or the new one, never a part. The destination is not removed first: where the replace is
+/// refused the failure is reported and the old file stays.
+pub(crate) fn publish_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    create_dir(parent)?;
+    let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    let temporary = parent.join(format!(".{name}.{}.{:016x}.tmp", std::process::id(), rand::random::<u64>()));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut handle = options.open(&Unlaned, &temporary)?;
+    let written = io::Write::write_all(&mut handle, bytes).and_then(|()| handle.sync_all(&Unlaned));
+    drop(handle);
+    if let Err(failure) = written.and_then(|()| mixdog_fsio::rename(&Unlaned, &temporary, path)) {
+        let _ = mixdog_fsio::remove_file(&Unlaned, &temporary);
+        return Err(failure);
+    }
+    #[cfg(unix)]
+    if let Ok(folder) = mixdog_fsio::File::open(&Unlaned, parent) {
+        let _ = folder.sync_all(&Unlaned);
+    }
+    Ok(())
 }
 
 /// Mixdog's own ssh files: where they are and which user known_hosts files the generated config also names.
@@ -82,7 +152,8 @@ pub struct MixdogSshConfig {
     known_hosts_file: PathBuf,
     config_file: PathBuf,
     home: PathBuf,
-    extra: Mutex<Vec<String>>,
+    /// The user files the published config names besides the defaults; changed only once that config is published.
+    extra: Arc<Mutex<Vec<String>>>,
 }
 
 impl MixdogSshConfig {
@@ -108,13 +179,23 @@ impl MixdogSshConfig {
             }
         }
         let known_hosts_file = dir.join("known_hosts");
-        let mut touch = OpenOptions::new();
-        touch.append(true).create(true);
-        #[cfg(unix)]
-        touch.mode(0o600);
-        touch.open(&Unlaned, &known_hosts_file)?;
-        let config = Arc::new(Self { known_hosts_file, config_file: dir.join("config"), home: env.home.clone(), extra: Mutex::new(Vec::new()) });
-        config.write_config(&[])?;
+        let config = Arc::new(Self {
+            known_hosts_file: known_hosts_file.clone(),
+            config_file: dir.join("config"),
+            home: env.home.clone(),
+            extra: Arc::new(Mutex::new(Vec::new())),
+        });
+        let (config_file, text, folder) = (config.config_file.clone(), config.config_text(&[]), dir.clone());
+        locked(dir.clone(), move || {
+            let mut touch = OpenOptions::new();
+            touch.append(true).create(true);
+            #[cfg(unix)]
+            touch.mode(0o600);
+            touch.open(&Unlaned, &known_hosts_file)?;
+            publish_file(&config_file, text.as_bytes())?;
+            crate::resolved_config::purge_unselected_target_configs(&folder)
+        })
+        .await?;
         if let Some(legacy) = env.var("MIXDOG_DESKTOP_USER_DATA").filter(|value| !value.is_empty()) {
             // A failed merge leaves no marker, so the next start tries again; ssh itself is not held up by it.
             if let Err(error) = config.import_legacy_known_hosts(env, Path::new(legacy)).await {
@@ -145,34 +226,27 @@ impl MixdogSshConfig {
         self.config_file.parent().unwrap_or_else(|| Path::new("."))
     }
 
-    fn write_config(&self, extra: &[String]) -> io::Result<()> {
-        let text = mixdog_ssh_config_text(&self.known_hosts_file.to_string_lossy(), extra, &self.home);
-        mixdog_fsio::write(&Unlaned, &self.config_file, text)
+    fn config_text(&self, extra: &[String]) -> String {
+        mixdog_ssh_config_text(&self.known_hosts_file.to_string_lossy(), extra, &self.home)
     }
 
-    /// The known_hosts files the user's own config names for a server: ssh keeps reading them. The config is
-    /// rewritten only when the list changed.
-    pub fn register_user_known_hosts(&self, files: &[String]) -> io::Result<()> {
-        let home = self.home.to_string_lossy().replace('\\', "/");
-        let own = self.known_hosts_file.to_string_lossy().replace('\\', "/");
-        let mut extra = self.extra.lock().unwrap_or_else(PoisonError::into_inner);
-        let before = extra.len();
-        for file in files {
-            let normalized = file.replace('\\', "/");
-            if extra.len() >= MAX_EXTRA_FILES {
-                break;
+    /// The known_hosts files the user's own config names for a server: ssh keeps reading them. The config is rewritten only when
+    /// the list grew. Deciding, publishing and remembering the list are one step under the state lock, run to the end on a
+    /// blocking thread: two registrations publish in the order they grew the list, and one that failed (or whose caller went away)
+    /// leaves the list as the published file has it.
+    pub async fn register_user_known_hosts(&self, files: &[String]) -> io::Result<()> {
+        let (extra, files) = (Arc::clone(&self.extra), files.to_vec());
+        let (config_file, known_hosts_file, home) = (self.config_file.clone(), self.known_hosts_file.clone(), self.home.clone());
+        locked(self.dir().to_path_buf(), move || {
+            let mut extra = extra.lock().unwrap_or_else(PoisonError::into_inner);
+            let next = grown(&extra, &files, &known_hosts_file, &home);
+            if next.len() != extra.len() {
+                publish_file(&config_file, mixdog_ssh_config_text(&known_hosts_file.to_string_lossy(), &next, &home).as_bytes())?;
+                *extra = next;
             }
-            if normalized.is_empty() || normalized == "none" || DEFAULT_USER_FILES.contains(&normalized.as_str()) {
-                continue;
-            }
-            if DEFAULT_USER_FILES.iter().any(|default| normalized == default.replacen('~', &home, 1)) || normalized == own {
-                continue;
-            }
-            if !extra.contains(file) {
-                extra.push(file.clone());
-            }
-        }
-        if extra.len() == before { Ok(()) } else { self.write_config(&extra) }
+            Ok(())
+        })
+        .await
     }
 
     /// Appends the lines of the desktop's old known_hosts that Mixdog's own file does not hold yet. Nothing is ever
@@ -180,9 +254,7 @@ impl MixdogSshConfig {
     /// is written also when the old folder has no known_hosts. Returns the number of lines added.
     pub async fn import_legacy_known_hosts(&self, env: &SshEnv, legacy_user_data: &Path) -> io::Result<usize> {
         let marker = self.dir().join(LEGACY_MARKER);
-        if mixdog_fsio::exists(&Unlaned, &marker)? {
-            return Ok(0);
-        }
+        // The source's path is resolved, and the source read, outside the lock; the merge below rereads the destination under it.
         // Only read: the old desktop's folder is not created here when it is not there (it would be an empty folder left behind).
         let legacy = resolve_plain_dir_with(env, legacy_user_data, "ssh", |_| {}).await.join("known_hosts");
         let old = match mixdog_fsio::read(&Unlaned, &legacy) {
@@ -190,22 +262,35 @@ impl MixdogSshConfig {
             Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
             Err(error) => return Err(error),
         };
-        let mut held: std::collections::BTreeSet<String> =
-            env.files.read_text(&self.known_hosts_file).unwrap_or_default().lines().map(|line| line.trim().to_owned()).collect();
-        let mut added = String::new();
-        let mut count = 0;
-        for line in old.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')) {
-            if held.insert(line.to_owned()) {
-                added.push_str(line);
-                added.push('\n');
-                count += 1;
+        let known_hosts = self.known_hosts_file.clone();
+        locked(self.dir().to_path_buf(), move || {
+            if mixdog_fsio::exists(&Unlaned, &marker)? {
+                return Ok(0);
             }
-        }
-        if count > 0 {
-            append_text(env.files.as_ref(), &self.known_hosts_file, &added)?;
-        }
-        mixdog_fsio::write(&Unlaned, &marker, "")?;
-        Ok(count)
+            let mut text = read_state(&known_hosts)?;
+            let mut held: std::collections::BTreeSet<String> = String::from_utf8_lossy(&text).lines().map(|line| line.trim().to_owned()).collect();
+            let mut added = String::new();
+            let mut count = 0;
+            for line in old.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')) {
+                // The desktop's own entries belong to no saved server: whatever ownership mark they carry is dropped.
+                let line = crate::pins::strip_reserved(line);
+                if held.insert(line.clone()) {
+                    added.push_str(&line);
+                    added.push('\n');
+                    count += 1;
+                }
+            }
+            if count > 0 {
+                if !text.is_empty() && !text.ends_with(b"\n") {
+                    text.push(b'\n');
+                }
+                text.extend_from_slice(added.as_bytes());
+                publish_file(&known_hosts, &text)?;
+            }
+            publish_file(&marker, b"")?;
+            Ok(count)
+        })
+        .await
     }
 }
 

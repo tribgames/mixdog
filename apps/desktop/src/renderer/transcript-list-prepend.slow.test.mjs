@@ -3,6 +3,7 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
+import { SurfaceActiveContext } from './surface-activity.ts';
 
 const VIEWPORT = 400;
 
@@ -59,7 +60,7 @@ function installLayout(dom, heights) {
       observers.delete(this);
     }
   }
-  const heightOf = (target) => (target === viewport ? VIEWPORT : (heights.get(target.dataset?.timelineKey) ?? 0));
+  const heightOf = (target) => (target === viewport ? viewport.clientHeight : (heights.get(target.dataset?.timelineKey) ?? 0));
   const deliver = () => {
     for (const observer of [...observers]) {
       const entries = [...observer.targets]
@@ -105,23 +106,23 @@ async function mountTranscript(
   // One ref for the mount's life, as the pane passes it: the list's hooks key
   // on its identity.
   const viewportRef = { current: viewport };
-  const render = (rows) =>
+  const render = (rows, shown = true, renderRow = (row) => React.createElement('div', null, row.key)) =>
     act(async () => {
       root.render(
-        React.createElement(TranscriptList, {
+        React.createElement(SurfaceActiveContext.Provider, { value: shown }, React.createElement(TranscriptList, {
           sessionKey,
           rows,
           viewport: viewportRef,
           content: { current: null },
           shouldAnchorBottom: false,
           scrollToEndRef: { current: () => {} },
-          renderRow: (row) => React.createElement('div', null, row.key),
+          renderRow,
           markProgrammaticScroll: () => {},
           hasScrollGesture: gesture,
           hasTouchScroll: touch,
           touchHoldsCorrections: touchHolds,
           onSelectionAutoScroll: () => {},
-        })
+        }))
       );
     });
   const settle = async () => {
@@ -234,6 +235,45 @@ async function mountTranscript(
     cleanup,
   };
 }
+
+test('parking a transcript at zero height keeps the live reply and question choice and restores the reading offset', async () => {
+  const rows = Array.from({ length: 32 }, (_, i) => ({
+    _tag: 'UserMessage', key: `u${i}`, turnKey: `turn${i}`, item: { kind: 'user', text: `prompt ${i}` },
+  }));
+  rows.push(
+    { _tag: 'ToolActivity', key: 'question', turnKey: 'live', items: [{ kind: 'tool', name: 'ask_user' }] },
+    { _tag: 'AssistantPart', key: 'reply', turnKey: 'live', active: true, live: true, item: { kind: 'assistant', text: 'Writing' } },
+    { _tag: 'Thinking', key: 'thinking', turnKey: 'live', active: true }
+  );
+  const renderRow = (row) => row.key === 'question'
+    ? React.createElement('input', { type: 'checkbox' })
+    : React.createElement('div', null, row.key);
+  const rig = await mountTranscript(new Map(rows.map(({ key }) => [key, 120])), 'park');
+  try {
+    await rig.render(rows, true, renderRow);
+    await rig.scrollTo(660);
+    const before = rig.firstVisible();
+    assert.ok(before);
+    const choice = rig.viewport.querySelector('input');
+    choice.click();
+    const reply = rig.viewport.querySelector('[data-timeline-key="reply"]');
+    assert.ok(reply);
+    await rig.render(rows, false, renderRow);
+    Object.defineProperty(rig.viewport, 'clientHeight', { configurable: true, value: 0 });
+    await rig.measure();
+    assert.deepEqual(rig.positioned().map(({ key }) => key), ['question', 'reply', 'thinking']);
+    assert.equal(rig.viewport.querySelector('[data-timeline-key="reply"]'), reply);
+    assert.ok(rig.viewport.scrollTop > 0);
+    await rig.render(rows, true, renderRow);
+    Object.defineProperty(rig.viewport, 'clientHeight', { configurable: true, value: VIEWPORT });
+    await rig.measure();
+    assert.equal(rig.viewport.querySelector('input'), choice);
+    assert.equal(choice.checked, true);
+    assert.deepEqual(rig.firstVisible(), before);
+  } finally {
+    await rig.cleanup();
+  }
+});
 
 // Six items per turn: prompt, three tools, the reply, its "Worked for…" row.
 function turnItems(turns) {

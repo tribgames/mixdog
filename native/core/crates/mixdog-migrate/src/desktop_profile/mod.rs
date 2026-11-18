@@ -192,6 +192,17 @@ impl DesktopProfileDriver {
     }
 }
 
+impl SessionMetaSource for DesktopProfileDriver {
+    fn session_meta(&self, cx: &ItemContext<'_>, session_id: &str) -> Result<Option<Map<String, Value>>> {
+        match session_metadata::session_meta(cx, &self.metadata, session_id) {
+            Ok(set) => Ok(set),
+            Err(ApplyError::Blocked(blocked)) => Err(blocked),
+            Err(ApplyError::Quarantine(failure)) => Err(Blocked::journal(failure.detail)),
+        }
+    }
+}
+
+
 impl ItemDriver for DesktopProfileDriver {
     fn plan(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
         match roots.profile.as_deref() {
@@ -286,15 +297,5 @@ impl ItemDriver for DesktopProfileDriver {
     /// Moved files are copies: the source is deleted at disposal.
     fn keeps_sources(&self, _item: &ManifestItem) -> bool {
         false
-    }
-}
-
-impl SessionMetaSource for DesktopProfileDriver {
-    fn session_meta(&self, cx: &ItemContext<'_>, session_id: &str) -> Result<Option<Map<String, Value>>> {
-        match session_metadata::session_meta(cx, &self.metadata, session_id) {
-            Ok(set) => Ok(set),
-            Err(ApplyError::Blocked(blocked)) => Err(blocked),
-            Err(ApplyError::Quarantine(failure)) => Err(Blocked::journal(failure.detail)),
-        }
     }
 }

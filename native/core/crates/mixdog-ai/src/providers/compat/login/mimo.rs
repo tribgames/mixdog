@@ -100,17 +100,6 @@ pub async fn probe_token_plan(http: &Http, api_key: &str) -> Result<&'static str
     Err(last)
 }
 
-/// A Token Plan key whose gateway is unknown is resolved before storing.
-async fn settle(http: &Http, file: &CredentialFile, mut credentials: MimoCredentials) -> Result<Option<String>, LoginFailure> {
-    let unrouted = credentials.base_url.is_empty() || credentials.base_url == MIMO_DEFAULT_BASE_URL;
-    if credentials.api_key.starts_with(TOKEN_PLAN_KEY_PREFIX) && unrouted {
-        credentials.base_url = probe_token_plan(http, &credentials.api_key).await?.to_owned();
-    }
-    file.keep(&[&credentials.api_key]);
-    file.save(&credentials).await.map_err(|err| failed("store", err.to_string()))?;
-    Ok(Some(credentials.uid).filter(|u| !u.is_empty()))
-}
-
 /// The text of a settle failure (`error.message`), never its Debug form.
 fn failure_message(failure: &LoginFailure) -> String {
     match failure {
@@ -139,27 +128,6 @@ pub fn key_name_path(data_dir: &Path) -> PathBuf {
     data_dir.join("mimo-oauth-key-name.json")
 }
 
-#[derive(Serialize, Deserialize)]
-struct KeyName {
-    #[serde(rename = "keyName")]
-    key_name: String,
-}
-
-/// The name the platform shows the key under: generated once, then reused so
-/// repeated sign-ins replace one key instead of piling up new ones.
-async fn key_name(file: &CredentialFile) -> Result<String, LoginFailure> {
-    if let Probe::Present(saved) = file.load::<KeyName>().await
-        && !saved.key_name.is_empty()
-    {
-        return Ok(saved.key_name);
-    }
-    let name = format!("mimo-code-cli-key-{:08x}", rand::random::<u32>());
-    file.save(&KeyName { key_name: name.clone() })
-        .await
-        .map_err(|err| failed("store", err.to_string()))?;
-    Ok(name)
-}
-
 pub struct MimoLogin {
     target: LoginTarget,
     http: Http,
@@ -181,6 +149,237 @@ impl MimoLogin {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use aes_gcm::Aes256Gcm;
+    use aes_gcm::Nonce;
+    use aes_gcm::aead::Aead;
+    use aes_gcm::aead::KeyInit;
+    use base64::Engine as _;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use sha2::Digest;
+    use sha2::Sha256;
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpStream;
+    use x25519_dalek::PublicKey;
+    use x25519_dalek::StaticSecret;
+use crate::oauth::http::testing::Scripted;
+use crate::oauth::http::testing::finish;
+    use super::*;
+    use crate::oauth::CredentialIo;
+    use crate::oauth::Probe;
+
+    /// The platform's side: seals `doc` to the public key found in the authorize URL.
+    fn seal(authorize_url: &str, doc: &serde_json::Value) -> String {
+        let url = url::Url::parse(authorize_url).unwrap();
+        let pk = url.query_pairs().find(|(k, _)| k == "pk").unwrap().1.into_owned();
+        let der = URL_SAFE_NO_PAD.decode(pk).unwrap();
+        let public: [u8; 32] = der[12..].try_into().unwrap();
+        let ephemeral = StaticSecret::from([9u8; 32]);
+        let shared = ephemeral.diffie_hellman(&PublicKey::from(public));
+        let cipher = Aes256Gcm::new_from_slice(&Sha256::digest(shared.as_bytes())).unwrap();
+        let sealed = cipher.encrypt(Nonce::from_slice(&[4u8; 12]), doc.to_string().as_bytes()).unwrap();
+        let mut payload = PublicKey::from(&ephemeral).as_bytes().to_vec();
+        payload.extend_from_slice(&[4u8; 12]);
+        payload.extend_from_slice(&sealed);
+        URL_SAFE_NO_PAD.encode(payload)
+    }
+
+    async fn browser(url: &str, u: &str) -> String {
+        let redirect = url::Url::parse(url).unwrap().query_pairs().find(|(k, _)| k == "redirect_uri").unwrap().1.into_owned();
+        let port = url::Url::parse(&redirect).unwrap().port().unwrap();
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        stream.write_all(format!("GET /?u={u} HTTP/1.1\r\nHost: localhost\r\n\r\n").as_bytes()).await.unwrap();
+        let mut out = String::new();
+        stream.read_to_string(&mut out).await.unwrap();
+        out
+    }
+
+    async fn authorize(session: &dyn LoginSession) -> String {
+        loop {
+            if let Some(LoginState::Authorize { url, .. }) = session.next().await {
+                return url;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_key_every_region_rejects_asks_for_a_new_sign_in() {
+        let http = Scripted::new(&[(401, "a"), (401, "b"), (401, "c")]);
+        let got = probe_token_plan(&(http as Http), "tp-x").await;
+        assert!(matches!(got, Err(LoginFailure::Failed { code, .. }) if code == "invalid_grant"));
+    }
+
+    #[test]
+    fn a_failed_settle_redirects_with_its_message_not_its_debug_form() {
+        let failure = failed("store", "disk full");
+        let response = result_redirect(Some(&failure_message(&failure)));
+        let location = response
+            .headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("location"))
+            .map(|(_, v)| v.clone())
+            .unwrap();
+        let url = url::Url::parse(&location).unwrap();
+        let pairs: Vec<_> = url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
+        assert_eq!(pairs, [("status".into(), "error".into()), ("message".into(), "disk full".into())]);
+    }
+    fn names(dir: &tempfile::TempDir) -> CredentialFile {
+        let tokens = mixdog_rt::testing::tokens();
+        CredentialFile::new(
+            key_name_path(dir.path()),
+            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
+        )
+    }
+    fn store(dir: &tempfile::TempDir) -> CredentialFile {
+        let tokens = mixdog_rt::testing::tokens();
+        CredentialFile::new(
+            dir.path().join("mimo-oauth.json"),
+            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
+        )
+    }
+    #[tokio::test]
+    async fn the_loopback_reply_stores_the_credential_and_redirects() {
+        mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        // A name saved by an earlier sign-in is reused.
+        names(&dir).save(&KeyName { key_name: "key-1".into() }).await.unwrap();
+        let flow = MimoLogin::new(Scripted::new(&[]), store(&dir), names(&dir));
+        let session = flow.start().await.unwrap();
+        let url = authorize(session.as_ref()).await;
+        assert!(url.starts_with("https://platform.xiaomimimo.com/authorize?pk="));
+        assert!(url.contains("key_name=key-1"));
+        // Something that is not sealed to this login's key is refused and the login waits on.
+        assert!(browser(&url, "AAAA").await.starts_with("HTTP/1.1 400"));
+        let u = seal(&url, &serde_json::json!({"sk": "sk-live", "uid": 7}));
+        let answer = browser(&url, &u).await;
+        assert!(answer.starts_with("HTTP/1.1 302") && answer.contains("status=success"), "{answer}");
+        assert_eq!(finish(session.as_ref()).await.last(), Some(&LoginState::Done { account: Some("7".into()) }));
+        let Probe::Present(saved) = store(&dir).load::<MimoCredentials>().await else { panic!("stored") };
+        assert_eq!((saved.api_key.as_str(), saved.base_url.as_str()), ("sk-live", ""));
+    }
+    #[tokio::test]
+    async fn a_pasted_token_plan_key_is_routed_to_the_first_region_that_accepts_it() {
+        mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let http = Scripted::new(&[(401, "no"), (200, "{}")]);
+        let flow = MimoLogin::new(http.clone(), store(&dir), names(&dir));
+        let session = flow.start().await.unwrap();
+        let url = authorize(session.as_ref()).await;
+        // No name saved yet: one is generated and kept for the next sign-in.
+        let generated = key_name(&names(&dir)).await.unwrap();
+        assert!(generated.starts_with("mimo-code-cli-key-") && generated.len() == "mimo-code-cli-key-".len() + 8);
+        assert!(url.contains(&format!("key_name={generated}")));
+        let u = seal(&url, &serde_json::json!({"sk": "tp-abc"}));
+        session.provide(mixdog_core_api::domain::login::LoginInput::AuthorizationCode(u)).await.unwrap();
+        assert_eq!(finish(session.as_ref()).await.last(), Some(&LoginState::Done { account: None }));
+        let Probe::Present(saved) = store(&dir).load::<MimoCredentials>().await else { panic!("stored") };
+        assert_eq!(saved.base_url, "https://token-plan-ams.xiaomimimo.com/v1");
+        let seen = http.seen.lock().unwrap();
+        assert_eq!(seen[0].url, "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions");
+        assert!(seen[0].headers.contains(&("x-mimo-source".into(), "mimocode-cli".into())));
+    }
+    /// `ensureTokenPlanBaseUrl`: a stored Token Plan key without a gateway is routed on first use and persisted.
+    #[tokio::test]
+    async fn a_stored_token_plan_key_without_a_gateway_is_routed_and_persisted() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = store(&dir);
+        let stored = MimoCredentials { api_key: "tp-abc".into(), uid: "7".into(), base_url: String::new() };
+        file.save(&stored).await.unwrap();
+        let http = Scripted::new(&[(401, "no"), (200, "{}")]);
+        let routed = ensure_token_plan_base_url(&(http as Http), &file, stored).await.unwrap();
+        assert_eq!(routed.base_url, "https://token-plan-ams.xiaomimimo.com/v1");
+        let Probe::Present(saved) = file.load::<MimoCredentials>().await else { panic!("stored") };
+        assert_eq!(saved.base_url, "https://token-plan-ams.xiaomimimo.com/v1");
+    }
+
+
+    /// A Token Plan probe whose every region never answers tries each region under a timer of its own and then fails.
+    #[tokio::test(start_paused = true)]
+    async fn a_probe_whose_regions_never_answer_tries_each_and_fails() {
+        let transport = crate::transport::timeout_probe::NeverAnswers::new();
+        let http: Http = transport.clone();
+        let failure = probe_token_plan(&http, "k").await.expect_err("never answers");
+        assert!(matches!(&failure, LoginFailure::Failed { message, .. } if !message.is_empty()), "{failure:?}");
+        transport.assert_each_request_was_bounded(2);
+    }
+
+    /// The Token Plan probe whose every region outlives its timer ends as the real Node function did
+    /// (`sites.mimoProbe`): the last region's `AbortSignal.timeout` error.
+    #[tokio::test(start_paused = true)]
+    async fn a_probe_that_outlives_its_timer_reads_as_nodes() {
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::login_message;
+
+        let transport = TimingOut::new();
+        let http: Http = transport.clone();
+        let failure = probe_token_plan(&http, "k").await.expect_err("never answers");
+        assert_transport("mimoProbe", &transport);
+        assert_eq!(
+            transport.seen().len(),
+            crate::transport::site_probe::armed_count("mimoProbe"),
+            "every region is tried under a timer of its own"
+        );
+        assert_thrown("mimoProbe", login_message(&failure));
+    }
+}
+
+
+/// `ensureTokenPlanBaseUrl`: a stored Token Plan key whose gateway is unknown is resolved on first use and written
+/// back, but only over the credential that was probed (a newer sign-in must not be overwritten).
+pub async fn ensure_token_plan_base_url(http: &Http, file: &CredentialFile, credentials: MimoCredentials) -> Result<MimoCredentials, LoginFailure> {
+    let unrouted = credentials.base_url.is_empty() || credentials.base_url == MIMO_DEFAULT_BASE_URL;
+    if !(credentials.api_key.starts_with(TOKEN_PLAN_KEY_PREFIX) && unrouted) {
+        return Ok(credentials);
+    }
+    let base_url = probe_token_plan(http, &credentials.api_key).await?.to_owned();
+    let held = credentials.clone();
+    let update = [("baseUrl".into(), serde_json::Value::String(base_url.clone()))].into_iter().collect();
+    if file.replace_if(move |current| {
+        current.get("apiKey").and_then(serde_json::Value::as_str) == Some(held.api_key.as_str())
+            && current.get("uid").and_then(serde_json::Value::as_str).unwrap_or_default() == held.uid
+            && current.get("baseUrl").and_then(serde_json::Value::as_str).unwrap_or_default() == held.base_url
+    }, update).await.map_err(|err| failed("store", err.to_string()))? {
+        return Ok(MimoCredentials { base_url, ..credentials });
+    }
+    match file.load::<MimoCredentials>().await {
+        Probe::Present(current) if current.api_key == credentials.api_key && current.uid == credentials.uid
+            && !current.base_url.is_empty() && current.base_url != MIMO_DEFAULT_BASE_URL => Ok(current),
+        _ => Err(failed("credential_changed", "[mimo-oauth] the login changed during Token Plan discovery; retry the request")),
+    }
+}
+/// A Token Plan key whose gateway is unknown is resolved before storing.
+async fn settle(http: &Http, file: &CredentialFile, mut credentials: MimoCredentials) -> Result<Option<String>, LoginFailure> {
+    let unrouted = credentials.base_url.is_empty() || credentials.base_url == MIMO_DEFAULT_BASE_URL;
+    if credentials.api_key.starts_with(TOKEN_PLAN_KEY_PREFIX) && unrouted {
+        credentials.base_url = probe_token_plan(http, &credentials.api_key).await?.to_owned();
+    }
+    file.keep(&[&credentials.api_key]);
+    file.save(&credentials).await.map_err(|err| failed("store", err.to_string()))?;
+    Ok(Some(credentials.uid).filter(|u| !u.is_empty()))
+}
+#[derive(Serialize, Deserialize)]
+struct KeyName {
+    #[serde(rename = "keyName")]
+    key_name: String,
+}
+/// The name the platform shows the key under: generated once, then reused so
+/// repeated sign-ins replace one key instead of piling up new ones.
+async fn key_name(file: &CredentialFile) -> Result<String, LoginFailure> {
+    if let Probe::Present(saved) = file.load::<KeyName>().await
+        && !saved.key_name.is_empty()
+    {
+        return Ok(saved.key_name);
+    }
+    let name = format!("mimo-code-cli-key-{:08x}", rand::random::<u32>());
+    file.save(&KeyName { key_name: name.clone() })
+        .await
+        .map_err(|err| failed("store", err.to_string()))?;
+    Ok(name)
+}
 #[async_trait]
 impl LoginFlow for MimoLogin {
     fn target(&self) -> &LoginTarget {
@@ -234,163 +433,5 @@ impl LoginFlow for MimoLogin {
                 }
             }
         }))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use aes_gcm::Aes256Gcm;
-    use aes_gcm::Nonce;
-    use aes_gcm::aead::Aead;
-    use aes_gcm::aead::KeyInit;
-    use base64::Engine as _;
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use sha2::Digest;
-    use sha2::Sha256;
-    use tokio::io::AsyncReadExt;
-    use tokio::io::AsyncWriteExt;
-    use tokio::net::TcpStream;
-    use x25519_dalek::PublicKey;
-    use x25519_dalek::StaticSecret;
-use crate::oauth::http::testing::Scripted;
-use crate::oauth::http::testing::finish;
-    use super::*;
-
-    #[test]
-    fn a_failed_settle_redirects_with_its_message_not_its_debug_form() {
-        let failure = failed("store", "disk full");
-        let response = result_redirect(Some(&failure_message(&failure)));
-        let location = response
-            .headers
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("location"))
-            .map(|(_, v)| v.clone())
-            .unwrap();
-        let url = url::Url::parse(&location).unwrap();
-        let pairs: Vec<_> = url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
-        assert_eq!(pairs, [("status".into(), "error".into()), ("message".into(), "disk full".into())]);
-    }
-    use crate::oauth::CredentialIo;
-    use crate::oauth::Probe;
-
-    /// The Token Plan probe whose every region outlives its timer ends as the real Node function did
-    /// (`sites.mimoProbe`): the last region's `AbortSignal.timeout` error.
-    #[tokio::test(start_paused = true)]
-    async fn a_probe_that_outlives_its_timer_reads_as_nodes() {
-        use crate::transport::site_probe::TimingOut;
-        use crate::transport::site_probe::assert_thrown;
-        use crate::transport::site_probe::assert_transport;
-        use crate::transport::site_probe::login_message;
-
-        let transport = TimingOut::new();
-        let http: Http = transport.clone();
-        let failure = probe_token_plan(&http, "k").await.expect_err("never answers");
-        assert_transport("mimoProbe", &transport);
-        assert_eq!(
-            transport.seen().len(),
-            crate::transport::site_probe::recorded("mimoProbe")["armed"].as_array().unwrap().len(),
-            "every region is tried under a timer of its own"
-        );
-        assert_thrown("mimoProbe", login_message(&failure));
-    }
-
-    fn names(dir: &tempfile::TempDir) -> CredentialFile {
-        let tokens = mixdog_rt::testing::tokens();
-        CredentialFile::new(
-            key_name_path(dir.path()),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        )
-    }
-
-    fn store(dir: &tempfile::TempDir) -> CredentialFile {
-        let tokens = mixdog_rt::testing::tokens();
-        CredentialFile::new(
-            dir.path().join("mimo-oauth.json"),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        )
-    }
-
-    /// The platform's side: seals `doc` to the public key found in the authorize URL.
-    fn seal(authorize_url: &str, doc: &serde_json::Value) -> String {
-        let url = url::Url::parse(authorize_url).unwrap();
-        let pk = url.query_pairs().find(|(k, _)| k == "pk").unwrap().1.into_owned();
-        let der = URL_SAFE_NO_PAD.decode(pk).unwrap();
-        let public: [u8; 32] = der[12..].try_into().unwrap();
-        let ephemeral = StaticSecret::from([9u8; 32]);
-        let shared = ephemeral.diffie_hellman(&PublicKey::from(public));
-        let cipher = Aes256Gcm::new_from_slice(&Sha256::digest(shared.as_bytes())).unwrap();
-        let sealed = cipher.encrypt(Nonce::from_slice(&[4u8; 12]), doc.to_string().as_bytes()).unwrap();
-        let mut payload = PublicKey::from(&ephemeral).as_bytes().to_vec();
-        payload.extend_from_slice(&[4u8; 12]);
-        payload.extend_from_slice(&sealed);
-        URL_SAFE_NO_PAD.encode(payload)
-    }
-
-    async fn browser(url: &str, u: &str) -> String {
-        let redirect = url::Url::parse(url).unwrap().query_pairs().find(|(k, _)| k == "redirect_uri").unwrap().1.into_owned();
-        let port = url::Url::parse(&redirect).unwrap().port().unwrap();
-        let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-        stream.write_all(format!("GET /?u={u} HTTP/1.1\r\nHost: localhost\r\n\r\n").as_bytes()).await.unwrap();
-        let mut out = String::new();
-        stream.read_to_string(&mut out).await.unwrap();
-        out
-    }
-
-    async fn authorize(session: &dyn LoginSession) -> String {
-        loop {
-            if let Some(LoginState::Authorize { url, .. }) = session.next().await {
-                return url;
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn the_loopback_reply_stores_the_credential_and_redirects() {
-        mixdog_rt::testing::tokens();
-        let dir = tempfile::tempdir().unwrap();
-        // A name saved by an earlier sign-in is reused.
-        names(&dir).save(&KeyName { key_name: "key-1".into() }).await.unwrap();
-        let flow = MimoLogin::new(Scripted::new(&[]), store(&dir), names(&dir));
-        let session = flow.start().await.unwrap();
-        let url = authorize(session.as_ref()).await;
-        assert!(url.starts_with("https://platform.xiaomimimo.com/authorize?pk="));
-        assert!(url.contains("key_name=key-1"));
-        // Something that is not sealed to this login's key is refused and the login waits on.
-        assert!(browser(&url, "AAAA").await.starts_with("HTTP/1.1 400"));
-        let u = seal(&url, &serde_json::json!({"sk": "sk-live", "uid": 7}));
-        let answer = browser(&url, &u).await;
-        assert!(answer.starts_with("HTTP/1.1 302") && answer.contains("status=success"), "{answer}");
-        assert_eq!(finish(session.as_ref()).await.last(), Some(&LoginState::Done { account: Some("7".into()) }));
-        let Probe::Present(saved) = store(&dir).load::<MimoCredentials>().await else { panic!("stored") };
-        assert_eq!((saved.api_key.as_str(), saved.base_url.as_str()), ("sk-live", ""));
-    }
-
-    #[tokio::test]
-    async fn a_pasted_token_plan_key_is_routed_to_the_first_region_that_accepts_it() {
-        mixdog_rt::testing::tokens();
-        let dir = tempfile::tempdir().unwrap();
-        let http = Scripted::new(&[(401, "no"), (200, "{}")]);
-        let flow = MimoLogin::new(http.clone(), store(&dir), names(&dir));
-        let session = flow.start().await.unwrap();
-        let url = authorize(session.as_ref()).await;
-        // No name saved yet: one is generated and kept for the next sign-in.
-        let generated = key_name(&names(&dir)).await.unwrap();
-        assert!(generated.starts_with("mimo-code-cli-key-") && generated.len() == "mimo-code-cli-key-".len() + 8);
-        assert!(url.contains(&format!("key_name={generated}")));
-        let u = seal(&url, &serde_json::json!({"sk": "tp-abc"}));
-        session.provide(mixdog_core_api::domain::login::LoginInput::AuthorizationCode(u)).await.unwrap();
-        assert_eq!(finish(session.as_ref()).await.last(), Some(&LoginState::Done { account: None }));
-        let Probe::Present(saved) = store(&dir).load::<MimoCredentials>().await else { panic!("stored") };
-        assert_eq!(saved.base_url, "https://token-plan-ams.xiaomimimo.com/v1");
-        let seen = http.seen.lock().unwrap();
-        assert_eq!(seen[0].url, "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions");
-        assert!(seen[0].headers.contains(&("x-mimo-source".into(), "mimocode-cli".into())));
-    }
-
-    #[tokio::test]
-    async fn a_key_every_region_rejects_asks_for_a_new_sign_in() {
-        let http = Scripted::new(&[(401, "a"), (401, "b"), (401, "c")]);
-        let got = probe_token_plan(&(http as Http), "tp-x").await;
-        assert!(matches!(got, Err(LoginFailure::Failed { code, .. }) if code == "invalid_grant"));
     }
 }

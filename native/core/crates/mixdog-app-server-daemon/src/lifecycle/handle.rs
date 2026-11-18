@@ -37,6 +37,7 @@ use super::model::ReleaseCause;
 use super::model::StopMode;
 use super::model::StopReason;
 use super::ports::CorePort;
+use super::ports::ManagedDrain;
 use super::ports::Ports;
 use super::release::LastExit;
 use super::release::write_last_exit;
@@ -72,6 +73,8 @@ pub struct Lifecycle {
     ports: Ports,
     cfg: LifecycleConfig,
     budgets: ReleaseBudgets,
+    #[cfg(test)]
+    pub(super) test_backstop: Mutex<Option<TestBackstop>>,
     stalled_ms: AtomicU64,
     /// See [`Lifecycle::note_trigger`].
     trigger: Mutex<Option<String>>,
@@ -82,8 +85,25 @@ pub struct Lifecycle {
     hold_timer: Mutex<Option<Box<dyn Send>>>,
 }
 
+#[cfg(test)]
+pub(super) struct TestBackstop {
+    pub expire: std::sync::mpsc::Receiver<()>,
+    pub recorded: std::sync::mpsc::Sender<()>,
+}
+
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn drain_exit(drain: &ManagedDrain, cause: ReleaseCause) -> (&'static str, i32) {
+    use mixdog_spawn::ShutdownOutcome;
+
+    let code = cause.exit_code();
+    match drain.get() {
+        Some(ShutdownOutcome::ConfirmedFailure) => (" (managed process drain failed)", if code == 0 { 1 } else { code }),
+        Some(ShutdownOutcome::Unverified) => (" (managed process drain coverage unverified)", code),
+        Some(ShutdownOutcome::Clean) | None => ("", code),
+    }
 }
 
 impl Lifecycle {
@@ -110,6 +130,8 @@ impl Lifecycle {
             ports,
             cfg,
             budgets,
+            #[cfg(test)]
+            test_backstop: Mutex::new(None),
             stalled_ms: AtomicU64::new(0),
             trigger: Mutex::new(None),
             timer,
@@ -242,6 +264,9 @@ impl Lifecycle {
         reason: StopReason,
         confirm_token: Option<&str>,
     ) -> Result<(), CommandError> {
+        if mode == StopMode::Force {
+            return self.stop_noting(mode, reason, confirm_token, super::model::FORCED_STOP_TEXT);
+        }
         self.apply(|m| {
             if m.defers_stop(mode, reason) {
                 tracing::info!(?reason, "stop deferred: clients are still attached");
@@ -408,8 +433,8 @@ impl Lifecycle {
         }
     }
 
-    /// LR §5.3: final barriers, close connections, close the extension host, record the exit,
-    /// withdraw discovery, close data handles, release `L` by leaving.
+    /// Final barriers, core stop steps, record the exit, withdraw discovery, close connections and
+    /// the extension host, flush the log, then release `L` by leaving.
     ///
     /// Each step runs under the supervisor with its budget. A step over its budget is abandoned
     /// on its thread and named in `last-exit.json` (`stuckStep`); the release then skips the
@@ -419,42 +444,100 @@ impl Lifecycle {
         let core = &self.ports.core;
         // Before any step: the stop steps (run inside `closeDataHandles`) abort the agent runs with Node's text of this stop.
         let node_reason = locked(&self.trigger).take().unwrap_or_else(|| cause.node_text());
+        let drain = Arc::new(ManagedDrain::new());
+        // Node's `shutdown()` arms its whole-teardown backstop and its PostgreSQL fallback point at its start (`daemon.mjs:289-299`); `release_started`
+        // arms the second here (`ComposedCore::set_stop_reason`), this the first.
+        let (finished, backstop) = std::sync::mpsc::channel::<()>();
+        {
+            let lifecycle = Arc::clone(self);
+            let node_reason = node_reason.clone();
+            let drain = Arc::clone(&drain);
+            #[cfg(test)]
+            let test_backstop = locked(&self.test_backstop).take();
+            let spawned = std::thread::Builder::new().name("mixdog-release-backstop".into()).spawn(move || {
+                let wait_for_budget = || backstop.recv_timeout(super::supervisor::SHUTDOWN_BUDGET) == Err(std::sync::mpsc::RecvTimeoutError::Timeout);
+                #[cfg(not(test))]
+                let expired = wait_for_budget();
+                #[cfg(test)]
+                let expired = match &test_backstop {
+                    Some(test) => test.expire.recv().is_ok(),
+                    None => wait_for_budget(),
+                };
+                if expired {
+                    tracing::error!("shutdown budget exceeded, forcing exit");
+                    // The budget is the exit: the record is written beside it, never ahead of it, since a write that stalls would extend the budget by
+                    // its own.
+                    let recorder = Arc::clone(&lifecycle);
+                    let (detail, code) = drain_exit(&drain, cause);
+                    let reason = format!("{}{detail}", cause.text());
+                    let _ = std::thread::Builder::new()
+                        .name("mixdog-release-record".into())
+                        .spawn(move || {
+                            recorder.record_exit(&reason, Some("shutdownBudget"));
+                            #[cfg(test)]
+                            if let Some(test) = test_backstop {
+                                let _ = test.recorded.send(());
+                            }
+                        });
+                    let reason = format!("{node_reason}{detail} (budget exceeded, forced exit)");
+                    lifecycle.ports.exiter.exit(crate::crash_record::settle_exit(&reason, code));
+                }
+            });
+            if let Err(error) = spawned {
+                tracing::error!(%error, "the release backstop did not start");
+            }
+        }
         core.release_started(&node_reason);
-        type ClosingStep = (&'static str, Duration, fn(&dyn CorePort));
-        let closing: [ClosingStep; 3] = [
-            ("finalBarriers", budgets.final_barriers, |core| core.final_barriers()),
+        type Step = (&'static str, Duration, fn(&dyn CorePort));
+        // What must not be lost comes first and waits behind nothing that can take long: the stop steps (Node's order: the sessions' teardown, which
+        // cancels the live runs and commits them as interrupted and closes the agents, then the records and the database) run right after the final
+        // barriers. Connections and the extension host, which Node closed after its sessions and last of all, follow.
+        let mut stuck = None;
+        let barriers = Arc::clone(core);
+        if supervise("finalBarriers", budgets.final_barriers, move || barriers.final_barriers()) == StepEnd::OverBudget {
+            stuck = Some("finalBarriers");
+        } else {
+            let core = Arc::clone(core);
+            let drain = Arc::clone(&drain);
+            if supervise("closeDataHandles", budgets.close_data_handles, move || core.close_data_handles(&drain)) == StepEnd::OverBudget {
+                stuck = Some("closeDataHandles");
+            }
+        }
+        let rest: [Step; 2] = [
             ("closeConnections", budgets.close_connections, |core| core.close_connections()),
             ("closeExtHost", budgets.close_ext_host, |core| core.close_ext_host()),
         ];
-        let mut stuck = None;
-        for (name, budget, step) in closing {
-            let core = Arc::clone(core);
-            if supervise(name, budget, move || step(&*core)) == StepEnd::OverBudget {
-                stuck = Some(name);
-                break;
+        let run = |steps: [Step; 2], stuck: &mut Option<&'static str>| {
+            for (name, budget, step) in steps {
+                let core = Arc::clone(core);
+                if supervise(name, budget, move || step(&*core)) == StepEnd::OverBudget {
+                    *stuck = Some(name);
+                    break;
+                }
             }
-        }
-        let closed = stuck.is_none();
-        let reason = cause.text();
+        };
+        let (detail, code) = drain_exit(&drain, cause);
+        let reason = format!("{}{detail}", cause.text());
         self.record_exit(&reason, stuck);
         let discovery = Arc::clone(&self.ports.discovery);
         if supervise("withdrawDiscovery", budgets.withdraw_discovery, move || discovery.withdraw()) == StepEnd::OverBudget {
             stuck.get_or_insert("withdrawDiscovery");
             self.record_exit(&reason, stuck);
         }
-        if closed {
-            let core = Arc::clone(core);
-            if supervise("closeDataHandles", budgets.close_data_handles, move || core.close_data_handles()) == StepEnd::OverBudget {
-                self.record_exit(&reason, stuck.or(Some("closeDataHandles")));
+        if stuck.is_none() {
+            run(rest, &mut stuck);
+            if stuck.is_some() {
+                self.record_exit(&reason, stuck);
             }
         }
-        // Node's exit hook writes the queued log tail on every exit, a forced one included (`daemon.mjs:153`); `closeDataHandles` is skipped
+        // Node's exit hook writes the queued log tail on every exit, a forced one included (`daemon.mjs:153`); the stop steps are skipped
         // when an earlier step was stuck, so the flush has its own step. It goes through the log's own queue and lane, under the
         // supervisor's existing record budget: a disk that never answers cannot hold the exit.
         let flush = Arc::clone(core);
         supervise("flushLog", budgets.record_exit, move || flush.flush_log());
         self.apply(Machine::mark_stopped);
-        self.ports.exiter.exit(crate::crash_record::settle_exit(&node_reason, cause.exit_code()));
+        drop(finished);
+        self.ports.exiter.exit(crate::crash_record::settle_exit(&format!("{node_reason}{detail}"), code));
     }
 
     fn record_exit(&self, reason: &str, stuck_step: Option<&'static str>) {

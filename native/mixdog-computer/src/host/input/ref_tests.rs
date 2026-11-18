@@ -136,7 +136,7 @@ impl Accessibility for Screen {
         &self,
         _: &WindowInfo,
         _: &[String],
-        _: &dyn Fn() -> Result<(), String>,
+        _: crate::platform::Authorize<'_>,
     ) -> Result<MenuOutcome, String> {
         Err("fake".into())
     }
@@ -276,6 +276,7 @@ fn host(screen: Screen, seen: &Rc<El>, continuation: bool) -> Host {
         Box::new(screen),
         Observer::new(),
         Box::new(crate::lease_api::NoLease),
+        crate::port::Scope::open(1),
     );
     host.session(|session| {
         session.refs.insert(

@@ -66,7 +66,7 @@ pub(crate) fn op_ref_of(record: &Record) -> Option<&OpRef> {
         Record::ModelSwitch(r) => r.op.as_ref(),
         Record::Queue(r) => r.op.as_ref(),
         Record::Op(r) => Some(&r.op),
-        Record::Checkpoint(_) | Record::Draft(_) => None,
+        Record::Checkpoint(_) | Record::Draft(_) | Record::WorkStop(_) => None,
     }
 }
 
@@ -142,11 +142,11 @@ impl OpStore for ThreadOpStore {
     }
 
     async fn put(&self, id: &OpId, record: OpRecord) -> Result<(), CoreError> {
-        let (method, digest, state, detail, result) = match record {
+        let (method, digest, audience, state, detail, result) = match record {
             OpRecord::Fenced => {
-                (FENCE_METHOD.to_owned(), PayloadDigest::of_params(&json!({})).as_str().to_owned(), Logged::Fenced, None, None)
+                (FENCE_METHOD.to_owned(), PayloadDigest::of_params(&json!({})).as_str().to_owned(), None, Logged::Fenced, None, None)
             }
-            OpRecord::Settled { method, digest, state } => {
+            OpRecord::Settled { method, digest, audience, state } => {
                 let (state, detail, result) = match state {
                     OpState::Applied { result, .. } => (Logged::Applied, None, result),
                     OpState::Rejected { error } => (Logged::Rejected, Some(rejection_to_json(&error)), None),
@@ -157,13 +157,15 @@ impl OpStore for ThreadOpStore {
                         (Logged::ExternalUnknown, Some(json!({ "effect": &*effect, "target": &*target })), None)
                     }
                 };
-                (method.to_string(), digest.as_str().to_owned(), state, detail, result)
+                let audience = audience.map(|a| Digest::try_from(a.as_str().to_owned())).transpose().map_err(|_| unreadable())?;
+                (method.to_string(), digest.as_str().to_owned(), audience, state, detail, result)
             }
         };
         let op = OpRef {
             id: Text::try_from(id.as_str()).map_err(|_| too_long("opId"))?,
             method: Text::try_from(method.as_str()).map_err(|_| too_long("method"))?,
             digest: Digest::try_from(digest).map_err(|_| unreadable())?,
+            audience,
             result: result.and_then(|value| Json::try_from(value).ok()),
         };
         let handle = self.dir.op_target(&self.thread).await?;
@@ -197,7 +199,12 @@ fn record_of(op: StoredOp) -> Result<OpRecord, CoreError> {
             OpState::ExternalUnknown { effect, target }
         }
     };
-    Ok(OpRecord::Settled { method: op.method.into(), digest: PayloadDigest::from_stored(op.digest.into()), state })
+    Ok(OpRecord::Settled {
+        method: op.method.into(),
+        digest: PayloadDigest::from_stored(op.digest.into()),
+        audience: op.audience.map(|a| PayloadDigest::from_stored(a.into())),
+        state,
+    })
 }
 
 #[cfg(test)]
@@ -205,7 +212,7 @@ mod tests {
     use super::*;
 
     fn stored(state: Logged, result: Option<Value>, detail: Option<Value>) -> StoredOp {
-        StoredOp { method: "turn/start".into(), digest: "sha256:d".into(), state, seq: 7, result, detail }
+        StoredOp { method: "turn/start".into(), digest: "sha256:d".into(), audience: None, state, seq: 7, result, detail }
     }
 
     #[test]
@@ -216,6 +223,7 @@ mod tests {
             OpRecord::Settled {
                 method: "turn/start".into(),
                 digest: PayloadDigest::from_stored("sha256:d".into()),
+                audience: None,
                 state: OpState::Applied { seq: Some(7), result: Some(json!({ "kind": "started" })) },
             }
         );

@@ -233,31 +233,6 @@ mod tests {
         assert_eq!(body, json!({"role": "assistant", "content": "x", "providerReplay": replay}));
     }
 
-    /// `vectors/legacy_reasoning.json` (`vectors/legacy_reasoning.mjs`): the envelope holds
-    /// exactly the items, in the order and key order, Node's legacy path sends for the
-    /// message; everything else of the message is as stored.
-    #[test]
-    fn lone_reasoning_items_become_the_items_node_sends() {
-        let cases: Vec<Value> = serde_json::from_str(include_str!("vectors/legacy_reasoning.json")).unwrap();
-        assert_eq!(cases.len(), 5);
-        for case in cases {
-            let name = &case["name"];
-            let mut body = case["message"].clone();
-            convert(&mut body, &session_wire_ids([&case["message"]]));
-            let replay = body.as_object_mut().unwrap().shift_remove("providerReplay").unwrap();
-            assert_eq!(replay["version"], 1, "{name}");
-            assert_eq!(replay["provider"], RESPONSES_OWNER, "{name}");
-            assert_eq!(
-                serde_json::to_string(&replay["items"]).unwrap(),
-                serde_json::to_string(&case["items"]).unwrap(),
-                "{name}"
-            );
-            let mut stored = case["message"].clone();
-            stored.as_object_mut().unwrap().shift_remove("reasoningItems");
-            assert_eq!(serde_json::to_string(&body).unwrap(), serde_json::to_string(&stored).unwrap(), "{name}");
-        }
-    }
-
     #[test]
     fn lone_items_with_nothing_to_replay_leave_the_flattened_message() {
         let mut body = json!({"role": "assistant", "content": "x", "reasoningItems": [
@@ -267,6 +242,22 @@ mod tests {
         ]});
         convert(&mut body, &HashMap::new());
         assert_eq!(body, json!({"role": "assistant", "content": "x"}));
+    }
+
+    #[test]
+    fn top_level_thought_parts_move_under_gemini_metadata() {
+        let parts = json!([{"text": "t", "thought": true, "thoughtSignature": "s"}]);
+        let mut body = json!({"role": "assistant", "content": "x", "thoughtParts": parts,
+            "providerMetadata": {"accountRouting": {"provider": "gemini"}}});
+        convert(&mut body, &HashMap::new());
+        assert_eq!(
+            body,
+            json!({"role": "assistant", "content": "x",
+                "providerMetadata": {"accountRouting": {"provider": "gemini"}, "gemini": {"thoughtParts": parts}}})
+        );
+        let current = body.clone();
+        convert(&mut body, &HashMap::new());
+        assert_eq!(body, current, "the current form is left as it is");
     }
 
     /// A legacy call with an id the Responses wire refuses, and its stored result, lower to a
@@ -353,18 +344,58 @@ mod tests {
     }
 
     #[test]
-    fn top_level_thought_parts_move_under_gemini_metadata() {
-        let parts = json!([{"text": "t", "thought": true, "thoughtSignature": "s"}]);
-        let mut body = json!({"role": "assistant", "content": "x", "thoughtParts": parts,
-            "providerMetadata": {"accountRouting": {"provider": "gemini"}}});
-        convert(&mut body, &HashMap::new());
+    fn lone_reasoning_items_become_the_items_the_responses_wire_carries() {
+        let ids = HashMap::new();
+        let item = |id: &str, after: bool| json!({"id": id, "encrypted_content": format!("enc-{id}"), "afterText": after});
+        let reasoning = |id: &str| json!({"type": "reasoning", "id": id, "encrypted_content": format!("enc-{id}"), "summary": []});
+        let assistant_text = json!({
+            "type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "hi"}],
+            "internal_chat_message_metadata_passthrough": {},
+        });
+
+        // Items before the text come first, the text message next, the items tagged after it last.
+        let mut body = json!({"role": "assistant", "content": "hi", "reasoningItems": [item("r2", true), item("r1", false)]});
+        convert(&mut body, &ids);
+        assert_eq!(body["providerReplay"], json!({"version": 1, "provider": "openai-responses", "items": [reasoning("r1"), assistant_text, reasoning("r2")]}));
+        assert!(body.get("reasoningItems").is_none());
+        assert_eq!(body["content"], "hi", "the flattened text stays for the transcript");
+
+        // With calls and no text the text message is left out; the calls follow the items.
+        let mut body = json!({
+            "role": "assistant", "content": "", "reasoningItems": [item("r1", false)],
+            "toolCalls": [{"id": "c1", "name": "read", "arguments": {"a": 1}}],
+        });
+        convert(&mut body, &ids);
         assert_eq!(
-            body,
-            json!({"role": "assistant", "content": "x",
-                "providerMetadata": {"accountRouting": {"provider": "gemini"}, "gemini": {"thoughtParts": parts}}})
+            body["providerReplay"]["items"],
+            json!([reasoning("r1"), {"type": "function_call", "call_id": "c1", "name": "read", "arguments": "{\"a\":1}"}])
         );
-        let current = body.clone();
+
+        // The public OpenAI route sends the plain message form.
+        let mut body = json!({
+            "role": "assistant", "content": "hi", "reasoningItems": [item("r1", false)],
+            "providerMetadata": {"accountRouting": {"provider": "openai"}},
+        });
+        convert(&mut body, &ids);
+        assert_eq!(body["providerReplay"]["items"][1], json!({"role": "assistant", "content": [{"type": "output_text", "text": "hi"}]}));
+    }
+
+    #[test]
+    fn items_without_encrypted_content_or_of_another_type_are_dropped() {
+        let mut body = json!({
+            "role": "assistant", "content": "hi",
+            "reasoningItems": [{"id": "r1"}, {"id": "r2", "encrypted_content": ""}, {"type": "other", "encrypted_content": "x"}],
+        });
         convert(&mut body, &HashMap::new());
-        assert_eq!(body, current, "the current form is left as it is");
+        assert_eq!(body, json!({"role": "assistant", "content": "hi"}));
+        // An id-less item keeps no id; a summary that is not a list becomes an empty one.
+        let mut body = json!({"role": "assistant", "content": "", "reasoningItems": [{"encrypted_content": "e", "summary": "s"}]});
+        convert(&mut body, &HashMap::new());
+        assert_eq!(body["providerReplay"]["items"][0], json!({"type": "reasoning", "encrypted_content": "e", "summary": []}));
     }
 }
+
+#[cfg(node_twin)]
+#[cfg(test)]
+#[path = "node-twin/legacy_reasoning.rs"]
+mod legacy_reasoning;

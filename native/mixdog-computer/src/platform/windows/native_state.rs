@@ -2,14 +2,13 @@
 //! (NativeObservableState, MixWin32Keyboard.cs:668-701), which a background
 //! key or click changes without any accessibility value moving.
 
-use super::background::send_value;
+use super::background::read_value;
 use super::native::{class_name, is_window};
 use crate::platform::Wid;
-use windows::Win32::UI::WindowsAndMessaging::{WM_GETTEXT, WM_GETTEXTLENGTH};
+use crate::port::windows::ReadMessage;
 
 /// The longest text read back, in UTF-16 units.
 const TEXT_CAP: usize = 32768;
-const BM_GETCHECK: u32 = 0x00F0;
 const CLICKS: [&str; 5] = ["click", "double_click", "right_click", "middle_click", "triple_click"];
 
 /// The state `action` could change on `child`; None where it reports none.
@@ -21,7 +20,7 @@ pub fn read(child: Wid, action: &str) -> Option<String> {
         &class_name(child),
         action,
         || edit_text(child),
-        || send_value(child, BM_GETCHECK, 0, 0).ok(),
+        || read_value(child, ReadMessage::Check).ok(),
     )
 }
 
@@ -47,9 +46,9 @@ fn describe(
 
 /// The control's whole text, up to the cap (WM_GETTEXTLENGTH, WM_GETTEXT).
 fn edit_text(child: Wid) -> Option<String> {
-    let length = send_value(child, WM_GETTEXTLENGTH, 0, 0).ok()?.min(TEXT_CAP);
+    let length = read_value(child, ReadMessage::TextLength).ok()?.min(TEXT_CAP);
     let mut buffer = vec![0u16; length + 1];
-    send_value(child, WM_GETTEXT, length + 1, buffer.as_mut_ptr() as isize).ok()?;
+    read_value(child, ReadMessage::Text(&mut buffer)).ok()?;
     let end = buffer.iter().position(|unit| *unit == 0).unwrap_or(length);
     Some(String::from_utf16_lossy(&buffer[..end]))
 }

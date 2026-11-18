@@ -46,7 +46,7 @@
                       "type": "integer",
                       "minimum": 1,
                       "maximum": 100000,
-                      "description": "Last N lines, not with offset."
+                      "description": "Last N lines, not with offset. Overrides limit; very large files may return fewer lines."
                     }
                   },
                   "required": [
@@ -58,7 +58,7 @@
             }
           }
         ],
-        "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+        "description": "Overlapping windows of one file merge. A glob fans out to up to 10 newest files; a literal file name takes precedence."
       },
       "offset": {
         "type": "integer",
@@ -69,17 +69,17 @@
         "type": "integer",
         "minimum": 1,
         "maximum": 100000,
-        "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+        "description": "Maximum line count; default 500 per exact file, at most 25 per glob-expanded file for offset/limit windows. Batch default; PDFs use pages."
       },
       "tail": {
         "type": "integer",
         "minimum": 1,
         "maximum": 100000,
-        "description": "Last N lines of the file, not with offset."
+        "description": "Last N lines of each file, not with offset. Overrides limit; very large files may return fewer lines."
       },
       "pages": {
         "type": "string",
-        "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+        "description": "PDF page range \"N\" or \"N-M\", 1-based, up to 20 pages per PDF. Applies to every PDF in a batch or glob. Text pages return text; scanned pages in an explicit range return page images or OCR text, depending on model. Without pages, a PDF over 10 pages returns its first 5 pages and page count; a batch may return PDF text only."
       }
     },
     "required": [

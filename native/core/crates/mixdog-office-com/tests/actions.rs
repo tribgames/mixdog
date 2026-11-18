@@ -202,13 +202,6 @@ impl Shared {
     }
 }
 
-fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("mixdog-office-actions-{}-{name}", std::process::id()));
-    let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
-    mixdog_fsio::create_dir_all(&Unlaned, &dir).expect("a scratch directory");
-    dir
-}
-
 fn request(value: Json) -> Value {
     payload::parse_payload(&value.to_string()).expect("a request")
 }
@@ -238,10 +231,6 @@ fn word_drivers<'a>(readers: &'a [(&'a str, &'a dyn FormatReader)], editors: &'a
     Drivers::new(readers, editors)
 }
 
-fn full_path_in_temp(name: &str) -> String {
-    std::env::temp_dir().join(name).to_string_lossy().into_owned()
-}
-
 // ---------------------------------------------------------------------------------------------------------------------
 // detect.
 
@@ -258,91 +247,6 @@ fn detect_without_a_path_says_what_is_installed_and_running() {
          {\"format\":\"xlsx\",\"installed\":false,\"active\":false,\"documentOpen\":false},\
          {\"format\":\"pptx\",\"installed\":true,\"active\":false,\"documentOpen\":false}]}"
     );
-    fake.finish();
-}
-
-#[test]
-fn detect_with_a_path_reports_the_document_open_for_that_format_only() {
-    let path = full_path_in_temp("held.docx");
-    let mut log = Log::default();
-    log.find_word_document(&path);
-    let fake = log.fake();
-    let mut handler = one_shot(word_drivers(&[], &[]), Some(fake.object(1)));
-    let (mut out, _, _) = emitter();
-    let answer = handler.handle(&mut out, &request(json!({"action": "detect", "format": "docx", "path": path}))).expect("an answer");
-    assert!(line(&answer).contains("{\"format\":\"docx\",\"installed\":true,\"active\":true,\"documentOpen\":true}"), "{}", line(&answer));
-    fake.finish();
-}
-
-// ---------------------------------------------------------------------------------------------------------------------
-// The one-shot entry.
-
-#[test]
-fn an_application_that_is_not_installed_and_one_that_is_not_running_are_refused_with_the_scripts_texts() {
-    let path = full_path_in_temp("a.docx");
-    let (mut out, _, _) = emitter();
-    let mut handler = one_shot(word_drivers(&[], &[]), None);
-    let refused = handler.handle(&mut out, &request(json!({"action": "snapshot", "format": "xlsx", "path": path}))).unwrap_err();
-    assert_eq!(refused, "Microsoft Office application for .xlsx is not installed");
-    let refused = handler.handle(&mut out, &request(json!({"action": "snapshot", "format": "docx", "path": path, "mode": "live"}))).unwrap_err();
-    assert_eq!(refused, "No running Microsoft Office application for .docx");
-}
-
-#[test]
-fn a_live_request_for_a_document_the_application_does_not_hold_is_refused() {
-    let path = full_path_in_temp("absent.docx");
-    let mut log = Log::default();
-    log.get(1, "Documents", obj(2));
-    log.end_of_enumeration(2);
-    let fake = log.fake();
-    let mut handler = one_shot(word_drivers(&[], &[]), Some(fake.object(1)));
-    let (mut out, _, _) = emitter();
-    let refused = handler.handle(&mut out, &request(json!({"action": "snapshot", "format": "docx", "path": path, "mode": "live"}))).unwrap_err();
-    assert_eq!(refused, format!("The exact document is not open in Microsoft Office: {path}"));
-    fake.finish();
-}
-
-#[test]
-fn a_live_snapshot_answers_the_readers_value_and_leaves_the_users_document_open() {
-    let path = full_path_in_temp("live.docx");
-    let mut log = Log::default();
-    log.find_word_document(&path);
-    let fake = log.fake();
-    let readers: [(&str, &dyn FormatReader); 1] = [("docx", &Reader)];
-    let mut handler = one_shot(word_drivers(&readers, &[]), Some(fake.object(1)));
-    let (mut out, stdout, stderr) = emitter();
-    let answer = handler.handle(&mut out, &request(json!({"action": "snapshot", "format": "docx", "path": path, "mode": "live"}))).expect("an answer");
-    assert_eq!(line(&answer), "{\"ok\":true,\"backend\":\"microsoft-office-com\",\"mode\":\"live\",\"value\":{\"paragraphs\":1}}");
-    handler.finish(&mut out);
-    fake.finish();
-    assert_eq!((stdout.text(), stderr.text()), (String::new(), String::new()), "a live document is neither closed nor quit");
-}
-
-#[test]
-fn a_live_save_rebuilds_the_tables_of_contents_then_saves() {
-    let path = full_path_in_temp("save.docx");
-    let mut log = Log::default();
-    log.find_word_document(&path);
-    log.get(3, "TablesOfContents", null());
-    log.call(3, "Save", vec![], empty());
-    let fake = log.fake();
-    let mut handler = one_shot(word_drivers(&[], &[]), Some(fake.object(1)));
-    let (mut out, _, _) = emitter();
-    let answer = handler.handle(&mut out, &request(json!({"action": "save", "format": "docx", "path": path, "mode": "live"}))).expect("an answer");
-    assert_eq!(line(&answer), format!("{{\"ok\":true,\"backend\":\"microsoft-office-com\",\"mode\":\"live\",\"saved\":true,\"path\":{}}}", json!(path)));
-    fake.finish();
-}
-
-#[test]
-fn an_unknown_action_is_refused_with_the_scripts_text_after_the_document_was_found() {
-    let path = full_path_in_temp("live.docx");
-    let mut log = Log::default();
-    log.find_word_document(&path);
-    let fake = log.fake();
-    let mut handler = one_shot(word_drivers(&[], &[]), Some(fake.object(1)));
-    let (mut out, _, _) = emitter();
-    let refused = handler.handle(&mut out, &request(json!({"action": "frobnicate", "format": "docx", "path": path, "mode": "live"}))).unwrap_err();
-    assert_eq!(refused, "Unsupported Office host action: frobnicate");
     fake.finish();
 }
 
@@ -365,97 +269,6 @@ fn live_batch(path: &str, operations: Json, extra: Json) -> Value {
         }
     }
     request(body)
-}
-
-#[test]
-fn a_live_word_batch_is_one_undo_record_and_reports_one_undo_unit() {
-    let path = full_path_in_temp("batch.docx");
-    let mut log = Log::default();
-    log.find_word_document(&path);
-    word_batch_start(&mut log);
-    log.call(5, "EndCustomRecord", vec![], empty());
-    let fake = log.fake();
-    let editors: [(&str, &dyn FormatEditor); 1] = [("docx", &Editor)];
-    let mut handler = one_shot(word_drivers(&[], &editors), Some(fake.object(1)));
-    let (mut out, _, _) = emitter();
-    let answer = handler.handle(&mut out, &live_batch(&path, json!([{"op": "ok"}]), json!({}))).expect("an answer");
-    assert_eq!(
-        line(&answer),
-        "{\"ok\":true,\"backend\":\"microsoft-office-com\",\"mode\":\"live\",\"saved\":false,\"results\":[{\"op\":\"ok\",\"changed\":true}],\"undoUnits\":1}"
-    );
-    fake.finish();
-}
-
-#[test]
-fn a_failed_word_batch_that_changed_something_is_undone_and_named_for_the_failing_operation() {
-    let path = full_path_in_temp("fail.docx");
-    let mut log = Log::default();
-    log.find_word_document(&path);
-    word_batch_start(&mut log);
-    log.call(5, "EndCustomRecord", vec![], empty());
-    log.call(3, "Undo", vec![i4(1)], empty());
-    let fake = log.fake();
-    let editors: [(&str, &dyn FormatEditor); 1] = [("docx", &Editor)];
-    let mut handler = one_shot(word_drivers(&[], &editors), Some(fake.object(1)));
-    let (mut out, _, _) = emitter();
-    let failure = handler.handle(&mut out, &live_batch(&path, json!([{"op": "ok"}, {"op": "boom"}]), json!({}))).unwrap_err();
-    assert!(failure.starts_with("boom failed at apply.rs:") && failure.ends_with(": boom"), "{failure}");
-    fake.finish();
-}
-
-#[test]
-fn a_batch_that_changed_nothing_is_refused_with_the_phrase_that_matched_nothing_and_takes_nothing_back() {
-    let path = full_path_in_temp("same.docx");
-    let mut log = Log::default();
-    log.find_word_document(&path);
-    word_batch_start(&mut log);
-    log.call(5, "EndCustomRecord", vec![], empty());
-    // The batch touched nothing, so Undo(1) is not sent: it would take back the batch before this one.
-    log.get(3, "Saved", b(true));
-    let fake = log.fake();
-    let editors: [(&str, &dyn FormatEditor); 1] = [("docx", &Editor)];
-    let mut handler = one_shot(word_drivers(&[], &editors), Some(fake.object(1)));
-    let (mut out, _, _) = emitter();
-    let failure = handler
-        .handle(&mut out, &live_batch(&path, json!([{"op": "replace_text", "find": "hello"}]), json!({"requireChanges": true})))
-        .unwrap_err();
-    let expected = "replace_text produced no change (\"hello\" appears nowhere; read the wording as written with action:query and a word from it)";
-    assert!(failure.starts_with("replace_text failed at apply.rs:") && failure.ends_with(&format!(": {expected}")), "{failure}");
-    fake.finish();
-}
-
-#[test]
-fn allow_no_change_lets_an_unchanged_operation_through_and_leaves_no_undo_unit() {
-    let path = full_path_in_temp("allow.docx");
-    let mut log = Log::default();
-    log.find_word_document(&path);
-    word_batch_start(&mut log);
-    log.call(5, "EndCustomRecord", vec![], empty());
-    let fake = log.fake();
-    let editors: [(&str, &dyn FormatEditor); 1] = [("docx", &Editor)];
-    let mut handler = one_shot(word_drivers(&[], &editors), Some(fake.object(1)));
-    let (mut out, _, _) = emitter();
-    let answer = handler
-        .handle(&mut out, &live_batch(&path, json!([{"op": "same", "allowNoChange": true}]), json!({"requireChanges": true})))
-        .expect("an answer");
-    assert!(line(&answer).ends_with("\"results\":[{\"op\":\"same\",\"changed\":false}],\"undoUnits\":0}"), "{}", line(&answer));
-    fake.finish();
-}
-
-#[test]
-fn an_operation_that_answers_nothing_structured_fails_the_batch() {
-    let path = full_path_in_temp("none.docx");
-    let mut log = Log::default();
-    log.find_word_document(&path);
-    word_batch_start(&mut log);
-    log.call(5, "EndCustomRecord", vec![], empty());
-    log.get(3, "Saved", b(true));
-    let fake = log.fake();
-    let editors: [(&str, &dyn FormatEditor); 1] = [("docx", &Editor)];
-    let mut handler = one_shot(word_drivers(&[], &editors), Some(fake.object(1)));
-    let (mut out, _, _) = emitter();
-    let failure = handler.handle(&mut out, &live_batch(&path, json!([{"op": "none"}]), json!({}))).unwrap_err();
-    assert!(failure.starts_with("none failed at apply.rs:") && failure.ends_with(": none returned no structured operation result"), "{failure}");
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -502,70 +315,6 @@ fn a_workbook_is_restored_from_its_checkpoint_sheet_by_sheet_with_alerts_put_bac
     fake.finish();
 }
 
-#[test]
-fn a_rendered_file_is_waited_for_until_its_size_is_seen_twice() {
-    let dir = scratch("render");
-    let output = dir.join("deck.pdf").to_string_lossy().into_owned();
-    mixdog_fsio::write(&Unlaned, &output, b"%PDF").expect("a file");
-    let mut log = Log::default();
-    log.call(1, "SaveCopyAs", vec![s(&output), i4(32)], empty());
-    let fake = log.fake();
-    let (platform, apps) = (FakePlatform::new(), ScriptedApplications::new());
-    let actions = actions(&platform, &apps, word_drivers(&[], &[]));
-    render_document(&actions, &fake.object(1), "pptx", &output).expect("rendered");
-    fake.finish();
-    assert_eq!(platform.slept_ms(), 150, "the first look sees the size, the second sees it again");
-    let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
-}
-
-#[test]
-fn a_render_that_never_appears_fails_after_thirty_seconds_with_the_scripts_text() {
-    let dir = scratch("render-missing");
-    let output = dir.join("none.pdf").to_string_lossy().into_owned();
-    let mut log = Log::default();
-    log.call(1, "ExportAsFixedFormat", vec![s(&output), i4(17)], empty());
-    let fake = log.fake();
-    let (platform, apps) = (FakePlatform::new(), ScriptedApplications::new());
-    let actions = actions(&platform, &apps, word_drivers(&[], &[]));
-    let failure = render_document(&actions, &fake.object(1), "docx", &output).unwrap_err();
-    assert_eq!(failure, format!("Rendered PDF did not appear at {output} within 30 seconds."));
-    assert!(platform.slept_ms() >= 30_000);
-    let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
-}
-
-#[test]
-fn a_workbook_render_fits_only_the_sheets_without_a_fit_of_their_own_and_puts_each_page_setup_back() {
-    let dir = scratch("render-xlsx");
-    let output = dir.join("book.pdf").to_string_lossy().into_owned();
-    mixdog_fsio::write(&Unlaned, &output, b"%PDF").expect("a file");
-    let mut log = Log::default();
-    log.get(1, "Worksheets", obj(2));
-    log.next(2, obj(3));
-    log.next(2, obj(4));
-    log.end_of_enumeration(2);
-    // Sheet 3 has a zoom of 100 and is fitted one page wide; sheet 4 declares a fit (Zoom is False) and is left alone.
-    log.get(3, "PageSetup", obj(5));
-    log.get(5, "Zoom", i4(100));
-    log.get(5, "Zoom", i4(100));
-    log.get(5, "FitToPagesWide", i4(0));
-    log.get(5, "FitToPagesTall", i4(0));
-    log.put(5, "Zoom", b(false));
-    log.put(5, "FitToPagesWide", i4(1));
-    log.put(5, "FitToPagesTall", b(false));
-    log.get(4, "PageSetup", obj(6));
-    log.get(6, "Zoom", b(false));
-    log.call(1, "ExportAsFixedFormat", vec![i4(0), s(&output)], empty());
-    log.put(5, "Zoom", i4(100));
-    log.put(5, "FitToPagesWide", i4(0));
-    log.put(5, "FitToPagesTall", i4(0));
-    let fake = log.fake();
-    let (platform, apps) = (FakePlatform::new(), ScriptedApplications::new());
-    let actions = actions(&platform, &apps, word_drivers(&[], &[]));
-    render_document(&actions, &fake.object(1), "xlsx", &output).expect("rendered");
-    fake.finish();
-    let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
-}
-
 // ---------------------------------------------------------------------------------------------------------------------
 // The session actions of an owned background Word session.
 
@@ -575,33 +324,6 @@ struct World {
     dir: PathBuf,
     out: Emitter,
     stdout: Shared,
-}
-
-impl World {
-    fn new(name: &str) -> World {
-        let (out, stdout, _) = emitter();
-        World { platform: Rc::new(FakePlatform::new()), apps: ScriptedApplications::new(), dir: scratch(name), out, stdout }
-    }
-
-    fn word_session(&mut self, log: &Log, path: &str) -> (SessionState, Fake) {
-        let fake = log.fake();
-        let platform = self.platform.clone();
-        self.apps.queue_create_then("Word.Application", Ok(fake.object(1)), move || {
-            platform.add_process(500, "WINWORD", START_TICKS);
-            let mut window = FakeWindow::new(9001, 500, "OpusApp", "document");
-            window.visible = false;
-            platform.add_window(window);
-        });
-        let env = Env { platform: &*self.platform, applications: &self.apps };
-        let open = request(json!({"action": "open_session", "session": "s1", "format": "docx", "path": path, "mode": "background"}));
-        (open_session_state(&Unlaned, &env, &mut self.out, &open).expect("opened"), fake)
-    }
-
-    fn act(&mut self, readers: &[(&str, &dyn FormatReader)], state: &mut SessionState, body: Json) -> Result<Value, String> {
-        let env = Env { platform: &*self.platform, applications: &self.apps };
-        let actions = Actions { env, proof: &Unlaned, drivers: Drivers::new(readers, &[]) };
-        invoke_session_action(&actions, &mut self.out, state, &request(body))
-    }
 }
 
 impl Drop for World {
@@ -726,6 +448,288 @@ fn entry_text(bytes: &[u8], name: &str) -> String {
     text
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// The read-only preview's encryption check.
+
+#[test]
+fn an_ole_container_with_a_package_extension_is_refused_as_password_protected_and_a_zip_package_is_not() {
+    let (platform, apps) = (FakePlatform::new(), ScriptedApplications::new());
+    let actions = actions(&platform, &apps, word_drivers(&[], &[]));
+    let dir = scratch("encrypted-preview");
+    let path = |name: &str| dir.join(name).to_string_lossy().into_owned();
+    // An encrypted package is an OLE compound file: its first eight bytes are the compound-file signature.
+    let mut ole = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+    ole.extend_from_slice(&[0u8; 504]);
+    mixdog_fsio::write(&Unlaned, dir.join("ole-header.docx"), &ole).expect("write");
+    mixdog_fsio::write(&Unlaned, dir.join("plain.xlsx"), package(&[("[Content_Types].xml", b"<Types/>")])).expect("write");
+    assert_eq!(assert_preview_not_encrypted(&actions, &path("ole-header.docx")), Err(PASSWORD_PROTECTED.to_owned()));
+    assert_eq!(assert_preview_not_encrypted(&actions, &path("plain.xlsx")), Ok(()));
+    // A legacy extension is not a package: it is not read at all, so a file that does not exist passes.
+    assert_eq!(assert_preview_not_encrypted(&actions, &path("absent.doc")), Ok(()));
+}
+
+
+fn scratch(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("mixdog-office-actions-{}-{name}", std::process::id()));
+    let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
+    mixdog_fsio::create_dir_all(&Unlaned, &dir).expect("a scratch directory");
+    dir
+}
+fn full_path_in_temp(name: &str) -> String {
+    std::env::temp_dir().join(name).to_string_lossy().into_owned()
+}
+#[test]
+fn detect_with_a_path_reports_the_document_open_for_that_format_only() {
+    let path = full_path_in_temp("held.docx");
+    let mut log = Log::default();
+    log.find_word_document(&path);
+    let fake = log.fake();
+    let mut handler = one_shot(word_drivers(&[], &[]), Some(fake.object(1)));
+    let (mut out, _, _) = emitter();
+    let answer = handler.handle(&mut out, &request(json!({"action": "detect", "format": "docx", "path": path}))).expect("an answer");
+    assert!(line(&answer).contains("{\"format\":\"docx\",\"installed\":true,\"active\":true,\"documentOpen\":true}"), "{}", line(&answer));
+    fake.finish();
+}
+// ---------------------------------------------------------------------------------------------------------------------
+// The one-shot entry.
+
+#[test]
+fn an_application_that_is_not_installed_and_one_that_is_not_running_are_refused_with_the_scripts_texts() {
+    let path = full_path_in_temp("a.docx");
+    let (mut out, _, _) = emitter();
+    let mut handler = one_shot(word_drivers(&[], &[]), None);
+    let refused = handler.handle(&mut out, &request(json!({"action": "snapshot", "format": "xlsx", "path": path}))).unwrap_err();
+    assert_eq!(refused, "Microsoft Office application for .xlsx is not installed");
+    let refused = handler.handle(&mut out, &request(json!({"action": "snapshot", "format": "docx", "path": path, "mode": "live"}))).unwrap_err();
+    assert_eq!(refused, "No running Microsoft Office application for .docx");
+}
+#[test]
+fn a_live_request_for_a_document_the_application_does_not_hold_is_refused() {
+    let path = full_path_in_temp("absent.docx");
+    let mut log = Log::default();
+    log.get(1, "Documents", obj(2));
+    log.end_of_enumeration(2);
+    let fake = log.fake();
+    let mut handler = one_shot(word_drivers(&[], &[]), Some(fake.object(1)));
+    let (mut out, _, _) = emitter();
+    let refused = handler.handle(&mut out, &request(json!({"action": "snapshot", "format": "docx", "path": path, "mode": "live"}))).unwrap_err();
+    assert_eq!(refused, format!("The exact document is not open in Microsoft Office: {path}"));
+    fake.finish();
+}
+#[test]
+fn a_live_snapshot_answers_the_readers_value_and_leaves_the_users_document_open() {
+    let path = full_path_in_temp("live.docx");
+    let mut log = Log::default();
+    log.find_word_document(&path);
+    let fake = log.fake();
+    let readers: [(&str, &dyn FormatReader); 1] = [("docx", &Reader)];
+    let mut handler = one_shot(word_drivers(&readers, &[]), Some(fake.object(1)));
+    let (mut out, stdout, stderr) = emitter();
+    let answer = handler.handle(&mut out, &request(json!({"action": "snapshot", "format": "docx", "path": path, "mode": "live"}))).expect("an answer");
+    assert_eq!(line(&answer), "{\"ok\":true,\"backend\":\"microsoft-office-com\",\"mode\":\"live\",\"value\":{\"paragraphs\":1}}");
+    handler.finish(&mut out);
+    fake.finish();
+    assert_eq!((stdout.text(), stderr.text()), (String::new(), String::new()), "a live document is neither closed nor quit");
+}
+#[test]
+fn a_live_save_rebuilds_the_tables_of_contents_then_saves() {
+    let path = full_path_in_temp("save.docx");
+    let mut log = Log::default();
+    log.find_word_document(&path);
+    log.get(3, "TablesOfContents", null());
+    log.call(3, "Save", vec![], empty());
+    let fake = log.fake();
+    let mut handler = one_shot(word_drivers(&[], &[]), Some(fake.object(1)));
+    let (mut out, _, _) = emitter();
+    let answer = handler.handle(&mut out, &request(json!({"action": "save", "format": "docx", "path": path, "mode": "live"}))).expect("an answer");
+    assert_eq!(line(&answer), format!("{{\"ok\":true,\"backend\":\"microsoft-office-com\",\"mode\":\"live\",\"saved\":true,\"path\":{}}}", json!(path)));
+    fake.finish();
+}
+#[test]
+fn an_unknown_action_is_refused_with_the_scripts_text_after_the_document_was_found() {
+    let path = full_path_in_temp("live.docx");
+    let mut log = Log::default();
+    log.find_word_document(&path);
+    let fake = log.fake();
+    let mut handler = one_shot(word_drivers(&[], &[]), Some(fake.object(1)));
+    let (mut out, _, _) = emitter();
+    let refused = handler.handle(&mut out, &request(json!({"action": "frobnicate", "format": "docx", "path": path, "mode": "live"}))).unwrap_err();
+    assert_eq!(refused, "Unsupported Office host action: frobnicate");
+    fake.finish();
+}
+#[test]
+fn a_live_word_batch_is_one_undo_record_and_reports_one_undo_unit() {
+    let path = full_path_in_temp("batch.docx");
+    let mut log = Log::default();
+    log.find_word_document(&path);
+    word_batch_start(&mut log);
+    log.call(5, "EndCustomRecord", vec![], empty());
+    let fake = log.fake();
+    let editors: [(&str, &dyn FormatEditor); 1] = [("docx", &Editor)];
+    let mut handler = one_shot(word_drivers(&[], &editors), Some(fake.object(1)));
+    let (mut out, _, _) = emitter();
+    let answer = handler.handle(&mut out, &live_batch(&path, json!([{"op": "ok"}]), json!({}))).expect("an answer");
+    assert_eq!(
+        line(&answer),
+        "{\"ok\":true,\"backend\":\"microsoft-office-com\",\"mode\":\"live\",\"saved\":false,\"results\":[{\"op\":\"ok\",\"changed\":true}],\"undoUnits\":1}"
+    );
+    fake.finish();
+}
+#[test]
+fn a_failed_word_batch_that_changed_something_is_undone_and_named_for_the_failing_operation() {
+    let path = full_path_in_temp("fail.docx");
+    let mut log = Log::default();
+    log.find_word_document(&path);
+    word_batch_start(&mut log);
+    log.call(5, "EndCustomRecord", vec![], empty());
+    log.call(3, "Undo", vec![i4(1)], empty());
+    let fake = log.fake();
+    let editors: [(&str, &dyn FormatEditor); 1] = [("docx", &Editor)];
+    let mut handler = one_shot(word_drivers(&[], &editors), Some(fake.object(1)));
+    let (mut out, _, _) = emitter();
+    let failure = handler.handle(&mut out, &live_batch(&path, json!([{"op": "ok"}, {"op": "boom"}]), json!({}))).unwrap_err();
+    assert!(failure.starts_with("boom failed at apply.rs:") && failure.ends_with(": boom"), "{failure}");
+    fake.finish();
+}
+#[test]
+fn a_batch_that_changed_nothing_is_refused_with_the_phrase_that_matched_nothing_and_takes_nothing_back() {
+    let path = full_path_in_temp("same.docx");
+    let mut log = Log::default();
+    log.find_word_document(&path);
+    word_batch_start(&mut log);
+    log.call(5, "EndCustomRecord", vec![], empty());
+    // The batch touched nothing, so Undo(1) is not sent: it would take back the batch before this one.
+    log.get(3, "Saved", b(true));
+    let fake = log.fake();
+    let editors: [(&str, &dyn FormatEditor); 1] = [("docx", &Editor)];
+    let mut handler = one_shot(word_drivers(&[], &editors), Some(fake.object(1)));
+    let (mut out, _, _) = emitter();
+    let failure = handler
+        .handle(&mut out, &live_batch(&path, json!([{"op": "replace_text", "find": "hello"}]), json!({"requireChanges": true})))
+        .unwrap_err();
+    let expected = "replace_text produced no change (\"hello\" appears nowhere; read the wording as written with action:query and a word from it)";
+    assert!(failure.starts_with("replace_text failed at apply.rs:") && failure.ends_with(&format!(": {expected}")), "{failure}");
+    fake.finish();
+}
+#[test]
+fn allow_no_change_lets_an_unchanged_operation_through_and_leaves_no_undo_unit() {
+    let path = full_path_in_temp("allow.docx");
+    let mut log = Log::default();
+    log.find_word_document(&path);
+    word_batch_start(&mut log);
+    log.call(5, "EndCustomRecord", vec![], empty());
+    let fake = log.fake();
+    let editors: [(&str, &dyn FormatEditor); 1] = [("docx", &Editor)];
+    let mut handler = one_shot(word_drivers(&[], &editors), Some(fake.object(1)));
+    let (mut out, _, _) = emitter();
+    let answer = handler
+        .handle(&mut out, &live_batch(&path, json!([{"op": "same", "allowNoChange": true}]), json!({"requireChanges": true})))
+        .expect("an answer");
+    assert!(line(&answer).ends_with("\"results\":[{\"op\":\"same\",\"changed\":false}],\"undoUnits\":0}"), "{}", line(&answer));
+    fake.finish();
+}
+#[test]
+fn an_operation_that_answers_nothing_structured_fails_the_batch() {
+    let path = full_path_in_temp("none.docx");
+    let mut log = Log::default();
+    log.find_word_document(&path);
+    word_batch_start(&mut log);
+    log.call(5, "EndCustomRecord", vec![], empty());
+    log.get(3, "Saved", b(true));
+    let fake = log.fake();
+    let editors: [(&str, &dyn FormatEditor); 1] = [("docx", &Editor)];
+    let mut handler = one_shot(word_drivers(&[], &editors), Some(fake.object(1)));
+    let (mut out, _, _) = emitter();
+    let failure = handler.handle(&mut out, &live_batch(&path, json!([{"op": "none"}]), json!({}))).unwrap_err();
+    assert!(failure.starts_with("none failed at apply.rs:") && failure.ends_with(": none returned no structured operation result"), "{failure}");
+}
+#[test]
+fn a_rendered_file_is_waited_for_until_its_size_is_seen_twice() {
+    let dir = scratch("render");
+    let output = dir.join("deck.pdf").to_string_lossy().into_owned();
+    mixdog_fsio::write(&Unlaned, &output, b"%PDF").expect("a file");
+    let mut log = Log::default();
+    log.call(1, "SaveCopyAs", vec![s(&output), i4(32)], empty());
+    let fake = log.fake();
+    let (platform, apps) = (FakePlatform::new(), ScriptedApplications::new());
+    let actions = actions(&platform, &apps, word_drivers(&[], &[]));
+    render_document(&actions, &fake.object(1), "pptx", &output).expect("rendered");
+    fake.finish();
+    assert_eq!(platform.slept_ms(), 150, "the first look sees the size, the second sees it again");
+    let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
+}
+#[test]
+fn a_render_that_never_appears_fails_after_thirty_seconds_with_the_scripts_text() {
+    let dir = scratch("render-missing");
+    let output = dir.join("none.pdf").to_string_lossy().into_owned();
+    let mut log = Log::default();
+    log.call(1, "ExportAsFixedFormat", vec![s(&output), i4(17)], empty());
+    let fake = log.fake();
+    let (platform, apps) = (FakePlatform::new(), ScriptedApplications::new());
+    let actions = actions(&platform, &apps, word_drivers(&[], &[]));
+    let failure = render_document(&actions, &fake.object(1), "docx", &output).unwrap_err();
+    assert_eq!(failure, format!("Rendered PDF did not appear at {output} within 30 seconds."));
+    assert!(platform.slept_ms() >= 30_000);
+    let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
+}
+#[test]
+fn a_workbook_render_fits_only_the_sheets_without_a_fit_of_their_own_and_puts_each_page_setup_back() {
+    let dir = scratch("render-xlsx");
+    let output = dir.join("book.pdf").to_string_lossy().into_owned();
+    mixdog_fsio::write(&Unlaned, &output, b"%PDF").expect("a file");
+    let mut log = Log::default();
+    log.get(1, "Worksheets", obj(2));
+    log.next(2, obj(3));
+    log.next(2, obj(4));
+    log.end_of_enumeration(2);
+    // Sheet 3 has a zoom of 100 and is fitted one page wide; sheet 4 declares a fit (Zoom is False) and is left alone.
+    log.get(3, "PageSetup", obj(5));
+    log.get(5, "Zoom", i4(100));
+    log.get(5, "Zoom", i4(100));
+    log.get(5, "FitToPagesWide", i4(0));
+    log.get(5, "FitToPagesTall", i4(0));
+    log.put(5, "Zoom", b(false));
+    log.put(5, "FitToPagesWide", i4(1));
+    log.put(5, "FitToPagesTall", b(false));
+    log.get(4, "PageSetup", obj(6));
+    log.get(6, "Zoom", b(false));
+    log.call(1, "ExportAsFixedFormat", vec![i4(0), s(&output)], empty());
+    log.put(5, "Zoom", i4(100));
+    log.put(5, "FitToPagesWide", i4(0));
+    log.put(5, "FitToPagesTall", i4(0));
+    let fake = log.fake();
+    let (platform, apps) = (FakePlatform::new(), ScriptedApplications::new());
+    let actions = actions(&platform, &apps, word_drivers(&[], &[]));
+    render_document(&actions, &fake.object(1), "xlsx", &output).expect("rendered");
+    fake.finish();
+    let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
+}
+impl World {
+    fn new(name: &str) -> World {
+        let (out, stdout, _) = emitter();
+        World { platform: Rc::new(FakePlatform::new()), apps: ScriptedApplications::new(), dir: scratch(name), out, stdout }
+    }
+
+    fn word_session(&mut self, log: &Log, path: &str) -> (SessionState, Fake) {
+        let fake = log.fake();
+        let platform = self.platform.clone();
+        self.apps.queue_create_then("Word.Application", Ok(fake.object(1)), move || {
+            platform.add_process(500, "WINWORD", START_TICKS);
+            let mut window = FakeWindow::new(9001, 500, "OpusApp", "document");
+            window.visible = false;
+            platform.add_window(window);
+        });
+        let env = Env { platform: &*self.platform, applications: &self.apps };
+        let open = request(json!({"action": "open_session", "session": "s1", "format": "docx", "path": path, "mode": "background"}));
+        (open_session_state(&Unlaned, &env, &mut self.out, &open).expect("opened"), fake)
+    }
+
+    fn act(&mut self, readers: &[(&str, &dyn FormatReader)], state: &mut SessionState, body: Json) -> Result<Value, String> {
+        let env = Env { platform: &*self.platform, applications: &self.apps };
+        let actions = Actions { env, proof: &Unlaned, drivers: Drivers::new(readers, &[]) };
+        invoke_session_action(&actions, &mut self.out, state, &request(body))
+    }
+}
 #[test]
 fn the_repair_rewrites_the_file_it_opened_exclusively_and_counts_the_entries_it_changed() {
     let dir = scratch("dpi");
@@ -750,7 +754,6 @@ fn the_repair_rewrites_the_file_it_opened_exclusively_and_counts_the_entries_it_
     assert_eq!(mixdog_fsio::read(&Unlaned, &path).expect("the file"), written);
     let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
 }
-
 #[test]
 fn a_workbook_someone_else_holds_is_refused_instead_of_changed() {
     let dir = scratch("dpi-locked");
@@ -762,21 +765,4 @@ fn a_workbook_someone_else_holds_is_refused_instead_of_changed() {
     let refused = repair_excel_page_setup_dpi(&actions, &path).unwrap_err();
     assert!(refused.starts_with("Exception calling \"Open\" with \"4\" argument(s): "), "{refused}");
     let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
-}
-
-// ---------------------------------------------------------------------------------------------------------------------
-// The read-only preview's encryption check.
-
-fn input(name: &str) -> String {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join("actions").join("inputs").join(name).to_string_lossy().into_owned()
-}
-
-#[test]
-fn an_ole_container_with_a_package_extension_is_refused_as_password_protected_and_a_zip_package_is_not() {
-    let (platform, apps) = (FakePlatform::new(), ScriptedApplications::new());
-    let actions = actions(&platform, &apps, word_drivers(&[], &[]));
-    assert_eq!(assert_preview_not_encrypted(&actions, &input("ole-header.docx")), Err(PASSWORD_PROTECTED.to_owned()));
-    assert_eq!(assert_preview_not_encrypted(&actions, &input("zero-dpi.xlsx")), Ok(()));
-    // A legacy extension is not a package: it is not read at all, so a file that does not exist passes.
-    assert_eq!(assert_preview_not_encrypted(&actions, &input("absent.doc")), Ok(()));
 }

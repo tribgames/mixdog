@@ -1,4 +1,4 @@
-import type { DesktopTidyEngine, DesktopTidyEngineStatus, DesktopTidyInstallStatus } from '../../shared/contract';
+import type { DesktopTidyEngine } from '../../shared/contract';
 import { CapabilityIcon } from '../CapabilityIcon';
 import { t } from '../i18n';
 import {
@@ -9,7 +9,7 @@ import {
   ExtensionNote,
   ExtensionSection,
 } from './extension-detail';
-import { engineRowState } from './tidy-status';
+import { engineRowState, type TidyEngineSnapshot, type TidyInstallProgress } from './tidy-status';
 
 type EngineRow = { engine: DesktopTidyEngine } & ReturnType<typeof engineRowState>;
 
@@ -61,20 +61,18 @@ export function TidyEngines({
   busy,
   onInstallEngine,
 }: {
-  status: DesktopTidyEngineStatus | null;
-  installStatus: DesktopTidyInstallStatus | null;
+  status: TidyEngineSnapshot;
+  installStatus: TidyInstallProgress | null;
   /** Feature installed: only then can a single engine be fetched on its own. */
   installed: boolean;
   busy: boolean;
   onInstallEngine(id: string): void;
 }) {
-  const isInstallingActive = installStatus?.active === true || status?.installing?.active === true;
-  const rows: EngineRow[] = (status?.engines ?? [])
+  const isInstallingActive = installStatus?.active === true;
+  const rows: EngineRow[] = status.engines
     .filter((e) => e.id !== 'ast-grep' && e.id !== 'ast_grep' && !e.kind?.includes('structural'))
     .map((engine) => {
-      const installEngine =
-        installStatus?.engines?.find((ie) => ie.id === engine.id) ??
-        status?.installing?.engines?.find((ie) => ie.id === engine.id);
+      const installEngine = installStatus?.engines.find((ie) => ie.id === engine.id);
       return { engine, ...engineRowState({ engine, installEngine, isInstallingActive }) };
     });
 
@@ -95,7 +93,7 @@ export function TidyEngines({
         />
         <ExtensionNote>
           {t('Structural rules ship with Mixdog; engines download to {{toolsDir}}.', {
-            toolsDir: status?.toolsDir || '',
+            toolsDir: status.toolsDir,
           })}
         </ExtensionNote>
       </ExtensionSection>

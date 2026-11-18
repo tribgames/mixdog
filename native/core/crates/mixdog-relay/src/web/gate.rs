@@ -24,13 +24,16 @@ use super::releases::{DeviceReport, RendererCatalog};
 use crate::http1::util::{decoded_request_path, end_text, reject_unauthorized_text};
 use crate::http1::{HeaderError, Request, ResponseWriter, fail_request};
 use crate::pages::PageReply;
-use crate::pages::update_pc::{is_native_app_request, update_pc_page};
+use crate::pages::update_pc::{is_native_app_request, renderer_unavailable_page, update_pc_page};
 use crate::rate_limit::RateLimiter;
 use crate::store::DeviceStore;
 
 /// `PUBLIC_APP_ASSETS`: the installability metadata and its icons.
 pub const PUBLIC_APP_ASSETS: [&str; 5] =
     ["/manifest.webmanifest", "/mixdog.svg", "/mixdog-logo-titanium.svg", "/mixdog-192.png", "/mixdog-512.png"];
+
+// The installed worker must be able to replace itself even without a matching renderer.
+const WORKER_SCRIPTS: [&str; 4] = ["/sw.js", "/sw-shell.js", "/sw-media.js", "/ui-language.js"];
 
 /// What the gate asks of the device store (`store.deviceIdForClientToken`, `store.isKnown`, `store.deviceVersion`).
 pub trait GateStore: Send + Sync + 'static {
@@ -89,8 +92,9 @@ struct Access {
 /// What one lane job learns of the renderer tree of a request.
 struct Lookup {
     resolution: StaticResolution,
-    /// The oldest version the relay still has a renderer for, when the request is the top-level document of a legacy-served PC
-    /// asked by the phone app.
+    unavailable: bool,
+    document: bool,
+    /// The minimum supported version when this native app navigation needs the update-PC page.
     update_min_version: Option<String>,
 }
 
@@ -139,13 +143,24 @@ impl StaticGate {
         let report = if access.release_device.is_empty() { DeviceReport::default() } else { self.store.device_version(&access.release_device) };
         let rest = access.route.as_ref().map_or_else(|| pathname.clone(), |route| route.rest.clone());
         let update_page = wants_update_page(request, access.route.as_ref());
-        let lookup = self.lookup(report.clone(), rest, update_page).await.map_err(|error| error.to_string())?;
-        let Some(Lookup { resolution, update_min_version }) = lookup else {
+        let allow_default_asset = PUBLIC_APP_ASSETS.contains(&pathname) || WORKER_SCRIPTS.contains(&pathname);
+        let lookup = self.lookup(report.clone(), rest, update_page, allow_default_asset).await.map_err(|error| error.to_string())?;
+        let Some(Lookup { resolution, unavailable, document, update_min_version }) = lookup else {
             let text = "Mixdog relay: no RENDERER_DIR configured; this relay only forwards WebSocket traffic.";
             return end_text(response, 404, text, &[]).map_err(|error| error.to_string());
         };
         if let Some(min) = update_min_version {
             return write_page_reply(response, &update_pc_page(&request.method, &report.app_version, &min)).map_err(|error| error.to_string());
+        }
+        if unavailable && document && !access.route.as_ref().is_some_and(|route| route.redirect) {
+            return write_page_reply(response, &renderer_unavailable_page(&request.method)).map_err(|error| error.to_string());
+        }
+        if unavailable && !allow_default_asset && matches!(&resolution, StaticResolution::Missing)
+            && !access.route.as_ref().is_some_and(|route| route.redirect)
+        {
+            response.write_head(404, &[("Cache-Control", "no-store")]).map_err(|error| error.to_string())?;
+            response.end(None);
+            return Ok(());
         }
         match &access.route {
             Some(route) => serve_device_route(&self.io, route, resolution, request, response).await.map_err(|error| error.to_string()),
@@ -179,26 +194,28 @@ impl StaticGate {
     }
 
     /// The release directory of the device `report` names, the target of `pathname` in it and, when `update_page` is asked
-    /// for, whether that target is the document a legacy-served PC must show the update page for. `None`: no renderer
+    /// for, whether that target is the document an older PC must show the update page for. `None`: no renderer
     /// directory is configured. Reads of the disk, so one lane job.
-    async fn lookup(&self, report: DeviceReport, pathname: String, update_page: bool) -> io::Result<Option<Lookup>> {
+    async fn lookup(&self, report: DeviceReport, pathname: String, update_page: bool, allow_default_asset: bool) -> io::Result<Option<Lookup>> {
         let catalog = self.catalog.clone();
         let job = move |lane: &InLane<InteractiveIo>| {
-            let dir = catalog.dir_for(&report);
-            if dir.as_os_str().is_empty() {
+            let selected = catalog.dir_for(&report);
+            let dir = selected.as_deref().unwrap_or_else(|| catalog.renderer_dir());
+            if selected.is_some() && dir.as_os_str().is_empty() {
                 return Ok(None);
             }
-            let resolution = resolve_static_target(&dir, &pathname);
-            // The document is whatever the resolver answers with the index file: `/`, `/index.html` and the extension-less
-            // deep links of the SPA fallback. Real assets and misses resolve to something else and stay untouched.
-            let update_min_version = match &resolution {
-                StaticResolution::Found(target) if update_page => catalog
-                    .legacy_for(&report)
-                    .filter(|_| mixdog_fsio::canonicalize(lane, dir.join("index.html")).is_ok_and(|index| index == *target))
-                    .map(|legacy| legacy.min_version),
-                _ => None,
+            let resolution = if dir.as_os_str().is_empty() { StaticResolution::Missing } else { resolve_static_target(dir, &pathname) };
+            let document = matches!(pathname.as_str(), "/" | "/index.html")
+                || matches!(&resolution, StaticResolution::Found(target)
+                    if mixdog_fsio::canonicalize(lane, dir.join("index.html")).is_ok_and(|index| index == *target));
+            let update_min_version = if update_page && document { catalog.legacy_for(&report).map(|legacy| legacy.min_version) } else { None };
+            let unavailable = selected.is_none();
+            let resolution = if unavailable && !allow_default_asset && !matches!(&resolution, StaticResolution::Forbidden) {
+                StaticResolution::Missing
+            } else {
+                resolution
             };
-            Ok(Some(Lookup { resolution, update_min_version }))
+            Ok(Some(Lookup { resolution, unavailable, document, update_min_version }))
         };
         let handle = self.io.submit(&CancellationToken::new(), job).map_err(|_| io::Error::other("lane"))?;
         handle.await.map_err(|_| io::Error::other("lane"))?
@@ -230,10 +247,8 @@ impl StaticGate {
     }
 }
 
-/// `serveUpdatePcPage`'s conditions on the request: the phone app cannot use the legacy renderer (it predates the app), so for
-/// the top-level document of a legacy-served PC it gets the update page instead. Assets, browsers and home-screen web apps
-/// keep the legacy renderer. Fetch Metadata, when sent, must say top-level document: a `fetch()`, iframe or worker request is
-/// not a page the phone is showing. A WebView navigation may omit the header altogether.
+/// Only a top-level native navigation can show the update-PC page. Fetch Metadata, when sent, must distinguish that
+/// navigation from a `fetch()`, iframe or worker request. A WebView navigation may omit the header altogether.
 fn wants_update_page(request: &Request, route: Option<&DeviceRoute>) -> bool {
     route.is_some_and(|route| !route.redirect)
         && is_native_app_request(request.headers.get("user-agent"))

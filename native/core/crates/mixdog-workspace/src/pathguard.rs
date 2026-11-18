@@ -209,72 +209,9 @@ fn node_realpath_through_existing(path: &Path) -> Result<PathBuf, RealpathError>
 pub const OUTSIDE_PROJECT: &str = "Path is outside the project.";
 pub const RESOLVES_OUTSIDE_PROJECT: &str = "Path resolves outside the project.";
 
-/// The refusal of [`project_entry_path`] for a path beyond the project. Every caller gets the permission refusal; the phone's calls (which
-/// ask for `nodeErrors`) are answered with Node's plain `Error` of the same text (service.rs `map_error`).
-pub fn is_beyond_project(error: &WsError) -> bool {
-    matches!(error.reason, crate::error::Reason::PermissionDenied) && (error.message == OUTSIDE_PROJECT || error.message == RESOLVES_OUTSIDE_PROJECT)
-}
-
-/// Node's `absoluteLocalPath` (local-files.ts): the string trimmed, shape-checked, required to be absolute by the host's
-/// `path.isAbsolute` (on Windows that includes a rooted `\dir`, which `path.resolve` then puts on the working directory's drive), and
-/// resolved by the host's `path.resolve`.
-pub fn absolute_local_path(value: &str) -> WsResult<PathBuf> {
-    absolute_local_path_in(mixdog_js::nodepath::Style::host(), value)
-}
-
-/// [`absolute_local_path`] under the path rules of `style` (Node's `path` is `path.win32` on a Windows host and `path.posix` elsewhere).
-pub fn absolute_local_path_in(style: mixdog_js::nodepath::Style, value: &str) -> WsResult<PathBuf> {
-    let text = mixdog_js::js_trim(value);
-    if text.is_empty() || mixdog_js::utf16_len(text) > 16_384 || text.contains('\0') {
-        return Err(WsError::invalid("path is invalid."));
-    }
-    if !mixdog_js::nodepath::is_absolute(style, text) {
-        return Err(WsError::invalid("path must be absolute."));
-    }
-    Ok(PathBuf::from(mixdog_js::nodepath::resolve(style, &[text])))
-}
-
-/// How Node's project registry reads a path (`resolveProjectPath`, projects.mjs:251, behind `knownPath`, `ensureDir` and the catalog): the
-/// string trimmed and, unless empty, resolved by the host's `path.resolve` against the working directory. Nothing else is checked and a
-/// relative path is not refused, unlike `absoluteLocalPath` (local-files.ts:7), which the local-file operations use.
-pub fn project_path(value: &str) -> Option<PathBuf> {
-    let cwd = std::env::current_dir().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default();
-    project_path_in(mixdog_js::nodepath::Style::host(), &cwd, value).map(PathBuf::from)
-}
-
-/// [`project_path`] under the path rules of `style` with `cwd` as the working directory: Node's `toAbsolute` (projects.mjs:21),
-/// `isAbsolute(text) ? resolve(text) : resolve(process.cwd(), text)`.
-pub fn project_path_in(style: mixdog_js::nodepath::Style, cwd: &str, value: &str) -> Option<String> {
-    use mixdog_js::nodepath::{is_absolute, resolve};
-    let text = mixdog_js::js_trim(value);
-    if text.is_empty() {
-        return None;
-    }
-    Some(if is_absolute(style, text) { resolve(style, &[text]) } else { resolve(style, &[cwd, text]) })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn outside_and_symlink_escape_refused() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = canonical(dir.path()).unwrap();
-        std::fs::create_dir(root.join("in")).unwrap();
-        assert_eq!(project_entry_path(&root, "in/new.txt").unwrap(), root.join("in").join("new.txt"));
-        let err = project_entry_path(&root, "../escape.txt").unwrap_err();
-        assert_eq!((err.reason.clone(), err.message.as_str()), (crate::error::Reason::PermissionDenied, "Path is outside the project."));
-        let outside = tempfile::tempdir().unwrap();
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(outside.path(), root.join("link")).unwrap();
-        #[cfg(windows)]
-        if std::os::windows::fs::symlink_dir(outside.path(), root.join("link")).is_err() {
-            return;
-        }
-        let err = project_entry_path(&root, "link/x.txt").unwrap_err();
-        assert_eq!(err.message, "Path resolves outside the project.");
-    }
 
     /// Node's `realpathSync` walk: a link's relative target is taken from the link's own folder, a component that is missing past it
     /// fails as `lstat` of the path the walk had built (the link replaced by its target), not of the spelling given, and a dangling link
@@ -301,6 +238,24 @@ mod tests {
         assert_eq!((err.syscall, err.at), ("stat", root.join("a").join("dangling")));
     }
 
+    #[test]
+    fn outside_and_symlink_escape_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical(dir.path()).unwrap();
+        std::fs::create_dir(root.join("in")).unwrap();
+        assert_eq!(project_entry_path(&root, "in/new.txt").unwrap(), root.join("in").join("new.txt"));
+        let err = project_entry_path(&root, "../escape.txt").unwrap_err();
+        assert_eq!((err.reason.clone(), err.message.as_str()), (crate::error::Reason::PermissionDenied, "Path is outside the project."));
+        let outside = tempfile::tempdir().unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside.path(), root.join("link")).unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir(outside.path(), root.join("link")).is_err() {
+            return;
+        }
+        let err = project_entry_path(&root, "link/x.txt").unwrap_err();
+        assert_eq!(err.message, "Path resolves outside the project.");
+    }
     /// A root that is gone fails as Node's `realpathSync` did: `lstat` of its first missing component.
     #[test]
     fn missing_root_fails_with_node_realpath_sync_text() {
@@ -310,6 +265,7 @@ mod tests {
         assert_eq!(err.reason, crate::error::Reason::Coded("ENOENT"));
         assert_eq!(err.message, format!("ENOENT: no such file or directory, lstat '{}'", root.join("gone").display()));
     }
+
 
     /// Node's `absoluteLocalPath` for every recorded input (apps/mobile/fixtures/absolute-local-path/golden.json, a Windows host), as the
     /// recording with the working directory on this process's drive answered it. Non-string inputs are answered by the service's param
@@ -333,7 +289,6 @@ mod tests {
         }
         assert_eq!(replayed, golden["inputs"].as_array().unwrap().iter().filter(|input| input["value"].is_string()).count());
     }
-
     /// The same function under the POSIX rules, against Node's answers with `node:path` as `path.posix` (the `posix` section of the same recording,
     /// made by loading local-files.ts with that path module): the criterion holds on both kinds of host.
     #[test]
@@ -353,7 +308,6 @@ mod tests {
         }
         assert_eq!(replayed, 23);
     }
-
     /// Node's `resolveProjectPath` under the POSIX rules (apps/mobile/fixtures/project-path-classes/golden.json, `posix`: projects.mjs
     /// loaded with `node:path` as `path.posix` and the recording's working directory), replayed against the rule every project-path
     /// read of the workspace takes.
@@ -370,4 +324,45 @@ mod tests {
             assert_eq!(got, answer["result"].as_str().unwrap(), "{}", input["name"]);
         }
     }
+}
+
+
+/// The refusal of [`project_entry_path`] for a path beyond the project. Every caller gets the permission refusal; the phone's calls (which
+/// ask for `nodeErrors`) are answered with Node's plain `Error` of the same text (service.rs `map_error`).
+pub fn is_beyond_project(error: &WsError) -> bool {
+    matches!(error.reason, crate::error::Reason::PermissionDenied) && (error.message == OUTSIDE_PROJECT || error.message == RESOLVES_OUTSIDE_PROJECT)
+}
+/// Node's `absoluteLocalPath` (local-files.ts): the string trimmed, shape-checked, required to be absolute by the host's
+/// `path.isAbsolute` (on Windows that includes a rooted `\dir`, which `path.resolve` then puts on the working directory's drive), and
+/// resolved by the host's `path.resolve`.
+pub fn absolute_local_path(value: &str) -> WsResult<PathBuf> {
+    absolute_local_path_in(mixdog_js::nodepath::Style::host(), value)
+}
+/// [`absolute_local_path`] under the path rules of `style` (Node's `path` is `path.win32` on a Windows host and `path.posix` elsewhere).
+pub fn absolute_local_path_in(style: mixdog_js::nodepath::Style, value: &str) -> WsResult<PathBuf> {
+    let text = mixdog_js::js_trim(value);
+    if text.is_empty() || mixdog_js::utf16_len(text) > 16_384 || text.contains('\0') {
+        return Err(WsError::invalid("path is invalid."));
+    }
+    if !mixdog_js::nodepath::is_absolute(style, text) {
+        return Err(WsError::invalid("path must be absolute."));
+    }
+    Ok(PathBuf::from(mixdog_js::nodepath::resolve(style, &[text])))
+}
+/// How Node's project registry reads a path (`resolveProjectPath`, projects.mjs:251, behind `knownPath`, `ensureDir` and the catalog): the
+/// string trimmed and, unless empty, resolved by the host's `path.resolve` against the working directory. Nothing else is checked and a
+/// relative path is not refused, unlike `absoluteLocalPath` (local-files.ts:7), which the local-file operations use.
+pub fn project_path(value: &str) -> Option<PathBuf> {
+    let cwd = std::env::current_dir().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default();
+    project_path_in(mixdog_js::nodepath::Style::host(), &cwd, value).map(PathBuf::from)
+}
+/// [`project_path`] under the path rules of `style` with `cwd` as the working directory: Node's `toAbsolute` (projects.mjs:21),
+/// `isAbsolute(text) ? resolve(text) : resolve(process.cwd(), text)`.
+pub fn project_path_in(style: mixdog_js::nodepath::Style, cwd: &str, value: &str) -> Option<String> {
+    use mixdog_js::nodepath::{is_absolute, resolve};
+    let text = mixdog_js::js_trim(value);
+    if text.is_empty() {
+        return None;
+    }
+    Some(if is_absolute(style, text) { resolve(style, &[text]) } else { resolve(style, &[cwd, text]) })
 }

@@ -186,6 +186,32 @@ for (const failure of ['rejects', 'never settles']) {
   });
 }
 
+test('the Lead route follows the Lead preset while the host holds no shell snapshot', async () => {
+  resetSidebarReferenceCache();
+  const api = {
+    getSnapshot: async () => null,
+    invokeCapability: async () => ({ value: [{ id: 'workflow-lead', provider: 'p', model: 'lead-model', effort: 'high' }] }),
+  };
+  const { dom } = installTestDom(null, {
+    html: '<!doctype html><html><body><div id="root"></div></body></html>',
+    jsdom: { url: 'about:blank' },
+    expose: ['navigator', 'HTMLElement', 'Event', 'CustomEvent'],
+    actEnvironment: false,
+  });
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  let shown = null;
+  function Harness() {
+    shown = useLeadMainRoute(true, api)[0];
+    return null;
+  }
+  const root = createRoot(dom.window.document.getElementById('root'));
+  await act(async () => root.render(React.createElement(Harness)));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
+  assert.equal(shown.model, 'lead-model');
+  assert.equal(shown.effort, 'high');
+  await act(async () => root.unmount());
+});
+
 test('a first preset read that fails shows the host route until a full read lands', async () => {
   resetSidebarReferenceCache();
   const pending = [];

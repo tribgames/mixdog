@@ -1,10 +1,12 @@
 // Attach-or-start of this PC's core (lifecycle spec §5.4): the one place the desktop launches `mixdogd serve`, then waits
 // until the discovery file says `serving`. The endpoint itself is read by `readLocalDiscovery` on every dial.
 import { spawn } from 'node:child_process';
-import { linkSync, rmSync, statSync } from 'node:fs';
+import type { ChildProcess } from 'node:child_process';
+import { linkSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { ensureCore, launchCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
+import type { BootFailure, LaunchAttempt } from '../core-port/boot-progress';
 import { readLocalDiscovery } from './discovery';
 import type { WsEndpoint } from './ws-connector';
 
@@ -31,7 +33,26 @@ const coreLinkFs: CoreLinkFs = {
     }
   },
   link: (existing, path) => linkSync(existing, path),
-  remove: (path) => rmSync(path, { force: true }),
+  remove: (path) => {
+    // Earlier names moved aside below, once their core has ended.
+    const dir = dirname(path);
+    for (const name of readdirSync(dir)) {
+      if (name.startsWith(`${basename(path)}.replaced-`)) {
+        try {
+          rmSync(join(dir, name), { force: true });
+        } catch {
+          // Still running: a later launch removes it.
+        }
+      }
+    }
+    try {
+      rmSync(path, { force: true });
+    } catch {
+      // A core still running under the name (the one a deploy replaced) cannot be removed, but the name can be moved:
+      // left in place, the new core started as `mixdogd.exe`, out of the app's group in Task Manager.
+      renameSync(path, `${path}.replaced-${Date.now()}`);
+    }
+  },
 };
 
 /** The binary the packaged app starts its core from. On Windows that is `core/Mixdog.exe`, a hard link to
@@ -81,7 +102,15 @@ export function coreEnvironment(packaged: boolean, resourcesPath: string, userDa
 
 export async function readCoreState(
   runtimeRoot: string
-): Promise<{ state: string; rpcPort: number | null; blocked: unknown; pid: number | null; controlPort: number | null; token: string | null }> {
+): Promise<{
+  state: string;
+  rpcPort: number | null;
+  blocked: unknown;
+  pid: number | null;
+  controlPort: number | null;
+  token: string | null;
+  rebuild: { done: number; total: number } | null;
+}> {
   let text: string;
   try {
     text = await readFile(join(runtimeRoot, 'daemon.json'), 'utf8');
@@ -93,12 +122,22 @@ export async function readCoreState(
   }
   const discovery = JSON.parse(text) as {
     pid?: unknown;
-    core?: { state?: unknown; rpc?: { port?: unknown }; control?: { port?: unknown }; blocked?: unknown };
-    endpoints?: { session?: { token?: unknown } };
+    core?: {
+      state?: unknown;
+      rpc?: { port?: unknown };
+      control?: { port?: unknown };
+      blocked?: unknown;
+      rebuild?: { done?: unknown; total?: unknown };
+    };
+    protocol?: unknown;
+    endpoints?: { session?: { port?: unknown; token?: unknown } };
   };
   const core = discovery.core;
+  const sessionPort = discovery.endpoints?.session?.port;
+  const legacy = core === undefined && discovery.protocol === 1
+    && typeof sessionPort === 'number' && Number.isInteger(sessionPort) && sessionPort > 0 && sessionPort <= 65535;
   return {
-    state: String(core?.state ?? 'unknown'),
+    state: legacy ? 'legacy' : String(core?.state ?? 'unknown'),
     rpcPort: Number.isInteger(core?.rpc?.port) ? (core?.rpc?.port as number) : null,
     blocked: core?.blocked ?? null,
     // Whose file this is: a core this app started and saw end is not waited for when the file still names it.
@@ -106,6 +145,11 @@ export async function readCoreState(
     // What a liveness ask of the core needs: its control listener and the session token (watchCore).
     controlPort: Number.isInteger(core?.control?.port) ? (core?.control?.port as number) : null,
     token: typeof discovery.endpoints?.session?.token === 'string' ? discovery.endpoints.session.token : null,
+    // Present only while the core rebuilds its conversation index at start.
+    rebuild:
+      Number.isInteger(core?.rebuild?.done) && Number.isInteger(core?.rebuild?.total) && (core?.rebuild?.total as number) > 0
+        ? { done: core?.rebuild?.done as number, total: core?.rebuild?.total as number }
+        : null,
   };
 }
 
@@ -122,9 +166,46 @@ export interface CoreProcess {
   once(event: 'exit', listener: () => void): unknown;
 }
 
+/** One fixed action on this child only. It has no endpoint reachable from discovery, the renderer or tools. */
+export function desktopConfirmationWriter({ stdin, stdout }: ChildProcess): (() => Promise<void>) | undefined {
+  if (!stdin || !stdout) return undefined;
+  let closed = false;
+  let pending: ((applied: boolean) => void) | undefined;
+  const close = () => {
+    closed = true;
+    pending?.(false);
+  };
+  stdin.on('error', close);
+  stdin.once('close', close);
+  stdout.on('error', close);
+  stdout.once('close', close);
+  stdout.on('data', (reply: Buffer) => {
+    if (!pending || reply.length !== 1 || (reply[0] !== 89 && reply[0] !== 78)) {
+      close();
+      return;
+    }
+    pending(reply[0] === 89);
+  });
+  return async () => {
+    if (closed || pending) throw new Error('The desktop confirmation channel is unavailable.');
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(close, 15_000);
+      pending = (applied) => {
+        clearTimeout(timeout);
+        pending = undefined;
+        if (applied) resolve();
+        else reject(new Error('The local core did not confirm the change.'));
+      };
+      stdin.write('allow-all-actions\n', (error) => {
+        if (error) close();
+      });
+    });
+  };
+}
+
 /** Resolves when the core this app started has ended, or after `timeoutMs`: `true` when it ended (or there is none to
- *  wait for), `false` when the time ran out. A quitting app waits here after it has left the core: the core stops by
- *  itself once its last client is gone, and that stop is what ends its PostgreSQL in order and closes a running turn's
+ *  wait for), `false` when the time ran out. A quitting app waits here after it has left the core: the stop it
+ *  asked for (`requestCoreStop`) is what ends its PostgreSQL in order and closes a running turn's
  *  record. The app's own exit ends the core at once (it is the app's child), so an app that did not wait would cut the
  *  stop short every time. */
 export function coreExit(child: CoreProcess | null, timeoutMs: number): Promise<boolean> {
@@ -138,12 +219,40 @@ export function coreExit(child: CoreProcess | null, timeoutMs: number): Promise<
   });
 }
 
-/** Asks the core this app started to stop (`mixdogd ctl stop --when-idle --reason userStop`) and resolves once the
- *  request was answered, or after `timeoutMs`. The core stops by itself when its last client is gone, but only after its
- *  no-client grace (10 s), which a quitting app does not wait out: its exit would end the core first. The stop is sent
- *  only while the discovery file names that very process, so a quit never stops a core another launcher owns; a stop is
- *  not deferred for attached clients (`userStop`), and `whenIdle` lets a running turn settle within the quit's wait.
- *  Resolves whether the request was sent. */
+/** Ends the core this app started, and the processes it started (its workers, PostgreSQL), when a quit's stop left it running.
+ *  The app's exit does not end its children on Windows, so a core that did not leave in time would outlive the app, keep the
+ *  data directory and make the next launch wait on it. True when a kill was sent. */
+export function forceEndCore(child: CoreProcess | null, { platform = process.platform, spawnImpl = spawn }: { platform?: NodeJS.Platform; spawnImpl?: typeof spawn } = {}): boolean {
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return false;
+  try {
+    if (platform === 'win32') {
+      const kill = spawnImpl('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, detached: true });
+      kill.once('error', () => {});
+      kill.unref();
+    } else {
+      process.kill(child.pid, 'SIGKILL');
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** What became of the request to stop the core: `none` (no core of this app's to stop), `not-ours` (the discovery file
+ *  names another process), `sent` (the core answered: it is winding down), `refused` (the request failed; `error` says
+ *  why) or `unanswered` (no answer within the limit). `elapsedMs` is how long the request took. */
+export interface CoreStopRequest {
+  request: 'none' | 'not-ours' | 'sent' | 'refused' | 'unanswered';
+  error: string | null;
+  elapsedMs: number;
+}
+
+/** Asks the core this app started to stop (`mixdogd ctl stop --force --reason userStop`) and resolves once the request
+ *  was answered, or after `timeoutMs`. A quit's stop is forced, as 1.4.5's was: the core cancels its running turns, agent
+ *  tasks and service calls, runs its exit hooks and leaves. A stop that waits for idle never ends a busy core: the app has
+ *  detached from it before it asks, so no drain notice reaches a client to confirm an abort, and the app's exit ends the
+ *  core with its process tree and no exit hook. The stop is sent only while the discovery file names that very process, so
+ *  a quit never stops a core another launcher owns. */
 export async function requestCoreStop({
   child,
   bin,
@@ -160,34 +269,44 @@ export async function requestCoreStop({
   timeoutMs: number;
   spawnImpl?: typeof spawn;
   readDiscovery?: (runtimeRoot: string) => Promise<{ pid: number | null }>;
-}): Promise<boolean> {
-  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return false;
+}): Promise<CoreStopRequest> {
+  const began = Date.now();
+  const outcome = (request: CoreStopRequest['request'], error: string | null = null): CoreStopRequest => ({
+    request,
+    error,
+    elapsedMs: Date.now() - began,
+  });
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return outcome('none');
   let named: number | null = null;
   try {
     named = (await readDiscovery(runtimeRoot)).pid;
-  } catch {
-    return false;
+  } catch (error) {
+    return outcome('refused', `discovery unreadable: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (named !== child.pid) return false;
+  if (named !== child.pid) return outcome('not-ours');
   return new Promise((resolve) => {
     let settled = false;
-    const done = (sent: boolean) => {
+    let stderr = '';
+    const done = (result: CoreStopRequest['request'], error: string | null = null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve(sent);
+      resolve(outcome(result, error));
     };
-    const timer = setTimeout(() => done(true), timeoutMs);
+    const timer = setTimeout(() => done('unanswered'), timeoutMs);
     try {
-      const ctl = spawnImpl(bin, ['ctl', 'stop', '--when-idle', '--reason', 'userStop', '--json'], {
-        stdio: 'ignore',
+      const ctl = spawnImpl(bin, ['ctl', 'stop', '--force', '--reason', 'userStop', '--json'], {
+        stdio: ['ignore', 'ignore', 'pipe'],
         windowsHide: true,
         ...(env ? { env } : {}),
       });
-      ctl.once('error', () => done(false));
-      ctl.once('exit', (code) => done(code === 0));
-    } catch {
-      done(false);
+      ctl.stderr?.on('data', (chunk: Buffer | string) => {
+        if (stderr.length < 2_000) stderr += String(chunk);
+      });
+      ctl.once('error', (error: Error) => done('refused', error.message));
+      ctl.once('exit', (code) => (code === 0 ? done('sent') : done('refused', stderr.trim() || `mixdogd ctl stop exited ${code}`)));
+    } catch (error) {
+      done('refused', error instanceof Error ? error.message : String(error));
     }
   });
 }
@@ -199,10 +318,15 @@ export function resolveLocalCore({
   environmentReady,
   ensure = ensureCore,
   onLaunched,
+  desktopConfirmationPipe = false,
+  reports,
   spawnImpl = spawn,
 }: {
   runtimeRoot: string;
-  bin: string;
+  /** The binary to start, or how to choose it at each launch ([`coreLaunchPath`]): chosen once at the app's start, a
+   *  link that could not be made then (the replaced core still running under the old name during a deploy) kept the
+   *  core on `mixdogd.exe`, out of the app's group in Task Manager, for as long as the app ran. */
+  bin: string | (() => string);
   /** The core's environment, read at spawn (after `environmentReady`). */
   env?: () => NodeJS.ProcessEnv;
   /** Settles once this process's environment is final: the core inherits it at spawn. */
@@ -210,28 +334,44 @@ export function resolveLocalCore({
   /** The attach-or-start routine; tests pass their own. */
   ensure?: typeof ensureCore;
   /** Told the core process this app started, each time it starts one (`coreExit` waits on it at quit). */
-  onLaunched?: (child: CoreProcess) => void;
+  onLaunched?: (child: ChildProcess) => void;
+  desktopConfirmationPipe?: boolean;
+  /** What this call reports while it waits for the core, as one launch attempt: the rebuild's progress, and how it ended. */
+  reports?: { attempt(): LaunchAttempt; confirmed(): BootFailure | null };
   /** The spawn of a launch; tests pass their own. */
   spawnImpl?: typeof spawn;
 }): () => Promise<WsEndpoint> {
   return async () => {
     await environmentReady();
-    await ensure({
-      readDiscovery: () => readCoreState(runtimeRoot),
-      // The app owns its core: an ordinary child, so the core ends when the app does and Windows lists it under the app.
-      launch: () =>
-        launchCore({
-          bin,
-          detached: false,
-          ...(env ? { env: env() } : {}),
-          spawnImpl: ((...args: Parameters<typeof spawn>) => {
-            const child = spawnImpl(...args);
-            onLaunched?.(child);
-            return child;
-          }) as typeof spawn,
-        }),
-      readyTimeoutMs: Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS) || DESKTOP_CORE_READY_TIMEOUT_MS,
-    });
+    const attempt = reports?.attempt();
+    try {
+      await ensure({
+        readDiscovery: () => readCoreState(runtimeRoot),
+        // The app owns its core: an ordinary child, so the core ends when the app does and Windows lists it under the app.
+        launch: () => {
+          // A start that is confirmed not to succeed is not tried again until the user asks, for an attempt already waiting on the core too:
+          // it attaches to a core that serves (or is booting), and never starts one.
+          const confirmedNow = reports?.confirmed();
+          if (confirmedNow) throw Object.assign(new Error(confirmedNow.message), { coreLaunchFailed: confirmedNow });
+          return launchCore({
+            bin: typeof bin === 'function' ? bin() : bin,
+            detached: false,
+            desktopConfirmationPipe,
+            ...(env ? { env: env() } : {}),
+            spawnImpl: ((...args: Parameters<typeof spawn>) => {
+              const child = spawnImpl(...args);
+              onLaunched?.(child);
+              return child;
+            }) as typeof spawn,
+          });
+        },
+        readyTimeoutMs: Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS) || DESKTOP_CORE_READY_TIMEOUT_MS,
+        ...(attempt ? { onProgress: attempt.progress } : {}),
+      });
+    } catch (error) {
+      throw attempt ? attempt.failed(error) : error;
+    }
+    attempt?.succeeded();
     return readLocalDiscovery(runtimeRoot);
   };
 }

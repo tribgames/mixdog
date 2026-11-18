@@ -105,7 +105,10 @@ export function memoryResultError(value: unknown): string {
     : '';
 }
 
-export type ProjectMemoryCatalog = Map<string | null, CoreMemoryEntry[]>;
+type ProjectMemoryScope = { projectId: string | null; entries: CoreMemoryEntry[] };
+
+/** A null path is Common. A project with no independent scope has no entry. */
+export type ProjectMemoryCatalog = Map<string | null, ProjectMemoryScope>;
 
 export async function readProjectMemories(
   paths: string[],
@@ -145,8 +148,11 @@ export async function readProjectMemories(
     offset = page.nextOffset ?? null;
   }
   for (const entries of byScope.values()) entries.sort((a, b) => a.id - b.id);
-  return new Map([
-    [null, byScope.get(null) ?? []],
-    ...projectScopes.map(({ path, projectId }): [string, CoreMemoryEntry[]] => [path, byScope.get(projectId) ?? []]),
-  ]);
+  const catalog: ProjectMemoryCatalog = new Map([[null, { projectId: null, entries: byScope.get(null) ?? [] }]]);
+  for (const { path, projectId } of projectScopes) {
+    // A missing marker (or an explicit Common marker) resolves to null on the host.
+    // That must not expose Common's entries or write address through a project editor.
+    if (projectId !== null) catalog.set(path, { projectId, entries: byScope.get(projectId) ?? [] });
+  }
+  return catalog;
 }

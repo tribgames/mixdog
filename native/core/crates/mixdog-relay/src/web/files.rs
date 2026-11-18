@@ -398,9 +398,13 @@ pub async fn resolve_for_device(
     pathname: String,
 ) -> io::Result<(PathBuf, StaticResolution)> {
     job(io, move |_| {
-        let dir = catalog.dir_for(&report);
-        let resolution = resolve_static_target(&dir, &pathname);
-        Ok((dir, resolution))
+        Ok(match catalog.dir_for(&report) {
+            Some(dir) => {
+                let resolution = resolve_static_target(&dir, &pathname);
+                (dir, resolution)
+            }
+            None => (PathBuf::new(), StaticResolution::Missing),
+        })
     })
     .await
 }

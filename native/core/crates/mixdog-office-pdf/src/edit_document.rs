@@ -143,37 +143,6 @@ pub fn pdf_attachments(document: &PdfDocument) -> Vec<Value> {
         .collect()
 }
 
-/// `resolve(dirname(path), target)`.
-pub(crate) fn resolve_beside(path: &Path, target: &str) -> PathBuf {
-    let directory = path.parent().map(|parent| parent.to_string_lossy().into_owned()).unwrap_or_default();
-    let directory = if directory.is_empty() { ".".to_owned() } else { directory };
-    PathBuf::from(nodepath::resolve_host(&[&directory, target]))
-}
-
-/// `writeSibling(path, target, bytes)`: the file `target` names (beside the document when it is relative), which must
-/// not be the document itself. Its folder is made, the write is reported to the call's note before it happens, and the
-/// absolute path comes back.
-pub fn write_sibling<P: WriteProof>(
-    proof: &P,
-    note: &dyn WriteNote,
-    path: &Path,
-    target: &str,
-    bytes: &[u8],
-) -> Result<PathBuf, AnalysisError> {
-    let output = resolve_beside(path, target);
-    let document = nodepath::resolve_host(&[&path.to_string_lossy()]);
-    if js_to_lowercase(&output.to_string_lossy()) == js_to_lowercase(&document) {
-        return Err(AnalysisError::plain("output must differ from the document being edited"));
-    }
-    let io = |error: std::io::Error| AnalysisError::plain(error.to_string());
-    if let Some(folder) = output.parent().filter(|folder| !folder.as_os_str().is_empty()) {
-        mixdog_fsio::create_dir_all(proof, folder).map_err(io)?;
-    }
-    note.note_write(&output);
-    mixdog_fsio::write(proof, &output, bytes).map_err(io)?;
-    Ok(output)
-}
-
 /// `readFile(path)`: a file that is not there reads as Node's `ENOENT` says it.
 pub(crate) fn read_file<P: mixdog_fsio::ReadProof>(proof: &P, path: &Path) -> Result<Vec<u8>, AnalysisError> {
     mixdog_fsio::read(proof, path).map_err(|error| {
@@ -247,6 +216,7 @@ mod tests {
         assert!(load_pdf(b"not a pdf", false).is_err());
     }
 
+
     #[test]
     fn a_target_is_resolved_beside_the_document_and_never_is_the_document() {
         let resolved = resolve_beside(Path::new("work/a.pdf"), "out/b.pdf");
@@ -261,4 +231,35 @@ mod tests {
         .expect_err("same file");
         assert_eq!(error.message, "output must differ from the document being edited");
     }
+}
+
+
+/// `resolve(dirname(path), target)`.
+pub(crate) fn resolve_beside(path: &Path, target: &str) -> PathBuf {
+    let directory = path.parent().map(|parent| parent.to_string_lossy().into_owned()).unwrap_or_default();
+    let directory = if directory.is_empty() { ".".to_owned() } else { directory };
+    PathBuf::from(nodepath::resolve_host(&[&directory, target]))
+}
+/// `writeSibling(path, target, bytes)`: the file `target` names (beside the document when it is relative), which must
+/// not be the document itself. Its folder is made, the write is reported to the call's note before it happens, and the
+/// absolute path comes back.
+pub fn write_sibling<P: WriteProof>(
+    proof: &P,
+    note: &dyn WriteNote,
+    path: &Path,
+    target: &str,
+    bytes: &[u8],
+) -> Result<PathBuf, AnalysisError> {
+    let output = resolve_beside(path, target);
+    let document = nodepath::resolve_host(&[&path.to_string_lossy()]);
+    if js_to_lowercase(&output.to_string_lossy()) == js_to_lowercase(&document) {
+        return Err(AnalysisError::plain("output must differ from the document being edited"));
+    }
+    let io = |error: std::io::Error| AnalysisError::plain(error.to_string());
+    if let Some(folder) = output.parent().filter(|folder| !folder.as_os_str().is_empty()) {
+        mixdog_fsio::create_dir_all(proof, folder).map_err(io)?;
+    }
+    note.note_write(&output);
+    mixdog_fsio::write(proof, &output, bytes).map_err(io)?;
+    Ok(output)
 }

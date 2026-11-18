@@ -182,9 +182,9 @@ mod tests {
     }
 
     fn registry() -> Registry {
-        let face = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/office-measure/faces/NotoSansLisu-Regular.ttf");
+        let face = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../mixdog-pdf/assets/standard_fonts/LiberationSans-Regular.ttf");
         let mut registry = Registry::new();
-        registry.register_file(&Unlaned, &face, Some("Twin Lisu")).expect("the fixture face registers");
+        registry.register_file(&Unlaned, &face, Some("Test Sans")).expect("the tracked face registers");
         registry
     }
 
@@ -285,3 +285,5 @@ mod tests {
         assert_eq!(keys, ["output", "_images", "pageCount", "renderer", "contactSheet"]);
     }
 }
+
+

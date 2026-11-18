@@ -1060,14 +1060,16 @@ impl Claims {
 /// memory without end); here the queue's capacity and that one paused message are the most a connection holds.
 pub struct PendingInput {
     manager: LocalProcessManager,
-    handle: ProcessHandle,
+    tab: Arc<Tab>,
     bytes: Vec<u8>,
 }
 
 impl PendingInput {
     /// Waits for room in the tab's input queue and writes the input; a tab that has gone meanwhile takes nothing, as Node's killed pty did.
     pub async fn finish(self) {
-        let _ = self.manager.write_input_wait(&self.handle, self.bytes).await;
+        let _ = self.manager.write_input_wait_on_admission(&self.tab.handle, self.bytes, |bytes| {
+            TerminalTabs::note_input(&self.tab, std::str::from_utf8(bytes).expect("terminal input is UTF-8"));
+        }).await;
     }
 }
 
@@ -1450,7 +1452,7 @@ impl TerminalTabs {
         #[allow(unused_mut)]
         let mut options = SpawnOptions {
             ring_bytes: Some(self.config.replay_limit),
-            filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
+            replays_after_exit: true, filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
             on_exit: Some(on_exit),
             // The tab's exit comes when Node's node-pty raised it, on this runtime's clock.
             node_pty_exit: Some(NodePtyExit { runtime: tokio::runtime::Handle::current() }),
@@ -1593,16 +1595,31 @@ impl TerminalTabs {
     pub fn write(&self, id: &str, data: &str) -> Option<PendingInput> {
         let tab = self.running(id)?;
         let bytes = data.as_bytes().to_vec();
-        let pending = match self.manager.write_input(&tab.handle, bytes.clone()) {
-            Err(ProcessError::Overloaded { .. }) => Some(PendingInput { manager: self.manager.clone(), handle: tab.handle.clone(), bytes }),
+        match self.manager.write_input(&tab.handle, bytes.clone()) {
+            Ok(()) => {
+                Self::note_input(&tab, data);
+                None
+            }
+            Err(ProcessError::Overloaded { .. }) => Some(PendingInput { manager: self.manager.clone(), tab, bytes }),
             _ => None,
-        };
+        }
+    }
+
+    /// Unlike pane keystrokes, a tool-submitted command needs an acknowledgement that the PTY took all its input.
+    pub async fn write_command(&self, id: &str, data: &str, admitted: impl FnOnce()) -> Result<(), ProcessError> {
+        let tab = self.running(id).ok_or(ProcessError::AlreadyExited)?;
+        self.manager.write_input_whole_on_admission(&tab.handle, data.as_bytes().to_vec(), |_| {
+            admitted();
+            Self::note_input(&tab, data);
+        }).await
+    }
+
+    fn note_input(tab: &Tab, data: &str) {
         let mut state = tab.lock();
         if state.scanner.is_some() {
             let change = state.activity.input(data);
             tab.publish_after_output(&mut state, change);
         }
-        pending
     }
 
     /// A view reports its size (`terminal-manager.ts` `resize`). `client` is the connection of a
@@ -2168,7 +2185,7 @@ mod lock_order {
                      $null = [Console]::In.ReadLine(); [Console]::Out.Write('z' + [char]27 + ']697;C' + [char]7); $null = [Console]::In.ReadLine()",
                     "read a; printf '%070000d\\033]697;P\\007' 0; read b; printf 'z\\033]697;C\\007'; read c",
                 ),
-                SpawnOptions { ring_bytes: Some(1024), filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))), ..SpawnOptions::default() },
+                SpawnOptions { ring_bytes: Some(1024), replays_after_exit: true, filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))), ..SpawnOptions::default() },
             )
             .await
             .unwrap();
@@ -2245,7 +2262,7 @@ mod lock_order {
                 ),
                 SpawnOptions {
                     ring_bytes: Some(1024),
-                    filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
+                    replays_after_exit: true, filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
                     on_exit: Some(Box::new(move |_| {
                         let _ = exited.send(());
                         Vec::new()
@@ -2281,7 +2298,7 @@ mod lock_order {
                      $null = [Console]::In.ReadLine(); [Console]::Out.Write('z' + [char]27 + ']697;C' + [char]7); $null = [Console]::In.ReadLine()",
                     "read a; printf '%070000d\\033]697;P\\007' 0; read b; printf 'z\\033]697;C\\007'; read c",
                 ),
-                SpawnOptions { ring_bytes: Some(1024), filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))), ..SpawnOptions::default() },
+                SpawnOptions { ring_bytes: Some(1024), replays_after_exit: true, filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))), ..SpawnOptions::default() },
             )
             .await
             .unwrap();
@@ -2329,7 +2346,7 @@ mod lock_order {
             .spawn_with(
                 request,
                 SpawnOptions {
-                    filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
+                    replays_after_exit: true, filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
                     on_exit: Some(Box::new(move |exit| ending.exited(exit))),
                     ..SpawnOptions::default()
                 },
@@ -2364,7 +2381,7 @@ mod lock_order {
         manager
             .spawn_with(
                 piped(&handle, "$null = [Console]::In.ReadLine()", "read a"),
-                SpawnOptions { filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))), ..SpawnOptions::default() },
+                SpawnOptions { replays_after_exit: true, filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))), ..SpawnOptions::default() },
             )
             .await
             .unwrap();
@@ -2408,7 +2425,7 @@ mod lock_order {
                     "$null = [Console]::In.ReadLine(); [Console]::Out.Write('x' + [char]27 + ']697;P' + [char]7); $null = [Console]::In.ReadLine()",
                     "read a; printf 'x\\033]697;P\\007'; read b",
                 ),
-                SpawnOptions { filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))), ..SpawnOptions::default() },
+                SpawnOptions { replays_after_exit: true, filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))), ..SpawnOptions::default() },
             )
             .await
             .unwrap();
@@ -2599,8 +2616,9 @@ mod held_flush {
         tab.flush_held(&feed, held_gen);
         assert_eq!(feed.pushed(), 1);
         let state = tab.lock();
-        assert_eq!(state.buffer.read(), "\x1b");
-        assert_eq!(state.emitted, 1);
+        // The window and the count hold the admitted `PS> ` and, after it, the released escape.
+        assert_eq!(state.buffer.read(), "PS> \x1b");
+        assert_eq!(state.emitted, 5);
         assert!(!state.scanner.as_ref().unwrap().is_holding());
         assert!(!state.flushing);
     }
@@ -2641,10 +2659,10 @@ mod held_flush {
         let mut filter = TabFilter::new(tab.clone());
         for _ in 0..12 {
             filter.filter(b"\x1b");
-            let (calls, feed) = (calls.clone(), feed.clone());
+            let (called, held) = (calls.clone(), feed.clone());
             filter.admitted_with(Some(&ticker), move |tab, generation| {
-                calls.fetch_add(1, Ordering::SeqCst);
-                tab.flush_held(&feed, generation);
+                called.fetch_add(1, Ordering::SeqCst);
+                tab.flush_held(&held, generation);
             });
             tokio::task::yield_now().await;
             tokio::time::advance(std::time::Duration::from_millis(10)).await;

@@ -39,18 +39,24 @@ pub(super) struct Selection {
     pub(super) blocked: Vec<(String, String)>,
     pub(super) missing: Vec<String>,
     pub(super) native: bool,
+    /// `(name, reason)`: in the catalog, but the core registered nothing that runs it. Never loaded.
+    pub(super) unavailable: Vec<(String, String)>,
 }
 
 impl Selection {
-    /// `{added, already, blocked, missing, native}` as Node returns it.
+    /// `{added, already, blocked, missing, native}` as Node returns it, and `unavailable` where a tool is.
     pub(super) fn to_value(&self) -> Value {
-        json!({
+        let mut out = json!({
             "added": self.added,
             "already": self.already,
             "blocked": blocked_value(&self.blocked),
             "missing": self.missing,
             "native": self.native,
-        })
+        });
+        if !self.unavailable.is_empty() {
+            out["unavailable"] = blocked_value(&self.unavailable);
+        }
+        out
     }
 }
 
@@ -138,7 +144,7 @@ pub(super) fn select(surface: &ToolSurface<'_>, session: &mut Value, excluded: &
     for raw in requested {
         insert(&mut unique, raw);
     }
-    let mut selection = Selection { added: Vec::new(), already: Vec::new(), blocked: Vec::new(), missing: Vec::new(), native };
+    let mut selection = Selection { added: Vec::new(), already: Vec::new(), blocked: Vec::new(), missing: Vec::new(), native, unavailable: Vec::new() };
     for raw in unique {
         let requested = mixdog_js::js_trim(&raw);
         let Some(tool) = lookup(requested).filter(|tool| deferred_available(session, &tool_name(tool))) else {
@@ -146,6 +152,12 @@ pub(super) fn select(surface: &ToolSurface<'_>, session: &mut Value, excluded: &
             continue;
         };
         let name = tool_name(tool);
+        // `load_tool` loads only what a call can then run: the registered set is the one execution resolves from.
+        if !surface.runs(&name) {
+            let reason = ToolSurface::unavailable_reason(&name);
+            selection.unavailable.push((name, reason));
+            continue;
+        }
         // A tool this route never sends is not loaded and not listed as active.
         if !bridge && let Some(reason) = route_exclusion(&header, excluded, tool) {
             selection.blocked.push((name, reason));
@@ -275,9 +287,10 @@ fn feature_denies(session: &Value, name: &str) -> bool {
     session.get("featureDeniedTools").and_then(Value::as_array).is_some_and(|denied| denied.iter().any(|d| d.as_str().is_some_and(|d| d.to_lowercase() == name)))
 }
 
-/// `permittedNames(session, names)`.
-fn permitted(session: &Value, names: Vec<String>) -> Vec<String> {
-    names.into_iter().filter(|name| permitted_by_session_policy(session, name)).collect()
+/// `permittedNames(session, names)`, and only what the core can run now: the stored lists record what the session chose, and
+/// what is advertised is computed from them through the current availability (a tool that becomes runnable is active again).
+fn permitted(surface: &ToolSurface<'_>, session: &Value, names: Vec<String>) -> Vec<String> {
+    names.into_iter().filter(|name| permitted_by_session_policy(session, name) && surface.available(session, mixdog_js::js_trim(name))).collect()
 }
 
 /// `sentOnRoute(session, catalog)`: the names the route sends (a name of no known tool is sent).
@@ -330,9 +343,11 @@ pub(super) fn render_tool_search(surface: &ToolSurface<'_>, session: &mut Value,
         out.insert("alreadyActive".to_owned(), json!([]));
         out.insert("missing".to_owned(), json!([]));
         mcp_fields(&mut out);
-        let active = sent_on_route(&header, excluded, session, &catalog, permitted(session, eager_names(session)));
+        // Node lists the eager names alone (`renderToolSearch`, recorded in `native_request_bytes`): a tool loaded earlier is in
+        // `discoveredTools`, not here.
+        let active = sent_on_route(&header, excluded, session, &catalog, permitted(surface, session, eager_names(session)));
         out.insert("activeTools".to_owned(), names_value(&sorted_names_by_measured_usage(active)));
-        out.insert("discoveredTools".to_owned(), names_value(&sorted_names_by_measured_usage(permitted(session, discovered_names(session)))));
+        out.insert("discoveredTools".to_owned(), names_value(&sorted_names_by_measured_usage(permitted(surface, session, discovered_names(session)))));
         return pretty(&Value::Object(out));
     }
     let selection = select(surface, session, excluded, &requested, mode == "readonly", false);
@@ -369,6 +384,10 @@ pub(super) fn render_tool_search(surface: &ToolSurface<'_>, session: &mut Value,
     if !disabled.is_empty() {
         notes.push(format!("Disabled in settings: {}. Do not retry unless the user turns it on.", disabled.join(", ")));
     }
+    if !selection.unavailable.is_empty() {
+        let each: Vec<String> = selection.unavailable.iter().map(|(name, reason)| format!("{name} ({reason})")).collect();
+        notes.push(format!("Unavailable, not loaded: {}", each.join(" ")));
+    }
     if !missing.is_empty() && !pending.is_empty() {
         notes.push("Some requested names may belong to an MCP server still connecting — retry next turn.".to_owned());
     }
@@ -400,11 +419,11 @@ pub(super) fn render_tool_search(surface: &ToolSurface<'_>, session: &mut Value,
         out.insert("blocked".to_owned(), blocked_value(&selection.blocked));
     }
     mcp_fields(&mut out);
-    let available: Vec<String> = permitted(session, next_active).into_iter().filter(|name| deferred_available(session, name)).collect();
+    let available: Vec<String> = permitted(surface, session, next_active).into_iter().filter(|name| deferred_available(session, name)).collect();
     let header = session.as_object().cloned().unwrap_or_default();
     let active = sent_on_route(&header, excluded, session, &catalog, available);
     out.insert("activeTools".to_owned(), names_value(&sorted_names_by_measured_usage(active)));
-    out.insert("discoveredTools".to_owned(), names_value(&sorted_names_by_measured_usage(permitted(session, discovered_names(session)))));
+    out.insert("discoveredTools".to_owned(), names_value(&sorted_names_by_measured_usage(permitted(surface, session, discovered_names(session)))));
     if !notes.is_empty() {
         out.insert("note".to_owned(), json!(notes.join(" ")));
     }

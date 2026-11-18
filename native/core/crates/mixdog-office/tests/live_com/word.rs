@@ -25,7 +25,7 @@ fn persistent_word_sessions_create_save_and_read_unicode_content() {
         "operations": [
             { "op": "append_text", "text": "한글-日本語-中文 {{ name }}" },
             { "op": "set_header_footer", "section": 1, "kind": "header", "text": "Owner {{owner}}" },
-            { "op": "fill_template", "tokens": { "name": "재영", "owner": "Mixdog" }, "strict": true },
+            { "op": "fill_template", "tokens": { "name": "길동", "owner": "Mixdog" }, "strict": true },
             {
                 "op": "add_table",
                 "values": [["Metric", "Value"], ["Revenue", "120"], ["Summary", "Ready"]],
@@ -43,7 +43,7 @@ fn persistent_word_sessions_create_save_and_read_unicode_content() {
     let snapshot = live.call(json!({ "action": "snapshot", "session": session }));
     let document = &snapshot["document"];
     assert!(mentions(document, "한글-日本語-中文"));
-    assert!(mentions(document, "한글-日本語-中文 재영"));
+    assert!(mentions(document, "한글-日本語-中文 길동"));
     assert!(mentions(document, "Owner Mixdog"));
     assert!(!mentions(document, "{{"));
     assert_ne!(document["paragraphs"][0]["style"], "System.__ComObject");

@@ -62,7 +62,7 @@ fn is_per_second_resolution(field: &str) -> bool {
         .is_some_and(|tail| !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
 }
 
-fn litellm_row(row: &Value) -> Option<Value> {
+pub(crate) fn litellm_row(row: &Value) -> Option<Value> {
     let row = row.as_object()?;
     let mut out = Obj::new();
     for field in LITELLM_NUMBERS {
@@ -94,7 +94,9 @@ fn litellm_row(row: &Value) -> Option<Value> {
     Some(Value::Object(out))
 }
 
-/// `projectLitellmCatalog`: keys preserved exactly, rows narrowed.
+/// `projectLitellmCatalog`: keys preserved exactly, rows narrowed. The whole-document form the streamed read is
+/// compared with.
+#[cfg(test)]
 pub fn project_litellm(data: &Value) -> Value {
     let Some(map) = data.as_object() else { return data.clone() };
     Value::Object(map.iter().filter_map(|(key, row)| litellm_row(row).map(|r| (key.clone(), r))).collect())
@@ -118,7 +120,7 @@ fn pick_arrays(source: Option<&Value>, fields: &[&str]) -> Option<Obj> {
     (!out.is_empty()).then_some(out)
 }
 
-fn models_dev_row(row: &Value) -> Option<Value> {
+pub(crate) fn models_dev_row(row: &Value) -> Option<Value> {
     row.as_object()?;
     let mut out = Obj::new();
     if let Some(cost) = pick_present(row.get("cost"), &["input", "output", "cache_read", "cache_write", "tiers", "context_over_200k"]) {
@@ -154,7 +156,8 @@ fn models_dev_row(row: &Value) -> Option<Value> {
 }
 
 /// `projectModelsDevCatalog`: `{ providerId: { models } }`; a provider with
-/// no models map is dropped.
+/// no models map is dropped. The whole-document form the streamed read is compared with.
+#[cfg(test)]
 pub fn project_models_dev(data: &Value) -> Value {
     let Some(providers) = data.as_object() else { return data.clone() };
     let mut out = Obj::new();

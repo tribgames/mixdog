@@ -283,12 +283,55 @@ pub fn v8_json_parse_error(text: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    /// `[input, message]` rows written by Node (`testdata/json_error.mjs`); the first row names
-    /// the Node version, a `null` message means the input parses.
+    #[test]
+    fn the_message_names_what_was_expected_and_where() {
+        for (input, message) in [
+            ("", "Unexpected end of JSON input"),
+            ("{", "Expected property name or '}' in JSON at position 1 (line 1 column 2)"),
+            ("{'a':1}", "Expected property name or '}' in JSON at position 1 (line 1 column 2)"),
+            ("[1 2]", "Expected ',' or ']' after array element in JSON at position 3 (line 1 column 4)"),
+            ("{\"a\" 1}", "Expected ':' after property name in JSON at position 5 (line 1 column 6)"),
+            ("{\"a\":1} x", "Unexpected non-whitespace character after JSON at position 8 (line 1 column 9)"),
+            ("\"abc", "Unterminated string in JSON at position 4 (line 1 column 5)"),
+            ("\"a\nb\"", "Bad control character in string literal in JSON at position 2 (line 1 column 3)"),
+            ("\"\\x\"", "Bad escaped character in JSON at position 2 (line 1 column 3)"),
+        ] {
+            assert_eq!(v8_json_parse_error(input).as_deref(), Some(message), "{input:?}");
+        }
+    }
+
+    #[test]
+    fn an_unexpected_token_is_quoted_with_the_text_around_it() {
+        assert_eq!(v8_json_parse_error("abc").as_deref(), Some("Unexpected token 'a', \"abc\" is not valid JSON"));
+        assert_eq!(v8_json_parse_error("[1,]").as_deref(), Some("Unexpected token ']', \"[1,]\" is not valid JSON"));
+    }
+
+    #[test]
+    fn valid_json_has_no_message() {
+        for input in ["1", " [1, {\"a\": null}] ", "\"\\ud800\"", "-0.5e+3"] {
+            assert_eq!(v8_json_parse_error(input), None, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn it_rejects_exactly_what_the_parser_rejects() {
+        for input in ["", "1", "[1,]", "{\"a\":1}", "{a:1}", "\"\t\"", "01", "-", "[1] 2", "\"\\ud800\"", "nul", "true"] {
+            assert_eq!(v8_json_parse_error(input).is_none(), crate::json_parse(input).is_ok(), "{input:?}");
+        }
+    }
+}
+
+
+/// The rows of the recorded JSON errors of the reference runtime; compiled only on the machine that holds them.
+#[cfg(all(test, node_twin))]
+mod node_twin {
+    use super::*;
+
+    /// `[input, message]` rows; the first row names the runtime version, a `null` message means the input parses.
     const ROWS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("testdata/json_error.json");
 
     #[test]
-    fn the_message_is_the_one_node_raises() {
+    fn the_message_is_the_recorded_one() {
         let rows: Vec<(String, Option<String>)> = serde_json::from_str(&ROWS).expect("fixture");
         assert!(rows.len() > 5000);
         for (input, expected) in &rows[1..] {
@@ -297,7 +340,7 @@ mod tests {
     }
 
     #[test]
-    fn it_rejects_exactly_what_the_parser_rejects() {
+    fn it_rejects_exactly_what_the_parser_rejects_on_every_row() {
         let rows: Vec<(String, Option<String>)> = serde_json::from_str(&ROWS).expect("fixture");
         for (input, _) in &rows[1..] {
             assert_eq!(v8_json_parse_error(input).is_none(), crate::json_parse(input).is_ok(), "{input:?}");

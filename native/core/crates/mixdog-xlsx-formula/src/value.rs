@@ -196,8 +196,6 @@ impl fmt::Display for UnsupportedFormula {
     }
 }
 
-impl std::error::Error for UnsupportedFormula {}
-
 /// Why an evaluation did not produce a value: a refusal, or an exception the Node engine would let escape (a
 /// function that throws, `parseCellRef` on `A0`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -235,6 +233,7 @@ impl fmt::Display for Failure {
     }
 }
 
+impl std::error::Error for UnsupportedFormula {}
 impl std::error::Error for Failure {}
 
 #[cfg(test)]

@@ -30,6 +30,7 @@ import type {
   DesktopProjectSummary,
   ProviderModelsChange,
 } from '../shared/contract';
+import { canonicalJson } from '../shared/remote-view-resume';
 import { record, rows } from './record-utils';
 import { awaitEntry, readHeldCapability, sectionSourceOf } from './section-capabilities';
 import { sectionStoreFor } from './section-store';
@@ -393,6 +394,13 @@ export function readSidebarReference<K extends SidebarReferenceKey>(key: K): Sid
   return (entry ? entry.value : DEFAULTS[key]) as SidebarReferenceValues[K];
 }
 
+/** Each publication replaces the entry, even when it reuses the same value. */
+export function captureSidebarReferencePublication(key: SidebarReferenceKey): () => boolean {
+  const entry = entries.get(key);
+  const generation = generations.get(key);
+  return () => entries.get(key) === entry && (entry !== undefined || generations.get(key) === generation);
+}
+
 function readSidebarReferenceValues<K extends SidebarReferenceKey>(
   keys: readonly K[]
 ): Pick<SidebarReferenceValues, K> {
@@ -502,9 +510,82 @@ async function readPresets(
   api: SidebarReferenceApi & { getSnapshot?: DesktopApi['getSnapshot'] },
   invoke: NonNullable<SidebarReferenceApi['invokeCapability']>
 ): Promise<PresetsResult> {
+  const started = presetsReadSeq;
   const held = await readHeldCapability('listPresets', [], sectionSourceOf(api));
-  if (!held) return invoke.call(api, { capability: 'listPresets' });
-  return { value: held.value, snapshot: await api.getSnapshot?.() } as PresetsResult;
+  if (!held) return withAcknowledgedLead(api, await invoke.call(api, { capability: 'listPresets' }), false, started);
+  const result = { value: held.value, snapshot: await api.getSnapshot?.() } as PresetsResult;
+  return withAcknowledgedLead(api, result, true, started);
+}
+
+type AcknowledgedLead = {
+  api: SidebarReferenceApi;
+  route: RecordValue;
+  seq: number;
+  /** The pushed Lead preset when the save was answered; unknown until the store holds the section. */
+  before?: string;
+  stop(): void;
+};
+/** The Lead save this window was last answered for, until the presets a read sees are known to hold it. */
+let acknowledgedLead: AcknowledgedLead | null = null;
+let presetsReadSeq = 0;
+
+function releaseAcknowledgedLead(ack: AcknowledgedLead): void {
+  if (acknowledgedLead !== ack) return;
+  ack.stop();
+  acknowledgedLead = null;
+}
+
+const pushedLeadOf = (presets: unknown): string =>
+  canonicalJson((Array.isArray(presets) ? presets : []).find((entry) => record(entry).id === 'workflow-lead') ?? null);
+
+/** A Lead route save the host answered (Workflows or Settings): every preset
+ *  read shows it as the Lead until the presets are known to hold it. A read
+ *  started before the answer, or the pushed presets section the core publishes
+ *  after it, can still carry the older Lead. Only a pushed Lead preset other
+ *  than the one held when the save was answered ends it: a push that changes
+ *  another preset, re-sends that Lead, or folds the first snapshot does not.
+ *  A host read started after the answer is the host's saved config and ends it
+ *  too. */
+export function acknowledgeLeadRoute(api: SidebarReferenceApi | undefined, route: RecordValue): void {
+  if (acknowledgedLead) releaseAcknowledgedLead(acknowledgedLead);
+  if (!api || !route.provider || !route.model) return;
+  const store = sectionStoreFor(api);
+  const ack: AcknowledgedLead = { api, route, seq: ++presetsReadSeq, stop: () => undefined };
+  if (store) {
+    const held = () => pushedLeadOf(store.get('presets')?.value);
+    if (store.get('presets')) ack.before = held();
+    else {
+      // The first snapshot is folded (and announced) before `ready` settles: it sets the baseline, never ends the save.
+      void store.ready().then(() => {
+        if (acknowledgedLead === ack && ack.before === undefined) ack.before = held();
+      });
+    }
+    ack.stop = store.subscribe('presets', () => {
+      if (ack.before !== undefined && held() !== ack.before) releaseAcknowledgedLead(ack);
+    });
+  }
+  acknowledgedLead = ack;
+  invalidatePresetsRequest();
+}
+
+function withAcknowledgedLead(
+  api: SidebarReferenceApi,
+  result: PresetsResult,
+  pushed: boolean,
+  started: number
+): PresetsResult {
+  const ack = acknowledgedLead;
+  if (!ack || ack.api !== api) return result;
+  if (!pushed && started >= ack.seq) {
+    releaseAcknowledgedLead(ack);
+    return result;
+  }
+  const presets = Array.isArray(result?.value) ? (result.value as unknown[]) : [];
+  // A save that sent no chain (Settings → Model) kept the stored fallbacks.
+  const held = record(presets.find((entry) => record(entry).id === 'workflow-lead'));
+  const kept = 'fallbacks' in ack.route || !Array.isArray(held.fallbacks) ? {} : { fallbacks: held.fallbacks };
+  const lead = { id: 'workflow-lead', name: 'WORKFLOW LEAD', ...kept, ...ack.route };
+  return { ...result, value: [...presets.filter((entry) => record(entry).id !== 'workflow-lead'), lead] } as PresetsResult;
 }
 
 /** listPresets answers with both the presets and the host's Main-route
@@ -530,6 +611,18 @@ export function listPresetsShared(api: SidebarReferenceApi | undefined): Promise
  *  keep the newest request's result (see `newestOnly`). */
 export function invalidatePresetsRequest(): void {
   presetsRequests.clear();
+}
+
+/** `listener` after each change of the pushed presets section (a core
+ *  connection; nothing elsewhere). The core publishes a saved Lead after the
+ *  save answers, so the setup-change re-read alone can still read the old one. */
+export function subscribePresetsPushes(api: SidebarReferenceApi | undefined, listener: () => void): () => void {
+  const store = sectionStoreFor(api);
+  if (!store) return () => undefined;
+  return store.subscribe('presets', () => {
+    invalidatePresetsRequest();
+    listener();
+  });
 }
 
 /** Wraps a consumer's async reads, numbered as they start. A successful result
@@ -643,6 +736,7 @@ export function resetSidebarReferenceCache(options: { now?: () => number } = {})
   hostBound = false;
   followedSections?.();
   followedSections = undefined;
+  if (acknowledgedLead) releaseAcknowledgedLead(acknowledgedLead);
   clock = options.now ?? (() => Date.now());
 }
 

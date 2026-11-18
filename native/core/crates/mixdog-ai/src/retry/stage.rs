@@ -42,7 +42,7 @@ fn reason_class(error: &ProviderError) -> &'static str {
     }
     match error.timeout_phase {
         Some(StreamTimeoutPhase::Idle) => "stalled",
-        Some(StreamTimeoutPhase::FirstChunk) => "first_response_timeout",
+        Some(StreamTimeoutPhase::Headers | StreamTimeoutPhase::FirstChunk) => "first_response_timeout",
         None if error.timed_out => "first_response_timeout",
         None => "other",
     }
@@ -57,7 +57,7 @@ fn reason_text(error: &ProviderError, class: &str) -> String {
         "overloaded" => "Provider overloaded".into(),
         "server_error" => "Provider server error".into(),
         "auth" => "Provider rejected the sign-in".into(),
-        "first_response_timeout" if error.timeout_phase == Some(StreamTimeoutPhase::FirstChunk) => {
+        "first_response_timeout" if error.timeout_phase.is_some_and(StreamTimeoutPhase::is_first_byte) => {
             format!("Model still thinking: no output in {}; the provider sent nothing yet", format_duration_ms(ms))
         }
         "first_response_timeout" if ms > 0.0 => format!("No first response {}", format_duration_ms(ms)),

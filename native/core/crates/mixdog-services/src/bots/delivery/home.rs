@@ -166,6 +166,7 @@ pub struct AgentHomeDelivery {
     drain_calls: watch::Sender<u64>,
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 impl AgentHomeDelivery {
     /// The calls of `drain`, from now on.

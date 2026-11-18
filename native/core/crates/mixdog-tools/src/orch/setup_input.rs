@@ -92,30 +92,54 @@ pub fn validate(args: &Value, schema: &Value) -> Result<(), ToolError> {
 #[cfg(test)]
 mod tests {
     use serde_json::Value;
+    use serde_json::json;
 
     use super::*;
 
-    /// Node's `validateSetupInput` outcome for 86 inputs, recorded through the real executor:
-    /// a thrown validation error, or `setup: runtime facade is not ready` once validation passed.
-    #[test]
-    fn validation_equals_the_recorded_node_outcome() {
-        let golden: Value = serde_json::from_str(include_str!("golden/setup_validation.json")).unwrap();
+    fn refusal(args: Value) -> String {
         let def: Value = serde_json::from_str(include_str!("defs/setup.json")).unwrap();
-        let schema = &def["inputSchema"];
-        let (mut refused, mut passed) = (0, 0);
-        for case in golden["cases"].as_array().unwrap() {
-            let node = case["error"].as_str().unwrap();
-            match validate(&case["args"], schema) {
-                Ok(()) => {
-                    assert_eq!(node, "setup: runtime facade is not ready", "{case}");
-                    passed += 1;
-                }
-                Err(error) => {
-                    assert_eq!(error.message_for_model, node, "{case}");
-                    refused += 1;
-                }
-            }
+        validate(&args, &def["inputSchema"]).expect_err("the input is refused").message_for_model
+    }
+
+    #[test]
+    fn a_setup_call_with_a_missing_wrong_or_surplus_field_is_refused_with_the_rule_it_broke() {
+        for (args, want) in [
+            (json!({"action": "install_local_model"}), "[tool-input-validation] modelId is required for setup.install_local_model"),
+            (json!({"action": "install_local_model", "modelId": 12}), "[tool-input-validation] setup.modelId must be a string"),
+            (json!({"action": "start_local_installation", "modelId": "m1", "phase": " model "}), "[tool-input-validation] setup.phase must be one of: runtime, model"),
+            (json!({"action": "set_local_idle_ttl", "idleTtlSeconds": 86401}), "[tool-input-validation] setup.idleTtlSeconds must be at most 86400"),
+            (json!({"action": "inspect_hf_model", "contextWindow": 100, "repository": "owner/name"}), "[tool-input-validation] setup.contextWindow must be at least 16384"),
+            (json!({"action": "register_hf_model", "licenseAccepted": "yes", "previewId": "x"}), "[tool-input-validation] setup.licenseAccepted must be a boolean"),
+            (json!({"action": "register_hf_model", "licenseAccepted": true}), "[tool-input-validation] previewId is required for setup.register_hf_model"),
+            (json!({"action": "set_heartbeat_interval", "minutes": "5"}), "[tool-input-validation] setup.minutes must be one of: 30, 60, 120, 240"),
+            (json!({"action": "set_memory_enabled"}), "[tool-input-validation] enabled is required for setup.set_memory_enabled"),
+            (json!({"action": "status", "bogus": 1}), "[tool-input-validation] setup does not accept field(s): bogus"),
+            (json!({"action": "open"}), "[tool-input-validation] target is required for setup.open"),
+            (json!({"action": "set_workflow", "route": {"x": 1}}), "[tool-input-validation] setup.route does not accept field(s): x"),
+            (json!({"action": "set_web_search_route", "route": {"contextPercent": 5}}), "[tool-input-validation] setup.route.contextPercent must be at least 10"),
+        ] {
+            assert_eq!(refusal(args.clone()), want, "{args}");
         }
-        assert!(refused >= 40 && passed >= 10, "{refused} refused, {passed} passed");
+    }
+
+    #[test]
+    fn a_route_or_settings_object_must_hold_a_setting_the_action_accepts() {
+        for (args, want) in [
+            (json!({"action": "set_route", "route": {}}), "route with at least one of the supported settings is required"),
+            (json!({"action": "set_route", "route": {"disabled": true}}), "route.disabled is only accepted by set_agent_route"),
+            (json!({"action": "set_compaction", "compaction": {}}), "compaction requires at least one setting"),
+        ] {
+            assert_eq!(refusal(args.clone()), want, "{args}");
+        }
+    }
+
+    #[test]
+    fn a_valid_setup_call_passes_validation() {
+        let def: Value = serde_json::from_str(include_str!("defs/setup.json")).unwrap();
+        for args in [json!({"action": "install_local_model", "modelId": " m1 "}), json!({"action": "status"})] {
+            assert!(validate(&args, &def["inputSchema"]).is_ok(), "{args}");
+        }
     }
 }
+
+

@@ -19,8 +19,6 @@ impl fmt::Display for PbError {
     }
 }
 
-impl std::error::Error for PbError {}
-
 /// One decoded field value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Value<'a> {
@@ -291,3 +289,6 @@ mod tests {
         assert_eq!(Reader::packed_varints(v.bytes()).unwrap(), vec![3, 4, 6, 7, 8]);
     }
 }
+
+
+impl std::error::Error for PbError {}

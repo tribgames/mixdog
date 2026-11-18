@@ -1,8 +1,7 @@
 //! `ModelRequest` → Chat Completions body (`openai-compat-wire.mjs
 //! toOpenAIMessages`, `openai-compat-chat-send.mjs`).
 
-use crate::providers::file_text::{FileKind, file_fallback_text, file_kind};
-use mixdog_core_api::domain::provider::{
+use crate::providers::file_text::{FileKind, file_fallback_text, file_kind};use mixdog_core_api::domain::provider::{
     BinarySource, Content, ContentPart, DeliveryState, DocumentSource, ErrorKind, ImageSource,
     Message, ModelRequest, ProviderError, Role, ToolDefinition,
 };
@@ -46,9 +45,18 @@ fn pdf_not_prepared(label: &str) -> ProviderError {
 }
 
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-fn lower_part(part: &ContentPart) -> Result<Option<JsonValue>, ProviderError> {
+fn lower_part(part: &ContentPart, cache_control: bool) -> Result<Option<JsonValue>, ProviderError> {
     Ok(match part {
-        ContentPart::Text(text, _) => (!text.is_empty()).then(|| text_part(text)),
+        ContentPart::Text(text, extra) => (!text.is_empty()).then(|| {
+            let mut part = text_part(text);
+            if cache_control
+                && let Some(marker) = extra.as_ref().and_then(|m| m.get("cache_control")).filter(|v| v.is_object())
+            {
+                part["cache_control"] = marker.clone();
+            }
+            part
+        }),
+        // The media type is the one the image's bytes have (`prepare_images`, before the request is built).
         ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => Some(
             json!({"type": "image_url", "image_url": {"url": format!("data:{mime_type};base64,{data}")}}),
         ),
@@ -93,10 +101,10 @@ fn lower_part(part: &ContentPart) -> Result<Option<JsonValue>, ProviderError> {
 }
 
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-fn lower_parts(parts: &[ContentPart]) -> Result<Vec<JsonValue>, ProviderError> {
+fn lower_parts(parts: &[ContentPart], cache_control: bool) -> Result<Vec<JsonValue>, ProviderError> {
     let mut out = Vec::with_capacity(parts.len());
     for part in parts {
-        if let Some(lowered) = lower_part(part)? {
+        if let Some(lowered) = lower_part(part, cache_control)? {
             out.push(lowered);
         }
     }
@@ -112,14 +120,20 @@ fn joined_text(parts: &[JsonValue]) -> String {
         .join("\n")
 }
 
-/// Message content: a string stays a string; a user's parts stay a list
-/// (images and files ride in it); every other role takes the joined text.
+/// User parts keep their media. Compatible system parts keep their block
+/// boundaries when multipart or explicitly marked; other roles take text.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-fn content_value(role: Role, content: &Content) -> Result<JsonValue, ProviderError> {
+fn content_value(role: Role, content: &Content, cache_control: bool) -> Result<JsonValue, ProviderError> {
     match content {
         Content::Text(text) => Ok(JsonValue::String(text.clone())),
         Content::Parts(parts) => {
-            let lowered = lower_parts(parts)?;
+            let mut lowered = lower_parts(parts, cache_control)?;
+            if cache_control && role == Role::System {
+                lowered.retain(|part| part["type"] == "text");
+                if lowered.len() > 1 || lowered.iter().any(|part| part.get("cache_control").is_some()) {
+                    return Ok(JsonValue::Array(lowered));
+                }
+            }
             if role != Role::User {
                 return Ok(JsonValue::String(joined_text(&lowered)));
             }
@@ -137,17 +151,21 @@ const TOOL_MEDIA_NOTE: &str = "[tool result included media content in the follow
 /// A tool result's text, and its media for the user message that follows the
 /// run of tool messages (a tool message carries text only).
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-fn split_tool_content(content: &Content) -> Result<(String, Vec<JsonValue>), ProviderError> {
+fn split_tool_content(content: &Content, omit_file_ids: bool) -> Result<(String, Vec<JsonValue>), ProviderError> {
     match content {
         Content::Text(text) => Ok((text.clone(), Vec::new())),
         Content::Parts(parts) => {
-            let lowered = lower_parts(parts)?;
+            let mut lowered = Vec::with_capacity(parts.len());
+            for part in parts {
+                if omit_file_ids && matches!(part, ContentPart::Image(ImageSource::FileId(_))) {
+                    continue;
+                }
+                if let Some(part) = lower_part(part, false)? {
+                    lowered.push(part);
+                }
+            }
             let media: Vec<JsonValue> = lowered.iter().filter(|p| is_media(p)).cloned().collect();
-            // A tool result's text is each part's own text: an image given by file id
-            // has none (the placeholder is for message content only).
-            let texted: Vec<ContentPart> =
-                parts.iter().filter(|p| !matches!(p, ContentPart::Image(ImageSource::FileId(_)))).cloned().collect();
-            let text = joined_text(&lower_parts(&texted)?);
+            let text = joined_text(&lowered);
             if media.is_empty() {
                 Ok((text, media))
             } else if text.is_empty() {
@@ -235,6 +253,7 @@ fn lower_messages(
     dialect: &ChatDialect,
     owner: &ProviderId,
     messages: &[Message],
+    cache_control: bool,
 ) -> Result<Vec<JsonValue>, ProviderError> {
     let ids = wire_tool_call_ids(messages);
     let wire_id = |id: &str| -> String { ids.get(id).cloned().unwrap_or_else(|| id.to_owned()) };
@@ -242,7 +261,9 @@ fn lower_messages(
     let mut pending_media: Vec<JsonValue> = Vec::new();
     for message in messages {
         if message.role == Role::Tool {
-            let (output, media) = split_tool_content(&message.content)?;
+            // xAI's replay omits file-ID images from tool text; turning them
+            // into placeholders would change an otherwise unchanged prefix.
+            let (output, media) = split_tool_content(&message.content, owner.as_str() == "xai")?;
             out.push(json!({
                 "role": "tool",
                 "tool_call_id": wire_id(message.tool_call_id.as_deref().unwrap_or("")),
@@ -257,7 +278,7 @@ fn lower_messages(
         let mut msg = JsonObject::new();
         msg.insert("role".into(), role_name(message.role, dialect).into());
         if message.role == Role::Assistant && !message.tool_calls.is_empty() {
-            let content = content_value(Role::Assistant, &message.content)?;
+            let content = content_value(Role::Assistant, &message.content, false)?;
             msg.insert(
                 "content".into(),
                 match content {
@@ -278,7 +299,7 @@ fn lower_messages(
                 .collect();
             msg.insert("tool_calls".into(), JsonValue::Array(calls));
         } else {
-            msg.insert("content".into(), content_value(message.role, &message.content)?);
+            msg.insert("content".into(), content_value(message.role, &message.content, cache_control)?);
         }
         if message.role == Role::Assistant {
             attach_reasoning(dialect, owner, message, &mut msg);
@@ -288,7 +309,22 @@ fn lower_messages(
     if !pending_media.is_empty() {
         out.push(json!({"role": "user", "content": pending_media}));
     }
-    Ok(ensure_chat_tool_pairs(out))
+    let mut out = ensure_chat_tool_pairs(out);
+    use crate::providers::tool_result_copies::{WireUse, receipts};
+    let uses = out.iter().enumerate().flat_map(|(index, item)| {
+        let calls = item["tool_calls"].as_array().into_iter().flatten().filter_map(move |call| {
+            Some((index, call["id"].as_str()?, WireUse::Call))
+        });
+        let result = (|| {
+            (item["role"] == "tool").then_some(())?;
+            Some((index, item["tool_call_id"].as_str()?, WireUse::Result(item["content"].as_str())))
+        })();
+        calls.chain(result)
+    });
+    for (index, receipt) in receipts(messages, wire_id, uses) {
+        out[index]["content"] = receipt.into();
+    }
+    Ok(out)
 }
 
 fn tools_value(tools: &[ToolDefinition]) -> JsonValue {
@@ -317,6 +353,7 @@ pub fn build_body(
     request: &ModelRequest,
     info: Option<&CompatModelInfo>,
     tools: &[ToolDefinition],
+    cache_control: bool,
 ) -> Result<JsonObject, ProviderError> {
     let mut body = JsonObject::new();
     let model = if request.model.is_empty() {
@@ -327,7 +364,7 @@ pub fn build_body(
     body.insert("model".into(), model.into());
     body.insert(
         "messages".into(),
-        JsonValue::Array(lower_messages(&profile.chat, owner, &request.messages)?),
+        JsonValue::Array(lower_messages(&profile.chat, owner, &request.messages, cache_control)?),
     );
     options::apply_max_tokens(&profile.chat, request, &mut body);
     if !tools.is_empty() {
@@ -347,7 +384,7 @@ pub fn system_texts(dialect: &ChatDialect, messages: &[Message]) -> Result<Vec<S
     let mut texts = Vec::new();
     for message in messages.iter().filter(|m| role_name(m.role, dialect) == "system") {
         // A non-user role's content is always text.
-        if let JsonValue::String(text) = content_value(message.role, &message.content)? {
+        if let JsonValue::String(text) = content_value(message.role, &message.content, false)? {
             texts.push(text);
         }
     }
@@ -356,10 +393,154 @@ pub fn system_texts(dialect: &ChatDialect, messages: &[Message]) -> Result<Vec<S
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scoped_hits_cite_only_an_exact_earlier_body_in_the_payload() {
+        use super::{CompatProfile, Content, Message, ProviderId, Role, lower_messages};
+        use crate::providers::openai::input::{LowerExtras, LowerOptions, ToolSearchReplay, lower_from};
+        use mixdog_core_api::domain::provider::{ScopedCacheSource, ToolCall};
+        use serde_json::json;
+        use sha2::{Digest, Sha256};
+
+        let owner = ProviderId::from("deepseek");
+        let body = "src/first.rs:12: parsed configuration\nsrc/second.rs:35: resolved the workspace";
+        let pair = |id: &str, body: &str| {
+            let mut assistant = Message::new(Role::Assistant, Content::Text(String::new()));
+            assistant.tool_calls.push(ToolCall {
+                id: id.to_owned(),
+                name: "grep".into(),
+                arguments: json!({"pattern": "configuration"}),
+                native_type: None,
+            });
+            let mut result = Message::new(Role::Tool, Content::Text(body.to_owned()));
+            result.tool_call_id = Some(id.to_owned());
+            [assistant, result]
+        };
+        let [first_call, first_result] = pair("call_source", body);
+        let [next_call, mut hit] = pair("call_hit", body);
+        hit.scoped_cache_source = Some(ScopedCacheSource {
+            call_id: "call_source".into(),
+            body_sha256: format!("{:x}", Sha256::digest(body.as_bytes())),
+        });
+        let messages = [
+            first_call,
+            first_result,
+            Message::new(Role::User, Content::Text("Check the result again.".into())),
+            next_call,
+            hit,
+        ];
+        let profile = CompatProfile::deepseek();
+        let options = LowerOptions {
+            replay_owner: ProviderId::from("openai-responses"),
+            codex_parity: false,
+            native_tool_search: false,
+            custom_tools: false,
+            replay_reasoning: false,
+            tool_search_replay: ToolSearchReplay::Downgrade,
+            phase: false,
+            system_in_input: false,
+        };
+        let check = |messages: &[Message], start_index: usize, source: Option<&str>, output: &str| {
+            let expected: Vec<_> = source.into_iter().map(|text| ("call_source", text))
+                .chain([("call_hit", output)]).collect();
+            let chat = lower_messages(&profile.chat, &owner, &messages[start_index..], false).unwrap();
+            let responses = lower_from(messages, &options, &LowerExtras { start_index, ..LowerExtras::default() });
+            for (wire, kind, id, content) in [
+                (&chat, "role", "tool_call_id", "content"),
+                (&responses, "type", "call_id", "output"),
+            ] {
+                let actual: Vec<_> = wire.iter()
+                    .filter(|m| matches!(m[kind].as_str(), Some("tool" | "function_call_output")))
+                    .map(|m| (m[id].as_str().unwrap(), m[content].as_str().unwrap())).collect();
+                assert_eq!(actual, expected, "{kind}");
+            }
+        };
+        check(&messages, 0, Some(body), "Same result as tool call call_source above.");
+        // The context can be cut, or a provider can receive only a suffix.
+        check(&messages, 3, None, body);
+        let mut changed = messages.clone();
+        changed[1].content = Content::Text("src/first.rs:13: changed evidence".into());
+        check(&changed, 0, Some("src/first.rs:13: changed evidence"), body);
+        let mut failed_source = messages.clone();
+        failed_source[1].is_error = true;
+        check(&failed_source, 0, Some(body), body);
+
+        let excerpt = "src/first.rs:12: parsed configuration\nsrc/second.rs:35: resolved the";
+        let mut edited = messages.clone();
+        for index in [1, 4] {
+            edited[index].content = Content::Text(excerpt.into());
+        }
+        check(&edited, 0, Some(excerpt), excerpt);
+
+        let output_for_hit = |messages: &[Message]| {
+            let chat = lower_messages(&profile.chat, &owner, messages, false).unwrap();
+            let responses = lower_from(messages, &options, &LowerExtras::default());
+            for (wire, id, content) in [
+                (chat, "tool_call_id", "content"),
+                (responses, "call_id", "output"),
+            ] {
+                let hit = wire.iter().find_map(|item| {
+                    (item[id] == "call_hit").then(|| item[content].as_str()).flatten()
+                });
+                assert_eq!(hit, Some(body), "{id}");
+            }
+        };
+        let mut duplicate_row = messages.to_vec();
+        duplicate_row.insert(2, messages[1].clone());
+        output_for_hit(&duplicate_row);
+        let mut duplicate_call = messages.to_vec();
+        let [repeated_call, repeated_result] = pair("call_source", body);
+        duplicate_call.splice(2..2, [repeated_call, repeated_result]);
+        output_for_hit(&duplicate_call);
+
+        // The original is absent. A different call projects to the spelling
+        // of that missing ID on both wires, and cannot stand in as its evidence.
+        let [other_call, other_result] = pair("functions.read/0", body);
+        let mut collision = messages;
+        collision[0] = other_call;
+        collision[1] = other_result;
+        let stand_in = "functions_read_0_cf21bf139e";
+        collision[4].scoped_cache_source.as_mut().unwrap().call_id = stand_in.into();
+        check_wire_source_id(&collision, stand_in, &profile, &owner, &options);
+        output_for_hit(&collision);
+    }
+
+    fn check_wire_source_id(
+        messages: &[super::Message],
+        id: &str,
+        profile: &super::CompatProfile,
+        owner: &super::ProviderId,
+        options: &crate::providers::openai::input::LowerOptions,
+    ) {
+        let chat = super::lower_messages(&profile.chat, owner, messages, false).unwrap();
+        let responses = crate::providers::openai::input::lower(messages, options);
+        assert!(chat.iter().any(|item| item["tool_call_id"] == id));
+        assert!(responses.iter().any(|item| item["type"] == "function_call_output" && item["call_id"] == id));
+    }
+
+    /// A tool result whose only content is an image given by file id has no image on this wire; what stands for it is
+    /// kept in the result's text, so the model is told it was there (it used to vanish from the text altogether).
+    #[test]
+    fn a_file_id_image_in_a_tool_result_leaves_its_placeholder_in_the_text() {
+        use mixdog_core_api::domain::provider::{Content, ContentPart, ImageSource};
+        let (text, media) = super::split_tool_content(&Content::Parts(vec![
+            ContentPart::Text("shot".into(), None),
+            ContentPart::Image(ImageSource::FileId("file-9".into())),
+        ]), false)
+        .expect("lowers");
+        assert!(media.is_empty());
+        assert_eq!(text, "shot\n[unsupported image file_id for OpenAI Chat-compatible request: file-9]");
+        let (only, _) = super::split_tool_content(&Content::Parts(vec![ContentPart::Image(ImageSource::FileId("file-9".into()))]), false).expect("lowers");
+        assert_eq!(only, "[unsupported image file_id for OpenAI Chat-compatible request: file-9]");
+    }
+
+    #[cfg(node_twin)]
     use super::*;
+    #[cfg(node_twin)]
     use crate::providers::listing_row::testing::fixture;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::provider::ToolCall;
 
+    #[cfg(node_twin)]
     fn part(spec: &JsonValue) -> ContentPart {
         let text = |key: &str| spec[key].as_str().unwrap().to_owned();
         let b64 = |bytes: &[u8]| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes);
@@ -380,6 +561,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn message(spec: &JsonValue) -> Message {
         let role = match spec["role"].as_str().unwrap() {
             "system" => Role::System,
@@ -409,6 +591,7 @@ mod tests {
     /// messages: text joined by newlines outside user messages, media dropped
     /// from system/assistant text, a tool result's media moved to a user
     /// message, a non-text file named by `name (mime, N bytes)`.
+    #[cfg(node_twin)]
     #[test]
     fn multipart_content_lowers_as_nodes_to_openai_messages() {
         let golden = fixture("oracles/chat-parts-messages.json");
@@ -418,7 +601,7 @@ mod tests {
         for case in golden["cases"].as_array().unwrap() {
             let name = case["name"].as_str().unwrap();
             let messages: Vec<Message> = case["messages"].as_array().unwrap().iter().map(message).collect();
-            let got = lower_messages(&profile.chat, &owner, &messages).unwrap();
+            let got = lower_messages(&profile.chat, &owner, &messages, false).unwrap();
             let mut node = case["node"].clone();
             if name == "empty-text-part" {
                 // Node lowers an empty text part to its own JSON as text; a part with no text is dropped here.
@@ -426,9 +609,18 @@ mod tests {
                 let parts = node[0]["content"].as_array_mut().unwrap();
                 assert_eq!(parts.remove(0), junk);
             }
+            if name == "tool-with-media" {
+                // Node dropped a tool result's file-id image, which this wire cannot carry; the core never drops an image
+                // silently: its placeholder stays in the result's text (`a_file_id_image_in_a_tool_result_leaves_its_placeholder_in_the_text`).
+                let text = node[1]["content"].as_str().unwrap();
+                assert_eq!(text, "alpha\nbeta\n--- notes.txt (text/plain, 10 bytes) ---\nhello file\n[file not sent inline: blob.bin (application/octet-stream, 4 bytes) — this type has no inline form; open it from disk with read]", "Node recorded something else");
+                node[1]["content"] = json!(text.replacen("beta\n", "beta\n[unsupported image file_id for OpenAI Chat-compatible request: file-123]\n", 1));
+            }
             assert_eq!(JsonValue::Array(got), node, "{name}");
             checked += 1;
         }
         assert_eq!(checked, 11);
     }
 }
+
+

@@ -20,11 +20,6 @@ pub type Doc = Map<String, Value>;
 /// How the environment is read: by name, at each use (`process.env` is polled).
 pub type EnvReader = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
-/// The environment of this process.
-pub fn process_env() -> EnvReader {
-    Arc::new(|name| std::env::var(name).ok())
-}
-
 /// `envFlag(name, fallback)`: unset or empty keeps `fallback`; only the documented on and off
 /// spellings flip it, and a typo keeps the default too.
 pub fn env_flag(raw: Option<&str>, fallback: bool) -> bool {
@@ -100,23 +95,8 @@ impl CycleConfig for DocCycleConfig {
 mod tests {
     use super::*;
 
-    const GOLDEN: &str = include_str!("../../../../../fixtures/tools/memory/cycle-config/golden.json");
-
     fn doc_of(config: &Value) -> Arc<Doc> {
         Arc::new(config.as_object().cloned().unwrap_or_default())
-    }
-
-    // The golden's config shapes are replayed over the canonical document in `mixdog-core-config`
-    // (`config/canonical_tests.rs`), which owns the canonicalisation Node applies to every read.
-
-    #[test]
-    fn env_flag_matches_node_on_every_spelling() {
-        let golden: Value = serde_json::from_str(GOLDEN).expect("golden");
-        for row in golden["envFlag"].as_array().expect("rows") {
-            let raw = row["value"].as_str();
-            assert_eq!(env_flag(raw, false), row["whenFalse"].as_bool().expect("flag"), "{raw:?} with fallback false");
-            assert_eq!(env_flag(raw, true), row["whenTrue"].as_bool().expect("flag"), "{raw:?} with fallback true");
-        }
     }
 
     /// The document is read on every call: a recap toggled after construction takes effect.
@@ -129,4 +109,25 @@ mod tests {
         *current.lock().expect("doc") = doc_of(&serde_json::json!({ "agent": { "recap": { "enabled": false } } }));
         assert!(!config.cycles_enabled());
     }
+
+
+    #[test]
+    fn an_env_flag_flips_only_on_the_documented_spellings() {
+        for on in ["1", "true", "YES", " On "] {
+            assert!(env_flag(Some(on), false), "{on:?}");
+        }
+        for off in ["0", "False", "off", "NO"] {
+            assert!(!env_flag(Some(off), true), "{off:?}");
+        }
+        // Unset, empty and typos keep the fallback.
+        for kept in [None, Some(""), Some("  "), Some("maybe"), Some("2")] {
+            assert!(env_flag(kept, true) && !env_flag(kept, false), "{kept:?}");
+        }
+    }
+}
+
+
+/// The environment of this process.
+pub fn process_env() -> EnvReader {
+    Arc::new(|name| std::env::var(name).ok())
 }

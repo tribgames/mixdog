@@ -99,8 +99,6 @@ impl std::fmt::Display for ScreenInputError {
     }
 }
 
-impl std::error::Error for ScreenInputError {}
-
 impl From<ScreenInputError> for ComputerError {
     fn from(error: ScreenInputError) -> Self {
         ComputerError::Failed { message: error.to_string(), code: error.code }
@@ -273,6 +271,515 @@ struct Inner {
     cleanups: watch::Sender<usize>,
 }
 
+/// The phone's screen input: one `mixdog-computer --screen-input` process, its ordered commands, its release and its
+/// desktop watcher.
+pub struct ScreenInput {
+    inner: Arc<Inner>,
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use async_trait::async_trait;
+    use mixdog_core_api::domain::process::ExitStatus;
+    use mixdog_core_api::domain::process::ProcessError;
+    use mixdog_core_api::domain::process::ProcessExit;
+    use mixdog_core_api::domain::process::ProcessInfo;
+    use mixdog_core_api::domain::process::PtySize;
+    use mixdog_core_api::domain::process::SpawnedProcess;
+    use tokio::sync::mpsc;
+
+    use super::*;
+
+    // -----------------------------------------------------------------------------------------------------------
+    // A fake `mixdog-computer --screen-input`
+
+    struct Events(mpsc::UnboundedReceiver<ProcessEvent>);
+
+    #[async_trait]
+    impl EventSource<ProcessEvent> for Events {
+        async fn next(&mut self) -> Option<ProcessEvent> {
+            self.0.recv().await
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct Behaviour {
+        /// Says `desktop default 0 0` and `ready 3` at spawn.
+        auto_ready: bool,
+        /// Acknowledges every command line.
+        answer: bool,
+        /// Answers every command with `err <id> <code>`.
+        error: Option<&'static str>,
+        /// Says `released` and exits when its stdin closes.
+        release_on_eof: bool,
+        /// The `--abort-cleanup` run exits at once.
+        cleanup_exits: bool,
+        /// Exits before it says `ready`.
+        exit_on_spawn: bool,
+        /// The binary cannot be run: every spawn fails.
+        missing_binary: bool,
+    }
+
+    impl Behaviour {
+        fn serving() -> Self {
+            Self {
+                auto_ready: true,
+                answer: true,
+                error: None,
+                release_on_eof: true,
+                cleanup_exits: true,
+                exit_on_spawn: false,
+                missing_binary: false,
+            }
+        }
+    }
+
+    struct FakeRun {
+        request: SpawnRequest,
+        tx: mpsc::UnboundedSender<ProcessEvent>,
+        rx: Option<mpsc::UnboundedReceiver<ProcessEvent>>,
+        written: Vec<String>,
+        stdin_closed: bool,
+        killed: bool,
+        exited: bool,
+        seq: u64,
+    }
+
+    impl FakeRun {
+        fn say(&mut self, text: &str) {
+            let seq = self.seq;
+            self.seq += 1;
+            let _ = self.tx.send(ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: text.as_bytes().to_vec() });
+        }
+
+        fn exit(&mut self, status: ExitStatus) {
+            let seq = self.seq;
+            self.seq += 1;
+            self.exited = true;
+            let _ = self.tx.send(ProcessEvent::Exited { seq, exit: ProcessExit { status, killed: None } });
+        }
+    }
+
+    struct Fake {
+        runs: Mutex<Vec<FakeRun>>,
+        behaviour: Behaviour,
+    }
+
+    fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+        mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    impl Fake {
+        fn say(&self, at: usize, text: &str) {
+            lock(&self.runs)[at].say(text);
+        }
+        fn exit(&self, at: usize, status: ExitStatus) {
+            lock(&self.runs)[at].exit(status);
+        }
+        fn spawned(&self) -> usize {
+            lock(&self.runs).len()
+        }
+        fn written(&self, at: usize) -> Vec<String> {
+            lock(&self.runs)[at].written.clone()
+        }
+        fn killed(&self, at: usize) -> bool {
+            lock(&self.runs)[at].killed
+        }
+        fn closed(&self, at: usize) -> bool {
+            lock(&self.runs)[at].stdin_closed
+        }
+        fn args(&self, at: usize) -> Vec<String> {
+            match &lock(&self.runs)[at].request.command {
+                CommandSpec::Argv { args, .. } => args.clone(),
+                CommandSpec::Shell { .. } => Vec::new(),
+            }
+        }
+        fn env(&self, at: usize, name: &str) -> Option<String> {
+            lock(&self.runs)[at].request.env.set.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone())
+        }
+    }
+
+    #[async_trait]
+    impl ProcessManager for Fake {
+        async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
+            if self.behaviour.missing_binary {
+                return Err(ProcessError::ProgramNotFound { program: "mixdog-computer".to_owned() });
+            }
+            let (tx, rx) = mpsc::unbounded_channel();
+            let handle = request.handle.clone();
+            let args = match &request.command {
+                CommandSpec::Argv { args, .. } => args.clone(),
+                CommandSpec::Shell { .. } => Vec::new(),
+            };
+            let mut run =
+                FakeRun { request, tx, rx: Some(rx), written: Vec::new(), stdin_closed: false, killed: false, exited: false, seq: 0 };
+            if args == [SCREEN_INPUT_MODE] {
+                if self.behaviour.exit_on_spawn {
+                    run.exit(ExitStatus::Code(1));
+                } else if self.behaviour.auto_ready {
+                    run.say("desktop default 0 0\nready 3\n");
+                }
+            } else if args == ["--abort-cleanup"] && self.behaviour.cleanup_exits {
+                run.exit(ExitStatus::Code(0));
+            }
+            lock(&self.runs).push(run);
+            Ok(SpawnedProcess { handle, pid: 1 })
+        }
+
+        fn subscribe(
+            &self,
+            handle: &ProcessHandle,
+            _from_seq: Option<u64>,
+        ) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            let mut runs = lock(&self.runs);
+            let run = runs.iter_mut().find(|run| run.request.handle == *handle).ok_or(ProcessError::UnknownHandle)?;
+            let rx = run.rx.take().ok_or(ProcessError::UnknownHandle)?;
+            Ok(Box::new(Events(rx)))
+        }
+
+        async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+            let mut runs = lock(&self.runs);
+            let run = runs.iter_mut().find(|run| run.request.handle == *handle).ok_or(ProcessError::UnknownHandle)?;
+            if run.exited || run.stdin_closed {
+                return Err(ProcessError::StdinClosed);
+            }
+            for line in String::from_utf8_lossy(&bytes).lines() {
+                run.written.push(line.to_owned());
+                if line == "q" {
+                    continue;
+                }
+                let id = line.split(' ').nth(1).unwrap_or("0").to_owned();
+                if let Some(code) = self.behaviour.error {
+                    run.say(&format!("err {id} {code}\n"));
+                } else if self.behaviour.answer {
+                    run.say(&if line.starts_with("c ") { format!("ok {id} 10 20\n") } else { format!("ok {id}\n") });
+                }
+            }
+            Ok(())
+        }
+
+        fn close_stdin(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+            let mut runs = lock(&self.runs);
+            let run = runs.iter_mut().find(|run| run.request.handle == *handle).ok_or(ProcessError::UnknownHandle)?;
+            run.stdin_closed = true;
+            if self.behaviour.release_on_eof {
+                run.say("released\n");
+                run.exit(ExitStatus::Code(0));
+            }
+            Ok(())
+        }
+
+        fn resize_pty(&self, _: &ProcessHandle, _: PtySize) -> Result<(), ProcessError> {
+            Ok(())
+        }
+
+        fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+            let mut runs = lock(&self.runs);
+            let run = runs.iter_mut().find(|run| run.request.handle == *handle).ok_or(ProcessError::UnknownHandle)?;
+            if run.exited {
+                return Err(ProcessError::AlreadyExited);
+            }
+            run.killed = true;
+            run.exit(ExitStatus::Signal(9));
+            Ok(())
+        }
+
+        fn list(&self) -> Vec<ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------------------------
+    // The wire
+
+    #[test]
+    fn every_command_is_written_as_the_process_reads_it() {
+        let line = |op: InputOp| format_command(7, &Command::Input(&op)).expect("formats");
+        assert_eq!(line(InputOp::Move { x: -7, y: 42 }), "m 7 -7 42");
+        assert_eq!(line(InputOp::Button { button: PointerButton::Left, down: true, at: None }), "b 7 l 1");
+        assert_eq!(line(InputOp::Button { button: PointerButton::Right, down: false, at: Some((1, 2)) }), "b 7 r 0 1 2");
+        assert_eq!(line(InputOp::Button { button: PointerButton::Middle, down: true, at: Some((0, 0)) }), "b 7 m 1 0 0");
+        assert_eq!(line(InputOp::Wheel { x: 0, y: 0, dx: 0, dy: -120 }), "w 7 0 0 0 -120");
+        assert_eq!(line(InputOp::Key { vk: 65, scan: 30, extended: true, down: false }), "k 7 65 30 1 0");
+        assert_eq!(line(InputOp::Key { vk: 65, scan: 30, extended: false, down: true }), "k 7 65 30 0 1");
+        assert_eq!(line(InputOp::Text("a b\n\u{e9}llo".into())), "t 7 YSBiCsOpbGxv");
+        assert_eq!(format_command(7, &Command::Cursor).expect("formats"), "c 7");
+    }
+
+    #[test]
+    fn literal_text_is_bounded_in_utf16_units() {
+        let text = |text: String| format_command(1, &Command::Input(&InputOp::Text(text)));
+        assert!(text("x".repeat(MAX_REMOTE_SCREEN_TEXT)).is_ok());
+        assert_eq!(text("x".repeat(MAX_REMOTE_SCREEN_TEXT + 1)), Err(ScreenInputError::new("protocol_error")));
+        // An astral character is two UTF-16 units.
+        assert!(text("\u{1F600}".repeat(MAX_REMOTE_SCREEN_TEXT / 2)).is_ok());
+        assert!(text("\u{1F600}".repeat(MAX_REMOTE_SCREEN_TEXT / 2 + 1)).is_err());
+    }
+
+    #[test]
+    fn the_desktop_line_reads_a_name_and_two_flags() {
+        assert_eq!(parse_desktop("Default 0 0"), Some(InputDesktop { name: Some("Default".into()), consent: false, logon_ui: false }));
+        assert_eq!(parse_desktop("Winlogon 1 1"), Some(InputDesktop { name: Some("Winlogon".into()), consent: true, logon_ui: true }));
+        assert_eq!(parse_desktop("- 0 0"), Some(InputDesktop { name: None, consent: false, logon_ui: false }));
+        for bad in ["", "Default", "Default 0", "Default 2 0", "Default 0 x", "Default 0 0 0", " 0 0"] {
+            assert_eq!(parse_desktop(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_secure_desktop_is_up_when_unreadable_or_prompting() {
+        let desktop = |name: Option<&str>, consent, logon_ui| InputDesktop { name: name.map(str::to_owned), consent, logon_ui };
+        assert!(!desktop(Some("default"), false, false).secure_up());
+        assert!(desktop(None, false, false).secure_up());
+        assert!(desktop(Some("default"), true, false).secure_up());
+        assert!(desktop(Some("Winlogon"), false, true).secure_up());
+    }
+
+    #[test]
+    fn output_is_split_into_lines_across_chunks_and_a_long_line_is_refused() {
+        let mut lines = Lines::default();
+        assert_eq!(lines.push(b"ready 3\r\nok 1").expect("lines"), vec!["ready 3".to_owned()]);
+        assert_eq!(lines.push(b" 5 6\n\n").expect("lines"), vec!["ok 1 5 6".to_owned(), String::new()]);
+        assert!(lines.push(&vec![b'x'; MAX_LINE_BYTES + 1]).is_err());
+    }
+
+    #[test]
+    fn a_failed_input_becomes_a_computer_error_with_its_code() {
+        let error: ComputerError = ScreenInputError::new("out_of_bounds").into();
+        assert_eq!(
+            error,
+            ComputerError::Failed { code: "out_of_bounds".into(), message: "remote screen input out_of_bounds".into() }
+        );
+    }
+
+
+    fn setup(behaviour: Behaviour) -> (Arc<Fake>, ScreenInput) {
+        let fake = Arc::new(Fake { runs: Mutex::new(Vec::new()), behaviour });
+        let config = ScreenInputConfig {
+            binary: PathBuf::from("mixdog-computer"),
+            cwd: AbsPath::new(std::env::temp_dir()).expect("an absolute temp dir"),
+            marker: 77,
+        };
+        let input = ScreenInput::new(fake.clone(), config);
+        (fake, input)
+    }
+    async fn started(behaviour: Behaviour) -> (Arc<Fake>, ScreenInput) {
+        let (fake, input) = setup(behaviour);
+        input.start().await.expect("the fake serves");
+        (fake, input)
+    }
+    // -----------------------------------------------------------------------------------------------------------
+    // The viewer's input through the geometry
+
+    #[tokio::test(start_paused = true)]
+    async fn a_start_waits_for_ready_and_reports_the_session_and_the_desktop() {
+        let (fake, input) = setup(Behaviour::serving());
+        assert!(!input.alive());
+        input.start().await.expect("serves");
+        assert!(input.alive());
+        assert_eq!(input.session(), Some(3));
+        assert_eq!(input.identity(), Some(DesktopIdentity { session: 3, desktop: "default".into() }));
+        assert_eq!(fake.args(0), vec![SCREEN_INPUT_MODE.to_owned()]);
+        assert_eq!(fake.env(0, "MIXDOG_SCREEN_INPUT_MARKER").as_deref(), Some("77"));
+        // A start while it runs spawns nothing.
+        input.start().await.expect("already serving");
+        assert_eq!(fake.spawned(), 1);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_process_that_never_says_ready_is_retired_after_the_start_budget() {
+        let (fake, input) = setup(Behaviour { auto_ready: false, ..Behaviour::serving() });
+        assert_eq!(input.start().await, Err(ScreenInputError::new("start_timeout")));
+        assert!(fake.killed(0));
+        input.inner.wait_cleanups().await;
+        assert_eq!(fake.args(1), vec!["--abort-cleanup".to_owned()]);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_process_that_exits_before_ready_fails_the_start() {
+        let (fake, input) = setup(Behaviour { exit_on_spawn: true, ..Behaviour::serving() });
+        assert_eq!(input.start().await, Err(ScreenInputError::new("start_failed")));
+        assert!(!input.alive());
+        // It never served, so nothing it held needs a cleanup.
+        assert_eq!(fake.spawned(), 1);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn commands_reach_the_process_in_order_with_their_ids() {
+        let (fake, input) = started(Behaviour::serving()).await;
+        input.apply(&InputOp::Move { x: 10, y: 20 }).await.expect("acknowledged");
+        input.apply(&InputOp::Button { button: PointerButton::Left, down: true, at: Some((10, 20)) }).await.expect("acknowledged");
+        input.apply(&InputOp::Text("a b\n\u{e9}llo".into())).await.expect("acknowledged");
+        assert_eq!(fake.written(0), ["m 1 10 20", "b 2 l 1 10 20", "t 3 YSBiCsOpbGxv"]);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn an_error_reply_carries_the_process_code() {
+        let (_fake, input) = started(Behaviour { error: Some("out_of_bounds"), ..Behaviour::serving() }).await;
+        assert_eq!(input.apply(&InputOp::Move { x: 1, y: 1 }).await, Err(ScreenInputError::new("out_of_bounds")));
+        // The process is still serving: a refusal is not a failure of the process.
+        assert!(input.alive());
+    }
+    #[tokio::test(start_paused = true)]
+    async fn the_cursor_is_read_behind_the_input_before_it() {
+        let (fake, input) = started(Behaviour::serving()).await;
+        input.apply(&InputOp::Move { x: 1, y: 1 }).await.expect("acknowledged");
+        assert_eq!(input.cursor().await, Ok((10, 20)));
+        assert_eq!(fake.written(0), ["m 1 1 1", "c 2"]);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn text_over_the_bound_is_refused_before_it_is_sent() {
+        let (fake, input) = started(Behaviour::serving()).await;
+        let result = input.apply(&InputOp::Text("x".repeat(MAX_REMOTE_SCREEN_TEXT + 1))).await;
+        assert_eq!(result, Err(ScreenInputError::new("protocol_error")));
+        assert!(fake.written(0).is_empty());
+    }
+    #[tokio::test(start_paused = true)]
+    async fn nothing_is_sent_before_the_process_serves() {
+        let (_fake, input) = setup(Behaviour::serving());
+        assert_eq!(input.apply(&InputOp::Move { x: 1, y: 1 }).await, Err(ScreenInputError::new("host_unavailable")));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_stop_sends_q_and_closes_stdin_and_runs_no_cleanup_after_a_release() {
+        let (fake, input) = started(Behaviour::serving()).await;
+        input.stop().await;
+        assert_eq!(fake.written(0), ["q"]);
+        assert!(fake.closed(0));
+        assert!(!input.alive());
+        assert_eq!(input.session(), None);
+        assert_eq!(*input.desktop_watch().borrow(), None);
+        // It said `released`: nothing was left down, so no cleanup ran.
+        assert_eq!(fake.spawned(), 1);
+        assert_eq!(*input.exit_watch().borrow(), 0);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_process_that_ignores_q_is_retired_and_cleaned_up_within_the_stop_budget() {
+        let (fake, input) = started(Behaviour { release_on_eof: false, ..Behaviour::serving() }).await;
+        input.stop().await;
+        assert!(fake.killed(0));
+        assert_eq!(fake.spawned(), 2);
+        assert_eq!(fake.args(1), vec!["--abort-cleanup".to_owned()]);
+        assert_eq!(fake.env(1, "MIXDOG_COMPUTER_INPUT_MARKER").as_deref(), Some("77"));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_process_that_dies_without_releasing_is_followed_by_the_abort_cleanup() {
+        let (fake, input) = started(Behaviour::serving()).await;
+        input.apply(&InputOp::Key { vk: 65, scan: 30, extended: false, down: true }).await.expect("pressed");
+        let mut exits = input.exit_watch();
+        fake.exit(0, ExitStatus::Signal(9));
+        exits.changed().await.expect("the exit is reported");
+        input.inner.wait_cleanups().await;
+        assert_eq!(*exits.borrow(), 1);
+        assert_eq!(fake.args(1), vec!["--abort-cleanup".to_owned()]);
+        assert_eq!(fake.env(1, "MIXDOG_COMPUTER_INPUT_MARKER").as_deref(), Some("77"));
+        // What it held died with it: the cleanup lifts it.
+        assert!(!input.alive());
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_command_waiting_when_the_process_dies_fails() {
+        let (fake, input) = started(Behaviour { answer: false, ..Behaviour::serving() }).await;
+        let died = async {
+            tokio::task::yield_now().await;
+            fake.exit(0, ExitStatus::Signal(9));
+        };
+        let (result, ()) = tokio::join!(input.apply(&InputOp::Move { x: 1, y: 1 }), died);
+        assert_eq!(result, Err(ScreenInputError::new("host_exited")));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_command_not_acknowledged_in_time_retires_the_process() {
+        let (fake, input) = started(Behaviour { answer: false, ..Behaviour::serving() }).await;
+        let result = input.apply(&InputOp::Move { x: 1, y: 1 }).await;
+        assert_eq!(result, Err(ScreenInputError::new("host_unresponsive")));
+        assert!(fake.killed(0));
+        assert!(!input.alive());
+        assert_eq!(input.apply(&InputOp::Move { x: 2, y: 2 }).await, Err(ScreenInputError::new("host_unavailable")));
+        input.inner.wait_cleanups().await;
+        assert_eq!(fake.args(1), vec!["--abort-cleanup".to_owned()]);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_kill_fails_what_waits_and_runs_the_cleanup_before_it_returns() {
+        let (fake, input) = started(Behaviour { answer: false, ..Behaviour::serving() }).await;
+        let killing = async {
+            tokio::task::yield_now().await;
+            input.kill().await;
+        };
+        let (result, ()) = tokio::join!(input.apply(&InputOp::Move { x: 1, y: 1 }), killing);
+        assert_eq!(result, Err(ScreenInputError::new("host_killed")));
+        assert!(fake.killed(0));
+        assert_eq!(fake.spawned(), 2);
+        assert_eq!(*input.inner.cleanups.borrow(), 0);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_second_kill_of_the_same_process_shares_its_one_cleanup() {
+        let (fake, input) = started(Behaviour::serving()).await;
+        let ((), ()) = tokio::join!(input.kill(), input.kill());
+        // The process and one `--abort-cleanup`, not two.
+        assert_eq!(fake.spawned(), 2);
+        assert_eq!(*input.inner.cleanups.borrow(), 0);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_hung_cleanup_is_cut_at_its_bound() {
+        let (fake, input) = started(Behaviour { cleanup_exits: false, ..Behaviour::serving() }).await;
+        let began = mixdog_rt::time::Instant::now();
+        input.kill().await;
+        assert_eq!(fake.args(1), vec!["--abort-cleanup".to_owned()]);
+        assert!(fake.killed(1), "the cleanup run is killed at its bound");
+        assert!(began.elapsed() >= ABORT_CLEANUP_TIMEOUT);
+        assert_eq!(*input.inner.cleanups.borrow(), 0);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_restart_waits_for_the_cleanup_of_the_process_before_it() {
+        let (fake, input) = started(Behaviour { cleanup_exits: false, ..Behaviour::serving() }).await;
+        let mut exits = input.exit_watch();
+        fake.exit(0, ExitStatus::Signal(9));
+        exits.changed().await.expect("the exit is reported");
+        // Its cleanup runs under the same marker: the next process starts only once it is over (here: cut at its bound).
+        input.start().await.expect("serves again");
+        assert_eq!(fake.args(1), vec!["--abort-cleanup".to_owned()]);
+        assert!(fake.killed(1));
+        assert_eq!(fake.args(2), vec![SCREEN_INPUT_MODE.to_owned()]);
+        assert!(input.alive());
+    }
+    #[tokio::test(start_paused = true)]
+    async fn without_the_helper_binary_the_start_fails_and_nothing_else_runs() {
+        let (fake, input) = setup(Behaviour { missing_binary: true, ..Behaviour::serving() });
+        assert_eq!(input.start().await, Err(ScreenInputError::new("start_failed")));
+        assert_eq!(fake.spawned(), 0);
+        assert!(!input.alive());
+        assert_eq!(input.apply(&InputOp::Move { x: 1, y: 1 }).await, Err(ScreenInputError::new("host_unavailable")));
+    }
+    // -----------------------------------------------------------------------------------------------------------
+    // The desktop watcher
+
+    #[tokio::test(start_paused = true)]
+    async fn the_watcher_reports_the_secure_desktop_and_its_return() {
+        let (fake, input) = started(Behaviour::serving()).await;
+        let mut watch = input.desktop_watch();
+        assert_eq!(watch.borrow().as_ref().map(InputDesktop::secure_up), Some(false));
+        fake.say(0, "desktop - 1 0\n");
+        watch.changed().await.expect("a change");
+        assert_eq!(watch.borrow().as_ref().map(InputDesktop::secure_up), Some(true));
+        assert_eq!(input.identity(), None);
+        fake.say(0, "desktop Winlogon 0 1\n");
+        watch.changed().await.expect("a change");
+        assert_eq!(watch.borrow().as_ref().map(InputDesktop::secure_up), Some(true));
+        fake.say(0, "desktop Default 0 0\n");
+        watch.changed().await.expect("a change");
+        assert_eq!(watch.borrow().as_ref().map(InputDesktop::secure_up), Some(false));
+        assert_eq!(input.identity(), Some(DesktopIdentity { session: 3, desktop: "default".into() }));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn lines_that_are_not_understood_are_ignored() {
+        let (fake, input) = started(Behaviour::serving()).await;
+        fake.say(0, "desktop nonsense\nok x\nerr\nready x\nok 99 1\nnoise\n");
+        let mut watch = input.desktop_watch();
+        fake.say(0, "desktop Other 0 0\n");
+        watch.changed().await.expect("the next valid line is read");
+        assert_eq!(watch.borrow().as_ref().and_then(|desktop| desktop.name.clone()).as_deref(), Some("Other"));
+        assert_eq!(input.session(), Some(3));
+    }
+}
+
+
+impl std::error::Error for ScreenInputError {}
 impl Inner {
     fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -287,7 +794,8 @@ impl Inner {
             pty: None,
             stdin_piped,
             output: OutputMode::Separate,
-            owner: ProcessOwner::ComputerHelper,
+            // The remote screen's input process is no automation scope's.
+            owner: ProcessOwner::ComputerHelper { scope: None },
             time_limit,
         }
     }
@@ -536,13 +1044,6 @@ impl Inner {
         }
     }
 }
-
-/// The phone's screen input: one `mixdog-computer --screen-input` process, its ordered commands, its release and its
-/// desktop watcher.
-pub struct ScreenInput {
-    inner: Arc<Inner>,
-}
-
 impl ScreenInput {
     pub fn new(manager: Arc<dyn ProcessManager>, config: ScreenInputConfig) -> Self {
         Self {
@@ -694,526 +1195,5 @@ impl ScreenInput {
             inner.retire(run_id);
         }
         inner.wait_cleanups().await;
-    }
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use async_trait::async_trait;
-    use mixdog_core_api::domain::process::ExitStatus;
-    use mixdog_core_api::domain::process::ProcessError;
-    use mixdog_core_api::domain::process::ProcessExit;
-    use mixdog_core_api::domain::process::ProcessInfo;
-    use mixdog_core_api::domain::process::PtySize;
-    use mixdog_core_api::domain::process::SpawnedProcess;
-    use tokio::sync::mpsc;
-
-    use super::*;
-
-    // -----------------------------------------------------------------------------------------------------------
-    // A fake `mixdog-computer --screen-input`
-
-    struct Events(mpsc::UnboundedReceiver<ProcessEvent>);
-
-    #[async_trait]
-    impl EventSource<ProcessEvent> for Events {
-        async fn next(&mut self) -> Option<ProcessEvent> {
-            self.0.recv().await
-        }
-    }
-
-    #[derive(Clone, Copy)]
-    struct Behaviour {
-        /// Says `desktop default 0 0` and `ready 3` at spawn.
-        auto_ready: bool,
-        /// Acknowledges every command line.
-        answer: bool,
-        /// Answers every command with `err <id> <code>`.
-        error: Option<&'static str>,
-        /// Says `released` and exits when its stdin closes.
-        release_on_eof: bool,
-        /// The `--abort-cleanup` run exits at once.
-        cleanup_exits: bool,
-        /// Exits before it says `ready`.
-        exit_on_spawn: bool,
-        /// The binary cannot be run: every spawn fails.
-        missing_binary: bool,
-    }
-
-    impl Behaviour {
-        fn serving() -> Self {
-            Self {
-                auto_ready: true,
-                answer: true,
-                error: None,
-                release_on_eof: true,
-                cleanup_exits: true,
-                exit_on_spawn: false,
-                missing_binary: false,
-            }
-        }
-    }
-
-    struct FakeRun {
-        request: SpawnRequest,
-        tx: mpsc::UnboundedSender<ProcessEvent>,
-        rx: Option<mpsc::UnboundedReceiver<ProcessEvent>>,
-        written: Vec<String>,
-        stdin_closed: bool,
-        killed: bool,
-        exited: bool,
-        seq: u64,
-    }
-
-    impl FakeRun {
-        fn say(&mut self, text: &str) {
-            let seq = self.seq;
-            self.seq += 1;
-            let _ = self.tx.send(ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: text.as_bytes().to_vec() });
-        }
-
-        fn exit(&mut self, status: ExitStatus) {
-            let seq = self.seq;
-            self.seq += 1;
-            self.exited = true;
-            let _ = self.tx.send(ProcessEvent::Exited { seq, exit: ProcessExit { status, killed: None } });
-        }
-    }
-
-    struct Fake {
-        runs: Mutex<Vec<FakeRun>>,
-        behaviour: Behaviour,
-    }
-
-    fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-        mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    impl Fake {
-        fn say(&self, at: usize, text: &str) {
-            lock(&self.runs)[at].say(text);
-        }
-        fn exit(&self, at: usize, status: ExitStatus) {
-            lock(&self.runs)[at].exit(status);
-        }
-        fn spawned(&self) -> usize {
-            lock(&self.runs).len()
-        }
-        fn written(&self, at: usize) -> Vec<String> {
-            lock(&self.runs)[at].written.clone()
-        }
-        fn killed(&self, at: usize) -> bool {
-            lock(&self.runs)[at].killed
-        }
-        fn closed(&self, at: usize) -> bool {
-            lock(&self.runs)[at].stdin_closed
-        }
-        fn args(&self, at: usize) -> Vec<String> {
-            match &lock(&self.runs)[at].request.command {
-                CommandSpec::Argv { args, .. } => args.clone(),
-                CommandSpec::Shell { .. } => Vec::new(),
-            }
-        }
-        fn env(&self, at: usize, name: &str) -> Option<String> {
-            lock(&self.runs)[at].request.env.set.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone())
-        }
-    }
-
-    #[async_trait]
-    impl ProcessManager for Fake {
-        async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
-            if self.behaviour.missing_binary {
-                return Err(ProcessError::ProgramNotFound { program: "mixdog-computer".to_owned() });
-            }
-            let (tx, rx) = mpsc::unbounded_channel();
-            let handle = request.handle.clone();
-            let args = match &request.command {
-                CommandSpec::Argv { args, .. } => args.clone(),
-                CommandSpec::Shell { .. } => Vec::new(),
-            };
-            let mut run =
-                FakeRun { request, tx, rx: Some(rx), written: Vec::new(), stdin_closed: false, killed: false, exited: false, seq: 0 };
-            if args == [SCREEN_INPUT_MODE] {
-                if self.behaviour.exit_on_spawn {
-                    run.exit(ExitStatus::Code(1));
-                } else if self.behaviour.auto_ready {
-                    run.say("desktop default 0 0\nready 3\n");
-                }
-            } else if args == ["--abort-cleanup"] && self.behaviour.cleanup_exits {
-                run.exit(ExitStatus::Code(0));
-            }
-            lock(&self.runs).push(run);
-            Ok(SpawnedProcess { handle, pid: 1 })
-        }
-
-        fn subscribe(
-            &self,
-            handle: &ProcessHandle,
-            _from_seq: Option<u64>,
-        ) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
-            let mut runs = lock(&self.runs);
-            let run = runs.iter_mut().find(|run| run.request.handle == *handle).ok_or(ProcessError::UnknownHandle)?;
-            let rx = run.rx.take().ok_or(ProcessError::UnknownHandle)?;
-            Ok(Box::new(Events(rx)))
-        }
-
-        async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
-            let mut runs = lock(&self.runs);
-            let run = runs.iter_mut().find(|run| run.request.handle == *handle).ok_or(ProcessError::UnknownHandle)?;
-            if run.exited || run.stdin_closed {
-                return Err(ProcessError::StdinClosed);
-            }
-            for line in String::from_utf8_lossy(&bytes).lines() {
-                run.written.push(line.to_owned());
-                if line == "q" {
-                    continue;
-                }
-                let id = line.split(' ').nth(1).unwrap_or("0").to_owned();
-                if let Some(code) = self.behaviour.error {
-                    run.say(&format!("err {id} {code}\n"));
-                } else if self.behaviour.answer {
-                    run.say(&if line.starts_with("c ") { format!("ok {id} 10 20\n") } else { format!("ok {id}\n") });
-                }
-            }
-            Ok(())
-        }
-
-        fn close_stdin(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
-            let mut runs = lock(&self.runs);
-            let run = runs.iter_mut().find(|run| run.request.handle == *handle).ok_or(ProcessError::UnknownHandle)?;
-            run.stdin_closed = true;
-            if self.behaviour.release_on_eof {
-                run.say("released\n");
-                run.exit(ExitStatus::Code(0));
-            }
-            Ok(())
-        }
-
-        fn resize_pty(&self, _: &ProcessHandle, _: PtySize) -> Result<(), ProcessError> {
-            Ok(())
-        }
-
-        fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
-            let mut runs = lock(&self.runs);
-            let run = runs.iter_mut().find(|run| run.request.handle == *handle).ok_or(ProcessError::UnknownHandle)?;
-            if run.exited {
-                return Err(ProcessError::AlreadyExited);
-            }
-            run.killed = true;
-            run.exit(ExitStatus::Signal(9));
-            Ok(())
-        }
-
-        fn list(&self) -> Vec<ProcessInfo> {
-            Vec::new()
-        }
-    }
-
-    fn setup(behaviour: Behaviour) -> (Arc<Fake>, ScreenInput) {
-        let fake = Arc::new(Fake { runs: Mutex::new(Vec::new()), behaviour });
-        let config = ScreenInputConfig {
-            binary: PathBuf::from("mixdog-computer"),
-            cwd: AbsPath::new(std::env::temp_dir()).expect("an absolute temp dir"),
-            marker: 77,
-        };
-        let input = ScreenInput::new(fake.clone(), config);
-        (fake, input)
-    }
-
-    async fn started(behaviour: Behaviour) -> (Arc<Fake>, ScreenInput) {
-        let (fake, input) = setup(behaviour);
-        input.start().await.expect("the fake serves");
-        (fake, input)
-    }
-
-    // -----------------------------------------------------------------------------------------------------------
-    // The wire
-
-    #[test]
-    fn every_command_is_written_as_the_process_reads_it() {
-        let line = |op: InputOp| format_command(7, &Command::Input(&op)).expect("formats");
-        assert_eq!(line(InputOp::Move { x: -7, y: 42 }), "m 7 -7 42");
-        assert_eq!(line(InputOp::Button { button: PointerButton::Left, down: true, at: None }), "b 7 l 1");
-        assert_eq!(line(InputOp::Button { button: PointerButton::Right, down: false, at: Some((1, 2)) }), "b 7 r 0 1 2");
-        assert_eq!(line(InputOp::Button { button: PointerButton::Middle, down: true, at: Some((0, 0)) }), "b 7 m 1 0 0");
-        assert_eq!(line(InputOp::Wheel { x: 0, y: 0, dx: 0, dy: -120 }), "w 7 0 0 0 -120");
-        assert_eq!(line(InputOp::Key { vk: 65, scan: 30, extended: true, down: false }), "k 7 65 30 1 0");
-        assert_eq!(line(InputOp::Key { vk: 65, scan: 30, extended: false, down: true }), "k 7 65 30 0 1");
-        assert_eq!(line(InputOp::Text("a b\n\u{e9}llo".into())), "t 7 YSBiCsOpbGxv");
-        assert_eq!(format_command(7, &Command::Cursor).expect("formats"), "c 7");
-    }
-
-    #[test]
-    fn literal_text_is_bounded_in_utf16_units() {
-        let text = |text: String| format_command(1, &Command::Input(&InputOp::Text(text)));
-        assert!(text("x".repeat(MAX_REMOTE_SCREEN_TEXT)).is_ok());
-        assert_eq!(text("x".repeat(MAX_REMOTE_SCREEN_TEXT + 1)), Err(ScreenInputError::new("protocol_error")));
-        // An astral character is two UTF-16 units.
-        assert!(text("\u{1F600}".repeat(MAX_REMOTE_SCREEN_TEXT / 2)).is_ok());
-        assert!(text("\u{1F600}".repeat(MAX_REMOTE_SCREEN_TEXT / 2 + 1)).is_err());
-    }
-
-    #[test]
-    fn the_desktop_line_reads_a_name_and_two_flags() {
-        assert_eq!(parse_desktop("Default 0 0"), Some(InputDesktop { name: Some("Default".into()), consent: false, logon_ui: false }));
-        assert_eq!(parse_desktop("Winlogon 1 1"), Some(InputDesktop { name: Some("Winlogon".into()), consent: true, logon_ui: true }));
-        assert_eq!(parse_desktop("- 0 0"), Some(InputDesktop { name: None, consent: false, logon_ui: false }));
-        for bad in ["", "Default", "Default 0", "Default 2 0", "Default 0 x", "Default 0 0 0", " 0 0"] {
-            assert_eq!(parse_desktop(bad), None, "{bad:?}");
-        }
-    }
-
-    #[test]
-    fn the_secure_desktop_is_up_when_unreadable_or_prompting() {
-        let desktop = |name: Option<&str>, consent, logon_ui| InputDesktop { name: name.map(str::to_owned), consent, logon_ui };
-        assert!(!desktop(Some("default"), false, false).secure_up());
-        assert!(desktop(None, false, false).secure_up());
-        assert!(desktop(Some("default"), true, false).secure_up());
-        assert!(desktop(Some("Winlogon"), false, true).secure_up());
-    }
-
-    #[test]
-    fn output_is_split_into_lines_across_chunks_and_a_long_line_is_refused() {
-        let mut lines = Lines::default();
-        assert_eq!(lines.push(b"ready 3\r\nok 1").expect("lines"), vec!["ready 3".to_owned()]);
-        assert_eq!(lines.push(b" 5 6\n\n").expect("lines"), vec!["ok 1 5 6".to_owned(), String::new()]);
-        assert!(lines.push(&vec![b'x'; MAX_LINE_BYTES + 1]).is_err());
-    }
-
-    // -----------------------------------------------------------------------------------------------------------
-    // The viewer's input through the geometry
-
-    #[tokio::test(start_paused = true)]
-    async fn a_start_waits_for_ready_and_reports_the_session_and_the_desktop() {
-        let (fake, input) = setup(Behaviour::serving());
-        assert!(!input.alive());
-        input.start().await.expect("serves");
-        assert!(input.alive());
-        assert_eq!(input.session(), Some(3));
-        assert_eq!(input.identity(), Some(DesktopIdentity { session: 3, desktop: "default".into() }));
-        assert_eq!(fake.args(0), vec![SCREEN_INPUT_MODE.to_owned()]);
-        assert_eq!(fake.env(0, "MIXDOG_SCREEN_INPUT_MARKER").as_deref(), Some("77"));
-        // A start while it runs spawns nothing.
-        input.start().await.expect("already serving");
-        assert_eq!(fake.spawned(), 1);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_process_that_never_says_ready_is_retired_after_the_start_budget() {
-        let (fake, input) = setup(Behaviour { auto_ready: false, ..Behaviour::serving() });
-        assert_eq!(input.start().await, Err(ScreenInputError::new("start_timeout")));
-        assert!(fake.killed(0));
-        input.inner.wait_cleanups().await;
-        assert_eq!(fake.args(1), vec!["--abort-cleanup".to_owned()]);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_process_that_exits_before_ready_fails_the_start() {
-        let (fake, input) = setup(Behaviour { exit_on_spawn: true, ..Behaviour::serving() });
-        assert_eq!(input.start().await, Err(ScreenInputError::new("start_failed")));
-        assert!(!input.alive());
-        // It never served, so nothing it held needs a cleanup.
-        assert_eq!(fake.spawned(), 1);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn commands_reach_the_process_in_order_with_their_ids() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        input.apply(&InputOp::Move { x: 10, y: 20 }).await.expect("acknowledged");
-        input.apply(&InputOp::Button { button: PointerButton::Left, down: true, at: Some((10, 20)) }).await.expect("acknowledged");
-        input.apply(&InputOp::Text("a b\n\u{e9}llo".into())).await.expect("acknowledged");
-        assert_eq!(fake.written(0), ["m 1 10 20", "b 2 l 1 10 20", "t 3 YSBiCsOpbGxv"]);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn an_error_reply_carries_the_process_code() {
-        let (_fake, input) = started(Behaviour { error: Some("out_of_bounds"), ..Behaviour::serving() }).await;
-        assert_eq!(input.apply(&InputOp::Move { x: 1, y: 1 }).await, Err(ScreenInputError::new("out_of_bounds")));
-        // The process is still serving: a refusal is not a failure of the process.
-        assert!(input.alive());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn the_cursor_is_read_behind_the_input_before_it() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        input.apply(&InputOp::Move { x: 1, y: 1 }).await.expect("acknowledged");
-        assert_eq!(input.cursor().await, Ok((10, 20)));
-        assert_eq!(fake.written(0), ["m 1 1 1", "c 2"]);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn text_over_the_bound_is_refused_before_it_is_sent() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        let result = input.apply(&InputOp::Text("x".repeat(MAX_REMOTE_SCREEN_TEXT + 1))).await;
-        assert_eq!(result, Err(ScreenInputError::new("protocol_error")));
-        assert!(fake.written(0).is_empty());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn nothing_is_sent_before_the_process_serves() {
-        let (_fake, input) = setup(Behaviour::serving());
-        assert_eq!(input.apply(&InputOp::Move { x: 1, y: 1 }).await, Err(ScreenInputError::new("host_unavailable")));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_stop_sends_q_and_closes_stdin_and_runs_no_cleanup_after_a_release() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        input.stop().await;
-        assert_eq!(fake.written(0), ["q"]);
-        assert!(fake.closed(0));
-        assert!(!input.alive());
-        assert_eq!(input.session(), None);
-        assert_eq!(*input.desktop_watch().borrow(), None);
-        // It said `released`: nothing was left down, so no cleanup ran.
-        assert_eq!(fake.spawned(), 1);
-        assert_eq!(*input.exit_watch().borrow(), 0);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_process_that_ignores_q_is_retired_and_cleaned_up_within_the_stop_budget() {
-        let (fake, input) = started(Behaviour { release_on_eof: false, ..Behaviour::serving() }).await;
-        input.stop().await;
-        assert!(fake.killed(0));
-        assert_eq!(fake.spawned(), 2);
-        assert_eq!(fake.args(1), vec!["--abort-cleanup".to_owned()]);
-        assert_eq!(fake.env(1, "MIXDOG_COMPUTER_INPUT_MARKER").as_deref(), Some("77"));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_process_that_dies_without_releasing_is_followed_by_the_abort_cleanup() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        input.apply(&InputOp::Key { vk: 65, scan: 30, extended: false, down: true }).await.expect("pressed");
-        let mut exits = input.exit_watch();
-        fake.exit(0, ExitStatus::Signal(9));
-        exits.changed().await.expect("the exit is reported");
-        input.inner.wait_cleanups().await;
-        assert_eq!(*exits.borrow(), 1);
-        assert_eq!(fake.args(1), vec!["--abort-cleanup".to_owned()]);
-        assert_eq!(fake.env(1, "MIXDOG_COMPUTER_INPUT_MARKER").as_deref(), Some("77"));
-        // What it held died with it: the cleanup lifts it.
-        assert!(!input.alive());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_command_waiting_when_the_process_dies_fails() {
-        let (fake, input) = started(Behaviour { answer: false, ..Behaviour::serving() }).await;
-        let died = async {
-            tokio::task::yield_now().await;
-            fake.exit(0, ExitStatus::Signal(9));
-        };
-        let (result, ()) = tokio::join!(input.apply(&InputOp::Move { x: 1, y: 1 }), died);
-        assert_eq!(result, Err(ScreenInputError::new("host_exited")));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_command_not_acknowledged_in_time_retires_the_process() {
-        let (fake, input) = started(Behaviour { answer: false, ..Behaviour::serving() }).await;
-        let result = input.apply(&InputOp::Move { x: 1, y: 1 }).await;
-        assert_eq!(result, Err(ScreenInputError::new("host_unresponsive")));
-        assert!(fake.killed(0));
-        assert!(!input.alive());
-        assert_eq!(input.apply(&InputOp::Move { x: 2, y: 2 }).await, Err(ScreenInputError::new("host_unavailable")));
-        input.inner.wait_cleanups().await;
-        assert_eq!(fake.args(1), vec!["--abort-cleanup".to_owned()]);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_kill_fails_what_waits_and_runs_the_cleanup_before_it_returns() {
-        let (fake, input) = started(Behaviour { answer: false, ..Behaviour::serving() }).await;
-        let killing = async {
-            tokio::task::yield_now().await;
-            input.kill().await;
-        };
-        let (result, ()) = tokio::join!(input.apply(&InputOp::Move { x: 1, y: 1 }), killing);
-        assert_eq!(result, Err(ScreenInputError::new("host_killed")));
-        assert!(fake.killed(0));
-        assert_eq!(fake.spawned(), 2);
-        assert_eq!(*input.inner.cleanups.borrow(), 0);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_second_kill_of_the_same_process_shares_its_one_cleanup() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        let ((), ()) = tokio::join!(input.kill(), input.kill());
-        // The process and one `--abort-cleanup`, not two.
-        assert_eq!(fake.spawned(), 2);
-        assert_eq!(*input.inner.cleanups.borrow(), 0);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_hung_cleanup_is_cut_at_its_bound() {
-        let (fake, input) = started(Behaviour { cleanup_exits: false, ..Behaviour::serving() }).await;
-        let began = mixdog_rt::time::Instant::now();
-        input.kill().await;
-        assert_eq!(fake.args(1), vec!["--abort-cleanup".to_owned()]);
-        assert!(fake.killed(1), "the cleanup run is killed at its bound");
-        assert!(began.elapsed() >= ABORT_CLEANUP_TIMEOUT);
-        assert_eq!(*input.inner.cleanups.borrow(), 0);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_restart_waits_for_the_cleanup_of_the_process_before_it() {
-        let (fake, input) = started(Behaviour { cleanup_exits: false, ..Behaviour::serving() }).await;
-        let mut exits = input.exit_watch();
-        fake.exit(0, ExitStatus::Signal(9));
-        exits.changed().await.expect("the exit is reported");
-        // Its cleanup runs under the same marker: the next process starts only once it is over (here: cut at its bound).
-        input.start().await.expect("serves again");
-        assert_eq!(fake.args(1), vec!["--abort-cleanup".to_owned()]);
-        assert!(fake.killed(1));
-        assert_eq!(fake.args(2), vec![SCREEN_INPUT_MODE.to_owned()]);
-        assert!(input.alive());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn without_the_helper_binary_the_start_fails_and_nothing_else_runs() {
-        let (fake, input) = setup(Behaviour { missing_binary: true, ..Behaviour::serving() });
-        assert_eq!(input.start().await, Err(ScreenInputError::new("start_failed")));
-        assert_eq!(fake.spawned(), 0);
-        assert!(!input.alive());
-        assert_eq!(input.apply(&InputOp::Move { x: 1, y: 1 }).await, Err(ScreenInputError::new("host_unavailable")));
-    }
-
-    // -----------------------------------------------------------------------------------------------------------
-    // The desktop watcher
-
-    #[tokio::test(start_paused = true)]
-    async fn the_watcher_reports_the_secure_desktop_and_its_return() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        let mut watch = input.desktop_watch();
-        assert_eq!(watch.borrow().as_ref().map(InputDesktop::secure_up), Some(false));
-        fake.say(0, "desktop - 1 0\n");
-        watch.changed().await.expect("a change");
-        assert_eq!(watch.borrow().as_ref().map(InputDesktop::secure_up), Some(true));
-        assert_eq!(input.identity(), None);
-        fake.say(0, "desktop Winlogon 0 1\n");
-        watch.changed().await.expect("a change");
-        assert_eq!(watch.borrow().as_ref().map(InputDesktop::secure_up), Some(true));
-        fake.say(0, "desktop Default 0 0\n");
-        watch.changed().await.expect("a change");
-        assert_eq!(watch.borrow().as_ref().map(InputDesktop::secure_up), Some(false));
-        assert_eq!(input.identity(), Some(DesktopIdentity { session: 3, desktop: "default".into() }));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn lines_that_are_not_understood_are_ignored() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        fake.say(0, "desktop nonsense\nok x\nerr\nready x\nok 99 1\nnoise\n");
-        let mut watch = input.desktop_watch();
-        fake.say(0, "desktop Other 0 0\n");
-        watch.changed().await.expect("the next valid line is read");
-        assert_eq!(watch.borrow().as_ref().and_then(|desktop| desktop.name.clone()).as_deref(), Some("Other"));
-        assert_eq!(input.session(), Some(3));
-    }
-
-    #[test]
-    fn a_failed_input_becomes_a_computer_error_with_its_code() {
-        let error: ComputerError = ScreenInputError::new("out_of_bounds").into();
-        assert_eq!(
-            error,
-            ComputerError::Failed { code: "out_of_bounds".into(), message: "remote screen input out_of_bounds".into() }
-        );
     }
 }

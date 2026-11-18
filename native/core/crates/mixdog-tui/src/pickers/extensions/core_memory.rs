@@ -48,13 +48,13 @@ fn core_item(row: &Value) -> ExtItem {
     item
 }
 
-/// `loadCoreRows`: the one core-memory read both panels issue (`project_id: '*'` is the cross-project listing; `silent` keeps
-/// the read out of the transcript). A store without `memoryControl` gives `None`: the loading frame simply stays.
+/// `loadCoreRows`: the one core-memory read both panels issue (`project_id: '*'` is the cross-project listing; the protocol call
+/// writes no transcript row, so Node's `silent` option has no counterpart). A store without `memoryControl` gives `None`: the loading frame simply stays.
 fn load_core_rows(host: &mut dyn ExtensionsHost) -> Option<Result<Vec<ExtItem>, String>> {
     if !host.has_store_method("memoryControl") {
         return None;
     }
-    let result = host.store_call("memoryControl", json!([{"action": "core", "op": "list", "project_id": "*"}, {"silent": true}]));
+    let result = host.store_call("memoryControl", json!([{"action": "core", "op": "list", "project_id": "*"}]));
     Some(result.map(|result| {
         let text = if result.is_null() { String::new() } else { value_text(&result) };
         parse_memory_core_rows(&text).iter().map(core_item).collect()

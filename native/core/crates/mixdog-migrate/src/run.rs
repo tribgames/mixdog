@@ -40,6 +40,7 @@ use mixdog_store::schema::migration::QuarantinedSource;
 use mixdog_store::schema::migration::REASON_FILE;
 use mixdog_store::schema::migration::REASON_FORMAT;
 use mixdog_store::schema::migration::STAGE_DIR;
+use mixdog_store::schema::migration::SourceFile;
 use mixdog_store::schema::migration::StagedEntry;
 use mixdog_store::schema::migration::VerifiedEntry;
 use mixdog_store::schema::bounded::Text;
@@ -218,6 +219,7 @@ pub struct Back {
     manifest_sha256: String,
     journal: Mutex<Journal>,
     blobs: BlobStatuses,
+    quarantine_reasons: QuarantineReasons,
     waiting: Arc<Waiting>,
 }
 
@@ -229,6 +231,7 @@ impl Back {
             manifest_sha256: &self.manifest_sha256,
             fault: self.migrator.options.fault.as_ref(),
             blobs: &self.blobs,
+            quarantine_reasons: &self.quarantine_reasons,
             journal: &self.journal,
             waiting: Some(&self.waiting),
         }
@@ -237,6 +240,48 @@ impl Back {
     /// The sessions still to settle, and the way to ask for one ahead of the rest.
     pub fn waiting(&self) -> Arc<Waiting> {
         self.waiting.clone()
+    }
+
+    pub(crate) fn has_pending_home_history(&self) -> bool {
+        self.waiting.pending().iter().any(|id| !mixdog_store::agent_mode::agent_id_of_home_session(id).is_empty())
+    }
+
+    /// Project only the winning history of each home that has not finished
+    /// conversion. The caller need not load payloads, archives or checkpoints.
+    pub fn home_evidence<T>(
+        &self,
+        mut summarize: impl FnMut(&mixdog_store::schema::record::Header, &[serde_json::Value]) -> T,
+    ) -> Result<BTreeMap<String, T>> {
+        use crate::session::source::{Fail, JSON_SUFFIX, LOG_SUFFIX, header_and_messages};
+
+        let shared = self.shared();
+        let states = self.migrator.states(&shared);
+        let cx = shared.cx(&states);
+        let mut homes = BTreeMap::new();
+        for item in &self.manifest.items {
+            let k = item.key.as_str();
+            if !matches!(states.get(k), Some(ItemState::Planned | ItemState::Staged | ItemState::Published)) {
+                continue;
+            }
+            let Some(id) = k.strip_prefix("session/") else { continue };
+            let agent = mixdog_store::agent_mode::agent_id_of_home_session(id);
+            if agent.is_empty() || item.sources.is_empty() {
+                continue;
+            }
+            let file = |suffix| {
+                let rel = format!("sessions/{id}{suffix}");
+                item.sources.iter().find(|file| file.path == rel)
+            };
+            let json = file(JSON_SUFFIX).map(|source| cx.read_source(source)).transpose()?;
+            let log = file(LOG_SUFFIX).map(|source| cx.open_source(source)).transpose()?;
+            let mut replaced = 0;
+            let (header, messages) = header_and_messages(id, json.as_deref(), log, &mut replaced).map_err(|error| match error {
+                Fail::Blocked(error) => error,
+                Fail::Quarantine(code, detail) => Blocked::StoreSchema { key: k.into(), detail: format!("bot classification cannot read the legacy home ({code:?}): {detail}") },
+            })?;
+            homes.insert(agent, summarize(&header, &messages));
+        }
+        Ok(homes)
     }
 
     /// For each of `sessions`, the header keys its conversion takes from other kind groups ([`ItemDriver::listed_meta`]);
@@ -296,12 +341,48 @@ pub fn quarantine_dir(data: &Path, code: QuarantineCode, key: &str) -> std::path
         .join(escape_key(key))
 }
 
+type QuarantineReasons = BTreeMap<String, Vec<(QuarantineCode, PathBuf)>>;
+
+/// Index the reason locations once, not once per planned session. A directory
+/// with only a publication temp is not a committed reason.
+fn quarantine_reasons(data: &Path) -> Result<QuarantineReasons> {
+    let root = data.join(QUARANTINE_DIR);
+    let mut reasons = QuarantineReasons::new();
+    for (name, is_dir) in durable::list_dir(&root)? {
+        if !is_dir {
+            continue;
+        }
+        let dir = root.join(&name);
+        let Ok(code) = serde_json::from_value::<QuarantineCode>(serde_json::Value::String(name)) else {
+            continue;
+        };
+        if code == QuarantineCode::SessionDamage {
+            continue;
+        }
+        for (key, is_dir) in durable::list_dir(&dir)? {
+            if is_dir {
+                reasons.entry(key.clone()).or_default().push((code, dir.join(key).join(REASON_FILE)));
+            }
+        }
+    }
+    Ok(reasons)
+}
+
+fn quarantined_sources(item: &ManifestItem) -> Vec<QuarantinedSource> {
+    item.sources.iter().map(|s| QuarantinedSource {
+        root: s.root,
+        path: s.path.clone(),
+        sha256: s.sha256.clone(),
+    }).collect()
+}
+
 struct Shared<'a> {
     roots: &'a MigrationRoots,
     manifest: &'a Manifest,
     manifest_sha256: &'a str,
     fault: Option<&'a FaultHook>,
     blobs: &'a BlobStatuses,
+    quarantine_reasons: &'a QuarantineReasons,
     journal: &'a Mutex<Journal>,
     waiting: Option<&'a Waiting>,
 }
@@ -374,6 +455,7 @@ impl Migrator {
     /// Runs (or resumes) the part of the migration a core waits for before it serves: the plan, and every wave before the
     /// sessions (settings, stores, the ledger, the profile's tables). What is left is the returned [`Back`].
     pub fn front(&self) -> Result<Front> {
+        crate::legacy_blobs::import(&self.roots.data, &|point| self.fault(point))?;
         let result = self.front_inner()?;
         crate::desktop_profile::connection_adoption::run_with(&self.roots.data, &|point| self.fault(point))?;
         Ok(result)
@@ -427,6 +509,7 @@ impl Migrator {
     fn begin(&self, roots: MigrationRoots, pass: Pass) -> Result<Front> {
         let migrator = Migrator::new(roots, self.drivers.clone(), self.options.clone());
         let (manifest, manifest_sha256, journal) = migrator.open_or_plan(&pass)?;
+        let quarantine_reasons = quarantine_reasons(&migrator.roots.data)?;
         let waiting = Waiting::default();
         waiting.state().open = manifest
             .items
@@ -442,6 +525,7 @@ impl Migrator {
             manifest_sha256,
             journal: Mutex::new(journal),
             blobs: BlobStatuses::default(),
+            quarantine_reasons,
             waiting: Arc::new(waiting),
         };
         back.migrator.convert(&back.shared(), Wave::before_serving)?;
@@ -728,15 +812,7 @@ impl Migrator {
             code,
             expected: code.expected(),
             detail,
-            sources: item
-                .sources
-                .iter()
-                .map(|s| QuarantinedSource {
-                    root: s.root,
-                    path: s.path.clone(),
-                    sha256: s.sha256.clone(),
-                })
-                .collect(),
+            sources: quarantined_sources(item),
         };
         let dir = quarantine_dir(&self.roots.data, code, k);
         shared.fault(&format!("reason:{k}:before"))?;
@@ -745,8 +821,41 @@ impl Migrator {
             &serde_json::to_vec(&reason).expect("reason encodes"),
         )?;
         shared.fault(&format!("reason:{k}:after"))?;
+        self.finish_quarantine(shared, cx, item, code)
+    }
+
+    fn quarantine_intent(shared: &Shared<'_>, item: &ManifestItem) -> Result<Option<QuarantineCode>> {
+        let k = item.key.as_str();
+        let Some(paths) = shared.quarantine_reasons.get(&escape_key(k)) else {
+            return Ok(None);
+        };
+        let mut intent = None;
+        for (code, path) in paths {
+            let Some(bytes) = durable::read_optional(path)? else { continue };
+            let reason: QuarantineReason = serde_json::from_slice(&bytes)
+                .map_err(|error| Blocked::journal(format!("{}: {error}", path.display())))?;
+            if intent.is_some() || reason.format != REASON_FORMAT || reason.key != k
+                || reason.code != *code || reason.expected != code.expected()
+                || reason.sources != quarantined_sources(item)
+            {
+                return Err(Blocked::journal(format!("{}: quarantine reason does not match the active item", path.display())));
+            }
+            intent = Some(*code);
+        }
+        Ok(intent)
+    }
+
+    fn finish_quarantine(
+        &self,
+        shared: &Shared<'_>,
+        cx: &ItemContext<'_>,
+        item: &ManifestItem,
+        code: QuarantineCode,
+    ) -> Result<()> {
+        let k = item.key.as_str();
         self.driver(item)?.withdraw(cx, item)?;
-        durable::remove_dir_all(&cx.stage_dir(k))?;
+        // A resumed withdrawal can need its stage (for example, the rows it
+        // deletes). Leave cleanup to the normal pass once disposition is durable.
         shared.record(
             &format!("quarantined:{k}"),
             JournalRecord::Quarantined(QuarantinedEntry {
@@ -767,6 +876,11 @@ impl Migrator {
                 .progress(k)
                 .cloned()
                 .ok_or_else(|| Blocked::journal(format!("{k} not journaled")))?;
+            if matches!(progress.state, ItemState::Planned | ItemState::Published)
+                && let Some(code) = Self::quarantine_intent(shared, item)?
+            {
+                return self.finish_quarantine(shared, cx, item, code);
+            }
             match (item.contract, progress.state) {
                 (_, ItemState::Verified | ItemState::Quarantined | ItemState::Disposed) => {
                     return Ok(());
@@ -886,15 +1000,9 @@ impl Migrator {
                         .quarantined
                         .ok_or_else(|| Blocked::journal(format!("{k} without code")))?;
                     let dir = quarantine_dir(&self.roots.data, code, k);
-                    let present = self.rehash(&cx, item)?;
                     let names = quarantine_names(item);
                     for (source, name) in item.sources.iter().zip(&names) {
-                        let path = cx.source_path(source)?;
-                        if present.contains(&path) {
-                            shared.fault(&format!("move:{k}:before"))?;
-                            durable::create_dir_all(&dir)?;
-                            durable::durable_rename(&path, &dir.join(name))?;
-                        }
+                        self.quarantine_source(shared, &cx, item, source, name, &dir)?;
                     }
                     // Shared files this item read (pending entries, worker rows) travel
                     // with it as copies, so the export holds everything it was made of.
@@ -953,6 +1061,82 @@ impl Migrator {
         Ok(())
     }
 
+    fn quarantine_source(
+        &self,
+        shared: &Shared<'_>,
+        cx: &ItemContext<'_>,
+        item: &ManifestItem,
+        source: &SourceFile,
+        name: &str,
+        dir: &Path,
+    ) -> Result<()> {
+        use mixdog_store::fsio;
+
+        let k = item.key.as_str();
+        let path = cx.source_path(source)?;
+        let target = dir.join(name);
+        let expected = (source.size, source.sha256.clone());
+        if durable::exists(&target)? {
+            if durable::hash_file(&target)? != expected {
+                return Err(Blocked::TargetConflict { key: k.to_owned(), path: target });
+            }
+        } else {
+            let stage = cx.stage_dir(k).join("quarantine-copy").join(name);
+            let stage_dir = stage.parent().expect("quarantine stage parent");
+            // Retry from the checked bytes before consulting the live name:
+            // they may be the only surviving copy of the planned original.
+            if durable::exists(&stage)? && durable::hash_file(&stage)? == expected {
+                durable::sync_file(&stage)?;
+            } else {
+                if !self.core_serves() && !durable::exists(&path)? {
+                    return Ok(());
+                }
+                shared.fault(&format!("move:{k}:before"))?;
+                if !self.core_serves() {
+                    if durable::hash_file(&path)? != expected {
+                        return Err(Blocked::SourceChanged { path });
+                    }
+                    durable::create_dir_all(dir)?;
+                    durable::step(durable::Step::Rename, &target, &[]);
+                    match fsio::rename_replace(&path, &target) {
+                        Ok(()) => {
+                            durable::step(durable::Step::SyncDir, &target, &[]);
+                            return fsio::sync_rename_parents(&path, &target).map_err(Blocked::fsio);
+                        }
+                        Err(error) if error.source.kind() == std::io::ErrorKind::CrossesDevices => {}
+                        Err(error) => return Err(Blocked::fsio(error)),
+                    }
+                }
+
+                // With a serving writer, renaming the live name after hashing
+                // it could move the writer's replacement instead.
+                durable::create_dir_all(stage_dir)?;
+                if !durable::stage_copy(&path, &stage, source.secret, self.core_serves())? {
+                    return Ok(());
+                }
+                if durable::hash_file(&stage)? != expected {
+                    if self.core_serves() {
+                        return Ok(());
+                    }
+                    return Err(Blocked::SourceChanged { path });
+                }
+            }
+            durable::sync_dir(stage_dir)?;
+            shared.fault(&format!("quarantine-copy:{k}:{name}:verified"))?;
+            durable::create_dir_all(dir)?;
+            durable::durable_rename(&stage, &target)?;
+        }
+        // An exact target can be from an interrupted copy (even if the
+        // original is now aside). Never remove a source that has since changed.
+        durable::sync_dir(dir)?;
+        if let Some(parent) = path.parent().filter(|parent| *parent != dir)
+            && durable::exists(parent)?
+        {
+            durable::sync_dir(parent)?;
+        }
+        durable::remove_if_planned(&path, source.size, &source.sha256)
+    }
+
     fn counts(&self, shared: &Shared<'_>) -> Result<CompleteKinds> {
         let states = self.states(shared);
         let cx = shared.cx(&states);
@@ -994,19 +1178,33 @@ impl Migrator {
 
 pub mod cli;
 #[cfg(test)]
+#[path = "run/migration_tests.rs"]
 pub(crate) mod tests;
+#[cfg(node_twin)]
+#[cfg(test)]
+#[path = "run/node-twin/corpus_gates.rs"]
+mod corpus_gates;
 #[cfg(test)]
 mod registry_import_tests;
 
-/// The names the sources of `item` get in its quarantine folder: base names, or the
-/// escaped relative path for all of them when two base names collide.
+/// Leave the reason, shared exports and generated source names in separate
+/// namespaces. Preserve the old names when they are already unambiguous.
 fn quarantine_names(item: &ManifestItem) -> Vec<String> {
     let base = |p: &str| p.rsplit('/').next().unwrap_or(p).to_string();
     let bases: Vec<String> = item.sources.iter().map(|s| base(&s.path)).collect();
-    let unique: BTreeSet<&String> = bases.iter().collect();
-    if unique.len() == bases.len() {
+    let canonical = |name: &str| name.trim_end_matches([' ', '.']).to_ascii_lowercase();
+    let unique: BTreeSet<String> = bases.iter().map(|name| canonical(name)).collect();
+    let mut names = if unique.len() == bases.len() {
         bases
     } else {
         item.sources.iter().map(|s| escape_key(&s.path)).collect()
+    };
+    let mut used = BTreeSet::new();
+    for (index, name) in names.iter_mut().enumerate() {
+        let folded = canonical(name);
+        if folded == REASON_FILE || folded.starts_with("shared-") || folded.starts_with("source-") || !used.insert(folded) {
+            *name = format!("source-{index}");
+        }
     }
+    names
 }

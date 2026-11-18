@@ -145,257 +145,16 @@ fn failure_text(answer: &Value, fallback: &str) -> String {
     answer.get("error").filter(|error| truthy(error)).map_or_else(|| fallback.to_owned(), value_to_string)
 }
 
-/// `readComSavedCopy(session, read)`: the live Office document saved to a copy in the temporary folder and read as a package,
-/// for what the application will not report itself. The copy is removed afterwards; the user's file is never saved over.
-pub async fn read_com_saved_copy<P: WriteProof, H: ComHost, T>(
-    cx: &SnapshotContext<'_, P, H>,
-    handle: &SessionHandle,
-    read: impl FnOnce(&Path) -> Result<T, String>,
-) -> Result<T, String> {
-    read_saved_copy(cx, &View::of(handle), read).await
-}
-
-async fn read_saved_copy<P: WriteProof, H: ComHost, T>(
-    cx: &SnapshotContext<'_, P, H>,
-    view: &View,
-    read: impl FnOnce(&Path) -> Result<T, String>,
-) -> Result<T, String> {
-    let copy = std::env::temp_dir().join(format!("mixdog-office-copy-{}.{}", office_session_id(), view.format));
-    let payload = json!({
-        "action": "save_copy",
-        "session": view.id,
-        "format": view.format,
-        "mode": view.mode.as_str(),
-        "path": view.target,
-        "output": copy.display().to_string(),
-    });
-    let saved = cx.com.call(&payload, view.signal.as_ref(), Some(SAVE_COPY_TIMEOUT)).await;
-    let result = if truthy(saved.get("ok").unwrap_or(&Value::Null)) { read(&copy) } else { Err(failure_text(&saved, "save-copy failed")) };
-    // The copy may not exist (the host failed before writing it).
-    let _ = mixdog_fsio::remove_file(cx.proof, &copy);
-    result
-}
-
-/// `readProtectedSheetValidations(session, document)`: Excel will not look for the validated cells of a protected sheet
-/// (SpecialCells refuses there), so a finished form read back on Excel with no dropdowns at all while the portable reader
-/// named them. A protected sheet's rules come from the saved copy instead, in the portable reader's shape.
-async fn read_protected_sheet_validations<P: WriteProof, H: ComHost>(cx: &SnapshotContext<'_, P, H>, view: &View, document: &mut Value) -> Result<(), String> {
-    let guarded: Vec<(usize, String)> = document
-        .get("sheets")
-        .and_then(Value::as_array)
-        .map(|sheets| {
-            sheets
-                .iter()
-                .enumerate()
-                .filter(|(_, sheet)| {
-                    sheet.pointer("/protection/protected") == Some(&Value::Bool(true))
-                        && !sheet.get("validations").and_then(Value::as_array).is_some_and(|rules| !rules.is_empty())
-                })
-                .map(|(at, sheet)| (at, sheet.get("name").and_then(Value::as_str).unwrap_or_default().to_owned()))
-                .collect()
-        })
-        .unwrap_or_default();
-    if guarded.is_empty() {
-        return Ok(());
-    }
-    let rules = read_saved_copy(cx, view, |copy| {
-        let zip = load_package(cx.proof, copy)?;
-        let parts: HashMap<String, String> = workbook_sheets(&zip).into_iter().map(|sheet| (sheet.name, sheet.path)).collect();
-        let mut found: Vec<(usize, Vec<Value>)> = Vec::new();
-        for (at, name) in &guarded {
-            if let Some(part) = parts.get(name) {
-                found.push((*at, worksheet_validations(&zip.text(part), name)));
-            }
-        }
-        Ok(found)
-    })
-    .await?;
-    for (at, list) in rules {
-        if let Some(Value::Object(sheet)) = document.get_mut("sheets").and_then(|sheets| sheets.get_mut(at)) {
-            let count = list.len();
-            sheet.insert("validations".to_owned(), Value::Array(list));
-            sheet.insert("validationCount".to_owned(), Value::from(count));
-        }
-    }
-    Ok(())
-}
-
-/// The document of a session read once from its backend, for the request.
-async fn fetch_snapshot_document<P: WriteProof, H: ComHost>(
-    cx: &SnapshotContext<'_, P, H>,
-    view: &View,
-    request: &Request,
-    max_chars: f64,
-    password: Option<&Value>,
-) -> Result<Value, String> {
-    let path = Path::new(&view.target);
-    if view.is_microsoft_office() {
-        let mut payload = Map::new();
-        payload.insert("action".to_owned(), json!("snapshot"));
-        payload.insert("session".to_owned(), json!(view.id));
-        payload.insert("format".to_owned(), json!(view.format));
-        payload.insert("mode".to_owned(), json!(view.mode.as_str()));
-        payload.insert("path".to_owned(), json!(view.target));
-        for (key, value) in request {
-            payload.insert(key.clone(), value.clone());
-        }
-        let result = cx.com.call(&Value::Object(payload), view.signal.as_ref(), None).await;
-        if !result.get("ok").is_some_and(truthy) {
-            return Err(failure_text(&result, "Microsoft Office snapshot failed"));
-        }
-        let mut document = result.get("value").cloned().unwrap_or(Value::Null);
-        if view.format == "xlsx" {
-            normalize_excel_snapshot_styles(&mut document);
-            read_protected_sheet_validations(cx, view, &mut document).await?;
-        }
-        return Ok(document);
-    }
-    match view.format.as_str() {
-        "pdf" => {
-            // A user password only unlocks this read; it is never kept on the session.
-            let mut options = Map::new();
-            options.insert("maxChars".to_owned(), json_number(max_chars));
-            for (key, value) in request {
-                options.insert(key.clone(), value.clone());
-            }
-            if let Some(password) = password.filter(|password| truthy(password)) {
-                options.insert("password".to_owned(), Value::String(value_to_string(password)));
-            }
-            snapshot_pdf(cx.proof, path, &SnapshotOptions::from_json(&Value::Object(options)), cx.forms).map_err(|error| error.message)
-        }
-        "csv" | "tsv" => {
-            let format = Format::from_name(&view.format).ok_or_else(|| format!("Unsupported delimited format: {}", view.format))?;
-            tabular::snapshot(cx.proof, path, format, &Value::Object(request.clone()))
-        }
-        format => snapshot_portable_ooxml(cx.proof, cx.measurer, path, format, &Value::Object(request.clone())),
-    }
-}
-
-/// `wrappedSnapshot(session, value)`: the document with the identity of the session that read it and the review of what the
-/// document says to the agent that reads it.
-fn wrapped_snapshot<P: ReadProof>(proof: &P, view: &View, value: Value) -> Value {
-    let trust = combine_office_trust_reviews(&[
-        analyze_office_prompt_injection(&value, Some(view.format.as_str()), Some("structured-snapshot")),
-        analyze_office_file_prompt_injection(proof, Path::new(&view.target), Some(view.format.as_str())),
-    ]);
-    let mut wrapped = Map::new();
-    wrapped.insert("session".to_owned(), json!(view.id));
-    wrapped.insert("mode".to_owned(), json!(view.mode.as_str()));
-    wrapped.insert("backend".to_owned(), json!(view.backend.as_str()));
-    wrapped.insert("fileKind".to_owned(), json!(view.file_kind));
-    wrapped.insert("source".to_owned(), json!(view.source));
-    wrapped.insert("output".to_owned(), json!(view.target));
-    for key in ["ownership", "visible", "appPid", "windowHwnd", "documentId"] {
-        if let Some(field) = view.com.get(key) {
-            wrapped.insert(key.to_owned(), field.clone());
-        }
-    }
-    wrapped.insert("document".to_owned(), value);
-    wrapped.insert("trust".to_owned(), trust);
-    Value::Object(wrapped)
-}
-
 /// `modelFacingLength(value)`: the size that counts is the one the caller reads: the document after the digest every
-/// result passes through, not the raw record with its defaults and repeated lineage (the value returned stays raw).
+/// result passes through, not the raw record with its defaults and repeated lineage (the value returned stays raw). The
+/// session's identity and trust review around the document are not the content `maxChars` bounds: counted, a small page
+/// shrank to one cell under the smallest budget because the paths and the review took the room the cells needed.
 fn model_facing_length(value: &Value) -> usize {
     let Value::Object(map) = value else { return utf16_len(&serialized_tool_value(value)) };
-    let mut shown = map.clone();
-    if let Some(document @ (Value::Object(_) | Value::Array(_))) = map.get("document") {
-        shown.insert("document".to_owned(), office_document_digest(document));
+    match map.get("document") {
+        Some(document @ (Value::Object(_) | Value::Array(_))) => utf16_len(&serialized_tool_value(&office_document_digest(document))),
+        _ => utf16_len(&serialized_tool_value(value)),
     }
-    utf16_len(&serialized_tool_value(&Value::Object(shown)))
-}
-
-/// `snapshot(session, args, { full })`: the document of a session as a page, or whole when `full`. `args` are the call's
-/// (`maxChars`, `limit`, `cursor`, `sheet`, `range`, `target`, `pages`, `includeStyles`, `includeSelection`, `password`).
-/// A page too long for `maxChars` is read again with a smaller limit, up to eight times, and then cut by [`bounded`].
-pub async fn snapshot<P: WriteProof, H: ComHost>(cx: &SnapshotContext<'_, P, H>, handle: &SessionHandle, args: &Value, full: bool) -> Result<Value, String> {
-    let max_chars = or_number(to_number_of(args.get("maxChars")), 30_000.0).clamp(1_000.0, 100_000.0);
-    let view = View::of(handle);
-    let mut request_args = match args {
-        Value::Object(map) => map.clone(),
-        _ => Map::new(),
-    };
-    let include_selection = args.get("includeSelection") != Some(&Value::Bool(false)) && view.is_microsoft_office() && view.interactive;
-    request_args.insert("includeSelection".to_owned(), Value::Bool(include_selection));
-    let mut request = create_office_snapshot_request(view.position(), &Value::Object(request_args), full)?;
-    // Reading a deck back out of PowerPoint costs seconds (thousands of COM round trips), and one authoring cycle asks for
-    // it several times (the receipt, qa, finalize's review) with nothing changed in between. A background session we own
-    // changes only through our own batches, and those bump the snapshot version, so the last document stays true until
-    // then. An attached or visible session is never cached: the user edits it.
-    let cacheable = view.owned_background;
-    let mut wrapped = Value::Null;
-    for _ in 0..SHRINK_ATTEMPTS {
-        let mut value = if cacheable {
-            let key = format!("{}|{}", view.snapshot_version, json_stringify(&Value::Object(request.clone())));
-            let cached = lock(handle).caches.snapshot.as_ref().filter(|cache| cache.key == key).map(|cache| cache.value.clone());
-            match cached {
-                Some(value) => value,
-                None => {
-                    let value = fetch_snapshot_document(cx, &view, &request, max_chars, args.get("password")).await?;
-                    lock(handle).caches.snapshot = Some(SnapshotCache { key, value: value.clone() });
-                    value
-                }
-            }
-        } else {
-            fetch_snapshot_document(cx, &view, &request, max_chars, args.get("password")).await?
-        };
-        finalize_office_snapshot_page(&mut value, view.position(), &request);
-        if view.format == "xlsx"
-            && value.get("sheets").is_some_and(Value::is_array)
-            && let Some(conventions) = summarize_xlsx_conventions(&value)
-            && let Value::Object(document) = &mut value
-        {
-            document.insert("conventions".to_owned(), conventions);
-        }
-        // A deck is read to be reused: without the job each page does and the slot each box fills, a page the user
-        // already owns can only be copied by eye.
-        if view.format == "pptx" {
-            annotate_pptx_snapshot_roles(&mut value);
-        }
-        wrapped = wrapped_snapshot(cx.proof, &view, value);
-        if !view.created {
-            lock(handle).caches.trust_review = wrapped.get("trust").cloned();
-        }
-        let serialized_length = model_facing_length(&wrapped);
-        let limit = to_number_of(request.get("limit"));
-        if full || (serialized_length as f64) <= max_chars || limit <= 1.0 {
-            break;
-        }
-        let measured = serialized_length.max(1) as f64;
-        // Scaled from what came back: a limit far above the cells a read returned shrank for eight rounds and never
-        // reached them.
-        let returned = to_number_of(wrapped.pointer("/document/pagination/returned"));
-        let base = if returned > 0.0 { limit.min(returned) } else { limit };
-        let next_limit = (limit - 1.0).min((base * max_chars * 0.8 / measured).floor()).max(1.0);
-        request.insert("limit".to_owned(), json_number(next_limit));
-        // An Excel session read the whole workbook whatever the limit; the retry asks it for pages.
-        if view.format == "xlsx" {
-            request.insert("pageCells".to_owned(), Value::Bool(true));
-        }
-    }
-    if full {
-        return Ok(wrapped);
-    }
-    let length = model_facing_length(&wrapped);
-    Ok(bounded(&wrapped, max_chars.floor() as usize, Some(length)))
-}
-
-/// `trustForMutation(session)`: the review of what the document says to the agent, for the gate before an edit. A document
-/// the session created has nothing to review; otherwise the review of the last snapshot, or of a whole read.
-pub async fn trust_for_mutation<P: WriteProof, H: ComHost>(cx: &SnapshotContext<'_, P, H>, handle: &SessionHandle) -> Result<Value, String> {
-    let (created, format, review) = {
-        let session = lock(handle);
-        (session.created, session.format.clone(), session.caches.trust_review.clone())
-    };
-    if created {
-        return Ok(combine_office_trust_reviews(&[analyze_office_prompt_injection(&json!({}), Some(format.as_str()), Some("created-document"))]));
-    }
-    if let Some(review) = review.filter(|review| truthy(review)) {
-        return Ok(review);
-    }
-    let current = snapshot(cx, handle, &json!({}), true).await?;
-    Ok(current.get("trust").cloned().unwrap_or(Value::Null))
 }
 
 #[cfg(test)]
@@ -590,4 +349,242 @@ mod tests {
             assert_ne!(created, Value::Null);
         });
     }
+}
+
+
+
+/// `readComSavedCopy(session, read)`: the live Office document saved to a copy in the temporary folder and read as a package,
+/// for what the application will not report itself. The copy is removed afterwards; the user's file is never saved over.
+pub async fn read_com_saved_copy<P: WriteProof, H: ComHost, T>(
+    cx: &SnapshotContext<'_, P, H>,
+    handle: &SessionHandle,
+    read: impl FnOnce(&Path) -> Result<T, String>,
+) -> Result<T, String> {
+    read_saved_copy(cx, &View::of(handle), read).await
+}
+async fn read_saved_copy<P: WriteProof, H: ComHost, T>(
+    cx: &SnapshotContext<'_, P, H>,
+    view: &View,
+    read: impl FnOnce(&Path) -> Result<T, String>,
+) -> Result<T, String> {
+    let copy = std::env::temp_dir().join(format!("mixdog-office-copy-{}.{}", office_session_id(), view.format));
+    let payload = json!({
+        "action": "save_copy",
+        "session": view.id,
+        "format": view.format,
+        "mode": view.mode.as_str(),
+        "path": view.target,
+        "output": copy.display().to_string(),
+    });
+    let saved = cx.com.call(&payload, view.signal.as_ref(), Some(SAVE_COPY_TIMEOUT)).await;
+    let result = if truthy(saved.get("ok").unwrap_or(&Value::Null)) { read(&copy) } else { Err(failure_text(&saved, "save-copy failed")) };
+    // The copy may not exist (the host failed before writing it).
+    let _ = mixdog_fsio::remove_file(cx.proof, &copy);
+    result
+}
+/// `readProtectedSheetValidations(session, document)`: Excel will not look for the validated cells of a protected sheet
+/// (SpecialCells refuses there), so a finished form read back on Excel with no dropdowns at all while the portable reader
+/// named them. A protected sheet's rules come from the saved copy instead, in the portable reader's shape.
+async fn read_protected_sheet_validations<P: WriteProof, H: ComHost>(cx: &SnapshotContext<'_, P, H>, view: &View, document: &mut Value) -> Result<(), String> {
+    let guarded: Vec<(usize, String)> = document
+        .get("sheets")
+        .and_then(Value::as_array)
+        .map(|sheets| {
+            sheets
+                .iter()
+                .enumerate()
+                .filter(|(_, sheet)| {
+                    sheet.pointer("/protection/protected") == Some(&Value::Bool(true))
+                        && !sheet.get("validations").and_then(Value::as_array).is_some_and(|rules| !rules.is_empty())
+                })
+                .map(|(at, sheet)| (at, sheet.get("name").and_then(Value::as_str).unwrap_or_default().to_owned()))
+                .collect()
+        })
+        .unwrap_or_default();
+    if guarded.is_empty() {
+        return Ok(());
+    }
+    let rules = read_saved_copy(cx, view, |copy| {
+        let zip = load_package(cx.proof, copy)?;
+        let parts: HashMap<String, String> = workbook_sheets(&zip).into_iter().map(|sheet| (sheet.name, sheet.path)).collect();
+        let mut found: Vec<(usize, Vec<Value>)> = Vec::new();
+        for (at, name) in &guarded {
+            if let Some(part) = parts.get(name) {
+                found.push((*at, worksheet_validations(&zip.text(part), name)));
+            }
+        }
+        Ok(found)
+    })
+    .await?;
+    for (at, list) in rules {
+        if let Some(Value::Object(sheet)) = document.get_mut("sheets").and_then(|sheets| sheets.get_mut(at)) {
+            let count = list.len();
+            sheet.insert("validations".to_owned(), Value::Array(list));
+            sheet.insert("validationCount".to_owned(), Value::from(count));
+        }
+    }
+    Ok(())
+}
+/// The document of a session read once from its backend, for the request.
+async fn fetch_snapshot_document<P: WriteProof, H: ComHost>(
+    cx: &SnapshotContext<'_, P, H>,
+    view: &View,
+    request: &Request,
+    max_chars: f64,
+    password: Option<&Value>,
+) -> Result<Value, String> {
+    let path = Path::new(&view.target);
+    if view.is_microsoft_office() {
+        let mut payload = Map::new();
+        payload.insert("action".to_owned(), json!("snapshot"));
+        payload.insert("session".to_owned(), json!(view.id));
+        payload.insert("format".to_owned(), json!(view.format));
+        payload.insert("mode".to_owned(), json!(view.mode.as_str()));
+        payload.insert("path".to_owned(), json!(view.target));
+        for (key, value) in request {
+            payload.insert(key.clone(), value.clone());
+        }
+        let result = cx.com.call(&Value::Object(payload), view.signal.as_ref(), None).await;
+        if !result.get("ok").is_some_and(truthy) {
+            return Err(failure_text(&result, "Microsoft Office snapshot failed"));
+        }
+        let mut document = result.get("value").cloned().unwrap_or(Value::Null);
+        if view.format == "xlsx" {
+            normalize_excel_snapshot_styles(&mut document);
+            read_protected_sheet_validations(cx, view, &mut document).await?;
+        }
+        return Ok(document);
+    }
+    match view.format.as_str() {
+        "pdf" => {
+            // A user password only unlocks this read; it is never kept on the session.
+            let mut options = Map::new();
+            options.insert("maxChars".to_owned(), json_number(max_chars));
+            for (key, value) in request {
+                options.insert(key.clone(), value.clone());
+            }
+            if let Some(password) = password.filter(|password| truthy(password)) {
+                options.insert("password".to_owned(), Value::String(value_to_string(password)));
+            }
+            snapshot_pdf(cx.proof, path, &SnapshotOptions::from_json(&Value::Object(options)), cx.forms).map_err(|error| error.message)
+        }
+        "csv" | "tsv" => {
+            let format = Format::from_name(&view.format).ok_or_else(|| format!("Unsupported delimited format: {}", view.format))?;
+            tabular::snapshot(cx.proof, path, format, &Value::Object(request.clone()))
+        }
+        format => snapshot_portable_ooxml(cx.proof, cx.measurer, path, format, &Value::Object(request.clone())),
+    }
+}
+/// `wrappedSnapshot(session, value)`: the document with the identity of the session that read it and the review of what the
+/// document says to the agent that reads it.
+fn wrapped_snapshot<P: ReadProof>(proof: &P, view: &View, value: Value) -> Value {
+    let trust = combine_office_trust_reviews(&[
+        analyze_office_prompt_injection(&value, Some(view.format.as_str()), Some("structured-snapshot")),
+        analyze_office_file_prompt_injection(proof, Path::new(&view.target), Some(view.format.as_str())),
+    ]);
+    let mut wrapped = Map::new();
+    wrapped.insert("session".to_owned(), json!(view.id));
+    wrapped.insert("mode".to_owned(), json!(view.mode.as_str()));
+    wrapped.insert("backend".to_owned(), json!(view.backend.as_str()));
+    wrapped.insert("fileKind".to_owned(), json!(view.file_kind));
+    wrapped.insert("source".to_owned(), json!(view.source));
+    wrapped.insert("output".to_owned(), json!(view.target));
+    for key in ["ownership", "visible", "appPid", "windowHwnd", "documentId"] {
+        if let Some(field) = view.com.get(key) {
+            wrapped.insert(key.to_owned(), field.clone());
+        }
+    }
+    wrapped.insert("document".to_owned(), value);
+    wrapped.insert("trust".to_owned(), trust);
+    Value::Object(wrapped)
+}
+/// `snapshot(session, args, { full })`: the document of a session as a page, or whole when `full`. `args` are the call's
+/// (`maxChars`, `limit`, `cursor`, `sheet`, `range`, `target`, `pages`, `includeStyles`, `includeSelection`, `password`).
+/// A page too long for `maxChars` is read again with a smaller limit, up to eight times, and then cut by [`bounded`].
+pub async fn snapshot<P: WriteProof, H: ComHost>(cx: &SnapshotContext<'_, P, H>, handle: &SessionHandle, args: &Value, full: bool) -> Result<Value, String> {
+    let max_chars = or_number(to_number_of(args.get("maxChars")), 30_000.0).clamp(1_000.0, 100_000.0);
+    let view = View::of(handle);
+    let mut request_args = match args {
+        Value::Object(map) => map.clone(),
+        _ => Map::new(),
+    };
+    let include_selection = args.get("includeSelection") != Some(&Value::Bool(false)) && view.is_microsoft_office() && view.interactive;
+    request_args.insert("includeSelection".to_owned(), Value::Bool(include_selection));
+    let mut request = create_office_snapshot_request(view.position(), &Value::Object(request_args), full)?;
+    // Reading a deck back out of PowerPoint costs seconds (thousands of COM round trips), and one authoring cycle asks for
+    // it several times (the receipt, qa, finalize's review) with nothing changed in between. A background session we own
+    // changes only through our own batches, and those bump the snapshot version, so the last document stays true until
+    // then. An attached or visible session is never cached: the user edits it.
+    let cacheable = view.owned_background;
+    let mut wrapped = Value::Null;
+    for _ in 0..SHRINK_ATTEMPTS {
+        let mut value = if cacheable {
+            let key = format!("{}|{}", view.snapshot_version, json_stringify(&Value::Object(request.clone())));
+            let cached = lock(handle).caches.snapshot.as_ref().filter(|cache| cache.key == key).map(|cache| cache.value.clone());
+            match cached {
+                Some(value) => value,
+                None => {
+                    let value = fetch_snapshot_document(cx, &view, &request, max_chars, args.get("password")).await?;
+                    lock(handle).caches.snapshot = Some(SnapshotCache { key, value: value.clone() });
+                    value
+                }
+            }
+        } else {
+            fetch_snapshot_document(cx, &view, &request, max_chars, args.get("password")).await?
+        };
+        finalize_office_snapshot_page(&mut value, view.position(), &request);
+        if view.format == "xlsx"
+            && value.get("sheets").is_some_and(Value::is_array)
+            && let Some(conventions) = summarize_xlsx_conventions(&value)
+            && let Value::Object(document) = &mut value
+        {
+            document.insert("conventions".to_owned(), conventions);
+        }
+        // A deck is read to be reused: without the job each page does and the slot each box fills, a page the user
+        // already owns can only be copied by eye.
+        if view.format == "pptx" {
+            annotate_pptx_snapshot_roles(&mut value);
+        }
+        wrapped = wrapped_snapshot(cx.proof, &view, value);
+        if !view.created {
+            lock(handle).caches.trust_review = wrapped.get("trust").cloned();
+        }
+        let serialized_length = model_facing_length(&wrapped);
+        let limit = to_number_of(request.get("limit"));
+        if full || (serialized_length as f64) <= max_chars || limit <= 1.0 {
+            break;
+        }
+        let measured = serialized_length.max(1) as f64;
+        // Scaled from what came back: a limit far above the cells a read returned shrank for eight rounds and never
+        // reached them.
+        let returned = to_number_of(wrapped.pointer("/document/pagination/returned"));
+        let base = if returned > 0.0 { limit.min(returned) } else { limit };
+        let next_limit = (limit - 1.0).min((base * max_chars * 0.8 / measured).floor()).max(1.0);
+        request.insert("limit".to_owned(), json_number(next_limit));
+        // An Excel session read the whole workbook whatever the limit; the retry asks it for pages.
+        if view.format == "xlsx" {
+            request.insert("pageCells".to_owned(), Value::Bool(true));
+        }
+    }
+    if full {
+        return Ok(wrapped);
+    }
+    let length = model_facing_length(&wrapped);
+    Ok(bounded(&wrapped, max_chars.floor() as usize, Some(length)))
+}
+/// `trustForMutation(session)`: the review of what the document says to the agent, for the gate before an edit. A document
+/// the session created has nothing to review; otherwise the review of the last snapshot, or of a whole read.
+pub async fn trust_for_mutation<P: WriteProof, H: ComHost>(cx: &SnapshotContext<'_, P, H>, handle: &SessionHandle) -> Result<Value, String> {
+    let (created, format, review) = {
+        let session = lock(handle);
+        (session.created, session.format.clone(), session.caches.trust_review.clone())
+    };
+    if created {
+        return Ok(combine_office_trust_reviews(&[analyze_office_prompt_injection(&json!({}), Some(format.as_str()), Some("created-document"))]));
+    }
+    if let Some(review) = review.filter(|review| truthy(review)) {
+        return Ok(review);
+    }
+    let current = snapshot(cx, handle, &json!({}), true).await?;
+    Ok(current.get("trust").cloned().unwrap_or(Value::Null))
 }

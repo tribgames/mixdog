@@ -1,11 +1,13 @@
 #!/usr/bin/env node
-// The Rust-core replacements of the Node CI steps that K1 removes (see k1-ci-replacements.md). Each lane is one
-// `cargo test` run per filter over tests in native/core. cargo passes a filter that matches nothing, and libtest skips
-// an ignored test it matched, so each run first lists what the filter selects (`-- --list`, less `-- --list --ignored`)
-// and fails on zero; k1-lanes.slow.test.mjs proves the same for every filter.
+// The Rust-core lanes that stand in for the Node CI steps the cut removed (release.yml `rust-lanes`). Each lane is one
+// `cargo test` run per filter over tests that exist in a clean checkout of native/core: nothing here selects a
+// `cfg(node_twin)` test (the Node-comparison material, local-only and never compiled in CI), and the lane filters are
+// kept to modules and test binaries that are tracked. cargo passes a filter that matches nothing, and libtest skips an
+// ignored test it matched, so each run first lists what the filter selects (`-- --list`, less `-- --list --ignored`)
+// and fails on zero; k1-lanes.test.mjs checks, without cargo, that every filter still has an ungated test to select.
 // Usage: node scripts/rust-core/k1-lanes.mjs [--list] [--dry-run] [--runner "cargo test"] [lane...]   (no lane: all;
 // --dry-run prints each lane, filter and command without running cargo). MIXDOG_CARGO, when set, is the command run in
-// place of cargo (a local build gate, e.g. `powershell -NoProfile -File D:\mixdog-build\tools\cargo-gate.ps1`); CI runs
+// place of cargo (a local build gate, e.g. `powershell -NoProfile -File <build-tools>\cargo-gate.ps1`); CI runs
 // plain cargo.
 import { dirname, relative as relativePath, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,8 +17,11 @@ import { runTree } from './lib/process-tree.mjs';
 const SHELL = process.platform === 'win32';
 const CORE = resolve(dirname(fileURLToPath(import.meta.url)), '../../native/core');
 
-// package.json scripts and workflow steps each lane stands in for; `unproven` names what of the old step no selected test
-// proves, and why. k1-lanes-walk.md holds each old step's assertions against the Rust tests.
+// package.json scripts and workflow steps each lane stands in for (what it protected); `unproven` names what of the old
+// step no selected test proves, and why. The filters are libtest substrings of the full test name (module path and
+// function): a module path or a file stem where a whole area is meant, a function name only where one test is the point.
+// `compact` used to select compact_handoff and compact_summary: those modules are cfg(node_twin) (they compare with the
+// Node recording), so the lane keeps the compaction tests that run in a clean checkout.
 export const LANES = {
   'shell-direct-exe': { replaces: 'scripts/suite-shell-direct-exe-test.mjs', pkg: 'mixdog-tools', filters: ['exec::direct::tests'] },
   'advisory-lock': { replaces: 'advisory-lock.slow.test.mjs (release-gate runtime-slow)', pkg: 'mixdog-tools', filters: ['the_advisory_lock_waits_for_a_live_holder', 'edit_and_apply_patch_wait_for_the_advisory_lock'] },
@@ -29,7 +34,12 @@ export const LANES = {
     filters: ['native_asset::tests'],
     unproven: "the npm postinstall's all-or-nothing staging of graph, patch, spawn and supervisor into the package's tools directory: the Rust product has no such step (the desktop stages mixdogd; the graph binary is fetched on first use, and a failed fetch leaves no file: download-fails, bad-checksum)",
   },
-  'compact': { replaces: 'scripts/compact-smoke.mjs', pkg: 'mixdog-agent', filters: ['compact_fresh', 'compact_handoff', 'compact_summary', 'compact_commit'] },
+  'compact': {
+    replaces: 'scripts/compact-smoke.mjs (a fresh session compacts, the commit and marker rows are written, pressure and images are handled)',
+    pkg: 'mixdog-agent',
+    filters: ['compact_fresh', 'compact_commit', 'compact_session', 'compact_marker', 'compact_pressure', 'compact_image'],
+    unproven: 'the handoff and summary wording (compact_handoff, compact_summary): they assert the Node recording byte for byte and are compiled only with --cfg node_twin',
+  },
   'turn-contract': { replaces: 'scripts/run-advisory-spec.mjs (runtime-turn-contract-test.mjs)', pkg: 'mixdog-agent', filters: ['run_loop', 'turns::'] },
   'request-snapshot': { replaces: 'benchmarks/terminal-bench-2.1/analysis/contract-hash.mjs', pkg: 'mixdog-core', filters: ['run_host::request_snapshot'] },
 };
@@ -97,39 +107,11 @@ export async function selectedTests(lane, filter = null, { pkg = LANES[lane].pkg
   return selected;
 }
 
-/**
- * The files of `recorded/` as cargo produces them now, in the form they are stored: the lib test target of mixdog-tools
- * (`cargo test -p mixdog-tools --locked --no-run --message-format=json`, its compiler-artifact message) and what its binary
- * lists for `fs::tests`. Machine-specific paths become repository-relative ones and the executable a placeholder.
- * `recorded/manifest.json` names each file's command; record-lanes-fixtures.mjs writes them, k1-lanes.slow.test.mjs
- * compares them with a fresh run and fails on a difference.
- * @returns {Promise<Record<string, string>>} file name -> content
- */
-export async function lanesFixtures(options = {}) {
-  const build = await runChild('cargo', ['test', '-p', 'mixdog-tools', '--locked', '--no-run', '--message-format=json'], { label: 'recorded fixtures build', ...options });
-  if (build.status !== 0) throw new Error(`cargo test --no-run failed for the recorded fixtures\n${build.stderr}`);
-  const binary = testBinariesOf(build.stdout).find((message) => message.target.name === 'mixdog_tools' && message.target.kind.includes('lib'));
-  if (!binary) throw new Error('the build has no lib test binary of mixdog_tools');
-  const listed = await runChild(binary.executable, ['--list', 'fs::tests'], { label: 'recorded fixtures list', cwd: dirname(binary.manifest_path), ...options });
-  if (listed.status !== 0) throw new Error(`mixdog_tools --list fs::tests failed\n${listed.stderr}`);
-  const srcPath = relative(binary.target.src_path);
-  const artifact = {
-    reason: binary.reason,
-    package: binary.package_id.replace(/^.*#/, ''),
-    manifest_path: relative(binary.manifest_path),
-    target: { kind: binary.target.kind, name: binary.target.name, src_path: srcPath },
-    profile: { test: binary.profile.test },
-    executable: '<test binary>',
-  };
-  return {
-    'lanes_build_messages.jsonl': `${JSON.stringify(artifact)}\n`,
-    'lanes_list_fs_tests.json': `${JSON.stringify({ mixdog_tools: { src_path: srcPath, list: listed.stdout } }, null, 1)}\n`,
-  };
-}
 // Test files that install an executor backend of their own (`mixdog_rt::install` / `exec::boot` / `boot_executors`): the
 // backend is once per process, so such a test only passes in a process of its own (nextest, or one invocation per
 // test). A lane whose filter selects one of them next to any other test must run under nextest; k1-lanes.test.mjs
-// checks that no lane does today and that this list holds every file that installs one.
+// checks that no lane selects a file of this list, and that no file a lane selects calls an installer (this list may
+// lag the sources; that check reads them).
 // These installs belong to process entry points, not to libtest cases sharing a
 // backend. The relay twin and Office protocol fixtures launch dedicated helper
 // executables. Keep them explicit and source-checked, rather than excluding a
@@ -146,6 +128,7 @@ export const BACKEND_PROCESS_ENTRIES = [
 
 export const BACKEND_INSTALLERS = [
   'native/core/crates/mixdog-app-server-daemon/src/effort_judge_host.rs',
+  'native/core/crates/mixdog-app-server-daemon/src/embedding_host.rs',
   'native/core/crates/mixdog-app-server-daemon/tests/it/real_executors.rs',
   'native/core/crates/mixdog-cli/tests/exec_replay.rs',
   'native/core/crates/mixdog-core-config/tests/config_lanes.rs',
@@ -157,6 +140,7 @@ export const BACKEND_INSTALLERS = [
   'native/core/crates/mixdog-mcp/tests/mcp_list_shape.rs',
   'native/core/crates/mixdog-mcp/tests/output_schema_depth.rs',
   'native/core/crates/mixdog-mcp/tests/output_schema_lane.rs',
+  'native/core/crates/mixdog-rt/tests/clock_control.rs',
   'native/core/crates/mixdog-rt/tests/elastic.rs',
   'native/core/crates/mixdog-rt/tests/executors.rs',
   'native/core/crates/mixdog-rt/tests/lane_wedged.rs',

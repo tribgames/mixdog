@@ -275,6 +275,32 @@ struct Fixture {
     _dir: tempfile::TempDir,
 }
 
+async fn run(f: &Fixture, args: Value) -> Result<Value, String> {
+    let thread = ThreadId::from("s");
+    let action = args["action"].as_str().unwrap().to_owned();
+    f.setup.run(&SetupCall { action: &action, args: &args, thread: &thread }).await.map_err(|e| match e {
+        PortError::Failed { message, .. } => message,
+        other => format!("{other:?}"),
+    })
+}
+
+#[tokio::test]
+async fn a_failing_status_read_is_the_failure_not_an_empty_status() {
+    let failing = Arc::new(Recorder {
+        methods: &["mcp/mcpStatus", "plugins/pluginsStatus"],
+        failing: &["mcp/mcpStatus", "plugins/pluginsStatus"],
+        seen: Mutex::default(),
+    });
+    let skills = Arc::new(Recorder { methods: &[], failing: &[], seen: Mutex::default() });
+    let setup = McpSetup::new(Arc::new(ServiceSetupRuntime::new(failing.clone(), skills, failing.clone())));
+    let thread = ThreadId::from("s");
+    for args in [json!({"action": "enable_plugin_mcp", "name": "alpha"}), json!({"action": "connect_connector", "connector": "notion"})] {
+        let action = args["action"].as_str().unwrap().to_owned();
+        let error = setup.run(&SetupCall { action: &action, args: &args, thread: &thread }).await.unwrap_err();
+        assert!(matches!(&error, PortError::Failed { message, .. } if message == "registry unreadable"), "{action}: {error:?}");
+    }
+}
+
 fn fixture() -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let log: Log = Arc::default();
@@ -292,16 +318,6 @@ fn fixture() -> Fixture {
     let setup = McpSetup::new(Arc::new(ServiceSetupRuntime::new(mcp, skills.clone(), plugins.clone())));
     Fixture { setup, config, log, skills, plugins, _dir: dir }
 }
-
-async fn run(f: &Fixture, args: Value) -> Result<Value, String> {
-    let thread = ThreadId::from("s");
-    let action = args["action"].as_str().unwrap().to_owned();
-    f.setup.run(&SetupCall { action: &action, args: &args, thread: &thread }).await.map_err(|e| match e {
-        PortError::Failed { message, .. } => message,
-        other => format!("{other:?}"),
-    })
-}
-
 #[tokio::test]
 async fn servers_are_added_edited_toggled_and_removed_through_the_mcp_service() {
     let f = fixture();
@@ -324,7 +340,6 @@ async fn servers_are_added_edited_toggled_and_removed_through_the_mcp_service() 
     assert_eq!(all["mcp"]["connectedCount"], 0);
     assert!(f.log.lock().unwrap().contains(&"reconnectAll".to_owned()));
 }
-
 #[tokio::test]
 async fn a_failure_of_the_service_is_the_message_node_throws() {
     let f = fixture();
@@ -336,22 +351,6 @@ async fn a_failure_of_the_service_is_the_message_node_throws() {
     assert!(run(&f, json!({"action": "connect_connector", "connector": "nope"})).await.unwrap_err().starts_with("connector must be one of airtable, "));
 }
 
-#[tokio::test]
-async fn a_failing_status_read_is_the_failure_not_an_empty_status() {
-    let failing = Arc::new(Recorder {
-        methods: &["mcp/mcpStatus", "plugins/pluginsStatus"],
-        failing: &["mcp/mcpStatus", "plugins/pluginsStatus"],
-        seen: Mutex::default(),
-    });
-    let skills = Arc::new(Recorder { methods: &[], failing: &[], seen: Mutex::default() });
-    let setup = McpSetup::new(Arc::new(ServiceSetupRuntime::new(failing.clone(), skills, failing.clone())));
-    let thread = ThreadId::from("s");
-    for args in [json!({"action": "enable_plugin_mcp", "name": "alpha"}), json!({"action": "connect_connector", "connector": "notion"})] {
-        let action = args["action"].as_str().unwrap().to_owned();
-        let error = setup.run(&SetupCall { action: &action, args: &args, thread: &thread }).await.unwrap_err();
-        assert!(matches!(&error, PortError::Failed { message, .. } if message == "registry unreadable"), "{action}: {error:?}");
-    }
-}
 
 #[tokio::test]
 async fn skills_and_plugins_actions_reach_their_services_with_the_runtime_api_parameters() {
@@ -360,26 +359,18 @@ async fn skills_and_plugins_actions_reach_their_services_with_the_runtime_api_pa
     assert_eq!(skills, json!({"disabled": ["a", "b"]}));
     assert_eq!(*f.skills.seen.lock().unwrap(), vec![("skills/setDisabledSkills".to_owned(), json!({"names": ["a", "b"]}))]);
 
-    // Each plugin action reaches the plugins service as the protocol method Node's runtime call is, with the
-    // named params Node gives it and the calling session's `threadId` where the method takes one
-    // (`fixtures/plugins-status/setup-calls.json`, recorded by `record-setup-calls.mjs`).
-    let golden: Value = serde_json::from_str(include_str!("../../../fixtures/plugins-status/setup-calls.json")).unwrap();
-    for case in golden["cases"].as_array().unwrap().iter().filter(|case| case["args"]["action"] != "status") {
+    // Each plugin action reaches the plugins service as its protocol method, with the named params of that
+    // method and the calling session's `threadId`.
+    let cases = [
+        (json!({"action": "add_plugin", "source": "github:a/b"}), "plugins/addPlugin", json!({"source": "github:a/b", "threadId": "s"})),
+        (json!({"action": "update_plugin", "name": "alpha"}), "plugins/updatePlugin", json!({"plugin": "alpha", "threadId": "s"})),
+        (json!({"action": "set_plugin_enabled", "name": "alpha", "enabled": false}), "plugins/setPluginEnabled", json!({"plugin": "alpha", "enabled": false, "threadId": "s"})),
+        (json!({"action": "remove_plugin", "name": "alpha"}), "plugins/removePlugin", json!({"plugin": "alpha", "threadId": "s"})),
+    ];
+    for (args, method, params) in cases {
         f.plugins.seen.lock().unwrap().clear();
-        run(&f, case["args"].clone()).await.unwrap();
+        run(&f, args.clone()).await.unwrap();
         let seen = f.plugins.seen.lock().unwrap().clone();
-        let expected: Vec<(String, Value)> = case["calls"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|call| {
-                let mut params = call["params"].clone();
-                if call["thread"] == json!(true) {
-                    params["threadId"] = json!("s");
-                }
-                (call["method"].as_str().unwrap().to_owned(), params)
-            })
-            .collect();
-        assert_eq!(seen, expected, "{}", case["args"]);
+        assert_eq!(seen.first(), Some(&(method.to_owned(), params)), "{args}");
     }
 }

@@ -70,53 +70,9 @@ impl StaticSessionToken {
     }
 }
 
-#[async_trait]
-impl SessionToken for StaticSessionToken {
-    async fn session_token(&self) -> Result<String, ProviderError> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as u64);
-        self.credentials.usable_token(now).map(str::to_owned)
-    }
-
-    /// The identity the sign-in returned; a token that came with none is the one this provider instance holds.
-    fn account(&self) -> String {
-        match &self.credentials.identity {
-            Some(Identity { id: Some(id), .. }) => format!("id {id}"),
-            Some(Identity { email: Some(email), .. }) => format!("email {email}"),
-            _ => format!("static session token of instance {}", self.instance),
-        }
-    }
-}
-
 /// `devin-oauth.json`: read on every turn, so a sign-in by another process
 /// is picked up at once; an unreadable file is a fault, never a logout.
 pub struct FileSessionToken(pub CredentialFile);
-
-#[async_trait]
-impl SessionToken for FileSessionToken {
-    async fn session_token(&self) -> Result<String, ProviderError> {
-        match self.0.load::<StoredCredentials>().await {
-            Probe::Present(credentials) => {
-                self.0.keep(&[&credentials.access_token, credentials.refresh_token.as_deref().unwrap_or_default()]);
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as u64);
-                credentials.usable_token(now).map(str::to_owned)
-            }
-            Probe::Absent => Err(reauth("Devin is not signed in.")),
-            Probe::Unreadable => {
-                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
-                error.message = "[devin-oauth] the credential file cannot be read".to_owned();
-                Err(error)
-            }
-        }
-    }
-
-    fn account(&self) -> String {
-        format!("file {}", self.0.path().display())
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -146,5 +102,49 @@ mod tests {
                 .unwrap();
         assert_eq!(c.expires_at, Some(5));
         assert!(creds(None).usable_token(u64::MAX).is_ok());
+    }
+}
+
+
+#[async_trait]
+impl SessionToken for StaticSessionToken {
+    async fn session_token(&self) -> Result<String, ProviderError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        self.credentials.usable_token(now).map(str::to_owned)
+    }
+
+    /// The identity the sign-in returned; a token that came with none is the one this provider instance holds.
+    fn account(&self) -> String {
+        match &self.credentials.identity {
+            Some(Identity { id: Some(id), .. }) => format!("id {id}"),
+            Some(Identity { email: Some(email), .. }) => format!("email {email}"),
+            _ => format!("static session token of instance {}", self.instance),
+        }
+    }
+}
+#[async_trait]
+impl SessionToken for FileSessionToken {
+    async fn session_token(&self) -> Result<String, ProviderError> {
+        match self.0.load::<StoredCredentials>().await {
+            Probe::Present(credentials) => {
+                self.0.keep(&[&credentials.access_token, credentials.refresh_token.as_deref().unwrap_or_default()]);
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis() as u64);
+                credentials.usable_token(now).map(str::to_owned)
+            }
+            Probe::Absent => Err(reauth("Devin is not signed in.")),
+            Probe::Unreadable => {
+                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+                error.message = "[devin-oauth] the credential file cannot be read".to_owned();
+                Err(error)
+            }
+        }
+    }
+
+    fn account(&self) -> String {
+        format!("file {}", self.0.path().display())
     }
 }

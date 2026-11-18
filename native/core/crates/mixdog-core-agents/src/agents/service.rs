@@ -195,7 +195,7 @@ impl AgentService {
             "agent/getAgentAvatarImage" => self.agents.avatar_image(text(params, "agentId")?).await.map_err(failed),
             "agent/saveAgentDefinition" => {
                 let payload = params.get("payload").and_then(Value::as_object).ok_or_else(|| invalid("params.payload", "object"))?;
-                let options = SaveOptions { no_widen: no_widen(params), approved: None };
+                let options = SaveOptions { no_widen: no_widen(params) };
                 // The dialog that saved it greets it (or it already existed).
                 let saved = self
                     .lifecycle
@@ -301,7 +301,7 @@ mod tests {
         let tokens = mixdog_rt::testing::tokens();
         let connectors = AgentConnectors::new(agents.clone(), Arc::new(NoCatalog));
         let grants = FileGrantStore::with_clock(data.join("human-gate"), tokens.interactive_io, tokens.durability_io, Arc::new(|| 1));
-        let _service = AgentService::new(agents, connectors, AgentPermissions::new(grants), crate::agents::lifecycle_twin_tests::quiet_lifecycle());
+        let _service = AgentService::new(agents, connectors, AgentPermissions::new(grants), crate::agents::lifecycle_tests::quiet_lifecycle());
         let started = std::time::Instant::now();
         while cut.exists() && started.elapsed() < std::time::Duration::from_secs(10) {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
@@ -325,3 +325,5 @@ mod tests {
         }
     }
 }
+
+

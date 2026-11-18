@@ -82,6 +82,7 @@ impl Fake {
     }
 
     /// The answers of a scenario's store entry: a value, `{ "$throw": text }`, or `{ "$seq": [..] }`.
+    #[cfg(node_twin)]
     fn script(&mut self, action: &str, spec: &Value) {
         fn reply(spec: &Value) -> Result<Value, String> {
             match spec.get("$throw") {
@@ -243,173 +244,6 @@ impl AppCtx for Fake {
 
     fn open_picker(&mut self, _kind: PickerKind) -> SurfaceClaim {
         self.claim_surface(SurfaceKind::Picker)
-    }
-}
-
-impl SlashHost for Fake {
-    fn state(&self) -> SlashState {
-        SlashState {
-            provider: "openai".into(),
-            model: "gpt-5".into(),
-            workflow: self.workflow.clone(),
-            ..SlashState::default()
-        }
-    }
-
-    fn push_notice(&mut self, text: &str, tone: Tone) {
-        self.log.push(json!(["notice", text, tone.as_str()]));
-    }
-
-    fn push_notice_ttl(&mut self, text: &str, tone: Tone, _ttl_ms: u64) {
-        self.push_notice(text, tone);
-    }
-
-    fn now_ms(&self) -> u64 {
-        0
-    }
-
-    fn has_store_method(&self, name: &str) -> bool {
-        self.handlers.contains_key(name)
-    }
-
-    fn clear_context_panel(&mut self) {}
-
-    fn close_usage_panel(&mut self) {}
-
-    fn paint_loading_frame(&mut self, _command: &str, _title: &str) -> Option<SurfaceClaim> {
-        None
-    }
-
-    fn owns_surface(&self, claim: SurfaceClaim) -> bool {
-        self.surface.epoch().is_current(claim.epoch)
-    }
-
-    fn close_surface(&mut self, claim: SurfaceClaim) {
-        if self.owns_surface(claim) {
-            self.surface.set_picker(None);
-        }
-    }
-
-    fn paint_stop_confirm(&mut self, _claim: SurfaceClaim, _title: &str, _commands: &[String]) {}
-
-    fn open(&mut self, opener: Opener, options: Value) -> Result<(), String> {
-        let owned = match self.kind {
-            Kind::Settings => opener == Opener::Settings,
-            Kind::Maintenance => {
-                matches!(opener, Opener::AutoClear | Opener::Profile | Opener::Update | Opener::Developer)
-            }
-        };
-        if owned {
-            if let Opening::Open(controller) = settings::open(self, opener, &options) {
-                self.controller = Some(controller);
-            }
-        } else if opener == Opener::Settings {
-            self.log.push(json!(["returnTo"]));
-        } else {
-            let name = if opener.as_str() == "outputstyle" { "output-style" } else { opener.as_str() };
-            self.log.push(json!(["open", name, options]));
-        }
-        Ok(())
-    }
-
-    fn open_with_return(&mut self, opener: Opener, options: Value, _target: &TextPrompt) -> Result<(), String> {
-        self.open(opener, options)
-    }
-
-    fn register_project(&mut self, _path: &str) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn enter_project(&mut self, _target: &str) {}
-
-    fn login_mcp_server(&mut self, _name: &str) {}
-
-    fn logout_mcp_server(&mut self, _name: &str) {}
-
-    fn btw_ask(&mut self, _question: &str) {}
-
-    fn run_doctor(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn request_exit(&mut self) {}
-
-    fn force_render_repaint(&mut self) {}
-
-    fn supersede_panel_epoch(&mut self) -> u64 {
-        self.surface.supersede()
-    }
-
-    fn is_panel_epoch_current(&self, token: u64) -> bool {
-        self.surface.epoch().is_current(token)
-    }
-
-    fn write_token(&self, _surface: PromptSurface) -> u64 {
-        0
-    }
-
-    fn set_write_token(&mut self, _surface: PromptSurface, _token: u64) {}
-
-    fn provider_prompt(&self) -> Option<TextPrompt> {
-        None
-    }
-
-    fn settings_prompt(&self) -> Option<TextPrompt> {
-        self.prompt.clone()
-    }
-
-    fn set_prompt(&mut self, surface: PromptSurface, next: Option<TextPrompt>) {
-        if surface != PromptSurface::Settings {
-            return;
-        }
-        if let Some(prompt) = &next {
-            self.log.push(json!(["prompt", prompt_json(prompt)]));
-        }
-        self.prompt = next;
-    }
-
-    fn mark_prompt_submitting(&mut self, _surface: PromptSurface, _target: &TextPrompt) {}
-
-    fn oauth_submitting(&self) -> bool {
-        false
-    }
-
-    fn set_oauth_submitting(&mut self, _value: bool) {}
-
-    fn oauth_complete_code(&mut self, _target: &TextPrompt, _code: &str) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn oauth_success_return(&mut self, _target: &TextPrompt) -> bool {
-        false
-    }
-
-    fn oauth_failure_return(&mut self, _target: &TextPrompt, _error: &str) {}
-
-    fn provider_after_save(&mut self, _target: &TextPrompt) -> bool {
-        false
-    }
-
-    fn clear_model_caches(&mut self, scope: &str) {
-        self.log.push(json!(["clearModelCaches", scope]));
-    }
-
-    fn pasted_images(&self) -> BTreeMap<u64, PastedImage> {
-        BTreeMap::new()
-    }
-
-    fn pasted_texts(&self) -> BTreeMap<u64, String> {
-        BTreeMap::new()
-    }
-
-    fn clear_pasted_images(&mut self, _ids: Option<&BTreeSet<u64>>) {}
-
-    fn clear_pasted_texts(&mut self, _ids: Option<&BTreeSet<u64>>) {}
-
-    fn arm_transcript_follow(&mut self) {}
-
-    fn store_submit(&mut self, _method: &str, _content: &PromptContent, _options: Option<&SubmitOptions>) -> Result<Value, String> {
-        Ok(Value::Null)
     }
 }
 
@@ -1405,17 +1239,8 @@ fn a_developer_write_acking_after_esc_does_not_re_open_the_section() {
     assert_eq!(host.calls("getDeveloperSettings").len(), 2);
 }
 
-#[test]
-fn the_openers_of_other_pickers_are_not_ours() {
-    let mut host = Fake::new(Kind::Settings);
-    assert!(matches!(settings::open(&mut host, Opener::Model, &json!({})), Opening::NotMine));
-}
-
-// ----------------------------------------------------------------- twin
-
-const GOLDEN: &str = include_str!("goldens/pickers-settings.json");
-
 /// The panel as `record-pickers-settings.mjs` records it.
+#[cfg(node_twin)]
 fn panel_out(panel: Option<&Panel>) -> Value {
     let Some(panel) = panel else { return Value::Null };
     let index_mode = panel.index_mode.map(|mode| match mode {
@@ -1441,6 +1266,7 @@ fn panel_out(panel: Option<&Panel>) -> Value {
     })
 }
 
+#[cfg(node_twin)]
 fn opener_named(name: &str) -> Opener {
     match name {
         "settings" => Opener::Settings,
@@ -1453,6 +1279,7 @@ fn opener_named(name: &str) -> Opener {
 }
 
 /// Plays a scenario of the golden on a fake whose store answers what the scenario scripts.
+#[cfg(node_twin)]
 fn play(spec: &Value) -> (Vec<Value>, Vec<Value>) {
     let mut host = Fake::new(if spec["kind"] == "settings" { Kind::Settings } else { Kind::Maintenance });
     for (action, answer) in spec["store"].as_object().expect("a store") {
@@ -1483,24 +1310,178 @@ fn play(spec: &Value) -> (Vec<Value>, Vec<Value>) {
     (host.log, panels)
 }
 
-#[test]
-fn the_pickers_do_what_the_node_pickers_do() {
-    let golden: Value = serde_json::from_str(GOLDEN).expect("pickers-settings.json is valid JSON");
-    let scenarios = golden["scenarios"].as_array().expect("scenarios");
-    assert!(scenarios.len() >= 20, "{} scenarios", scenarios.len());
-    let mut mismatches = Vec::new();
-    for scenario in scenarios {
-        let (events, panels) = play(&scenario["spec"]);
-        let name = scenario["name"].as_str().unwrap_or_default();
-        let (want_events, want_panels) = (scenario["events"].as_array().expect("events"), scenario["panels"].as_array().expect("panels"));
-        if events != *want_events {
-            let at = events.iter().zip(want_events).position(|(got, want)| got != want).unwrap_or(events.len().min(want_events.len()));
-            mismatches.push(format!("{name}: event {at}: got {:?}, want {:?}", events.get(at), want_events.get(at)));
-        }
-        if panels != *want_panels {
-            let at = panels.iter().zip(want_panels).position(|(got, want)| got != want).unwrap_or(0);
-            mismatches.push(format!("{name}: panel after step {at}: got {}, want {}", panels[at], want_panels[at]));
+impl SlashHost for Fake {
+    fn state(&self) -> SlashState {
+        SlashState {
+            provider: "openai".into(),
+            model: "gpt-5".into(),
+            workflow: self.workflow.clone(),
+            ..SlashState::default()
         }
     }
-    assert!(mismatches.is_empty(), "{} scenarios differ, first:\n{}", mismatches.len(), mismatches[..mismatches.len().min(6)].join("\n"));
+
+    fn push_notice(&mut self, text: &str, tone: Tone) {
+        self.log.push(json!(["notice", text, tone.as_str()]));
+    }
+
+    fn push_notice_ttl(&mut self, text: &str, tone: Tone, _ttl_ms: u64) {
+        self.push_notice(text, tone);
+    }
+
+    fn now_ms(&self) -> u64 {
+        0
+    }
+
+    fn has_store_method(&self, name: &str) -> bool {
+        self.handlers.contains_key(name)
+    }
+
+    fn clear_context_panel(&mut self) {}
+
+    fn close_usage_panel(&mut self) {}
+
+    fn paint_loading_frame(&mut self, _command: &str, _title: &str) -> Option<SurfaceClaim> {
+        None
+    }
+
+    fn owns_surface(&self, claim: SurfaceClaim) -> bool {
+        self.surface.epoch().is_current(claim.epoch)
+    }
+
+    fn close_surface(&mut self, claim: SurfaceClaim) {
+        if self.owns_surface(claim) {
+            self.surface.set_picker(None);
+        }
+    }
+
+    fn paint_stop_confirm(&mut self, _claim: SurfaceClaim, _title: &str, _commands: &[String]) {}
+
+    fn open(&mut self, opener: Opener, options: Value) -> Result<(), String> {
+        let owned = match self.kind {
+            Kind::Settings => opener == Opener::Settings,
+            Kind::Maintenance => {
+                matches!(opener, Opener::AutoClear | Opener::Profile | Opener::Update | Opener::Developer)
+            }
+        };
+        if owned {
+            if let Opening::Open(controller) = settings::open(self, opener, &options) {
+                self.controller = Some(controller);
+            }
+        } else if opener == Opener::Settings {
+            self.log.push(json!(["returnTo"]));
+        } else {
+            let name = if opener.as_str() == "outputstyle" { "output-style" } else { opener.as_str() };
+            self.log.push(json!(["open", name, options]));
+        }
+        Ok(())
+    }
+
+    fn open_with_return(&mut self, opener: Opener, options: Value, _target: &TextPrompt) -> Result<(), String> {
+        self.open(opener, options)
+    }
+
+    fn register_project(&mut self, _path: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn enter_project(&mut self, _target: &str) {}
+
+    fn login_mcp_server(&mut self, _name: &str) {}
+
+    fn logout_mcp_server(&mut self, _name: &str) {}
+
+    fn btw_ask(&mut self, _question: &str) {}
+
+    fn run_doctor(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn request_exit(&mut self) {}
+
+    fn force_render_repaint(&mut self) {}
+
+    fn supersede_panel_epoch(&mut self) -> u64 {
+        self.surface.supersede()
+    }
+
+    fn is_panel_epoch_current(&self, token: u64) -> bool {
+        self.surface.epoch().is_current(token)
+    }
+
+    fn write_token(&self, _surface: PromptSurface) -> u64 {
+        0
+    }
+
+    fn set_write_token(&mut self, _surface: PromptSurface, _token: u64) {}
+
+    fn provider_prompt(&self) -> Option<TextPrompt> {
+        None
+    }
+
+    fn settings_prompt(&self) -> Option<TextPrompt> {
+        self.prompt.clone()
+    }
+
+    fn set_prompt(&mut self, surface: PromptSurface, next: Option<TextPrompt>) {
+        if surface != PromptSurface::Settings {
+            return;
+        }
+        if let Some(prompt) = &next {
+            self.log.push(json!(["prompt", prompt_json(prompt)]));
+        }
+        self.prompt = next;
+    }
+
+    fn mark_prompt_submitting(&mut self, _surface: PromptSurface, _target: &TextPrompt) {}
+
+    fn oauth_submitting(&self) -> bool {
+        false
+    }
+
+    fn set_oauth_submitting(&mut self, _value: bool) {}
+
+    fn oauth_complete_code(&mut self, _target: &TextPrompt, _code: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn oauth_success_return(&mut self, _target: &TextPrompt) -> bool {
+        false
+    }
+
+    fn oauth_failure_return(&mut self, _target: &TextPrompt, _error: &str) {}
+
+    fn provider_after_save(&mut self, _target: &TextPrompt) -> bool {
+        false
+    }
+
+    fn clear_model_caches(&mut self, scope: &str) {
+        self.log.push(json!(["clearModelCaches", scope]));
+    }
+
+    fn pasted_images(&self) -> BTreeMap<u64, PastedImage> {
+        BTreeMap::new()
+    }
+
+    fn pasted_texts(&self) -> BTreeMap<u64, String> {
+        BTreeMap::new()
+    }
+
+    fn clear_pasted_images(&mut self, _ids: Option<&BTreeSet<u64>>) {}
+
+    fn clear_pasted_texts(&mut self, _ids: Option<&BTreeSet<u64>>) {}
+
+    fn arm_transcript_follow(&mut self) {}
+
+    fn store_submit(&mut self, _method: &str, _content: &PromptContent, _options: Option<&SubmitOptions>) -> Result<Value, String> {
+        Ok(Value::Null)
+    }
 }
+#[test]
+fn the_openers_of_other_pickers_are_not_ours() {
+    let mut host = Fake::new(Kind::Settings);
+    assert!(matches!(settings::open(&mut host, Opener::Model, &json!({})), Opening::NotMine));
+}
+
+#[cfg(node_twin)]
+#[path = "node-twin/pickers_settings.rs"]
+mod node_twin;

@@ -139,7 +139,8 @@ fn report(rpc_port: u16) -> RemoteReport {
         version_dir: "/home/me/.mixdog/v".to_owned(),
         installed: true,
         discovery: Some(RemoteDiscovery {
-            rpc_port: Some(rpc_port),
+            rpc_port: Some(rpc_port + 5_000),
+            ssh_rpc_port: Some(rpc_port),
             control_port: 41_002,
             token: "secret-token".to_owned(),
             pid: PID,
@@ -237,7 +238,7 @@ async fn identity_mismatch_refused() {
         let session = session(&transport);
         let error = session.connect().await.unwrap_err();
         assert!(error.is_terminal(), "{error}");
-        assert!(error.to_string().contains("Another process answered through the ssh tunnel to me@server"), "{error}");
+        assert!(error.to_string().contains("Another program answered over SSH on me@server"), "{error}");
         assert_eq!(session.current_endpoint(), None);
         // The session stopped for good: nothing is dialed again, the same words come back, the tunnel is let go.
         assert_eq!(session.connect().await.unwrap_err(), error);
@@ -254,7 +255,7 @@ async fn a_core_that_does_not_answer_is_a_transient_failure_and_the_session_stay
     let session = session(&transport);
     let error = session.connect().await.unwrap_err();
     assert!(!error.is_terminal());
-    assert!(error.to_string().contains("does not answer through the ssh tunnel"), "{error}");
+    assert!(error.to_string().contains("did not respond over SSH"), "{error}");
     assert_eq!(session.stopped_by(), None);
     assert!(session.connect().await.is_err());
     assert_eq!(count(&transport.bootstraps), 2);
@@ -455,6 +456,7 @@ fn the_remote_folder_resolves_against_the_home_and_must_be_absolute() {
     assert!(resolve_remote_cwd(Some("relative/dir"), home).unwrap_err().to_string().contains("absolute server path"));
     assert!(resolve_remote_cwd(Some("/a\u{7}b"), home).unwrap_err().to_string().contains("control characters"));
 }
+
 
 #[tokio::test]
 async fn health_is_read_from_plain_and_chunked_answers_and_refused_when_not_ok_or_late() {

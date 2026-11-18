@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createGitRefreshScheduler } from './git-refresh-scheduler';
-import { subscribeProjectFileChanges } from './project-file-changes';
+import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { readCachedDockGitState, requestDockGitState, type DockGitState } from './utility-dock-git-state';
 import type { UtilityDockTab } from './UtilityDock';
 
@@ -44,8 +43,8 @@ export function useUtilityDockGit({
     [dockProjectPath]
   );
   // Git I/O follows intent and evidence: a recursive project watcher (with
-  // the checkout's git dirs), window focus and explicit Git actions drive
-  // every refresh; nothing re-reads on a clock.
+  // the checkout's git dirs) and explicit Git actions drive every refresh;
+  // nothing re-reads on a clock or on window focus.
   const gitSurfaceSelected = tab === 'source-control' || tab === 'pull-requests';
   useEffect(() => {
     if (!open || !contentReady || !dockProjectPath || !gitSurfaceSelected) return undefined;
@@ -57,24 +56,7 @@ export function useUtilityDockGit({
       first = false;
       await refreshDockGitStatus(showLoading);
     });
-    const signal = () => scheduler.signal();
-    const refreshNow = () => scheduler.refreshNow();
-    const visibilityChanged = () => {
-      if (document.visibilityState === 'hidden') scheduler.pause();
-      else scheduler.resume();
-    };
-    const unsubscribeProject = subscribeProjectFileChanges(dockProjectPath, signal);
-    window.addEventListener('focus', refreshNow);
-    window.addEventListener('mixdog:git-changed', signal);
-    document.addEventListener('visibilitychange', visibilityChanged);
-    if (document.visibilityState !== 'hidden') scheduler.resume();
-    return () => {
-      scheduler.dispose();
-      unsubscribeProject();
-      window.removeEventListener('focus', refreshNow);
-      window.removeEventListener('mixdog:git-changed', signal);
-      document.removeEventListener('visibilitychange', visibilityChanged);
-    };
+    return watchGitRefreshEvidence(dockProjectPath, scheduler);
   }, [contentReady, dockProjectPath, gitSurfaceSelected, open, refreshDockGitStatus]);
   // Boot preload (user: 호버 말고 부트 프리로드는 백그라운드에서): the intent
   // rule above still owns live polling, but ONE idle-time gitStatus per

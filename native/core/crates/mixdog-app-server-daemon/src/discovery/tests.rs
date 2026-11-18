@@ -15,6 +15,8 @@ fn discovery(instance_id: &str, state: CoreState) -> Discovery {
             blocked: None,
             drain: None,
             rpc: (state == CoreState::Serving).then_some(Port { port: 4200 }),
+            ssh_rpc: (state == CoreState::Serving).then_some(Port { port: 4201 }),
+            rebuild: None,
             control: Port { port: 4100 },
         },
     }
@@ -122,91 +124,6 @@ fn a_destination_is_read_only_when_the_owner_cannot_write_it() {
     }
 }
 
-/// Replaces that fail `failures` times with `error`, then rename for real; the pauses it was asked to make are recorded, not slept.
-struct Scripted {
-    failures: std::cell::Cell<usize>,
-    attempts: std::cell::Cell<usize>,
-    pauses: std::cell::RefCell<Vec<std::time::Duration>>,
-}
-
-impl Scripted {
-    fn new(failures: usize) -> Self {
-        Self { failures: failures.into(), attempts: 0.into(), pauses: Default::default() }
-    }
-
-    fn replace(&self, error: fn() -> io::Error) -> impl Fn(&Path, &Path) -> io::Result<()> + '_ {
-        move |from, to| {
-            self.attempts.set(self.attempts.get() + 1);
-            if self.failures.get() > 0 {
-                self.failures.set(self.failures.get() - 1);
-                return Err(error());
-            }
-            std::fs::rename(from, to)
-        }
-    }
-
-    fn pause(&self) -> impl Fn(std::time::Duration) + '_ {
-        |delay| self.pauses.borrow_mut().push(delay)
-    }
-}
-
-#[test]
-fn a_replace_a_reader_blocks_for_a_moment_is_retried_on_node_s_schedule_until_it_lands() {
-    let root = tempfile::tempdir().unwrap();
-    let script = Scripted::new(4);
-    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause())
-        .unwrap();
-
-    assert_eq!(script.attempts.get(), 5);
-    let pauses = script.pauses.borrow();
-    // Node: `backoffs[attempt] + random below min(50, max(1, backoffs[attempt]))`, backoffs 25, 50, 100, 200, ...
-    for (pause, base) in pauses.iter().zip([25u64, 50, 100, 200]) {
-        let ms = pause.as_millis() as u64;
-        assert!((base..base + base.min(50)).contains(&ms), "{ms} ms after a backoff of {base}");
-    }
-    assert_eq!(pauses.len(), 4);
-    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(path(root.path())).unwrap()).unwrap();
-    assert_eq!(value["core"]["state"], "serving");
-    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1, "no staging file left");
-}
-
-#[test]
-fn a_replace_that_keeps_failing_makes_every_attempt_of_the_schedule_then_reports_the_error() {
-    let root = tempfile::tempdir().unwrap();
-    let script = Scripted::new(usize::MAX);
-    let error =
-        publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause())
-            .unwrap_err();
-
-    assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
-    assert_eq!(script.attempts.get(), 24, "Node: one attempt more than the 23 backoffs");
-    assert_eq!(script.pauses.borrow().len(), 23);
-    assert!(!path(root.path()).exists());
-    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0, "the staging file is removed");
-}
-
-#[test]
-fn an_error_that_cannot_clear_is_not_retried() {
-    let root = tempfile::tempdir().unwrap();
-    let script = Scripted::new(usize::MAX);
-    let missing = || io::Error::from(io::ErrorKind::NotFound);
-    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(missing), &script.pause())
-        .unwrap_err();
-    assert_eq!(script.attempts.get(), 1);
-    assert!(script.pauses.borrow().is_empty());
-
-    // Node's `isReadOnlyFile`: a refusal to replace a read-only file is not a sharing violation.
-    let target = path(root.path());
-    std::fs::write(&target, b"old").unwrap();
-    let mut permissions = std::fs::metadata(&target).unwrap().permissions();
-    permissions.set_readonly(true);
-    std::fs::set_permissions(&target, permissions).unwrap();
-    let script = Scripted::new(usize::MAX);
-    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause())
-        .unwrap_err();
-    assert_eq!(script.attempts.get(), 1);
-}
-
 #[cfg(unix)]
 #[test]
 fn discovery_is_owner_only() {
@@ -219,18 +136,6 @@ fn discovery_is_owner_only() {
     assert_eq!(std::fs::metadata(&runtime).unwrap().permissions().mode() & 0o777, 0o700);
 }
 
-#[test]
-fn runtime_root_is_named_as_1_4_5_names_it() {
-    let root = runtime_root().unwrap();
-    if std::env::var_os("MIXDOG_RUNTIME_ROOT").is_none() {
-        assert!(root.starts_with(node_tmpdir()));
-        #[cfg(windows)]
-        assert_eq!(root.file_name().unwrap(), "mixdog");
-        #[cfg(unix)]
-        assert!(root.file_name().unwrap().to_string_lossy().starts_with("mixdog-"));
-    }
-}
-
 /// `readSessionDiscovery` drops a file whose pid is not alive: a file names a running core while its pid runs with the recorded
 /// start time, and names nobody once the pid names no process or another one (a reused pid).
 #[test]
@@ -241,44 +146,11 @@ fn a_file_names_a_running_core_only_while_its_process_runs() {
     assert!(!names_running_core(0, "0").unwrap(), "no process");
 }
 
-fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while !done() {
-        assert!(std::time::Instant::now() < deadline, "timed out waiting for {what}");
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-}
-
 fn running_discovery(instance_id: &str, state: CoreState) -> Discovery {
     let mut document = discovery(instance_id, state);
     let info = OsProcessTable.query(u64::from(document.pid)).unwrap().expect("this process runs");
     document.core.process_start_time = info.identity.start_ms.to_string();
     document
-}
-
-#[test]
-fn a_serving_core_publishes_a_deleted_discovery_file_again_and_a_second_client_attaches_to_its_pid() {
-    let root = tempfile::tempdir().unwrap();
-    let owned = OwnedDiscovery::start_with(root.path().to_path_buf(), std::time::Duration::from_millis(5));
-    let document = running_discovery("inst-1", CoreState::Serving);
-    owned.publish(&document).unwrap();
-
-    // Deleted right after the core's own publish, and again after it came back.
-    for _ in 0..2 {
-        std::fs::remove_file(path(root.path())).unwrap();
-        wait_until("the discovery file to come back", || path(root.path()).is_file());
-        let back = mixdog_app_server_client::discovery::Discovery::read(&path(root.path())).unwrap();
-        assert_eq!(back.pid, document.pid, "a second client attaches to the serving core");
-        assert_eq!(back.core.instance_id, "inst-1");
-        assert!(names_running_core(back.pid, &back.core.process_start_time).unwrap());
-    }
-}
-
-// Acknowledged only after the watcher installed/rebound watches and completed its actual recheck.
-fn await_recheck(owned: &OwnedDiscovery) {
-    let (done, completion) = std::sync::mpsc::channel();
-    owned.events.send(WatchSignal::Rechecked(done)).unwrap();
-    completion.recv_timeout(std::time::Duration::from_secs(10)).expect("watcher recheck completion");
 }
 
 #[test]
@@ -300,6 +172,128 @@ fn a_pathless_rescan_event_requests_a_recheck_and_restores_discovery() {
     assert!(names_instance(&std::fs::read(path(root.path())).unwrap(), "inst-1"));
 }
 
+
+/// Replaces that fail `failures` times with `error`, then rename for real; the pauses it was asked to make are recorded, not slept.
+struct Scripted {
+    failures: std::cell::Cell<usize>,
+    attempts: std::cell::Cell<usize>,
+    pauses: std::cell::RefCell<Vec<std::time::Duration>>,
+}
+impl Scripted {
+    fn new(failures: usize) -> Self {
+        Self { failures: failures.into(), attempts: 0.into(), pauses: Default::default() }
+    }
+
+    fn replace(&self, error: fn() -> io::Error) -> impl Fn(&Path, &Path) -> io::Result<()> + '_ {
+        move |from, to| {
+            self.attempts.set(self.attempts.get() + 1);
+            if self.failures.get() > 0 {
+                self.failures.set(self.failures.get() - 1);
+                return Err(error());
+            }
+            std::fs::rename(from, to)
+        }
+    }
+
+    fn pause(&self) -> impl Fn(std::time::Duration) + '_ {
+        |delay| self.pauses.borrow_mut().push(delay)
+    }
+}
+#[test]
+fn a_replace_a_reader_blocks_for_a_moment_is_retried_on_node_s_schedule_until_it_lands() {
+    let root = tempfile::tempdir().unwrap();
+    let script = Scripted::new(4);
+    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause())
+        .unwrap();
+
+    assert_eq!(script.attempts.get(), 5);
+    let pauses = script.pauses.borrow();
+    // Node: `backoffs[attempt] + random below min(50, max(1, backoffs[attempt]))`, backoffs 25, 50, 100, 200, ...
+    for (pause, base) in pauses.iter().zip([25u64, 50, 100, 200]) {
+        let ms = pause.as_millis() as u64;
+        assert!((base..base + base.min(50)).contains(&ms), "{ms} ms after a backoff of {base}");
+    }
+    assert_eq!(pauses.len(), 4);
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(path(root.path())).unwrap()).unwrap();
+    assert_eq!(value["core"]["state"], "serving");
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1, "no staging file left");
+}
+#[test]
+fn a_replace_that_keeps_failing_makes_every_attempt_of_the_schedule_then_reports_the_error() {
+    let root = tempfile::tempdir().unwrap();
+    let script = Scripted::new(usize::MAX);
+    let error =
+        publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause())
+            .unwrap_err();
+
+    assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    assert_eq!(script.attempts.get(), 24, "Node: one attempt more than the 23 backoffs");
+    assert_eq!(script.pauses.borrow().len(), 23);
+    assert!(!path(root.path()).exists());
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0, "the staging file is removed");
+}
+#[test]
+fn an_error_that_cannot_clear_is_not_retried() {
+    let root = tempfile::tempdir().unwrap();
+    let script = Scripted::new(usize::MAX);
+    let missing = || io::Error::from(io::ErrorKind::NotFound);
+    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(missing), &script.pause())
+        .unwrap_err();
+    assert_eq!(script.attempts.get(), 1);
+    assert!(script.pauses.borrow().is_empty());
+
+    // Node's `isReadOnlyFile`: a refusal to replace a read-only file is not a sharing violation.
+    let target = path(root.path());
+    std::fs::write(&target, b"old").unwrap();
+    let mut permissions = std::fs::metadata(&target).unwrap().permissions();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(&target, permissions).unwrap();
+    let script = Scripted::new(usize::MAX);
+    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause())
+        .unwrap_err();
+    assert_eq!(script.attempts.get(), 1);
+}
+#[test]
+fn runtime_root_is_named_as_1_4_5_names_it() {
+    let root = runtime_root().unwrap();
+    if std::env::var_os("MIXDOG_RUNTIME_ROOT").is_none() {
+        assert!(root.starts_with(node_tmpdir()));
+        #[cfg(windows)]
+        assert_eq!(root.file_name().unwrap(), "mixdog");
+        #[cfg(unix)]
+        assert!(root.file_name().unwrap().to_string_lossy().starts_with("mixdog-"));
+    }
+}
+fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !done() {
+        assert!(std::time::Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+#[test]
+fn a_serving_core_publishes_a_deleted_discovery_file_again_and_a_second_client_attaches_to_its_pid() {
+    let root = tempfile::tempdir().unwrap();
+    let owned = OwnedDiscovery::start_with(root.path().to_path_buf(), std::time::Duration::from_millis(5));
+    let document = running_discovery("inst-1", CoreState::Serving);
+    owned.publish(&document).unwrap();
+
+    // Deleted right after the core's own publish, and again after it came back.
+    for _ in 0..2 {
+        std::fs::remove_file(path(root.path())).unwrap();
+        wait_until("the discovery file to come back", || path(root.path()).is_file());
+        let back = mixdog_app_server_client::discovery::Discovery::read(&path(root.path())).unwrap();
+        assert_eq!(back.pid, document.pid, "a second client attaches to the serving core");
+        assert_eq!(back.core.instance_id, "inst-1");
+        assert!(names_running_core(back.pid, &back.core.process_start_time).unwrap());
+    }
+}
+// Acknowledged only after the watcher installed/rebound watches and completed its actual recheck.
+fn await_recheck(owned: &OwnedDiscovery) {
+    let (done, completion) = std::sync::mpsc::channel();
+    owned.events.send(WatchSignal::Rechecked(done)).unwrap();
+    completion.recv_timeout(std::time::Duration::from_secs(10)).expect("watcher recheck completion");
+}
 #[test]
 fn a_deleted_runtime_root_and_parent_are_made_again_after_initial_recheck() {
     let outside = tempfile::tempdir().unwrap();
@@ -327,7 +321,6 @@ fn a_deleted_runtime_root_and_parent_are_made_again_after_initial_recheck() {
     wait_until("reconnected root observes a later file deletion", || path(&root).is_file());
     assert!(names_instance(&std::fs::read(path(&root)).unwrap(), "inst-1"));
 }
-
 #[test]
 fn migrating_is_kept_and_draining_stops_republication() {
     let root = tempfile::tempdir().unwrap();
@@ -340,7 +333,6 @@ fn migrating_is_kept_and_draining_stops_republication() {
     std::thread::sleep(std::time::Duration::from_millis(100));
     assert!(!path(root.path()).exists());
 }
-
 #[test]
 fn a_released_core_does_not_put_its_file_back() {
     let root = tempfile::tempdir().unwrap();
@@ -350,7 +342,6 @@ fn a_released_core_does_not_put_its_file_back() {
     std::thread::sleep(std::time::Duration::from_millis(100));
     assert!(!path(root.path()).exists());
 }
-
 #[test]
 fn overwritten_or_invalid_discovery_is_restored_but_same_pid_is_untouched() {
     let root = tempfile::tempdir().unwrap();
@@ -368,7 +359,6 @@ fn overwritten_or_invalid_discovery_is_restored_but_same_pid_is_untouched() {
     std::thread::sleep(std::time::Duration::from_millis(100));
     assert_eq!(std::fs::read_to_string(path(root.path())).unwrap(), bytes);
 }
-
 #[test]
 fn a_blocked_contender_does_not_compete_with_the_owner_or_restore_a_deleted_file() {
     let root = tempfile::tempdir().unwrap();
@@ -390,7 +380,6 @@ fn a_blocked_contender_does_not_compete_with_the_owner_or_restore_a_deleted_file
     std::thread::sleep(std::time::Duration::from_millis(100));
     assert!(!path(root.path()).exists(), "blocked contender must not take the discovery file");
 }
-
 #[test]
 fn dropping_the_watch_cannot_resurrect_discovery() {
     let root = tempfile::tempdir().unwrap();
@@ -401,7 +390,6 @@ fn dropping_the_watch_cannot_resurrect_discovery() {
     std::thread::sleep(std::time::Duration::from_millis(100));
     assert!(!path(root.path()).exists());
 }
-
 /// Invoked only by the isolated launcher integration below. This is a test
 /// process publishing fake endpoints, not a daemon/core/profile.
 #[test]
@@ -422,12 +410,10 @@ fn discovery_owned_child() {
     }
     owned.release(&document.core.instance_id).unwrap();
 }
-
 /// Opt-in root validation: the actual ensureCore function launches the fake
 /// owned child through its injected launch port, then attaches again after
 /// deleting/recovering daemon.json. Neither launchCore nor a real core is used.
 #[test]
-#[ignore = "runs an owned test child and Node against an isolated temporary runtime"]
 #[allow(clippy::disallowed_types, reason = "only owned, self-terminating test helpers; no product process")]
 fn ensure_core_reattaches_after_discovery_republication() {
     use std::process::{Command, Stdio};

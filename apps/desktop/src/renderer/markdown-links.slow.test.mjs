@@ -915,12 +915,12 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       f.opened,
       paths.slice(0, 3).map((path) => [PROJECT, path, undefined])
     );
-    await f.update('D:/Project/other-conversation');
+    await f.update('D:/Sandbox/other-conversation');
     await f.click();
     await f.click(2);
     assert.deepEqual(f.local.length, 2);
-    assert.deepEqual(f.opened.at(-2), ['D:/Project/other-conversation', paths[0], undefined]);
-    assert.deepEqual(f.opened.at(-1), ['D:/Project/other-conversation', paths[2], undefined]);
+    assert.deepEqual(f.opened.at(-2), ['D:/Sandbox/other-conversation', paths[0], undefined]);
+    assert.deepEqual(f.opened.at(-1), ['D:/Sandbox/other-conversation', paths[2], undefined]);
     assert.equal(f.external.length + f.popups.length + f.toasts.length, 0);
   });
 

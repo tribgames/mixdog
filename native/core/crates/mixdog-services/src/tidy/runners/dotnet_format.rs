@@ -122,6 +122,103 @@ pub fn plan_spawns(files: &[String], cwd: &Path, per_spawn: usize) -> Vec<Spawn1
     spawns
 }
 
+/// The text Node's failed file operation carries (`EBUSY: resource busy or locked, rmdir '<path>'`), from
+/// the tree's one Node-errno formatter.
+fn failure_text(failure: &mixdog_core_base::support::FsFailure) -> String {
+    match mixdog_core_base::support::io_failure("tidy", failure) {
+        mixdog_core_api::CoreError::DomainError { message: Some(message), .. } => message.to_string(),
+        other => format!("{other:?}"),
+    }
+}
+
+/// `finally { rmSync(reportRoot, { recursive: true, force: true }) }` (`dotnet-format.mjs:229-231`): a removal
+/// that fails throws out of the runner in place of its result, and the engine runner reports a throw as the
+/// engine's error alone (`run-engines.mjs:93-96`, `:134-142`): here the result is `thrown` with the error.
+fn with_cleanup(outcome: RunnerResult, removed: Result<(), String>) -> RunnerResult {
+    match removed {
+        Ok(()) => outcome,
+        Err(message) => RunnerResult { error: Some(message), thrown: true, ..Default::default() },
+    }
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn create_report_dir(root: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(root)
+}
+
+pub struct DotnetFormat;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn report_rows_become_per_change_diagnostics() {
+        let json = "\u{feff}[{\"FilePath\":\"/r/a.cs\",\"FileChanges\":[{\"LineNumber\":3,\"CharNumber\":5,\"FormatDescription\":\"Fix whitespace\"}]},{\"FilePath\":\"/r/b.cs\",\"FileChanges\":[]}]";
+        let out = parse_dotnet_format_report(json, Path::new("/r"));
+        assert_eq!(out.changed_files, ["a.cs", "b.cs"]);
+        assert_eq!((out.diagnostics[0].line, out.diagnostics[0].col, out.diagnostics[0].message.as_str()), (3, 5, "Fix whitespace"));
+        assert_eq!(out.diagnostics[1].message, "dotnet-format would reformat this file");
+        assert!(parse_dotnet_format_report("nope", Path::new("/r")).diagnostics.is_empty());
+        assert_eq!(parse_dotnet_format_report("{\"documentReports\":[{\"filePath\":\"/r/c.cs\"}]}", Path::new("/r")).changed_files, ["c.cs"]);
+    }
+
+    #[test]
+    fn spawns_group_by_folder_and_chunk_include_lists() {
+        let files: Vec<String> = ["src/a.cs", "src/b.cs", "src/c.cs", "top.cs", "lib/x.cs"].iter().map(|s| (*s).to_owned()).collect();
+        let spawns = plan_spawns(&files, Path::new("/r"), 2);
+        let shape: Vec<(String, usize)> = spawns.iter().map(|s| (s.folder.clone(), s.files.len())).collect();
+        assert_eq!(shape, [("src".to_owned(), 2), ("src".to_owned(), 1), (".".to_owned(), 1), ("lib".to_owned(), 1)]);
+        assert_eq!(spawns[0].files, ["a.cs", "b.cs"]);
+    }
+
+    #[test]
+    fn a_missing_or_old_sdk_is_recognised() {
+        assert!(is_unsupported("Could not execute because the specified command or file was not found.", ""));
+        assert!(is_unsupported("", "Unrecognized command or argument 'whitespace'"));
+        assert!(!is_unsupported("fine", "fine"));
+        let hinted = with_install_hint(spawn_failure_result(ID, "ENOENT", false, -1, ""), false);
+        assert!(hinted.diagnostics[0].message.ends_with(INSTALL_HINT));
+    }
+}
+
+#[cfg(test)]
+mod cleanup_tests {
+    #[cfg(node_twin)]
+    use mixdog_core_base::support::{FsFailure, FsStep};
+    #[cfg(node_twin)]
+    use serde_json::Value;
+
+    use super::*;
+
+    #[test]
+    fn a_failed_report_dir_removal_replaces_the_result_with_the_thrown_error() {
+        let found = RunnerResult { changed_files: vec!["a.cs".into()], stderr_tail: "tail".into(), ..Default::default() };
+        let kept = with_cleanup(found.clone(), Ok(()));
+        assert_eq!((kept.changed_files, kept.error, kept.thrown), (vec!["a.cs".to_owned()], None, false));
+        let replaced = with_cleanup(found, Err("ENOTEMPTY: directory not empty, rmdir 'x'".into()));
+        assert_eq!((replaced.error.as_deref(), replaced.thrown), (Some("ENOTEMPTY: directory not empty, rmdir 'x'"), true));
+        assert!(replaced.changed_files.is_empty() && replaced.diagnostics.is_empty() && replaced.stderr_tail.is_empty());
+    }
+
+
+    #[cfg(node_twin)]
+    fn golden() -> Value {
+        serde_json::from_str(include_str!("../../../../../fixtures/dotnet-format-cleanup/golden.json")).unwrap()
+    }
+    /// Node's real runner with `rmSync` of the report directory failing (`record-dotnet-format-cleanup.mjs`):
+    /// the error's text, from the same errno and the same call.
+    #[cfg(node_twin)]
+    #[test]
+    fn the_cleanup_failure_reads_as_nodes_error_does() {
+        let node = golden()["failedCleanup"]["error"].clone();
+        let failure = FsFailure { error: std::io::ErrorKind::DirectoryNotEmpty.into(), step: FsStep::Rmdir(std::path::PathBuf::from("<report>")) };
+        assert_eq!(failure_text(&failure), node["message"].as_str().unwrap());
+        assert!(node["message"].as_str().unwrap().starts_with(&format!("{}:", node["code"].as_str().unwrap())));
+    }
+}
+
+
 async fn invoke(req: &RunRequest, verify: bool) -> RunnerResult {
     let spawns = plan_spawns(&req.files, &req.cwd, req.files_per_spawn);
     if spawns.is_empty() {
@@ -181,33 +278,6 @@ async fn invoke(req: &RunRequest, verify: bool) -> RunnerResult {
     };
     with_cleanup(outcome, removed)
 }
-
-/// The text Node's failed file operation carries (`EBUSY: resource busy or locked, rmdir '<path>'`), from
-/// the tree's one Node-errno formatter.
-fn failure_text(failure: &mixdog_core_base::support::FsFailure) -> String {
-    match mixdog_core_base::support::io_failure("tidy", failure) {
-        mixdog_core_api::CoreError::DomainError { message: Some(message), .. } => message.to_string(),
-        other => format!("{other:?}"),
-    }
-}
-
-/// `finally { rmSync(reportRoot, { recursive: true, force: true }) }` (`dotnet-format.mjs:229-231`): a removal
-/// that fails throws out of the runner in place of its result, and the engine runner reports a throw as the
-/// engine's error alone (`run-engines.mjs:93-96`, `:134-142`): here the result is `thrown` with the error.
-fn with_cleanup(outcome: RunnerResult, removed: Result<(), String>) -> RunnerResult {
-    match removed {
-        Ok(()) => outcome,
-        Err(message) => RunnerResult { error: Some(message), thrown: true, ..Default::default() },
-    }
-}
-
-#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
-fn create_report_dir(root: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(root)
-}
-
-pub struct DotnetFormat;
-
 #[async_trait]
 impl Runner for DotnetFormat {
     fn id(&self) -> &'static str {
@@ -218,71 +288,5 @@ impl Runner for DotnetFormat {
     }
     async fn fix(&self, req: &RunRequest) -> RunnerResult {
         invoke(req, false).await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn report_rows_become_per_change_diagnostics() {
-        let json = "\u{feff}[{\"FilePath\":\"/r/a.cs\",\"FileChanges\":[{\"LineNumber\":3,\"CharNumber\":5,\"FormatDescription\":\"Fix whitespace\"}]},{\"FilePath\":\"/r/b.cs\",\"FileChanges\":[]}]";
-        let out = parse_dotnet_format_report(json, Path::new("/r"));
-        assert_eq!(out.changed_files, ["a.cs", "b.cs"]);
-        assert_eq!((out.diagnostics[0].line, out.diagnostics[0].col, out.diagnostics[0].message.as_str()), (3, 5, "Fix whitespace"));
-        assert_eq!(out.diagnostics[1].message, "dotnet-format would reformat this file");
-        assert!(parse_dotnet_format_report("nope", Path::new("/r")).diagnostics.is_empty());
-        assert_eq!(parse_dotnet_format_report("{\"documentReports\":[{\"filePath\":\"/r/c.cs\"}]}", Path::new("/r")).changed_files, ["c.cs"]);
-    }
-
-    #[test]
-    fn spawns_group_by_folder_and_chunk_include_lists() {
-        let files: Vec<String> = ["src/a.cs", "src/b.cs", "src/c.cs", "top.cs", "lib/x.cs"].iter().map(|s| (*s).to_owned()).collect();
-        let spawns = plan_spawns(&files, Path::new("/r"), 2);
-        let shape: Vec<(String, usize)> = spawns.iter().map(|s| (s.folder.clone(), s.files.len())).collect();
-        assert_eq!(shape, [("src".to_owned(), 2), ("src".to_owned(), 1), (".".to_owned(), 1), ("lib".to_owned(), 1)]);
-        assert_eq!(spawns[0].files, ["a.cs", "b.cs"]);
-    }
-
-    #[test]
-    fn a_missing_or_old_sdk_is_recognised() {
-        assert!(is_unsupported("Could not execute because the specified command or file was not found.", ""));
-        assert!(is_unsupported("", "Unrecognized command or argument 'whitespace'"));
-        assert!(!is_unsupported("fine", "fine"));
-        let hinted = with_install_hint(spawn_failure_result(ID, "ENOENT", false, -1, ""), false);
-        assert!(hinted.diagnostics[0].message.ends_with(INSTALL_HINT));
-    }
-}
-
-#[cfg(test)]
-mod cleanup_tests {
-    use mixdog_core_base::support::{FsFailure, FsStep};
-    use serde_json::Value;
-
-    use super::*;
-
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../../fixtures/dotnet-format-cleanup/golden.json")).unwrap()
-    }
-
-    /// Node's real runner with `rmSync` of the report directory failing (`record-dotnet-format-cleanup.mjs`):
-    /// the error's text, from the same errno and the same call.
-    #[test]
-    fn the_cleanup_failure_reads_as_nodes_error_does() {
-        let node = golden()["failedCleanup"]["error"].clone();
-        let failure = FsFailure { error: std::io::ErrorKind::DirectoryNotEmpty.into(), step: FsStep::Rmdir(std::path::PathBuf::from("<report>")) };
-        assert_eq!(failure_text(&failure), node["message"].as_str().unwrap());
-        assert!(node["message"].as_str().unwrap().starts_with(&format!("{}:", node["code"].as_str().unwrap())));
-    }
-
-    #[test]
-    fn a_failed_report_dir_removal_replaces_the_result_with_the_thrown_error() {
-        let found = RunnerResult { changed_files: vec!["a.cs".into()], stderr_tail: "tail".into(), ..Default::default() };
-        let kept = with_cleanup(found.clone(), Ok(()));
-        assert_eq!((kept.changed_files, kept.error, kept.thrown), (vec!["a.cs".to_owned()], None, false));
-        let replaced = with_cleanup(found, Err("ENOTEMPTY: directory not empty, rmdir 'x'".into()));
-        assert_eq!((replaced.error.as_deref(), replaced.thrown), (Some("ENOTEMPTY: directory not empty, rmdir 'x'"), true));
-        assert!(replaced.changed_files.is_empty() && replaced.diagnostics.is_empty() && replaced.stderr_tail.is_empty());
     }
 }

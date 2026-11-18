@@ -53,16 +53,6 @@ pub fn is_scrubbed(name: &str) -> bool {
         || RUNTIME_VARS.contains(&name)
 }
 
-/// `envFlag`: unset, empty or unrecognised keeps `fallback`; only the documented spellings flip it.
-pub fn env_flag(name: &str, fallback: bool) -> bool {
-    let Ok(raw) = std::env::var(name) else { return fallback };
-    match mixdog_js::js_trim(&raw).to_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => true,
-        "0" | "false" | "off" | "no" => false,
-        _ => fallback,
-    }
-}
-
 /// `<data>/scratch/s.<sha256(id)[..16]>`, or `None` for an id that is not `[A-Za-z0-9_-]+`.
 pub fn session_scratch_dir(data_dir: &Path, session_id: &str) -> Option<PathBuf> {
     let usable = !session_id.is_empty()
@@ -181,5 +171,16 @@ mod tests {
         assert_eq!(dir.file_name().unwrap().to_str().unwrap().len(), 2 + 16);
         assert!(session_scratch_dir(Path::new("/d"), "bad id").is_none());
         assert!(session_scratch_dir(Path::new("/d"), "").is_none());
+    }
+}
+
+
+/// `envFlag`: unset, empty or unrecognised keeps `fallback`; only the documented spellings flip it.
+pub fn env_flag(name: &str, fallback: bool) -> bool {
+    let Ok(raw) = std::env::var(name) else { return fallback };
+    match mixdog_js::js_trim(&raw).to_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => true,
+        "0" | "false" | "off" | "no" => false,
+        _ => fallback,
     }
 }

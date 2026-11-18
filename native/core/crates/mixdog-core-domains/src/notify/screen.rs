@@ -115,18 +115,66 @@ mod tests {
         assert!(!screen.shows("a"));
     }
 
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/remote-viewing/golden.json");
-
     /// The sessions `hostState.remoteViewing` names, as the desktop reads them.
+    #[cfg(node_twin)]
     fn viewed(registry: &DeviceRegistry) -> Vec<String> {
         let published = crate::domains::host::remote_viewing_value(registry);
         published["sessionIds"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect()
     }
 
+    /// JS `String(item || '')`, as remote-protocol-screen.ts reads each id the page gave.
+    fn page_ids(value: Option<&Value>) -> Value {
+        let Some(items) = value.and_then(Value::as_array) else { return json!([]) };
+        items
+            .iter()
+            .map(|item| match item {
+                Value::String(text) => text.clone(),
+                Value::Number(number) if number.as_f64() != Some(0.0) => number.to_string(),
+                Value::Bool(true) => "true".to_owned(),
+                _ => String::new(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_phone_reports_into_the_registry_and_never_into_the_desktops_set() {
+        let registry = Arc::new(DeviceRegistry::default());
+        let screen = ScreenSessions::new(registry.clone());
+        registry.connect_local(1, "desk", mixdog_remote::registry::LocalKind::Desktop);
+        registry.connect_relay(2, "peer-a");
+        registry.attach_peer("peer-a", "cred-a", "Pixel", "Safari");
+        send(&screen, 1, json!(["desk-thread"]));
+        screen.notify(
+            Method(CHANGED),
+            json!({ "sessionIds": ["phone-thread"], "browserId": "x".repeat(70) }),
+            ConnectionId(2),
+        );
+        assert!(screen.shows("desk-thread") && !screen.shows("phone-thread"), "the phone does not touch the host's set");
+        assert!(registry.credential_shows("cred-a", "phone-thread"));
+        assert!(!registry.credential_shows("cred-b", "phone-thread"));
+        // Any paired device (`visualizeRemoteViewing`), not the desktop's own set.
+        assert!(registry.any_device_shows("phone-thread") && !registry.any_device_shows("desk-thread"));
+        // The browser id is its own identity: clipped to 64 units, and no credential answers to it.
+        assert!(registry.browser_shows(&"x".repeat(64), "phone-thread"));
+        assert!(!registry.browser_shows("cred-a", "phone-thread"));
+        // A set without a browser id keeps the one stated before; an empty set shows nothing.
+        send(&screen, 2, json!([]));
+        assert!(!registry.credential_shows("cred-a", "phone-thread"));
+        send(&screen, 2, json!(["t2"]));
+        assert!(registry.browser_shows(&"x".repeat(64), "t2"));
+        // A phone that left shows nothing, even before its connection record goes.
+        registry.detach_peer("peer-a");
+        assert!(!registry.credential_shows("cred-a", "t2") && !registry.any_device_shows("t2"));
+    }
+
+
+    #[cfg(node_twin)]
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/remote-viewing/golden.json");
     /// Node's `clientViewsSessionLane` for the visualize lane, recorded over its whole input domain
     /// (`fixtures/remote-viewing/golden.json`, recorded from `b6f10295a`): one phone, with or without a live channel,
     /// in the foreground or not, with each set of reported panels. Node reads `lanes` and `visibleSessionIds` too
     /// and ignores them for this lane; the notification carries neither, and still agrees with every row.
+    #[cfg(node_twin)]
     #[test]
     fn one_phone_counts_as_viewing_a_visualize_panel_exactly_when_node_counts_it() {
         let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
@@ -148,9 +196,9 @@ mod tests {
             assert_eq!(viewed(&registry).contains(&session), row["views"].as_bool().unwrap(), "{row}");
         }
     }
-
     /// The real Node relay handle after each call of two or three phones, a `client-close` and a lost leg: the sessions
     /// `viewsSessionLane` said are viewed are the sessions the core publishes as `remoteViewing`.
+    #[cfg(node_twin)]
     #[test]
     fn remote_viewing_follows_the_phones_calls_as_nodes_relay_does() {
         let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
@@ -196,59 +244,12 @@ mod tests {
             }
         }
     }
-
-    #[test]
-    fn a_phone_reports_into_the_registry_and_never_into_the_desktops_set() {
-        let registry = Arc::new(DeviceRegistry::default());
-        let screen = ScreenSessions::new(registry.clone());
-        registry.connect_local(1, "desk", mixdog_remote::registry::LocalKind::Desktop);
-        registry.connect_relay(2, "peer-a");
-        registry.attach_peer("peer-a", "cred-a", "Pixel", "Safari");
-        send(&screen, 1, json!(["desk-thread"]));
-        screen.notify(
-            Method(CHANGED),
-            json!({ "sessionIds": ["phone-thread"], "browserId": "x".repeat(70) }),
-            ConnectionId(2),
-        );
-        assert!(screen.shows("desk-thread") && !screen.shows("phone-thread"), "the phone does not touch the host's set");
-        assert!(registry.credential_shows("cred-a", "phone-thread"));
-        assert!(!registry.credential_shows("cred-b", "phone-thread"));
-        // Any paired device (`visualizeRemoteViewing`), not the desktop's own set.
-        assert!(registry.any_device_shows("phone-thread") && !registry.any_device_shows("desk-thread"));
-        // The browser id is its own identity: clipped to 64 units, and no credential answers to it.
-        assert!(registry.browser_shows(&"x".repeat(64), "phone-thread"));
-        assert!(!registry.browser_shows("cred-a", "phone-thread"));
-        // A set without a browser id keeps the one stated before; an empty set shows nothing.
-        send(&screen, 2, json!([]));
-        assert!(!registry.credential_shows("cred-a", "phone-thread"));
-        send(&screen, 2, json!(["t2"]));
-        assert!(registry.browser_shows(&"x".repeat(64), "t2"));
-        // A phone that left shows nothing, even before its connection record goes.
-        registry.detach_peer("peer-a");
-        assert!(!registry.credential_shows("cred-a", "t2") && !registry.any_device_shows("t2"));
-    }
-
-    const PLUMBING: &str = include_str!("../../../../../../apps/mobile/fixtures/phone-plumbing/golden.json");
-
-    /// JS `String(item || '')`, as remote-protocol-screen.ts reads each id the page gave.
-    fn page_ids(value: Option<&Value>) -> Value {
-        let Some(items) = value.and_then(Value::as_array) else { return json!([]) };
-        items
-            .iter()
-            .map(|item| match item {
-                Value::String(text) => text.clone(),
-                Value::Number(number) if number.as_f64() != Some(0.0) => number.to_string(),
-                Value::Bool(true) => "true".to_owned(),
-                _ => String::new(),
-            })
-            .collect()
-    }
-
+        const PLUMBING: &str = include_str!("../../../../../../apps/mobile/fixtures/phone-plumbing/golden.json");
     /// The phone's relay plumbing calls (list 1 unit G, recorded from Node's relay dispatch: apps/mobile/fixtures/phone-plumbing,
     /// benchmarks/rust-core/recorders/record-phone-plumbing.mjs), sent as remote-protocol-screen.ts sends them: after each, the
     /// sessions a push is held back for (by credential and by browser id) and the visualize panels viewed are Node's. The push
     /// columns are not readable over the protocol, so the mixdogd replay of the same recording compares the rest.
-    #[test]
+        #[test]
     fn the_phones_plumbing_calls_decide_what_nodes_relay_decided() {
         let golden: Value = serde_json::from_str(PLUMBING).unwrap();
         let credential = golden["credential"].as_str().unwrap();

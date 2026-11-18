@@ -41,7 +41,7 @@ const SCHEDULES = [
   {
     name: 'new-issues',
     whenCron: '0 10 * * 1-5',
-    cwd: 'C:\\Project\\mixdog',
+    cwd: 'C:\\Project\\sample',
     enabled: true,
     owner: 'lead',
     nextFireAt: '2030-01-07T10:00:00.000Z',
@@ -67,7 +67,7 @@ test('routine rows are the schedules the agent owns, ownerless ones belonging to
       [
         'new-issues',
         true,
-        'mixdog',
+        'sample',
         Date.parse('2030-01-07T10:00:00.000Z'),
         { at: Date.parse('2030-01-03T10:00:00.000Z'), ok: true },
       ],

@@ -36,6 +36,8 @@ const RECLAIM_GUARD_FILE: &str = "daemon-owner.json.claim.lock.reclaim";
 /// Outside 1.4.5's staged-file sweep pattern `^(reclaim\.)?\d+\.[0-9a-f]{16}\.tmp$`.
 const BARRIER_STAGING_FILE: &str = "daemon-owner.json.claim.lock.v2-staging";
 const RECORD_STAGING_FILE: &str = "daemon-owner.json.v2-staging";
+pub(crate) const PRIOR_RECORD_FILE: &str = "daemon-owner.json.v2-prior-record";
+const PRIOR_RECORD_STAGING_FILE: &str = "daemon-owner.json.v2-prior-record-staging";
 
 /// Finite, positive, and not a 32-bit integer: `process.kill` rejects it with
 /// `ERR_INVALID_ARG_TYPE`, which 1.4.5 judges "live" forever.
@@ -148,7 +150,8 @@ fn js_parse_int(token: &str) -> Option<u64> {
 pub struct BarrierRecord {
     /// The installing core's version.
     pub version: String,
-    /// The update message 1.4.5 shows as the owner's pid ([copy]).
+    /// The update message 1.4.5 shows as the owner's pid ([copy]). Deliberate: a 1.4.5 daemon start prints `claim.owner.pid`
+    /// ("live peer holds owner lock (pid=…)", fixture `daemon-start-against-barrier.json`), and it is the only field it prints.
     pub update_text: String,
 }
 
@@ -264,8 +267,14 @@ impl HeldClaim {
         self,
         lane: &InLane<L>,
         record: &BarrierRecord,
+        displaced: Option<&[u8]>,
     ) -> io::Result<()> {
         let dir = self.own.data_dir();
+        if let Some(displaced) = displaced {
+            // A cut between the two publications must not turn a manual
+            // release into permanent permission to ignore a live owner.
+            publish_durable(lane, dir, PRIOR_RECORD_STAGING_FILE, PRIOR_RECORD_FILE, displaced)?;
+        }
         publish_durable(
             lane,
             dir,
@@ -415,7 +424,7 @@ fn reclaim<L: WriteLane>(
 }
 
 /// Replaces `target` with `content` durably: staged, synced, renamed, directory synced.
-fn publish_durable<L: WriteLane>(
+pub(crate) fn publish_durable<L: WriteLane>(
     lane: &InLane<L>,
     dir: &DataDir,
     staging: &str,

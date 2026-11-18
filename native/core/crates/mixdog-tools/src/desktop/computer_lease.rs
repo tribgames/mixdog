@@ -111,74 +111,11 @@ pub(super) struct Relay {
 /// The owner's facts by action id, in the order they came.
 type Facts = Arc<Mutex<Vec<(i64, Value)>>>;
 
-impl Relay {
-    /// The relay of the helper `handle` runs under `manager`, whose requests in flight are `pending`.
-    pub(super) fn new(manager: Arc<dyn ProcessManager>, handle: ProcessHandle, pending: Pending, desktop: Option<Arc<dyn HostChannel>>) -> Self {
-        let facts = Facts::default();
-        let inbox = tokio::runtime::Handle::try_current().ok().map(|runtime| {
-            let (send, receive) = mpsc::unbounded_channel();
-            runtime.spawn(serve(receive, manager, handle, desktop, facts.clone()));
-            send
-        });
-        Self { pending, inbox, facts }
-    }
-
-    /// The owner's facts for `action`, once: the reply of that action carries them (`worker-pool.ts` `takeFacts`).
-    pub(super) fn take_facts(&self, action: i64) -> Option<Value> {
-        let mut facts = self.facts.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let at = facts.iter().position(|(id, _)| *id == action)?;
-        Some(facts.remove(at).1)
-    }
-
-    /// One lease line, without its prefix. A line that is not a well-formed ask of a request in flight is ignored, never a
-    /// failure of the request (`handle`: `!worker.owns(line.action)`).
-    pub(super) fn on_line(&self, body: &str) {
-        let Some(ask) = parse(body) else { return };
-        let in_flight = self.pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).contains_key(&i64::from(ask.action()));
-        if let (true, Some(inbox)) = (in_flight, &self.inbox) {
-            let _ = inbox.send(Message::Ask(ask));
-        }
-    }
-}
-
 impl Drop for Relay {
     /// The helper is gone: a lease it holds ends now (`workerGone`).
     fn drop(&mut self) {
         if let Some(inbox) = &self.inbox {
             let _ = inbox.send(Message::Gone);
-        }
-    }
-}
-
-/// Answers the helper's asks one at a time, as they came.
-async fn serve(
-    mut inbox: mpsc::UnboundedReceiver<Message>,
-    manager: Arc<dyn ProcessManager>,
-    handle: ProcessHandle,
-    desktop: Option<Arc<dyn HostChannel>>,
-    facts: Facts,
-) {
-    let mut asked = false;
-    while let Some(message) = inbox.recv().await {
-        match message {
-            Message::Ask(ask) => {
-                asked = true;
-                let answer = ask_desktop(desktop.as_ref(), ask.params(&handle.0)).await;
-                if let Answer::Result(result) = &answer
-                    && let Some(given) = result.get("facts").filter(|given| given.is_object())
-                {
-                    file(&facts, i64::from(ask.action()), given.clone());
-                }
-                let line = reply(&ask, answer);
-                let _ = manager.write_stdin(&handle, line.into_bytes()).await;
-            }
-            Message::Gone => {
-                if asked {
-                    let gone = json!({"op": "gone", "instance": handle.0, "action": 0, "seq": 0, "holdMs": 0, "answerBy": 0, "lease": 0});
-                    let _ = ask_desktop(desktop.as_ref(), gone).await;
-                }
-                return;
-            }
         }
     }
 }
@@ -201,14 +138,6 @@ enum Answer {
     Unserved,
     /// The desktop did not answer: an error, or past the wait.
     Lost,
-}
-
-async fn ask_desktop(desktop: Option<&Arc<dyn HostChannel>>, params: Value) -> Answer {
-    let Some(desktop) = desktop.filter(|desktop| desktop.serves(HostCapability::Computer)) else { return Answer::Unserved };
-    match mixdog_rt::time::timeout(ASK_TIMEOUT, desktop.request(HostCapability::Computer, Method(METHOD), params)).await {
-        Ok(Ok(result)) => Answer::Result(result),
-        _ => Answer::Lost,
-    }
 }
 
 /// The helper's reply line to `ask` (`foreground-lock-host.ts` `answer` and `released`). An acquire the desktop cannot lease
@@ -335,12 +264,22 @@ mod tests {
         Rig { relay: Some(relay), stdin, asked }
     }
 
+    const ACQUIRE: &str = r#"{"op":"acquire","action":7,"seq":3,"hold_ms":200,"answer_by":5.5}"#;
+
+    #[test]
+    fn the_owner_is_available_when_the_desktop_serves_computer() {
+        let (asked, _) = mpsc::unbounded_channel();
+        let serving: Arc<dyn HostChannel> = Arc::new(Desktop { serving: true, answers: Mutex::default(), asked: asked.clone() });
+        let absent: Arc<dyn HostChannel> = Arc::new(Desktop { serving: false, answers: Mutex::default(), asked });
+        assert!(owner_available(Some(&serving)));
+        assert!(!owner_available(Some(&absent)));
+        assert!(!owner_available(None));
+    }
+
+
     async fn next<T>(channel: &mut mpsc::UnboundedReceiver<T>) -> T {
         mixdog_rt::time::timeout(Duration::from_secs(5), channel.recv()).await.expect("in time").expect("sent")
     }
-
-    const ACQUIRE: &str = r#"{"op":"acquire","action":7,"seq":3,"hold_ms":200,"answer_by":5.5}"#;
-
     #[tokio::test]
     async fn an_acquire_is_forwarded_and_answered_on_stdin_in_the_helpers_format() {
         let ack = json!({"kind": "ack", "answer": "locked", "lease": 4, "deadlineAt": 12.3456, "facts": {"holder": "host"}});
@@ -363,7 +302,6 @@ mod tests {
         assert_eq!(relay.take_facts(7), Some(json!({"holder": "host", "release": "released"})));
         assert_eq!(relay.take_facts(7), None);
     }
-
     /// Lines that are not a well-formed ask of a request in flight are dropped without a word to the desktop or the helper.
     #[tokio::test]
     async fn malformed_out_of_range_and_not_in_flight_lines_are_ignored() {
@@ -395,7 +333,6 @@ mod tests {
         assert_eq!(next(&mut rig.stdin).await, "@@MIXDOG_FGLOCK_REPLY@@ack 7 3 0 refused 0.000\n");
         assert!(rig.asked.try_recv().is_err() && rig.stdin.try_recv().is_err());
     }
-
     #[tokio::test]
     async fn without_a_desktop_that_serves_computer_the_answer_is_unavailable() {
         let mut rig = rig(false, Vec::new());
@@ -406,7 +343,6 @@ mod tests {
         assert_eq!(next(&mut rig.stdin).await, "@@MIXDOG_FGLOCK_REPLY@@released 7 4 0 none\n");
         assert!(rig.asked.try_recv().is_err());
     }
-
     /// A desktop error or an answer the helper could not read is `unavailable` for an acquire and `unknown` for a release.
     #[tokio::test]
     async fn a_failed_or_unreadable_desktop_answer_is_the_unavailable_ack() {
@@ -420,7 +356,6 @@ mod tests {
         relay.on_line(r#"{"op":"release","action":7,"seq":4,"lease":2}"#);
         assert_eq!(next(&mut rig.stdin).await, "@@MIXDOG_FGLOCK_REPLY@@released 7 4 2 unknown\n");
     }
-
     /// The helper's exit tells the desktop it is gone, but only when it ever asked.
     #[tokio::test]
     async fn the_helpers_exit_sends_gone_once_it_has_asked() {
@@ -437,14 +372,74 @@ mod tests {
         mixdog_rt::time::sleep(Duration::from_millis(50)).await;
         assert!(silent.asked.try_recv().is_err());
     }
+}
 
-    #[test]
-    fn the_owner_is_available_when_the_desktop_serves_computer() {
-        let (asked, _) = mpsc::unbounded_channel();
-        let serving: Arc<dyn HostChannel> = Arc::new(Desktop { serving: true, answers: Mutex::default(), asked: asked.clone() });
-        let absent: Arc<dyn HostChannel> = Arc::new(Desktop { serving: false, answers: Mutex::default(), asked });
-        assert!(owner_available(Some(&serving)));
-        assert!(!owner_available(Some(&absent)));
-        assert!(!owner_available(None));
+
+impl Relay {
+    /// The relay of the helper `handle` runs under `manager`, whose requests in flight are `pending`.
+    pub(super) fn new(manager: Arc<dyn ProcessManager>, handle: ProcessHandle, pending: Pending, desktop: Option<Arc<dyn HostChannel>>) -> Self {
+        let facts = Facts::default();
+        let inbox = tokio::runtime::Handle::try_current().ok().map(|runtime| {
+            let (send, receive) = mpsc::unbounded_channel();
+            runtime.spawn(serve(receive, manager, handle, desktop, facts.clone()));
+            send
+        });
+        Self { pending, inbox, facts }
+    }
+
+    /// The owner's facts for `action`, once: the reply of that action carries them (`worker-pool.ts` `takeFacts`).
+    pub(super) fn take_facts(&self, action: i64) -> Option<Value> {
+        let mut facts = self.facts.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let at = facts.iter().position(|(id, _)| *id == action)?;
+        Some(facts.remove(at).1)
+    }
+
+    /// One lease line, without its prefix. A line that is not a well-formed ask of a request in flight is ignored, never a
+    /// failure of the request (`handle`: `!worker.owns(line.action)`).
+    pub(super) fn on_line(&self, body: &str) {
+        let Some(ask) = parse(body) else { return };
+        let in_flight = self.pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).contains_key(&i64::from(ask.action()));
+        if let (true, Some(inbox)) = (in_flight, &self.inbox) {
+            let _ = inbox.send(Message::Ask(ask));
+        }
+    }
+}
+/// Answers the helper's asks one at a time, as they came.
+async fn serve(
+    mut inbox: mpsc::UnboundedReceiver<Message>,
+    manager: Arc<dyn ProcessManager>,
+    handle: ProcessHandle,
+    desktop: Option<Arc<dyn HostChannel>>,
+    facts: Facts,
+) {
+    let mut asked = false;
+    while let Some(message) = inbox.recv().await {
+        match message {
+            Message::Ask(ask) => {
+                asked = true;
+                let answer = ask_desktop(desktop.as_ref(), ask.params(&handle.0)).await;
+                if let Answer::Result(result) = &answer
+                    && let Some(given) = result.get("facts").filter(|given| given.is_object())
+                {
+                    file(&facts, i64::from(ask.action()), given.clone());
+                }
+                let line = reply(&ask, answer);
+                let _ = manager.write_stdin(&handle, line.into_bytes()).await;
+            }
+            Message::Gone => {
+                if asked {
+                    let gone = json!({"op": "gone", "instance": handle.0, "action": 0, "seq": 0, "holdMs": 0, "answerBy": 0, "lease": 0});
+                    let _ = ask_desktop(desktop.as_ref(), gone).await;
+                }
+                return;
+            }
+        }
+    }
+}
+async fn ask_desktop(desktop: Option<&Arc<dyn HostChannel>>, params: Value) -> Answer {
+    let Some(desktop) = desktop.filter(|desktop| desktop.serves(HostCapability::Computer)) else { return Answer::Unserved };
+    match mixdog_rt::time::timeout(ASK_TIMEOUT, desktop.request(HostCapability::Computer, Method(METHOD), params)).await {
+        Ok(Ok(result)) => Answer::Result(result),
+        _ => Answer::Lost,
     }
 }

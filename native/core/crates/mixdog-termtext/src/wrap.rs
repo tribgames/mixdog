@@ -83,7 +83,7 @@ struct EscapeMatch<'a> {
 #[derive(Debug, Clone, Copy)]
 enum Segment<'a> {
     Plain(&'a str),
-    Escape(&'a str, EscapeKind<'a>),
+    Escape(&'a str),
 }
 
 fn is_control(ch: char) -> bool {
@@ -177,7 +177,7 @@ fn segments(text: &str) -> Vec<Segment<'_>> {
         if at > plain_start {
             out.push(Segment::Plain(&text[plain_start..at]));
         }
-        out.push(Segment::Escape(&text[at..at + found.len], found.kind));
+        out.push(Segment::Escape(&text[at..at + found.len]));
         index = at + found.len;
         plain_start = index;
     }
@@ -223,7 +223,7 @@ fn get_tokens(text: &str) -> Vec<Token> {
                     width: get_string_width(cluster),
                 }));
             }
-            Segment::Escape(code, _) => tokens.push(Token { value: code.to_owned(), width: 0 }),
+            Segment::Escape(code) => tokens.push(Token { value: code.to_owned(), width: 0 }),
         }
     }
     tokens
@@ -252,7 +252,7 @@ fn split_words(text: &str) -> Vec<Word> {
                     words.push(Word { value: piece.to_owned(), plain_text: piece.to_owned(), width: 0 });
                 }
             }
-            Segment::Escape(code, _) => {
+            Segment::Escape(code) => {
                 if let Some(current) = words.last_mut() {
                     current.value.push_str(code);
                 }
@@ -540,7 +540,7 @@ fn trim_spaces_right(row: &str) -> String {
         .into_iter()
         .map(|segment| match segment {
             Segment::Plain(part) => (part.to_owned(), false),
-            Segment::Escape(code, _) => (code.to_owned(), true),
+            Segment::Escape(code) => (code.to_owned(), true),
         })
         .collect();
     for (value, is_escape) in parts.iter_mut().rev() {
@@ -579,7 +579,7 @@ fn expand_tabs(line: &str) -> String {
                     }
                 }
             }
-            Segment::Escape(code, _) => expanded.push_str(code),
+            Segment::Escape(code) => expanded.push_str(code),
         }
     }
     expanded
@@ -681,7 +681,7 @@ fn normalize_text(text: &str) -> String {
     for segment in segments(text) {
         match segment {
             Segment::Plain(part) => out.extend(part.nfc()),
-            Segment::Escape(code, _) => out.push_str(code),
+            Segment::Escape(code) => out.push_str(code),
         }
     }
     out

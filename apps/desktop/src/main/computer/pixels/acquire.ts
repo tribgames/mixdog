@@ -281,11 +281,14 @@ function failure(
   );
 }
 
-/** The pixels of the target, from the first backend that yields some. The failure carries every attempt. */
+/** The pixels of the target, from the first backend that yields some. The failure carries every attempt. `commit` (the automation
+ *  scope's) runs before each attempt, every fallback included, and again once pixels came back: its throw ends the capture, so no
+ *  attempt starts and no pixels are returned once the scope is revoked or Computer Use is off. */
 export async function acquirePixels(
   sources: PixelSources,
   request: PixelRequest,
   signal?: AbortSignal,
+  commit?: () => void,
 ): Promise<AcquiredPixels> {
   const entries = entriesFor(sources, request);
   const attempts: PixelAttempt[] = [];
@@ -296,24 +299,28 @@ export async function acquirePixels(
         "the capture was cancelled",
         attempts,
       );
+    commit?.();
+    let acquired: Awaited<ReturnType<typeof entry.run>>;
     try {
-      const { image, source } = await entry.run();
-      if (image.isEmpty())
+      acquired = await entry.run();
+      if (acquired.image.isEmpty())
         throw new Error("empty_frame: the capturer returned no pixels");
-      attempts.push({ backend: entry.backend, ok: true });
-      return {
-        image: fitImage(image, request.maxWidth, request.maxHeight),
-        source,
-        backend: entry.backend,
-        attempts,
-      };
     } catch (error) {
       attempts.push({
         backend: entry.backend,
         ok: false,
         reason: reasonOf(error),
       });
+      continue;
     }
+    commit?.();
+    attempts.push({ backend: entry.backend, ok: true });
+    return {
+      image: fitImage(acquired.image, request.maxWidth, request.maxHeight),
+      source: acquired.source,
+      backend: entry.backend,
+      attempts,
+    };
   }
   throw failure(sources, request, attempts);
 }

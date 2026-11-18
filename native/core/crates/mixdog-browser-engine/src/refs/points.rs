@@ -75,6 +75,7 @@ pub async fn with_covered_guidance(
     match host.snapshot(params, cancel).await {
         Ok(fresh) => RefError::Failed(covered_message(message, Some(&format(&fresh)))),
         Err(HostCallError::Cancelled) => RefError::Host(HostCallError::Cancelled),
+        Err(HostCallError::ConnectionLost) => RefError::Host(HostCallError::ConnectionLost),
         Err(_) => RefError::Failed(covered_message(message, None)),
     }
 }

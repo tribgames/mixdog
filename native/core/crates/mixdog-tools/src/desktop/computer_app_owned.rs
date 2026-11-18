@@ -549,27 +549,6 @@ mod tests {
         assert!(!windows.window("hwnd:0xab").is_some());
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn the_desktops_effects_are_the_steps_outcomes() {
-        let ask = |answer: Value| {
-            let desk = Desk::new(Ok(answer));
-            async move { app_input(&*desk, "t", "hwnd:0xab", AppInputOp::Type { text: "x".into(), point: Some((1.0, 1.0)) }, &CancellationToken::new()).await }
-        };
-        let unconfirmed = ask(json!({ "delivered": false, "effect": "not_editable", "evidence": { "editable": false } })).await.expect("a row");
-        assert_eq!(unconfirmed["code"], "typing_target_unconfirmed");
-        assert_eq!(unconfirmed["delivery_accepted"], false);
-        assert_eq!(unconfirmed["input_may_have_executed"], true);
-        assert_eq!(unconfirmed["path"], "electron_typing_target_check");
-        assert_eq!(unconfirmed["evidence"], json!({ "editable": false }));
-        let gone = ask(json!({ "delivered": false, "effect": "window_gone" })).await.expect_err("gone");
-        assert!(matches!(&gone, ComputerError::Failed { message, .. } if message.starts_with("computer_window_gone")));
-        assert!(!falls_back(&gone));
-        assert!(ask(json!({ "delivered": false, "effect": "refused" })).await.is_err());
-        let unmappable = ask(json!({ "delivered": false, "effect": "refused", "code": "background_unsupported", "text": "background_unsupported: key {Zork} has no Electron input mapping; no input was sent" })).await.expect_err("refused");
-        assert!(matches!(&unmappable, ComputerError::Failed { message, .. } if crate::desktop::computer_recovery::lead_code(message) == "background_unsupported"));
-        assert!(!falls_back(&unmappable), "the helper is not tried after a refusal");
-    }
-
     /// `preparatoryClickFailure`: the click's code and words, and whether input may have gone out, are the row's.
     #[tokio::test(start_paused = true)]
     async fn an_unconfirmed_preparatory_click_is_a_row_with_the_clicks_code() {
@@ -624,5 +603,27 @@ mod tests {
         assert!(owned.unmapped_key(&object(json!({ "action": "key", "keys": "{INSERT}" })), "hwnd:0x2").is_none());
         assert!(owned.unmapped_key(&object(json!({ "action": "key", "keys": "{INSERT}", "delivery": "foreground" })), "hwnd:0x1").is_none());
         assert!(owned.unmapped_key(&object(json!({ "action": "type", "text": "{INSERT}" })), "hwnd:0x1").is_none());
+    }
+
+
+    #[tokio::test(start_paused = true)]
+    async fn the_desktops_effects_are_the_steps_outcomes() {
+        let ask = |answer: Value| {
+            let desk = Desk::new(Ok(answer));
+            async move { app_input(&*desk, "t", "hwnd:0xab", AppInputOp::Type { text: "x".into(), point: Some((1.0, 1.0)) }, &CancellationToken::new()).await }
+        };
+        let unconfirmed = ask(json!({ "delivered": false, "effect": "not_editable", "evidence": { "editable": false } })).await.expect("a row");
+        assert_eq!(unconfirmed["code"], "typing_target_unconfirmed");
+        assert_eq!(unconfirmed["delivery_accepted"], false);
+        assert_eq!(unconfirmed["input_may_have_executed"], true);
+        assert_eq!(unconfirmed["path"], "electron_typing_target_check");
+        assert_eq!(unconfirmed["evidence"], json!({ "editable": false }));
+        let gone = ask(json!({ "delivered": false, "effect": "window_gone" })).await.expect_err("gone");
+        assert!(matches!(&gone, ComputerError::Failed { message, .. } if message.starts_with("computer_window_gone")));
+        assert!(!falls_back(&gone));
+        assert!(ask(json!({ "delivered": false, "effect": "refused" })).await.is_err());
+        let unmappable = ask(json!({ "delivered": false, "effect": "refused", "code": "background_unsupported", "text": "background_unsupported: key {Zork} has no Electron input mapping; no input was sent" })).await.expect_err("refused");
+        assert!(matches!(&unmappable, ComputerError::Failed { message, .. } if crate::desktop::computer_recovery::lead_code(message) == "background_unsupported"));
+        assert!(!falls_back(&unmappable), "the helper is not tried after a refusal");
     }
 }

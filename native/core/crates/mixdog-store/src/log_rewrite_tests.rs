@@ -5,6 +5,7 @@ use serde_json::json;
 
 use super::*;
 use crate::log::OsIo;
+use crate::schema::bounded::Digest;
 use crate::schema::record::Record;
 
 const LOG_ID: &str = "4f1c2a9e0b7d3c5a6e8f9012";
@@ -74,21 +75,31 @@ fn holds_secret(bytes: &[u8]) -> bool {
     bytes.windows(SECRET.len()).any(|w| w == SECRET.as_bytes())
 }
 
-/// The index step as the store runs it, less the rows: each superseded blob no record names is deleted.
-fn index_step(data: &Path) -> impl FnMut(Vec<Digest>) -> Result<(), String> + '_ {
-    move |superseded| {
-        for digest in superseded {
-            BlobStore::new(data).remove_unreferenced(&digest, &mut |_| Ok(false)).map_err(|e| e.to_string())?;
+/// The index step as the store runs it, less the rows.
+fn index_step(_data: &Path) -> impl FnMut() -> Result<(), String> {
+    || Ok(())
+}
+
+/// The last record of the session's log.
+fn last_record(data: &Path) -> Record {
+    let dir = data.join("sessions").join(SESSION);
+    let (mut from, mut last) = (FramePos { ordinal: 0, file_no: 0, offset: 0 }, None);
+    loop {
+        let read = read_forward_unlaned(&dir, from, u64::MAX).unwrap();
+        last = read.frames.into_iter().last().map(|(record, _, _)| record).or(last);
+        match read.next {
+            ForwardEnd::More(next) => from = next,
+            _ => break last.expect("a record"),
         }
-        Ok(())
     }
 }
 
+
+
 fn rewritten(data: &Path) {
     let blobs = BlobStore::new(data);
-    let pins = plan_with(data, SESSION, &OsIo, &blobs, &mut redact, &mut |_| Ok(())).unwrap().expect("a change");
+    assert!(plan_with(data, SESSION, &OsIo, &blobs, &mut redact, &mut |_| Ok(())).unwrap(), "a change");
     settle_with(data, SESSION, &OsIo, &blobs, &mut index_step(data), &mut |_| Ok(())).unwrap();
-    drop(pins);
 }
 
 #[test]
@@ -100,7 +111,7 @@ fn the_rewritten_log_holds_the_marker_reads_whole_and_its_checkpoint_names_the_m
     for bytes in files(tmp.path()).unwrap() {
         assert!(!holds_secret(&bytes));
     }
-    assert!(!BlobStore::new(tmp.path()).path(&plain).exists(), "the plain out-of-line body is deleted");
+    assert!(BlobStore::new(tmp.path()).path(&plain).is_file(), "the rewrite deletes no blob");
     assert!(!tmp.path().join(REWRITE_DIR).join(SESSION).exists());
     let mut records = Vec::new();
     let mut from = FramePos { ordinal: 0, file_no: 0, offset: 0 };
@@ -124,7 +135,7 @@ fn the_rewritten_log_holds_the_marker_reads_whole_and_its_checkpoint_names_the_m
     let body = BlobStore::new(tmp.path()).read_unlaned(&blob.descriptor().digest).unwrap();
     assert!(!holds_secret(&body), "the new out-of-line body holds the marker");
     assert_eq!(row.refs.as_slice(), [blob.descriptor().digest.clone()], "the row names its new blob only");
-    assert!(plan_with(tmp.path(), SESSION, &OsIo, &BlobStore::new(tmp.path()), &mut redact, &mut |_| Ok(())).unwrap().is_none(), "nothing left to take out");
+    assert!(!plan_with(tmp.path(), SESSION, &OsIo, &BlobStore::new(tmp.path()), &mut redact, &mut |_| Ok(())).unwrap(), "nothing left to take out");
 }
 
 const STEPS: [Step; 10] = [
@@ -161,7 +172,7 @@ fn a_kill_at_any_step_leaves_one_whole_log_and_the_next_start_finishes_the_rewri
         let blobs = BlobStore::new(tmp.path());
         let mut hook = |step: Step| if Some(step) == stop { Err(RewriteError::Stopped(step)) } else { Ok(()) };
         let done = plan_with(tmp.path(), SESSION, &OsIo, &blobs, &mut redact, &mut hook)
-            .and_then(|pins| settle_with(tmp.path(), SESSION, &OsIo, &blobs, &mut index_step(tmp.path()), &mut hook).map(|()| pins));
+            .and_then(|_| settle_with(tmp.path(), SESSION, &OsIo, &blobs, &mut index_step(tmp.path()), &mut hook));
         assert_eq!(done.is_err(), stop.is_some(), "{stop:?}");
         let killed = files(tmp.path());
         let moved_out = matches!(stop, Some(Step::MoveNew));
@@ -169,14 +180,19 @@ fn a_kill_at_any_step_leaves_one_whole_log_and_the_next_start_finishes_the_rewri
             killed.as_ref() == Some(&old_files) || killed.as_ref() == Some(&new_files) || (moved_out && killed.is_none()),
             "{stop:?}: the session folder after the kill"
         );
-        // The next start: a fresh store, no pins.
+        // The next start: a fresh store.
         let blobs = BlobStore::new(tmp.path());
         for session in recover_with(tmp.path(), &OsIo, &blobs, &mut |_| Ok(())).unwrap() {
             finish_with(tmp.path(), &session, &mut index_step(tmp.path()), &mut |_| Ok(())).unwrap();
         }
         let decided = stop != Some(Step::Intent);
         assert_eq!(files(tmp.path()).unwrap(), if decided { new_files.clone() } else { old_files.clone() }, "{stop:?}");
-        assert_eq!(blobs.path(&plain).exists(), !decided, "{stop:?}: the plain out-of-line body");
+        assert!(blobs.path(&plain).is_file(), "{stop:?}: the plain out-of-line body is kept (the rewrite deletes nothing)");
+        if decided {
+            let Record::Item(row) = last_record(tmp.path()) else { panic!("a row") };
+            let Slot::Blob(blob) = &row.body else { panic!("out of line") };
+            assert!(blobs.read_unlaned(&blob.descriptor().digest).is_ok(), "{stop:?}: the new body is stored");
+        }
         assert_eq!(std::fs::read_dir(tmp.path().join(REWRITE_DIR)).map_or(0, Iterator::count), 0, "{stop:?}: no rewrite part left");
     }
 }
@@ -189,14 +205,13 @@ fn a_rewrite_built_again_keeps_the_frames_written_after_its_plan() {
     write_log(tmp.path());
     let blobs = BlobStore::new(tmp.path());
     let mut stop = |step: Step| if step == Step::MoveOld { Err(RewriteError::Stopped(step)) } else { Ok(()) };
-    let pins = plan_with(tmp.path(), SESSION, &OsIo, &blobs, &mut redact, &mut |_| Ok(())).unwrap();
+    plan_with(tmp.path(), SESSION, &OsIo, &blobs, &mut redact, &mut |_| Ok(())).unwrap();
     assert!(settle_with(tmp.path(), SESSION, &OsIo, &blobs, &mut index_step(tmp.path()), &mut stop).is_err());
     let dir = tmp.path().join("sessions").join(SESSION);
     let mut later = std::fs::read(dir.join(log_name(1))).unwrap();
     frame(&mut later, 6, item("e", "written after the plan"));
     std::fs::write(dir.join(log_name(1)), &later).unwrap();
     settle_with(tmp.path(), SESSION, &OsIo, &blobs, &mut index_step(tmp.path()), &mut |_| Ok(())).unwrap();
-    drop(pins);
     let last = files(tmp.path()).unwrap().pop().unwrap();
     assert!(!holds_secret(&last));
     assert!(last.windows(22).any(|w| w == b"written after the plan"));

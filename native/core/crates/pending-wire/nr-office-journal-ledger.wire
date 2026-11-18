@@ -1,4 +1,0 @@
-# nr-office-journal-ledger: reduced by the wire audit (t19). Already applied: the mixdog-office-base dependency edges and lock entries (mixdog-fsio, mixdog-rt, mixdog-statefile), the office-journal fixture index entry, list_office_journals used by office.sweepJournals (exthost worker).
-
-## Consumer wiring (whoever registers office.run in the worker / the in-process office service)
-mixdog_office_base::ledger::CallLedger has no caller outside its crate. The call must create one CallLedger per tool call (CallLedger::new(cwd, data_dir); it is the WriteNote of the engine's writers, called from inside the lane job, or through note_write_in(&lane_proof, path)) and map CallLedger::changes(&proof) -> Vec<FileChange> to the tool layer's WriteReceipt one to one: path = change.path.to_string_lossy(), ChangeSide::{Absent, Bytes, Uncaptured{size, reason}} -> WriteSide::{same variants and fields} (mixdog-tools office.rs; mixdog-office-base must not depend on mixdog-tools).

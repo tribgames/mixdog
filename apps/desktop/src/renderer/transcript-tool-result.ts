@@ -237,7 +237,8 @@ export function toolActivityOutputText(value: unknown): string {
   if (typeof value !== 'string') return toolActivityFieldValue('output', value).trimEnd();
   const text = value.trimEnd();
   const trimmed = text.trim();
-  if (/^[{[]/.test(trimmed)) {
+  // Pretty-printing parses the whole output and builds a larger copy; past this size the output is shown as it came.
+  if (/^[{[]/.test(trimmed) && trimmed.length <= 256_000) {
     try {
       return JSON.stringify(JSON.parse(trimmed), null, 2).slice(0, 100_000);
     } catch {

@@ -7,6 +7,7 @@ import { computerUseCoordinator } from '../session/coordinator';
 import { isComputerLifecycleControl, READ_ACTIONS } from './action-sets';
 import { bindComputerSecret, secretInputs, typeComputerSecret } from '../../secret-input';
 import type { BridgeServerHost } from './bridge-server-contract';
+import { type CommandEndpoint, underEndpoint } from './command-fence';
 
 export type BridgeDispatchHost = Pick<BridgeServerHost, 'abortComputerSession' | 'executeSerialized' | 'waitForUser'>;
 
@@ -49,7 +50,16 @@ function abortSession(host: BridgeDispatchHost, command: ComputerCommand): Promi
   });
 }
 
+/** Runs `command` under `endpoint`: every worker request it makes is admitted and counted there (`command-fence.ts`). */
 export function dispatchBridgeCommand(
+  host: BridgeDispatchHost,
+  command: ComputerCommand,
+  endpoint: CommandEndpoint
+): Promise<ComputerCommandResult> {
+  return underEndpoint(endpoint, () => dispatchUnderEndpoint(host, command, endpoint.signal));
+}
+
+function dispatchUnderEndpoint(
   host: BridgeDispatchHost,
   command: ComputerCommand,
   signal: AbortSignal

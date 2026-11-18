@@ -281,9 +281,12 @@ mod tests {
     use std::sync::Mutex;
 
     use mixdog_core_api::domain::ext::ExtError;
+    #[cfg(node_twin)]
     use mixdog_core_base::support::testing::request;
     use mixdog_core_base::support::testing::scopes;
+    #[cfg(node_twin)]
     use mixdog_core_base::support::testing::value;
+    #[cfg(node_twin)]
     use mixdog_core_base::support::testing::with_op;
     use mixdog_core_ports::ports::threads::Section;
     use mixdog_spawn::LocalProcessManager;
@@ -324,6 +327,7 @@ mod tests {
     #[derive(Default)]
     struct Folders(Mutex<std::collections::HashMap<String, String>>);
     impl Folders {
+        #[cfg(node_twin)]
         fn set(&self, thread: &str, cwd: &str) {
             self.0.lock().unwrap().insert(thread.to_owned(), cwd.to_owned());
         }
@@ -357,6 +361,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     async fn service(dir: &std::path::Path, sight: Arc<dyn WorkspaceSight>) -> (ShellJobsService, Arc<TaskRegistry>, Arc<Folders>) {
         service_at(dir, sight, Arc::new(std::sync::atomic::AtomicU64::new(1_767_323_045_678))).await
     }
@@ -418,6 +423,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn call(method: &'static str, params: Value, op: u64) -> CoreRequest {
         request(method, with_op(params, op), Some(op))
     }
@@ -452,46 +458,13 @@ mod tests {
         assert_eq!(after["finished"], json!([]), "an empty list, as Node's empty bucket");
     }
 
-    /// The same boundary through the session's own open path: a session opened again (a directory over the same store, as after an
-    /// unload) after the retention shows no stale strip, and one opened at the boundary shows the finished job.
-    #[tokio::test]
-    async fn a_session_opened_after_the_retention_shows_no_stale_strip() {
-        use mixdog_spawn::tasks::FINISHED_RETENTION_MS;
-        use mixdog_spawn::tasks::TaskOutcome;
-        use mixdog_spawn::tasks::TaskStatus;
-        let dir = tempfile::tempdir().unwrap();
-        let ended_at = 1_767_323_045_678;
-        let now = Arc::new(std::sync::atomic::AtomicU64::new(ended_at));
-        let (service, tasks, _) = service_at(dir.path(), Arc::new(Sees(Vec::new())), now.clone()).await;
-        let rig = crate::session::testing::Rig::new();
-        let opened = || {
-            let mut deps = rig.deps_parts(rig.store.clone());
-            deps.shell_strips = service.shells.clone();
-            crate::session::SessionDirectory::new(Arc::new(deps))
-        };
-        let thread = ThreadId::from("closed-session");
-        opened().create_with_id(thread.clone(), Header::new(), json!({})).await.unwrap();
-        start(&tasks, "ended", "shell", Some("closed-session"), "build", "/w", false);
-        tasks.finish("ended", TaskOutcome { status: TaskStatus::Completed, exit_code: Some(0) }).unwrap();
-        let finished_at = |ms: u64| {
-            let (directory, now) = (opened(), now.clone());
-            let thread = thread.clone();
-            async move {
-                now.store(ended_at + ms, std::sync::atomic::Ordering::SeqCst);
-                let handle = directory.open_handle(&thread, &mixdog_core_api::call::CallContext::internal("test")).await.unwrap();
-                let strip = handle.cell.view.load_full().state.shell_jobs.clone().expect("the strip the session loaded with");
-                strip["finished"].as_array().unwrap().iter().map(|row| row["taskId"].as_str().unwrap().to_owned()).collect::<Vec<_>>()
-            }
-        };
-        assert_eq!(finished_at(FINISHED_RETENTION_MS).await, vec!["ended".to_owned()], "a session opened exactly the retention after the end shows the job");
-        assert_eq!(finished_at(FINISHED_RETENTION_MS + 1).await, Vec::<String>::new(), "a session opened after it shows no stale strip");
-    }
 
+    #[cfg(node_twin)]
     /// Node's recording of the shell-job actions (`record-shell-job-actions.mjs`).
     fn golden() -> Value {
         serde_json::from_str(include_str!("../../../../fixtures/shell-job-actions/shell-job-actions.json")).expect("golden")
     }
-
+    #[cfg(node_twin)]
     /// `forceReleaseTerminationHold` (`shell-job-records.mjs:375`) as Node answered each step of
     /// the recording: the real `workspaceSees` over real folders decides who may release a closed
     /// owner's hold.
@@ -528,7 +501,7 @@ mod tests {
             assert_eq!(got, step["answer"], "{name}");
         }
     }
-
+    #[cfg(node_twin)]
     /// `listStoppableShellJobs`, `stopBackgroundShellJob` and `stopBackgroundShellJobs` as Node
     /// answered them: the caller's own running shells only, the id trimmed, nothing to stop for a
     /// session without shells. (The recording's two shells without a command are Node's label
@@ -557,7 +530,7 @@ mod tests {
             assert_eq!(got, step["answer"], "clean for {}", step["caller"]);
         }
     }
-
+    #[cfg(node_twin)]
     /// The rows of `listShellJobs` are `shellJobsStatusFresh`'s as Node recorded them: the text
     /// trimmed, the start in milliseconds, `terminationUnconfirmed` only on a held shell. Which
     /// jobs it lists is the engine golden (`mixdog-spawn/tests/fixtures/shell-jobs.json`).
@@ -575,5 +548,40 @@ mod tests {
         let golden = golden();
         let (own, orphan) = (&golden["rows"]["own"][0], &golden["rows"]["orphaned"][0]);
         assert_eq!(got["jobs"], json!([own, orphan]), "its own shell, then the orphan whose folder it sees");
+    }
+
+    /// The same boundary through the session's own open path: a session opened again (a directory over the same store, as after an
+    /// unload) after the retention shows no stale strip, and one opened at the boundary shows the finished job.
+    #[tokio::test]
+    async fn a_session_opened_after_the_retention_shows_no_stale_strip() {
+        use mixdog_spawn::tasks::FINISHED_RETENTION_MS;
+        use mixdog_spawn::tasks::TaskOutcome;
+        use mixdog_spawn::tasks::TaskStatus;
+        let dir = tempfile::tempdir().unwrap();
+        let ended_at = 1_767_323_045_678;
+        let now = Arc::new(std::sync::atomic::AtomicU64::new(ended_at));
+        let (service, tasks, _) = service_at(dir.path(), Arc::new(Sees(Vec::new())), now.clone()).await;
+        let rig = crate::session::testing::Rig::new();
+        let opened = || {
+            let mut deps = rig.deps_parts(rig.store.clone());
+            deps.shell_strips = service.shells.clone();
+            crate::session::SessionDirectory::new(Arc::new(deps))
+        };
+        let thread = ThreadId::from("closed-session");
+        opened().create_with_id(thread.clone(), Header::new(), json!({})).await.unwrap();
+        start(&tasks, "ended", "shell", Some("closed-session"), "build", "/w", false);
+        tasks.finish("ended", TaskOutcome { status: TaskStatus::Completed, exit_code: Some(0) }).unwrap();
+        let finished_at = |ms: u64| {
+            let (directory, now) = (opened(), now.clone());
+            let thread = thread.clone();
+            async move {
+                now.store(ended_at + ms, std::sync::atomic::Ordering::SeqCst);
+                let handle = directory.open_handle(&thread, &mixdog_core_api::call::CallContext::internal("test")).await.unwrap();
+                let strip = handle.cell.view.load_full().state.shell_jobs.clone().expect("the strip the session loaded with");
+                strip["finished"].as_array().unwrap().iter().map(|row| row["taskId"].as_str().unwrap().to_owned()).collect::<Vec<_>>()
+            }
+        };
+        assert_eq!(finished_at(FINISHED_RETENTION_MS).await, vec!["ended".to_owned()], "a session opened exactly the retention after the end shows the job");
+        assert_eq!(finished_at(FINISHED_RETENTION_MS + 1).await, Vec::<String>::new(), "a session opened after it shows no stale strip");
     }
 }

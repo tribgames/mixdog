@@ -381,6 +381,88 @@
       ],
       "type": "object"
     },
+    "HostComputerScopeAdmission": {
+      "enum": [
+        "closed",
+        "unconfirmed"
+      ],
+      "type": "string"
+    },
+    "HostComputerScopeCleanup": {
+      "enum": [
+        "pending",
+        "complete",
+        "unconfirmed"
+      ],
+      "type": "string"
+    },
+    "HostComputerScopeReport": {
+      "description": "The desktop's acknowledgement of one revoked scope (the same shape as the native helper's report line).",
+      "properties": {
+        "admission": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/HostComputerScopeAdmission"
+            }
+          ],
+          "description": "Whether the desktop's context of the scope refuses every effect from now on."
+        },
+        "cleanup": {
+          "$ref": "#/definitions/HostComputerScopeCleanup"
+        },
+        "revision": {
+          "default": 0,
+          "description": "The scope's report revision at the desktop: 1 for its first revocation's report, one more at each change after it. The core applies a report only when its revision is newer than the one it holds (absent from an older desktop: 0).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "scope": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "unfinished": {
+          "description": "Those still unfinished at this answer.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "unfinished_at_closure": {
+          "description": "Calls handed over under the scope and unfinished at its first closure: a diagnostic, not a promise.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "unknown_executors": {
+          "description": "Executors below the desktop whose closure is not known yet.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "admission",
+        "cleanup",
+        "scope",
+        "unfinished",
+        "unfinished_at_closure"
+      ],
+      "type": "object"
+    },
+    "HostComputerScopeReportParams": {
+      "description": "Params of `host/computer/scopeReport` (desktop -> core notification): a revoked scope's report changed after the answer to `host/computer/revokeScopes` (its snapshot): an ordinary release or a compensation returned, an executor ended.",
+      "properties": {
+        "report": {
+          "$ref": "#/definitions/HostComputerScopeReport"
+        }
+      },
+      "required": [
+        "report"
+      ],
+      "type": "object"
+    },
     "HostNotificationClickedParams": {
       "properties": {
         "connectionId": {
@@ -644,6 +726,44 @@
       ],
       "type": "object"
     },
+    "ProxyCounters": {
+      "description": "The input-cache counters of one response, absent kept apart from zero (`cache_tail::Counters`).",
+      "properties": {
+        "created": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "created1h": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "created5m": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "read": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "ProxyEvent": {
       "description": "One stream event of an attempt (`StreamEvent`).",
       "oneOf": [
@@ -701,6 +821,25 @@
             "type": {
               "enum": [
                 "reasoningDelta"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A progress update of the turn: shown like text, no part of the answer's content.",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "progressDelta"
               ],
               "type": "string"
             }
@@ -1314,6 +1453,66 @@
             "usage"
           ],
           "type": "object"
+        },
+        {
+          "description": "A POST of a [`ProxyCall::SessionSend`] is about to go out: the session's owner judges it now, before any byte of it is sent. `ask` names this POST in the owner's verdict and in its settlement; `route` is the serving account's namespace as an opaque digest (never a credential); `manifest` the cache layout of the body it sends.",
+          "properties": {
+            "ask": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "manifest": {
+              "$ref": "#/definitions/ProxyManifest"
+            },
+            "route": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "tailAsk"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "ask",
+            "manifest",
+            "route",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "What the POST the owner admitted under `ask` reported (`null`: no usage arrived), once.",
+          "properties": {
+            "ask": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "counters": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProxyCounters"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "enum": [
+                "tailSettle"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "ask",
+            "type"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -1324,6 +1523,68 @@
         "tool"
       ],
       "type": "string"
+    },
+    "ProxyManifest": {
+      "description": "The cache layout of the body a POST sends (`cache_tail::WireManifest`); digests are 64 lowercase hex digits.",
+      "properties": {
+        "boundaries": {
+          "description": "The prefix digest after each block, in wire order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "markers": {
+          "items": {
+            "$ref": "#/definitions/ProxyMarker"
+          },
+          "type": "array"
+        },
+        "tail": {
+          "description": "The index in `markers` of the marker that covers the session's transcript.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "boundaries",
+        "markers"
+      ],
+      "type": "object"
+    },
+    "ProxyMarker": {
+      "description": "One `cache_control` marker of the body a POST sends (`cache_tail::Marker`).",
+      "properties": {
+        "block": {
+          "description": "The ordinal of the marked block in wire order.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "digest": {
+          "description": "The prefix digest through the marked block, 64 lowercase hex digits.",
+          "type": "string"
+        },
+        "ttlMs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "zone": {
+          "$ref": "#/definitions/ProxyZone"
+        }
+      },
+      "required": [
+        "block",
+        "digest",
+        "ttlMs",
+        "zone"
+      ],
+      "type": "object"
     },
     "ProxyPhase": {
       "enum": [
@@ -1556,6 +1817,15 @@
         "outputTokens"
       ],
       "type": "object"
+    },
+    "ProxyZone": {
+      "description": "Where a cache marker sits on the wire (`cache_tail::Zone`).",
+      "enum": [
+        "tools",
+        "system",
+        "messages"
+      ],
+      "type": "string"
     },
     "RemoteConnectionTimelineParams": {
       "description": "Client notification `remote/connectionTimeline` (paired phone → core): the phone's own account of a slow reconnect (phase, state and issue tokens with ms offsets), Node's `reportConnectionTimeline`. The core writes it to its log as Node's PC did (`remote-relay-client-calls.ts:181-186`): the first 1500 UTF-16 units, without any character outside `[A-Za-z0-9_=@:. -]`, as `[mixdog-remote-timeline] client=<the relay client id's first 8 units> <text>`, nothing when that leaves no text. Only an attached relay connection is heard. No response.",
@@ -2076,6 +2346,25 @@
         },
         "params": {
           "$ref": "#/definitions/ComputerPointerReleasedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A revoked automation scope's report changed at the desktop (a release or compensation returned, an executor ended): the report with its per-scope revision, so the core applies only a newer one than the snapshot or report it holds.",
+      "properties": {
+        "method": {
+          "enum": [
+            "host/computer/scopeReport"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostComputerScopeReportParams"
         }
       },
       "required": [

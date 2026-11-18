@@ -1,5 +1,4 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
-import { BOOT_WARMUP, scheduleBootWarmup } from './boot-warmup';
 import { useMobileBack } from './mobile-back';
 import { OPEN_MODEL_PICKER_EVENT } from './model-picker-event';
 import { useRouteDismissal } from './route-editor-effects';
@@ -270,8 +269,6 @@ function useRouteSheetGuards({
 /** Opening panes: the row hover/click/arrow gestures, the /model picker
  *  request, and moving focus into a freshly opened pane. */
 export function useRoutePaneNavigation({
-  sheetId,
-  modelCount,
   tuningDisabled,
   respondsToModelPicker,
   onOpenModelPane,
@@ -281,8 +278,6 @@ export function useRoutePaneNavigation({
   show,
   refs,
 }: {
-  sheetId: string;
-  modelCount: number;
   tuningDisabled: boolean;
   respondsToModelPicker: boolean;
   onOpenModelPane?: () => void;
@@ -292,24 +287,11 @@ export function useRoutePaneNavigation({
   show: () => void;
   refs: Pick<RouteSheetRefs, 'sheet' | 'modelFlyout' | 'optionFlyout'>;
 }) {
-  // The model flyout hosts the FULL catalog (every provider row, no
-  // virtualization). Mounting it on the first hover of the Model row — and
-  // again after every close — made the list land a beat after the sheet
-  // (user: 눌렀을 때 반응, 미리 아이템 생성 안 되어 있음). It is mounted once,
-  // hidden, in the post-boot warm lane, and stays mounted across closes; the
-  // flyout only toggles `hidden`, so the entry animation still plays.
+  // Materialize the full flyout on first use, then reuse its rows across opens.
   const [modelCatalogReady, setModelCatalogReady] = useState(false);
   // Safe hover: while a flyout is open, passing over the other rows on the
   // way to it must NOT switch panes — a switch needs a short dwell.
   const hoverSwitchTimer = useRef<number | null>(null);
-  useEffect(() => {
-    if (modelCatalogReady || modelCount === 0) return undefined;
-    return scheduleBootWarmup({
-      id: `route-model-catalog:${sheetId}`,
-      priority: BOOT_WARMUP.modelCatalog,
-      run: () => setModelCatalogReady(true),
-    });
-  }, [modelCatalogReady, modelCount, sheetId]);
 
   const openPane = (next: RouteSheetPane) => {
     if (next !== 'model' && tuningDisabled) return;

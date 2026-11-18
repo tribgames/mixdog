@@ -9,7 +9,7 @@ import type {
 } from '../../shared/contract';
 import { DESKTOP_READ_CAPABILITIES } from '../../shared/contract';
 import { providerDisplayName } from '../provider-display';
-import { fetchProviderModels } from '../model-catalog-cache';
+import { heldModelManagementCatalog, readModelManagementCatalog } from '../model-catalog-cache';
 import { t, uiFormatLocale } from '../i18n';
 import { uiTimeUnit } from '../ui-format';
 import { record } from '../record-utils';
@@ -35,6 +35,7 @@ export type CapabilityApi = Partial<
     | 'checkForDesktopUpdate'
     | 'showDesktopUpdate'
     | 'getRemoteAccessInfo'
+    | 'getRemoteConnectionState'
     | 'rotateRemoteAccess'
     | 'revokeRemoteAccessClient'
     | 'listRemoteHosts'
@@ -372,11 +373,9 @@ async function readAllCapabilitySettings(
     loadReads(),
     (async () => {
       try {
-        // One catalog fetch shared with the route picker and sidebar; an
-        // explicit settings refresh still goes to the daemon.
-        publish('models', await fetchProviderModels(api, { quick: false, force }));
+        publish('models', await readModelManagementCatalog(api, force));
       } catch (reason) {
-        publish('models', previous?.data.models || []);
+        publish('models', heldModelManagementCatalog(api) ?? []);
         loadError = errorMessage(reason);
       }
     })(),

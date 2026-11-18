@@ -1,4 +1,4 @@
-//! Hand-authored unit examples. Actual original Node replay is in `original_twin`: each request row
+//! Hand-authored unit examples: each request row
 //! is one turn with its uncached input, the legacy day is one disjoint historical route, and a
 //! cost the provider reported stands where the catalog's price would have been used otherwise.
 #![allow(
@@ -67,37 +67,8 @@ struct Rig {
     path: PathBuf,
 }
 
-fn rig(trace: Vec<Value>) -> Rig {
-    let tokens = mixdog_rt::testing::tokens();
-    let dir = tempfile::tempdir().unwrap();
-    let data = dir.path().join("data");
-    std::fs::create_dir_all(&data).unwrap();
-    let path = dir.path().join("ledger.sqlite");
-    let writer = UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
-    let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
-    let refresher = UsageRefresher::new(Arc::new(Prices), tokens.cpu_bulk);
-    refresher.enable_history_from(data.clone(), tokens.maintenance_io, Arc::new(Canned(trace)));
-    Rig {
-        _dir: dir,
-        data,
-        ledger: UsageLedger { writer, reader, refresher },
-        path,
-    }
-}
-
-fn put(rig: &Rig, rel: &str, text: &str) {
-    let path = rig.data.join(rel);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, text).unwrap();
-}
-
 fn query<T: rusqlite::types::FromSql>(path: &Path, sql: &str) -> T {
     Connection::open(path).unwrap().query_row(sql, [], |r| r.get(0)).unwrap()
-}
-
-async fn totals(rig: &Rig) -> Value {
-    let stats = rig.ledger.get_usage_stats(UsageStatsOptions::default(), || NOW).await.unwrap();
-    stats["totals"].clone()
 }
 
 fn lines(rows: &[Value]) -> String {
@@ -117,116 +88,10 @@ fn trace_rows() -> Vec<Value> {
     ]
 }
 
-fn legacy_originals(rig: &Rig) {
-    let mut trace = lines(&trace_rows());
-    trace.insert_str(trace.find('\n').unwrap() + 1, "{\"kind\":\"usage_raw\",\"ts\":\n");
-    put(rig, "history/agent-trace.jsonl", &trace);
-    put(rig, "pgdata/postmaster.pid", "123\n/data\n0\n5432\n");
-    let gateway = [
-        json!({"ts":1_788_259_200_000_i64,"provider":"openai","model":"gpt-x","sessionId":"s3",
-               "inputTokens":20,"outputTokens":4,"cacheReadTokens":5,"cacheWriteTokens":0,"costUsd":0.25}),
-        json!({"ts":1_788_259_300_000_i64,"provider":"openai","model":"gpt-x","sessionId":"s3",
-               "inputTokens":null,"outputTokens":4}),
-    ];
-    put(rig, "gateway-usage.local.jsonl", &format!("{}{{\"ts\"\n", lines(&gateway)));
-    put(
-        rig,
-        "usage-rollup.local.json",
-        r#"{"days":{"2025-01-02":{"models":{"other/legacy":{"provider":"other","model":"legacy","turns":2,"input":20,"output":2,"cacheRead":0,"cacheWrite":0,"costUsd":3}}}}}"#,
-    );
-}
-
 fn database_rows() -> Vec<Value> {
     vec![json!({"ts":"1788000200000","kind":"usage_raw","model":"gpt-x","session_id":"s2",
                 "input_tokens":50.0,"output_tokens":5.0,"cached_tokens":0.0,"cache_write_tokens":0.0,"duration_ms":null,
                 "payload":{"provider":"openai","uncached_input_tokens":30}})]
-}
-
-#[tokio::test]
-async fn legacy_originals_enter_the_statistics_once_with_the_old_totals() {
-    let rig = rig(database_rows());
-    legacy_originals(&rig);
-
-    let got = totals(&rig).await;
-    // Four requests (60 + 7 + 30 + 15 uncached input, 10 + 3 + 5 + 4 output) and the legacy
-    // day's two turns (20 input, 2 output); 0.5 for each catalog-priced request, the provider's
-    // 0.25 for the gateway one, 3 for the legacy day.
-    assert_eq!(got["turns"], 6, "{got}");
-    assert_eq!(got["input"], 132, "{got}");
-    assert_eq!(got["output"], 24, "{got}");
-    assert_eq!(got["costUsd"], 4.75, "{got}");
-
-    assert_eq!(query::<i64>(&rig.path, "SELECT COUNT(*) FROM usage_events"), 4);
-    assert_eq!(query::<i64>(&rig.path, "SELECT COUNT(*) FROM legacy_days"), 1);
-    assert_eq!(
-        query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importedThrough'"),
-        NOW.to_string()
-    );
-    let receipt: Value =
-        serde_json::from_str(&query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importReceipt'")).unwrap();
-    assert_eq!(receipt["inserted"], 4, "{receipt}");
-    assert_eq!(receipt["sourceRows"], 6, "{receipt}");
-    assert_eq!(receipt["unrecordableRows"], 1, "{receipt}");
-    assert_eq!(receipt["tornTraceLines"], 1, "{receipt}");
-    assert_eq!(receipt["traceRows"], 1, "{receipt}");
-    assert_eq!(receipt["files"][0]["rows"], 3, "{receipt}");
-    assert_eq!(receipt["until"], NOW, "{receipt}");
-
-    // A second read adds nothing, and the originals are untouched.
-    assert_eq!(totals(&rig).await, got);
-    assert_eq!(query::<i64>(&rig.path, "SELECT COUNT(*) FROM usage_events"), 4);
-    assert!(rig.data.join("usage-rollup.local.json").is_file());
-    assert!(rig.data.join("gateway-usage.local.jsonl").is_file());
-}
-
-#[tokio::test]
-async fn a_damaged_legacy_rollup_is_skipped_with_a_warning_and_retried_after_repair() {
-    let rig = rig(Vec::new());
-    let (written, _guard) = mixdog_rt::node_log::capture();
-    for damaged in ["{broken", "", "[]", "{\"days\":null}", "{}"] {
-        put(&rig, "usage-rollup.local.json", damaged);
-        assert_eq!(totals(&rig).await["turns"], 0);
-        assert_eq!(
-            query::<i64>(&rig.path, "SELECT COUNT(*) FROM metadata WHERE key='importedThrough'"),
-            0,
-            "left unset so a repair is retried: {damaged:?}"
-        );
-    }
-    assert!(written.lock().unwrap().iter().any(|(_, _, line)| line.contains("usage-rollup.local.json")));
-    put(&rig, "usage-rollup.local.json", "{\"days\":{}}");
-    totals(&rig).await;
-    assert_eq!(
-        query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importedThrough'"),
-        NOW.to_string()
-    );
-}
-
-#[tokio::test]
-async fn nothing_from_the_live_period_is_imported() {
-    let rig = rig(Vec::new());
-    let live: crate::append::UsageRecord = serde_json::from_value(json!({
-        "id": "live-1", "ts": 1_788_000_150_000_i64, "day": crate::time::day_key(1_788_000_150_000), "provider": "openai",
-        "model": "gpt-x", "kind": "api", "sessionId": "s9", "sourceType": "user", "input": 1, "output": 1, "cacheRead": 0,
-        "cacheWrite": 0, "costUsd": 0.1, "costSource": "catalog", "origin": "live", "durationMs": 1
-    }))
-    .unwrap();
-    rig.ledger.writer.record_queued(live).await.unwrap();
-    let before = json!({"kind":"usage_raw","ts":1_788_000_000_000_i64,"provider":"openai","model":"gpt-x","session_id":"s1",
-                        "input_tokens":10,"output_tokens":1,"cached_tokens":0,"cache_write_tokens":0});
-    let after = json!({"kind":"usage_raw","ts":1_788_000_300_000_i64,"provider":"openai","model":"gpt-x","session_id":"s1",
-                       "input_tokens":10,"output_tokens":1,"cached_tokens":0,"cache_write_tokens":0});
-    put(&rig, "history/agent-trace.jsonl", &lines(&[before, after]));
-
-    assert_eq!(totals(&rig).await["turns"], 2);
-    assert_eq!(
-        query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importedThrough'"),
-        "1788000150000"
-    );
-    // The history is complete up to the cutover: a later original is not looked at.
-    let older = json!({"kind":"usage_raw","ts":1_787_000_000_000_i64,"provider":"openai","model":"gpt-x","session_id":"s1",
-                       "input_tokens":10,"output_tokens":1,"cached_tokens":0,"cache_write_tokens":0});
-    put(&rig, "history/agent-trace.jsonl.1", &lines(&[older]));
-    assert_eq!(totals(&rig).await["turns"], 2);
 }
 
 fn row_record(row: &Value) -> Option<crate::append::UsageRecord> {
@@ -331,5 +196,317 @@ fn a_restored_day_is_priced_again_from_its_sums() {
     assert_eq!(got["2025-01-03"], days["2025-01-03"]);
 }
 
+#[cfg(node_twin)]
 #[path = "original_twin.rs"]
 mod original_twin;
+
+
+fn rig(trace: Vec<Value>) -> Rig {
+    rig_reading(Arc::new(Canned(trace)))
+}
+fn rig_reading(trace: Arc<dyn OriginalTrace>) -> Rig {
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    let path = dir.path().join("ledger.sqlite");
+    let writer = UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
+    let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
+    let refresher = UsageRefresher::new(Arc::new(Prices), tokens.cpu_bulk);
+    refresher.enable_history_from(data.clone(), tokens.maintenance_io, trace);
+    Rig {
+        _dir: dir,
+        data,
+        ledger: UsageLedger { writer, reader, refresher },
+        path,
+    }
+}
+fn put(rig: &Rig, rel: &str, text: &str) {
+    let path = rig.data.join(rel);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, text).unwrap();
+}
+async fn totals(rig: &Rig) -> Value {
+    let stats = rig.ledger.get_usage_stats(UsageStatsOptions::default(), || NOW).await.unwrap();
+    stats["totals"].clone()
+}
+fn legacy_originals(rig: &Rig) {
+    let mut trace = lines(&trace_rows());
+    trace.insert_str(trace.find('\n').unwrap() + 1, "{\"kind\":\"usage_raw\",\"ts\":\n");
+    put(rig, "history/agent-trace.jsonl", &trace);
+    put(rig, "pgdata/postmaster.pid", "123\n/data\n0\n5432\n");
+    let gateway = [
+        json!({"ts":1_788_259_200_000_i64,"provider":"openai","model":"gpt-x","sessionId":"s3",
+               "inputTokens":20,"outputTokens":4,"cacheReadTokens":5,"cacheWriteTokens":0,"costUsd":0.25}),
+        json!({"ts":1_788_259_300_000_i64,"provider":"openai","model":"gpt-x","sessionId":"s3",
+               "inputTokens":null,"outputTokens":4}),
+    ];
+    put(rig, "gateway-usage.local.jsonl", &format!("{}{{\"ts\"\n", lines(&gateway)));
+    put(
+        rig,
+        "usage-rollup.local.json",
+        r#"{"days":{"2025-01-02":{"models":{"other/legacy":{"provider":"other","model":"legacy","turns":2,"input":20,"output":2,"cacheRead":0,"cacheWrite":0,"costUsd":3}}}}}"#,
+    );
+}
+#[tokio::test]
+async fn legacy_originals_enter_the_statistics_once_with_the_old_totals() {
+    let rig = rig(database_rows());
+    legacy_originals(&rig);
+
+    let got = totals(&rig).await;
+    // Four requests (60 + 7 + 30 + 15 uncached input, 10 + 3 + 5 + 4 output) and the legacy
+    // day's two turns (20 input, 2 output); 0.5 for each catalog-priced request, the provider's
+    // 0.25 for the gateway one, 3 for the legacy day.
+    assert_eq!(got["turns"], 6, "{got}");
+    assert_eq!(got["input"], 132, "{got}");
+    assert_eq!(got["output"], 24, "{got}");
+    assert_eq!(got["costUsd"], 4.75, "{got}");
+
+    assert_eq!(query::<i64>(&rig.path, "SELECT COUNT(*) FROM usage_events"), 4);
+    assert_eq!(query::<i64>(&rig.path, "SELECT COUNT(*) FROM legacy_days"), 1);
+    assert_eq!(
+        query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importedThrough'"),
+        NOW.to_string()
+    );
+    let receipt: Value =
+        serde_json::from_str(&query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importReceipt'")).unwrap();
+    assert_eq!(receipt["inserted"], 4, "{receipt}");
+    assert_eq!(receipt["sourceRows"], 6, "{receipt}");
+    assert_eq!(receipt["unrecordableRows"], 1, "{receipt}");
+    assert_eq!(receipt["tornTraceLines"], 1, "{receipt}");
+    assert_eq!(receipt["traceRows"], 1, "{receipt}");
+    assert_eq!(receipt["files"][0]["rows"], 3, "{receipt}");
+    assert_eq!(receipt["until"], NOW, "{receipt}");
+
+    // A second read adds nothing, and the originals are untouched.
+    assert_eq!(totals(&rig).await, got);
+    assert_eq!(query::<i64>(&rig.path, "SELECT COUNT(*) FROM usage_events"), 4);
+    assert!(rig.data.join("usage-rollup.local.json").is_file());
+    assert!(rig.data.join("gateway-usage.local.jsonl").is_file());
+}
+#[tokio::test]
+async fn a_damaged_legacy_rollup_is_skipped_with_a_warning_and_retried_after_repair() {
+    let rig = rig(Vec::new());
+    let (written, _guard) = mixdog_rt::node_log::capture();
+    for damaged in ["{broken", "", "[]", "{\"days\":null}", "{}"] {
+        put(&rig, "usage-rollup.local.json", damaged);
+        assert_eq!(totals(&rig).await["turns"], 0);
+        assert_eq!(
+            query::<i64>(&rig.path, "SELECT COUNT(*) FROM metadata WHERE key='importedThrough'"),
+            0,
+            "left unset so a repair is retried: {damaged:?}"
+        );
+    }
+    assert!(written.lock().unwrap().iter().any(|(_, _, line)| line.contains("usage-rollup.local.json")));
+    put(&rig, "usage-rollup.local.json", "{\"days\":{}}");
+    totals(&rig).await;
+    assert_eq!(
+        query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importedThrough'"),
+        NOW.to_string()
+    );
+}
+#[tokio::test]
+async fn nothing_from_the_live_period_is_imported() {
+    let rig = rig(Vec::new());
+    let live: crate::append::UsageRecord = serde_json::from_value(json!({
+        "id": "live-1", "ts": 1_788_000_150_000_i64, "day": crate::time::day_key(1_788_000_150_000), "provider": "openai",
+        "model": "gpt-x", "kind": "api", "sessionId": "s9", "sourceType": "user", "input": 1, "output": 1, "cacheRead": 0,
+        "cacheWrite": 0, "costUsd": 0.1, "costSource": "catalog", "origin": "live", "durationMs": 1
+    }))
+    .unwrap();
+    rig.ledger.writer.record_queued(live).await.unwrap();
+    let before = json!({"kind":"usage_raw","ts":1_788_000_000_000_i64,"provider":"openai","model":"gpt-x","session_id":"s1",
+                        "input_tokens":10,"output_tokens":1,"cached_tokens":0,"cache_write_tokens":0});
+    let after = json!({"kind":"usage_raw","ts":1_788_000_300_000_i64,"provider":"openai","model":"gpt-x","session_id":"s1",
+                       "input_tokens":10,"output_tokens":1,"cached_tokens":0,"cache_write_tokens":0});
+    put(&rig, "history/agent-trace.jsonl", &lines(&[before, after]));
+
+    assert_eq!(totals(&rig).await["turns"], 2);
+    assert_eq!(
+        query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importedThrough'"),
+        "1788000150000"
+    );
+    // The history is complete up to the cutover: a later original is not looked at.
+    let older = json!({"kind":"usage_raw","ts":1_787_000_000_000_i64,"provider":"openai","model":"gpt-x","session_id":"s1",
+                       "input_tokens":10,"output_tokens":1,"cached_tokens":0,"cache_write_tokens":0});
+    put(&rig, "history/agent-trace.jsonl.1", &lines(&[older]));
+    assert_eq!(totals(&rig).await["turns"], 2);
+}
+
+#[tokio::test]
+async fn concurrent_import_waiters_share_failure_without_retry_and_later_call_retries() {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+    struct HeldTrace {
+        calls: AtomicUsize,
+        release: tokio::sync::Notify,
+    }
+    impl OriginalTrace for HeldTrace {
+        fn rows<'a>(&'a self, _: &'a str, _: i64) -> TraceFuture<'a> {
+            Box::pin(async move {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                self.release.notified().await;
+                Err(crate::error::LedgerError::History("trace unavailable".into()))
+            })
+        }
+    }
+    let rig = rig(Vec::new());
+    put(&rig, "pgdata/postmaster.pid", "injected trace only");
+    let tokens = mixdog_rt::testing::tokens();
+    let trace = Arc::new(HeldTrace { calls: AtomicUsize::new(0), release: tokio::sync::Notify::new() });
+    let importer = super::HistoryImporter::new(rig.data.clone(), tokens.maintenance_io, tokens.cpu_bulk, Arc::new(Prices), trace.clone());
+    let release = async {
+        loop {
+            if trace.calls.load(Ordering::SeqCst) == 1 && importer.lock().waiters.len() == 1 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        trace.release.notify_one();
+    };
+    let (a, b, ()) = mixdog_rt::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::join!(importer.ensure(&rig.ledger.writer, NOW), importer.ensure(&rig.ledger.writer, NOW), release)
+    })
+    .await
+    .expect("both readers must settle");
+    match (a.unwrap_err(), b.unwrap_err()) {
+        (crate::error::LedgerError::SharedHistory(a), crate::error::LedgerError::SharedHistory(b)) => {
+            assert!(Arc::ptr_eq(&a, &b));
+            assert_eq!(a.to_string(), "trace unavailable");
+        }
+        errors => panic!("unshared errors: {errors:?}"),
+    }
+    assert_eq!(trace.calls.load(Ordering::SeqCst), 1);
+    trace.release.notify_one();
+    assert!(importer.ensure(&rig.ledger.writer, NOW).await.is_err());
+    assert_eq!(trace.calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn a_rejected_history_write_settles_its_accepted_mark() {
+    let rig = rig(Vec::new());
+    let mut row = row_record(&json!({"kind":"usage_raw","ts":5,"provider":"p","model":"m","input_tokens":1,"output_tokens":1})).unwrap();
+    row.day = "not-a-day".to_owned();
+    let pending = rig.ledger.writer.import_history(super::HistoryWrite {
+        records: vec![row],
+        legacy_days: Vec::new(),
+        through: None,
+        receipt: None,
+        previously_inserted: 0,
+    });
+    let mark = rig.ledger.writer.marks().accepted();
+    assert!(mark > 0, "enqueue must synchronously number the import");
+    assert!(pending.await.is_err());
+    assert!(rig.ledger.writer.marks().check(mark).unwrap().is_err());
+    assert_eq!(rig.ledger.writer.marks().committed(), mark);
+}
+
+#[tokio::test]
+async fn a_queued_live_write_precedes_the_statistics_cutover() {
+    let rig = rig(Vec::new());
+    let ts = NOW - 5_000;
+    let live: crate::append::UsageRecord = serde_json::from_value(json!({
+        "id": "live1", "ts": ts, "day": "2026-09-20", "provider": "p", "model": "m", "kind": "api", "sessionId": "s1",
+        "sourceType": "user", "input": 10, "output": 5, "cacheRead": 1, "cacheWrite": 2, "costUsd": 0.5, "costSource": "catalog",
+        "origin": "live", "durationMs": 100
+    }))
+    .unwrap();
+    let queued = rig.ledger.writer.record_queued(live);
+    let stats = rig.ledger.get_usage_stats(UsageStatsOptions::default(), || NOW).await.unwrap();
+    queued.await.unwrap();
+    assert_eq!(stats["totals"]["turns"], 1, "the write queued before the read is in the statistics");
+    let cutover = |key: &str| query::<String>(&rig.path, &format!("SELECT value FROM metadata WHERE key='{key}'"));
+    assert_eq!(cutover("liveSince"), ts.to_string());
+    assert_eq!(cutover("importedThrough"), ts.to_string(), "the import stops where the live writer starts");
+}
+
+const GOOD_ROW: &str = r#"{"kind":"usage_raw","ts":1788000000000,"provider":"openai","model":"gpt-x","session_id":"s1","input_tokens":10,"output_tokens":1,"cached_tokens":0,"cache_write_tokens":0}"#;
+const BAD_TS_ROW: &str = r#"{"kind":"usage_raw","ts":"never","provider":"openai","model":"gpt-x","session_id":"s1","input_tokens":10,"output_tokens":1,"cached_tokens":0,"cache_write_tokens":0}"#;
+
+/// The failure of the first statistics read, which runs the import.
+async fn import_failure(rig: &Rig) -> String {
+    rig.ledger.get_usage_stats(UsageStatsOptions::default(), || NOW).await.unwrap_err().to_string()
+}
+fn events(rig: &Rig) -> i64 {
+    query::<i64>(&rig.path, "SELECT COUNT(*) FROM usage_events")
+}
+fn imported_through(rig: &Rig) -> i64 {
+    query::<i64>(&rig.path, "SELECT COUNT(*) FROM metadata WHERE key='importedThrough'")
+}
+
+#[tokio::test]
+async fn a_trace_row_without_a_valid_timestamp_fails_the_import_and_leaves_it_unmarked() {
+    let rig = rig(Vec::new());
+    put(&rig, "history/agent-trace.jsonl", &format!("{BAD_TS_ROW}\n"));
+    assert!(import_failure(&rig).await.contains("Usage requires a valid timestamp"));
+    assert_eq!((events(&rig), imported_through(&rig)), (0, 0));
+}
+
+#[tokio::test]
+async fn one_bad_row_rolls_back_its_whole_file() {
+    let rig = rig(Vec::new());
+    put(&rig, "history/agent-trace.jsonl", &format!("{GOOD_ROW}\n{BAD_TS_ROW}\n"));
+    assert!(import_failure(&rig).await.contains("Usage requires a valid timestamp"));
+    assert_eq!((events(&rig), imported_through(&rig)), (0, 0), "nothing of the file's batch stays");
+}
+
+#[tokio::test]
+async fn a_later_file_failing_keeps_what_the_earlier_file_committed() {
+    let rig = rig(Vec::new());
+    put(&rig, "history/agent-trace.jsonl", &format!("{GOOD_ROW}\n"));
+    put(&rig, "history/agent-trace.jsonl.1", &format!("{BAD_TS_ROW}\n"));
+    assert!(import_failure(&rig).await.contains("Usage requires a valid timestamp"));
+    assert_eq!((events(&rig), imported_through(&rig)), (1, 0), "the first file stays, the import is not marked done");
+}
+
+#[tokio::test]
+async fn an_unreadable_original_database_fails_the_import_and_keeps_the_files_read() {
+    struct Unavailable;
+    impl OriginalTrace for Unavailable {
+        fn rows<'a>(&'a self, _: &'a str, _: i64) -> TraceFuture<'a> {
+            Box::pin(async { Err(crate::LedgerError::History("Original trace unavailable".into())) })
+        }
+    }
+    let rig = rig_reading(Arc::new(Unavailable));
+    put(&rig, "history/agent-trace.jsonl", &format!("{GOOD_ROW}\n"));
+    put(&rig, "pgdata/postmaster.pid", "123\n/data\n0\n5432\n");
+    assert!(import_failure(&rig).await.contains("Original trace unavailable"));
+    assert_eq!((events(&rig), imported_through(&rig)), (1, 0));
+}
+
+#[tokio::test]
+async fn a_null_gateway_event_fails_the_import() {
+    let rig = rig(Vec::new());
+    put(&rig, "gateway-usage.local.jsonl", "null\n");
+    assert!(import_failure(&rig).await.contains("Cannot read properties of null (reading 'sessionId')"));
+    assert_eq!((events(&rig), imported_through(&rig)), (0, 0));
+}
+
+#[tokio::test]
+async fn an_empty_gateway_jsonl_supersedes_the_legacy_json_file() {
+    let rig = rig(Vec::new());
+    put(&rig, "gateway-usage.local.jsonl", "");
+    put(
+        &rig,
+        "gateway-usage.local.json",
+        r#"{"events":[{"ts":1788259200000,"provider":"openai","model":"gpt-x","sessionId":"s3","inputTokens":20,"outputTokens":4,"cacheReadTokens":5,"cacheWriteTokens":0,"costUsd":0.25}]}"#,
+    );
+    assert_eq!(totals(&rig).await["turns"], 0);
+    assert_eq!((events(&rig), imported_through(&rig)), (0, 1));
+}
+
+#[tokio::test]
+async fn an_import_up_to_the_cutover_is_marked_with_it_and_a_repeat_adds_nothing() {
+    let rig = rig(Vec::new());
+    let conn = Connection::open(&rig.path).unwrap();
+    conn.execute("INSERT INTO metadata VALUES ('liveSince','1788000000001')", []).unwrap();
+    drop(conn);
+    put(&rig, "history/agent-trace.jsonl", &format!("{GOOD_ROW}\n"));
+    assert_eq!(totals(&rig).await["turns"], 1);
+    assert_eq!(
+        query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importedThrough'"),
+        "1788000000001"
+    );
+    assert_eq!(totals(&rig).await["turns"], 1);
+    assert_eq!(events(&rig), 1);
+}

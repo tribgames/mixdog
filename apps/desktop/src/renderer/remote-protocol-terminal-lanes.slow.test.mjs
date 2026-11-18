@@ -7,12 +7,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { builtCoreBin } from './built-core.mjs';
 import { replayLaneReach } from '../../../../benchmarks/rust-core/recorders/lib/terminal-lane-reach-replay.mjs';
 
 const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/terminal-lane-reach/golden.json', import.meta.url), 'utf8'));
 
 test('terminal output reaches the phones Node sent it to', { timeout: 300_000 }, async () => {
-  assert.ok(process.env.MIXDOGD_BIN, 'MIXDOGD_BIN must name a built mixdogd');
-  const differences = await replayLaneReach({ exe: process.env.MIXDOGD_BIN, golden });
+  const differences = await replayLaneReach({ exe: builtCoreBin(), golden });
   assert.deepEqual(differences, []);
 });

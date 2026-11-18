@@ -706,6 +706,66 @@ mod tests {
         assert_eq!(all, "bonono");
     }
 
+    /// Canonicalize without `u` (ECMAScript 22.2.2.7.3, step 4): a character at or above 128 whose uppercase is ASCII
+    /// keeps itself, so `ſ` (U+017F) and the Kelvin sign are not `s` and `k` under `i`. Each row is what node answers
+    /// for `new RegExp(pattern, "i").test(text)`; the others show the rule leaves ordinary folding alone.
+    #[test]
+    fn a_case_insensitive_match_without_u_does_not_fold_non_ascii_to_ascii() {
+        for (pattern, text, node) in [
+            ("service unavailable", "\u{17f}ervice unavailable", false),
+            ("s", "\u{17f}", false),
+            ("\u{17f}", "s", false),
+            ("\u{17f}", "S", false),
+            ("\u{17f}", "\u{17f}", true),
+            ("k", "\u{212a}", false),
+            ("kelvin", "\u{212a}elvin", false),
+            ("i", "\u{130}", false),
+            ("service", "SERVICE", true),
+            ("\u{1c6}", "\u{1c5}", true),
+            ("\u{f6}", "\u{d6}", true),
+        ] {
+            assert_eq!(JsRegex::new_static(pattern, "i").is_match(text), node, "/{pattern}/i on {text:?}");
+        }
+        // The same rule in a class (`add_icase_code_points_canonicalized`), each row run on node.
+        for (pattern, text, node) in [
+            ("[a-z]", "\u{17f}", false),
+            ("[a-z]", "\u{212a}", false),
+            ("[k]", "\u{212a}", false),
+            ("[^s]", "\u{17f}", true),
+            ("[\u{17f}]", "s", false),
+            ("[\u{17f}]", "S", false),
+            ("[\u{17f}]", "\u{17f}", true),
+            ("[\u{1c6}]", "\u{1c5}", true),
+            ("[a-z]", "S", true),
+            ("[\u{f6}]", "\u{d6}", true),
+            ("[^a-z]", "\u{212a}", true),
+            ("[\u{131}]", "I", false),
+            ("[i]", "\u{131}", false),
+        ] {
+            assert_eq!(JsRegex::new_static(pattern, "i").is_match(text), node, "/{pattern}/i on {text:?}");
+        }
+        // `v` is a Unicode mode as `u` is: simple case folding, each row run on node with `iv`.
+        for (pattern, text, node) in [
+            ("[a-z]", "\u{17f}", true),
+            ("[a-z]", "\u{212a}", true),
+            ("[k]", "\u{212a}", true),
+            ("[^s]", "\u{17f}", false),
+            ("[\u{17f}]", "s", true),
+            ("[\u{17f}]", "S", true),
+            ("[\u{17f}]", "\u{17f}", true),
+            ("[a-z]", "S", true),
+            ("[\u{f6}]", "\u{d6}", true),
+            ("[^a-z]", "\u{212a}", false),
+            ("\u{17f}", "s", true),
+            ("k", "\u{212a}", true),
+            ("s", "\u{17f}", true),
+            ("^(s)\\1$", "s\u{17f}", true),
+            ("^(k)\\1$", "k\u{212a}", true),
+        ] {
+            assert_eq!(JsRegex::new_static(pattern, "iv").is_match(text), node, "/{pattern}/iv on {text:?}");
+        }
+    }
+
     fn needles(pattern: &str, flags: &str) -> Option<Vec<String>> {
         Needles::of(pattern, flags).map(|n| n.strings)
     }
@@ -813,3 +873,4 @@ mod sweep {
         assert!(shown.is_empty(), "{}", shown.join("\n"));
     }
 }
+

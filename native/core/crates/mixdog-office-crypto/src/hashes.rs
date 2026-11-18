@@ -1,5 +1,5 @@
 //! The hash algorithms an encryption descriptor can name ([MS-OFFCRYPTO] 2.3.4.10 HashAlgorithm), with the answer
-//! Node's `crypto.createHash` gave for each name on the reference machine (Node 22, OpenSSL 3.5): SHA-1, SHA-256,
+//! OpenSSL 3 gives for each name: SHA-1, SHA-256,
 //! SHA-384, SHA-512, MD5 and RIPEMD-160 are computed; MD4 and WHIRLPOOL are legacy algorithms the OpenSSL 3 default
 //! provider does not load (`error:0308010C:digital envelope routines::unsupported`); MD2 and RIPEMD-128 are not
 //! compiled in (`Digest method not supported`). A descriptor that names an algorithm that cannot be computed is
@@ -30,7 +30,7 @@ pub enum HashAlgorithm {
     Whirlpool,
 }
 
-/// What Node threw for an algorithm that cannot be computed.
+/// What OpenSSL 3 reports for an algorithm that cannot be computed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HashError {
     /// `createHash`: a legacy algorithm the OpenSSL 3 default provider does not load (MD4, WHIRLPOOL).
@@ -50,8 +50,6 @@ impl fmt::Display for HashError {
         }
     }
 }
-
-impl std::error::Error for HashError {}
 
 impl HashAlgorithm {
     /// The algorithm a descriptor's `hashAlgorithm` attribute names, matched exactly: "SHA1" is the name Windows
@@ -73,7 +71,7 @@ impl HashAlgorithm {
         })
     }
 
-    /// The name OpenSSL (and so Node's `createHash`) knows the algorithm by.
+    /// The name OpenSSL (`createHash`) knows the algorithm by.
     #[must_use]
     pub fn openssl_name(self) -> &'static str {
         match self {
@@ -159,7 +157,7 @@ pub enum Hasher {
 }
 
 impl Hasher {
-    /// `createHash(algorithm)`: the error Node threw for an algorithm it cannot compute.
+    /// `createHash(algorithm)`: the error OpenSSL 3 gives for an algorithm it cannot compute.
     pub fn new(algorithm: HashAlgorithm) -> Result<Self, HashError> {
         if let Some(error) = algorithm.unsupported() {
             return Err(error);
@@ -240,7 +238,7 @@ pub fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
     left.len() == right.len() && left.iter().zip(right).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
 }
 
-/// RIPEMD-160 (Dobbertin, Bosselaers, Preneel): the one algorithm of the list that Node computes and no cached crate
+/// RIPEMD-160 (Dobbertin, Bosselaers, Preneel): the one algorithm of the list that OpenSSL computes and no cached crate
 /// provides.
 pub struct Ripemd160 {
     state: [u32; 5],
@@ -389,8 +387,88 @@ mod tests {
     }
 
     #[test]
-    fn ripemd160_matches_the_digests_node_computes() {
-        // Recorded from node:crypto createHash('ripemd160') on the reference machine.
+    fn descriptor_names_pick_their_algorithm_exactly_and_every_computable_one_has_its_digest_length() {
+        assert_eq!(HashAlgorithm::from_descriptor_name("SHA-1"), Some(HashAlgorithm::Sha1));
+        assert_eq!(HashAlgorithm::from_descriptor_name("SHA1"), Some(HashAlgorithm::Sha1));
+        assert_eq!(HashAlgorithm::from_descriptor_name("SHA512"), Some(HashAlgorithm::Sha512));
+        assert_eq!(HashAlgorithm::from_descriptor_name("RIPEMD-160"), Some(HashAlgorithm::Ripemd160));
+        // Matching is exact: another spelling or case is no name at all.
+        assert_eq!(HashAlgorithm::from_descriptor_name("SHA-512"), None);
+        assert_eq!(HashAlgorithm::from_descriptor_name("sha512"), None);
+        for (name, length) in [("SHA-1", 20), ("SHA256", 32), ("SHA384", 48), ("SHA512", 64), ("MD5", 16), ("RIPEMD-160", 20)] {
+            let algorithm = HashAlgorithm::from_descriptor_name(name).expect("a name");
+            assert_eq!(algorithm.digest_length(), Some(length), "{name}");
+            assert_eq!(hash(algorithm, &[b"abc"]).expect("computed").len(), length, "{name}");
+        }
+    }
+
+    #[test]
+    fn digests_of_abc_are_the_published_ones() {
+        // FIPS 180 and RFC 1321 test vectors for "abc".
+        for (algorithm, expected) in [
+            (HashAlgorithm::Md5, "900150983cd24fb0d6963f7d28e17f72"),
+            (HashAlgorithm::Sha1, "a9993e364706816aba3e25717850c26c9cd0d89d"),
+            (HashAlgorithm::Sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"),
+            (
+                HashAlgorithm::Sha384,
+                "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7",
+            ),
+            (
+                HashAlgorithm::Sha512,
+                "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+            ),
+        ] {
+            assert_eq!(hex(&hash(algorithm, &[b"a", b"bc"]).expect("computed")), expected, "{algorithm:?}");
+        }
+    }
+
+    #[test]
+    fn hmac_matches_the_published_vectors_and_a_key_longer_than_a_block_is_hashed_first() {
+        // RFC 2202 case 1 (SHA-1) and RFC 4231 case 1 (SHA-256): key 0x0b repeated, data "Hi There".
+        let key20 = [0x0bu8; 20];
+        assert_eq!(
+            hex(&hmac(HashAlgorithm::Sha1, &key20, b"Hi There").expect("computed")),
+            "b617318655057264e28bc0b6fb378c8ef146be00"
+        );
+        assert_eq!(
+            hex(&hmac(HashAlgorithm::Sha256, &key20, b"Hi There").expect("computed")),
+            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
+        );
+        // RFC 2202 case 6: an 80-byte key (longer than the 64-byte block) with a 54-byte message.
+        assert_eq!(
+            hex(&hmac(
+                HashAlgorithm::Sha1,
+                &[0xaau8; 80],
+                b"Test Using Larger Than Block-Size Key - Hash Key First"
+            )
+            .expect("computed")),
+            "aa4ae5e15272d00e95705637ce8a3b55ed402112"
+        );
+    }
+
+    #[test]
+    fn hmac_over_an_algorithm_that_cannot_be_computed_says_why() {
+        assert_eq!(
+            hmac(HashAlgorithm::Md2, b"k", b"d").err().map(|error| error.to_string()).as_deref(),
+            Some("Invalid digest: md2")
+        );
+        assert_eq!(
+            hmac(HashAlgorithm::Md4, b"k", b"d").err().map(|error| error.to_string()).as_deref(),
+            Some("error:0308010C:digital envelope routines::unsupported")
+        );
+    }
+
+    #[test]
+    fn digests_compare_equal_only_when_every_byte_and_the_length_agree() {
+        assert!(constant_time_equal(b"abc", b"abc"));
+        assert!(!constant_time_equal(b"abc", b"abd"));
+        assert!(!constant_time_equal(b"abc", b"abcd"));
+        assert!(constant_time_equal(b"", b""));
+    }
+
+    #[test]
+    fn ripemd160_gives_the_published_digests() {
+        // The RIPEMD-160 reference vectors.
         let cases: [(&[u8], &str); 3] = [
             (b"", "9c1185a5c5e9fc54612808977ee8f548b2258d31"),
             (b"abc", "8eb208f7e05d987a9b044a8e98c6b087f15a0bfc"),
@@ -418,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn hashes_that_node_cannot_compute_carry_its_error_text() {
+    fn hashes_that_cannot_be_computed_carry_their_error_text() {
         for (algorithm, text) in [
             (
                 HashAlgorithm::Md4,
@@ -439,3 +517,6 @@ mod tests {
         }
     }
 }
+
+
+impl std::error::Error for HashError {}

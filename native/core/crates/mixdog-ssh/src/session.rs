@@ -116,12 +116,12 @@ impl Identity {
 pub enum SessionError {
     #[error(transparent)]
     Connect(ConnectError),
-    #[error("The remote Mixdog connection is closed.")]
+    #[error("The connection to the server is closed.")]
     Closed,
     #[error("Automatic reconnection is off for this server.")]
     ReconnectOff,
-    #[error("{0}")]
-    Cwd(String),
+    #[error("{}", .0.english)]
+    Cwd(mixdog_app_protocol::message::Said),
 }
 
 impl From<SshError> for SessionError {
@@ -142,17 +142,21 @@ impl SessionError {
     pub fn is_terminal(&self) -> bool {
         matches!(self, Self::Connect(error) if error.is_terminal())
     }
+
+    /// What this error says, by code, for the sessions' own stops (a connect error carries its own).
+    pub fn said(&self) -> Option<mixdog_app_protocol::message::Said> {
+        match self {
+            Self::Connect(_) => None,
+            Self::Closed => Some(crate::said::SERVER_CONNECTION_CLOSED.plain()),
+            Self::ReconnectOff => Some(crate::said::RECONNECT_OFF.plain()),
+            Self::Cwd(said) => Some(said.clone()),
+        }
+    }
 }
 
 /// The tunnel leads to another process than the probed core.
 fn identity_error(display: &str) -> SshError {
-    SshError::new(
-        format!(
-            "Another process answered through the ssh tunnel to {display} instead of the Mixdog core it started. \
-             The connection was stopped and nothing was sent to it. Reconnect to start over."
-        ),
-        FailureClass::Terminal,
-    )
+    SshError::said(crate::said::FOREIGN_PROGRAM.said([("name", display)]), FailureClass::Terminal)
 }
 
 /// `~` / `~/x` resolve against the remote home; anything else must be an absolute server path.
@@ -161,7 +165,7 @@ pub fn resolve_remote_cwd(configured: Option<&str>, home: &str) -> Result<String
         return Ok(home.to_owned());
     };
     if configured.chars().any(char::is_control) {
-        return Err(SessionError::Cwd("The server folder must not contain control characters.".to_owned()));
+        return Err(SessionError::Cwd(crate::said::FOLDER_CONTROL_CHARACTERS.plain()));
     }
     if configured == "~" {
         return Ok(home.to_owned());
@@ -170,7 +174,7 @@ pub fn resolve_remote_cwd(configured: Option<&str>, home: &str) -> Result<String
         return Ok(posix_normalize(&format!("{home}/{rest}")));
     }
     if !configured.starts_with('/') {
-        return Err(SessionError::Cwd(format!("The server folder must be an absolute server path: {configured}")));
+        return Err(SessionError::Cwd(crate::said::FOLDER_NOT_ABSOLUTE.said([("folder", configured)])));
     }
     Ok(posix_normalize(configured))
 }
@@ -253,6 +257,8 @@ pub struct SshTransport {
     pub context: AttemptContext,
     pub target: SshTarget,
     pub payloads: Arc<dyn ServerPayloads + Send>,
+    /// `RemoteSessionConfig.grace_ms`.
+    pub grace_ms: Option<u64>,
 }
 
 #[async_trait]
@@ -265,7 +271,7 @@ impl Transport for SshTransport {
     ) -> Result<RemoteReport, ConnectError> {
         let mut context = self.context.clone();
         context.force_restart = force_restart;
-        let options = BootstrapOptions { model_login, payloads: self.payloads.as_ref(), progress };
+        let options = BootstrapOptions { model_login, grace_ms: self.grace_ms, payloads: self.payloads.as_ref(), progress };
         bootstrap(&self.env, &context, &self.target, options).await
     }
 
@@ -362,12 +368,36 @@ struct Slot {
     remotes: (u16, u16),
 }
 
+/// One open or reconnect, admitted under the state lock before any of its async work and never reused in the session. Every
+/// effect of the attempt (a tunnel installed, a phase reported, the endpoint published) is made in a transition that finds this id
+/// still the session's current one; close and a failure retire it at once, so work that outlives them can publish nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AttemptId(u64);
+
+/// A tunnel being stopped. It stays registered until its stop has finished, so an empty active slot never means the cleanup is
+/// over; whoever needs the stop (the reconnect that replaces the tunnel, the close that overtakes it) joins the one stop.
+#[derive(Clone)]
+struct Retiring {
+    tunnel: Arc<dyn TunnelHandle>,
+    done: Arc<tokio::sync::OnceCell<()>>,
+}
+
+impl Retiring {
+    fn new(tunnel: Arc<dyn TunnelHandle>) -> Self {
+        Self { tunnel, done: Arc::new(tokio::sync::OnceCell::new()) }
+    }
+}
+
 #[derive(Default)]
 struct State {
     failure: Option<SessionError>,
     endpoint: Option<Endpoint>,
     identity: Option<Identity>,
     slot: Option<Slot>,
+    retiring: Vec<Retiring>,
+    next_attempt: u64,
+    /// The attempt whose effects are still wanted; None once the session is closed or failed.
+    attempt: Option<AttemptId>,
     closed: bool,
     force_restart: bool,
     /// Connects that finished, and how the last one ended: a connect that waited behind another gets that result.
@@ -382,6 +412,9 @@ pub struct RemoteSession {
     state: Mutex<State>,
     gate: Arc<SerialChain>,
     held: AtomicBool,
+    /// Held while a notification of an attempt is delivered (and by close once, after it marked the session closed): a
+    /// notification is delivered whole and before close returns, never after.
+    delivery: Mutex<()>,
 }
 
 impl RemoteSession {
@@ -394,12 +427,13 @@ impl RemoteSession {
             state: Mutex::new(state),
             gate: SerialChain::new(),
             held: AtomicBool::new(false),
+            delivery: Mutex::new(()),
         }
     }
 
     /// A session over this PC's OpenSSH.
     pub fn over_ssh(config: RemoteSessionConfig, env: SshEnv, context: AttemptContext, payloads: Arc<dyn ServerPayloads + Send>) -> Self {
-        let transport = SshTransport { env, context, target: config.target.clone(), payloads };
+        let transport = SshTransport { env, context, target: config.target.clone(), payloads, grace_ms: config.grace_ms };
         Self::new(config, Arc::new(transport))
     }
 
@@ -438,14 +472,31 @@ impl RemoteSession {
             if state.finished != seen
                 && let Some(result) = &state.last
             {
-                return result.clone();
+                // The result of the connect this one waited behind is handed out only while the session still publishes it: a
+                // close (or a failure) since then wins, and an endpoint that is no longer the live one is dialed again.
+                if let Some(retired) = Self::retired(&state) {
+                    return Err(retired);
+                }
+                match result {
+                    Ok(endpoint) if state.endpoint.as_ref() != Some(endpoint) => {}
+                    _ => return result.clone(),
+                }
             }
         }
         let result = self.establish().await;
         let mut state = self.lock();
         state.finished += 1;
         state.last = Some(result.clone());
-        result
+        // Checked in the same transition close retires the session in: an endpoint is never handed out after the close.
+        match Self::retired(&state) {
+            Some(retired) if result.is_ok() => Err(retired),
+            _ => result,
+        }
+    }
+
+    /// Why the session hands out no endpoint any more, if it does not.
+    fn retired(state: &State) -> Option<SessionError> {
+        state.failure.clone().or_else(|| state.closed.then_some(SessionError::Closed))
     }
 
     /// The last attachment, for a reconnect check; `None` until connected and after [`RemoteSession::invalidate`].
@@ -464,21 +515,48 @@ impl RemoteSession {
         let mut state = self.lock();
         state.failure.get_or_insert(error);
         state.endpoint = None;
-        // Dropping the handle ends the supervision and its ssh child.
-        state.slot = None;
+        state.identity = None;
+        state.attempt = None;
+        // The tunnel stops now and stays registered until its stop is over, so a close after this joins it instead of returning
+        // while its ssh child may still run.
+        if let Some(slot) = state.slot.take() {
+            let retiring = Retiring::new(slot.tunnel);
+            state.retiring.push(retiring.clone());
+            tokio::spawn(async move { retiring.done.get_or_init(|| async { retiring.tunnel.stop().await }).await; });
+        }
     }
 
     /// Detach: closes the tunnel, leaves the remote core running.
     pub async fn close(&self) {
-        let slot = {
+        // Closed first, under the lock: from here no attempt installs a tunnel or publishes anything. What is stopping (a
+        // reconnect's replaced tunnel) and what is active are both stopped before this returns, each stop run once.
+        // A notification being delivered finishes first, before the session is marked closed: a Ready callback never sees a closed
+        // session, and none is delivered after (each checks the session is open while it holds the delivery lock).
+        let delivering = self.delivery.lock().unwrap_or_else(PoisonError::into_inner);
+        let stopping = {
             let mut state = self.lock();
             state.closed = true;
+            state.attempt = None;
             state.endpoint = None;
-            state.slot.take()
+            state.identity = None;
+            let mut stopping = state.retiring.clone();
+            if let Some(slot) = state.slot.take() {
+                let retiring = Retiring::new(slot.tunnel);
+                state.retiring.push(retiring.clone());
+                stopping.push(retiring);
+            }
+            stopping
         };
-        if let Some(slot) = slot {
-            slot.tunnel.stop().await;
+        drop(delivering);
+        for retiring in stopping {
+            self.reap(retiring).await;
         }
+    }
+
+    /// Runs the stop of retiring (or joins the one running) and forgets it once it is over.
+    async fn reap(&self, retiring: Retiring) {
+        retiring.done.get_or_init(|| async { retiring.tunnel.stop().await }).await;
+        self.lock().retiring.retain(|other| !Arc::ptr_eq(&other.done, &retiring.done));
     }
 
     /// The failure that stopped this session for good (its tunnel's included).
@@ -548,9 +626,57 @@ impl RemoteSession {
         }
     }
 
+    /// A new attempt, admitted before any async work: the session must still be open.
+    fn admit(&self) -> Result<AttemptId, SessionError> {
+        let mut state = self.lock();
+        if state.closed {
+            return Err(SessionError::Closed);
+        }
+        if let Some(failure) = &state.failure {
+            return Err(failure.clone());
+        }
+        state.next_attempt += 1;
+        let id = AttemptId(state.next_attempt);
+        state.attempt = Some(id);
+        Ok(id)
+    }
+
+    fn is_current(state: &State, id: AttemptId) -> bool {
+        !state.closed && state.attempt == Some(id)
+    }
+
+    /// A phase of attempt id, delivered only while that attempt is the session's current one.
+    fn notify(&self, id: AttemptId, phase: SessionPhase) {
+        let _delivering = self.delivery.lock().unwrap_or_else(PoisonError::into_inner);
+        if !Self::is_current(&self.lock(), id) {
+            return;
+        }
+        self.report(phase);
+    }
+
+    /// Identity, endpoint and the Ready notification as one transition of attempt id, which must still be current and still own
+    /// `tunnel`: a close or a newer attempt during the health read leaves nothing published and nothing reported.
+    fn publish_ready(&self, id: AttemptId, tunnel: &Arc<dyn TunnelHandle>, identity: Identity, endpoint: Endpoint) -> Result<Endpoint, SessionError> {
+        let _delivering = self.delivery.lock().unwrap_or_else(PoisonError::into_inner);
+        {
+            let mut state = self.lock();
+            let owns = state.slot.as_ref().is_some_and(|slot| Arc::ptr_eq(&slot.tunnel, tunnel));
+            if !Self::is_current(&state, id) || !owns {
+                return Err(SessionError::Closed);
+            }
+            state.identity = Some(identity);
+            state.endpoint = Some(endpoint.clone());
+        }
+        self.report(SessionPhase::Ready);
+        Ok(endpoint)
+    }
+
     async fn establish(&self) -> Result<Endpoint, SessionError> {
-        match self.dial().await {
+        let id = self.admit()?;
+        match self.dial(id).await {
             Ok(endpoint) => Ok(endpoint),
+            // Closed or superseded while it worked: the later state owns the session; this attempt reports nothing and fails nothing.
+            Err(_) if !Self::is_current(&self.lock(), id) => Err(SessionError::Closed),
             Err(error) => {
                 // A changed host key, a refused login, an unsupported server or an older desktop will not fix itself:
                 // stop dialing until the app restarts, and keep the original words.
@@ -563,11 +689,11 @@ impl RemoteSession {
         }
     }
 
-    async fn dial(&self) -> Result<Endpoint, SessionError> {
-        self.report(SessionPhase::Connect);
+    async fn dial(&self, id: AttemptId) -> Result<Endpoint, SessionError> {
+        self.notify(id, SessionPhase::Connect);
         let force_restart = self.lock().force_restart;
         let progress = |phase: BootstrapPhase| {
-            self.report(match phase {
+            self.notify(id, match phase {
                 BootstrapPhase::Check { detail } => SessionPhase::Check { detail },
                 BootstrapPhase::Install => SessionPhase::Install,
                 BootstrapPhase::Start => SessionPhase::Start,
@@ -577,24 +703,29 @@ impl RemoteSession {
         // The user's confirmation covered this open only: a later reconnect never stops a busy core on its own.
         self.lock().force_restart = false;
         let cwd = resolve_remote_cwd(self.config.remote_cwd.as_deref(), &report.home)?;
-        let Some((discovery, rpc_port)) = report.serving() else {
-            return Err(SshError::new(format!("The Mixdog core on {} is not serving.", self.display), FailureClass::Transient).into());
+        let Some((discovery, _)) = report.serving() else {
+            return Err(SshError::said(crate::said::SERVER_NOT_READY.said([("name", self.display.as_str())]), FailureClass::Transient).into());
         };
-        self.report(SessionPhase::Start);
-        let tunnel = self.tunnel_to(rpc_port, discovery.control_port).await?;
-        if self.lock().closed {
-            return Err(SessionError::Closed);
-        }
+        // The ssh listener, never the ordinary `rpc` one: what it accepts is what the core counts as an ssh client. A core without
+        // it is not attached to through the local listener. The ensure run only reports a core as current when it is this build
+        // (version, build and model mode), and every serving core of this build publishes the ssh listener beside the ordinary one,
+        // so this is a server that did not finish starting, not a state the user can only leave by cleaning up: connecting again
+        // runs the ensure again, which replaces or restarts what is there. (A server is saved only after a connect succeeded, so a
+        // first connection has no cleanup to offer either.)
+        let Some(ssh_rpc_port) = discovery.ssh_rpc_port else {
+            return Err(SshError::said(crate::said::SERVER_NOT_READY.said([("name", self.display.as_str())]), FailureClass::Transient).into());
+        };
+        self.notify(id, SessionPhase::Start);
+        let tunnel = self.tunnel_to(id, ssh_rpc_port, discovery.control_port).await?;
         // Before the core token goes through the tunnel, the process behind it must be the core the probe found: on a
         // shared server another user could have bound the port it freed.
         let identity = Identity { pid: discovery.pid, instance_id: discovery.instance_id.clone() };
         let Some(health) = read_health(tunnel.companion_port(), IDENTITY_CHECK_TIMEOUT).await else {
-            return Err(SshError::new(format!("The Mixdog core on {} does not answer through the ssh tunnel.", self.display), FailureClass::Transient).into());
+            return Err(SshError::said(crate::said::NO_SSH_RESPONSE.said([("name", self.display.as_str())]), FailureClass::Transient).into());
         };
         if !identity.is_answered_by(&health) {
             return Err(identity_error(&self.display).into());
         }
-        self.report(SessionPhase::Ready);
         let endpoint = Endpoint {
             url: format!("ws://{LOOPBACK}:{}/rpc", tunnel.local_port()),
             token: discovery.token.clone(),
@@ -603,42 +734,64 @@ impl RemoteSession {
             cwd,
             core_version: discovery.version.clone(),
         };
-        let mut state = self.lock();
-        state.identity = Some(identity);
-        state.endpoint = Some(endpoint.clone());
-        Ok(endpoint)
+        self.publish_ready(id, &tunnel, identity, endpoint)
     }
 
     /// The tunnel to the core's two listeners, ready. The same ports reuse the supervised tunnel (started again when
     /// none runs); a core that moved gets a new one from scratch.
-    async fn tunnel_to(&self, rpc_port: u16, control_port: u16) -> Result<Arc<dyn TunnelHandle>, SessionError> {
+    async fn tunnel_to(&self, id: AttemptId, rpc_port: u16, control_port: u16) -> Result<Arc<dyn TunnelHandle>, SessionError> {
         let remotes = (rpc_port, control_port);
-        let reusable = {
-            let state = self.lock();
-            if state.closed {
+        // One transition: the same ports reuse the tunnel (started again, here, when none runs: a revive after a close took the
+        // slot would leave a supervisor nobody owns), a core that moved hands the old tunnel to the registry of stopping ones.
+        enum Plan {
+            Reuse(Arc<dyn TunnelHandle>, bool),
+            Replace(Option<Retiring>),
+        }
+        let plan = {
+            let mut state = self.lock();
+            if !Self::is_current(&state, id) {
                 return Err(SessionError::Closed);
             }
-            state.slot.as_ref().filter(|slot| slot.remotes == remotes).map(|slot| slot.tunnel.clone())
-        };
-        let (tunnel, revived) = match reusable {
-            Some(tunnel) => {
-                let revived = stopped_without_failure(tunnel.as_ref());
-                if revived {
-                    tunnel.revive();
+            let reusable = state.slot.as_ref().filter(|slot| slot.remotes == remotes).map(|slot| slot.tunnel.clone());
+            match reusable {
+                Some(tunnel) => {
+                    let revived = stopped_without_failure(tunnel.as_ref());
+                    if revived {
+                        tunnel.revive();
+                    }
+                    Plan::Reuse(tunnel, revived)
                 }
-                (tunnel, revived)
-            }
-            None => {
-                let old = self.lock().slot.take();
-                if let Some(old) = old {
-                    old.tunnel.stop().await;
+                None => {
+                    let old = state.slot.take().map(|old| Retiring::new(old.tunnel));
+                    if let Some(old) = &old {
+                        state.retiring.push(old.clone());
+                    }
+                    Plan::Replace(old)
                 }
-                let tunnel = self.transport.open_tunnel(self.spec(remotes));
-                self.lock().slot = Some(Slot { tunnel: tunnel.clone(), remotes });
-                (tunnel, false)
             }
         };
-        self.wait_up(tunnel.as_ref(), revived).await?;
+        let replaced = match plan {
+            Plan::Reuse(tunnel, revived) => {
+                self.wait_up(tunnel.as_ref(), revived).await?;
+                return Ok(tunnel);
+            }
+            Plan::Replace(old) => old,
+        };
+        if let Some(old) = replaced {
+            self.reap(old).await;
+        }
+        // The stop took a while: whether this attempt may still start a tunnel is decided where the tunnel is installed, in the
+        // same transition. A tunnel that is not wanted is never started.
+        let tunnel = {
+            let mut state = self.lock();
+            if !Self::is_current(&state, id) {
+                return Err(SessionError::Closed);
+            }
+            let tunnel = self.transport.open_tunnel(self.spec(remotes));
+            state.slot = Some(Slot { tunnel: tunnel.clone(), remotes });
+            tunnel
+        };
+        self.wait_up(tunnel.as_ref(), false).await?;
         Ok(tunnel)
     }
 
@@ -668,14 +821,14 @@ impl RemoteSession {
         let now = match reached {
             Ok(Ok(now)) => (*now).clone(),
             _ => {
-                let message = format!("The ssh tunnel to {} is not ready after {} ms.", self.display, limit.as_millis());
-                return Err(SshError::new(message, FailureClass::Transient).into());
+                let said = crate::said::CONNECTION_NOT_READY.said([("name", self.display.clone()), ("ms", limit.as_millis().to_string())]);
+                return Err(SshError::said(said, FailureClass::Transient).into());
             }
         };
         match now {
             TunnelState::Up => Ok(()),
             TunnelState::Stopped { failure: Some(failure) } => Err(failure.into()),
-            _ => Err(SshError::new(format!("The ssh tunnel to {} is closed.", self.display), FailureClass::Transient).into()),
+            _ => Err(SshError::said(crate::said::CONNECTION_CLOSED.said([("name", self.display.as_str())]), FailureClass::Transient).into()),
         }
     }
 }
@@ -701,3 +854,7 @@ fn stopped_without_failure(tunnel: &dyn TunnelHandle) -> bool {
 #[cfg(test)]
 #[path = "session_tests.rs"]
 mod session_tests;
+
+#[cfg(test)]
+#[path = "session_lifetime_tests.rs"]
+mod session_lifetime_tests;

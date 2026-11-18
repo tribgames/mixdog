@@ -42,15 +42,19 @@ impl QuotaHistory for LedgerQuotaHistory {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use std::collections::BTreeMap;
     use std::collections::HashMap;
 
     use mixdog_ai::registry::keys::Environment;
+    #[cfg(node_twin)]
     use mixdog_ledger::quota::QuotaHistoryOptions;
     use mixdog_ledger::refresh::Pricer;
     use mixdog_ledger::repair::PriceRequest;
     use mixdog_ledger::repair::Priced;
+    #[cfg(node_twin)]
     use serde_json::Value;
+    #[cfg(node_twin)]
     use serde_json::json;
 
     use super::*;
@@ -69,8 +73,6 @@ mod tests {
         let (path, body) = (path.to_owned(), body.to_vec());
         on_lane(move |lane| mixdog_statefile::write_file(lane, &path, &body, &mixdog_statefile::Opts::default())).unwrap();
     }
-
-    const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/usage-ports/usage-ports-twin.json");
 
     struct NoPrices;
 
@@ -92,9 +94,24 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn a_ledger_that_cannot_open_fails_the_record_with_the_open_error() {
+        let root = tempfile::tempdir().unwrap();
+        let blocker = root.path().join("file");
+        write_file(&blocker, b"x");
+        let vars = Vars(HashMap::from([("MIXDOG_USAGE_LEDGER_PATH".to_owned(), blocker.join("sub").join("ledger.sqlite").to_string_lossy().into_owned())]));
+        let source = LedgerSource::new(Arc::new(vars), root.path().to_path_buf(), mixdog_rt::testing::tokens(), Arc::new(NoPrices), crate::run_host::usage_stats_feed::recording_push());
+        let sample =Sample { provider: "p".into(), account: "a".into(), label: "5H".into(), ts: 1, used_pct: 1.0, reset_at: None };
+        assert!(LedgerQuotaHistory::new(source).record(vec![sample]).await.is_err());
+    }
+
+
+    #[cfg(node_twin)]
+    const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/usage-ports/usage-ports-twin.json");
     /// The samples Node's usage fetch handed its ledger land in the ledger the source opens, and come
     /// back through the same reader the subscription view uses.
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn the_samples_nodes_fetch_recorded_are_stored_through_the_shared_source() {
         let twin: Value = serde_json::from_str(&TWIN).unwrap();
         let root = tempfile::tempdir().unwrap();
@@ -138,16 +155,5 @@ mod tests {
             }
         }
         assert!(stored >= 10, "the recording hands the ledger samples: {stored}");
-    }
-
-    #[tokio::test]
-    async fn a_ledger_that_cannot_open_fails_the_record_with_the_open_error() {
-        let root = tempfile::tempdir().unwrap();
-        let blocker = root.path().join("file");
-        write_file(&blocker, b"x");
-        let vars = Vars(HashMap::from([("MIXDOG_USAGE_LEDGER_PATH".to_owned(), blocker.join("sub").join("ledger.sqlite").to_string_lossy().into_owned())]));
-        let source = LedgerSource::new(Arc::new(vars), root.path().to_path_buf(), mixdog_rt::testing::tokens(), Arc::new(NoPrices), crate::run_host::usage_stats_feed::recording_push());
-        let sample =Sample { provider: "p".into(), account: "a".into(), label: "5H".into(), ts: 1, used_pct: 1.0, reset_at: None };
-        assert!(LedgerQuotaHistory::new(source).record(vec![sample]).await.is_err());
     }
 }

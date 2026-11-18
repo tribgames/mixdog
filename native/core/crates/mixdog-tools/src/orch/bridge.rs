@@ -99,6 +99,8 @@ pub enum CallResolution {
     NotFound,
     /// In the catalog but unavailable now.
     Unavailable(String),
+    /// In the catalog, but the core cannot run it, with why (the reason discovery reports for it).
+    Unrunnable { name: String, reason: String },
     Deferred(String),
 }
 
@@ -603,6 +605,9 @@ impl CallTool {
             }
             CallResolution::Unavailable(canonical) => {
                 return Err(bridge_error("TOOL_UNAVAILABLE", format!("tool \"{canonical}\" is unavailable in the current session catalog; no call was sent.")));
+            }
+            CallResolution::Unrunnable { name, reason } => {
+                return Err(bridge_error("TOOL_UNAVAILABLE", format!("tool \"{name}\" is unavailable: {reason} No call was sent.")));
             }
             CallResolution::Deferred(canonical) => canonical,
         };

@@ -209,7 +209,14 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
   gap: 6px;
   padding-inline: 6px;
 }
-.pane-dock-toggle {
+/* ONE strip mark for the toggles and the + after the last tab: a 28px plate
+   with a 15px glyph on a 1.5px line (the tab glyphs' weight), muted at rest
+   and solid ink on its plate under the pointer. The + keeps its full-height
+   hit slot and draws this same plate inside it. The plate stays 28px in both:
+   a + glyph box padded to 24px landed on a half pixel, which Chromium snapped
+   0.5px below the toggles' centre line. */
+.pane-dock-toggle,
+.workspace-tab-new > .workspace-tab-new-mark {
   width: 28px;
   height: 28px;
   flex: 0 0 28px;
@@ -220,20 +227,25 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
   background: transparent;
+}
+.pane-dock-toggle {
   cursor: pointer;
 }
-/* 15px on a 1.5px stroke: the same weight as the strip's tab glyphs and the
-   browser toolbar, so the toggles stop reading heavier than their neighbours
-. */
-.pane-dock-toggle svg.lucide {
+.pane-dock-toggle svg.lucide,
+.workspace-tab-new > .workspace-tab-new-mark svg.lucide {
   width: 15px;
   height: 15px;
   stroke-width: 1.5px;
 }
 .pane-dock-toggle:hover,
-.pane-dock-toggle:focus-visible {
+.pane-dock-toggle:focus-visible,
+.workspace-tab-new:hover > .workspace-tab-new-mark,
+.workspace-tab-new:focus-visible > .workspace-tab-new-mark {
   color: var(--mx-text);
   background: var(--mx-hover);
+}
+.pane-dock-toggle:hover,
+.pane-dock-toggle:focus-visible {
   outline: none;
 }
 .pane-dock-toggle[aria-pressed="true"] {
@@ -275,10 +287,8 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
 .workspace-tabs[data-group-dragging="true"] {
   cursor: grabbing;
 }
-/* ONE ink for the strip's two marks — the tab X and the + beside it. */
-.workspace-tab-close,
-.workspace-tabs-shell > .workspace-tab-new,
-.workspace-tabs-shell > .workspace-tab-new svg {
+/* The tab X wears solid ink; the + takes the dock toggles' ink (above). */
+.workspace-tab-close {
   color: var(--mx-text);
 }
 /* 02-base pins every lucide stroke to 1px in CSS, which beats the element's
@@ -287,17 +297,8 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
 .workspace-tab-close svg.lucide {
   stroke-width: 1.5px;
 }
-/* The strip's + and the right-end dock toggles follow the tabs' leading
-   icons: 15px on a 1.5px line, the same as the tabs' leading icons. */
-.workspace-tabs-shell > .workspace-tab-new svg.lucide {
-  width: 15px;
-  height: 15px;
-  stroke-width: 1.5px;
-}
 .workspace-tab-close:hover,
-.workspace-tab-close:focus-visible,
-.workspace-tabs-shell > .workspace-tab-new:hover,
-.workspace-tabs-shell > .workspace-tab-new:focus-visible {
+.workspace-tab-close:focus-visible {
   color: var(--mx-text);
 }
 .workspace-tab.preview .workspace-tab-main > span {

@@ -1,21 +1,13 @@
-//! The one blob store (FORMAT.md §4, SM §9): `<D>/prompt-attachments/sha256/<ab>/<64 hex>`,
-//! named by the SHA-256 of the bytes.
+//! The one blob store (FORMAT.md §4, SM §9): `<D>/blobs/sha256/<ab>/<64 hex>`, named by the SHA-256 of the bytes. The
+//! core's own directory: no 1.4.5 code names it, and the migration gives it every 1.4.5 blob once
+//! (`mixdog_migrate::legacy_blobs`).
 //!
-//! GC and publication meet under the blob's shard mutex (`<ab>`). A writer pins a digest
-//! under that mutex before publishing it and keeps the pin until the referencing frame is
-//! projected into `blob_refs`; GC deletes only unpinned digests under the same mutex. The
-//! pin replaces holding the mutex itself across the barrier and the projection, so no
-//! lock is held across I/O and unrelated sessions never wait on each other.
+//! Nothing deletes a blob (FORMAT.md §4.3), and a log rewrite deletes none, so a published blob needs no hold.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blob file I/O runs only in lane jobs (lane proof arguments)")]
 
-use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::time::Duration;
-use std::time::SystemTime;
 
 use mixdog_protocol::BlobDescriptor;
 use mixdog_protocol::MAX_BLOB_BYTES;
@@ -29,7 +21,6 @@ use crate::fsio::Access;
 use crate::fsio::IoError;
 use crate::fsio::IoLane;
 use crate::fsio::IoOp;
-use crate::fsio::WriteLane;
 use crate::fsio::err;
 use crate::schema::blob::BLOB_DIR;
 use crate::schema::blob::BODY_MEDIA_TYPE;
@@ -70,153 +61,58 @@ pub fn digest_of_reference(reference: &str) -> Option<Digest> {
     Digest::try_from(format!("{DIGEST_PREFIX}{reference}")).ok()
 }
 
-struct Shard {
-    pins: Mutex<HashMap<String, u32>>,
-}
-
-struct Inner {
-    root: PathBuf,
-    shards: Vec<Shard>,
-}
-
 /// Handle to the blob store; cheap to clone.
 #[derive(Clone)]
 pub struct BlobStore {
-    inner: Arc<Inner>,
-}
-
-/// Keeps a digest from GC until dropped (after the referencing frame is projected).
-pub struct BlobPin {
-    inner: Arc<Inner>,
-    digest: Digest,
-}
-
-impl std::fmt::Debug for BlobPin {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("BlobPin").field(&self.digest.as_str()).finish()
-    }
-}
-
-impl BlobPin {
-    pub fn digest(&self) -> &Digest {
-        &self.digest
-    }
-}
-
-impl Drop for BlobPin {
-    fn drop(&mut self) {
-        let shard = self.inner.shard(&self.digest);
-        let mut pins = shard.pins.lock().unwrap_or_else(|e| e.into_inner());
-        let key = hex(&self.digest);
-        if let Some(n) = pins.get_mut(key) {
-            *n -= 1;
-            if *n == 0 {
-                pins.remove(key);
-            }
-        }
-    }
-}
-
-impl Inner {
-    fn shard(&self, digest: &Digest) -> &Shard {
-        let h = hex(digest);
-        let index = u8::from_str_radix(&h[..2], 16).expect("hex digest");
-        &self.shards[usize::from(index)]
-    }
-
-    fn pin(self: &Arc<Self>, digest: &Digest) -> BlobPin {
-        let mut pins = self.shard(digest).pins.lock().unwrap_or_else(|e| e.into_inner());
-        *pins.entry(hex(digest).to_owned()).or_insert(0) += 1;
-        BlobPin {
-            inner: self.clone(),
-            digest: digest.clone(),
-        }
-    }
+    root: PathBuf,
 }
 
 impl BlobStore {
     /// The store under data dir `data_dir`.
     pub fn new(data_dir: &Path) -> Self {
-        Self {
-            inner: Arc::new(Inner {
-                // One component at a time: the paths a failed read names carry the platform's separator, as
-                // Node's `path.join` writes them.
-                root: BLOB_DIR.split('/').fold(data_dir.to_path_buf(), |path, part| path.join(part)),
-                shards: (0..256).map(|_| Shard { pins: Mutex::new(HashMap::new()) }).collect(),
-            }),
-        }
+        // One component at a time: the paths a failed read names carry the platform's separator, as
+        // Node's `path.join` writes them.
+        let root = BLOB_DIR.split('/').fold(data_dir.to_path_buf(), |path, part| path.join(part));
+        Self { root }
     }
 
     pub fn root(&self) -> &Path {
-        &self.inner.root
+        &self.root
     }
 
     pub fn path(&self, digest: &Digest) -> PathBuf {
         let h = hex(digest);
-        self.inner.root.join(&h[..2]).join(h)
+        self.root.join(&h[..2]).join(h)
     }
 
-    /// Pins `digest` (see the module docs).
-    pub fn pin(&self, digest: &Digest) -> BlobPin {
-        self.inner.pin(digest)
-    }
-
-    /// Publishes `bytes` (SM §7.5 step 1) and returns its pin. An existing file whose bytes
-    /// hash to its name is kept; any other existing file is replaced.
-    pub fn put<L: WriteLane>(&self, lane: &InLane<L>, bytes: &[u8]) -> Result<BlobPin, BlobError> {
-        self.put_unlaned(bytes, |path, bytes| crate::fsio::publish_file(lane, path, bytes))
-    }
-
-    /// [`Self::put`], then the file's mtime set to now. Node's `saveBuffer` touches a reused blob so
-    /// the GC's age window protects the reference that is about to be recorded; a file just written
-    /// already has the time, and a blob already there keeps it only by this touch.
-    pub fn put_fresh<L: WriteLane>(&self, lane: &InLane<L>, bytes: &[u8]) -> Result<BlobPin, BlobError> {
-        let pin = self.put(lane, bytes)?;
-        let path = self.path(pin.digest());
-        std::fs::OpenOptions::new()
-            .write(true)
-            .open(&path)
-            .and_then(|file| file.set_modified(SystemTime::now()))
-            .map_err(err(IoOp::Write, &path))?;
-        Ok(pin)
-    }
-
-    /// [`Self::put`] creating the file with `access` ([`crate::fsio::publish_file_with`], which needs no write lane): the
-    /// session's prompt-attachment intake publishes from the interactive lane it runs on, owner-only as `saveBuffer` writes
-    /// (`writeFileAtomicSync(target, buffer, { mode: 0o600 })`).
-    pub fn put_with<L: IoLane>(&self, _lane: &InLane<L>, bytes: &[u8], access: Access) -> Result<BlobPin, BlobError> {
+    /// [`Self::put_unlaned`] creating the file with `access` ([`crate::fsio::publish_file_with`], which needs no write
+    /// lane): the session's prompt-attachment intake and staged originals publish from the lane they run on.
+    pub fn put_with<L: IoLane>(&self, _lane: &InLane<L>, bytes: &[u8], access: Access) -> Result<Digest, BlobError> {
         self.put_unlaned(bytes, |path, bytes| crate::fsio::publish_file_with(path, bytes, access))
     }
 
+    /// [`Self::put_unlaned`] on a write lane.
+    pub fn put<L: crate::fsio::WriteLane>(&self, lane: &InLane<L>, bytes: &[u8]) -> Result<Digest, BlobError> {
+        self.put_unlaned(bytes, |path, bytes| crate::fsio::publish_file(lane, path, bytes))
+    }
+
+    /// Publishes `bytes` (SM §7.5 step 1) for a frame about to be committed and returns their digest. An existing file whose
+    /// bytes hash to its name is kept; any other (unreadable, or cut short by a crash) is replaced by the publish's rename:
+    /// these bytes are the ones the name stands for (`saveBuffer`, `attachments/store.mjs:146-160`).
     pub(crate) fn put_unlaned(
         &self,
         bytes: &[u8],
         publish: impl FnOnce(&Path, &[u8]) -> Result<(), IoError>,
-    ) -> Result<BlobPin, BlobError> {
+    ) -> Result<Digest, BlobError> {
         if bytes.len() as u64 > MAX_BLOB_BYTES {
             return Err(BlobError::ItemTooLarge { bytes: bytes.len() as u64 });
         }
         let digest = digest_of(bytes);
-        let pin = self.pin(&digest);
         let path = self.path(&digest);
-        // `saveBuffer` (`attachments/store.mjs:146-161`): a file at the address that is not these bytes, or cannot be read,
-        // counts as absent and the bytes are written again. One that is not these bytes is unlinked first (a failure
-        // ignored), as Node does. One that cannot be read is left to the publish, whose rename replaces it: the read may
-        // have failed for a reason that passes (EMFILE, EINTR), and if the publish then fails too a good blob that stored
-        // records name is kept rather than deleted (this is also the log's commit path, which `saveBuffer` does not cover).
-        let present = match read_verified(&path, &digest) {
-            Ok(_) => true,
-            Err(BlobError::Corrupt { .. }) => {
-                let _ = std::fs::remove_file(&path);
-                false
-            }
-            // Not there, or not readable.
-            Err(_) => false,
-        };
-        if !present {
+        if read_verified(&path, &digest).is_err() {
             publish(&path, bytes)?;
         }
-        Ok(pin)
+        Ok(digest)
     }
 
     /// The bytes of `digest`, verified (`blobCorrupt` on a mismatch).
@@ -235,128 +131,64 @@ impl BlobStore {
         }
     }
 
+    /// Streams the file of `digest` through SHA-256 without holding its bytes: its length when they hash to its name
+    /// (`blobCorrupt` otherwise). A reader that pages a blob verifies it once with this, then reads pages with
+    /// [`Self::read_range`].
+    pub fn verify<L: IoLane>(&self, _lane: &InLane<L>, digest: &Digest) -> Result<u64, BlobError> {
+        let path = self.path(digest);
+        let file = open_blob(&path, digest)?;
+        let mut hasher = Sha256::new();
+        let len = std::io::copy(&mut file.take(MAX_BLOB_BYTES + 1), &mut HashWriter(&mut hasher))
+            .map_err(err(IoOp::Read, &path))?;
+        let hash = hasher.finalize();
+        let mut text = String::with_capacity(DIGEST_PREFIX.len() + 64);
+        text.push_str(DIGEST_PREFIX);
+        for b in hash {
+            text.push_str(&format!("{b:02x}"));
+        }
+        if text != digest.as_str() {
+            return Err(BlobError::Corrupt { digest: digest.clone() });
+        }
+        Ok(len)
+    }
+
+    /// Up to `len` bytes of the file of `digest` from `offset` (fewer at its end), not verified: for a blob
+    /// [`Self::verify`] accepted.
+    pub fn read_range<L: IoLane>(&self, _lane: &InLane<L>, digest: &Digest, offset: u64, len: usize) -> Result<Vec<u8>, BlobError> {
+        use std::io::Seek as _;
+        let path = self.path(digest);
+        let mut file = open_blob(&path, digest)?;
+        file.seek(std::io::SeekFrom::Start(offset)).map_err(err(IoOp::Read, &path))?;
+        let mut bytes = Vec::with_capacity(len.min(1 << 20));
+        file.take(len as u64).read_to_end(&mut bytes).map_err(err(IoOp::Read, &path))?;
+        Ok(bytes)
+    }
+
     pub(crate) fn read_unlaned(&self, digest: &Digest) -> Result<Vec<u8>, BlobError> {
         read_verified(&self.path(digest), digest)
     }
+}
 
-    /// GC of one shard (`<ab>`, 0..=255), SM §9 conditions 3 and 4; the caller has checked
-    /// conditions 1 and 2. `referenced` answers condition 3. Deletion happens under the
-    /// shard mutex and skips pinned digests. Returns the deleted digests.
-    pub fn collect_shard(
-        &self,
-        _lane: &InLane<mixdog_rt::MaintenanceIo>,
-        shard: u8,
-        now: SystemTime,
-        min_age: Duration,
-        referenced: &mut dyn FnMut(&Digest) -> Result<bool, crate::sqlite::DbError>,
-    ) -> Result<Vec<Digest>, GcError> {
-        let dir = self.inner.root.join(format!("{shard:02x}"));
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(e) => e,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => return Err(GcError::Io(err(IoOp::List, &dir)(e))),
-        };
-        let mut deleted = Vec::new();
-        let mut removed_leftover = false;
-        for entry in entries {
-            mixdog_rt::job_progress();
-            let entry = entry.map_err(|e| GcError::Io(err(IoOp::List, &dir)(e)))?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let path = entry.path();
-            if is_writer_leftover(&name) {
-                // A writer that died between create and rename: gone once it is as old as a
-                // collectable blob. Node ignores one it cannot stat or unlink.
-                let aged = entry.metadata().and_then(|m| m.modified()).is_ok_and(|modified| now.duration_since(modified).unwrap_or_default() >= min_age);
-                removed_leftover |= aged && std::fs::remove_file(&path).is_ok();
-                continue;
-            }
-            let Ok(digest) = Digest::try_from(format!("{DIGEST_PREFIX}{name}")) else {
-                continue;
-            };
-            let modified = entry
-                .metadata()
-                .and_then(|m| m.modified())
-                .map_err(|e| GcError::Io(err(IoOp::Read, &path)(e)))?;
-            // Node collects a blob whose mtime is at or before `now - min_age`.
-            if now.duration_since(modified).unwrap_or_default() < min_age {
-                continue;
-            }
-            let pins = self
-                .inner
-                .shard(&digest)
-                .pins
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            if pins.contains_key(hex(&digest)) {
-                continue;
-            }
-            // Asked only now, under the shard's pin lock: a writer that pinned, referenced and
-            // unpinned the digest since an earlier look cannot slip between the answer and the
-            // unlink, so a referenced blob is never removed.
-            if referenced(&digest)? {
-                continue;
-            }
-            std::fs::remove_file(&path).map_err(|e| GcError::Io(err(IoOp::Remove, &path)(e)))?;
-            drop(pins);
-            deleted.push(digest);
-        }
-        if !deleted.is_empty() || removed_leftover {
-            crate::fsio::sync_dir(&dir).map_err(GcError::Io)?;
-        }
-        Ok(deleted)
+/// Feeds what is written to a hasher.
+struct HashWriter<'a>(&'a mut Sha256);
+
+impl std::io::Write for HashWriter<'_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.update(buf);
+        Ok(buf.len())
     }
 
-    /// The file of `digest` deleted now, whatever its age, unless it is pinned or `referenced` (asked under the
-    /// shard's pin lock, as the GC asks) says a record names it: a blob a sensitive log rewrite took out of every
-    /// record. True when it was deleted; a file already gone is false.
-    pub fn remove_unreferenced(
-        &self,
-        digest: &Digest,
-        referenced: &mut dyn FnMut(&Digest) -> Result<bool, crate::sqlite::DbError>,
-    ) -> Result<bool, GcError> {
-        let pins = self.inner.shard(digest).pins.lock().unwrap_or_else(|e| e.into_inner());
-        if pins.contains_key(hex(digest)) || referenced(digest)? {
-            return Ok(false);
-        }
-        let path = self.path(digest);
-        match std::fs::remove_file(&path) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-            Err(e) => return Err(GcError::Io(err(IoOp::Remove, &path)(e))),
-        }
-        drop(pins);
-        crate::fsio::sync_dir(path.parent().expect("a blob in its shard")).map_err(GcError::Io)?;
-        Ok(true)
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
-fn is_lower_hex(bytes: &[u8]) -> bool {
-    bytes.iter().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-}
-
-/// A file a blob writer leaves behind when it dies before its rename: Node's
-/// `.?<64 hex>.<anything>.tmp` and `<64 hex>.mixdog-tmp-<hex>`, and this store's own
-/// `.<64 hex>.tmp-<16 hex>` ([`crate::fsio::is_tmp_name`]).
-fn is_writer_leftover(name: &str) -> bool {
-    let bare = name.strip_prefix('.').unwrap_or(name).as_bytes();
-    if bare.len() < 66 || !is_lower_hex(&bare[..64]) || bare[64] != b'.' {
-        return false;
+fn open_blob(path: &Path, digest: &Digest) -> Result<std::fs::File, BlobError> {
+    match std::fs::File::open(path) {
+        Ok(f) => Ok(f),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(BlobError::Missing { digest: digest.clone() }),
+        Err(e) => Err(err(IoOp::Open, path)(e).into()),
     }
-    let rest = &bare[65..];
-    let dotted_prefix = name.len() != bare.len();
-    let tagged = !dotted_prefix
-        && rest.strip_prefix(b"mixdog-tmp-").is_some_and(|tail| !tail.is_empty() && is_lower_hex(tail));
-    let own = dotted_prefix && crate::fsio::is_tmp_name(name);
-    let dotted = rest.len() > 4 && rest.ends_with(b".tmp");
-    tagged || own || dotted
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum GcError {
-    #[error(transparent)]
-    Io(IoError),
-    #[error(transparent)]
-    Db(#[from] crate::sqlite::DbError),
 }
 
 fn read_verified(path: &Path, digest: &Digest) -> Result<Vec<u8>, BlobError> {

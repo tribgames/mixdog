@@ -10,6 +10,7 @@ import { curveMonotoneX, line as pathLine } from 'd3-shape';
 import { useId, type CSSProperties } from 'react';
 import { t, uiFormatLocale } from './i18n';
 import { UsageModelName, usageModelTitle } from './UsageStatsSurface';
+import { usageModelKey } from './usage-model-tier';
 import { quotaClock, quotaPercent, quotaValue, quotaValueBreakdown, quotaValueCaution } from './quota-usage-model';
 import { record, rows } from './record-utils';
 import { timeFormatOptions } from './time-format-preference';
@@ -282,11 +283,11 @@ export function QuotaTrend({
   // (user: 모델별로 영역 색칠하는 스타일로, 모델별 합계 따로 가지 말고).
   // Every model's line runs up to now, and so do the layers.
   const models = rows(data.modelSeries).map((entry) => {
-    const key = String(entry.key ?? '');
+    const key = entry.key ? usageModelKey(entry) : '';
     return {
       key,
       ink: key ? seriesInk(key) : 'outside',
-      label: key ? usageModelTitle(String(entry.modelId || key), provider, entry.fast === true) : t('Outside Mixdog'),
+      label: key ? usageModelTitle(entry, provider) : t('Outside Mixdog'),
       list: pointList(entry.points).map(([time, value]): [number, number] => [time, value]),
     };
   });
@@ -546,14 +547,10 @@ export function QuotaTrend({
               {(slotModels.length > 0 || slotOutside > 0) && (
                 <ul aria-label={t('Model')}>
                   {slotModels.map((row) => (
-                    <li key={String(row.model)}>
+                    <li key={usageModelKey(row)}>
                       <span>
-                        <i data-series={seriesInk(String(row.model || ''))} aria-hidden="true" />
-                        <UsageModelName
-                          model={String(row.modelId || row.model || '')}
-                          provider={provider}
-                          fast={row.fast === true}
-                        />
+                        <i data-series={seriesInk(usageModelKey(row))} aria-hidden="true" />
+                        <UsageModelName row={row} provider={provider} />
                       </span>
                       <b>{`+${quotaPercent(row.consumed)}`}</b>
                     </li>

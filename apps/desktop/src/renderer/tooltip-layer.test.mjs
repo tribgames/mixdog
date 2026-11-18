@@ -73,7 +73,7 @@ test('icon-only buttons and links receive hover hints from their accessible name
 test('controls that already show text, form fields and other labelled widgets stay silent unless a screen opts in', async (t) => {
   const host = await mount(
     `
-    <button aria-label="Edit mixdog"><b>mixdog</b><small>C:/Project/mixdog</small></button>
+    <button aria-label="Edit mixdog"><b>mixdog</b><small>C:/Project/sample</small></button>
     <a href="#settings" aria-label="Settings">Settings</a>
     <div role="button" aria-label="Open panel">Panel</div>
     <input aria-label="Search files">

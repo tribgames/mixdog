@@ -26,6 +26,7 @@ use serde_json::Value;
 use super::observe::Observable;
 use super::observe::RunView;
 use super::observe::archive_view;
+use super::observe::attachment_refs;
 use super::observe::statuses;
 use crate::durable;
 use crate::framework::BlobStatuses;
@@ -256,7 +257,7 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                         .or_insert_with(|| Value::Array(Vec::new()));
                     switches.as_array_mut().ok_or("modelSwitches is a list")?.push(entry);
                 }
-                Record::Rewind(_) | Record::Approval(_) | Record::Op(_) | Record::Draft(_) => {
+                Record::Rewind(_) | Record::Approval(_) | Record::Op(_) | Record::Draft(_) | Record::WorkStop(_) => {
                     return Err(format!("frame {}: a record migration never writes", frame.ordinal));
                 }
             }
@@ -305,6 +306,9 @@ impl Folded {
         let mut refs = BTreeSet::new();
         for r in &self.rows {
             refs.extend(r.refs.iter().cloned());
+        }
+        for (_, entry) in &self.queue {
+            attachment_refs(entry, &mut refs);
         }
         Ok(Observable {
             header: self.header.clone(),

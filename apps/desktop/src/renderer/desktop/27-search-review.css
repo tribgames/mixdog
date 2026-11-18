@@ -759,6 +759,10 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* The stack keeps the file at the viewport's top in place itself when a
+     section above it is measured; native scroll anchoring would correct it
+     twice. */
+  overflow-anchor: none;
   /* No reserved gutter: the file rows span the same width as the toolbar
      above, so their right-hand actions line up with its buttons. */
 }
@@ -771,14 +775,6 @@
    its diff unfolding right under it. */
 .session-diff-section {
   min-width: 0;
-}
-/* An open file off screen keeps its DOM (selection, find, scroll position)
-   but skips layout and paint: every window-drag step re-laid out every
-   file's wrapped lines. Until it first renders it holds its estimated
-   height (inline contain-intrinsic-block-size, session-diff-section.tsx);
-   after that, "auto" keeps its last rendered height. */
-.session-diff-section:not([data-collapsed="true"]) {
-  content-visibility: auto;
 }
 .session-diff-section-head {
   position: sticky;

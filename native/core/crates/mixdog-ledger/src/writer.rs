@@ -103,6 +103,12 @@ enum Command {
         mark: u64,
         reply: ReplyTx<Result<HistoryOutcome>>,
     },
+    /// A `metadata` row the ledger keeps for itself: read (`value` none), or written.
+    Note {
+        key: &'static str,
+        value: Option<String>,
+        reply: ReplyTx<Result<Option<String>>>,
+    },
     /// Resolves once the day sums are complete.
     SumsBuilt {
         reply: ReplyTx<()>,
@@ -419,6 +425,23 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
                 }
                 reply.send(applied);
             }
+            Command::Note { key, value, reply } => {
+                use crate::db::OptionalExtension as _;
+                let done = match value {
+                    Some(value) => conn
+                        .execute(
+                            "INSERT INTO metadata VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                            crate::db::params![key, value],
+                        )
+                        .map(|_| None)
+                        .map_err(Into::into),
+                    None => conn
+                        .query_row("SELECT value FROM metadata WHERE key = ?1", [key], |r| r.get(0))
+                        .optional()
+                        .map_err(Into::into),
+                };
+                reply.send(done);
+            }
             Command::SumsBuilt { reply } => {
                 if build.complete {
                     reply.send(());
@@ -594,6 +617,18 @@ impl UsageWriter {
     pub fn sums_built(&self) -> impl Future<Output = Result<()>> + Send + 'static + use<> {
         let queued = self.enqueue(|reply| Command::SumsBuilt { reply });
         async move { queued?.await }
+    }
+
+    /// The `metadata` row `key`, read behind every write queued before.
+    pub(crate) fn note(&self, key: &'static str) -> impl Future<Output = Result<Option<String>>> + Send + 'static + use<> {
+        let queued = self.enqueue(|reply| Command::Note { key, value: None, reply });
+        async move { queued?.await? }
+    }
+
+    /// Writes the `metadata` row `key`.
+    pub(crate) fn put_note(&self, key: &'static str, value: String) -> impl Future<Output = Result<()>> + Send + 'static + use<> {
+        let queued = self.enqueue(|reply| Command::Note { key, value: Some(value), reply });
+        async move { queued?.await?.map(drop) }
     }
 
     /// The commit stamp (`changeStamp`): moves when any connection commits to the ledger.

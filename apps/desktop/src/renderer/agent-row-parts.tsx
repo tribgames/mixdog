@@ -2,7 +2,7 @@ import { Bot } from 'lucide-react';
 import type React from 'react';
 import { useRef, useState } from 'react';
 import type { DesktopAgentPoolRow } from '../shared/contract';
-import { cachedAutoEffortCapable } from './auto-effort-store';
+import { cachedAutoEffortCapable, useAutoEffortShown } from './auto-effort-store';
 import { beginPaneDrag, finishPaneDrag, type PaneDragSession } from './pane-drag-session';
 import { modelDisplayName, ModelRouteLabel, ProviderIcon, routeDaybreakBlue } from './provider-display';
 
@@ -81,18 +81,24 @@ export function useSessionDragSource(sessionId: string, title: string, botId?: s
 
 /** An agent row's second line: model and effort. */
 export function AgentRouteSummary({ agent }: { agent: DesktopAgentPoolRow }) {
+  const observed = agent.routeObserved === true;
+  const effort = String(agent.effort || '').trim();
+  const capable = Boolean(agent.provider && agent.model && cachedAutoEffortCapable(agent.provider, agent.model));
+  const showAuto = useAutoEffortShown(observed && capable && agent.autoEffort === true, effort, agent.autoEffort);
+  if (!agent.provider || !agent.model || agent.status === 'unknown') return null;
   const modelParameters = agent.modelParameters as Record<string, string> | undefined;
   return (
     <small className="agent-route-summary" title={String(agent.model || '') || undefined}>
       <ModelRouteLabel
         model={modelDisplayName(String(agent.model || ''), String(agent.provider || ''))}
-        effort={String(agent.effort || '').trim()}
+        effort={effort}
         fast={agent.fast === true}
         ultra={modelParameters?.serviceTier === 'ultrafast'}
         blue={routeDaybreakBlue(modelParameters)}
-        autoEffortCapable={cachedAutoEffortCapable(String(agent.provider || ''), String(agent.model || ''))}
+        autoEffortCapable={!observed && capable}
         autoEffort={agent.autoEffort}
       />
+      {observed && showAuto && <span className="model-route-label-effort"> · Auto</span>}
     </small>
   );
 }

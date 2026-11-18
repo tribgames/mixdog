@@ -13,7 +13,7 @@ import { useSectionEntries } from './section-store';
 
 function toastTitle(tone: string): string {
   if (tone === 'success') return t('Completed');
-  return tone === 'warn' || tone === 'warning' ? t('Attention') : 'Mixdog';
+  return tone === 'warn' || tone === 'warning' ? t('Attention') : t('Notice');
 }
 
 /** Shown (translated) when an always-allow choice was applied once but not saved. */
@@ -54,15 +54,13 @@ export function desktopNoticeToast(notice: DesktopNotice): { text: string; tone:
     case 'secret-storage-failed':
       return {
         text: t(
-          "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog."
+          "This computer's secure storage is not working, so saved keys, passwords, and sign-ins could not be read or saved. Check the system keychain, then restart the app."
         ),
         tone: 'error',
       };
     case 'conversation-save-failed':
       return {
-        text: t(
-          'A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.'
-        ),
+        text: t('A conversation could not be saved. Recent messages may be lost if the app closes.'),
         tone: 'error',
       };
     case 'offload-prune-blocked':
@@ -168,7 +166,7 @@ export function DesktopToastRegion({
   // The core raises a desktop notice as an entry of the `notice` section (key = notice key) and removes it
   // when its condition is over: one toast per standing key, shown again only after the key left and came back.
   const noticeEntries = useSectionEntries('notice');
-  const shownNotices = useRef(new Set<string>());
+  const shownNotices = useRef(new Map<string, string | undefined>());
   useEffect(() => {
     const shown = shownNotices.current;
     const standing = new Set<string>();
@@ -177,11 +175,15 @@ export function DesktopToastRegion({
       if (!notice) continue;
       standing.add(notice.key);
       if (shown.has(notice.key)) continue;
-      shown.add(notice.key);
       const { text, tone } = desktopNoticeToast(notice);
-      showDesktopToast(text, tone, { groupKey: notice.key });
+      shown.set(notice.key, showDesktopToast(text, tone, { groupKey: notice.key }));
     }
-    for (const key of shown) if (!standing.has(key)) shown.delete(key);
+    // A notice the core withdrew leaves with its toast.
+    for (const [key, toastId] of shown) {
+      if (standing.has(key)) continue;
+      dismissDesktopToast(toastId);
+      shown.delete(key);
+    }
   }, [noticeEntries]);
   const entries = groupToasts(records);
   useEffect(() => {

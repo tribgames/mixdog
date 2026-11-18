@@ -460,31 +460,6 @@ mod tests {
         }
     }
 
-    /// Node's `planInlineScriptHoist` on recorded commands: the hoisted text for a fixed file path
-    /// and the file body/extension must be equal.
-    #[tokio::test]
-    async fn the_inline_hoist_equals_nodes() {
-        let vectors: Vec<serde_json::Value> =
-            serde_json::from_str(include_str!("testdata/hoist_node_vectors.json")).unwrap();
-        assert_eq!(vectors.len(), 96);
-        for v in &vectors {
-            let command = v["command"].as_str().unwrap();
-            let powershell = v["shellType"] == "powershell";
-            let got = plan_inline_script_hoist(command, powershell, &AsyncOnly, &ThreadId::from("t"))
-                .await
-                .unwrap();
-            match (&v["result"], got) {
-                (serde_json::Value::Null, None) => {}
-                (want, Some(h)) if !want.is_null() => {
-                    assert_eq!(want["extension"].as_str(), Some(h.extension), "{command:?}");
-                    assert_eq!(want["body"].as_str(), Some(h.body.as_str()), "{command:?}");
-                    assert_eq!(want["replaced"].as_str(), Some(h.replace("C:/tmp/x.file").as_str()), "{command:?}");
-                }
-                (want, got) => panic!("{command:?} ({powershell}): want {want}, got {:?}", got.map(|h| h.replace("P"))),
-            }
-        }
-    }
-
     #[test]
     fn long_commands_go_through_a_file_on_windows() {
         let body = "x".repeat(WINDOWS_INLINE_COMMAND_FILE_THRESHOLD);
@@ -498,5 +473,89 @@ mod tests {
             "Invoke-Expression ([System.IO.File]::ReadAllText('C:/t/a''b.ps1', [System.Text.Encoding]::UTF8) + \"`n\" + '$global:__mixdogLastOk = $?'); if ($global:__mixdogLastOk -eq $false) { exit 1 }"
         );
         assert!(plan_long_shell_script_file_transport(&format!("$PSScriptRoot {body}"), true, true).is_none());
+    }
+
+
+    /// The file extension, body and the command with the file's path in place of the inline script, or `None` when the
+    /// command is left as it is.
+    async fn hoisted(command: &str, powershell: bool) -> Option<(&'static str, String, String)> {
+        let hoist = plan_inline_script_hoist(command, powershell, &AsyncOnly, &ThreadId::from("t")).await.unwrap()?;
+        Some((hoist.extension, hoist.body.clone(), hoist.replace("C:/tmp/x.file")))
+    }
+
+    #[tokio::test]
+    async fn an_inline_node_script_moves_to_a_file_the_command_runs_instead() {
+        for powershell in [false, true] {
+            let got = hoisted("node -e \"console.log(1)\"", powershell).await;
+            assert_eq!(got, Some((".cjs", "console.log(1)".into(), "node \"C:/tmp/x.file\"".into())));
+            // Flags before the script stay, `--eval` is `-e`, and the text around the node call is kept.
+            assert_eq!(hoisted("node --no-warnings -e \"console.log(1)\"", powershell).await.unwrap().2, "node --no-warnings \"C:/tmp/x.file\"");
+            assert_eq!(hoisted("node --eval \"console.log(1)\"", powershell).await.unwrap().2, "node \"C:/tmp/x.file\"");
+            assert_eq!(hoisted("cd x; node -e \"console.log(1)\"; ls", powershell).await.unwrap().2, "cd x; node \"C:/tmp/x.file\"; ls");
+            assert_eq!(hoisted("FOO=1 node -e \"console.log(1)\"", powershell).await.unwrap().2, "FOO=1 node \"C:/tmp/x.file\"");
+            assert_eq!(hoisted("node -e \"console.log(1)\" > out", powershell).await.unwrap().2, "node \"C:/tmp/x.file\" > out");
+            assert_eq!(hoisted("ls | node -e \"console.log(1)\"", powershell).await.unwrap().2, "ls | node \"C:/tmp/x.file\"");
+            // Only the first inline script of a command moves.
+            assert_eq!(
+                hoisted("node -e \"console.log(1)\"\nnode -e \"console.log(2)\"", powershell).await.unwrap().2,
+                "node \"C:/tmp/x.file\"\nnode -e \"console.log(2)\""
+            );
+            // `xnode` is another program; the later `node` is the one that moves.
+            assert_eq!(hoisted("xnode -e \"console.log(1)\" && node -e \"console.log(2)\"", powershell).await.unwrap().1, "console.log(2)");
+            assert_eq!(hoisted("node --input-type=module -e \"console.log(1)\"", powershell).await.unwrap().0, ".mjs");
+            assert_eq!(hoisted("python -c \"print(1)\"", powershell).await, Some((".py", "print(1)".into(), "python \"C:/tmp/x.file\"".into())));
+            assert_eq!(hoisted("py -u -c \"print(1)\"", powershell).await.unwrap().2, "py -u \"C:/tmp/x.file\"");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_script_that_could_behave_differently_from_a_file_stays_inline() {
+        for powershell in [false, true] {
+            for command in [
+                "node -p \"1+1\"",
+                "docker run img node -e \"console.log(1)\"",
+                "echo node -e \"console.log(1)\"",
+                "echo 'node -e \"console.log(1)\"'",
+                "# node -e \"console.log(1)\"",
+                "node -e \"console.log($x)\"",
+                "node -e \"console.log(\\\"a\\\")\"",
+                "node -e \"console.log(1)\" arg",
+                "node -e \"require('lodash')\"",
+                "node -e \"require(x)\"",
+                "node -e \"require('./local')\"",
+                "node -e \"console.log(__dirname)\"",
+                "node -e \"console.log(process.argv[1])\"",
+                "node -e \"await 1\"",
+                "node -e \"import fs from 'fs'\"",
+                "python -c \"import numpy\"",
+                "python -c \"from . import x\"",
+                "python -c \"exec('x')\"",
+                "python -c \"print(__file__)\"",
+            ] {
+                assert_eq!(hoisted(command, powershell).await, None, "{command:?} powershell={powershell}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_script_that_only_uses_the_standard_library_and_no_top_level_await_moves() {
+        for command in [
+            "node -e \"require('fs').readFileSync('x')\"",
+            "node -e \"require('node:fs')\"",
+            "node -e \"import('fs').then(console.log)\"",
+            "node -e \"(async()=>{await 1})()\"",
+            "node -e \"const s = 'async'; console.log(s)\"",
+            "python3 -c \"import os; print(os.name)\"",
+            "python -c \"import os, sys, json as j\"",
+        ] {
+            assert!(hoisted(command, false).await.is_some(), "{command:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_python_script_with_typographic_quotes_moves_only_for_a_shell_that_keeps_them() {
+        let command = "python -c \"print('“quoted”')\"";
+        assert_eq!(hoisted(command, false).await.map(|h| h.1), Some("print('“quoted”')".to_owned()));
+        assert_eq!(hoisted(command, true).await, None, "Windows PowerShell reads typographic quotes as quotes");
     }
 }

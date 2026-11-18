@@ -77,7 +77,6 @@ impl InstructionsChanged for InstructionsAnnounce {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain_seams::golden;
 
     type Trace = Arc<Mutex<Vec<String>>>;
 
@@ -104,23 +103,19 @@ mod tests {
         std::mem::take(&mut *trace.lock().unwrap())
     }
 
-    fn nodes(key: &str) -> Vec<String> {
-        golden()["instructions"][key].as_array().unwrap().iter().map(|step| step.as_str().unwrap().to_owned()).collect()
-    }
-
-    /// Node's `announce()` after a save: the gauge drops, then every runtime hears it in
+    /// An announce after a save: the gauge drops, then every runtime hears it in
     /// subscription order, a failing one stops nobody, and an unsubscribed one hears nothing.
     #[tokio::test]
-    async fn an_announce_runs_the_steps_in_nodes_order() {
+    async fn an_announce_drops_the_gauge_then_tells_each_runtime_in_subscription_order() {
         let trace = Trace::default();
         let changes = Arc::new(AgentProfileChanges::default());
         changes.subscribe(Arc::new(Listener("listener-a", true, trace.clone())));
         let second = changes.subscribe(Arc::new(Listener("listener-b", false, trace.clone())));
         let announce = InstructionsAnnounce::new(Arc::new(Gauge(trace.clone())), changes.clone());
         announce.changed().await;
-        assert_eq!(taken(&trace), nodes("trace"));
+        assert_eq!(taken(&trace), ["context-status", "listener-a", "listener-b"]);
         changes.unsubscribe(second);
         announce.changed().await;
-        assert_eq!(taken(&trace), nodes("afterUnsubscribe"));
+        assert_eq!(taken(&trace), ["context-status", "listener-a"]);
     }
 }

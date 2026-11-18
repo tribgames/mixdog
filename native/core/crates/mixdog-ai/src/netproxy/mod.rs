@@ -29,6 +29,7 @@ use std::sync::atomic::Ordering;
 use serde_json::Value;
 
 pub use self::clients::RoutedClients;
+pub(crate) use self::hosts::decode_uri_component;
 pub use self::hosts::is_local_host;
 pub use self::route::EnvLookup;
 pub use self::route::ProcessEnv;
@@ -39,6 +40,7 @@ pub use self::setting::Mode;
 pub use self::setting::NetworkProxySetting;
 pub use self::system::SystemProxy;
 
+#[cfg(node_twin)]
 #[cfg(test)]
 mod system_replay_tests;
 #[cfg(test)]

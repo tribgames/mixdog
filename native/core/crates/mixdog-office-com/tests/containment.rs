@@ -21,11 +21,6 @@ use mixdog_office_com::sweep::sweep;
 const HOST_PID: u32 = 4000;
 const HOST_TICKS: i64 = 9_000;
 
-fn scratch() -> PathBuf {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    std::env::temp_dir().join(format!("mixdog-office-com-containment-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)))
-}
-
 fn entry(format: &str, app_pid: i32, app_ticks: i64) -> Entry {
     Entry {
         format: format.into(),
@@ -55,6 +50,20 @@ fn forget(data: &Path) {
     let _ = mixdog_fsio::remove_dir_all(&Unlaned, data);
 }
 
+#[test]
+fn the_record_of_this_process_is_named_for_its_pid_and_start_time() {
+    let platform = FakePlatform::new();
+    let pid = std::process::id();
+    platform.add_process(i32::try_from(pid).expect("a pid"), "mixdogd", 1234);
+    let record = Ledger::for_this_process(Path::new("data"), &platform);
+    assert_eq!(record.path().file_name().and_then(|name| name.to_str()), Some(ledger::file_name(pid, 1234).as_str()));
+}
+
+
+fn scratch() -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    std::env::temp_dir().join(format!("mixdog-office-com-containment-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)))
+}
 #[test]
 fn the_record_is_written_on_every_identity_change_and_removed_after_a_cleanup_that_succeeded() {
     let data = scratch();
@@ -89,7 +98,6 @@ fn the_record_is_written_on_every_identity_change_and_removed_after_a_cleanup_th
     assert!(files(&data).is_empty(), "an application that exited takes its record with it");
     forget(&data);
 }
-
 #[test]
 fn the_chart_excel_pids_are_part_of_the_record() {
     let data = scratch();
@@ -101,16 +109,6 @@ fn the_chart_excel_pids_are_part_of_the_record() {
     assert_eq!(read.chart_excel, pptx.chart_excel);
     forget(&data);
 }
-
-#[test]
-fn the_record_of_this_process_is_named_for_its_pid_and_start_time() {
-    let platform = FakePlatform::new();
-    let pid = std::process::id();
-    platform.add_process(i32::try_from(pid).expect("a pid"), "mixdogd", 1234);
-    let record = Ledger::for_this_process(Path::new("data"), &platform);
-    assert_eq!(record.path().file_name().and_then(|name| name.to_str()), Some(ledger::file_name(pid, 1234).as_str()));
-}
-
 #[test]
 fn a_sweep_ends_the_owned_background_application_of_a_dead_host_and_removes_its_record() {
     let data = scratch();
@@ -124,7 +122,6 @@ fn a_sweep_ends_the_owned_background_application_of_a_dead_host_and_removes_its_
     assert!(files(&data).is_empty());
     forget(&data);
 }
-
 #[test]
 fn the_chart_excel_of_a_dead_presentation_host_is_ended_with_its_application() {
     let data = scratch();
@@ -141,7 +138,6 @@ fn the_chart_excel_of_a_dead_presentation_host_is_ended_with_its_application() {
     assert!(files(&data).is_empty());
     forget(&data);
 }
-
 #[test]
 fn a_live_host_is_never_swept() {
     let data = scratch();
@@ -155,7 +151,6 @@ fn a_live_host_is_never_swept() {
     assert_eq!(files(&data).len(), 1);
     forget(&data);
 }
-
 #[test]
 fn a_host_whose_pid_was_reused_is_dead() {
     let data = scratch();
@@ -166,7 +161,6 @@ fn a_host_whose_pid_was_reused_is_dead() {
     assert_eq!(sweep(&Unlaned, &platform, &data).ended, [77]);
     forget(&data);
 }
-
 #[test]
 fn what_is_visible_attached_or_no_longer_the_recorded_process_is_left_and_the_record_is_removed() {
     let data = scratch();
@@ -207,7 +201,6 @@ fn what_is_visible_attached_or_no_longer_the_recorded_process_is_left_and_the_re
     assert!(files(&data).is_empty());
     forget(&data);
 }
-
 #[test]
 fn files_that_are_not_records_stay_and_an_unreadable_record_is_removed_without_ending_anything() {
     let data = scratch();
@@ -224,14 +217,12 @@ fn files_that_are_not_records_stay_and_an_unreadable_record_is_removed_without_e
     assert_eq!(files(&data), ["4000-9000.tmp", "notes.txt", "x-1.json"]);
     forget(&data);
 }
-
 #[test]
 fn a_sweep_with_no_record_directory_does_nothing() {
     let data = scratch();
     let platform = FakePlatform::new();
     assert_eq!(sweep(&Unlaned, &platform, &data), Default::default());
 }
-
 #[test]
 fn the_ledger_of_a_live_host_is_not_a_target_of_its_own_sweep() {
     // The record this process writes names a host that exists: a sweep run by the same process leaves it.

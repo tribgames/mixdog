@@ -1,5 +1,5 @@
 import { Plus, Search, X } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 
 import type { DesktopApi, DesktopProjectSummary } from '../shared/contract';
 import type { RecordValue } from './desktop-types';
@@ -50,7 +50,12 @@ import { automationEditorCwd, automationProjectOptions, useTaskWorkspace } from 
 import { SidebarPanelAction } from './session-sidebar-sections';
 import { EditorDialogFooter, SidebarDialogLayer } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
-import { useSidebarReferences, type SidebarReferenceKey } from './sidebar-reference-cache';
+import {
+  captureSidebarReferencePublication,
+  readSidebarReference,
+  updateSidebarReference,
+  useSidebarReferences,
+} from './sidebar-reference-cache';
 import { useSidebarCapabilityRunner } from './use-sidebar-capability-runner';
 import { CompactSwitch } from './settings/capability-controls';
 
@@ -463,9 +468,9 @@ function ScheduleEditor({
   );
 }
 
-// Shared, process-wide reference keys. channelSetup is first: it carries the
-// schedule rows, so it alone decides whether this panel has anything to paint.
-const SCHEDULE_REFERENCE_KEYS = ['channelSetup', 'projects'] as const satisfies readonly SidebarReferenceKey[];
+// Projects can arrive on a later push. They don't gate the schedule list or saves.
+const SCHEDULE_REFERENCE_KEYS = ['channelSetup'] as const;
+const PROJECT_REFERENCE_KEYS = ['projects'] as const;
 
 // Scheduled-tasks panel (rail -> Schedules): a compact searchable list in the
 // session-panel area, plus a popup editor.
@@ -481,37 +486,59 @@ export function SchedulesPane({
   // Seeded synchronously from the shared cache: a warm boot paints rows on the
   // first render instead of showing a loading cover, and re-entry revalidates
   // silently underneath the rows that are already there.
-  const { values, loading, completeMutation } = useSidebarReferences(api, SCHEDULE_REFERENCE_KEYS, active);
+  const {
+    values,
+    loading,
+    error: refreshError,
+    completeMutation,
+  } = useSidebarReferences(api, SCHEDULE_REFERENCE_KEYS, active);
   const setup = values.channelSetup;
   // Routines are bot-based: with no bot at all, none can be made.
   const bots = useAutomationAgents(api, active);
   const noBot = bots.ready && bots.members.length === 0;
   const defaultAgent = bots.members[0]?.id ?? '';
   const executors = useExecutorAgents(api, active);
-  const projects = values.projects;
+  const {
+    values: { projects },
+  } = useSidebarReferences(api, PROJECT_REFERENCE_KEYS, active);
   const taskWorkspace = useTaskWorkspace(api, active);
-  // Host-scoped completion invalidates the keys a capability made untrue and
-  // reads through once, unless the app already rebound hosts.
-  const { pending, error, setError, run } = useSidebarCapabilityRunner({
+  const mounted = useRef<{ api: SchedulesApi | undefined; editorVisible: boolean } | null>(null);
+  useLayoutEffect(() => {
+    mounted.current = { api, editorVisible: active && !noBot };
+    return () => {
+      mounted.current = null;
+    };
+  }, [api, active, noBot]);
+  const { pending, error, run } = useSidebarCapabilityRunner({
     api,
     completeMutation,
     toastScope: 'schedule',
     onSuccess: notifySessionsRefresh,
   });
   const [query, setQuery] = useState('');
-  const [editor, setEditor] = useState<{ name: string; draft: ScheduleDraft } | null>(null);
+  const [editor, setEditor] = useState<{ id: number; name: string; draft: ScheduleDraft } | null>(null);
+  const nextEditorId = useRef(0);
+  // A room request can replace the editor before React commits that render.
+  const currentEditorId = useRef<number | null>(null);
+  const [submittedEditorId, setSubmittedEditorId] = useState<number>();
+  const openEditor = (name: string, draft: ScheduleDraft) => {
+    const id = ++nextEditorId.current;
+    currentEditorId.current = id;
+    setEditor({ id, name, draft });
+  };
+  const closeEditor = () => {
+    currentEditorId.current = null;
+    setEditor(null);
+  };
   // A bot room's "루틴 만들기": the new-schedule editor with that bot preselected.
   useNewScheduleRequest(active, (agentId) => {
-    setError('');
-    setEditor({ name: '', draft: scheduleDraft(undefined, agentId) });
+    openEditor('', scheduleDraft(undefined, agentId));
   });
   const [runningName, setRunningName] = useState('');
   // The editor portals to document.body, so the sidebar's inert/aria-hidden
   // does not reach it: a collapsed sidebar — or another destination taking the
   // panel area — must close it explicitly. Search state is untouched.
-  useSidebarPanelDismiss(active, () => {
-    setEditor(null);
-  });
+  useSidebarPanelDismiss(active, closeEditor);
   const busy = Boolean(pending) || loading;
 
   const schedules = rows(setup.schedules);
@@ -519,7 +546,6 @@ export function SchedulesPane({
   const runNow = async (name: string) => {
     if (!api?.invokeCapability || runningName) return;
     setRunningName(name);
-    setError('');
     try {
       await api.invokeCapability({ capability: 'runScheduleNow', args: [name] });
       showDesktopToast(t('"{{name}}" finished. Its result is in the bot\'s chat.', { name }), 'success');
@@ -549,8 +575,27 @@ export function SchedulesPane({
       .includes(text);
   });
   const saveSchedule = async (entry: RecordValue) => {
-    const result = await run('saveSchedule', [entry]);
-    if (result !== undefined) setEditor(null);
+    if (busy || !editor || currentEditorId.current !== editor.id) return;
+    const catalogUnchanged = captureSidebarReferencePublication('channelSetup');
+    const sameEditor = () => mounted.current?.api === api && currentEditorId.current === editor.id;
+    setSubmittedEditorId(editor.id);
+    const result = await run('saveSchedule', [entry], {
+      showErrorInline: () => sameEditor() && mounted.current?.editorVisible === true,
+      onSaved(value) {
+        // An intervening publication may have observed a create and a delete
+        // even if the catalog is now identical to the one at submit time.
+        if (mounted.current?.api !== api || !catalogUnchanged()) return;
+        const saved = record(value);
+        if (typeof saved.name !== 'string' || !saved.name) return;
+        const latest = readSidebarReference('channelSetup');
+        const schedules = rows(latest.schedules);
+        updateSidebarReference('channelSetup', {
+          ...latest,
+          schedules: [...schedules.filter((row) => row.name !== saved.name && row.name !== entry.name), saved],
+        });
+      },
+    });
+    if (result !== undefined && sameEditor()) closeEditor();
   };
 
   return (
@@ -570,10 +615,7 @@ export function SchedulesPane({
             icon={Plus}
             className="schedules-add"
             disabled={busy}
-            onClick={() => {
-              setError('');
-              setEditor({ name: '', draft: scheduleDraft(undefined, defaultAgent) });
-            }}
+            onClick={() => openEditor('', scheduleDraft(undefined, defaultAgent))}
           />
         )}
         <div className="schedules-search">
@@ -586,7 +628,7 @@ export function SchedulesPane({
           />
         </div>
         {active && editor && noBot && (
-          <SidebarDialogLayer onClose={() => setEditor(null)}>
+          <SidebarDialogLayer onClose={closeEditor}>
             <section className="schedules-dialog" role="dialog" aria-modal="true" aria-label={t('New schedule')}>
               <RoutineNeedsBot />
             </section>
@@ -595,24 +637,21 @@ export function SchedulesPane({
         {active && editor && !noBot && (
           <ScheduleEditor
             api={api}
-            key={editor.name || '(new)'}
+            key={editor.id}
             draft={editor.draft}
             editing={Boolean(editor.name)}
             busy={busy}
             running={runningName === editor.name}
             projects={projects}
             taskWorkspace={taskWorkspace}
-            error={error}
-            onCancel={() => {
-              setError('');
-              setEditor(null);
-            }}
+            error={editor.id === submittedEditorId ? error : ''}
+            onCancel={closeEditor}
             onRun={editor.name ? () => void runNow(editor.name) : undefined}
             onDelete={
               editor.name
                 ? () => {
                     const name = editor.name;
-                    setEditor(null);
+                    closeEditor();
                     void run('deleteSchedule', [name], 'toast');
                   }
                 : undefined
@@ -624,6 +663,9 @@ export function SchedulesPane({
         {/* Reserve the first-read list, without claiming it is empty. Cached
           rows stay visible while their background refresh runs. */}
         {loading && <InitialSurface />}
+        {!loading && refreshError && (
+          <p role="status">{t('Could not refresh the schedule list: {{error}}', { error: refreshError })}</p>
+        )}
         {!loading && !noBot && schedules.length > 0 && (
           <RoutineSortChips value={sort} options={scheduleSortOptions()} onChange={setSort} />
         )}
@@ -671,10 +713,7 @@ export function SchedulesPane({
                   }
                   running={runningNames?.has(name) === true || runningName === name}
                   busy={busy}
-                  onOpen={() => {
-                    setError('');
-                    setEditor({ name, draft: scheduleDraft(schedule, defaultAgent) });
-                  }}
+                  onOpen={() => openEditor(name, scheduleDraft(schedule, defaultAgent))}
                   onToggle={(enabled) => void run('setScheduleEnabled', [name, enabled], 'toast')}
                   onRun={() => void runNow(name)}
                   onRetryDelivery={() => void run('retryRoutineDelivery', ['schedule', name], 'toast')}
@@ -684,7 +723,7 @@ export function SchedulesPane({
             }}
           </RoutineSideGroups>
         )}
-        {!loading && !noBot && visible.length === 0 && (
+        {!loading && !refreshError && !noBot && visible.length === 0 && (
           <div className="utility-dock-empty">
             <p>{t('No schedules.')}</p>
           </div>

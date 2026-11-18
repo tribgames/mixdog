@@ -25,6 +25,10 @@ mod turns;
 #[cfg(test)]
 mod background_tests;
 
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod tests;
 

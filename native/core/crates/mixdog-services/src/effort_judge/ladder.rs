@@ -9,7 +9,6 @@
 //! ("easy" for a hard step degrades the answer, "hard" for an easy one only
 //! costs tokens).
 
-use mixdog_js::{js_trim};
 use mixdog_agent::step_effort::StepResult;
 
 pub const LEVELS: usize = 4;
@@ -19,20 +18,11 @@ const OVER_OPPOSITE_COST: f64 = 1.0;
 /// Ties keep the default first, then the cheaper side.
 const TIE_ORDER: [usize; LEVELS] = [1, 0, 2, 3];
 const EFFORT_ORDER: [&str; 8] = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
-const FLOOR_INDEX: usize = 2;
 
 /// The efforts auto may choose for a model, ascending: from `low` up to the
 /// tier below the top (`max`/`ultra` are reserved for an explicit choice).
 pub fn ladder_of(options: &[String]) -> Vec<&'static str> {
-    let supported: Vec<String> = options.iter().map(|o| js_trim(o).to_lowercase()).collect();
-    EFFORT_ORDER
-        .iter()
-        .enumerate()
-        .filter(|(index, level)| {
-            supported.iter().any(|s| s == **level) && *index >= FLOOR_INDEX && !matches!(**level, "max" | "ultra")
-        })
-        .map(|(_, level)| *level)
-        .collect()
+    mixdog_ai::effort::auto_effort_ladder(options)
 }
 
 /// `clampAutoEffortBase`: `base` (one of `low`/`medium`/`high`, as `autoEffortBase` returns it)

@@ -23,6 +23,7 @@ const astCache = new RendererLruCache<string, MarkdownAstRoot>({
 });
 const workerHost = new MarkdownWorkerHost();
 let rendererParserPromise: Promise<typeof import('./markdown-ast')> | null = null;
+let rendererLoadWasSpeculative = false;
 // Different panes/blocks often request the same text before its AST arrives.
 // Share that work, including fallback parsing, and release it after settlement.
 const inFlight = new Map<string, Promise<MarkdownAstRoot>>();
@@ -42,16 +43,49 @@ function rememberStreamingMarkdownAst(text: string, root: MarkdownAstRoot): void
 registerIdleReclaim(() => {
   astCache.clear();
 });
-workerHost.prewarm();
 
 let rendererParser: ((text: string) => MarkdownAstRoot) | null = null;
+const rendererParserListeners = new Set<() => void>();
+type ParserLoad = 'idle' | 'pending' | 'ready' | { error: unknown };
+let parserLoad: ParserLoad = 'idle';
 
-function loadRendererParser(): Promise<typeof import('./markdown-ast')> {
-  rendererParserPromise ||= import('./markdown-ast').then((module) => {
-    rendererParser = module.parseMarkdownToHast;
-    return module;
-  });
+export function syncMarkdownParserLoad(): ParserLoad {
+  return parserLoad;
+}
+
+function publishParserLoad(state: ParserLoad): void {
+  parserLoad = state;
+  for (const listener of rendererParserListeners) listener();
+}
+
+function loadRendererParser(speculative = false): Promise<typeof import('./markdown-ast')> {
+  // A real fallback can retry a failed warmup. Repeated preloads and failed
+  // foreground imports must not start an import loop.
+  if (!speculative && rendererLoadWasSpeculative && typeof parserLoad === 'object') {
+    rendererParserPromise = null;
+  }
+  if (!rendererParserPromise) {
+    rendererLoadWasSpeculative = speculative;
+    rendererParserPromise = import('./markdown-ast').then(
+      (module) => {
+        rendererParser = module.parseMarkdownToHast;
+        publishParserLoad('ready');
+        return module;
+      },
+      (error: unknown) => {
+        publishParserLoad({ error });
+        throw error;
+      }
+    );
+    publishParserLoad('pending');
+  }
   return rendererParserPromise;
+}
+
+/** Subscribe to the shared import, including rejection. */
+export function subscribeSyncMarkdownParser(listener: () => void): () => void {
+  rendererParserListeners.add(listener);
+  return () => rendererParserListeners.delete(listener);
 }
 
 function parseMarkdownOnRenderer(text: string): Promise<MarkdownAstRoot> {
@@ -61,11 +95,9 @@ function parseMarkdownOnRenderer(text: string): Promise<MarkdownAstRoot> {
 /** Live markdown parses its small tail on the main thread once the parser is
  *  loaded; a worker round trip per frame would gate what the reader sees. */
 export function preloadSyncMarkdownParser(): Promise<void> {
-  return loadRendererParser().then(
+  return loadRendererParser(true).then(
     () => undefined,
-    () => {
-      rendererParserPromise = null;
-    }
+    () => undefined
   );
 }
 

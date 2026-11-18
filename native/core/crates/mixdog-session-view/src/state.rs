@@ -1,8 +1,7 @@
 //! The projection the UI reads: the fold, the pending server requests and the `hostShellJobs` section joined into one record
 //! (`desktopSessionState` of `packages/protocol-client/src/session-state.ts`). `toolApproval` / `toolApprovalsWaiting` come from the
 //! server requests (protocol.md §8.5) and `hostShellJobs` from the app feed, which are not part of the thread feed, so they are
-//! joined here and nowhere else. [`PROJECTED_FIELDS`] is what the projection produces: the audit of the fields the UI reads
-//! (`tests/fixtures/tui-state-fields.json`) is proven against it.
+//! joined here and nowhere else. [`PROJECTED_FIELDS`] is what the projection produces: it is the list of fields the UI can read.
 
 use mixdog_app_protocol::ServerRequest;
 use mixdog_app_server_client::ThreadFold;

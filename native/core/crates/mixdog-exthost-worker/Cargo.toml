@@ -17,28 +17,8 @@ path = "src/bin/ext_worker_dev.rs"
 required-features = ["test-support"]
 
 [[test]]
-name = "methods_twin"
-path = "tests/methods_twin.rs"
-required-features = ["test-support"]
-
-[[test]]
-name = "still_twin"
-path = "tests/still_twin.rs"
-required-features = ["test-support"]
-
-[[test]]
-name = "pdf_twin"
-path = "tests/pdf_twin.rs"
-required-features = ["test-support"]
-
-[[test]]
 name = "pdf_render_ocr"
 path = "tests/pdf_render_ocr.rs"
-required-features = ["test-support"]
-
-[[test]]
-name = "document_twin"
-path = "tests/document_twin.rs"
 required-features = ["test-support"]
 
 [[test]]
@@ -93,9 +73,30 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
-mixdog-exthost = { workspace = true }
+mixdog-exthost = { workspace = true, features = ["test-support"] }
 mixdog-protocol = { workspace = true }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-testkit = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "io-util", "sync", "time"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (<build-tools>\unify-test-features.py).
+fancy-regex = { workspace = true, features = ["probe"] }
+mixdog-agent = { workspace = true, features = ["test-support"] }
+mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support", "virtual-clock"] }
+mixdog-browser-engine = { workspace = true, features = ["test-support"] }
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-core-base = { workspace = true, features = ["test-support"] }
+mixdog-exthost-worker = { path = ".", features = ["test-support"] }
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-mcp = { workspace = true, features = ["test-support"] }
+mixdog-office-base = { workspace = true, features = ["test-support"] }
+mixdog-office-com = { workspace = true, features = ["test-support"] }
+mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
+mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
+mixdog-skill-scripts = { workspace = true, features = ["test-support"] }
+mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
+mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
+mixdog-tools = { workspace = true, features = ["policy-observer"] }
+mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }

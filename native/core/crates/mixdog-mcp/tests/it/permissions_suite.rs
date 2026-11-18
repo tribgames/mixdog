@@ -1,84 +1,22 @@
-//! The connector permission lookups replayed against what today's Node product answered
-//! (`tests/golden/permissions.mjs` → `permissions.json`): for every recorded layout of policy
-//! files, the permission each agent has for each tool, and whether each project path set has
-//! the tool's connector switched off.
+//! The connector permission lookups: the permission each agent has for each tool under its policy files, and whether a project's
+//! paths have a tool's connector switched off.
 #![allow(clippy::disallowed_methods, reason = "test fixtures write policy files directly")]
 
+#[cfg(node_twin)]
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[cfg(node_twin)]
 use mixdog_mcp::McpServerConfig;
 use mixdog_mcp::permissions::ConnectorPolicy;
 use mixdog_mcp::permissions::PolicyIo;
+#[cfg(node_twin)]
 use serde_json::Value;
 use serde_json::json;
 
-fn golden() -> Value {
-    serde_json::from_str(mixdog_testkit::fixture!("tests/golden/permissions.json")).unwrap()
-}
-
+#[cfg(node_twin)]
 fn strings(value: &Value) -> Vec<String> {
     value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect()
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn the_connector_permissions_match_node_in_every_recorded_layout() {
-    let tokens = mixdog_rt::testing::tokens();
-    let golden = golden();
-    let tools = strings(&golden["tools"]);
-    let configs: Vec<McpServerConfig> = golden["servers"]
-        .as_object()
-        .unwrap()
-        .iter()
-        .map(|(name, connector)| {
-            let mut entry = json!({"command": "unused"});
-            if let Some(connector) = connector.as_str() {
-                entry["connector"] = json!(connector);
-            }
-            McpServerConfig::from_entry(name, &entry, &Default::default()).unwrap()
-        })
-        .collect();
-    for scenario in golden["scenarios"].as_array().unwrap() {
-        let label = scenario["name"].as_str().unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().to_string_lossy().replace('\\', "/");
-        for sub in scenario["dirs"].as_array().unwrap() {
-            std::fs::create_dir_all(dir.path().join(sub.as_str().unwrap())).unwrap();
-        }
-        for (file, text) in scenario["files"].as_object().unwrap() {
-            let target = dir.path().join(file);
-            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
-            std::fs::write(target, text.as_str().unwrap().replace("$DIR", &root)).unwrap();
-        }
-        let policy = ConnectorPolicy::new(
-            dir.path().to_path_buf(),
-            PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io },
-        );
-        let by_server: std::collections::HashMap<String, String> = configs.iter().filter_map(|c| Some((c.name.clone(), c.connector.clone()?))).collect();
-        policy.set_server_connectors(Arc::new(move |server| by_server.get(server).cloned()));
-        policy.reload().await;
-        for entry in scenario["agents"].as_array().unwrap() {
-            let agent = entry["agent"].as_str().unwrap();
-            for (tool, expected) in tools.iter().zip(entry["perms"].as_array().unwrap()) {
-                assert_eq!(
-                    policy.permission(agent, tool).name(),
-                    expected.as_str().unwrap(),
-                    "{label}: agent {agent:?} tool {tool:?}"
-                );
-            }
-        }
-        for entry in scenario["projects"].as_array().unwrap() {
-            let paths: Vec<PathBuf> = strings(&entry["paths"]).iter().map(|p| PathBuf::from(p.replace("$DIR", &root))).collect();
-            for (tool, expected) in tools.iter().zip(entry["disabled"].as_array().unwrap()) {
-                assert_eq!(
-                    policy.project_disabled(&paths, tool),
-                    expected.as_bool().unwrap(),
-                    "{label}: project paths {:?} tool {tool:?}",
-                    entry["paths"]
-                );
-            }
-        }
-    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -165,4 +103,85 @@ async fn the_connector_of_a_server_and_a_cut_name_are_read_live() {
     assert_eq!(policy.permission("worker", "mcp__gmail__send_email").name(), "needs_approval");
     assert_eq!(policy.permission("worker", "mcp__gmail__cut_1a2b3c").name(), "needs_approval", "a cut name is told back to its tool");
     assert_eq!(policy.permission("worker", "mcp__gmail__read_email").name(), "auto");
+}
+
+/// A remembered approval's key is the connector and the server's own tool name: every account of the connector reads the
+/// same, and a name cut with a hash suffix is told back to its tool.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tools_identity_is_its_connector_and_tool_whichever_account_serves_it() {
+    let tokens = mixdog_rt::testing::tokens();
+    let io = PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io };
+    let dir = tempfile::tempdir().unwrap();
+    let policy = ConnectorPolicy::new(dir.path().to_path_buf(), io);
+    policy.set_resolver(Arc::new(|name| (name == "mcp__gmail-2__cut_1a2b3c").then(|| ("gmail-2".to_owned(), "send_email".to_owned()))));
+    assert_eq!(policy.identity("mcp__gmail__send_email"), "mcp__gmail__send_email");
+    assert_eq!(policy.identity("mcp__gmail-2__send_email"), "mcp__gmail__send_email");
+    assert_eq!(policy.identity("mcp__gmail-2__cut_1a2b3c"), "mcp__gmail__send_email");
+    assert_eq!(policy.identity("mcp__slack__post"), "mcp__slack__post");
+    assert_eq!(policy.identity("shell"), "shell");
+}
+
+#[cfg(node_twin)]
+fn golden() -> Value {
+    serde_json::from_str(mixdog_testkit::fixture!("tests/golden/permissions.json")).unwrap()
+}
+#[cfg(node_twin)]
+#[tokio::test(flavor = "multi_thread")]
+async fn the_connector_permissions_match_node_in_every_recorded_layout() {
+    let tokens = mixdog_rt::testing::tokens();
+    let golden = golden();
+    let tools = strings(&golden["tools"]);
+    let configs: Vec<McpServerConfig> = golden["servers"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(name, connector)| {
+            let mut entry = json!({"command": "unused"});
+            if let Some(connector) = connector.as_str() {
+                entry["connector"] = json!(connector);
+            }
+            McpServerConfig::from_entry(name, &entry, &Default::default()).unwrap()
+        })
+        .collect();
+    for scenario in golden["scenarios"].as_array().unwrap() {
+        let label = scenario["name"].as_str().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().replace('\\', "/");
+        for sub in scenario["dirs"].as_array().unwrap() {
+            std::fs::create_dir_all(dir.path().join(sub.as_str().unwrap())).unwrap();
+        }
+        for (file, text) in scenario["files"].as_object().unwrap() {
+            let target = dir.path().join(file);
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::write(target, text.as_str().unwrap().replace("$DIR", &root)).unwrap();
+        }
+        let policy = ConnectorPolicy::new(
+            dir.path().to_path_buf(),
+            PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io },
+        );
+        let by_server: std::collections::HashMap<String, String> = configs.iter().filter_map(|c| Some((c.name.clone(), c.connector.clone()?))).collect();
+        policy.set_server_connectors(Arc::new(move |server| by_server.get(server).cloned()));
+        policy.reload().await;
+        for entry in scenario["agents"].as_array().unwrap() {
+            let agent = entry["agent"].as_str().unwrap();
+            for (tool, expected) in tools.iter().zip(entry["perms"].as_array().unwrap()) {
+                assert_eq!(
+                    policy.permission(agent, tool).name(),
+                    expected.as_str().unwrap(),
+                    "{label}: agent {agent:?} tool {tool:?}"
+                );
+            }
+        }
+        for entry in scenario["projects"].as_array().unwrap() {
+            let paths: Vec<PathBuf> = strings(&entry["paths"]).iter().map(|p| PathBuf::from(p.replace("$DIR", &root))).collect();
+            for (tool, expected) in tools.iter().zip(entry["disabled"].as_array().unwrap()) {
+                assert_eq!(
+                    policy.project_disabled(&paths, tool),
+                    expected.as_bool().unwrap(),
+                    "{label}: project paths {:?} tool {tool:?}",
+                    entry["paths"]
+                );
+            }
+        }
+    }
 }

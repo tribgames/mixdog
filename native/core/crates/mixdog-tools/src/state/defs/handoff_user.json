@@ -15,7 +15,7 @@
     "properties": {
       "handoff": {
         "type": "object",
-        "description": "secret = the user types a password, sign-in, new password or a one-time code you cannot read yourself (SMS, authenticator app) into that field of the page (you never see it; result entered/user_skipped/no_field/page_changed/blocked/expired); an e-mailed code readable from a connected mailbox for a flow you started is yours to type, not a handoff; takeover = the user does a step and says done.",
+        "description": "secret = the user types into the field without exposing the value (entered/user_skipped/no_field/page_changed/blocked/expired); computer secret requires window_id and ref. An e-mailed code readable from a connected mailbox for a flow you started is yours to type. takeover requires instructions and reports Done or saved-login fill, not verification of success; user_skipped, expired and blocked are not completion.",
         "properties": {
           "kind": {
             "type": "string",
@@ -44,7 +44,7 @@
           "instructions": {
             "type": "string",
             "maxLength": 2000,
-            "description": "takeover: what to do."
+            "description": "Required for takeover: what to do."
           },
           "need": {
             "type": "string",
@@ -53,7 +53,7 @@
               "action",
               "confirmation"
             ],
-            "description": "takeover: sign_in (sign-in, 2FA), action (CAPTCHA, other human-only step), confirmation (identity verification or payment-credential entry, never a button click you may press). Default action."
+            "description": "takeover: sign_in (sign-in, 2FA), action (CAPTCHA, other human-only step), confirmation (identity verification or payment-credential entry, never a button click you may press). Default sign_in for login, otherwise action."
           },
           "purpose": {
             "type": "string",
@@ -65,7 +65,7 @@
           "url": {
             "type": "string",
             "maxLength": 2048,
-            "description": "login: sign-in page (https)."
+            "description": "Required for login: sign-in page (HTTPS; HTTP only on loopback)."
           },
           "tab": {
             "type": "string",

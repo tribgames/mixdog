@@ -21,6 +21,7 @@ import { registerComputerCursor } from './computer-cursor';
 import { registerComputerAppInput, type ComputerAppInputDeps } from './computer-app-input';
 import { registerComputerAppWindows } from './computer-app-windows';
 import { type ComputerPixelsDeps, registerComputerPixels } from './computer-pixels';
+import type { ComputerScopes } from './computer-scope';
 import { HOST_COMMAND_FAILED, HOST_INVALID_PARAMS, HostRpcError, type HostConnection, objectParams } from './connection';
 
 export const HOST_COMPUTER_CAPTURE = 'host/computer/capture';
@@ -44,9 +45,12 @@ export type ComputerControlSource = () => ComputerControl | null;
 
 /** What the core computer host's handlers need beyond the control (`host/computer/appInput`'s arrow). */
 export interface ComputerHostDeps {
-  appInput: ComputerAppInputDeps;
+  appInput: Omit<ComputerAppInputDeps, 'scopes'>;
   /** The capturers and the upload chunk size of `host/computer/pixels` (the Electron capturers and the 96 KiB chunk when absent). */
   pixels?: Pick<ComputerPixelsDeps, 'sources' | 'blobChunkBytes'>;
+  /** The connection's automation scopes, which every handler commits its side effects under (`computer-scope.ts`); app input
+   *  has no route without them. */
+  scopes: ComputerScopes;
 }
 
 /** Every `host/computer/*` handler, always: a core that does not drive Computer Use (or runs it through the desktop's own
@@ -69,16 +73,22 @@ export function registerComputerHandlers(connection: HostConnection, source: Com
     if (action !== 'capture') {
       throw new HostRpcError(HOST_INVALID_PARAMS, `${HOST_COMPUTER_CAPTURE} serves capture, not ${String(action)}.`);
     }
-    const answer = await control.answer(command, signal);
+    const scope = deps.scopes.admit(params, signal);
+    const answer = await control.answer(command, scope.signal);
+    // Taken after the scope was revoked: the frame is dropped, not handed on.
+    scope.commit();
     if (!answer.ok) throw new HostRpcError(HOST_COMMAND_FAILED, answer.error);
     return answer.value as HostComputerCaptureResult;
   });
-  connection.handleRequest(HOST_COMPUTER_DISPLAYS, async (): Promise<HostComputerDisplay[]> => running().displays());
-  registerComputerLease(connection);
+  connection.handleRequest(HOST_COMPUTER_DISPLAYS, async (params): Promise<HostComputerDisplay[]> => {
+    deps.scopes.admit(params);
+    return running().displays();
+  });
+  registerComputerLease(connection, deps.scopes);
   registerComputerInternalWindows(connection);
-  registerComputerPointer(connection);
-  registerComputerCursor(connection);
+  registerComputerPointer(connection, deps.scopes);
+  registerComputerCursor(connection, deps.scopes);
   registerComputerAppWindows(connection);
-  registerComputerAppInput(connection, deps.appInput);
-  registerComputerPixels(connection, { ...deps.pixels, callCore: (method, params) => connection.request(method, params) });
+  registerComputerAppInput(connection, { ...deps.appInput, scopes: deps.scopes });
+  registerComputerPixels(connection, { ...deps.pixels, scopes: deps.scopes, callCore: (method, params) => connection.request(method, params) });
 }

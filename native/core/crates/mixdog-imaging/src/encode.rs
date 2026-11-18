@@ -176,8 +176,7 @@ fn encode_tiff(raster: &Raster) -> Result<Vec<u8>, ImagingError> {
 pub fn encode_in_format(raster: &Raster, format: Format) -> Result<Vec<u8>, ImagingError> {
     match format {
         Format::Jpeg => Ok(encode_jpeg(raster, DEFAULT_JPEG_QUALITY, 0)),
-        // sharp rasterizes SVG input to PNG on toBuffer(), while the resize
-        // wrapper keeps metadata().format ("svg") in its MIME field.
+        // An SVG is written as the PNG of its raster.
         Format::Png | Format::Svg => encode_png(raster),
         Format::Avif => crate::avif::encode_avif(raster),
         Format::Gif => encode_gif(raster),

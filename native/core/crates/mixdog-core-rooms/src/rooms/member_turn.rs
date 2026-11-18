@@ -25,15 +25,28 @@ use super::turn_prompt::{PromptInput, PromptMember, RoomPrompt, room_turn_prompt
 use super::usage::room_usage_limit;
 
 #[cfg(test)]
+mod feature_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(test)]
 mod tests;
 
 /// `PROMPT_ORIGIN_AGENT_REPORT` (`shared/prompt-origin.mjs`).
 const AGENT_REPORT_ORIGIN: &str = "agent-report";
 
+/// The prefix of the submission id the room mints for a member turn no call gives one (Node submitted such a turn without
+/// one); every member submission needs a stable id its exchange's Stop can freeze.
+pub const ROOM_SUBMISSION_PREFIX: &str = "rsub_";
+
 /// What a turn's submission carries besides the prompt.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SubmitOptions {
+    /// The member submission's stable id: always set for a room turn, registered with its exchange before it is submitted.
     pub id: Option<String>,
+    /// The exchange that owns the submission, stamped into the member's durable queued entry (`transcriptMeta.roomExchange`).
+    pub exchange: Option<String>,
     pub hop: Option<u32>,
     /// The newest user row the prompt shows: what a reaction must hit to count as this turn's answer.
     pub room_row: Option<String>,
@@ -54,6 +67,14 @@ pub trait MemberHost: RoomTurnHost {
     /// `false`: the daemon did not accept the turn.
     async fn submit(&self, session_id: &str, prompt: &RoomPrompt, options: &SubmitOptions) -> Result<bool, String>;
     async fn abort(&self, session_id: &str) -> Result<(), String>;
+    /// A user Stop of exactly the member submissions `submissions` in `session_id` (`stop_work` on the member session): each is
+    /// frozen wherever it is, or tombstoned before it arrives, under a durable cancelled disposition; unrelated member work is
+    /// neither aborted nor waited for.
+    async fn stop_work(&self, _session_id: &str, _submissions: &[String]) -> Result<(), String> {
+        Ok(())
+    }
+    /// The synchronous half of [`Self::stop_work`]: `submissions` are terminal in `session_id` at once, before any storage wait.
+    fn latch_work(&self, _session_id: &str, _submissions: &[String]) {}
     /// Starts the room's save: what must happen now (recording the call, submitting the lane job)
     /// happens before this returns, and the returned future is the save finishing.
     fn persist(&self) -> PersistFuture;
@@ -179,6 +200,8 @@ struct Ctx {
     outcome: Arc<Outcome>,
     /// `sessionId`: the member's session once it is made.
     session: Mutex<String>,
+    /// The submission id this turn registered with its exchange; empty before it did.
+    submission: Mutex<String>,
     cursor_before: Mutex<Option<String>>,
 }
 
@@ -257,6 +280,13 @@ impl Ctx {
     }
 }
 
+/// A turn that ends without a row of its own (cut short, stopped, left, a reaction only, failed): the speaker is retired
+/// explicitly and the room's activity published, so nothing waits on a row that never comes.
+fn retired(host: &Arc<dyn MemberHost>, state: &TurnState, answer: Answer) -> Answer {
+    host.retire_turn(state);
+    answer
+}
+
 fn of_halt(outcome: HaltOutcome) -> Answer {
     Answer::of(match outcome {
         HaltOutcome::Stopped => TurnResult::Stopped,
@@ -326,11 +356,19 @@ impl Ctx {
             return Ok(Attempt::Return(of_halt(halt.await)));
         }
         let started_at = host.now();
+        // Every member submission has a stable id (a turn no call rides, too), registered with the exchange before the submission
+        // is awaited: a Stop from here freezes it, in flight or not. An exchange a Stop sealed already submits nothing.
+        let submission = call.map(|call| call.id.clone()).filter(|id| !id.is_empty()).unwrap_or_else(|| format!("{ROOM_SUBMISSION_PREFIX}{}", uuid::Uuid::now_v7()));
+        if !self.state.run.register(&session, &submission) {
+            return Ok(Attempt::Return(Answer::of(TurnResult::Stopped)));
+        }
+        *self.submission.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = submission.clone();
         // From here the submission id counts as used, even when the call throws.
         self.outcome.submitted.store(true, Ordering::SeqCst);
         let shown_user = shown.iter().rev().find(|row| str_of(row, "kind") == "user");
         let options = SubmitOptions {
-            id: call.filter(|call| !call.id.is_empty()).map(|call| call.id.clone()),
+            id: Some(submission.clone()),
+            exchange: Some(self.state.run.exchange().to_owned()),
             hop: call.filter(|call| call.hop > 0).map(|call| call.hop),
             room_row: shown_user.map(|row| str_of(row, "id")).filter(|id| !id.is_empty()).map(str::to_owned),
             // A relay turn that hands the member no new user row is system-caused: the
@@ -345,9 +383,10 @@ impl Ctx {
         if let Some(handed) = rows.last().map(|row| str_of(row, "id")).filter(|id| !id.is_empty()) {
             self.room().seen.get_or_insert_with(HashMap::new).insert(self.agent_id.clone(), handed.to_owned());
         }
-        // Stop's abort may have run before the daemon accepted this turn.
+        // A Stop sealed the exchange while this turn was being accepted: the submission is in its frozen set, and the same
+        // targeted stop freezes exactly it (joining the Stop's own), never the member's unrelated work.
         if self.state.stop() {
-            self.abort_quietly(&session).await;
+            let _ = self.host.stop_work(&session, std::slice::from_ref(&submission)).await;
             return Ok(Attempt::Return(Answer::of(TurnResult::Stopped)));
         }
         let ctx = Arc::clone(self);
@@ -380,6 +419,7 @@ pub async fn member_turn(
         member,
         outcome: Arc::clone(outcome),
         session: Mutex::default(),
+        submission: Mutex::default(),
         cursor_before: Mutex::default(),
     });
     // A member removed from the room (its bot was deleted) gets no turn.
@@ -440,20 +480,29 @@ pub async fn member_turn(
     state.set_approval(None);
     // A save in passing: the exchange's own saves decide whether the room can go on.
     save_in_background(host);
+    // From here the speaker's turn ends on every path: with its row (the post retires it in the same update) or, when it
+    // leaves none, explicitly (`retired`).
     let (answer, snapshot, started_at) = match attempt {
-        Err(answer) | Ok(Attempt::Return(answer)) => return Ok(answer),
+        Err(answer) | Ok(Attempt::Return(answer)) => return Ok(retired(host, state, answer)),
         Ok(Attempt::Answered { answer, snapshot, started_at }) => (answer, snapshot, started_at),
     };
+    // The member's turn ended: its submission is no work a later Stop of this exchange has to freeze.
+    {
+        let session = ctx.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+        let submission = ctx.submission.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+        state.run.answered(&session, &submission);
+    }
     if state.stop() {
-        return Ok(Answer::of(TurnResult::Stopped));
+        return Ok(retired(host, state, Answer::of(TurnResult::Stopped)));
     }
     if ctx.gone() {
-        return Ok(of_halt(ctx.left().await));
+        let left = of_halt(ctx.left().await);
+        return Ok(retired(host, state, left));
     }
     if ctx.interrupted() {
         let cut = of_halt(ctx.cut_short().await);
         save_in_background(host);
-        return Ok(cut);
+        return Ok(retired(host, state, cut));
     }
     // A relay of the member's own work is no turn to pass either.
     let relay = call.is_some_and(|call| !call.relay.is_empty());
@@ -461,7 +510,7 @@ pub async fn member_turn(
     // A member whose answer was a reaction on the user's row alone has taken its turn: the reaction
     // shows under that row, and no pass row is posted.
     if text.is_empty() && answer.reacted {
-        return Ok(Answer::of(TurnResult::Pass));
+        return Ok(retired(host, state, Answer::of(TurnResult::Pass)));
     }
     if text.is_empty() {
         let failed = answer.status != "done";
@@ -469,7 +518,7 @@ pub async fn member_turn(
         if !failed {
             let id = format!("row_{}", host.new_id());
             let row = json!({ "id": id, "kind": "pass", "speaker": agent_id, "name": ctx.member.name, "at": host.now(), "text": "" });
-            host.post(vec![row]).await?;
+            host.post_ending_turn(vec![row], state).await?;
             return Ok(Answer::of(TurnResult::Pass));
         }
         let done = snapshot
@@ -481,10 +530,10 @@ pub async fn member_turn(
         // A usage limit fails every member alike: the exchange stops on it and says so once,
         // instead of showing this turn as one more failure.
         if let Some(usage) = room_usage_limit(&done, &ctx.member.route) {
-            return Ok(Answer { failed: true, usage: Some(usage), ..Answer::of(TurnResult::Pass) });
+            return Ok(retired(host, state, Answer { failed: true, usage: Some(usage), ..Answer::of(TurnResult::Pass) }));
         }
         state.push_failure(Failure { id: agent_id.to_owned(), name: ctx.member.name.clone(), reason: done.get("detail").and_then(Value::as_str).unwrap_or("").to_owned() });
-        return Ok(Answer { failed: true, ..Answer::of(TurnResult::Pass) });
+        return Ok(retired(host, state, Answer { failed: true, ..Answer::of(TurnResult::Pass) }));
     }
     *outcome.text.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = text.clone();
     let speech = Speech { agent_id, member: &ctx.member, text: &text, snapshot: &snapshot, started_at };

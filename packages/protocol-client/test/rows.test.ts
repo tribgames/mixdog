@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { Obj } from '../src/obj.ts';
-import { mergeToolRows, rowOf } from '../src/rows.ts';
+import { batchEntries, itemRows, mergeToolRows, rowOf, rowsOf } from '../src/rows.ts';
+import { desktopSessionState, sessionReducer } from '../src/session-state.ts';
 // The installed Node history recordings of the phone's chat cases (apps/desktop), verified by their manifest elsewhere.
 const historyDir = new URL('../../../apps/desktop/src/renderer/remote-protocol-chat-history.node/', import.meta.url);
 const nodeRecording = (name: string): { history: { snapshot?: { items: Obj[] } }[] } => {
@@ -150,4 +151,134 @@ test('a history page row shows the compaction dividers the core says follow it, 
   ]);
   assert.deepEqual(JSON.parse(JSON.stringify(rowOf(item))), rows[0], 'the row alone carries no divider list');
   assert.deepEqual(rowsOf({ type: 'agentMessage', id: 'a2', text: 'x', meta: {} }).length, 1);
+});
+
+const envelope = (id: string, status: string, summary: string, result = ''): string =>
+  ['<task-notification>', `<task-id>${id}</task-id>`, `<status>${status}</status>`, `<summary>${summary}</summary>`, ...(result ? ['<result>', result, '</result>'] : []), '</task-notification>'].join('\n');
+
+// Three mixed completions; the first one's result quotes the envelopes of the others and of itself (a result is not escaped).
+const quoted = envelope('t-bad', 'failed', 'Agent "fix" failed: boom');
+const okEnvelope = envelope('t-ok', 'completed', 'Agent "rev" completed', `see 한글 😀\n${quoted}\n${envelope('t-sh', 'completed', 'Shell task completed (exit 0): npm test')}`);
+const badEnvelope = quoted;
+const shellEnvelope = envelope('t-sh', 'completed', 'Shell task completed (exit 0): npm test');
+const texts = [okEnvelope, badEnvelope, shellEnvelope];
+const joined = texts.join('\n');
+const located = (() => {
+  let at = 0;
+  return texts.map((t, k) => {
+    const start = at;
+    at += t.length + 1; // UTF-16 units, as JavaScript counts them
+    return { executionId: ['t-ok', 't-bad', 't-sh'][k], surface: ['agent', 'agent', 'shell'][k], status: ['completed', 'failed', 'completed'][k], start, end: start + t.length };
+  });
+})();
+const batchItem = (details: Obj, text = joined): Obj => ({
+  type: 'userMessage',
+  id: 'u1',
+  content: [{ type: 'text', text }],
+  details: { source: 'task-notification', ...details },
+  meta: { at: 5, ext: { execution: { id: 't-ok', surface: 'agent', status: 'completed' } } },
+});
+const shown = (rows: Obj[]) => rows.map((r) => [r.id, r.kind, r.name, (r.args as Obj).task_id, (r.args as Obj).status, r.isError, r.count, String(r.result).length]);
+const wantCards = [
+  ['u1', 'tool', 'agent', 't-ok', 'completed', false, 1, okEnvelope.length],
+  ['u1:1', 'tool', 'agent', 't-bad', 'failed', true, 1, badEnvelope.length],
+  ['u1:2', 'tool', 'shell', 't-sh', 'completed', false, 1, shellEnvelope.length],
+];
+
+test('a batch of three completions the core wrote with its entries shows three cards, cut by the entries and not by the text', () => {
+  const rows = rowsOf(batchItem({ consumedExecutionIds: ['t-ok', 't-bad', 't-sh'], completions: located }));
+  assert.deepEqual(shown(rows), wantCards);
+  assert.equal(mergeToolRows(rows).flatMap((card) => (Array.isArray(card.toolMembers) ? (card.toolMembers as Obj[]) : [card])).length, 3);
+});
+
+test('a batch stored before the entries existed is located by its execution ids; a result quoting other envelopes is not cut', () => {
+  const other = envelope('t-other', 'completed', 'Agent "o" completed', 'quoted');
+  const quoting = envelope('t-ok', 'completed', 'Agent "rev" completed', `${other}\n${other}`);
+  const rows = rowsOf(batchItem({ consumedExecutionIds: ['t-ok', 't-bad', 't-sh'] }, [quoting, badEnvelope, shellEnvelope].join('\n')));
+  assert.deepEqual(shown(rows), [
+    ['u1', 'tool', 'agent', 't-ok', 'completed', false, 1, quoting.length],
+    ['u1:1', 'tool', 'agent', 't-bad', 'failed', true, 1, badEnvelope.length],
+    ['u1:2', 'tool', 'shell', 't-sh', 'completed', false, 1, shellEnvelope.length],
+  ]);
+});
+
+test('a batch row whose entries cannot all be located stays one card; a single completion is never split', () => {
+  assert.equal(rowsOf(batchItem({ consumedExecutionIds: ['t-ok', null, 't-sh'] })).length, 1);
+  assert.equal(rowsOf(batchItem({ consumedExecutionIds: ['t-ok', 'restart:t-bad', 't-sh'] })).length, 1);
+  const lone = batchItem({ consumedExecutionIds: ['t-ok'] }, okEnvelope);
+  assert.deepEqual(itemRows(lone).map((r) => r.id), ['u1']);
+  assert.deepEqual(batchEntries(okEnvelope, { consumedExecutionIds: ['t-ok'] }), []);
+});
+
+test('imported prose and counted tools interleave without replacing edited markers or duplicating rows on replay', () => {
+  const prefix = '😀 First.\n\n';
+  const marker = '[ran tools: read ×2, grep ×1]';
+  const between = '\n\n[ran tools: shell ×99]\n\n';
+  const lastMarker = '[ran tools: shell ×1]';
+  const lastStart = prefix.length + marker.length + between.length;
+  const item = {
+    type: 'agentMessage', id: 'imported', text: `${prefix}${marker}${between}${lastMarker}\n\nDone.`,
+    importedToolRuns: [
+      { start: prefix.length, end: prefix.length + marker.length, tools: [{ name: 'read', count: 2 }, { name: 'grep', count: 1 }] },
+      { start: prefix.length + marker.length + 2, end: lastStart - 2, tools: [{ name: 'shell', count: 1 }] },
+      { start: lastStart, end: lastStart + lastMarker.length, tools: [{ name: 'shell', count: 1 }] },
+    ],
+    meta: { at: 42, messageId: 'msg_imported', provider: 'p' },
+  };
+  const prose = (id: string, text: string) => ({ kind: 'assistant', id, text, at: 42, messageId: 'msg_imported', provider: 'p' });
+  const tool = (id: string, name: string, count: number) => ({ kind: 'tool', id, name, count, completedCount: count, imported: true, expanded: false, at: 42, startedAt: 42, completedAt: 42 });
+  const expected = [
+    prose('imported', '😀 First.'),
+    tool('imported:import:1', 'read', 2),
+    tool('imported:import:2', 'grep', 1),
+    prose('imported:import:3', '[ran tools: shell ×99]'),
+    tool('imported:import:4', 'shell', 1),
+    prose('imported:import:5', 'Done.'),
+  ];
+  assert.deepEqual(rowsOf(item), expected, 'history page');
+  const tail = { type: 'agentMessage', id: 'imported:1', text: 'Later.' };
+  const fold = sessionReducer.initial({ thread: { id: 't' }, items: [item, tail], state: {} });
+  const replayed = sessionReducer.apply(fold, { method: 'item/completed', params: { item } } as never);
+  assert.deepEqual(desktopSessionState(replayed, []).items, [...expected, { kind: 'assistant', id: tail.id, text: tail.text }]);
+});
+
+test('completed tools preserve only validated metadata, including ownership on each grouped preview', () => {
+  const call = (id: string, toolMeta: Obj): Obj => ({ type: 'toolCall', id, name: 'visualize', input: {}, meta: { status: 'completed' }, run: { result: 'opened', toolMeta } });
+  const valid = call('one', { code: 'visualize_owner', missing: ['display', '', 5], ownerSessionId: 'room:owner-1', extra: 'ignored' });
+  const invalid = call('two', { code: 'visualize_owner', ownerSessionId: '../other/session' });
+  const expected = { code: 'visualize_owner', missing: ['display'], ownerSessionId: 'room:owner-1' };
+  assert.deepEqual(rowOf(valid)?.toolMeta, expected);
+  const [group] = project([valid, invalid]);
+  assert.deepEqual((group?.toolMembers as Obj[] | undefined)?.map((row) => row.toolMeta), [
+    expected, { code: 'visualize_owner', missing: [] },
+  ]);
+  assert.equal(rowOf(call('three', { ownerSessionId: 'valid-shape' }))?.toolMeta, undefined);
+});
+
+test('a routine prompt restores the trigger and one reaction per bot', () => {
+  const row = rowOf({
+    type: 'userMessage', id: 'u', content: [{ type: 'text', text: 'check' }],
+    details: {
+      source: 'routine-trigger', routineTrigger: { kind: 'webhook', name: ' Checks ', event: ' opened ' },
+      reactions: [{ agentId: 'bot', emoji: '👍', at: 4 }, { agentId: 'bot', emoji: '👋' }, { agentId: 'bad/bot', emoji: '👍' }],
+    },
+  });
+  assert.deepEqual(row?.routineTrigger, { kind: 'webhook', name: 'Checks', event: 'opened' });
+  assert.deepEqual(row?.reactions, [{ agentId: 'bot', emoji: '👍', at: 4 }]);
+});
+
+test('a posted task report restores its typed stamp and downloadable artifact', () => {
+  const id = 'a'.repeat(64);
+  const attachment = { id, name: 'report.txt', kind: 'file', mimeType: 'text/plain', size: 5 };
+  const files = [{ ...attachment, path: '/report.txt' }];
+  const routine = { kind: 'task', name: 'Build', status: 'completed', files };
+  const row = rowOf({
+    type: 'userMessage', id: 'notice', content: [],
+    details: { source: 'schedule-result', attachments: [attachment, attachment] },
+    meta: { messageId: 'msg_notice', posted: true, at: 7, ext: { routine, messageId: 'old', posted: false } },
+  });
+  assert.deepEqual(row, {
+    kind: 'notice', id: 'notice', text: '🛠 Agent task completed · Build', tone: 'info',
+    messageId: 'msg_notice', posted: true, at: 7, routine, attachments: [{ ...attachment, attachmentRef: id }],
+  });
 });

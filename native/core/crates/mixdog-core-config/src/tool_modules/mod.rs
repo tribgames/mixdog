@@ -21,6 +21,7 @@ pub use host::ServicesToolModulesHost;
 mod tests;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
 use mixdog_core_api::state::StatePublisher;
@@ -37,7 +38,9 @@ use crate::config::ConfigError;
 use mixdog_core_base::state::change_of;
 
 pub use value::builtin_feature_active;
-pub use value::with_grandfathered_builtins;
+pub use value::adopt;
+pub use value::adopted_stored_agent;
+pub use value::Origin;
 pub use value::EffortJudgeState;
 pub use value::External;
 pub use value::INSTRUCTION_FILES_MODES;
@@ -65,11 +68,15 @@ pub trait ToolModulesHost: Send + Sync + 'static {
     fn changes(&self) -> watch::Receiver<u64>;
 
     /// `prepareBuiltinFeature(name, options)`: model pre-download, component verification.
+    /// Tidy returns the settled outcome of this request's engines.
     async fn prepare_builtin_feature(
         &self,
         name: &str,
         engines: Option<&[String]>,
-    ) -> Result<(), String>;
+    ) -> Result<Option<Value>, String>;
+    async fn prepare_local_provider(&self, _epoch: u64) -> Result<(), String> {
+        self.prepare_builtin_feature("localProvider", None).await.map(drop)
+    }
     async fn stop_local_provider_server(&self);
     async fn sync_local_provider_registry(&self, enabled: bool);
     async fn shutdown_effort_judge(&self);
@@ -84,6 +91,14 @@ pub trait ToolModulesHost: Send + Sync + 'static {
 impl mixdog_services::local_provider::provider::ToolSettings for ToolModules {
     async fn tool_module_settings(&self) -> Value {
         self.settings().await
+    }
+
+    fn runtime_activation_epoch(&self) -> u64 {
+        self.local_provider_off.load(Ordering::SeqCst)
+    }
+
+    async fn runtime_installed(&self, epoch: u64) -> Result<(), String> {
+        self.activate_local_provider(epoch).await.map_err(|error| error.to_string())
     }
 }
 
@@ -107,8 +122,6 @@ impl std::fmt::Display for ToolModulesError {
     }
 }
 
-impl std::error::Error for ToolModulesError {}
-
 impl From<ConfigError> for ToolModulesError {
     fn from(error: ConfigError) -> Self {
         ToolModulesError::Config(error)
@@ -123,10 +136,15 @@ pub struct ToolModules {
     host: Arc<dyn ToolModulesHost>,
     publisher: Arc<dyn StatePublisher>,
     env: FeatureEnv,
+    /// Orders the persisted setting and registry effects with a runtime commit.
+    local_provider_write: tokio::sync::Mutex<()>,
+    local_provider_off: AtomicU64,
     /// Asks the publishing task to recompute; it answers the value.
     refreshes: mpsc::UnboundedSender<oneshot::Sender<Value>>,
 }
 
+
+impl std::error::Error for ToolModulesError {}
 impl ToolModules {
     /// Starts the publishing task: it publishes the current value, then again whenever the
     /// config or the host's state changes, until `cancel`.
@@ -153,6 +171,8 @@ impl ToolModules {
             host,
             publisher,
             env,
+            local_provider_write: tokio::sync::Mutex::default(),
+            local_provider_off: AtomicU64::default(),
             refreshes,
         });
         service.host.attach_tool_settings(Arc::downgrade(&service) as std::sync::Weak<dyn mixdog_services::local_provider::provider::ToolSettings>);
@@ -214,9 +234,15 @@ impl ToolModules {
         &self,
         change: impl FnOnce(&mut value::Doc) + Send + 'static,
     ) -> Result<(), ToolModulesError> {
+        // `saveConfigAndAdopt`: the setter edits the adopted config (`withGrandfatheredBuiltins`) and what is stored is that
+        // config, so a stored section without `builtins` is written with the whole adopted one (the seed) and never reads
+        // differently afterwards: grandfathered ids stay installed, a fresh profile stays fresh.
+        let origin = self.config.origin();
         self.config
-            .update_agent(move |doc| {
-                change(doc);
+            .update_agent(move |agent| {
+                let mut adopted = value::adopt(agent, origin);
+                change(&mut adopted);
+                *agent = adopted;
                 Ok(())
             })
             .await?;
@@ -297,41 +323,69 @@ impl ToolModules {
                     .into(),
             ));
         }
+        if name == "localProvider" {
+            if enabled {
+                let epoch = self.local_provider_off.load(Ordering::SeqCst);
+                self.host.prepare_local_provider(epoch).await.map_err(ToolModulesError::Failed)?;
+                self.activate_local_provider(epoch).await?;
+            } else {
+                let _write = self.local_provider_write.lock().await;
+                self.write(|doc| {
+                    edit::set_module_enabled(doc, "localProvider", false);
+                    edit::set_local_provider_enabled(doc, false);
+                }).await?;
+                self.local_provider_off.fetch_add(1, Ordering::SeqCst);
+                self.host.stop_local_provider_server().await;
+                self.host.sync_local_provider_registry(false).await;
+            }
+            return Ok(self.refresh().await);
+        }
         let external = self.host.external().await;
         if name == "autoEffort" && enabled && !external.onnx_supported {
             return Err(ToolModulesError::Failed(EFFORT_JUDGE_UNSUPPORTED.into()));
         }
-        let runtime_installed = external
-            .local_provider
-            .pointer("/runtime/installed")
-            .is_some_and(|v| *v == Value::Bool(true));
-        if (name == "localProvider" && enabled && !runtime_installed)
-            || (name == "autoEffort" && enabled)
-        {
-            self.prepare(name, None).await?;
+        if name == "autoEffort" && enabled {
+            let _ = self.prepare(name, None).await?;
         }
         let owned = name.to_owned();
         self.write(move |doc| {
             edit::set_module_enabled(doc, &owned, enabled);
-            if owned == "localProvider" {
-                edit::set_local_provider_enabled(doc, enabled);
-            }
             if enabled {
                 edit::set_builtin_installed(doc, &owned);
             }
         })
         .await?;
-        if name == "localProvider" {
-            if !enabled {
-                self.host.stop_local_provider_server().await;
-            }
-            self.host.sync_local_provider_registry(enabled).await;
-        }
         // Turning Auto on loads nothing: the judge starts on its first turn.
         if name == "autoEffort" && !enabled {
             self.host.shutdown_effort_judge().await;
         }
         Ok(self.refresh().await)
+    }
+
+    async fn activate_local_provider(&self, epoch: u64) -> Result<(), ToolModulesError> {
+        let _write = self.local_provider_write.lock().await;
+        let enable = self.local_provider_off.load(Ordering::SeqCst) == epoch;
+        let agent = self.config.agent();
+        let installed = value::builtin_installed(&agent, "localProvider");
+        let enabled = installed
+            && agent.get("modules").and_then(|modules| modules.pointer("/localProvider/enabled")) == Some(&Value::Bool(true))
+            && agent.get("providers").and_then(|providers| providers.pointer("/mixdog-local/enabled")) == Some(&Value::Bool(true));
+        if installed && (!enable || enabled) {
+            return Ok(());
+        }
+        // A concurrent Off still leaves a successfully installed runtime on
+        // disk. Record that fact, but don't turn the provider or registry on.
+        self.write(move |doc| {
+            edit::set_builtin_installed(doc, "localProvider");
+            if enable {
+                edit::set_module_enabled(doc, "localProvider", true);
+                edit::set_local_provider_enabled(doc, true);
+            }
+        }).await?;
+        if enable {
+            self.host.sync_local_provider_registry(true).await;
+        }
+        Ok(())
     }
 
     /// `installBuiltinFeature`: prepare, then mark installed and enabled in one step. With
@@ -347,14 +401,20 @@ impl ToolModules {
                     .into(),
             ));
         }
+        if name == "localProvider" {
+            let epoch = self.local_provider_off.load(Ordering::SeqCst);
+            self.host.prepare_local_provider(epoch).await.map_err(ToolModulesError::Failed)?;
+            self.activate_local_provider(epoch).await?;
+            return Ok(self.refresh().await);
+        }
         if name == "autoEffort" && !self.host.external().await.onnx_supported {
             return Err(ToolModulesError::Failed(EFFORT_JUDGE_UNSUPPORTED.into()));
         }
         if name == "tidy" && engines.is_some() {
-            self.prepare(name, engines.as_deref()).await?;
-            return Ok(self.refresh().await);
+            let outcome = self.prepare(name, engines.as_deref()).await?;
+            return Ok(self.install_reply(outcome).await);
         }
-        self.prepare(name, None).await?;
+        let outcome = self.prepare(name, None).await?;
         let owned = name.to_owned();
         self.write(move |doc| {
             edit::set_builtin_installed(doc, &owned);
@@ -364,21 +424,24 @@ impl ToolModules {
             } else {
                 edit::set_module_enabled(doc, &owned, true);
             }
-            if owned == "localProvider" {
-                edit::set_local_provider_enabled(doc, true);
-            }
         })
         .await?;
-        if name == "localProvider" {
-            self.host.sync_local_provider_registry(true).await;
-        }
         if name == "memory" {
             self.host.invalidate_context_status_cache();
         }
-        Ok(self.refresh().await)
+        Ok(self.install_reply(outcome).await)
     }
 
-    async fn prepare(&self, name: &str, engines: Option<&[String]>) -> Result<(), ToolModulesError> {
+    async fn install_reply(&self, tidy_install: Option<Value>) -> Value {
+        let mut settings = self.refresh().await;
+        if let Some(outcome) = tidy_install {
+            // The shared progress slot can already belong to the next request.
+            settings["tidyInstall"] = outcome;
+        }
+        settings
+    }
+
+    async fn prepare(&self, name: &str, engines: Option<&[String]>) -> Result<Option<Value>, ToolModulesError> {
         self.host
             .prepare_builtin_feature(name, engines)
             .await

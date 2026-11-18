@@ -1,8 +1,0 @@
-{
-  "input": {
-    "path": "."
-  },
-  "isError": false,
-  "text": "data\tdir\ndocs\tdir\nlines.txt\tfile\nREADME.md\tfile\nsrc\tdir",
-  "tool": "list"
-}

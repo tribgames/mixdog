@@ -5,7 +5,10 @@
 /// transaction).
 pub const INDEX_DDL: &str = include_str!("sql/index.sql");
 pub const INDEX_APPLICATION_ID: i32 = 0x4D58_4958;
-pub const INDEX_USER_VERSION: i32 = 16;
+/// 17: `submissions` and `sessions.listed`. 18: the `blob_refs`, `refs_unknown` and `refs_backfill` tables of the dev
+/// builds are no longer made; an index that still has them ignores them, and one of version 17 is rebuilt from the logs.
+/// 18 is the first released version: the next one ships with a delta from it (see `sql/index.sql`).
+pub const INDEX_USER_VERSION: i32 = 18;
 
 /// `sessions.id_key`: a session id (`^[A-Za-z0-9_-]+$`, FORMAT.md §1) as bytes whose
 /// order is JavaScript `localeCompare` (ICU root collation) on the id: the primary
@@ -43,6 +46,10 @@ pub const LEDGER_DROP_DEV: &str = include_str!("sql/ledger_v3_drop_dev.sql");
 /// `rollup_days`, their triggers and `user_version = 3`.
 pub const LEDGER_V3_DELTA: &str = include_str!("sql/ledger_v3.sql");
 pub const LEDGER_USER_VERSION: i32 = 3;
+/// The v4 delta over a v3 ledger: the per-record 1-hour cache-write counts, out of the route signature. The routes that
+/// held them are merged by the ledger crate's upgrade in the same transaction.
+pub const LEDGER_V4_DELTA: &str = include_str!("sql/ledger_v4.sql");
+pub const LEDGER_V4_USER_VERSION: i32 = 4;
 /// The ledger keeps 1.4.5's `application_id` (0).
 pub const LEDGER_APPLICATION_ID: i32 = 0;
 

@@ -18,6 +18,8 @@ pub(crate) fn steered(qid: QueuedId, entry: &Value) -> SteerInput {
         execution: None,
         submitted_at: entry.get("submittedAt").and_then(Value::as_i64),
         message_id: entry.get("messageId").and_then(Value::as_str).map(str::to_owned),
+        originals_missing: super::staged_originals::lost_in_entry(entry),
+        transcript_meta: meta_of(entry).cloned(),
     }
 }
 
@@ -31,9 +33,9 @@ pub(crate) fn groups(entries: &[(QueuedId, Value)]) -> Vec<SteerInput> {
             continue;
         };
         if completions::is_notification(entry) {
-            out.push(input(vec![submission_of(id.clone(), entry)], merged, SteerMode::TaskNotification, completions::execution(entry)));
+            out.push(input(vec![submission_of(id.clone(), entry)], merged, SteerMode::TaskNotification, completions::execution(entry), 0, meta_of(entry).cloned()));
         } else {
-            out.push(input(vec![submission_of(id.clone(), entry)], merged, SteerMode::Prompt, None));
+            out.push(input(vec![submission_of(id.clone(), entry)], merged, SteerMode::Prompt, None, super::staged_originals::lost_in_entry(entry), meta_of(entry).cloned()));
         }
     }
     out
@@ -110,7 +112,7 @@ pub(crate) fn steered_meta(entry: &Value) -> Option<&Value> {
     meta_of(entry)
 }
 
-fn input(queued_ids: Vec<QueuedId>, merged: Normalized, mode: SteerMode, execution: Option<Value>) -> SteerInput {
+fn input(queued_ids: Vec<QueuedId>, merged: Normalized, mode: SteerMode, execution: Option<Value>, originals_missing: u32, transcript_meta: Option<Value>) -> SteerInput {
     SteerInput {
         queued_ids,
         content: merged.content,
@@ -119,6 +121,8 @@ fn input(queued_ids: Vec<QueuedId>, merged: Normalized, mode: SteerMode, executi
         execution,
         submitted_at: None,
         message_id: None,
+        originals_missing,
+        transcript_meta,
     }
 }
 
@@ -166,13 +170,16 @@ pub(crate) fn recognised_slash_token(text: &str) -> Option<String> {
 
 #[cfg(test)]
 mod slash_tests {
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     fn golden() -> Value {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/capability-refusals/golden.json");
         serde_json::from_str::<Value>(&std::fs::read_to_string(path).expect("golden")).expect("json")["slash"].clone()
     }
 
+    #[cfg(node_twin)]
     /// Node's registry (`SLASH_COMMANDS` at b6f10295a, a static table with nothing added at runtime) names exactly these
     /// tokens, and `recognisedSlashToken` answers the recorded token for every probe.
     #[test]
@@ -195,6 +202,9 @@ mod slash_tests {
         }
     }
 }
+
+
+
 
 /// `promptContentText`.
 pub(crate) fn content_text(content: &Value) -> String {
@@ -393,6 +403,31 @@ mod tests {
         let [first, second] = groups(&entries).try_into().expect("two inputs");
         assert_eq!(first.queued_ids, [id("sub-1")]);
         assert_eq!(second.queued_ids, [id("q2")]);
+    }
+
+    /// An entry that lost originals hands over the core's count with the input, however it is delivered (steered, or at
+    /// the turn's end) and under whichever id it is named (the client's submission or its queue id); an entry that lost
+    /// none hands over none.
+    #[test]
+    fn an_input_carries_the_count_of_originals_its_entry_lost() {
+        let (kept, gone) = ("a".repeat(64), "b".repeat(64));
+        let image = |reference: &str| json!({ "type": "image", "originalRef": reference });
+        let lost = json!({
+            "message": "look",
+            "options": { "clientSubmissionId": "sub-1", "pastedImages": { "1": image(&kept), "2": image(&gone), "3": image(&gone) } },
+            "missingOriginals": [gone],
+            "transcriptMeta": { "sender": "bot", "hop": 2 },
+        });
+        let whole = json!({ "message": "look", "options": { "pastedImages": { "1": image(&kept) } } });
+        let steered = steered(id("q1"), &lost);
+        assert_eq!((steered.queued_ids.clone(), steered.originals_missing), (vec![id("sub-1")], 2));
+        assert_eq!(super::steered(id("q2"), &whole).originals_missing, 0);
+        // The entry's `transcriptMeta` rides the same input, under the same id.
+        assert_eq!(steered.transcript_meta, Some(json!({ "sender": "bot", "hop": 2 })));
+        let inputs = groups(&[(id("q1"), lost), (id("q2"), whole)]);
+        let counts: Vec<_> = inputs.iter().map(|input| input.originals_missing).collect();
+        assert_eq!(counts, [2, 0]);
+        assert_eq!((inputs[0].transcript_meta.clone(), inputs[1].transcript_meta.clone()), (Some(json!({ "sender": "bot", "hop": 2 })), None));
     }
 
     /// Each input carries its own entry's `transcriptMeta`; an entry that is no object has none.

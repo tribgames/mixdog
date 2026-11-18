@@ -27,6 +27,13 @@ on:
       target:
         required: true
         type: string
+    outputs:
+      assets:
+        value: ${{ jobs.package.outputs.assets }}
+      mac_feed_id:
+        value: ${{ jobs.package.outputs.mac_feed_id }}
+      linux_package_id:
+        value: ${{ jobs.package.outputs.linux_package_id }}
     # Developer ID signing and notarization for the macOS package. Only the
     # darwin caller passes them; without the full set the app stays unsigned.
     secrets:
@@ -56,6 +63,10 @@ jobs:
   package:
     name: desktop-${{ inputs.platform }}-${{ inputs.arch }}
     runs-on: ${{ inputs.runner }}
+    outputs:
+      assets: ${{ steps.windows-assets.outputs.assets || steps.mac-assets.outputs.assets || steps.linux-subject.outputs.assets }}
+      mac_feed_id: ${{ steps.mac-feed.outputs.artifact-id }}
+      linux_package_id: ${{ steps.linux-package.outputs.artifact-id }}
     # Preparation overlaps the 90-minute core producer and the shared server bundle
     # stage. This budget includes that wait plus the former 45-minute packaging work.
     timeout-minutes: 150
@@ -67,8 +78,7 @@ jobs:
       # Outside the checkout: electron-builder runs CommonJS helpers (icon-tool.js)
       # from this cache, and the repo's "type": "module" would load them as ESM.
       ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/../electron-builder-cache
-      # The macOS Computer Use backend's toolchain; its build cache key below
-      # names it, so a toolchain bump rebuilds the backend.
+      # The toolchain installed for the macOS native builds.
       RUST_TOOLCHAIN: "1.99.1"
       # The release signer the Windows secure-desktop helper pins at build time
       # (option_env! in native/mixdog-secure-desktop/src/signature.rs): its
@@ -97,14 +107,21 @@ jobs:
         run: |
           echo "key=$(node scripts/runtime-dependency-cache-key.mjs \
             --platform=${{ inputs.platform }} --arch=${{ inputs.arch }})" >> "$GITHUB_OUTPUT"
-          echo "npm_key=$(node scripts/dependency-lock-cache-key.mjs \
-            apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
-          echo "manifest_key=$(node scripts/manifest-cache-key.mjs \
-            package.json package-lock.json apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
+          npm_key=$(node scripts/dependency-lock-cache-key.mjs apps/desktop/package-lock.json)
+          echo "npm_key=$npm_key" >> "$GITHUB_OUTPUT"
+          echo "manifest_key=$(node scripts/manifest-cache-key.mjs apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
           echo "npm_cache=$(npm config get cache)" >> "$GITHUB_OUTPUT"
           # The pin is compiled into the helper, so it keys every cache that
           # holds a built helper (a cache key cannot hold the DN's commas).
           echo "signer_pin=$(node -e "process.stdout.write(require('node:crypto').createHash('sha256').update(process.env.MIXDOG_SECURE_DESKTOP_SIGNER_SUBJECT + '\n' + process.env.MIXDOG_SECURE_DESKTOP_SIGNER_EKU).digest('hex').slice(0, 16))")" >> "$GITHUB_OUTPUT"
+      # Key the prepared Linux runtime on the native bytes it will actually ship,
+      # not on a second list of the producer's source and build-image inputs.
+      - name: Download glibc 2.28 Linux native tools
+        if: inputs.platform == 'linux'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: native-tools-glibc228-${{ inputs.arch }}
+          path: native-out
       # Restore and save are split: actions/cache saves in its post step and
       # skips it when the job fails, so a packaging or verification failure
       # after a five-minute Windows runtime preparation threw that work away
@@ -115,14 +132,32 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/desktop/.runtime
-          key: desktop-prepared-runtime-v4-${{ steps.runtime-dependencies.outputs.key }}-${{ steps.runtime-dependencies.outputs.manifest_key }}-${{ hashFiles('README.md', 'NOTICE.md', 'LICENSES/**', 'bin/**', 'scripts/**', '!scripts/*-test.mjs', '!scripts/*.test.mjs', '!scripts/*-bench.mjs', 'src/**', '!src/**/*.test.mjs', '!src/**/*.test.jsx', 'apps/desktop/scripts/prepare-runtime.mjs', 'apps/desktop/scripts/runtime-package-payload.mjs', 'apps/desktop/scripts/core-layout.mjs', 'apps/desktop/scripts/stage-js-bundle.mjs', 'apps/desktop/scripts/remote-js-roots.mjs', 'apps/desktop/scripts/cli-args.mjs', 'native/mixdog-computer/Cargo.toml', 'native/mixdog-computer/Cargo.lock', 'native/mixdog-computer/src/**', 'native/mixdog-browser-import/Cargo.toml', 'native/mixdog-browser-import/Cargo.lock', 'native/mixdog-browser-import/build.ps1', 'native/mixdog-browser-import/src/**', 'native/mixdog-secure-desktop/Cargo.toml', 'native/mixdog-secure-desktop/Cargo.lock', 'native/mixdog-secure-desktop/build.ps1', 'native/mixdog-secure-desktop/build.rs', 'native/mixdog-secure-desktop/src/**', 'native/mixdog-window/Cargo.toml', 'native/mixdog-window/Cargo.lock', 'native/mixdog-window/build.ps1', 'native/mixdog-window/build.rs', 'native/mixdog-window/.cargo/**', 'native/mixdog-window/src/**', 'native/mixdog-main-native/Cargo.toml', 'native/mixdog-main-native/Cargo.lock', 'native/mixdog-main-native/build.rs', 'native/mixdog-main-native/.cargo/**', 'native/mixdog-main-native/src/**', 'native/core/Cargo.toml', 'native/core/crates/mixdog-browser-rules/**', 'native/core/crates/mixdog-js/**', 'native/core/vendor/icu_collator/**') }}${{ inputs.platform == 'win32' && format('-signer-{0}', steps.runtime-dependencies.outputs.signer_pin) || '' }}${{ inputs.platform == 'linux' && format('-glibc228-{0}', hashFiles('native/mixdog-graph/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh')) || '' }}
+          # Unlike the dependency cache, this tree ships the root package.json
+          # verbatim, including its version. Keep native inputs platform-local.
+          key: >-
+            desktop-prepared-runtime-v5-${{ steps.runtime-dependencies.outputs.key }}-${{ steps.runtime-dependencies.outputs.manifest_key }}-${{ hashFiles(
+              'package.json', '.npmignore', 'README.md', 'NOTICE.md', 'LICENSE', 'LICENSES/**', 'bin/**',
+              'scripts/**', '!scripts/*-test.mjs', '!scripts/**/*.test.mjs', '!scripts/*-bench.mjs',
+              'src/**', '!src/**/*.test.mjs', '!src/**/*.test.jsx',
+              'apps/desktop/scripts/prepare-runtime.mjs', 'apps/desktop/scripts/runtime-package-payload.mjs',
+              'apps/desktop/scripts/core-layout.mjs', 'apps/desktop/scripts/stage-js-bundle.mjs',
+              'apps/desktop/scripts/remote-js-roots.mjs', 'apps/desktop/scripts/cli-args.mjs'
+            ) }}${{ inputs.platform == 'linux' && format('-glibc228-{0}', hashFiles(
+              'native-out/mixdog-computer', 'native-out/mixdog-graph', 'native-out/mixdog_main_native.node'
+            )) || format('-{0}-rust{1}-{2}', inputs.runner, env.RUST_TOOLCHAIN, hashFiles(
+              'rust-toolchain.toml', 'native/mixdog-computer/**', 'native/mixdog-main-native/**',
+              'native/core/Cargo.toml', 'native/core/crates/mixdog-browser-rules/**', 'native/core/crates/mixdog-js/**',
+              'native/core/vendor/icu_collator/**'
+            )) }}${{ inputs.platform == 'win32' && format('-win-{0}-signer-{1}', hashFiles(
+              'native/mixdog-browser-import/**', 'native/mixdog-secure-desktop/**', 'native/mixdog-window/**'
+            ), steps.runtime-dependencies.outputs.signer_pin) || '' }}
       - name: Restore Electron downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ${{ env.ELECTRON_CACHE }}
             ${{ env.ELECTRON_BUILDER_CACHE }}
-          key: desktop-electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/desktop/package-lock.json') }}
+          key: desktop-electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.runtime-dependencies.outputs.npm_key }}
           restore-keys: desktop-electron-${{ runner.os }}-${{ runner.arch }}-
       # Skipped on darwin-x64: there the restore (~33s) and post-job save (~41s)
       # cost more than the install it would speed up.
@@ -147,7 +182,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/desktop/.cache/browser-import
-          key: desktop-browser-import-v1-${{ inputs.arch }}-${{ hashFiles('native/mixdog-browser-import/**', '!native/mixdog-browser-import/dist/**', '!native/mixdog-browser-import/target/**') }}
+          key: desktop-browser-import-v1-${{ inputs.arch }}-${{ inputs.runner }}-${{ hashFiles('rust-toolchain.toml', 'native/mixdog-browser-import/**', '!native/mixdog-browser-import/dist/**', '!native/mixdog-browser-import/target/**') }}
       # The Windows secure-desktop helper (in-repo Rust, shipped in
       # native-tools and installed as a service only on the phone's request)
       # follows the same source-hash marker pattern.
@@ -159,7 +194,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/desktop/.cache/secure-desktop
-          key: desktop-secure-desktop-v1-${{ inputs.arch }}-${{ hashFiles('native/mixdog-secure-desktop/**', '!native/mixdog-secure-desktop/dist/**', '!native/mixdog-secure-desktop/target/**') }}-signer-${{ steps.runtime-dependencies.outputs.signer_pin }}
+          key: desktop-secure-desktop-v1-${{ inputs.arch }}-${{ inputs.runner }}-${{ hashFiles('rust-toolchain.toml', 'native/mixdog-secure-desktop/**', '!native/mixdog-secure-desktop/dist/**', '!native/mixdog-secure-desktop/target/**') }}-signer-${{ steps.runtime-dependencies.outputs.signer_pin }}
       # The Mica window library (in-repo Rust, loaded by the main process)
       # follows the same source-hash marker pattern.
       - name: Restore built window library
@@ -170,7 +205,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/desktop/.cache/window-library
-          key: desktop-window-library-v2-${{ inputs.arch }}-${{ hashFiles('native/mixdog-window/**', '!native/mixdog-window/dist/**', '!native/mixdog-window/target/**') }}
+          key: desktop-window-library-v2-${{ inputs.arch }}-${{ inputs.runner }}-${{ hashFiles('rust-toolchain.toml', 'native/mixdog-window/**', '!native/mixdog-window/dist/**', '!native/mixdog-window/target/**') }}
       # The main-process Node-API module (native/mixdog-main-native: the Browser
       # Use URL and redaction rules) is built by prepare-runtime on macOS and
       # Windows for the target, with the same source-hash marker; Linux takes
@@ -184,7 +219,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/desktop/.cache/main-native
-          key: desktop-main-native-v1-${{ inputs.platform }}-${{ inputs.arch }}-${{ inputs.runner }}-rust${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('native/mixdog-main-native/**', '!native/mixdog-main-native/target/**', 'native/core/Cargo.toml', 'native/core/crates/mixdog-browser-rules/**', 'native/core/crates/mixdog-js/**', 'native/core/vendor/icu_collator/**') }}
+          key: desktop-main-native-v1-${{ inputs.platform }}-${{ inputs.arch }}-${{ inputs.runner }}-rust${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('rust-toolchain.toml', 'native/mixdog-main-native/**', '!native/mixdog-main-native/target/**', 'native/core/Cargo.toml', 'native/core/crates/mixdog-browser-rules/**', 'native/core/crates/mixdog-js/**', 'native/core/vendor/icu_collator/**') }}
       # macOS and Windows bundle the native Computer Use helper, which
       # prepare-runtime builds from native/mixdog-computer for the target
       # (Windows with the runner's cargo, like the other in-repo helpers).
@@ -205,7 +240,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/desktop/.cache/computer-native
-          key: desktop-computer-native-v1-${{ inputs.platform }}-${{ inputs.arch }}-${{ inputs.runner }}-rust${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('native/mixdog-computer/**', '!native/mixdog-computer/target/**') }}
+          key: desktop-computer-native-v1-${{ inputs.platform }}-${{ inputs.arch }}-${{ inputs.runner }}-rust${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('rust-toolchain.toml', 'native/mixdog-computer/**', '!native/mixdog-computer/target/**') }}
       # An exact backend hit means prepare-runtime's marker matches and it never
       # calls rustc or cargo, so the toolchain installs only on a miss.
       - name: Install Rust for the Computer Use backend
@@ -229,18 +264,38 @@ jobs:
           done
           exit 1
         working-directory: apps/desktop
+      # What the packaged-core smoke needs (scripts/rust-core/smoke-mixdogd.mjs loads the pure-JS `ws`), installed here,
+      # while the producers of the core and the bundles are still building, instead of after the package. The helper
+      # it starts every child through is built once per run (release.yml `tree-helper`, artifact treerun-<target>).
+      - name: Install the core smoke runner's dependencies (root, without scripts)
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            npm ci --ignore-scripts --prefer-offline --no-audit --no-fund && exit 0
+            echo "npm ci failed (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 10))
+          done
+          exit 1
+      - name: Resolve the process-tree helper of this platform
+        id: helper
+        shell: bash
+        run: |
+          case "${{ inputs.platform }}-${{ inputs.arch }}" in
+            win32-x64) target=x86_64-pc-windows-msvc; exe=.exe ;;
+            darwin-arm64) target=aarch64-apple-darwin; exe= ;;
+            darwin-x64) target=x86_64-apple-darwin; exe= ;;
+            linux-x64) target=x86_64-unknown-linux-gnu; exe= ;;
+            linux-arm64) target=aarch64-unknown-linux-gnu; exe= ;;
+            *) echo "no process-tree helper for ${{ inputs.platform }}-${{ inputs.arch }}"; exit 1 ;;
+          esac
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "exe=$exe" >> "$GITHUB_OUTPUT"
       # Linux ships mixdog-computer/-graph (and mixdog_main_native.node) built in manylinux_2_28
       # (native tools glibc 2.28; the package floor is 2.31 because of the
       # runtime); graph must come from there, never from the pinned release
       # download, which is built against a newer glibc. (The patch engine and
       # the process manager are libraries of the core: no standalone binary of
       # either is packaged.)
-      - name: Download glibc 2.28 Linux native tools
-        if: inputs.platform == 'linux'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: native-tools-glibc228-${{ inputs.arch }}
-          path: native-out
       - name: Select glibc 2.28 native tools for packaging
         if: inputs.platform == 'linux'
         shell: bash
@@ -322,30 +377,66 @@ jobs:
       - name: Verify packaged runtime dependency versions match the lockfile
         shell: bash
         run: node apps/desktop/scripts/verify-runtime-versions.mjs
+      # The one suite that reads the prepared runtime (apps/desktop/.runtime): the Windows helper it ships starts and answers
+      # --version. It skips unless a Windows runtime is prepared, so it can run only here, where one is (the release gate prepares
+      # none). Direct runner call: the package's `pretest` would build the main-process module this check does not read.
+      # Its receipt is the join leg windows/desktop-package/1of1 of the coverage plan: release.yml's `prepared-runtime-join` requires
+      # its pass of the case the gate's Linux lanes skip (scripts/ci/coverage/exceptions.json, replacement `runs`) before publish.
+      - name: The prepared Windows runtime ships a Computer Use helper that starts
+        if: inputs.platform == 'win32'
+        shell: bash
+        working-directory: apps/desktop
+        env:
+          MIXDOG_RECEIPT: ${{ runner.temp }}/join-receipts/windows-runtime.json
+          MIXDOG_LEG: windows/desktop-package/1of1
+          MIXDOG_LEG_OS: windows
+          MIXDOG_SLOT: windows-runtime
+        run: |
+          node ../../scripts/test.mjs --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs computer-native-package
+          # The receipt must exist, be complete and hold a test that ran; a skip here means the runtime this step exists to check was
+          # not prepared (the suite skips without one), which is not a pass: --strict accepts no skip, whatever the reviewed list holds.
+          node ../../scripts/ci/check-skips.mjs receipts --strict "$MIXDOG_RECEIPT"
       # This job does not `need` build-desktop-once or the server-cores job
       # (release.yml), so it prepares the runtime while they build. Poll this
       # run until each artifact exists; a failed or cancelled producer fails
       # the step at once instead of waiting out the deadline.
-      - name: Wait for the common desktop output and the server bundles
+      - name: Wait for the common desktop output, the server bundles and the process-tree helper
         timeout-minutes: 125
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          HELPER_TARGET: ${{ steps.helper.outputs.target }}
         run: |
-          # Both waits share wall time; do not add two independent deadlines serially.
+          # The waits share wall time; do not add independent deadlines serially.
           bash .github/scripts/wait-for-artifact.sh desktop-out build-desktop-once 120 &
           desktop_wait=$!
           bash .github/scripts/wait-for-artifact.sh server-cores server-cores 120 &
           server_wait=$!
+          bash .github/scripts/wait-for-artifact.sh "treerun-$HELPER_TARGET" "tree-helper-$HELPER_TARGET" 120 &
+          helper_wait=$!
           status=0
           wait "$desktop_wait" || status=$?
           wait "$server_wait" || status=$?
+          wait "$helper_wait" || status=$?
           exit "$status"
       - name: Download common desktop output
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: desktop-out
           path: apps/desktop/out
+      - name: Take the process-tree helper
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: treerun-${{ steps.helper.outputs.target }}
+          path: treerun-in
+      - name: Name the process-tree helper
+        shell: bash
+        run: |
+          chmod +x treerun-in/treerun${{ steps.helper.outputs.exe }}
+          helper="$PWD/treerun-in/treerun${{ steps.helper.outputs.exe }}"
+          # Git Bash's /d/a/... form is not a path node can open.
+          if command -v cygpath > /dev/null; then helper=$(cygpath -m "$helper"); fi
+          echo "MIXDOG_TREE_HELPER=$helper" >> "$GITHUB_ENV"
       # The release's mixdogd for every target (mixdogd-build.yml, called by
       # release.yml), laid out where stage-core.mjs takes them, and the four
       # server bundles built once for the whole run (server-cores-build.yml).
@@ -360,6 +451,28 @@ jobs:
       - name: Stage the cores (the app's own and the prebuilt server cores)
         shell: bash
         run: node apps/desktop/scripts/stage-core.mjs --platform=${{ inputs.platform }} --arch=${{ inputs.arch }} --server-cores=server-cores-in
+      - name: Select the fresh unpacked package output
+        id: package-output
+        shell: bash
+        working-directory: apps/desktop
+        env:
+          PACKAGE_PLATFORM: ${{ inputs.platform }}
+          PACKAGE_ARCH: ${{ inputs.arch }}
+        run: |
+          output="$(node --input-type=module -e '
+            import { packagedOutputName } from "./scripts/packaged-output.mjs";
+            const { PACKAGE_PLATFORM: platform, PACKAGE_ARCH: arch } = process.env;
+            if (platform !== process.platform || arch !== process.arch) {
+              throw new Error(`Package lane ${platform}-${arch} cannot be verified on ${process.platform}-${process.arch}`);
+            }
+            console.log(packagedOutputName(platform, arch));
+          ')"
+          if [[ -L dist || -e "dist/$output" || -L "dist/$output" ]]; then
+            echo "::error::Expected a fresh package output at dist/$output before Electron Builder runs"
+            exit 1
+          fi
+          echo "name=$output" >> "$GITHUB_OUTPUT"
+          echo "started_at=$(node -p 'Date.now()')" >> "$GITHUB_OUTPUT"
       - name: Build Windows installer
         id: windows-package
         if: inputs.platform == 'win32'
@@ -503,25 +616,32 @@ jobs:
       # The package the release ships, for linux-desktop-verify to launch, update
       # and run in distro containers (packages_prebuilt) instead of building a
       # second, different package from the same commit.
+      - name: Record the Linux package bytes under verification
+        id: linux-subject
+        if: inputs.platform == 'linux'
+        shell: bash
+        run: node scripts/ci/release-assets.mjs record apps/desktop/dist/*.AppImage apps/desktop/dist/*.deb apps/desktop/dist/latest-linux*.yml
       - name: Upload the Linux packages for verification
+        id: linux-package
         if: inputs.platform == 'linux'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: mixdog-linux-packages-${{ inputs.arch }}
+          name: mixdog-linux-packages-${{ inputs.arch }}-${{ github.run_attempt }}
           path: |
             apps/desktop/dist/*.AppImage
             apps/desktop/dist/*.deb
             apps/desktop/dist/latest-linux*.yml
           if-no-files-found: error
-          overwrite: true
       - name: Verify macOS signature and notarization
         if: inputs.platform == 'darwin' && steps.unix-package.outputs.signed == 'true'
         shell: bash
         working-directory: apps/desktop
+        env:
+          MIXDOG_PACKAGED_OUTPUT: ${{ steps.package-output.outputs.name }}
         run: |
           set -euo pipefail
-          app="$(find dist -maxdepth 2 -type d -name 'Mixdog.app' | head -n 1)"
-          test -n "$app"
+          app="dist/$MIXDOG_PACKAGED_OUTPUT/Mixdog.app"
+          test -d "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
           # stapler validate looks the ticket up on Apple's CloudKit service;
           # a dropped connection there (NSURLError -1005, exit 68) is retried.
@@ -545,26 +665,48 @@ jobs:
       # The Google OAuth client is compiled into mixdogd (mixdogd-build.yml checks
       # it there), so no secret is passed here.
       - name: Verify this platform's packaged runtime layout
+        if: inputs.platform != 'win32'
         run: npm run verify:packaging-artifact
         working-directory: apps/desktop
+        env:
+          MIXDOG_PACKAGED_OUTPUT: ${{ steps.package-output.outputs.name }}
+          MIXDOG_PACKAGED_BUILD_STARTED_AT: ${{ steps.package-output.outputs.started_at }}
+      # The same check on Windows leaves the receipt of the join slot windows/desktop-package/1of1#packaged-artifact, which release.yml's
+      # `prepared-runtime-join` requires before any release sink (the plan's runs-after-packaging class). A skip is no pass.
+      - name: Verify this platform's packaged runtime layout (Windows, with its join receipt)
+        if: inputs.platform == 'win32'
+        shell: bash
+        working-directory: apps/desktop
+        env:
+          MIXDOG_PACKAGED_OUTPUT: ${{ steps.package-output.outputs.name }}
+          MIXDOG_PACKAGED_BUILD_STARTED_AT: ${{ steps.package-output.outputs.started_at }}
+          MIXDOG_RECEIPT: ${{ runner.temp }}/join-receipts/packaged-artifact.json
+          MIXDOG_LEG: windows/desktop-package/1of1
+          MIXDOG_LEG_OS: windows
+          MIXDOG_SLOT: packaged-artifact
+        run: |
+          npm run verify:packaging-artifact
+          node ../../scripts/ci/check-skips.mjs receipts --strict "$MIXDOG_RECEIPT"
+      - name: Upload the evidence of the prepared Windows runtime and the packaged artifact
+        if: inputs.platform == 'win32'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: join-evidence-release-${{ inputs.ref }}-windows-desktop-package-1of1
+          overwrite: true
+          path: ${{ runner.temp }}/join-receipts
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
       # The core this package ships (the file electron-builder packed from
       # .runtime/core) boots on a fresh profile and answers a first call.
-      - name: Install Rust for the core smoke helper
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-      - name: Prepare the core smoke runner
-        shell: bash
-        run: |
-          npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
-          cargo build --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml
+      # Its runner (root `ws`) and process-tree helper (MIXDOG_TREE_HELPER) were prepared before the wait above.
       - name: Smoke the packaged core
         if: inputs.platform != 'win32'
         run: node scripts/rust-core/smoke-mixdogd.mjs --mixdogd apps/desktop/.runtime/core/mixdogd
       # The release is still a hidden draft here. Uploading while the packaged
-      # runtime smoke runs is safe: either failure keeps publish blocked, and a
-      # recovery run clobbers the unpublished assets.
+      # runtime smoke runs is safe: either failure keeps finalization blocked.
       - name: Smoke and upload verified Windows assets in parallel
+        id: windows-assets
         if: inputs.platform == 'win32'
         timeout-minutes: 8
         shell: bash
@@ -572,6 +714,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_REF: ${{ inputs.ref }}
         run: |
           set -uo pipefail
           assets=(
@@ -589,12 +732,14 @@ jobs:
           test "$smoke_status" -eq 0
           test "$upload_status" -eq 0
       - name: Upload verified macOS assets to hidden draft
+        id: mac-assets
         if: inputs.platform == 'darwin'
         timeout-minutes: 7
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_REF: ${{ inputs.ref }}
         shell: bash
         run: |
           set -euo pipefail
@@ -609,19 +754,15 @@ jobs:
           # own feed, and the publish job merges both into the one feed that
           # electron-updater reads (scripts/merge-mac-update-feed.mjs).
           test -f apps/desktop/dist/latest-mac.yml
-          # A recovery run finds the earlier attempt's assets on the draft;
-          # `gh release upload --clobber` then fails with 422 "ReleaseAsset.name
-          # already exists". The script deletes the remote asset first and
-          # retries once over bounded HTTP/1.1, so both architectures use it.
           bash .github/scripts/upload-release-assets.sh "${assets[@]}"
       - name: Upload macOS update feed artifact for the publish job
+        id: mac-feed
         if: inputs.platform == 'darwin'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: desktop-mac-feed-${{ inputs.arch }}
+          name: desktop-mac-feed-${{ inputs.arch }}-${{ github.run_attempt }}
           path: apps/desktop/dist/latest-mac.yml
           if-no-files-found: error
-          overwrite: true
       - name: Upload verified Linux asset to hidden draft
         if: inputs.platform == 'linux'
         timeout-minutes: 7
@@ -629,6 +770,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_REF: ${{ inputs.ref }}
         shell: bash
         run: |
           set -euo pipefail
@@ -652,7 +794,4 @@ jobs:
             esac
           done
           grep -q "$(basename "$deb")" "$feed"
-          # Same bounded uploader as macOS and Windows: `gh release upload
-          # --clobber` stalled past the step timeout twice on arm64 (v0.9.170)
-          # once the draft already held the earlier attempt's asset.
           bash .github/scripts/upload-release-assets.sh "$asset" "$deb" "$feed"

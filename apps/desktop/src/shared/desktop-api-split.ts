@@ -27,7 +27,7 @@ export const DIRECT_KEYS = {
     'subscribeAgentPool', 'getQuotaAutoResume', 'setQuotaAutoResume', 'deleteSession', 'prefetchSession',
     'readTranscriptHistory', 'setVisibleSessions', 'getSnapshot', 'subscribeState', 'readSessionAttachment',
     'submitNewTask', 'submitToSession', 'abortSession', 'resolveToolApprovalForSession',
-    'resyncSessionState', 'subscribeSessionState', 'inheritSession',
+    'resyncSessionState', 'subscribeSessionState', 'sessionStreamPosition', 'inheritSession',
   ] as const,
   files: [
     'readEditorSettings', 'startProject', 'startProjectTask', 'startTask', 'listProjects', 'addProject',
@@ -68,14 +68,14 @@ export const DIRECT_KEYS = {
     'setConversationNotification', 'subscribeTurnReviewChanged', 'subscribeOrchestrationModeChanged',
     'readMarkdownDefaultView', 'writeMarkdownDefaultView', 'getNotificationPreferences', 'sendTestNotification', 'listSystemFonts', 'rotateRemoteAccess', 'revokeRemoteAccessClient',
     'setRemoteAccessEnabled', 'setRemotePcName', 'setRemoteClientAlias', 'resolveRemoteClientClaim',
-    'getRemotePairCode', 'getRemoteAccessInfo', 'subscribeRemoteClientClaim', 'getRemoteAccessSettings',
+    'getRemotePairCode', 'getRemoteAccessInfo', 'getRemoteConnectionState', 'subscribeRemoteClientClaim', 'getRemoteAccessSettings',
     'subscribeRemoteAccessSettings', 'listRemoteClientClaims',
   ] as const,
   // The connection methods (saved SSH servers, the connect dialog, a server window's link and Ports panel, reopening server
   // windows) are `connections/*` requests of this window's core client (renderer/connections-core-api.ts).
   connections: [
     'sshListHosts', 'sshRenameHost', 'sshForgetHost', 'sshOpenHost', 'sshConfigHosts', 'sshInspectHostKey',
-    'sshConnect', 'sshCancel', 'sshAskpassReply', 'sshCleanupHost', 'sshUpdateHostSettings', 'sshServerLogins',
+    'sshConnect', 'sshCancel', 'sshAskpassReply', 'sshCleanupHost', 'sshCleanupTarget', 'sshUpdateHostSettings', 'sshServerLogins',
     'sshServerLoginBegin', 'sshServerLoginStatus', 'sshServerLoginComplete', 'sshServerLoginCancel', 'sshServerLoginSaveKey',
     'sshServerLoginLogout', 'sshServerLoginRemoveCustom', 'sshDiagnosticsLog', 'sshDiagnosticsCopy', 'sshServerLog',
     'getConnectionLink', 'retryConnection', 'retryConnectionNow', 'getReopenServerWindows', 'setReopenServerWindows',
@@ -163,9 +163,17 @@ export const DESKTOP_API_COMPLETE: [Unclassified, NotAMember] extends [never, ne
 export interface DesktopHostExtras {
   enableAllowAllActions(): Promise<DesktopCapabilityResult>;
   observeSignIn(capability: string, args: unknown[], value: unknown): void;
+  /** A document's converted PDF as a `mixdog-media` preview URL. The main process owns the conversion: a PDF the core's cache
+   *  evicted is converted again under the same URL. */
+  previewConvertedDocument(
+    projectPath: string,
+    relPath: string,
+    accessToken?: string
+  ): Promise<{ url: string; kind: 'pdf'; mime: string; format: string; mtimeMs: number; size: number }>;
   invokePcQuotaCapability(request: DesktopCapabilityRequest): Promise<DesktopCapabilityResult>;
   readPcQuotaCapabilities(requests: DesktopCapabilityReadRequest[]): Promise<DesktopCapabilityReadResult[]>;
 }
 
 /** What window.mixdogDesktopHost exposes: the HOST half of DesktopApi plus the extras. */
 export type DesktopHostApi = Pick<DesktopApi, HostKey> & DesktopHostExtras;
+

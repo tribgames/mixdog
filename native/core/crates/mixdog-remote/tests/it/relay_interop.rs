@@ -1,12 +1,12 @@
-//! DS-REM-2: the Rust leg, clients, claims, caps, control requests and pair code against both relays: the
-//! unmodified `apps/relay/server.mjs` started with node, and the Rust relay (`mixdog_relay::server::spawn`) started in
-//! this process, each on an ephemeral port with a scratch data dir. The expected outcomes are the same for both; a
-//! difference fails the case naming the runtime.
+//! The Rust leg, clients, claims, caps, control requests and pair code against the Rust relay (`mixdog_relay::server::spawn`)
+//! started in this process on an ephemeral port with a scratch data dir.
 //! No real relay or account credentials are involved; a Rust phone peer completes the E2EE
 //! handshake and exchanges an application frame through the relay.
 
+#[cfg(node_twin)]
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
+#[cfg(node_twin)]
 #[allow(clippy::disallowed_types, reason = "test runs the unmodified Node relay as the reference peer")]
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
@@ -26,11 +26,65 @@ use tokio_util::sync::CancellationToken;
 
 /// The relay a case runs against; `stop` closes it (dropping it kills a Node relay).
 enum Relay {
+    #[cfg(node_twin)]
     Node { child: Child, port: u16, _data: tempfile::TempDir },
     Rust { running: mixdog_relay::server::RunningRelay, port: u16, _data: tempfile::TempDir },
 }
 
+#[cfg(node_twin)]
+impl Drop for Relay {
+    fn drop(&mut self) {
+        if let Self::Node { child, .. } = self {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+async fn next<T>(rx: &mut mpsc::Receiver<T>) -> T {
+    rx.recv().await.expect("closed")
+}
+
+fn text(value: Value) -> Outgoing {
+    Outgoing::Text(value.to_string())
+}
+
+fn frame_envelope(client_id: &str, sealed: &Sealed) -> Value {
+    match sealed {
+        Sealed::Text(t) => json_frame(client_id, t),
+        Sealed::Binary(b) => {
+            use base64::Engine;
+            json!({"type":"frame","clientId":client_id,"data":base64::engine::general_purpose::STANDARD.encode(b)})
+        }
+    }
+}
+
+#[test]
+fn payload_enum_is_text_or_binary() {
+    assert_eq!(Payload::Text("a".into()).len(), 1);
+}
+
+/// One HTTP/1.0 request (so the reply is never chunked); returns the status and body.
+async fn http(port: u16, method: &str, path: &str, origin: Option<&str>, body: Option<&str>) -> (u16, String) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let body = body.unwrap_or_default();
+    let origin = origin.map(|o| format!("Origin: {o}\r\n")).unwrap_or_default();
+    let request = format!(
+        "{method} {path} HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n{origin}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw).await.unwrap();
+    let text = String::from_utf8_lossy(&raw).into_owned();
+    let status = text.split_whitespace().nth(1).unwrap().parse().unwrap();
+    let body = text.split("\r\n\r\n").nth(1).unwrap_or_default().to_owned();
+    (status, body)
+}
+
 impl Relay {
+    #[cfg(node_twin)]
     #[allow(
         clippy::disallowed_methods,
         clippy::disallowed_types,
@@ -79,26 +133,24 @@ impl Relay {
 
     fn port(&self) -> u16 {
         match self {
-            Self::Node { port, .. } | Self::Rust { port, .. } => *port,
+            #[cfg(node_twin)]
+            Self::Node { port, .. } => *port,
+            Self::Rust { port, .. } => *port,
         }
     }
 
     async fn stop(self) {
+        #[cfg(node_twin)]
         if let Self::Rust { running, .. } = &self {
+            running.close().await;
+        }
+        #[cfg(not(node_twin))]
+        {
+            let Self::Rust { running, .. } = &self;
             running.close().await;
         }
     }
 }
-
-impl Drop for Relay {
-    fn drop(&mut self) {
-        if let Self::Node { child, .. } = self {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-}
-
 /// Runs the case against the relay and, when it fails, fails naming the runtime.
 async fn against(runtime: &str, relay: Relay) {
     let port = relay.port();
@@ -108,25 +160,15 @@ async fn against(runtime: &str, relay: Relay) {
         panic!("{runtime} relay: {error}");
     }
 }
-
+#[cfg(node_twin)]
 #[tokio::test(flavor = "multi_thread")]
 async fn leg_pairs_and_serves_a_phone_through_the_node_relay() {
     against("node", Relay::spawn_node()).await;
 }
-
 #[tokio::test(flavor = "multi_thread")]
 async fn leg_pairs_and_serves_a_phone_through_the_rust_relay() {
     against("rust", Relay::spawn_rust().await).await;
 }
-
-async fn next<T>(rx: &mut mpsc::Receiver<T>) -> T {
-    rx.recv().await.expect("closed")
-}
-
-fn text(value: Value) -> Outgoing {
-    Outgoing::Text(value.to_string())
-}
-
 async fn leg_pairs_and_serves_a_phone(relay_port: u16) {
     let identity = DeviceIdentity { device_id: uuid::Uuid::new_v4().to_string(), device_secret: "ab".repeat(24) };
     let (events_tx, mut events) = mpsc::channel(64);
@@ -171,7 +213,7 @@ async fn leg_pairs_and_serves_a_phone(relay_port: u16) {
     let send = |tx: mpsc::Sender<Outgoing>| move |envelope: Value| tx.try_send(text(envelope)).is_ok();
     let clients = controls.request("list-clients", Map::new(), send(out_tx.clone())).await.unwrap();
     assert_eq!(clients, json!([]));
-    // An unknown credential is refused with `ok:false`, which rejects the request as the Node leg does.
+    // An unknown credential is refused with `ok:false`, which rejects the request.
     let revoked = controls
         .request("revoke-client", mixdog_remote::clients::revoke_payload("nobody"), send(out_tx.clone()))
         .await;
@@ -295,41 +337,6 @@ async fn leg_pairs_and_serves_a_phone(relay_port: u16) {
     cancel.cancel();
     leg.await.unwrap();
 }
-
-fn frame_envelope(client_id: &str, sealed: &Sealed) -> Value {
-    match sealed {
-        Sealed::Text(t) => json_frame(client_id, t),
-        Sealed::Binary(b) => {
-            use base64::Engine;
-            json!({"type":"frame","clientId":client_id,"data":base64::engine::general_purpose::STANDARD.encode(b)})
-        }
-    }
-}
-
-#[test]
-fn payload_enum_is_text_or_binary() {
-    assert_eq!(Payload::Text("a".into()).len(), 1);
-}
-
 fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
-}
-
-/// One HTTP/1.0 request (so the reply is never chunked); returns the status and body.
-async fn http(port: u16, method: &str, path: &str, origin: Option<&str>, body: Option<&str>) -> (u16, String) {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-    let body = body.unwrap_or_default();
-    let origin = origin.map(|o| format!("Origin: {o}\r\n")).unwrap_or_default();
-    let request = format!(
-        "{method} {path} HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n{origin}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    stream.write_all(request.as_bytes()).await.unwrap();
-    let mut raw = Vec::new();
-    stream.read_to_end(&mut raw).await.unwrap();
-    let text = String::from_utf8_lossy(&raw).into_owned();
-    let status = text.split_whitespace().nth(1).unwrap().parse().unwrap();
-    let body = text.split("\r\n\r\n").nth(1).unwrap_or_default().to_owned();
-    (status, body)
 }

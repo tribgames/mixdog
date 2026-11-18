@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { validateSkillDirectory } from '../src/defaults/skills/skill-creator/scripts/validate-skill.mjs';
 
 const repoRoot = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
+// @test-input ../src/defaults/skills/skill-creator/SKILL.md
+// @test-input ../src/defaults/skills/skill-creator/references/
 const builtinSkillDir = join(repoRoot, 'src', 'defaults', 'skills', 'skill-creator');
 
 // Collecting it as a built-in skill is the core's (mixdog-mcp tests/it/discovery_suite.rs

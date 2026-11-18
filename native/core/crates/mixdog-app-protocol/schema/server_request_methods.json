@@ -4050,6 +4050,112 @@
       ],
       "type": "object"
     },
+    "HostComputerRevokeScopesParams": {
+      "description": "Params of `host/computer/revokeScopes` (core -> host): automation scopes Computer Use switched off has revoked. Every other `host/computer/*` request of a session names its scope as `automationScope` (a whole number); the desktop keeps a revocable context per scope and connection, commits its effects under it, and answers this once its contexts of `scopes` refuse every effect. A revoked scope never holds again; one first named here is born revoked.",
+      "properties": {
+        "scopes": {
+          "items": {
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "scopes"
+      ],
+      "type": "object"
+    },
+    "HostComputerRevokeScopesResult": {
+      "description": "Result of `host/computer/revokeScopes`: how many scopes it revoked, and the desktop's report of each. An answer without `reports` (an older desktop) states no scope's closure: the core reads it as unconfirmed.",
+      "properties": {
+        "reports": {
+          "items": {
+            "$ref": "#/definitions/HostComputerScopeReport"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "revoked": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revoked"
+      ],
+      "type": "object"
+    },
+    "HostComputerScopeAdmission": {
+      "enum": [
+        "closed",
+        "unconfirmed"
+      ],
+      "type": "string"
+    },
+    "HostComputerScopeCleanup": {
+      "enum": [
+        "pending",
+        "complete",
+        "unconfirmed"
+      ],
+      "type": "string"
+    },
+    "HostComputerScopeReport": {
+      "description": "The desktop's acknowledgement of one revoked scope (the same shape as the native helper's report line).",
+      "properties": {
+        "admission": {
+          "$ref": "#/definitions/HostComputerScopeAdmission",
+          "description": "Whether the desktop's context of the scope refuses every effect from now on."
+        },
+        "cleanup": {
+          "$ref": "#/definitions/HostComputerScopeCleanup"
+        },
+        "revision": {
+          "default": 0,
+          "description": "The scope's report revision at the desktop: 1 for its first revocation's report, one more at each change after it. The core applies a report only when its revision is newer than the one it holds (absent from an older desktop: 0).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "scope": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "unfinished": {
+          "description": "Those still unfinished at this answer.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "unfinished_at_closure": {
+          "description": "Calls handed over under the scope and unfinished at its first closure: a diagnostic, not a promise.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "unknown_executors": {
+          "description": "Executors below the desktop whose closure is not known yet.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "admission",
+        "cleanup",
+        "scope",
+        "unfinished",
+        "unfinished_at_closure"
+      ],
+      "type": "object"
+    },
     "HostFileSnapshot": {
       "description": "Result of `host/capture/fileSnapshot`: the picture of the file.",
       "properties": {
@@ -4875,6 +4981,13 @@
         },
         {
           "properties": {
+            "complete": {
+              "description": "Whether the PC has an authoritative listing, even when it is empty.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
             "models": {
               "items": {
                 "$ref": "#/definitions/ProxyModel"
@@ -5058,6 +5171,29 @@
             "method": {
               "enum": [
                 "send"
+              ],
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/definitions/ProxyRequest"
+            }
+          },
+          "required": [
+            "method",
+            "provider",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A send whose transcript a session of the server owns: the PC posts each attempt only as that owner judges it, asking with [`ProxyEvent::TailAsk`] immediately before the POST and returning its usage with [`ProxyEvent::TailSettle`]; the owner answers each ask with `model/proxy/tail`. A PC that does not know this call never claims it.",
+          "properties": {
+            "method": {
+              "enum": [
+                "sessionSend"
               ],
               "type": "string"
             },
@@ -5658,6 +5794,34 @@
                 "integer",
                 "null"
               ]
+            }
+          },
+          "required": [
+            "fault"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "fault": {
+              "enum": [
+                "tooManyEncodings"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "fault"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "fault": {
+              "enum": [
+                "corruptBody"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -6382,6 +6546,7 @@
       "oneOf": [
         {
           "properties": {
+            "cacheControl": true,
             "text": {
               "type": "string"
             },
@@ -7682,6 +7847,14 @@
       },
       "result": {
         "type": "null"
+      }
+    },
+    "host/computer/revokeScopes": {
+      "params": {
+        "$ref": "#/definitions/HostComputerRevokeScopesParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostComputerRevokeScopesResult"
       }
     },
     "host/files/trashItem": {

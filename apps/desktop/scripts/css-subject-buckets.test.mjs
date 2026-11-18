@@ -41,6 +41,7 @@ test('subjects already keyed, single arguments and unpaddable lists are left alo
   assert.equal(expandSubjectIs(':is(.a, div span)'), null);
 });
 
+// @test-input ../src/renderer/
 const sheets = [new URL('../src/renderer/desktop/', import.meta.url), new URL('../src/renderer/', import.meta.url)];
 
 test('every rewritten arm of the app stylesheets keeps its selector specificity and rule order', () => {

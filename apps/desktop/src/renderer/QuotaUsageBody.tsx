@@ -38,6 +38,7 @@ import { usageMoney, usageProviderLabel } from './usage-format';
 import { UsagePeriodControls, usagePeriodOptions } from './UsagePeriodControls';
 import { formatUsageResetRemaining } from './usage-reset-time';
 import { ModelNameCell, RouteCells, StatCard, usageModelTitle } from './UsageStatsSurface';
+import { usageModelKey } from './usage-model-tier';
 import { subscriptionLabel, subscriptionRank } from './subscription-providers';
 import {
   StatsValue,
@@ -107,9 +108,9 @@ function QuotaMix({
     ...models
       .filter((row) => statsNumber(row.consumed) > 0)
       .map((row) => ({
-        key: `model:${String(row.model)}`,
-        ink: seriesInk(String(row.model || '')),
-        label: usageModelTitle(String(row.modelId || row.model || ''), provider, row.fast === true),
+        key: usageModelKey(row),
+        ink: seriesInk(usageModelKey(row)),
+        label: usageModelTitle(row, provider),
         value: statsNumber(row.consumed),
       })),
     ...(outside > 0 ? [{ key: 'outside', ink: 'outside', label: t('Outside Mixdog'), value: outside }] : []),
@@ -238,17 +239,13 @@ function QuotaTable({
               <RouteCells route={totals} costValue={quotaValue(summary)} speed />
             </tr>
             {open &&
-              models.map((row) => {
-                const fast = row.fast === true;
-                const id = String(row.modelId || row.model || '');
-                return (
-                  <tr className="stats-model-row" key={String(row.model)}>
-                    <ModelNameCell model={id} provider={provider} fast={fast} />
-                    <td className="stats-share-cell">{quotaPercent(row.consumed)}</td>
-                    <RouteCells route={row} speed />
-                  </tr>
-                );
-              })}
+              models.map((row) => (
+                <tr className="stats-model-row" key={usageModelKey(row)}>
+                  <ModelNameCell row={row} provider={provider} />
+                  <td className="stats-share-cell">{quotaPercent(row.consumed)}</td>
+                  <RouteCells route={row} speed />
+                </tr>
+              ))}
             {open && outside > 0 && (
               <tr className="stats-model-row">
                 <td className="stats-model-cell">{t('Outside Mixdog')}</td>
@@ -512,7 +509,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
   const outside = statsNumber(loaded.outside);
   const firstDay = String(record(loaded.range).firstDay || '');
   const empty = !loading && !subscriptions.length;
-  const ranks = new Map(models.map((row, index) => [String(row.model || ''), index]));
+  const ranks = new Map(models.map((row, index) => [usageModelKey(row), index]));
   const seriesInk = (model: string) => quotaSeries(ranks.get(model) ?? -1);
   const change = (next: Partial<QuotaQuery>) => {
     // A calendar period survives a change of subscription or window; a

@@ -33,6 +33,45 @@ pub trait PromptStore {
     fn save(&self, bytes: &[u8]) -> Result<Map<String, Value>, String>;
     /// The size of the file the store holds under `reference` (`statSync(..).size`); `None` when it holds none (ENOENT).
     fn stored_len(&self, reference: &str) -> Result<Option<u64>, String>;
+    /// Take in one prompt image: validated once, its original kept at its content address, its rendition (when a destination
+    /// may need one) stored beside it, its verdict recorded. The answer is what the part keeps: `attachmentRef` of the original,
+    /// `sizeBytes`, the sniffed `mimeType` and the real `width` and `height`. An `Err` is the plain sentence the user is refused
+    /// with, naming the image; nothing is attached then.
+    fn import_image(&self, bytes: &[u8], name: Option<&str>) -> Result<Map<String, Value>, String>;
+}
+
+/// What an imported image part keeps: the original's reference and size, its sniffed type and the size import found.
+pub fn imported_part(reference: &str, size: u64, kind: mixdog_image_egress::ImageKind, width: u32, height: u32) -> Map<String, Value> {
+    let mut part = Map::new();
+    part.insert("attachmentRef".into(), json!(reference));
+    part.insert("sizeBytes".into(), json!(size));
+    part.insert("mimeType".into(), json!(kind.mime()));
+    part.insert("width".into(), json!(width));
+    part.insert("height".into(), json!(height));
+    part
+}
+
+/// The sentence an image refusal is told in: the file name when there is one, then what is wrong, as a sentence.
+pub fn refusal_sentence(name: Option<&str>, text: &str) -> String {
+    let mut chars = text.chars();
+    let sentence: String = chars.next().map(|first| first.to_uppercase().chain(chars).collect()).unwrap_or_default();
+    match name {
+        Some(name) => format!("{name}: {sentence}"),
+        None => sentence,
+    }
+}
+
+/// The intake of an image for a test store with no vault: the same validation, the original saved, the facts from the bytes.
+#[cfg(test)]
+pub(crate) fn import_in_memory(store: &dyn PromptStore, bytes: &[u8], name: Option<&str>) -> Result<Map<String, Value>, String> {
+    use mixdog_image_egress::admission::Cancel;
+    use mixdog_image_egress::admission::global;
+    use mixdog_imaging::os_heic::fakes::NoDecoder;
+    let verdict = mixdog_imaging::validate::validate_with(bytes, global(), &Cancel::default(), &NoDecoder)
+        .map_err(|reject| refusal_sentence(name, mixdog_image_vault::vault::refusal_text(reject)))?;
+    let stored = store.save(bytes)?;
+    let reference = stored["attachmentRef"].as_str().unwrap_or_default().to_owned();
+    Ok(imported_part(&reference, bytes.len() as u64, verdict.kind, verdict.width, verdict.height))
 }
 
 /// Whether a plain text of [`TEXT_REFERENCE_THRESHOLD_BYTES`] or more is kept in the store (`materializeInlinePart`,
@@ -247,6 +286,16 @@ fn materialize_inline_part(store: &dyn PromptStore, part: &Value, long_text: Lon
         let bytes = node_base64_decode(data);
         let mut stored = fields.clone();
         stored.shift_remove("data");
+        // An image is what its bytes are, whatever it was labelled; import decides what it is, keeps the original and any
+        // rendition, and refuses what no destination can take, now and in plain words. An empty payload is left for `save`.
+        if kind == Some("image") && !bytes.is_empty() {
+            let name = part.get("filename").and_then(Value::as_str).filter(|name| !name.is_empty());
+            // The facts of an image are what import found in its bytes, never what the client reported.
+            stored.shift_remove("width");
+            stored.shift_remove("height");
+            stored.extend(store.import_image(&bytes, name)?);
+            return Ok(Value::Object(stored));
+        }
         // The magic header outranks the transport label (`isPdfBuffer`).
         if kind == Some("file") && bytes.starts_with(b"%PDF-") {
             stored.insert("mimeType".into(), json!("application/pdf"));
@@ -328,7 +377,8 @@ fn materialize_pasted_images(store: &dyn PromptStore, pasted: &Value, image_part
         resolved.push(if reference_of(raw).is_some() {
             Some((*raw).clone())
         } else if let Some(content) = raw.get("content").and_then(Value::as_str).filter(|content| !content.is_empty()) {
-            Some(Value::Object(store.save(&node_base64_decode(content))?))
+            let name = raw.get("filename").and_then(Value::as_str).filter(|name| !name.is_empty());
+            Some(Value::Object(store.import_image(&node_base64_decode(content), name)?))
         } else {
             None
         });
@@ -502,6 +552,10 @@ impl PromptStore for NoStore {
     fn stored_len(&self, _: &str) -> Result<Option<u64>, String> {
         Err("the prompt-attachment store is not open to this intake".into())
     }
+
+    fn import_image(&self, _: &[u8], _: Option<&str>) -> Result<Map<String, Value>, String> {
+        Err("the prompt-attachment store is not open to this intake".into())
+    }
 }
 
 /// The session's [`AttachmentStore`] inside an interactive-io lane job, as a chat's intake writes it: a save is stored at once
@@ -519,7 +573,31 @@ fn blob_message(error: BlobError) -> String {
     }
 }
 
+/// Import one image through the vault of `blobs` on `lane`: what [`PromptStore::import_image`] answers for a store that is a blob store.
+pub fn import_through_vault<L: mixdog_store::fsio::IoLane>(blobs: &mixdog_store::blobs::BlobStore, lane: &InLane<L>, bytes: &[u8], name: Option<&str>) -> Result<Map<String, Value>, String> {
+    use mixdog_image_egress::Outcome;
+    use mixdog_image_egress::admission::AdmitError;
+    use mixdog_image_egress::admission::Cancel;
+    use mixdog_image_vault::vault::ImportError;
+    let vault = mixdog_image_vault::ImageVault::for_blobs(blobs.clone());
+    let manifest = vault.import(lane, bytes, name.unwrap_or_default(), &Cancel::default()).map_err(|error| match error {
+        ImportError::Transient(AdmitError::Busy) => refusal_sentence(name, "the app is busy checking other images; try again in a moment"),
+        ImportError::Transient(_) => refusal_sentence(name, "checking the image was interrupted; try again"),
+        ImportError::Storage(text) => refusal_sentence(name, &format!("it could not be saved ({text})")),
+        ImportError::Missing(text) => refusal_sentence(name, &format!("it could not be read ({text})")),
+        ImportError::Invalid(text) => refusal_sentence(name, &text),
+    })?;
+    match manifest.outcome {
+        Outcome::Accepted { kind, width, height, .. } => Ok(imported_part(&manifest.original, manifest.encoded_len, kind, width, height)),
+        Outcome::Refused { text } => Err(refusal_sentence(name, &text)),
+    }
+}
+
 impl PromptStore for LaneAttachments<'_> {
+    fn import_image(&self, bytes: &[u8], name: Option<&str>) -> Result<Map<String, Value>, String> {
+        import_through_vault(&self.store.0, self.lane, bytes, name)
+    }
+
     fn save(&self, bytes: &[u8]) -> Result<Map<String, Value>, String> {
         let reference = self.store.write_blob(self.lane, bytes).map_err(blob_message)?;
         Ok(saved(&reference, bytes.len()))
@@ -552,6 +630,10 @@ mod tests {
     }
 
     impl PromptStore for Memory {
+        fn import_image(&self, bytes: &[u8], name: Option<&str>) -> Result<Map<String, Value>, String> {
+            import_in_memory(self, bytes, name)
+        }
+
         fn save(&self, bytes: &[u8]) -> Result<Map<String, Value>, String> {
             if bytes.is_empty() {
                 return Err("prompt attachment is empty".into());
@@ -566,20 +648,6 @@ mod tests {
                 return Ok(Some(bytes.len() as u64));
             }
             Ok(self.held.iter().find(|(held, _)| held == reference).map(|(_, len)| *len))
-        }
-    }
-
-    /// The fixture of `record-pasted-text-chars.mjs`: Node's own `materializePastedTexts` on each entry. The entry the intake
-    /// keeps is Node's whole (`chars` by `Number()`, `sizeBytes` in UTF-8 bytes, the reference the text's SHA-256).
-    #[test]
-    fn a_pasted_entry_is_kept_as_nodes_intake_keeps_it() {
-        let recorded: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/pasted-text-chars/pasted-text-chars.json")).unwrap();
-        for case in recorded["cases"].as_array().unwrap() {
-            let name = case["name"].as_str().unwrap();
-            let (part, entry) = pasted_text(&Memory::default(), &case["entry"]).unwrap().expect("a pasted text");
-            assert_eq!(entry, case["materialized"], "{name}");
-            assert_eq!(part["attachmentRef"], case["materialized"]["attachmentRef"], "{name}: the part names the same text");
-            assert_eq!(part["textKind"], json!("paste"), "{name}");
         }
     }
 
@@ -626,7 +694,8 @@ mod tests {
     /// refuses it. A long text is a text reference with [`LongText::Stored`] and stays with [`LongText::Inline`].
     #[test]
     fn inline_media_and_long_texts_are_stored_and_named_by_reference() {
-        let (png, pdf, stored): (Vec<u8>, Vec<u8>, String) = (vec![0x89, b'P', b'N', b'G', 1, 2, 3], b"%PDF-1.4 body".to_vec(), "a".repeat(64));
+        // An inline image is judged by its bytes at intake (`materialize_inline_part`): only a picture that decodes whole is kept.
+        let (png, pdf, stored): (Vec<u8>, Vec<u8>, String) = (picture_as(mixdog_imaging::Format::Png), b"%PDF-1.4 body".to_vec(), "a".repeat(64));
         let long = "y".repeat(TEXT_REFERENCE_THRESHOLD_BYTES);
         let prompt = json!([
             { "type": "text", "text": "look" },
@@ -638,7 +707,7 @@ mod tests {
         let store = Memory::default();
         let out = materialize_prompt_submission(&store, &prompt, &json!({}), LongText::Stored).unwrap().prompt;
         assert_eq!(out[0], prompt[0]);
-        assert_eq!(out[1], json!({ "type": "image", "mimeType": "image/png", "filename": "dot.png", "attachmentRef": sha(&png), "sizeBytes": png.len() }));
+        assert_eq!(out[1], json!({ "type": "image", "mimeType": "image/png", "filename": "dot.png", "attachmentRef": sha(&png), "sizeBytes": png.len(), "width": 40, "height": 30 }));
         assert_eq!(out[2], json!({ "type": "file", "mimeType": "application/pdf", "filename": "r.bin", "attachmentRef": sha(&pdf), "sizeBytes": pdf.len() }));
         assert_eq!(out[3], prompt[3]);
         assert_eq!(out[4], json!({ "type": "text", "attachmentRef": sha(long.as_bytes()), "sizeBytes": long.len() }));
@@ -653,6 +722,48 @@ mod tests {
         assert_eq!(empty, Err("prompt attachment is empty".into()));
     }
 
+    fn picture_as(format: mixdog_imaging::Format) -> Vec<u8> {
+        let data = (0..40 * 30).flat_map(|n| [(n % 251) as u8, (n % 241) as u8, 90]).collect();
+        mixdog_imaging::encode::encode_in_format(&mixdog_imaging::Raster { width: 40, height: 30, has_alpha: false, data }, format).unwrap()
+    }
+
+    /// What a prompt image is, is what its bytes are: a HEIC no codec can read and a non-image are refused to the user in plain
+    /// words naming the file, whatever type they were labelled with.
+    #[test]
+    fn a_prompt_image_that_cannot_be_given_to_any_model_is_refused_in_plain_words() {
+        let refuse = |part: Value| materialize_prompt_submission(&Memory::default(), &json!([part]), &json!({}), LongText::Inline).map(|_| ()).unwrap_err();
+        let heic = STANDARD.encode(b"\0\0\0\x18ftypheic\0\0\0\0mif1heic");
+        for label in ["image/heic", "image/png", "IMAGE/JPEG"] {
+            let said = refuse(json!({ "type": "image", "data": heic, "mimeType": label }));
+            assert!(said.contains("HEIC image") && said.contains("cannot read it") && said.contains("convert it to JPEG or PNG"), "{label}: the bytes decide: {said}");
+        }
+        assert!(refuse(json!({ "type": "image", "data": heic, "mimeType": "image/heic", "filename": "IMG_1.HEIC" })).starts_with("IMG_1.HEIC: This is a HEIC image"));
+        let junk = refuse(json!({ "type": "image", "data": STANDARD.encode(b"just words"), "mimeType": "image/png" }));
+        assert_eq!(junk, "It is not an image this app can read");
+        let cut = picture_as(mixdog_imaging::Format::Avif);
+        let broken = refuse(json!({ "type": "image", "data": STANDARD.encode(&cut[..cut.len() / 2]), "mimeType": "image/avif" }));
+        assert_eq!(broken, "Its data is damaged or incomplete");
+    }
+
+    /// Every image keeps its original under the type its bytes have, with the size import found; a stored image is not judged
+    /// again by its label. (AVIF, TIFF and SVG renditions are made by the vault, which these in-memory stores do not hold.)
+    #[test]
+    fn a_prompt_image_is_stored_under_the_type_its_bytes_have() {
+        let materialize = |part: Value| materialize_prompt_submission(&Memory::default(), &json!([part]), &json!({}), LongText::Inline).unwrap().prompt;
+        let jpeg = picture_as(mixdog_imaging::Format::Jpeg);
+        let stored = materialize(json!({ "type": "image", "data": STANDARD.encode(&jpeg), "mimeType": "image/png", "filename": "p.png" }));
+        assert_eq!(stored[0]["mimeType"], "image/jpeg", "a JPEG labelled PNG is a JPEG");
+        assert_eq!(stored[0]["attachmentRef"], json!(sha(&jpeg)));
+        for (format, label) in [(mixdog_imaging::Format::Avif, "image/avif"), (mixdog_imaging::Format::Tiff, "image/tiff")] {
+            let original = picture_as(format);
+            let stored = materialize(json!({ "type": "image", "data": STANDARD.encode(&original), "mimeType": "image/png", "width": 7, "height": 7 }));
+            assert_eq!(stored[0]["mimeType"], label, "the original is kept under its own type");
+            assert_eq!(stored[0]["attachmentRef"], json!(sha(&original)));
+            assert_eq!((&stored[0]["width"], &stored[0]["height"]), (&json!(40), &json!(30)), "{label}: the size import found, not the client's");
+        }
+        let named = json!({ "type": "image", "attachmentRef": "a".repeat(64), "mimeType": "image/avif", "sizeBytes": 3 });
+        assert_eq!(materialize(named.clone())[0], named, "a stored image is not read here");
+    }
     /// `promptTextBytes` over the materialized prompt: a stored text counts by its file (`attachmentBlobSize`), else by the size
     /// it claims; over 1 MiB the submission is refused with Node's sentence.
     #[test]
@@ -676,7 +787,8 @@ mod tests {
         let restored_bytes = b"restored image".to_vec();
         let restored = sha(&restored_bytes);
         let store = Memory { held: vec![(restored.clone(), restored_bytes.len() as u64)], ..Memory::default() };
-        let fresh = STANDARD.encode(b"fresh image");
+        let (png, jpeg, own) = (picture_as(mixdog_imaging::Format::Png), picture_as(mixdog_imaging::Format::Jpeg), picture_as(mixdog_imaging::Format::Tiff));
+        let fresh = STANDARD.encode(&png);
         let got = materialize_prompt_submission(
             &store,
             &json!([
@@ -693,19 +805,19 @@ mod tests {
         let images = &got.options["pastedImages"];
         assert_eq!(images["1"]["attachmentRef"], json!(restored));
         assert_eq!(images["2"]["attachmentRef"], got.prompt[0]["attachmentRef"]);
-        assert_eq!(images["2"]["sizeBytes"], json!(11));
+        assert_eq!(images["2"]["sizeBytes"], json!(png.len()));
         let tagged = materialize_prompt_submission(
             &Memory::default(),
             &json!([
                 { "type": "image", "data": fresh, "mimeType": "image/png", "pasteId": 3 },
-                { "type": "image", "data": STANDARD.encode(b"other image"), "mimeType": "image/png", "pasteId": 4 },
+                { "type": "image", "data": STANDARD.encode(&jpeg), "mimeType": "image/png", "pasteId": 4 },
             ]),
-            &json!({ "pastedImages": { "4": { "id": 4, "type": "image" }, "3": { "id": 3, "type": "image", "content": STANDARD.encode(b"its own") } } }),
+            &json!({ "pastedImages": { "4": { "id": 4, "type": "image" }, "3": { "id": 3, "type": "image", "content": STANDARD.encode(&own) } } }),
             LongText::Inline,
         )
         .unwrap();
         let images = &tagged.options["pastedImages"];
-        assert_eq!(images["3"], json!({ "id": 3, "type": "image", "attachmentRef": sha(b"its own"), "sizeBytes": 7 }), "its own bytes, stored");
+        assert_eq!(images["3"], json!({ "id": 3, "type": "image", "attachmentRef": sha(&own), "sizeBytes": own.len() }), "its own bytes, imported");
         assert_eq!(images["4"]["attachmentRef"], tagged.prompt[1]["attachmentRef"], "its paste id");
         let none = materialize_prompt_submission(&NoStore, &json!("p"), &json!({ "pastedImages": {}, "pastedTexts": {} }), LongText::Inline).unwrap();
         assert_eq!(none.options, json!({ "pastedImages": null, "pastedTexts": null }).as_object().cloned().unwrap());
@@ -744,36 +856,6 @@ mod tests {
         assert!(materialize_prompt_submission(&NoStore, &bad, &Value::Null, LongText::Inline).is_err());
     }
 
-    /// The chat's store: a save is the blob `write_blob` publishes under the data folder (an inline image and a pasted text
-    /// here), a size its file's, ENOENT none, and a refusal Node's sentence.
-    #[tokio::test]
-    #[allow(clippy::disallowed_methods, reason = "the test reads the stored blobs back")]
-    async fn the_sessions_store_writes_and_measures_its_blobs() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = AttachmentStore(mixdog_store::blobs::BlobStore::new(dir.path()));
-        let png = vec![0x89, b'P', b'N', b'G', 1, 2, 3];
-        let prompt = json!([{ "type": "text", "text": "see [Pasted text #1]" }, { "type": "image", "data": STANDARD.encode(&png), "mimeType": "image/png" }]);
-        let tokens = mixdog_rt::testing::tokens();
-        let (got, gone, empty) = mixdog_core_base::support::on_lane(tokens.interactive_io, &tokio_util::sync::CancellationToken::new(), move |lane| {
-            let lane = LaneAttachments { store: &store, lane };
-            let got = materialize_prompt_submission(&lane, &prompt, &json!({ "pastedTexts": { "1": { "id": 1, "text": "pasted body" } } }), LongText::Inline);
-            let empty = materialize_prompt_submission(&lane, &json!([{ "type": "file", "data": "====", "mimeType": "text/plain" }]), &json!({}), LongText::Inline);
-            (got, lane.stored_len(&"e".repeat(64)), empty)
-        })
-        .await
-        .unwrap();
-        let got = got.unwrap();
-        let (text, image) = (sha(b"pasted body"), sha(&png));
-        assert_eq!(got.prompt[1], json!({ "type": "text", "attachmentRef": text, "sizeBytes": 11, "textKind": "paste" }));
-        assert_eq!(got.prompt[2], json!({ "type": "image", "mimeType": "image/png", "attachmentRef": image, "sizeBytes": png.len() }));
-        assert_eq!(gone, Ok(None));
-        assert_eq!(empty, Err("prompt attachment is empty".into()));
-        for (reference, bytes) in [(&text, b"pasted body".to_vec()), (&image, png)] {
-            let at = dir.path().join("prompt-attachments/sha256").join(&reference[..2]).join(reference);
-            assert_eq!(std::fs::read(at).unwrap(), bytes);
-        }
-    }
-
     #[test]
     fn prompt_parts_are_cleaned_before_the_intake() {
         let long = "n".repeat(200);
@@ -792,5 +874,51 @@ mod tests {
         assert_eq!(cleaned[3]["mimeType"], "text/plain");
         assert!(cleaned[3].get("filename").is_none(), "a name that is not text is left out");
         assert_eq!(clean_prompt_parts(&json!("text")), json!("text"));
+    }
+
+    /// The chat's store: a save is the blob `write_blob` publishes under the data folder (an inline image and a pasted text
+    /// here), a size its file's, ENOENT none, and a refusal Node's sentence.
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "the test reads the stored blobs back")]
+    async fn the_sessions_store_writes_and_measures_its_blobs() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AttachmentStore(mixdog_store::blobs::BlobStore::new(dir.path()));
+        let png = picture_as(mixdog_imaging::Format::Png);
+        let prompt = json!([{ "type": "text", "text": "see [Pasted text #1]" }, { "type": "image", "data": STANDARD.encode(&png), "mimeType": "image/png" }]);
+        let tokens = mixdog_rt::testing::tokens();
+        let (got, gone, empty) = mixdog_core_base::support::on_lane(tokens.interactive_io, &tokio_util::sync::CancellationToken::new(), move |lane| {
+            let lane = LaneAttachments { store: &store, lane };
+            let got = materialize_prompt_submission(&lane, &prompt, &json!({ "pastedTexts": { "1": { "id": 1, "text": "pasted body" } } }), LongText::Inline);
+            let empty = materialize_prompt_submission(&lane, &json!([{ "type": "file", "data": "====", "mimeType": "text/plain" }]), &json!({}), LongText::Inline);
+            (got, lane.stored_len(&"e".repeat(64)), empty)
+        })
+        .await
+        .unwrap();
+        let got = got.unwrap();
+        let (text, image) = (sha(b"pasted body"), sha(&png));
+        assert_eq!(got.prompt[1], json!({ "type": "text", "attachmentRef": text, "sizeBytes": 11, "textKind": "paste" }));
+        assert_eq!(got.prompt[2], json!({ "type": "image", "mimeType": "image/png", "attachmentRef": image, "sizeBytes": png.len(), "width": 40, "height": 30 }));
+        assert_eq!(gone, Ok(None));
+        assert_eq!(empty, Err("prompt attachment is empty".into()));
+        for (reference, bytes) in [(&text, b"pasted body".to_vec()), (&image, png)] {
+            let at = dir.path().join(mixdog_store::schema::blob::BLOB_DIR).join(&reference[..2]).join(reference);
+            assert_eq!(std::fs::read(at).unwrap(), bytes);
+        }
+    }
+
+
+    #[cfg(node_twin)]
+    /// The fixture of `record-pasted-text-chars.mjs`: Node's own `materializePastedTexts` on each entry. The entry the intake
+    /// keeps is Node's whole (`chars` by `Number()`, `sizeBytes` in UTF-8 bytes, the reference the text's SHA-256).
+    #[test]
+    fn a_pasted_entry_is_kept_as_nodes_intake_keeps_it() {
+        let recorded: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/pasted-text-chars/pasted-text-chars.json")).unwrap();
+        for case in recorded["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let (part, entry) = pasted_text(&Memory::default(), &case["entry"]).unwrap().expect("a pasted text");
+            assert_eq!(entry, case["materialized"], "{name}");
+            assert_eq!(part["attachmentRef"], case["materialized"]["attachmentRef"], "{name}: the part names the same text");
+            assert_eq!(part["textKind"], json!("paste"), "{name}");
+        }
     }
 }

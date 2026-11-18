@@ -18,11 +18,13 @@ use mixdog_ssh::command::FailureClass;
 use mixdog_ssh::connect_failure::ConnectError;
 use mixdog_ssh::context::AskpassEnv;
 use mixdog_ssh::host_key::{Pin, Replace};
+use mixdog_ssh::pins::Claim;
 use mixdog_ssh::install_wire::RemoteBootstrapError;
 use tokio::sync::{mpsc, Notify};
 
 use super::*;
 use crate::attempts::{ConnectionsPush, ServerLinks, MAX_ATTEMPTS_PER_CALLER, MAX_SECRET_LENGTH};
+use crate::host_list_ops::{forget_saved, LocalForget};
 use crate::login::{AskpassControl, StartedAskpass};
 use crate::paths::ConnectionsPaths;
 
@@ -35,20 +37,21 @@ async fn within<T>(work: impl Future<Output = T>) -> T {
 }
 
 fn trusted() -> HostKeyInspection {
-    HostKeyInspection { hops: Vec::new(), check: SshHostKeyCheck::Trusted { authority: None, hops: None }, pin: None, replace: None, summary: None }
+    HostKeyInspection { hops: Vec::new(), check: SshHostKeyCheck::Trusted { authority: None, hops: None }, pin: None, replace: None, summary: None, reviewed: None }
 }
 
-fn unknown(line: &str) -> HostKeyInspection {
+async fn unknown(line: &str) -> HostKeyInspection {
     HostKeyInspection {
         hops: Vec::new(),
         check: SshHostKeyCheck::Unknown { fingerprint: format!("SHA256:{line}"), key_type: "ED25519".into(), hops: None },
-        pin: Some(Pin { line: line.to_owned(), file: PathBuf::from("known_hosts") }),
+        pin: Some(Pin::new(PathBuf::from("known_hosts"), vec![Claim::new("owner".into(), "build.example".into(), "ssh-ed25519".into(), line.to_owned())], Vec::new())),
         replace: None,
         summary: None,
+        reviewed: None,
     }
 }
 
-fn changed() -> HostKeyInspection {
+async fn changed() -> HostKeyInspection {
     HostKeyInspection {
         hops: Vec::new(),
         check: SshHostKeyCheck::Changed {
@@ -61,8 +64,16 @@ fn changed() -> HostKeyInspection {
             hops: None,
         },
         pin: None,
-        replace: Some(Replace { spec: "build.example".into(), file: PathBuf::from("known_hosts"), line: "build.example new".into(), host: "Build.Example".into() }),
+        replace: Some(Replace {
+            spec: "build.example".into(),
+            file: PathBuf::from("known_hosts"),
+            claim: Claim::new("owner".into(), "build.example".into(), "ssh-ed25519".into(), "new".into()),
+            host: "Build.Example".into(),
+            old_key: "old".into(),
+            shown: Vec::new(),
+        }),
         summary: None,
+        reviewed: None,
     }
 }
 
@@ -90,7 +101,13 @@ fn daemon_running() -> ConnectError {
 struct FakeMachine {
     inspections: Mutex<VecDeque<HostKeyInspection>>,
     inspected: AtomicUsize,
+    /// While set, an inspection says it started and waits for `release_inspect`.
+    hold_inspect: AtomicBool,
+    inspect_started: Notify,
+    release_inspect: Notify,
     pinned: Mutex<Vec<String>>,
+    /// What the next pin is refused with.
+    pin_refusal: Mutex<Option<SshError>>,
     replaced: Mutex<Vec<String>>,
     diagnostics: Arc<Diagnostics>,
 }
@@ -100,7 +117,11 @@ impl FakeMachine {
         Self {
             inspections: Mutex::new(VecDeque::new()),
             inspected: AtomicUsize::new(0),
+            hold_inspect: AtomicBool::new(false),
+            inspect_started: Notify::new(),
+            release_inspect: Notify::new(),
             pinned: Mutex::new(Vec::new()),
+            pin_refusal: Mutex::new(None),
             replaced: Mutex::new(Vec::new()),
             diagnostics: Arc::new(Diagnostics::new()),
         }
@@ -111,16 +132,23 @@ impl FakeMachine {
 impl SshMachine for FakeMachine {
     async fn inspect(&self, _target: &SshTarget) -> Result<HostKeyInspection, SshError> {
         self.inspected.fetch_add(1, Ordering::SeqCst);
+        if self.hold_inspect.load(Ordering::SeqCst) {
+            self.inspect_started.notify_one();
+            self.release_inspect.notified().await;
+        }
         Ok(self.inspections.lock().unwrap_or_else(PoisonError::into_inner).pop_front().unwrap_or_else(trusted))
     }
 
-    fn pin(&self, inspection: &HostKeyInspection) -> Result<(), SshError> {
-        self.pinned.lock().unwrap_or_else(PoisonError::into_inner).push(inspection.pin.as_ref().map(|pin| pin.line.clone()).unwrap_or_default());
+    async fn pin(&self, inspection: &HostKeyInspection) -> Result<(), SshError> {
+        if let Some(refusal) = self.pin_refusal.lock().unwrap_or_else(PoisonError::into_inner).take() {
+            return Err(refusal);
+        }
+        self.pinned.lock().unwrap_or_else(PoisonError::into_inner).push(inspection.pin.as_ref().and_then(|pin| pin.claims.first()).map(|claim| claim.key.clone()).unwrap_or_default());
         Ok(())
     }
 
     async fn replace(&self, inspection: &HostKeyInspection) -> Result<(), SshError> {
-        self.replaced.lock().unwrap_or_else(PoisonError::into_inner).push(inspection.replace.as_ref().map(|replace| replace.line.clone()).unwrap_or_default());
+        self.replaced.lock().unwrap_or_else(PoisonError::into_inner).push(inspection.replace.as_ref().map(|replace| format!("{} {}", replace.spec, replace.claim.key)).unwrap_or_default());
         Ok(())
     }
 
@@ -140,6 +168,7 @@ impl SshMachine for FakeMachine {
 #[derive(Default)]
 struct FakeLinks {
     open: Mutex<HashSet<String>>,
+    needs_replacement: AtomicBool,
     outcomes: Mutex<VecDeque<Result<(), ConnectError>>>,
     /// `(id, had an askpass session, forced restart)` of every open.
     opened: Mutex<Vec<(String, bool, bool)>>,
@@ -147,28 +176,48 @@ struct FakeLinks {
     hold: AtomicBool,
     started: Notify,
     release: Notify,
+    /// While set, a close says it started and waits for `release_close`.
+    hold_close: AtomicBool,
+    close_started: Notify,
+    release_close: Notify,
 }
 
 #[async_trait]
 impl ServerLinks for FakeLinks {
     fn is_open(&self, id: &str) -> bool {
-        self.open.lock().unwrap_or_else(PoisonError::into_inner).contains(id)
+        !self.needs_replacement.load(Ordering::SeqCst) && self.open.lock().unwrap_or_else(PoisonError::into_inner).contains(id)
     }
 
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, _progress: Option<Progress>) -> Result<(), ConnectError> {
+    async fn open(&self, spec: LinkSpec, context: AttemptContext, _progress: Option<Progress>, cancel: Option<&tokio_util::sync::CancellationToken>) -> Result<LinkOpen, ConnectError> {
+        let reused = self.is_open(&spec.id);
         self.opened.lock().unwrap_or_else(PoisonError::into_inner).push((spec.id.clone(), context.askpass.is_some(), context.force_restart));
         if self.hold.load(Ordering::SeqCst) {
             self.started.notify_one();
-            self.release.notified().await;
+            if let Some(cancel) = cancel.filter(|_| !reused) {
+                tokio::select! {
+                    () = cancel.cancelled() => {
+                        self.close(&spec.id).await;
+                        return Err(daemon_running());
+                    }
+                    () = self.release.notified() => {}
+                }
+            } else {
+                self.release.notified().await;
+            }
         }
         let outcome = self.outcomes.lock().unwrap_or_else(PoisonError::into_inner).pop_front().unwrap_or(Ok(()));
         if outcome.is_ok() {
+            self.needs_replacement.store(false, Ordering::SeqCst);
             self.open.lock().unwrap_or_else(PoisonError::into_inner).insert(spec.id);
         }
-        outcome
+        outcome.map(|()| if reused { LinkOpen::Reused } else { LinkOpen::Owned(1) })
     }
 
     async fn close(&self, id: &str) {
+        if self.hold_close.load(Ordering::SeqCst) {
+            self.close_started.notify_one();
+            self.release_close.notified().await;
+        }
         self.closed.lock().unwrap_or_else(PoisonError::into_inner).push(id.to_owned());
         self.open.lock().unwrap_or_else(PoisonError::into_inner).remove(id);
     }
@@ -240,15 +289,32 @@ impl LoginHelpers for FakeLogin {
     }
 }
 
+#[derive(Default)]
 struct FakeWindows {
     opened: Mutex<Vec<String>>,
+    rolled_back: Mutex<Vec<String>>,
+    refuse: AtomicBool,
+    hold: AtomicBool,
+    started: Notify,
+    release: Notify,
 }
 
 #[async_trait]
 impl ServerWindows for FakeWindows {
-    async fn open(&self, id: &str, _name: &str) -> Result<(), String> {
+    async fn open(&self, id: &str, _name: &str) -> Result<bool, String> {
+        if self.hold.load(Ordering::SeqCst) {
+            self.started.notify_one();
+            self.release.notified().await;
+        }
+        if self.refuse.load(Ordering::SeqCst) {
+            return Err("No window".to_owned());
+        }
         self.opened.lock().unwrap_or_else(PoisonError::into_inner).push(id.to_owned());
-        Ok(())
+        Ok(true)
+    }
+
+    async fn rollback(&self, id: &str) {
+        self.rolled_back.lock().unwrap().push(id.to_owned());
     }
 }
 
@@ -272,7 +338,7 @@ async fn rig() -> Rig {
     let (askpass, askpass_rx) = mpsc::unbounded_channel();
     let push = Arc::new(FakePush { askpass, progress: Mutex::new(Vec::new()) });
     let login = Arc::new(FakeLogin::default());
-    let windows = Arc::new(FakeWindows { opened: Mutex::new(Vec::new()) });
+    let windows = Arc::new(FakeWindows::default());
     let links_view = links.clone();
     let connect = Arc::new(Connect::new(ConnectDeps {
         attempts: Attempts::new(links.clone(), push.clone()),
@@ -355,11 +421,11 @@ async fn foreign_caller_refused() {
 #[tokio::test]
 async fn frozen_inspection_pins_shown_key() {
     let rig = rig().await;
-    queue(&rig, unknown("key-shown-to-the-user"));
+    queue(&rig, unknown("key-shown-to-the-user").await);
     let inspection = rig.connect.inspect(ONE, TARGET).await.unwrap();
     assert!(matches!(&inspection.check, SshHostKeyCheck::Unknown { fingerprint, .. } if fingerprint == "SHA256:key-shown-to-the-user"));
     // The server presents another key by now: it is not looked at again, the key that was shown is the key that is saved.
-    queue(&rig, unknown("key-the-server-swapped-in"));
+    queue(&rig, unknown("key-the-server-swapped-in").await);
     let mut confirm = request(&inspection.attempt_id);
     confirm.trust_host_key = Some(true);
     let result = rig.connect.connect(ONE, &inspection.attempt_id, confirm).await.unwrap();
@@ -407,13 +473,54 @@ async fn caller_close_cancels() {
     let running = tokio::spawn(async move { connect.connect(ONE, &id, request(&id)).await });
     within(rig.links.started.notified()).await;
     rig.connect.caller_closed(ONE).await;
-    assert_eq!(rig.links.closed.lock().unwrap().len(), 1);
-    rig.links.release.notify_one();
     let result = within(running).await.unwrap().unwrap();
+    assert_eq!(rig.links.closed.lock().unwrap().len(), 1);
     assert!(matches!(failure(&result), SshFailureKind::Cancelled));
     assert!(rig.hosts.find_by_target(TARGET).is_none());
     assert!(rig.windows.opened.lock().unwrap().is_empty());
     assert_eq!(rig.connect.attempts().attempt_count(ONE), 0);
+}
+
+#[tokio::test]
+async fn window_refusal_only_detaches_a_new_link_and_does_not_stamp_the_saved_host() {
+    for (existing, replacement) in [(false, false), (true, false), (true, true)] {
+        let rig = rig().await;
+        let record = rig.hosts.reserve_for_target(TARGET).unwrap().record.clone();
+        let saved = rig.hosts.save(record).await.unwrap();
+        if existing {
+            rig.links.open.lock().unwrap().insert(saved.id.clone());
+        }
+        rig.links.needs_replacement.store(replacement, Ordering::SeqCst);
+        rig.windows.refuse.store(true, Ordering::SeqCst);
+
+        let id = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
+        let outcome = rig.connect.connect(ONE, &id, request(&id)).await.unwrap();
+        let SshConnectResult::Failed(outcome) = outcome else { panic!("window was refused") };
+        assert_eq!(outcome.failure.code.as_deref(), Some("window-open"));
+        assert_eq!(rig.links.is_open(&saved.id), existing && !replacement);
+        assert_eq!(rig.hosts.get(&saved.id).unwrap().last_connected_at, saved.last_connected_at);
+    }
+}
+
+#[tokio::test]
+async fn cancel_while_the_window_opens_does_not_save_a_disconnected_host() {
+    let rig = rig().await;
+    rig.windows.hold.store(true, Ordering::SeqCst);
+    let id = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
+    let running = {
+        let (connect, id) = (rig.connect.clone(), id.clone());
+        tokio::spawn(async move { connect.connect(ONE, &id, request(&id)).await })
+    };
+    within(rig.windows.started.notified()).await;
+    rig.connect.cancel(ONE, &id).await;
+    rig.windows.release.notify_one();
+
+    let outcome = within(running).await.unwrap().unwrap();
+    assert_eq!(failure(&outcome), &SshFailureKind::Cancelled);
+    assert!(rig.hosts.find_by_target(TARGET).is_none());
+    assert!(rig.links.open.lock().unwrap().is_empty());
+    assert_eq!(rig.links.closed.lock().unwrap().len(), 1);
+    assert_eq!(*rig.windows.rolled_back.lock().unwrap(), *rig.links.closed.lock().unwrap());
 }
 
 #[tokio::test]
@@ -456,7 +563,7 @@ async fn max_8_attempts() {
 #[tokio::test]
 async fn unknown_key_needs_the_users_confirmation() {
     let rig = rig().await;
-    queue(&rig, unknown("fresh"));
+    queue(&rig, unknown("fresh").await);
     let inspection = rig.connect.inspect(ONE, TARGET).await.unwrap();
     let id = inspection.attempt_id;
     let refused = rig.connect.connect(ONE, &id, request(&id)).await.unwrap_err();
@@ -472,8 +579,8 @@ async fn unknown_key_needs_the_users_confirmation() {
 #[tokio::test]
 async fn changed_key_is_replaced_only_by_the_typed_name() {
     let rig = rig().await;
-    queue(&rig, changed());
-    queue(&rig, changed());
+    queue(&rig, changed().await);
+    queue(&rig, changed().await);
     queue(&rig, SshHostKeyCheck::Revoked { fingerprint: "SHA256:r".into(), host: "build.example".into() }.into_inspection());
     let first = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
     let mut wrong = request(&first);
@@ -497,8 +604,8 @@ async fn changed_key_is_replaced_only_by_the_typed_name() {
 #[tokio::test]
 async fn unreachable_key_check_is_refused_with_its_reason() {
     let rig = rig().await;
-    queue(&rig, SshHostKeyCheck::Unreachable { message: "Connection timed out".into(), ssh_missing: None }.into_inspection());
-    queue(&rig, SshHostKeyCheck::Unreachable { message: "ssh not found".into(), ssh_missing: Some(SshMissing { command: Some("install ssh".into()) }) }.into_inspection());
+    queue(&rig, SshHostKeyCheck::Unreachable { message: "Connection timed out".into(), notice: None, ssh_missing: None }.into_inspection());
+    queue(&rig, SshHostKeyCheck::Unreachable { message: "ssh not found".into(), notice: None, ssh_missing: Some(SshMissing { command: Some("install ssh".into()) }) }.into_inspection());
     let first = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
     let result = rig.connect.connect(ONE, &first, request(&first)).await.unwrap();
     assert!(matches!(failure(&result), SshFailureKind::Failed { message } if message == "Connection timed out"));
@@ -534,7 +641,7 @@ async fn forwards_need_the_users_acceptance() {
 #[tokio::test]
 async fn a_pending_jump_hop_is_confirmed_before_the_connection() {
     let rig = rig().await;
-    let mut inspection = unknown("jump");
+    let mut inspection = unknown("jump").await;
     inspection.check = SshHostKeyCheck::Unknown {
         fingerprint: "SHA256:jump".into(),
         key_type: "ED25519".into(),
@@ -710,6 +817,134 @@ async fn open_focuses_only_a_connected_saved_server() {
     assert_eq!(rig.windows.opened.lock().unwrap().len(), 2);
 }
 
+// ----- a forget and a connection of one server ---------------------------------------------------------------------------
+
+const RETIRED: &str = "This connection attempt is no longer active. Check the address again.";
+
+#[tokio::test]
+async fn a_server_forgotten_after_its_check_is_not_connected_or_saved_by_that_check() {
+    let rig = rig().await;
+    let id = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
+    let host = connected(&rig.connect.connect(ONE, &id, request(&id)).await.unwrap()).clone();
+
+    // Checked again, an externally trusted route with nothing left to confirm; then the server is forgotten.
+    let stale = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
+    let LocalForget::Done = forget_saved(&rig.hosts, rig.connect.attempts(), &host.id).await else { panic!("forgotten") };
+    assert_eq!(*rig.links.closed.lock().unwrap(), vec![host.id.clone()], "the forget detached the server");
+    let opens = rig.links.opened.lock().unwrap().len();
+
+    let refused = rig.connect.connect(ONE, &stale, request(&stale)).await.unwrap_err();
+    assert_eq!(refused.to_string(), RETIRED);
+    assert!(rig.hosts.list().is_empty(), "the check of before the forget saves nothing");
+    assert_eq!(rig.links.opened.lock().unwrap().len(), opens, "and opens nothing");
+}
+
+#[tokio::test]
+async fn a_check_answered_while_the_forget_closes_the_link_is_retired_with_the_entry() {
+    let rig = rig().await;
+    let id = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
+    let host = connected(&rig.connect.connect(ONE, &id, request(&id)).await.unwrap()).clone();
+
+    // The forget is held while it closes the server's link; a check of the server is answered meanwhile.
+    rig.links.hold_close.store(true, Ordering::SeqCst);
+    let (hosts, connect, forgotten_id) = (rig.hosts.clone(), rig.connect.clone(), host.id.clone());
+    let forgetting = tokio::spawn(async move { forget_saved(&hosts, connect.attempts(), &forgotten_id).await });
+    within(rig.links.close_started.notified()).await;
+    let between = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
+    assert!(rig.hosts.get(&host.id).is_some(), "the entry is still there while the link closes");
+
+    rig.links.release_close.notify_one();
+    let LocalForget::Done = within(forgetting).await.unwrap() else { panic!("forgotten") };
+    assert_eq!(rig.connect.connect(ONE, &between, request(&between)).await.unwrap_err().to_string(), RETIRED);
+    assert!(rig.hosts.list().is_empty(), "the check that came between the close and the removal saves nothing");
+}
+
+#[tokio::test]
+async fn a_check_that_started_before_the_forget_cannot_register_after_it() {
+    let rig = rig().await;
+    let id = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
+    let host = connected(&rig.connect.connect(ONE, &id, request(&id)).await.unwrap()).clone();
+
+    // A check of the server is held while ssh reads its key; the server is forgotten meanwhile.
+    rig.machine.hold_inspect.store(true, Ordering::SeqCst);
+    let connect = rig.connect.clone();
+    let inspecting = tokio::spawn(async move { connect.inspect(ONE, TARGET).await });
+    within(rig.machine.inspect_started.notified()).await;
+    let LocalForget::Done = forget_saved(&rig.hosts, rig.connect.attempts(), &host.id).await else { panic!("forgotten") };
+
+    rig.machine.release_inspect.notify_one();
+    assert_eq!(within(inspecting).await.unwrap().unwrap_err().to_string(), RETIRED, "its registration after the retirement is refused");
+    assert_eq!(rig.connect.attempts().attempt_count(ONE), 0);
+    assert!(rig.hosts.list().is_empty());
+}
+
+#[tokio::test]
+async fn a_waiter_that_goes_away_leaves_no_turn_behind() {
+    let rig = rig().await;
+    let first = rig.hosts.turn("dev@build.example").await;
+    {
+        let waiter = rig.hosts.turn("dev@build.example");
+        tokio::pin!(waiter);
+        tokio::select! {
+            biased;
+            _ = &mut waiter => panic!("the turn is held"),
+            () = std::future::ready(()) => {}
+        }
+        // The holder leaves while the waiter is still queued; then the waiter goes away without its turn.
+        drop(first);
+    }
+    assert_eq!(rig.hosts.turns_in_use(), 0);
+    drop(within(rig.hosts.turn("dev@build.example")).await);
+    assert_eq!(rig.hosts.turns_in_use(), 0);
+}
+
+#[tokio::test]
+async fn a_key_refused_where_it_is_saved_reaches_the_dialog_by_code() {
+    let rig = rig().await;
+    queue(&rig, unknown("key-shown").await);
+    let id = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
+    let changed = mixdog_ssh::said::HOST_KEYS_CHANGED_WHILE_CONFIRMING.plain();
+    *rig.machine.pin_refusal.lock().unwrap() = Some(SshError::said(changed.clone(), FailureClass::Transient));
+    let mut confirmed = request(&id);
+    confirmed.trust_host_key = Some(true);
+    let SshConnectResult::Failed(failed) = rig.connect.connect(ONE, &id, confirmed).await.unwrap() else { panic!("refused") };
+    assert_eq!(failed.failure.notice, Some(changed.message));
+    assert_eq!(failed.failure.kind, SshFailureKind::Failed { message: changed.english });
+    assert!(rig.links.opened.lock().unwrap().is_empty() && rig.hosts.list().is_empty(), "nothing is opened or saved");
+}
+
+#[tokio::test]
+async fn a_forget_waits_for_the_connection_in_flight_and_removes_what_it_saved() {
+    let rig = rig().await;
+    let id = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
+    let host = connected(&rig.connect.connect(ONE, &id, request(&id)).await.unwrap()).clone();
+
+    // A second connection of the server is held inside its turn, at the link.
+    let again = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
+    rig.links.hold.store(true, Ordering::SeqCst);
+    let connect = rig.connect.clone();
+    let connecting = tokio::spawn(async move { connect.connect(ONE, &again, request(&again)).await });
+    within(rig.links.started.notified()).await;
+
+    let (hosts, connect, forgotten_id) = (rig.hosts.clone(), rig.connect.clone(), host.id.clone());
+    let forgetting = tokio::spawn(async move { forget_saved(&hosts, connect.attempts(), &forgotten_id).await });
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!forgetting.is_finished(), "the forget waits for the server's turn");
+    assert!(rig.hosts.get(&host.id).is_some() && rig.links.closed.lock().unwrap().is_empty(), "and has removed nothing meanwhile");
+
+    rig.links.release.notify_one();
+    connected(&within(connecting).await.unwrap().unwrap());
+    let LocalForget::Done = within(forgetting).await.unwrap() else { panic!("forgotten") };
+    assert!(rig.hosts.list().is_empty(), "what the connection saved is what the forget removed: the server does not come back");
+    assert!(!rig.links.is_open(&host.id) && *rig.links.closed.lock().unwrap() == vec![host.id.clone()]);
+
+    // The window of a server that is gone is not put forward again, and the server is not saved back.
+    assert_eq!(rig.connect.open(&host.id).await.unwrap_err().to_string(), "This SSH server is no longer saved.");
+    assert!(rig.hosts.list().is_empty());
+}
+
 #[tokio::test]
 async fn open_ephemeral_is_never_saved() {
     let rig = rig().await;
@@ -736,6 +971,6 @@ trait IntoInspection {
 
 impl IntoInspection for SshHostKeyCheck {
     fn into_inspection(self) -> HostKeyInspection {
-        HostKeyInspection { hops: Vec::new(), check: self, pin: None, replace: None, summary: None }
+        HostKeyInspection { hops: Vec::new(), check: self, pin: None, replace: None, summary: None, reviewed: None }
     }
 }

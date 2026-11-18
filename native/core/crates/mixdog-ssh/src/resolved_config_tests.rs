@@ -48,6 +48,8 @@ struct Ssh {
     dumps: BTreeMap<String, String>,
     faithful: bool,
     fail: bool,
+    /// Told when the generated config is being checked, and the check then never answers.
+    stuck_check: Option<Arc<tokio::sync::Notify>>,
     calls: Mutex<Vec<Vec<String>>>,
 }
 
@@ -57,6 +59,7 @@ impl Ssh {
             dumps: dumps.iter().map(|(destination, text)| ((*destination).to_owned(), text.clone())).collect(),
             faithful: true,
             fail: false,
+            stuck_check: None,
             calls: Mutex::new(Vec::new()),
         })
     }
@@ -99,6 +102,10 @@ impl ToolRunner for Ssh {
             return Ok(ToolOutput { exit_code: Some(255), stdout: String::new(), stderr: "boom".to_owned() });
         }
         let destination = args.last().cloned().unwrap_or_default();
+        if let (Some(stuck), Some("-F")) = (&self.stuck_check, args.get(1).map(String::as_str)) {
+            stuck.notify_one();
+            std::future::pending::<()>().await;
+        }
         let stdout = if args.get(1).map(String::as_str) == Some("-F") {
             if !self.faithful {
                 "user nobody\n".to_owned()
@@ -146,6 +153,40 @@ fn target(raw: &str) -> SshTarget {
     parse_ssh_target(raw).expect("a valid target")
 }
 
+/// The config written for an inspection that could read the server, held as the attempt holds it.
+#[derive(Debug)]
+struct Found {
+    file: PathBuf,
+    /// The route's own options (else the user's config as read).
+    generated: bool,
+    forwards: Vec<String>,
+    reviewed: ReviewedConfig,
+}
+
+/// Resolves the route once and writes the config from it, as an inspection that could read the server does.
+async fn resolve(configs: &ResolvedConfigs, env: &SshEnv, target: &SshTarget) -> Found {
+    let ctx = AttemptContext::default();
+    let route = crate::host_key::resolve_route(env, &ctx, target).await.expect("a route");
+    let user_config = env.files.read_text(&env.home.join(".ssh").join("config"));
+    let (reviewed, forwards) = configs.write_reviewed(env, &ctx, target, &route, user_config.as_deref()).await.expect("written");
+    let file = reviewed.file.as_ref().expect("a file").path().to_path_buf();
+    Found { generated: text(&file).starts_with(GENERATED_HEADER), file, forwards, reviewed }
+}
+
+/// The generated files of the ssh folder.
+fn generated(folder: &Path) -> Vec<String> {
+    mixdog_fsio::read_dir(&mixdog_fsio::Unlaned, folder.join("ssh"))
+        .expect("a folder")
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("t-"))
+        .collect()
+}
+
+fn name_of(path: &Path) -> String {
+    path.file_name().expect("a name").to_string_lossy().into_owned()
+}
+
 #[test]
 fn the_generated_block_carries_every_resolved_option_except_forwarding_ones_with_mixdogs_known_hosts_first() {
     let lines = parse_dump(&dump(""));
@@ -163,7 +204,7 @@ fn the_generated_block_carries_every_resolved_option_except_forwarding_ones_with
     };
     let body = resolved_block_text("gate", &lines, &host, "/data/known_hosts");
     assert!(body.starts_with(
-        "Host \"gate\"\n  UserKnownHostsFile \"/data/known_hosts\" \"/h/.ssh/known_hosts\"\n  GlobalKnownHostsFile \"/etc/ssh/ssh_known_hosts\"\n"
+        "Host \"gate\"\n  UpdateHostKeys no\n  StrictHostKeyChecking yes\n  UserKnownHostsFile \"/data/known_hosts\" \"/h/.ssh/known_hosts\"\n  GlobalKnownHostsFile \"/etc/ssh/ssh_known_hosts\"\n"
     ));
     let kept: Vec<&str> = body.lines().map(str::trim).collect();
     for wanted in ["user ops", "hostname 10.0.0.9", "identityfile ~/.ssh/id_ed25519", "serveraliveinterval 30"] {
@@ -182,8 +223,9 @@ async fn a_faithful_per_target_config_replaces_the_users_and_every_ssh_of_the_ta
     let folder = tempfile::tempdir().expect("a folder");
     let tools = Ssh::new(&[("ops@gate", dump(""))]);
     let (env, configs) = configured(folder.path(), &tools).await;
-    let found = configs.resolve_for_target(&env, &AttemptContext::default(), &target("ops@gate")).await.expect("resolved");
-    assert_eq!(found.forwards, FORWARDS);
+    let found = resolve(&configs, &env, &target("ops@gate")).await;
+    assert!(found.generated);
+    assert!(found.forwards.is_empty(), "no forward of the user's applies");
     assert!(found.file.starts_with(folder.path()));
     let body = text(&found.file);
     assert!(!body.to_lowercase().contains("include"), "the user's config is not included");
@@ -199,12 +241,27 @@ async fn a_faithful_per_target_config_replaces_the_users_and_every_ssh_of_the_ta
 }
 
 #[tokio::test]
+async fn targets_that_differ_only_in_host_case_share_one_config_and_one_removed_by_hand_is_still_named_so_ssh_refuses() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let tools = Ssh::new(&[("ops@BOX", dump(""))]);
+    let (env, configs) = configured(folder.path(), &tools).await;
+    let found = resolve(&configs, &env, &target("ops@BOX")).await;
+    let owner = crate::pins::owner_of(&target("ops@box"));
+    let name = name_of(&found.file);
+    assert!(name.starts_with(&format!("t-v2-{owner}-")) && name.ends_with(".conf"), "{name}");
+    assert_eq!(configs.for_args(&args(&["--", "ops@box", "true"])), Some(found.file.clone()));
+    assert_eq!(configs.for_args(&args(&["--", "Ops@box", "true"])), None, "the user name keeps its case");
+    mixdog_fsio::remove_file(&mixdog_fsio::Unlaned, &found.file).expect("removed");
+    assert_eq!(configs.for_args(&args(&["--", "ops@box", "true"])), Some(found.file.clone()), "never another config instead");
+}
+
+#[tokio::test]
 async fn a_target_with_an_explicit_port_gets_its_own_file_found_by_that_port() {
     let folder = tempfile::tempdir().expect("a folder");
     let tools = Ssh::new(&[("ops@gate", dump(""))]);
     let (env, configs) = configured(folder.path(), &tools).await;
-    let plain = configs.resolve_for_target(&env, &AttemptContext::default(), &target("ops@gate")).await.expect("resolved");
-    let ported = configs.resolve_for_target(&env, &AttemptContext::default(), &target("ops@gate:2200")).await.expect("resolved");
+    let plain = resolve(&configs, &env, &target("ops@gate")).await;
+    let ported = resolve(&configs, &env, &target("ops@gate:2200")).await;
     assert_ne!(plain.file, ported.file);
     assert_eq!(configs.for_args(&args(&["-p", "2200", "--", "ops@gate", "true"])), Some(ported.file));
     assert_eq!(configs.for_args(&args(&["--", "ops@gate", "true"])), Some(plain.file));
@@ -222,52 +279,105 @@ async fn each_proxy_jump_hop_gets_its_own_resolved_block_so_the_hops_ssh_resolve
         ),
     ]);
     let (env, configs) = configured(folder.path(), &tools).await;
-    let found = configs.resolve_for_target(&env, &AttemptContext::default(), &target("ops@inner")).await.expect("resolved");
+    let found = resolve(&configs, &env, &target("ops@inner")).await;
     let body = text(&found.file);
     assert!(block_of(&body, "inner").iter().any(|line| line == "proxyjump jump@bastion:2200"));
     let hop = block_of(&body, "bastion");
     assert!(hop.iter().any(|line| line == "hostname bastion.example.com") && hop.iter().any(|line| line == "port 2200"));
     assert!(!body.contains("localforward"), "a hop's forwards are left out too");
     assert!(tools.calls().iter().any(|call| call.first().map(String::as_str) == Some("-G") && call.last().map(String::as_str) == Some("jump@bastion")));
-    // The hop's forward is reported as well, once.
-    assert!(found.forwards.contains(&"local [127.0.0.1]:1 [127.0.0.1]:2".to_owned()));
 }
 
 #[tokio::test]
-async fn when_the_generated_config_cannot_say_what_ssh_resolved_the_generic_config_stays_and_the_forwards_are_listed() {
+async fn one_resolution_of_the_route_is_what_the_config_is_written_from() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let tools = Ssh::new(&[("ops@inner", dump("proxyjump jump@bastion\n")), ("jump@bastion", "user jump\nhostname bastion.example.com\nport 22\n".to_owned())]);
+    let (env, configs) = configured(folder.path(), &tools).await;
+    resolve(&configs, &env, &target("ops@inner")).await;
+    let reads = |destination: &str| tools.calls().iter().filter(|call| call.first().map(String::as_str) == Some("-G") && call.get(1).map(String::as_str) != Some("-F") && call.last().map(String::as_str) == Some(destination)).count();
+    assert_eq!((reads("ops@inner"), reads("jump@bastion")), (1, 1), "each server of the route is resolved once");
+}
+
+#[tokio::test]
+async fn when_the_generated_config_cannot_say_what_ssh_resolved_the_attempt_gets_the_users_config_as_it_was_read() {
     let folder = tempfile::tempdir().expect("a folder");
     let tools = Ssh::unfaithful(&[("ops@gate", dump(""))]);
-    let (env, configs) = configured(folder.path(), &tools).await;
-    let failure = configs.resolve_for_target(&env, &AttemptContext::default(), &target("ops@gate")).await.expect_err("not resolved");
-    assert_eq!(failure.forwards, FORWARDS);
-    assert_eq!(configs.for_args(&args(&["--", "ops@gate", "true"])), None, "no per-target file is used");
-    let left: Vec<String> = mixdog_fsio::read_dir(&mixdog_fsio::Unlaned, folder.path().join("ssh"))
-        .expect("a folder")
-        .filter_map(Result::ok)
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| name.starts_with("t-"))
-        .collect();
-    assert!(left.is_empty(), "a file that failed the check is not left behind: {left:?}");
+    let mut env = env_for(folder.path(), Arc::clone(&tools));
+    env.home = folder.path().join("home");
+    std::fs::create_dir_all(env.home.join(".ssh")).expect("a folder");
+    std::fs::write(env.home.join(".ssh").join("config"), "Host gate\n  HostName 10.0.0.9\n").expect("written");
+    let configs = ResolvedConfigs::new(MixdogSshConfig::configure(&env).await.expect("configured"));
+    let found = resolve(&configs, &env, &target("ops@gate")).await;
+    assert!(!found.generated);
+    assert_eq!(found.forwards, FORWARDS);
+    // Later changes of the user's config are not what this attempt reviewed.
+    std::fs::write(env.home.join(".ssh").join("config"), "Host gate\n  HostName 10.6.6.6\n").expect("changed");
+    let body = text(&found.file);
+    assert!(body.contains("HostName 10.0.0.9") && !body.contains("10.6.6.6") && !body.to_lowercase().contains("include"), "{body}");
+    assert!(block_of(&body, "gate").iter().any(|line| line.starts_with("UserKnownHostsFile")), "the server's known_hosts files come first");
+    assert_eq!(configs.for_args(&args(&["--", "ops@gate", "true"])), Some(found.file.clone()));
+    assert_eq!(generated(folder.path()), vec![name_of(&found.file)], "the file that failed the check is not left behind");
 }
 
 #[tokio::test]
-async fn a_failing_ssh_leaves_the_generic_config_and_no_forwards() {
+async fn a_reviewed_config_lives_while_something_holds_it_and_is_removed_after() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let (env, configs) = configured(folder.path(), &Ssh::new(&[("ops@gate", dump(""))])).await;
+    let gate = target("ops@gate");
+    let first = resolve(&configs, &env, &gate).await;
+    let reviewed = text(&first.file);
+
+    // A second inspection of the target, after the user's config changed: another file, the first one untouched while its
+    // attempt holds it.
+    let changed = env_for(folder.path(), Ssh::new(&[("ops@gate", dump("serveraliveinterval 45\n"))]));
+    let second = resolve(&configs, &changed, &gate).await;
+    assert_ne!(second.file, first.file);
+    assert_eq!(text(&first.file), reviewed);
+    assert_eq!(configs.for_args(&args(&["--", "ops@gate", "true"])), Some(second.file.clone()));
+
+    let first_file = first.file.clone();
+    drop(first);
+    assert!(!first_file.exists(), "nothing holds the first one any more");
+    assert_eq!(generated(folder.path()), vec![name_of(&second.file)]);
+    drop(second.reviewed);
+    assert!(second.file.exists(), "the selection still holds the second");
+}
+
+#[tokio::test]
+async fn a_resolution_dropped_while_its_config_is_being_checked_leaves_no_file() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let checking = Arc::new(tokio::sync::Notify::new());
+    let tools = Arc::new(Ssh { stuck_check: Some(checking.clone()), ..Arc::try_unwrap(Ssh::new(&[("ops@gate", dump(""))])).ok().expect("one owner") });
+    let (env, configs) = configured(folder.path(), &tools).await;
+    let gate = target("ops@gate");
+    tokio::select! {
+        _ = resolve(&configs, &env, &gate) => panic!("the check never answers"),
+        () = checking.notified() => {}
+    }
+    // The caller went away mid-check: the file it was checking is gone with it.
+    let left = generated(folder.path());
+    assert!(left.is_empty(), "nothing of the dropped resolution is left: {left:?}");
+    assert_eq!(configs.for_args(&args(&["--", "ops@gate", "true"])), None);
+}
+
+#[tokio::test]
+async fn a_failing_ssh_reads_no_route_and_writes_nothing() {
     let folder = tempfile::tempdir().expect("a folder");
     let tools = Ssh::failing();
-    let (env, configs) = configured(folder.path(), &tools).await;
-    let failure = configs.resolve_for_target(&env, &AttemptContext::default(), &target("ops@gate")).await.expect_err("not resolved");
-    assert_eq!(failure, Unresolved { forwards: Vec::new() });
+    let (env, _configs) = configured(folder.path(), &tools).await;
+    assert!(crate::host_key::resolve_route(&env, &AttemptContext::default(), &target("ops@gate")).await.is_err());
+    assert!(generated(folder.path()).is_empty());
 }
 
 #[tokio::test]
-async fn a_path_that_ssh_printed_lossily_is_not_carried_and_the_generic_config_stays() {
+async fn a_path_that_ssh_printed_lossily_is_not_carried_and_the_users_config_applies() {
     let folder = tempfile::tempdir().expect("a folder");
     let lossy = dump("identityfile C:/Users/? ?/.ssh/id\n");
     let tools = Ssh::new(&[("ops@gate", lossy)]);
     let (env, configs) = configured(folder.path(), &tools).await;
-    let failure = configs.resolve_for_target(&env, &AttemptContext::default(), &target("ops@gate")).await.expect_err("not resolved");
-    assert_eq!(failure.forwards, FORWARDS);
-    assert_eq!(configs.for_args(&args(&["--", "ops@gate", "true"])), None);
+    let found = resolve(&configs, &env, &target("ops@gate")).await;
+    assert!(!found.generated);
+    assert_eq!(found.forwards, FORWARDS);
 }
 
 #[tokio::test]
@@ -278,25 +388,26 @@ async fn a_route_longer_than_six_servers_and_a_loop_of_hops_are_handled() {
     let pairs: Vec<(&str, String)> = chain.iter().map(|(name, text)| (name.as_str(), text.clone())).collect();
     let tools = Ssh::new(&pairs);
     let (env, configs) = configured(folder.path(), &tools).await;
-    let failure = configs.resolve_for_target(&env, &AttemptContext::default(), &target("h0")).await.expect_err("too long");
-    assert!(failure.forwards.is_empty());
+    assert!(!resolve(&configs, &env, &target("h0")).await.generated, "too long to write out");
     // A hop that names a server of the route again is not resolved twice.
     let looped = Ssh::new(&[("a", dump("proxyjump b\n")), ("b", dump("proxyjump a\n"))]);
     let (env, configs) = configured(folder.path(), &looped).await;
-    let found = configs.resolve_for_target(&env, &AttemptContext::default(), &target("a")).await.expect("resolved");
+    let found = resolve(&configs, &env, &target("a")).await;
     let body = text(&found.file);
     assert_eq!(body.matches("Host \"a\"").count(), 1);
     assert_eq!(body.matches("Host \"b\"").count(), 1);
 }
 
 #[tokio::test]
-async fn a_machine_without_mixdogs_config_names_no_file_and_resolves_no_target() {
-    let tools = Ssh::new(&[]);
+async fn a_machine_without_mixdogs_config_names_no_file() {
+    let tools = Ssh::new(&[("ops@10.0.0.9", dump(""))]);
     let folder = tempfile::tempdir().expect("a folder");
     let env = env_for(folder.path(), tools);
     let configs = ResolvedConfigs::without_config();
     assert_eq!(configs.generic(), None);
     let target = parse_ssh_target("ops@10.0.0.9").expect("a target");
-    assert!(configs.resolve_for_target(&env, &AttemptContext::default(), &target).await.is_err());
+    let route = crate::host_key::resolve_route(&env, &AttemptContext::default(), &target).await.expect("a route");
+    let (reviewed, _) = configs.write_reviewed(&env, &AttemptContext::default(), &target, &route, None).await.expect("nothing to write");
+    assert_eq!(reviewed.file, None);
     assert_eq!(configs.for_args(&args(&["-p", "22", "--", "ops@10.0.0.9"])), None);
 }

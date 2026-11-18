@@ -32,6 +32,33 @@ impl ModelListing for WarmedListing {
             None => Ok(Vec::new()),
         }
     }
+
+    /// The inner listing's identity, read once the version it names is warm.
+    async fn roster_identity(&self) -> mixdog_core_api::domain::provider::RosterIdentity {
+        self.versions.warm(self.dialect).await;
+        match self.inner.models() {
+            Some(listing) => listing.roster_identity().await,
+            None => Default::default(),
+        }
+    }
+
+    async fn list_roster(&self) -> Result<mixdog_core_api::domain::provider::ListedRoster, ProviderError> {
+        self.versions.warm(self.dialect).await;
+        match self.inner.models() {
+            Some(listing) => listing.list_roster().await,
+            None => Ok(mixdog_core_api::domain::provider::ListedRoster {
+                rows: Vec::new(),
+                provenance: mixdog_core_api::domain::provider::Provenance::Fetched,
+                identity: Default::default(),
+            }),
+        }
+    }
+
+    fn show_roster(&self, rows: &[ModelRecord]) {
+        if let Some(listing) = self.inner.models() {
+            listing.show_roster(rows);
+        }
+    }
 }
 
 pub struct VersionedAdapter {
@@ -94,6 +121,9 @@ impl ProviderAdapter for VersionedAdapter {
     }
     async fn takes_vision(&self, request: &ModelRequest) -> bool {
         self.inner.takes_vision(request).await
+    }
+    async fn image_route(&self, request: &ModelRequest) -> mixdog_image_egress::route::RouteFacts {
+        self.inner.image_route(request).await
     }
     fn first_response_budget(&self, model: &str, parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
         self.inner.first_response_budget(model, parameters)

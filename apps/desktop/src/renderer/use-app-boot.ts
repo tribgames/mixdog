@@ -29,7 +29,7 @@ import { applyDesktopThemePreference, getDesktopThemePreference } from './deskto
 import { applyStoredSkin } from './desktop-skin';
 import { installHostDisplaySync } from './host-display-sync';
 import type { RecordValue } from './desktop-types';
-import { prefetchEditorPane, prefetchSurfaceForSelection } from './lazy-widgets';
+import { prefetchSurfaceForSelection } from './lazy-widgets';
 import { prefetchQuotaUsage } from './quota-usage-cache';
 import { loadSidebarReferences, WORKFLOW_REFERENCE_KEYS } from './sidebar-reference-cache';
 import { connectionQuality } from './network-conditions';
@@ -156,16 +156,12 @@ export function useAppModuleWarmup(startupSettled: boolean, trackSidebarPanelMod
         run: () => loadStudioViewModule().catch(() => {}),
       }),
       // Monaco + the Markdown preview. A phone opens no file at start, so it
-      // takes them, with the other side-sheet panes, at the lane's tail.
-      ...(hiddenPanelsStayCold()
-        ? phoneSheetPaneWarmups()
-        : [
-            scheduleBootWarmup({
-              id: 'module:editor',
-              priority: BOOT_WARMUP.editorModule,
-              run: () => prefetchEditorPane().catch(() => {}),
-            }),
-          ]),
+      // takes them, with the other side-sheet panes, at the lane's tail. A
+      // desktop window no longer takes them at boot: Monaco's chunk (about
+      // 4 MB of source, its compiled code and styles) stayed resident in every
+      // window that never opened a file. The intents that lead to the editor
+      // (the file chooser, a file link, editor navigation) prefetch it.
+      ...(hiddenPanelsStayCold() ? phoneSheetPaneWarmups() : []),
       // The /context · /usage dialog chunk. Warmed on a native window too, so
       // the first open does not pay the whole import; the idle lane still
       // yields to input.

@@ -2,7 +2,7 @@ import { useEffect, type Dispatch, type SetStateAction } from 'react';
 
 import type { DesktopApi, DesktopGithubCliLoginFlow, DesktopGithubCliStatus } from '../../shared/contract';
 
-/** Follows a live GitHub CLI device-flow login from its pushed progress. */
+/** Follows the scoped login feed, or reads the host's flow status if the feed is missing or lost. */
 export function useGithubLoginPolling({
   host,
   flowId,
@@ -21,11 +21,19 @@ export function useGithubLoginPolling({
   useEffect(() => {
     if (!flowId || (flowState !== 'pending' && flowState !== 'code')) return undefined;
     let cancelled = false;
-    // The flow's progress is pushed on its scoped feed (`login:<flowId>`, desktop-services.md §5.4, §15 P8).
-    const unsubscribe = host?.sections?.subscribeLoginUpdated((update) => {
-      if (cancelled || update.flowId !== flowId || !update.state) return;
-      const next = update.state as DesktopGithubCliLoginFlow;
-      setFlow(next);
+    let settled = false;
+    let recovering = false;
+    let pushed = false;
+    let timer: number | undefined;
+    const adopt = (next: DesktopGithubCliLoginFlow | null | undefined) => {
+      if (cancelled || settled || next?.flowId !== flowId) return;
+      settled = next.state === 'success' || next.state === 'error';
+      if (settled) window.clearTimeout(timer);
+      setFlow((current) => {
+        if (current?.flowId !== flowId || current.state === 'success' || current.state === 'error') return current;
+        if (current.state === 'code' && next.state === 'pending') return current;
+        return next;
+      });
       if (next.state === 'success') {
         // The core reports success only after `gh auth status` confirmed the
         // account: adopt it now. Waiting for the refresh probe flashed the
@@ -39,10 +47,43 @@ export function useGithubLoginPolling({
         }));
         void refreshStatus();
       }
+    };
+    const recover = () => {
+      if (cancelled || settled || recovering || !host?.githubCliLoginStatus) return;
+      recovering = true;
+      const readStatus = async () => {
+        try {
+          adopt(await host.githubCliLoginStatus?.(flowId));
+        } catch {
+          // A failed read says nothing about the flow. Keep the last known state and try again.
+        }
+        if (!cancelled && !settled) timer = window.setTimeout(() => void readStatus(), 1500);
+      };
+      void readStatus();
+    };
+    const sections = host?.sections;
+    const unsubscribe = sections?.subscribeLoginUpdated?.((update) => {
+      if (update.flowId !== flowId) return;
+      pushed = true;
+      adopt(update.state as DesktopGithubCliLoginFlow);
     });
+    const stopLost = sections?.subscribeLoginFeedLost?.((lost) => {
+      if (lost.flowId === flowId) recover();
+    });
+    if (unsubscribe && stopLost && sections?.loginFeed) {
+      void sections.loginFeed(flowId).then(({ state, lost }) => {
+        const next = state as DesktopGithubCliLoginFlow | null;
+        if (!pushed || next?.state === 'success' || next?.state === 'error') adopt(next);
+        if (lost) recover();
+      }, recover);
+    } else {
+      recover();
+    }
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
       unsubscribe?.();
+      stopLost?.();
     };
   }, [host, flowId, flowState, setFlow, setStatus, refreshStatus]);
 }

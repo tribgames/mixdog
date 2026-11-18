@@ -99,7 +99,7 @@ test('a browser approval docks in its top-level chat; with no such chat open it 
     assert.equal(docked.querySelector('.approval-title').textContent, 'Submit this form?');
     assert.equal(docked.querySelector('.approval-chip-name').textContent, 'Marketer › Worker');
     assert.ok(docked.querySelector('.approval-link'), 'the asking session is one click away');
-    assert.deepEqual(labels(docked), ['Deny', 'Allow for this session', 'Always allow', 'Allow just once']);
+    assert.deepEqual(labels(docked), ['Deny', 'Allow for this conversation', 'Always allow', 'Allow just once']);
     // No text lines under the card: what "Always allow" changes is its tooltip.
     assert.equal(docked.querySelector('.approval-note, .approval-scope, .approval-reason'), null);
     assert.equal(

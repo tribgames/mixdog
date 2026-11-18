@@ -14,7 +14,7 @@ import type { DesktopHostExtras, DirectKey } from '../../shared/desktop-api-spli
 
 import { withSectionCapabilities } from '../../main/protocol/section-capability-lane.ts';
 import { sessionLanesOf } from './api-sessions.ts';
-import { windowOfReply } from './client.ts';
+import { firstPcCoreOpen, windowOfReply } from './client.ts';
 import type { DirectContext } from './context.ts';
 import { withDirectErrors } from './errors.ts';
 
@@ -82,6 +82,11 @@ export function createCapabilitiesApi(
     const pc = ctx.pcClient();
     return pc ? windowOfReply(pc.server)?.role?.startsWith('server:') === true : false;
   };
+  /** The PC client identifies the window's role; an early request waits for that client, not the server. */
+  const whoseWindowKnown = async (): Promise<void> => {
+    const opening = ctx.pcClient() ? null : firstPcCoreOpen();
+    if (opening) await opening.catch(() => undefined);
+  };
   const notifySettingsChanged = (): void => {
     void ctx.call('ui/settings/announce', { scope: 'desktop' }).catch(() => {});
   };
@@ -91,6 +96,7 @@ export function createCapabilitiesApi(
       return withDirectErrors(
         (async (): Promise<DesktopCapabilityResult<T>> => {
           const { capability, args, sessionId } = request;
+          await whoseWindowKnown();
           if (onServer()) {
             const quota = (await hostBridge().invokePcQuotaCapability(request)) as DesktopCapabilityResult<T> | null;
             if (quota) return quota;
@@ -114,6 +120,7 @@ export function createCapabilitiesApi(
     readCapabilities(requests: DesktopCapabilityReadRequest[]): Promise<DesktopCapabilityReadResult[]> {
       return withDirectErrors(
         (async (): Promise<DesktopCapabilityReadResult[]> => {
+          await whoseWindowKnown();
           if (!onServer()) return lane.read(requests);
           // Positional results: the PC answers its quota reads, null for the others, which the core answers.
           const pc = (await hostBridge().readPcQuotaCapabilities(requests)) as (DesktopCapabilityReadResult | null)[];

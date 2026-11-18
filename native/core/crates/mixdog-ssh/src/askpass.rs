@@ -11,9 +11,9 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_rt::{CancellationToken, DurabilityIo, InLane, LaneToken};
@@ -26,10 +26,11 @@ use zeroize::Zeroizing;
 
 use crate::context::{AskpassEnv, Platform};
 
+/// The variable that hands an ssh invocation its number; its askpass helper sends the number back with every question.
+pub const CHILD_VARIABLE: &str = "MIXDOG_ASKPASS_CHILD";
+
 /// How long a question waits for the user before it counts as cancelled.
 pub const ASKPASS_TIMEOUT_MS: u64 = 120_000;
-/// A password or passphrase asked for again within this time was refused by the server.
-pub const RETRY_WINDOW_MS: u64 = 2_000;
 /// The largest request line (its newline included) a helper may send.
 pub const MAX_REQUEST_BYTES: usize = 64 * 1024;
 
@@ -99,21 +100,15 @@ fn random_hex(bytes: usize) -> String {
     (0..bytes).map(|_| format!("{:02x}", rand::random::<u8>())).collect()
 }
 
-fn monotonic_ms() -> u64 {
-    static EPOCH: OnceLock<Instant> = OnceLock::new();
-    u64::try_from(EPOCH.get_or_init(Instant::now).elapsed().as_millis()).unwrap_or(u64::MAX)
-}
-
-/// How long a question waits and how long an answer counts as just given.
+/// How long a question waits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AskpassTimings {
     pub timeout: Duration,
-    pub retry_window: Duration,
 }
 
 impl Default for AskpassTimings {
     fn default() -> Self {
-        Self { timeout: Duration::from_millis(ASKPASS_TIMEOUT_MS), retry_window: Duration::from_millis(RETRY_WINDOW_MS) }
+        Self { timeout: Duration::from_millis(ASKPASS_TIMEOUT_MS) }
     }
 }
 
@@ -124,12 +119,11 @@ pub struct AskpassServer {
     platform: Platform,
     plain_base: Option<PathBuf>,
     timings: AskpassTimings,
-    clock: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 
 impl AskpassServer {
     pub fn new(prompter: Arc<dyn AskpassPrompter>, io: DurabilityIo, platform: Platform) -> Self {
-        Self { prompter, io, platform, plain_base: None, timings: AskpassTimings::default(), clock: Arc::new(monotonic_ms) }
+        Self { prompter, io, platform, plain_base: None, timings: AskpassTimings::default() }
     }
 
     /// A plain-ASCII folder (the caller resolves it) a Windows helper whose own path is not plain is copied under.
@@ -140,12 +134,6 @@ impl AskpassServer {
 
     pub fn with_timings(mut self, timings: AskpassTimings) -> Self {
         self.timings = timings;
-        self
-    }
-
-    /// The clock (milliseconds) the retry window is measured on.
-    pub fn with_clock(mut self, clock: Arc<dyn Fn() -> u64 + Send + Sync>) -> Self {
-        self.clock = clock;
         self
     }
 
@@ -191,11 +179,12 @@ impl AskpassServer {
             token: token.clone(),
             closed: AtomicBool::new(false),
             cancelled: AtomicBool::new(false),
-            answers: Mutex::new(HashMap::new()),
+            answers: Mutex::new(Answers::default()),
+            children: AtomicU64::new(0),
+            refused: Mutex::new(None),
             turn: Semaphore::new(1),
             prompter: self.prompter.clone(),
             timings: self.timings,
-            clock: self.clock.clone(),
             cancel: CancellationToken::new(),
         });
         let listener = bind(&endpoint)?;
@@ -263,14 +252,39 @@ struct Inner {
     token: String,
     closed: AtomicBool,
     cancelled: AtomicBool,
-    /// Password and passphrase answers with the time they were last handed out; one-time codes are never kept.
-    answers: Mutex<HashMap<String, (Zeroizing<String>, u64)>>,
+    /// What was answered and to whom (password and passphrase answers; one-time codes are never kept).
+    answers: Mutex<Answers>,
+    /// The number of ssh invocations started with this session; each is handed its number in its environment.
+    children: AtomicU64,
+    /// What the question asked for whose answer was refused (its process asked again): the one secret the server is known to have
+    /// rejected.
+    refused: Mutex<Option<AskpassKind>>,
     /// One question at a time, in arrival order (the semaphore queues fairly).
     turn: Semaphore,
     prompter: Arc<dyn AskpassPrompter>,
     timings: AskpassTimings,
-    clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     cancel: CancellationToken,
+}
+
+/// Who asks: the ssh invocation the helper was spawned for (the number its environment carried) and the process that ran the
+/// helper (an ssh of that invocation: a jump host's ssh is another process of the same invocation). Both are 0 from a helper
+/// that sends neither.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Asker {
+    pub child: u64,
+    pub process: u64,
+}
+
+/// The answers of a session. An authentication is one process asking one question: that process asking it again was
+/// refused (identity, not time); another process of the same invocation asking the same text is another authentication (a jump
+/// host, then the target), taken in the order they ask; a later invocation asking it is a later step needing the same
+/// credential and is given the answer its own turn had.
+#[derive(Default)]
+struct Answers {
+    /// The processes of each invocation that asked each question, in the order they first asked.
+    seen: HashMap<(u64, String), Vec<u64>>,
+    /// The answer of the n-th authentication that asked a question.
+    handed: HashMap<(String, usize), Zeroizing<String>>,
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -278,8 +292,9 @@ fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl Inner {
-    /// The user's answer to `prompt` (or the one given a moment ago), `None` when they cancelled or the time ran out.
-    async fn answer(&self, prompt: &str) -> Option<Zeroizing<String>> {
+    /// The user's answer to `prompt` (or the one given for this authentication before), `None` when they cancelled or the time
+    /// ran out. A session lives for one attempt, so a wrong answer is never replayed to a later attempt: it asks afresh.
+    async fn answer(&self, prompt: &str, asker: Asker) -> Option<Zeroizing<String>> {
         let Ok(_turn) = self.turn.acquire().await else {
             return None;
         };
@@ -288,26 +303,35 @@ impl Inner {
         }
         let kind = classify_prompt(prompt);
         let reusable = matches!(kind, AskpassKind::Passphrase | AskpassKind::Password);
-        let window = u64::try_from(self.timings.retry_window.as_millis()).unwrap_or(u64::MAX);
-        let mut retry = false;
-        let reused = {
-            let now = (self.clock)();
-            let mut answers = locked(&self.answers);
-            let mut reused = None;
-            if let Some((secret, at)) = answers.get_mut(prompt) {
-                retry = reusable && now.saturating_sub(*at) < window;
-                if reusable && !retry {
-                    *at = now;
-                    reused = Some(secret.clone());
+        let (slot, again) = {
+            let mut held = locked(&self.answers);
+            let seen = held.seen.entry((asker.child, prompt.to_owned())).or_default();
+            match seen.iter().position(|process| *process == asker.process) {
+                Some(slot) => (slot, true),
+                None => {
+                    seen.push(asker.process);
+                    (seen.len() - 1, false)
                 }
             }
-            if reused.is_none() {
-                answers.remove(prompt);
+        };
+        let key = (prompt.to_owned(), slot);
+        let retry = reusable && again;
+        let reused = {
+            let mut held = locked(&self.answers);
+            if retry {
+                held.handed.remove(&key);
+                None
+            } else if reusable {
+                held.handed.get(&key).cloned()
+            } else {
+                None
             }
-            reused
         };
         if reused.is_some() {
             return reused;
+        }
+        if retry {
+            *locked(&self.refused) = Some(kind);
         }
         let question = AskpassQuestion { kind, prompt: prompt.to_owned(), retry };
         let asked = mixdog_rt::time::timeout(self.timings.timeout, self.prompter.ask(question)).await;
@@ -316,12 +340,11 @@ impl Inner {
             return None;
         };
         if reusable && !self.closed.load(Ordering::SeqCst) {
-            locked(&self.answers).insert(prompt.to_owned(), (secret.clone(), (self.clock)()));
+            locked(&self.answers).handed.insert(key, secret.clone());
         }
         Some(secret)
     }
 }
-
 #[derive(Serialize)]
 struct Reply<'a> {
     ok: bool,
@@ -370,7 +393,8 @@ async fn request_secret(inner: &Inner, line: &[u8]) -> Option<Zeroizing<String>>
     if inner.closed.load(Ordering::SeqCst) || !same_token(token.as_bytes(), inner.token.as_bytes()) {
         return None;
     }
-    inner.answer(prompt).await
+    let number = |name: &str| request.get(name).and_then(serde_json::Value::as_u64).unwrap_or(0);
+    inner.answer(prompt, Asker { child: number("child"), process: number("process") }).await
 }
 
 fn spawn_connection<S: AsyncRead + AsyncWrite + Send + Unpin + 'static>(inner: &Arc<Inner>, stream: S) {
@@ -448,13 +472,19 @@ impl AskpassSession {
         self.inner.cancelled.load(Ordering::SeqCst)
     }
 
+    /// What the last question asked for whose answer the server refused (the process it was handed to asked again); `None`
+    /// without that evidence.
+    pub fn refused(&self) -> Option<AskpassKind> {
+        *locked(&self.inner.refused)
+    }
+
     /// Ends the session: later helpers are refused, open connections and questions are dropped, the answers are
     /// forgotten and the session's folders removed. Closing twice does nothing.
     pub async fn close(&self) {
         if self.inner.closed.swap(true, Ordering::SeqCst) {
             return;
         }
-        locked(&self.inner.answers).clear();
+        *locked(&self.inner.answers) = Answers::default();
         self.inner.cancel.cancel();
         let task = locked(&self.task).take();
         if let Some(task) = task {
@@ -473,6 +503,11 @@ impl AskpassEnv for AskpassSession {
         self.inner.closed.load(Ordering::SeqCst)
     }
 
+    fn child_env(&self) -> Vec<(String, String)> {
+        let child = self.inner.children.fetch_add(1, Ordering::SeqCst) + 1;
+        vec![(CHILD_VARIABLE.to_owned(), child.to_string())]
+    }
+
     fn control_dir(&self) -> Option<PathBuf> {
         self.control_dir.clone()
     }
@@ -481,3 +516,7 @@ impl AskpassEnv for AskpassSession {
 #[cfg(test)]
 #[path = "askpass_tests.rs"]
 mod askpass_tests;
+
+#[cfg(test)]
+#[path = "askpass_process_tests.rs"]
+mod askpass_process_tests;

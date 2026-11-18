@@ -65,8 +65,6 @@ impl std::fmt::Display for FrameError {
     }
 }
 
-impl std::error::Error for FrameError {}
-
 fn encode(kind: u8, id: u32, body: &[u8]) -> Bytes {
     let mut out = BytesMut::with_capacity(HEADER_BYTES + body.len());
     out.extend_from_slice(&((5 + body.len()) as u32).to_be_bytes());
@@ -355,3 +353,6 @@ mod tests {
         assert_eq!(reader.next_buffered().unwrap(), None);
     }
 }
+
+
+impl std::error::Error for FrameError {}

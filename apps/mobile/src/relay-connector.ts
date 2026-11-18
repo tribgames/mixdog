@@ -24,6 +24,7 @@ import {
 import {
   createRemoteTransportPeer,
   remoteTransportOptIn,
+  CarrierDeparture,
   type RemoteTransportPeer,
 } from '../../desktop/src/renderer/remote-transport-peer.ts';
 
@@ -55,7 +56,7 @@ export interface RelayConnectorDeps {
   /** Every socket end, before it reaches the client (pre-ready ends included), so the phone can tell a revoked pairing from a lost network. */
   closed?(code: number, reason: string, info: CloseInfo): void;
   /** The desktop's authenticated `e2ee-ready` (host name, open access, routing caps), once per ready session. */
-  ready?(hello: Readonly<Record<string, unknown>>): void;
+  ready?(hello: Readonly<Record<string, unknown>>, media?: { sid: string; key: CryptoKey }): void;
   /** Whether the page is visible; the keepalive does not run while it is not. */
   visible?(): boolean;
   /** A dial (or the takeover of a parked socket) is starting. */
@@ -184,6 +185,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
         ws.binaryType = 'arraybuffer';
         const pairing = deps.pairing(target);
         let channel: RelayE2EEChannel | null = null;
+        let mediaSid = '';
         let binaryFrames = false;
         let peer: RemoteTransportPeer | null = null;
         // The current challenge offered the transport: a transcript in `e2ee-ready` is then expected, and without the offer forbidden.
@@ -285,7 +287,8 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
             ready = true;
             clearTimeout(deadline);
             deadline = undefined;
-            deps.ready?.(hello as Record<string, unknown>);
+            const key = channel!.mediaKey;
+            deps.ready?.(hello as Record<string, unknown>, key ? { sid: mediaSid, key } : undefined);
             resolve(writer);
             return;
           }
@@ -355,6 +358,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
           // A newer challenge arrived while this one was being answered.
           if (finished || mine !== generation) return;
           channel = handshake.channel;
+          mediaSid = challenge.challenge;
           if (channel.transportEnabled) {
             const webrtc = deps.webrtc!;
             const created = createRemoteTransportPeer({
@@ -362,6 +366,11 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
               sessionId: challenge.challenge,
               relay: { send: (bytes) => ws.send(bytes), bufferedAmount: () => ws.bufferedAmount },
               deliver,
+              // Each newly authenticated record of a message still arriving is the core's progress (the peer reports it once, before
+              // assembly); the relay's pong and the transport's acknowledgements never reach here.
+              progress: () => {
+                if (!finished) sink.progress?.();
+              },
               fatal: (error) => {
                 if (peer === created) fail(CLOSE_PROTOCOL_ERROR, `transport failed: ${error.message}`);
               },
@@ -376,38 +385,66 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
           ws.send(JSON.stringify(handshake.hello));
         };
 
+        // The plain (untransported) leg's own queue: a frame has left once the socket's buffer holds no more than what was sent after it.
+        const wsDeparture = new CarrierDeparture(() => ws.bufferedAmount, () => !finished, timers);
+        const sendPlain = (data: string | Uint8Array): void => {
+          ws.send(data);
+          wsDeparture.enqueue(typeof data === 'string' ? new TextEncoder().encode(data).byteLength : data.byteLength);
+        };
         let outbound: Promise<void> = Promise.resolve();
         const writer: TransportWriter = {
           send: (text, claim) => {
-            // The call that wrote this request frame handed its own claim down with it; that call alone learns when the frame left
-            // (Node: its sendApplicationFrame settling, remote-shim-calls.ts:258-273). A frame no call claimed has no one to tell.
+            // The call that wrote this request frame handed its own claim down with it; that call alone learns when the frame left.
+            // "Left" is local departure: the frame handed to the carrier and the carrier's own buffer empty again (the socket's
+            // `bufferedAmount`, or the peer's carrier), never the admission of the frame to a queue and never the core's answer.
             const request = JSON.parse(text) as { id?: unknown; method?: unknown } | null;
             const isRequest = request !== null && request.id !== undefined && request.method !== undefined;
             let left: (() => void) | undefined;
-            if (isRequest && claim) claim(new Promise<void>((resolve) => (left = resolve)));
+            let notLeft: ((error: Error) => void) | undefined;
+            if (isRequest && claim) {
+              const receipt = new Promise<void>((resolve, reject) => {
+                left = resolve;
+                notLeft = reject;
+              });
+              receipt.catch(() => {});
+              claim(receipt);
+            }
             // Sealing is asynchronous: chaining keeps wire order equal to send order.
             outbound = outbound
               .then(async () => {
-                if (finished || !channel) return;
+                if (finished || !channel) return notLeft?.(new Error('The connection ended before the frame was sent.'));
                 if (isRequest) inflight.add(request?.id);
-                if (peer) await peer.send(request);
-                else {
+                if (peer) {
+                  // Admission resolves here, so later frames keep their order; the departure follows on its own.
+                  const { departed } = await peer.sendDeparting(request);
+                  if (left) departed.then(left, notLeft);
+                } else {
                   const sealed = binaryFrames ? await channel.encryptBinary(request) : await channel.encryptJson(request);
                   // The leg may have ended while the frame was sealing: it never reaches the relay, and its call is not told it left.
-                  if (finished) return;
-                  ws.send(sealed);
+                  if (finished) return notLeft?.(new Error('The connection ended before the frame was sent.'));
+                  sendPlain(sealed);
+                  if (left) wsDeparture.since(wsDeparture.position()).then(left, notLeft);
                 }
-                if (finished) return;
-                left?.();
               })
-              .catch(() => fail(CLOSE_PROTOCOL_ERROR, 'frame failed'));
+              .catch((error: unknown) => {
+                notLeft?.(error instanceof Error ? error : new Error(String(error)));
+                fail(CLOSE_PROTOCOL_ERROR, 'frame failed');
+              });
           },
           close: (code, reason) => fail(code, reason),
+          // The receive work already accepted: this connector's own chain, then the transport peer's (authentication, assembly).
+          settled: async () => {
+            for (let chain = inbound; ; chain = inbound) {
+              await chain.catch(() => undefined);
+              await peer?.settled().catch(() => undefined);
+              if (chain === inbound) return;
+            }
+          },
         };
 
         const sendPing = (): void => {
           try {
-            ws.send(PING);
+            sendPlain(PING);
           } catch {
             // surfaces as a close
           }

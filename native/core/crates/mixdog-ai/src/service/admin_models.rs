@@ -459,6 +459,11 @@ pub trait HydrationFacts {
     fn fast_capable(&self, provider: &str, row: &Value) -> bool;
     fn ultrafast_capable(&self, provider: &str, row: &Value) -> bool;
     fn effort_items(&self, provider: &str, row: &Value) -> Value;
+    /// The options the turn judge's ladder is built from for this route (the same row and rejections it reads), when the
+    /// facts can state them; `None` reads them from the row's own `effortOptions`.
+    fn auto_effort_options(&self, _provider: &str, _model: &str) -> Option<Vec<String>> {
+        None
+    }
     /// `Boolean(effortConfigurationMode(provider, model, {...providerConfig, modelParameters}))`.
     fn effort_configuration_mode(&self, provider: &str, model: &str, opts: &Value) -> bool;
     fn custom_auto_effort_capable(&self, provider: &str, protocol: Option<&Value>, row: &Value) -> bool;
@@ -556,7 +561,15 @@ pub fn hydrate_provider_model_row(cfg: &Obj, row: &Value, facts: &dyn HydrationF
         "modelParameters".into(),
         if truthy(saved.get("modelParameters")) { saved["modelParameters"].clone() } else { json!({}) },
     );
-    let auto = facts.effort_configuration_mode(&provider_raw, &id, &Value::Object(opts))
+    // Auto applies where the route takes a judged effort AND the row gives it a ladder to move along (the judge skips
+    // an empty one). A custom route snaps onto its row's own levels instead. The id alone never makes a route capable:
+    // a row without effort data (a saved route's placeholder) is not Auto-capable, so the UI shows the saved level.
+    let options: Vec<String> = facts.auto_effort_options(&provider_raw, &id).unwrap_or_else(|| {
+        let items = out.get("effortOptions").and_then(Value::as_array).cloned().unwrap_or_default();
+        items.iter().filter_map(|i| i.get("value").and_then(Value::as_str)).map(str::to_owned).collect()
+    });
+    let ladder_nonempty = !crate::effort::auto_effort_ladder(&options).is_empty();
+    let auto = (facts.effort_configuration_mode(&provider_raw, &id, &Value::Object(opts)) && ladder_nonempty)
         || facts.custom_auto_effort_capable(&provider_raw, provider_config.and_then(|c| c.get("protocol")), row);
     out.insert("autoEffortCapable".into(), Value::Bool(auto));
     out.insert("savedEffort".into(), or_null(saved.get("effort")));
@@ -564,7 +577,7 @@ pub fn hydrate_provider_model_row(cfg: &Obj, row: &Value, facts: &dyn HydrationF
         out.insert("savedFast".into(), Value::Bool(saved.get("fast") == Some(&Value::Bool(true))));
     }
     if saved.contains_key("autoEffort") {
-        out.insert("savedAutoEffort".into(), Value::Bool(saved.get("autoEffort") != Some(&Value::Bool(false))));
+        out.insert("savedAutoEffort".into(), Value::Bool(crate::effort::route_auto_effort_on(saved.get("autoEffort"))));
     }
     out.insert(
         "savedModelParameters".into(),
@@ -600,6 +613,7 @@ pub fn with_catalog_state(models: Vec<Value>, partial: Option<(&[String], f64)>)
         .collect()
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "admin_models_tests.rs"]
 mod tests;

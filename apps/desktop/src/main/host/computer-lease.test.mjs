@@ -59,6 +59,7 @@ function served(t) {
       handleRequest: (method, handler) => handlers.set(method, handler),
       onClose: (listener) => closers.push(listener),
     },
+    { admit: () => ({ signal: new AbortController().signal, commit() {}, track() {}, trackUnfenced() {} }) },
     nativeForegroundLease(() => fake)
   );
   t.after(() => closers.forEach((close) => close()));
@@ -112,7 +113,7 @@ test('a release with nothing leased is answered none, and a gone is accepted', a
 
 test('without a lock to lease the answer is unavailable', async () => {
   const handlers = new Map();
-  registerComputerLease({ handleRequest: (m, h) => handlers.set(m, h), onClose() {} }, null);
+  registerComputerLease({ handleRequest: (m, h) => handlers.set(m, h), onClose() {} }, { admit: () => ({ signal: new AbortController().signal, commit() {}, track() {}, trackUnfenced() {} }) }, null);
   const answer = await handlers.get('host/computer/foregroundLease')({ op: 'acquire', instance: 'a', action: 1, seq: 1, holdMs: 200, answerBy: 1 });
   assert.equal(answer.kind, 'unavailable');
   assert.equal(answer.answer, 'unavailable');

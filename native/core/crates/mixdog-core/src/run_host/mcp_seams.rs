@@ -198,23 +198,6 @@ fn summary_of(parts: &[ToolPart]) -> String {
         .join("\n")
 }
 
-/// `nativeDefinitionsPresent`: every tool the payload references is already defined by an earlier native
-/// tool-search result of the same provider, with the same OpenAI definition where the payload carries one.
-fn native_definitions_present(native: &JsonValue, transcript: &[AgentMessage]) -> bool {
-    let provider = native.get("provider");
-    let definitions = native.get("openaiTools").and_then(JsonValue::as_array).map_or(&[][..], Vec::as_slice);
-    native.get("toolReferences").and_then(JsonValue::as_array).map_or(&[][..], Vec::as_slice).iter().all(|name| {
-        transcript.iter().filter_map(|entry| entry.message.native_tool_search.as_ref()).any(|previous| {
-            previous.get("provider") == provider
-                && previous.get("toolReferences").and_then(JsonValue::as_array).is_some_and(|names| names.contains(name))
-                && definitions.iter().all(|tool| {
-                    tool.get("name") != Some(name)
-                        || previous.get("openaiTools").and_then(JsonValue::as_array).is_some_and(|tools| tools.contains(tool))
-                })
-        })
-    })
-}
-
 /// `LOADED_SKILL_RE`: the skill loaded.
 pub fn loaded_skill(summary: &str) -> bool {
     summary.starts_with("Loaded skill: ") || summary.starts_with("Loaded built-in skill: ")
@@ -264,7 +247,13 @@ impl SkillSelector for ExplicitSkillSelector {
                 .and_then(JsonValue::as_str)
                 .filter(|text| !text.is_empty())
                 .map_or(summary, str::to_owned);
-            match native.filter(|native| !native_definitions_present(native, transcript)) {
+            match native.and_then(|native| {
+                let mut seen = mixdog_agent::native_search::NativeDefinitions::default();
+                for payload in transcript.iter().filter_map(|entry| entry.message.native_tool_search.as_ref()) {
+                    seen.record(payload);
+                }
+                seen.take_new(native)
+            }) {
                 Some(native) => {
                     let call = ToolCall { id: id.clone(), name: "Skill".to_owned(), arguments: json!({ "name": name }), native_type: None };
                     let mut call_turn = AgentMessage::assistant(String::new(), vec![call]);
@@ -348,6 +337,11 @@ impl ToolResolver for McpAwareResolver {
             .or_else(|| self.pool.iter().find(|tool| tool.spec().aliases.iter().any(|alias| alias == name)));
         pooled.cloned().or_else(|| self.hub.tool_in(&normalize_scope(scope), name))
     }
+
+    fn withdrawal(&self) -> mixdog_tools::policy::Withdrawal {
+        let published = self.hub.published();
+        Arc::new(move |name, owner| published.withdrawn(name, owner))
+    }
 }
 
 /// The unattended run that owns a session (`unattendedApprovalPort().runOf`,
@@ -370,13 +364,17 @@ pub trait AllowAllActions: Send + Sync {
     fn allow_all_actions(&self) -> bool;
 }
 
-/// [`AllowAllActions`] over the config document: on only when `agent.developer.allowAllActions`
-/// is `true`; absent or any other value is off.
+/// [`AllowAllActions`] over the config file, read as `readSectionStrict('agent')` reads it on every call: straight from the
+/// file, never the document the core holds (which outlives a file that was deleted or damaged after it was loaded, keeps
+/// serving a value an edit has not reloaded yet, and may come from a backup restore), so it fails closed. On only when
+/// `agent.developer.allowAllActions` is `true`; a missing, unreadable or malformed file, an absent key or any other value is off.
 pub struct ConfigAllowAll(pub Config);
 
 impl AllowAllActions for ConfigAllowAll {
     fn allow_all_actions(&self) -> bool {
-        developer_option_enabled("allowAllActions", self.0.agent().get("developer").unwrap_or(&JsonValue::Null))
+        let Ok(Some(bytes)) = mixdog_statefile::read_content(self.0.path()) else { return false };
+        let Ok(JsonValue::Object(root)) = mixdog_statefile::parse_json_text(&bytes) else { return false };
+        developer_option_enabled("allowAllActions", root.get("agent").and_then(|agent| agent.get("developer")).unwrap_or(&JsonValue::Null))
     }
 }
 
@@ -387,11 +385,27 @@ pub struct HostGateEnv {
     contacts: Arc<dyn ContactBots>,
     allow_all: Arc<dyn AllowAllActions>,
     hub: Arc<McpHub>,
+    /// The live settings gates (`getFeatureDisallowedTools()`), bound once the workflow surface that reads them exists (it is
+    /// built after the turn path, like `LateTurnSettings`). Unbound, no setting switches a tool off.
+    feature_gates: std::sync::OnceLock<Arc<dyn SettingGates>>,
+}
+
+/// The tools the user's settings switch off right now, from the in-memory config: no machine probe, no I/O, so it cannot fail
+/// or wait. (Node's live list also held the memoized git probe and bridge presence; those are facts about the machine, decided at
+/// a turn start for the surface, and a tool the session does not hold is refused before this is asked.)
+pub trait SettingGates: Send + Sync + 'static {
+    fn setting_denied(&self) -> Vec<String>;
 }
 
 impl HostGateEnv {
     pub fn new(runs: Arc<dyn UnattendedRuns>, contacts: Arc<dyn ContactBots>, allow_all: Arc<dyn AllowAllActions>, hub: Arc<McpHub>) -> Self {
-        Self { runs, contacts, allow_all, hub }
+        Self { runs, contacts, allow_all, hub, feature_gates: std::sync::OnceLock::new() }
+    }
+
+    /// Binds the live gate list every gate built over this env reads at each call to a setting-gated tool. Bound once; false
+    /// when it already was.
+    pub fn bind_feature_gates(&self, gates: Arc<dyn SettingGates>) -> bool {
+        self.feature_gates.set(gates).is_ok()
     }
 }
 
@@ -407,6 +421,10 @@ impl GateEnv for HostGateEnv {
 
     fn allow_all_actions(&self) -> bool {
         self.allow_all.allow_all_actions()
+    }
+
+    fn live_setting_denied(&self) -> Vec<String> {
+        self.feature_gates.get().map(|gates| gates.setting_denied()).unwrap_or_default()
     }
 
     /// The account `args.account` names, else the one the conversation (the thread) used last;

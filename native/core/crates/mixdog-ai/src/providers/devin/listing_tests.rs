@@ -2,25 +2,41 @@
 //! same `GetCliModelConfigs` answer must give the same rows, and the first
 //! request must be the one Node sent.
 
+#[cfg(node_twin)]
 use std::sync::Arc;
 
+#[cfg(node_twin)]
 use async_trait::async_trait;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ProviderAdapter;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ProviderError;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::WireRequest;
 
+#[cfg(node_twin)]
 use super::DevinAdapter;
+#[cfg(node_twin)]
 use super::SessionToken;
+#[cfg(node_twin)]
 use super::models::ModelRow;
+#[cfg(node_twin)]
 use super::models::normalize_models;
+#[cfg(node_twin)]
 use super::schema::decode_cli_model_configs;
+#[cfg(node_twin)]
 use crate::providers::listing_row::testing::Replay;
+#[cfg(node_twin)]
 use crate::providers::listing_row::testing::assert_row_facts;
+#[cfg(node_twin)]
 use crate::providers::listing_row::testing::fixture;
+#[cfg(node_twin)]
 use crate::providers::listing_row::testing::unhex;
 
+#[cfg(node_twin)]
 struct Token;
 
+#[cfg(node_twin)]
 #[async_trait]
 impl SessionToken for Token {
     async fn session_token(&self) -> Result<String, ProviderError> {
@@ -32,6 +48,7 @@ impl SessionToken for Token {
     }
 }
 
+#[cfg(node_twin)]
 #[tokio::test]
 async fn every_recorded_case_gives_node_rows_and_request() {
     let recorded = fixture("devin-models/cases.json");
@@ -42,8 +59,8 @@ async fn every_recorded_case_gives_node_rows_and_request() {
         let adapter = DevinAdapter::new(Some("https://devin.example.invalid".to_owned()), http.clone(), Arc::new(Token));
         let result = adapter.models().expect("devin lists models").list_models().await;
 
-        // The first request is the one Node sent (it asks a second identity
-        // only after a failure, which Rust does not).
+        // The first request is the one Node sent (the legacy identity is asked second, and every recorded
+        // answer is the same for both).
         let sent = http.requests.lock().unwrap().clone();
         let want = &case["requests"][0];
         assert_eq!(sent[0].method, want["method"].as_str().unwrap(), "{name}");
@@ -85,6 +102,7 @@ async fn every_recorded_case_gives_node_rows_and_request() {
 /// The catalog rows a turn sends from and the wire uid of every model and
 /// effort equal Node's (`devinWireUid`), for server families, the reviewed
 /// table and thinking pairs.
+#[cfg(node_twin)]
 #[test]
 fn every_recorded_effort_goes_to_nodes_wire_uid() {
     let recorded = fixture("devin-models/cases.json");
@@ -118,4 +136,25 @@ fn every_recorded_effort_goes_to_nodes_wire_uid() {
         }
     }
     assert!(checked > 1000, "the recording has the routes ({checked})");
+}
+
+/// A native discovery that fails is answered by the legacy identity (`fetchDevinModels`).
+#[cfg(node_twin)]
+#[tokio::test]
+async fn a_failed_native_discovery_falls_to_the_legacy_identity() {
+    let recorded = fixture("devin-models/cases.json");
+    let (_, case) = recorded["cases"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .find(|(_, case)| case["error"].is_null() && case["response"].is_string() && !case["expected"].as_array().unwrap().is_empty())
+        .expect("a recorded answer with rows");
+    let body = unhex(case["response"].as_str().unwrap());
+    let http = Arc::new(Replay::new(move |request: &WireRequest| {
+        if request.body.windows(8).any(|w| w == b"windsurf") { (200, body.clone()) } else { (500, Vec::new()) }
+    }));
+    let adapter = DevinAdapter::new(Some("https://devin.example.invalid".to_owned()), http.clone(), Arc::new(Token));
+    let records = adapter.models().expect("devin lists models").list_models().await.unwrap();
+    assert_eq!(records.len(), case["expected"].as_array().unwrap().len());
+    assert_eq!(http.requests.lock().unwrap().len(), 2);
 }

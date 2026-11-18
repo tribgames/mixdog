@@ -30,15 +30,17 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn keys_sort_and_integral_floats_print_as_integers() {
+        let v = json!({"b": 1.0, "a": [true, null, "x\"y"]});
+        assert_eq!(stable_stringify(&v), r#"{"a":[true,null,"x\"y"],"b":1}"#);
+    }
+
+
+    #[cfg(node_twin)]
+    #[test]
     fn id_matches_recorded_fixture() {
         // fixtures/providers-intercepted/gemini/tool-call/result.json
         let id = synthesized_call_id(0, "lookup", &json!({"key": "answer"}));
         assert_eq!(id, "gemini_366b187da650ce24");
-    }
-
-    #[test]
-    fn keys_sort_and_integral_floats_print_as_integers() {
-        let v = json!({"b": 1.0, "a": [true, null, "x\"y"]});
-        assert_eq!(stable_stringify(&v), r#"{"a":[true,null,"x\"y"],"b":1}"#);
     }
 }

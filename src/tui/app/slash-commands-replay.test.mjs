@@ -1,8 +1,7 @@
 // Replay of native/core/fixtures/slash-commands-cases (record-slash-commands-cases.mjs, b6f10295a). The slash command names,
 // argument hints and the /btw scroll claim are the slash module's own (the /btw panel's row maths went with the Node TUI; the core only recognises slash tokens): each case's
 // recorded inputs go through the TUI functions a user's keystrokes reach, and the whole observed value is compared, exactly encoded.
-import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import assert from 'node:assert/strict';import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { exact } from '../../../benchmarks/rust-core/recorders/lib/exact.mjs';
 import { normalizeSlashCommandName, overlayBlocksGlobalTranscriptScroll, slashArgumentHint } from './slash-commands.mjs';

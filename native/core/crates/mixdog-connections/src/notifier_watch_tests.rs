@@ -154,36 +154,6 @@ async fn settle() {
     }
 }
 
-impl Rig {
-    /// The turn of `id` runs and ends; its answer is then read.
-    fn finish(&mut self, id: &str, detail: &'static str) {
-        assert_eq!(self.watch.observe(id, &facts(true), 1_000, &nothing_pending()), None);
-        let end = self.watch.observe(id, &facts(false), 1_001, &nothing_pending()).expect("the turn ended");
-        self.watch.begin(id, end, detail);
-    }
-
-    /// Hands the watcher every wake that has arrived (and those they set going); what settled.
-    async fn drain(&mut self) -> Vec<Settled<&'static str>> {
-        let mut settled = Vec::new();
-        settle().await;
-        while let Ok(wake) = self.wakes.try_recv() {
-            settled.extend(self.watch.on_wake(wake));
-            settle().await;
-        }
-        settled
-    }
-
-    async fn advance(&mut self, ms: u64) -> Vec<Settled<&'static str>> {
-        settle().await;
-        tokio::time::advance(Duration::from_millis(ms)).await;
-        self.drain().await
-    }
-
-    fn steps_named(&self, name: &str) -> Vec<Value> {
-        self.steps.lock().unwrap().iter().filter(|(step, _)| step == name).map(|(_, details)| details.clone()).collect()
-    }
-}
-
 /// FAW "a late read from a previous turn cannot notify after another turn starts and finishes".
 #[tokio::test(start_paused = true)]
 async fn a_read_of_an_earlier_turn_cannot_tell_after_another_turn_ran() {
@@ -263,4 +233,35 @@ async fn the_steps_of_a_turn_are_reported_with_their_reasons() {
     assert_eq!(rig.steps_named("detected").len(), 4);
     let reasons: Vec<Value> = rig.steps_named("suppressed").iter().map(|details| details["reason"].clone()).collect();
     assert_eq!(reasons, [json!("cancelled"), json!("reaction"), json!("routine-quiet")]);
+}
+
+
+impl Rig {
+    /// The turn of `id` runs and ends; its answer is then read.
+    fn finish(&mut self, id: &str, detail: &'static str) {
+        assert_eq!(self.watch.observe(id, &facts(true), 1_000, &nothing_pending()), None);
+        let end = self.watch.observe(id, &facts(false), 1_001, &nothing_pending()).expect("the turn ended");
+        self.watch.begin(id, end, detail);
+    }
+
+    /// Hands the watcher every wake that has arrived (and those they set going); what settled.
+    async fn drain(&mut self) -> Vec<Settled<&'static str>> {
+        let mut settled = Vec::new();
+        settle().await;
+        while let Ok(wake) = self.wakes.try_recv() {
+            settled.extend(self.watch.on_wake(wake));
+            settle().await;
+        }
+        settled
+    }
+
+    async fn advance(&mut self, ms: u64) -> Vec<Settled<&'static str>> {
+        settle().await;
+        tokio::time::advance(Duration::from_millis(ms)).await;
+        self.drain().await
+    }
+
+    fn steps_named(&self, name: &str) -> Vec<Value> {
+        self.steps.lock().unwrap().iter().filter(|(step, _)| step == name).map(|(_, details)| details.clone()).collect()
+    }
 }

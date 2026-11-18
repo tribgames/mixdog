@@ -253,6 +253,414 @@ impl OpenCodeGoLogin {
     }
 }
 
+/// Why a stored credential could not be made usable.
+#[derive(Clone, PartialEq, Eq, Debug, thiserror::Error)]
+pub enum RefreshError {
+    /// The grant is dead or the credential is gone: sign in again.
+    /// With the HTTP status of the answer that said so (Node's `openCodeGoReauthError(detail, status)`).
+    #[error("OpenCode sign-in expired: {0}")]
+    Reauth(String, u16),
+    /// Try again later; the status is that of the answer, when there was one.
+    #[error("{0}")]
+    Failed(String, Option<u16>),
+}
+
+/// The stored credential, refreshed when it is about to expire.
+pub struct OpenCodeGoAuth {
+    http: Http,
+    pace: Arc<dyn Pace>,
+    file: CredentialFile,
+}
+
+tokio::task_local! {
+    /// The OpenCode Go gateway, rather than the engine, owns its one auth replay.
+    pub(crate) static GATEWAY_AUTH_RECOVERY: ();
+    pub(crate) static GATEWAY_CREDENTIAL: std::sync::Arc<OpenCodeGoCredentials>;
+}
+
+pub(crate) fn gateway_owns_auth_recovery() -> bool {
+    GATEWAY_AUTH_RECOVERY.try_with(|_| ()).is_ok()
+}
+
+#[derive(Clone)]
+struct RefreshAnswer {
+    credential: OpenCodeGoCredentials,
+    renewed_from: Option<String>,
+}
+
+fn same_login(held: &OpenCodeGoCredentials, current: &OpenCodeGoCredentials) -> bool {
+    held.org_id == current.org_id
+        && held.account_id == current.account_id
+        && (held.account_id.as_deref().is_some_and(|id| !id.is_empty())
+            || (held.access_token == current.access_token && held.refresh_token == current.refresh_token))
+}
+
+fn login_changed() -> RefreshError {
+    RefreshError::Reauth("account or organization changed during the request".into(), 401)
+}
+
+impl OpenCodeGoAuth {
+    pub fn new(http: Http, pace: Arc<dyn Pace>, file: CredentialFile) -> Self {
+        Self { http, pace, file }
+    }
+
+    async fn stored(&self) -> Result<OpenCodeGoCredentials, RefreshError> {
+        match self.file.load::<OpenCodeGoCredentials>().await {
+            Probe::Present(credentials) => {
+                self.file.keep(&[&credentials.access_token, &credentials.refresh_token]);
+                Ok(credentials)
+            }
+            Probe::Absent => Err(RefreshError::Reauth("credentials removed".into(), 401)),
+            Probe::Unreadable => Err(RefreshError::Failed("credential file is unreadable".into(), None)),
+        }
+    }
+
+    /// `force` refreshes even a token that is not near expiry (after a 401).
+    pub async fn ensure_fresh(&self, force: bool) -> Result<OpenCodeGoCredentials, RefreshError> {
+        let current = self.stored().await?;
+        if !force && !current.needs_refresh(self.pace.now_ms()) {
+            return Ok(current);
+        }
+        self.refresh(current, force, false).await.map(|answer| answer.credential)
+    }
+
+    pub(crate) async fn pin(&self) -> Result<(Self, OpenCodeGoCredentials), RefreshError> {
+        let pinned = Self { http: self.http.clone(), pace: self.pace.clone(), file: self.file.pinned().await };
+        let held = pinned.stored().await?;
+        let credential = if held.needs_refresh(pinned.pace.now_ms()) {
+            pinned.renew_for_send(&held, false).await?
+        } else {
+            held
+        };
+        Ok((pinned, credential))
+    }
+
+    pub(crate) async fn refresh_pinned(&self, held: &OpenCodeGoCredentials) -> Result<OpenCodeGoCredentials, RefreshError> {
+        if !same_login(held, &self.stored().await?) {
+            return Err(login_changed());
+        }
+        self.renew_for_send(held, true).await
+    }
+
+    async fn renew_for_send(&self, held: &OpenCodeGoCredentials, force: bool) -> Result<OpenCodeGoCredentials, RefreshError> {
+        let answer = self.refresh(held.clone(), force, true).await?;
+        let current = answer.credential;
+        let renewed_here = answer.renewed_from.as_deref() == Some(held.refresh_token.as_str())
+            && current.org_id == held.org_id && current.account_id == held.account_id;
+        // A flight may be shared with an unpinned caller, so validate its answer against this send's owner.
+        if same_login(held, &current) || renewed_here { Ok(current) } else { Err(login_changed()) }
+    }
+
+    /// Concurrent callers holding one credential share a refresh POST. Unpinned callers can follow a replacement login;
+    /// a send validates the shared answer against its first credential in `renew_for_send`.
+    async fn refresh(&self, held: OpenCodeGoCredentials, force: bool, pinned: bool) -> Result<RefreshAnswer, RefreshError> {
+        let this = Self { http: self.http.clone(), pace: self.pace.clone(), file: self.file.clone() };
+        self.file
+            .refresh_once(&held.refresh_token.clone(), async move { this.refresh_unshared(held, force, pinned).await })
+            .await
+            .unwrap_or_else(|expired| {
+                Err(RefreshError::Failed(format!("token refresh: request timed out after {}ms", expired.after.as_millis()), None))
+            })
+    }
+
+    async fn refresh_unshared(&self, held: OpenCodeGoCredentials, force: bool, pinned: bool) -> Result<RefreshAnswer, RefreshError> {
+        // Another process racing us spends the token once: the loser is
+        // rejected, re-reads the file and adopts the winner's pair, and the
+        // compare-and-swap below never overwrites a newer pair.
+        let disk = self.stored().await?;
+        if pinned && !same_login(&held, &disk) {
+            return Err(login_changed());
+        }
+        let adopted = |credential| RefreshAnswer { credential, renewed_from: None };
+        let skew = if force { 0 } else { OPENCODE_REFRESH_SKEW_SECS * 1000 };
+        let rotated = disk.access_token != held.access_token || disk.refresh_token != held.refresh_token;
+        if rotated && (disk.expires_at == 0 || disk.expires_at >= self.pace.now_ms() + skew) {
+            return Ok(adopted(disk));
+        }
+        let reply = post_json(
+            &self.http,
+            "/auth/device/token",
+            serde_json::json!({"grant_type": "refresh_token", "refresh_token": disk.refresh_token, "client_id": CLIENT_ID}),
+        )
+        .await
+        .map_err(|f| RefreshError::Failed(format!("token refresh: {f:?}"), None))?;
+        if !reply.ok() {
+            if reply.status == 401 || classify_refresh_failure(Some(reply.status), &reply.body) == RefreshFailure::Definitive {
+                // Another process may have rotated the pair while we held the old one.
+                let now = self.stored().await?;
+                if now.refresh_token != disk.refresh_token {
+                    return Ok(adopted(now));
+                }
+                return Err(RefreshError::Reauth("refresh rejected".into(), reply.status));
+            }
+            let detail = scrubbed_excerpt(&reply.text(), &[&disk.access_token, &disk.refresh_token], 200);
+            return Err(RefreshError::Failed(format!("token refresh {}: {detail}", reply.status), Some(reply.status)));
+        }
+        let doc = reply.json().unwrap_or(JsonValue::Null);
+        let grant = grant_from(&doc, self.pace.now_ms()).map_err(|_| RefreshError::Failed("token response is missing access_token or refresh_token".into(), None))?;
+        // A grant naming another organization moves the account to it; its
+        // name is unknown until the next sign-in.
+        let org_changed = grant.org_id.as_ref().is_some_and(|o| Some(o) != disk.org_id.as_ref());
+        let next = OpenCodeGoCredentials {
+            access_token: grant.access_token,
+            refresh_token: grant.refresh_token,
+            expires_at: grant.expires_at,
+            org_id: grant.org_id.clone().or(disk.org_id.clone()),
+            org_name: if org_changed { grant.org_id } else { disk.org_name.clone() },
+            ..disk.clone()
+        };
+        self.file.keep(&[&next.access_token, &next.refresh_token]);
+        let update = match serde_json::to_value(&next) {
+            Ok(JsonValue::Object(map)) => map,
+            _ => return Err(RefreshError::Failed("credential is not an object".into(), None)),
+        };
+        let (spent_access, spent_refresh) = (disk.access_token.clone(), disk.refresh_token.clone());
+        let (spent_account, spent_org) = (disk.account_id, disk.org_id);
+        let published = self
+            .file
+            .replace_if(
+                move |doc| {
+                    doc.get("access_token").and_then(JsonValue::as_str) == Some(&spent_access)
+                        && doc.get("refresh_token").and_then(JsonValue::as_str) == Some(&spent_refresh)
+                        && (!pinned || (doc.get("account_id").and_then(JsonValue::as_str) == spent_account.as_deref()
+                            && doc.get("org_id").and_then(JsonValue::as_str) == spent_org.as_deref()))
+                },
+                update,
+            )
+            .await
+            .map_err(|e| RefreshError::Failed(e.to_string(), None))?;
+        // A sign-in or another refresh replaced the pair meanwhile: it wins.
+        if published {
+            Ok(RefreshAnswer { credential: next, renewed_from: Some(disk.refresh_token) })
+        } else {
+            self.stored().await.map(adopted)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+use crate::oauth::pace::FakePace;
+use crate::oauth::http::testing::Scripted;
+use crate::oauth::http::testing::finish;
+    use super::*;
+    use crate::oauth::CredentialIo;
+
+    const DEVICE: &str = r#"{"device_code":"DC","user_code":"WXYZ","verification_uri_complete":"/device?code=WXYZ","interval":3,"expires_in":900}"#;
+
+    fn stored(access: &str, refresh: &str, expires_at: u64) -> OpenCodeGoCredentials {
+        OpenCodeGoCredentials {
+            access_token: access.into(),
+            refresh_token: refresh.into(),
+            expires_at,
+            account_id: Some("u1".into()),
+            email: None,
+            org_id: Some("o1".into()),
+            org_name: Some("Alpha".into()),
+        }
+    }
+
+    #[test]
+    fn organizations_are_picked_by_id_or_name() {
+        let orgs = json!([{"id": "b", "name": "N"}, {"id": "a", "name": "N"}, {"name": "no id"}]);
+        assert_eq!(pick_organization(&orgs, None).unwrap().unwrap()["id"], "a");
+        assert_eq!(pick_organization(&orgs, Some("b")).unwrap().unwrap()["id"], "b");
+        assert!(pick_organization(&orgs, Some("zz")).is_err());
+        assert!(pick_organization(&json!([]), None).unwrap().is_none());
+    }
+
+    #[test]
+    fn organizations_sort_as_the_locale_does_not_by_bytes() {
+        let orgs = json!([{"id": "1", "name": "Zed"}, {"id": "2", "name": "alpha"}]);
+        assert_eq!(pick_organization(&orgs, None).unwrap().unwrap()["id"], "2");
+    }
+
+    fn store(dir: &tempfile::TempDir) -> CredentialFile {
+        let tokens = mixdog_rt::testing::tokens();
+        CredentialFile::new(
+            dir.path().join("opencode-go-oauth.json"),
+            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
+        )
+    }
+    #[tokio::test]
+    async fn the_device_grant_stores_the_account_and_first_organization() {
+        mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let http = Scripted::new(&[
+            (200, DEVICE),
+            (400, r#"{"error":"slow_down"}"#),
+            (200, r#"{"access_token":"AT","refresh_token":"RT","expires_in":3600}"#),
+            (200, r#"{"id":"u1","email":" Me@X.Y "}"#),
+            (200, r#"[{"id":"o2","name":"Zed"},{"id":"o1","name":"Alpha"}]"#),
+        ]);
+        let pace = Arc::new(FakePace::default());
+        let flow = OpenCodeGoLogin::new(http.clone(), pace.clone(), store(&dir));
+        let session = flow.start().await.unwrap();
+        let states = finish(session.as_ref()).await;
+        assert!(matches!(&states[0], LoginState::DeviceCode { user_code, verification_uri, .. }
+            if user_code == "WXYZ" && verification_uri == "https://opencode.ai/device?code=WXYZ"));
+        assert_eq!(states.last(), Some(&LoginState::Done { account: Some("me@x.y".into()) }));
+        {
+            let seen = http.seen.lock().unwrap();
+            assert_eq!(seen[0].url, "https://opencode.ai/console/auth/device/code");
+            assert_eq!(serde_json::from_slice::<JsonValue>(&seen[2].body).unwrap()["grant_type"], DEVICE_GRANT_TYPE);
+        }
+        assert_eq!(pace.waits.lock().unwrap().iter().map(Duration::as_secs).collect::<Vec<_>>(), [8]);
+        let Probe::Present(saved) = store(&dir).load::<OpenCodeGoCredentials>().await else { panic!("stored") };
+        assert_eq!((saved.org_id.as_deref(), saved.org_name.as_deref()), (Some("o1"), Some("Alpha")));
+        assert_eq!(saved.expires_at, 8_000 + 3_600_000, "expiry counts from the grant");
+    }
+    #[tokio::test]
+    async fn refresh_keeps_the_pair_current_and_adopts_a_newer_one() {
+        mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let file = store(&dir);
+        file.save(&stored("A1", "R1", 1_000)).await.unwrap();
+        let pace = Arc::new(FakePace::default());
+        pace.now.store(2_000, std::sync::atomic::Ordering::SeqCst);
+        let http = Scripted::new(&[(200, r#"{"access_token":"A2","refresh_token":"R2","expires_in":3600,"org_id":"o9"}"#)]);
+        let auth = OpenCodeGoAuth::new(http.clone(), pace.clone(), file.clone());
+        let fresh = auth.ensure_fresh(false).await.unwrap();
+        assert_eq!((fresh.access_token.as_str(), fresh.org_id.as_deref(), fresh.org_name.as_deref()), ("A2", Some("o9"), Some("o9")));
+        assert_eq!(fresh.expires_at, 3_602_000);
+        // Not near expiry: no request is made (the script is empty).
+        assert_eq!(auth.ensure_fresh(false).await.unwrap().access_token, "A2");
+        // A dead grant after another process rotated the pair adopts the newer pair.
+        let held = stored("A2", "R2", 1);
+        let racing = Scripted::new(&[(400, r#"{"error":"invalid_grant"}"#)]);
+        file.save(&stored("A3", "R3", 0)).await.unwrap();
+        let other = OpenCodeGoAuth::new(racing, pace.clone(), file.clone());
+        assert_eq!(other.refresh(held, true, false).await.unwrap().credential.access_token, "A3");
+        // A dead grant with nothing newer asks for a new sign-in.
+        let dead = OpenCodeGoAuth::new(Scripted::new(&[(401, "")]), pace, file);
+        let current = dead.stored().await.unwrap();
+        assert!(matches!(dead.refresh(current, true, false).await, Err(RefreshError::Reauth(..))));
+    }
+
+    #[tokio::test]
+    async fn pinned_refresh_never_adopts_a_different_organization() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = store(&dir);
+        file.save(&stored("A1", "R1", 0)).await.unwrap();
+        let http = Scripted::new(&[(200, r#"{"access_token":"A2","refresh_token":"R2","org_id":"different-org"}"#)]);
+        let auth = OpenCodeGoAuth::new(http.clone(), Arc::new(FakePace::default()), file);
+        let (pinned, first) = auth.pin().await.unwrap();
+        assert!(matches!(pinned.refresh_pinned(&first).await, Err(RefreshError::Reauth(..))));
+        assert_eq!(http.seen.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn proactive_pin_rejects_a_login_replaced_during_refresh() {
+        use crate::transport::{Exchange, HttpResponse, HttpSend};
+        use mixdog_core_api::domain::provider::{ProviderError, WireRequest};
+
+        struct ReplaceDuringPost {
+            file: CredentialFile,
+            replacement: OpenCodeGoCredentials,
+            reply: Arc<Scripted>,
+        }
+
+        #[async_trait]
+        impl HttpSend for ReplaceDuringPost {
+            async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
+                self.file.save(&self.replacement).await.unwrap();
+                self.reply.send(request, exchange).await
+            }
+        }
+
+        for (account, org) in [("u2", "o1"), ("u1", "o2")] {
+            let dir = tempfile::tempdir().unwrap();
+            let file = store(&dir);
+            file.save(&stored("A1", "R1", 1_000)).await.unwrap();
+            let replacement = OpenCodeGoCredentials {
+                account_id: Some(account.into()),
+                org_id: Some(org.into()),
+                ..stored("replacement-access", "replacement-refresh", 0)
+            };
+            let reply = Scripted::new(&[(200, r#"{"access_token":"A2","refresh_token":"R2","expires_in":3600}"#)]);
+            let http = Arc::new(ReplaceDuringPost { file: file.clone(), replacement, reply: reply.clone() });
+            let auth = OpenCodeGoAuth::new(http, Arc::new(FakePace::default()), file);
+
+            assert!(matches!(auth.pin().await, Err(RefreshError::Reauth(_, 401))));
+            let seen = reply.seen.lock().unwrap();
+            assert_eq!(seen.len(), 1);
+            assert_eq!(serde_json::from_slice::<JsonValue>(&seen[0].body).unwrap()["refresh_token"], "R1");
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_refreshes_post_the_refresh_token_once() {
+        mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let file = store(&dir);
+        file.save(&stored("A1", "R1", 1_000)).await.unwrap();
+        let pace = Arc::new(FakePace::default());
+        pace.now.store(2_000, std::sync::atomic::Ordering::SeqCst);
+        let http = Scripted::new(&[(200, r#"{"access_token":"A2","refresh_token":"R2","expires_in":3600}"#)]);
+        let auth = Arc::new(OpenCodeGoAuth::new(http.clone(), pace, file));
+        let calls: Vec<_> = (0..4)
+            .map(|_| {
+                let auth = auth.clone();
+                tokio::spawn(async move { auth.ensure_fresh(false).await })
+            })
+            .collect();
+        for call in calls {
+            assert_eq!(call.await.unwrap().unwrap().access_token, "A2");
+        }
+        assert_eq!(http.seen.lock().unwrap().len(), 1, "one refresh POST");
+    }
+
+
+    /// A Console post and the account reads after a grant, never answered, fail their step after a timer.
+    #[tokio::test(start_paused = true)]
+    async fn console_requests_that_outlive_their_timers_fail_the_step() {
+        let transport = crate::transport::timeout_probe::NeverAnswers::new();
+        let http: Http = transport.clone();
+        let failure = post_json(&http, "/auth/device/token", serde_json::json!({})).await.err().expect("never answers");
+        assert!(matches!(&failure, LoginFailure::Failed { message, .. } if !message.is_empty()), "{failure:?}");
+        transport.assert_each_request_was_bounded(1);
+
+        let transport = crate::transport::timeout_probe::NeverAnswers::new();
+        let http: Http = transport.clone();
+        let grant = Grant { access_token: "a".into(), refresh_token: "r".into(), expires_at: 0, org_id: None };
+        let failure = credentials_for(&http, grant).await.err().expect("never answers");
+        assert!(matches!(&failure, LoginFailure::Failed { message, .. } if !message.is_empty()), "{failure:?}");
+        transport.assert_each_request_was_bounded(1);
+    }
+
+    /// A Console request that outlives its timer reads as the real Node function did (`sites.opencodeConsole`).
+    #[tokio::test(start_paused = true)]
+    async fn a_console_request_that_outlives_its_timer_reads_as_nodes() {
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::login_message;
+
+        let transport = TimingOut::new();
+        let http: Http = transport.clone();
+        let failure = post_json(&http, "/auth/device/token", serde_json::json!({})).await.err().expect("never answers");
+        assert_transport("opencodeConsole", &transport);
+        assert_thrown("opencodeConsole", login_message(&failure));
+    }
+    /// The account reads after a grant are the same Console request (`sites.opencodeConsoleGet`).
+    #[tokio::test(start_paused = true)]
+    async fn a_console_read_that_outlives_its_timer_reads_as_nodes() {
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::login_message;
+
+        let transport = TimingOut::new();
+        let http: Http = transport.clone();
+        let grant = Grant { access_token: "a".into(), refresh_token: "r".into(), expires_at: 0, org_id: None };
+        let failure = credentials_for(&http, grant).await.err().expect("never answers");
+        assert_transport("opencodeConsoleGet", &transport);
+        assert_thrown("opencodeConsoleGet", login_message(&failure));
+    }
+}
+
+
 #[async_trait]
 impl LoginFlow for OpenCodeGoLogin {
     fn target(&self) -> &LoginTarget {
@@ -297,280 +705,5 @@ impl LoginFlow for OpenCodeGoLogin {
             file.save(&credentials).await.map_err(|err| failed("store", err.to_string()))?;
             Ok(credentials.email.clone().or(credentials.account_id.clone()))
         }))
-    }
-}
-
-/// Why a stored credential could not be made usable.
-#[derive(Clone, PartialEq, Eq, Debug, thiserror::Error)]
-pub enum RefreshError {
-    /// The grant is dead or the credential is gone: sign in again.
-    /// With the HTTP status of the answer that said so (Node's `openCodeGoReauthError(detail, status)`).
-    #[error("OpenCode sign-in expired: {0}")]
-    Reauth(String, u16),
-    /// Try again later; the status is that of the answer, when there was one.
-    #[error("{0}")]
-    Failed(String, Option<u16>),
-}
-
-/// The stored credential, refreshed when it is about to expire.
-pub struct OpenCodeGoAuth {
-    http: Http,
-    pace: Arc<dyn Pace>,
-    file: CredentialFile,
-}
-
-impl OpenCodeGoAuth {
-    pub fn new(http: Http, pace: Arc<dyn Pace>, file: CredentialFile) -> Self {
-        Self { http, pace, file }
-    }
-
-    async fn stored(&self) -> Result<OpenCodeGoCredentials, RefreshError> {
-        match self.file.load::<OpenCodeGoCredentials>().await {
-            Probe::Present(credentials) => {
-                self.file.keep(&[&credentials.access_token, &credentials.refresh_token]);
-                Ok(credentials)
-            }
-            Probe::Absent => Err(RefreshError::Reauth("credentials removed".into(), 401)),
-            Probe::Unreadable => Err(RefreshError::Failed("credential file is unreadable".into(), None)),
-        }
-    }
-
-    /// `force` refreshes even a token that is not near expiry (after a 401).
-    pub async fn ensure_fresh(&self, force: bool) -> Result<OpenCodeGoCredentials, RefreshError> {
-        let current = self.stored().await?;
-        if !force && !current.needs_refresh(self.pace.now_ms()) {
-            return Ok(current);
-        }
-        self.refresh(current, force).await
-    }
-
-    /// Concurrent callers on one credential file share a single refresh POST.
-    async fn refresh(&self, held: OpenCodeGoCredentials, force: bool) -> Result<OpenCodeGoCredentials, RefreshError> {
-        let this = Self { http: self.http.clone(), pace: self.pace.clone(), file: self.file.clone() };
-        self.file
-            .refresh_once(async move { this.refresh_unshared(held, force).await })
-            .await
-            .unwrap_or_else(|expired| {
-                Err(RefreshError::Failed(format!("token refresh: request timed out after {}ms", expired.after.as_millis()), None))
-            })
-    }
-
-    async fn refresh_unshared(&self, held: OpenCodeGoCredentials, force: bool) -> Result<OpenCodeGoCredentials, RefreshError> {
-        // Another process racing us spends the token once: the loser is
-        // rejected, re-reads the file and adopts the winner's pair, and the
-        // compare-and-swap below never overwrites a newer pair.
-        let disk = self.stored().await?;
-        let skew = if force { 0 } else { OPENCODE_REFRESH_SKEW_SECS * 1000 };
-        let rotated = disk.access_token != held.access_token || disk.refresh_token != held.refresh_token;
-        if rotated && (disk.expires_at == 0 || disk.expires_at >= self.pace.now_ms() + skew) {
-            return Ok(disk);
-        }
-        let reply = post_json(
-            &self.http,
-            "/auth/device/token",
-            serde_json::json!({"grant_type": "refresh_token", "refresh_token": disk.refresh_token, "client_id": CLIENT_ID}),
-        )
-        .await
-        .map_err(|f| RefreshError::Failed(format!("token refresh: {f:?}"), None))?;
-        if !reply.ok() {
-            if reply.status == 401 || classify_refresh_failure(Some(reply.status), &reply.body) == RefreshFailure::Definitive {
-                // Another process may have rotated the pair while we held the old one.
-                let now = self.stored().await?;
-                if now.refresh_token != disk.refresh_token {
-                    return Ok(now);
-                }
-                return Err(RefreshError::Reauth("refresh rejected".into(), reply.status));
-            }
-            let detail = scrubbed_excerpt(&reply.text(), &[&disk.access_token, &disk.refresh_token], 200);
-            return Err(RefreshError::Failed(format!("token refresh {}: {detail}", reply.status), Some(reply.status)));
-        }
-        let doc = reply.json().unwrap_or(JsonValue::Null);
-        let grant = grant_from(&doc, self.pace.now_ms()).map_err(|_| RefreshError::Failed("token response is missing access_token or refresh_token".into(), None))?;
-        // A grant naming another organization moves the account to it; its
-        // name is unknown until the next sign-in.
-        let org_changed = grant.org_id.as_ref().is_some_and(|o| Some(o) != disk.org_id.as_ref());
-        let next = OpenCodeGoCredentials {
-            access_token: grant.access_token,
-            refresh_token: grant.refresh_token,
-            expires_at: grant.expires_at,
-            org_id: grant.org_id.clone().or(disk.org_id.clone()),
-            org_name: if org_changed { grant.org_id } else { disk.org_name.clone() },
-            ..disk.clone()
-        };
-        self.file.keep(&[&next.access_token, &next.refresh_token]);
-        let update = match serde_json::to_value(&next) {
-            Ok(JsonValue::Object(map)) => map,
-            _ => return Err(RefreshError::Failed("credential is not an object".into(), None)),
-        };
-        let (spent_access, spent_refresh) = (disk.access_token.clone(), disk.refresh_token.clone());
-        let published = self
-            .file
-            .replace_if(
-                move |doc| {
-                    doc.get("access_token").and_then(JsonValue::as_str) == Some(&spent_access)
-                        && doc.get("refresh_token").and_then(JsonValue::as_str) == Some(&spent_refresh)
-                },
-                update,
-            )
-            .await
-            .map_err(|e| RefreshError::Failed(e.to_string(), None))?;
-        // A sign-in or another refresh replaced the pair meanwhile: it wins.
-        if published { Ok(next) } else { self.stored().await }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-use crate::oauth::pace::FakePace;
-use crate::oauth::http::testing::Scripted;
-use crate::oauth::http::testing::finish;
-    use super::*;
-    use crate::oauth::CredentialIo;
-
-    fn store(dir: &tempfile::TempDir) -> CredentialFile {
-        let tokens = mixdog_rt::testing::tokens();
-        CredentialFile::new(
-            dir.path().join("opencode-go-oauth.json"),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        )
-    }
-
-    /// A Console request that outlives its timer reads as the real Node function did (`sites.opencodeConsole`).
-    #[tokio::test(start_paused = true)]
-    async fn a_console_request_that_outlives_its_timer_reads_as_nodes() {
-        use crate::transport::site_probe::TimingOut;
-        use crate::transport::site_probe::assert_thrown;
-        use crate::transport::site_probe::assert_transport;
-        use crate::transport::site_probe::login_message;
-
-        let transport = TimingOut::new();
-        let http: Http = transport.clone();
-        let failure = post_json(&http, "/auth/device/token", serde_json::json!({})).await.err().expect("never answers");
-        assert_transport("opencodeConsole", &transport);
-        assert_thrown("opencodeConsole", login_message(&failure));
-    }
-
-    /// The account reads after a grant are the same Console request (`sites.opencodeConsoleGet`).
-    #[tokio::test(start_paused = true)]
-    async fn a_console_read_that_outlives_its_timer_reads_as_nodes() {
-        use crate::transport::site_probe::TimingOut;
-        use crate::transport::site_probe::assert_thrown;
-        use crate::transport::site_probe::assert_transport;
-        use crate::transport::site_probe::login_message;
-
-        let transport = TimingOut::new();
-        let http: Http = transport.clone();
-        let grant = Grant { access_token: "a".into(), refresh_token: "r".into(), expires_at: 0, org_id: None };
-        let failure = credentials_for(&http, grant).await.err().expect("never answers");
-        assert_transport("opencodeConsoleGet", &transport);
-        assert_thrown("opencodeConsoleGet", login_message(&failure));
-    }
-
-    const DEVICE: &str = r#"{"device_code":"DC","user_code":"WXYZ","verification_uri_complete":"/device?code=WXYZ","interval":3,"expires_in":900}"#;
-
-    #[tokio::test]
-    async fn the_device_grant_stores_the_account_and_first_organization() {
-        mixdog_rt::testing::tokens();
-        let dir = tempfile::tempdir().unwrap();
-        let http = Scripted::new(&[
-            (200, DEVICE),
-            (400, r#"{"error":"slow_down"}"#),
-            (200, r#"{"access_token":"AT","refresh_token":"RT","expires_in":3600}"#),
-            (200, r#"{"id":"u1","email":" Me@X.Y "}"#),
-            (200, r#"[{"id":"o2","name":"Zed"},{"id":"o1","name":"Alpha"}]"#),
-        ]);
-        let pace = Arc::new(FakePace::default());
-        let flow = OpenCodeGoLogin::new(http.clone(), pace.clone(), store(&dir));
-        let session = flow.start().await.unwrap();
-        let states = finish(session.as_ref()).await;
-        assert!(matches!(&states[0], LoginState::DeviceCode { user_code, verification_uri, .. }
-            if user_code == "WXYZ" && verification_uri == "https://opencode.ai/device?code=WXYZ"));
-        assert_eq!(states.last(), Some(&LoginState::Done { account: Some("me@x.y".into()) }));
-        {
-            let seen = http.seen.lock().unwrap();
-            assert_eq!(seen[0].url, "https://opencode.ai/console/auth/device/code");
-            assert_eq!(serde_json::from_slice::<JsonValue>(&seen[2].body).unwrap()["grant_type"], DEVICE_GRANT_TYPE);
-        }
-        assert_eq!(pace.waits.lock().unwrap().iter().map(Duration::as_secs).collect::<Vec<_>>(), [8]);
-        let Probe::Present(saved) = store(&dir).load::<OpenCodeGoCredentials>().await else { panic!("stored") };
-        assert_eq!((saved.org_id.as_deref(), saved.org_name.as_deref()), (Some("o1"), Some("Alpha")));
-        assert_eq!(saved.expires_at, 8_000 + 3_600_000, "expiry counts from the grant");
-    }
-
-    fn stored(access: &str, refresh: &str, expires_at: u64) -> OpenCodeGoCredentials {
-        OpenCodeGoCredentials {
-            access_token: access.into(),
-            refresh_token: refresh.into(),
-            expires_at,
-            account_id: Some("u1".into()),
-            email: None,
-            org_id: Some("o1".into()),
-            org_name: Some("Alpha".into()),
-        }
-    }
-
-    #[tokio::test]
-    async fn refresh_keeps_the_pair_current_and_adopts_a_newer_one() {
-        mixdog_rt::testing::tokens();
-        let dir = tempfile::tempdir().unwrap();
-        let file = store(&dir);
-        file.save(&stored("A1", "R1", 1_000)).await.unwrap();
-        let pace = Arc::new(FakePace::default());
-        pace.now.store(2_000, std::sync::atomic::Ordering::SeqCst);
-        let http = Scripted::new(&[(200, r#"{"access_token":"A2","refresh_token":"R2","expires_in":3600,"org_id":"o9"}"#)]);
-        let auth = OpenCodeGoAuth::new(http.clone(), pace.clone(), file.clone());
-        let fresh = auth.ensure_fresh(false).await.unwrap();
-        assert_eq!((fresh.access_token.as_str(), fresh.org_id.as_deref(), fresh.org_name.as_deref()), ("A2", Some("o9"), Some("o9")));
-        assert_eq!(fresh.expires_at, 3_602_000);
-        // Not near expiry: no request is made (the script is empty).
-        assert_eq!(auth.ensure_fresh(false).await.unwrap().access_token, "A2");
-        // A dead grant after another process rotated the pair adopts the newer pair.
-        let held = stored("A2", "R2", 1);
-        let racing = Scripted::new(&[(400, r#"{"error":"invalid_grant"}"#)]);
-        file.save(&stored("A3", "R3", 0)).await.unwrap();
-        let other = OpenCodeGoAuth::new(racing, pace.clone(), file.clone());
-        assert_eq!(other.refresh(held, true).await.unwrap().access_token, "A3");
-        // A dead grant with nothing newer asks for a new sign-in.
-        let dead = OpenCodeGoAuth::new(Scripted::new(&[(401, "")]), pace, file);
-        let current = dead.stored().await.unwrap();
-        assert!(matches!(dead.refresh(current, true).await, Err(RefreshError::Reauth(..))));
-    }
-
-    #[tokio::test]
-    async fn concurrent_refreshes_post_the_refresh_token_once() {
-        mixdog_rt::testing::tokens();
-        let dir = tempfile::tempdir().unwrap();
-        let file = store(&dir);
-        file.save(&stored("A1", "R1", 1_000)).await.unwrap();
-        let pace = Arc::new(FakePace::default());
-        pace.now.store(2_000, std::sync::atomic::Ordering::SeqCst);
-        let http = Scripted::new(&[(200, r#"{"access_token":"A2","refresh_token":"R2","expires_in":3600}"#)]);
-        let auth = Arc::new(OpenCodeGoAuth::new(http.clone(), pace, file));
-        let calls: Vec<_> = (0..4)
-            .map(|_| {
-                let auth = auth.clone();
-                tokio::spawn(async move { auth.ensure_fresh(false).await })
-            })
-            .collect();
-        for call in calls {
-            assert_eq!(call.await.unwrap().unwrap().access_token, "A2");
-        }
-        assert_eq!(http.seen.lock().unwrap().len(), 1, "one refresh POST");
-    }
-
-    #[test]
-    fn organizations_are_picked_by_id_or_name() {
-        let orgs = json!([{"id": "b", "name": "N"}, {"id": "a", "name": "N"}, {"name": "no id"}]);
-        assert_eq!(pick_organization(&orgs, None).unwrap().unwrap()["id"], "a");
-        assert_eq!(pick_organization(&orgs, Some("b")).unwrap().unwrap()["id"], "b");
-        assert!(pick_organization(&orgs, Some("zz")).is_err());
-        assert!(pick_organization(&json!([]), None).unwrap().is_none());
-    }
-
-    #[test]
-    fn organizations_sort_as_the_locale_does_not_by_bytes() {
-        let orgs = json!([{"id": "1", "name": "Zed"}, {"id": "2", "name": "alpha"}]);
-        assert_eq!(pick_organization(&orgs, None).unwrap().unwrap()["id"], "2");
     }
 }

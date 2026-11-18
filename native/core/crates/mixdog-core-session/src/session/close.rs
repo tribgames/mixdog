@@ -125,7 +125,7 @@ pub(crate) async fn write_detach(threads: &dyn ThreadState, thread: &ThreadId, r
     }
 }
 
-/// `_dropsAgainst(recorder, { expectedGeneration })` (`store.mjs:149-153`): the record's lifecycle outranks a copy
+/// `_dropsAgainst(recorder, { expectedGeneration })` (1.4.5 `session/store/write-admission.mjs` `_shouldDrop`, the same rule; a save that finds no file creates it): the record's lifecycle outranks a copy
 /// issued for an older ownership. A tombstone at least as new as `expected`, or a generation past it (detached and
 /// taken over since), drops the save; a save that names no generation is never dropped.
 pub fn drops_against(recorded: &Map<String, Value>, expected: Option<f64>) -> bool {
@@ -148,40 +148,6 @@ pub enum Saved {
 /// The reason the idle sweep closes with (`markSessionClosed(id, 'idle-sweep', ..)`,
 /// `sweep-row.mjs:136`).
 pub const IDLE_SWEEP_REASON: &str = "idle-sweep";
-
-/// The idle sweep's close (`closeIdleRecord`, `sweep-row.mjs:134-163`): `markSessionClosed` with
-/// `isSessionLive` and `singleAttempt`, which tombstones the record and lands nothing (`null`)
-/// when a runtime holds the session or a commit of it is still landing. Here the thread's own
-/// admission is the one the retention delete uses (`close_for_delete` with its `guard`): in the
-/// one step that closes the thread it re-asks that nothing is running or queued, that nobody is
-/// or ever was attached, that the activity the pass read has not moved and that the sweep is not
-/// shut down; any refusal is `Ok(false)` and nothing changes. The tombstone is then appended as
-/// the thread's last record (the tombstone the close path writes, [`tombstone`]) and the thread
-/// leaves the directory. `Ok(false)` too for a session the catalog does not list.
-pub(crate) async fn close_idle(directory: &super::directory::DirInner, id: &str, guard: super::control::DeleteGuard) -> Result<bool, mixdog_core_api::CoreError> {
-    let id = mixdog_js::js_trim(id);
-    if !super::delete::is_session_id(id) {
-        return Ok(false);
-    }
-    let thread = ThreadId::from(id);
-    let deps = directory.deps().clone();
-    if deps.store.session_meta(&thread).await?.is_none() {
-        return Ok(false);
-    }
-    let abort = mixdog_agent::cancel::Abort::close_session(id, IDLE_SWEEP_REASON);
-    let Ok(hold) = directory.close_for_delete(&thread, &abort, true, Some(guard)).await? else {
-        return Ok(false);
-    };
-    let header = hold.header();
-    let at = deps.clock.now_ms();
-    if !hold.append(directory, tombstone(&header, IDLE_SWEEP_REASON, at)).await {
-        return Ok(false);
-    }
-    // `_logSessionCloseMetric`, once the tombstone is acknowledged.
-    deps.deletion.session_closed(id, IDLE_SWEEP_REASON, &header, at);
-    deps.deletion.release_mcp_scope(id);
-    Ok(true)
-}
 
 /// What a close does to a thread's work: the shells it owns are cancelled
 /// (`cancelOwnedShellProcesses`, before the runtime entry is cleared so a close cannot orphan a
@@ -263,6 +229,8 @@ impl SessionClose {
             }
         }
         self.teardown(&thread, reason).await;
+        // A closed conversation ends its "Allow for this session" grants.
+        self.directory.deps().session_grants.forget(session_id);
         true
     }
 
@@ -338,109 +306,48 @@ pub(super) fn is_worker(header: &Map<String, Value>) -> bool {
     header.get("owner").map(mixdog_js::value_to_string).is_some_and(|owner| mixdog_js::js_trim(&owner).eq_ignore_ascii_case("agent"))
 }
 
-/// Teardown's `closeOwnSession` (`teardown/session-close.mjs:42-60`): the session a runtime holds is closed with the
-/// stop's reason, tombstoned while it is an empty scratch session and detached otherwise. A worker session is not
-/// the runtime's own: the agents' close already detached it, and it gets no second bump.
-#[async_trait::async_trait]
-impl super::directory::ExitClose for SessionClose {
-    async fn close_on_exit(&self, thread: &ThreadId, reason: &str) {
-        let header = match self.threads.header(thread).await {
-            Ok(header) if is_worker(&header) => return,
-            Ok(header) => header,
-            Err(PortError::NotFound { .. }) => return,
-            Err(error) => {
-                tracing::warn!("[session-close] {thread}: its header could not be read at exit: {error:?}");
-                return;
-            }
-        };
-        let committed = match mixdog_core_ports::ports::memory_source::ThreadMessages::messages(&self.threads, thread).await {
-            Ok(messages) => messages,
-            Err(PortError::NotFound { .. }) => return,
-            Err(error) => {
-                tracing::warn!("[session-close] {thread}: its messages could not be read at exit: {error:?}");
-                return;
-            }
-        };
-        // `close(reason)` dispatches `SessionEnd` before `closeOwnSession` (`teardown.mjs:185-187`, `dispatchSessionEnd`: waited
-        // for no longer than 300 ms, a slower hook goes on by itself). The close below marks the actor closed, and the close
-        // work of a closed session fires none, so the exit's `SessionEnd` fires here, once (`session_ended`). A session
-        // already tombstoned has none to end (`if (!session?.id) return`). The payload's reason is `sessionEndReason(reason)` of
-        // the stop's own reason: `exit` for a signal or a shutdown, `other` for e.g. `no live session clients`.
-        if header.get("closed") != Some(&Value::Bool(true))
-            && let Some(handle) = self.directory.handle(thread)
-            && !handle.cell.session_ended.swap(true, std::sync::atomic::Ordering::SeqCst)
-        {
-            let (hooks, ended_thread, end_reason) = (self.directory.deps().lifecycle.clone(), thread.clone(), mixdog_mcp::hooks::session_end_reason(reason));
-            let ended = tokio::spawn(async move { hooks.session_end(&ended_thread, &header, end_reason).await });
-            let _ = mixdog_rt::time::timeout(super::lifecycle_hooks::SESSION_END_WAIT, ended).await;
-        }
-        let live: Vec<Value> = self.directory.handle(thread).map(|handle| (**handle.cell.turn_messages.borrow()).clone()).unwrap_or_default();
-        let closed = if super::thread_switches::is_scratch(thread.as_str(), &committed, &live) {
-            self.close(thread.as_str(), reason).await
-        } else {
-            self.detach(thread.as_str(), reason, false).await
-        };
-        if !closed {
-            tracing::warn!("[session-close] {thread}: not closed at exit (reason={reason})");
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// An open record drops a save issued for an older generation only; a closed one drops it at an equal generation too; a save
+    /// that names no generation is never dropped; a record with no generation stands at 0.
+    #[test]
+    fn a_save_is_dropped_by_a_record_that_moved_past_its_generation() {
+        let record = |generation: Option<f64>, closed: bool| {
+            let mut record = Map::new();
+            if let Some(generation) = generation {
+                record.insert("generation".into(), json!(generation));
+            }
+            if closed {
+                record.insert("closed".into(), json!(true));
+            }
+            record
+        };
+        // (record generation, closed, expected generation, dropped)
+        let rows: [(Option<f64>, bool, Option<f64>, bool); 14] = [
+            (Some(2.0), false, None, false),
+            (Some(2.0), false, Some(1.0), true),
+            (Some(2.0), false, Some(2.0), false),
+            (Some(2.0), false, Some(3.0), false),
+            (Some(2.0), true, None, false),
+            (Some(2.0), true, Some(1.0), true),
+            (Some(2.0), true, Some(2.0), true),
+            (Some(2.0), true, Some(3.0), false),
+            (None, false, Some(0.0), false),
+            (None, false, Some(-1.0), true),
+            (None, true, Some(0.0), true),
+            (None, true, Some(1.0), false),
+            (None, false, None, false),
+            (None, true, None, false),
+        ];
+        for (generation, closed, expected, dropped) in rows {
+            assert_eq!(drops_against(&record(generation, closed), expected), dropped, "generation {generation:?}, closed {closed}, expected {expected:?}");
+        }
+    }
+
     fn obj(value: Value) -> Map<String, Value> {
         value.as_object().cloned().expect("an object")
-    }
-
-    /// Node's recording of the session store's barriers and save fence, read when the test runs (4.4 MB: every step
-    /// holds the whole stored header, system prompt included).
-    fn twin() -> Value {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-lifecycle/twin.json");
-        serde_json::from_str(&std::fs::read_to_string(path).expect("twin.json")).expect("twin.json")
-    }
-
-    /// Node's recorded barriers (`bumpSessionGenerationAttempt`, `markSessionClosedAttempt`) over the real session
-    /// store: each step leaves the whole stored header the Rust fields make from the same header and clock.
-    #[test]
-    fn the_barriers_leave_what_node_recorded() {
-        let twin = twin();
-        let cases = twin["barriers"].as_array().expect("barriers");
-        assert_eq!(cases.len(), 7);
-        for case in cases {
-            let name = case["name"].as_str().expect("name");
-            let steps = case["steps"].as_array().expect("steps");
-            let mut header = obj(steps[0]["before"].clone());
-            for (index, step) in steps.iter().enumerate() {
-                let now = step["clock"].as_i64().expect("clock");
-                let (reason, op) = (step["reason"].as_str().expect("reason"), step["op"].as_str().expect("op"));
-                assert_eq!(header, obj(step["before"].clone()), "{name} step {index}: the header the step starts from");
-                let fields = match op {
-                    "detach" => detach_fields(&header, reason, step["ownerClose"] == json!(true), now),
-                    _ => tombstone(&header, reason, now),
-                };
-                header.extend(fields);
-                assert_eq!(header, obj(step["after"].clone()), "{name} step {index} ({op} {reason})");
-                assert_eq!(header["generation"], step["generation"], "{name} step {index}: the generation the barrier resolves");
-            }
-        }
-    }
-
-    /// `_dropsAgainst` over Node's recorded saves: the same record and expected generation drop or land alike.
-    #[test]
-    fn a_stale_save_is_refused_as_node_refuses_it() {
-        let twin = twin();
-        let cases = twin["fence"].as_array().expect("fence");
-        assert_eq!(cases.len(), 16);
-        let mut refused = 0;
-        for case in cases {
-            let recorded = obj(json!({ "generation": case["recorded"]["generation"], "closed": case["recorded"]["closed"] }));
-            let dropped = drops_against(&recorded, case["expected"].as_f64());
-            assert_eq!(dropped, case["dropped"] == json!(true), "{} expected {}", case["state"], case["expected"]);
-            refused += usize::from(dropped);
-        }
-        assert_eq!(refused, 5, "a refused save is in the recording");
     }
 
     /// A thread header kept in memory, written the way the session actor writes it: a patch lands only while its
@@ -512,5 +419,141 @@ mod tests {
         assert_eq!((cancel["cancelStatus"].clone(), cancel["cancelledAt"].clone(), cancel["generation"].clone()), (json!("cancelled"), json!(7), json!(1)));
         let kept = tombstone(&obj(json!({ "closed": true, "updatedAt": 40, "cancelStatus": "Cancel pending" })), "cli-agent-close", 99);
         assert_eq!((kept["cancelStatus"].clone(), kept["cancelledAt"].clone()), (json!("cancel-unconfirmed"), json!(40)));
+    }
+
+
+    #[cfg(node_twin)]
+    /// Node's recording of the session store's barriers and save fence, read when the test runs (4.4 MB: every step
+    /// holds the whole stored header, system prompt included).
+    fn twin() -> Value {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-lifecycle/twin.json");
+        serde_json::from_str(&std::fs::read_to_string(path).expect("twin.json")).expect("twin.json")
+    }
+    #[cfg(node_twin)]
+    /// Node's recorded barriers (`bumpSessionGenerationAttempt`, `markSessionClosedAttempt`) over the real session
+    /// store: each step leaves the whole stored header the Rust fields make from the same header and clock.
+    #[test]
+    fn the_barriers_leave_what_node_recorded() {
+        let twin = twin();
+        let cases = twin["barriers"].as_array().expect("barriers");
+        assert_eq!(cases.len(), 7);
+        for case in cases {
+            let name = case["name"].as_str().expect("name");
+            let steps = case["steps"].as_array().expect("steps");
+            let mut header = obj(steps[0]["before"].clone());
+            for (index, step) in steps.iter().enumerate() {
+                let now = step["clock"].as_i64().expect("clock");
+                let (reason, op) = (step["reason"].as_str().expect("reason"), step["op"].as_str().expect("op"));
+                assert_eq!(header, obj(step["before"].clone()), "{name} step {index}: the header the step starts from");
+                let fields = match op {
+                    "detach" => detach_fields(&header, reason, step["ownerClose"] == json!(true), now),
+                    _ => tombstone(&header, reason, now),
+                };
+                header.extend(fields);
+                assert_eq!(header, obj(step["after"].clone()), "{name} step {index} ({op} {reason})");
+                assert_eq!(header["generation"], step["generation"], "{name} step {index}: the generation the barrier resolves");
+            }
+        }
+    }
+    #[cfg(node_twin)]
+    /// `_dropsAgainst` over Node's recorded saves: the same record and expected generation drop or land alike.
+    #[test]
+    fn a_stale_save_is_refused_as_node_refuses_it() {
+        let twin = twin();
+        let cases = twin["fence"].as_array().expect("fence");
+        assert_eq!(cases.len(), 16);
+        let mut refused = 0;
+        for case in cases {
+            let recorded = obj(json!({ "generation": case["recorded"]["generation"], "closed": case["recorded"]["closed"] }));
+            let dropped = drops_against(&recorded, case["expected"].as_f64());
+            assert_eq!(dropped, case["dropped"] == json!(true), "{} expected {}", case["state"], case["expected"]);
+            refused += usize::from(dropped);
+        }
+        assert_eq!(refused, 5, "a refused save is in the recording");
+    }
+}
+
+
+/// The idle sweep's close (`closeIdleRecord`, `sweep-row.mjs:134-163`): `markSessionClosed` with
+/// `isSessionLive` and `singleAttempt`, which tombstones the record and lands nothing (`null`)
+/// when a runtime holds the session or a commit of it is still landing. Here the thread's own
+/// admission is the one the retention delete uses (`close_for_delete` with its `guard`): in the
+/// one step that closes the thread it re-asks that nothing is running or queued, that nobody is
+/// or ever was attached, that the activity the pass read has not moved and that the sweep is not
+/// shut down; any refusal is `Ok(false)` and nothing changes. The tombstone is then appended as
+/// the thread's last record (the tombstone the close path writes, [`tombstone`]) and the thread
+/// leaves the directory. `Ok(false)` too for a session the catalog does not list.
+pub(crate) async fn close_idle(directory: &super::directory::DirInner, id: &str, guard: super::control::DeleteGuard) -> Result<bool, mixdog_core_api::CoreError> {
+    let id = mixdog_js::js_trim(id);
+    if !super::delete::is_session_id(id) {
+        return Ok(false);
+    }
+    let thread = ThreadId::from(id);
+    let deps = directory.deps().clone();
+    if deps.store.session_meta(&thread).await?.is_none() {
+        return Ok(false);
+    }
+    let abort = mixdog_agent::cancel::Abort::close_session(id, IDLE_SWEEP_REASON);
+    let Ok(hold) = directory.close_for_delete(&thread, &abort, true, Some(guard)).await? else {
+        return Ok(false);
+    };
+    let header = hold.header();
+    let at = deps.clock.now_ms();
+    if !hold.append(directory, tombstone(&header, IDLE_SWEEP_REASON, at)).await {
+        return Ok(false);
+    }
+    // `_logSessionCloseMetric`, once the tombstone is acknowledged.
+    deps.deletion.session_closed(id, IDLE_SWEEP_REASON, &header, at);
+    deps.deletion.release_mcp_scope(id);
+    deps.session_grants.forget(id);
+    Ok(true)
+}
+
+
+/// Teardown's `closeOwnSession` (`teardown/session-close.mjs:42-60`): the session a runtime holds is closed with the
+/// stop's reason, tombstoned while it is an empty scratch session and detached otherwise. A worker session is not
+/// the runtime's own: the agents' close already detached it, and it gets no second bump.
+#[async_trait::async_trait]
+impl super::directory::ExitClose for SessionClose {
+    async fn close_on_exit(&self, thread: &ThreadId, reason: &str) {
+        let header = match self.threads.header(thread).await {
+            Ok(header) if is_worker(&header) => return,
+            Ok(header) => header,
+            Err(PortError::NotFound { .. }) => return,
+            Err(error) => {
+                tracing::warn!("[session-close] {thread}: its header could not be read at exit: {error:?}");
+                return;
+            }
+        };
+        let committed = match mixdog_core_ports::ports::memory_source::ThreadMessages::messages(&self.threads, thread).await {
+            Ok(messages) => messages,
+            Err(PortError::NotFound { .. }) => return,
+            Err(error) => {
+                tracing::warn!("[session-close] {thread}: its messages could not be read at exit: {error:?}");
+                return;
+            }
+        };
+        // `close(reason)` dispatches `SessionEnd` before `closeOwnSession` (`teardown.mjs:185-187`, `dispatchSessionEnd`: waited
+        // for no longer than 300 ms, a slower hook goes on by itself). The close below marks the actor closed, and the close
+        // work of a closed session fires none, so the exit's `SessionEnd` fires here, once (`session_ended`). A session
+        // already tombstoned has none to end (`if (!session?.id) return`). The payload's reason is `sessionEndReason(reason)` of
+        // the stop's own reason: `exit` for a signal or a shutdown, `other` for e.g. `no live session clients`.
+        if header.get("closed") != Some(&Value::Bool(true))
+            && let Some(handle) = self.directory.handle(thread)
+            && !handle.cell.session_ended.swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            let (hooks, ended_thread, end_reason) = (self.directory.deps().lifecycle.clone(), thread.clone(), mixdog_mcp::hooks::session_end_reason(reason));
+            let ended = tokio::spawn(async move { hooks.session_end(&ended_thread, &header, end_reason).await });
+            let _ = mixdog_rt::time::timeout(super::lifecycle_hooks::SESSION_END_WAIT, ended).await;
+        }
+        let live: Vec<Value> = self.directory.handle(thread).map(|handle| (**handle.cell.turn_messages.borrow()).clone()).unwrap_or_default();
+        let closed = if super::thread_switches::is_scratch(thread.as_str(), &committed, &live) {
+            self.close(thread.as_str(), reason).await
+        } else {
+            self.detach(thread.as_str(), reason, false).await
+        };
+        if !closed {
+            tracing::warn!("[session-close] {thread}: not closed at exit (reason={reason})");
+        }
     }
 }

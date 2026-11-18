@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { _runIdleReclaimForTest } from './idle-reclaim.ts';
 
 import {
   fetchSessionDiff,
@@ -11,6 +12,7 @@ import {
   answerSessionDiffSignal,
   answeredSessionDiffSignal,
   sessionDiffRevision,
+  sameSessionDiff,
   SESSION_DIFF_CACHE_MAX_CHARS,
 } from './session-diff-cache.ts';
 
@@ -79,12 +81,67 @@ test('N change signals during one in-flight read cause exactly one follow-up rea
   assert.equal(peekSessionDiff('cache-burst').patch, 'fresh');
 });
 
+test('a file slice comes from the settled result while a re-read is still running', async () => {
+  const gate = deferred();
+  globalThis.window = { mixdogDesktop: { invokeCapability: () => gate.promise } };
+  primeSessionDiff('cache-slice', { ...RESULT });
+  const reread = fetchSessionDiff('cache-slice', { force: true });
+  const standalone = fetchSessionDiffFilePatch('cache-slice', 'src/owned.ts');
+  const slice = await fetchSessionDiffFilePatchResult('cache-slice', { id: 'src/owned.ts', path: 'src/owned.ts' });
+  assert.equal(slice.patch, PATCH);
+  // The re-read settles as a new revision (what makes the list ask for its slices again), and the file it no longer
+  // lists has no slice from then on.
+  const before = sessionDiffRevision('cache-slice');
+  gate.resolve({ value: { supported: true, files: [], patch: '' } });
+  await reread;
+  assert.equal(await standalone, '', 'a standalone file joins the refresh rather than showing the old list revision');
+  assert.ok(sessionDiffRevision('cache-slice') > before);
+  assert.equal((await fetchSessionDiffFilePatchResult('cache-slice', { id: 'src/owned.ts', path: 'src/owned.ts' })).patch, '');
+  releaseSessionDiff('cache-slice');
+});
+
 test('no follow-up read when no signal arrived during the read', async () => {
   const calls = [];
   stubBackend(calls);
   await fetchSessionDiff('cache-quiet', { force: true });
   await fetchSessionDiff('cache-quiet');
   assert.equal(calls.length, 1);
+});
+
+test('matching patch length and digest cannot substitute an older file or parsed rows', async (t) => {
+  // Force a collision in the digest without depending on a particular hash seed.
+  t.mock.method(Math, 'imul', () => 0);
+  const old = { ...RESULT };
+  const newer = { ...RESULT, patch: PATCH.replace('+new', '+now') };
+  let reply = old;
+  globalThis.window = { mixdogDesktop: { invokeCapability: async () => ({ value: reply }) } };
+  await fetchSessionDiff('collision');
+  reply = newer;
+  await fetchSessionDiff('collision', { force: true });
+  assert.equal(sameSessionDiff(old, newer), false);
+  assert.equal(await fetchSessionDiffFilePatch('collision', 'src/owned.ts'), newer.patch);
+});
+
+test('reopening after idle reclaim joins an outstanding refresh and receives the complete result', async () => {
+  const gate = deferred();
+  let reads = 0;
+  globalThis.window = {
+    mixdogDesktop: {
+      invokeCapability: () => {
+        reads += 1;
+        return gate.promise;
+      },
+    },
+  };
+  primeSessionDiff('reopen', { supported: true, files: [], patch: '' });
+  const refresh = fetchSessionDiff('reopen', { force: true });
+  _runIdleReclaimForTest();
+  assert.equal(peekSessionDiff('reopen'), null);
+  const reopened = fetchSessionDiff('reopen');
+  gate.resolve({ value: RESULT });
+  assert.deepEqual(await Promise.all([refresh, reopened]), [RESULT, RESULT]);
+  assert.equal(reads, 1);
+  assert.equal(peekSessionDiff('reopen'), RESULT);
 });
 
 test('a settled result answers without a round-trip unless forced', async () => {

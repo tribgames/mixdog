@@ -6,6 +6,7 @@
 #![allow(clippy::result_large_err, reason = "ProviderError is the contract's error type")]
 
 pub mod listing;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod listing_tests;
 
@@ -30,6 +31,7 @@ use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
 use serde_json::Value;
 use serde_json::json;
+use tokio_util::sync::CancellationToken;
 
 use self::listing::InstalledModels;
 use self::listing::LocalListing;
@@ -123,6 +125,14 @@ pub struct Endpoint {
 /// One request's turn in the runtime's request queue with its inference measurement (`beginLocalInference`): the slot is held
 /// until this is dropped.
 pub trait Inference: Send + Sync {
+    /// The managed slot's stop token, shared by startup and the active exchange.
+    fn startup_cancel(&self) -> Option<CancellationToken> {
+        None
+    }
+    /// Stop waits for the active attempt to drop its body and release this lock.
+    fn attempt_cleanup(&self) -> Option<Arc<tokio::sync::Mutex<()>>> {
+        None
+    }
     /// A stream event of visible progress: the first one is the first response.
     fn progress(&self, kind: &str);
     /// The request ended: the usage it reported and the failure that ended it, if any.
@@ -134,7 +144,10 @@ pub trait Inference: Send + Sync {
 #[async_trait]
 pub trait LocalRuntime: InstalledModels {
     /// `ensureLocalProviderServer(model)`.
-    async fn ensure_server(&self, model: &str) -> Result<Endpoint, ProviderError>;
+    async fn ensure_server(&self, model: &str, cancel: Option<CancellationToken>) -> Result<Endpoint, ProviderError>;
+
+    /// The loaded server has now had a chance to report what its template actually supports.
+    fn supports_tools(&self, model: &str) -> Option<bool>;
 
     /// `runLocalProviderRequest` and `beginLocalInference(model, queuedAt)`: waits for the request slot (one request at a
     /// time, in the order they arrived; the wait is measured from this call), then starts the measurement.
@@ -214,6 +227,12 @@ impl ProviderAdapter for RegisteredAdapter {
         &self.keepalive
     }
 
+    /// The managed local runtime is text-only (1.4.5 `MixdogLocalProvider.takesImages = false`): it declares no vision, so no
+    /// image is sent to it.
+    async fn image_route(&self, request: &ModelRequest) -> mixdog_image_egress::route::RouteFacts {
+        mixdog_image_egress::route::RouteFacts::declared(self.id.as_str(), &request.model, mixdog_image_egress::route::WireBranch::Local, mixdog_image_egress::route::Vision::No)
+    }
+
     /// `MixdogLocalProvider.send`: the request takes its turn in the runtime's queue (`runLocalProviderRequest`), starts its
     /// measurement, brings the server up and sends; the slot is held until the answer's stream has ended. Node holds the
     /// slot around the whole inner send, retries included: the attempts of one send group share one slot and one
@@ -231,15 +250,56 @@ impl ProviderAdapter for RegisteredAdapter {
                 state
             }
         };
-        let endpoint = match self.runtime.ensure_server(&request.model).await {
+        let stop = state.inference.startup_cancel();
+        let cleanup = match (state.inference.attempt_cleanup(), &stop) {
+            (Some(cleanup), Some(stop)) => Some(tokio::select! {
+                biased;
+                _ = stop.cancelled() => return Err(stopped(DeliveryState::NotSent)),
+                guard = cleanup.lock_owned() => guard,
+            }),
+            (Some(cleanup), None) => Some(cleanup.lock_owned().await),
+            (None, _) => None,
+        };
+        if stop.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            return Err(stopped(DeliveryState::NotSent));
+        }
+        let endpoint = match self.runtime.ensure_server(&request.model, stop.clone()).await {
             Ok(endpoint) => endpoint,
             Err(error) => {
                 state.failed(&error.message);
                 return Err(error);
             }
         };
-        match self.inner_for(endpoint).attempt(request).await {
-            Ok(stream) => Ok(Box::new(Measured { inner: stream, state, group: group.map(|id| (id, self.groups.clone())), usage: None, ended: false })),
+        if !request.tools.is_empty() && self.runtime.supports_tools(&request.model) == Some(false) {
+            let row = self.runtime.installed_now();
+            let name = row.as_ref().and_then(|rows| rows.iter().find(|row| row["id"].as_str() == Some(request.model.as_str())))
+                .and_then(|row| row["name"].as_str()).unwrap_or(&request.model);
+            let error = refusal(&format!(
+                "[local-provider] {name} does not support the requested tool interface. Choose a tool-capable model.",
+            ));
+            state.failed(&error.message);
+            return Err(error);
+        }
+        let adapter = self.inner_for(endpoint);
+        let opened = match &stop {
+            Some(stop) => tokio::select! {
+                biased;
+                _ = stop.cancelled() => Err(stopped(DeliveryState::Ambiguous)),
+                result = adapter.attempt(request) => result,
+            },
+            None => adapter.attempt(request).await,
+        };
+        match opened {
+            Ok(stream) => {
+                let measured = Measured {
+                    inner: stream, state, group: group.map(|id| (id, self.groups.clone())),
+                    usage: None, ended: false, _cleanup: cleanup,
+                };
+                match stop {
+                    Some(stop) => Ok(Box::new(Interruptible::new(measured, stop))),
+                    None => Ok(Box::new(measured)),
+                }
+            }
             Err(error) => {
                 state.failed(&error.message);
                 Err(error)
@@ -273,6 +333,12 @@ impl ProviderAdapter for RegisteredAdapter {
     fn input_excludes_cache(&self) -> Option<bool> {
         Some(false)
     }
+}
+
+fn stopped(delivery: DeliveryState) -> ProviderError {
+    let mut error = ProviderError::new(ErrorKind::InvalidRequest, delivery);
+    error.message = "aborted".into();
+    error
 }
 
 type Groups = Arc<Mutex<HashMap<String, Arc<SendState>>>>;
@@ -329,6 +395,8 @@ struct Measured {
     usage: Option<(u64, u64)>,
     /// The attempt ended on its own, answered or failed.
     ended: bool,
+    // Drop the body before releasing the cleanup lock.
+    _cleanup: Option<tokio::sync::OwnedMutexGuard<()>>,
 }
 
 impl Measured {
@@ -383,11 +451,86 @@ impl Drop for Measured {
     }
 }
 
-/// `getCachedModelInfo`: `installedLocalProviderModels().find(entry => entry.id === model) || null`.
-impl crate::catalog::CachedModelInfo for RegisteredAdapter {
-    fn cached_row(&self, model: &str) -> Option<Arc<Value>> {
-        self.runtime.installed_now()?.into_iter().find(|row| row.get("id").and_then(Value::as_str) == Some(model)).map(Arc::new)
+type ReadItem = Option<Result<StreamEvent, ProviderError>>;
+type ReadReply = tokio::sync::oneshot::Sender<ReadItem>;
+
+/// The worker owns the body even when its consumer never polls it. Reads still follow consumer demand.
+struct Interruptible {
+    read: Option<tokio::sync::mpsc::Sender<ReadReply>>,
+    pending: Option<tokio::sync::oneshot::Receiver<ReadItem>>,
+    _leaving: tokio_util::sync::DropGuard,
+    stop: CancellationToken,
+    delivery: DeliveryState,
+}
+
+impl Interruptible {
+    fn new(mut stream: Measured, stop: CancellationToken) -> Self {
+        let delivery = stream.delivery();
+        let (read, mut reads) = tokio::sync::mpsc::channel::<ReadReply>(1);
+        let lifetime = stop.child_token();
+        let leaving = lifetime.clone().drop_guard();
+        let stopped = stop.clone();
+        tokio::spawn(async move {
+            loop {
+                let reply = tokio::select! {
+                    biased;
+                    _ = lifetime.cancelled() => break,
+                    reply = reads.recv() => reply,
+                };
+                let Some(reply) = reply else { break };
+                let item = tokio::select! {
+                    biased;
+                    _ = lifetime.cancelled() => break,
+                    item = stream.next() => item,
+                };
+                let ended = !matches!(&item, Some(Ok(event)) if !matches!(event, StreamEvent::Completed { .. }));
+                if reply.send(item).is_err() || ended {
+                    break;
+                }
+            }
+            if stopped.is_cancelled() && !stream.ended {
+                stream.ended = true;
+                stream.state.end(stream.usage, Some("aborted"));
+            }
+        });
+        Self { read: Some(read), pending: None, _leaving: leaving, stop, delivery }
     }
+}
+
+#[async_trait]
+impl ModelStream for Interruptible {
+    async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+        if self.pending.is_none() {
+            let (reply, received) = tokio::sync::oneshot::channel();
+            if self.read.as_ref()?.send(reply).await.is_err() {
+                self.read = None;
+                return self.stop.is_cancelled().then(|| Err(stopped(self.delivery)));
+            }
+            // The stream, not one poll of next(), owns the event in flight.
+            self.pending = Some(received);
+        }
+        let received = self.pending.as_mut().expect("one read is in flight").await;
+        self.pending = None;
+        match received {
+            Ok(item) => {
+                if !matches!(&item, Some(Ok(event)) if !matches!(event, StreamEvent::Completed { .. })) {
+                    self.read = None;
+                }
+                item
+            }
+            Err(_) => {
+                self.read = None;
+                self.stop.is_cancelled().then(|| Err(stopped(self.delivery)))
+            }
+        }
+    }
+
+    fn delivery(&self) -> DeliveryState {
+        self.delivery
+    }
+
+    // The local HTTP decoder is a leaf: no asynchronous work follows its terminal event.
+    fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
 }
 
 /// The adapter for the endpoint the managed runtime reported for this turn.
@@ -414,6 +557,78 @@ pub fn adapter(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn stopping_an_unpolled_stream_drops_the_body() {
+        struct NoInference;
+        impl Inference for NoInference {
+            fn progress(&self, _: &str) {}
+            fn finish(&self, _: Option<u64>, _: Option<u64>, _: Option<&str>) {}
+        }
+        struct Held(Option<tokio::sync::oneshot::Sender<()>>);
+        impl Drop for Held {
+            fn drop(&mut self) {
+                let _ = self.0.take().unwrap().send(());
+            }
+        }
+        #[async_trait]
+        impl ModelStream for Held {
+            async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+                std::future::pending().await
+            }
+            fn delivery(&self) -> DeliveryState { DeliveryState::Accepted }
+            fn on_wire_left(&mut self, _: Arc<dyn Fn() + Send + Sync>) {}
+        }
+        let (dropped, released) = tokio::sync::oneshot::channel();
+        let stop = CancellationToken::new();
+        let mut stream = Interruptible::new(Measured {
+            inner: Box::new(Held(Some(dropped))), state: Arc::new(SendState::new(Box::new(NoInference), false)),
+            group: None, usage: None, ended: false, _cleanup: None,
+        }, stop.clone());
+        stop.cancel();
+        released.await.unwrap();
+        assert_eq!(stream.next().await.unwrap().unwrap_err().message, "aborted");
+        assert!(stream.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn dropping_one_next_keeps_the_event_for_the_next_poll() {
+        struct NoInference;
+        impl Inference for NoInference {
+            fn progress(&self, _: &str) {}
+            fn finish(&self, _: Option<u64>, _: Option<u64>, _: Option<&str>) {}
+        }
+        struct PausedRead {
+            entered: Arc<tokio::sync::Notify>,
+            resume: Arc<tokio::sync::Notify>,
+        }
+        #[async_trait]
+        impl ModelStream for PausedRead {
+            async fn next(&mut self) -> ReadItem {
+                self.entered.notify_one();
+                self.resume.notified().await;
+                Some(Ok(StreamEvent::TextDelta("still here".into())))
+            }
+            fn delivery(&self) -> DeliveryState { DeliveryState::Accepted }
+            fn on_wire_left(&mut self, _: Arc<dyn Fn() + Send + Sync>) {}
+        }
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let resume = Arc::new(tokio::sync::Notify::new());
+        let mut stream = Interruptible::new(Measured {
+            inner: Box::new(PausedRead { entered: entered.clone(), resume: resume.clone() }),
+            state: Arc::new(SendState::new(Box::new(NoInference), false)),
+            group: None, usage: None, ended: false, _cleanup: None,
+        }, CancellationToken::new());
+        let mut read = Box::pin(stream.next());
+        tokio::select! {
+            biased;
+            _ = &mut read => panic!("read was not paused"),
+            _ = entered.notified() => {},
+        }
+        drop(read);
+        resume.notify_one();
+        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::TextDelta(text))) if text == "still here"));
+    }
+
     #[test]
     fn instructions_merge_to_one_leading_system_message() {
         let mut body = json!({"messages": [
@@ -438,5 +653,68 @@ mod tests {
     fn non_text_instructions_are_refused() {
         let mut body = json!({"messages": [{"role": "system", "content": [{"type": "image_url"}]}]});
         assert!(merge_instructions(&mut body).is_err());
+    }
+
+    #[tokio::test]
+    async fn a_tool_refusal_learned_during_cold_start_prevents_the_post() {
+        use mixdog_core_api::domain::provider::{Content, Message, Role, ToolDefinition};
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        struct Cold(AtomicBool);
+        impl Inference for Cold {
+            fn progress(&self, _: &str) {}
+            fn finish(&self, _: Option<u64>, _: Option<u64>, _: Option<&str>) {}
+        }
+        #[async_trait]
+        impl InstalledModels for Cold {
+            async fn installed(&self) -> Result<Vec<Value>, ProviderError> {
+                Ok(Vec::new())
+            }
+        }
+        #[async_trait]
+        impl LocalRuntime for Cold {
+            async fn ensure_server(&self, _: &str, _: Option<CancellationToken>) -> Result<Endpoint, ProviderError> {
+                self.0.store(true, Ordering::SeqCst);
+                Ok(Endpoint { base_url: "http://127.0.0.1/v1".into(), api_key: String::new() })
+            }
+            async fn begin(&self, _: &str) -> Result<Box<dyn Inference>, ProviderError> {
+                Ok(Box::new(Self(AtomicBool::new(false))))
+            }
+            fn installed_now(&self) -> Option<Vec<Value>> {
+                None
+            }
+            fn supports_tools(&self, _: &str) -> Option<bool> {
+                self.0.load(Ordering::SeqCst).then_some(false)
+            }
+        }
+
+        let http = Arc::new(crate::providers::listing_row::testing::Replay::new(|_| (400, b"{}".to_vec())));
+        let runtime = Arc::new(Cold(AtomicBool::new(false)));
+        let adapter = RegisteredAdapter::new(http.clone(), runtime.clone());
+        let mut request = ModelRequest {
+            model: "cold".into(),
+            messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
+            tools: vec![ToolDefinition {
+                name: "read".into(), description: "Read".into(), input_schema: json!({"type":"object","properties":{}}),
+                defer_loading: false, freeform: None,
+            }],
+            options: Default::default(),
+        };
+        let error = adapter.attempt(Arc::new(request.clone())).await.err().expect("tools refused");
+        assert_eq!(error.delivery, DeliveryState::NotSent);
+        assert!(error.message.contains("does not support the requested tool interface"));
+        assert!(http.requests.lock().unwrap().is_empty());
+
+        request.tools.clear();
+        let _ = adapter.attempt(Arc::new(request)).await;
+        assert_eq!(http.requests.lock().unwrap().len(), 1, "a text-only request still reaches Chat Completions");
+    }
+}
+
+
+/// `getCachedModelInfo`: `installedLocalProviderModels().find(entry => entry.id === model) || null`.
+impl crate::catalog::CachedModelInfo for RegisteredAdapter {
+    fn cached_row(&self, model: &str) -> Option<Arc<Value>> {
+        self.runtime.installed_now()?.into_iter().find(|row| row.get("id").and_then(Value::as_str) == Some(model)).map(Arc::new)
     }
 }

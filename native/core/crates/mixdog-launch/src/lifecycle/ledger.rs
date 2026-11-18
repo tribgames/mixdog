@@ -144,20 +144,6 @@ pub(super) fn locked<R: Send + 'static>(paths: &Paths, wait: Wait, body: impl Fn
     answer
 }
 
-/// [`locked`] for a caller on an executor: the wait is a sleep, not a block of the thread.
-pub(super) async fn locked_async<R: Send + 'static>(paths: &Paths, body: impl FnOnce() -> R + Send + 'static) -> Option<R> {
-    let (receive, hold) = hold(paths, Wait::TwoSeconds, body);
-    let answer = loop {
-        match receive.try_recv() {
-            Ok(answer) => break answer,
-            Err(mpsc::TryRecvError::Empty) => mixdog_rt::time::sleep(POLL).await,
-            Err(mpsc::TryRecvError::Disconnected) => break None,
-        }
-    };
-    drop(hold);
-    answer
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -263,4 +249,19 @@ mod tests {
         assert_eq!(holder.join().unwrap(), Some(()));
         assert_eq!(locked(&paths, Wait::Never, || 1), Some(1));
     }
+}
+
+
+/// [`locked`] for a caller on an executor: the wait is a sleep, not a block of the thread.
+pub(super) async fn locked_async<R: Send + 'static>(paths: &Paths, body: impl FnOnce() -> R + Send + 'static) -> Option<R> {
+    let (receive, hold) = hold(paths, Wait::TwoSeconds, body);
+    let answer = loop {
+        match receive.try_recv() {
+            Ok(answer) => break answer,
+            Err(mpsc::TryRecvError::Empty) => mixdog_rt::time::sleep(POLL).await,
+            Err(mpsc::TryRecvError::Disconnected) => break None,
+        }
+    };
+    drop(hold);
+    answer
 }

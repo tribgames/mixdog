@@ -9,12 +9,12 @@ use tokio_util::sync::CancellationToken;
 
 use super::log;
 use super::quality::{Generation, Generated, InvalidChunk, Row, assess_chunk_quality, generate_cycle1_chunks};
-use super::requests::spawn_work;
+use super::requests::spawn_in;
 use super::rows::{Plan, is_structurally_unchunkable, mark_omitted_rows, mark_terminal_rows, select_root_id};
 use super::{Cycle1Llm, Cycle1Request, CycleEmbeddings};
 use crate::memory::error::{MemoryError, Result};
 use crate::memory::ingest::NowMs;
-use crate::memory::pg::db::Db;
+use crate::memory::pg::db::{Db, transaction};
 
 /// The timing block of a window: the generator's stats plus the commit time.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -64,8 +64,7 @@ pub struct WindowEnv {
 /// the root carries the category and the other members point at it.
 async fn commit_chunk(env: &WindowEnv, chunk: &super::quality::Chunk, root_id: i64, member_ids: &[i64]) -> Result<()> {
     let project_id = infer_chunk_project_id(&chunk.members);
-    let mut client = env.db.client().await?;
-    let tx = client.transaction().await?;
+    transaction(&env.db, async |tx| {
     let locked = tx
         .query("SELECT id, ts, role, content, session_id, chunk_root FROM entries WHERE id = ANY($1::bigint[]) FOR UPDATE", &[&member_ids])
         .await?;
@@ -88,8 +87,9 @@ async fn commit_chunk(env: &WindowEnv, chunk: &super::quality::Chunk, root_id: i
     if !non_root.is_empty() {
         tx.execute("UPDATE entries SET chunk_root = $1, project_id = $2 WHERE id = ANY($3::bigint[])", &[&root_id, &project_id, &non_root]).await?;
     }
-    tx.commit().await?;
     Ok(())
+    })
+    .await
 }
 
 struct Committed {
@@ -137,7 +137,7 @@ async fn commit_generated(env: &WindowEnv, generated: Generated, cancel: &Cancel
                 // Real-time embedding: fire and forget, so dense recall sees the root without
                 // waiting for the end-of-cycle flush.
                 let (embeddings, cancel) = (Arc::clone(&env.embeddings), cancel.clone());
-                spawn_work("memory-cycle-root-embed", async move {
+                let _embedding = spawn_in(env.db.scope(), "memory-cycle-root-embed", async move {
                     if let Err(error) = embeddings.sync_root(root_id, &cancel).await {
                         log(&format!("[cycle1] realtime embed failed (root={root_id}): {error}\n"));
                     }

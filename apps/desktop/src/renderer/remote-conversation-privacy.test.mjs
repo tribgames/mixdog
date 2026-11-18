@@ -70,6 +70,7 @@ test('desktop still persists conversation content', () => {
 test('remote startup clears legacy conversation caches but keeps settings', () => {
   const local = fakeStorage({
     'mixdog.desktop-session-catalog.v1:scope:remote%3Ax': '{}',
+    'mixdog.remote-app-cache@https%3A%2F%2Frelay.example/pc': '{"rows":[{"title":"private"}]}',
     'mixdog.desktop.prompt-history.v1:s1': '[]',
     'mixdog.studio-draft.v1': '{}',
     'mixdog.remote-token': 'keep',

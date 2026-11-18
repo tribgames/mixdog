@@ -18,6 +18,7 @@ use async_trait::async_trait;
 use mixdog_ai::broker::{ModelProxyTransport, ProxyError};
 use mixdog_app_protocol::v2::host::{ModelProxyResult, ModelProxyRunEventParams, ModelProxyRunParams};
 use mixdog_app_protocol::v2::model_proxy as w;
+use mixdog_core_api::host::lost_after_dispatch;
 use mixdog_core_api::ids::{ConnectionId, Method};
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::{Caller, ConnectionNotifier, CoreError, CoreRequest, DomainService, HostCapability, HostChannel, HostError, Reply, model_proxy_unavailable_text};
@@ -42,6 +43,36 @@ pub struct HostProxyTransport {
     pub host: Arc<dyn HostChannel>,
 }
 
+/// What a session send that no PC took up tells the user: a PC whose app predates the session owner's checks of the
+/// prompt cache does not know the call and never claims it, and nothing of it was sent.
+pub const SESSION_SEND_NOT_CLAIMED: &str = "The app on your PC is too old to send this request, so nothing was sent; update the app on your PC.";
+
+/// The `model/proxy/tail` notification that carries the session owner's verdicts to the PC.
+const TAIL: Method = Method("model/proxy/tail");
+
+/// The answer of one `model/proxy/execute`; `not_claimed` is what a call no PC took up reads as.
+fn answered(reply: Result<Value, HostError>, not_claimed: Option<&str>) -> Result<Value, ProxyError> {
+    match reply {
+        Ok(mut result) => {
+            let answer = result.get_mut("result").map(Value::take).unwrap_or(Value::Null);
+            match answer.get("result").and_then(Value::as_str) {
+                Some("failed") => Err(ProxyError::Remote(answer.get("failure").cloned().unwrap_or(Value::Null))),
+                _ => Ok(answer),
+            }
+        }
+        Err(HostError::Rpc { data, message, .. }) => Err(ProxyError::Remote(data.unwrap_or(Value::String(message)))),
+        Err(HostError::Core(ref error @ CoreError::CapabilityUnavailable { ref detail, .. })) => {
+            let (text, sent) = match not_claimed {
+                Some(text) if &**detail == mixdog_core_api::host::NOT_CLAIMED => (text, false),
+                // A PC that claimed the call, then closed, timed out or stopped vouching for it, may have sent it.
+                _ => (model_proxy_unavailable_text(error), lost_after_dispatch(detail) || &**detail == mixdog_core_api::host::LEASE_LAPSED),
+            };
+            Err(if sent { ProxyError::Lost(text.to_owned()) } else { ProxyError::Unavailable(text.to_owned()) })
+        }
+        Err(HostError::Core(_)) => Err(ProxyError::Cancelled),
+    }
+}
+
 #[async_trait]
 impl ModelProxyTransport for HostProxyTransport {
     async fn execute(&self, call: Value, events: &mut (dyn FnMut(Value) + Send), cancel: &CancellationToken) -> Result<Value, ProxyError> {
@@ -52,18 +83,18 @@ impl ModelProxyTransport for HostProxyTransport {
             () = cancel.cancelled() => return Err(ProxyError::Cancelled),
             reply = request => reply,
         };
-        match reply {
-            Ok(mut result) => {
-                let answer = result.get_mut("result").map(Value::take).unwrap_or(Value::Null);
-                match answer.get("result").and_then(Value::as_str) {
-                    Some("failed") => Err(ProxyError::Remote(answer.get("failure").cloned().unwrap_or(Value::Null))),
-                    _ => Ok(answer),
-                }
-            }
-            Err(HostError::Rpc { data, message, .. }) => Err(ProxyError::Remote(data.unwrap_or(Value::String(message)))),
-            Err(HostError::Core(error @ CoreError::CapabilityUnavailable { .. })) => Err(ProxyError::Unavailable(model_proxy_unavailable_text(&error).to_owned())),
-            Err(HostError::Core(_)) => Err(ProxyError::Cancelled),
-        }
+        answered(reply, None)
+    }
+
+    /// A session send: the owner's verdicts go back to the PC running the call as `model/proxy/tail`.
+    async fn execute_duplex(&self, call: Value, events: &mut (dyn FnMut(Value) + Send), back: tokio::sync::mpsc::UnboundedReceiver<Value>, cancel: &CancellationToken) -> Result<Value, ProxyError> {
+        let request = self.host.request_streamed_duplex(HostCapability::ModelProxy, EXECUTE, json!({ "call": call }), events, TAIL, back);
+        let reply = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return Err(ProxyError::Cancelled),
+            reply = request => reply,
+        };
+        answered(reply, Some(SESSION_SEND_NOT_CLAIMED))
     }
 }
 

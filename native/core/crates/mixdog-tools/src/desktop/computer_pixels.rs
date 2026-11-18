@@ -494,25 +494,6 @@ mod tests {
         assert_eq!(message(bad), "screen must be an integer from 0 to 0");
     }
 
-    /// A reply that is not what was asked, whole and shaped, is refused and leaves no frame.
-    #[test]
-    fn a_reply_that_is_not_the_display_asked_for_is_refused() {
-        let refused = |edit: &dyn Fn(&mut Value), blob: Blobs| {
-            let mut bad = reply();
-            edit(&mut bad);
-            let frames = FrameStore::default();
-            let error = run(capture_display(&Desktop::new(displays(), bad), &blob, &frames, None, &command(json!({"screen": 1})), &CancellationToken::new())).unwrap_err();
-            assert!(frames.lookup(None, std::time::Instant::now()).unwrap().is_none());
-            message(error)
-        };
-        assert!(refused(&|r| r["source"]["displayId"] = json!("11"), blobs()).contains("of another display"));
-        assert!(refused(&|r| r["blob"]["byteLength"] = json!(5), blobs()).contains("not the length"));
-        assert!(refused(&|r| r["blob"]["mimeType"] = json!("image/gif"), blobs()).contains("neither JPEG nor PNG"));
-        assert!(refused(&|r| r["captureHeight"] = json!(100), blobs()).starts_with("coordinate_mismatch"));
-        assert!(refused(&|r| r["captureWidth"] = json!(0), blobs()).contains("no size"));
-        assert!(refused(&|_| {}, Blobs::default()).starts_with("no blob"));
-    }
-
     /// The host's refusals: its own code and text, a desktop without the method as `Unavailable`.
     #[test]
     fn the_hosts_refusals_keep_their_codes() {
@@ -531,5 +512,25 @@ mod tests {
         let request = pixels_request(&display, 1000, 70, Some([10, 20, 300, 200]));
         assert_eq!(request["region"], json!({"x": 10, "y": 20, "width": 300, "height": 200}));
         assert!(pixels_request(&display, 1000, 70, None).get("region").is_none());
+    }
+
+
+    /// A reply that is not what was asked, whole and shaped, is refused and leaves no frame.
+    #[test]
+    fn a_reply_that_is_not_the_display_asked_for_is_refused() {
+        let refused = |edit: &dyn Fn(&mut Value), blob: Blobs| {
+            let mut bad = reply();
+            edit(&mut bad);
+            let frames = FrameStore::default();
+            let error = run(capture_display(&Desktop::new(displays(), bad), &blob, &frames, None, &command(json!({"screen": 1})), &CancellationToken::new())).unwrap_err();
+            assert!(frames.lookup(None, std::time::Instant::now()).unwrap().is_none());
+            message(error)
+        };
+        assert!(refused(&|r| r["source"]["displayId"] = json!("11"), blobs()).contains("of another display"));
+        assert!(refused(&|r| r["blob"]["byteLength"] = json!(5), blobs()).contains("not the length"));
+        assert!(refused(&|r| r["blob"]["mimeType"] = json!("image/gif"), blobs()).contains("neither JPEG nor PNG"));
+        assert!(refused(&|r| r["captureHeight"] = json!(100), blobs()).starts_with("coordinate_mismatch"));
+        assert!(refused(&|r| r["captureWidth"] = json!(0), blobs()).contains("no size"));
+        assert!(refused(&|_| {}, Blobs::default()).starts_with("no blob"));
     }
 }

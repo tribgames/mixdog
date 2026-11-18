@@ -1,23 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  requiredDesktopCapabilityReadRequests,
-  requiredDesktopCapabilityRequest,
-  requiredGitBranchName,
-  requiredModelSelection,
-  requiredNewTaskDraft,
-  requiredSubmitOptions,
-  requiredTextFileEncoding,
-  requiredVisualizeTabCommand,
-  requiredConversationNotificationSetting,
-  requiredDesktopSettingKey,
-  requiredNotificationDeviceId,
-  requiredNotificationPreferencesPatch,
-  requiredNotificationTarget,
-  requiredTranscriptHistoryRequest,
-  requiredTranscriptItemLimit,
-} from './ipc-validation.ts';
+import { requiredGitBranchName, requiredModelSelection, requiredNewTaskDraft, requiredSubmitOptions, requiredTextFileEncoding, requiredVisualizeTabCommand, requiredConversationNotificationSetting, requiredDesktopSettingKey, requiredNotificationDeviceId, requiredNotificationPreferencesPatch, requiredNotificationTarget, requiredTranscriptHistoryRequest, requiredTranscriptItemLimit } from './ipc-validation.ts';
+import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-capability-request.ts';
 
 test('a shared transcript window retains at most 8,192 rows; deeper history is read by position', () => {
   assert.equal(requiredTranscriptItemLimit(null), undefined);

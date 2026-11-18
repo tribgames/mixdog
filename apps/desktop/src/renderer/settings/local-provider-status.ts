@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { record } from '../record-utils';
-import { useSection } from '../section-store';
 import type { RecordValue } from './capability-data';
 
 export function localProviderFileSize(bytes: unknown): string {
@@ -28,10 +27,8 @@ export function installationPercent(installation: RecordValue): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : null;
 }
 
-/** Installation progress is the core's `toolModules` section (`localProvider`), pushed on every change; it is the only
- *  source, so it never waits for the pending installation command and a slow download never blocks it. */
-export function useLocalProviderStatus(): RecordValue {
-  const pushed = record(useSection<RecordValue>('toolModules')).localProvider;
-  return useMemo(() => record(pushed), [pushed]);
+/** Progress comes from the same feature-state entry as the header switch. */
+export function useLocalProviderStatus(entry?: unknown): RecordValue {
+  return useMemo(() => record(entry), [entry]);
 }
 

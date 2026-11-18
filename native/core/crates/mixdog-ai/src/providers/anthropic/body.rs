@@ -199,6 +199,9 @@ pub(crate) struct BuiltBody {
     pub bytes: Vec<u8>,
     /// The body's diagnostic prefix fingerprint (`anthropicPrefixFingerprint(params)`).
     pub prefix: super::prefix_trace::Fingerprint,
+    /// The body as sent, for a request whose transcript a cache owner judges: its cache layout is read off it on the bulk
+    /// CPU lane (hashing a long transcript takes tens of milliseconds), not on the encoder's caller.
+    pub layout: Option<serde_json::Map<String, Value>>,
     pub betas: BetaFeatures,
 }
 
@@ -883,11 +886,13 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
         body.insert("stream".into(), Value::Bool(true));
     }
     let prefix = super::prefix_trace::fingerprint(&body);
-    let bytes = serde_json::to_vec(&Value::Object(body))
-        .map_err(|e| local_error(format!("request body is not serialisable: {e}")))?;
+    let bytes = serde_json::to_vec(&body).map_err(|e| local_error(format!("request body is not serialisable: {e}")))?;
+    // The map being sent is kept, only for a request a cache owner judges: its cache layout is read off it later.
+    let layout = request.options.tail_gate.is_some().then_some(body);
     Ok(BuiltBody {
         bytes,
         prefix,
+        layout,
         betas: BetaFeatures {
             fast_mode: fast,
             tool_search: request.tools.iter().any(|t| t.defer_loading),

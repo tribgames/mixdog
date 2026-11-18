@@ -30,7 +30,7 @@ export function sshProgressSteps(
 function stepLabel(key: StepKey): string {
   if (key === 'connect') return t('Reach the server');
   if (key === 'check') return t('Check the server');
-  if (key === 'install') return t('Install Mixdog');
+  if (key === 'install') return t('Install the app');
   return t('Connect');
 }
 
@@ -162,7 +162,7 @@ export function SshForwardsDialog({
       viewKey="forwards"
       title={t('Port forwards in your ssh config')}
       description={t(
-        'Your ssh config forwards ports for {{name}}, and Mixdog could not set them aside for this connection. If you continue, these forwards also run while connected:',
+        'Your ssh config forwards ports for {{name}}, and the app could not set them aside for this connection. If you continue, these forwards also run while connected:',
         { name }
       )}
       role="alertdialog"
@@ -203,15 +203,15 @@ export function SshDaemonDialog({
 }) {
   return (
     <ConfirmDialog
-      title={view.busy ? t('Restart Mixdog on the server?') : t('Stop Mixdog on the server?')}
+      title={view.busy ? t('Restart the app on the server?') : t('Stop the app on the server?')}
       description={
         view.busy
           ? t(
-              '{{name}} runs a Mixdog of another version that is working or has other PCs connected. To connect from this PC it must be restarted, and its running work stops and other PCs are disconnected.',
+              '{{name}} runs another version of the app that is working or has other PCs connected. To connect from this PC it must be restarted, and its running work stops and other PCs are disconnected.',
               { name }
             )
           : t(
-              'Another Mixdog (pid {{pid}}) is running on its own on {{name}}. To connect from this PC it must be stopped, and the work running in it stops too.',
+              'Another copy of the app (process {{pid}}) is running on its own on {{name}}. To connect from this PC it must be stopped, and the work running in it stops too.',
               { pid: view.pid ?? 0, name }
             )
       }
@@ -222,6 +222,9 @@ export function SshDaemonDialog({
   );
 }
 
+/** The failures a clean-up of the server resolves: an older version that is there and cannot be replaced or stopped. */
+const CLEANABLE = new Set(['protocol-mismatch', 'daemon-stop', 'daemon-replace']);
+
 /** Why the connection stopped, with what to run to fix it. */
 export function SshFailureDialog({
   view,
@@ -231,6 +234,7 @@ export function SshFailureDialog({
   onViewLog,
   onClose,
   onRetry,
+  onCleanUp,
 }: {
   view: Extract<View, { kind: 'failure' }>;
   name: string;
@@ -239,6 +243,8 @@ export function SshFailureDialog({
   onViewLog(): void;
   onClose(): void;
   onRetry(): void;
+  /** Offered when an older version is left on the server that clearing it can resolve. */
+  onCleanUp?(): void;
 }) {
   const { title, description, body } = guidance(view.failure, name);
   return (
@@ -253,6 +259,11 @@ export function SshFailureDialog({
           {hasLog && (
             <button type="button" className="conn-link" onClick={onViewLog}>
               {t('View log')}
+            </button>
+          )}
+          {onCleanUp && CLEANABLE.has(view.failure.kind) && (
+            <button type="button" className="conn-link" onClick={onCleanUp}>
+              {t('Clean up the server…')}
             </button>
           )}
           <span className="conn-grow" />

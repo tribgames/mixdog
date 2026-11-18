@@ -1,15 +1,25 @@
 //! `describe_oauth` against Node's `describe*OAuthCredentials` (fixtures/oauth-describe/golden.json),
 //! key order included: the rows are agent- and UI-visible JSON.
 
+#[cfg(node_twin)]
 use serde_json::Value;
 
 use super::oauth_status::describe_oauth;
+#[cfg(node_twin)]
 use super::oauth_status::oauth_available;
 
+#[test]
+fn only_the_ten_providers_are_described() {
+    assert_eq!(describe_oauth("unknown", None, 0), None);
+    assert!(describe_oauth("cursor-oauth", None, 0).is_some());
+}
+
+
+#[cfg(node_twin)]
 fn golden() -> Value {
     serde_json::from_str(include_str!("../../../../../fixtures/oauth-describe/golden.json")).unwrap()
 }
-
+#[cfg(node_twin)]
 #[test]
 fn every_description_equals_nodes_from_the_loaded_document() {
     let golden = golden();
@@ -28,13 +38,7 @@ fn every_description_equals_nodes_from_the_loaded_document() {
         );
     }
 }
-
-#[test]
-fn only_the_ten_providers_are_described() {
-    assert_eq!(describe_oauth("unknown", None, 0), None);
-    assert!(describe_oauth("cursor-oauth", None, 0).is_some());
-}
-
+#[cfg(node_twin)]
 #[test]
 fn a_dev_only_provider_is_listed_only_while_its_stored_option_is_true() {
     let golden = golden();

@@ -18,6 +18,12 @@ use super::turn_host::{MemberLabel, RoomRecord, TurnState};
 use super::turn_post::post_failures;
 
 #[cfg(test)]
+mod feature_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(test)]
 mod tests;
 
 /// One supervisor step as the Maintainer sees it (`RoomSupervisorInput`): `rows` are the rows it
@@ -81,6 +87,17 @@ impl CallRunner for ExchangeRunner {
     async fn cut_off(&self, room_id: &str) {
         if let Some(host) = self.hosts.host(room_id) {
             host.cut_off().await;
+        }
+    }
+
+    async fn stop_work(&self, room_id: &str, session: &str, submissions: &[String]) -> Result<(), String> {
+        let host = self.hosts.host(room_id).ok_or_else(|| format!("room {room_id} is gone"))?;
+        host.stop_work(session, submissions).await
+    }
+
+    fn latch_work(&self, room_id: &str, session: &str, submissions: &[String]) {
+        if let Some(host) = self.hosts.host(room_id) {
+            host.latch_work(session, submissions);
         }
     }
 }
@@ -243,8 +260,9 @@ impl ExchangeHost for Session {
         }
     }
 
-    /// One supervisor step: nobody is typing while it decides; a failed or unusable answer is
-    /// logged and falls back (`None`).
+    /// One supervisor step: nobody is typing while it decides, and the room says so (`Activity::Deciding`, already the state
+    /// the previous turn's end left it in), so the band stays through the hand-off; a failed or unusable answer is logged
+    /// and falls back (`None`).
     async fn decide(&self, input: &DecideInput) -> Option<Decision> {
         let host = &self.host;
         self.state.stop_speaking();

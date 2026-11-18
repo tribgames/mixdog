@@ -55,12 +55,17 @@ fn family_of_label(label: &str) -> Option<&str> {
 
 enum Scope<'a> {
     Models(Vec<String>),
+    /// The named models minus a separately metered subset.
+    ModelsExcept(Vec<String>, &'a [String]),
     Except(&'a [String]),
 }
 
 fn window_scope(window: &Window) -> Option<Scope<'_>> {
     if let Some(models) = &window.models {
-        return Some(Scope::Models(models.clone()));
+        return Some(match window.except.as_deref().filter(|e| !e.is_empty()) {
+            Some(except) if !models.is_empty() => Scope::ModelsExcept(models.clone(), except),
+            _ => Scope::Models(models.clone()),
+        });
     }
     if let Some(except) = window.except.as_deref().filter(|e| !e.is_empty()) {
         return Some(Scope::Except(except));
@@ -100,12 +105,34 @@ pub fn quota_window_applies_to_model(window: &Window, model: &str) -> bool {
         None => true,
         Some(_) if model.is_empty() => false,
         Some(Scope::Models(tokens)) => names_model(model, &tokens),
+        Some(Scope::ModelsExcept(tokens, except)) => names_model(model, &tokens) && !names_model(model, except),
         Some(Scope::Except(tokens)) => !names_model(model, tokens),
     }
 }
 
 fn windows_of(usage: &Option<Usage>) -> &[Window] {
     usage.as_ref().map_or(&[], |u| u.windows.as_slice())
+}
+
+/// The window label an Anthropic unified rate-limit claim names
+/// (`five_hour` → `5H`, `seven_day` → `7D`, `seven_day_opus` → `7D Opus`).
+fn claim_label(limit: &str) -> Option<String> {
+    match limit {
+        "five_hour" => Some("5H".to_owned()),
+        "seven_day" => Some("7D".to_owned()),
+        _ => {
+            let rest = limit.strip_prefix("seven_day_").filter(|r| !r.is_empty())?;
+            let mut chars = rest.chars();
+            let first = chars.next()?;
+            Some(format!("7D {}{}", first.to_uppercase(), chars.as_str().replace('_', " ")))
+        }
+    }
+}
+
+/// The single family a block's claim names (`seven_day_opus` → `Opus`), even when no reading shows its window.
+fn claim_family(block: &Block) -> Option<String> {
+    let label = claim_label(block.blocked_limit.as_deref()?)?;
+    family_of_label(&label).map(str::to_owned)
 }
 
 /// The meters a block stands for: the windows of the limit the refusal named,
@@ -121,6 +148,10 @@ fn block_windows<'a>(usage: &'a Option<Usage>, block: &Block) -> Vec<&'a Window>
         if !named.is_empty() {
             return named;
         }
+    }
+    // A named claim is never guessed from the earned model: its own window, or no known meter.
+    if let Some(label) = claim_label(limit) {
+        return windows.iter().filter(|w| js_trim(&w.label).eq_ignore_ascii_case(&label)).collect();
     }
     let earned = js_trim(block.blocked_model.as_deref().unwrap_or(""));
     if earned.is_empty() {
@@ -153,10 +184,18 @@ pub fn block_evidence_windows<'a>(usage: &'a Option<Usage>, block: &Block) -> Ve
 /// meter. With no scoped meter to attribute it to, the block is account-wide.
 fn block_applies_to_model(usage: &Option<Usage>, block: &Block, model: &str) -> bool {
     let earned = js_trim(block.blocked_model.as_deref().unwrap_or(""));
-    if earned.is_empty() || model.is_empty() || earned == model {
+    if model.is_empty() {
         return true;
     }
     let windows = block_windows(usage, block);
+    if windows.is_empty()
+        && let Some(family) = claim_family(block)
+    {
+        return names_model(model, &[family]);
+    }
+    if earned.is_empty() || earned == model {
+        return true;
+    }
     windows.is_empty() || windows.iter().any(|w| quota_window_applies_to_model(w, model))
 }
 
@@ -170,8 +209,34 @@ pub fn account_blocked_until(row: &Account, model: &str) -> Option<i64> {
         .max()
 }
 
+/// The provider states credit left in the window: its rounded percent reading full is then a display figure, not
+/// exhaustion evidence. The percent itself is kept as observed.
+fn states_remaining(window: &Window) -> bool {
+    window.extra.get(super::model::REMAINING).and_then(serde_json::Value::as_f64).is_some_and(|left| left > 0.0)
+}
+
+pub(super) fn has_room_reading(row: &Account, now: i64, model: &str) -> bool {
+    row.usage.as_ref().is_some_and(|usage| {
+        quota_reading_fresh(usage.checked_at, now)
+            && usage.windows.iter().any(|w| {
+                w.binding != Some(false) && quota_window_applies_to_model(w, model)
+                    && (states_remaining(w) || w.used_pct.is_some_and(|percent| percent < 100.0))
+                    && w.reset_at.is_none_or(|reset| reset == 0 || reset > now)
+            })
+    })
+}
+
+pub(super) fn quota_block_expired(row: &Account, now: i64, model: &str) -> bool {
+    row.blocks().iter().any(|block| {
+        block.blocked_quota == Some(true) && block.blocked_until <= now
+            && block_applies_to_model(&row.usage, block, model)
+    })
+}
+
 fn window_full(row: &Account, window: &Window, now: i64) -> bool {
     window.used_pct.is_some_and(|p| p >= 100.0)
+        && !states_remaining(window)
+        && window.binding != Some(false)
         && match window.reset_at.filter(|r| *r != 0) {
             Some(reset) => reset > now,
             None => now - row.usage.as_ref().map_or(0, |u| u.checked_at) < FULL_WINDOW_FRESH_MS,
@@ -219,6 +284,8 @@ pub fn accounts_reset_at(rows: &[Account], now: i64, model: &str, use_credits: b
         if !use_credits {
             for window in windows_of(&row.usage) {
                 if !window.used_pct.is_some_and(|p| p >= 100.0)
+                    || states_remaining(window)
+                    || window.binding == Some(false)
                     || !quota_window_applies_to_model(window, model)
                 {
                     continue;
@@ -269,16 +336,15 @@ pub enum Limit {
 /// Which limit currently holds the account, independent of any one model.
 pub fn account_limit(row: &Account, now: i64, use_credits: bool) -> Option<Limit> {
     let windows = windows_of(&row.usage);
-    let covering: Vec<Vec<&Window>> = row
-        .blocks()
+    let blocks = row.blocks();
+    let covering: Vec<(Vec<&Window>, Option<String>)> = blocks
         .iter()
         .filter(|b| b.blocked_until > now)
-        .map(|b| block_windows(&row.usage, b))
+        .map(|b| (block_windows(&row.usage, b), claim_family(b)))
         .collect();
-    if covering
-        .iter()
-        .any(|meters| meters.is_empty() || meters.iter().any(|w| !is_scoped(w)))
-    {
+    if covering.iter().any(|(meters, family)| {
+        (meters.is_empty() && family.is_none()) || meters.iter().any(|w| !is_scoped(w))
+    }) {
         return Some(Limit::Account);
     }
     if !use_credits && windows.iter().any(|w| !is_scoped(w) && window_full(row, w, now)) {
@@ -290,8 +356,13 @@ pub fn account_limit(row: &Account, now: i64, use_credits: bool) -> Option<Limit
             families.push(family);
         }
     };
-    for window in covering.iter().flatten() {
-        add(window_family(window));
+    for (meters, family) in &covering {
+        for window in meters {
+            add(window_family(window));
+        }
+        if meters.is_empty() && let Some(family) = family {
+            add(family.clone());
+        }
     }
     if !use_credits {
         for window in windows {
@@ -420,6 +491,23 @@ mod tests {
     }
 
     #[test]
+    fn a_spent_keyed_gemini_bucket_gates_gemini_but_not_unrelated_or_separately_metered_models() {
+        let gemini = Window {
+            models: Some(vec!["gemini".into()]),
+            except: Some(vec!["argon".into()]),
+            ..win("5H", 100.0, Some(NOW + 5))
+        };
+        assert!(quota_window_applies_to_model(&gemini, "gemini-3-flash-high"));
+        assert!(!quota_window_applies_to_model(&gemini, "claude-opus-4"));
+        assert!(!quota_window_applies_to_model(&gemini, "gpt-oss-120b"));
+        assert!(!quota_window_applies_to_model(&gemini, "gemini-4-argon"));
+        let acct = row("a", vec![gemini], NOW);
+        assert!(account_exhausted(&acct, NOW, "gemini-3-flash-high", false));
+        assert!(!account_exhausted(&acct, NOW, "claude-opus-4", false));
+        assert!(!account_exhausted(&acct, NOW + 6, "gemini-3-flash-high", false), "recovers at the reset");
+    }
+
+    #[test]
     fn a_full_scoped_window_is_a_model_limit_not_an_account_limit() {
         let acct = row("a", vec![win("5H", 10.0, None), win("7D Fable", 100.0, Some(NOW + 5))], NOW);
         assert!(account_exhausted(&acct, NOW, "fable-1", false));
@@ -477,6 +565,25 @@ mod tests {
         pool.set_policy(Policy::Headroom);
         let excluded: HashSet<String> = ["b".to_owned()].into();
         assert_eq!(choose_account(&pool, &excluded, NOW, "", Some("b")).map(|r| r.id.as_str()), Some("c"));
+    }
+
+    #[test]
+    fn a_family_claim_refusal_holds_only_its_family_and_a_shared_claim_holds_all() {
+        let claim = |limit: &str| Block {
+            blocked_until: NOW + 10,
+            blocked_model: Some("claude-opus-4".into()),
+            blocked_limit: Some(limit.into()),
+            ..Block::default()
+        };
+        // No reading at all: the claim alone attributes the refusal.
+        let mut acct = row("a", vec![], NOW);
+        acct.set_blocks(vec![claim("seven_day_opus")]);
+        assert!(account_exhausted(&acct, NOW, "claude-opus-4", false));
+        assert!(!account_exhausted(&acct, NOW, "claude-sonnet-4", false));
+        assert_eq!(account_limit(&acct, NOW, false), Some(Limit::Model(vec!["Opus".into()])));
+        acct.set_blocks(vec![claim("five_hour")]);
+        assert!(account_exhausted(&acct, NOW, "claude-sonnet-4", false));
+        assert_eq!(account_limit(&acct, NOW, false), Some(Limit::Account));
     }
 
     #[test]

@@ -87,7 +87,7 @@ impl<'a> DocxWriter<'a> {
     }
 
     /// `append(text, style, properties)`: one paragraph, stamped with the East Asian face beside the face it names.
-    pub fn append(&mut self, written: Option<String>, style: &str, properties: Props) {
+    pub(crate) fn append(&mut self, written: Option<String>, style: &str, properties: Props) {
         let Some(written) = written.filter(|inner| !inner.is_empty()) else { return };
         self.state.paragraph += 1;
         let east_asia = self.ty.east_asia_for(properties.get("name"));

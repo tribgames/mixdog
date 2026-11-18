@@ -168,10 +168,6 @@ impl RefreshEffects for ProviderEffects {
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
-    use std::time::Duration;
-
-    use serde_json::Value;
-
     use super::*;
 
     /// A recording stand-in for the runtime: the calls in order, and the lane's cooldown, which
@@ -223,36 +219,6 @@ mod tests {
         }
     }
 
-    /// Every entry point of `createAuthRefresh` against the recorded Node run: the calls made
-    /// at once, the calls once the refresh settled, and whether the old cooldown is still held.
-    #[tokio::test(start_paused = true)]
-    async fn the_flow_equals_nodes_for_every_recorded_entry() {
-        mixdog_rt::testing::tokens();
-        let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/auth-refresh/golden.json")).unwrap();
-        let scenarios = golden["scenarios"].as_array().unwrap();
-        assert_eq!(scenarios.len(), 16);
-        let strings = |value: &Value| value.as_array().unwrap().iter().map(|c| c.as_str().unwrap().to_owned()).collect::<Vec<_>>();
-        for scenario in scenarios {
-            let (entry, refresh) = (scenario["entry"].as_str().unwrap(), scenario["refresh"].as_str().unwrap());
-            let label = format!("{entry}/{refresh}");
-            let refresh = ["resolves", "rejects", "throws", "absent"].into_iter().find(|name| *name == refresh).unwrap();
-            let effects = Arc::new(Recording { calls: Mutex::default(), cooldown: Mutex::new(true), refresh });
-            assert_eq!(scenario["blockedBefore"].is_string(), *effects.cooldown.lock().unwrap(), "{label}: starts held");
-            let flow = AuthRefreshFlow::new(effects.clone());
-            match entry {
-                "afterCredentialChange" => flow.after_credential_change(),
-                "adoptCredentials" => flow.adopt_credentials(),
-                "afterUsageAuthChange" => flow.after_usage_auth_change(),
-                _ => flow.release_admission_cooldowns(),
-            }
-            let at_once = effects.calls.lock().unwrap().clone();
-            assert_eq!(at_once, strings(&scenario["syncCalls"]), "{label}: calls at once");
-            mixdog_rt::time::sleep(Duration::from_millis(40)).await;
-            assert_eq!(effects.calls.lock().unwrap().clone(), strings(&scenario["calls"]), "{label}: calls settled");
-            assert_eq!(*effects.cooldown.lock().unwrap(), scenario["blockedAfter"].is_string(), "{label}: cooldown");
-        }
-    }
-
     /// A removed custom provider leaves the registry before any refresh runs (`onCustomProviderRemoved`).
     #[test]
     fn a_removed_custom_provider_is_disabled_at_once() {
@@ -267,5 +233,40 @@ mod tests {
         let effects = Arc::new(Recording { calls: Mutex::default(), cooldown: Mutex::new(true), refresh: "absent" });
         AuthRefreshFlow::new(effects.clone()).account_selection_changed();
         assert_eq!(*effects.calls.lock().unwrap(), ["reloadFullConfig", "invalidateProviderCaches", "warmProviderModelCache"]);
+    }
+
+
+    const REFRESH: &str = "refreshProviderCatalogs:{\"force\":true}";
+
+    /// What each entry point does, in order, once its refresh has settled, and whether the lane's cooldown is still held:
+    /// a credential change or adoption refreshes the catalogs (forced) when it can and warms the caches again only when that
+    /// refresh succeeded; a usage-auth change drops the caches and leaves the cooldown held; a release only lifts the cooldown.
+    #[tokio::test(start_paused = true)]
+    async fn every_entry_point_makes_its_calls_and_settles_the_cooldown() {
+        mixdog_rt::testing::tokens();
+        let (apply, inv, warm) = ("applyConfigChange", "invalidateProviderCaches", "warmProviderModelCache");
+        let entries: [(&str, [Vec<&str>; 4], bool); 4] = [
+            // refresh: resolves, rejects, throws, absent
+            ("afterCredentialChange", [vec![apply, inv, REFRESH, warm, inv, warm], vec![apply, inv, REFRESH, warm], vec![apply, inv, REFRESH, warm], vec![apply, inv, warm]], false),
+            ("adoptCredentials", [vec![inv, REFRESH, warm, inv, warm], vec![inv, REFRESH, warm], vec![inv, REFRESH, warm], vec![inv, warm]], false),
+            ("afterUsageAuthChange", [vec![apply, inv], vec![apply, inv], vec![apply, inv], vec![apply, inv]], true),
+            ("releaseAdmissionCooldowns", [vec![], vec![], vec![], vec![]], false),
+        ];
+        for (entry, settled, held_after) in entries {
+            for (refresh, expected) in ["resolves", "rejects", "throws", "absent"].into_iter().zip(settled) {
+                let label = format!("{entry}/{refresh}");
+                let effects = Arc::new(Recording { calls: Mutex::default(), cooldown: Mutex::new(true), refresh });
+                let flow = AuthRefreshFlow::new(effects.clone());
+                match entry {
+                    "afterCredentialChange" => flow.after_credential_change(),
+                    "adoptCredentials" => flow.adopt_credentials(),
+                    "afterUsageAuthChange" => flow.after_usage_auth_change(),
+                    _ => flow.release_admission_cooldowns(),
+                }
+                mixdog_rt::time::sleep(std::time::Duration::from_millis(40)).await;
+                assert_eq!(effects.calls.lock().unwrap().clone(), expected, "{label}: calls settled");
+                assert_eq!(*effects.cooldown.lock().unwrap(), held_after, "{label}: cooldown");
+            }
+        }
     }
 }

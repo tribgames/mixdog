@@ -117,8 +117,6 @@ impl fmt::Display for TargetError {
     }
 }
 
-impl std::error::Error for TargetError {}
-
 impl From<HostCallError> for TargetError {
     fn from(error: HostCallError) -> Self {
         Self::Host(error)
@@ -356,6 +354,12 @@ async fn selector_candidates(cx: &TargetContext<'_>, selector: &str, snapshot: &
         .replace("__LIMIT__", &MAX_SELECTOR_MATCHES.to_string())
         .replace("__SNAPSHOT_ID__", &json_string(&snapshot.snapshot_id))
         .replace("__SELECTOR__", &json_string(selector));
+    // The caller's `expect` names the snapshot the page held before this resolution; the observation just taken replaced it, so the
+    // selector's own calls are bound to the one they were made against (the old id would refuse every one as a changed page).
+    let expect = cx.expect.cloned().map(|mut expect| {
+        expect.snapshot_id = Some(snapshot.snapshot_id.clone());
+        expect
+    });
     let params = HostBrowserPageEvalParams {
         page_id: cx.page_id.to_string(),
         expression,
@@ -364,7 +368,7 @@ async fn selector_candidates(cx: &TargetContext<'_>, selector: &str, snapshot: &
         return_by_value: Some(true),
         world: None,
         timeout_ms: u32::try_from(CDP_REQUEST_TIMEOUT.as_millis()).unwrap_or(u32::MAX),
-        expect: cx.expect.cloned(),
+        expect: expect.clone(),
         check_unchanged: None,
     };
     let answer = cx.host.page_eval(params, cx.cancel).await?;
@@ -401,7 +405,7 @@ async fn selector_candidates(cx: &TargetContext<'_>, selector: &str, snapshot: &
         snapshot_id: snapshot.snapshot_id.clone(),
         selector: selector.to_string(),
         limit: u32::try_from(MAX_SELECTOR_MATCHES).unwrap_or(u32::MAX),
-        expect: cx.expect.cloned(),
+        expect,
     };
     let minted = match cx.host.ref_mint(params, cx.cancel).await {
         Ok(minted) => minted,
@@ -690,6 +694,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_selectors_calls_are_bound_to_the_snapshot_the_resolution_took_not_the_one_before_it() {
+        let cancel = cancel();
+        let host = FakeHost::scripted(vec![
+            snapshot_answer(checkbox_page(), None),
+            eval_answer(json!({"count": 1, "table": false, "matches": []})),
+            mint_answer(1, json!([{"ref": "p1-s2-e2", "role": "checkbox", "name": "I agree"}])),
+        ]);
+        let before = Precondition { document_id: "p1:1".into(), origin: None, url: None, child_sessions: None, receiver_key: None, snapshot_id: Some("p1-s1".into()) };
+        let cx = TargetContext { host: &host, page_id: "p1", expect: Some(&before), cancel: &cancel };
+        resolve_target(&cx, &json!({"selector": "input[name=agree]"})).await.expect("resolved");
+        let calls = host.calls();
+        assert_eq!(calls[1].params["expect"]["snapshotId"], "p1-s2");
+        assert_eq!(calls[2].params["expect"]["snapshotId"], "p1-s2");
+        assert_eq!(calls[1].params["expect"]["documentId"], "p1:1");
+    }
+
+    #[tokio::test]
     async fn a_selector_target_the_snapshot_does_not_list_gets_a_ref_minted_by_the_host() {
         let cancel = cancel();
         // A consent row the accessibility tree does not list: the host mints `p1-s2-t77` for it and the engine names it by that ref.
@@ -764,3 +785,6 @@ mod tests {
         assert_eq!(resolve_target(&cx, &json!({"name": "x"})).await, Err(TargetError::Host(HostCallError::PageGone)));
     }
 }
+
+
+impl std::error::Error for TargetError {}

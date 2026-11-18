@@ -40,6 +40,7 @@ use super::model::RunModel;
 use super::context_blobs::ContextBlobs;
 use super::context_blobs::OfficeExtractor;
 use super::model::SessionModel;
+use super::pending;
 use super::splice::Splice;
 use super::splice::restore_header;
 use super::splice::splice;
@@ -199,120 +200,6 @@ fn decode_record(v: &Value) -> Option<&Map<String, Value>> {
     ok.then_some(r)
 }
 
-/// The dev reader's fold (`dev:session-log-reader.mjs` `parseSessionLog`): a line that holds
-/// no record of ours (blank, not JSON, not a record, of an unknown kind) is skipped as Node
-/// skips it, and a sequence or length break ends the replay there, keeping what came before as Node
-/// does; a log with no `session` + `compacted` base is `schema_violation`. A line is decoded as UTF-8
-/// with U+FFFD for invalid bytes, as Node's `toString('utf8')` does; a CR before the LF is JSON
-/// white space. A final line without LF is a torn tail and is excluded.
-///
-/// The log is read one line at a time and folded as it goes: a `compacted` record replaces the
-/// messages, so what is held is the working history plus the longest line, never the file
-/// (a 1.4.5 log repeats the whole history in every `compacted` record and reaches hundreds of
-/// MB). The result is the fold of the bytes read, not yet proven to be the manifest's: the
-/// caller `verify`s the handle before it uses it.
-pub fn fold_log(id: &str, log: &mut durable::OpenFile, replaced: &mut u64) -> R<LogFold> {
-    let mut line = Vec::new();
-    // Lines accepted so far, which is also the sequence number the next one must carry.
-    let mut accepted = 0usize;
-    let mut length: u64 = 0;
-    let mut base_id = String::new();
-    let mut header = Header::default();
-    let mut legacy = None;
-    let mut messages: Vec<Value> = Vec::new();
-    loop {
-        line.clear();
-        log.read_line_into(&mut line)?;
-        // Every complete line ends with LF; the bytes after the last LF are the torn tail.
-        if line.pop() != Some(b'\n') {
-            break;
-        }
-        let text = String::from_utf8_lossy(&line);
-        let Ok(parsed) = json::parse_source(text.as_bytes()) else { continue };
-        let value = parsed.value;
-        let Some(record) = decode_record(&value) else { continue };
-        let expected = accepted;
-        let t = record["t"].as_str().unwrap_or("");
-        let misplaced = count_of(record.get("s")) != Some(expected as u64)
-            || (expected == 0 && t != "session")
-            || (expected == 1 && t != "compacted")
-            || (expected > 0 && t == "session");
-        let len = count_of(record.get("len"));
-        let mlen = record.get("messages").and_then(Value::as_array).map_or(0, |m| m.len() as u64);
-        let next = if misplaced {
-            None
-        } else {
-            match t {
-                "compacted" => len,
-                "append" => len.filter(|l| *l == length + mlen),
-                "edit" => {
-                    let at = count_of(record.get("at")).unwrap_or(0);
-                    let del = count_of(record.get("del")).unwrap_or(0);
-                    len.filter(|l| at + del <= length && *l + del == length + mlen)
-                }
-                "rollback" => len.filter(|l| *l <= length),
-                _ => Some(length),
-            }
-        };
-        // A record that does not follow the history before it is where Node's replay stops (`damage`):
-        // the records before it are the log, the rest is not read.
-        let Some(next) = next else { break };
-        length = next;
-        *replaced += parsed.replaced_surrogates;
-        let t = t.to_owned();
-        let Value::Object(mut record) = value else {
-            unreachable!("decode_record admits only objects");
-        };
-        // `length` is the validated length of `messages`, so every index below is in range.
-        let take_messages = |r: &mut Map<String, Value>| match r.shift_remove("messages") {
-            Some(Value::Array(m)) => m,
-            _ => Vec::new(),
-        };
-        match t.as_str() {
-            "session" => {
-                base_id = record["id"].as_str().unwrap_or("").to_owned();
-                header = match record.shift_remove("header") {
-                    Some(Value::Object(h)) => h,
-                    _ => Header::default(),
-                };
-                legacy = record.get("legacy").and_then(Value::as_object).map(|l| Legacy {
-                    sha1: l["sha1"].as_str().unwrap_or("").to_string(),
-                    redacted_from: l.get("redactedFrom").and_then(Value::as_str).map(str::to_string),
-                });
-            }
-            "compacted" => messages = take_messages(&mut record),
-            "append" => messages.extend(take_messages(&mut record)),
-            "edit" => {
-                let at = count_of(record.get("at")).unwrap_or(0) as usize;
-                let del = count_of(record.get("del")).unwrap_or(0) as usize;
-                messages.splice(at..at + del, take_messages(&mut record));
-            }
-            "rollback" => messages.truncate(count_of(record.get("len")).unwrap_or(0) as usize),
-            "patch" => {
-                for k in record["unset"].as_array().into_iter().flatten() {
-                    header.shift_remove(k.as_str().unwrap_or(""));
-                }
-                for (k, v) in record["set"].as_object().into_iter().flatten() {
-                    header.insert(k.clone(), v.clone());
-                }
-            }
-            _ => {}
-        }
-        accepted += 1;
-    }
-    if accepted < 2 {
-        return q(QuarantineCode::SchemaViolation, "log has no session + compacted base");
-    }
-    if base_id != id {
-        return q(QuarantineCode::IdMismatch, format!("log base names {base_id}"));
-    }
-    Ok(LogFold {
-        header,
-        messages,
-        legacy,
-    })
-}
-
 /// `holdsNoData`: only NUL and white space.
 fn holds_no_data(bytes: &[u8]) -> bool {
     bytes.iter().all(|&b| matches!(b, 0 | b' ' | b'\t' | b'\n' | b'\r'))
@@ -395,14 +282,6 @@ pub(super) fn indexed_segment(line: &[u8]) -> bool {
     })
 }
 
-fn opt_u64(v: Option<&Value>, what: &str) -> R<Option<u64>> {
-    match v {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::Number(n)) if n.as_u64().is_some() => Ok(n.as_u64()),
-        Some(_) => q(QuarantineCode::ArchiveParseError, format!("{what} is not a count")),
-    }
-}
-
 fn opt_number(v: Option<&Value>, what: &str) -> R<Option<Number>> {
     match v {
         None | Some(Value::Null) => Ok(None),
@@ -415,129 +294,168 @@ fn role_of(v: &Value) -> Option<String> {
     v.get("role").and_then(Value::as_str).map(str::to_string)
 }
 
-/// Segment rows and pending-job rows in seq order (SM §11.4.3).
-fn archive_rows(
-    id: &str,
-    header: &Header,
-    archive: Option<&[u8]>,
-    pending: Option<&[u8]>,
-    replaced: &mut u64,
-) -> R<(Vec<Row>, Vec<u64>)> {
-    let range = archive_range(header);
-    let mut entries: Vec<(u64, u8, Vec<Row>)> = Vec::new();
-    let mut segment_seqs = BTreeSet::new();
-    if let Some(text) = archive {
-        for (n, line) in text.split(|&b| b == b'\n').enumerate() {
-            if line.is_empty() {
-                continue;
-            }
-            let what = format!("archive line {}", n + 1);
-            let value = parse(line, QuarantineCode::ArchiveParseError, &what, replaced)?;
-            let Some(seg) = value.as_object() else {
-                return q(QuarantineCode::ArchiveParseError, format!("{what} is not a segment"));
-            };
-            let (Some(1), Some(seq), Some(Value::String(seg_id)), Some(count), Some(bytes), Some(Value::Array(items))) = (
-                seg.get("v").and_then(Value::as_u64),
-                seg.get("seq").and_then(Value::as_u64),
-                seg.get("id"),
-                seg.get("count").and_then(Value::as_u64),
-                seg.get("bytes").and_then(Value::as_u64),
-                seg.get("items"),
-            ) else {
-                return q(QuarantineCode::ArchiveParseError, format!("{what} is not a segment"));
-            };
-            let prev = match seg.get("prev") {
-                Some(Value::Null) => None,
-                Some(Value::String(p)) => Some(p.clone()),
-                _ => return q(QuarantineCode::ArchiveParseError, format!("{what}: prev")),
-            };
-            let at = opt_number(seg.get("at"), &what)?;
-            // 1.4.5 shows the last `count` items of a segment its index reads.
-            let shown = indexed_segment(line) && visible(range, seq);
-            let first_shown = items.len().saturating_sub(usize::try_from(count).unwrap_or(usize::MAX));
-            let origin = ArchiveOrigin::Segment {
-                id: text_id(seg_id)?,
-                prev: prev.as_deref().map(text_id).transpose()?,
-                count,
-                bytes,
-            };
-            let rows = items
-                .iter()
-                .enumerate()
-                .map(|(j, item)| Row {
-                    iid: match item.get("id") {
-                        Some(Value::String(s)) if !s.is_empty() => s.clone(),
-                        _ => format!("arc:{seq}:{j}"),
-                    },
-                    turn: None,
-                    role: role_of(item),
-                    form: Form::Display,
-                    model: false,
-                    visible: shown && j >= first_shown,
-                    archive: Some(ArchiveTag {
-                        seq,
-                        at: at.clone(),
-                        origin: origin.clone(),
-                    }),
-                    prompt: None,
-                    body: item.clone(),
-                })
-                .collect();
-            segment_seqs.insert(seq);
-            entries.push((seq, 0, rows));
-        }
-    }
-    let mut superseded = Vec::new();
-    if let Some(text) = pending {
-        let doc = parse(text, QuarantineCode::ArchiveParseError, "pending jobs", replaced)?;
-        let Some(Value::Array(jobs)) = doc.get("jobs") else {
-            return q(QuarantineCode::ArchiveParseError, "pending sidecar holds no jobs");
-        };
-        for job in jobs {
-            let (Some(seq), Some(Value::Array(messages))) =
-                (job.get("seq").and_then(Value::as_u64), job.get("messages"))
-            else {
-                return q(QuarantineCode::ArchiveParseError, "a pending job without seq/messages");
-            };
-            if segment_seqs.contains(&seq) {
-                superseded.push(seq);
-                continue;
-            }
-            let divider = match job.get("divider") {
-                None | Some(Value::Null) => false,
-                Some(Value::Bool(b)) => *b,
-                Some(_) => return q(QuarantineCode::ArchiveParseError, "job divider"),
-            };
-            let tag = ArchiveTag {
+/// What one damaged part of an archive sidecar leaves in the session's damage note: which sidecar,
+/// which line (an archive segment's; 0 for the pending sidecar, which is skipped whole), why, and
+/// the part's bytes (decoded lossily, cut at 4 KiB) so nothing skipped is lost for good.
+fn skipped(file: &str, line: usize, why: &str, bytes: &[u8]) -> Value {
+    const KEPT: usize = 4096;
+    let cut = bytes.len().min(KEPT);
+    serde_json::json!({
+        "file": file,
+        "line": line,
+        "why": why,
+        "bytes": bytes.len(),
+        "text": String::from_utf8_lossy(&bytes[..cut]),
+    })
+}
+
+/// One line of the display archive as its segment: the seq and the rows. Quarantine codes here
+/// mean this line is damaged, not the session.
+fn segment_rows(line: &[u8], what: &str, range: Option<(f64, f64)>, replaced: &mut u64) -> R<(u64, Vec<Row>)> {
+    let value = parse(line, QuarantineCode::ArchiveParseError, what, replaced)?;
+    let Some(seg) = value.as_object() else {
+        return q(QuarantineCode::ArchiveParseError, format!("{what} is not a segment"));
+    };
+    let (Some(1), Some(seq), Some(Value::String(seg_id)), Some(count), Some(bytes), Some(Value::Array(items))) = (
+        seg.get("v").and_then(Value::as_u64),
+        seg.get("seq").and_then(Value::as_u64),
+        seg.get("id"),
+        seg.get("count").and_then(Value::as_u64),
+        seg.get("bytes").and_then(Value::as_u64),
+        seg.get("items"),
+    ) else {
+        return q(QuarantineCode::ArchiveParseError, format!("{what} is not a segment"));
+    };
+    let prev = match seg.get("prev") {
+        Some(Value::Null) => None,
+        Some(Value::String(p)) => Some(p.clone()),
+        _ => return q(QuarantineCode::ArchiveParseError, format!("{what}: prev")),
+    };
+    let at = opt_number(seg.get("at"), what)?;
+    // 1.4.5 shows the last `count` items of a segment its index reads.
+    let shown = indexed_segment(line) && visible(range, seq);
+    let first_shown = items.len().saturating_sub(usize::try_from(count).unwrap_or(usize::MAX));
+    let origin = ArchiveOrigin::Segment {
+        id: text_id(seg_id)?,
+        prev: prev.as_deref().map(text_id).transpose()?,
+        count,
+        bytes,
+    };
+    let rows = items
+        .iter()
+        .enumerate()
+        .map(|(j, item)| Row {
+            iid: match item.get("id") {
+                Some(Value::String(s)) if !s.is_empty() => s.clone(),
+                _ => format!("arc:{seq}:{j}"),
+            },
+            turn: None,
+            role: role_of(item),
+            form: Form::Display,
+            model: false,
+            visible: shown && j >= first_shown,
+            archive: Some(ArchiveTag {
                 seq,
-                at: opt_number(job.get("at"), "job at")?,
-                origin: ArchiveOrigin::Pending {
-                    divider,
-                    cleared_through: opt_u64(job.get("clearedThrough"), "job clearedThrough")?,
-                    max_bytes: opt_u64(job.get("maxBytes"), "job maxBytes")?,
-                },
-            };
-            let iids = message_iids(&format!("{id}#arc{seq}"), messages);
-            let rows = messages
-                .iter()
-                .zip(iids)
-                .map(|(m, iid)| Row {
-                    iid,
-                    turn: None,
-                    role: role_of(m),
-                    form: Form::Message,
-                    model: false,
-                    visible: visible(range, seq),
-                    archive: Some(tag.clone()),
-                    prompt: None,
-                    body: m.clone(),
-                })
-                .collect();
-            entries.push((seq, 1, rows));
+                at: at.clone(),
+                origin: origin.clone(),
+            }),
+            prompt: None,
+            body: item.clone(),
+        })
+        .collect();
+    Ok((seq, rows))
+}
+
+/// JavaScript truthiness of a parsed JSON value.
+fn js_truthy(v: &Value) -> bool {
+    match v {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    }
+}
+
+/// A job's `at`: a number as it is; a value that is not one reads as the segment line wrote it,
+/// `Math.max(0, Math.floor(Number(at) || 0))`; absent or null stays absent.
+fn job_at(v: Option<&Value>) -> Option<Number> {
+    match v {
+        None | Some(Value::Null) => None,
+        Some(Value::Number(n)) => Some(n.clone()),
+        Some(other) => {
+            let f = to_number(other).floor();
+            let f = if f.is_nan() || f < 0.0 { 0.0 } else { f };
+            Some(if f < 9_007_199_254_740_992.0 { Number::from(f as u64) } else { Number::from_f64(f).unwrap_or_else(|| Number::from(0u64)) })
         }
     }
-    entries.sort_by_key(|(seq, kind, _)| (*seq, *kind));
-    Ok((entries.into_iter().flat_map(|(_, _, rows)| rows).collect(), superseded))
+}
+
+/// `Number.isInteger(seq)`: any integer-valued number, negative or beyond 2^53 included.
+fn integer_seq(v: Option<&Value>) -> Option<f64> {
+    v?.as_number()?.as_f64().filter(|f| f.is_finite() && f.fract() == 0.0)
+}
+
+/// The jobs of a pending sidecar (`parsePendingJobs`): `jobs` is an array and every job has an
+/// integer `seq` and a `messages` array, else the sidecar is damaged as a whole and the error
+/// is for the caller, which skips all of it. Nothing else decides this.
+fn pending_jobs(doc: &Value) -> R<&Vec<Value>> {
+    match doc.get("jobs") {
+        Some(Value::Array(jobs)) if jobs.iter().all(|job| integer_seq(job.get("seq")).is_some() && job.get("messages").is_some_and(Value::is_array)) => {
+            Ok(jobs)
+        }
+        Some(Value::Array(_)) => q(QuarantineCode::ArchiveParseError, "a pending job without an integer seq and a messages array"),
+        _ => q(QuarantineCode::ArchiveParseError, "pending sidecar holds no jobs"),
+    }
+}
+
+/// `committedSeqOf`: the number the session record commits (`compaction.archive.nextSeq`,
+/// floored), 0 when it names none.
+fn committed_seq(header: &Header) -> f64 {
+    let next = js_number_of(header.get("compaction").and_then(|c| c.get("archive")).and_then(|a| a.get("nextSeq"))).floor();
+    if next > 0.0 { next } else { 0.0 }
+}
+
+/// One pending compaction job as its seq and rows. A job `pending_jobs` accepted whose number
+/// the target cannot hold (negative, or beyond 2^53) is a quarantine error for the caller to
+/// skip: only a hand-damaged record has one that its session commits.
+fn pending_job_rows(id: &str, job: &Value, range: Option<(f64, f64)>) -> R<(u64, Vec<Row>)> {
+    // The other fields were never checked, so each takes what its reader made of a value that
+    // does not conform.
+    let Some(Value::Array(messages)) = job.get("messages") else {
+        return q(QuarantineCode::ArchiveParseError, "a pending job without a messages array");
+    };
+    let Some(seq) = count_of(job.get("seq")) else {
+        return q(QuarantineCode::ArchiveParseError, "the job's sequence number cannot be represented");
+    };
+    let tag = ArchiveTag {
+        seq,
+        at: job_at(job.get("at")),
+        origin: ArchiveOrigin::Pending {
+            // `if (!divider) return items`: any truthy value adds the divider.
+            divider: job.get("divider").is_some_and(js_truthy),
+            // Counts that are not counts are left out, as a field that was never set.
+            cleared_through: count_of(job.get("clearedThrough")),
+            max_bytes: count_of(job.get("maxBytes")),
+        },
+    };
+    let iids = message_iids(&format!("{id}#arc{seq}"), messages);
+    let rows = messages
+        .iter()
+        .zip(iids)
+        .map(|(m, iid)| Row {
+            iid,
+            turn: None,
+            role: role_of(m),
+            form: Form::Message,
+            model: false,
+            visible: visible(range, seq),
+            archive: Some(tag.clone()),
+            prompt: None,
+            body: m.clone(),
+        })
+        .collect();
+    Ok((seq, rows))
 }
 
 fn text_id(s: &str) -> R<mixdog_store::schema::bounded::Id> {
@@ -815,21 +733,6 @@ fn checkpoint(
 // ── Shared spools and worker indexes ─────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct Spool<'a> {
-    #[serde(borrow, default)]
-    sessions: HashMap<String, &'a RawValue>,
-}
-
-#[derive(Deserialize)]
-struct Workers<'a> {
-    /// A list or an id-keyed map (`workerRows`, `store-agent-worker-rows.mjs:269`).
-    #[serde(borrow, default)]
-    workers: Option<&'a RawValue>,
-    #[serde(borrow, default)]
-    tombstones: Option<&'a RawValue>,
-}
-
-#[derive(Deserialize)]
 struct Released<'a> {
     #[serde(borrow, default)]
     released: Option<&'a RawValue>,
@@ -868,58 +771,6 @@ fn released_entries(raw: Option<&RawValue>) -> serde_json::Result<HashMap<String
     match raw.map(|r| r.get().trim_start()) {
         Some(text) if text.starts_with('{') => serde_json::from_str(text),
         _ => Ok(HashMap::new()),
-    }
-}
-
-/// The session ids of a worker index's rows (`agent-workers.json`, `lead-workers.json`); none when it does not parse. Node lists
-/// a row whose session has no record with a null header (`store-agent-worker-rows.mjs:615`), so each is a session of its own.
-pub fn worker_row_session_ids(bytes: &[u8]) -> Vec<String> {
-    let Some(workers) = std::str::from_utf8(bytes).ok().and_then(|text| serde_json::from_str::<Workers<'_>>(text).ok()) else {
-        return Vec::new();
-    };
-    worker_rows(workers.workers)
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|raw| json::parse_source(raw.get().as_bytes()).ok())
-        .filter_map(|row| row.value.get("sessionId").and_then(Value::as_str).filter(|id| is_session_id(id)).map(str::to_owned))
-        .collect()
-}
-
-/// What a shared file names: the session ids (`sessions` keys of a spool; `sessionId` of
-/// worker rows and tombstones; keys of the release markers) and the tombstones without a
-/// `sessionId`, whose session `recover_owner` finds. `None` when the file does not parse.
-pub fn shared_session_ids(name: &str, bytes: &[u8]) -> Option<(Vec<String>, Vec<Value>)> {
-    let text = std::str::from_utf8(bytes).ok()?;
-    if name.ends_with(AGENT_RELEASED) {
-        let doc: Released<'_> = serde_json::from_str(text).ok()?;
-        Some((released_entries(doc.released).ok()?.into_keys().collect(), Vec::new()))
-    } else if name.ends_with(AGENT_WORKERS) || name.ends_with(LEAD_WORKERS) {
-        let workers: Workers<'_> = serde_json::from_str(text).ok()?;
-        let mut ids = Vec::new();
-        for raw in worker_rows(workers.workers).ok()? {
-            let row = json::parse_source(raw.get().as_bytes()).ok()?.value;
-            if let Some(id) = row.get("sessionId").and_then(Value::as_str) {
-                ids.push(id.to_string());
-            }
-            // The parent link matches the cleaned id (`parent_link`).
-            let linked = clean(row.get("sessionId"));
-            if row.get("sessionId").and_then(Value::as_str) != Some(linked.as_str()) {
-                ids.push(linked);
-            }
-        }
-        let mut ownerless = Vec::new();
-        for raw in index_rows(workers.tombstones).ok()? {
-            let row = json::parse_source(raw.get().as_bytes()).ok()?.value;
-            match clean_nullish(row.get("sessionId")) {
-                id if !id.is_empty() => ids.push(id),
-                _ if row.is_object() => ownerless.push(row),
-                _ => {}
-            }
-        }
-        Some((ids, ownerless))
-    } else {
-        let spool: Spool<'_> = serde_json::from_str(text).ok()?;
-        Some((spool.sessions.into_keys().collect(), Vec::new()))
     }
 }
 
@@ -983,166 +834,6 @@ impl Candidate {
             created: if created.is_finite() && created > 0.0 { created } else { 0.0 },
         }
     }
-}
-
-/// Every migrating session as a `Candidate`; one whose header does not read is none.
-pub fn session_candidates<'a>(
-    sessions: impl IntoIterator<Item = (&'a str, &'a [SourceFile])>,
-    mut read: impl FnMut(&SourceFile) -> crate::error::Result<Vec<u8>>,
-    mut open: impl FnMut(&SourceFile) -> crate::error::Result<durable::OpenFile>,
-) -> crate::error::Result<Vec<Candidate>> {
-    let mut out = Vec::new();
-    for (id, sources) in sessions {
-        let find = |suffix: &str| {
-            let rel = format!("sessions/{id}{suffix}");
-            sources.iter().find(|s| s.path == rel)
-        };
-        let json = find(JSON_SUFFIX).map(&mut read).transpose()?;
-        let log = find(LOG_SUFFIX).map(&mut open).transpose()?;
-        if let Ok((header, _)) = header_and_messages(id, json.as_deref(), log, &mut 0) {
-            out.push(Candidate::of(id, &header));
-        }
-    }
-    Ok(out)
-}
-
-/// The session `recoverTagTombstoneOwner` (`worker-rows.mjs:47-71`) gives a tombstone
-/// without a `sessionId`, read as `normalizeTagTombstones` (`:73-101`) reads it (a tag, a
-/// parsed `reapedAt` clamped to now; no TTL here, readers apply it): when the tombstone
-/// names no owner, the one session under its tag and terminal, with an owner, created by
-/// its reap. `None` when that is not exactly one.
-pub fn recover_owner<'a>(row: &Value, candidates: &'a [Candidate]) -> Option<&'a Candidate> {
-    let row = row.as_object()?;
-    let tag = clean_nullish(row.get("tag"));
-    let reaped = date_parse(&clean_nullish(row.get("reapedAt")));
-    let owned = !clean_nullish(row.get("parentSessionId")).is_empty() || !clean_nullish(row.get("ownerSessionId")).is_empty();
-    if tag.is_empty() || !(reaped.is_finite() && reaped > 0.0) || owned {
-        return None;
-    }
-    let reaped = reaped.min(now_ms());
-    let pid = positive_int(row.get("clientHostPid"))?;
-    let mut found = candidates.iter().filter(|c| {
-        c.tag == tag && c.pid == Some(pid) && !c.parent.is_empty() && c.created > 0.0 && c.created <= reaped
-    });
-    let one = found.next()?;
-    found.next().is_none().then_some(one)
-}
-
-fn now_ms() -> f64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0.0, |d| d.as_millis() as f64)
-}
-
-/// This session's pending entries, `(qid, entry minus id)`, in `enqueuedAt` order
-/// (ties: source order; SM §11.4.5).
-fn queue(cx: &ItemContext<'_>, id: &str, shared: &[&SourceFile], replaced: &mut u64) -> R<Vec<(String, Value)>> {
-    let mut entries: Vec<(f64, usize, String, Value)> = Vec::new();
-    let mut spools: Vec<&&SourceFile> = shared
-        .iter()
-        .filter(|f| f.path.starts_with(&format!("{SPOOL_DIR}/")))
-        .collect();
-    spools.extend(shared.iter().filter(|f| f.path == LEGACY_SPOOL));
-    for file in spools {
-        let bytes = cx.read_source(file)?;
-        let text = std::str::from_utf8(&bytes).map_err(|e| Fail::Quarantine(QuarantineCode::ParseError, e.to_string()))?;
-        let spool: Spool<'_> = serde_json::from_str(text)
-            .map_err(|e| Fail::Quarantine(QuarantineCode::ParseError, format!("{}: {e}", file.path)))?;
-        let Some(raw) = spool.sessions.get(id) else { continue };
-        let list = parse(raw.get().as_bytes(), QuarantineCode::ParseError, &file.path, replaced)?;
-        for entry in list.as_array().into_iter().flatten() {
-            let Some(obj) = entry.as_object() else { continue };
-            // 1.4.5 drops an entry without an id (`pendingMessageQueueEntry`): never delivered.
-            let Some(qid) = obj.get("id").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
-                continue;
-            };
-            let mut rest = obj.clone();
-            rest.shift_remove("id");
-            let at = js_number_of(obj.get("enqueuedAt"));
-            let n = entries.len();
-            entries.push((if at.is_nan() { 0.0 } else { at }, n, qid.to_string(), Value::Object(rest)));
-        }
-    }
-    entries.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-    Ok(entries.into_iter().map(|(_, _, qid, e)| (qid, e)).collect())
-}
-
-/// The `worker` header map of this session (SM §11.4.6): its worker row (agent index wins
-/// over lead), the reaper's tombstone of it and its owner's release marker, all verbatim
-/// (readers apply Node's TTL).
-fn worker(cx: &ItemContext<'_>, id: &str, header: &Header, shared: &[&SourceFile], replaced: &mut u64) -> R<Option<Header>> {
-    let bad = |name: &str, e: &dyn std::fmt::Display| Fail::Quarantine(QuarantineCode::ParseError, format!("{name}: {e}"));
-    let read = |name: &str| -> R<Option<String>> {
-        let Some(file) = shared.iter().find(|f| f.path == name) else { return Ok(None) };
-        String::from_utf8(cx.read_source(file)?).map(Some).map_err(|e| bad(name, &e))
-    };
-    let own = [Candidate::of(id, header)];
-    let mut all: Option<Vec<Candidate>> = None;
-    let mut row = None;
-    // Of two tombstones of this session the newer `reapedAt` stays.
-    let mut tombstone: Option<(f64, Value)> = None;
-    for name in [AGENT_WORKERS, LEAD_WORKERS] {
-        let Some(text) = read(name)? else { continue };
-        let workers: Workers<'_> = serde_json::from_str(&text).map_err(|e| bad(name, &e))?;
-        if row.is_none() {
-            for raw in worker_rows(workers.workers).map_err(|e| bad(name, &e))? {
-                let mut count = 0;
-                let found = parse(raw.get().as_bytes(), QuarantineCode::ParseError, name, &mut count)?;
-                if found.get("sessionId").and_then(Value::as_str) == Some(id) {
-                    *replaced += count;
-                    row = Some(found);
-                    break;
-                }
-            }
-        }
-        for raw in index_rows(workers.tombstones).map_err(|e| bad(name, &e))? {
-            let mut count = 0;
-            let mut entry = parse(raw.get().as_bytes(), QuarantineCode::ParseError, name, &mut count)?;
-            let sid = clean_nullish(entry.get("sessionId"));
-            if sid.is_empty() {
-                // Only when this session could own it are the others read.
-                if recover_owner(&entry, &own).is_none() {
-                    continue;
-                }
-                if all.is_none() {
-                    let sessions = cx.manifest.items.iter().filter(|i| i.kind == ItemKind::Session);
-                    all = Some(session_candidates(
-                        sessions.filter_map(|i| Some((i.key.as_str().strip_prefix("session/")?, i.sources.as_slice()))),
-                        |file| cx.read_source(file),
-                        |file| cx.open_source(file),
-                    )?);
-                }
-                let Some(owner) = recover_owner(&entry, all.as_deref().unwrap_or_default()) else { continue };
-                if owner.id != id {
-                    continue;
-                }
-                let map = entry.as_object_mut().expect("recover_owner takes objects only");
-                map.insert("parentSessionId".into(), Value::String(owner.parent.clone()));
-                map.insert("ownerSessionId".into(), Value::String(owner.owner.clone()));
-            } else if sid != id {
-                continue;
-            }
-            *replaced += count;
-            let at = stamp_ms(entry.get("reapedAt"));
-            if tombstone.as_ref().is_none_or(|(kept, _)| at > *kept) {
-                tombstone = Some((at, entry));
-            }
-        }
-    }
-    let tombstone = tombstone.map(|(_, entry)| entry);
-    let mut released = None;
-    if let Some(text) = read(AGENT_RELEASED)? {
-        let doc: Released<'_> = serde_json::from_str(&text).map_err(|e| bad(AGENT_RELEASED, &e))?;
-        if let Some(raw) = released_entries(doc.released).map_err(|e| bad(AGENT_RELEASED, &e))?.get(id) {
-            released = Some(parse(raw.get().as_bytes(), QuarantineCode::ParseError, AGENT_RELEASED, replaced)?);
-        }
-    }
-    if row.is_none() && tombstone.is_none() && released.is_none() {
-        return Ok(None);
-    }
-    let mut set = Map::new();
-    set.insert("worker".into(), Value::Object(worker_map(row, tombstone, released)));
-    Ok(Some(set))
 }
 
 /// The `worker` map from a session's row (every field as stored, the store's worker index
@@ -1271,129 +962,6 @@ fn message_rows(iids: Vec<String>, messages: Vec<Value>, turn: Option<&str>) -> 
         .collect()
 }
 
-/// Header and messages of a session: its log's when the log wins over its json (`log_wins`).
-fn header_and_messages(id: &str, json: Option<&[u8]>, log: Option<durable::OpenFile>, replaced: &mut u64) -> R<(Header, Vec<Value>)> {
-    match log {
-        Some(mut log) => {
-            let mut log_replaced = 0;
-            let folded = fold_log(id, &mut log, &mut log_replaced);
-            // A log that is not the manifest's is no source, whatever it folded to.
-            log.verify()?;
-            let fold = folded?;
-            if log_wins(fold.legacy.as_ref(), json) {
-                *replaced += log_replaced;
-                Ok((fold.header, fold.messages))
-            } else {
-                read_json(id, json.unwrap_or_default(), replaced)
-            }
-        }
-        None => read_json(id, json.unwrap_or_default(), replaced),
-    }
-}
-
-/// Reads every source of `session/<id>` into the model the frames are written from; `office`
-/// extracts office documents a recovered turn's context signatures read.
-pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &OfficeExtractor) -> R<SessionModel> {
-    let mut replaced = 0u64;
-    let read = |rel: String| -> R<Option<Vec<u8>>> {
-        match source(item, &rel) {
-            Some(file) => Ok(Some(cx.read_source(file)?)),
-            None => Ok(None),
-        }
-    };
-    let json_bytes = read(format!("sessions/{id}{JSON_SUFFIX}"))?;
-    let log = match source(item, &format!("sessions/{id}{LOG_SUFFIX}")) {
-        Some(file) => Some(cx.open_source(file)?),
-        None => None,
-    };
-    let archive = read(format!("sessions/{id}{ARCHIVE_SUFFIX}"))?;
-    let pending = read(format!("sessions/{id}{PENDING_SUFFIX}"))?;
-    let ckpt_header = read(format!("turn-checkpoints/{id}.json"))?;
-    let ckpt_journal = read(format!("turn-checkpoints/{id}.jsonl"))?;
-
-    // A session only a worker index row names (`worker_row_session_ids`) has no record: Node reads its header as null.
-    let (mut header, mut messages) = if item.sources.is_empty() {
-        let mut header = Header::new();
-        header.insert(mixdog_store::archived_agent::WORKER_ROW_ONLY_KEY.into(), Value::Bool(true));
-        // The catalog row takes `Date.now()` for a header without `updatedAt`: a fixed one keeps the migrated index the same run to run.
-        header.insert("updatedAt".into(), Value::from(1));
-        (header, Vec::new())
-    } else {
-        header_and_messages(id, json_bytes.as_deref(), log, &mut replaced)?
-    };
-    let shared = cx.shared_for(&format!("session/{id}"));
-    let archived = archived_results(cx, id, &header, &messages, &shared)?;
-
-    let (archive_rows, superseded) =
-        archive_rows(id, &header, archive.as_deref(), pending.as_deref(), &mut replaced)?;
-    let recovered = checkpoint(
-        id,
-        &mut header,
-        &mut messages,
-        ckpt_header.as_deref(),
-        ckpt_journal.as_deref(),
-        &ContextBlobs { cx, office, thread: id.to_owned().into() },
-        &mut replaced,
-    )?;
-    let (mut turn_messages, runs) = match recovered {
-        Some((messages, run)) => (messages, vec![run]),
-        None => (Vec::new(), Vec::new()),
-    };
-    let all: Vec<Value> = messages.iter().chain(turn_messages.iter()).cloned().collect();
-    // The sessions whose sidecars this one may name: a copy 1.4.5 made (a clear's fork) names no source, so its set is
-    // what its transcript names, stored once here for the prune's index.
-    mixdog_store::offload_sources::stamp(&mut header, id, &all);
-    // The ids are stamped over 1.4.5's array, system messages included, so every row keeps its 1.4.5 id.
-    let mut iids = message_iids(id, &all);
-    let mut turn_iids = iids.split_off(messages.len());
-    // The system prefix becomes the header's prompt blocks; the rows start after it.
-    let system = migrate_system_messages(&all, &header)
-        .map_err(|e| Fail::Quarantine(QuarantineCode::SchemaViolation, format!("system messages: {e}")))?;
-    system.apply(&mut header);
-    // A checkpoint that holds the whole transcript (`fullTranscript`: the turn compacted it) replaces every saved
-    // message, so the system prefix is the checkpoint's own: the rest of it is taken off the recovered turn.
-    let saved = system.rows_from.min(messages.len());
-    let recovered = system.rows_from - saved;
-    messages.drain(..saved);
-    iids.drain(..saved);
-    turn_messages.drain(..recovered);
-    turn_iids.drain(..recovered);
-    let rid = runs.first().filter(|_| !turn_messages.is_empty()).map(|r| r.rid.clone());
-
-    let queue = queue(cx, id, &shared, &mut replaced)?;
-    let mut metas: Vec<Header> = worker(cx, id, &header, &shared, &mut replaced)?.into_iter().collect();
-    metas.extend(parent_link(cx, id, &header, &shared, &mut replaced)?);
-    metas.extend(archived);
-    let mut messages = message_rows(iids, messages, None);
-    let mut checkpoint_rows = message_rows(turn_iids, turn_messages, rid.as_deref());
-    super::restore::convert(
-        messages.iter_mut().chain(checkpoint_rows.iter_mut()),
-        &super::restore::StoreBlobs(cx),
-    );
-    let mut archive_rows = archive_rows;
-    // A turn recovered from its checkpoint holds the requests its own compaction carried over the same way.
-    let held: Vec<(String, Value)> = if archive_rows.is_empty() {
-        Vec::new()
-    } else {
-        messages.iter().chain(&checkpoint_rows).map(|row| (row.iid.clone(), row.body.clone())).collect()
-    };
-    let moved = [place_retained(&mut archive_rows, &mut messages), place_retained(&mut archive_rows, &mut checkpoint_rows)];
-    let context = moved.iter().any(Option::is_some).then_some(held);
-    Ok(SessionModel {
-        id: id.to_string(),
-        header,
-        archive: archive_rows,
-        messages,
-        context,
-        checkpoint_rows,
-        runs,
-        queue,
-        metas,
-        superseded_jobs: superseded,
-        replaced_surrogates: replaced,
-    })
-}
-
 /// Moves the requests a compaction carried over out of `messages` to where they were said among the archived rows.
 ///
 /// 1.4.5 keeps the user's earlier requests in the model context after a compaction and archives what it dropped, so a
@@ -1436,6 +1004,75 @@ fn place_retained(archive: &mut Vec<Row>, messages: &mut Vec<Row>) -> Option<Vec
     *archive = placed;
     Some(context)
 }
+
+#[cfg(test)]
+mod archive_damage_tests {
+    use super::*;
+
+    fn segment(seq: u64) -> String {
+        let items = r#"[{"id":"m1","role":"assistant"}]"#;
+        format!(r#"{{"v":1,"seq":{seq},"id":"seg{seq}","prev":null,"at":5,"count":1,"bytes":{},"items":{items}}}"#, items.len())
+    }
+
+    fn committing(next_seq: u64) -> Header {
+        let mut header = Header::new();
+        header.insert("compaction".into(), serde_json::json!({ "archive": { "nextSeq": next_seq } }));
+        header
+    }
+
+    /// Validity of the sidecar is `Number.isInteger(seq)` and a messages array, nothing more; which
+    /// jobs migrate is the record's: one it does not commit (`seq >= nextSeq`) is discarded, a number
+    /// beyond 2^53 included, and the committed job still migrates.
+    #[test]
+    fn a_job_the_record_does_not_commit_is_discarded_not_the_sidecar() {
+        let pending = r#"{"jobs":[{"seq":1,"messages":[{"role":"user","content":"x"}]},{"seq":9007199254740992,"messages":[]}]}"#;
+        let (mut replaced, mut damage) = (0u64, Vec::new());
+        let (rows, _) = archive_rows("sess_a", &committing(2), None, Some(pending.as_bytes()), &mut replaced, &mut damage)
+            .expect("both jobs are integers with messages: the sidecar is valid");
+        let seqs: Vec<u64> = rows.iter().filter_map(|row| row.archive.as_ref().map(|tag| tag.seq)).collect();
+        assert_eq!(seqs, [1]);
+        assert_eq!(damage.len(), 1);
+        assert_eq!(damage[0]["line"], 2);
+        assert_eq!(damage[0]["why"], "its compaction was never saved in the session record");
+    }
+
+    /// Only `seq` and `messages` make a job valid; a divider, `at`, `clearedThrough` or `maxBytes`
+    /// that does not conform takes what its reader made of it, and the job migrates.
+    #[test]
+    fn a_pending_job_with_unusable_optional_fields_still_migrates() {
+        let pending = r#"{"jobs":[{"seq":3,"messages":[{"role":"user","content":"x"}],"divider":"yes","at":"7.9","clearedThrough":"a","maxBytes":-1}]}"#;
+        let (mut replaced, mut damage) = (0u64, Vec::new());
+        let (rows, _) = archive_rows("sess_a", &committing(4), None, Some(pending.as_bytes()), &mut replaced, &mut damage)
+            .expect("the sidecar is valid: only seq and messages count");
+        assert!(damage.is_empty());
+        let tag = rows[0].archive.as_ref().expect("an archive row");
+        assert_eq!(tag.seq, 3);
+        assert_eq!(tag.at, Some(Number::from(7u64)));
+        assert!(matches!(&tag.origin, ArchiveOrigin::Pending { divider: true, cleared_through: None, max_bytes: None }));
+    }
+
+    /// One damaged archive line is skipped alone; one job without `seq`/`messages` sets the whole
+    /// pending sidecar aside (its valid job too, as the earlier version read it). The session
+    /// converts, and each skipped part is recorded with its place and why.
+    #[test]
+    fn a_damaged_archive_part_is_skipped_and_recorded_not_fatal() {
+        let archive = format!("{}\n{{not json\n{}\n", segment(1), segment(2));
+        let pending = r#"{"jobs":[{"seq":3,"messages":[{"role":"user","content":"x"}]},{"seq":"four","messages":[]}]}"#;
+        let (mut replaced, mut damage) = (0u64, Vec::new());
+        let (rows, superseded) =
+            archive_rows("sess_a", &Header::new(), Some(archive.as_bytes()), Some(pending.as_bytes()), &mut replaced, &mut damage)
+                .expect("a damaged part does not fail the session");
+        assert!(superseded.is_empty());
+        let seqs: Vec<u64> = rows.iter().filter_map(|row| row.archive.as_ref().map(|tag| tag.seq)).collect();
+        assert_eq!(seqs, [1, 2], "job 3 goes with its sidecar");
+        let places: Vec<(String, u64)> =
+            damage.iter().map(|d| (d["file"].as_str().unwrap().to_owned(), d["line"].as_u64().unwrap())).collect();
+        assert_eq!(places, [("archive".to_owned(), 2), ("pending".to_owned(), 0)]);
+        assert_eq!(damage[0]["text"], "{not json");
+        assert_eq!(damage[1]["text"], pending, "the whole sidecar is what was skipped");
+    }
+}
+
 
 #[cfg(test)]
 mod place_retained_tests {
@@ -1501,14 +1138,12 @@ mod place_retained_tests {
 mod worker_index_tests {
     use super::*;
 
-    /// Worker indexes Node's own code wrote (the stores of `fixtures/store-agent-worker-pool-cases`, recorded by
-    /// `record-store-agent-worker-pool-cases.mjs` from Node's tests): case 0's is an id-keyed map, case 2's a list. The
-    /// rows each names are read off the parsed file: a list's in its order, a map's by sorted key.
+    /// A worker index names its rows' sessions as a list (in its order) or as an id-keyed map (by sorted key).
     #[test]
     fn a_worker_index_names_its_rows_sessions_as_a_list_or_as_a_map() {
-        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/store-agent-worker-pool-cases/golden.json")).unwrap();
-        for (case, shape) in [(0, "map"), (2, "list")] {
-            let text = golden["cases"][case]["observed"]["store"][AGENT_WORKERS].as_str().unwrap();
+        let map = r#"{"version":2,"workers":{"sess_b":{"sessionId":"sess_b"},"sess_a":{"sessionId":"sess_a"}}}"#;
+        let list = r#"{"version":1,"workers":[{"sessionId":"sess_2"},{"sessionId":"sess_1"}]}"#;
+        for (case, (text, shape)) in [(map, "map"), (list, "list")].into_iter().enumerate() {
             let parsed: Value = serde_json::from_str(text).unwrap();
             let want: Vec<String> = match &parsed["workers"] {
                 Value::Array(rows) => {
@@ -1529,4 +1164,490 @@ mod worker_index_tests {
             assert_eq!(named[..want.len()], want[..], "case {case} ({shape}): the sessions the shared file names");
         }
     }
+}
+
+
+
+
+
+/// The dev reader's fold (`dev:session-log-reader.mjs` `parseSessionLog`): a line that holds
+/// no record of ours (blank, not JSON, not a record, of an unknown kind) is skipped as Node
+/// skips it, and a sequence or length break ends the replay there, keeping what came before as Node
+/// does; a log with no `session` + `compacted` base is `schema_violation`. A line is decoded as UTF-8
+/// with U+FFFD for invalid bytes, as Node's `toString('utf8')` does; a CR before the LF is JSON
+/// white space. A final line without LF is a torn tail and is excluded.
+///
+/// The log is read one line at a time and folded as it goes: a `compacted` record replaces the
+/// messages, so what is held is the working history plus the longest line, never the file
+/// (a 1.4.5 log repeats the whole history in every `compacted` record and reaches hundreds of
+/// MB). The result is the fold of the bytes read, not yet proven to be the manifest's: the
+/// caller `verify`s the handle before it uses it.
+pub fn fold_log(id: &str, log: &mut durable::OpenFile, replaced: &mut u64) -> R<LogFold> {
+    let mut line = Vec::new();
+    // Lines accepted so far, which is also the sequence number the next one must carry.
+    let mut accepted = 0usize;
+    let mut length: u64 = 0;
+    let mut base_id = String::new();
+    let mut header = Header::default();
+    let mut legacy = None;
+    let mut messages: Vec<Value> = Vec::new();
+    loop {
+        line.clear();
+        log.read_line_into(&mut line)?;
+        // Every complete line ends with LF; the bytes after the last LF are the torn tail.
+        if line.pop() != Some(b'\n') {
+            break;
+        }
+        let text = String::from_utf8_lossy(&line);
+        let Ok(parsed) = json::parse_source(text.as_bytes()) else { continue };
+        let value = parsed.value;
+        let Some(record) = decode_record(&value) else { continue };
+        let expected = accepted;
+        let t = record["t"].as_str().unwrap_or("");
+        let misplaced = count_of(record.get("s")) != Some(expected as u64)
+            || (expected == 0 && t != "session")
+            || (expected == 1 && t != "compacted")
+            || (expected > 0 && t == "session");
+        let len = count_of(record.get("len"));
+        let mlen = record.get("messages").and_then(Value::as_array).map_or(0, |m| m.len() as u64);
+        let next = if misplaced {
+            None
+        } else {
+            match t {
+                "compacted" => len,
+                "append" => len.filter(|l| *l == length + mlen),
+                "edit" => {
+                    let at = count_of(record.get("at")).unwrap_or(0);
+                    let del = count_of(record.get("del")).unwrap_or(0);
+                    len.filter(|l| at + del <= length && *l + del == length + mlen)
+                }
+                "rollback" => len.filter(|l| *l <= length),
+                _ => Some(length),
+            }
+        };
+        // A record that does not follow the history before it is where Node's replay stops (`damage`):
+        // the records before it are the log, the rest is not read.
+        let Some(next) = next else { break };
+        length = next;
+        *replaced += parsed.replaced_surrogates;
+        let t = t.to_owned();
+        let Value::Object(mut record) = value else {
+            unreachable!("decode_record admits only objects");
+        };
+        // `length` is the validated length of `messages`, so every index below is in range.
+        let take_messages = |r: &mut Map<String, Value>| match r.shift_remove("messages") {
+            Some(Value::Array(m)) => m,
+            _ => Vec::new(),
+        };
+        match t.as_str() {
+            "session" => {
+                base_id = record["id"].as_str().unwrap_or("").to_owned();
+                header = match record.shift_remove("header") {
+                    Some(Value::Object(h)) => h,
+                    _ => Header::default(),
+                };
+                legacy = record.get("legacy").and_then(Value::as_object).map(|l| Legacy {
+                    sha1: l["sha1"].as_str().unwrap_or("").to_string(),
+                    redacted_from: l.get("redactedFrom").and_then(Value::as_str).map(str::to_string),
+                });
+            }
+            "compacted" => messages = take_messages(&mut record),
+            "append" => messages.extend(take_messages(&mut record)),
+            "edit" => {
+                let at = count_of(record.get("at")).unwrap_or(0) as usize;
+                let del = count_of(record.get("del")).unwrap_or(0) as usize;
+                messages.splice(at..at + del, take_messages(&mut record));
+            }
+            "rollback" => messages.truncate(count_of(record.get("len")).unwrap_or(0) as usize),
+            "patch" => {
+                for k in record["unset"].as_array().into_iter().flatten() {
+                    header.shift_remove(k.as_str().unwrap_or(""));
+                }
+                for (k, v) in record["set"].as_object().into_iter().flatten() {
+                    header.insert(k.clone(), v.clone());
+                }
+            }
+            _ => {}
+        }
+        accepted += 1;
+    }
+    if accepted < 2 {
+        return q(QuarantineCode::SchemaViolation, "log has no session + compacted base");
+    }
+    if base_id != id {
+        return q(QuarantineCode::IdMismatch, format!("log base names {base_id}"));
+    }
+    Ok(LogFold {
+        header,
+        messages,
+        legacy,
+    })
+}
+/// Segment rows and pending-job rows in seq order (SM §11.4.3).
+fn archive_rows(
+    id: &str,
+    header: &Header,
+    archive: Option<&[u8]>,
+    pending: Option<&[u8]>,
+    replaced: &mut u64,
+    damage: &mut Vec<Value>,
+) -> R<(Vec<Row>, Vec<u64>)> {
+    let range = archive_range(header);
+    let mut entries: Vec<(u64, u8, Vec<Row>)> = Vec::new();
+    let mut segment_seqs = BTreeSet::new();
+    if let Some(text) = archive {
+        for (n, line) in text.split(|&b| b == b'\n').enumerate() {
+            if line.is_empty() {
+                continue;
+            }
+            let what = format!("archive line {}", n + 1);
+            match segment_rows(line, &what, range, replaced) {
+                Ok((seq, rows)) => {
+                    segment_seqs.insert(seq);
+                    entries.push((seq, 0, rows));
+                }
+                Err(Fail::Quarantine(_, detail)) => damage.push(skipped("archive", n + 1, &detail, line)),
+                Err(blocked) => return Err(blocked),
+            }
+        }
+    }
+    let mut superseded = Vec::new();
+    if let Some(text) = pending {
+        match parse(text, QuarantineCode::ArchiveParseError, "pending jobs", replaced) {
+            Err(Fail::Quarantine(_, detail)) => damage.push(skipped("pending", 0, &detail, text)),
+            Err(blocked) => return Err(blocked),
+            // The sidecar is one unit, as the earlier version read it (`parsePendingJobs`): one
+            // damaged job sets the whole file aside.
+            Ok(doc) => match pending_jobs(&doc) {
+                Ok(jobs) => {
+                    let committed = committed_seq(header);
+                    for (n, job) in jobs.iter().enumerate() {
+                        let part = |why: &str| skipped("pending", n + 1, why, job.to_string().as_bytes());
+                        // `recoverPending`: a job its session record does not commit was never saved
+                        // with its compaction and is discarded, whatever its number.
+                        if integer_seq(job.get("seq")).is_some_and(|seq| seq >= committed) {
+                            damage.push(part("its compaction was never saved in the session record"));
+                            continue;
+                        }
+                        match pending_job_rows(id, job, range) {
+                            Ok((seq, _)) if segment_seqs.contains(&seq) => superseded.push(seq),
+                            Ok((seq, rows)) => entries.push((seq, 1, rows)),
+                            Err(Fail::Quarantine(_, detail)) => damage.push(part(&detail)),
+                            Err(blocked) => return Err(blocked),
+                        }
+                    }
+                }
+                Err(Fail::Quarantine(_, detail)) => damage.push(skipped("pending", 0, &detail, text)),
+                Err(blocked) => return Err(blocked),
+            },
+        }
+    }
+    entries.sort_by_key(|(seq, kind, _)| (*seq, *kind));
+    Ok((entries.into_iter().flat_map(|(_, _, rows)| rows).collect(), superseded))
+}
+#[derive(Deserialize)]
+struct Workers<'a> {
+    /// A list or an id-keyed map (`workerRows`, `store-agent-worker-rows.mjs:269`).
+    #[serde(borrow, default)]
+    workers: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    tombstones: Option<&'a RawValue>,
+}
+/// The session ids of a worker index's rows (`agent-workers.json`, `lead-workers.json`); none when it does not parse. Node lists
+/// a row whose session has no record with a null header (`store-agent-worker-rows.mjs:615`), so each is a session of its own.
+pub fn worker_row_session_ids(bytes: &[u8]) -> Vec<String> {
+    let Some(workers) = std::str::from_utf8(bytes).ok().and_then(|text| serde_json::from_str::<Workers<'_>>(text).ok()) else {
+        return Vec::new();
+    };
+    worker_rows(workers.workers)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|raw| json::parse_source(raw.get().as_bytes()).ok())
+        .filter_map(|row| row.value.get("sessionId").and_then(Value::as_str).filter(|id| is_session_id(id)).map(str::to_owned))
+        .collect()
+}
+/// What a shared file names: the session ids (`sessions` keys of a spool; `sessionId` of
+/// worker rows and tombstones; keys of the release markers) and the tombstones without a
+/// `sessionId`, whose session `recover_owner` finds. `None` when the file does not parse.
+pub fn shared_session_ids(name: &str, bytes: &[u8]) -> Option<(Vec<String>, Vec<Value>)> {
+    if pending::is_spool(name) {
+        return Some((pending::owners(bytes)?, Vec::new()));
+    }
+    let text = std::str::from_utf8(bytes).ok()?;
+    if name.ends_with(AGENT_RELEASED) {
+        let doc: Released<'_> = serde_json::from_str(text).ok()?;
+        Some((released_entries(doc.released).ok()?.into_keys().collect(), Vec::new()))
+    } else if name.ends_with(AGENT_WORKERS) || name.ends_with(LEAD_WORKERS) {
+        let workers: Workers<'_> = serde_json::from_str(text).ok()?;
+        let mut ids = Vec::new();
+        for raw in worker_rows(workers.workers).ok()? {
+            let row = json::parse_source(raw.get().as_bytes()).ok()?.value;
+            if let Some(id) = row.get("sessionId").and_then(Value::as_str) {
+                ids.push(id.to_string());
+            }
+            // The parent link matches the cleaned id (`parent_link`).
+            let linked = clean(row.get("sessionId"));
+            if row.get("sessionId").and_then(Value::as_str) != Some(linked.as_str()) {
+                ids.push(linked);
+            }
+        }
+        let mut ownerless = Vec::new();
+        for raw in index_rows(workers.tombstones).ok()? {
+            let row = json::parse_source(raw.get().as_bytes()).ok()?.value;
+            match clean_nullish(row.get("sessionId")) {
+                id if !id.is_empty() => ids.push(id),
+                _ if row.is_object() => ownerless.push(row),
+                _ => {}
+            }
+        }
+        Some((ids, ownerless))
+    } else {
+        None
+    }
+}
+/// Every migrating session as a `Candidate`; one whose header does not read is none.
+pub fn session_candidates<'a>(
+    sessions: impl IntoIterator<Item = (&'a str, &'a [SourceFile])>,
+    mut read: impl FnMut(&SourceFile) -> crate::error::Result<Vec<u8>>,
+    mut open: impl FnMut(&SourceFile) -> crate::error::Result<durable::OpenFile>,
+) -> crate::error::Result<Vec<Candidate>> {
+    let mut out = Vec::new();
+    for (id, sources) in sessions {
+        let find = |suffix: &str| {
+            let rel = format!("sessions/{id}{suffix}");
+            sources.iter().find(|s| s.path == rel)
+        };
+        let json = find(JSON_SUFFIX).map(&mut read).transpose()?;
+        let log = find(LOG_SUFFIX).map(&mut open).transpose()?;
+        if let Ok((header, _)) = header_and_messages(id, json.as_deref(), log, &mut 0) {
+            out.push(Candidate::of(id, &header));
+        }
+    }
+    Ok(out)
+}
+/// The session `recoverTagTombstoneOwner` (`worker-rows.mjs:47-71`) gives a tombstone
+/// without a `sessionId`, read as `normalizeTagTombstones` (`:73-101`) reads it (a tag, a
+/// parsed `reapedAt` clamped to now; no TTL here, readers apply it): when the tombstone
+/// names no owner, the one session under its tag and terminal, with an owner, created by
+/// its reap. `None` when that is not exactly one.
+pub fn recover_owner<'a>(row: &Value, candidates: &'a [Candidate]) -> Option<&'a Candidate> {
+    let row = row.as_object()?;
+    let tag = clean_nullish(row.get("tag"));
+    let reaped = date_parse(&clean_nullish(row.get("reapedAt")));
+    let owned = !clean_nullish(row.get("parentSessionId")).is_empty() || !clean_nullish(row.get("ownerSessionId")).is_empty();
+    if tag.is_empty() || !(reaped.is_finite() && reaped > 0.0) || owned {
+        return None;
+    }
+    let reaped = reaped.min(now_ms());
+    let pid = positive_int(row.get("clientHostPid"))?;
+    let mut found = candidates.iter().filter(|c| {
+        c.tag == tag && c.pid == Some(pid) && !c.parent.is_empty() && c.created > 0.0 && c.created <= reaped
+    });
+    let one = found.next()?;
+    found.next().is_none().then_some(one)
+}
+fn now_ms() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_millis() as f64)
+}
+/// The `worker` header map of this session (SM §11.4.6): its worker row (agent index wins
+/// over lead), the reaper's tombstone of it and its owner's release marker, all verbatim
+/// (readers apply Node's TTL).
+fn worker(cx: &ItemContext<'_>, id: &str, header: &Header, shared: &[&SourceFile], replaced: &mut u64) -> R<Option<Header>> {
+    let bad = |name: &str, e: &dyn std::fmt::Display| Fail::Quarantine(QuarantineCode::ParseError, format!("{name}: {e}"));
+    let read = |name: &str| -> R<Option<String>> {
+        let Some(file) = shared.iter().find(|f| f.path == name) else { return Ok(None) };
+        String::from_utf8(cx.read_source(file)?).map(Some).map_err(|e| bad(name, &e))
+    };
+    let own = [Candidate::of(id, header)];
+    let mut all: Option<Vec<Candidate>> = None;
+    let mut row = None;
+    // Of two tombstones of this session the newer `reapedAt` stays.
+    let mut tombstone: Option<(f64, Value)> = None;
+    for name in [AGENT_WORKERS, LEAD_WORKERS] {
+        let Some(text) = read(name)? else { continue };
+        let workers: Workers<'_> = serde_json::from_str(&text).map_err(|e| bad(name, &e))?;
+        if row.is_none() {
+            for raw in worker_rows(workers.workers).map_err(|e| bad(name, &e))? {
+                let mut count = 0;
+                let found = parse(raw.get().as_bytes(), QuarantineCode::ParseError, name, &mut count)?;
+                if found.get("sessionId").and_then(Value::as_str) == Some(id) {
+                    *replaced += count;
+                    row = Some(found);
+                    break;
+                }
+            }
+        }
+        for raw in index_rows(workers.tombstones).map_err(|e| bad(name, &e))? {
+            let mut count = 0;
+            let mut entry = parse(raw.get().as_bytes(), QuarantineCode::ParseError, name, &mut count)?;
+            let sid = clean_nullish(entry.get("sessionId"));
+            if sid.is_empty() {
+                // Only when this session could own it are the others read.
+                if recover_owner(&entry, &own).is_none() {
+                    continue;
+                }
+                if all.is_none() {
+                    let sessions = cx.manifest.items.iter().filter(|i| i.kind == ItemKind::Session);
+                    all = Some(session_candidates(
+                        sessions.filter_map(|i| Some((i.key.as_str().strip_prefix("session/")?, i.sources.as_slice()))),
+                        |file| cx.read_source(file),
+                        |file| cx.open_source(file),
+                    )?);
+                }
+                let Some(owner) = recover_owner(&entry, all.as_deref().unwrap_or_default()) else { continue };
+                if owner.id != id {
+                    continue;
+                }
+                let map = entry.as_object_mut().expect("recover_owner takes objects only");
+                map.insert("parentSessionId".into(), Value::String(owner.parent.clone()));
+                map.insert("ownerSessionId".into(), Value::String(owner.owner.clone()));
+            } else if sid != id {
+                continue;
+            }
+            *replaced += count;
+            let at = stamp_ms(entry.get("reapedAt"));
+            if tombstone.as_ref().is_none_or(|(kept, _)| at > *kept) {
+                tombstone = Some((at, entry));
+            }
+        }
+    }
+    let tombstone = tombstone.map(|(_, entry)| entry);
+    let mut released = None;
+    if let Some(text) = read(AGENT_RELEASED)? {
+        let doc: Released<'_> = serde_json::from_str(&text).map_err(|e| bad(AGENT_RELEASED, &e))?;
+        if let Some(raw) = released_entries(doc.released).map_err(|e| bad(AGENT_RELEASED, &e))?.get(id) {
+            released = Some(parse(raw.get().as_bytes(), QuarantineCode::ParseError, AGENT_RELEASED, replaced)?);
+        }
+    }
+    if row.is_none() && tombstone.is_none() && released.is_none() {
+        return Ok(None);
+    }
+    let mut set = Map::new();
+    set.insert("worker".into(), Value::Object(worker_map(row, tombstone, released)));
+    Ok(Some(set))
+}
+/// Header and messages of a session: its log's when the log wins over its json (`log_wins`).
+pub(crate) fn header_and_messages(id: &str, json: Option<&[u8]>, log: Option<durable::OpenFile>, replaced: &mut u64) -> R<(Header, Vec<Value>)> {
+    match log {
+        Some(mut log) => {
+            let mut log_replaced = 0;
+            let folded = fold_log(id, &mut log, &mut log_replaced);
+            // A log that is not the manifest's is no source, whatever it folded to.
+            log.verify()?;
+            let fold = folded?;
+            if log_wins(fold.legacy.as_ref(), json) {
+                *replaced += log_replaced;
+                Ok((fold.header, fold.messages))
+            } else {
+                read_json(id, json.unwrap_or_default(), replaced)
+            }
+        }
+        None => read_json(id, json.unwrap_or_default(), replaced),
+    }
+}
+/// Reads every source of `session/<id>` into the model the frames are written from; `office`
+/// extracts office documents a recovered turn's context signatures read.
+pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &OfficeExtractor) -> R<SessionModel> {
+    let mut replaced = 0u64;
+    let read = |rel: String| -> R<Option<Vec<u8>>> {
+        match source(item, &rel) {
+            Some(file) => Ok(Some(cx.read_source(file)?)),
+            None => Ok(None),
+        }
+    };
+    let json_bytes = read(format!("sessions/{id}{JSON_SUFFIX}"))?;
+    let log = match source(item, &format!("sessions/{id}{LOG_SUFFIX}")) {
+        Some(file) => Some(cx.open_source(file)?),
+        None => None,
+    };
+    let archive = read(format!("sessions/{id}{ARCHIVE_SUFFIX}"))?;
+    let pending = read(format!("sessions/{id}{PENDING_SUFFIX}"))?;
+    let ckpt_header = read(format!("turn-checkpoints/{id}.json"))?;
+    let ckpt_journal = read(format!("turn-checkpoints/{id}.jsonl"))?;
+
+    // A session only a worker index row names (`worker_row_session_ids`) has no record: Node reads its header as null.
+    let (mut header, mut messages) = if item.sources.is_empty() {
+        let mut header = Header::new();
+        header.insert(mixdog_store::archived_agent::WORKER_ROW_ONLY_KEY.into(), Value::Bool(true));
+        // The catalog row takes `Date.now()` for a header without `updatedAt`: a fixed one keeps the migrated index the same run to run.
+        header.insert("updatedAt".into(), Value::from(1));
+        (header, Vec::new())
+    } else {
+        header_and_messages(id, json_bytes.as_deref(), log, &mut replaced)?
+    };
+    let shared = cx.shared_for(&format!("session/{id}"));
+    let archived = archived_results(cx, id, &header, &messages, &shared)?;
+
+    let mut archive_damage = Vec::new();
+    let (archive_rows, superseded) =
+        archive_rows(id, &header, archive.as_deref(), pending.as_deref(), &mut replaced, &mut archive_damage)?;
+    let recovered = checkpoint(
+        id,
+        &mut header,
+        &mut messages,
+        ckpt_header.as_deref(),
+        ckpt_journal.as_deref(),
+        &ContextBlobs { cx, office, thread: id.to_owned().into() },
+        &mut replaced,
+    )?;
+    let (mut turn_messages, runs) = match recovered {
+        Some((messages, run)) => (messages, vec![run]),
+        None => (Vec::new(), Vec::new()),
+    };
+    let all: Vec<Value> = messages.iter().chain(turn_messages.iter()).cloned().collect();
+    // The sessions whose sidecars this one may name: a copy 1.4.5 made (a clear's fork) names no source, so its set is
+    // what its transcript names, stored once here for the prune's index.
+    mixdog_store::offload_sources::stamp(&mut header, id, &all);
+    // The ids are stamped over 1.4.5's array, system messages included, so every row keeps its 1.4.5 id.
+    let mut iids = message_iids(id, &all);
+    let mut turn_iids = iids.split_off(messages.len());
+    // The system prefix becomes the header's prompt blocks; the rows start after it.
+    let system = migrate_system_messages(&all, &header)
+        .map_err(|e| Fail::Quarantine(QuarantineCode::SchemaViolation, format!("system messages: {e}")))?;
+    system.apply(&mut header);
+    // A checkpoint that holds the whole transcript (`fullTranscript`: the turn compacted it) replaces every saved
+    // message, so the system prefix is the checkpoint's own: the rest of it is taken off the recovered turn.
+    let saved = system.rows_from.min(messages.len());
+    let recovered = system.rows_from - saved;
+    messages.drain(..saved);
+    iids.drain(..saved);
+    turn_messages.drain(..recovered);
+    turn_iids.drain(..recovered);
+    let rid = runs.first().filter(|_| !turn_messages.is_empty()).map(|r| r.rid.clone());
+
+    let queue = pending::read(cx, id, &shared, &header, &all, &mut replaced)?;
+    let mut metas: Vec<Header> = worker(cx, id, &header, &shared, &mut replaced)?.into_iter().collect();
+    metas.extend(parent_link(cx, id, &header, &shared, &mut replaced)?);
+    metas.extend(archived);
+    let mut messages = message_rows(iids, messages, None);
+    let mut checkpoint_rows = message_rows(turn_iids, turn_messages, rid.as_deref());
+    super::restore::convert(
+        messages.iter_mut().chain(checkpoint_rows.iter_mut()),
+        &super::restore::StoreBlobs(cx),
+    );
+    let mut archive_rows = archive_rows;
+    // A turn recovered from its checkpoint holds the requests its own compaction carried over the same way.
+    let held: Vec<(String, Value)> = if archive_rows.is_empty() {
+        Vec::new()
+    } else {
+        messages.iter().chain(&checkpoint_rows).map(|row| (row.iid.clone(), row.body.clone())).collect()
+    };
+    let moved = [place_retained(&mut archive_rows, &mut messages), place_retained(&mut archive_rows, &mut checkpoint_rows)];
+    let context = moved.iter().any(Option::is_some).then_some(held);
+    Ok(SessionModel {
+        id: id.to_string(),
+        header,
+        archive: archive_rows,
+        messages,
+        context,
+        checkpoint_rows,
+        runs,
+        queue,
+        metas,
+        superseded_jobs: superseded,
+        archive_damage,
+        replaced_surrogates: replaced,
+    })
 }

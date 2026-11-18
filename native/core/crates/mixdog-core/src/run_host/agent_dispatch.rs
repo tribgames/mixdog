@@ -70,6 +70,10 @@ pub struct Prepared {
     pub id: String,
     /// The tool names the session exposes (a diagnostic line lists them).
     pub tools: Vec<String>,
+    /// The first-response window the session's provider declares for its model (`provider.firstResponseBudget`): the longest
+    /// it may wait for its response head and its first output over its whole retry ladder. The watchdog's first-response
+    /// deadlines sit above it, so the provider's own timer and retries decide first; `None` keeps the watchdog's default.
+    pub first_response_budget: Option<mixdog_core_api::domain::provider::FirstResponseBudget>,
 }
 
 /// One `askSession(id, prompt, null, onToolCall, cwd, undefined, askOpts)`.
@@ -172,6 +176,7 @@ impl HiddenRoleRunner {
         };
         let session = self.sessions.prepare(spec).await?;
         self.world.diagnostic(&format!("[agent-dispatch] agent={agent} tool-list ({}): {}", session.tools.len(), session.tools.join(",")));
+        let budget = session.first_response_budget;
         let id = session.id;
         self.sessions.set_status(&id, "running").await;
 
@@ -185,6 +190,8 @@ impl HiddenRoleRunner {
             Overrides {
                 // `Number.isFinite(call) ? call : opts.idleTimeoutMs`.
                 idle_timeout_ms: [request.idle_timeout_ms, request.default_idle_timeout_ms].into_iter().flatten().find(|ms| ms.is_finite()).filter(|ms| *ms >= 0.0).map(|ms| ms.floor() as i64),
+                provider_first_byte_timeout_ms: budget.map(|b| b.transport_ms),
+                provider_first_output_timeout_ms: budget.map(|b| b.semantic_ms),
                 ..Overrides::default()
             },
             &|name: &str| self.world.env(name),

@@ -94,19 +94,6 @@ impl AgentRuntime for Agent {
 /// The receiver's settings as the recording's receiver had them: the defaults, enabled.
 struct Settings;
 
-#[async_trait]
-impl ChannelSettings for Settings {
-    async fn webhook(&self) -> Result<WebhookSettings, String> {
-        Ok(WebhookSettings { enabled: Some(true), ..WebhookSettings::default() })
-    }
-    async fn update_webhook(&self, _patch: &WebhookPatch) -> Result<WebhookSettings, String> {
-        unreachable!("no recorded step changes the webhook settings")
-    }
-    async fn webhook_config(&self) -> Result<WebhookConfig, String> {
-        Ok(WebhookConfig::default())
-    }
-}
-
 /// The receiver's store and dispatch: nothing reaches them, no request arrives.
 struct NoDeliveries;
 
@@ -255,6 +242,19 @@ const NODE_ONLY: [&str; 6] = ["advert", "advert.clear", "locks.release", "snapsh
 /// Recorded calls with no counterpart in `WebhookAutomation` (see the header); `webhook.new` and `webhook.start` are handled apart.
 const NO_COUNTERPART: [&str; 7] = ["pipeline.new", "pipeline.reload", "pipeline.start", "pipeline.stop", "wire.events", "wire.webhook", "webhook.reload"];
 
+
+#[async_trait]
+impl ChannelSettings for Settings {
+    async fn webhook(&self) -> Result<WebhookSettings, String> {
+        Ok(WebhookSettings { enabled: Some(true), ..WebhookSettings::default() })
+    }
+    async fn update_webhook(&self, _patch: &WebhookPatch) -> Result<WebhookSettings, String> {
+        unreachable!("no recorded step changes the webhook settings")
+    }
+    async fn webhook_config(&self) -> Result<WebhookConfig, String> {
+        Ok(WebhookConfig::default())
+    }
+}
 /// One step's recorded calls in the vocabulary of the Rust ports (see the header).
 fn expected(calls: &Exact) -> Vec<Value> {
     let calls: Vec<Value> = calls.as_array().iter().map(|c| c.to_plain().expect("a plain call")).collect();
@@ -311,13 +311,11 @@ fn expected(calls: &Exact) -> Vec<Value> {
     }
     out
 }
-
 #[track_caller]
 fn step(case: &Exact, index: usize, actual: Vec<Value>) {
     let expected = expected(&case.get("calls").as_array()[index]);
     assert_eq!(actual, expected, "{}: calls of recorded step {index}", case.get("name").as_str());
 }
-
 /// `skip` are the recorded state keys with no counterpart (declared in the manifest): `eventPipeline` always, and in the case whose
 /// webhook start threw, `webhookServer` too (Node keeps the receiver object it made, which never listened; the core has no such object).
 fn finish(case: &Exact, rig: &Rig, stderr: &Arc<Mutex<Vec<(mixdog_rt::node_log::Origin, mixdog_rt::node_log::Channel, String)>>>, skip: &[&str]) {
@@ -331,13 +329,11 @@ fn finish(case: &Exact, rig: &Rig, stderr: &Arc<Mutex<Vec<(mixdog_rt::node_log::
         stderr.lock().unwrap().iter().map(|(_, _, line)| Exact::String(mixdog_rt::node_log::bare(line))).collect();
     same(&format!("{name}: stderr"), case.get("stderr"), &Exact::Array(lines));
 }
-
 fn recorded(index: usize, name: &str) -> Exact {
     let golden = golden(SET);
     assert_case_count(&golden, 8);
     case(&golden, index, name).clone()
 }
-
 #[tokio::test]
 async fn start_advertises_arms_automation_once_and_notifies_acquired() {
     let case = recorded(0, "start advertises, arms automation once and notifies acquired");
@@ -349,7 +345,6 @@ async fn start_advertises_arms_automation_once_and_notifies_acquired() {
     step(&case, 1, rig.take());
     finish(&case, &rig, &stderr, &["eventPipeline"]);
 }
-
 #[tokio::test]
 async fn start_does_nothing_while_the_bridge_is_inactive() {
     let case = recorded(1, "start does nothing while the bridge is inactive");
@@ -361,7 +356,6 @@ async fn start_does_nothing_while_the_bridge_is_inactive() {
     step(&case, 0, rig.take());
     finish(&case, &rig, &stderr, &["eventPipeline"]);
 }
-
 #[tokio::test]
 async fn stop_tears_automation_down_and_is_idempotent() {
     let case = recorded(2, "stop tears automation down and is idempotent");
@@ -375,7 +369,6 @@ async fn stop_tears_automation_down_and_is_idempotent() {
     step(&case, 2, rig.take());
     finish(&case, &rig, &stderr, &["eventPipeline"]);
 }
-
 #[tokio::test]
 async fn a_stop_landing_mid_start_makes_the_in_flight_start_bail_without_arming_automation() {
     let case = recorded(3, "a stop landing mid-start makes the in-flight start bail without arming automation");
@@ -395,7 +388,6 @@ async fn a_stop_landing_mid_start_makes_the_in_flight_start_bail_without_arming_
     same("connectedAfterStop", case.get("connectedAfterStop"), &Exact::Bool(connected_after_stop));
     finish(&case, &rig, &stderr, &["eventPipeline"]);
 }
-
 #[tokio::test]
 async fn reload_re_arms_the_scheduler_and_hot_reloads_automation_services() {
     let case = recorded(4, "reload re-arms the scheduler and hot-reloads automation services");
@@ -407,7 +399,6 @@ async fn reload_re_arms_the_scheduler_and_hot_reloads_automation_services() {
     step(&case, 1, rig.take());
     finish(&case, &rig, &stderr, &["eventPipeline"]);
 }
-
 #[tokio::test]
 async fn reload_on_a_stopped_runtime_tears_the_webhook_and_event_runtime_down() {
     let case = recorded(5, "reload on a stopped runtime tears the webhook and event runtime down");
@@ -417,7 +408,6 @@ async fn reload_on_a_stopped_runtime_tears_the_webhook_and_event_runtime_down() 
     step(&case, 0, rig.take());
     finish(&case, &rig, &stderr, &["eventPipeline"]);
 }
-
 #[tokio::test]
 async fn start_automation_runtime_is_idempotent_and_a_stop_during_its_init_aborts_arming() {
     let case = recorded(6, "startAutomationRuntime is idempotent and a stop during its init aborts arming");
@@ -442,7 +432,6 @@ async fn start_automation_runtime_is_idempotent_and_a_stop_during_its_init_abort
     step(&case, 3, rig.take());
     finish(&case, &rig, &stderr, &["eventPipeline"]);
 }
-
 /// The acquisition is announced as the bridge connects; the arming then fails (the recorder's webhook start throws, here the
 /// listener's start fails). The start rolls the connection back, writes its stderr line and announces
 /// nothing more: clients keep the acquired binding, and the activation call answers as a success.

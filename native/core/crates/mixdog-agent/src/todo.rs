@@ -68,8 +68,7 @@ pub trait TodoView: Send + Sync {
     /// Whether a call changes files, runs commands or mutates a repository
     /// (typed from the tool's annotations by the host).
     fn is_mutation(&self, call: &ToolCall) -> bool;
-    /// A genuine user prompt opened a cycle: the host's side of `beginTodoTurn` (the background-work cycle,
-    /// a finished list's clearing).
+    /// A genuine user prompt arrived: the host's side of `beginTodoTurn` (a finished list's clearing).
     async fn genuine_prompt(&self);
 }
 
@@ -179,6 +178,14 @@ impl TurnGuards for TodoGuards {
 
     fn note_user_wait(&self) {
         lock(&self.check).user_wait = true;
+    }
+
+    /// The no-list reminder of `stale_reminder` shares this state, so a cycle carries one creation reminder,
+    /// whichever goes first.
+    fn note_creation_told(&self) {
+        let mut check = lock(&self.check);
+        check.kept = true;
+        check.create_nudged = true;
     }
 
     fn saved(&self) -> Option<serde_json::Value> {
@@ -377,6 +384,25 @@ mod tests {
 
         let restored = TodoGuards::new(open(), false).with_saved(Some(&with(0)));
         assert_eq!(restored.saved(), Some(with(0)), "a stored 0 survives the record round trip");
+    }
+
+    /// A brief's start reminder already told the agent to create its list: ten mutations with no list add no
+    /// second creation reminder, and the told state rides the record.
+    #[tokio::test]
+    async fn a_told_agent_gets_no_second_creation_reminder() {
+        let empty = || Arc::new(View { phases: Vec::new(), goal: false });
+        let told = TodoGuards::new(empty(), false);
+        told.start_turn(true).await;
+        told.note_creation_told();
+        let (calls, results) = batch(&["edit"; 10]);
+        assert!(told.stale_reminder(&calls, &results).await.is_none());
+        assert_eq!(told.saved().unwrap()["createNudged"], true);
+        let restored = TodoGuards::new(empty(), false).with_saved(told.saved().as_ref());
+        assert!(restored.stale_reminder(&calls, &results).await.is_none());
+
+        let untold = TodoGuards::new(empty(), false);
+        untold.start_turn(true).await;
+        assert!(untold.stale_reminder(&calls, &results).await.is_some(), "without the start reminder the ten-call one still fires");
     }
 
     /// `todo-check.mjs` `mutatingCall`: only a result whose `toolKind` is `error` or `skipped` keeps a mutating

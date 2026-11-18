@@ -141,14 +141,6 @@ async fn pending_forever<T>() -> T {
     std::future::pending().await
 }
 
-/// A wait until `due`, endless when there is none.
-async fn until(due: Option<Instant>) {
-    match due {
-        Some(due) => mixdog_rt::time::sleep_until(due).await,
-        None => pending_forever().await,
-    }
-}
-
 /// What the input is made of while the REPL reads or runs a turn.
 struct Input<'a> {
     rx: &'a mut UnboundedReceiver<InputMsg>,
@@ -165,90 +157,6 @@ struct Input<'a> {
 struct Paint<'a> {
     out: &'a mut dyn Out,
     prompt: &'a str,
-}
-
-impl Input<'_> {
-    /// The next message; endless once the input has ended.
-    async fn recv(&mut self) -> Option<InputMsg> {
-        if self.ended {
-            return pending_forever().await;
-        }
-        self.rx.recv().await
-    }
-
-    /// The instant a half-received escape sequence is delivered as typed.
-    fn decoder_due(&self) -> Option<Instant> {
-        self.decoder.next_deadline().map(|due| Instant::now() + due.saturating_duration_since(std::time::Instant::now()))
-    }
-
-    /// Takes one message in. With `paint` the prompt row is kept up to date and a line entered is echoed; without it (a turn
-    /// is printing) the keys edit the line silently, so the streamed block's rows stay where the in-place rewrite expects
-    /// them. Returns true for Ctrl+C.
-    fn absorb(&mut self, msg: Option<InputMsg>, mut paint: Option<Paint<'_>>) -> io::Result<bool> {
-        let events = match msg {
-            None | Some(InputMsg::Eof | InputMsg::Term(TermEvent::Closed)) => {
-                self.ended = true;
-                return Ok(false);
-            }
-            Some(InputMsg::Line(line)) => {
-                self.queued.push_back((line, true));
-                return Ok(false);
-            }
-            Some(InputMsg::Term(TermEvent::Resize(..))) => {
-                if let Some(paint) = paint.as_mut() {
-                    let columns = paint.out.columns().unwrap_or(80);
-                    paint.out.write_str(&self.editor.paint(paint.prompt, columns))?;
-                }
-                return Ok(false);
-            }
-            Some(InputMsg::Term(TermEvent::Bytes(bytes))) => self.decoder.feed(&bytes, std::time::Instant::now()),
-        };
-        self.apply(events, paint)
-    }
-
-    /// The pending escape sequence whose wait is over.
-    fn flush_due(&mut self, paint: Option<Paint<'_>>) -> io::Result<bool> {
-        let events = self.decoder.flush_due(std::time::Instant::now());
-        self.apply(events, paint)
-    }
-
-    fn apply(&mut self, events: Vec<mixdog_term::InputEvent>, mut paint: Option<Paint<'_>>) -> io::Result<bool> {
-        let mut dirty = false;
-        for event in events {
-            for effect in self.editor.apply(&event) {
-                match effect {
-                    Effect::Redraw => dirty = true,
-                    Effect::Interrupt => return Ok(true),
-                    Effect::Eof => {
-                        self.ended = true;
-                        return Ok(false);
-                    }
-                    Effect::ClearScreen => {
-                        if let Some(paint) = paint.as_mut() {
-                            paint.out.write_str(&self.editor.clear_screen())?;
-                        }
-                        dirty = true;
-                    }
-                    Effect::Submit => {
-                        let echoed = paint.is_some();
-                        if let Some(paint) = paint.as_mut() {
-                            let columns = paint.out.columns().unwrap_or(80);
-                            paint.out.write_str(&self.editor.paint(paint.prompt, columns))?;
-                            paint.out.write_str(&self.editor.finish_line(paint.prompt, columns))?;
-                        }
-                        let line = self.editor.take();
-                        self.queued.push_back((line, echoed));
-                        dirty = false;
-                    }
-                }
-            }
-        }
-        if dirty && let Some(paint) = paint.as_mut() {
-            let columns = paint.out.columns().unwrap_or(80);
-            paint.out.write_str(&self.editor.paint(paint.prompt, columns))?;
-        }
-        Ok(false)
-    }
 }
 
 /// What reading a line came to.
@@ -278,206 +186,6 @@ pub struct Repl<'a> {
     config: &'a ReplConfig,
     out: &'a mut dyn Out,
     input: Input<'a>,
-}
-
-impl<'a> Repl<'a> {
-    pub fn new(session: &'a dyn Session, footer: &'a dyn Footer, config: &'a ReplConfig, out: &'a mut dyn Out, rx: &'a mut UnboundedReceiver<InputMsg>) -> Self {
-        let input = Input { rx, interactive: config.interactive, decoder: Decoder::new(), editor: LineEditor::new(), queued: VecDeque::new(), ended: false };
-        Self { session, footer, config, out, input }
-    }
-
-    fn dim(&self, text: &str) -> String {
-        self.config.styler.paint(Style::Dim, text)
-    }
-
-    /// The prompt, painted (a terminal) or written (lines), and one line read after it.
-    async fn read_line(&mut self) -> io::Result<Read> {
-        let prompt = prompt_text(self.config.styler);
-        if self.input.interactive {
-            let columns = self.out.columns().unwrap_or(80);
-            self.out.write_str(&self.input.editor.paint(&prompt, columns))?;
-        } else {
-            self.out.write_str(&prompt)?;
-        }
-        loop {
-            if let Some((line, echoed)) = self.input.queued.pop_front() {
-                if self.input.interactive && !echoed {
-                    // Typed while a turn ran: shown now, under the prompt.
-                    self.out.write_str(&format!("{}\r\n", line.replace('\n', "\r\n")))?;
-                }
-                return Ok(Read::Line(line));
-            }
-            if self.input.ended {
-                return Ok(Read::Eof);
-            }
-            let due = self.input.decoder_due();
-            let interactive = self.input.interactive;
-            let interrupted = tokio::select! {
-                msg = self.input.recv() => {
-                    let target = if interactive { Some(Paint { out: &mut *self.out, prompt: &prompt }) } else { None };
-                    self.input.absorb(msg, target)?
-                }
-                () = until(due) => {
-                    let target = if interactive { Some(Paint { out: &mut *self.out, prompt: &prompt }) } else { None };
-                    self.input.flush_due(target)?
-                }
-            };
-            if interrupted {
-                return Ok(Read::Interrupt);
-            }
-        }
-    }
-
-    /// One prompt to one session turn: the live stream, tool cards, the final render and the footer.
-    async fn run_turn(&mut self, line: &str) -> io::Result<TurnExit> {
-        let styler = self.config.styler;
-        self.out.write_str("\n")?;
-        let mut sink = StreamSink::new(styler.enabled());
-        self.session.tick();
-        let mut follow = TurnFollow::after(&self.session.state());
-        let mut events = self.session.subscribe();
-        let followed = match self.session.submit(line).await {
-            Ok(()) => self.follow_turn(&mut sink, &mut follow, &mut events).await?,
-            Err(error) => Followed::Failed(error),
-        };
-        match followed {
-            Followed::Interrupted => return Ok(TurnExit::Interrupted),
-            Followed::Ended(end) if end.error.is_none() => {
-                sink.flush(self.out)?;
-                let final_text = end.final_text.filter(|text| !text.is_empty()).unwrap_or_else(|| sink.current_text().to_owned());
-                finalize_turn_output(self.out, &sink, &final_text, styler.enabled(), &|text| render_repl_markdown_with(text, 80, styler))?;
-                // The per-turn statusline footer.
-                self.session.tick();
-                let footer = statusline_for(self.footer, &self.session.state(), &self.config.cwd, self.out.columns());
-                self.out.write_str(&format!("\n{footer}\n"))?;
-            }
-            Followed::Ended(TurnEnd { error, .. }) => self.report_failure(&mut sink, error.unwrap_or_default())?,
-            Followed::Failed(error) => self.report_failure(&mut sink, error)?,
-        }
-        self.out.write_str("\n")?;
-        Ok(TurnExit::Done)
-    }
-
-    /// `[error] <message>` after what streamed so far.
-    fn report_failure(&mut self, sink: &mut StreamSink, error: String) -> io::Result<()> {
-        // A failed flush is the error shown, as a failed flush replaced it in Node.
-        let shown = match sink.flush(self.out) {
-            Ok(()) => error,
-            Err(flush_error) => flush_error.to_string(),
-        };
-        let red = self.config.styler.paint(Style::Red, &format!("[error] {shown}"));
-        self.out.write_str(&format!("\n{red}\n"))
-    }
-
-    /// Follows the session until the turn ends, printing as it goes.
-    async fn follow_turn(&mut self, sink: &mut StreamSink, follow: &mut TurnFollow, events: &mut broadcast::Receiver<StoreEvent>) -> io::Result<Followed> {
-        let styler = self.config.styler;
-        let mut frame = mixdog_rt::time::interval(FRAME);
-        frame.set_missed_tick_behavior(mixdog_rt::time::MissedTickBehavior::Skip);
-        loop {
-            let sink_due = sink.next_deadline();
-            let decoder_due = self.input.decoder_due();
-            let mut interrupted = false;
-            tokio::select! {
-                _ = frame.tick() => {}
-                event = events.recv() => match event {
-                    Ok(StoreEvent::ConnectionStatus(ConnectionState::Closed { reason })) => return Ok(Followed::Failed(format!("the connection closed: {reason}"))),
-                    Ok(StoreEvent::SessionLost { reason }) => return Ok(Followed::Failed(format!("the session was lost: {reason}"))),
-                    Err(RecvError::Closed) => return Ok(Followed::Failed("the session closed".to_owned())),
-                    Ok(_) | Err(RecvError::Lagged(_)) => {}
-                },
-                msg = self.input.recv() => interrupted = self.input.absorb(msg, None)?,
-                () = until(sink_due) => {}
-                () = until(decoder_due) => interrupted = self.input.flush_due(None)?,
-            }
-            if interrupted {
-                return Ok(Followed::Interrupted);
-            }
-            sink.flush_due(self.out, Instant::now());
-            self.session.tick();
-            for step in follow.follow(&self.session.state()) {
-                match step {
-                    TurnStep::Delta(text) => sink.push_delta(&text, Instant::now())?,
-                    TurnStep::Reset { chars } => {
-                        sink.reset_tail(self.out, chars)?;
-                    }
-                    TurnStep::Card(call) => sink.write_tool_card(self.out, &render_tool_card(&call, styler))?,
-                    TurnStep::Approval(tool) => {
-                        sink.flush(self.out)?;
-                        let notice = self.dim(&format!("approval needed for {tool}: answer it from another mixdog client"));
-                        self.out.write_str(&format!("{notice}\n"))?;
-                    }
-                    TurnStep::Done(end) => return Ok(Followed::Ended(end)),
-                }
-            }
-        }
-    }
-
-    /// `runRepl` after the setup: returns the exit code.
-    pub async fn run(&mut self) -> i32 {
-        match self.run_loop().await {
-            Ok(code) => code,
-            Err(error) => {
-                // A terminal that cannot be written to ends the REPL: the session is closed like any other exit.
-                self.session.dispose("cli-exit").await;
-                eprintln!("mixdog: {error}");
-                1
-            }
-        }
-    }
-
-    async fn run_loop(&mut self) -> io::Result<i32> {
-        let banner = banner(self.config);
-        self.out.write_str(&banner)?;
-        loop {
-            let raw = match self.read_line().await? {
-                Read::Line(raw) => raw,
-                Read::Eof => {
-                    self.session.dispose("cli-eof").await;
-                    return Ok(0);
-                }
-                Read::Interrupt => return Ok(self.interrupt().await),
-            };
-            let line = js_trim(&raw);
-            if line.is_empty() {
-                continue;
-            }
-            if line.starts_with('/') {
-                let outcome = {
-                    let mut ctx = SlashContext {
-                        out: &mut *self.out,
-                        session: self.session,
-                        footer: self.footer,
-                        styler: self.config.styler,
-                        cwd: &self.config.cwd,
-                        provider_name: self.config.provider.as_deref(),
-                        model: self.config.model.as_deref(),
-                        tool_mode: &self.config.tool_mode,
-                    };
-                    handle_slash(line, &mut ctx).await
-                };
-                match outcome {
-                    Ok(SlashOutcome::Exit) => return Ok(0),
-                    Ok(SlashOutcome::Continue) => {}
-                    Err(message) => {
-                        // The Node handler's rejection ended the process; a command that fails is reported and the REPL goes on.
-                        let red = self.config.styler.paint(Style::Red, &format!("[error] {message}"));
-                        self.out.write_str(&format!("{red}\n"))?;
-                    }
-                }
-            } else if let TurnExit::Interrupted = self.run_turn(line).await? {
-                return Ok(self.interrupt().await);
-            }
-        }
-    }
-
-    /// Ctrl+C: a newline under the prompt, the session closed, the exit code of a SIGINT.
-    async fn interrupt(&mut self) -> i32 {
-        // The terminal may be gone: the cleanup goes on without the newline.
-        let _ = self.out.write_str("\n");
-        self.session.dispose("SIGINT").await;
-        SIGINT_EXIT
-    }
 }
 
 #[cfg(test)]
@@ -681,5 +389,296 @@ mod tests {
         assert!(shown.starts_with("mixdog \u{2014} auto/m \u{b7} full \u{b7} proj\n"));
         assert_eq!(prompt_text(OFF), "\u{203a} ");
         assert_eq!(strip_ansi(&prompt_text(ON)), "\u{203a} ");
+    }
+}
+
+
+/// A wait until `due`, endless when there is none.
+async fn until(due: Option<Instant>) {
+    match due {
+        Some(due) => mixdog_rt::time::sleep_until(due).await,
+        None => pending_forever().await,
+    }
+}
+impl Input<'_> {
+    /// The next message; endless once the input has ended.
+    async fn recv(&mut self) -> Option<InputMsg> {
+        if self.ended {
+            return pending_forever().await;
+        }
+        self.rx.recv().await
+    }
+
+    /// The instant a half-received escape sequence is delivered as typed.
+    fn decoder_due(&self) -> Option<Instant> {
+        self.decoder.next_deadline().map(|due| Instant::now() + due.saturating_duration_since(std::time::Instant::now()))
+    }
+
+    /// Takes one message in. With `paint` the prompt row is kept up to date and a line entered is echoed; without it (a turn
+    /// is printing) the keys edit the line silently, so the streamed block's rows stay where the in-place rewrite expects
+    /// them. Returns true for Ctrl+C.
+    fn absorb(&mut self, msg: Option<InputMsg>, mut paint: Option<Paint<'_>>) -> io::Result<bool> {
+        let events = match msg {
+            None | Some(InputMsg::Eof | InputMsg::Term(TermEvent::Closed)) => {
+                self.ended = true;
+                return Ok(false);
+            }
+            Some(InputMsg::Line(line)) => {
+                self.queued.push_back((line, true));
+                return Ok(false);
+            }
+            Some(InputMsg::Term(TermEvent::Resize(..))) => {
+                if let Some(paint) = paint.as_mut() {
+                    let columns = paint.out.columns().unwrap_or(80);
+                    paint.out.write_str(&self.editor.paint(paint.prompt, columns))?;
+                }
+                return Ok(false);
+            }
+            Some(InputMsg::Term(TermEvent::Bytes(bytes))) => self.decoder.feed(&bytes, std::time::Instant::now()),
+        };
+        self.apply(events, paint)
+    }
+
+    /// The pending escape sequence whose wait is over.
+    fn flush_due(&mut self, paint: Option<Paint<'_>>) -> io::Result<bool> {
+        let events = self.decoder.flush_due(std::time::Instant::now());
+        self.apply(events, paint)
+    }
+
+    fn apply(&mut self, events: Vec<mixdog_term::InputEvent>, mut paint: Option<Paint<'_>>) -> io::Result<bool> {
+        let mut dirty = false;
+        for event in events {
+            for effect in self.editor.apply(&event) {
+                match effect {
+                    Effect::Redraw => dirty = true,
+                    Effect::Interrupt => return Ok(true),
+                    Effect::Eof => {
+                        self.ended = true;
+                        return Ok(false);
+                    }
+                    Effect::ClearScreen => {
+                        if let Some(paint) = paint.as_mut() {
+                            paint.out.write_str(&self.editor.clear_screen())?;
+                        }
+                        dirty = true;
+                    }
+                    Effect::Submit => {
+                        let echoed = paint.is_some();
+                        if let Some(paint) = paint.as_mut() {
+                            let columns = paint.out.columns().unwrap_or(80);
+                            paint.out.write_str(&self.editor.paint(paint.prompt, columns))?;
+                            paint.out.write_str(&self.editor.finish_line(paint.prompt, columns))?;
+                        }
+                        let line = self.editor.take();
+                        self.queued.push_back((line, echoed));
+                        dirty = false;
+                    }
+                }
+            }
+        }
+        if dirty && let Some(paint) = paint.as_mut() {
+            let columns = paint.out.columns().unwrap_or(80);
+            paint.out.write_str(&self.editor.paint(paint.prompt, columns))?;
+        }
+        Ok(false)
+    }
+}
+impl<'a> Repl<'a> {
+    pub fn new(session: &'a dyn Session, footer: &'a dyn Footer, config: &'a ReplConfig, out: &'a mut dyn Out, rx: &'a mut UnboundedReceiver<InputMsg>) -> Self {
+        let input = Input { rx, interactive: config.interactive, decoder: Decoder::new(), editor: LineEditor::new(), queued: VecDeque::new(), ended: false };
+        Self { session, footer, config, out, input }
+    }
+
+    fn dim(&self, text: &str) -> String {
+        self.config.styler.paint(Style::Dim, text)
+    }
+
+    /// The prompt, painted (a terminal) or written (lines), and one line read after it.
+    async fn read_line(&mut self) -> io::Result<Read> {
+        let prompt = prompt_text(self.config.styler);
+        if self.input.interactive {
+            let columns = self.out.columns().unwrap_or(80);
+            self.out.write_str(&self.input.editor.paint(&prompt, columns))?;
+        } else {
+            self.out.write_str(&prompt)?;
+        }
+        loop {
+            if let Some((line, echoed)) = self.input.queued.pop_front() {
+                if self.input.interactive && !echoed {
+                    // Typed while a turn ran: shown now, under the prompt.
+                    self.out.write_str(&format!("{}\r\n", line.replace('\n', "\r\n")))?;
+                }
+                return Ok(Read::Line(line));
+            }
+            if self.input.ended {
+                return Ok(Read::Eof);
+            }
+            let due = self.input.decoder_due();
+            let interactive = self.input.interactive;
+            let interrupted = tokio::select! {
+                msg = self.input.recv() => {
+                    let target = if interactive { Some(Paint { out: &mut *self.out, prompt: &prompt }) } else { None };
+                    self.input.absorb(msg, target)?
+                }
+                () = until(due) => {
+                    let target = if interactive { Some(Paint { out: &mut *self.out, prompt: &prompt }) } else { None };
+                    self.input.flush_due(target)?
+                }
+            };
+            if interrupted {
+                return Ok(Read::Interrupt);
+            }
+        }
+    }
+
+    /// One prompt to one session turn: the live stream, tool cards, the final render and the footer.
+    async fn run_turn(&mut self, line: &str) -> io::Result<TurnExit> {
+        let styler = self.config.styler;
+        self.out.write_str("\n")?;
+        let mut sink = StreamSink::new(styler.enabled());
+        self.session.tick();
+        let mut follow = TurnFollow::after(&self.session.state());
+        let mut events = self.session.subscribe();
+        let followed = match self.session.submit(line).await {
+            Ok(()) => self.follow_turn(&mut sink, &mut follow, &mut events).await?,
+            Err(error) => Followed::Failed(error),
+        };
+        match followed {
+            Followed::Interrupted => return Ok(TurnExit::Interrupted),
+            Followed::Ended(end) if end.error.is_none() => {
+                sink.flush(self.out)?;
+                let final_text = end.final_text.filter(|text| !text.is_empty()).unwrap_or_else(|| sink.current_text().to_owned());
+                finalize_turn_output(self.out, &sink, &final_text, styler.enabled(), &|text| render_repl_markdown_with(text, 80, styler))?;
+                // The per-turn statusline footer.
+                self.session.tick();
+                let footer = statusline_for(self.footer, &self.session.state(), &self.config.cwd, self.out.columns());
+                self.out.write_str(&format!("\n{footer}\n"))?;
+            }
+            Followed::Ended(TurnEnd { error, .. }) => self.report_failure(&mut sink, error.unwrap_or_default())?,
+            Followed::Failed(error) => self.report_failure(&mut sink, error)?,
+        }
+        self.out.write_str("\n")?;
+        Ok(TurnExit::Done)
+    }
+
+    /// `[error] <message>` after what streamed so far.
+    fn report_failure(&mut self, sink: &mut StreamSink, error: String) -> io::Result<()> {
+        // A failed flush is the error shown, as a failed flush replaced it in Node.
+        let shown = match sink.flush(self.out) {
+            Ok(()) => error,
+            Err(flush_error) => flush_error.to_string(),
+        };
+        let red = self.config.styler.paint(Style::Red, &format!("[error] {shown}"));
+        self.out.write_str(&format!("\n{red}\n"))
+    }
+
+    /// Follows the session until the turn ends, printing as it goes.
+    async fn follow_turn(&mut self, sink: &mut StreamSink, follow: &mut TurnFollow, events: &mut broadcast::Receiver<StoreEvent>) -> io::Result<Followed> {
+        let styler = self.config.styler;
+        let mut frame = mixdog_rt::time::interval(FRAME);
+        frame.set_missed_tick_behavior(mixdog_rt::time::MissedTickBehavior::Skip);
+        loop {
+            let sink_due = sink.next_deadline();
+            let decoder_due = self.input.decoder_due();
+            let mut interrupted = false;
+            tokio::select! {
+                _ = frame.tick() => {}
+                event = events.recv() => match event {
+                    Ok(StoreEvent::ConnectionStatus(ConnectionState::Closed { reason })) => return Ok(Followed::Failed(format!("the connection closed: {reason}"))),
+                    Ok(StoreEvent::SessionLost { reason }) => return Ok(Followed::Failed(format!("the session was lost: {reason}"))),
+                    Err(RecvError::Closed) => return Ok(Followed::Failed("the session closed".to_owned())),
+                    Ok(_) | Err(RecvError::Lagged(_)) => {}
+                },
+                msg = self.input.recv() => interrupted = self.input.absorb(msg, None)?,
+                () = until(sink_due) => {}
+                () = until(decoder_due) => interrupted = self.input.flush_due(None)?,
+            }
+            if interrupted {
+                return Ok(Followed::Interrupted);
+            }
+            sink.flush_due(self.out, Instant::now());
+            self.session.tick();
+            for step in follow.follow(&self.session.state()) {
+                match step {
+                    TurnStep::Delta(text) => sink.push_delta(&text, Instant::now())?,
+                    TurnStep::Reset { chars } => {
+                        sink.reset_tail(self.out, chars)?;
+                    }
+                    TurnStep::Card(call) => sink.write_tool_card(self.out, &render_tool_card(&call, styler))?,
+                    TurnStep::Approval(tool) => {
+                        sink.flush(self.out)?;
+                        let notice = self.dim(&format!("approval needed for {tool}: answer it from another mixdog client"));
+                        self.out.write_str(&format!("{notice}\n"))?;
+                    }
+                    TurnStep::Done(end) => return Ok(Followed::Ended(end)),
+                }
+            }
+        }
+    }
+
+    /// `runRepl` after the setup: returns the exit code.
+    pub async fn run(&mut self) -> i32 {
+        match self.run_loop().await {
+            Ok(code) => code,
+            Err(error) => {
+                // A terminal that cannot be written to ends the REPL: the session is closed like any other exit.
+                self.session.dispose("cli-exit").await;
+                eprintln!("mixdog: {error}");
+                1
+            }
+        }
+    }
+
+    async fn run_loop(&mut self) -> io::Result<i32> {
+        let banner = banner(self.config);
+        self.out.write_str(&banner)?;
+        loop {
+            let raw = match self.read_line().await? {
+                Read::Line(raw) => raw,
+                Read::Eof => {
+                    self.session.dispose("cli-eof").await;
+                    return Ok(0);
+                }
+                Read::Interrupt => return Ok(self.interrupt().await),
+            };
+            let line = js_trim(&raw);
+            if line.is_empty() {
+                continue;
+            }
+            if line.starts_with('/') {
+                let outcome = {
+                    let mut ctx = SlashContext {
+                        out: &mut *self.out,
+                        session: self.session,
+                        footer: self.footer,
+                        styler: self.config.styler,
+                        cwd: &self.config.cwd,
+                        provider_name: self.config.provider.as_deref(),
+                        model: self.config.model.as_deref(),
+                        tool_mode: &self.config.tool_mode,
+                    };
+                    handle_slash(line, &mut ctx).await
+                };
+                match outcome {
+                    Ok(SlashOutcome::Exit) => return Ok(0),
+                    Ok(SlashOutcome::Continue) => {}
+                    Err(message) => {
+                        // The Node handler's rejection ended the process; a command that fails is reported and the REPL goes on.
+                        let red = self.config.styler.paint(Style::Red, &format!("[error] {message}"));
+                        self.out.write_str(&format!("{red}\n"))?;
+                    }
+                }
+            } else if let TurnExit::Interrupted = self.run_turn(line).await? {
+                return Ok(self.interrupt().await);
+            }
+        }
+    }
+
+    /// Ctrl+C: a newline under the prompt, the session closed, the exit code of a SIGINT.
+    async fn interrupt(&mut self) -> i32 {
+        // The terminal may be gone: the cleanup goes on without the newline.
+        let _ = self.out.write_str("\n");
+        self.session.dispose("SIGINT").await;
+        SIGINT_EXIT
     }
 }

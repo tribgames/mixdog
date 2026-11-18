@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 
 use mixdog_core_api::CoreError;
+use mixdog_core_api::CoreRequest;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ids::OpId;
 use serde_json::Value;
@@ -56,6 +57,12 @@ pub(crate) fn digest(params: &Value) -> String {
     out
 }
 
+/// The actor's in-memory replay key, distinct from the payload digest written to the log.
+pub(crate) fn replay_key(req: &CoreRequest) -> String {
+    let audience = mixdog_core_base::ops::replay_audience(&req.ctx);
+    digest(&serde_json::json!([req.method.as_str(), audience.as_str(), digest(&req.params)]))
+}
+
 /// Object keys sorted at every level.
 fn canonical(value: Value) -> Value {
     match value {
@@ -66,6 +73,38 @@ fn canonical(value: Value) -> Value {
         }
         Value::Array(items) => Value::Array(items.into_iter().map(canonical).collect()),
         other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn op(id: &str) -> OpId {
+        OpId::from(id.to_owned())
+    }
+
+    #[test]
+    fn a_fenced_op_never_executes() {
+        let mut table = OpTable::default();
+        table.fence(&op("a")).unwrap();
+        let (tx, mut rx) = oneshot::channel();
+        assert!(matches!(table.admit(&op("a"), "sha256:x", tx), Admit::Handled));
+        assert!(matches!(rx.try_recv(), Ok(Err(CoreError::OpFenced { .. }))));
+    }
+
+    #[test]
+    fn an_op_that_arrived_cannot_be_fenced_and_a_waiter_sees_its_result() {
+        let mut table = OpTable::default();
+        let (tx, _rx) = oneshot::channel();
+        assert!(matches!(table.admit(&op("a"), "sha256:x", tx), Admit::New(_)));
+        assert!(matches!(table.fence(&op("a")), Err(CoreError::PreconditionFailed { .. })));
+        let (waiter, mut answer) = oneshot::channel();
+        assert!(table.wait_for(&op("a"), waiter).is_none());
+        table.applied(&op("a"), &serde_json::json!({ "ok": true }));
+        assert!(matches!(answer.try_recv(), Ok(Ok(Reply::Value(v))) if v == serde_json::json!({ "ok": true })));
+        let (idle, _) = oneshot::channel();
+        assert!(table.wait_for(&op("b"), idle).is_some());
     }
 }
 
@@ -164,37 +203,5 @@ impl OpTable {
                 let _ = waiter.send(Err(error.clone()));
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn op(id: &str) -> OpId {
-        OpId::from(id.to_owned())
-    }
-
-    #[test]
-    fn a_fenced_op_never_executes() {
-        let mut table = OpTable::default();
-        table.fence(&op("a")).unwrap();
-        let (tx, mut rx) = oneshot::channel();
-        assert!(matches!(table.admit(&op("a"), "sha256:x", tx), Admit::Handled));
-        assert!(matches!(rx.try_recv(), Ok(Err(CoreError::OpFenced { .. }))));
-    }
-
-    #[test]
-    fn an_op_that_arrived_cannot_be_fenced_and_a_waiter_sees_its_result() {
-        let mut table = OpTable::default();
-        let (tx, _rx) = oneshot::channel();
-        assert!(matches!(table.admit(&op("a"), "sha256:x", tx), Admit::New(_)));
-        assert!(matches!(table.fence(&op("a")), Err(CoreError::PreconditionFailed { .. })));
-        let (waiter, mut answer) = oneshot::channel();
-        assert!(table.wait_for(&op("a"), waiter).is_none());
-        table.applied(&op("a"), &serde_json::json!({ "ok": true }));
-        assert!(matches!(answer.try_recv(), Ok(Ok(Reply::Value(v))) if v == serde_json::json!({ "ok": true })));
-        let (idle, _) = oneshot::channel();
-        assert!(table.wait_for(&op("b"), idle).is_some());
     }
 }

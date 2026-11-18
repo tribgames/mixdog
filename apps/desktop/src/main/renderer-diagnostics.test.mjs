@@ -5,7 +5,47 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { createDesktopDiagnostics } from './desktop-diagnostics.ts';
-import { normalizeRendererDiagnostic, normalizeRendererWhatsNewDiagnostic } from './renderer-recovery.ts';
+import {
+  normalizeRendererComposerActionDiagnostic,
+  normalizeRendererDiagnostic,
+  normalizeRendererWhatsNewDiagnostic,
+} from './renderer-recovery.ts';
+
+test('a composer Stop record keeps what the core answered', () => {
+  const stop = {
+    kind: 'composer-action',
+    action: 'stop',
+    turnBusy: true,
+    queueCount: 0,
+    draftLength: 0,
+    composing: false,
+    uptimeMs: 10,
+  };
+  assert.deepEqual(
+    normalizeRendererComposerActionDiagnostic({
+      ...stop,
+      source: 'stop-button',
+      stopOutcome: 'nothing',
+      aborted: false,
+      stopReason: 'idle',
+    }),
+    {
+      action: 'stop',
+      source: 'stop-button',
+      turnBusy: true,
+      queueCount: 0,
+      draftLength: 0,
+      composing: false,
+      uptimeMs: 10,
+      stopOutcome: 'nothing',
+      aborted: false,
+      stopReason: 'idle',
+    }
+  );
+  const escaped = normalizeRendererComposerActionDiagnostic({ ...stop, source: 'escape', stopOutcome: 'bogus' });
+  assert.equal(escaped.action, 'stop');
+  assert.equal('stopOutcome' in escaped, false, 'an unknown outcome is dropped, the record kept');
+});
 
 test("what's-new diagnostics keep a bounded event record and reject unknown events", () => {
   assert.deepEqual(

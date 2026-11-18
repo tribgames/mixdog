@@ -194,7 +194,7 @@ const CASES = [
     'writeMarkdownDefaultView',
     [U, 'preview'],
     'config/value/write',
-    { path: 'desktop.editor.markdownDefaultView', value: 'preview' },
+    { path: 'desktop.editor.markdownDefaultView', value: 'preview', announce: 'desktop' },
   ],
   [
     'updateActivityRailPins',

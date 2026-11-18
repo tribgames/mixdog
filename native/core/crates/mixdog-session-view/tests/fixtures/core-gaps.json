@@ -1,5 +1,0 @@
-{
- "about": "What the Node terminal UI needs that the v2 protocol or the projection does not provide yet, found by tests/protocol_coverage.rs over tui-store-calls.json and tui-state-fields.json. The test asserts the missing set equals this file, so the file only shrinks: nr-tui-core-gaps implemented each entry in the core (mixdog-core-session tui_client_methods.rs) and emptied it.",
- "methods": [],
- "stateFields": []
-}

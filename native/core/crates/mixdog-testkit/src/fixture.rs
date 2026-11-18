@@ -2,6 +2,15 @@
 //! embedded recording is lexed, expanded, codegened and linked in every test build of its crate.
 //! Each file is read once per test process and kept for its lifetime.
 
+
+/// The text of a file relative to the calling crate's manifest directory: `fixture!("../../fixtures/x.json")`.
+#[macro_export]
+macro_rules! fixture {
+    ($path:literal) => {
+        $crate::fixture_text(concat!(env!("CARGO_MANIFEST_DIR"), "/", $path))
+    };
+}
+
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -70,14 +79,6 @@ impl std::ops::Deref for Fixture {
     fn deref(&self) -> &str {
         text(self.0)
     }
-}
-
-/// The text of a file relative to the calling crate's manifest directory: `fixture!("../../fixtures/x.json")`.
-#[macro_export]
-macro_rules! fixture {
-    ($path:literal) => {
-        $crate::fixture_text(concat!(env!("CARGO_MANIFEST_DIR"), "/", $path))
-    };
 }
 
 /// The bytes of a file relative to the calling crate's manifest directory.

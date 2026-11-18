@@ -3,6 +3,8 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 import {
+  adoptLastTurnReview,
+  nextLastTurnRequest,
   readSessionChangesSource,
   setSessionChangesSource,
   useSessionChangePatches,
@@ -278,6 +280,64 @@ test('a session-source read still running for the previous cwd never answers the
     ['new.ts']
   );
   assert.equal(states.a.root, 'C:/ws/two');
+});
+
+test('a last-turn review-bar parse cannot overwrite a newer scheduler answer', async (t) => {
+  const cwd = 'C:/turn-publication';
+  const sessionId = 'turn-publication';
+  let path = 'initial.ts';
+  const view = mount(t, {
+    gitStatus: async () => ({ repository: true, root: cwd, files: [] }),
+    invokeCapability: async () => ({ value: { supported: true, authoritative: true, files: [reviewFile(path)], patch: '' } }),
+  });
+  setSessionChangesSource('last-turn');
+  const states = {};
+  const Probe = probes(states);
+  await act(async () => view.root.render(h(Probe, { name: 'a', cwd, sessionId, active: true })));
+  await view.settle();
+  assert.deepEqual(states.a.rows.map((row) => row.path), ['initial.ts']);
+  await act(async () => {
+    const delayed = nextLastTurnRequest();
+    const older = adoptLastTurnReview(sessionId, {
+      files: [reviewFile('older.ts')],
+      leadPatch: sessionPatch('older.ts', 'x'.repeat(128 * 1024)),
+    }, nextLastTurnRequest());
+    path = 'fresh.ts';
+    await states.a.refresh();
+    await adoptLastTurnReview(sessionId, { files: [reviewFile('delayed.ts')], leadPatch: null }, delayed);
+    await older;
+  });
+  assert.deepEqual(states.a.rows.map((row) => row.path), ['fresh.ts']);
+});
+
+test('a review bar answer during a workspace switch leaves validation to the new workspace read', async (t) => {
+  const gate = Promise.withResolvers();
+  const sessionId = 'turn-switch';
+  let path = 'old.ts';
+  const view = mount(t, {
+    gitStatus: async (cwd) => {
+      if (cwd === 'C:/new') await gate.promise;
+      return { repository: true, root: cwd, files: [] };
+    },
+    invokeCapability: async () => ({ value: { supported: true, authoritative: true, files: [reviewFile(path)], patch: '' } }),
+  });
+  setSessionChangesSource('last-turn');
+  const states = {};
+  const Probe = probes(states);
+  const render = (cwd) => act(async () => view.root.render(h(Probe, { name: 'a', cwd, sessionId, active: true })));
+  await render('C:/old');
+  await view.settle();
+  assert.equal(states.a.rows[0].path, 'old.ts');
+  path = 'new.ts';
+  await render('C:/new');
+  await act(async () => {
+    await adoptLastTurnReview(sessionId, { files: [reviewFile('bar.ts')], leadPatch: null }, nextLastTurnRequest());
+  });
+  assert.equal(states.a.ready, false);
+  gate.resolve();
+  await view.settle();
+  assert.equal(states.a.root, 'C:/new');
+  assert.deepEqual(states.a.rows.map((row) => row.path), ['new.ts']);
 });
 
 test('a session-source refresh adopts a file whose patch moved while its counts held', async (t) => {
@@ -1165,9 +1225,13 @@ test('a root that is not a repository falls back to the session diff', async (t)
   });
   const states = {};
   const Probe = probes(states);
-  await act(async () =>
-    view.root.render(h(Probe, { name: 'a', cwd: 'C:/plain-folder', sessionId: 'plain', active: true }))
-  );
+  const props = { name: 'a', cwd: 'C:/plain-folder', sessionId: 'plain', active: true };
+  await act(async () => view.root.render(h(Probe, { ...props, gitOnly: true })));
+  await view.settle();
+  assert.equal(states.a.ready, true);
+  assert.equal(states.a.repository, false);
+  assert.deepEqual(capabilities, [], 'the Git chip has its answer without reading a session diff');
+  await act(async () => view.root.render(h(Probe, props)));
   await view.settle();
   assert.equal(states.a.repository, false);
   assert.deepEqual(capabilities, ['getSessionReviewDiff']);

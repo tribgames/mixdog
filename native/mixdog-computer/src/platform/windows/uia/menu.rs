@@ -1,7 +1,7 @@
 //! Menu paths: a classic menu bar answered from its own menu handles, else
 //! the UI Automation walk that opens one level at a time.
 
-use super::super::background::{hold_inactive, release_inactive};
+use super::super::background::{hold_inactive, release_inactive, WinBackground};
 use super::super::bounded::Mta;
 use super::super::msaa::{self, AccNode, MsaaNode, MAXIMUM};
 use super::super::native::{self, hwnd};
@@ -9,24 +9,32 @@ use super::element::{toggle_label, top_window};
 use super::{any_of, control_type_id, property_condition, text, Uia};
 use crate::a11y::{normalize_menu_label, MenuOutcome};
 use crate::platform::{window_id, Background, Wid, WindowInfo};
+use crate::port::windows::{Posted, Refusal, A11y};
 use std::collections::HashSet;
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::*;
 use windows::Win32::UI::WindowsAndMessaging::OBJID_CLIENT;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetMenu, GetMenuItemCount, GetMenuItemInfoW, GetMenuStringW, PostMessageW, HMENU, MENUITEMINFOW,
-    MF_BYPOSITION, MFS_DISABLED, MFT_SEPARATOR, MIIM_FTYPE, MIIM_ID, MIIM_STATE, MIIM_SUBMENU,
-    WM_COMMAND, WM_INITMENUPOPUP,
+    GetMenu, GetMenuItemCount, GetMenuItemInfoW, GetMenuStringW, HMENU, MENUITEMINFOW, MF_BYPOSITION, MFS_DISABLED,
+    MFT_SEPARATOR, MIIM_FTYPE, MIIM_ID, MIIM_STATE, MIIM_SUBMENU,
 };
+
+/// Closes the levels a failed walk opened. The Escapes are an ordinary new key sequence through the port, refused once the
+/// scope is revoked: nothing but a release survives the revocation.
+fn close_opened(background: &WinBackground, window: Wid, opened: usize) {
+    if opened > 0 {
+        let _ = background.keys(window, &"{ESC}".repeat(opened));
+    }
+}
 
 impl Uia {
     pub(super) fn menu(
         &self,
         window: &WindowInfo,
         path: &[String],
-        authorize: &dyn Fn() -> Result<(), String>,
+        authorize: crate::platform::Authorize<'_>,
     ) -> Result<MenuOutcome, String> {
-        if let Some(outcome) = classic_menu(window, path, authorize)? {
+        if let Some(outcome) = classic_menu(&self.background, window, path, authorize)? {
             return Ok(outcome);
         }
         let mut root: Option<IUIAutomationElement> = None;
@@ -34,14 +42,14 @@ impl Uia {
         let mut opened = 0usize;
         // Every Invoke, Expand and Toggle of the walk runs with the window held
         // non-activatable (input-menu.ps1:155 runs the walk in the guard).
-        let held = hold_inactive(window.handle);
+        let held = hold_inactive(&self.port, window.handle);
         let outcome = self.walk_menu(window, path, authorize, &mut root, &mut walked, &mut opened);
-        if outcome.is_err() && opened > 0 {
+        if outcome.is_err() {
             // Nothing was invoked, so the window returns to the state it had;
             // still held, as the PS closes the levels inside the guard.
-            let _ = self.background.keys(window.handle, &"{ESC}".repeat(opened));
+            close_opened(&self.background, window.handle, opened);
         }
-        let released = release_inactive(held);
+        let released = release_inactive(&self.port, held);
         let outcome = outcome?;
         released?;
         Ok(outcome)
@@ -51,7 +59,7 @@ impl Uia {
         &self,
         window: &WindowInfo,
         path: &'a [String],
-        authorize: &dyn Fn() -> Result<(), String>,
+        authorize: crate::platform::Authorize<'_>,
         root: &mut Option<IUIAutomationElement>,
         walked: &mut Vec<&'a str>,
         opened: &mut usize,
@@ -64,9 +72,9 @@ impl Uia {
                 walked.push(segment);
                 let last = index == path.len() - 1;
                 authorize()?;
-                // Read again right before the action (MixMsaa.cs DoDefaultAction).
+                // Read again right before the action (MixMsaa.cs DoDefaultAction), which the port arbitrates.
                 let invoked = if node.refresh() {
-                    node.do_default_action()
+                    node.do_default_action(&self.port)
                 } else {
                     Err("MSAA element is stale".to_string())
                 };
@@ -122,6 +130,7 @@ impl Uia {
             if owner != window.handle && !native::is_owned_by(owner, window.handle) {
                 return Err("menu_target_mismatch: menu element no longer belongs to the requested window".into());
             }
+            // A refusal before the level's reads; each action below is arbitrated by the port on its own.
             authorize()?;
             // SAFETY: plain property read on a live element.
             if !unsafe { element.CurrentIsEnabled() }.map_or(true, |flag| flag.as_bool()) {
@@ -129,12 +138,15 @@ impl Uia {
             }
             walked.push(segment);
             let last = index == path.len() - 1;
-            // SAFETY: plain pattern queries and calls on a live element.
+            let act = |action: A11y<'_>| -> Result<(), String> {
+                authorize()?;
+                self.port.accessibility(window.handle, action)
+            };
+            // SAFETY: plain pattern queries and reads on a live element; every action goes through the port.
             unsafe {
                 if last {
                     if let Ok(invoke) = element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId) {
-                        authorize()?;
-                        invoke.Invoke().map_err(|error| error.message())?;
+                        act(A11y::Invoke(&invoke))?;
                         return Ok(MenuOutcome {
                             path: "uia_menu",
                             verified: false,
@@ -143,8 +155,7 @@ impl Uia {
                     }
                     if let Ok(toggle) = element.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId) {
                         let before = toggle_label(toggle.CurrentToggleState().unwrap_or_default());
-                        authorize()?;
-                        toggle.Toggle().map_err(|error| error.message())?;
+                        act(A11y::Toggle(&toggle))?;
                         let after = toggle_label(toggle.CurrentToggleState().unwrap_or_default());
                         return Ok(MenuOutcome {
                             path: "uia_menu_toggle",
@@ -160,8 +171,7 @@ impl Uia {
                 let opened_by_expand = match element.GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId) {
                     Ok(expand) => {
                         if expand.CurrentExpandCollapseState().map_or(true, |state| state != ExpandCollapseState_Expanded) {
-                            authorize()?;
-                            expand.Expand().map_err(|error| error.message())?;
+                            act(A11y::Expand(&expand))?;
                         }
                         true
                     }
@@ -170,8 +180,7 @@ impl Uia {
                 if !opened_by_expand {
                     match element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId) {
                         Ok(invoke) => {
-                            authorize()?;
-                            invoke.Invoke().map_err(|error| error.message())?;
+                            act(A11y::Invoke(&invoke))?;
                         }
                         Err(_) => {
                             return Err(format!(
@@ -318,11 +327,11 @@ struct MenuEntry {
     enabled: bool,
 }
 
-fn menu_entries(window: Wid, menu: HMENU, position: usize, announce: bool) -> Vec<MenuEntry> {
+fn menu_entries(background: &WinBackground, window: Wid, menu: HMENU, position: usize, announce: bool) -> Vec<MenuEntry> {
     if announce {
         // A submenu is first announced the way an opening menu is, so the app
         // refreshes the enabled state and dynamic items it would show a person.
-        super::super::background::send_value(window, WM_INITMENUPOPUP, menu.0 as usize, (position & 0xFFFF) as isize).ok();
+        background.announce_menu(window, menu.0 as usize, (position & 0xFFFF) as isize).ok();
     }
     // SAFETY: plain menu reads; the info struct is sized before each call.
     unsafe {
@@ -355,9 +364,10 @@ fn menu_entries(window: Wid, menu: HMENU, position: usize, announce: bool) -> Ve
 /// command a click sends. `None` means the window has no classic menu or the
 /// path does not start on it, so the accessibility route decides.
 fn classic_menu(
+    background: &WinBackground,
     window: &WindowInfo,
     path: &[String],
-    authorize: &dyn Fn() -> Result<(), String>,
+    authorize: crate::platform::Authorize<'_>,
 ) -> Result<Option<MenuOutcome>, String> {
     // SAFETY: plain lookup.
     let bar = unsafe { GetMenu(hwnd(window.handle)) };
@@ -368,7 +378,7 @@ fn classic_menu(
     let mut walked: Vec<&str> = Vec::new();
     for (index, segment) in path.iter().enumerate() {
         let wanted = normalize_menu_label(segment);
-        let entries = menu_entries(window.handle, menu, position, index > 0);
+        let entries = menu_entries(background, window.handle, menu, position, index > 0);
         let matches: Vec<usize> = entries
             .iter()
             .enumerate()
@@ -423,15 +433,11 @@ fn classic_menu(
         authorize()?;
         // The notification a person choosing the item produces, without opening
         // any menu on screen.
-        // SAFETY: plain post.
-        unsafe { PostMessageW(Some(hwnd(window.handle)), WM_COMMAND, windows::Win32::Foundation::WPARAM((entry.id & 0xFFFF) as usize), Default::default()) }
-            .map_err(|error| {
-                if error.code().0 as u32 & 0xFFFF == 5 {
-                    "background_blocked_uipi|Windows integrity isolation blocked the menu command".to_string()
-                } else {
-                    format!("background_message_rejected|menu command failed: {}", error.message())
-                }
-            })?;
+        background.port().post(window.handle, Posted::MenuCommand(entry.id)).map_err(|refusal| match refusal {
+            Refusal::Revoked => crate::port::REVOKED.to_string(),
+            Refusal::Isolated => "background_blocked_uipi|Windows integrity isolation blocked the menu command".to_string(),
+            other => format!("background_message_rejected|menu command failed: {other:?}"),
+        })?;
         return Ok(Some(MenuOutcome {
             path: "win32_menu",
             verified: false,
@@ -445,6 +451,18 @@ fn classic_menu(
 mod tests {
     use super::super::super::msaa::{Child, Reading};
     use super::*;
+
+    /// The walk's error cleanup after Off: its Escapes are new key presses, refused at the port; nothing reaches the window.
+    #[test]
+    fn a_walk_failing_after_off_sends_no_escape() {
+        use crate::port::windows::fake::FakeWin;
+        let scope = crate::port::Scope::open(1);
+        let (port, fake) = FakeWin::port(&scope);
+        let background = WinBackground::new(crate::observer::Observer::new().shared.clone(), port);
+        scope.revoke();
+        close_opened(&background, 0x7fff_0001, 2);
+        assert!(fake.log().is_empty(), "{:?}", fake.log());
+    }
 
     #[derive(Clone)]
     struct Fake(Reading);
@@ -462,10 +480,10 @@ mod tests {
         fn child_count(&self) -> Option<i32> {
             None
         }
-        fn do_default_action(&self, _: i32) -> Result<(), String> {
+        fn do_default_action(&self, _: &crate::port::windows::WinPort, _: Wid, _: i32) -> Result<(), String> {
             Err("fake".into())
         }
-        fn put_value(&self, _: i32, _: &str) -> Result<(), String> {
+        fn put_value(&self, _: &crate::port::windows::WinPort, _: Wid, _: i32, _: &str) -> Result<(), String> {
             Err("fake".into())
         }
         fn children(&self, _: i32, _: usize) -> Result<Vec<Child<Self>>, String> {

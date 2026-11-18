@@ -33,6 +33,64 @@ fn target_id(text: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
 }
 
+/// `Number.isSafeInteger`: an integer JSON number, `50.0` included.
+pub(super) fn safe_integer(value: &Value) -> Option<i64> {
+    let Value::Number(n) = value else { return None };
+    let whole = n.as_i64().or_else(|| n.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64))?;
+    (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&whole).then_some(whole)
+}
+
+/// `storedPreferences` (notification-preferences.ts): each field of a stored record falls back to its own default
+/// when missing or invalid, so one bad value never resets the others.
+fn stored_device(value: &Value) -> NotificationDevicePreferences {
+    let base = NotificationDevicePreferences::default();
+    let none = serde_json::Map::new();
+    let stored = value.as_object().unwrap_or(&none);
+    let events = stored.get("events").and_then(Value::as_object).unwrap_or(&none);
+    let quiet = stored.get("quietHours").and_then(Value::as_object).unwrap_or(&none);
+    let flag = |map: &serde_json::Map<String, Value>, key: &str, fallback: bool| map.get(key).and_then(Value::as_bool).unwrap_or(fallback);
+    let clock_at = |key: &str, fallback: String| quiet.get(key).and_then(Value::as_str).filter(|text| clock(text)).map_or(fallback, str::to_owned);
+    fn named<T: DeserializeOwned>(map: &serde_json::Map<String, Value>, key: &str) -> Option<T> {
+        map.get(key).and_then(|raw| serde_json::from_value(raw.clone()).ok())
+    }
+    NotificationDevicePreferences {
+        scope: named(stored, "scope").unwrap_or(base.scope),
+        events: mixdog_protocol::config::NotificationEvents {
+            finished: flag(events, "finished", base.events.finished),
+            question: flag(events, "question", base.events.question),
+            approval: flag(events, "approval", base.events.approval),
+            error: flag(events, "error", base.events.error),
+        },
+        automatic_runs: flag(stored, "automaticRuns", base.automatic_runs),
+        quiet_hours: mixdog_protocol::config::NotificationQuietHours {
+            enabled: flag(quiet, "enabled", base.quiet_hours.enabled),
+            start: clock_at("start", base.quiet_hours.start),
+            end: clock_at("end", base.quiet_hours.end),
+            days: named(quiet, "days").unwrap_or(base.quiet_hours.days),
+            allow_waiting: flag(quiet, "allowWaiting", base.quiet_hours.allow_waiting),
+        },
+        hold_while_desktop_active: flag(stored, "holdWhileDesktopActive", base.hold_while_desktop_active),
+        taskbar_flash: flag(stored, "taskbarFlash", base.taskbar_flash),
+    }
+}
+
+/// `storedOverride`: one stored override, or `None` when it is malformed (only that entry is dropped).
+fn stored_override(value: &Value) -> Option<ConversationNotificationOverride> {
+    let target = value.get("target")?;
+    let kind = serde_json::from_value(target.get("kind")?.clone()).ok()?;
+    let id = target.get("id")?.as_str().filter(|id| target_id(id))?.to_owned();
+    let setting = value.get("setting")?;
+    let setting = match setting.get("mode")?.as_str()? {
+        "always" => ConversationNotificationSetting::Always,
+        "muted" => match setting.get("until")? {
+            Value::Null => ConversationNotificationSetting::Muted { until: None },
+            other => ConversationNotificationSetting::Muted { until: Some(safe_integer(other).filter(|until| *until > 0)?) },
+        },
+        _ => return None,
+    };
+    Some(ConversationNotificationOverride { target: mixdog_protocol::config::NotificationTarget { kind, id }, setting })
+}
+
 impl Config {
     /// A paired client's stored preferences, else the defaults (`DEFAULT_NOTIFICATION_PREFERENCES`):
     /// `PushPreferences.device` of `push-notifier.ts` for a client with no pairing record. The
@@ -41,7 +99,7 @@ impl Config {
     pub fn notification_device(&self, client_id: &str) -> NotificationDevicePreferences {
         self.get("notifications")
             .and_then(|doc| doc.get("devices")?.get(client_id).cloned())
-            .and_then(|stored| serde_json::from_value(stored).ok())
+            .map(|stored| stored_device(&stored))
             .unwrap_or_default()
     }
 
@@ -54,8 +112,10 @@ impl Config {
     /// [`Self::notification_overrides`] at an explicit time.
     pub fn notification_overrides_at(&self, now: i64) -> Vec<ConversationNotificationOverride> {
         let stored = self.get("notifications").and_then(|doc| doc.get("overrides").cloned());
-        let all: Vec<ConversationNotificationOverride> =
-            stored.and_then(|list| serde_json::from_value(list).ok()).unwrap_or_default();
+        let all: Vec<ConversationNotificationOverride> = match stored {
+            Some(Value::Array(list)) => list.iter().filter_map(stored_override).collect(),
+            _ => Vec::new(),
+        };
         all.into_iter()
             .filter(|entry| match entry.setting {
                 ConversationNotificationSetting::Muted { until: Some(until) } => until > now,

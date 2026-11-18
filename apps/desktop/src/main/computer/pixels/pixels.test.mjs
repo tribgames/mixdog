@@ -175,7 +175,8 @@ test('an upload goes in chunks under the limit, each carrying the digest of the 
 
 function host(sources, callCore) {
   const handlers = new Map();
-  registerComputerPixels({ handleRequest: (method, run) => handlers.set(method, run) }, { callCore, sources });
+  const scopes = { admit: (_params, signal) => ({ signal, commit() {} }) };
+  registerComputerPixels({ handleRequest: (method, run) => handlers.set(method, run) }, { callCore, sources, scopes });
   return (params) => handlers.get('host/computer/pixels')(params, new AbortController().signal);
 }
 

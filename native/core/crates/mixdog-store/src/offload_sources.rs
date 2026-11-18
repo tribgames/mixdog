@@ -32,15 +32,6 @@ const FOLDS_ON_WINDOWS: bool = true;
 const FOLDS_ELSEWHERE: bool = false;
 const FOLDS: bool = if cfg!(windows) { FOLDS_ON_WINDOWS } else { FOLDS_ELSEWHERE };
 
-/// This process's boot: the marks it writes name it.
-pub fn boot() -> &'static str {
-    static BOOT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    BOOT.get_or_init(|| {
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
-        format!("{}-{nanos}", std::process::id())
-    })
-}
-
 /// A segment as the file system compares directory names: a reference is text anyone may write (a model quoting a
 /// path, a user pasting one), so on Windows, where a directory is the same in any letter case, segments compare
 /// case-insensitively (as the prune's own sidecar match folds its text there, `artifact.rs` `unkept`).
@@ -50,13 +41,6 @@ pub fn segment_key(segment: &str) -> String {
 
 fn key_as(segment: &str, fold: bool) -> String {
     if fold { segment.to_lowercase() } else { segment.to_owned() }
-}
-
-/// The copy mark `header` holds: the session copied and the boot of the process copying it.
-pub fn mark(header: &Map<String, Value>) -> Option<(String, String)> {
-    let source = header.get(INHERITING).and_then(Value::as_str).filter(|source| !source.is_empty())?;
-    let boot = header.get(INHERITING_BOOT).and_then(Value::as_str).unwrap_or_default();
-    Some((source.to_owned(), boot.to_owned()))
 }
 
 /// Session ids are path segments: anything outside `[A-Za-z0-9_-]` becomes `_`, so a `..` or a slash cannot leave the
@@ -218,4 +202,20 @@ mod tests {
             assert_ne!(segment_key("Sess_A"), segment_key("sess_a"));
         }
     }
+}
+
+
+/// This process's boot: the marks it writes name it.
+pub fn boot() -> &'static str {
+    static BOOT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    BOOT.get_or_init(|| {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
+        format!("{}-{nanos}", std::process::id())
+    })
+}
+/// The copy mark `header` holds: the session copied and the boot of the process copying it.
+pub fn mark(header: &Map<String, Value>) -> Option<(String, String)> {
+    let source = header.get(INHERITING).and_then(Value::as_str).filter(|source| !source.is_empty())?;
+    let boot = header.get(INHERITING_BOOT).and_then(Value::as_str).unwrap_or_default();
+    Some((source.to_owned(), boot.to_owned()))
 }

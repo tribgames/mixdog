@@ -1,6 +1,6 @@
 //! How the ledger answers one rollup query (`usage-ledger-rollup.mjs` `rollupUsage`), in
 //! the order the answer is assembled: the query window, the hourly event rows of one day,
-//! the daily amounts folded into day / route / conversation buckets, Fast-mode routes,
+//! the daily amounts folded into day / route / conversation buckets, premium-speed routes,
 //! output speed, session attribution, and the legacy whole-day documents.
 //!
 //! Every step reads the ledger and writes into the day map; nothing here mutates stored
@@ -15,17 +15,16 @@ use crate::db::Connection;
 use crate::db::params;
 use crate::error::LedgerError;
 use crate::error::Result;
-use crate::measure::FAST_KEY;
 use crate::measure::NO_USAGE_COST_SOURCE;
 use crate::measure::Ordered;
+use crate::measure::SpeedTier;
 use crate::measure::day_text_sql;
-use crate::measure::fast_route_sql;
 use crate::measure::is_conversation_source;
 use crate::measure::is_unmeasuring_provider;
 use crate::measure::js_number;
 use crate::measure::json_or_zero;
 use crate::measure::num;
-use crate::measure::route_key;
+use crate::measure::speed_tier_sql;
 use crate::time::MAX_SAFE_INTEGER;
 use crate::time::local_midnight_ms;
 use crate::time::next_midnight_ms;
@@ -39,7 +38,7 @@ pub const BEST_SQL: &str = "SELECT day,provider,model,MIN(rank) AS rank FROM dai
 pub const FIRST_DAY: &str = "0000-01-01";
 pub const LAST_DAY: &str = "9999-12-31";
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RollupQuery {
     pub from_day: String,
     pub to_day: String,
@@ -76,7 +75,58 @@ impl RollupQuery {
 pub struct Rollup {
     /// Day → rollup object, in the order the answer was assembled (a JavaScript object's order).
     pub days: Ordered<Value>,
-    pub hourly: Option<Value>,
+    pub hourly: Option<Hourly>,
+}
+
+/// One retained event of the hourly view's day, as the hour buckets read it. A provider that does not measure its usage
+/// reads 0 for every amount but its output, and one unmeasured turn.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HourRow {
+    pub ts: i64,
+    pub provider: String,
+    pub source_type: Option<String>,
+    pub input: f64,
+    pub output: f64,
+    pub cache_read: f64,
+    pub cache_write: f64,
+    pub cost_usd: Option<f64>,
+    pub unmeasured: bool,
+}
+
+impl HourRow {
+    /// The row as the rollup document writes it.
+    fn to_value(&self) -> Value {
+        let mut out = Map::new();
+        out.insert("ts".to_string(), Value::from(self.ts));
+        out.insert("provider".to_string(), Value::from(self.provider.as_str()));
+        out.insert("source_type".to_string(), self.source_type.as_deref().map_or(Value::Null, Value::from));
+        out.insert("input".to_string(), js_number(self.input));
+        out.insert("output".to_string(), js_number(self.output));
+        out.insert("cache_read".to_string(), js_number(self.cache_read));
+        out.insert("cache_write".to_string(), js_number(self.cache_write));
+        out.insert("cost_usd".to_string(), self.cost_usd.map_or(Value::Null, js_number));
+        out.insert("unmeasuredTurns".to_string(), js_number(if self.unmeasured { 1.0 } else { 0.0 }));
+        Value::Object(out)
+    }
+}
+
+/// The hourly view's records: the day's retained events, and the legacy routes no timestamp places in an hour. The
+/// events are held as typed rows, not JSON objects: a busy day holds tens of thousands of them for every read of the
+/// view, and only the hour buckets ever read them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Hourly {
+    pub rows: Vec<HourRow>,
+    pub unallocated: Vec<Value>,
+}
+
+impl Hourly {
+    /// `{rows, unallocated}` as the rollup document writes it.
+    pub fn to_value(&self) -> Value {
+        let mut out = Map::new();
+        out.insert("rows".to_string(), Value::Array(self.rows.iter().map(HourRow::to_value).collect()));
+        out.insert("unallocated".to_string(), Value::Array(self.unallocated.clone()));
+        Value::Object(out)
+    }
 }
 
 impl Rollup {
@@ -92,9 +142,16 @@ impl Rollup {
             ),
         );
         if let Some(hourly) = &self.hourly {
-            out.insert("hourly".to_string(), hourly.clone());
+            out.insert("hourly".to_string(), hourly.to_value());
         }
         Value::Object(out)
+    }
+
+    /// The `{days}` document, and the hourly records as they are.
+    pub fn into_parts(self) -> (Value, Option<Hourly>) {
+        let mut out = Map::new();
+        out.insert("days".to_string(), Value::Object(self.days.into_iter().collect()));
+        (Value::Object(out), self.hourly)
     }
 }
 
@@ -155,19 +212,19 @@ struct Route {
     model: String,
     kind: String,
     conversation: Bucket,
-    fast: bool,
+    tier: SpeedTier,
     speed: Option<(f64, f64)>,
 }
 
 impl Route {
-    fn new(row: &AmountRow, fast: bool) -> Self {
+    fn new(row: &AmountRow, tier: SpeedTier) -> Self {
         Route {
             bucket: Bucket::new(),
             provider: row.provider.clone(),
             model: row.model.clone(),
             kind: row.kind.clone(),
             conversation: Bucket::new(),
-            fast,
+            tier,
             speed: None,
         }
     }
@@ -181,9 +238,7 @@ impl Route {
             "conversation".to_string(),
             Value::Object(self.conversation.to_object()),
         );
-        if self.fast {
-            out.insert("fast".to_string(), Value::Bool(true));
-        }
+        self.tier.put_fields(&mut out);
         if let Some((output, ms)) = self.speed {
             out.insert("speedOutput".to_string(), js_number(output));
             out.insert("speedMs".to_string(), js_number(ms));
@@ -326,7 +381,7 @@ fn read_hourly_rows(
     hourly_day: &str,
     from_ts: i64,
     to_ts: i64,
-) -> Result<Vec<Value>> {
+) -> Result<Vec<HourRow>> {
     let date = parse_day(hourly_day)?;
     let (lo, hi) = (
         if query.from_ms.is_none() {
@@ -348,39 +403,19 @@ fn read_hourly_rows(
     let rows = stmt.query_map(params![query.from_day, query.to_day, lo, hi], |row| {
         let provider: String = row.get(1)?;
         let unmeasuring = is_unmeasuring_provider(&provider);
-        let number = |i: usize| -> rusqlite::Result<Value> {
-            Ok(if unmeasuring {
-                js_number(0.0)
-            } else {
-                js_number(row.get(i)?)
-            })
-        };
-        let mut out = Map::new();
-        out.insert("ts".to_string(), Value::from(row.get::<_, i64>(0)?));
-        out.insert("provider".to_string(), Value::from(provider.as_str()));
-        out.insert(
-            "source_type".to_string(),
-            row.get::<_, Option<String>>(2)?
-                .map_or(Value::Null, Value::from),
-        );
-        out.insert("input".to_string(), number(3)?);
-        out.insert("output".to_string(), js_number(row.get(4)?));
-        out.insert("cache_read".to_string(), number(5)?);
-        out.insert("cache_write".to_string(), number(6)?);
+        let number = |i: usize| -> rusqlite::Result<f64> { if unmeasuring { Ok(0.0) } else { row.get(i) } };
         let cost: Option<f64> = row.get(7)?;
-        out.insert(
-            "cost_usd".to_string(),
-            if unmeasuring {
-                js_number(0.0)
-            } else {
-                cost.map_or(Value::Null, js_number)
-            },
-        );
-        out.insert(
-            "unmeasuredTurns".to_string(),
-            js_number(if unmeasuring { 1.0 } else { 0.0 }),
-        );
-        Ok(Value::Object(out))
+        Ok(HourRow {
+            ts: row.get(0)?,
+            source_type: row.get(2)?,
+            input: number(3)?,
+            output: row.get(4)?,
+            cache_read: number(5)?,
+            cache_write: number(6)?,
+            cost_usd: if unmeasuring { Some(0.0) } else { cost },
+            unmeasured: unmeasuring,
+            provider,
+        })
     })?;
     Ok(rows.collect::<std::result::Result<_, _>>()?)
 }
@@ -425,8 +460,8 @@ fn fold_daily_amounts(days: &mut Days, amounts: &[AmountRow]) -> Result<()> {
         };
         let route = match day
             .models
-            .entry(&route_key(&row.provider, &row.model, false), || {
-                Model::Built(Box::new(Route::new(row, false)))
+            .entry(&SpeedTier::Standard.route_key(&row.provider, &row.model), || {
+                Model::Built(Box::new(Route::new(row, SpeedTier::Standard)))
             }) {
             Model::Built(route) => route,
             Model::Raw(_) => {
@@ -449,30 +484,34 @@ fn fold_daily_amounts(days: &mut Days, amounts: &[AmountRow]) -> Result<()> {
     Ok(())
 }
 
-/// Fast-mode calls (the tier is on the route signature, not in the daily totals) read from
+/// Premium-speed calls (the tier is on the route signature, not in the daily totals) read from
 /// the retained originals, to become a route of their own.
-fn read_fast_amounts(
+fn read_premium_amounts(
     conn: &Connection,
     query: &RollupQuery,
     from_ts: i64,
     to_ts: i64,
-) -> Result<Vec<AmountRow>> {
+) -> Result<Vec<(AmountRow, SpeedTier)>> {
     let ts = ts_expr("e.", from_ts, to_ts);
-    // Routes are few and events many: a ledger with no Fast route (nearly all of them)
+    // Routes are few and events many: a ledger with no premium route
     // skips the event scan, and the tier is read once per route, not per event.
-    let fast_routes = format!(
-        "SELECT r.id,
+    let premium_routes = format!(
+        "SELECT * FROM (
+          SELECT r.id,
             json_extract(r.signature,'$[0]') AS provider,
             json_extract(r.signature,'$[1]') AS model,
             json_extract(r.signature,'$[2]') AS kind,
             json_extract(r.signature,'$[3]') AS source_type,
             json_extract(r.signature,'$[4]') AS cost_source,
-            json_extract(r.signature,'$[7]') AS rank
-         FROM usage_routes r WHERE {fast} AND json_extract(r.signature,'$[4]')<>'{NO_USAGE_COST_SOURCE}'",
-        fast = fast_route_sql("r.signature")
+            json_extract(r.signature,'$[7]') AS rank,
+            {tier} AS speed_tier
+          FROM usage_routes r
+          WHERE json_extract(r.signature,'$[4]')<>'{NO_USAGE_COST_SOURCE}'
+        ) WHERE speed_tier<>'standard'",
+        tier = speed_tier_sql("r.signature")
     );
     let any: Option<i64> = conn
-        .prepare(&format!("{fast_routes} LIMIT 1"))?
+        .prepare(&format!("{premium_routes} LIMIT 1"))?
         .query_row([], |r| r.get(0))
         .map(Some)
         .or_else(|e| match e {
@@ -483,39 +522,39 @@ fn read_fast_amounts(
         return Ok(Vec::new());
     }
     let mut stmt = conn.prepare(&format!(
-        "WITH fast_routes AS MATERIALIZED ({fast_routes}), fast AS (
+        "WITH premium_routes AS MATERIALIZED ({premium_routes}), premium AS (
             SELECT {day} AS day,
-                r.provider,r.model,r.kind,r.source_type,r.cost_source,r.rank,
+                r.provider,r.model,r.kind,r.source_type,r.cost_source,r.rank,r.speed_tier,
                 e.input,e.output,e.cache_read,e.cache_write,e.cost_usd,e.duration_ms
-            FROM usage_events e JOIN fast_routes r ON r.id=e.route
+            FROM usage_events e JOIN premium_routes r ON r.id=e.route
             WHERE {ts}>=? AND {ts}<?
         )
         SELECT f.day,f.provider,f.model,f.kind,f.cost_source,f.source_type,
             COUNT(*),SUM(f.input),SUM(f.output),SUM(f.cache_read),SUM(f.cache_write),
-            SUM(f.cost_usd),SUM(f.duration_ms),0
-        FROM fast f JOIN ({BEST_SQL}) b USING(day,provider,model,rank)
-        GROUP BY f.day,f.rank,f.provider,f.model,f.kind,f.cost_source,f.source_type",
+            SUM(f.cost_usd),SUM(f.duration_ms),0,f.speed_tier
+        FROM premium f JOIN ({BEST_SQL}) b USING(day,provider,model,rank)
+        GROUP BY f.day,f.rank,f.provider,f.model,f.kind,f.cost_source,f.source_type,f.speed_tier",
         day = day_text_sql("e"),
     ))?;
     let rows = stmt.query_map(
         params![from_ts, to_ts, query.from_day, query.to_day],
-        amount_from_events,
+        |row| Ok((amount_from_events(row)?, row.get(14)?)),
     )?;
     Ok(rows.collect::<std::result::Result<_, _>>()?)
 }
 
-fn fold_fast_amounts(days: &mut Days, rows: &[AmountRow]) -> Result<()> {
-    for row in rows {
+fn fold_premium_amounts(days: &mut Days, rows: &[(AmountRow, SpeedTier)]) -> Result<()> {
+    for (row, tier) in rows {
         let Some(DayEntry::Built(day)) = days.get_mut(&row.day) else {
             continue;
         };
-        let normal_key = route_key(&row.provider, &row.model, false);
+        let normal_key = SpeedTier::Standard.route_key(&row.provider, &row.model);
         if !matches!(day.models.get(&normal_key), Some(Model::Built(_))) {
             continue;
         }
-        let key = route_key(&row.provider, &row.model, true);
+        let key = tier.route_key(&row.provider, &row.model);
         day.models
-            .entry(&key, || Model::Built(Box::new(Route::new(row, true))));
+            .entry(&key, || Model::Built(Box::new(Route::new(row, *tier))));
         let amount = row.amount();
         for (target_key, sign) in [(key, 1.0), (normal_key, -1.0)] {
             let route = built_route(day, &target_key)?;
@@ -525,7 +564,7 @@ fn fold_fast_amounts(days: &mut Days, rows: &[AmountRow]) -> Result<()> {
             }
         }
     }
-    // A model used only in Fast mode keeps just its Fast row.
+    // A model with no Standard calls keeps only its evidenced premium rows.
     for entry in days.values_mut() {
         let DayEntry::Built(day) = entry else {
             continue;
@@ -534,8 +573,10 @@ fn fold_fast_amounts(days: &mut Days, rows: &[AmountRow]) -> Result<()> {
             .models
             .iter()
             .filter(|(key, model)| {
-                matches!(model, Model::Built(route) if !route.fast && route.bucket.turns <= 0.0)
-                    && day.models.contains_key(&format!("{key}{FAST_KEY}"))
+                matches!(model, Model::Built(route) if route.tier == SpeedTier::Standard && route.bucket.turns <= 0.0)
+                    && [SpeedTier::Fast, SpeedTier::Ultrafast]
+                        .into_iter()
+                        .any(|tier| day.models.contains_key(&tier.key(key)))
             })
             .map(|(key, _)| key.clone())
             .collect();
@@ -552,7 +593,7 @@ struct SessionRow {
     model: String,
     source_type: Option<String>,
     origin: String,
-    fast: bool,
+    tier: SpeedTier,
     session_id: String,
     input: f64,
     output: f64,
@@ -583,17 +624,17 @@ fn read_session_attribution(
                 json_extract(r.signature,'$[3]') AS source_type,
                 json_extract(r.signature,'$[6]') AS origin,
                 json_extract(r.signature,'$[7]') AS rank,
-                {fast} AS fast,
+                {tier} AS speed_tier,
                 s.value AS session_id,e.input,e.output,e.cacheRead,e.cacheWrite
             FROM grouped e JOIN usage_routes r ON r.id=e.route
             JOIN usage_sessions s ON s.id=e.session
             WHERE json_extract(r.signature,'$[4]')<>'{NO_USAGE_COST_SOURCE}'
         )
-        SELECT e.day,e.provider,e.model,e.source_type,e.origin,e.fast,e.session_id,
+        SELECT e.day,e.provider,e.model,e.source_type,e.origin,e.speed_tier,e.session_id,
             e.input,e.output,e.cacheRead,e.cacheWrite
         FROM attributed e JOIN ({BEST_SQL}) b USING(day,provider,model,rank)",
         day = day_text_sql("e"),
-        fast = fast_route_sql("r.signature"),
+        tier = speed_tier_sql("r.signature"),
     ))?;
     let rows = stmt.query_map(
         params![from_ts, to_ts, query.from_day, query.to_day],
@@ -604,7 +645,7 @@ fn read_session_attribution(
                 model: row.get(2)?,
                 source_type: row.get(3)?,
                 origin: row.get(4)?,
-                fast: row.get::<_, i64>(5)? != 0,
+                tier: row.get(5)?,
                 session_id: row.get(6)?,
                 input: row.get(7)?,
                 output: row.get(8)?,
@@ -624,7 +665,7 @@ fn fold_session_attribution(days: &mut Days, rows: &[SessionRow]) -> Result<()> 
             continue;
         }
         let day = built(days, &row.day)?;
-        let key = route_key(&row.provider, &row.model, row.fast);
+        let key = row.tier.route_key(&row.provider, &row.model);
         let named = classified
             && !row.session_id.is_empty()
             && !["no-session", "(none)"].contains(&row.session_id.as_str());
@@ -671,14 +712,14 @@ fn read_output_speed(
                 json_extract(r.signature,'$[0]') AS provider,
                 json_extract(r.signature,'$[1]') AS model,
                 json_extract(r.signature,'$[7]') AS rank,
-                {fast} AS fast,
+                {tier} AS speed_tier,
                 t.output,t.duration_ms
             FROM timed t JOIN usage_routes r ON r.id=t.route
         )
-        SELECT a.day,a.provider,a.model,a.fast,a.output,a.duration_ms
+        SELECT a.day,a.provider,a.model,a.speed_tier,a.output,a.duration_ms
         FROM attributed a JOIN ({BEST_SQL}) b USING(day,provider,model,rank)",
         day = day_text_sql("t"),
-        fast = fast_route_sql("r.signature"),
+        tier = speed_tier_sql("r.signature"),
     ))?;
     let rows = stmt.query_map(
         params![from_ts, to_ts, query.from_day, query.to_day],
@@ -687,7 +728,7 @@ fn read_output_speed(
                 row.get(0)?,
                 row.get(1)?,
                 row.get(2)?,
-                row.get::<_, i64>(3)? != 0,
+                row.get(3)?,
                 row.get(4)?,
                 row.get(5)?,
             ))
@@ -696,15 +737,15 @@ fn read_output_speed(
     Ok(rows.collect::<std::result::Result<_, _>>()?)
 }
 
-/// `(day, provider, model, fast, output tokens, wall ms)` of the timed requests of one route.
-type SpeedRow = (String, String, String, bool, f64, f64);
+/// `(day, provider, model, tier, output tokens, wall ms)` of the timed requests of one route.
+type SpeedRow = (String, String, String, SpeedTier, f64, f64);
 
 fn fold_output_speed(days: &mut Days, rows: &[SpeedRow]) {
-    for (day, provider, model, fast, output, ms) in rows {
+    for (day, provider, model, tier, output, ms) in rows {
         let Some(DayEntry::Built(day)) = days.get_mut(day) else {
             continue;
         };
-        if let Some(Model::Built(route)) = day.models.get_mut(&route_key(provider, model, *fast)) {
+        if let Some(Model::Built(route)) = day.models.get_mut(&tier.route_key(provider, model)) {
             let (o, m) = route.speed.unwrap_or((0.0, 0.0));
             route.speed = Some((o + output, m + ms));
         }
@@ -829,7 +870,7 @@ fn merge_legacy_bucket(target: &mut Bucket, source: &Value, kind: &str) {
 fn merge_legacy_days(
     conn: &Connection,
     days: &mut Days,
-    hourly: &mut Option<Value>,
+    hourly: &mut Option<Hourly>,
     query: &RollupQuery,
 ) -> Result<()> {
     let mut stmt =
@@ -861,7 +902,13 @@ fn merge_legacy_days(
             continue;
         };
         for (key, route) in legacy_models {
-            if day.models.contains_key(&key) {
+            let (base, tier) = SpeedTier::split_key(&key);
+            // A legacy Fast key could cover either premium tier; don't add its aggregate
+            // back in when the retained requests split out only an Ultra Fast row.
+            if day.models.contains_key(&key)
+                || (tier == SpeedTier::Fast
+                    && day.models.contains_key(&SpeedTier::Ultrafast.key(base)))
+            {
                 continue;
             }
             // A disjoint historical route is preserved, not an inferred balance of an
@@ -886,10 +933,8 @@ fn merge_legacy_days(
             }
         }
     }
-    if let Some(Value::Object(hourly)) = hourly
-        && let Some(Value::Array(list)) = hourly.get_mut("unallocated")
-    {
-        list.extend(unallocated);
+    if let Some(hourly) = hourly {
+        hourly.unallocated.extend(unallocated);
     }
     Ok(())
 }
@@ -899,14 +944,11 @@ pub(crate) fn rollup_usage(conn: &Connection, query: &RollupQuery) -> Result<Rol
     let (from_ts, to_ts) = resolve_window(query)?;
     let mut days = Days::default();
     let mut hourly = match &query.hourly_day {
-        Some(hourly_day) => Some(serde_json::json!({
-            "rows": read_hourly_rows(conn, query, hourly_day, from_ts, to_ts)?,
-            "unallocated": [],
-        })),
+        Some(hourly_day) => Some(Hourly { rows: read_hourly_rows(conn, query, hourly_day, from_ts, to_ts)?, unallocated: Vec::new() }),
         None => None,
     };
     fold_daily_amounts(&mut days, &read_daily_amounts(conn, query, from_ts, to_ts)?)?;
-    fold_fast_amounts(&mut days, &read_fast_amounts(conn, query, from_ts, to_ts)?)?;
+    fold_premium_amounts(&mut days, &read_premium_amounts(conn, query, from_ts, to_ts)?)?;
     fold_output_speed(&mut days, &read_output_speed(conn, query, from_ts, to_ts)?);
     fold_session_attribution(
         &mut days,

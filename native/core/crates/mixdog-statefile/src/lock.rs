@@ -688,6 +688,41 @@ pub mod steps {
         super::try_take(lane, lock, opts, owner, access, ns(now_ms))
     }
 
+    /// A lock taken by [`attempt_leased`]: it owns the lock file's release. Dropping it removes the file while it still
+    /// names `owner` (`releaseLock`), synchronously and on whichever thread drops it, so a guard whose receiver vanished
+    /// after the lane took the lock, a body that panicked, and a runtime shut down mid-body all release the lock with
+    /// nothing queued. A holder that never drops is a dead process (reclaimed as dead) or a live one (never reclaimed).
+    #[must_use = "the lock is released when this is dropped"]
+    pub struct Lease {
+        lock: std::path::PathBuf,
+        owner: LockOwner,
+    }
+
+    impl Drop for Lease {
+        fn drop(&mut self) {
+            // The guard is dropped on any thread and outside any lane: the case `Unlaned` exists for.
+            if super::owned_by(&mixdog_fsio::Unlaned, &self.lock, &self.owner) {
+                let _ = mixdog_fsio::remove_file(&mixdog_fsio::Unlaned, &self.lock);
+            }
+        }
+    }
+
+    /// [`attempt`], with the lock handed over as the owned guard that releases it: the guard is built inside the
+    /// acquiring job and travels out as its result, so the lock is never held by a value nobody owns.
+    pub fn attempt_leased<L: WriteLane>(
+        lane: &InLane<L>,
+        lock: &Path,
+        opts: &LockOpts,
+        owner: &LockOwner,
+        access: Access,
+        now_ms: u64,
+    ) -> Result<Option<Lease>, LockError> {
+        Ok(match super::try_take(lane, lock, opts, owner, access, ns(now_ms))? {
+            Attempt::Taken => Some(Lease { lock: lock.to_owned(), owner: owner.clone() }),
+            Attempt::Held => None,
+        })
+    }
+
     /// `describeLockHolder` for the timeout's message.
     pub fn holder<L: WriteLane>(lane: &InLane<L>, lock: &Path, now_ms: u64) -> String {
         super::describe_holder(lane, lock, ns(now_ms))
@@ -770,6 +805,14 @@ fn hold_lock_in(lock_file: &Path, opts: &LockOpts, one_deadline: bool, acquired:
     LockHold { release: Some(release), thread: Some(thread), taken }
 }
 
+#[cfg(test)]
+#[path = "lock_timing_tests.rs"]
+mod timing_tests;
+
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "lock_replay_tests.rs"]
 mod replay_tests;

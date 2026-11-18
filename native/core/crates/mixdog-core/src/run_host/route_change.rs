@@ -104,17 +104,11 @@ fn merge(into: &mut HeaderChange, other: HeaderChange) {
 pub struct RunHostRouteChange {
     facts: Arc<dyn RouteFacts>,
     clock: Arc<dyn Clock>,
-    prefix_guards: Arc<super::assemble::PrefixGuards>,
 }
 
 impl RunHostRouteChange {
     pub fn new(facts: Arc<dyn RouteFacts>, clock: Arc<dyn Clock>) -> Self {
-        Self { facts, clock, prefix_guards: Arc::default() }
-    }
-
-    /// Turn assembly must keep its baselines in this same store, so an applied switch clears them.
-    pub fn prefix_guards(&self) -> Arc<super::assemble::PrefixGuards> {
-        self.prefix_guards.clone()
+        Self { facts, clock }
     }
 
     /// `applyRouteContextWindow`: always derived anew from the model; never seeded with the old
@@ -170,10 +164,13 @@ impl RunHostRouteChange {
             set(change, "lastContextTokensStaleAfterCompact", json!(false));
         }
         unset(change, "providerState");
+        if header.contains_key("lastProviderCacheObservation") {
+            unset(change, "lastProviderCacheObservation");
+        }
         // Clear the live baseline on every applied switch, not by comparing the final route at turn
         // start: A -> B -> A can leave a changed prompt after B consumes a staged workspace re-root.
-        self.prefix_guards.invalidate(&mixdog_core_api::ids::ThreadId::from(text(header.get("id"))));
-        unset(change, "_providerPrefixGuardState");
+        // The actor's kept guard is for the lineage its turn ran on: a new lineage is the guard's deletion.
+        set(change, "transcriptEpoch", json!(uuid::Uuid::now_v7().to_string()));
         // The new route resolves its own wire before its first request.
         set(change, "wireRoute", Value::Null);
         merge(change, self.facts.surface_change(header, previous, lookup));
@@ -191,6 +188,147 @@ impl RunHostRouteChange {
             }
         }
     }}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::provider::Role;
+
+    use super::*;
+
+    struct Facts;
+    #[async_trait::async_trait]
+    impl RouteFacts for Facts {
+        fn context_meta(&self, _: &str, _: &str, _: &Value) -> Option<ContextMeta> {
+            None
+        }
+        fn cache_opts(&self, provider: &str, _: &str, _: Option<&str>, _: &Header) -> Option<Value> {
+            (provider == "anthropic").then(|| json!({ "cacheStrategy": { "tools": "none", "system": "1h", "tier3": "1h", "messages": "1h" } }))
+        }
+    }
+
+    struct Fixed;
+    impl Clock for Fixed {
+        fn now_ms(&self) -> i64 {
+            1_793_939_969_114
+        }
+    }
+
+    #[cfg(node_twin)]
+    fn session() -> Value {
+        json!({
+            "id": "sess_rc", "provider": "openai", "model": "gpt-5", "agent": "lead",
+            "promptCacheKey": "mixdog-openai", "providerCacheOptsOverride": true,
+            "lastInputTokens": 9, "lastOutputTokens": 8, "lastCachedReadTokens": 7, "lastCacheWriteTokens": 6,
+            "lastContextTokens": 5, "lastContextTokensStaleAfterCompact": true,
+            "providerState": { "x": 1 }, "wireRoute": { "wire": "responses" },
+            "contextUsageSnapshot": { "a": 1 },
+            "contextPressureBaselineTokens": 10, "contextPressureBaselineOutputTokens": 3, "contextPressureBaselineProvider": "openai",
+            "contextPressureBaselineUpdatedAt": 11, "contextPressureBaselineSource": "usage",
+            "contextPressureUnanchoredAfterRestart": true, "contextPressureUnanchoredReason": "restart",
+            "contextWindow": 272000, "rawContextWindow": 272000, "compaction": { "keep": true, "boundaryTokens": 1 },
+        })
+    }
+
+    /// A thread's first route (no previous model) leaves no usage reading behind: Node's `buildSessionRecord` stores none, so
+    /// a cancelled first turn's header has none (`stored-header` of the `cancel` scenario).
+    #[tokio::test]
+    async fn the_first_route_of_a_thread_writes_no_usage_reading() {
+        let change = RunHostRouteChange::new(Arc::new(Facts), Arc::new(Fixed));
+        let route: Route = [("provider", "openai"), ("model", "gpt-5")].iter().map(|(k, v)| ((*k).to_owned(), json!(v))).collect();
+        let header: Header = json!({ "id": "sess_new", "provider": "openai", "model": "gpt-5" }).as_object().unwrap().clone().into_iter().collect();
+        let lookups = change.lookups(&header, &route).await;
+        let result = change.route_change(&header, &route, &Route::new(), false, &lookups);
+        for key in ["lastInputTokens", "lastOutputTokens", "lastCachedReadTokens", "lastCacheWriteTokens", "lastContextTokens", "lastContextTokensUpdatedAt", "lastContextTokensStaleAfterCompact"] {
+            assert!(!result.set.contains_key(key), "{key}");
+        }
+    }
+
+    #[test]
+    fn the_cache_key_names_the_provider_family() {
+        assert_eq!(provider_cache_key("openai-oauth"), "mixdog-codex");
+        assert_eq!(provider_cache_key("anthropic-oauth"), "mixdog-claude");
+        assert_eq!(provider_cache_key("cursor-api"), "mixdog-cursor");
+        assert_eq!(provider_cache_key("groq"), "mixdog-groq");
+        assert_eq!(provider_cache_key(""), "mixdog-default");
+    }
+
+
+    /// Node's `updateSessionRoute` on four route changes of one session: the fields the golden names,
+    /// after the route's own fields and this change are applied to the stored header.
+    #[tokio::test]
+    #[cfg(node_twin)]
+    async fn a_route_change_leaves_the_header_as_node_does() {
+        let golden: Value = serde_json::from_str(include_str!("golden/route_change.json")).expect("fixture");
+        let cases: [(&str, Value, bool); 4] = [
+            ("same_model_tune", json!({ "fast": true }), false),
+            ("other_provider_cross", json!({ "provider": "anthropic", "model": "claude-sonnet-4" }), true),
+            ("other_provider_plain", json!({ "provider": "anthropic", "model": "claude-sonnet-4" }), false),
+            ("same_provider_model", json!({ "model": "gpt-5-mini" }), true),
+        ];
+        let change = RunHostRouteChange::new(Arc::new(Facts), Arc::new(Fixed));
+        for (name, route, cross) in cases {
+            let route: Route = route.as_object().unwrap().clone();
+            let before: Header = session().as_object().unwrap().clone().into_iter().collect();
+            let previous: Route = [("provider", "openai"), ("model", "gpt-5")].iter().map(|(k, v)| ((*k).to_owned(), json!(v))).collect();
+            // The header the adapter hands over already carries the route's own fields.
+            let mut header = before.clone();
+            for (key, value) in &route {
+                header.insert(key.clone(), value.clone());
+            }
+            let lookups = change.lookups(&before, &route).await;
+            let result = change.route_change(&header, &route, &previous, cross, &lookups);
+            for key in &result.unset {
+                header.shift_remove(key);
+            }
+            for (key, value) in &result.set {
+                header.insert(key.clone(), value.clone());
+            }
+            let want = &golden[name];
+            for (field, expected) in want["fields"].as_object().unwrap() {
+                // Node kept its prefix guard in the header and deleted it on a switch; the core keeps none there, and a switch
+                // starts a new transcript lineage (`transcriptEpoch`), which is the guard's deletion.
+                if field == "_providerPrefixGuardState" {
+                    let switched = name != "same_model_tune";
+                    assert_eq!(*expected, if switched { json!("__deleted__") } else { json!({ "y": 1 }) }, "{name}: Node recorded something else");
+                    assert_eq!(result.set.contains_key("transcriptEpoch"), switched, "{name}: a switch starts a new lineage");
+                    continue;
+                }
+                let got = header.get(field).cloned().unwrap_or_else(|| json!("__deleted__"));
+                // The route's own `fast` and the windows come from other layers or the registry.
+                if expected == "__deleted__" && header.get(field).is_none() || &got == expected {
+                    continue;
+                }
+                panic!("{name}: {field}: got {got}, node {expected}");
+            }
+            assert_eq!(want["updatedAtIsNumber"].as_bool().unwrap(), result.set.get("lastContextTokensUpdatedAt").is_some_and(Value::is_number), "{name}");
+        }
+        let _ = Role::User;
+    }
+
+    /// The clear of a conversation takes its environment reset from the route change the host
+    /// wires: it is the prompt module's reset, as one header change.
+    #[test]
+    fn the_environment_reset_is_the_prompt_modules_reset_as_one_header_change() {
+        let header: Header = json!({
+            "providerState": { "x": 1 }, "bp3EnvSplit": true,
+            "promptEnv": "# Session\nold\n\ntail", "bp3EnvironmentContext": "tail", "sessionStartMetaInjected": true,
+        })
+        .as_object()
+        .unwrap()
+        .clone()
+        .into_iter()
+        .collect();
+        let change = RunHostRouteChange::new(Arc::new(Facts), Arc::new(Fixed));
+        let reset = change.environment_reset(&header);
+        let expected = crate::run_host::prompt_session::reset_environment(&header, &mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(&header)).change;
+        assert_eq!(reset.set, expected.set);
+        assert_eq!(reset.unset, expected.unset);
+        assert_eq!(reset.set.get("promptEnv"), Some(&json!("tail")));
+        assert_eq!(reset.set.get("sessionStartMetaInjected"), Some(&json!(false)));
+    }
+}
+
 
 #[async_trait::async_trait]
 impl RouteChange for RunHostRouteChange {
@@ -242,133 +380,5 @@ impl RouteChange for RunHostRouteChange {
         let blocks = mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(header);
         merge(&mut change, crate::run_host::prompt_session::route_prompt(header, &blocks, route_changed).change);
         change
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use mixdog_core_api::domain::provider::Role;
-
-    use super::*;
-
-    struct Facts;
-    #[async_trait::async_trait]
-    impl RouteFacts for Facts {
-        fn context_meta(&self, _: &str, _: &str, _: &Value) -> Option<ContextMeta> {
-            None
-        }
-        fn cache_opts(&self, provider: &str, _: &str, _: Option<&str>, _: &Header) -> Option<Value> {
-            (provider == "anthropic").then(|| json!({ "cacheStrategy": { "tools": "none", "system": "1h", "tier3": "1h", "messages": "1h" } }))
-        }
-    }
-
-    struct Fixed;
-    impl Clock for Fixed {
-        fn now_ms(&self) -> i64 {
-            1_793_939_969_114
-        }
-    }
-
-    fn session() -> Value {
-        json!({
-            "id": "sess_rc", "provider": "openai", "model": "gpt-5", "agent": "lead",
-            "promptCacheKey": "mixdog-openai", "providerCacheOptsOverride": true,
-            "lastInputTokens": 9, "lastOutputTokens": 8, "lastCachedReadTokens": 7, "lastCacheWriteTokens": 6,
-            "lastContextTokens": 5, "lastContextTokensStaleAfterCompact": true,
-            "providerState": { "x": 1 }, "_providerPrefixGuardState": { "y": 1 }, "wireRoute": { "wire": "responses" },
-            "contextUsageSnapshot": { "a": 1 },
-            "contextPressureBaselineTokens": 10, "contextPressureBaselineOutputTokens": 3, "contextPressureBaselineProvider": "openai",
-            "contextPressureBaselineUpdatedAt": 11, "contextPressureBaselineSource": "usage",
-            "contextPressureUnanchoredAfterRestart": true, "contextPressureUnanchoredReason": "restart",
-            "contextWindow": 272000, "rawContextWindow": 272000, "compaction": { "keep": true, "boundaryTokens": 1 },
-        })
-    }
-
-    /// Node's `updateSessionRoute` on four route changes of one session: the fields the golden names,
-    /// after the route's own fields and this change are applied to the stored header.
-    #[tokio::test]
-    async fn a_route_change_leaves_the_header_as_node_does() {
-        let golden: Value = serde_json::from_str(include_str!("golden/route_change.json")).expect("fixture");
-        let cases: [(&str, Value, bool); 4] = [
-            ("same_model_tune", json!({ "fast": true }), false),
-            ("other_provider_cross", json!({ "provider": "anthropic", "model": "claude-sonnet-4" }), true),
-            ("other_provider_plain", json!({ "provider": "anthropic", "model": "claude-sonnet-4" }), false),
-            ("same_provider_model", json!({ "model": "gpt-5-mini" }), true),
-        ];
-        let change = RunHostRouteChange::new(Arc::new(Facts), Arc::new(Fixed));
-        for (name, route, cross) in cases {
-            let route: Route = route.as_object().unwrap().clone();
-            let before: Header = session().as_object().unwrap().clone().into_iter().collect();
-            let previous: Route = [("provider", "openai"), ("model", "gpt-5")].iter().map(|(k, v)| ((*k).to_owned(), json!(v))).collect();
-            // The header the adapter hands over already carries the route's own fields.
-            let mut header = before.clone();
-            for (key, value) in &route {
-                header.insert(key.clone(), value.clone());
-            }
-            let lookups = change.lookups(&before, &route).await;
-            let result = change.route_change(&header, &route, &previous, cross, &lookups);
-            for key in &result.unset {
-                header.shift_remove(key);
-            }
-            for (key, value) in &result.set {
-                header.insert(key.clone(), value.clone());
-            }
-            let want = &golden[name];
-            for (field, expected) in want["fields"].as_object().unwrap() {
-                let got = header.get(field).cloned().unwrap_or_else(|| json!("__deleted__"));
-                // The route's own `fast` and the windows come from other layers or the registry.
-                if expected == "__deleted__" && header.get(field).is_none() || &got == expected {
-                    continue;
-                }
-                panic!("{name}: {field}: got {got}, node {expected}");
-            }
-            assert_eq!(want["updatedAtIsNumber"].as_bool().unwrap(), result.set.get("lastContextTokensUpdatedAt").is_some_and(Value::is_number), "{name}");
-        }
-        let _ = Role::User;
-    }
-
-    /// The clear of a conversation takes its environment reset from the route change the host
-    /// wires: it is the prompt module's reset, as one header change.
-    #[test]
-    fn the_environment_reset_is_the_prompt_modules_reset_as_one_header_change() {
-        let header: Header = json!({
-            "providerState": { "x": 1 }, "bp3EnvSplit": true,
-            "promptEnv": "# Session\nold\n\ntail", "bp3EnvironmentContext": "tail", "sessionStartMetaInjected": true,
-        })
-        .as_object()
-        .unwrap()
-        .clone()
-        .into_iter()
-        .collect();
-        let change = RunHostRouteChange::new(Arc::new(Facts), Arc::new(Fixed));
-        let reset = change.environment_reset(&header);
-        let expected = crate::run_host::prompt_session::reset_environment(&header, &mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(&header)).change;
-        assert_eq!(reset.set, expected.set);
-        assert_eq!(reset.unset, expected.unset);
-        assert_eq!(reset.set.get("promptEnv"), Some(&json!("tail")));
-        assert_eq!(reset.set.get("sessionStartMetaInjected"), Some(&json!(false)));
-    }
-
-    /// A thread's first route (no previous model) leaves no usage reading behind: Node's `buildSessionRecord` stores none, so
-    /// a cancelled first turn's header has none (`stored-header` of the `cancel` scenario).
-    #[tokio::test]
-    async fn the_first_route_of_a_thread_writes_no_usage_reading() {
-        let change = RunHostRouteChange::new(Arc::new(Facts), Arc::new(Fixed));
-        let route: Route = [("provider", "openai"), ("model", "gpt-5")].iter().map(|(k, v)| ((*k).to_owned(), json!(v))).collect();
-        let header: Header = json!({ "id": "sess_new", "provider": "openai", "model": "gpt-5" }).as_object().unwrap().clone().into_iter().collect();
-        let lookups = change.lookups(&header, &route).await;
-        let result = change.route_change(&header, &route, &Route::new(), false, &lookups);
-        for key in ["lastInputTokens", "lastOutputTokens", "lastCachedReadTokens", "lastCacheWriteTokens", "lastContextTokens", "lastContextTokensUpdatedAt", "lastContextTokensStaleAfterCompact"] {
-            assert!(!result.set.contains_key(key), "{key}");
-        }
-    }
-
-    #[test]
-    fn the_cache_key_names_the_provider_family() {
-        assert_eq!(provider_cache_key("openai-oauth"), "mixdog-codex");
-        assert_eq!(provider_cache_key("anthropic-oauth"), "mixdog-claude");
-        assert_eq!(provider_cache_key("cursor-api"), "mixdog-cursor");
-        assert_eq!(provider_cache_key("groq"), "mixdog-groq");
-        assert_eq!(provider_cache_key(""), "mixdog-default");
     }
 }

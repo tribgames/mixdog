@@ -45,8 +45,6 @@ impl std::fmt::Display for ProtocolError {
     }
 }
 
-impl std::error::Error for ProtocolError {}
-
 fn encode(kind: u8, id: u32, body: &[u8]) -> Bytes {
     let mut out = BytesMut::with_capacity(HEADER_BYTES + body.len());
     out.extend_from_slice(&((5 + body.len()) as u32).to_be_bytes());
@@ -321,3 +319,6 @@ mod tests {
         writer.await.unwrap();
     }
 }
+
+
+impl std::error::Error for ProtocolError {}

@@ -104,6 +104,10 @@ export const SNAPSHOT_FILE = /\.(?:html?|png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 
 type SnapshotApi = Pick<DesktopApi, 'statProjectFile' | 'captureFileSnapshot'>;
 const snapshotRuns = new Map<string, Promise<string | undefined>>();
+// Versions the host could not picture (key = session + path + mtime + size),
+// skipped for the rest of the run. Capped like `saved`: a forgotten failure
+// only costs one more capture attempt.
+const FAILED_SNAPSHOT_LIMIT = 512;
 const failedSnapshots = new Set<string>();
 
 /** A picture of a local file, for a card whose live source has none: the saved
@@ -133,6 +137,9 @@ export function fileSnapshot(
           })
           .catch(() => {
             failedSnapshots.add(key);
+            while (failedSnapshots.size > FAILED_SNAPSHOT_LIMIT) {
+              failedSnapshots.delete(failedSnapshots.values().next().value as string);
+            }
             return undefined;
           })
           .finally(() => snapshotRuns.delete(key));

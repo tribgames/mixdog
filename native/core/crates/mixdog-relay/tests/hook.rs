@@ -1,9 +1,4 @@
-//! The webhook tunnel: the cases of `lib/relay-hook.test.mjs` and the socket-level part of the `webhook ingress caps bodies that
-//! are still arriving` case of `security.test.mjs`, run over real sockets: callers speak HTTP to the http1 layer with this
-//! crate's `HookHub` as the handler, and the agent speaks WebSocket to this crate's server over a raw byte client.
-//!
-//! The agent is a raw client: it sends masked frames and reads the relay's. The upgrade is done the way the server's upgrade code
-//! does it (the device is authenticated there, not in the hub): the test hands the socket and its events to `run_leg`.
+//! The webhook tunnel over real sockets: callers speak HTTP to the http1 layer, the agent answers over its leg; offline, busy, timeout, supersession, rate limits and body caps.
 
 use std::net::SocketAddr;
 use std::sync::Arc;

@@ -446,8 +446,9 @@
   font-weight: var(--mx-weight-medium);
 }
 .workspace-tab-new {
-  /* The HIT BOX fills the strip row and a full 34px column; the hover pill is drawn on the glyph below, so the
-     visual stays a quiet 26px pill while every pixel of the slot clicks. */
+  /* The HIT BOX fills the strip row and a 30px column; the visible mark is
+     the inner .workspace-tab-new-mark, which shares the dock toggles' plate,
+     glyph and ink (22-markdown.css), while every pixel of the slot clicks. */
   width: 30px;
   align-self: stretch;
   height: auto;
@@ -457,35 +458,13 @@
   padding: 0;
   border: 0;
   border-radius: 0;
-  color: var(--mx-text);
   background: transparent;
   box-shadow: none;
   -webkit-app-region: no-drag;
 }
 .workspace-tab-new:hover,
 .workspace-tab-new:focus-visible {
-  color: var(--mx-text);
   background: transparent;
-}
-/* Glyph carries the hover pill inside the tall hit box. */
-.workspace-tab-new svg,
-.workspace-tab-new .codicon {
-  box-sizing: content-box;
-  padding: 5px;
-  border-radius: var(--mx-radius-md);
-}
-.workspace-tab-new svg {
-  padding: 4.5px;
-}
-/* Codicon add: native 16px grid, pixel-crisp like Chrome's own +. */
-.workspace-tab-new .codicon {
-  font-size: 16px;
-}
-.workspace-tab-new:hover svg,
-.workspace-tab-new:hover .codicon,
-.workspace-tab-new:focus-visible svg,
-.workspace-tab-new:focus-visible .codicon {
-  background: var(--mx-hover);
 }
 .workspace-tab-new-menu {
   position: fixed;

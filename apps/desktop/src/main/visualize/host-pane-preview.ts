@@ -48,12 +48,15 @@ export async function panePreviewUrl(
     return coreLocalPages().url(root, rel, { owner: contents, ownerId: contents && windowIdFor(contents) });
   }
   if (target.kind === 'document') {
-    const converted = (await host.convertDocument(root, rel)) as {
-      path: string;
-      mtimeMs: number;
-      size: number;
-    };
-    const preview = registerFilePreview(converted.path, `${converted.mtimeMs}:${converted.size}`);
+    const convert = async () =>
+      (await host.convertDocument(root, rel)) as {
+        path: string;
+        mtimeMs: number;
+        size: number;
+      };
+    const converted = await convert();
+    // The core's cache evicts by count: a read that finds the PDF gone converts the source again.
+    const preview = registerFilePreview(converted.path, `${converted.mtimeMs}:${converted.size}`, { regenerate: convert });
     if (!preview) throw new Error(`the converted preview of ${target.target} is unavailable`);
     return preview.url;
   }

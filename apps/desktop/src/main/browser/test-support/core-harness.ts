@@ -4,15 +4,14 @@
  * BrowserHost in a hidden window, and a suite drives the browser through the core (`browser/command`, forwarded as
  * `host/browser/command`) or through the engine hook (`test/browserEngine/run`).
  */
-import { appendFileSync, mkdirSync, mkdtempSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { app, BrowserWindow, type WebContents, webContents } from 'electron';
 import { HOST_CAPABILITIES } from '../../host/connection';
 import { createComputerPresence } from '../../computer/presence/mirror';
 import { createDesktopHost } from '../../host';
+import { createComputerSwitch } from '../../host/computer-scope';
 import { createTranscriptTap } from '../../host/browser-engine/transcript';
 import { createProtocolConnection, type ProtocolConnection } from '../../protocol/connection';
 import { readLocalDiscovery } from '../../protocol/discovery';
@@ -21,6 +20,7 @@ import { openCore } from '../../protocol/open-core';
 import { readyBrowserFrame } from '../harness-frame';
 import { type BrowserHost } from '../host-types';
 import { createBrowserHost } from '../host';
+import { disposableProfile } from './disposable-profile';
 
 /** `host` is the path the host role serves today (the Electron browser host runs the tool); `core` runs it in the core's engine. */
 export type CoreHarnessEngine = 'core' | 'host';
@@ -138,6 +138,8 @@ export async function startCoreHarness({ engine }: { engine: CoreHarnessEngine }
         },
         desktopHostScreen: () => null,
         desktopHostCommand: () => null,
+        // Off: every computer scope is refused here.
+        computerSwitch: createComputerSwitch(false),
       },
       notifications: {
         createNotification: () => {
@@ -180,7 +182,8 @@ export async function startCoreHarness({ engine }: { engine: CoreHarnessEngine }
 
 /** The whole Electron process of one run: profile, harness, suite, teardown, exit code. The runner reads the progress log. */
 export function runCoreHarnessSuite(suite: CoreHarnessSuite): void {
-  const profile = mkdtempSync(join(tmpdir(), 'mixdog-browser-core-profile-'));
+  const disposable = disposableProfile();
+  const profile = disposable.dir;
   const dataDirectory = join(profile, 'data');
   mkdirSync(dataDirectory, { recursive: true });
   process.env.MIXDOG_DATA_DIR = dataDirectory;
@@ -202,11 +205,12 @@ export function runCoreHarnessSuite(suite: CoreHarnessSuite): void {
     .then(run)
     .then(async () => {
       progress('integration passed');
-      await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }).catch(() => {});
+      await disposable.remove();
       app.exit(0);
     })
-    .catch((error: unknown) => {
+    .catch(async (error: unknown) => {
       progress(`integration failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+      await disposable.remove();
       app.exit(1);
     });
 }

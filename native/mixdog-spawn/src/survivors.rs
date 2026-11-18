@@ -38,11 +38,11 @@ impl ProcessSurvivors {
     /// inspected is reported as survivors that cannot be signalled, never as none: unknown is not
     /// gone.
     pub fn survivors(&self, handle: &ProcessHandle) -> Option<SurvivorReport> {
-        let proc = self.manager.proc(handle).ok()?;
-        if !proc.root_ended() || !proc.containment().watchable() {
+        let (containment, root_ended) = self.manager.survivor_containment(handle)?;
+        if !root_ended || !containment.watchable() {
             return None;
         }
-        match proc.containment().observe() {
+        match containment.observe() {
             Seen::Running { reachable } => Some(SurvivorReport { reachable }),
             Seen::Unknown => Some(SurvivorReport { reachable: false }),
             Seen::Gone => None,
@@ -53,9 +53,9 @@ impl ProcessSurvivors {
     /// the handle is unknown), `false` when `abort` is raised first. An aborted wait confirms nothing:
     /// the survivors may still be running.
     pub async fn wait_gone(&self, handle: &ProcessHandle, abort: &CancellationToken) -> bool {
-        match self.manager.proc(handle) {
-            Ok(proc) => proc.containment().wait_gone(abort).await == Waited::Gone,
-            Err(_) => true,
+        match self.manager.survivor_containment(handle) {
+            Some((containment, _)) => containment.wait_gone(abort).await == Waited::Gone,
+            None => true,
         }
     }
 
@@ -63,9 +63,9 @@ impl ProcessSurvivors {
     /// cancel's own schedule, apart from the passive observation of [`Self::wait_gone`], and a look
     /// that finds nothing left settles it at once.
     pub async fn kill(&self, handle: &ProcessHandle) -> bool {
-        match self.manager.proc(handle) {
-            Ok(proc) => proc.containment().cancel().await,
-            Err(_) => true,
+        match self.manager.survivor_containment(handle) {
+            Some((containment, _)) => containment.cancel().await,
+            None => true,
         }
     }
 }

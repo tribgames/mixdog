@@ -22,12 +22,14 @@ use mixdog_rt::TaskClass;
 use mixdog_core_api::domain::tool::ToolOutput;
 
 use crate::env::GateCall;
+use crate::env::ReuseKind;
+use crate::env::ReuseWrite;
 use crate::env::RunEvent;
 use crate::env::or_cancelled;
 use crate::limits;
 use crate::message::AgentMessage;
 use crate::message::Source;
-use crate::native_search::parse_native_tool_search;
+use crate::native_search::{NativeDefinitions, parse_native_tool_search};
 use crate::message::ToolKind;
 use crate::run::AgentError;
 use crate::run::Run;
@@ -37,56 +39,16 @@ use crate::tools::CallFuture;
 use crate::tools::ToolSet;
 use crate::tools::Executed;
 use crate::tools::Projection;
-use crate::barriers::is_mutation;
+use crate::barriers::{invalidates_reuse, is_mutation, uses_result_cache};
 use crate::tools::arg_shape;
 use crate::tools::call_signature;
-use crate::tools::execute_call;
 use crate::tools::failure_signature;
 use crate::tools::intra_turn_duplicates;
-
-const CROSS_TURN_CAP: usize = 500;
-/// Tools that are not edits or progress even though they are not read-only.
-const NON_PROGRESS_TOOLS: [&str; 9] = [
-    "Skill", "recall", "agent", "task", "cwd", "session", "load_tool", "tool_search", "todo",
-];
 
 /// A call started while the response streams.
 pub(crate) struct EagerStarted {
     id: String,
     read_only: bool,
-}
-
-struct Receipt {
-    count: u32,
-    first_iteration: u32,
-    tool_use_id: String,
-}
-
-/// Cross-turn identical read-only call receipts: signature → where the body
-/// was delivered. Insertion-ordered; the oldest is dropped past the cap.
-#[derive(Default)]
-pub(crate) struct CrossTurn {
-    entries: Vec<(String, Receipt)>,
-    pub(crate) stub_total: u32,
-    pub(crate) edit_count: u32,
-}
-
-impl CrossTurn {
-    fn find(&mut self, sig: &str) -> Option<&mut Receipt> {
-        self.entries.iter_mut().find(|(s, _)| s == sig).map(|(_, r)| r)
-    }
-
-    fn remove(&mut self, sig: &str) {
-        self.entries.retain(|(s, _)| s != sig);
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.entries.clear();
-    }
-
-    fn has(&self, sig: &str) -> bool {
-        self.entries.iter().any(|(s, _)| s == sig)
-    }
 }
 
 /// A successfully executed tool that represents real edit or progress.
@@ -105,31 +67,6 @@ fn output_is_complete(output: &ToolOutput) -> bool {
 /// The `meta` object a tool left for the call's trace row under `key` (Node's `resultTelemetry` / `localSearchTelemetry`).
 fn output_meta(output: Option<&ToolOutput>, key: &str) -> Option<serde_json::Value> {
     output?.meta.as_ref()?.get(key).cloned()
-}
-
-fn is_edit_progress(name: &str, read_only: bool) -> bool {
-    if read_only {
-        return false;
-    }
-    let bare = if name.starts_with("mcp__") {
-        name.rsplit("__").next().unwrap_or(name)
-    } else {
-        name
-    };
-    if matches!(bare, "apply_patch" | "shell" | "bash" | "bash_session") {
-        return true;
-    }
-    !NON_PROGRESS_TOOLS.contains(&bare)
-}
-
-fn dedup_stub(name: &str, first_iteration: u32, stuck: bool) -> String {
-    let mut s = format!(
-        "[cross-turn-dedup] `{name}` already ran in iteration {first_iteration}; result unchanged, already in context."
-    );
-    if stuck {
-        s.push_str(" No new evidence; use the existing result or report it unresolved.");
-    }
-    s
 }
 
 pub(crate) type EditGroup = Arc<Mutex<(u32, u32)>>;
@@ -250,8 +187,8 @@ fn edit_key(call: &ToolCall) -> Option<String> {
     ))
 }
 
-async fn run_one(call: ToolCall, env: Arc<CallEnv>, group: Option<EditGroup>) -> Executed {
-    let executed = execute_call(call.clone(), Arc::clone(&env)).await;
+async fn run_one(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, group: Option<EditGroup>) -> Executed {
+    let executed = crate::tools::execute_call_at(call.clone(), Arc::clone(&env), cwd, None).await;
     retry_in_group(call, env, group, executed).await
 }
 
@@ -329,6 +266,7 @@ impl Run {
 
     pub(crate) fn call_env(&self) -> Arc<CallEnv> {
         Arc::new(CallEnv {
+            reuse: self.env.reuse.clone(),
             tools: self.tools.clone(),
             gate: Arc::clone(&self.env.gate),
             hooks: self.env.hooks.clone(),
@@ -353,10 +291,6 @@ impl Run {
 
     fn cwd_now(&self) -> std::path::PathBuf {
         self.live_cwd().as_path().to_path_buf()
-    }
-
-    fn requires_read_body(&self, name: &str) -> bool {
-        self.config.read_body_required && name == "read"
     }
 
     /// Starts a read-only call the moment the provider streams it, when
@@ -403,6 +337,9 @@ impl Run {
         if invalid_args {
             return;
         }
+        if uses_result_cache(&name) && self.barriers.has_reuse_invalidator() {
+            return;
+        }
         let gate_call = GateCall::new(name.clone(), exec.arguments.clone());
         self.env.gate.refresh_policy(&gate_call).await;
         if self.env.gate.pre_dispatch_deny(&gate_call).is_some() || self.carry.repeat.could_fire(0) {
@@ -416,15 +353,18 @@ impl Run {
             if !self.eager_sigs.insert(sig.clone()) {
                 return;
             }
-            if let Some(reuse) = self.env.reuse.clone()
-                && reuse.lookup(&exec, false).await.is_some()
-            {
-                return;
-            }
+        }
+        if (dedup || uses_result_cache(&name))
+            && let Some(reuse) = self.env.reuse.clone()
+            && let Some(invocation) = self.tools.reuse_invocation(&exec)
+            && reuse.has_candidate(&invocation, cwd.as_path()).await
+        {
+            return;
         }
         let mut env = self.call_env();
         let id = call.id.clone();
         let (observer, early_id) = (Arc::clone(&self.env.observer), id.clone());
+        let generation = observer.send_generation();
         // Every executable call starts as it streams, a write, an MCP call or one that asks for approval included
         // (`isParallelDispatchable`, `loop/tool-helpers.mjs:52`); a call that one of Node's barriers holds back
         // waits for the calls it depends on (`eager-dispatch/barriers.mjs`).
@@ -461,6 +401,7 @@ impl Run {
         let place = key.as_deref().map(|key| locks.enqueue(key, preceding.ids()));
         let mut settler = Settler { id: id.clone(), slot, ambiguous: false, finished };
         let mut gate = self.settle_gate.subscribe();
+        let identity = self.trace_identity();
         let handle = mixdog_rt::spawn("agent.eager", TaskClass::Work, async move {
             let dispatch_started_at = env.clock.now_ms();
             let executed = match preceding.wait(&exec.name).await {
@@ -490,7 +431,10 @@ impl Run {
             }
             failed.store(executed.failed, std::sync::atomic::Ordering::Release);
             // The instant this streamed call settles, whatever consumes it later (call order) or nothing does.
-            observer.event(RunEvent::EarlyResult(early_result(&early_id, &executed)));
+            mixdog_rt::turn_trace!("[turn] {identity} phase=tool-finished call={early_id} failed={} tool_ms={}", executed.failed, executed.tool_ms);
+            if executed.cache_hit.is_none() {
+                observer.early_result_of(generation, early_result(&early_id, &executed));
+            }
             settler.ambiguous = executed.conflict;
             drop(settler);
             executed
@@ -538,14 +482,13 @@ impl Run {
     }
 
     /// What one call is, in Node's order: surface denial, one-per-turn tools,
-    /// intra-turn twin, cross-turn receipt, repeat-failure guards.
+    /// intra-turn twin and repeat-failure guards.
     #[allow(clippy::too_many_arguments)]
     async fn decide(
         &mut self,
         call: &ToolCall,
         dup_of: Option<&String>,
         single_of: Option<&String>,
-        ct_sig: Option<&str>,
         sig: &str,
         shape_sig: &str,
         unprojected: Option<&String>,
@@ -574,9 +517,8 @@ impl Run {
         if let Some(why) = self.dropped_tools.get(&call.name) {
             return Decision::Skip(AgentMessage::tool_text(&call.id, format!("Error: {why}"), ToolKind::Error));
         }
-        let body_required = self.requires_read_body(&call.name);
         if let Some(first) = dup_of
-            && !body_required
+            && !uses_result_cache(&call.name)
         {
             return Decision::Skip(AgentMessage::tool_text(
                 &call.id,
@@ -587,43 +529,10 @@ impl Run {
                 ToolKind::Skipped,
             ));
         }
-        if let Some(ct) = ct_sig
-            && !body_required
-            && let Some(stub) = self.cross_turn_stub(call, ct).await
-        {
-            return Decision::Skip(AgentMessage::tool_text(&call.id, stub, ToolKind::Skipped));
-        }
         match self.carry.repeat.skip(&call.name, sig, shape_sig) {
             Some(text) => Decision::Skip(AgentMessage::tool_text(&call.id, text, ToolKind::Error)),
             None => Decision::Run,
         }
-    }
-
-    /// A receipt is only an in-context receipt, not a freshness proof:
-    /// reference it only while the same cached body remains reusable.
-    async fn cross_turn_stub(&mut self, call: &ToolCall, ct_sig: &str) -> Option<String> {
-        let iterations = self.iterations;
-        let (first_iteration, tool_use_id) = {
-            let prior = self.cross_turn.find(ct_sig)?;
-            if prior.first_iteration >= iterations {
-                return None;
-            }
-            (prior.first_iteration, prior.tool_use_id.clone())
-        };
-        let hit = match self.env.reuse.clone() {
-            Some(reuse) => reuse.lookup(call, false).await,
-            None => None,
-        };
-        let valid = hit.is_some_and(|hit| !tool_use_id.is_empty() && hit.first_tool_use_id == tool_use_id);
-        if !valid {
-            self.cross_turn.remove(ct_sig);
-            return None;
-        }
-        if let Some(prior) = self.cross_turn.find(ct_sig) {
-            prior.count += 1;
-        }
-        self.cross_turn.stub_total += 1;
-        Some(dedup_stub(&call.name, first_iteration, self.cross_turn.stub_total >= 5))
     }
 
     /// A failed executed call keeps its FULL command text in the stored assistant turn (`restoreToolCallBodyForId`), so the model
@@ -637,44 +546,18 @@ impl Run {
     /// Bookkeeping once a call has its result, in call order.
     /// Returns whether the body is a cache candidate (stored after the batch's
     /// budgets, so cache and transcript receive the same body).
-    async fn record_executed(&mut self, call: &ToolCall, executed: &Executed, sigs: (String, String), later_mutation: bool) -> bool {
+    fn record_executed(&mut self, executed: &Executed, sigs: (String, String), later_mutation: bool) -> bool {
         self.carry
             .repeat
             .record(executed.failed, sigs.0, sigs.1, executed.arg_failure);
-        let read_only = self.tools.read_only(&call.name);
-        if let Some(reuse) = self.env.reuse.clone() {
-            reuse.after_call(call, executed.failed).await;
-        }
         // A body that predates a later mutation of the batch is not cached.
-        let cacheable = self.env.reuse.is_some()
+        executed.reuse_write.is_some()
             && !executed.failed
             && executed.cache_hit.is_none()
             && !later_mutation
             && executed.output.as_ref().is_none_or(output_is_complete)
-            && executed.message.tool_kind == Some(ToolKind::Normal);
-        if executed.failed {
-            return cacheable;
-        }
-        if self.tools.dedup_eligible(&call.name) {
-            let sig = call_signature(&call.name, &call.arguments);
-            let tool_use_id = executed.cache_hit.clone().unwrap_or_else(|| call.id.clone());
-            let iterations = self.iterations;
-            let same = self.cross_turn.find(&sig).is_some_and(|r| r.tool_use_id == tool_use_id);
-            if !same {
-                self.cross_turn.remove(&sig);
-                self.cross_turn.entries.push((
-                    sig,
-                    Receipt { count: 1, first_iteration: iterations, tool_use_id },
-                ));
-                if self.cross_turn.entries.len() > CROSS_TURN_CAP {
-                    self.cross_turn.entries.remove(0);
-                }
-            }
-        } else if is_edit_progress(&call.name, read_only) {
-            self.cross_turn.clear();
-            self.cross_turn.edit_count += 1;
-        }
-        cacheable
+            && executed.message.tool_kind == Some(ToolKind::Normal)
+            && matches!(&executed.message.message.content, Content::Text(_))
     }
 
     /// The execution view (`resolveExecutionToolCalls`): typo aliases and case variants canonicalized,
@@ -738,7 +621,8 @@ impl Run {
         let mut was_executed = vec![false; n];
         let mut tool_ms = vec![0i64; n];
         let mut intervals: Vec<Vec<(i64, i64)>> = vec![Vec::new(); n];
-        let mut cacheable = vec![false; n];
+        let mut writes: Vec<Option<Box<dyn ReuseWrite>>> = (0..n).map(|_| None).collect();
+        let mut hits = vec![None; n];
         let mut outputs: Vec<Option<ToolOutput>> = (0..n).map(|_| None).collect();
         let mut follow_ups: Vec<AgentMessage> = Vec::new();
         let env = self.call_env();
@@ -766,20 +650,13 @@ impl Run {
                 }
                 let sig = failure_signature(&call.name, &call.arguments, &cwd);
                 let shape_sig = format!("{}:{}", call.name, arg_shape(&call.arguments));
-                let ct_sig = self
-                    .tools
-                    .dedup_eligible(&call.name)
-                    .then(|| call_signature(&call.name, &call.arguments));
                 // Earlier outcomes not recorded yet could change this decision.
                 let unrecorded = j - recorded;
-                let mutation_pending = (recorded..j)
-                    .any(|i| !self.tools.read_only(&calls[i].name))
-                    && ct_sig.as_deref().is_some_and(|s| self.cross_turn.has(s));
-                if unrecorded > 0 && (self.carry.repeat.could_fire(unrecorded) || mutation_pending) {
+                if unrecorded > 0 && self.carry.repeat.could_fire(unrecorded) {
                     break;
                 }
                 evaluated[j] = true;
-                match self.decide(call, dups.get(&j), single_of[j].as_ref(), ct_sig.as_deref(), &sig, &shape_sig, unprojected[j].as_ref()).await {
+                match self.decide(call, dups.get(&j), single_of[j].as_ref(), &sig, &shape_sig, unprojected[j].as_ref()).await {
                     Decision::Skip(message) => {
                         staged[j] = Some(message);
                         passed(&self.eager_settles, &call.id);
@@ -795,17 +672,23 @@ impl Run {
             // 2. Record finished outcomes in call order.
             while recorded < n && finished[recorded] {
                 if let Some(mut result) = executed[recorded].take() {
-                    let later_mutation = (recorded + 1..n).any(|k| !self.tools.read_only(&calls[k].name));
+                    let later_mutation = (recorded + 1..n).any(|k| {
+                        !self.tools.read_only(&calls[k].name) || invalidates_reuse(&calls[k].name, &calls[k].arguments)
+                    });
                     let sig_pair = std::mem::take(&mut sigs[recorded]);
-                    cacheable[recorded] =
-                        self.record_executed(&calls[recorded], &result, sig_pair, later_mutation).await;
+                    if self.record_executed(&result, sig_pair, later_mutation) {
+                        writes[recorded] = result.reuse_write.take();
+                    }
+                    hits[recorded] = result.cache_hit.as_ref().map(|(_, kind)| *kind);
                     if result.failed {
                         self.restore_failed_call_body(wire_calls, &wire_calls[recorded].id);
                     }
                     outputs[recorded] = result.output.take();
                     was_executed[recorded] = true;
                     tool_ms[recorded] = result.tool_ms;
-                    intervals[recorded] = result.intervals();
+                    if hits[recorded].is_none() {
+                        intervals[recorded] = result.intervals();
+                    }
                     follow_ups.extend(result.follow_ups.iter().cloned());
                     staged[recorded] = Some(result.message);
                 }
@@ -840,27 +723,21 @@ impl Run {
                 // a deferred tool called by its name is not on the list, so it is never thrown away.
                 let read_only = self.tools.get(&call.name).is_some_and(|t| t.spec().annotations.read_only_hint == Some(true))
                     || (bridged[j] && self.tools.read_only(&call.name));
-                let kept = self.eager.contains_key(&call.id)
-                    && (!read_only || (0..j).all(|i| skipped[i] || !is_mutation(&calls[i].name, &calls[i].arguments)));
+                let reuse_candidate = uses_result_cache(&call.name);
+                let intervening = (0..j).any(|i| {
+                    !skipped[i]
+                        && if reuse_candidate {
+                            invalidates_reuse(&calls[i].name, &calls[i].arguments)
+                        } else {
+                            is_mutation(&calls[i].name, &calls[i].arguments)
+                        }
+                });
+                let kept = self.eager.contains_key(&call.id) && (!(read_only || reuse_candidate) || !intervening);
                 if !kept && !(0..j).all(|i| finished[i]) {
                     continue;
                 }
                 started[j] = true;
-                let hit = match self.env.reuse.clone() {
-                    Some(reuse) => reuse.lookup(&call, true).await,
-                    None => None,
-                };
-                if let Some(hit) = hit {
-                    let mut served =
-                        Executed::error(&call.id, String::new());
-                    served.message = AgentMessage::tool_text(&call.id, hit.content, ToolKind::CacheHit);
-                    served.failed = false;
-                    served.cache_hit = Some(hit.first_tool_use_id);
-                    passed(&self.eager_settles, &call.id);
-                    executed[j] = Some(served);
-                    finished[j] = true;
-                    continue;
-                }
+                let execution_cwd = self.live_cwd();
                 let eager = self.eager.remove(&call.id);
                 // A streamed result thrown away is not announced again by its re-run: Node's serial path never notifies.
                 if eager.is_some() {
@@ -900,7 +777,24 @@ impl Run {
                     }));
                 } else {
                     let env = Arc::clone(&env);
-                    running.push(Box::pin(async move { (j, run_one(call, env, group).await) }));
+                    // The call runs on its own task and tells the host the instant it settles, as a streamed call does: its result
+                    // is shown as finished at once, whatever the batch is waiting on, while its row is still recorded in call order.
+                    let announce = !crate::tools::is_invalid_args_marker(&call.arguments);
+                    if announce {
+                        streamed.insert(j);
+                    }
+                    let (observer, identity, id) = (Arc::clone(&self.env.observer), self.trace_identity(), call.id.clone());
+                    let generation = observer.send_generation();
+                    let task = mixdog_rt::spawn("agent.call", TaskClass::Work, async move {
+                        let executed = run_one(call, env, execution_cwd, group).await;
+                        if announce && executed.cache_hit.is_none() {
+                            mixdog_rt::turn_trace!("[turn] {identity} phase=tool-finished call={id} failed={} tool_ms={}", executed.failed, executed.tool_ms);
+                            observer.early_result_of(generation, early_result(&id, &executed));
+                        }
+                        executed
+                    });
+                    let id = calls[j].id.clone();
+                    running.push(Box::pin(async move { (j, task.await.unwrap_or_else(|_| Executed::error(&id, "Error: tool task failed".to_owned()))) }));
                 }
             }
             if running.is_empty() {
@@ -924,6 +818,7 @@ impl Run {
                     // refusal) never reaches this arm.
                     // (Node answers an unparsed call in its turn, instantly: `markInstant`, no early notice.)
                     if !streamed.contains(&idx) && !crate::tools::is_invalid_args_marker(&calls[idx].arguments) {
+                        self.trace("tool-finished", format_args!("call={} tool={} failed={} tool_ms={}", calls[idx].id, calls[idx].name, result.failed, result.tool_ms));
                         self.emit(RunEvent::EarlyResult(early_result(&calls[idx].id, &result)));
                     }
                     executed[idx] = Some(result);
@@ -945,7 +840,7 @@ impl Run {
         }
         drop(running);
 
-        self.finalize_results(&calls, &mut staged, &was_executed, &tool_ms, &mut intervals, (&cacheable, &outputs)).await;
+        self.finalize_results(&calls, &mut staged, &was_executed, &tool_ms, &mut intervals, (&mut writes, &outputs, &hits)).await;
         // Results commit in the assistant's call order.
         for message in staged.into_iter().flatten() {
             if let (Some(id), Some(kind)) = (message.tool_call_id(), message.tool_kind) {
@@ -981,8 +876,8 @@ impl Run {
 
     /// Budgets of the batch's executed results, then the cache writes: the
     /// per-tool and per-message offload, inline-image compaction, and the
-    /// reusable bodies handed to the cache exactly as the transcript holds
-    /// them.
+    /// reusable text bodies handed to the cache only if still complete after
+    /// offloading.
     async fn finalize_results(
         &mut self,
         calls: &[ToolCall],
@@ -990,9 +885,9 @@ impl Run {
         executed: &[bool],
         tool_ms: &[i64],
         intervals: &mut [Vec<(i64, i64)>],
-        cache: (&[bool], &[Option<ToolOutput>]),
+        cache: (&mut [Option<Box<dyn ReuseWrite>>], &[Option<ToolOutput>], &[Option<ReuseKind>]),
     ) {
-        let (cacheable, outputs) = cache;
+        let (writes, outputs, hits) = cache;
         let indices: Vec<usize> = (0..calls.len())
             .filter(|i| executed[*i] && staged[*i].is_some())
             .collect();
@@ -1020,19 +915,28 @@ impl Run {
         }
         // A loading tool's native tool-search payload becomes the message's, and its summary the
         // result (`finalizeBatchResults` parses before anything is offloaded or cached).
+        let mut definitions = None;
         for i in &indices {
             if let Some(m) = staged[*i].as_mut()
                 && let Content::Text(text) = &m.message.content
                 && let Some(native) = parse_native_tool_search(&calls[*i].name, text)
                 && let Some(summary) = native.get("summary").and_then(serde_json::Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned)
             {
-                m.message.native_tool_search = Some(native);
+                let definitions = definitions.get_or_insert_with(|| {
+                    let mut seen = NativeDefinitions::default();
+                    for payload in self.messages.iter().filter_map(|row| row.message.native_tool_search.as_ref()) {
+                        seen.record(payload);
+                    }
+                    seen
+                });
+                m.message.native_tool_search = definitions.take_new(native);
                 m.message.content = Content::Text(summary);
             }
         }
         if let Some(store) = self.env.artifacts.clone() {
             let mut entries: Vec<crate::offload::BatchEntry> = indices
                 .iter()
+                .filter(|i| hits[**i].is_none())
                 .filter_map(|i| {
                     let m = staged[*i].as_ref()?;
                     Some(crate::offload::BatchEntry {
@@ -1041,13 +945,12 @@ impl Run {
                             .strip_prefix("mcp__plugin_mixdog_mixdog__")
                             .unwrap_or(&calls[*i].name)
                             .to_owned(),
-                        kind: m.tool_kind,
                         content: m.message.content.clone(),
                     })
                 })
                 .collect();
             crate::offload::offload_batch(store.as_ref(), &mut entries).await;
-            for (i, entry) in indices.iter().zip(entries) {
+            for (i, entry) in indices.iter().filter(|i| hits[**i].is_none()).zip(entries) {
                 if let Some(m) = staged[*i].as_mut() {
                     m.message.content = entry.content;
                 }
@@ -1068,6 +971,7 @@ impl Run {
                 continue;
             };
             let error = m.tool_kind == Some(ToolKind::Error);
+            let hit = hits[i];
             if let Some(log) = &self.env.failures {
                 log.tool(crate::env::TracedCall {
                     iteration: self.iterations,
@@ -1075,11 +979,17 @@ impl Run {
                     tool_name: calls[i].name.clone(),
                     tool_kind: trace_tool_kind(&self.tools, &calls[i].name),
                     tool_ms: tool_ms[i],
-                    tool_args: calls[i].arguments.clone(),
+                    tool_args: if hit.is_some() { serde_json::Value::Null } else { calls[i].arguments.clone() },
                     model: self.model.clone(),
-                    result_kind: if error { "error" } else { "normal" },
-                    result: trace_result(&m.message.content),
-                    result_text: trace_text(&m.message.content),
+                    result_kind: match (hit, m.tool_kind) {
+                        (_, Some(ToolKind::Error)) => "error",
+                        (Some(ReuseKind::Read), _) => "cache-hit",
+                        (Some(ReuseKind::Scoped), _) => "scoped-cache-hit",
+                        (_, Some(ToolKind::Skipped)) => "skipped",
+                        _ => "normal",
+                    },
+                    result: if hit.is_some() { serde_json::Value::Null } else { trace_result(&m.message.content) },
+                    result_text: if hit.is_some() { String::new() } else { trace_text(&m.message.content) },
                     timing: m.tool_timing,
                     execution_intervals: std::mem::take(&mut intervals[i]),
                     result_telemetry: output_meta(outputs[i].as_ref(), "resultTelemetry"),
@@ -1087,10 +997,11 @@ impl Run {
                 });
             }
             if !error
-                && cacheable[i]
-                && let (Some(reuse), Some(output)) = (&self.env.reuse, &outputs[i])
+                && let Content::Text(text) = &m.message.content
+                && !crate::offload::is_offloaded(text)
+                && let (Some(write), Some(output)) = (writes[i].take(), &outputs[i])
             {
-                reuse.store(&calls[i], &m.text(), &calls[i].id, output).await;
+                write.store(text, output).await;
             }
         }
     }}
@@ -1148,29 +1059,22 @@ mod early_tests {
     use super::*;
     use mixdog_core_api::domain::provider::Content;
 
-    /// The host notice Node's eager entry gave four settled calls (`fixtures/interrupt/early-golden.json`,
-    /// `record-early.mjs`): text for a returned value, `Error: <message>` and `isError` only for a thrown call.
+    /// The notice an eager call that settled gives: the returned text as it is, and `Error: <message>` with the error kind
+    /// only for a call that threw.
     #[test]
-    fn a_settled_call_is_noticed_as_nodes_eager_entry_notices_it() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/interrupt/early-golden.json")).unwrap();
-        for case in golden["cases"].as_array().unwrap() {
-            let name = &case["name"];
-            let thrown = case["isError"] == true;
-            let text = case["content"].as_str().unwrap();
-            let mut executed = if thrown {
-                Executed::error("c1", text.to_owned())
-            } else {
-                Executed::error("c1", String::new())
-            };
-            if !thrown {
-                executed.failed = false;
-                executed.message = AgentMessage::tool_result("c1", Content::Text(text.to_owned()), ToolKind::Normal);
-            }
-            let early = early_result("c1", &executed);
-            assert_eq!(early.text(), text, "{name}");
-            assert_eq!(early.tool_kind == Some(ToolKind::Error), thrown, "{name}");
-            assert_eq!(early.tool_call_id(), Some("c1"), "{name}");
-            assert!(!early.text().starts_with("Error: Error: "), "{name}: one prefix");
-        }
+    fn a_settled_call_is_noticed_with_its_text_and_only_a_thrown_one_as_an_error() {
+        let returned = {
+            let mut executed = Executed::error("c1", String::new());
+            executed.failed = false;
+            executed.message = AgentMessage::tool_result("c1", Content::Text("done".to_owned()), ToolKind::Normal);
+            early_result("c1", &executed)
+        };
+        assert_eq!(returned.text(), "done");
+        assert_ne!(returned.tool_kind, Some(ToolKind::Error));
+        assert_eq!(returned.tool_call_id(), Some("c1"));
+        let thrown = early_result("c1", &Executed::error("c1", "boom".to_owned()));
+        assert_eq!(thrown.text(), "boom");
+        assert_eq!(thrown.tool_kind, Some(ToolKind::Error));
+        assert!(!thrown.text().starts_with("Error: Error: "), "one prefix");
     }
 }

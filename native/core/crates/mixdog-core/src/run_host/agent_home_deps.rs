@@ -206,5 +206,5 @@ impl HomeDeps for SessionHomeDeps {
 }
 
 #[cfg(test)]
-#[path = "agent_home_deps_tests.rs"]
+#[path = "agent_home_deps_behaviour_tests.rs"]
 mod tests;

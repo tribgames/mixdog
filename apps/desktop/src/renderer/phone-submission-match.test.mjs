@@ -3,15 +3,14 @@
 // releases `settledIds.has(String(item.id))`). The core's user item names the submission as `clientSubmissionId`; the shared fold
 // (`rowOf`) must make it the row's id, so the match holds without the ordinal fallback.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { pendingPromptTranscriptItems } from './conversation-prompt-items.ts';
 import { rowOf } from '../../../../packages/protocol-client/src/rows.ts';
 
-const recorded = JSON.parse(readFileSync(new URL('../../../../native/core/fixtures/phone-chat-core/phone-chat-core.json', import.meta.url), 'utf8'));
-const nodeRow = recorded.cases.find((c) => c.kind === 'submit' && c.after.items.length).after.items[0];
+// A submitted prompt as the core stores it: the submission's id, text, time and message id.
+const nodeRow = { id: 'sub-7f3a', text: 'ship it', at: 1_700_000_000_000, messageId: 'm-1' };
 
-test("a stored user row with the core's clientSubmissionId releases the pending bubble by id, as Node's row does", () => {
+test("a stored user row with the core's clientSubmissionId releases the pending bubble by id", () => {
   const stored = rowOf({
     type: 'userMessage',
     id: '01a1c0ed-6dc2-723f-b70f-0ff4ee62f1ce',

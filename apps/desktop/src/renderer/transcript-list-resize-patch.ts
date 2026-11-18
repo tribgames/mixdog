@@ -1,11 +1,13 @@
 import type { MutableRefObject } from 'react';
 import { useCallback, useLayoutEffect, useRef } from 'react';
+import { takeParkedGrowthAbove } from './markdown-block-parking';
 import type { createTranscriptEndPin } from './transcript-end-pin';
 import { createHeldRowShrinks, type HeldRowShrinks } from './transcript-list-held-shrinks';
 import {
   captureReadingAnchor,
   READING_ANCHOR_HOLD_MS,
   rememberRowHeight,
+  coreScrollState,
   shouldDeferTranscriptScrollAdjustment,
   type TranscriptVirtualizer,
   viewportSize,
@@ -328,6 +330,10 @@ export function useVirtualizerResizePatch({
   // A row set in flight or a held reading anchor resolves every size above
   // the reader in one absolute write instead (see restoreReadingAnchor).
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
+    // The growth of parked blocks that returned above the reader belongs to
+    // this measurement of the row, whichever rule below decides it: read here,
+    // it cannot be applied to a later, unrelated change.
+    const grownAbove = takeParkedGrowthAbove(instance.elementsCache.get(item.key));
     if (widthSyncing.current) return false;
     if (instance.options.anchorTo !== 'end') {
       if (pendingAnchor.current) return false;
@@ -341,6 +347,16 @@ export function useVirtualizerResizePatch({
     // it jumped by the row's estimate error against the fling (Android: 위로
     // 스크롤하면 턱턱 막히거나 튄다).
     if (applyingDeferred.current) return true;
+    // Blocks of a long reply returned above the reader at another height than
+    // the boxes that stood for them: the reader's offset moves by exactly
+    // that growth, whatever else of the row changed in the same measurement.
+    // A list following its end is moved by its whole change in the core.
+    if (grownAbove !== 0 && instance.options.anchorTo !== 'end') {
+      (coreScrollState(instance) as unknown as { applyScrollAdjustment(delta: number): void }).applyScrollAdjustment(
+        grownAbove
+      );
+      return false;
+    }
     // A row wholly above the visible top keeps the reader's content still.
     // During reader motion such a row only gets here once its new box
     // reaches into view (smaller changes are deferred above); left

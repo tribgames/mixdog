@@ -83,3 +83,29 @@ test('a file snapshot is saved once per file version and reused; failures fall b
   assert.equal(await fileSnapshot('s', target, failing, store), undefined);
   assert.equal(await fileSnapshot('s', target, api, store), undefined, 'a failed version is not retried');
 });
+
+test('the failed-snapshot set is bounded: the oldest failure is retried once evicted', async () => {
+  const { fileSnapshot } = await import('./persisted-thumbnail.ts');
+  resetSavedThumbnails();
+  const store = createImagePreviewStore(memoryPreviewBackend());
+  let fail = true;
+  let captures = 0;
+  const api = {
+    statProjectFile: async (_project, path) => ({ mtimeMs: 1, size: path.length }),
+    captureFileSnapshot: async () => {
+      captures += 1;
+      if (fail) throw new Error('timeout');
+      return { dataUrl: 'data:image/png;base64,OK' };
+    },
+  };
+  for (let index = 0; index <= 512; index += 1) {
+    assert.equal(await fileSnapshot('s', { project: '/p', path: `f${index}.html` }, api, store), undefined);
+  }
+  fail = false;
+  captures = 0;
+  // The newest failure is still remembered, the oldest was evicted.
+  assert.equal(await fileSnapshot('s', { project: '/p', path: 'f512.html' }, api, store), undefined);
+  assert.equal(captures, 0);
+  assert.equal(await fileSnapshot('s', { project: '/p', path: 'f0.html' }, api, store), 'data:image/png;base64,OK');
+  assert.equal(captures, 1);
+});

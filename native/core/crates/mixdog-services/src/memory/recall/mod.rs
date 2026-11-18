@@ -22,7 +22,6 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::memory::core::access::MemoryCaller;
@@ -44,12 +43,6 @@ use crate::memory::recall::ranking::{
     prioritize_historical_root_evidence, rank_latest_rows, sample_timeline, session_recall_terms, topic_term_coverage,
 };
 use crate::memory::recall::row::{Row, by_diff, compare_by_score, compare_newest_first, unique_rows_by_id};
-
-/// Largest recall text handed to a model.
-pub fn recall_output_max_bytes() -> usize {
-    static MAX: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| mixdog_tools::github::positive_env_int(std::env::var("MIXDOG_RECALL_OUTPUT_MAX_BYTES").ok().as_deref(), 20 * 1024));
-    *MAX
-}
 const FAN_OUT_QUERIES_CAP: usize = 5;
 const FAN_OUT_DEADLINE: Duration = Duration::from_secs(180);
 
@@ -282,6 +275,66 @@ fn recall_search_args(a: &Value) -> Value {
     Value::Object(out)
 }
 
+struct Candidates {
+    results: Vec<Row>,
+    retrieval_limit: usize,
+    vague_latest_root_mode: bool,
+    historical_candidates: Vec<Row>,
+    low_historical: bool,
+    semantic_only: bool,
+}
+
+fn order_candidates(mut filtered: Vec<Row>, plan: &SearchPlan, vague_latest_root_mode: bool) -> Vec<Row> {
+    if plan.sort == "date" {
+        filtered.sort_by(compare_newest_first);
+    } else {
+        filtered.sort_by(compare_by_score);
+    }
+    if plan.structured_time_mode {
+        let (root_rows, other): (Vec<Row>, Vec<Row>) = filtered.into_iter().partition(|r| r.is_root == 1);
+        let roots = if plan.latest_intent && !vague_latest_root_mode {
+            rank_latest_rows(root_rows, &plan.retrieval_query)
+        } else {
+            let mut roots = root_rows;
+            roots.sort_by(compare_newest_first);
+            roots
+        };
+        return roots.into_iter().chain(other).collect();
+    }
+    if plan.latest_entity_mode {
+        return rank_latest_rows(filtered, &plan.retrieval_query);
+    }
+    filtered
+}
+
+/// Fresh unclassified turns lead only when they cover more of the topic than
+/// every classified root.
+fn promote_latest_raw_rows(filtered: Vec<Row>, plan: &SearchPlan) -> (bool, Vec<Row>) {
+    let terms = latest_recall_topic_terms(&plan.retrieval_query);
+    let coverage = |select: &dyn Fn(&Row) -> bool| {
+        filtered.iter().filter(|r| select(r)).map(|r| topic_term_coverage(r, &terms) as i64).fold(-1, i64::max)
+    };
+    let raw = coverage(&|r| r.is_root == 0 && r.chunk_root.is_none());
+    let root = coverage(&|r| r.is_root == 1);
+    if raw > root { (true, rank_latest_rows(filtered, &plan.retrieval_query)) } else { (false, filtered) }
+}
+
+fn page_rows(filtered: Vec<Row>, plan: &SearchPlan) -> Vec<Row> {
+    let deduped = collapse_near_duplicate_rows(collapse_history_duplicates(filtered));
+    let mut rows: Vec<Row> = if plan.latest_intent { deduped.into_iter().filter(|r| !r.dup_stub).collect() } else { deduped };
+    if plan.timeline_mode {
+        let roots: Vec<Row> = rows.iter().filter(|r| r.is_root == 1).cloned().collect();
+        rows = sample_timeline(if roots.len() > 1 { roots } else { rows }, plan.limit + plan.offset);
+    }
+    rows.into_iter().skip(plan.offset).take(plan.limit).collect()
+}
+
+
+/// Largest recall text handed to a model.
+pub fn recall_output_max_bytes() -> usize {
+    static MAX: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| mixdog_tools::github::positive_env_int(std::env::var("MIXDOG_RECALL_OUTPUT_MAX_BYTES").ok().as_deref(), 20 * 1024));
+    *MAX
+}
 impl Recall {
     pub fn new(deps: RecallDeps) -> Self {
         Self { deps: Arc::new(deps) }
@@ -354,17 +407,18 @@ impl Recall {
         }
         let selected: Vec<String> = dedup.iter().take(FAN_OUT_QUERIES_CAP).cloned().collect();
         let dropped = dedup.len() - selected.len();
-        let mut set = JoinSet::new();
+        // The sub-searches are driven by this call's own future, not spawned: they belong to the work that owns the recall, so its end (or its
+        // revocation by the database's scope) drops them with it.
+        let mut set = futures::stream::FuturesUnordered::new();
         for (index, query) in selected.iter().enumerate() {
             let mut sub = args.raw.clone();
             sub["query"] = json!(query);
             let (this, cancel) = (self.clone(), cancel.clone());
-            set.spawn(async move { (index, this.dispatch(&SearchArgs::new(sub), &cancel).await) });
+            set.push(futures::FutureExt::boxed(async move { (index, this.dispatch(&SearchArgs::new(sub), &cancel).await) }));
         }
         let gather = async {
             let mut parts: Vec<Option<String>> = vec![None; selected.len()];
-            while let Some(joined) = set.join_next().await {
-                let (index, outcome) = joined.map_err(|e| MemoryError::Runtime(e.to_string()))?;
+            while let Some((index, outcome)) = futures::StreamExt::next(&mut set).await {
                 let text = outcome?.text;
                 parts[index] = Some(format!("[{}]\n{}", selected[index], if text.is_empty() { "(no results)" } else { &text }));
             }
@@ -644,58 +698,4 @@ impl Recall {
         let filtered = annotate_root_context(filtered);
         Ok(bound_rows_to_temporal(filtered, window.as_ref()))
     }
-}
-
-struct Candidates {
-    results: Vec<Row>,
-    retrieval_limit: usize,
-    vague_latest_root_mode: bool,
-    historical_candidates: Vec<Row>,
-    low_historical: bool,
-    semantic_only: bool,
-}
-
-fn order_candidates(mut filtered: Vec<Row>, plan: &SearchPlan, vague_latest_root_mode: bool) -> Vec<Row> {
-    if plan.sort == "date" {
-        filtered.sort_by(compare_newest_first);
-    } else {
-        filtered.sort_by(compare_by_score);
-    }
-    if plan.structured_time_mode {
-        let (root_rows, other): (Vec<Row>, Vec<Row>) = filtered.into_iter().partition(|r| r.is_root == 1);
-        let roots = if plan.latest_intent && !vague_latest_root_mode {
-            rank_latest_rows(root_rows, &plan.retrieval_query)
-        } else {
-            let mut roots = root_rows;
-            roots.sort_by(compare_newest_first);
-            roots
-        };
-        return roots.into_iter().chain(other).collect();
-    }
-    if plan.latest_entity_mode {
-        return rank_latest_rows(filtered, &plan.retrieval_query);
-    }
-    filtered
-}
-
-/// Fresh unclassified turns lead only when they cover more of the topic than
-/// every classified root.
-fn promote_latest_raw_rows(filtered: Vec<Row>, plan: &SearchPlan) -> (bool, Vec<Row>) {
-    let terms = latest_recall_topic_terms(&plan.retrieval_query);
-    let coverage = |select: &dyn Fn(&Row) -> bool| {
-        filtered.iter().filter(|r| select(r)).map(|r| topic_term_coverage(r, &terms) as i64).fold(-1, i64::max)
-    };
-    let raw = coverage(&|r| r.is_root == 0 && r.chunk_root.is_none());
-    let root = coverage(&|r| r.is_root == 1);
-    if raw > root { (true, rank_latest_rows(filtered, &plan.retrieval_query)) } else { (false, filtered) }
-}
-
-fn page_rows(filtered: Vec<Row>, plan: &SearchPlan) -> Vec<Row> {
-    let deduped = collapse_near_duplicate_rows(collapse_history_duplicates(filtered));
-    let mut rows: Vec<Row> = if plan.latest_intent { deduped.into_iter().filter(|r| !r.dup_stub).collect() } else { deduped };
-    if plan.timeline_mode {
-        let roots: Vec<Row> = rows.iter().filter(|r| r.is_root == 1).cloned().collect();
-        rows = sample_timeline(if roots.len() > 1 { roots } else { rows }, plan.limit + plan.offset);
-    }
-    rows.into_iter().skip(plan.offset).take(plan.limit).collect()
 }

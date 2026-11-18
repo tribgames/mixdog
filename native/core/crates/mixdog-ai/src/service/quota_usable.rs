@@ -33,7 +33,9 @@ pub fn reading_serves_model(reading: Option<&Value>, model: &str, use_credits: b
                 .filter_map(|raw| {
                     let used = raw.get("usedPct").and_then(Value::as_f64).filter(|n| n.is_finite())?;
                     let window: Window = serde_json::from_value(raw.clone()).unwrap_or_default();
-                    quota_window_applies_to_model(&window, model).then_some(used)
+                    // A full counter that refuses nothing is neither proof of service nor of refusal.
+                    let counter_only = window.binding == Some(false) && used >= 100.0;
+                    (quota_window_applies_to_model(&window, model) && !counter_only).then_some(used)
                 })
                 .collect()
         })

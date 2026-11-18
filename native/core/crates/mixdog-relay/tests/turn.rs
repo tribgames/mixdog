@@ -1,5 +1,4 @@
-//! The 7 cases of `apps/relay/lib/turn-credentials.test.mjs`, plus the issuer of `lib/ice-legs.mjs`. Literals marked "Node"
-//! were recorded by running the Node module once.
+//! TURN credentials and the ICE server list: username and password rules, lifetime, per-device identity, settings from the deploy environment and the issuer's replies.
 
 use std::collections::BTreeMap;
 
@@ -47,7 +46,7 @@ fn a_credential_is_expiry_and_id_valid_for_one_day_and_verifies_like_coturn_woul
     assert_eq!(issued.expires_at, NOW / 1000 + 86_400);
     assert_eq!(issued.remaining_ms, 86_400_000);
     assert_eq!(issued.username, format!("{}:device1", issued.expires_at));
-    // Recorded from Node.
+    // Literal expected value.
     assert_eq!(issued.username, "1893585600:device1");
     assert_eq!(issued.credential, "5eAz6d50K+6RJPtiD6yLly8dN+0=");
     assert_eq!(issued.credential, turn_password(&secret(), &issued.username));
@@ -96,7 +95,7 @@ fn the_user_id_is_the_full_keyed_digest_stable_per_device_opaque_and_bound_to_th
     let id = turn_user_id(&secret(), device_id);
     assert_eq!(id.len(), 64);
     assert!(id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
-    // Recorded from Node.
+    // Literal expected value.
     assert_eq!(id, "ef2dd35e7b3ab44c78aac8a28aa4dbfbeaff4065ba60547e8cb12e55c0033f13");
     // RFC 8489 section 14.3: a USERNAME is fewer than 509 bytes.
     let issued = issue_turn_credential(&secret(), &id, NOW, TURN_CREDENTIAL_TTL_SECONDS);

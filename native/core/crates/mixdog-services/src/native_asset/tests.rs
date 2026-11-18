@@ -8,20 +8,20 @@ use std::sync::{Arc, Mutex};
 
 use mixdog_rt::DurabilityIo;
 use serde_json::Value;
+#[cfg(node_twin)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(node_twin)]
 use tokio::net::TcpListener;
 
-use super::{AssetDownloader, GraphBinary, ReleaseDownloader, bin_suffix, sha256_file};
+use super::{AssetDownloader, GraphBinary, bin_suffix, sha256_file};
+#[cfg(node_twin)]
+use super::ReleaseDownloader;
 use crate::memory::ingest::system_now;
 use crate::model_install::fsio;
+#[cfg(node_twin)]
 use crate::tidy::install::platform_key_candidates;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/native-asset/graph-binary.json");
-
-fn golden() -> Value {
-    serde_json::from_str(GOLDEN).expect("golden")
-}
-
+#[cfg(node_twin)]
 /// The golden's placeholders for this host.
 fn host(text: &str, version: &str) -> String {
     let key = &platform_key_candidates()[0];
@@ -50,10 +50,90 @@ impl AssetDownloader for Stub {
     }
 }
 
+#[cfg(node_twin)]
 fn relative(path: Option<std::path::PathBuf>, dir: &Path) -> Value {
     path.map_or(Value::Null, |p| Value::String(p.strip_prefix(dir).expect("inside the bin dir").to_string_lossy().into_owned()))
 }
 
+/// Node's platform list (`NATIVE_ASSET_PLATFORMS`) is what the bundled manifest publishes, Windows on ARM included.
+#[test]
+fn the_bundled_manifest_publishes_every_release_platform() {
+    let manifest = super::bundled_manifest();
+    let mut keys: Vec<&str> = manifest["assets"].as_object().expect("assets").keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64", "win32-arm64", "win32-x64"]);
+}
+
+#[cfg(node_twin)]
+fn host_value(value: &Value) -> Value {
+    value.as_str().map_or(Value::Null, |text| Value::String(host(text, "1.2.3")))
+}
+
+/// A manifest of version 1.2.3 whose trusted assets are `keys`, each with the digest of `bytes`.
+async fn manifest_for(keys: &[&str], bytes: &str) -> Value {
+    let tokens = mixdog_rt::testing::tokens();
+    let scratch = tempfile::tempdir().expect("scratch");
+    let file = scratch.path().join("asset");
+    fsio::write(tokens.durability_io, &file, bytes.as_bytes().to_vec()).await.expect("asset");
+    let sha = sha256_file(tokens.cpu_bulk, &file).await.expect("digest");
+    let assets: serde_json::Map<String, Value> = keys
+        .iter()
+        .map(|key| {
+            let url = format!("https://github.com/tribgames/mixdog/releases/download/graph-v1.2.3/mixdog-graph-{key}{}", bin_suffix());
+            ((*key).to_owned(), serde_json::json!({ "url": url, "sha256": sha }))
+        })
+        .collect();
+    serde_json::json!({ "version": "1.2.3", "assets": assets })
+}
+fn stub(dir: &Path, served: &str) -> Arc<Stub> {
+    Arc::new(Stub {
+        durability: mixdog_rt::testing::tokens().durability_io,
+        dir: dir.to_owned(),
+        served: served.to_owned(),
+        fail: None,
+        calls: Mutex::new(Vec::new()),
+    })
+}
+/// Node's "Windows on ARM prepares the native assets it runs under x64 emulation": a win32-arm64 host whose manifest
+/// publishes only win32-x64 installs that asset.
+#[tokio::test]
+async fn windows_on_arm_installs_the_x64_asset_it_runs_under_emulation() {
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let dir = data.path().join("graph-bin");
+    let downloads = stub(&dir, "graph");
+    let manifest = manifest_for(&["win32-x64", "linux-x64"], "graph").await;
+    let binary = GraphBinary::new(data.path().to_owned(), manifest, tokens.durability_io, tokens.cpu_bulk, downloads.clone(), system_now()).on_host("windows", "aarch64");
+    let installed = binary.ensure().await.expect("the x64 asset installs");
+    assert_eq!(installed, dir.join(format!("mixdog-graph-1.2.3{}", bin_suffix())));
+    let urls: Vec<String> = downloads.calls.lock().expect("calls").iter().map(|(url, _)| url.clone()).collect();
+    assert_eq!(urls, [format!("https://github.com/tribgames/mixdog/releases/download/graph-v1.2.3/mixdog-graph-win32-x64{}", bin_suffix())]);
+}
+/// Node's "unsupported host platforms fail closed before downloading native assets": a freebsd-x64 host is refused with
+/// the platform named, nothing is downloaded and no install directory is made.
+#[tokio::test]
+async fn an_unsupported_host_is_refused_before_any_download() {
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let dir = data.path().join("graph-bin");
+    let downloads = stub(&dir, "graph");
+    let published = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64", "win32-arm64", "win32-x64"];
+    let manifest = manifest_for(&published, "graph").await;
+    let binary = GraphBinary::new(data.path().to_owned(), manifest, tokens.durability_io, tokens.cpu_bulk, downloads.clone(), system_now()).on_host("freebsd", "x86_64");
+    let refused = binary.ensure().await.expect_err("freebsd-x64 has no asset");
+    assert!(refused.contains("no prebuilt mixdog-graph binary for platform freebsd-x64"), "{refused}");
+    assert!(downloads.calls.lock().expect("calls").is_empty(), "nothing is downloaded");
+    assert!(!fsio::exists(tokens.durability_io, &dir).await.expect("exists"), "no install directory");
+}
+
+
+#[cfg(node_twin)]
+const GOLDEN: &str = include_str!("../../../../fixtures/native-asset/graph-binary.json");
+#[cfg(node_twin)]
+fn golden() -> Value {
+    serde_json::from_str(GOLDEN).expect("golden")
+}
+#[cfg(node_twin)]
 #[tokio::test]
 async fn installs_match_the_node_golden() {
     let golden = golden();
@@ -107,81 +187,8 @@ async fn installs_match_the_node_golden() {
         assert_eq!(files, want_files, "{}", case("files"));
     }
 }
-
-/// A manifest of version 1.2.3 whose trusted assets are `keys`, each with the digest of `bytes`.
-async fn manifest_for(keys: &[&str], bytes: &str) -> Value {
-    let tokens = mixdog_rt::testing::tokens();
-    let scratch = tempfile::tempdir().expect("scratch");
-    let file = scratch.path().join("asset");
-    fsio::write(tokens.durability_io, &file, bytes.as_bytes().to_vec()).await.expect("asset");
-    let sha = sha256_file(tokens.cpu_bulk, &file).await.expect("digest");
-    let assets: serde_json::Map<String, Value> = keys
-        .iter()
-        .map(|key| {
-            let url = format!("https://github.com/tribgames/mixdog/releases/download/graph-v1.2.3/mixdog-graph-{key}{}", bin_suffix());
-            ((*key).to_owned(), serde_json::json!({ "url": url, "sha256": sha }))
-        })
-        .collect();
-    serde_json::json!({ "version": "1.2.3", "assets": assets })
-}
-
-fn stub(dir: &Path, served: &str) -> Arc<Stub> {
-    Arc::new(Stub {
-        durability: mixdog_rt::testing::tokens().durability_io,
-        dir: dir.to_owned(),
-        served: served.to_owned(),
-        fail: None,
-        calls: Mutex::new(Vec::new()),
-    })
-}
-
-/// Node's "Windows on ARM prepares the native assets it runs under x64 emulation": a win32-arm64 host whose manifest
-/// publishes only win32-x64 installs that asset.
-#[tokio::test]
-async fn windows_on_arm_installs_the_x64_asset_it_runs_under_emulation() {
-    let tokens = mixdog_rt::testing::tokens();
-    let data = tempfile::tempdir().expect("data dir");
-    let dir = data.path().join("graph-bin");
-    let downloads = stub(&dir, "graph");
-    let manifest = manifest_for(&["win32-x64", "linux-x64"], "graph").await;
-    let binary = GraphBinary::new(data.path().to_owned(), manifest, tokens.durability_io, tokens.cpu_bulk, downloads.clone(), system_now()).on_host("windows", "aarch64");
-    let installed = binary.ensure().await.expect("the x64 asset installs");
-    assert_eq!(installed, dir.join(format!("mixdog-graph-1.2.3{}", bin_suffix())));
-    let urls: Vec<String> = downloads.calls.lock().expect("calls").iter().map(|(url, _)| url.clone()).collect();
-    assert_eq!(urls, [format!("https://github.com/tribgames/mixdog/releases/download/graph-v1.2.3/mixdog-graph-win32-x64{}", bin_suffix())]);
-}
-
-/// Node's "unsupported host platforms fail closed before downloading native assets": a freebsd-x64 host is refused with
-/// the platform named, nothing is downloaded and no install directory is made.
-#[tokio::test]
-async fn an_unsupported_host_is_refused_before_any_download() {
-    let tokens = mixdog_rt::testing::tokens();
-    let data = tempfile::tempdir().expect("data dir");
-    let dir = data.path().join("graph-bin");
-    let downloads = stub(&dir, "graph");
-    let published = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64", "win32-arm64", "win32-x64"];
-    let manifest = manifest_for(&published, "graph").await;
-    let binary = GraphBinary::new(data.path().to_owned(), manifest, tokens.durability_io, tokens.cpu_bulk, downloads.clone(), system_now()).on_host("freebsd", "x86_64");
-    let refused = binary.ensure().await.expect_err("freebsd-x64 has no asset");
-    assert!(refused.contains("no prebuilt mixdog-graph binary for platform freebsd-x64"), "{refused}");
-    assert!(downloads.calls.lock().expect("calls").is_empty(), "nothing is downloaded");
-    assert!(!fsio::exists(tokens.durability_io, &dir).await.expect("exists"), "no install directory");
-}
-
-/// Node's platform list (`NATIVE_ASSET_PLATFORMS`) is what the bundled manifest publishes, Windows on ARM included.
-#[test]
-fn the_bundled_manifest_publishes_every_release_platform() {
-    let manifest = super::bundled_manifest();
-    let mut keys: Vec<&str> = manifest["assets"].as_object().expect("assets").keys().map(String::as_str).collect();
-    keys.sort_unstable();
-    assert_eq!(keys, ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64", "win32-arm64", "win32-x64"]);
-}
-
-fn host_value(value: &Value) -> Value {
-    value.as_str().map_or(Value::Null, |text| Value::String(host(text, "1.2.3")))
-}
-
 /// A local server answering the golden's three routes.
+#[cfg(node_twin)]
 async fn serve() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let base = format!("http://{}", listener.local_addr().expect("addr"));
@@ -217,7 +224,7 @@ async fn serve() -> String {
     });
     base
 }
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_release_downloader_matches_the_node_golden() {
     let golden = golden();
@@ -239,9 +246,9 @@ async fn the_release_downloader_matches_the_node_golden() {
         }
     }
 }
-
 /// A failed attempt writes the retry line `createBinaryDownloader` writes to stderr, byte for byte as a real Node run
 /// wrote it (`node-stderr/lines.json`, `graphDownloadRetry`).
+#[cfg(node_twin)]
 #[tokio::test]
 async fn a_retried_download_writes_the_line_node_wrote() {
     let tokens = mixdog_rt::testing::tokens();

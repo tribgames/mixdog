@@ -143,7 +143,7 @@ export function routeCapability(capability: string, args: readonly unknown[], se
 
 export interface CapabilityLane {
   invoke<T = unknown>(
-    capability: DesktopCapability,
+    capability: DesktopCapability | 'setFast',
     args: unknown[] | undefined,
     sessionId: string | undefined
   ): Promise<DesktopCapabilityResult<T>>;
@@ -384,7 +384,7 @@ export function createCapabilityLane({
     ) as unknown as SessionSnapshot;
   };
   return {
-    async invoke<T>(capability: DesktopCapability, args: unknown[] = [], sessionId?: string) {
+    async invoke<T>(capability: DesktopCapability | 'setFast', args: unknown[] = [], sessionId?: string) {
       try {
         const value = (await send(capability, args, sessionId)) as T;
         return { value, snapshot: await stateOf(sessionId ?? (await controlThread())) };
@@ -445,9 +445,11 @@ export function createCapabilityLane({
       }
     },
     async resolveToolApproval(sessionId, id, decision) {
+      // The card shows the core's card id (room_approval.rs `card_id`, derived from the request id), not the request's own.
       const asked = pendingApprovals().find((candidate) => {
-        const { id: requestId } = candidate as { id: string | number };
-        return String(requestId) === id && approvalSurface(candidate as Parameters<typeof approvalSurface>[0]) === sessionId;
+        const { id: requestId, params } = candidate as { id: string | number; params?: { card?: { id?: unknown } } };
+        const named = String(requestId) === id || params?.card?.id === id;
+        return named && approvalSurface(candidate as Parameters<typeof approvalSurface>[0]) === sessionId;
       }) as { id: string | number; params: { threadId: string } } | undefined;
       if (!asked) return false;
       const { device: _device, ...answer } = decision;
@@ -463,8 +465,12 @@ export function createCapabilityLane({
       return held?.value !== false;
     },
     async setQuotaAutoResume(enabled) {
-      await request('config/value/write', { path: 'quotaAutoResume', value: enabled });
-      return enabled;
+      const reply = (await request('config/value/write', { path: 'quotaAutoResume', value: enabled })) as {
+        values?: unknown;
+      } | null;
+      const saved = Array.isArray(reply?.values) ? reply.values[0] : undefined;
+      if (typeof saved !== 'boolean') throw new Error('The quota auto-resume write did not return the stored value.');
+      return saved;
     },
     // Node's host throws `TypeError('Session title is invalid.')` for a title that is empty once normalized, before the
     // runtime is reached; the core cannot tell that case from a refusal ("Session is not available.", the runtime's `false`,

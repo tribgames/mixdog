@@ -58,6 +58,51 @@ impl UsageSource for FakeSource {
 
 struct NoGrok;
 
+#[tokio::test]
+async fn cursor_plan_cache_and_inflight_are_scoped_to_the_resolved_key() {
+    use std::sync::atomic::{AtomicU8, Ordering};
+
+    struct Keys { key: AtomicU8, gate: Arc<tokio::sync::Semaphore> }
+    struct Plan { key: u8, gate: Arc<tokio::sync::Semaphore> }
+
+    #[async_trait]
+    impl CursorApiPlan for Plan {
+        fn key_identity(&self) -> [u8; 32] { [self.key; 32] }
+        async fn read(&self) -> Result<Value, UsageError> {
+            if self.key == 1 { let _permit = self.gate.acquire().await.unwrap(); }
+            Ok(serde_json::json!({"provider":"cursor-api", "quotaWindows":[{"label":"API", "usedPct": self.key}]}))
+        }
+    }
+
+    #[async_trait]
+    impl UsageSource for Keys {
+        async fn ensure_auth(&self, _: &str, _: &str, _: bool) -> Result<Option<Value>, UsageError> { Ok(None) }
+        async fn provider_snapshot(&self, _: &str, _: &str) -> Result<Option<Value>, UsageError> { Ok(None) }
+        async fn cursor_api_plan(&self) -> Result<Option<Arc<dyn CursorApiPlan>>, UsageError> {
+            Ok(Some(Arc::new(Plan { key: self.key.load(Ordering::SeqCst), gate: self.gate.clone() })))
+        }
+    }
+
+    let rig = rig().await;
+    let keys = Arc::new(Keys { key: AtomicU8::new(1), gate: Arc::new(tokio::sync::Semaphore::new(0)) });
+    let service = OAuthUsage::new(UsageDeps {
+        http: rig.http.clone(), source: keys.clone(), grok: Arc::new(NoGrok), history: rig.history.clone(),
+        store: rig.store.clone(), io: rig.usage.deps.io, log: Arc::new(|_| {}), data_dir: rig.dir.path().to_owned(),
+    });
+    let route = RouteInfo { provider: "cursor-api".into(), model: "m".into(), account_id: "default".into() };
+    let mut old = std::pin::pin!(service.fetch_snapshot(&route, false));
+    assert!(futures::poll!(old.as_mut()).is_pending());
+    keys.key.store(2, Ordering::SeqCst);
+    assert!(service.read_cached(&route, true).await.is_none());
+    let new = service.fetch_snapshot(&route, false).await.unwrap();
+    assert_eq!(new["quotaWindows"][0]["usedPct"], 2);
+    keys.gate.add_permits(1);
+    assert!(old.await.is_none());
+    assert_eq!(service.read_cached(&route, false).await.unwrap()["quotaWindows"][0]["usedPct"], 2);
+    keys.key.store(3, Ordering::SeqCst);
+    assert!(service.read_cached(&route, true).await.is_none());
+}
+
 #[async_trait]
 impl GrokClient for NoGrok {
     async fn warm(&self) {}
@@ -286,49 +331,118 @@ fn a_damaged_cache_is_replaced_by_its_valid_backup() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// The reading the cache-warm gate takes of a provider without a roster
-/// (`readCachedOAuthUsageSnapshot({ provider, model: '' })`), against the usage cache files of
-/// `fixtures/warm-gate-seams/golden.json` (recorded from the real Node reader): the same snapshot
-/// is served (by its first window), at the same age, and a reading with no windows is none.
+/// The reading the cache-warm gate takes of a provider without a roster: the stored snapshot of the
+/// `default` account, as its quota windows and the moment it was cached; no reading is none.
 #[tokio::test]
-async fn the_gate_reads_the_usage_cache_as_node_does() {
+async fn the_gate_reads_the_stored_reading_of_a_provider_without_a_roster() {
     use crate::warmer::gate::UsageSnapshots;
 
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/warm-gate-seams/golden.json")).expect("fixture");
+    let r = rig().await;
+    assert!(UsageSnapshots::cached(&*r.usage, "anthropic-oauth").await.is_none(), "nothing stored yet");
+    r.http.queue(ANTHROPIC_URL, Ok((200, five_hour(40))));
+    let default = RouteInfo { provider: "anthropic-oauth".into(), model: "claude-x".into(), account_id: "default".into() };
+    r.usage.fetch_snapshot(&default, false).await.unwrap();
+    let (windows, cached_at) = UsageSnapshots::cached(&*r.usage, "anthropic-oauth").await.expect("the stored reading");
+    assert_eq!(windows.len(), 1);
+    assert_eq!(windows[0].used_pct, Some(40.0));
+    assert!(cached_at > 0, "the moment it was cached");
+    assert!(UsageSnapshots::cached(&*r.usage, "openai-oauth").await.is_none(), "another provider has none");
+}
+
+/// The admission read is bound to the sign-in the reading was measured under: that credential's stamp gets it; another
+/// credential's, another provider's and an unstamped reading get none.
+#[tokio::test]
+async fn the_admission_read_is_bound_to_the_credential_it_was_measured_under() {
+    let r = rig().await;
+    r.http.queue(ANTHROPIC_URL, Ok((200, five_hour(40))));
+    let default = RouteInfo { provider: "anthropic-oauth".into(), model: String::new(), account_id: "default".into() };
+    r.usage.fetch_snapshot(&default, false).await.unwrap();
+
+    let own = credential_stamp("anthropic-oauth", serde_json::json!({"access_token": "tok"}).as_object().unwrap()).unwrap();
+    let (windows, _) = r.usage.read_bound("anthropic-oauth", &own).await.expect("the reading of this sign-in");
+    assert_eq!(windows[0].used_pct, Some(40.0));
+
+    let other = credential_stamp("anthropic-oauth", serde_json::json!({"access_token": "someone else"}).as_object().unwrap()).unwrap();
+    assert!(r.usage.read_bound("anthropic-oauth", &other).await.is_none(), "another credential's reading is not this one's");
+    assert!(r.usage.read_bound("openai-oauth", &own).await.is_none(), "another service has none");
+}
+
+/// A credential with no OAuth access token (an API key) has no stamp, so it never gates on a subscription reading; the
+/// stamp follows the account identity over a rotating token.
+#[test]
+fn an_api_key_has_no_credential_stamp_and_an_identity_outlasts_its_token() {
+    let doc = |v: Value| v.as_object().unwrap().clone();
+    assert!(credential_stamp("anthropic-oauth", &doc(serde_json::json!({"apiKey": "sk-x"}))).is_none());
+    assert!(credential_stamp("anthropic-oauth", &doc(serde_json::json!({"key": "sk-x", "account_id": "a"}))).is_none());
+    let first = credential_stamp("anthropic-oauth", &doc(serde_json::json!({"access_token": "t1", "account_id": "a"})));
+    let rotated = credential_stamp("anthropic-oauth", &doc(serde_json::json!({"access_token": "t2", "account_id": "a"})));
+    assert!(first.is_some() && first == rotated);
+    assert_ne!(first, credential_stamp("anthropic-oauth", &doc(serde_json::json!({"access_token": "t1", "account_id": "b"}))));
+    let nested = credential_stamp("anthropic-oauth", &doc(serde_json::json!({"claudeAiOauth": {"accessToken": "t1", "accountId": "a"}})));
+    assert_eq!(first, nested);
+}
+
+/// The observed percent is kept as it is; the credit the provider states is left beside it as separate evidence.
+#[test]
+fn a_stated_remaining_credit_is_kept_beside_the_observed_percent() {
+    let window = |extra: Value| {
+        let mut w = serde_json::json!({"label": "7D", "usedPct": 100.0});
+        w.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        w
+    };
+    let read = |extra: Value| snapshot_windows(&serde_json::json!({"quotaWindows": [window(extra)], "cachedAt": 1})).unwrap().0.remove(0);
+    let with_credit = read(serde_json::json!({"remainingUsd": 0.4}));
+    assert_eq!(with_credit.used_pct, Some(100.0), "the percent is not rewritten");
+    assert_eq!(with_credit.extra.get(crate::accounts::REMAINING).and_then(Value::as_f64), Some(0.4));
+    assert_eq!(read(serde_json::json!({"remainingCredits": 0})).extra.get(crate::accounts::REMAINING).and_then(Value::as_f64), Some(0.0));
+    assert!(read(serde_json::json!({})).extra.get(crate::accounts::REMAINING).is_none());
+}
+
+/// A reading carries the credential its own request used: the stamp made by the source that sent it.
+#[tokio::test]
+async fn a_reading_carries_the_stamp_of_the_credential_that_sent_it() {
+    let r = rig().await;
+    r.http.queue(ANTHROPIC_URL, Ok((200, five_hour(40))));
+    let default = RouteInfo { provider: "anthropic-oauth".into(), model: String::new(), account_id: "default".into() };
+    let snap = r.usage.fetch_snapshot(&default, false).await.unwrap();
+    let sent = credential_stamp("anthropic-oauth", serde_json::json!({"accessToken": "tok"}).as_object().unwrap());
+    assert_eq!(snap[CREDENTIAL_STAMP].as_str(), sent.as_deref());
+}
+
+/// A withdrawn limit retires only the cached readings of the sign-in that measured them: another credential's reading
+/// and an unstamped one stay.
+#[tokio::test]
+async fn a_withdrawn_meter_retires_only_the_readings_of_its_own_credential() {
+    let r = rig().await;
+    let reading = |stamp: Option<&str>| {
+        let mut v = serde_json::json!({"quotaWindows": [{"label": "5H", "usedPct": 100.0}], "cachedAt": 1});
+        if let Some(s) = stamp {
+            v[CREDENTIAL_STAMP] = Value::String(s.into());
+        }
+        v
+    };
+    {
+        let mut c = r.usage.caches();
+        c.memory.insert("p".into(), reading(Some("mine")));
+        c.memory.insert("p\u{1}m".into(), reading(Some("mine")));
+        c.memory.insert("q".into(), reading(Some("mine")));
+        c.memory.insert("p\u{2}acct".into(), reading(Some("mine")));
+    }
+    assert!(!r.usage.retire_cached("p", "someone else").await, "another credential matches nothing");
+    assert!(r.usage.retire_cached("p", "mine").await);
+    let c = r.usage.caches();
+    assert!(!c.memory.contains_key("p") && !c.memory.contains_key("p\u{1}m"), "the slot's own readings are gone");
+    assert!(c.memory.contains_key("q") && c.memory.contains_key("p\u{2}acct"), "another provider's and another account's stay");
+}
+
+/// An empty or unreadable usage cache file is no reading.
+#[tokio::test]
+async fn the_gate_reads_an_empty_usage_cache_as_no_reading() {
+    use crate::warmer::gate::UsageSnapshots;
+
     let r = rig().await;
     let data = r.dir.path().join("data");
     std::fs::create_dir_all(&data).unwrap();
-    let file = data.join("gateway-oauth-usage-cache.json");
-    for case in golden["usageSnapshot"].as_array().expect("cases") {
-        let name = case["name"].as_str().expect("name");
-        let written = now_ms();
-        match case["routes"].as_object() {
-            None => std::fs::write(&file, "").unwrap(),
-            Some(routes) => {
-                let routes: serde_json::Map<String, Value> = routes
-                    .iter()
-                    .map(|(key, snapshot)| {
-                        let mut snapshot = snapshot.as_object().expect("snapshot").clone();
-                        if let Some(age) = snapshot.shift_remove("ageMs").and_then(|a| a.as_i64()) {
-                            snapshot.insert("cachedAt".into(), Value::from(written - age));
-                        }
-                        (key.clone(), Value::Object(snapshot))
-                    })
-                    .collect();
-                std::fs::write(&file, serde_json::to_vec(&serde_json::json!({ "routes": routes })).unwrap()).unwrap();
-            }
-        }
-        let got = UsageSnapshots::cached(&*r.usage, case["provider"].as_str().expect("provider")).await;
-        let served = &case["served"];
-        // Node serves a snapshot that has no windows; the gate reads that as no reading.
-        if served.is_null() || served["windows"].is_null() {
-            assert!(got.is_none(), "{name}: no reading");
-            continue;
-        }
-        let (windows, cached_at) = got.unwrap_or_else(|| panic!("{name}: Node serves a snapshot"));
-        assert_eq!(windows.len(), served["windows"].as_array().unwrap().len(), "{name}: windows");
-        assert_eq!(windows[0].used_pct, served["usedPct"].as_f64(), "{name}: the snapshot served");
-        let age = (written - cached_at) as f64 / 1000.0;
-        assert_eq!(age.round() * 1000.0, served["ageMs"].as_f64().unwrap(), "{name}: age");
-    }
+    std::fs::write(data.join("gateway-oauth-usage-cache.json"), "").unwrap();
+    assert!(UsageSnapshots::cached(&*r.usage, "anthropic-oauth").await.is_none());
 }

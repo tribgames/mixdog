@@ -4,12 +4,16 @@
 pub mod browser;
 pub mod browser_approval;
 pub mod browser_bridge_run;
+mod browser_media;
+#[cfg(test)]
+mod browser_media_tests;
 pub mod browser_engine;
 pub mod computer;
 mod computer_abort;
 mod computer_act;
 mod computer_app_owned;
 mod computer_io;
+pub mod computer_authority;
 pub mod computer_backend;
 pub mod computer_bridge_run;
 pub mod computer_budget;

@@ -22,11 +22,13 @@ export function createPhoneApi(ctx: RemoteShimContext, adapters: readonly PhoneP
     },
     declareLane: boot.declareLane,
     onClient: boot.onClient,
+    onPairingReset: boot.onPairingReset,
   };
   const router = createProtocolRouter(adapters, {
     host,
     started: boot.start,
     synced: boot.synced,
+    appSynced: boot.appSynced,
     probe: boot.wakeProbe,
     silentSince: boot.silentSince,
   });
@@ -54,6 +56,7 @@ export function createPhoneApi(ctx: RemoteShimContext, adapters: readonly PhoneP
     dispatchState: (snapshot: SessionSnapshot) => fanOut(ctx.stateListeners, snapshot),
     requestResync: () => window.dispatchEvent(new Event(REMOTE_STATE_GAP_EVENT)),
     resetDeltaState: () => {
+      boot.resetPairing();
       ctx.sessionsCatalog.reset();
       ctx.agentsCatalog.reset();
       ctx.sessionInbox.reset();

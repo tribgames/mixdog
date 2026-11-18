@@ -33,6 +33,7 @@ use mixdog_rt::TaskClass;
 use mixdog_rt::time::Instant;
 use mixdog_spawn::tasks::HostShellJobs;
 use mixdog_spawn::tasks::ShellJobsState;
+use mixdog_tools::orch::util::PortError;
 use mixdog_tools::exec::ShellControl;
 use mixdog_tools::exec::TaskNotifier;
 use tokio::sync::mpsc;
@@ -57,16 +58,6 @@ pub struct Targets {
     /// What counts the running background shells, and what stops one a confirmed stop's abort names.
     pub lifecycle: Arc<LateLifecycle>,
     pub shells: Arc<ShellControl>,
-}
-
-/// Starts the four consumers of `events`.
-pub fn consume(events: ExecEvents, targets: Targets, stop: CancellationToken) {
-    let ExecEvents { finished, thread_strips, host_strip } = events;
-    let (delivered_tx, delivered) = mpsc::unbounded_channel();
-    mixdog_rt::spawn("exec.finished", TaskClass::Work, completions(finished, targets.directory, delivered_tx, stop.clone()));
-    mixdog_rt::spawn("exec.thread-strips", TaskClass::Work, thread_sections(thread_strips, targets.threads, stop.clone()));
-    mixdog_rt::spawn("exec.background-work", TaskClass::Work, background_work(host_strip.clone(), delivered, targets.lifecycle, targets.shells, stop.clone()));
-    mixdog_rt::spawn("exec.host-strip", TaskClass::Work, host_section(host_strip, targets.publisher, stop));
 }
 
 /// Node rechecks a self-shutdown that busy work put off one second later (`daemon.mjs:556-561`): by then a finished background
@@ -152,56 +143,6 @@ impl<T> Counted<T> {
     }
 }
 
-/// Node's `busySessions` counts a session whose background task still runs (`busy.mjs` `liveBusyCount`, `hasActiveBackgroundTasks`;
-/// "Keep the owner runtime (and daemon self-shutdown guard) live until the task reaches a terminal state and its completion can be
-/// delivered back into this session"): each running background shell of the host's strip is a `BackgroundShell` of the lifecycle
-/// until it leaves the strip and its completion has made the owner busy ([`Counted`]), and a confirmed stop's abort stops it as
-/// `stopBackgroundShellJob` does. `delivered` names each shell whose completion [`completions`] handed to its owner.
-async fn background_work(
-    mut strip: watch::Receiver<HostShellJobs>,
-    mut delivered: mpsc::UnboundedReceiver<String>,
-    lifecycle: Arc<LateLifecycle>,
-    shells: Arc<ShellControl>,
-    stop: CancellationToken,
-) {
-    let mut counted: Counted<CountedShell> = Counted::default();
-    loop {
-        // A held shell whose termination is not confirmed has finished: its processes are no task.
-        let running: Vec<_> = strip.borrow_and_update().jobs.iter().filter(|row| !row.termination_unconfirmed).cloned().collect();
-        let now = Instant::now();
-        // An aborted shell's completion starts no turn: the abort closed the starts.
-        counted.left(|task_id| running.iter().any(|row| row.task_id == task_id), |shell| shell.aborted.is_cancelled(), now);
-        for row in running {
-            if counted.runs(&row.task_id) {
-                continue;
-            }
-            // A task no session owns keeps no session busy.
-            let Some(owner) = row.owner else { continue };
-            let info = ActivityInfo { kind: ActivityKind::BackgroundShell, thread_id: Some(owner.clone()), turn_id: None, title: row.command };
-            let Some(activity) = lifecycle.begin_work(info, BUSY_WORK_SETTLED) else { continue };
-            let abort = CancellationToken::new();
-            let tracked = lifecycle.cancels().track(activity.id(), abort.clone());
-            let waiting = CancellationToken::new();
-            let aborted = abort.clone();
-            let (shells, owner, task_id, ended) = (shells.clone(), ThreadId::from(owner), row.task_id.clone(), waiting.clone());
-            drop(mixdog_rt::spawn("exec.background-abort", TaskClass::Work, async move {
-                tokio::select! {
-                    () = abort.cancelled() => drop(shells.stop_job(&owner, &task_id).await),
-                    () = ended.cancelled() => {}
-                }
-            }));
-            counted.insert(row.task_id, CountedShell { _activity: activity, _abort: tracked, _waiting: waiting.drop_guard(), aborted });
-        }
-        let next = counted.expire(now);
-        tokio::select! {
-            () = stop.cancelled() => return,
-            changed = strip.changed() => if changed.is_err() { return },
-            Some(task_id) = delivered.recv() => counted.delivered(&task_id, Instant::now()),
-            () = mixdog_rt::time::sleep_until(next.unwrap_or(now)), if next.is_some() => {}
-        }
-    }
-}
-
 /// Each completion goes to its owner's session, and its task id to `delivered` once the owner took it.
 async fn completions(mut finished: mpsc::Receiver<Finished>, directory: Arc<SessionDirectory>, delivered: mpsc::UnboundedSender<String>, stop: CancellationToken) {
     loop {
@@ -215,26 +156,7 @@ async fn completions(mut finished: mpsc::Receiver<Finished>, directory: Arc<Sess
     }
 }
 
-async fn thread_sections(mut strips: watch::Receiver<HashMap<String, ShellJobsState>>, threads: Arc<dyn ThreadState>, stop: CancellationToken) {
-    let mut published: HashMap<String, ShellJobsState> = HashMap::new();
-    loop {
-        tokio::select! {
-            () = stop.cancelled() => return,
-            changed = strips.changed() => if changed.is_err() { return },
-        }
-        let all = strips.borrow_and_update().clone();
-        for (thread, state) in all {
-            if published.get(&thread) == Some(&state) {
-                continue;
-            }
-            let section = Section::ShellJobs(thread_strip(&state));
-            if let Err(error) = threads.publish(&ThreadId::from(thread.as_str()), section).await {
-                tracing::warn!(%thread, ?error, "the shell-job strip could not be published");
-            }
-            published.insert(thread, state);
-        }
-    }
-}
+const PUBLISH_RETRY: Duration = Duration::from_secs(1);
 
 async fn host_section(mut strip: watch::Receiver<HostShellJobs>, publisher: Arc<dyn StatePublisher>, stop: CancellationToken) {
     loop {
@@ -286,6 +208,38 @@ mod tests {
         assert_eq!(counted.shells.keys().collect::<Vec<_>>(), ["back"], "the running shell stays");
     }
 
+    struct FlakyThreads {
+        /// The error the next publish answers; later ones succeed.
+        fail: Mutex<Option<mixdog_tools::orch::util::PortError>>,
+        published: tokio::sync::mpsc::UnboundedSender<()>,
+    }
+
+    #[async_trait::async_trait]
+    impl ThreadState for FlakyThreads {
+        async fn header(&self, _: &ThreadId) -> Result<mixdog_store::schema::record::Header, mixdog_tools::orch::util::PortError> {
+            unimplemented!()
+        }
+        async fn patch_header(&self, _: &ThreadId, _: serde_json::Map<String, serde_json::Value>, _: Vec<String>) -> Result<(), mixdog_tools::orch::util::PortError> {
+            unimplemented!()
+        }
+        async fn patch_header_if(
+            &self,
+            _: &ThreadId,
+            _: serde_json::Map<String, serde_json::Value>,
+            _: serde_json::Map<String, serde_json::Value>,
+            _: Vec<String>,
+        ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, mixdog_tools::orch::util::PortError> {
+            unimplemented!()
+        }
+        async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), mixdog_tools::orch::util::PortError> {
+            let _ = self.published.send(());
+            match self.fail.lock().unwrap().take() {
+                Some(error) => Err(error),
+                None => Ok(()),
+            }
+        }
+    }
+
     /// A change of the host's strip reaches the `hostShellJobs` section as the poller's status shape; the consumer ends when the runtime drops its end.
     #[tokio::test]
     async fn a_host_strip_change_is_published_as_the_host_section() {
@@ -302,5 +256,148 @@ mod tests {
         let SectionChange::Set(bytes) = change else { panic!("a strip is published as a value") };
         let value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
         assert_eq!(value, serde_json::json!({ "count": 0, "elapsedLabel": "", "jobs": [], "orphaned": [] }));
+    }
+
+
+    /// A strip whose publish failed is published again on the next pass, though the strip itself did not change.
+    #[tokio::test]
+    async fn a_failed_thread_strip_publish_is_retried() {
+        let (strips, changes) = watch::channel(HashMap::from([("t1".to_owned(), ShellJobsState::default())]));
+        let (published, mut seen) = tokio::sync::mpsc::unbounded_channel();
+        let failure = mixdog_tools::orch::util::PortError::Denied("refused once".into());
+        let threads = Arc::new(FlakyThreads { fail: Mutex::new(Some(failure)), published });
+        let stop = CancellationToken::new();
+        let consumer = tokio::spawn(thread_sections(changes, threads, Arc::new(|_| {}), stop.clone()));
+        strips.send_modify(|_| {});
+        for _ in 0..2 {
+            tokio::time::timeout(Duration::from_secs(10), seen.recv()).await.expect("the retry published").unwrap();
+        }
+        stop.cancel();
+        consumer.await.unwrap();
+    }
+    /// A thread that no longer exists is not retried, and its snapshot is dropped from the strips.
+    #[tokio::test]
+    async fn a_missing_thread_ends_its_retry_and_its_snapshot() {
+        let (strips, changes) = watch::channel(HashMap::from([("gone".to_owned(), ShellJobsState::default())]));
+        let strips = Arc::new(strips);
+        let (published, mut seen) = tokio::sync::mpsc::unbounded_channel();
+        let missing = mixdog_tools::orch::util::PortError::NotFound { target: "gone".into(), message: "no such thread".into() };
+        let threads = Arc::new(FlakyThreads { fail: Mutex::new(Some(missing)), published });
+        let forget: crate::exec::ForgetThread = {
+            let strips = strips.clone();
+            Arc::new(move |thread| {
+                strips.send_modify(|all| {
+                    all.remove(thread);
+                });
+            })
+        };
+        let stop = CancellationToken::new();
+        let consumer = tokio::spawn(thread_sections(changes, threads, forget, stop.clone()));
+        strips.send_modify(|_| {});
+        seen.recv().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        assert!(strips.borrow().is_empty(), "the snapshot is dropped");
+        assert!(seen.try_recv().is_err(), "no retry follows");
+        stop.cancel();
+        consumer.await.unwrap();
+    }
+}
+
+
+/// Starts the four consumers of `events`.
+pub fn consume(events: ExecEvents, targets: Targets, stop: CancellationToken) {
+    let ExecEvents { finished, thread_strips, host_strip, forget_thread } = events;
+    let (delivered_tx, delivered) = mpsc::unbounded_channel();
+    mixdog_rt::spawn("exec.finished", TaskClass::Work, completions(finished, targets.directory, delivered_tx, stop.clone()));
+    mixdog_rt::spawn("exec.thread-strips", TaskClass::Work, thread_sections(thread_strips, targets.threads, forget_thread, stop.clone()));
+    mixdog_rt::spawn("exec.background-work", TaskClass::Work, background_work(host_strip.clone(), delivered, targets.lifecycle, targets.shells, stop.clone()));
+    mixdog_rt::spawn("exec.host-strip", TaskClass::Work, host_section(host_strip, targets.publisher, stop));
+}
+/// Node's `busySessions` counts a session whose background task still runs (`busy.mjs` `liveBusyCount`, `hasActiveBackgroundTasks`;
+/// "Keep the owner runtime (and daemon self-shutdown guard) live until the task reaches a terminal state and its completion can be
+/// delivered back into this session"): each running background shell of the host's strip is a `BackgroundShell` of the lifecycle
+/// until it leaves the strip and its completion has made the owner busy ([`Counted`]), and a confirmed stop's abort stops it as
+/// `stopBackgroundShellJob` does. `delivered` names each shell whose completion [`completions`] handed to its owner.
+async fn background_work(
+    mut strip: watch::Receiver<HostShellJobs>,
+    mut delivered: mpsc::UnboundedReceiver<String>,
+    lifecycle: Arc<LateLifecycle>,
+    shells: Arc<ShellControl>,
+    stop: CancellationToken,
+) {
+    let mut counted: Counted<CountedShell> = Counted::default();
+    loop {
+        // A held shell whose termination is not confirmed has finished: its processes are no task.
+        let running: Vec<_> = strip.borrow_and_update().jobs.iter().filter(|row| !row.termination_unconfirmed).cloned().collect();
+        let now = Instant::now();
+        // An aborted shell's completion starts no turn: the abort closed the starts.
+        counted.left(|task_id| running.iter().any(|row| row.task_id == task_id), |shell| shell.aborted.is_cancelled(), now);
+        for row in running {
+            if counted.runs(&row.task_id) {
+                continue;
+            }
+            // A task no session owns keeps no session busy.
+            let Some(owner) = row.owner else { continue };
+            let info = ActivityInfo { kind: ActivityKind::BackgroundShell, thread_id: Some(owner.clone()), turn_id: None, title: row.command };
+            let Some(activity) = lifecycle.begin_work(info, BUSY_WORK_SETTLED) else { continue };
+            let abort = CancellationToken::new();
+            let tracked = lifecycle.cancels().track(activity.id(), abort.clone());
+            let waiting = CancellationToken::new();
+            let aborted = abort.clone();
+            let (shells, owner, task_id, ended) = (shells.clone(), ThreadId::from(owner), row.task_id.clone(), waiting.clone());
+            drop(mixdog_rt::spawn("exec.background-abort", TaskClass::Work, async move {
+                tokio::select! {
+                    () = abort.cancelled() => drop(shells.stop_job(&owner, &task_id).await),
+                    () = ended.cancelled() => {}
+                }
+            }));
+            counted.insert(row.task_id, CountedShell { _activity: activity, _abort: tracked, _waiting: waiting.drop_guard(), aborted });
+        }
+        let next = counted.expire(now);
+        tokio::select! {
+            () = stop.cancelled() => return,
+            changed = strip.changed() => if changed.is_err() { return },
+            Some(task_id) = delivered.recv() => counted.delivered(&task_id, Instant::now()),
+            () = mixdog_rt::time::sleep_until(next.unwrap_or(now)), if next.is_some() => {}
+        }
+    }
+}
+async fn thread_sections(
+    mut strips: watch::Receiver<HashMap<String, ShellJobsState>>,
+    threads: Arc<dyn ThreadState>,
+    forget: crate::exec::ForgetThread,
+    stop: CancellationToken,
+) {
+    let mut published: HashMap<String, ShellJobsState> = HashMap::new();
+    let mut failed = false;
+    loop {
+        // Node's poller re-read every poll: a failed publish is tried again without waiting for the strip to change.
+        tokio::select! {
+            () = stop.cancelled() => return,
+            changed = strips.changed() => if changed.is_err() { return },
+            () = tokio::time::sleep(PUBLISH_RETRY), if failed => {}
+        }
+        failed = false;
+        let all = strips.borrow_and_update().clone();
+        for (thread, state) in all {
+            if published.get(&thread) == Some(&state) {
+                continue;
+            }
+            let section = Section::ShellJobs(thread_strip(&state));
+            match threads.publish(&ThreadId::from(thread.as_str()), section).await {
+                Ok(()) => {
+                    published.insert(thread, state);
+                }
+                // A thread that no longer exists never will again: its retry and its snapshot end.
+                Err(PortError::NotFound { .. }) => {
+                    published.remove(&thread);
+                    forget(&thread);
+                }
+                Err(error) => {
+                    tracing::warn!(%thread, ?error, "the shell-job strip could not be published");
+                    failed = true;
+                }
+            }
+        }
     }
 }

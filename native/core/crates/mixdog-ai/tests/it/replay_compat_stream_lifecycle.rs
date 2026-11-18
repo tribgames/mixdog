@@ -14,9 +14,11 @@ use crate::provider_case::CaseSet;
 use crate::replay_errors::Left;
 use crate::replay_errors::compare_error;
 use crate::replay_errors::compare_outcome;
+#[cfg(node_twin)]
 use crate::replay_world::Events;
 use crate::provider_case::Endpoint;
 use crate::provider_case::within;
+#[cfg(node_twin)]
 use crate::replay_world;
 
 const SET: &str = "openai-compat-stream-lifecycle";
@@ -32,6 +34,7 @@ enum End {
 
 /// Sends the case's recorded send (`entry`: `#send`, or `sendCompatResponses` with the provider first) through the
 /// adapter of its recorded provider and compares the arrivals.
+#[cfg(node_twin)]
 async fn replay_requests(set: &CaseSet, id: &str, entry: &str, end: End) {
     let case = set.case(id);
     let endpoint = Endpoint::start().await;
@@ -107,6 +110,7 @@ fn compare_result(what: &str, result: &Exact, left: &Left<'_>, sent: &Result<u32
     }
 }
 
+#[cfg(node_twin)]
 pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: SET, run: every_wire_case_sends_as_nodes }];
 
 /// The WIRE cases this branch replays, each with its recorded entry and how it ends.
@@ -119,6 +123,7 @@ const REPLAYED: [(&str, &str, End); 4] = [
 
 /// Every case of the set in one test, so the set's drop holds each: the WIRE cases' requests compared here, the rest
 /// named with the branch that replays them.
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn every_wire_case_sends_as_nodes() {
     let set = CaseSet::load(SET);

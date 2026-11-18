@@ -36,6 +36,7 @@ use super::super::ports::ReadFs;
 use super::super::review_diff::Obj;
 use super::CHANGES_VERSION;
 use super::CHANGE_RECORDS_CACHE_BYTES;
+use super::CHANGE_RECORDS_CACHE_IDLE;
 use super::CHANGE_RECORDS_CACHE_SESSIONS;
 use super::CHANGE_RECORD_TTL_MS;
 use super::MAX_CHANGE_BYTES_PER_SESSION;
@@ -76,8 +77,9 @@ pub(super) struct ChangeState {
 
 #[derive(Default)]
 pub(super) struct ChangeCache {
+    /// Least recently used first.
     order: Vec<String>,
-    entries: HashMap<String, (String, u64, Arc<ChangeState>)>,
+    entries: HashMap<String, (String, u64, Arc<ChangeState>, std::time::Instant)>,
 }
 
 impl ChangeCache {
@@ -86,12 +88,30 @@ impl ChangeCache {
         self.order.retain(|k| k != id);
     }
 
+    /// Drops the sessions untouched for `CHANGE_RECORDS_CACHE_IDLE` as of `now` (they lead `order`).
+    fn expire(&mut self, now: std::time::Instant) {
+        while let Some(oldest) = self.order.first() {
+            let idle = self.entries.get(oldest).is_none_or(|e| now.saturating_duration_since(e.3) >= CHANGE_RECORDS_CACHE_IDLE);
+            if !idle {
+                break;
+            }
+            let oldest = self.order.remove(0);
+            self.entries.remove(&oldest);
+        }
+    }
+
     fn hit(&mut self, id: &str, signature: &str) -> Option<Arc<ChangeState>> {
-        let (sig, _, state) = self.entries.get(id)?;
-        if sig != signature {
+        self.hit_at(id, signature, std::time::Instant::now())
+    }
+
+    fn hit_at(&mut self, id: &str, signature: &str, now: std::time::Instant) -> Option<Arc<ChangeState>> {
+        self.expire(now);
+        if self.entries.get(id)?.0 != signature {
             self.forget(id);
             return None;
         }
+        let (_, _, state, used) = self.entries.get_mut(id)?;
+        *used = now;
         let state = state.clone();
         self.order.retain(|k| k != id);
         self.order.push(id.to_owned());
@@ -99,13 +119,18 @@ impl ChangeCache {
     }
 
     fn put(&mut self, id: &str, signature: String, bytes: u64, state: Arc<ChangeState>) {
+        self.put_at(id, signature, bytes, state, std::time::Instant::now());
+    }
+
+    fn put_at(&mut self, id: &str, signature: String, bytes: u64, state: Arc<ChangeState>, now: std::time::Instant) {
         self.forget(id);
-        self.entries.insert(id.to_owned(), (signature, bytes, state));
+        self.expire(now);
+        self.entries.insert(id.to_owned(), (signature, bytes, state, now));
         self.order.push(id.to_owned());
         // Least recently used first; bounded by session count and by the summed file bytes (the
         // newest entry always stays, however large).
         loop {
-            let total: u64 = self.entries.values().map(|(_, b, _)| *b).sum();
+            let total: u64 = self.entries.values().map(|(_, b, _, _)| *b).sum();
             if self.order.len() > 1 && (self.order.len() > CHANGE_RECORDS_CACHE_SESSIONS || total > CHANGE_RECORDS_CACHE_BYTES) {
                 let oldest = self.order.remove(0);
                 self.entries.remove(&oldest);
@@ -581,5 +606,33 @@ impl Store {
             return 0;
         }
         self.change_state(id).await.map_or(0, |s| s.records.len())
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+    use std::time::Instant;
+
+    use super::CHANGE_RECORDS_CACHE_IDLE;
+    use super::ChangeCache;
+    use super::ChangeState;
+
+    /// A session's parsed records untouched for the idle period leave the cache at its next use; a touched one stays.
+    #[test]
+    fn an_idle_session_leaves_the_change_cache() {
+        let mut cache = ChangeCache::default();
+        let start = Instant::now();
+        cache.put_at("a", "sa".into(), 10, Arc::new(ChangeState::default()), start);
+        cache.put_at("b", "sb".into(), 10, Arc::new(ChangeState::default()), start + Duration::from_secs(60));
+        let later = start + CHANGE_RECORDS_CACHE_IDLE + Duration::from_secs(1);
+        assert!(cache.hit_at("b", "sb", later).is_some(), "touched within the idle period");
+        assert!(cache.hit_at("a", "sa", later).is_none(), "idle past the period");
+        assert_eq!(cache.order, ["b"]);
+        let much_later = later + CHANGE_RECORDS_CACHE_IDLE;
+        cache.put_at("c", "sc".into(), 10, Arc::new(ChangeState::default()), much_later);
+        assert_eq!(cache.order, ["c"]);
+        assert_eq!(cache.entries.len(), 1);
     }
 }

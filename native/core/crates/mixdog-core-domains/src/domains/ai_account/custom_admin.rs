@@ -109,10 +109,6 @@ pub(super) fn is_custom_id(id: &str) -> bool {
     id.strip_prefix("custom-").is_some_and(is_uuid)
 }
 
-fn vault_failure(error: mixdog_ai::registry::keys::VaultError) -> Failure {
-    Failure::error(error.message)
-}
-
 fn config_failure(error: mixdog_core_config::config::ConfigError) -> Failure {
     Failure::error(error.to_string())
 }
@@ -394,61 +390,6 @@ pub struct CustomSeams {
     pub broker: Arc<ModelBroker>,
     pub rotation: AccountRotation,
     pub log: Arc<dyn Fn(&str) + Send + Sync>,
-}
-
-impl CustomHost {
-    pub fn new(
-        config: Config,
-        vault: Arc<dyn SecretVault>,
-        keys: ApiKeyStore,
-        accounts: AccountStore,
-        builder: Arc<DefaultProviderBuilder>,
-        env: Arc<dyn Environment>,
-        seams: CustomSeams,
-    ) -> Arc<Self> {
-        let CustomSeams { broker, rotation, log } = seams;
-        Arc::new(Self { config, vault, keys, accounts, builder, env, broker, rotation, log })
-    }
-
-    /// The additional key ids of a provider. A roster that could not be read (damaged, missing)
-    /// lists none, as in Node; one whose read never ran is an error: an empty list there would
-    /// leave the additional keys' secrets behind on a removal and treat saved ids as new.
-    async fn key_ids_of(&self, id: &str) -> Result<Vec<String>, Failure> {
-        match self.accounts.custom_key_ids(id).await {
-            Ok(ids) => Ok(ids),
-            Err(error) if error.unrun() => Err(acct(error)),
-            Err(_) => Ok(Vec::new()),
-        }
-    }
-
-    /// `resolveCustomInput`.
-    async fn resolve(&self, raw: &Value, body_lone_units: usize) -> Result<InputAt, Failure> {
-        let input = input_object(raw)?;
-        validate_transport_fields(input)?;
-        let stored = match input.get("id").and_then(Value::as_str) {
-            Some(id) => self.keys.get(id).await.map_err(vault_failure)?.unwrap_or_default(),
-            None => String::new(),
-        };
-        input_at(&self.config.agent(), input, &stored, self.env.as_ref(), body_lone_units)
-    }
-
-    /// `customProviderRow`: the secret-free public view of a custom provider.
-    /// `Err` when a keychain read never ran: the row would say "No Key" for a key that is stored.
-    /// The reads are made here (they are async); the row itself is [`custom_provider_row`].
-    async fn row(&self, id: &str, entry: &Value) -> Result<Value, Failure> {
-        let account = api_key_account(id);
-        let stored = match self.vault.get(&account).await {
-            Ok(key) => key.is_some_and(|key| !key.is_empty()),
-            // A read that ran and failed shows no key, as before; one that never ran is no answer.
-            Err(error) if error.unrun => return Err(vault_failure(error)),
-            Err(_) => false,
-        };
-        let fallback = self.vault.is_fallback(&account).await.map_err(vault_failure)?;
-        let keyless = is_keyless(normalize(entry).ok().as_ref(), entry);
-        let key_ids = if keyless { Vec::new() } else { self.key_ids_of(id).await? };
-        let facts = Prefetched { account, stored, fallback, key_ids, env: Arc::clone(&self.env) };
-        Ok(custom_provider_row(&facts, id, entry, true))
-    }
 }
 
 /// What a custom provider's row reads of the process: the environment, the keychain and the key roster.
@@ -733,6 +674,7 @@ impl CustomEndpoint for BuiltEndpoint {
             bound_hint: None,
             cancel: CancellationToken::new(),
             implicit_plan_usage: None,
+            plan_meters_apply: true,
         };
         // Node builds the pool only for eligible saved keys (`keyIds`, empty for an input that is
         // keyless or reads its key from the environment); otherwise the primary sends alone.
@@ -796,6 +738,126 @@ pub struct CustomAdmin {
 
 type Slot<T> = Arc<Mutex<Option<Result<T, Failure>>>>;
 
+#[async_trait]
+impl CustomProviders for CustomAdmin {
+    async fn save(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure> {
+        self.refreshed(self.save_inner(input, body_lone_units).await)
+    }
+
+    async fn save_key(&self, id: &str, secret: &Value) -> Result<Value, Failure> {
+        self.refreshed(self.save_key_inner(id, secret).await)
+    }
+
+    async fn remove(&self, id: &str) -> Result<Value, Failure> {
+        let result = self.remove_inner(id).await;
+        if let Some(removed) = result.as_ref().ok().and_then(|answer| answer["provider"].as_str()) {
+            self.refresh.custom_provider_removed(removed);
+        }
+        self.refreshed(result)
+    }
+
+    async fn update_model(&self, id: &str, model_id: &str, patch: Option<Value>) -> Result<Value, Failure> {
+        self.refreshed(self.update_model_inner(id, model_id, patch).await)
+    }
+
+    async fn test(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure> {
+        self.probes.test(input, body_lone_units).await
+    }
+
+    async fn discover_models(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure> {
+        self.probes.discover_models(input, body_lone_units).await
+    }
+}
+
+#[cfg(test)]
+mod key_variable_reads {
+    use super::*;
+
+    struct Vars;
+    impl Environment for Vars {
+        fn var(&self, name: &str) -> Option<String> {
+            (name == "CUSTOM_KEY").then(|| "v".to_owned())
+        }
+    }
+
+    /// Every read of a key variable the custom-provider setup makes is one counted credential read
+    /// (`mixdog_ai::work`), through `Environment::key_var`: a direct `var` would move nothing.
+    #[test]
+    fn a_key_variable_read_of_the_custom_setup_moves_the_credential_counter() {
+        let input: Obj = serde_json::from_value(json!({
+            "name": "Mine", "type": "custom", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:1/v1", "apiKeyEnv": "CUSTOM_KEY"
+        }))
+        .unwrap();
+        let before = mixdog_ai::work::credential_reads();
+        let resolved = input_at(&Obj::new(), &input, "", &Vars, 0).unwrap_or_else(|_| panic!("input"));
+        assert_eq!(resolved.api_key, "v");
+        assert!(mixdog_ai::work::credential_reads() > before, "input_at read a key variable without counting it");
+
+        let facts = Prefetched { account: String::new(), stored: false, fallback: false, key_ids: Vec::new(), env: Arc::new(Vars) };
+        let before = mixdog_ai::work::credential_reads();
+        assert_eq!(CustomFacts::env(&facts, "CUSTOM_KEY").as_deref(), Some("v"));
+        assert!(mixdog_ai::work::credential_reads() > before, "Prefetched::env read a key variable without counting it");
+    }
+}
+
+
+fn vault_failure(error: mixdog_ai::registry::keys::VaultError) -> Failure {
+    Failure::error(error.message)
+}
+impl CustomHost {
+    pub fn new(
+        config: Config,
+        vault: Arc<dyn SecretVault>,
+        keys: ApiKeyStore,
+        accounts: AccountStore,
+        builder: Arc<DefaultProviderBuilder>,
+        env: Arc<dyn Environment>,
+        seams: CustomSeams,
+    ) -> Arc<Self> {
+        let CustomSeams { broker, rotation, log } = seams;
+        Arc::new(Self { config, vault, keys, accounts, builder, env, broker, rotation, log })
+    }
+
+    /// The additional key ids of a provider. A roster that could not be read (damaged, missing)
+    /// lists none, as in Node; one whose read never ran is an error: an empty list there would
+    /// leave the additional keys' secrets behind on a removal and treat saved ids as new.
+    async fn key_ids_of(&self, id: &str) -> Result<Vec<String>, Failure> {
+        match self.accounts.custom_key_ids(id).await {
+            Ok(ids) => Ok(ids),
+            Err(error) if error.unrun() => Err(acct(error)),
+            Err(_) => Ok(Vec::new()),
+        }
+    }
+
+    /// `resolveCustomInput`.
+    async fn resolve(&self, raw: &Value, body_lone_units: usize) -> Result<InputAt, Failure> {
+        let input = input_object(raw)?;
+        validate_transport_fields(input)?;
+        let stored = match input.get("id").and_then(Value::as_str) {
+            Some(id) => self.keys.get(id).await.map_err(vault_failure)?.unwrap_or_default(),
+            None => String::new(),
+        };
+        input_at(&self.config.agent(), input, &stored, self.env.as_ref(), body_lone_units)
+    }
+
+    /// `customProviderRow`: the secret-free public view of a custom provider.
+    /// `Err` when a keychain read never ran: the row would say "No Key" for a key that is stored.
+    /// The reads are made here (they are async); the row itself is [`custom_provider_row`].
+    async fn row(&self, id: &str, entry: &Value) -> Result<Value, Failure> {
+        let account = api_key_account(id);
+        let stored = match self.vault.get(&account).await {
+            Ok(key) => key.is_some_and(|key| !key.is_empty()),
+            // A read that ran and failed shows no key, as before; one that never ran is no answer.
+            Err(error) if error.unrun => return Err(vault_failure(error)),
+            Err(_) => false,
+        };
+        let fallback = self.vault.is_fallback(&account).await.map_err(vault_failure)?;
+        let keyless = is_keyless(normalize(entry).ok().as_ref(), entry);
+        let key_ids = if keyless { Vec::new() } else { self.key_ids_of(id).await? };
+        let facts = Prefetched { account, stored, fallback, key_ids, env: Arc::clone(&self.env) };
+        Ok(custom_provider_row(&facts, id, entry, true))
+    }
+}
 impl CustomAdmin {
     pub fn new(host: Arc<CustomHost>, refresh: Arc<dyn AuthRefresh>) -> Arc<Self> {
         let probes = CustomProbes::new(host.clone());
@@ -1114,67 +1176,5 @@ impl CustomAdmin {
             self.refresh.after_credential_change();
         }
         result
-    }
-}
-
-#[async_trait]
-impl CustomProviders for CustomAdmin {
-    async fn save(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure> {
-        self.refreshed(self.save_inner(input, body_lone_units).await)
-    }
-
-    async fn save_key(&self, id: &str, secret: &Value) -> Result<Value, Failure> {
-        self.refreshed(self.save_key_inner(id, secret).await)
-    }
-
-    async fn remove(&self, id: &str) -> Result<Value, Failure> {
-        let result = self.remove_inner(id).await;
-        if let Some(removed) = result.as_ref().ok().and_then(|answer| answer["provider"].as_str()) {
-            self.refresh.custom_provider_removed(removed);
-        }
-        self.refreshed(result)
-    }
-
-    async fn update_model(&self, id: &str, model_id: &str, patch: Option<Value>) -> Result<Value, Failure> {
-        self.refreshed(self.update_model_inner(id, model_id, patch).await)
-    }
-
-    async fn test(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure> {
-        self.probes.test(input, body_lone_units).await
-    }
-
-    async fn discover_models(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure> {
-        self.probes.discover_models(input, body_lone_units).await
-    }
-}
-
-#[cfg(test)]
-mod key_variable_reads {
-    use super::*;
-
-    struct Vars;
-    impl Environment for Vars {
-        fn var(&self, name: &str) -> Option<String> {
-            (name == "CUSTOM_KEY").then(|| "v".to_owned())
-        }
-    }
-
-    /// Every read of a key variable the custom-provider setup makes is one counted credential read
-    /// (`mixdog_ai::work`), through `Environment::key_var`: a direct `var` would move nothing.
-    #[test]
-    fn a_key_variable_read_of_the_custom_setup_moves_the_credential_counter() {
-        let input: Obj = serde_json::from_value(json!({
-            "name": "Mine", "type": "custom", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:1/v1", "apiKeyEnv": "CUSTOM_KEY"
-        }))
-        .unwrap();
-        let before = mixdog_ai::work::credential_reads();
-        let resolved = input_at(&Obj::new(), &input, "", &Vars, 0).unwrap_or_else(|_| panic!("input"));
-        assert_eq!(resolved.api_key, "v");
-        assert!(mixdog_ai::work::credential_reads() > before, "input_at read a key variable without counting it");
-
-        let facts = Prefetched { account: String::new(), stored: false, fallback: false, key_ids: Vec::new(), env: Arc::new(Vars) };
-        let before = mixdog_ai::work::credential_reads();
-        assert_eq!(CustomFacts::env(&facts, "CUSTOM_KEY").as_deref(), Some("v"));
-        assert!(mixdog_ai::work::credential_reads() > before, "Prefetched::env read a key variable without counting it");
     }
 }

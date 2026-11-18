@@ -5,19 +5,16 @@
 use super::keysym;
 use crate::keys::Key;
 use crate::platform::{Button, Wid, WinState, WindowInfo};
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::time::Duration;
 use x11rb::connection::Connection;
 use x11rb::protocol::res::{ClientIdMask, ClientIdSpec, ConnectionExt as _};
 use x11rb::protocol::screensaver::ConnectionExt as _;
 use x11rb::protocol::xproto::{
-    self, Atom, AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt as _, EventMask,
-    InputFocus, MapState, StackMode, Window,
+    self, Atom, AtomEnum, ClientMessageEvent, ConnectionExt as _, EventMask, MapState, Window,
 };
-use x11rb::protocol::xtest::ConnectionExt as _;
 use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
-use x11rb::wrapper::ConnectionExt as _;
 use x11rb::CURRENT_TIME;
 
 macro_rules! atoms {
@@ -123,8 +120,8 @@ pub struct X11 {
     pub atoms: Atoms,
     host_pid: i64,
     keymap: RefCell<Keymap>,
-    /// A borrowed spare keycode currently remapped, restored after typing.
-    borrowed: Cell<Option<u8>>,
+    /// A borrowed spare keycode currently remapped (the port's handle), returned after typing.
+    borrowed: RefCell<Option<super::port::Borrowed>>,
     selection_window: Window,
 }
 
@@ -160,7 +157,7 @@ impl X11 {
             atoms,
             host_pid: std::os::unix::process::parent_id() as i64,
             keymap: RefCell::new(keymap),
-            borrowed: Cell::new(None),
+            borrowed: RefCell::new(None),
             selection_window,
         })
     }
@@ -337,17 +334,9 @@ impl X11 {
             .unwrap_or(0)
     }
 
+    /// One window-manager request, through the executor's port.
     fn client_message(&self, window: Window, kind: Atom, data: [u32; 5]) -> Result<(), String> {
-        let event = ClientMessageEvent::new(32, window, kind, data);
-        self.conn
-            .send_event(
-                false,
-                self.root,
-                EventMask::SUBSTRUCTURE_NOTIFY | EventMask::SUBSTRUCTURE_REDIRECT,
-                event,
-            )
-            .map_err(e)?;
-        self.conn.flush().map_err(e)
+        super::port::x_request(super::port::XRequest::ClientMessage { window, kind, data })
     }
 
     pub fn focus(&self, window: Window) -> bool {
@@ -363,17 +352,16 @@ impl X11 {
             }
             if attempt == 20 {
                 // A window manager that ignores the request still honours a
-                // direct raise and input focus.
-                let _ = self.conn.configure_window(
-                    window,
-                    &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
-                );
-                let _ = self
-                    .conn
-                    .set_input_focus(InputFocus::PARENT, window, CURRENT_TIME);
-                let _ = self.conn.flush();
+                // direct raise and input focus: two submissions, each admitted.
+                if super::port::x_request(super::port::XRequest::Raise { window }).is_ok() {
+                    let _ = super::port::x_request(super::port::XRequest::Focus { window });
+                }
             }
+            // The wait holds nothing; revoked meanwhile, no further attempt.
             std::thread::sleep(Duration::from_millis(20));
+            if super::port::revoked() {
+                return false;
+            }
         }
         false
     }
@@ -415,13 +403,7 @@ impl X11 {
         )?;
         std::thread::sleep(Duration::from_millis(120));
         if self.client_rect(window) != Some((x, y, width, height)) {
-            let aux = ConfigureWindowAux::new()
-                .x(x)
-                .y(y)
-                .width(width as u32)
-                .height(height as u32);
-            self.conn.configure_window(window, &aux).map_err(e)?;
-            self.conn.flush().map_err(e)?;
+            super::port::x_request(super::port::XRequest::Configure { window, x, y, width, height })?;
         }
         Ok(())
     }
@@ -544,11 +526,10 @@ impl X11 {
             })
     }
 
+    /// One XTest event through the executor's port (`port::core_event`): a press owned from its hand-over, a release the
+    /// hold's own, motion an ordinary submission.
     fn fake(&self, kind: u8, detail: u8, x: i32, y: i32) -> Result<(), String> {
-        self.conn
-            .xtest_fake_input(kind, detail, CURRENT_TIME, self.root, x as i16, y as i16, 0)
-            .map_err(e)?;
-        self.conn.sync().map_err(e)
+        super::port::core_event(kind, detail, x, y)
     }
 
     pub fn motion(&self, x: i32, y: i32) -> Result<(), String> {
@@ -588,14 +569,15 @@ impl X11 {
         }
         let spare = self
             .borrowed
-            .get()
+            .borrow()
+            .as_ref()
+            .map(super::port::Borrowed::code)
             .or_else(|| self.keymap.borrow().spare())
             .ok_or("invalid_keys: no spare keycode to type this character")?;
-        self.conn
-            .change_keyboard_mapping(1, spare, 2, &[sym, sym])
-            .map_err(e)?;
-        self.conn.sync().map_err(e)?;
-        self.borrowed.set(Some(spare));
+        // The keymap is shared with every client: changing it is a submission of its own. Putting it back is not: only the
+        // handle the port issued for an actual change can be returned (`restore_borrowed`).
+        let borrowed = super::port::borrow_keycode(spare, [sym, sym])?;
+        *self.borrowed.borrow_mut() = Some(borrowed);
         *self.keymap.borrow_mut() = Keymap::load(&self.conn)?;
         std::thread::sleep(Duration::from_millis(15));
         Ok((spare, false))
@@ -603,9 +585,9 @@ impl X11 {
 
     /// Returns a borrowed keycode to having no symbols.
     pub fn restore_borrowed(&self) {
-        if let Some(spare) = self.borrowed.take() {
-            let _ = self.conn.change_keyboard_mapping(1, spare, 2, &[0, 0]);
-            let _ = self.conn.sync();
+        let borrowed = self.borrowed.borrow_mut().take();
+        if let Some(borrowed) = borrowed {
+            super::port::return_keycode(borrowed);
             if let Ok(keymap) = Keymap::load(&self.conn) {
                 *self.keymap.borrow_mut() = keymap;
             }

@@ -200,6 +200,14 @@ pub(crate) fn classify_response(response: &ErrorResponse) -> ProviderError {
     err.code = code.or_else(|| response.status.and_then(status_type).map(str::to_owned));
     err.retry_after = retry_after(&response.headers);
     err.reset_at = reset_at(&response.headers);
+    // The window the refusal named (`five_hour`, `seven_day`, `seven_day_opus`...): the roster attributes the block
+    // to that meter, so a family-only refusal cannot idle another family.
+    if response.status == Some(429) {
+        err.quota_limit = header(&response.headers, "anthropic-ratelimit-unified-representative-claim")
+            .map(|claim| claim.trim().to_ascii_lowercase())
+            .filter(|claim| !claim.is_empty())
+            .map(String::into_boxed_str);
+    }
     err.should_retry = match header(&response.headers, "x-should-retry").map(str::trim) {
         Some("true") => Some(true),
         Some("false") => Some(false),

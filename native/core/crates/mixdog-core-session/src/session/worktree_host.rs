@@ -47,6 +47,8 @@ pub struct LiveSession {
     pub closed: bool,
     pub owner_session_id: Option<String>,
     pub parent_session_id: Option<String>,
+    /// The session's `owner` header: `agent` for a worker (`AGENT_OWNER`).
+    pub owner: Option<String>,
 }
 
 /// A background command's folder.
@@ -123,6 +125,10 @@ pub trait WorkspaceHost: Send + Sync + 'static {
     /// error the host has left the session as it was; on success the undo restores everything
     /// it changed.
     async fn apply(&self, session_id: &str, change: WorkspaceChange) -> Result<Undo, ScmFailure>;
+
+    /// `retargetWorkers`: move an idle worker of the Lead to `cwd` (its cwd and prompt context; the Lead's own runtime
+    /// effects do not apply). The undo restores it.
+    async fn retarget_worker(&self, worker_id: &str, cwd: &str, moved: Option<Move>) -> Result<Undo, ScmFailure>;
 
     /// Carry the Project's memory identity into a worktree outside the Project tree.
     async fn copy_project_identity(&self, project_path: &str, worktree_path: &str) -> Result<bool, ScmFailure>;

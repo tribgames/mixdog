@@ -20,10 +20,11 @@ use super::codex_image::{self, CodexSession};
 use super::download::{AdapterError, PublicFetch};
 use super::gemini_image;
 use super::gemini_video;
-use super::image_api::{self, ImageReference};
-use super::jobs::{GeneratedMedia, GenerationRequest, MediaFailure, MediaGenerator, Reference, ResolvedMedia};
+use super::image_api;
+use super::jobs::{GeneratedMedia, GenerationRequest, MediaFailure, MediaGenerator, ResolvedMedia};
 use super::lanes::{LaneError, MediaLanes};
 use super::probe::{FileAccountProbe, ProviderAuth};
+use super::references::References;
 use super::xai::{self, Pacer};
 
 /// The poll clock in production: wall time and a real wait.
@@ -79,7 +80,7 @@ impl StudioGenerator {
         if provider.is_empty() {
             return Ok(base);
         }
-        base.with(&self.parts.data_dir, provider, account).map_err(|message| MediaFailure { message, code: None, usage: None })
+        base.with(&self.parts.data_dir, provider, account).map_err(|message| MediaFailure { message, code: None, usage: None, refusal: None })
     }
 
     fn lanes_in(&self, scope: AccountScope) -> MediaLanes {
@@ -100,15 +101,11 @@ fn lane_failure(error: LaneError) -> MediaFailure {
 }
 
 fn fetch_failure(error: FetchError) -> MediaFailure {
-    MediaFailure { message: error.message, code: error.code, usage: None }
+    MediaFailure { message: error.message, code: error.code, usage: None, refusal: None }
 }
 
 fn adapter_failure(error: AdapterError) -> MediaFailure {
-    MediaFailure { message: error.message, code: error.code, usage: error.usage }
-}
-
-fn images(references: Vec<Reference>) -> Vec<ImageReference> {
-    references.into_iter().map(|r| ImageReference { base64: r.base64, mime: r.mime }).collect()
+    MediaFailure { message: error.message, code: error.code, usage: error.usage, refusal: error.refusal }
 }
 
 /// `Number(a ?? b ?? 0) || fallback`: how many reference images the model takes.
@@ -147,7 +144,7 @@ impl MediaGenerator for StudioGenerator {
         let lane = resolved.lane.as_str();
         let scope = self.scope(lane, &account)?;
         let file = self.credential_file(&scope, lane).await;
-        let refs = images(references);
+        let refs = References::new(references, resolved.max_references);
         let (model, video) = (resolved.model.as_str(), resolved.kind == "video");
         let (http, public, parts) = (self.parts.http.as_ref(), self.parts.public.as_ref(), &self.parts);
         let on_progress = progress.as_ref();

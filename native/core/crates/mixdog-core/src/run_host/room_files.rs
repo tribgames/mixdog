@@ -160,6 +160,12 @@ impl<'a, L: WriteLane + IoLane> Store<'a, L> {
 }
 
 impl<L: WriteLane + IoLane> PromptStore for Store<'_, L> {
+    /// A room's image is taken in by the vault at once: the vault keeps the original and its verdict at their content addresses
+    /// whether or not the rest of the message passes, and nothing deletes them.
+    fn import_image(&self, bytes: &[u8], name: Option<&str>) -> Result<Map<String, Value>, String> {
+        mixdog_core_session::session::prompt_submission::import_through_vault(self.blobs, self.lane, bytes, name)
+    }
+
     /// `saveBuffer(buffer)`'s checks and reference `{ attachmentRef, sizeBytes }`; the bytes are stored once every check passed.
     fn save(&self, bytes: &[u8]) -> Result<Map<String, Value>, String> {
         if bytes.is_empty() {
@@ -357,12 +363,12 @@ impl SessionFiles {
             part["textPages"] = json!(facts.text_pages.unwrap_or(0));
             part["textChars"] = json!(facts.text_chars.unwrap_or(0));
         }
-        // Every check passed: the files are stored, each reused blob's time refreshed (`saveBuffer`).
+        // Every check passed: the files are stored (`saveBuffer`; no ticket, as `StoreFiles::store_inline`).
         let data_dir = self.data_dir.clone();
         self.lane
             .submit(&CancellationToken::new(), move |lane| {
                 let blobs = BlobStore::new(&data_dir);
-                staged.iter().try_for_each(|(_, bytes)| blobs.put_fresh(lane, bytes).map(drop).map_err(|error| error.to_string()))
+                staged.iter().try_for_each(|(_, bytes)| blobs.put_with(lane, bytes, mixdog_store::fsio::Access::Inherit).map(|_| ()).map_err(|error| error.to_string()))
             })
             .map_err(|error| format!("{error:?}"))?
             .await
@@ -418,8 +424,6 @@ pub(crate) mod tests {
     // Node's attachment records are unique by ref, so the three files of the test have three.
     const REF_TEXT: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const REF_FILE: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/run_host/room_files/golden.json");
     const PNG: &str = "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da636460f85f0f0002870180eb47ba920000000049454e44ae426082";
 
     fn bytes(hex: &str) -> Vec<u8> {
@@ -443,29 +447,6 @@ pub(crate) mod tests {
             .unwrap();
         job.await.unwrap();
         (dir, root, other)
-    }
-
-    /// Node's `speechWithArtifacts` on the same files: the parts and attachment records a member's
-    /// turn returns, the order of its reply's links, only its own turn, only inside the session's
-    /// folders and only what exists (golden recorded from `createAgentRoomDelivery`).
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_members_turn_files_become_the_rows_parts_and_attachments_as_node_stores_them() {
-        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-        let (dir, root, other) = tree().await;
-        let swap = |text: &str| text.replace("<root>", &root.to_string_lossy().replace('\\', "/")).replace("<other>", &other.to_string_lossy().replace('\\', "/"));
-        let folders = Folders { cwd: root.to_string_lossy().into_owned(), candidates: vec![root.to_string_lossy().into_owned()] };
-        let data = dir.path().join("data");
-        for name in ["chart", "several", "nothing"] {
-            let case = &golden[name];
-            let messages: Value = serde_json::from_str(&swap(&case["messages"].to_string())).unwrap();
-            let lane = mixdog_rt::testing::tokens().durability_io;
-            let found = collect_from(lane, &data, &[], &folders, &messages, "", 1000.0).await.unwrap();
-            let files = found.get("files").and_then(Value::as_array).cloned().unwrap_or_default();
-            let got = stored_file_fields(&files);
-            let want = &case["row"];
-            assert_eq!(got.get("parts"), want.get("parts"), "{name}");
-            assert_eq!(got.get("attachments"), want.get("attachments"), "{name}");
-        }
     }
 
     #[test]
@@ -499,14 +480,6 @@ pub(crate) mod tests {
         }
     }
 
-    fn files() -> (Rig, SessionFiles) {
-        let rig = Rig::new();
-        let directory = Arc::new(SessionDirectory::new(rig.deps()));
-        let lane = mixdog_rt::testing::tokens().durability_io;
-        let files = SessionFiles::new(directory, lane, std::env::temp_dir(), Vec::new(), Arc::new(NoDocuments), Arc::new(|_: &str| {}));
-        (rig, files)
-    }
-
     /// The PDF parser refuses every PDF with pdf.js's own message (`inspectPdfBuffer` through `unpdf`).
     struct BadPdf;
     #[async_trait]
@@ -537,8 +510,55 @@ pub(crate) mod tests {
         json!({ "id": "u1", "kind": "user", "text": text, "upload": upload })
     }
 
-    /// Each refusal of a user's upload is Node's text (`store.mjs:137,140,623`, the PDF parser's) and leaves the attachment
-    /// store as it was: nothing of the message is stored, the image staged before the refused file included.
+
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/run_host/room_files/golden.json");
+    /// Node's `speechWithArtifacts` on the same files: the parts and attachment records a member's
+    /// turn returns, the order of its reply's links, only its own turn, only inside the session's
+    /// folders and only what exists (golden recorded from `createAgentRoomDelivery`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_members_turn_files_become_the_rows_parts_and_attachments_as_node_stores_them() {
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
+        let (dir, root, other) = tree().await;
+        let swap = |text: &str| text.replace("<root>", &root.to_string_lossy().replace('\\', "/")).replace("<other>", &other.to_string_lossy().replace('\\', "/"));
+        let folders = Folders { cwd: root.to_string_lossy().into_owned(), candidates: vec![root.to_string_lossy().into_owned()] };
+        let data = dir.path().join("data");
+        for name in ["chart", "several", "nothing"] {
+            let case = &golden[name];
+            let messages: Value = serde_json::from_str(&swap(&case["messages"].to_string())).unwrap();
+            let lane = mixdog_rt::testing::tokens().durability_io;
+            let found = collect_from(lane, &data, &[], &folders, &messages, "", 1000.0).await.unwrap();
+            let files = found.get("files").and_then(Value::as_array).cloned().unwrap_or_default();
+            let got = stored_file_fields(&files);
+            let want = &case["row"];
+            assert_eq!(got.get("parts"), want.get("parts"), "{name}");
+            assert_eq!(got.get("attachments"), want.get("attachments"), "{name}");
+        }
+    }
+
+    fn files() -> (Rig, SessionFiles) {
+        let rig = Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let files = SessionFiles::new(directory, lane, std::env::temp_dir(), Vec::new(), Arc::new(NoDocuments), Arc::new(|_: &str| {}));
+        (rig, files)
+    }
+    /// The paths the image vault leaves in a fresh data dir when it takes in `image` alone: its original and verdict, which stay
+    /// whether or not the rest of the message passes ([`Store::import_image`]).
+    async fn vault_import_of(image: Vec<u8>) -> Vec<String> {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().to_path_buf();
+        mixdog_rt::testing::tokens()
+            .durability_io
+            .submit(&CancellationToken::new(), move |lane| mixdog_core_session::session::prompt_submission::import_through_vault(&BlobStore::new(&data), lane, &image, None).map(|_| ()))
+            .unwrap()
+            .await
+            .unwrap()
+            .expect("the image is taken in");
+        mixdog_testkit::tree(dir.path()).into_iter().map(|(path, _)| path).collect()
+    }
+
+    /// Each refusal of a user's upload is Node's text (`store.mjs:137,140,623`, the PDF parser's) and stores nothing of the
+    /// message: the store holds only the vault's import of its image, taken in on arrival and never deleted.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_refused_upload_stores_nothing_and_says_why_as_node_does() {
         let over_text = "x".repeat(MAX_PROMPT_TEXT_BYTES as usize + 1);
@@ -566,10 +586,11 @@ pub(crate) mod tests {
             let lane = mixdog_rt::testing::tokens().durability_io;
             let files = SessionFiles::new(Arc::new(SessionDirectory::new(rig.deps())), lane, dir.path().to_path_buf(), Vec::new(), Arc::new(BadPdf), Arc::new(|_: &str| {}));
             assert_eq!(files.take_in("room01", row).await, Err(message.to_owned()), "{what}");
-            assert_eq!(mixdog_testkit::tree(dir.path()), Vec::<(String, Vec<u8>)>::new(), "{what}: the store holds nothing of the refused message");
+            let held: Vec<String> = mixdog_testkit::tree(dir.path()).into_iter().map(|(path, _)| path).collect();
+            // A refusal found before the image is reached stores nothing at all, as Node's.
+            assert!(held.is_empty() || held == vault_import_of(bytes(PNG)).await, "{what}: the store holds nothing of the refused message but its image's import: {held:?}");
         }
     }
-
     /// A 65th file is no refusal: Node lists the first 64 attachments of a message (`store.mjs:638,664`) and keeps every
     /// file it stored on the row's parts.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -582,9 +603,11 @@ pub(crate) mod tests {
         let row = files.take_in("room01", upload_row("t".into(), more, None)).await.unwrap();
         assert_eq!(row["parts"].as_array().unwrap().len(), 65);
         assert_eq!(row["attachments"].as_array().unwrap().len(), MAX_MESSAGE_ATTACHMENTS);
-        assert_eq!(mixdog_testkit::tree(dir.path()).len(), 65, "every file of the accepted message is stored");
+        let held: Vec<String> = mixdog_testkit::tree(dir.path()).into_iter().map(|(path, _)| path).collect();
+        let image = vault_import_of(bytes(PNG)).await;
+        assert!(image.iter().all(|path| held.contains(path)), "the image is the vault's import: {held:?}");
+        assert_eq!(held.len(), 64 + image.len(), "every file of the accepted message is stored");
     }
-
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn rows_without_a_member_turn_to_read_come_back_unchanged_or_without_the_pointer() {
         let (_rig, files) = files();

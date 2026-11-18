@@ -1,0 +1,2741 @@
+//! Test doubles for the session seams: an in-memory thread store whose logs share one record
+//! list per thread (so a second directory reopens what the first wrote), a JSON codec, a
+//! minimal transcript projection, scripted runs, and a feed that records what it publishes.
+
+// Transparent names for existing callback/record shapes; no ownership or ordering change.
+type InheritAsk = (String, String, Option<u64>, Option<ThreadId>, usize);
+type HeldOperation = (&'static str, tokio::sync::mpsc::UnboundedSender<()>, std::sync::mpsc::Receiver<()>);
+type SeenOffload = (ThreadId, Vec<Value>);
+
+use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::MutexGuard;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+
+use mixdog_app_protocol::v2::thread::TurnInput;
+use mixdog_core_api::CoreError;
+use mixdog_core_api::Feed;
+use mixdog_core_api::FeedSource;
+use mixdog_core_api::FeedView;
+use mixdog_core_api::domain::approval::ApprovalId;
+use mixdog_core_api::feed::AttachDecision;
+use mixdog_core_api::feed::AttachRequest;
+use mixdog_core_api::feed::FeedFrame;
+use mixdog_core_api::feed::FeedPosition;
+use mixdog_core_api::feed::PublishError;
+use mixdog_core_api::ids::ConnectionId;
+use mixdog_core_api::ids::FeedEpoch;
+use mixdog_core_api::ids::FeedId;
+use mixdog_core_api::ids::ItemId;
+use mixdog_core_api::ids::SubscriptionId;
+use mixdog_core_api::ids::ThreadId;
+use mixdog_core_api::ids::TurnId;
+use mixdog_core_api::mock::MockLimits;
+use mixdog_core_api::mock::MockFeed;
+use mixdog_core_api::mock::MockServerRequests;
+use mixdog_protocol::ConnectionKind;
+use mixdog_protocol::ItemMeta;
+use mixdog_protocol::MaybeBlob;
+use mixdog_protocol::PromptContent;
+use mixdog_protocol::ThreadItem;
+use mixdog_protocol::ThreadSummary;
+use mixdog_protocol::UserInput;
+use mixdog_rt::CpuInteractive;
+use mixdog_rt::DurabilityIo;
+use mixdog_rt::InLane;
+use mixdog_rt::InteractiveIo;
+use mixdog_store::schema::blob::Slot;
+use mixdog_store::schema::record::Header;
+use mixdog_store::schema::record::ItemRecord;
+use mixdog_store::schema::record::MetaRecord;
+use mixdog_store::schema::record::Record;
+use mixdog_tools::policy::SessionSurface;
+use serde_json::Value;
+use serde_json::json;
+
+use super::Clock;
+use super::SessionDeps;
+use super::SessionLanes;
+use super::SessionLimits;
+use super::prompt_history::FilePromptHistory;
+use super::seams::AppendPosition;
+use super::seams::BarrierError;
+use super::seams::CommitRecord;
+use super::seams::ContextRead;
+use super::seams::ContextStep;
+use super::seams::FeedFactory;
+use super::seams::HeadRead;
+use super::seams::OpenedLog;
+use super::seams::RunFactory;
+use super::seams::RunOutcome;
+use super::seams::RunStart;
+use super::seams::SessionLog;
+use super::seams::Shown;
+use super::seams::ThreadStore;
+use super::seams::ToolSurfaceSource;
+use super::seams::Transcript;
+use super::seams::WindowRead;
+/// The stored-record transcript, which shows a room message as its room line (the rig's own transcript shows every row as a message).
+pub use super::transcript::RecordTranscript;
+use mixdog_core_base::approvals::ApprovalIds;
+use mixdog_core_base::approvals::DeviceInfo;
+use mixdog_core_base::approvals::Devices;
+
+/// The compaction engine: `result` answers each compaction; `calls` keeps the order the host
+/// was called in.
+#[derive(Default)]
+pub struct TestCompaction {
+    /// The thread has books (the meters of a text-only transcript, no native tools), so a settled ask estimates its transcript;
+    /// without them, as the rigs are, the estimate is 0.
+    pub text_books: std::sync::atomic::AtomicBool,
+    pub result: Mutex<Option<Value>>,
+    pub calls: Mutex<Vec<String>>,
+    /// The signal each compaction call was handed.
+    pub cancels: Mutex<Vec<mixdog_agent::cancel::Cancel>>,
+    /// Wakes after a compaction call is recorded.
+    pub called: tokio::sync::Notify,
+    /// A compaction waits on it before answering, when set.
+    pub hold: Mutex<Option<Arc<tokio::sync::Notify>>>,
+    /// A compaction panics (after it is recorded) instead of answering, when set.
+    pub panics: std::sync::atomic::AtomicBool,
+    /// The `compaction` record the saved configuration gives a thread, when it has one.
+    pub synced: Mutex<Option<Value>>,
+    /// Each sync asked for: whether it was the session's installation.
+    pub sync_calls: Mutex<Vec<bool>>,
+    /// Each `prepare_books`: the provider and the number of messages.
+    pub prepared: Mutex<Vec<(String, usize)>>,
+    /// While `true`, every `prepare_books` (a report's media preparation) waits until it is `false` again.
+    pub prepare_held: tokio::sync::watch::Sender<bool>,
+    /// How many `prepare_books` have started (a held one included).
+    pub prepare_started: tokio::sync::watch::Sender<usize>,
+    /// How many `prepare_books` have ended: returned, or dropped unfinished (its task aborted).
+    pub prepare_ended: Arc<tokio::sync::watch::Sender<usize>>,
+    /// The configured route values (`route_config`).
+    pub route: Mutex<mixdog_app_protocol::v2::thread::ThreadRoute>,
+    /// The saved configuration's settings-change counter, when the test follows one.
+    pub settings: Mutex<Option<tokio::sync::watch::Receiver<u64>>>,
+    /// Where the next thread to follow the counter reports what it has shown, when the test watches it.
+    pub shown: Mutex<Option<tokio::sync::watch::Sender<u64>>>,
+    /// What `compact_for_heir` answers (the rows of the compacted conversation), and each ask: the budget and `summarize`.
+    pub heir_rows: Mutex<Option<Vec<Value>>>,
+    pub heir_asked: Mutex<Vec<(u64, bool)>>,
+    /// `compact_for_heir` fails (the compactor threw).
+    pub heir_fails: std::sync::atomic::AtomicBool,
+    /// Each `prune_offloads`: the thread and the transcripts it was given.
+    pub pruned: Mutex<Vec<(String, String)>>,
+    /// How many of its candidates each `prune_offloads` deleted, recorded before its `pruned` entry.
+    pub pruned_deleted: Mutex<Vec<usize>>,
+    /// The data dir whose `tool-results/<thread>` sidecars the host's own listing and prune
+    /// (`ToolResultArtifacts::prune_candidates`, `prune`) work on, and the clock's now (ms) they age at, as the host's
+    /// `parts.clock` (`manual_compaction.rs`). None lists nothing.
+    pub offloads: Mutex<Option<(std::path::PathBuf, u64)>>,
+    /// The next listing tells `.0` it arrived, then waits for `.1`.
+    pub listing_gate: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    /// How many listings have read `offloads` (every prune's, an open's reconcile included).
+    pub listings: tokio::sync::watch::Sender<usize>,
+    /// How many listings have answered their candidates (past the gate).
+    pub listed: tokio::sync::watch::Sender<usize>,
+    /// A compaction that commits its result as the host's does (`HostManualCompaction::compact` commits through the
+    /// directory): `compact` answers what it answers instead of `result`.
+    pub commits: Mutex<Option<CommitWith>>,
+}
+
+/// What [`TestCompaction::commits`] runs for a thread.
+pub type CommitWith = Arc<dyn Fn(ThreadId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<Value>, mixdog_core_api::CoreError>> + Send>> + Send + Sync>;
+
+/// The host's tool-result store of `thread` under the data dir `data`.
+pub fn offload_store(data: &std::path::Path, thread: &ThreadId) -> mixdog_core_run::run_host::artifact::ToolResultArtifacts {
+    let tokens = mixdog_rt::testing::tokens();
+    let io = mixdog_core_api::domain::tool::ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
+    mixdog_core_run::run_host::artifact::ToolResultArtifacts::new(io, data, thread.as_str())
+}
+
+#[async_trait::async_trait]
+impl super::turn_ops::ManualCompaction for TestCompaction {
+    async fn compact_for_heir(&self, _: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, mixdog_core_api::CoreError> {
+        lock(&self.heir_asked).push((budget_tokens, summarize));
+        if self.heir_fails.load(Ordering::SeqCst) {
+            return Err(mixdog_core_api::CoreError::Internal { incident_id: "compactor-failed".into() });
+        }
+        Ok(lock(&self.heir_rows).clone())
+    }
+    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, cancel: &mixdog_agent::cancel::Cancel) -> Result<Option<Value>, mixdog_core_api::CoreError> {
+        lock(&self.calls).push(format!("compact {trigger} {require_reduction}"));
+        lock(&self.cancels).push(cancel.clone());
+        self.called.notify_waiters();
+        assert!(!self.panics.load(Ordering::SeqCst), "the compaction engine panicked");
+        let hold = lock(&self.hold).clone();
+        if let Some(hold) = hold {
+            hold.notified().await;
+        }
+        let commits = lock(&self.commits).clone();
+        match commits {
+            Some(commit) => commit(thread.clone()).await,
+            None => Ok(lock(&self.result).clone()),
+        }
+    }
+    async fn post_compact(&self, _: &ThreadId, trigger: &str) {
+        lock(&self.calls).push(format!("post {trigger}"));
+    }
+    async fn offload_candidates(&self, thread: &ThreadId) -> Vec<std::path::PathBuf> {
+        // Read before the gate: a test that holds the listing decides what it lists by then.
+        let offloads = lock(&self.offloads).clone();
+        self.listings.send_modify(|count| *count += 1);
+        let gate = lock(&self.listing_gate).take();
+        if let Some((arrived, release)) = gate {
+            arrived.notify_one();
+            release.notified().await;
+        }
+        let candidates = match offloads {
+            Some((data, _)) => offload_store(&data, thread).prune_candidates().await,
+            None => Vec::new(),
+        };
+        self.listed.send_modify(|count| *count += 1);
+        candidates
+    }
+    #[allow(clippy::disallowed_methods, reason = "test counts the sidecars the prune deleted")]
+    async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String, copies: super::turn_ops::OffloadCopies) {
+        let offloads = lock(&self.offloads).clone();
+        let listed: Vec<std::path::PathBuf> = candidates.iter().filter(|path| path.exists()).cloned().collect();
+        if let Some((data, now)) = offloads {
+            offload_store(&data, thread).prune(candidates, transcripts.clone(), copies, now).await;
+        }
+        lock(&self.pruned_deleted).push(listed.iter().filter(|path| !path.exists()).count());
+        lock(&self.pruned).push((thread.as_str().to_owned(), transcripts));
+    }
+    async fn rearm(&self, _: &ThreadId) {
+        lock(&self.calls).push("rearm".into());
+    }
+    fn recover_workers(&self, _: &ThreadId) {
+        lock(&self.calls).push("recover".into());
+    }
+    fn invalidate_context_status(&self, _: &ThreadId) {
+        lock(&self.calls).push("invalidate".into());
+    }
+    fn books(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header) -> Option<super::turn_ops::Books> {
+        self.text_books.load(std::sync::atomic::Ordering::SeqCst).then(|| super::turn_ops::Books {
+            media: Arc::new(TextOnly),
+            images: Arc::new(TextOnly),
+            native: Vec::new(),
+            agent_mode: false,
+        })
+    }
+    async fn prepare_books(&self, _: &ThreadId, provider: &str, messages: &[mixdog_agent::message::AgentMessage]) {
+        lock(&self.prepared).push((provider.to_owned(), messages.len()));
+        struct Ended(Arc<tokio::sync::watch::Sender<usize>>);
+        impl Drop for Ended {
+            fn drop(&mut self) {
+                self.0.send_modify(|ended| *ended += 1);
+            }
+        }
+        let mut held = self.prepare_held.subscribe();
+        self.prepare_started.send_modify(|started| *started += 1);
+        let _ended = Ended(self.prepare_ended.clone());
+        let _ = held.wait_for(|held| !*held).await;
+    }
+    fn synced_compaction(&self, _: &mixdog_store::schema::record::Header, install: bool) -> Option<Value> {
+        lock(&self.sync_calls).push(install);
+        lock(&self.synced).clone()
+    }
+    fn route_config(&self, _: &mixdog_store::schema::record::Header) -> mixdog_app_protocol::v2::thread::ThreadRoute {
+        lock(&self.route).clone()
+    }
+    fn settings_changes(&self, _: &ThreadId) -> Option<super::turn_ops::SettingsFeed> {
+        let changes = lock(&self.settings).clone()?;
+        Some(match lock(&self.shown).take() {
+            Some(shown) => super::turn_ops::SettingsFeed { changes, shown },
+            None => super::turn_ops::SettingsFeed::unwatched(changes),
+        })
+    }
+}
+
+/// The heir-route policy: `basis` answers every measurement (the targets and message counts it
+/// was asked about are kept); `None` is an unmeasurable route.
+#[derive(Default)]
+pub struct TestInherit {
+    pub basis: Mutex<Option<(u64, u64, bool)>>,
+    pub asked: Mutex<Vec<InheritAsk>>,
+    /// `inheritanceCompactionPlan(target).budgetTokens`; `None` is a route with no boundary to compact toward.
+    pub budget: Mutex<Option<u64>>,
+    /// What a conversation of that many messages measures (`limit`, `used`, `compactable`), before `basis` answers.
+    pub measured: Mutex<std::collections::HashMap<usize, (u64, u64, bool)>>,
+    /// The next measurement (an inheritance's, once the source's rows are copied and before the heir holds them)
+    /// tells `.0` it arrived, then waits for `.1`.
+    pub fit_gate: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+}
+
+#[async_trait::async_trait]
+impl super::inheritance::InheritanceFit for TestInherit {
+    async fn basis(&self, target: &super::inheritance::InheritTarget, messages: &[Value]) -> Option<super::inheritance::FitBasis> {
+        let gate = lock(&self.fit_gate).take();
+        if let Some((arrived, go)) = gate {
+            arrived.notify_one();
+            go.notified().await;
+        }
+        lock(&self.asked).push((target.provider.clone(), target.model.clone(), target.selected_context_window, target.tools_of.clone(), messages.len()));
+        let (limit, used, compactable) = lock(&self.measured).get(&messages.len()).copied().or(*lock(&self.basis))?;
+        Some(super::inheritance::FitBasis { limit, used, compactable })
+    }
+    async fn compaction_budget(&self, _: &super::inheritance::InheritTarget) -> Option<u64> {
+        *lock(&self.budget)
+    }
+    async fn bind_to_heir_prefix(&self, _: &ThreadId, _: &ThreadId, _: bool, rows: Vec<Value>) -> Vec<Value> {
+        rows
+    }
+}
+
+/// A side-question store: a session has a request once `request` is set; `send` answers `reply`
+/// (or waits for the cancel when `reply` is `None`); each send's prompt and the begins are kept.
+#[derive(Default)]
+pub struct TestSide {
+    pub request: std::sync::atomic::AtomicBool,
+    pub reply: Mutex<Option<Result<super::turn_ops::SideReply, super::turn_ops::SideFailure>>>,
+    pub prompts: Mutex<Vec<String>>,
+    pub begins: std::sync::atomic::AtomicUsize,
+    /// Wakes after a begin or a send's prompt is recorded.
+    pub began: tokio::sync::Notify,
+    /// Every `forget(thread, cancel)`, in order.
+    pub forgets: Mutex<Vec<(String, bool)>>,
+    active: Mutex<Option<mixdog_rt::CancellationToken>>,
+}
+
+#[async_trait::async_trait]
+impl super::turn_ops::SideQuestions for TestSide {
+    async fn has_request(&self, _: &ThreadId) -> bool {
+        self.request.load(Ordering::SeqCst)
+    }
+    fn begin(&self, _: &ThreadId) -> super::turn_ops::SideRun {
+        self.begins.fetch_add(1, Ordering::SeqCst);
+        self.began.notify_waiters();
+        let cancel = mixdog_rt::CancellationToken::new();
+        if let Some(previous) = lock(&self.active).replace(cancel.clone()) {
+            previous.cancel();
+        }
+        super::turn_ops::SideRun { cancel, end: Box::new(()) }
+    }
+    fn cancel(&self, _: &ThreadId) -> bool {
+        lock(&self.active).take().map(|token| token.cancel()).is_some()
+    }
+    fn forget(&self, thread: &ThreadId, cancel: bool) {
+        lock(&self.forgets).push((thread.as_str().to_owned(), cancel));
+    }
+    async fn send(&self, _: &ThreadId, prompt: &str, _: &str, _idle: bool, cancel: &mixdog_rt::CancellationToken) -> Result<super::turn_ops::SideReply, super::turn_ops::SideFailure> {
+        let scripted = lock(&self.reply).take();
+        lock(&self.prompts).push(prompt.to_owned());
+        self.began.notify_waiters();
+        match scripted {
+            Some(reply) => reply,
+            None => {
+                cancel.cancelled().await;
+                Err(super::turn_ops::SideFailure::Aborted)
+            }
+        }
+    }
+}
+
+pub mod offload_replay;
+
+pub fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+type Log = Arc<Mutex<Vec<(u64, Record)>>>;
+
+/// Every thread's records in ordinal order.
+#[derive(Default)]
+pub struct MemStore {
+    logs: Mutex<HashMap<ThreadId, Log>>,
+    pub head_reads: AtomicU64,
+    /// The next barrier fails (rolled back).
+    pub fail_next: Arc<AtomicBool>,
+    /// The next barrier returns an unknown outcome; a subsequent retry or append finds nothing had landed.
+    pub indeterminate_next: Arc<AtomicBool>,
+    /// Every barrier fails (rolled back) with this cause while it is set.
+    pub failing: Arc<Mutex<Option<Arc<str>>>>,
+    /// The next barrier writes its records and then fails (a write whose sync failed: the records are in the log).
+    pub fail_after_write: Arc<AtomicBool>,
+    /// The next batch holding a record the predicate takes fails (`FailWhen`).
+    pub fail_when: FailWhen,
+    /// The next read of a thread's model context fails.
+    pub fail_context: AtomicBool,
+    /// The catalog lists every session (session_meta answers a bare row, not None).
+    pub listed: AtomicBool,
+    /// The catalog's list row of a session (its index `summary`), which `session_meta` answers for it.
+    pub summaries: Mutex<HashMap<ThreadId, Value>>,
+    /// The sessions whose log cannot be read (damaged on disk): reading their header or model context fails, and the
+    /// catalog holds them as not readable (`copies_of` fails).
+    pub damaged: Mutex<std::collections::BTreeSet<String>>,
+    /// The sessions whose log cannot be read although the catalog lists them as readable (their header and model
+    /// context reads fail; `copies_of` lists them as unknown).
+    pub unscannable: Mutex<std::collections::BTreeSet<String>>,
+    /// The scans of a transcript `record_offload_scan` stored: the session's record count then, and what it named.
+    pub scans: Mutex<HashMap<String, (i64, Vec<String>)>>,
+    /// The next `create_log` tells `.0` it arrived, then waits for `.1` before it commits.
+    pub create_gate: Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
+    /// The next commit to an open log tells `.0` it arrived, then waits for `.1` before it commits.
+    pub commit_gate: CommitGate,
+    /// The next batch holding a `meta` record that sets `compaction` (a manual compaction's header) tells `.0` it arrived, then
+    /// waits for `.1` before it becomes durable.
+    pub header_gate: CommitGate,
+    /// Runs once, inline, as the next batch that sets `compaction` reaches the store and before it is written: what
+    /// happens to the session between a compaction's adoption and its save (the commit timing of a compaction). Holds nothing.
+    pub on_compaction: CompactionHook,
+    /// The next batch holding a `meta` record that sets `title` to `.0` tells `.1` it arrived, then waits for `.2` before it
+    /// becomes durable.
+    pub title_gate: TitleGate,
+    /// Wakes after every batch lands in a log (or a log is created): the event a test waits on for a record to be durable.
+    pub committed: Arc<tokio::sync::Notify>,
+    /// Each run's draft file, by thread and run: its bodies in order.
+    pub drafts: Mutex<std::collections::BTreeMap<(String, String), Vec<Value>>>,
+    /// The record count of every batch that landed, in order: which records one group commit held.
+    pub batches: Arc<Mutex<Vec<usize>>>,
+}
+
+impl MemStore {
+    /// Appends `record` to thread `id`'s log as a barrier would (a log an earlier build wrote).
+    pub fn append_record(&self, id: &ThreadId, record: Record) {
+        let log = self.log(id);
+        let mut log = lock(&log);
+        let next = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
+        log.push((next, record));
+    }
+
+    /// The draft files of thread `id`: run id and bodies.
+    pub fn draft_files(&self, id: &ThreadId) -> Vec<(String, Vec<Value>)> {
+        lock(&self.drafts).iter().filter(|((thread, _), _)| thread == id.as_str()).map(|((_, rid), bodies)| (rid.clone(), bodies.clone())).collect()
+    }
+
+    /// Holds the next batch that sets the title to `title` until the returned sender says go; `.0` wakes when it arrives.
+    pub fn hold_title(&self, title: &str) -> (Arc<tokio::sync::Notify>, std::sync::mpsc::Sender<()>) {
+        let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+        *lock(&self.title_gate) = Some((title.to_owned(), arrived.clone(), go.1));
+        (arrived, go.0)
+    }
+
+    /// The model context `id`'s stored records give, as a context read returns it.
+    pub fn model_context(&self, id: &ThreadId) -> Vec<(ItemId, Value)> {
+        model_rows(self.records(id))
+    }
+
+    pub fn records(&self, id: &ThreadId) -> Vec<(u64, Record)> {
+        lock(&self.logs)
+            .get(id)
+            .map(|log| lock(log).clone())
+            .unwrap_or_default()
+    }
+
+    /// Every thread a log was created for.
+    pub fn log_ids(&self) -> Vec<ThreadId> {
+        lock(&self.logs).keys().cloned().collect()
+    }
+
+    fn log(&self, id: &ThreadId) -> Log {
+        lock(&self.logs).entry(id.clone()).or_default().clone()
+    }
+
+    /// The header of `id` as its records fold it, when it can be read.
+    pub fn stored_header(&self, id: &ThreadId) -> Option<Header> {
+        self.header_of(id).ok()
+    }
+
+    fn unreadable(id: &str) -> CoreError {
+        CoreError::Internal { incident_id: format!("session-store-copies: the session {id} cannot be read").into() }
+    }
+
+    /// The header of the session record, as `decode` takes it.
+    fn header_of(&self, id: &ThreadId) -> Result<Header, CoreError> {
+        if lock(&self.damaged).contains(id.as_str()) || lock(&self.unscannable).contains(id.as_str()) {
+            return Err(Self::unreadable(id.as_str()));
+        }
+        let records = self.records(id);
+        let Some((_, Record::Session(session))) = records.first() else {
+            return Err(CoreError::ThreadNotFound { thread_id: id.clone() });
+        };
+        let mut header = match &session.header {
+            Slot::Inline(header) => header.clone(),
+            _ => Header::new(),
+        };
+        // The header fold: each change removes its `unset` keys, then merges its `set`.
+        for (_, record) in &records {
+            // A Stop's disposition folds into the header too (`work_stops::apply`).
+            if let Record::WorkStop(stop) = record {
+                let body = match &stop.body {
+                    Some(Slot::Inline(body)) => Some(body),
+                    _ => None,
+                };
+                mixdog_store::work_stops::apply(&mut header, stop.sid.as_str(), stop.phase, body);
+                continue;
+            }
+            let Record::Meta(meta) = record else { continue };
+            let Slot::Inline(change) = &meta.change else { continue };
+            for key in &change.unset {
+                header.shift_remove(key);
+            }
+            for (key, value) in &change.set {
+                header.insert(key.clone(), value.clone());
+            }
+        }
+        Ok(header)
+    }
+}
+
+/// What [`MemStore::on_compaction`] runs.
+pub type CompactionHook = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
+
+/// The next commit tells `.0` it arrived, then waits for `.1` before it commits.
+type CommitGate = Arc<Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
+
+/// Waits for the test to release `gate`, failing when it has not within ten seconds. The wait blocks the thread the
+/// gated lane job runs on (inline, the store's caller's: a runtime worker): a test that needs the session's actor to
+/// step while a batch is held uses [`MemStore::on_compaction`] instead, which holds nothing.
+fn wait_for_release(go: &std::sync::mpsc::Receiver<()>, gate: &str) {
+    go.recv_timeout(std::time::Duration::from_secs(10)).unwrap_or_else(|_| panic!("{gate} was not released within 10s"));
+}
+
+/// What [`MemStore::title_gate`] holds.
+type TitleGate = Arc<Mutex<Option<(String, Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
+
+/// [`wait_for_release`] for a gate whose test needs the session's actor to step while the batch is held: the inline
+/// test backend runs the commit on the durability task's worker, whose LIFO slot may hold the actor the previous ack
+/// just woke; `block_in_place` hands that worker's queued tasks to another thread while this one waits.
+#[allow(clippy::disallowed_methods, reason = "Test-support only: the inline store barrier must release the Tokio worker LIFO slot while the synchronous fake commit waits for explicit fixture release")]
+fn wait_off_worker(go: &std::sync::mpsc::Receiver<()>, gate: &str) {
+    if tokio::runtime::Handle::try_current().is_ok_and(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread) {
+        tokio::task::block_in_place(|| wait_for_release(go, gate));
+    } else {
+        wait_for_release(go, gate);
+    }
+}
+
+/// What [`MemStore::fail_when`] holds: the batch holding a record the predicate takes fails once, after its records are
+/// written when `.1`.
+pub type FailWhen = Arc<Mutex<Option<(Box<dyn Fn(&Record) -> bool + Send>, bool)>>>;
+
+struct MemLog {
+    log: Log,
+    fail_next: Arc<AtomicBool>,
+    indeterminate_next: Arc<AtomicBool>,
+    failing: Arc<Mutex<Option<Arc<str>>>>,
+    fail_after_write: Arc<AtomicBool>,
+    fail_when: FailWhen,
+    commit_gate: CommitGate,
+    header_gate: CommitGate,
+    on_compaction: CompactionHook,
+    title_gate: TitleGate,
+    committed: Arc<tokio::sync::Notify>,
+    batches: Arc<Mutex<Vec<usize>>>,
+}
+
+impl SessionLog for MemLog {
+    fn commit(
+        &mut self,
+        _lane: &InLane<DurabilityIo>,
+        batch: &[CommitRecord],
+    ) -> Result<Vec<u64>, BarrierError> {
+        let gate = lock(&self.commit_gate).take();
+        if let Some((arrived, go)) = gate {
+            arrived.notify_one();
+            wait_for_release(&go, "the commit gate");
+        }
+        if self.fail_next.swap(false, Ordering::SeqCst) {
+            return Err(BarrierError::failed("test"));
+        }
+        if self.indeterminate_next.swap(false, Ordering::SeqCst) {
+            return Err(BarrierError::Indeterminate { io_kind: "sync".into(), cause: "test: rollback outcome unknown".into() });
+        }
+        if let Some(cause) = lock(&self.failing).clone() {
+            return Err(BarrierError::Failed { io_kind: cause.clone(), cause });
+        }
+        let failing = {
+            let mut when = lock(&self.fail_when);
+            let hit = when.as_ref().is_some_and(|(takes, _)| batch.iter().any(|commit| takes(&commit.record)));
+            if hit { when.take().map(|(_, after_write)| after_write) } else { None }
+        };
+        if failing == Some(false) {
+            return Err(BarrierError::failed("test"));
+        }
+        if failing == Some(true) {
+            self.fail_after_write.store(true, Ordering::SeqCst);
+        }
+        let sets_compaction = batch.iter().any(|commit| matches!(&*commit.record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.contains_key("compaction")));
+        let gate = if sets_compaction { lock(&self.header_gate).take() } else { None };
+        if let Some((arrived, go)) = gate {
+            arrived.notify_one();
+            wait_for_release(&go, "the header gate");
+        }
+        let hook = if sets_compaction { lock(&self.on_compaction).take() } else { None };
+        if let Some(hook) = hook {
+            hook();
+        }
+        let gate = {
+            let mut slot = lock(&self.title_gate);
+            let sets = |title: &str| batch.iter().any(|commit| matches!(&*commit.record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.get("title").and_then(|t| t.as_str()) == Some(title)));
+            if slot.as_ref().is_some_and(|(title, _, _)| sets(title)) { slot.take() } else { None }
+        };
+        if let Some((_, arrived, go)) = gate {
+            arrived.notify_one();
+            wait_off_worker(&go, "the title gate");
+        }
+        let mut log = lock(&self.log);
+        let first = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
+        let mut out = Vec::new();
+        for (next, commit) in (first..).zip(batch.iter()) {
+            log.push((next, (*commit.record).clone()));
+            out.push(next);
+        }
+        drop(log);
+        lock(&self.batches).push(batch.len());
+        self.committed.notify_waiters();
+        if self.fail_after_write.swap(false, Ordering::SeqCst) {
+            return Err(BarrierError::failed("test"));
+        }
+        Ok(out)
+    }
+
+    fn retry(&mut self, _lane: &InLane<DurabilityIo>) -> Result<(), BarrierError> {
+        Ok(())
+    }
+}
+
+impl ThreadStore for MemStore {
+    fn read_head(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<HeadRead, CoreError> {
+        self.head_reads.fetch_add(1, Ordering::SeqCst);
+        let records = self.records(id);
+        // A delete-marked session is not opened, as the real store refuses it (`store.rs` `open`: `is_deleted` is not found), though
+        // this store keeps the marked records its purge would have removed.
+        if records.is_empty() || self.header_of(id).is_ok_and(|header| mixdog_store::summary::is_deleted(&header)) {
+            return Err(CoreError::ThreadNotFound {
+                thread_id: id.clone(),
+            });
+        }
+        Ok(HeadRead(Box::new(records)))
+    }
+
+    fn read_header(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError> {
+        self.header_of(id)
+    }
+
+    fn read_log_id(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError> {
+        match self.records(id).first() {
+            Some((_, Record::Session(session))) => Ok(session.log_id.as_str().to_owned()),
+            _ => Err(CoreError::ThreadNotFound { thread_id: id.clone() }),
+        }
+    }
+
+    fn read_window(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        _id: &ThreadId,
+        _head: &HeadRead,
+    ) -> Result<WindowRead, CoreError> {
+        Ok(WindowRead(Box::new(())))
+    }
+
+    /// No checkpoint: every record is tail, folded by the session's own fold.
+    fn decode(
+        &self,
+        _lane: &InLane<CpuInteractive>,
+        id: &ThreadId,
+        head: HeadRead,
+        _window: WindowRead,
+    ) -> Result<OpenedLog, CoreError> {
+        let mut records = *head.0.downcast::<Vec<(u64, Record)>>().expect("MemStore head");
+        // An amended row opens as its amend body, as the real store's window reads it (`history_item`).
+        for at in 0..records.len() {
+            let Record::Amend(amend) = &records[at].1 else { continue };
+            let (iid, body) = (amend.iid.clone(), amend.body.clone());
+            for (_, record) in &mut records[..at] {
+                if let Record::Item(item) = record
+                    && item.iid.as_str() == iid.as_str()
+                {
+                    item.body = body.clone();
+                }
+            }
+        }
+        let (header, control, log_id) = match records.first() {
+            Some((_, Record::Session(session))) => (
+                match &session.header {
+                    Slot::Inline(header) => header.clone(),
+                    _ => Header::new(),
+                },
+                session.control,
+                session.log_id.as_str().to_owned(),
+            ),
+            _ => (Header::new(), false, String::new()),
+        };
+        // Each draft file folded over the log's draft records of its run (the session's fold reads those from the tail).
+        let drafts = self
+            .draft_files(id)
+            .into_iter()
+            .map(|(rid, bodies)| {
+                let mut draft = super::turn_draft::RunDraft::default();
+                for (_, record) in &records {
+                    match record {
+                        Record::Draft(d) if d.rid.as_str() == rid => {
+                            if let Slot::Inline(body) = &d.body {
+                                draft.apply(body);
+                            }
+                        }
+                        Record::Item(item) if item.turn.as_ref().is_some_and(|t| t.as_str() == rid) && item.role.as_ref().is_some_and(|r| r.as_str() == "assistant") => draft.message_committed(),
+                        _ => {}
+                    }
+                }
+                let landed = |iid: &str| records.iter().any(|(_, record)| matches!(record, Record::Item(item) if item.iid.as_str() == iid));
+                draft.apply_file(&bodies, landed);
+                (rid, draft)
+            })
+            .collect();
+        Ok(OpenedLog {
+            header,
+            control,
+            history_rev: 0,
+            lineage_start: 0,
+            runs: Vec::new(),
+            approvals: Vec::new(),
+            queue: Vec::new(),
+            window: Vec::new(),
+            archived: Vec::new(),
+            dividers: Vec::new(),
+            has_older: false,
+            prompts: Vec::new(),
+            log_id,
+            next_ordinal: records.last().map_or(0, |(ordinal, _)| ordinal + 1),
+            tail: records,
+            drafts,
+            append: AppendPosition(Box::new(())),
+        })
+    }
+
+    fn session_meta(
+        &self,
+        id: &ThreadId,
+    ) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
+        if let Some(summary) = lock(&self.summaries).get(id) {
+            let meta = super::seams::SessionMeta::of(None, &summary.to_string());
+            return Box::pin(async move { Ok(Some(meta)) });
+        }
+        let listed = self.listed.load(Ordering::SeqCst);
+        Box::pin(async move { Ok(listed.then(super::seams::SessionMeta::default)) })
+    }
+
+    fn archived_agent_parents(&self, _child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    /// As the index's `offload_referencers`: every other thread not deleted whose set (its header's, else a current
+    /// scan's, else any earlier scan's) names `id`, and every one whose header holds no set without a scan at its
+    /// current length (a log the catalog lists but that cannot be read, `unscannable`, among them), in id order, or
+    /// only the first damaged session while one is; an error naming the first copy naming `id` this boot is still
+    /// making.
+    fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>> {
+        use mixdog_store::offload_sources as sets;
+        let damaged = lock(&self.damaged).first().cloned();
+        let answer = match damaged {
+            Some(damaged) => Ok(super::seams::OffloadCopies { unreadable: Some(damaged), ..Default::default() }),
+            None => {
+                let segment = sets::segment_key(&sets::safe_segment(id.as_str()));
+                let names = |sources: &[String]| sources.iter().any(|source| sets::segment_key(source) == segment);
+                let mut threads: Vec<ThreadId> = lock(&self.logs).keys().filter(|thread| *thread != id).cloned().collect();
+                threads.sort();
+                let mut found = super::seams::OffloadCopies::default();
+                let mut copying = None;
+                for thread in threads {
+                    let at = self.records(&thread).len() as i64;
+                    let scan = lock(&self.scans).get(thread.as_str()).cloned();
+                    let header = match self.header_of(&thread) {
+                        Ok(header) if mixdog_store::summary::is_deleted(&header) => continue,
+                        Ok(header) => header,
+                        Err(CoreError::ThreadNotFound { .. }) => continue,
+                        Err(_) => {
+                            found.unknown.push((thread.as_str().to_owned(), at));
+                            continue;
+                        }
+                    };
+                    // A set of earlier rules counts with the scan's (a set only grows), as the index keeps its rows.
+                    let held = sets::holds_set(&header);
+                    let mut sources = sets::sources(&header);
+                    if !held {
+                        sources.extend(scan.as_ref().map(|(_, sources)| sources.clone()).unwrap_or_default());
+                    }
+                    if !held && scan.as_ref().is_none_or(|(scanned, _)| *scanned != at) {
+                        found.unknown.push((thread.as_str().to_owned(), at));
+                    }
+                    if !names(&sources) {
+                        continue;
+                    }
+                    if let Some((source, _)) = sets::mark(&header).filter(|(_, boot)| boot == sets::boot()) {
+                        copying.get_or_insert((thread.as_str().to_owned(), source));
+                    }
+                    found.copies.push(thread.as_str().to_owned());
+                }
+                match copying {
+                    Some((heir, source)) => Err(CoreError::Internal { incident_id: format!("session-store-copies: the session {heir} is still inheriting the conversation of {source}").into() }),
+                    None => Ok(found),
+                }
+            }
+        };
+        Box::pin(async move { answer })
+    }
+
+    /// Stored when the session still has `ordinal` records and its header holds no set.
+    fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        let thread = ThreadId::from(session.to_owned());
+        let current = self.records(&thread).len() as i64 == ordinal && self.header_of(&thread).is_ok_and(|header| !mixdog_store::offload_sources::holds_set(&header));
+        if current {
+            lock(&self.scans).insert(session.to_owned(), (ordinal, sources));
+        }
+        Box::pin(async { Ok(()) })
+    }
+
+    fn context_io(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        _read: Option<ContextRead>,
+    ) -> Result<ContextRead, CoreError> {
+        if self.fail_context.swap(false, Ordering::SeqCst) {
+            return Err(CoreError::Internal { incident_id: "context-read-failed".into() });
+        }
+        if lock(&self.damaged).contains(id.as_str()) {
+            return Err(Self::unreadable(id.as_str()));
+        }
+        Ok(ContextRead(Box::new((self.records(id), 0usize))))
+    }
+
+    /// One page: the last compaction's replacement, then the model rows after it, less the first `skip`.
+    fn context_cpu(
+        &self,
+        _lane: &InLane<CpuInteractive>,
+        read: ContextRead,
+    ) -> Result<ContextStep, CoreError> {
+        let (records, skip) = *read.0.downcast::<(Vec<(u64, Record)>, usize)>().expect("MemStore context");
+        let mut rows = model_rows(records);
+        rows.drain(..skip.min(rows.len()));
+        Ok(ContextStep::Done(rows))
+    }
+
+    fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError> {
+        let read = self.context_io(lane, id, None)?;
+        Ok(model_rows(read.0.downcast::<(Vec<(u64, Record)>, usize)>().expect("MemStore context").0).len())
+    }
+
+    fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<ContextRead, CoreError> {
+        let (records, _) = *self.context_io(lane, id, None)?.0.downcast::<(Vec<(u64, Record)>, usize)>().expect("MemStore context");
+        Ok(ContextRead(Box::new((records, skip))))
+    }
+
+    fn open_log(
+        &self,
+        _lane: &InLane<DurabilityIo>,
+        id: &ThreadId,
+        _at: AppendPosition,
+    ) -> Result<Box<dyn SessionLog>, BarrierError> {
+        Ok(Box::new(MemLog {
+            log: self.log(id),
+            fail_next: self.fail_next.clone(),
+            indeterminate_next: self.indeterminate_next.clone(),
+            failing: self.failing.clone(),
+            fail_after_write: self.fail_after_write.clone(),
+            fail_when: self.fail_when.clone(),
+            commit_gate: self.commit_gate.clone(),
+            header_gate: self.header_gate.clone(),
+            on_compaction: self.on_compaction.clone(),
+            title_gate: self.title_gate.clone(),
+            committed: self.committed.clone(),
+            batches: self.batches.clone(),
+        }))
+    }
+
+    fn create_log(
+        &self,
+        lane: &InLane<DurabilityIo>,
+        id: &ThreadId,
+        session: &CommitRecord,
+    ) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
+        let gate = lock(&self.create_gate).take();
+        if let Some((arrived, go)) = gate {
+            arrived.notify_one();
+            wait_for_release(&go, "the create gate");
+        }
+        let mut log = MemLog {
+            log: self.log(id),
+            fail_next: self.fail_next.clone(),
+            indeterminate_next: self.indeterminate_next.clone(),
+            failing: self.failing.clone(),
+            fail_after_write: self.fail_after_write.clone(),
+            fail_when: self.fail_when.clone(),
+            commit_gate: self.commit_gate.clone(),
+            header_gate: self.header_gate.clone(),
+            on_compaction: self.on_compaction.clone(),
+            title_gate: self.title_gate.clone(),
+            committed: self.committed.clone(),
+            batches: self.batches.clone(),
+        };
+        let ordinal = log.commit(lane, std::slice::from_ref(session))?[0];
+        Ok((Box::new(log), ordinal))
+    }
+
+    fn draft_write(&self, _lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError> {
+        use super::turn_draft::DraftWrite;
+        let thread = id.as_str().to_owned();
+        let mut drafts = lock(&self.drafts);
+        match write {
+            DraftWrite::Append { rid, body } => drafts.entry((thread, rid.clone())).or_default().push(body.clone()),
+            DraftWrite::Replace { rid, body } => drop(drafts.insert((thread, rid.clone()), vec![body.clone()])),
+            DraftWrite::Remove { rid } => drop(drafts.remove(&(thread, rid.clone()))),
+            DraftWrite::Sweep { open } => drafts.retain(|(t, rid), _| *t != thread || open.contains(rid)),
+        }
+        drop(drafts);
+        self.committed.notify_waiters();
+        Ok(())
+    }
+
+    /// Rewinds cut the lineage, as the real store reads it.
+    fn user_rows(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+    ) -> Result<Vec<ItemRecord>, CoreError> {
+        let mut rows: Vec<(u64, ItemRecord)> = Vec::new();
+        for (ordinal, record) in self.records(id) {
+            match record {
+                Record::Item(item) if item.role.as_ref().is_some_and(|r| r.as_str() == "user") => {
+                    rows.push((ordinal, item));
+                }
+                Record::Rewind(rewind) => rows.retain(|(o, _)| *o < rewind.to_ordinal),
+                _ => {}
+            }
+        }
+        Ok(rows.into_iter().map(|(_, row)| row).collect())
+    }
+
+    fn fenced_ops(&self, _lane: &InLane<InteractiveIo>, _id: &ThreadId) -> Result<Vec<String>, CoreError> {
+        Ok(Vec::new())
+    }
+
+    /// The in-memory store keeps no op index.
+    fn thread_op(&self, _lane: &InLane<InteractiveIo>, _id: &ThreadId, _op: &str) -> Result<Option<super::seams::StoredOp>, CoreError> {
+        Ok(None)
+    }
+
+    /// The first record of the log that accepted the submission, as the index projects it (`projection::receipt`).
+    fn submission(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId, submission: &str) -> Result<Option<Value>, CoreError> {
+        let mut inline_only = |_: &mixdog_store::schema::blob::BodyBlob| -> Result<Vec<u8>, String> { Err("the in-memory store holds bodies inline".into()) };
+        for (_, record) in self.records(id) {
+            if let Ok(Some(receipt)) = mixdog_store::projection::receipt(&record, &mut inline_only)
+                && receipt.submission == submission
+            {
+                return Ok(Some(receipt.answer));
+            }
+        }
+        Ok(None)
+    }
+
+    fn history_rows(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+    ) -> Result<(u64, Vec<ItemRecord>), CoreError> {
+        let records = self.records(id);
+        if records.is_empty() {
+            return Err(CoreError::ThreadNotFound { thread_id: id.clone() });
+        }
+        let mut rows: Vec<(u64, ItemRecord)> = Vec::new();
+        let mut rev = 0;
+        for (ordinal, record) in records {
+            match record {
+                Record::Item(item) => rows.push((ordinal, item)),
+                Record::Amend(amend) => amend_row(&mut rows, &amend),
+                Record::Rewind(rewind) => {
+                    rev += 1;
+                    rows.retain(|(o, _)| *o < rewind.to_ordinal);
+                }
+                _ => {}
+            }
+        }
+        Ok((rev, rows.into_iter().map(|(_, row)| row).collect()))
+    }
+
+    fn history_row(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        iid: &str,
+    ) -> Result<Option<(u64, ItemRecord)>, CoreError> {
+        Ok(self.live_row(id, iid))
+    }
+
+    /// The newest compaction a rewind left live with the entry inline, as the real reader.
+    fn compaction_entry(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        iid: &str,
+    ) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
+        let mut frames: Vec<mixdog_store::sqlite::CompactionEntry> = Vec::new();
+        for (ordinal, record) in self.records(id) {
+            match record {
+                Record::Compacted(c) => {
+                    if matches!(&c.replacement, Slot::Inline(entries) if entries.iter().any(|e| e.iid == iid)) {
+                        frames.push(mixdog_store::sqlite::CompactionEntry { ordinal, cid: c.cid.as_str().to_owned() });
+                    }
+                }
+                Record::Rewind(rewind) => frames.retain(|f| f.ordinal < rewind.to_ordinal),
+                _ => {}
+            }
+        }
+        Ok(frames.pop())
+    }
+}
+
+/// A [`ThreadStore`] that records the name of every call made through it, and forwards the call. The recording is the
+/// body of the one macro that forwards the methods, so a method added to the trait does not compile here until it is
+/// listed, and a listed one is recorded: a test that asserts the store was not called, or lists the calls, cannot miss
+/// a route to the store whatever the store behind it counts.
+pub struct CallCounted {
+    inner: Arc<dyn ThreadStore>,
+    calls: Mutex<Vec<&'static str>>,
+    hook: Option<CommitHook>,
+    held: Mutex<Option<HeldOperation>>,
+}
+
+/// The one call of a [`CallCounted`] being held: it has been entered (`entered`) and does not reach the store until `release`.
+pub struct HeldCall {
+    entered: tokio::sync::mpsc::UnboundedReceiver<()>,
+    release: std::sync::mpsc::Sender<()>,
+}
+
+/// How long a held call waits to be released, and a test waits for a call to be held, before the test fails.
+const HOLD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+impl HeldCall {
+    /// Resolves once the held call has been made and is waiting.
+    pub async fn entered(&mut self, name: &str) {
+        let entered = mixdog_rt::time::timeout(HOLD_DEADLINE, self.entered.recv()).await;
+        assert!(matches!(entered, Ok(Some(()))), "waiting for the store call {name} to be made");
+    }
+
+    /// Lets the held call through to the store.
+    pub fn release(self) {
+        self.release.send(()).expect("the held store call is waiting");
+    }
+}
+
+impl CallCounted {
+    pub fn new(inner: Arc<dyn ThreadStore>) -> Arc<Self> {
+        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default(), hook: None })
+    }
+
+    /// Holds the next call named `name` (a `ThreadStore` method) before it reaches the store: what the store holds at the moment it
+    /// is released is what that call reads.
+    pub fn hold(&self, name: &'static str) -> HeldCall {
+        let (entered, entered_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (release_tx, release) = std::sync::mpsc::channel();
+        *lock(&self.held) = Some((name, entered, release));
+        HeldCall { entered: entered_rx, release: release_tx }
+    }
+
+    fn gate(&self, name: &'static str) {
+        let mut held = lock(&self.held);
+        if held.as_ref().is_none_or(|(held, ..)| *held != name) {
+            return;
+        }
+        let (_, entered, release) = held.take().expect("checked above");
+        drop(held);
+        entered.send(()).expect("the test waits for the held call");
+        release.recv_timeout(HOLD_DEADLINE).unwrap_or_else(|_| panic!("the held store call {name} was never released"));
+    }
+
+    /// The name of each call so far, in order.
+    pub fn calls(&self) -> Vec<&'static str> {
+        lock(&self.calls).clone()
+    }
+}
+
+macro_rules! forwarded {
+    ($(fn $name:ident(&self $(, $arg:ident: $ty:ty)*) -> $ret:ty;)*) => {
+        $(
+            fn $name(&self $(, $arg: $ty)*) -> $ret {
+                lock(&self.calls).push(stringify!($name));
+                self.gate(stringify!($name));
+                self.inner.$name($($arg),*)
+            }
+        )*
+    };
+}
+
+impl ThreadStore for CallCounted {
+    forwarded! {
+        fn read_head(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<HeadRead, CoreError>;
+        fn read_header(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError>;
+        fn read_log_id(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError>;
+        fn read_window(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, head: &HeadRead) -> Result<WindowRead, CoreError>;
+        fn decode(&self, lane: &InLane<CpuInteractive>, id: &ThreadId, head: HeadRead, window: WindowRead) -> Result<OpenedLog, CoreError>;
+        fn user_rows(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<ItemRecord>, CoreError>;
+        fn history_rows(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<(u64, Vec<ItemRecord>), CoreError>;
+        fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<super::seams::StoredOp>, CoreError>;
+        fn submission(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, submission: &str) -> Result<Option<Value>, CoreError>;
+        fn fenced_ops(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<String>, CoreError>;
+        fn history_row(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<(u64, ItemRecord)>, CoreError>;
+        fn compaction_entry(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError>;
+        fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<ContextRead>) -> Result<ContextRead, CoreError>;
+        fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError>;
+        fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<ContextRead, CoreError>;
+        fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>>;
+        fn archived_agent_parents(&self, child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>>;
+        fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
+        fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>>;
+        fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>>;
+        fn context_cpu(&self, lane: &InLane<CpuInteractive>, read: ContextRead) -> Result<ContextStep, CoreError>;
+        fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError>;
+    }
+
+    fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError> {
+        lock(&self.calls).push("open_log");
+        Ok(self.hooked(self.inner.open_log(lane, id, at)?))
+    }
+
+    fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
+        lock(&self.calls).push("create_log");
+        let (log, ordinal) = self.inner.create_log(lane, id, session)?;
+        Ok((self.hooked(log), ordinal))
+    }
+}
+
+/// Where a hooked log is when its hook runs: before a batch is handed to the store, between two of its records, or after the store
+/// acknowledged it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommitPoint {
+    Before,
+    /// The first `written` records of the batch are on disk. The store's format (FORMAT.md §7: a crash during a batch leaves a
+    /// prefix of its frames, each complete one committed) makes every such prefix a state a kill can leave, so the hooked log
+    /// writes a batch one record at a time and calls the hook between them.
+    Within { written: usize },
+    After,
+}
+
+/// Called on the durability thread around each `commit` of a log opened through [`CallCounted::with_commit_hook`]; a hook that
+/// never returns holds the write there, so a parent can end the process at that point.
+pub type CommitHook = Arc<dyn Fn(CommitPoint) + Send + Sync>;
+
+struct HookedLog {
+    inner: Box<dyn SessionLog>,
+    hook: CommitHook,
+}
+
+impl SessionLog for HookedLog {
+    fn commit(&mut self, lane: &InLane<DurabilityIo>, batch: &[CommitRecord]) -> Result<Vec<u64>, BarrierError> {
+        (self.hook)(CommitPoint::Before);
+        let mut ordinals = Vec::with_capacity(batch.len());
+        for (written, record) in batch.chunks(1).enumerate() {
+            if written > 0 {
+                (self.hook)(CommitPoint::Within { written });
+            }
+            ordinals.extend(self.inner.commit(lane, record)?);
+        }
+        (self.hook)(CommitPoint::After);
+        Ok(ordinals)
+    }
+
+    fn retry(&mut self, lane: &InLane<DurabilityIo>) -> Result<(), BarrierError> {
+        self.inner.retry(lane)
+    }
+
+    fn redact(&mut self, lane: &InLane<DurabilityIo>) {
+        self.inner.redact(lane);
+    }
+}
+
+impl CallCounted {
+    /// [`Self::new`] whose logs call `hook` around each commit.
+    pub fn with_commit_hook(inner: Arc<dyn ThreadStore>, hook: CommitHook) -> Arc<Self> {
+        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default(), hook: Some(hook) })
+    }
+
+    fn hooked(&self, log: Box<dyn SessionLog>) -> Box<dyn SessionLog> {
+        match &self.hook {
+            Some(hook) => Box::new(HookedLog { inner: log, hook: hook.clone() }),
+            None => log,
+        }
+    }
+}
+
+/// The model context of a log's records: the last compaction's replacement, then the model rows after it.
+fn model_rows(records: Vec<(u64, Record)>) -> Vec<(ItemId, Value)> {
+    // Each row with the ordinal of the record that wrote it, so a rewind drops what it rewinds past.
+    let mut out: Vec<(u64, ItemId, Value)> = Vec::new();
+    for (ordinal, record) in records {
+        match record {
+            Record::Compacted(compacted) => {
+                out = match compacted.replacement {
+                    Slot::Inline(entries) => entries.into_iter().map(|e| (ordinal, ItemId::from(e.iid), e.body)).collect(),
+                    _ => Vec::new(),
+                };
+            }
+            Record::Item(item) if item.model => {
+                if let Slot::Inline(body) = item.body {
+                    out.push((ordinal, ItemId::from(item.iid.as_str().to_owned()), body));
+                }
+            }
+            // An amended row reads as its amend body, as the real store's context rows do.
+            Record::Amend(amend) => {
+                if let (Slot::Inline(body), Some(row)) = (amend.body, out.iter_mut().find(|(_, iid, _)| iid.as_str() == amend.iid.as_str())) {
+                    row.2 = body;
+                }
+            }
+            // A rewound row leaves the context, as it leaves the real store's.
+            Record::Rewind(rewind) => out.retain(|(o, _, _)| *o < rewind.to_ordinal),
+            _ => {}
+        }
+    }
+    out.into_iter().map(|(_, iid, body)| (iid, body)).collect()
+}
+
+/// An amend replaces the body (and blob refs) of its live row, as the real store's readers see it.
+fn amend_row(rows: &mut [(u64, ItemRecord)], amend: &mixdog_store::schema::record::AmendRecord) {
+    if let Some((_, row)) = rows.iter_mut().find(|(_, row)| row.iid.as_str() == amend.iid.as_str()) {
+        row.body = amend.body.clone();
+    }
+}
+
+impl MemStore {
+    /// The live item `iid` with its ordinal, its boundaries folded in as the real reader does.
+    fn live_row(&self, id: &ThreadId, iid: &str) -> Option<(u64, ItemRecord)> {
+        let mut rows: Vec<(u64, ItemRecord)> = Vec::new();
+        let mut switches = Vec::new();
+        for (ordinal, record) in self.records(id) {
+            match record {
+                Record::Item(item) => rows.push((ordinal, item)),
+                Record::Amend(amend) => amend_row(&mut rows, &amend),
+                Record::Rewind(rewind) => rows.retain(|(o, _)| *o < rewind.to_ordinal),
+                Record::ModelSwitch(switch) => switches.push(switch),
+                _ => {}
+            }
+        }
+        let (ordinal, mut row) = rows.into_iter().find(|(_, row)| row.iid.as_str() == iid)?;
+        let entries: Vec<_> = switches
+            .into_iter()
+            .filter(|s| s.anchor.ordinal == ordinal && s.anchor.iid.as_str() == iid)
+            .filter_map(|s| match s.entry {
+                Slot::Inline(entry) => Some(entry),
+                Slot::Blob(_) => None,
+            })
+            .collect();
+        super::transcript::fold_model_switches(&mut row, &entries);
+        Some((ordinal, row))
+    }
+
+    /// Seeds a log with records as if a writer had committed them.
+    pub fn seed(&self, id: &ThreadId, records: Vec<Record>) {
+        let log = self.log(id);
+        let mut log = lock(&log);
+        let first = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
+        for (next, record) in (first..).zip(records) {
+            log.push((next, record));
+        }
+    }
+}
+
+
+/// User rows show `{text}` bodies as a text part; every other row as an agent message.
+pub struct TextTranscript;
+
+impl Transcript for TextTranscript {
+    /// The test rows are their items' own JSON.
+    fn rows(&self, lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<(ThreadItem, usize)> {
+        self.items(lane, record)
+            .into_iter()
+            .filter_map(|shown| match shown {
+                Shown::Item(item) => {
+                    let bytes = serde_json::to_vec(&item).expect("protocol types serialize").len();
+                    Some((item, bytes))
+                }
+                Shown::Update(_) => None,
+            })
+            .collect()
+    }
+
+    /// A `{toolCallId, text}` body updates the call `call:<toolCallId>` a `{toolCalls}` body
+    /// showed.
+    fn items(&self, _lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<Shown> {
+        let Slot::Inline(body) = &record.body else {
+            return Vec::new();
+        };
+        // A Goal entry's prompt is listed but shows no row of its own, as with [`RecordTranscript`]: its text is the runtime's, so
+        // it has no prompt text. One that got prompt text shows as a user row here too, so the tests catch it.
+        if record.prompt.is_none() && super::goal_lane::is_goal_prompt(body) {
+            return Vec::new();
+        }
+        if let Some(call) = body["toolCallId"].as_str() {
+            return vec![Shown::Update(ThreadItem::ToolCall {
+                id: format!("call:{call}").as_str().into(),
+                name: String::new(),
+                input: Value::Null,
+                output: None,
+                run: Box::new(mixdog_protocol::ToolRun {
+                    call_id: Some(call.to_owned()),
+                    result: Some(MaybeBlob::Inline(
+                        body["text"].as_str().unwrap_or_default().to_owned(),
+                    )),
+                    ..Default::default()
+                }),
+                meta: ItemMeta::default(),
+            })];
+        }
+        let mut shown: Vec<Shown> = text_item(record, body).map(Shown::Item).into_iter().collect();
+        for call in body["toolCalls"].as_array().into_iter().flatten() {
+            shown.push(Shown::Item(ThreadItem::ToolCall {
+                id: format!("call:{}", call["id"].as_str().unwrap_or_default()).as_str().into(),
+                name: call["name"].as_str().unwrap_or_default().to_owned(),
+                input: call["arguments"].clone(),
+                output: None,
+                run: Box::new(mixdog_protocol::ToolRun { call_id: call["id"].as_str().map(str::to_owned), ..Default::default() }),
+                meta: ItemMeta::default(),
+            }));
+        }
+        shown
+    }
+
+    fn queued(&self, qid: &str, entry: &Value) -> Value {
+        json!({ "id": qid, "text": entry["message"] })
+    }
+
+    fn user_message(&self, input: &TurnInput, _originals_missing: u32) -> Value {
+        match &input.prompt {
+            PromptContent::Text(text) => json!({ "role": "user", "content": text }),
+            PromptContent::Parts(_) => json!({ "role": "user", "content": "" }),
+        }
+    }
+
+    fn summary(&self, id: &ThreadId, header: &Header) -> ThreadSummary {
+        serde_json::from_value(json!({
+            "id": id,
+            "preview": "",
+            "title": header.get("title").and_then(Value::as_str).unwrap_or_default(),
+            "updatedAt": 0,
+            "messageCount": 0,
+            "cwd": header.get("cwd").and_then(Value::as_str).unwrap_or_default(),
+            "classification": {},
+            "projectPath": null,
+        }))
+        .expect("summary shape")
+    }
+}
+
+/// A `{text}` body's item: a user message for a user row, else an agent message; none for an
+/// empty non-user text.
+fn text_item(record: &ItemRecord, body: &Value) -> Option<ThreadItem> {
+    {
+        let text = body["text"].as_str().or(body["content"].as_str()).unwrap_or_default().to_owned();
+        if record.role.as_ref().map(|r| r.as_str()) != Some("user") && text.is_empty() {
+            return None;
+        }
+        let meta = ItemMeta {
+            turn_id: record.turn.as_ref().map(|turn| TurnId::from(turn.as_str())),
+            ..ItemMeta::default()
+        };
+        let id = record.iid.as_str().into();
+        Some(match record.role.as_ref().map(|role| role.as_str()) {
+            Some("user") => ThreadItem::UserMessage {
+                id,
+                content: vec![UserInput::Text { text: text.clone() }],
+                device: None,
+                client_submission_id: None,
+                checkpoint_id: None,
+                applied_skills: None,
+                display_text: text,
+                counts_for_prompt_history: true,
+                details: Default::default(),
+                meta,
+            },
+            _ => ThreadItem::AgentMessage {
+                id,
+                text: MaybeBlob::Inline(text),
+                imported_tool_runs: Vec::new(),
+                meta,
+            },
+        })
+    }
+}
+
+pub type Script =
+    Arc<dyn Fn(RunStart) -> Pin<Box<dyn Future<Output = RunOutcome> + Send>> + Send + Sync>;
+
+/// Runs whose body the test sets.
+pub struct ScriptRuns {
+    pub script: Mutex<Script>,
+    /// The input row each crashed run was recovered with.
+    pub crashed: Mutex<Vec<Option<mixdog_core_api::ids::ItemId>>>,
+    /// The draft each crashed run was recovered with.
+    pub crashed_drafts: Mutex<Vec<super::turn_draft::RunDraft>>,
+}
+
+impl RunFactory for ScriptRuns {
+    fn start(&self, run: RunStart) -> Pin<Box<dyn Future<Output = RunOutcome> + Send>> {
+        let script = lock(&self.script).clone();
+        script(run)
+    }
+
+    /// A scripted run commits rows the script chose; its crash leaves none unless it left no draft: the conversation
+    /// then restarts as a reconnect recovery leaves it (`recover_after_restart`). The run host's own finalization,
+    /// of a draft too, is `RunHostFactory`'s.
+    fn crashed(&self, run: super::seams::CrashedRun) -> super::seams::CrashedRows {
+        lock(&self.crashed).push(run.input.clone());
+        let undrafted = run.draft == super::turn_draft::RunDraft { input: run.draft.input.clone(), context_tokens: run.draft.context_tokens, ..Default::default() };
+        lock(&self.crashed_drafts).push(run.draft);
+        if !undrafted {
+            return super::seams::CrashedRows::default();
+        }
+        let bodies: Vec<Value> = run.context.iter().map(|(_, body)| body.clone()).collect();
+        let Ok(recovered) = mixdog_agent::interrupt::recover_after_restart(&bodies) else {
+            return super::seams::CrashedRows::default();
+        };
+        let (mut rows, mut replacement, mut changed) = (Vec::new(), Vec::new(), false);
+        for row in recovered {
+            match row {
+                mixdog_agent::interrupt::RecoveredRow::Kept { index, body } => {
+                    changed |= body != run.context[index].1;
+                    replacement.push((run.context[index].0.clone(), body));
+                }
+                mixdog_agent::interrupt::RecoveredRow::New { role, mut body } => {
+                    changed = true;
+                    let iid = super::run::new_item_id();
+                    // Classified as a live commit's row is, as the run host's finalization does: the restart line is the turn's cancelled end.
+                    struct NoBlobs;
+                    impl mixdog_protocol::message_class::user_text::Blobs for NoBlobs {
+                        fn text_within(&self, _: &str, _: u64) -> Result<Option<String>, mixdog_protocol::message_class::user_text::ReadError> {
+                            Ok(None)
+                        }
+                    }
+                    let facts = super::user_facts::user_facts(&mut body, &NoBlobs);
+                    replacement.push((iid.clone(), body.clone()));
+                    rows.push(super::run::ItemCommit { iid, role: Some(role.to_owned()), model: true, visible: facts.visible, body, prompt: facts.prompt });
+                }
+            }
+        }
+        super::seams::CrashedRows { sealed: false, rows, context: changed.then_some(replacement), context_tokens: None }
+    }
+}
+
+/// A [`MockFeed`] that also keeps every published frame, decoded.
+pub struct RecFeed {
+    inner: MockFeed,
+    pub frames: Mutex<Vec<(u64, Value)>>,
+    published: Arc<tokio::sync::Notify>,
+    gate: PublishGate,
+    /// This feed's place among the thread's feed instances (one per incarnation), and the shared event log it tells each new toast to.
+    instance: usize,
+    timeline: Timeline,
+    shown: Mutex<std::collections::HashSet<String>>,
+}
+
+/// A test's ordered event log, shared by the sources it wants in one sequence.
+pub type EventLog = Arc<Mutex<Vec<Value>>>;
+pub type Timeline = Arc<Mutex<Option<EventLog>>>;
+
+/// The next publication that carries a toast with this text tells `.1` it arrived, then waits for `.2` before the frames are recorded.
+type PublishGate = Arc<Mutex<Option<(String, Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
+
+fn carries_toast(frame: &Value, text: &str) -> bool {
+    frame["method"] == "thread/runtime/updated"
+        && frame["params"]["value"]["toasts"].as_array().is_some_and(|toasts| toasts.iter().any(|toast| toast["text"] == text))
+}
+
+impl FeedSource for RecFeed {
+    fn position(&self) -> FeedPosition {
+        self.inner.position()
+    }
+
+    fn feed_id(&self) -> FeedId {
+        self.inner.feed_id()
+    }
+
+    fn attach(&self, req: AttachRequest) -> Result<AttachDecision, CoreError> {
+        self.inner.attach(req)
+    }
+
+    fn detach(&self, sub: SubscriptionId) {
+        self.inner.detach(sub)
+    }
+}
+
+impl Feed for RecFeed {
+    fn publish(&self, frames: &[FeedFrame], view: Option<Arc<dyn FeedView>>) -> Result<(), PublishError> {
+        let decoded: Vec<(u64, Value)> =
+            frames.iter().map(|f| (f.seq, serde_json::from_slice(&f.bytes).expect("frames are JSON"))).collect();
+        let held = {
+            let mut gate = lock(&self.gate);
+            match gate.as_ref() {
+                Some((text, ..)) if decoded.iter().any(|(_, frame)| carries_toast(frame, text)) => gate.take(),
+                _ => None,
+            }
+        };
+        if let Some((_, arrived, go)) = held {
+            arrived.notify_one();
+            wait_for_release(&go, "the publish gate");
+        }
+        if let Some(log) = lock(&self.timeline).clone() {
+            let mut shown = lock(&self.shown);
+            for (_, frame) in &decoded {
+                if frame["method"] != "thread/runtime/updated" {
+                    continue;
+                }
+                for toast in frame["params"]["value"]["toasts"].as_array().into_iter().flatten() {
+                    if shown.insert(toast["id"].as_str().unwrap_or_default().to_owned()) {
+                        let label = char::from(b'A' + self.instance as u8).to_string();
+                        lock(&log).push(json!({ "notice": { "text": toast["text"], "tone": toast["tone"] }, "incarnation": label }));
+                    }
+                }
+            }
+        }
+        lock(&self.frames).extend(decoded);
+        let published = self.inner.publish(frames, view);
+        self.published.notify_waiters();
+        published
+    }
+}
+
+/// The turns' workspace admissions: `admit:<thread>` when one is admitted, `release:<thread>`
+/// when its guard drops; `refuse` answers the next admission with that failure instead. The
+/// workspace gate records `<thread>:<submission id>:<prompt>` in `prepared`; `refuse_prepare`
+/// answers the next gate with that failure instead.
+#[derive(Default)]
+pub struct TestAdmission {
+    pub seen: Arc<Mutex<Vec<String>>>,
+    pub refuse: Mutex<Option<mixdog_scm::error::ScmFailure>>,
+    pub prepared: Arc<Mutex<Vec<String>>>,
+    pub refuse_prepare: Mutex<Option<mixdog_scm::error::ScmFailure>>,
+    /// Wakes after each admission and release is recorded.
+    pub changed: Arc<tokio::sync::Notify>,
+}
+
+struct Released(Arc<Mutex<Vec<String>>>, String, Arc<tokio::sync::Notify>);
+
+impl Drop for Released {
+    fn drop(&mut self) {
+        lock(&self.0).push(format!("release:{}", self.1));
+        self.2.notify_waiters();
+    }
+}
+
+#[async_trait::async_trait]
+impl super::worktree::TurnAdmission for TestAdmission {
+    async fn admit(
+        &self,
+        thread: &str,
+        _cwd: super::worktree::Cwd,
+        _cancel: &mixdog_rt::CancellationToken,
+    ) -> Result<Box<dyn Send>, mixdog_scm::error::ScmFailure> {
+        if let Some(failure) = lock(&self.refuse).take() {
+            return Err(failure);
+        }
+        lock(&self.seen).push(format!("admit:{thread}"));
+        self.changed.notify_waiters();
+        Ok(Box::new(Released(self.seen.clone(), thread.to_owned(), self.changed.clone())))
+    }
+
+    async fn prepare(
+        &self,
+        thread: &str,
+        start: super::worktree::TurnStart,
+        _cancel: &mixdog_rt::CancellationToken,
+    ) -> Result<(), mixdog_scm::error::ScmFailure> {
+        if let Some(failure) = lock(&self.refuse_prepare).take() {
+            return Err(failure);
+        }
+        lock(&self.prepared).push(format!("{thread}:{}:{}", start.submission_id, start.prompt));
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+pub struct RecFeeds {
+    pub feeds: Mutex<HashMap<FeedId, Vec<Arc<RecFeed>>>>,
+    /// Wakes whenever any feed took frames: the signal a test waits on instead of polling the clock
+    /// (`eventually_on!`).
+    pub published: Arc<tokio::sync::Notify>,
+    /// The next publication of any feed that carries a toast with `.0`'s text tells `.1` it arrived, then waits for `.2`.
+    pub publish_gate: PublishGate,
+    /// When set, each toast a feed publishes for the first time is told to this log as `{notice: {text, tone}, incarnation}`.
+    pub timeline: Timeline,
+}
+
+impl RecFeeds {
+    /// Every frame of `id`'s feeds in publication order, as `(seq, decoded frame)`: append-only, whatever the newest state is.
+    pub fn history(&self, id: &str) -> Vec<(u64, Value)> {
+        self.histories(id).into_iter().flatten().collect()
+    }
+
+    /// The frames of each feed instance of `id` (one per incarnation of the thread), oldest instance first.
+    pub fn histories(&self, id: &str) -> Vec<Vec<(u64, Value)>> {
+        let feeds = lock(&self.feeds);
+        feeds.get(&FeedId::from(id)).into_iter().flatten().map(|feed| lock(&feed.frames).clone()).collect()
+    }
+
+    /// Frames of the newest feed instance of `id`, as `(seq, method, params)`.
+    pub fn frames(&self, id: &str) -> Vec<(u64, String, Value)> {
+        let feeds = lock(&self.feeds);
+        let Some(feed) = feeds.get(&FeedId::from(id)).and_then(|all| all.last()) else {
+            return Vec::new();
+        };
+        lock(&feed.frames)
+            .iter()
+            .map(|(seq, frame)| {
+                (
+                    *seq,
+                    frame["method"].as_str().unwrap_or_default().to_owned(),
+                    frame["params"].clone(),
+                )
+            })
+            .collect()
+    }
+}
+
+impl FeedFactory for RecFeeds {
+    fn thread_feed(&self, id: FeedId, epoch: FeedEpoch, view: Arc<dyn FeedView>) -> Arc<dyn Feed> {
+        let instance = lock(&self.feeds).get(&id).map_or(0, Vec::len);
+        let feed = Arc::new(RecFeed {
+            instance,
+            timeline: self.timeline.clone(),
+            shown: Mutex::default(),
+            inner: MockFeed::new(id.clone(), epoch, view, MockLimits::default()),
+            frames: Mutex::new(Vec::new()),
+            published: self.published.clone(),
+            gate: self.publish_gate.clone(),
+        });
+        lock(&self.feeds).entry(id).or_default().push(feed.clone());
+        feed
+    }
+}
+
+#[derive(Default)]
+pub struct Counter(AtomicU64);
+
+#[async_trait::async_trait]
+impl ApprovalIds for Counter {
+    async fn next(&self) -> Result<ApprovalId, CoreError> {
+        Ok(ApprovalId(self.0.fetch_add(1, Ordering::SeqCst) + 1))
+    }
+}
+
+/// No shell runtime: a loaded session carries no strip until one is published.
+pub struct NoShellStrips;
+
+impl super::shell_jobs::ShellStrips for NoShellStrips {
+    fn strip(&self, _thread: &ThreadId) -> Option<serde_json::Value> {
+        None
+    }
+}
+
+pub struct NamedDevices;
+
+impl Devices for NamedDevices {
+    fn describe(&self, connection: ConnectionId) -> DeviceInfo {
+        DeviceInfo {
+            device: format!("desktop-{connection}"),
+            kind: ConnectionKind::Desktop,
+        }
+    }
+}
+
+pub struct FixedClock(pub AtomicU64);
+
+impl Clock for FixedClock {
+    fn now_ms(&self) -> i64 {
+        self.0.load(Ordering::SeqCst) as i64
+    }
+}
+
+/// The surface follows the header's persisted `disallowedTools`.
+pub struct HeaderSurfaces;
+
+/// A new thread keeps the header it was started with (no tool pool behind it).
+pub struct KeepHeader;
+
+#[async_trait::async_trait]
+impl super::NewThreadTools for KeepHeader {
+    async fn seed(&self, _: &ThreadId, header: &Header) -> Result<Header, String> {
+        Ok(header.clone())
+    }
+}
+
+/// A created thread's header as production seeds it: the surface host writes the session's orchestration mode into it
+/// (`sessionOptions`: the configured mode, `balanced` with no config), so a thread never shows a legacy-derived mode.
+pub struct ConfiguredMode;
+
+#[async_trait::async_trait]
+impl super::NewThreadTools for ConfiguredMode {
+    async fn seed(&self, _: &ThreadId, header: &Header) -> Result<Header, String> {
+        let mut header = header.clone();
+        header.entry("orchestrationMode".to_owned()).or_insert_with(|| serde_json::json!("balanced"));
+        Ok(header)
+    }
+}
+
+/// An emptied thread's surface is always rebuilt (no surface host behind it).
+pub struct NoEmptySurface;
+
+#[async_trait::async_trait]
+impl super::EmptyToolSurface for NoEmptySurface {
+    async fn refresh_empty(&self, _: &ThreadId) -> Result<bool, String> {
+        Ok(true)
+    }
+}
+
+/// A new thread begins with no route of its own (no route service behind it).
+pub struct NoRoute;
+
+#[async_trait::async_trait]
+impl super::NewThreadRoute for NoRoute {
+    async fn adopt(&self, _: &ThreadId, _: Option<&serde_json::Map<String, serde_json::Value>>) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+        Ok(serde_json::Map::new())
+    }
+
+    async fn adopt_control(&self, _: &ThreadId) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+        Ok(serde_json::Map::new())
+    }
+
+    async fn seat(&self, _: &ThreadId) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// The draft's settings, every call answered and none applied (no settings service behind it).
+pub struct NoDraftSettings;
+
+#[async_trait::async_trait]
+impl super::DraftSettings for NoDraftSettings {
+    async fn set_workflow(&self, _: &ThreadId, _: &str) -> Result<(), mixdog_core_api::CoreError> {
+        Ok(())
+    }
+
+    async fn set_orchestration_mode(&self, _: &ThreadId, _: &str) -> Result<(), mixdog_core_api::CoreError> {
+        Ok(())
+    }
+}
+
+/// A task workspace that is a fixed path (no folder is made).
+pub struct FixedTaskWorkspace(pub &'static str);
+
+#[async_trait::async_trait]
+impl super::TaskWorkspace for FixedTaskWorkspace {
+    async fn path(&self) -> Result<String, String> {
+        Ok(self.0.to_owned())
+    }
+}
+
+/// Agent display names that are the ids.
+pub struct IdAgentNames;
+
+#[async_trait::async_trait]
+impl super::delegation::AgentNames for IdAgentNames {
+    async fn name(&self, agent_id: &str) -> String {
+        agent_id.to_owned()
+    }
+}
+
+/// A new-thread place with fixed Projects that records the worktree steps it is asked for (thread, worktree, input).
+#[derive(Default)]
+pub struct RecordingPlace {
+    pub projects: Vec<String>,
+    pub entered: std::sync::Mutex<Vec<(String, Value, Option<Value>)>>,
+    /// The Projects marked used after an accepted new task, in order; `touch_error` makes that write fail.
+    pub touched: std::sync::Mutex<Vec<String>>,
+    pub touch_error: Option<String>,
+}
+
+#[async_trait::async_trait]
+impl super::NewThreadPlace for RecordingPlace {
+    async fn projects(&self) -> Result<Vec<String>, String> {
+        Ok(self.projects.clone())
+    }
+
+    async fn touch_project(&self, path: &str) -> Result<(), String> {
+        self.touched.lock().expect("touched").push(path.to_owned());
+        self.touch_error.clone().map_or(Ok(()), Err)
+    }
+
+    async fn enter_worktree(
+        &self,
+        thread: &ThreadId,
+        worktree: &Value,
+        input: Option<&Value>,
+        _: &mixdog_rt::CancellationToken,
+    ) -> Result<(), mixdog_core_api::CoreError> {
+        self.entered.lock().expect("entered").push((thread.as_str().to_owned(), worktree.clone(), input.cloned()));
+        Ok(())
+    }
+}
+
+/// The rooms whose members' handed-off questions moved, and the member approvals resolved
+/// (`room:approval`), in order.
+#[derive(Default)]
+pub struct TestRoomMembers {
+    pub moved: Mutex<Vec<String>>,
+    pub resolved: Mutex<Vec<String>>,
+    /// The hosted rooms and what a Stop on each reports.
+    pub hosted: Mutex<std::collections::HashMap<String, bool>>,
+    /// The rooms a Stop reached, in order.
+    pub stopped: Mutex<Vec<String>>,
+    /// Wakes after each event is recorded.
+    pub changed: tokio::sync::Notify,
+}
+
+impl super::RoomMemberEvents for TestRoomMembers {
+    fn questions_moved(&self, room_id: &str) {
+        lock(&self.moved).push(room_id.to_owned());
+        self.changed.notify_waiters();
+    }
+    fn approval_resolved(&self, room_id: &str, approval_id: &str) {
+        lock(&self.resolved).push(format!("{room_id}:{approval_id}"));
+        self.changed.notify_waiters();
+    }
+    fn stop_room(&self, room_id: &str) -> Option<mixdog_core_api::thread::RoomStopped> {
+        let outcome = lock(&self.hosted).get(room_id).copied()?;
+        lock(&self.stopped).push(room_id.to_owned());
+        Some(mixdog_core_api::thread::RoomStopped { stopped: outcome, saved: Box::pin(async { Ok(()) }) })
+    }
+}
+
+/// The resumed-thread tool refreshes the rig was asked for, and the change it answers each with.
+#[derive(Default)]
+pub struct TestResumedTools {
+    pub asked: Mutex<Vec<String>>,
+    pub change: Mutex<Option<mixdog_store::schema::record::HeaderChange>>,
+}
+
+#[async_trait::async_trait]
+impl super::ResumedTools for TestResumedTools {
+    async fn refreshed(&self, thread: &ThreadId, _: &Header) -> Option<mixdog_store::schema::record::HeaderChange> {
+        lock(&self.asked).push(thread.as_str().to_owned());
+        lock(&self.change).clone()
+    }
+}
+
+impl ToolSurfaceSource for HeaderSurfaces {
+    fn surface(&self, _thread: &ThreadId, header: &Header) -> SessionSurface {
+        SessionSurface {
+            disallowed: header
+                .get("disallowedTools")
+                .and_then(Value::as_array)
+                .map(|names| {
+                    names
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            ..SessionSurface::default()
+        }
+    }
+}
+
+/// The rig's prompt-history store: the real file store, telling wrote after each append (the write runs on a lane thread).
+pub(crate) struct NotifyingPrompts(pub Arc<FilePromptHistory>, pub Arc<tokio::sync::Notify>);
+
+impl super::prompt_history::PromptHistoryStore for NotifyingPrompts {
+    fn load(&self, lane: &InLane<InteractiveIo>, cwd: &str) -> Vec<String> {
+        self.0.load(lane, cwd)
+    }
+
+    fn append(&self, lane: &InLane<DurabilityIo>, cwd: &str, text: &str) -> super::prompt_history::Appended {
+        let appended = self.0.append(lane, cwd, text);
+        self.1.notify_waiters();
+        appended
+    }
+
+    fn redact(&self, lane: &InLane<DurabilityIo>, cwd: &str, redact: &dyn Fn(&str) -> String) {
+        self.0.redact(lane, cwd, redact);
+        self.1.notify_waiters();
+    }
+}
+
+/// The Goal runtime's clock in the test runtime's time domain: wall time from when the Rig was
+/// built, advanced by the tokio clock (paused or not), paired with the same clock as its
+/// monotonic reading, so a suspend is never inferred.
+struct RigGoalClock {
+    wall_ms: f64,
+    start: tokio::time::Instant,
+}
+
+impl RigGoalClock {
+    fn new() -> Self {
+        let wall_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |since| since.as_secs_f64() * 1000.0);
+        Self { wall_ms, start: tokio::time::Instant::now() }
+    }
+}
+
+impl mixdog_core_goal::goal::GoalClock for RigGoalClock {
+    fn now(&self) -> f64 {
+        self.wall_ms + self.start.elapsed().as_secs_f64() * 1000.0
+    }
+
+    fn monotonic(&self) -> Option<f64> {
+        Some(self.start.elapsed().as_secs_f64() * 1000.0)
+    }
+}
+
+/// The Goal runtime's deadlines as tasks of the runtime that arms them: they follow that runtime's
+/// clock and die with it, and no callback runs inside another test's runtime.
+pub(crate) struct RigGoalTimers;
+
+impl mixdog_core_goal::goal::GoalTimers for RigGoalTimers {
+    fn after(&self, _kind: mixdog_core_goal::goal::TimerKind, delay_ms: f64, callback: Box<dyn FnOnce() + Send>) -> mixdog_core_goal::goal::Timer {
+        let cancel = mixdog_rt::CancellationToken::new();
+        let stop = cancel.clone();
+        let delay = std::time::Duration::from_secs_f64(delay_ms.max(0.0) / 1000.0);
+        drop(tokio::spawn(async move {
+            tokio::select! {
+                () = stop.cancelled() => {}
+                () = mixdog_rt::time::sleep(delay) => callback(),
+            }
+        }));
+        mixdog_core_goal::goal::Timer::new(move || cancel.cancel())
+    }
+}
+
+/// One wired session stack over shared doubles.
+pub struct Rig {
+    pub store: Arc<MemStore>,
+    /// The real file store over a temp data dir.
+    pub prompts: Arc<FilePromptHistory>,
+    /// Woken after each append to prompts.
+    pub prompts_wrote: Arc<tokio::sync::Notify>,
+    /// Holds the temp data dir for the rig's lifetime.
+    pub _data: tempfile::TempDir,
+    pub runs: Arc<ScriptRuns>,
+    pub feeds: Arc<RecFeeds>,
+    pub sink: Arc<MockServerRequests>,
+    pub clock: Arc<FixedClock>,
+    pub turn_starts: Arc<super::LateTurnStarts>,
+    /// Every turn's workspace admission and its release, in order.
+    pub admissions: Arc<TestAdmission>,
+    pub wakes: Arc<mixdog_tools::exec::WakeHub>,
+    /// The warmer's turn notes: each turn's `cacheWarmTurnKind` input, and how many ended.
+    pub warms: Arc<RecWarmth>,
+    /// The built-in skill names the turns read (None: the status cannot be read).
+    pub builtin_skills: Arc<TestBuiltinSkills>,
+    pub ingests: Arc<Ingests>,
+    pub closes: Arc<Closes>,
+    pub sensitive: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
+    /// What deletes did outside the session, in order.
+    pub deletes: Arc<Deletes>,
+    /// The snapshot releases, stops and the dispose, in order.
+    pub snapshots: Arc<TestSnapshots>,
+    /// The notice events, in order.
+    pub notices: Arc<TestNotices>,
+    /// The settings scopes announced to every client, in order.
+    pub settings_changes: Arc<TestSettingsChanges>,
+    /// The real Goal runtime over the temp data dir.
+    pub goals: mixdog_core_goal::goal::GoalRuntime,
+    /// The session's todo list, and the background work it waits on, as a Goal continuation
+    /// reads them.
+    pub todos: Arc<TestTodos>,
+    pub work: Arc<TestWork>,
+    /// The agent status every session reads after a job of it changed.
+    pub agents: Arc<TestAgents>,
+    /// The code-graph prewarm calls the actors made, in order.
+    pub code_graph: Arc<TestCodeGraphPrewarm>,
+    /// The resumed-thread tool refreshes (`SessionDeps.resumed_tools`).
+    pub resumed: Arc<TestResumedTools>,
+    /// `SessionDeps.room_members`.
+    pub room_members: Arc<TestRoomMembers>,
+    /// The agent-status signals the actors emitted, in order.
+    pub signals: Arc<TestSignals>,
+    /// The side-question store `thread/askSide` reads.
+    pub side: Arc<TestSide>,
+    /// The heir-route policy `thread/inheritancePreflight` measures on.
+    pub inherit: Arc<TestInherit>,
+    /// The compaction engine `thread/compact/start` calls.
+    pub compaction: Arc<TestCompaction>,
+    /// The quota-resume queue over the temp data dir.
+    pub quota: Arc<mixdog_core_base::quota_resume::QuotaResumeStore>,
+    /// Woken by every change the quota-resume store announces (its writes run on a lane thread, so no clock can pace a test).
+    pub quota_changed: Arc<tokio::sync::Notify>,
+    _quota_subscription: mixdog_core_base::quota_resume::Subscription,
+    /// The route change a clear reads its environment reset from.
+    pub route_change: Arc<ResetRouteChange>,
+    /// The archive authority over a state database of the temp data dir.
+    pub archive: Arc<mixdog_store::archive_state::ArchiveStates>,
+    pub state: mixdog_store::state::CoreState,
+}
+
+/// The host's route change as far as a clear reads it: no route change of its own, and the
+/// environment reset a clear writes.
+pub struct ResetRouteChange;
+
+#[async_trait::async_trait]
+impl super::route_session::RouteChange for ResetRouteChange {
+    fn route_change(&self, _: &Header, _: &mixdog_core_ports::ports::route::Route, _: &mixdog_core_ports::ports::route::Route, _: bool, _: &super::route_session::RouteLookups) -> mixdog_store::schema::record::HeaderChange {
+        mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: Vec::new() }
+    }
+
+    fn environment_reset(&self, _: &Header) -> mixdog_store::schema::record::HeaderChange {
+        let mut set = serde_json::Map::new();
+        set.insert("promptEnv".into(), json!("tail"));
+        set.insert("sessionStartMetaInjected".into(), json!(false));
+        mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }
+    }
+}
+
+/// An in-memory todo list shared by every thread of the rig.
+#[derive(Default)]
+pub struct TestTodos(pub Mutex<mixdog_tools::state::todo::TodoList>);
+
+#[async_trait::async_trait]
+impl mixdog_tools::state::todo::TodoStore for TestTodos {
+    async fn read(&self, _: &ThreadId) -> mixdog_tools::state::todo::TodoList {
+        lock(&self.0).clone()
+    }
+
+    async fn update(
+        &self,
+        _: &ThreadId,
+        _: &mut mixdog_tools::state::todo::TodoEdit<'_>,
+    ) -> Result<(), String> {
+        Err("the rig's list is set directly".into())
+    }
+
+    fn note_user_wait(&self, _: &ThreadId) {}
+
+    fn user_waiting(&self, _: &ThreadId) -> bool {
+        false
+    }
+
+    fn turn_started(&self, _: &ThreadId) {}
+}
+
+/// Whether a background task is running: every session waits on it while set.
+#[derive(Default)]
+pub struct TestWork(pub AtomicBool);
+
+#[async_trait::async_trait]
+impl mixdog_core_run::run_host::guards::RunningWork for TestWork {
+    async fn has_active(&self, _: &str, surface: &str, _: bool) -> bool {
+        surface == "agent" && self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// The agent-status signals, in order: `approval:<id>`, `record:<id>`.
+#[derive(Default)]
+pub struct TestSignals(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
+
+impl super::agent_activity::AgentSignals for TestSignals {
+    fn approval_wait(&self, session: &str) {
+        lock(&self.0).push(format!("approval:{session}"));
+        self.1.notify_waiters();
+    }
+    fn agent_turn_aborted(&self, session: &str) {
+        lock(&self.0).push(format!("agent-abort:{session}"));
+        self.1.notify_waiters();
+    }
+    fn session_record(&self, session: &str) {
+        lock(&self.0).push(format!("record:{session}"));
+        self.1.notify_waiters();
+    }
+}
+
+/// The code-graph prewarm calls, in order: `wake`, `schedule:<reason>:<delay ms|default>`;
+/// `lazy` answers `lazy()`.
+#[derive(Default)]
+pub struct TestCodeGraphPrewarm {
+    pub calls: Mutex<Vec<String>>,
+    pub lazy: AtomicBool,
+    /// Wakes after each recorded call.
+    pub called: tokio::sync::Notify,
+}
+
+impl super::prewarm_signals::CodeGraphPrewarmSignals for TestCodeGraphPrewarm {
+    fn schedule(&self, delay: Option<std::time::Duration>, reason: &'static str) {
+        let delay = delay.map_or_else(|| "default".to_owned(), |d| d.as_millis().to_string());
+        lock(&self.calls).push(format!("schedule:{reason}:{delay}"));
+        self.called.notify_waiters();
+    }
+    fn wake(&self) {
+        lock(&self.calls).push("wake".to_owned());
+        self.called.notify_waiters();
+    }
+    fn lazy(&self) -> bool {
+        self.lazy.load(Ordering::SeqCst)
+    }
+}
+
+/// The rig's context gauge: no status (the status of no session), so the load's pass publishes no display fields.
+pub struct NoContextStatus;
+
+#[async_trait::async_trait]
+impl super::thread_context::ContextStatusHost for NoContextStatus {
+    async fn context_status(&self, _: Option<ThreadId>, _: Option<Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
+        Ok(Value::Null)
+    }
+}
+
+/// The agent status the rig answers, and the threads it was read for, in order.
+#[derive(Default)]
+pub struct TestAgents {
+    pub status: Mutex<mixdog_app_protocol::v2::thread::ThreadAgents>,
+    pub reads: Mutex<Vec<ThreadId>>,
+    /// Wakes after each read is recorded.
+    pub read: tokio::sync::Notify,
+}
+
+#[async_trait::async_trait]
+impl super::agent_activity::AgentStatus for TestAgents {
+    async fn status(&self, thread: &ThreadId) -> mixdog_app_protocol::v2::thread::ThreadAgents {
+        lock(&self.reads).push(thread.clone());
+        self.read.notify_waiters();
+        lock(&self.status).clone()
+    }
+}
+
+/// The delete seams and purge hooks, recording each call as `<step>:<session>[:<detail>]`; the
+/// sessions whose MCP scope was released are kept apart, in order. The last three are what the
+/// idle delete asks of its runtime: the session it has current, whether the caller gave no
+/// `isHostedBusy` guard, and whether a hosting runtime holds input for the session.
+#[derive(Default)]
+pub struct Deletes(
+    pub Mutex<Vec<String>>,
+    pub tokio::sync::Notify,
+    pub Mutex<Vec<String>>,
+    pub Mutex<Option<String>>,
+    pub Mutex<bool>,
+    pub Mutex<bool>,
+    /// The purge's first hook (`transcriptExport`), when set, tells `.0` it was reached and waits for `.1` before it returns.
+    pub Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
+);
+
+impl Deletes {
+    fn note(&self, step: String) {
+        lock(&self.0).push(step);
+        self.1.notify_waiters();
+    }
+}
+
+struct Hook(&'static str, Arc<Deletes>);
+
+impl super::delete::PurgeHook for Hook {
+    #[allow(clippy::disallowed_methods, reason = "Test-support only: hold this fake purge on its explicit release channel without blocking the replay actor")]
+    fn purge(&self, session_id: &str, cwds: &[String]) -> futures::future::BoxFuture<'static, ()> {
+        self.1.note(format!("{}:{session_id}:{}", self.0, cwds.join(",")));
+        let held = if self.0 == "transcriptExport" { lock(&self.1.6).take() } else { None };
+        Box::pin(async move {
+            if let Some((reached, release)) = held {
+                reached.notify_one();
+                tokio::task::spawn_blocking(move || release.recv()).await.expect("the purge hold").expect("the purge released");
+            }
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl super::delete::DeleteSeams for Deletes {
+    async fn release_session_work(&self, session_id: &str, reason: &str) {
+        self.note(format!("releaseSessionWork:{session_id}:{reason}"));
+    }
+    fn session_closed(&self, session_id: &str, reason: &str, _: &mixdog_store::schema::record::Header, _: i64) {
+        self.note(format!("sessionClosed:{session_id}:{reason}"));
+    }
+    fn tombstoned(&self, thread: &ThreadId) {
+        self.note(format!("tombstoned:{thread}"));
+    }
+    fn release_mcp_scope(&self, session_id: &str) {
+        lock(&self.2).push(session_id.to_owned());
+    }
+    fn unload_mcp_scope(&self, session_id: &str) {
+        self.note(format!("unloadMcpScope:{session_id}"));
+    }
+    fn forget_session_search(&self, session_id: &str) {
+        self.note(format!("forgetSessionSearch:{session_id}"));
+    }
+    async fn release_deleted_worktree(&self, session_id: &str) {
+        self.note(format!("releaseDeletedWorktree:{session_id}"));
+    }
+    fn thread_deleted(&self, thread: &ThreadId) {
+        self.note(format!("thread/deleted:{thread}"));
+    }
+    fn current_session(&self) -> Option<String> {
+        lock(&self.3).clone()
+    }
+    fn hosted_busy(&self, _: &str) -> Option<bool> {
+        (!*lock(&self.4)).then(|| *lock(&self.5))
+    }
+}
+
+impl Rig {
+    fn purge_hooks(&self) -> super::delete::PurgeHooks {
+        let hook = |name: &'static str| -> Arc<dyn super::delete::PurgeHook> { Arc::new(Hook(name, self.deletes.clone())) };
+        super::delete::PurgeHooks {
+            transcript_export: hook("transcriptExport"),
+            tool_result_offload: hook("toolResultOffload"),
+            transcripts: hook("transcripts"),
+            cache_warm: hook("cacheWarm"),
+            read_cache: hook("readCache"),
+            provider_connections: hook("providerConnections"),
+            connector_accounts: hook("connectorAccounts"),
+            worker_turns: hook("workerTurns"),
+            agent_status: hook("agentStatus"),
+            compaction_archive: hook("compactionArchive"),
+            scratch_dir: hook("scratchDir"),
+            retention: hook("retention"),
+        }
+    }
+}
+
+/// The close-time memory ingests, in order; each waits `delay` before it records.
+#[derive(Default)]
+pub struct Closes {
+    pub seen: Arc<Mutex<Vec<SeenOffload>>>,
+    pub delay: Mutex<std::time::Duration>,
+    /// When set, each ingest tells this log `{teardown: "done"}` as it ends.
+    pub timeline: Mutex<Option<EventLog>>,
+    /// Told (one permit each) as an ingest ends.
+    pub ended: Arc<tokio::sync::Notify>,
+}
+
+impl super::CloseIngest for Closes {
+    fn ingest(&self, id: &ThreadId, _cwd: &str, messages: Vec<Value>) -> futures::future::BoxFuture<'static, ()> {
+        let (seen, id, delay, timeline) = (self.seen.clone(), id.clone(), *lock(&self.delay), lock(&self.timeline).clone());
+        let ended = self.ended.clone();
+        Box::pin(async move {
+            mixdog_rt::time::sleep(delay).await;
+            lock(&seen).push((id, messages));
+            if let Some(log) = timeline {
+                lock(&log).push(json!({ "teardown": "done" }));
+            }
+            ended.notify_one();
+        })
+    }
+}
+
+/// The session-search ingests, in order: each thread and its messages.
+#[derive(Default)]
+pub struct Ingests(pub Mutex<Vec<SeenOffload>>, pub tokio::sync::Notify);
+
+impl super::TurnIngest for Ingests {
+    fn ingest_turn(&self, id: &ThreadId, _header: &Header, messages: Vec<Value>) {
+        lock(&self.0).push((id.clone(), messages));
+        self.1.notify_waiters();
+    }
+}
+
+/// Each turn the warmer was told of.
+#[derive(Default)]
+pub struct RecWarmth {
+    pub begun: Mutex<Vec<(ThreadId, Value, Option<Value>)>>,
+    pub ended: Arc<std::sync::atomic::AtomicUsize>,
+    /// Wakes after each turn's note ends.
+    pub ended_wake: Arc<tokio::sync::Notify>,
+}
+
+struct Ended(Arc<std::sync::atomic::AtomicUsize>, Arc<tokio::sync::Notify>);
+
+impl Drop for Ended {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        self.1.notify_waiters();
+    }
+}
+
+/// The built-in skills the rig reports.
+#[derive(Default)]
+pub struct TestBuiltinSkills(pub Mutex<Option<std::collections::HashSet<String>>>);
+
+impl super::BuiltinSkills for TestBuiltinSkills {
+    fn names(&self) -> Option<std::collections::HashSet<String>> {
+        lock(&self.0).clone()
+    }
+}
+
+impl super::turn_warm::TurnWarmth for RecWarmth {
+    fn begin(&self, thread: &ThreadId, input: &Value, messages: Option<&Value>) -> Box<dyn Send> {
+        lock(&self.begun).push((thread.clone(), input.clone(), messages.cloned()));
+        Box::new(Ended(self.ended.clone(), self.ended_wake.clone()))
+    }
+}
+
+/// The turn snapshot calls, in order: `settled:<thread>`, `stopped:<thread>`, `dispose`.
+#[derive(Default)]
+pub struct TestSnapshots(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
+
+impl super::turn_snapshots::TurnSnapshots for TestSnapshots {
+    fn turn_settled(&self, thread: &ThreadId) {
+        lock(&self.0).push(format!("settled:{}", thread.as_str()));
+        self.1.notify_waiters();
+    }
+
+    fn runtime_stopped(&self, thread: &ThreadId) {
+        lock(&self.0).push(format!("stopped:{}", thread.as_str()));
+        self.1.notify_waiters();
+    }
+
+    fn dispose(&self) {
+        lock(&self.0).push("dispose".to_owned());
+        self.1.notify_waiters();
+    }
+}
+
+/// The settings scopes announced to every client, in order.
+#[derive(Default)]
+pub struct TestSettingsChanges(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
+
+/// The notice events, in order: `completed:<provider>`, `failed:<provider>:<kind>`, `save-failed`,
+/// `offload-prune-blocked:<session>`.
+#[derive(Default)]
+pub struct TestNotices(pub Mutex<Vec<String>>, pub tokio::sync::Notify, pub Mutex<Vec<(&'static str, String)>>);
+
+impl super::notices::SessionNotices for TestNotices {
+    fn turn_completed(&self, provider: &str) {
+        lock(&self.0).push(format!("completed:{provider}"));
+        self.1.notify_waiters();
+    }
+
+    fn turn_failed(&self, provider: &str, kind: Option<&str>) {
+        lock(&self.0).push(format!("failed:{provider}:{}", kind.unwrap_or("-")));
+        self.1.notify_waiters();
+    }
+
+    fn save_failed(&self, session: &str) {
+        lock(&self.0).push("save-failed".to_owned());
+        lock(&self.2).push(("save-failed", session.to_owned()));
+        self.1.notify_waiters();
+    }
+
+    fn save_resolved(&self, session: &str) {
+        lock(&self.0).push("save-resolved".to_owned());
+        lock(&self.2).push(("save-resolved", session.to_owned()));
+        self.1.notify_waiters();
+    }
+
+    fn offload_prune_blocked(&self, session: &str) {
+        lock(&self.0).push(format!("offload-prune-blocked:{session}"));
+        self.1.notify_waiters();
+    }
+}
+
+impl Default for Rig {
+    fn default() -> Self { Self::new() }
+}
+
+impl Rig {
+    pub fn new() -> Self {
+        let store = Arc::new(MemStore::default());
+        let idle: Script = Arc::new(|_run| Box::pin(async { RunOutcome::Completed(Default::default()) }));
+        let data = tempfile::tempdir().expect("temp data dir");
+        // The goal runtime's time and timers are the test runtime's own (`GoalEnv::system` would
+        // use std time and the process-global ticker, which belongs to whichever test runtime
+        // first touched it).
+        let goals = mixdog_core_goal::goal::GoalRuntime::new(
+            mixdog_core_goal::goal::GoalConfig::new(data.path().join("goals").to_string_lossy().into_owned()),
+            mixdog_core_goal::goal::GoalEnv {
+                clock: Arc::new(RigGoalClock::new()),
+                timers: Arc::new(RigGoalTimers),
+                ..mixdog_core_goal::goal::GoalEnv::system(mixdog_rt::testing::tokens().durability_io)
+            },
+        );
+        // The open is one lane job, which runs on the lane's own thread.
+        let quota = futures::executor::block_on(mixdog_core_base::quota_resume::QuotaResumeStore::open(
+            data.path(),
+            mixdog_rt::testing::tokens().durability_io,
+            mixdog_rt::CancellationToken::new(),
+        ))
+        .expect("quota-resume store");
+        let quota_changed = Arc::new(tokio::sync::Notify::new());
+        let wake = quota_changed.clone();
+        let quota_subscription = quota.subscribe(move |_| wake.notify_waiters());
+        let tokens = mixdog_rt::testing::tokens();
+        let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &data.path().join("core.sqlite")).expect("the state database");
+        Self {
+            archive: mixdog_store::archive_state::ArchiveStates::fresh(state.clone()),
+            state,
+            quota_changed,
+            _quota_subscription: quota_subscription,
+            quota: Arc::new(quota),
+            route_change: Arc::new(ResetRouteChange),
+            goals,
+            todos: Arc::default(),
+            work: Arc::default(),
+            agents: Arc::default(),
+            code_graph: Arc::default(),
+            resumed: Arc::default(),
+            room_members: Arc::default(),
+            signals: Arc::default(),
+            side: Arc::default(),
+            inherit: Arc::default(),
+            compaction: Arc::default(),
+            prompts: Arc::new(FilePromptHistory::new(data.path())),
+            prompts_wrote: Arc::default(),
+            _data: data,
+            store,
+            runs: Arc::new(ScriptRuns {
+                crashed: Mutex::default(),
+                crashed_drafts: Mutex::default(),
+                script: Mutex::new(idle),
+            }),
+            feeds: Arc::new(RecFeeds::default()),
+            sink: Arc::new(MockServerRequests::default()),
+            clock: Arc::new(FixedClock(AtomicU64::new(1000))),
+            turn_starts: Arc::default(),
+            admissions: Arc::default(),
+            wakes: mixdog_tools::exec::WakeHub::new(),
+            warms: Arc::default(),
+            builtin_skills: Arc::default(),
+            ingests: Arc::default(),
+            closes: Arc::default(),
+            sensitive: Arc::default(),
+            deletes: Arc::default(),
+            snapshots: Arc::default(),
+            notices: Arc::default(),
+            settings_changes: Arc::default(),
+        }
+    }
+
+    pub fn set_script(&self, script: Script) {
+        *lock(&self.runs.script) = script;
+    }
+
+    pub fn deps(&self) -> Arc<SessionDeps> {
+        self.deps_on(self.store.clone())
+    }
+
+    /// [`deps`](Self::deps) whose created threads carry the configured orchestration mode, as the surface host seeds them.
+    pub fn deps_configured(&self) -> Arc<SessionDeps> {
+        let mut parts = self.deps_parts(self.store.clone());
+        parts.new_tools = Arc::new(ConfiguredMode);
+        Arc::new(parts)
+    }
+
+    /// The stack over another thread store (the real one over a temp data dir).
+    pub fn deps_on(&self, store: Arc<dyn ThreadStore>) -> Arc<SessionDeps> {
+        Arc::new(self.deps_parts(store))
+    }
+
+    /// The stack's parts, for a test that swaps one of them. Its gateway usage writer prices nothing.
+    pub fn deps_parts(&self, store: Arc<dyn ThreadStore>) -> SessionDeps {
+        let tokens = mixdog_rt::testing::tokens();
+        SessionDeps {
+            store,
+            cache_tail: Arc::default(),
+            codec: Arc::new(super::store::StoreCodec),
+            transcript: Arc::new(TextTranscript),
+            prompts: Arc::new(NotifyingPrompts(self.prompts.clone(), self.prompts_wrote.clone())),
+            runs: self.runs.clone(),
+            surfaces: Arc::new(HeaderSurfaces),
+            new_tools: Arc::new(KeepHeader),
+            surface: mixdog_core_base::surface::SurfaceGeneration::default(),
+            new_route: Arc::new(NoRoute),
+            draft_settings: Arc::new(NoDraftSettings),
+            empty_surface: Arc::new(NoEmptySurface),
+            task_workspace: Arc::new(FixedTaskWorkspace("/tasks")),
+            new_place: Arc::new(RecordingPlace::default()),
+            new_tasks: super::new_task::NewTaskReceipts::new(&self._data.path().join("userdata"), tokens.durability_io),
+            resumed_tools: self.resumed.clone(),
+            room_members: self.room_members.clone(),
+            wakes: self.wakes.clone(),
+            search: self.ingests.clone(),
+            memory: self.closes.clone(),
+            transcripts: None,
+            sensitive: Arc::new(super::store::SensitiveMarksOf::new(self.sensitive.clone())),
+            user_cwd: super::UserCwd::new(self._data.path(), tokens.interactive_io),
+            attachments: super::user_facts::AttachmentStore(mixdog_store::blobs::BlobStore::new(self._data.path())),
+            session_grants: mixdog_tools::policy::SessionGrantRegistry::new(),
+            staged_originals: Arc::new(super::staged_originals::StagedOriginals::new(self._data.path())),
+            prompt_intake: Arc::new(super::AdmitAll),
+            feeds: self.feeds.clone(),
+            turn_admission: self.admissions.clone(),
+            server_requests: self.sink.clone(),
+            approval_ids: Arc::new(Counter::default()),
+            devices: Arc::new(NamedDevices),
+            clock: self.clock.clone(),
+            turn_starts: self.turn_starts.clone(),
+            // A test core has no lifecycle: nothing holds its turn starts.
+            start_hold: tokio::sync::watch::channel(super::StartHold::Open).1,
+            core_work: Arc::new(super::NoCoreWork),
+            runtime_hooks: Arc::new(super::runtime_hooks::NoRuntimeHooks),
+            snapshots: self.snapshots.clone(),
+            notices: self.notices.clone(),
+            settings_changed: {
+                let changes = self.settings_changes.clone();
+                Arc::new(move |scope: &str| {
+                    lock(&changes.0).push(scope.to_owned());
+                    changes.1.notify_waiters();
+                })
+            },
+            turn_review: Arc::new(mixdog_core_review::turn_review::testing::test_review(&self._data.path().join("turn-review"))),
+            route_change: self.route_change.clone(),
+            deletion: self.deletes.clone(),
+            purge: self.purge_hooks(),
+            goals: Arc::new(self.goals.clone()),
+            todos: self.todos.clone(),
+            work: self.work.clone(),
+            agent_status: self.agents.clone(),
+            context_status: Arc::new(NoContextStatus),
+            live_workspace: Arc::new(super::worktree::NoLiveWorkspace),
+            code_graph_prewarm: self.code_graph.clone(),
+            lifecycle: Arc::new(super::lifecycle_hooks::NoLifecycleHooks),
+            shell_strips: Arc::new(NoShellStrips),
+            agent_signals: self.signals.clone(),
+            agent_names: Arc::new(IdAgentNames),
+            side: self.side.clone(),
+            inherit: self.inherit.clone(),
+            compaction: self.compaction.clone(),
+            quota: super::quota_lane::SessionQuota {
+                goals: mixdog_core_goal::goal::quota::GoalQuotaResume::new(self.quota.clone(), Arc::new(self.goals.clone())),
+                auto_resume: Arc::new(|| true),
+            },
+            lanes: SessionLanes {
+                cpu: tokens.cpu_interactive,
+                io: tokens.interactive_io,
+                durability: tokens.durability_io,
+            },
+            limits: SessionLimits::default(),
+            gateway_usage: super::gateway_usage::GatewayUsage::new(self._data.path(), tokens.durability_io, self.clock.clone(), Arc::new(NoPricing), Arc::new(super::gateway_usage::TokioScheduler)),
+            warm: self.warms.clone(),
+            builtin_skills: self.builtin_skills.clone(),
+            archive: self.archive.clone(),
+        }
+    }
+}
+
+/// A run's failure on exhausted provider quota with the reset the provider named (epoch milliseconds), built as the run host
+/// builds a provider's refusal (`provider_turn_error`).
+pub fn quota_error(reset_at: u64) -> mixdog_protocol::TurnError {
+    use mixdog_core_api::domain::provider::DeliveryState;
+    use mixdog_core_api::domain::provider::ErrorKind;
+    use mixdog_core_api::domain::provider::ProviderError;
+
+    let mut error = ProviderError::new(ErrorKind::QuotaExhausted, DeliveryState::Accepted);
+    error.status = Some(429);
+    error.code = Some("usage_limit_reached".into());
+    error.message = "Usage limit reached".into();
+    error.reset_at = Some(std::time::UNIX_EPOCH + std::time::Duration::from_millis(reset_at));
+    super::failure_record::provider_turn_error(&error, "anthropic-oauth", Value::Null)
+}
+
+/// The meters of a transcript with no media: a part reaching them is a test that recorded one.
+struct TextOnly;
+
+impl mixdog_agent::compact::estimate::MediaMeter for TextOnly {
+    fn part(&self, part: &mixdog_core_api::domain::provider::ContentPart) -> mixdog_agent::compact::estimate::PartMeter {
+        panic!("media part in a text-only transcript: {part:?}")
+    }
+}
+
+impl mixdog_agent::compact::pressure::ImageIdentities for TextOnly {
+    fn images(&self, _: &mixdog_agent::message::AgentMessage) -> Vec<mixdog_agent::compact::pressure::ImageDescriptor> {
+        Vec::new()
+    }
+}
+
+/// How long a wait for a signal may last before the wait is the test's failure. It is measured on the machine's clock, never the
+/// runtime's: a paused runtime clock moves only when the test advances it (or by itself when the runtime is idle, which is not
+/// time passing for the awaited work), so a deadline on it would say nothing about the signal. A wait ends on its signal; this is
+/// only the failure path of a signal that never comes, so it is never what makes a test pass.
+const DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A running deadline: a thread that reports `DEADLINE` of the machine's time after it started, and ends at once when the
+/// wait that started it is over.
+struct Deadline {
+    fired: tokio::sync::oneshot::Receiver<()>,
+    _over: std::sync::mpsc::Sender<()>,
+}
+
+impl Deadline {
+    fn start(limit: std::time::Duration) -> Self {
+        let (over, ended) = std::sync::mpsc::channel::<()>();
+        let (fire, fired) = tokio::sync::oneshot::channel();
+        // A blocking task, not a bare thread: while one runs, a paused runtime does not advance its clock by itself, so the wait
+        // cannot be made true by a timer nobody advanced to.
+        #[allow(clippy::disallowed_methods, reason = "test setup")]
+        tokio::task::spawn_blocking(move || {
+            if ended.recv_timeout(limit) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+                let _ = fire.send(());
+            }
+        });
+        Self { fired, _over: over }
+    }
+
+    async fn expired(&mut self) {
+        match (&mut self.fired).await {
+            Ok(()) => {}
+            Err(_) => std::future::pending().await,
+        }
+    }
+}
+
+/// Awaits `wait`, failing by assertion with `what` (evaluated at the failure, so it can show what was observed by then) if it has
+/// not ended by the deadline.
+pub async fn awaiting<T>(what: impl FnOnce() -> String, wait: impl Future<Output = T>) -> T {
+    awaiting_for(DEADLINE, what, wait).await
+}
+
+/// `awaiting` with the deadline's length given, for a test of the deadline itself.
+pub async fn awaiting_for<T>(limit: std::time::Duration, what: impl FnOnce() -> String, wait: impl Future<Output = T>) -> T {
+    let mut deadline = Deadline::start(limit);
+    tokio::select! {
+        biased;
+        value = wait => value,
+        () = deadline.expired() => panic!("timed out after {limit:?} waiting for {}", what()),
+    }
+}
+
+/// The pricing of a rig: no catalog, so every request is unpriced.
+struct NoPricing;
+
+impl mixdog_ai::registry::accounting::UsagePricing for NoPricing {
+    fn price_usage(&self, _: &mixdog_ai::catalog::UsageArgs) -> mixdog_ai::catalog::PricedUsage {
+        mixdog_ai::catalog::PricedUsage { input: 0.0, cost_usd: None, rates: Default::default() }
+    }
+}
+
+/// Waits until `probe` holds, woken by a change of the state it reads, never by the clock (the real store's writer is an OS
+/// thread, so a paused clock cannot pace it): `wakes` are the signals of what the probe reads (the thread actor's steps, the
+/// directory losing a thread, the delete log), each registered before the probe runs so no change between probe and wait is
+/// missed. A probe that never holds fails by the deadline of `awaiting`, with `what` (`eventually_on!` names the probe itself).
+pub async fn eventually_on_awaiting<T>(what: impl FnOnce() -> String, wakes: &[&tokio::sync::Notify], mut probe: impl FnMut() -> Option<T>) -> T {
+    awaiting(what, async {
+        loop {
+            let mut waits: Vec<std::pin::Pin<Box<tokio::sync::futures::Notified<'_>>>> = wakes.iter().map(|wake| Box::pin(wake.notified())).collect();
+            for wait in &mut waits {
+                wait.as_mut().enable();
+            }
+            if let Some(value) = probe() {
+                return value;
+            }
+            futures::future::select_all(waits).await;
+        }
+    })
+    .await
+}
+
+/// `eventually_on!`, failing by assertion when `task` (the work that should produce the signal) ends first: a task that returns
+/// without signalling is the test's failure with its output shown, not a wait that never ends. The signal wins a tie.
+pub async fn eventually_on_until_awaiting<T, E: std::fmt::Debug>(what: impl Fn() -> String, wakes: &[&tokio::sync::Notify], probe: impl FnMut() -> Option<T>, task: &mut tokio::task::JoinHandle<E>) -> T {
+    tokio::select! {
+        biased;
+        value = eventually_on_awaiting(&what, wakes, probe) => value,
+        ended = task => panic!("the task ended before waiting for {}: {ended:?}", what()),
+    }
+}
+
+/// Waits until `probe` holds (see `eventually_on_awaiting`); the failure names the probe's own text.
+#[macro_export]
+macro_rules! eventually_on {
+    ($wakes:expr, $probe:expr $(,)?) => {
+        $crate::session::testing::eventually_on_awaiting(|| ::std::format!("until {}", ::core::stringify!($probe)), $wakes, $probe)
+    };
+}
+
+/// `eventually_on!`, ending in a failure too when `task` ends first.
+#[macro_export]
+macro_rules! eventually_on_until {
+    ($wakes:expr, $probe:expr, $task:expr $(,)?) => {
+        $crate::session::testing::eventually_on_until_awaiting(|| ::std::format!("until {}", ::core::stringify!($probe)), $wakes, $probe, $task)
+    };
+}
+
+/// A test's data folder and the databases opened in it. Dropped (a panic included), the databases close first, then the folder is
+/// removed: Windows refuses to remove a database file another handle (a writer thread, a pooled read connection, a task still
+/// holding the store) keeps open, and the folder then stayed behind, one per run.
+pub struct DataDir {
+    indexes: Mutex<Vec<mixdog_store::sqlite::SqliteStore>>,
+    states: Mutex<Vec<mixdog_store::state::CoreState>>,
+    dir: tempfile::TempDir,
+}
+
+impl Default for DataDir {
+    fn default() -> Self {
+        Self { indexes: Mutex::default(), states: Mutex::default(), dir: tempfile::tempdir().expect("a data folder") }
+    }
+}
+
+impl DataDir {
+    pub fn path(&self) -> &std::path::Path {
+        self.dir.path()
+    }
+
+    /// `index`, closed with the folder.
+    pub fn index(&self, index: mixdog_store::sqlite::SqliteStore) -> mixdog_store::sqlite::SqliteStore {
+        self.indexes.lock().unwrap().push(index.clone());
+        index
+    }
+
+    /// `state`, closed with the folder.
+    pub fn state(&self, state: mixdog_store::state::CoreState) -> mixdog_store::state::CoreState {
+        self.states.lock().unwrap().push(state.clone());
+        state
+    }
+}
+
+impl DataDir {
+    /// Closes the databases opened so far and keeps the folder: a process that ends, whose successor opens the same files.
+    pub fn close_databases(&self) {
+        let indexes = std::mem::take(&mut *self.indexes.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        for index in indexes {
+            index.close();
+        }
+        let states = std::mem::take(&mut *self.states.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        for state in states {
+            state.close();
+        }
+    }
+}
+
+impl Drop for DataDir {
+    fn drop(&mut self) {
+        self.close_databases();
+    }
+}
+
+/// Keeps a paused runtime clock from moving by itself while it is held: tokio advances a paused clock when the runtime is idle,
+/// except while a blocking task runs, so this holds one. Time then moves only by the test's own `advance`, and a wait for work
+/// that needs time to pass which the test did not give it stays pending until its deadline fails it.
+pub struct HeldClock(
+    #[allow(dead_code, reason = "Channel ownership is the guard: dropping this sender releases the paused-clock blocking task")]
+    std::sync::mpsc::Sender<()>,
+);
+
+impl HeldClock {
+    #[allow(clippy::disallowed_methods, reason = "Test-support only: Tokio must see a live blocking task to prevent automatic paused-clock advancement; a plain thread or lane would not enforce this replay clock contract")]
+    pub fn hold() -> Self {
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        drop(tokio::task::spawn_blocking(move || {
+            let _ = released.recv();
+        }));
+        Self(release)
+    }
+}
+/// A shell registry that owns nothing.
+pub struct NoShells;
+
+impl super::shell_jobs::OwnedShells for NoShells {
+    fn cancel_owned(&self, _: &ThreadId) {}
+}
+
+/// A provider builder that has no provider: every build is refused, no account is usable.
+pub struct NoProviders;
+
+#[async_trait::async_trait]
+impl mixdog_ai::registry::providers::ProviderBuilder for NoProviders {
+    async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
+        Err(format!("no {name}"))
+    }
+    async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
+    fn available(&self, _: &str) -> bool {
+        false
+    }
+    async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+        Ok(false)
+    }
+}

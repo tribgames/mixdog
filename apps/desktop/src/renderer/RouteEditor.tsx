@@ -245,8 +245,6 @@ export function RouteEditor({
   const { layoutFor, show, toggle, closeAll, closePane } = sheetState;
   const { trigger, sheet, optionFlyout, modelFlyout, rowButtons, hoverLock, morphFrom } = refs;
   const { modelCatalogReady, hoverSwitchTimer, openPane, focusPane } = useRoutePaneNavigation({
-    sheetId,
-    modelCount: models.length,
     tuningDisabled,
     respondsToModelPicker: answersModelPickerRequests && surfaceActive && !modelDisabled,
     onOpenModelPane,

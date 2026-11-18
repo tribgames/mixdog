@@ -65,6 +65,7 @@ import { createCommandRouter } from './command-router';
 import { createBridgeServer } from './bridge-server';
 import type { BridgeServerHost } from './bridge-server-contract';
 import type { BridgeAnswer } from './bridge-server-request';
+import { type CommandEndpoint, switchEndpoint } from './command-fence';
 import { type ComputerExecutionPolicy, loadComputerExecutionPolicy } from './execution-policy';
 import { createUserWaitService } from './user-wait-service';
 import { createSavedLoginVault } from './saved-login-vault';
@@ -93,8 +94,12 @@ export interface PowerShellComputerHost {
   stopAllSessions(turnsStopped?: Promise<void>): Promise<void>;
   /** Run one command through the session queue (the saved-login worker steps the core runs). */
   executeSerialized(command: ComputerCommand): Promise<ComputerCommandResult>;
-  /** Run one accepted command to the answer the loopback bridge puts on the wire (the host protocol's `host/computer/capture`). */
+  /** Run one accepted command to the answer the loopback bridge puts on the wire (the host protocol's `host/computer/capture`),
+   *  admitted by `signal` and the desktop's own Computer Use switch only: no automation scope fences or counts it. */
   answerBridgeCommand(command: ComputerCommand, signal: AbortSignal): Promise<BridgeAnswer>;
+  /** The same, for a command relayed under an automation scope (`host/computer/command`): every worker request it makes is
+   *  admitted through `endpoint` (the scope's `commit` and signal) and counted by its `track` (`command-fence.ts`). */
+  answerScopedCommand(command: ComputerCommand, endpoint: CommandEndpoint): Promise<BridgeAnswer>;
   /** Live native worker PIDs, retained until each child actually exits. */
   residentWorkerPids(): number[];
   inspectChromeRemoteDebuggingTarget(): Promise<ChromeRemoteDebuggingTarget>;
@@ -385,7 +390,9 @@ export function createPowerShellComputerHost(
 
   return {
     readAuthorization: authorization.read,
-    answerBridgeCommand: bridge.answerCommand,
+    answerBridgeCommand: (command, signal) =>
+      bridge.answerCommand(command, switchEndpoint(signal, () => bridgeWanted && !disposed)),
+    answerScopedCommand: bridge.answerCommand,
     updateAuthorization: authorization.update,
     authorizationWindows: authorization.windows,
     readFailureDiagnostics: failureDiagnostics.read,

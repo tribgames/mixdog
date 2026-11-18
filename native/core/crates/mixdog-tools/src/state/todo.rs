@@ -446,6 +446,21 @@ pub fn run(current: &TodoList, args: &Value, now_ms: i64) -> Result<TodoRun, Str
     if op == "view" {
         return Ok(TodoRun::View(current.render()));
     }
+    if op == "init" {
+        // `init` starts a list; over unfinished work it would erase it silently (a follow-up ask initing mid-request).
+        // `set` is the explicit replacement of the whole plan.
+        let unfinished = current.unfinished_items();
+        if !unfinished.is_empty() {
+            let mut named: Vec<String> = unfinished.iter().take(5).map(|task| format!("\"{}\"", task.content)).collect();
+            if unfinished.len() > named.len() {
+                named.push(format!("{} more", unfinished.len() - named.len()));
+            }
+            return Err(format!(
+                "todo: init would erase unfinished items ({}); done or drop each first, or append to add asks",
+                named.join(", ")
+            ));
+        }
+    }
     if op == "set" || op == "init" {
         let list = set_list(args, now_ms)?;
         let reply = list.render();
@@ -506,6 +521,9 @@ pub fn run(current: &TodoList, args: &Value, now_ms: i64) -> Result<TodoRun, Str
                 }
                 Some(task) => {
                     task.status = TodoStatus::Abandoned;
+                    if !note.is_empty() {
+                        task.note = Some(note);
+                    }
                     task.content.clone()
                 }
                 None => return Err("todo: no such step".to_owned()),
@@ -619,13 +637,14 @@ impl Tool for TodoTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let at = now_ms();
-        let current = self.store.read(&ctx.thread_id).await;
-        // A view never commits; every other op commits through `update` so a concurrent call
-        // is applied on top of the list it left, not on the list read above.
-        if let Ok(TodoRun::View(reply)) = run(&current, &args, at) {
-            return text(reply);
+        let op = arg_line(&args, "op").to_lowercase();
+        if !TODO_OPS.contains(&op.as_str()) {
+            return Err(invalid("op", format!("todo: op must be one of {}", TODO_OPS.join(", "))));
         }
+        if op == "view" {
+            return text(self.store.read(&ctx.thread_id).await.render());
+        }
+        let at = now_ms();
         let mut reply = String::new();
         let mut run_error = None;
         let result = self
@@ -635,10 +654,7 @@ impl Tool for TodoTool {
                     reply = r;
                     Ok(list)
                 }
-                Ok(TodoRun::View(r)) => {
-                    reply = r;
-                    Ok(list.clone())
-                }
+                Ok(TodoRun::View(_)) => unreachable!("view never reaches the writer"),
                 Err(message) => {
                     run_error = Some(message.clone());
                     Err(message)
@@ -728,13 +744,13 @@ mod tests {
             "todo: step 2 is completed and stays closed"
         );
         // A step given up leaves the count; the pointer goes back to the earliest open one.
-        let (list, reply) = commit(&list, json!({"op":"drop","index":3}));
+        let (list, reply) = commit(&list, json!({"op":"drop","index":3,"note":"out of scope"}));
         assert_eq!(reply, "1/2 · drop: C · next: A");
         assert_eq!(list.render(), "1/2
 Tasks
   [>] A
   [x] B
-  [-] C");
+  [-] C — out of scope");
     }
 
     #[test]
@@ -817,6 +833,21 @@ Ship
         assert_eq!(list.phases[0].name, "One");
         let fifty: Vec<String> = (0..MAX_TODO_ITEMS).map(|n| format!("s{n}")).collect();
         assert!(run(&TodoList::default(), &json!({"op":"set","items":fifty}), 1).is_ok());
+    }
+
+    /// `init` over unfinished work is refused (Node's `executeTodoTool`); `set` replaces the plan, and a closed list
+    /// may be inited again.
+    #[test]
+    fn init_refuses_to_erase_unfinished_steps() {
+        let (list, _) = commit(&TodoList::default(), json!({"op":"init","items":["A","B"]}));
+        assert_eq!(
+            run(&list, &json!({"op":"init","items":["C"]}), 1).unwrap_err(),
+            "todo: init would erase unfinished items (\"A\", \"B\"); done or drop each first, or append to add asks"
+        );
+        let (replaced, _) = commit(&list, json!({"op":"set","items":["C"]}));
+        assert_eq!(replaced.render(), "0/1\nTasks\n  [>] C");
+        let (closed, _) = commit(&list, json!({"op":"done","item":["A","B"]}));
+        assert!(run(&closed, &json!({"op":"init","items":["C"]}), 1).is_ok());
     }
 
     /// Steps that finished out of order close in one call, which may also begin another; a bad number leaves the

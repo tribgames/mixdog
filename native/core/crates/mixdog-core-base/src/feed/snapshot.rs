@@ -5,11 +5,12 @@
 //! submits the encode to cpu-interactive, the others park their slots on it, and a flight
 //! that already finished fills a slot at once. N subscribers therefore cost one encode.
 //!
-//! The cache holds flights of the current seq only; a publish drops them (P §6.5 "Snapshot
-//! cache"). An in-flight encode keeps its flight alive through the job, and an encoded
-//! snapshot stays alive only while lanes hold its bytes.
+//! The cache holds flights of the current view only (P §6.5 "Snapshot cache"). Pending
+//! flights stay shareable until they finish or the view changes. Completed flights share
+//! one snapshot's byte budget; evicting one drops only the cache's reference.
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
@@ -19,18 +20,30 @@ use mixdog_core_api::feed::Window;
 use mixdog_core_api::sink::SnapshotSlot;
 
 /// The flights of one seq, under the feed lock.
-#[derive(Default)]
 pub(super) struct SnapshotCache {
     seq: u64,
     flights: HashMap<Window, Arc<Flight>>,
+    completed: VecDeque<(Window, usize)>,
+    completed_bytes: usize,
+    limit: usize,
 }
 
 impl SnapshotCache {
+    pub fn new(limit: usize) -> Self {
+        Self {
+            seq: 0,
+            flights: HashMap::new(),
+            completed: VecDeque::new(),
+            completed_bytes: 0,
+            limit,
+        }
+    }
+
     /// The flight for the snapshot at `seq` for `window`, and whether the caller leads it
     /// (must submit its encode). A failed flight is replaced, so a later attach retries.
     pub fn flight(&mut self, seq: u64, window: &Window) -> (Arc<Flight>, bool) {
         if self.seq != seq {
-            self.flights.clear();
+            self.clear();
             self.seq = seq;
         }
         if let Some(flight) = self.flights.get(window)
@@ -43,11 +56,34 @@ impl SnapshotCache {
         (flight, true)
     }
 
+    pub fn retain_completed(&mut self, window: &Window, flight: &Arc<Flight>, len: usize) {
+        // A publish or same-seq view swap may have replaced this flight while it ran.
+        if !self
+            .flights
+            .get(window)
+            .is_some_and(|current| Arc::ptr_eq(current, flight))
+        {
+            return;
+        }
+        let charge = len.max(1); // Bound entries even for empty encodings.
+        if charge > self.limit {
+            self.flights.remove(window);
+            return;
+        }
+        while self.completed_bytes > self.limit - charge {
+            let (oldest, bytes) = self.completed.pop_front().expect("charged flights exist");
+            self.flights.remove(&oldest);
+            self.completed_bytes -= bytes;
+        }
+        self.completed.push_back((window.clone(), charge));
+        self.completed_bytes += charge;
+    }
+
     /// Drops every flight: called when the seq advances, a view is swapped with no frame, or the feed closes.
     pub fn clear(&mut self) {
-        if !self.flights.is_empty() {
-            self.flights.clear();
-        }
+        self.flights.clear();
+        self.completed.clear();
+        self.completed_bytes = 0;
     }
 }
 
@@ -99,13 +135,10 @@ impl Flight {
         }
     }
 
-    /// Stores the encoded snapshot and fills every parked slot (outside the flight lock).
-    pub fn finish(&self, frame: Bytes) {
-        let previous = std::mem::replace(&mut *self.lock(), FlightState::Ready(frame.clone()));
-        if let FlightState::Encoding(waiting) = previous {
-            for slot in waiting {
-                slot.fill(frame.clone());
-            }
+    fn ready(&self, frame: Bytes) -> Vec<SnapshotSlot> {
+        match std::mem::replace(&mut *self.lock(), FlightState::Ready(frame)) {
+            FlightState::Encoding(waiting) => waiting,
+            _ => unreachable!("only the pending flight's lead can finish it"),
         }
     }
 
@@ -129,10 +162,11 @@ impl Lead {
         }
     }
 
-    pub fn finish(mut self, frame: Bytes) {
-        if let Some(flight) = self.flight.take() {
-            flight.finish(frame);
-        }
+    /// Marks the flight complete, handing back the parked slots for delivery outside the locks.
+    pub fn finish(mut self, frame: Bytes) -> (Arc<Flight>, Vec<SnapshotSlot>) {
+        let flight = self.flight.take().expect("lead owns the flight");
+        let waiting = flight.ready(frame);
+        (flight, waiting)
     }
 }
 

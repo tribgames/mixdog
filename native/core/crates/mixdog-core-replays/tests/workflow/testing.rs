@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+#[cfg(node_twin)]
 use mixdog_app_protocol::v2::thread::ToolProfile;
 use mixdog_core_agents::agents::AgentDefinitions;
 use mixdog_core_agents::agents::AgentEvidence;
@@ -33,6 +34,7 @@ impl AgentEvidence for NoEvidence {
 }
 
 /// `normalizeToolProfile`: a name that is no profile is the interactive one.
+#[cfg(node_twin)]
 pub(crate) fn profile_of(name: &str) -> ToolProfile {
     match name {
         "headless" => ToolProfile::Headless,

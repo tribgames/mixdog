@@ -6,7 +6,6 @@
 //! Attempts and questions die with their connection, and a connection holds a handful at most.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use async_trait::async_trait;
@@ -19,8 +18,9 @@ use mixdog_ssh::context::AttemptContext;
 use mixdog_ssh::host_key::HostKeyInspection;
 use mixdog_ssh::session::Progress;
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
-use crate::link::{LinkPool, LinkSpec};
+use crate::link::{LinkOpen, LinkPool, LinkSpec};
 
 /// How many attempts one connection holds at once.
 pub const MAX_ATTEMPTS_PER_CALLER: usize = 8;
@@ -29,6 +29,10 @@ pub const MAX_SECRET_LENGTH: usize = 4096;
 
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn gone() -> AttemptError {
+    AttemptError::new("This connection attempt is no longer active. Check the address again.")
 }
 
 /// Why a connect call is refused instead of answered with a result the dialog shows: the words a person reads.
@@ -63,7 +67,11 @@ pub trait ServerLinks: Send + Sync {
     /// The link of this saved server is attached.
     fn is_open(&self, id: &str) -> bool;
     /// Connects when needed (see [`LinkPool::open`]).
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<(), ConnectError>;
+    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>, cancel: Option<&CancellationToken>) -> Result<LinkOpen, ConnectError>;
+    /// Rolls back a newly owned attachment.
+    async fn rollback(&self, id: &str, _token: u64) {
+        self.close(id).await;
+    }
     /// Detaches the link and cancels an attempt in flight.
     async fn close(&self, id: &str);
 }
@@ -74,8 +82,12 @@ impl ServerLinks for LinkPool {
         self.get(id).is_some_and(|link| !link.stopped())
     }
 
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<(), ConnectError> {
-        LinkPool::open(self, spec, context, progress).await.map(|_link| ())
+    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>, cancel: Option<&CancellationToken>) -> Result<LinkOpen, ConnectError> {
+        self.open_scoped(spec, context, progress, cancel).await.map(|(_, ownership)| ownership)
+    }
+
+    async fn rollback(&self, id: &str, token: u64) {
+        LinkPool::rollback(self, id, token).await;
     }
 
     async fn close(&self, id: &str) {
@@ -83,12 +95,13 @@ impl ServerLinks for LinkPool {
     }
 }
 
-/// inspected: may connect once; connecting; restartable: found a daemon the user may replace.
+/// Inspected: may connect once; restartable: found a daemon the user may replace; committed: the window is up and saving has won over cancel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AttemptState {
     Inspected,
     Connecting,
     Restartable,
+    Committed,
 }
 
 /// What changes while an attempt runs; held for short, synchronous steps only.
@@ -96,8 +109,6 @@ pub(crate) struct Run {
     pub state: AttemptState,
     /// The host key was dealt with (pinned or replaced); a restart does not pin again.
     pub key_handled: bool,
-    pub record_id: String,
-    pub was_open: bool,
 }
 
 pub struct Attempt {
@@ -105,7 +116,7 @@ pub struct Attempt {
     caller: ConnectionId,
     target: SshTarget,
     inspection: Arc<HostKeyInspection>,
-    cancelled: AtomicBool,
+    pub(crate) cancel_signal: CancellationToken,
     run: Mutex<Run>,
 }
 
@@ -128,7 +139,17 @@ impl Attempt {
     }
 
     pub fn cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::SeqCst)
+        self.cancel_signal.is_cancelled()
+    }
+
+    /// Cancellation and committing the connection are mutually exclusive, even if saving the host must await disk I/O.
+    pub(crate) fn commit(&self) -> bool {
+        let mut run = self.run();
+        if self.cancelled() {
+            return false;
+        }
+        run.state = AttemptState::Committed;
+        true
     }
 
     pub(crate) fn run(&self) -> MutexGuard<'_, Run> {
@@ -150,6 +171,23 @@ struct State {
     questions: HashMap<String, Question>,
     /// Connections that closed: an attempt or a question put to one of them later would never be answered or cancelled.
     closed: HashSet<ConnectionId>,
+    /// The attempts still being inspected, by id, with the key of their target.
+    inspecting: Vec<(String, String)>,
+}
+
+/// An attempt from its admission until its inspection is registered (or the inspection fails or is dropped): a forget of its
+/// server in between retires it, and the registration is then refused.
+pub struct Admission<'a> {
+    attempts: &'a Attempts,
+    id: String,
+    caller: ConnectionId,
+    target: SshTarget,
+}
+
+impl Drop for Admission<'_> {
+    fn drop(&mut self) {
+        locked(&self.attempts.state).inspecting.retain(|(id, _)| *id != self.id);
+    }
 }
 
 pub struct Attempts {
@@ -163,14 +201,27 @@ impl Attempts {
         Arc::new(Self { state: Mutex::new(State::default()), links, push })
     }
 
-    /// Opens an attempt for the connection, making room by dropping an idle one of its own.
-    pub fn register(&self, caller: ConnectionId, target: SshTarget, inspection: HostKeyInspection) -> Result<Arc<Attempt>, AttemptError> {
+    /// Admits an attempt of `caller` on `target` before anything about it is read.
+    pub fn admit(&self, caller: ConnectionId, target: SshTarget) -> Admission<'_> {
+        let id = uuid::Uuid::new_v4().to_string();
+        locked(&self.state).inspecting.push((id.clone(), target.key()));
+        Admission { attempts: self, id, caller, target }
+    }
+
+    /// Opens the admitted attempt with its inspection, making room by dropping an idle one of the same connection. Refused when a
+    /// forget of the server retired it while it was being inspected.
+    pub fn register(&self, admission: Admission<'_>, inspection: HostKeyInspection) -> Result<Arc<Attempt>, AttemptError> {
         let mut state = locked(&self.state);
+        let Some(at) = state.inspecting.iter().position(|(id, _)| *id == admission.id) else { return Err(gone()) };
+        state.inspecting.remove(at);
+        let caller = admission.caller;
         if state.closed.contains(&caller) {
             return Err(AttemptError::new("This connection is closed."));
         }
         while state.attempts.iter().filter(|attempt| attempt.caller == caller).count() >= MAX_ATTEMPTS_PER_CALLER {
-            let idle = state.attempts.iter().position(|attempt| attempt.caller == caller && attempt.run().state != AttemptState::Connecting);
+            let idle = state.attempts.iter().position(|attempt| {
+                attempt.caller == caller && matches!(attempt.run().state, AttemptState::Inspected | AttemptState::Restartable)
+            });
             match idle {
                 Some(at) => {
                     state.attempts.remove(at);
@@ -179,12 +230,12 @@ impl Attempts {
             }
         }
         let attempt = Arc::new(Attempt {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: admission.id.clone(),
             caller,
-            target,
+            target: admission.target.clone(),
             inspection: Arc::new(inspection),
-            cancelled: AtomicBool::new(false),
-            run: Mutex::new(Run { state: AttemptState::Inspected, key_handled: false, record_id: String::new(), was_open: false }),
+            cancel_signal: CancellationToken::new(),
+            run: Mutex::new(Run { state: AttemptState::Inspected, key_handled: false }),
         });
         state.attempts.push(attempt.clone());
         Ok(attempt)
@@ -197,36 +248,48 @@ impl Attempts {
             .iter()
             .find(|attempt| attempt.id == attempt_id && attempt.caller == caller)
             .cloned()
-            .ok_or_else(|| AttemptError::new("This connection attempt is no longer active. Check the address again."))
+            .ok_or_else(gone)
+    }
+
+    /// Refused unless `attempt` is still registered: a forget of its server since it was named retired it.
+    pub(crate) fn still_registered(&self, attempt: &Attempt) -> Result<(), AttemptError> {
+        if locked(&self.state).attempts.iter().any(|held| held.id == attempt.id) { Ok(()) } else { Err(gone()) }
     }
 
     pub fn drop_attempt(&self, attempt: &Attempt) {
         locked(&self.state).attempts.retain(|held| held.id != attempt.id);
     }
 
+    /// Retires every caller's attempts on the server whose target has `key` (`SshTarget::key`), those still being inspected too.
+    /// The caller holds that server's turn, so none of them is past its check: one waiting for the turn to connect finds itself
+    /// retired there.
+    pub(crate) fn retire_target(&self, key: &str) {
+        let mut state = locked(&self.state);
+        state.inspecting.retain(|(_, held)| held != key);
+        state.attempts.retain(|held| held.target.key() != key);
+    }
+
     /// Cancels the connection's own attempt by id; anything else is ignored.
     pub async fn cancel(&self, caller: ConnectionId, attempt_id: &str) {
         let attempt = locked(&self.state).attempts.iter().find(|attempt| attempt.id == attempt_id && attempt.caller == caller).cloned();
         if let Some(attempt) = attempt {
-            self.cancel_attempt(&attempt).await;
+            self.cancel_attempt(&attempt);
         }
     }
 
-    /// Ends an attempt that is not connecting; one that is stops where it is and gives its connection back.
-    async fn cancel_attempt(&self, attempt: &Attempt) {
-        attempt.cancelled.store(true, Ordering::SeqCst);
-        let close = {
+    /// Cancels an idle or connecting attempt; a committed connection is left alone.
+    fn cancel_attempt(&self, attempt: &Attempt) {
+        let connecting = {
             let run = attempt.run();
-            if run.state == AttemptState::Connecting {
-                Some((!run.was_open && !run.record_id.is_empty()).then(|| run.record_id.clone()))
-            } else {
-                None
+            if run.state == AttemptState::Committed {
+                return;
             }
+            attempt.cancel_signal.cancel();
+            run.state == AttemptState::Connecting
         };
-        match close {
-            None => self.drop_attempt(attempt),
-            Some(Some(id)) => self.links.close(&id).await,
-            Some(None) => {}
+        // The running connect unwinds inside its server turn, so a delayed close cannot detach another attempt's link.
+        if !connecting {
+            self.drop_attempt(attempt);
         }
     }
 
@@ -244,7 +307,7 @@ impl Attempts {
             drop(question.answer.send(None));
         }
         for attempt in attempts {
-            self.cancel_attempt(&attempt).await;
+            self.cancel_attempt(&attempt);
         }
     }
 

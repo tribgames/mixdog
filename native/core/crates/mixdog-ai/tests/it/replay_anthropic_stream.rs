@@ -9,12 +9,15 @@ use crate::provider_case::CaseSet;
 use crate::provider_case::Endpoint;
 use crate::provider_case::within;
 use crate::replay_anthropic;
+#[cfg(node_twin)]
 use crate::replay_world;
 
+#[cfg(node_twin)]
 pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "anthropic-stream", run: every_case_replays_as_nodes }];
 
 /// Every case whole: the request as it arrives at the socket (the Anthropic SDK's headers in its order and letter
 /// case, undici's own, the body bytes), and the send's result and callbacks as Node's.
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load("anthropic-stream");

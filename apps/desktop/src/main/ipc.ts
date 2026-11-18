@@ -38,7 +38,7 @@ import { registerWindowSettingsIpc } from './ipc-window-settings';
 import type { PcQuotaHost } from './ipc-host-extras';
 import { createAllowAllActionsConfirm } from './developer-risk-confirm';
 import { registerHostExtrasIpc } from './ipc-host-extras';
-import { CORE_PORT_OPEN_CHANNEL, type CorePortRelay, type CoreSlot } from './core-port/relay';
+import { CORE_PORT_OPEN_CHANNEL, CORE_PORT_RETRY_CHANNEL, type CorePortRelay, type CoreSlot } from './core-port/relay';
 import { raiseDesktopWindow } from './notification-window';
 import { createSignInFocus } from './sign-in-focus';
 import { createCoreFileGrants } from './core-file-grants';
@@ -54,6 +54,7 @@ import {
   requiredVisualizeTabCommand,
 } from './ipc-validation';
 import { createServerFiles, serverCoreInvoke, uploadServerBytes } from './server-file-access';
+import { serverUploadCoordinatorFor } from './server-upload-coordinator';
 import type { DesktopVisualize } from './visualize/host';
 import type { VisualizeService } from './visualize/service';
 
@@ -73,7 +74,7 @@ interface DesktopIpcDependencies {
   app: Pick<App, 'quit'> & Partial<Pick<App, 'getPath' | 'getLocale'>>;
   translateUi?: (key: string) => string;
   ipcMain: DesktopIpcMain;
-  dialog: Pick<Dialog, 'showOpenDialog' | 'showMessageBox'> & Partial<Pick<Dialog, 'showSaveDialog'>>;
+  dialog: Pick<Dialog, 'showOpenDialog'> & Partial<Pick<Dialog, 'showSaveDialog'>>;
   shell: Pick<Shell, 'openPath' | 'openExternal' | 'showItemInFolder' | 'trashItem'>;
   powerMonitor?: Pick<PowerMonitor, 'on' | 'removeListener'>;
   settingsStore?: Pick<DesktopSettingsStore, 'readZoom' | 'updateZoom'>;
@@ -132,8 +133,9 @@ interface DesktopIpcDependencies {
   protocol?: ProtocolConnection | null;
   /** This PC's own core connection (what reads this computer, e.g. its installed fonts); the window's own when absent. */
   pcCore?: ProtocolConnection | null;
+  prepareConfirmedAllowAllActions?: () => (() => Promise<unknown>) | undefined;
   /** Hands the window its own MessagePort to its core (and, for a server window, to this PC's): the renderer's direct lane. */
-  corePort?: Pick<CorePortRelay, 'open'>;
+  corePort?: Pick<CorePortRelay, 'open' | 'retryLaunch'>;
 }
 
 export function registerDesktopIpc(
@@ -160,6 +162,7 @@ export function registerDesktopIpc(
     paneLayoutFile,
     protocol,
     pcCore,
+    prepareConfirmedAllowAllActions,
     corePort,
   }: DesktopIpcDependencies
 ): () => void {
@@ -222,11 +225,17 @@ export function registerDesktopIpc(
     server
       ? server.grants.describe(value)
       : selectedFiles.describe(value, (options as { chatLink?: unknown } | undefined)?.chatLink !== true);
+  // The server connection's one upload coordinator: this window's file uploads and its attachment staging draw on the same
+  // allowance as every other window of that server (it is found from the connection, so no window owns it).
+  const serverUploads = server && protocol ? serverUploadCoordinatorFor(protocol) : null;
+  const stagingOwner = {};
   const stageAttachment = server
     ? async (dataUrl: unknown, name: unknown) => {
+        if (!serverUploads) throw new Error('The server connection is not available.');
         const file = requiredAttachmentFile(dataUrl, name);
         const uploaded = await uploadServerBytes(
-          invokeDesktopOperation,
+          serverUploads,
+          stagingOwner,
           file.bytes,
           `${file.baseName}.${file.extension}`,
           'transcript'
@@ -256,13 +265,14 @@ export function registerDesktopIpc(
       throw coreErrorForWindow(error);
     }
   });
-  registerProjectFileIpc({
+  const disposeProjectFileIpc = registerProjectFileIpc({
     handle,
     host,
     invokeDesktopOperation,
     shell,
     grantedFile,
     server,
+    uploads: serverUploads,
   });
   registerSessionIpc({ handle, remoteHosts, core: protocol });
   registerBrowserIpc({ handle, browserHost, browserLogin });
@@ -291,7 +301,7 @@ export function registerDesktopIpc(
     DESKTOP_IPC.visualizeConsumeGesture,
     async (_event, target) => (await visualize?.consumeChoiceGesture?.(requiredVisualizeGestureTarget(target))) === true
   );
-  const confirmAllowAllActions = createAllowAllActionsConfirm({ dialog, window, nativeT });
+  const confirmAllowAllActions = createAllowAllActionsConfirm({ window, nativeT });
   registerWindowSettingsIpc({ window, app, handle, invokeDesktopOperation, settingsStore, previewNotificationSound });
   const disposeHostExtrasIpc = registerHostExtrasIpc({
     handle,
@@ -299,6 +309,7 @@ export function registerDesktopIpc(
     host,
     pcHost: connectionKind === 'local' ? undefined : pcHost,
     confirmAllowAllActions,
+    prepareConfirmedAllowAllActions,
     signInFocus:
       connectionKind === 'local' ? createSignInFocus({ activate: () => raiseDesktopWindow(window) }) : null,
   });
@@ -317,6 +328,7 @@ export function registerDesktopIpc(
       const slot: CoreSlot = (options as { slot?: unknown } | null | undefined)?.slot === 'pc' ? 'pc' : 'primary';
       return corePort.open(event.sender as unknown as Parameters<CorePortRelay['open']>[0], slot);
     });
+    handle(CORE_PORT_RETRY_CHANNEL, () => corePort.retryLaunch());
   }
   // Renderer perf lines ride a fire-and-forget event channel (no invoke).
   const onPerfLog = (_event: Electron.IpcMainEvent, line: unknown): void => {
@@ -371,12 +383,17 @@ export function registerDesktopIpc(
     removed = true;
     stateBridge.dispose();
     void server?.dispose();
+    disposeProjectFileIpc();
+    serverUploads?.releaseOwner(stagingOwner);
     disposeHostExtrasIpc();
     ipcMain.removeListener(DESKTOP_IPC.perfLog, onPerfLog);
     disposeRendererProbe();
     disposeScreenSessions();
     disposePaneLayoutIpc();
     for (const channel of channels) ipcMain.removeHandler(channel);
-    if (corePort) ipcMain.removeHandler(CORE_PORT_OPEN_CHANNEL);
+    if (corePort) {
+      ipcMain.removeHandler(CORE_PORT_OPEN_CHANNEL);
+      ipcMain.removeHandler(CORE_PORT_RETRY_CHANNEL);
+    }
   };
 }

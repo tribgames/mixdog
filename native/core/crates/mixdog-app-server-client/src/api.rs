@@ -146,6 +146,9 @@ pub enum ClientError {
     ConnectionLost,
     #[error("client closed")]
     ClientClosed,
+    /// An addressed send whose socket is gone (see [`ReplyAddress`]): nothing was written.
+    #[error("the socket this was meant for is gone")]
+    StaleAttachment,
     /// initialize refused by the version gate; terminal, no ladder (§4.4). `reason`: clientOutdated | serverOutdated.
     #[error("version refused: {reason}")]
     VersionRefused {
@@ -186,6 +189,8 @@ impl ClientError {
             Self::Rpc(_) => "rpc",
             Self::ConnectionLost => "connectionLost",
             Self::ClientClosed => "clientClosed",
+            // Rust-side only (api.ts has no per-socket addressing): the send names a socket that has gone.
+            Self::StaleAttachment => "staleAttachment",
             Self::VersionRefused { .. } => "versionRefused",
             Self::UnknownMethod(_) => "unknownMethod",
             Self::OpNotApplied(_) => "opNotApplied",
@@ -258,6 +263,43 @@ pub trait FoldStore: Send + Sync {
 
 // ───────────── server requests (§8) ─────────────
 
+/// One actual socket of a client: minted when the client takes the socket up, never reused, retired when the socket is. A
+/// reconnect to the same server through the same forward is a new attachment, so work that began on the old one can never be
+/// delivered through the new one. It also names the client that issued it (its writer): another client, even one at the same
+/// socket count, never accepts it. Only the client mints one; its fields are private.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AttachmentId {
+    writer: u64,
+    socket: u64,
+}
+
+/// Process-wide, so no two clients (engines) ever share a writer identity.
+static NEXT_WRITER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+impl AttachmentId {
+    /// A writer identity of its own, never handed to another client.
+    pub(crate) fn mint_writer() -> u64 {
+        NEXT_WRITER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub(crate) fn new(writer: u64, socket: u64) -> Self {
+        Self { writer, socket }
+    }
+
+    /// An attachment of a writer no client has: for a stand-in client (a test double), never accepted by a real one.
+    pub fn detached() -> Self {
+        Self::new(Self::mint_writer(), 0)
+    }
+}
+
+/// Where the answer to a server's request goes: the socket the request arrived on and its id there. The id alone is not an
+/// address: a new socket to the same server may reuse it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ReplyAddress {
+    pub attachment: AttachmentId,
+    pub request_id: RequestId,
+}
+
 #[derive(Debug, Clone)]
 pub enum ServerRequestAnswer {
     Result(Json),
@@ -292,7 +334,7 @@ pub enum ClientEvent {
     /// `pending_server_requests` until `serverRequest/resolved` arrives or the socket closes (the core re-delivers). One
     /// addressed to a capability this client declared (`ServerRequest::requires`) is not held: its handler's answer ends it. A
     /// method this client's protocol does not know (a newer core's) does not parse: it is a `ProtocolViolation`, never held.
-    ServerRequest(ServerRequest),
+    ServerRequest(ServerRequest, ReplyAddress),
     /// The core resolved a held request, or stopped waiting for a `host/*` one it got no answer to (its handler stops; a
     /// `model/proxy/execute` one is given up with the `model/proxy/cancel` notification instead).
     ServerRequestResolved(ServerRequestResolvedParams),
@@ -342,6 +384,9 @@ pub trait ProtocolClient: Send + Sync {
     ) -> Result<Json, ClientError>;
     /// Client notification (`terminal/input`, `terminal/resize`, `client/perfLog`, ...). `ConnectionLost` when not ready.
     async fn notify(&self, method: &str, params: Json) -> Result<(), ClientError>;
+    /// A notification for the socket `attachment` names and no other: `StaleAttachment` when that socket is gone, whatever
+    /// socket the client has now.
+    async fn notify_on(&self, attachment: AttachmentId, method: &str, params: Json) -> Result<(), ClientError>;
 
     /// `thread/resume`. Registers the subscription for restore after reconnect, sending the folded position as `resumeFrom`.
     async fn resume_thread(
@@ -358,8 +403,9 @@ pub trait ProtocolClient: Send + Sync {
     /// has not resolved.
     fn pending_server_requests(&self) -> Vec<ServerRequest>;
     /// A held request's validity is the core's decision (`serverRequest/resolved` follows); an addressed one is ended by the
-    /// answer. `ConnectionLost` when not ready.
-    async fn respond(&self, id: RequestId, answer: ServerRequestAnswer) -> Result<(), ClientError>;
+    /// answer. The answer goes to the socket the request arrived on: `StaleAttachment` when that socket is gone (nothing is
+    /// sent, whatever socket the client has now and whatever id it uses). `ConnectionLost` when not ready.
+    async fn respond(&self, address: ReplyAddress, answer: ServerRequestAnswer) -> Result<(), ClientError>;
 
     /// Reads all pages of a blob (`blob/read`, page ≤ `server().limits.max_blob_page_bytes`). `BlobNotFound`/`BlobCorrupt`
     /// fail this read only.

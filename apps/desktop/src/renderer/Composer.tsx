@@ -349,6 +349,29 @@ export type ComposerProps = {
   agentMode?: boolean;
 };
 
+// The document listener can survive many composer renders. Keep its
+// lexical environment separate from submit and the rest of the pane.
+function usePersistDraftOnHide(
+  identityScope: string,
+  textarea: React.RefObject<HTMLTextAreaElement | null>,
+  draftRef: React.RefObject<string>
+) {
+  useEffect(() => {
+    const save = (event: Event): void => {
+      if (event.type === 'visibilitychange' && document.visibilityState !== 'hidden') return;
+      const element = textarea.current;
+      stashComposerDraft(identityScope, document.activeElement === element && element ? element.value : draftRef.current);
+      persistComposerDrafts();
+    };
+    document.addEventListener('visibilitychange', save);
+    window.addEventListener('pagehide', save);
+    return () => {
+      document.removeEventListener('visibilitychange', save);
+      window.removeEventListener('pagehide', save);
+    };
+  }, [identityScope, textarea, draftRef]);
+}
+
 export const Composer = memo(function Composer(props: ComposerProps) {
   const {
     onOpenFile,
@@ -554,7 +577,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     showComposerNotice,
     history.navigation,
   ]);
-  useComposerPromptRestore({ promptRestore, setDraft, draftRef, textarea, onQueuedRestored });
+  useComposerPromptRestore({ promptRestore, sessionId: sessionId || '', setDraft, draftRef, textarea, onQueuedRestored });
   const selector = useComposerMessageSelector({
     userMessages,
     restoring,
@@ -720,23 +743,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   }, [identityScope, holdsContent]);
   // Leaving the screen (home button, app switch) is the last moment the page
   // is sure to run: the OS may kill it or a deploy may reload it afterwards.
-  useEffect(() => {
-    const save = (event: Event): void => {
-      if (event.type === 'visibilitychange' && document.visibilityState !== 'hidden') return;
-      const element = textarea.current;
-      stashComposerDraft(
-        identityScope,
-        document.activeElement === element && element ? element.value : draftRef.current
-      );
-      persistComposerDrafts();
-    };
-    document.addEventListener('visibilitychange', save);
-    window.addEventListener('pagehide', save);
-    return () => {
-      document.removeEventListener('visibilitychange', save);
-      window.removeEventListener('pagehide', save);
-    };
-  }, [identityScope]);
+  usePersistDraftOnHide(identityScope, textarea, draftRef);
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
   const [addMenuRequest, setAddMenuRequest] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: identityScope and paneActive are reset triggers; the effect body does not read them
@@ -814,6 +821,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     setSubmitting,
     setSubmissionRecoveryVersion,
     clearNotice,
+    showNotice: showComposerNotice,
     setAttachmentError,
     removeAttachments,
     mergeRestoredAttachments,

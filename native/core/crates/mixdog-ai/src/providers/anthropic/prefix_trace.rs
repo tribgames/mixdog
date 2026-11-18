@@ -20,6 +20,7 @@ const MAX_SESSIONS: usize = 256;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fingerprint {
     tools: String,
+    tool_choice: Option<String>,
     system: Vec<String>,
     params: Option<String>,
     markers: Vec<String>,
@@ -114,6 +115,7 @@ pub fn fingerprint(body: &Map<String, Value>) -> Fingerprint {
     }
     Fingerprint {
         tools: hash(body.get("tools").filter(|t| truthy(t)).unwrap_or(&json!([]))),
+        tool_choice: body.get("tool_choice").map(hash),
         system: system.iter().map(|block| hash(&without_marker(block))).collect(),
         params: Some(params),
         markers,
@@ -127,6 +129,9 @@ impl Fingerprint {
     pub fn persistable(&self) -> Value {
         let mut out = Map::new();
         out.insert("tools".into(), json!(self.tools));
+        if let Some(choice) = &self.tool_choice {
+            out.insert("toolChoice".into(), json!(choice));
+        }
         out.insert("system".into(), json!(self.system));
         out.insert("params".into(), self.params.as_ref().map_or(Value::Null, |p| json!(p)));
         out.insert("markers".into(), json!(self.markers));
@@ -140,6 +145,7 @@ impl Fingerprint {
         let strings = |key: &str| map.get(key).and_then(Value::as_array).map(|items| items.iter().map(js_string).collect::<Vec<_>>()).unwrap_or_default();
         Some(Self {
             tools: map.get("tools").map(js_string).unwrap_or_default(),
+            tool_choice: map.get("toolChoice").and_then(Value::as_str).map(str::to_owned),
             system: strings("system"),
             params: map.get("params").filter(|p| truthy(p)).map(js_string),
             markers: strings("markers"),
@@ -196,6 +202,9 @@ pub fn changes(session: &str) -> Option<Map<String, Value>> {
     let mut changed = Vec::new();
     if previous.tools != current.tools {
         changed.push("tools".to_owned());
+    }
+    if previous.tool_choice != current.tool_choice {
+        changed.push("tool_choice".to_owned());
     }
     for index in 0..previous.system.len().max(current.system.len()) {
         if previous.system.get(index) != current.system.get(index) {

@@ -103,6 +103,109 @@ pub struct Catalog {
     lane: DurabilityIo,
 }
 
+fn local_local_context(entry: &Value, data_dir: &Path) -> Result<Value, super::context::ContextError> {
+    local_context_settings(&Catalog::context_limits(entry), data_dir)
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    #[test]
+    fn nul_filled_files_are_not_installed() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("w.gguf");
+        fs::write(&p, vec![0u8; 100]).unwrap();
+        assert!(!exact_file(&p, 100));
+        fs::write(&p, vec![1u8; 100]).unwrap();
+        assert!(exact_file(&p, 100) && !exact_file(&p, 99));
+        assert!(!file_has_data(&dir.path().join("missing")));
+        assert!(available_bytes(&dir.path().join("a/b/c")).is_some());
+    }
+
+    #[cfg(node_twin)]
+    /// A recorded step's file bytes: runs of NUL and latin-1 text, as the recorder wrote them.
+    fn bytes_of(parts: &[serde_json::Value]) -> Vec<u8> {
+        parts
+            .iter()
+            .flat_map(|p| match p["nul"].as_u64() {
+                Some(n) => vec![0u8; n as usize],
+                None => p["text"].as_str().unwrap().chars().map(|c| c as u8).collect(),
+            })
+            .collect()
+    }
+
+    pub(crate) fn catalog(dir: &Path) -> Arc<Catalog> {
+        Arc::new(Catalog::new(dir, HardwareProbe::new("windows", "x86_64", None, crate::tidy::process::Processes::for_tests()), Arc::new(ModelState::default()), mixdog_rt::testing::tokens().durability_io))
+    }
+    #[test]
+    fn the_bundled_manifest_describes_runtime_and_models() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = catalog(dir.path());
+        assert_eq!(c.runtime_version(), "b10621");
+        let win = c.runtime_platform_entry("win32-x64-nvidia").unwrap();
+        assert_eq!(win["executable"], "llama-server.exe");
+        assert!(c.runtime_platform_entry("").is_none());
+        assert_eq!(c.runtime_executable("win32-x64-nvidia").unwrap(), dir.path().join("local-provider/runtime/b10621/llama-server.exe"));
+        assert_eq!(c.model_entry("qwen3.8-27b-q4-k-m").unwrap()["contextWindow"], 32768);
+        assert!(c.model_entry("nope").is_none());
+    }
+    #[tokio::test]
+    async fn status_reports_partial_downloads_and_install_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = catalog(dir.path());
+        let status = c.status(Some("win32-x64-nvidia")).await.unwrap();
+        assert_eq!(status["platformSupported"], true);
+        assert_eq!(status["runtime"]["installed"], false);
+        assert_eq!(status["runtime"]["backend"], "CUDA 12.4");
+        let model = &status["models"][0];
+        assert_eq!((model["installed"].clone(), model["present"].clone(), model["compatible"].clone()), (json!(false), json!(false), json!(false)));
+        assert_eq!(model["remainingDownloadBytes"], model["sizeBytes"]);
+        assert_eq!(model["contextWindow"], 32768);
+        // A partial download shortens the remaining bytes.
+        let weights = c.model_path(&c.model_entry("qwen3.8-27b-q4-k-m").unwrap());
+        fs::create_dir_all(weights.parent().unwrap()).unwrap();
+        fs::write(format!("{}.part", weights.display()), vec![1u8; 1000]).unwrap();
+        assert_eq!(c.status(Some("win32-x64-nvidia")).await.unwrap()["models"][0]["remainingDownloadBytes"], 18_973_870_432i64 - 1000);
+    }
+
+
+    #[cfg(node_twin)]
+    const FILE_HAS_DATA: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/file-has-data-cases/golden.json");
+    /// `shared/file-has-data.test.mjs` recorded from the reference tree (`file-has-data-cases`): every step's file is written as
+    /// recorded and each verdict, `exactLocalProviderFile` included, is Node's.
+    #[cfg(node_twin)]
+    #[test]
+    fn file_has_data_and_exact_file_answer_as_node_does_for_each_recorded_file() {
+        let recorded = mixdog_testkit::Exact::decode(&serde_json::from_str(&FILE_HAS_DATA).unwrap()).unwrap();
+        assert_eq!(recorded.get("cases").as_array().len(), 2);
+        for case in recorded.get("cases").as_array() {
+            let name = case.get("case").as_str();
+            let dir = tempfile::tempdir().unwrap();
+            let steps = case.get("steps").to_plain().unwrap();
+            let verdicts = case.get("observed").get("verdicts").as_array();
+            assert_eq!(steps.as_array().unwrap().len(), verdicts.len(), "{name}");
+            for (index, (step, verdict)) in steps.as_array().unwrap().iter().zip(verdicts).enumerate() {
+                let path = dir.path().join(step["path"].as_str().unwrap());
+                if let Some(parts) = step["content"].as_array() {
+                    fs::write(&path, bytes_of(parts)).unwrap();
+                }
+                let ctx = format!("{name}, step {index}");
+                if let Some(want) = verdict.try_get("fileHasData") {
+                    assert_eq!(file_has_data(&path), want.as_bool(), "{ctx}");
+                }
+                if let Some(want) = verdict.try_get("sync") {
+                    assert_eq!(file_has_data(&path), want.as_bool(), "{ctx}: sync");
+                    assert_eq!(want, verdict.get("async"), "{ctx}: Node's async verdict");
+                }
+                if let Some(want) = verdict.try_get("exact") {
+                    assert_eq!(exact_file(&path, step["exactSize"].as_i64().unwrap()), want.as_bool(), "{ctx}: exact");
+                }
+            }
+        }
+    }
+}
+
 impl Catalog {
     /// `lane` is the durability lane every file-system query of the catalog runs on.
     pub fn new(data_dir: &Path, hardware: Arc<HardwareProbe>, state: Arc<ModelState>, lane: DurabilityIo) -> Self {
@@ -271,107 +374,5 @@ impl Catalog {
                 })
             })
             .collect())
-    }
-}
-
-fn local_local_context(entry: &Value, data_dir: &Path) -> Result<Value, super::context::ContextError> {
-    local_context_settings(&Catalog::context_limits(entry), data_dir)
-}
-
-#[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
-
-    pub(crate) fn catalog(dir: &Path) -> Arc<Catalog> {
-        Arc::new(Catalog::new(dir, HardwareProbe::new("windows", "x86_64", None, crate::tidy::process::Processes::for_tests()), Arc::new(ModelState::default()), mixdog_rt::testing::tokens().durability_io))
-    }
-
-    #[test]
-    fn the_bundled_manifest_describes_runtime_and_models() {
-        let dir = tempfile::tempdir().unwrap();
-        let c = catalog(dir.path());
-        assert_eq!(c.runtime_version(), "b10621");
-        let win = c.runtime_platform_entry("win32-x64-nvidia").unwrap();
-        assert_eq!(win["executable"], "llama-server.exe");
-        assert!(c.runtime_platform_entry("").is_none());
-        assert_eq!(c.runtime_executable("win32-x64-nvidia").unwrap(), dir.path().join("local-provider/runtime/b10621/llama-server.exe"));
-        assert_eq!(c.model_entry("qwen3.8-27b-q4-k-m").unwrap()["contextWindow"], 32768);
-        assert!(c.model_entry("nope").is_none());
-    }
-
-    #[tokio::test]
-    async fn status_reports_partial_downloads_and_install_state() {
-        let dir = tempfile::tempdir().unwrap();
-        let c = catalog(dir.path());
-        let status = c.status(Some("win32-x64-nvidia")).await.unwrap();
-        assert_eq!(status["platformSupported"], true);
-        assert_eq!(status["runtime"]["installed"], false);
-        assert_eq!(status["runtime"]["backend"], "CUDA 12.4");
-        let model = &status["models"][0];
-        assert_eq!((model["installed"].clone(), model["present"].clone(), model["compatible"].clone()), (json!(false), json!(false), json!(false)));
-        assert_eq!(model["remainingDownloadBytes"], model["sizeBytes"]);
-        assert_eq!(model["contextWindow"], 32768);
-        // A partial download shortens the remaining bytes.
-        let weights = c.model_path(&c.model_entry("qwen3.8-27b-q4-k-m").unwrap());
-        fs::create_dir_all(weights.parent().unwrap()).unwrap();
-        fs::write(format!("{}.part", weights.display()), vec![1u8; 1000]).unwrap();
-        assert_eq!(c.status(Some("win32-x64-nvidia")).await.unwrap()["models"][0]["remainingDownloadBytes"], 18_973_870_432i64 - 1000);
-    }
-
-    #[test]
-    fn nul_filled_files_are_not_installed() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("w.gguf");
-        fs::write(&p, vec![0u8; 100]).unwrap();
-        assert!(!exact_file(&p, 100));
-        fs::write(&p, vec![1u8; 100]).unwrap();
-        assert!(exact_file(&p, 100) && !exact_file(&p, 99));
-        assert!(!file_has_data(&dir.path().join("missing")));
-        assert!(available_bytes(&dir.path().join("a/b/c")).is_some());
-    }
-
-    const FILE_HAS_DATA: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/file-has-data-cases/golden.json");
-
-    /// A recorded step's file bytes: runs of NUL and latin-1 text, as the recorder wrote them.
-    fn bytes_of(parts: &[serde_json::Value]) -> Vec<u8> {
-        parts
-            .iter()
-            .flat_map(|p| match p["nul"].as_u64() {
-                Some(n) => vec![0u8; n as usize],
-                None => p["text"].as_str().unwrap().chars().map(|c| c as u8).collect(),
-            })
-            .collect()
-    }
-
-    /// `shared/file-has-data.test.mjs` recorded from the reference tree (`file-has-data-cases`): every step's file is written as
-    /// recorded and each verdict, `exactLocalProviderFile` included, is Node's.
-    #[test]
-    fn file_has_data_and_exact_file_answer_as_node_does_for_each_recorded_file() {
-        let recorded = mixdog_testkit::Exact::decode(&serde_json::from_str(&FILE_HAS_DATA).unwrap()).unwrap();
-        assert_eq!(recorded.get("cases").as_array().len(), 2);
-        for case in recorded.get("cases").as_array() {
-            let name = case.get("case").as_str();
-            let dir = tempfile::tempdir().unwrap();
-            let steps = case.get("steps").to_plain().unwrap();
-            let verdicts = case.get("observed").get("verdicts").as_array();
-            assert_eq!(steps.as_array().unwrap().len(), verdicts.len(), "{name}");
-            for (index, (step, verdict)) in steps.as_array().unwrap().iter().zip(verdicts).enumerate() {
-                let path = dir.path().join(step["path"].as_str().unwrap());
-                if let Some(parts) = step["content"].as_array() {
-                    fs::write(&path, bytes_of(parts)).unwrap();
-                }
-                let ctx = format!("{name}, step {index}");
-                if let Some(want) = verdict.try_get("fileHasData") {
-                    assert_eq!(file_has_data(&path), want.as_bool(), "{ctx}");
-                }
-                if let Some(want) = verdict.try_get("sync") {
-                    assert_eq!(file_has_data(&path), want.as_bool(), "{ctx}: sync");
-                    assert_eq!(want, verdict.get("async"), "{ctx}: Node's async verdict");
-                }
-                if let Some(want) = verdict.try_get("exact") {
-                    assert_eq!(exact_file(&path, step["exactSize"].as_i64().unwrap()), want.as_bool(), "{ctx}: exact");
-                }
-            }
-        }
     }
 }

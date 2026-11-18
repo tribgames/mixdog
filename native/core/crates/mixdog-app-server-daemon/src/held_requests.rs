@@ -38,7 +38,6 @@ use mixdog_protocol::HumanGateResponse;
 use mixdog_protocol::ThreadId;
 use mixdog_protocol::ToolApprovalDecision;
 use mixdog_tools::policy::AuditEntry;
-use mixdog_tools::policy::GrantKey;
 use mixdog_tools::policy::GrantStore;
 use serde_json::Value;
 
@@ -223,7 +222,7 @@ impl HeldRequests {
             let response = decision.response.and_then(|response| serde_json::to_value(response).ok());
             let response = response.as_ref().and_then(Value::as_str).unwrap_or(if decision.approved { "approve" } else { "deny" });
             // Before the run goes on to the policy gate's own record of the same answer, as `settle` starts this one first.
-            record_decision(self.home.grants().as_ref(), &held, &offered, decision.approved, response, decision.remember, device).await;
+            record_decision(self.home.grants().as_ref(), &held, response, device).await;
         }
         resolution
     }
@@ -297,47 +296,25 @@ impl HeldRequests {
 }
 
 /// `recordHumanDecision(entry.gate, approval)` of `settle`: the audit line of an answered held
-/// request and the grant it may store, under the held row's own identity (the gate Node builds in
-/// `hold`: the run's agent, the row's kind, action, tool and target). The policy gate records the
-/// same answer once more under the call's identity, as `askApproval` does after the hold returns.
-/// A scope the row did not offer stores nothing, and neither does `session`: the gate has no
-/// session to keep it for.
-async fn record_decision(
-    store: &dyn GrantStore,
-    held: &HeldRequest,
-    offered: &[ApprovalRemember],
-    approved: bool,
-    response: &str,
-    remember: Option<ApprovalRemember>,
-    device: &str,
-) {
-    let entry = |decision: &str| AuditEntry {
+/// request, under the held row's own identity (the gate Node builds in `hold`: the run's agent,
+/// the row's kind, action, tool and target). The policy gate records the same answer once more
+/// under the call's identity, as `askApproval` does after the hold returns, and stores what the
+/// answer may remember there: for the tool, never for the row's action category.
+async fn record_decision(store: &dyn GrantStore, held: &HeldRequest, response: &str, device: &str) {
+    let entry = AuditEntry {
         agent_id: held.agent_id.clone(),
         kind: held.kind.clone(),
         action: held.action.clone().unwrap_or_default(),
         tool: held.tool.clone(),
         target: held.target.clone(),
-        decision: decision.to_owned(),
+        decision: response.to_owned(),
         device: device.to_owned(),
         at_ms: None,
     };
-    let mut granted = false;
-    if let (true, Some(action), Some(scope)) = (approved, held.action.as_deref().and_then(GrantKey::parse), remember)
-        && matches!(scope, ApprovalRemember::Agent | ApprovalRemember::Always)
-        && offered.contains(&scope)
-    {
-        match store.grant(&held.agent_id, &action, scope, device).await {
-            Ok(stored) => granted = stored,
-            Err(error) => tracing::warn!(id = held.id, "held request grant failed: {error}"),
-        }
-    }
-    for decision in std::iter::once(response).chain(granted.then_some("granted")) {
-        if let Err(error) = store.record_audit(entry(decision)).await {
-            tracing::warn!(id = held.id, "held request audit failed: {error}");
-        }
+    if let Err(error) = store.record_audit(entry).await {
+        tracing::warn!(id = held.id, "held request audit failed: {error}");
     }
 }
-
 fn string_list(value: Option<&Value>) -> Vec<String> {
     value.and_then(Value::as_array).map(|items| items.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default()
 }
@@ -396,7 +373,7 @@ impl Drop for CancelGuard<'_> {
         self.held.post(&settled.agent_id, &settled);
         // The abort's own answer (`reason: 'run cancelled'`, no device) is audited as any other, whether or not the row was delivered.
         drop(mixdog_rt::spawn("held-request-cancel", mixdog_rt::TaskClass::Work, async move {
-            record_decision(home.grants().as_ref(), &settled, &entry.remember, false, "deny", None, "").await;
+            record_decision(home.grants().as_ref(), &settled, "deny", "").await;
         }));
     }
 }
@@ -468,6 +445,8 @@ mod tests {
         /// The status of every delivery, in the order the deliveries were started (before any wait).
         started: Mutex<Vec<HeldRequestStatus>>,
     }
+
+    use mixdog_tools::policy::GrantKey;
 
     /// The store, signalling each audit line it takes.
     struct Audits(Arc<mixdog_tools::policy::MemoryGrantStore>, Arc<Permits>);
@@ -601,6 +580,52 @@ mod tests {
         let ApprovalResolution::Decided { decision, .. } = waiting.await.unwrap() else { panic!("decided") };
         assert_eq!(decision.remember, Some(ApprovalRemember::Once));
         assert_eq!(decision.response, Some(HumanGateResponse::Approve));
+        // Nothing is stored for it: no grant of the category or the tool, and one audit line.
+        home.audited.acquire().await.unwrap().forget();
+        assert_eq!(home.store.mode_for("ann", &GrantKey::Kind(mixdog_core_api::domain::approval::ActionKind::Comment), false).await, Ok(mixdog_tools::policy::PermissionMode::Ask));
+        assert_eq!(home.store.mode_for("ann", &GrantKey::tool("github").unwrap(), false).await, Ok(mixdog_tools::policy::PermissionMode::Ask));
+        assert_eq!(home.store.audit().into_iter().map(|e| e.decision).collect::<Vec<_>>(), ["approve"]);
+    }
+
+    /// A denial never remembers, whatever scope came with it.
+    #[tokio::test]
+    async fn a_denial_carrying_a_scope_stores_and_remembers_nothing() {
+        let (home, held, gate) = setup();
+        let waiting = tokio::spawn({
+            let gate = gate.clone();
+            async move { gate.request(ask()).await }
+        });
+        let row = first_row(&home).await;
+        held.resolve(&row.id, HeldAnswer { approved: false, remember: Some(ApprovalRemember::Agent), ..HeldAnswer::default() }).await;
+        let ApprovalResolution::Decided { decision, .. } = waiting.await.unwrap() else { panic!("decided") };
+        assert_eq!((decision.approved, decision.remember), (false, Some(ApprovalRemember::Once)));
+        home.audited.acquire().await.unwrap().forget();
+        assert_eq!(home.store.mode_for("ann", &GrantKey::tool("github").unwrap(), false).await, Ok(mixdog_tools::policy::PermissionMode::Ask));
+        assert_eq!(home.store.audit().into_iter().map(|e| e.decision).collect::<Vec<_>>(), ["deny"]);
+    }
+
+    /// The first answer wins: a second window answering the same request, the other way or with a wider scope, changes
+    /// nothing the run was told and posts no second settled row.
+    #[tokio::test]
+    async fn a_second_window_cannot_reverse_the_winning_answer() {
+        for (first, second) in [(true, false), (false, true)] {
+            let (home, held, gate) = setup();
+            let waiting = tokio::spawn({
+                let gate = gate.clone();
+                async move { gate.request(ask()).await }
+            });
+            let row = first_row(&home).await;
+            let winner = HeldAnswer { approved: first, device: "Pixel".into(), remember: Some(ApprovalRemember::Once), ..HeldAnswer::default() };
+            let late = HeldAnswer { approved: second, device: "Desktop".into(), remember: Some(ApprovalRemember::Agent), ..HeldAnswer::default() };
+            assert!(held.resolve(&row.id, winner).await);
+            assert!(!held.resolve(&row.id, late).await, "the settled request answers nothing");
+            let ApprovalResolution::Decided { decision, device, .. } = waiting.await.unwrap() else { panic!("decided") };
+            assert_eq!((decision.approved, decision.remember, device.as_str()), (first, Some(ApprovalRemember::Once), "Pixel"));
+            next_delivery(&home).await;
+            home.audited.acquire().await.unwrap().forget();
+            assert_eq!(home.rows.lock().unwrap().len(), 2, "the pending row and one settled row");
+            assert_eq!(home.store.mode_for("ann", &GrantKey::tool("github").unwrap(), false).await, Ok(mixdog_tools::policy::PermissionMode::Ask));
+        }
     }
 
     #[tokio::test]
@@ -688,31 +713,6 @@ mod tests {
         assert_eq!(home.rows.lock().unwrap().len(), 2, "pending row, then the denied one");
     }
 
-    /// `resolvePreToolAskApproval` recorded over Node (`fixtures/approval-surface/golden.json`): a
-    /// run's ask goes to its owner exactly when no approval UI is attached; with one, or with no
-    /// run to hold for, it stays with the surface's own gate.
-    #[tokio::test]
-    async fn a_run_is_held_exactly_when_node_holds_it() {
-        let golden: Value = serde_json::from_str(include_str!("../../../fixtures/approval-surface/golden.json")).expect("golden parses");
-        let rows = golden["rows"].as_array().expect("rows");
-        assert_eq!(rows.len(), 4);
-        for row in rows {
-            let (home, _held, _) = setup();
-            home.attached.store(row["hookPresent"].as_bool().unwrap(), Ordering::SeqCst);
-            let held = HeldRequests::new(home.clone(), Arc::new(|| 42));
-            let thread = if row["run"].is_null() { "sess_plain" } else { "sess_rmem_abcdef_ann" };
-            let gate = held.gate_for(ThreadId::from(thread), Arc::new(Inner));
-            if row["answeredBy"] == "held" {
-                let waiting = tokio::spawn(async move { gate.request(ask()).await });
-                first_row(&home).await;
-                waiting.abort();
-            } else {
-                assert_eq!(gate.request(ask()).await, ApprovalResolution::Unavailable { at: 7 }, "{row}");
-                assert!(home.rows.lock().unwrap().is_empty(), "{row}");
-            }
-        }
-    }
-
     /// Mixy's heartbeat counts the requests still waiting as approvals (`held.length` of
     /// `collectHeartbeatFacts`): one while the run waits, none once it is answered.
     #[tokio::test]
@@ -757,5 +757,32 @@ mod tests {
         assert_eq!(asked_of_the_surface(&home, gate).await, ApprovalResolution::Unavailable { at: 7 });
         assert!(home.rows.lock().unwrap().is_empty());
         assert!(held.pending().is_empty());
+    }
+
+
+    #[cfg(node_twin)]
+    /// `resolvePreToolAskApproval` recorded over Node (`fixtures/approval-surface/golden.json`): a
+    /// run's ask goes to its owner exactly when no approval UI is attached; with one, or with no
+    /// run to hold for, it stays with the surface's own gate.
+    #[tokio::test]
+    async fn a_run_is_held_exactly_when_node_holds_it() {
+        let golden: Value = serde_json::from_str(include_str!("../../../fixtures/approval-surface/golden.json")).expect("golden parses");
+        let rows = golden["rows"].as_array().expect("rows");
+        assert_eq!(rows.len(), 4);
+        for row in rows {
+            let (home, _held, _) = setup();
+            home.attached.store(row["hookPresent"].as_bool().unwrap(), Ordering::SeqCst);
+            let held = HeldRequests::new(home.clone(), Arc::new(|| 42));
+            let thread = if row["run"].is_null() { "sess_plain" } else { "sess_rmem_abcdef_ann" };
+            let gate = held.gate_for(ThreadId::from(thread), Arc::new(Inner));
+            if row["answeredBy"] == "held" {
+                let waiting = tokio::spawn(async move { gate.request(ask()).await });
+                first_row(&home).await;
+                waiting.abort();
+            } else {
+                assert_eq!(gate.request(ask()).await, ApprovalResolution::Unavailable { at: 7 }, "{row}");
+                assert!(home.rows.lock().unwrap().is_empty(), "{row}");
+            }
+        }
     }
 }

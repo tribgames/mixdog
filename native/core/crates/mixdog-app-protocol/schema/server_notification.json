@@ -451,6 +451,47 @@
       ],
       "type": "object"
     },
+    "DeliveredCompletion": {
+      "description": "One completion a woken batch delivered, located in the row's joined text: the row's text is the entries' texts joined by a newline, and `start`/`end` are the entry's own text as UTF-16 code unit offsets (`text.slice(start, end)` in JavaScript).",
+      "properties": {
+        "end": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "executionId": {
+          "description": "The execution the entry reports; absent for an entry that named none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "status": {
+          "description": "The job's final status as the queued entry recorded it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "surface": {
+          "description": "The job's surface (`agent`, `shell`, ...) as the queued entry recorded it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "end",
+        "start"
+      ],
+      "type": "object"
+    },
     "DeliveryState": {
       "enum": [
         "notSent",
@@ -1144,6 +1185,24 @@
         "item": {
           "$ref": "#/definitions/ThreadItem"
         },
+        "roomView": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ThreadRoomView"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A group room log's view as it stands once this row has landed: the row and the room's activity are one revision, so a client folds both before it tells anyone (the view is never sent separately from the row it landed with).\n\nAbsent: the view is unchanged. `null`: the room shows no activity now (the clear travels with its row)."
+        },
         "threadId": {
           "type": "string"
         },
@@ -1380,6 +1439,28 @@
       "required": [
         "event",
         "runId"
+      ],
+      "type": "object"
+    },
+    "ModelProxyTailParams": {
+      "description": "Server core → the connection running a `model/proxy/execute` session send: the owner's verdict on the POST its `model/proxy/event` `tailAsk` named `ask`.",
+      "properties": {
+        "ask": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "verdict": {
+          "$ref": "#/definitions/ProxyVerdict"
+        }
+      },
+      "required": [
+        "ask",
+        "requestId",
+        "verdict"
       ],
       "type": "object"
     },
@@ -1689,6 +1770,52 @@
       ],
       "type": "object"
     },
+    "ProxyCold": {
+      "description": "Why a session's transcript cannot be reused on the route asked (`cache_tail::Cold`).",
+      "enum": [
+        "expired",
+        "unproven"
+      ],
+      "type": "string"
+    },
+    "ProxyCounters": {
+      "description": "The input-cache counters of one response, absent kept apart from zero (`cache_tail::Counters`).",
+      "properties": {
+        "created": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "created1h": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "created5m": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "read": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "ProxyEvent": {
       "description": "One stream event of an attempt (`StreamEvent`).",
       "oneOf": [
@@ -1746,6 +1873,25 @@
             "type": {
               "enum": [
                 "reasoningDelta"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A progress update of the turn: shown like text, no part of the answer's content.",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "progressDelta"
               ],
               "type": "string"
             }
@@ -2359,6 +2505,66 @@
             "usage"
           ],
           "type": "object"
+        },
+        {
+          "description": "A POST of a [`ProxyCall::SessionSend`] is about to go out: the session's owner judges it now, before any byte of it is sent. `ask` names this POST in the owner's verdict and in its settlement; `route` is the serving account's namespace as an opaque digest (never a credential); `manifest` the cache layout of the body it sends.",
+          "properties": {
+            "ask": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "manifest": {
+              "$ref": "#/definitions/ProxyManifest"
+            },
+            "route": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "tailAsk"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "ask",
+            "manifest",
+            "route",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "What the POST the owner admitted under `ask` reported (`null`: no usage arrived), once.",
+          "properties": {
+            "ask": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "counters": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProxyCounters"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "enum": [
+                "tailSettle"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "ask",
+            "type"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -2369,6 +2575,68 @@
         "tool"
       ],
       "type": "string"
+    },
+    "ProxyManifest": {
+      "description": "The cache layout of the body a POST sends (`cache_tail::WireManifest`); digests are 64 lowercase hex digits.",
+      "properties": {
+        "boundaries": {
+          "description": "The prefix digest after each block, in wire order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "markers": {
+          "items": {
+            "$ref": "#/definitions/ProxyMarker"
+          },
+          "type": "array"
+        },
+        "tail": {
+          "description": "The index in `markers` of the marker that covers the session's transcript.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "boundaries",
+        "markers"
+      ],
+      "type": "object"
+    },
+    "ProxyMarker": {
+      "description": "One `cache_control` marker of the body a POST sends (`cache_tail::Marker`).",
+      "properties": {
+        "block": {
+          "description": "The ordinal of the marked block in wire order.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "digest": {
+          "description": "The prefix digest through the marked block, 64 lowercase hex digits.",
+          "type": "string"
+        },
+        "ttlMs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "zone": {
+          "$ref": "#/definitions/ProxyZone"
+        }
+      },
+      "required": [
+        "block",
+        "digest",
+        "ttlMs",
+        "zone"
+      ],
+      "type": "object"
     },
     "ProxyPhase": {
       "enum": [
@@ -2519,6 +2787,89 @@
         }
       ]
     },
+    "ProxyTailRefusal": {
+      "description": "Why the owner of a session's transcript refused a POST (`cache_tail::TailRefusal`): the PC does not send it.",
+      "oneOf": [
+        {
+          "description": "The owner compacts first, then sends the rebuilt transcript as a new call.",
+          "properties": {
+            "cold": {
+              "$ref": "#/definitions/ProxyCold"
+            },
+            "refusal": {
+              "enum": [
+                "rebuild"
+              ],
+              "type": "string"
+            },
+            "ticket": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cold",
+            "refusal",
+            "ticket"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "cold": {
+              "$ref": "#/definitions/ProxyCold"
+            },
+            "refusal": {
+              "enum": [
+                "skip"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "cold",
+            "refusal"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Another caller rewrites the history; the owner sends again once it is decided.",
+          "properties": {
+            "refusal": {
+              "enum": [
+                "wait"
+              ],
+              "type": "string"
+            },
+            "ticket": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "refusal",
+            "ticket"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "refusal": {
+              "enum": [
+                "stale"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "refusal"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "ProxyToolCall": {
       "properties": {
         "arguments": true,
@@ -2601,6 +2952,72 @@
         "outputTokens"
       ],
       "type": "object"
+    },
+    "ProxyVerdict": {
+      "description": "The owner's answer to one [`ProxyEvent::TailAsk`].",
+      "oneOf": [
+        {
+          "description": "Post it now, inside the judgement's validity: `holdsMs` after the PC asked, measured on the PC's own clock from before its ask (the owner judged later than that), or without a time bound when absent. A verdict that lapsed before the POST is not used: the PC settles it unsent and asks again. `generation` is the history it was judged against and `admittedAt` the owner's instant of the judgement (never compared with the PC's clock).",
+          "properties": {
+            "admittedAt": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "generation": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "holdsMs": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "verdict": {
+              "enum": [
+                "send"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "admittedAt",
+            "generation",
+            "verdict"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "refusal": {
+              "$ref": "#/definitions/ProxyTailRefusal"
+            },
+            "verdict": {
+              "enum": [
+                "refuse"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "refusal",
+            "verdict"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProxyZone": {
+      "description": "Where a cache marker sits on the wire (`cache_tail::Zone`).",
+      "enum": [
+        "tools",
+        "system",
+        "messages"
+      ],
+      "type": "string"
     },
     "QuestionAnswer": {
       "description": "One `ask_user` answer, aligned by index with the questions.",
@@ -3400,6 +3817,16 @@
             "null"
           ]
         },
+        "detailNotice": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshMessage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "id": {
           "type": "string"
         },
@@ -3414,6 +3841,24 @@
         "id",
         "operationId",
         "phase"
+      ],
+      "type": "object"
+    },
+    "SshMessage": {
+      "description": "A message the interface words in the user's language: `code` is a stable name (the set is the `message` lists, exported to TypeScript as `sshMessages`) that picks the text, `params` fill the names and numbers in it. The sentence the sender also has in English is only a fallback for logs and for a code a client does not know.",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "code"
       ],
       "type": "object"
     },
@@ -4303,6 +4748,13 @@
         "busy": {
           "description": "The room has an exchange state: the log reads busy (so the composer offers stop).",
           "type": "boolean"
+        },
+        "deciding": {
+          "description": "The supervisor is choosing the next speaker (between two members' turns, or before the first): `typing` is then the hand-off row, which names nobody, so the band keeps its place until the next speaker replaces it or the room finishes.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "handoffQuestions": {
           "description": "The questions of sessions the members handed work to, while they wait.",
@@ -6171,6 +6623,13 @@
           },
           "type": "array"
         },
+        "completions": {
+          "description": "The completions a woken batch of several delivered, each located in the row's text (see [`DeliveredCompletion`]).",
+          "items": {
+            "$ref": "#/definitions/DeliveredCompletion"
+          },
+          "type": "array"
+        },
         "consumedExecutionIds": {
           "description": "The executions a woken batch delivered; `null` keeps the position of an entry that named none.",
           "items": {
@@ -7121,6 +7580,23 @@
       "type": "object"
     },
     {
+      "description": "One change of the agent's visualize tabs for a phone that views the session (Node's `visualize` push): the state it announces and its own effect fields, queued to the connection in order, never merged or dropped.",
+      "properties": {
+        "method": {
+          "enum": [
+            "visualize/changed"
+          ],
+          "type": "string"
+        },
+        "params": true
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "properties": {
         "method": {
           "enum": [
@@ -7148,6 +7624,25 @@
         },
         "params": {
           "$ref": "#/definitions/ModelProxyCancelParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The session owner's verdict on one POST of a `model/proxy/execute` session send, to the connection running it.",
+      "properties": {
+        "method": {
+          "enum": [
+            "model/proxy/tail"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ModelProxyTailParams"
         }
       },
       "required": [

@@ -61,7 +61,7 @@
   },
   {
     "node": "node_modules/nodemailer/smtp-connection::_actionGreeting, _actionEHLO, _actionSTARTTLS, login, _actionMAIL, _actionRCPT, _actionDATA, _actionSMTPStream (error codes by step)",
-    "rust": "smtp::a_refusal_at_each_step_is_the_code_nodemailer_gives_it"
+    "rust": "smtp::a_refusal_at_each_step_has_its_own_error_code"
   },
   {
     "node": "node_modules/nodemailer/smtp-connection::_envelopeError (recipients are sent once)",

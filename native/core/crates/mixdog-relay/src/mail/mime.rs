@@ -38,12 +38,6 @@ pub struct Built {
     pub to: Vec<String>,
 }
 
-/// `message.createReadStream()` of a message dated now with a random boundary.
-pub fn build(message: &Message) -> Built {
-    let seconds = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    build_at(message, &date_header(seconds), &format!("{:016x}", rand::random::<u64>()))
-}
-
 pub(crate) fn build_at(message: &Message, date: &str, base_boundary: &str) -> Built {
     let (from, to) = envelope(message);
     let mut root = compose(message);
@@ -1329,4 +1323,11 @@ mod tests {
         .join("\n");
         assert_eq!(wire(&m).trim_end_matches('\n'), expected);
     }
+}
+
+
+/// `message.createReadStream()` of a message dated now with a random boundary.
+pub fn build(message: &Message) -> Built {
+    let seconds = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    build_at(message, &date_header(seconds), &format!("{:016x}", rand::random::<u64>()))
 }

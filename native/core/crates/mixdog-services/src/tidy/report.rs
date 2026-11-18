@@ -251,14 +251,25 @@ fn shape_engine_result(result: &Value, summary: &Value, cap: usize, offset: usiz
     let diagnostics_count = arr(&result["diagnostics"]).len();
     let changed_count = arr(&result["filesChanged"]).len();
     let (diag_items, diag_more, diag_offset) = page_list(arr(&result["diagnostics"]), offset, cap);
-    let (changed_items, changed_more, _) = page_list(arr(&result["filesChanged"]), file_paging.1, file_paging.0);
+    let (changed_items, changed_more, changed_offset) = page_list(arr(&result["filesChanged"]), file_paging.1, file_paging.0);
     let mut m = Map::new();
     put(&mut m, "id", result["id"].clone());
     put(&mut m, "filesChecked", json!(result["filesChecked"].as_i64().unwrap_or(0)));
+    // The file lists page with the same `offset` as the diagnostics; each states the offset that
+    // reaches its next entries, so no advertised entry is out of reach.
     if changed_count > 0 {
         put(&mut m, "filesChanged", json!(changed_items));
         put_if(&mut m, changed_more > 0, "filesChangedMore", || json!(changed_more));
+        put_if(&mut m, changed_more > 0, "filesChangedNextOffset", || json!(changed_offset + changed_items.len()));
         put(&mut m, "filesChangedCount", json!(changed_count));
+    }
+    let ignored = arr(&result["ignored"]);
+    if !ignored.is_empty() {
+        let (items, more, ignored_offset) = page_list(ignored, file_paging.1, file_paging.0);
+        put(&mut m, "ignored", json!(items));
+        put_if(&mut m, more > 0, "ignoredMore", || json!(more));
+        put_if(&mut m, more > 0, "ignoredNextOffset", || json!(ignored_offset + items.len()));
+        put(&mut m, "ignoredCount", json!(ignored.len()));
     }
     put(&mut m, "diagnosticsCount", json!(diagnostics_count));
     if diagnostics_count > 0 {
@@ -387,6 +398,7 @@ pub fn build_tidy_report(input: ReportInput) -> Value {
         .filter(|r| r["truncated"] == true)
         .map(|r| r["note"].as_str().filter(|n| !n.is_empty()).map_or_else(|| format!("{} output was truncated; split the scope and re-run", r["id"].as_str().unwrap_or("")), str::to_owned))
         .collect();
+    let ignored_notes: Vec<String> = results.iter().filter(|r| !arr(&r["ignored"]).is_empty()).map(|r| format!("{} did not process {} file(s): its configuration ignores them; see ignored", r["id"].as_str().unwrap_or(""), arr(&r["ignored"]).len())).collect();
     let engine_truncated = results.iter().any(|r| r["truncated"] == true);
     let start_cap = input.limit.min(RESULTS_PAGE_MAX);
     let pass_errors = structural_errors(&input.structural);
@@ -396,6 +408,7 @@ pub fn build_tidy_report(input: ReportInput) -> Value {
     let run = is_run_action(&input.action);
     let mut notes = input.notes.clone();
     notes.extend(truncation_notes);
+    notes.extend(ignored_notes);
     if !run {
         notes.extend(input.shadows.iter().flatten().map(shadow_note));
     }
@@ -493,7 +506,7 @@ fn environment_header(parts: &Parts, action: &str) -> Map<String, Value> {
 /// One report shape at a given diagnostic cap; optional sections appear only when they carry something.
 fn compose(parts: &Parts, cap: usize) -> Value {
     let action = parts.action.as_str();
-    let file_paging = if action == "results" { (cap, parts.page_offset) } else { (FILE_LIST_CAP, 0) };
+    let file_paging = (if action == "results" { cap } else { FILE_LIST_CAP }, parts.page_offset);
     let working_tree = if parts.working_tree.is_null() { None } else { Some(shape_working_tree(&parts.working_tree, FILE_LIST_CAP.min(cap))) };
     let results = parts.results.as_deref();
     let totals = results.filter(|r| r.len() > 1).and_then(|_| non_zero_counts(&parts.rolled));

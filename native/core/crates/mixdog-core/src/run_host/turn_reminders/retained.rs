@@ -98,3 +98,33 @@ pub fn resubmit(message: &Value, header: &Header, prior: &[Value], current: Opti
     resent["meta"] = Value::Object(meta);
     Ok((resent, revisions))
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mixdog_core_run::run_host::guards::carries_todo_start;
+    use mixdog_core_run::run_host::guards::todo_start_reminder;
+
+    fn retained(content: &str, suffix: &str) -> Value {
+        json!({ "role": "user", "content": content, "meta": { "transcript": { "previousCompletions": [] }, "runtimeUserContext": { "prefix": "", "suffix": suffix } } })
+    }
+
+    /// A retried brief is resent as it was stored: it counts as told only when the stored message holds the start
+    /// reminder, even when the agent list changed and its reminder block is rebuilt around it.
+    #[test]
+    fn a_retained_brief_counts_as_told_only_when_it_carries_the_start_reminder() {
+        let suffix = format!("\n\n{}", todo_start_reminder(true, false, true, 0).unwrap());
+        let with = retained(&format!("brief{suffix}"), &suffix);
+        let without = retained("brief", "");
+        // The user quoted the sentence in the brief itself: no runtime suffix carries it.
+        let quoted = retained(&format!("what is this: {}", todo_start_reminder(true, false, true, 0).unwrap()), "");
+        let header = Header::new();
+        for (message, told) in [(&with, true), (&without, false), (&quoted, false)] {
+            assert!(is_retained(message));
+            let (resent, _) = resubmit(message, &header, &[], None).unwrap();
+            assert_eq!(carries_todo_start(&resent), told);
+            let agents = [AgentEntry { id: "a".into(), name: "worker".into(), line: "- worker".into() }];
+            let (resent, _) = resubmit(message, &header, &[], Some(&agents)).unwrap();
+            assert_eq!(carries_todo_start(&resent), told, "a rebuilt agent list reminder keeps the brief's own suffix");
+        }
+    }
+}

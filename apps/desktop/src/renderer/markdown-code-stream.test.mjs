@@ -15,15 +15,18 @@ import { healStreamingMarkdownTail } from './streaming-markdown';
 
 const CopyControl = () => null;
 const REPLY = 'Run this first:\n\n```bash\nnpm install\nnpm run build\n```\n\nThen `npm test` to finish.';
-const markupOf = (prefix, timeline) =>
-  renderToStaticMarkup(
+/** `prefix` revealed (its pass committed) and rendered. */
+const markupOf = (prefix, timeline) => {
+  timeline.commit(timeline.read(prefix, performance.now()));
+  return renderToStaticMarkup(
     React.createElement(MarkdownAstBody, {
       root: parseMarkdownToHast(healStreamingMarkdownTail(prefix)),
       copyControl: CopyControl,
       fadeTimeline: timeline,
-      fadeChunk: 'c0',
+      fadeOffset: 0,
     })
   );
+};
 const textOf = (markup) => markup.replace(/<[^>]*>/g, '');
 
 function* prefixes(step) {

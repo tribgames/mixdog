@@ -19,9 +19,10 @@ export function useMcpOAuthLogin({ run, refreshExtensions }: Pick<PanelContext, 
     run,
     remote: awayFromHost,
     keyId: `mcp-${name}`,
+    statusCapability: 'getMcpOAuthLoginStatus',
     cancelCapability: 'cancelMcpOAuthLogin',
     statusError: t('OAuth status could not be checked.'),
-    // The status poll reported `complete`: the server list re-reads so its
+    // The host reported `complete`: the server list re-reads so its
     // connection state and the editor's connection card follow the sign-in.
     refresh: async () => {
       await refreshExtensions();

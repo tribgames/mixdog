@@ -8,6 +8,7 @@ import { isComputerLifecycleControl } from './action-sets';
 import { secretInputs } from '../../secret-input';
 import type { BridgeServerHost, BridgeServerState } from './bridge-server-contract';
 import { dispatchBridgeCommand } from './bridge-command-dispatch';
+import { type CommandEndpoint, switchEndpoint } from './command-fence';
 import { assertPublicComputerRequest } from './request-policy';
 import { reconcileSavedLoginOwners } from './saved-login';
 import {
@@ -21,7 +22,7 @@ type Respond = (response: ServerResponse, status: number, body: Record<string, u
 export interface BridgeRequestContext {
   host: Pick<
     BridgeServerHost,
-    'abortComputerSession' | 'executeSerialized' | 'reapIdleSessionWorkers' | 'waitForUser' | 'processFate'
+    'abortComputerSession' | 'executeSerialized' | 'reapIdleSessionWorkers' | 'waitForUser' | 'processFate' | 'isBridgeWanted'
   >;
   state: BridgeServerState;
   respond: Respond;
@@ -123,10 +124,10 @@ export type BridgeAnswer = { ok: true; value: ComputerCommandResult } | { ok: fa
 export async function answerPublicCommand(
   host: Parameters<typeof dispatchBridgeCommand>[0],
   command: ComputerCommand,
-  signal: AbortSignal
+  endpoint: CommandEndpoint
 ): Promise<BridgeAnswer> {
   try {
-    const value = await dispatchBridgeCommand(host, command, signal);
+    const value = await dispatchBridgeCommand(host, command, endpoint);
     sealReply(command, value);
     return { ok: true, value };
   } catch (error) {
@@ -140,14 +141,15 @@ export async function answerPublicCommand(
 export const CAPACITY_REFUSAL = 'computer_capacity_exhausted: too many active requests';
 
 /** Runs one command under the bridge's one allowance of concurrent requests, for the HTTP bridge and the host
- *  protocol alike: null when the allowance is spent; otherwise the answer. An aborted `signal` ends the session's
- *  queued and running work the way a dropped HTTP connection always did. */
+ *  protocol alike, admitted through `endpoint`: null when the allowance is spent; otherwise the answer. The endpoint's
+ *  aborted signal ends the session's queued and running work the way a dropped HTTP connection always did. */
 export async function answerAdmittedCommand(
   host: BridgeRequestContext['host'],
   state: BridgeServerState,
   command: ComputerCommand,
-  signal: AbortSignal
+  endpoint: CommandEndpoint
 ): Promise<BridgeAnswer | null> {
+  const { signal } = endpoint;
   if (state.activeRequests >= requestCapacity(command)) return null;
   const finishFill = admitSavedLoginFill(command);
   if (typeof finishFill === 'string') {
@@ -167,7 +169,7 @@ export async function answerAdmittedCommand(
   if (signal.aborted) abortSession();
   else signal.addEventListener('abort', abortSession, { once: true });
   try {
-    return await answerPublicCommand(host, command, signal);
+    return await answerPublicCommand(host, command, endpoint);
   } finally {
     state.activeRequests--;
     signal.removeEventListener('abort', abortSession);
@@ -190,7 +192,12 @@ async function handleCommand(
   }
   const disconnect = watchDisconnect(request, response);
   try {
-    const answer = await answerAdmittedCommand(host, state, command, disconnect.signal);
+    const answer = await answerAdmittedCommand(
+      host,
+      state,
+      command,
+      switchEndpoint(disconnect.signal, () => host.isBridgeWanted())
+    );
     if (!answer) respond(response, 429, { ok: false, error: CAPACITY_REFUSAL });
     else if (!disconnect.clientGone()) respond(response, 200, answer);
   } finally {

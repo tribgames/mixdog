@@ -35,24 +35,42 @@ use super::host::HOST_COMMAND_FAILED;
 use super::host::HostCommandError;
 use super::host::HostCommands;
 
+/// The Browser Use switch (`desktop.browserControl`) as it stands now. Node's `setBridgeEnabled(false)` stopped the bridge, so a
+/// command in flight failed and a new one found no bridge; here the engine is the core's own, so the switch is read per command.
+#[async_trait]
+pub trait BrowserSwitch: Send + Sync {
+    /// Whether Browser Use is on right now.
+    fn enabled(&self) -> bool;
+    /// Completes once Browser Use is off (at once when it already is).
+    async fn off(&self);
+}
+
 /// [`HostCommands`] whose Browser Use actions run in the engine.
+#[derive(Clone)]
 pub struct EngineHostCommands {
     forward: Arc<ChannelHostCommands>,
     engine: Arc<BrowserEngine>,
     channel: Arc<dyn HostChannel>,
     timing: Option<BrowserTimingLog>,
+    switch: Option<Arc<dyn BrowserSwitch>>,
 }
 
 impl EngineHostCommands {
     /// `forward` carries what the engine does not run, `channel` says whether the connected desktop serves the engine.
     pub fn new(forward: Arc<ChannelHostCommands>, engine: Arc<BrowserEngine>, channel: Arc<dyn HostChannel>) -> Arc<Self> {
-        Arc::new(Self { forward, engine, channel, timing: None })
+        Arc::new(Self { forward, engine, channel, timing: None, switch: None })
     }
 
     /// Also hands the `browser_timing` row of each command the engine runs to `timing`, as [`ChannelHostCommands::with_timing`] does
     /// for the commands it sends: a command that failed carries the timing of the part that ran.
     pub fn with_timing(forward: Arc<ChannelHostCommands>, engine: Arc<BrowserEngine>, channel: Arc<dyn HostChannel>, timing: BrowserTimingLog) -> Arc<Self> {
-        Arc::new(Self { forward, engine, channel, timing: Some(timing) })
+        Arc::new(Self { forward, engine, channel, timing: Some(timing), switch: None })
+    }
+
+    /// Every browser command, the engine's and the forwarded ones, answers to `switch`: with Browser Use off a new command finds
+    /// no host (the unavailable answer), and one in flight when it goes off fails as a command does whose bridge went down.
+    pub fn switched(self: Arc<Self>, switch: Arc<dyn BrowserSwitch>) -> Arc<Self> {
+        Arc::new(Self { switch: Some(switch), ..(*self).clone() })
     }
 
     fn runs_in_engine(&self, action: &str) -> bool {
@@ -80,17 +98,6 @@ fn reply_value(reply: ToolReply) -> Value {
     Value::Object(value)
 }
 
-/// A failed command as the host's refusal of it: the tool words it with `Error: ` as it did the host's own message, and the
-/// refusal carries the timing of the part that ran. A command the caller's token ended is cancelled, whichever way the engine
-/// worded it.
-fn command_failure(failure: CommandFailure, cancel: &CancellationToken) -> HostCommandError {
-    if cancel.is_cancelled() {
-        return HostCommandError::Cancelled;
-    }
-    let timing = failure.timing.and_then(|timing| serde_json::to_value(timing).ok());
-    HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: failure.error.message_for_model, timing }
-}
-
 /// What the `browser_timing` row reads of an answer, in the shape the host channel gives one: a result's `timing`, a refusal's
 /// `data.timing`, and a cancelled command with no body.
 fn row_answer(answer: &Result<JsonValue, HostCommandError>) -> Result<&JsonValue, HostError> {
@@ -104,22 +111,16 @@ fn row_answer(answer: &Result<JsonValue, HostCommandError>) -> Result<&JsonValue
 #[async_trait]
 impl HostCommands for EngineHostCommands {
     async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
-        if !self.runs_in_engine(action) {
-            return self.forward.browser(thread, action, input, cancel).await;
-        }
-        let empty = Map::new();
-        let fields = input.as_object().unwrap_or(&empty);
-        let turn_id = self.timing.as_ref().and_then(|_| fields.get("turn_id").cloned());
-        let clock = BrowserCommandClock::start(self.timing.as_ref());
-        let answer = match self.engine.run(thread, action, fields, cancel).await {
-            Ok(reply) => Ok(reply_value(reply)),
-            Err(failure) => Err(command_failure(failure, cancel)),
+        let Some(switch) = &self.switch else {
+            return self.browser_command(thread, action, input, cancel).await;
         };
-        if let Some(clock) = clock {
-            let row = row_answer(&answer);
-            clock.stop(thread, action, turn_id, row.as_ref().map(|value| *value));
+        if !switch.enabled() {
+            return Err(HostCommandError::NoHost);
         }
-        answer
+        tokio::select! {
+            answer = self.browser_command(thread, action, input, cancel) => answer,
+            () = switch.off() => Err(super::host::browser_connection_lost(action)),
+        }
     }
 
     async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
@@ -291,6 +292,72 @@ mod tests {
         assert!(host.calls().is_empty());
     }
 
+    struct Switch(tokio::sync::watch::Sender<bool>);
+
+    #[async_trait]
+    impl BrowserSwitch for Switch {
+        fn enabled(&self) -> bool {
+            *self.0.borrow()
+        }
+
+        async fn off(&self) {
+            let _ = self.0.subscribe().wait_for(|on| !*on).await;
+        }
+    }
+
+    /// A desktop that takes a command and never answers it.
+    struct Silent;
+
+    #[async_trait]
+    impl HostChannel for Silent {
+        async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
+            std::future::pending().await
+        }
+
+        fn serves(&self, capability: HostCapability) -> bool {
+            capability != HostCapability::BrowserEngine
+        }
+
+        fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn browser_use_switched_off_fails_the_next_command_and_switched_on_admits_it_again() {
+        let channel = Channel::new(true);
+        let host = Arc::new(FakeHost::scripted(vec![listed("p1")]));
+        let (tx, _) = tokio::sync::watch::channel(true);
+        let commands = commands(&channel, &host, None).switched(Arc::new(Switch(tx.clone())));
+        let thread = ThreadId::from("s1");
+        let live = CancellationToken::new();
+        tx.send_replace(false);
+        for action in ["list_tabs", "begin_turn"] {
+            assert_eq!(commands.browser(&thread, action, json!({}), &live).await, Err(HostCommandError::NoHost), "{action}: the engine's and the forwarded path both");
+        }
+        assert!(channel.sent().is_empty() && host.calls().is_empty(), "nothing was sent anywhere while it was off");
+        tx.send_replace(true);
+        assert!(commands.browser(&thread, "list_tabs", json!({}), &live).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_command_in_flight_when_browser_use_goes_off_fails_as_one_whose_bridge_went_down() {
+        let channel: Arc<dyn HostChannel> = Arc::new(Silent);
+        let host = Arc::new(FakeHost::scripted(Vec::new()));
+        let (tx, _) = tokio::sync::watch::channel(true);
+        let commands = EngineHostCommands::new(ChannelHostCommands::new(channel.clone()), engine(&host, None), channel).switched(Arc::new(Switch(tx.clone())));
+        let thread = ThreadId::from("s1");
+        let live = CancellationToken::new();
+        let off = async {
+            tokio::task::yield_now().await;
+            tx.send_replace(false);
+        };
+        let (state_changing, _) = tokio::join!(commands.browser(&thread, "begin_turn", json!({}), &live), off);
+        assert!(matches!(&state_changing, Err(HostCommandError::Rpc { message, .. }) if message.contains("may have executed and was not replayed")), "{state_changing:?}");
+        // An observation can be asked again: it reads as the missing desktop.
+        assert_eq!(commands.browser(&thread, "list_tabs", json!({}), &live).await, Err(HostCommandError::NoHost));
+    }
+
     #[tokio::test]
     async fn the_runtime_only_actions_always_go_the_way_they_went() {
         let channel = Channel::new(true);
@@ -305,20 +372,6 @@ mod tests {
         assert!(host.calls().is_empty());
         commands.visualize(&thread, "/w", "open", json!({}), &CancellationToken::new()).await.expect("visualize");
         assert_eq!(channel.sent().last(), Some(&(HostCapability::Visualize, "host/visualize/command")));
-    }
-
-    #[tokio::test]
-    async fn an_engine_failure_reads_as_the_hosts_refusal_did() {
-        let channel = Channel::new(true);
-        let host = Arc::new(FakeHost::scripted(Vec::new()));
-        let thread = ThreadId::from("s1");
-        let error = commands(&channel, &host, Some("a person has this session"))
-            .browser(&thread, "snapshot", json!({}), &CancellationToken::new())
-            .await
-            .expect_err("taken over");
-        assert_eq!(error, HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: "a person has this session".to_owned(), timing: None });
-        let text = crate::desktop::host::command_error(crate::desktop::host::BROWSER_UNAVAILABLE, error).message_for_model;
-        assert_eq!(text, "Error: a person has this session");
     }
 
     #[tokio::test]
@@ -355,6 +408,41 @@ mod tests {
         assert_eq!(answer, Err(HostCommandError::Cancelled));
     }
 
+
+    /// The loss of the host connection is the engine's typed cause; a page exception whose text equals the transport message is an
+    /// ordinary failure the agent reads as it is.
+    #[test]
+    fn only_the_typed_connection_loss_is_answered_as_a_lost_command() {
+        use mixdog_core_api::domain::tool::ToolError;
+        use mixdog_core_api::domain::tool::ToolErrorCode;
+        let live = CancellationToken::new();
+        let failure = |text: &str, connection_lost: bool| CommandFailure {
+            error: ToolError::new(ToolErrorCode::Failed { reason: text.to_owned() }, text),
+            timing: None,
+            connection_lost,
+        };
+        let thrown = "the browser host is unavailable: claimantClosed";
+        assert_eq!(
+            command_failure(failure(thrown, false), &live, "click"),
+            HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: thrown.to_owned(), timing: None }
+        );
+        let lost = command_failure(failure("lost", true), &live, "click");
+        assert!(matches!(&lost, HostCommandError::Rpc { message, .. } if message.contains("may have executed and was not replayed")), "{lost:?}");
+        assert_eq!(command_failure(failure("lost", true), &live, "snapshot"), HostCommandError::NoHost);
+    }
+    #[tokio::test]
+    async fn an_engine_failure_reads_as_the_hosts_refusal_did() {
+        let channel = Channel::new(true);
+        let host = Arc::new(FakeHost::scripted(Vec::new()));
+        let thread = ThreadId::from("s1");
+        let error = commands(&channel, &host, Some("a person has this session"))
+            .browser(&thread, "snapshot", json!({}), &CancellationToken::new())
+            .await
+            .expect_err("taken over");
+        assert_eq!(error, HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: "a person has this session".to_owned(), timing: None });
+        let text = crate::desktop::host::command_error(crate::desktop::host::BROWSER_UNAVAILABLE, error).message_for_model;
+        assert_eq!(text, "Error: a person has this session");
+    }
     #[test]
     fn a_reply_is_the_value_the_browser_tool_renders() {
         use mixdog_browser_engine::reply::reply::ReplyImage;
@@ -373,5 +461,42 @@ mod tests {
         assert_eq!(error.message_for_model, "Clicked");
         assert!(error.partial.is_some());
         assert_eq!(reply_value(ToolReply::text("")), json!({"text": ""}));
+    }
+}
+
+
+/// A failed command as the host's refusal of it: the tool words it with `Error: ` as it did the host's own message, and the
+/// refusal carries the timing of the part that ran. A command the caller's token ended is cancelled, whichever way the engine
+/// worded it.
+fn command_failure(failure: CommandFailure, cancel: &CancellationToken, action: &str) -> HostCommandError {
+    if cancel.is_cancelled() {
+        return HostCommandError::Cancelled;
+    }
+    // The desktop's claim ended while the command was out (the engine's typed cause): the same lost-connection answer the
+    // forwarded commands give.
+    if failure.connection_lost {
+        return crate::desktop::host::browser_connection_lost(action);
+    }
+    let timing = failure.timing.and_then(|timing| serde_json::to_value(timing).ok());
+    HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: failure.error.message_for_model, timing }
+}
+impl EngineHostCommands {
+    async fn browser_command(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
+        if !self.runs_in_engine(action) {
+            return self.forward.browser(thread, action, input, cancel).await;
+        }
+        let empty = Map::new();
+        let fields = input.as_object().unwrap_or(&empty);
+        let turn_id = self.timing.as_ref().and_then(|_| fields.get("turn_id").cloned());
+        let clock = BrowserCommandClock::start(self.timing.as_ref());
+        let answer = match self.engine.run(thread, action, fields, cancel).await {
+            Ok(reply) => Ok(reply_value(reply)),
+            Err(failure) => Err(command_failure(failure, cancel, action)),
+        };
+        if let Some(clock) = clock {
+            let row = row_answer(&answer);
+            clock.stop(thread, action, turn_id, row.as_ref().map(|value| *value));
+        }
+        answer
     }
 }

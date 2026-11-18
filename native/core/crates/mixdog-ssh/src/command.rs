@@ -264,11 +264,18 @@ pub struct SshError {
     pub kind: SshErrorKind,
     pub stderr_tail: String,
     pub exit_code: Option<i32>,
+    /// The same words by code, for the interface to tell in its own language (message is their English fallback).
+    pub notice: Option<mixdog_app_protocol::v2::connections::SshMessage>,
 }
 
 impl SshError {
     pub fn new(message: impl Into<String>, kind: SshErrorKind) -> Self {
-        Self { message: message.into(), kind, stderr_tail: String::new(), exit_code: None }
+        Self { message: message.into(), kind, stderr_tail: String::new(), exit_code: None, notice: None }
+    }
+
+    /// An error that says said: its English text is the message, its code and parameters travel to the interface.
+    pub fn said(said: mixdog_app_protocol::message::Said, kind: SshErrorKind) -> Self {
+        Self { message: said.english, kind, stderr_tail: String::new(), exit_code: None, notice: Some(said.message) }
     }
 
     pub fn with_stderr(mut self, tail: impl Into<String>, exit_code: Option<i32>) -> Self {

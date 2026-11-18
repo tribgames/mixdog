@@ -12,7 +12,8 @@ R2, R26–R35, §4.11. Where this file differs from them, §11 lists the decisio
 
 ```
 <D>/sessions/<id>/log.<nnnnnn>                 framed records (§2–§7); nnnnnn = 6 decimal digits from 000000
-<D>/prompt-attachments/sha256/<ab>/<64 hex>    the one blob store (§4)
+<D>/blobs/sha256/<ab>/<64 hex>                 the one blob store (§4)
+<D>/blobs/legacy-imported                      every 1.4.5 blob has its name in the store (§4.1)
 <D>/index/store.sqlite                         derived catalog + projection (§8.2)
 <D>/state/core.sqlite                          non-derived small core state (§8.3)
 <D>/usage/ledger.sqlite                        usage ledger, user_version 3 (§9)
@@ -340,9 +341,20 @@ over every file of logs with groups in every position.)
 
 ### 4.1 Store
 
-`<D>/prompt-attachments/sha256/<first 2 hex>/<64 hex>`, named by the SHA-256 of the bytes
-(the 1.4.5 path; 1.4.5 attachments are already blobs). Reads verify the SHA-256; a
-mismatch answers `blobCorrupt{digest}` for that body only.
+`<D>/blobs/sha256/<first 2 hex>/<64 hex>`, named by the SHA-256 of the bytes. Reads verify the
+SHA-256; a mismatch answers `blobCorrupt{digest}` for that body only.
+
+The directory is the core's own: no 1.4.5 code names it, and the core never reads or writes a
+blob through 1.4.5's `<D>/prompt-attachments/sha256` afterwards. Before the migration's first
+step (`mixdog_migrate::legacy_blobs`, on every start until done, under the daemon's ownership
+lock) each regular file of 1.4.5's store named by its digest gets its name here: a hard link to
+the same file where the volume allows one (no second copy of the bytes), else a copy published
+through a synced tmp and a rename. 1.4.5 changes a blob file only by unlinking its name or
+renaming a new file over it (`store.mjs` `saveBuffer`, `collectPromptAttachments`; the atomic
+writer's tmp + rename), never by writing into it, so nothing it does to its tree later reaches a
+core name. `blobs/legacy-imported` is published once every name and its directory are durable; a
+start cut before it does the import again, keeping the names already made. The legacy tree is
+never written, moved or deleted: it stays whole for a rollback.
 
 ### 4.2 Body slots and the reference shape
 
@@ -370,15 +382,51 @@ the same rule.
 `refs` (item, amend) lists, sorted and unique, every `sha256:` digest the record
 references: each content part's `attachmentRef` (bare 64 hex in 1.4.5 message bodies,
 kept verbatim in the body) and the record's own slot blobs (an item's `body` and
-`prompt`, an amend's `body`). The index projects them into
-`blob_refs` in the same transaction as the record's history row. GC deletes a blob only
-under SM §9's four conditions.
+`prompt`, an amend's `body`). The index keeps no table of references: nothing in 1.5.0 reads one, because nothing
+deletes a blob (below).
+
+**Nothing deletes a blob.** No build has a collector: no proof exists that a blob has no owner
+(originals staged for a message not yet sent, kept files outside the logs), so a blob, once
+stored, stays. A log rewrite deletes none (§13). No bookkeeping of uploads exists: a staged
+original is published and named by its digest, and a message keeps every original whose bytes
+are in the store. Nothing in 1.4.5's `prompt-attachments/` (its census files, staged-original
+holds, cut writes) is read or written; the tracked Node tree (`src/runtime/attachments/`) has no
+census or staging either. Development builds of the index (`user_version` 17, 18) kept `blob_refs`,
+`refs_unknown` and `refs_backfill` tables; they are no longer made or read, an index that still has them ignores
+them, and a version 17 one is rebuilt from the logs.
 
 ### 4.4 Publication order
 
 `publish_file(blob)` (synced, renamed, parent synced) precedes the `append_barrier` of
 the first record that references it. A record therefore never references a missing blob;
 a blob without a reference is garbage, never corruption.
+
+### 4.5 A blob a record names is missing or corrupt
+
+Not produced by this version (§4.3), but present in data a 1.5.0 census collected. A body
+whose blob is missing or corrupt (`BlobError::Missing`/`Corrupt`; an I/O error is no loss
+and fails the read as before) never stops a read of the log:
+
+- **Fold** (open, rebuild, reconcile; `fold::fold_salvaging`): a lost `session.header`
+  starts the fold with a header holding only `id`; a lost `meta.change` changes nothing; a
+  tool row or a Stop whose body is lost takes no receipt. The next `checkpoint` whose state
+  reads puts back its `header` and `queue`, which hold what those records made.
+- **Open** (§6.3): when the newest anchor's state, or a body the tail's fold reads, is lost,
+  the open folds the whole log from its `session` frame as above (unbounded, only then).
+  When every loss was restored by a later checkpoint, it opens writable and the next clean
+  close writes a checkpoint of that fold. When any loss stays (`OpenedLog.lost`), the state
+  may be stale (a lost Stop or tool receipt leaves queue entries that were settled), so the
+  log is read-only: `LogWriter::open` refuses (`OpenAppendError::BodiesLost`, answered as
+  `storeDamaged`), so nothing executes, checkpoints or is rewritten from it, until the
+  missing blobs are restored and an open reads the log whole. It fails
+  `BlobError::Missing{digest}` when the session's own header is lost and no later
+  checkpoint holds it: no session opens without its header.
+- **Index** (rebuild, reconcile, adoption): a record whose body the projection cannot read
+  is projected as a frame with no rows of its own (`FrameKind::Other`), its op and
+  references kept; every later frame is projected. The session's row is written from the
+  salvaged fold and listed, with `status = 'damaged'` and `damage.error` naming the lost
+  records (`out-of-line bodies missing or corrupt: {header, sessionHeader, rows}`: ordinals
+  and digests) when anything stayed lost; nothing lost leaves it `ok`.
 
 ## 5. Records
 
@@ -414,6 +462,7 @@ a blob without a reference is garbage, never corruption.
 | `op` | `op{id, method, digest, result?}, state:"applied"\|"rejected"\|"fenced"\|"externalPending"\|"externalUnknown", at`, ★`detail?` | A thread-scope op outcome with no mutation record of its own (P §9.2–§9.6). |
 | `checkpoint` | ★`state` | §6. |
 | `draft` | `rid`, ★`body{reset?, text?, reasoning?, calls?, results?, tools?}` | What an open run produced that no `item` holds yet (the 1.4.5 turn checkpoint's interruption journal): `text` and `reasoning` extend the message in progress, `calls` and `results` add its announced tool calls and early results, `tools` is the run's phase; `reset: true` replaces the run's draft so far (written again redacted when a value is marked sensitive). Written redacted with the session's sensitive values. An `item` of the run's assistant message ends the message's draft. Read only by the recovery at open of a run with no terminal record; not history, not model context, not indexed. Added under `session.v` 2 before any release of this format (the precedent of `compacted.silent`): a log holding one is unreadable to a build without this kind, which no released build is. |
+| `work_stop` | `sid, phase:"stopped"\|"settled", at?`, ★`body?` | A user Stop's terminal disposition of the work it stopped (`src/work_stops.rs`). `body` (iff `stopped`) = `{work[], queues[], submissions[], turn?, disposition:"handedBack"\|"cancelled", restore?{text, ids[], device}}`: every identity through which the stopped work could run or be recreated (for a completion batch every original completion queue id), the run it stopped, and what is owed (the hand-back to restore, or the cancelled outcome). One record carries the Stop's whole target set; a repeated Stop joins it by `sid`. Fold: each identity maps to `sid` in the header's `stoppedWork` (a terminal receipt that outlives the queue entry and is never aged out), the named queue entries leave the queue, a named `completion_*` queue id gets its completion receipt, and the body stays in the header's `owedStops` until the `settled` record of the same `sid`. Added under `session.v` 2, as `draft` was: a log holding one is unreadable to a build of this format without this kind; 1.4.5 never reads these logs (it keeps its own session files), and no migration writes one. |
 | `model_switch` | `anchor{iid, ordinal}, op?, ★entry{provider, modelId, at}` | A display-only model-switch boundary: `entry` is the 1.4.5 `meta.modelSwitches` entry (`set-route.mjs` `switchSessionInPlace`: `{provider, modelId: route.model, at: Date.now()}`) that 1.4.5 appends to the anchor message's `meta`; here it is appended to the log instead and the stored anchor is never rewritten. `provider` and `modelId` are unbounded strings, as in 1.4.5 (a preset's model id skips the 160-character raw-id check, `config-helpers.mjs` `validateRequestedModelSelector`), so `entry` is the record's ★ slot. `anchor` = the message 1.4.5 `modelSwitchAnchorIndex` picks, in the session's lineage view, `ordinal` below this record's own: an `item` row (`ordinal`, `iid` = the row's), or, when that message is a replacement entry of a `compacted` frame with no history row (the summary, the context ack), that entry (`ordinal` = the `compacted` frame's, `iid` = the entry's; the writer finds it with `compaction_entry`, which gives the frame's ordinal and `cid`: the newest live `compacted` frame of the lineage whose replacement holds the entry, a `message_rows` seek per lineage level). A message with a history row is anchored on the row. Not part of the model context, the fold or the catalog. |
 
 `op{id, method, digest, result?}` on a mutation record is that op's record (P §9.2: effect
@@ -616,7 +665,9 @@ run once on an empty file, outside a transaction (they set `auto_vacuum`).
 `user_version` (2: the frame location of each `message_rows` version; 3: `history.facets`,
 `compactions.drop_mode` and `compaction_dropped`; 4: `sessions.title`; 5: the worker index;
 6: `agent_tag` over the agent registry's sessions, in its walk order; 7: `model_switches`;
-8: `compactions.silent`; 13: the worker index revision; 14: its generation, the removal bound, and a removal for every deleted row; 15: `archived_agents`, the agent results a header carries).
+8: `compactions.silent`; 13: the worker index revision; 14: its generation, the removal bound, and a removal for every deleted row; 15: `archived_agents`, the agent results a header carries; 17: `submissions`, and `sessions.listed`, the header
+members a listing of sessions reads, so listing them opens no log. 18 is the version the dev
+builds' reference tables had; they are gone, and a version 17 index is rebuilt from the logs.)
 A revision is `(worker_revision.gen, rev)`: `gen` is random per index built. Removals are kept
 for the last 4096 revisions (`worker_revision.floor` is the newest revision whose removals
 were dropped); a reader of another generation or holding a revision below `floor` is handed
@@ -636,10 +687,14 @@ writer's own counter misses another connection's commits and counts failed round
 Derived. `SqliteStore::open` (one maintenance-lane job, the only way to open the index)
 rebuilds it from the logs when the file is missing, is not a readable SQLite database, or
 has another `application_id`/`user_version`; such a file is never opened or altered in
-place, and callers never see the rebuild as an error. The rebuild:
+place, and callers never see the rebuild as an error. Version 18 is the first released one:
+a later version ships with a delta that brings a released index to it in place before this
+check, as the core state's `state_v2_delta.sql` does, so that an update of the app does not
+hold its first start for a rebuild. The rebuild:
 
-- projects every directory of `sessions/` holding `log.000000`, each log read forward once
-  and written in the writer's bounded transactions, into a staged file beside the index;
+- projects every directory of `sessions/` holding `log.000000`, the logs read forward once
+  on every core at a time and written by one writer in the order of their ids, one session
+  whole before the next, in the writer's bounded transactions, into a staged file beside the index;
   then removes the old file's `-wal`/`-shm`/`-journal` and publishes the staged file by a
   durable rename. A crash before the rename leaves a file that fails its open again, so the
   next open rebuilds again; a stale staged file is swept first.
@@ -672,12 +727,12 @@ place, and callers never see the rebuild as an error. The rebuild:
 | `model_switches` | one per `model_switch` frame | `anchor_ordinal, anchor_iid`, the entry `provider, model_id, at`; no `superseded_rev` (§5.3: it lives while its anchor does). A history page returns each row's boundaries (`HistoryRow.model_switches`), one seek on `model_switches_anchor` per lineage level at or after the row's; `dividers` returns each divider's (`Divider.model_switches`), the same seek joined to the frame's `message_rows` entries by `iid`. |
 | `turns` | one per run | `started_ordinal, end_ordinal, phase, superseded_rev`. |
 | `approvals` | pending approvals | the cross-session enumerator. |
-| `blob_refs` | `(digest, session, ordinal)` | §4.3. |
 | `fork_edges` | `(base, child)` | a base with children keeps its files. A deleted session goes (`SqliteStore::purge_deleted`, run after a delete) once no edge names it as base: its first log file is unlinked (a rebuild indexes only folders holding it), then its folder, on the maintenance lane; then its index rows in maintenance steps of at most `STEP_ROWS` deletions, its own edge and catalog row last and counted. Its base, if deleted too and without other children, goes next in the same call. A folder without `log.000000` is incomplete by construction (a create publishes it before anything else in the folder; a purge unlinks it first): the boot purge (run by `SqliteStore::open` before it returns the store, so before any thread opens or is created) removes every such folder and its id's index rows, then runs `purge_deleted`, so a crash mid-create or mid-purge, with or without a rebuild after it, leaves nothing unreachable. |
 | `message_rows` | immutable versions of the model-context messages | `(session, ordinal, idx, ver, file_no, frame_offset, frame_len, iid, counted, real, incoming, place, preview, line, routine, live, superseded_rev)`: the catalog's message state (1.4.5 `_sessionMessageProjection`) and the model-context read (§6.4; `file_no, frame_offset, frame_len` locate the frame at `ver` holding the version's body; partial index `message_rows_live` holds the live versions). An `item` with `form:"message"`, `model:true` is row `(ordinal, 0)`, first version `ver` = its ordinal; each entry of a `compacted` replacement is `(compacted ordinal, position)`. An `amend` of `iid` (an item or a replacement entry — 1.4.5 edits `session.messages` in place and its summary re-reads it) adds a version (`ver` = the amend's ordinal) to the newest live row with that `iid` and moves `live` to it; `counted` and `place` stay the row's. A `rewind` sets `superseded_rev` (its ordinal) on the versions with `ver` in the removed range and hands each row back to its newest remaining version, so rewinding past an amend restores the earlier content. `counted` = role `user`/`assistant`; `real` = `isRealTurnMessage`; `incoming` = an incoming-kind message with a `line`; `preview` = first-prompt candidate; `line` = last-message line; `routine` = its provenance JSON; `place` = 1-based place among the epoch's counted rows when written. Partial indexes `message_rows_preview/_line/_incoming` hold the live versions, so first prompt, last line and incoming places are seeks (`INDEXED BY`, checked with `EXPLAIN`). |
 | `message_epochs` | one per context epoch | `(session, start, count, real, superseded_rev)`: the root (`start` 0) or a `compacted` frame; the live epoch is the newest not superseded. `count`/`real` are this session's own rows, moved by deltas on append, amend and rewind (each O(1) per row; a rewind is bounded per transaction and resumable). |
 | `message_views` | what a fork inherits | `(session, valid_from, base, position, state, count, real, preview, line, routine, incoming, cursor…)`: the base's state as of `position` (the fork point, or lower after a rewind of the child into the base range), snapshotted once and never changed by later base rewinds or amends; versioned by the frame that set it (`valid_from`); the view in force at a position is the newest with a lower `valid_from`, and rewinds never remove one. Taken at creation when the base's projection ends at `position`; otherwise `pending` while bounded maintenance steps (`STEP_ROWS` versions, a keyset cursor over `(ordinal, idx, ver)`) scan the base rows as of `position`. A view becomes `ready` only once the base's projected watermark has reached `position`, and the child's catalog row is held back until then. The live stats of a session are its live epoch plus, for the root epoch, its live view: no lineage is walked at any depth. |
 | `thread_ops` | thread-scope ops | `op_id, method, payload_digest, state` and the location of the record carrying it (P §9.2 lookup). |
+| `submissions` | one per accepted client submission | `(session, submission_id, ordinal, answer)`: the first frame that accepted the submission, a `user` prompt `item` of a turn naming `meta.transcript.clientSubmissionId` (`{kind:"started", turnId}`) or a `queue{enqueue}` naming `options.clientSubmissionId` (`{kind:"queued", queuedId}`); first write wins, and rewinds and clears leave it (a retried send is answered for the thread's life). |
 | `prompt_occurrences` | one per prompt row | `(session, ordinal, key, text, superseded_rev)` for every `item` with a `prompt` whose key is not empty: `text` = `prompt` trimmed (JS `trim`); `key` = 1.4.5 `promptHistoryKey` = `text.trim().replace(/\s+/g, ' ')` (vectors `src/schema/vectors/prompts.json`). Superseded by rewinds like `history`. |
 | `prompt_history` | one per live prompt key | `(session, key, ordinal, text)`: the newest live occurrence of `key`. A rewind (and `clear`) supersedes the occurrences it covers and moves each affected key to its newest live occurrence, or removes it. `OpenedLog.prompts` = `SELECT text … WHERE session = ? ORDER BY ordinal DESC LIMIT 50` (`prompt_history_recent`). |
 | `meta` | key/value | GC state `gc:*`; job cursors `job:<id>`, among them `job:refold_titles` (present while the placeholder-title refold is pending, value `0`); `ui:placeholder_labels` = JSON `[image, video, file]` labels of the UI language the title folds use (absent: English `Image`, `Video`, `File`). |
@@ -859,7 +914,8 @@ Item keys: `session/<id>`, `store/<kind>`, `ledger`, `index`,
 | `session` | data | convert | `session{id}`; consumes shared `session-pending/*`, `session-pending-messages.json`, `agent-workers.json`, `lead-workers.json`, `<P>/desktop-session-metadata.json` |
 | `ledger` | data | convert (in place) | `ledger` |
 | `index` | data | convert (build) | `index` |
-| `attachmentBlobs`, `goals`, `quotaResume`, `humanGate`, `connectorAccounts`, `gatewaySessionRoutes`, `promptCacheTouches`, `promptCacheIdleGaps`, `heartbeat`, `routineResults`, `media`, `ledgerBackups`, `settings`, `coreMemory`, `projectsRegistry` (`<H>`; preserved as bytes, and imported into `projects` by the first start, see the `import:projects.json` row), `agents`, `bots`, `workflows`, `schedules`, `hooks`, `skills`, `plugins`, `mcpConfig`, `projectConnectors`, `tuiPromptHistory`, `worktrees` | data | preserve (in place) | `file{root, path}` = source |
+| `attachmentBlobs` (only in a manifest an earlier build planned: 1.4.5's blobs are taken in by §4.1), and any retire item under `prompt-attachments/` of such a manifest | data | settles unread; its sources stay | — |
+| `goals`, `quotaResume`, `humanGate`, `connectorAccounts`, `gatewaySessionRoutes`, `promptCacheTouches`, `promptCacheIdleGaps`, `heartbeat`, `routineResults`, `media`, `ledgerBackups`, `settings`, `coreMemory`, `projectsRegistry` (`<H>`; preserved as bytes, and imported into `projects` by the first start, see the `import:projects.json` row), `agents`, `bots`, `workflows`, `schedules`, `hooks`, `skills`, `plugins`, `mcpConfig`, `projectConnectors`, `tuiPromptHistory`, `worktrees` | data | preserve (in place) | `file{root, path}` = source |
 | `orphanCheckpoint` | data | retire | — |
 | `ledgerLegacyInputs` | data | retire, or retain `ledger_import_incomplete` | — |
 | `sessionMetadata` | desktopProfile | convert | `sessions` (per-session `meta`; unmatched entries retire, counted as `dangling`) |
@@ -1014,14 +1070,13 @@ replaced records' payloads and the checkpoints' positions changed. Its parts, un
 intent      {"v":1,"frames":[[ordinal,"<record payload>"],…]}: published, the rewrite is decided
 building/   the rewritten log files while they are written
 new/        the rewritten log, whole
-old/        the session's former folder, until its superseded blobs are deleted
+old/        the session's former folder, until step 8
 ```
 
 Steps: (1) replacements and their blobs; (2) `intent`; (3) `building/` from the session's log
 as it is then, renamed `new/`; (4) `sessions/<id>` renamed `old/`; (5) `new/` renamed
 `sessions/<id>`; (6) the index rows rebuilt from the new log (`secure_delete` on, the WAL
-truncated after), then every out-of-line slot blob of `old/` the new log does not name and
-`blob_refs` does not hold deleted; (7) `intent` removed; (8) the folder removed. The session
+truncated after), and no blob is deleted (§4.3); (7) `intent` removed; (8) the folder removed. The session
 folder is replaced as one directory, so a reader that knows nothing of this format sees the
 old log whole, the new log whole, or (a stop between 4 and 5) no folder. `SqliteStore::open`
 settles every rewrite before any session opens: no `intent` → the folder goes; `intent` and

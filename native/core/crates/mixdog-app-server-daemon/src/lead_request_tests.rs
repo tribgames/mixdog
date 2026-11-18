@@ -23,10 +23,6 @@ use crate::server::serve_in_process;
 
 const PROMPT_TOKEN: &str = "LEAD-REQUEST-PROMPT";
 
-fn golden() -> Value {
-    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/lead-request/golden.json")).expect("the lead-request recording")
-}
-
 /// What one HTTP exchange of the loopback endpoint carried: a POST's path and JSON body.
 struct Post {
     url: String,
@@ -155,31 +151,6 @@ fn slashed(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
-/// The recorder's profile: the same variables a daemon of its sandbox saw (nothing of the user's own `MIXDOG_*`, home or PATH).
-fn sandbox_env(home: &Path, programs: &[&str]) {
-    let root = std::env::var("SystemRoot").expect("SystemRoot");
-    let mut path = format!("{root}\\System32;{root}");
-    // The folders of the programs the scenario names (a developer's git, a server's node), found on the PATH this process has.
-    for program in programs {
-        let folder = std::env::var("PATH").expect("PATH").split(';').find(|dir| Path::new(dir).join(format!("{program}.exe")).is_file()).unwrap_or_else(|| panic!("{program} is not on PATH")).to_owned();
-        path = format!("{path};{folder}");
-    }
-    let doomed: Vec<String> = std::env::vars().map(|(name, _)| name).filter(|name| name.starts_with("MIXDOG_") && !name.starts_with("MIXDOG_COMPOSED_TEST") && name != "MIXDOG_PG_RUNTIME").collect();
-    // SAFETY: each test of this module is a process of its own (`compose_test_support::in_child`), and this runs before it starts a thread.
-    unsafe {
-        for name in doomed {
-            std::env::remove_var(name);
-        }
-        std::env::set_var("PATH", path);
-        std::env::set_var("HOME", home);
-        std::env::set_var("USERPROFILE", home);
-        std::env::set_var("APPDATA", home.join("AppData").join("Roaming"));
-        std::env::set_var("LOCALAPPDATA", home.join("AppData").join("Local"));
-        std::env::set_var("NO_PROXY", "127.0.0.1,localhost");
-        std::env::set_var("TZ", "UTC");
-    }
-}
-
 /// A real-time deadline for an await: a thread of its own ends the process with `what` if it is not dropped within `secs`. It does not read the
 /// runtime's clock, which a replay that advances time by hand holds still.
 #[allow(dead_code, reason = "The test guard owns the sender until drop, which disarms the deadline thread without reading the field.")]
@@ -275,6 +246,56 @@ fn differences(path: &str, got: &Value, want: &Value, out: &mut Vec<String>) {
         _ => {}
     }
 }
+
+fn runtime() -> tokio::runtime::Builder {
+    let mut runtime = tokio::runtime::Builder::new_multi_thread();
+    runtime.worker_threads(2);
+    runtime
+}
+
+#[test]
+fn a_changed_line_ending_is_a_difference() {
+    for (got, recorded) in [("a\r\nb", "a\nb"), ("a\nb\n", "a\nb"), ("a\nb", "a\nb\n")] {
+        let mut found = Vec::new();
+        differences("request", &json!(got), &json!(recorded), &mut found);
+        assert!(!found.is_empty(), "{got:?} equals {recorded:?} under the comparison");
+    }
+    let mut found = Vec::new();
+    differences("request", &json!("a\r\nb\n"), &json!("a\r\nb\n"), &mut found);
+    assert!(found.is_empty(), "{found:?}");
+}
+
+/// The recorder's profile: the same variables a daemon of its sandbox saw (nothing of the user's own `MIXDOG_*`, home or PATH).
+fn sandbox_env(home: &Path, programs: &[&str]) {
+    let root = std::env::var("SystemRoot").expect("SystemRoot");
+    let mut path = format!("{root}\\System32;{root}");
+    // The folders of the programs the scenario names (a developer's git, a server's node), found on the PATH this process has.
+    for program in programs {
+        let folder = std::env::var("PATH").expect("PATH").split(';').find(|dir| Path::new(dir).join(format!("{program}.exe")).is_file()).unwrap_or_else(|| panic!("{program} is not on PATH")).to_owned();
+        path = format!("{path};{folder}");
+    }
+    let doomed: Vec<String> = std::env::vars().map(|(name, _)| name).filter(|name| name.starts_with("MIXDOG_") && !name.starts_with("MIXDOG_COMPOSED_TEST") && name != "MIXDOG_PG_RUNTIME").collect();
+    // SAFETY: each test of this module is a process of its own (`compose_test_support::in_child`), and this runs before it starts a thread.
+    unsafe {
+        for name in doomed {
+            std::env::remove_var(name);
+        }
+        std::env::set_var("PATH", path);
+        std::env::set_var("HOME", home);
+        std::env::set_var("USERPROFILE", home);
+        std::env::set_var("APPDATA", home.join("AppData").join("Roaming"));
+        std::env::set_var("LOCALAPPDATA", home.join("AppData").join("Local"));
+        std::env::set_var("NO_PROXY", "127.0.0.1,localhost");
+        std::env::set_var("TZ", "UTC");
+    }
+}
+
+
+#[cfg(node_twin)]
+fn golden() -> Value {
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/lead-request/golden.json")).expect("the lead-request recording")
+}
+#[cfg(node_twin)]
 async fn replay(name: &str, dir: PathBuf) {
     let golden = golden();
     let case = golden["scenarios"].as_array().expect("scenarios").iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("no recorded scenario {name}"));
@@ -337,7 +358,7 @@ async fn replay(name: &str, dir: PathBuf) {
     let outgoing = Outgoing::new();
     let core = compose(
         &mixdog_rt::testing::tokens(),
-        ComposeConfig {
+        ComposeConfig { rebuild: Default::default(),
             data_dir: data.clone(),
             user_data_dir: dir.join("userdata"),
             runtime_root: dir.join("runtime"),
@@ -460,237 +481,219 @@ async fn replay(name: &str, dir: PathBuf) {
     differences("request", &got, recorded, &mut found);
     assert!(found.is_empty(), "{name}: the request differs from Node's in {} place(s):\n{}", found.len(), found.join("\n"));
 }
-
-fn runtime() -> tokio::runtime::Builder {
-    let mut runtime = tokio::runtime::Builder::new_multi_thread();
-    runtime.worker_threads(2);
-    runtime
-}
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn default_anthropic() {
     crate::compose_test_support::in_child(module_path!(), "default_anthropic", runtime(), |dir| replay("default-anthropic", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn default_openai() {
     crate::compose_test_support::in_child(module_path!(), "default_openai", runtime(), |dir| replay("default-openai", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn style_detailed() {
     crate::compose_test_support::in_child(module_path!(), "style_detailed", runtime(), |dir| replay("style-detailed", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn style_minimal_openai() {
     crate::compose_test_support::in_child(module_path!(), "style_minimal_openai", runtime(), |dir| replay("style-minimal-openai", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn style_extreme_minimal() {
     crate::compose_test_support::in_child(module_path!(), "style_extreme_minimal", runtime(), |dir| replay("style-extreme-minimal", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn language_korean_with_preferences() {
     crate::compose_test_support::in_child(module_path!(), "language_korean_with_preferences", runtime(), |dir| replay("language-korean-with-preferences", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn language_japanese_junior() {
     crate::compose_test_support::in_child(module_path!(), "language_japanese_junior", runtime(), |dir| replay("language-japanese-junior", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn workflow_headless() {
     crate::compose_test_support::in_child(module_path!(), "workflow_headless", runtime(), |dir| replay("workflow-headless", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn workflow_user_pack() {
     crate::compose_test_support::in_child(module_path!(), "workflow_user_pack", runtime(), |dir| replay("workflow-user-pack", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn orchestration_none() {
     crate::compose_test_support::in_child(module_path!(), "orchestration_none", runtime(), |dir| replay("orchestration-none", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn orchestration_focused_openai() {
     crate::compose_test_support::in_child(module_path!(), "orchestration_focused_openai", runtime(), |dir| replay("orchestration-focused-openai", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn orchestration_swarm() {
     crate::compose_test_support::in_child(module_path!(), "orchestration_swarm", runtime(), |dir| replay("orchestration-swarm", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn skills_present() {
     crate::compose_test_support::in_child(module_path!(), "skills_present", runtime(), |dir| replay("skills-present", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn skills_disabled_by_user() {
     crate::compose_test_support::in_child(module_path!(), "skills_disabled_by_user", runtime(), |dir| replay("skills-disabled-by-user", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn memory_tools_off() {
     crate::compose_test_support::in_child(module_path!(), "memory_tools_off", runtime(), |dir| replay("memory-tools-off", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn web_search_off_openai() {
     crate::compose_test_support::in_child(module_path!(), "web_search_off_openai", runtime(), |dir| replay("web-search-off-openai", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn instruction_files() {
     crate::compose_test_support::in_child(module_path!(), "instruction_files", runtime(), |dir| replay("instruction-files", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn mcp_connected() {
     crate::compose_test_support::in_child(module_path!(), "mcp_connected", runtime(), |dir| replay("mcp-connected", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn user_agents() {
     crate::compose_test_support::in_child(module_path!(), "user_agents", runtime(), |dir| replay("user-agents", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn fresh_profile_nothing_installed() {
     crate::compose_test_support::in_child(module_path!(), "fresh_profile_nothing_installed", runtime(), |dir| replay("fresh-profile-nothing-installed", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn builtins_office_and_tidy_installed() {
     crate::compose_test_support::in_child(module_path!(), "builtins_office_and_tidy_installed", runtime(), |dir| replay("builtins-office-and-tidy-installed", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn git_and_media_modules_off() {
     crate::compose_test_support::in_child(module_path!(), "git_and_media_modules_off", runtime(), |dir| replay("git-and-media-modules-off", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn instruction_files_default() {
     crate::compose_test_support::in_child(module_path!(), "instruction_files_default", runtime(), |dir| replay("instruction-files-default", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn git_repository_workspace() {
     crate::compose_test_support::in_child(module_path!(), "git_repository_workspace", runtime(), |dir| replay("git-repository-workspace", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn settings_route_default() {
     crate::compose_test_support::in_child(module_path!(), "settings_route_default", runtime(), |dir| replay("settings-route-default", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn settings_route_git_module_off() {
     crate::compose_test_support::in_child(module_path!(), "settings_route_git_module_off", runtime(), |dir| replay("settings-route-git-module-off", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn mcp_slow_submitted_before_connect() {
     crate::compose_test_support::in_child(module_path!(), "mcp_slow_submitted_before_connect", runtime(), |dir| replay("mcp-slow-submitted-before-connect", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn mcp_slow_submitted_after_connect() {
     crate::compose_test_support::in_child(module_path!(), "mcp_slow_submitted_after_connect", runtime(), |dir| replay("mcp-slow-submitted-after-connect", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn mcp_load_tool_connects_in_time() {
     crate::compose_test_support::in_child(module_path!(), "mcp_load_tool_connects_in_time", runtime(), |dir| replay("mcp-load-tool-connects-in-time", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn mcp_load_tool_connect_not_released() {
     crate::compose_test_support::in_child(module_path!(), "mcp_load_tool_connect_not_released", runtime(), |dir| replay("mcp-load-tool-connect-not-released", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn mcp_server_instructions() {
     crate::compose_test_support::in_child(module_path!(), "mcp_server_instructions", runtime(), |dir| replay("mcp-server-instructions", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn mcp_servers_instructions_account_and_long() {
     crate::compose_test_support::in_child(module_path!(), "mcp_servers_instructions_account_and_long", runtime(), |dir| replay("mcp-servers-instructions-account-and-long", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn visualize_available() {
     crate::compose_test_support::in_child(module_path!(), "visualize_available", runtime(), |dir| replay("visualize-available", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn visualize_available_openai() {
     crate::compose_test_support::in_child(module_path!(), "visualize_available_openai", runtime(), |dir| replay("visualize-available-openai", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn visualize_available_headless() {
     crate::compose_test_support::in_child(module_path!(), "visualize_available_headless", runtime(), |dir| replay("visualize-available-headless", dir));
 }
-
+#[cfg(node_twin)]
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn visualize_switched_off() {
     crate::compose_test_support::in_child(module_path!(), "visualize_switched_off", runtime(), |dir| replay("visualize-switched-off", dir));
-}
-
-#[test]
-fn a_changed_line_ending_is_a_difference() {
-    for (got, recorded) in [("a\r\nb", "a\nb"), ("a\nb\n", "a\nb"), ("a\nb", "a\nb\n")] {
-        let mut found = Vec::new();
-        differences("request", &json!(got), &json!(recorded), &mut found);
-        assert!(!found.is_empty(), "{got:?} equals {recorded:?} under the comparison");
-    }
-    let mut found = Vec::new();
-    differences("request", &json!("a\r\nb\n"), &json!("a\r\nb\n"), &mut found);
-    assert!(found.is_empty(), "{found:?}");
 }

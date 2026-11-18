@@ -84,133 +84,10 @@ pub struct DesktopGrantStore {
     publish_probe: Arc<OnceLock<Arc<PublishProbe>>>,
 }
 
-impl DesktopGrantStore {
-    pub fn new(path: PathBuf, lanes: Lanes) -> Arc<Self> {
-        Arc::new(Self { path, lanes, queue: OnceLock::new(),
-            #[cfg(test)]
-            publish_probe: Arc::new(OnceLock::new()),
-        })
-    }
-
-    /// Describes each path (1..=100). `mint` is false for a chat link: a file outside every project is then addressed as its own
-    /// folder's file with no token, so nothing is granted, persisted or capped. The picker and drop mint.
-    pub async fn describe(&self, paths: &[String], mint: bool, projects: &[PathBuf]) -> WsResult<Vec<LocalPathEntry>> {
-        if paths.is_empty() || paths.len() > 100 {
-            return Err(WsError::invalid("paths are invalid."));
-        }
-        let absolutes = paths.iter().map(|raw| absolute_local_path(raw)).collect::<WsResult<Vec<_>>>()?;
-        let stats = {
-            let absolutes = absolutes.clone();
-            run_in(self.lanes.interactive, &CancellationToken::new(), move |proof| {
-                absolutes
-                    .iter()
-                    .map(|path| mixdog_fsio::metadata(proof, path).at("stat", path).map(|info| (info.is_dir(), info.len())))
-                    .collect::<WsResult<Vec<_>>>()
-            })
-            .await??
-        };
-        let mut rows = Vec::with_capacity(absolutes.len());
-        // The files that need a grant: the index of their row, and the file.
-        let mut minted: Vec<(usize, PathBuf)> = Vec::new();
-        for (absolute, (dir, size)) in absolutes.iter().zip(stats) {
-            let mut row = LocalPathEntry {
-                absolute_path: absolute.to_string_lossy().into_owned(),
-                name: base_name(absolute).unwrap_or_else(|| absolute.to_string_lossy().into_owned()),
-                dir,
-                size,
-                project_path: None,
-                rel_path: None,
-                access_token: None,
-            };
-            if !dir {
-                if let Some((project, rel)) = owning_project(projects, absolute) {
-                    row.project_path = Some(project.to_string_lossy().into_owned());
-                    row.rel_path = Some(rel);
-                } else {
-                    row.project_path = Some(dir_name(absolute).to_string_lossy().into_owned());
-                    row.rel_path = base_name(absolute);
-                    if mint {
-                        minted.push((rows.len(), absolute.clone()));
-                    }
-                }
-            }
-            rows.push(row);
-        }
-        if minted.is_empty() {
-            return Ok(rows);
-        }
-        // Inspection is complete before entering the grant book's ordered transaction queue.
-        let (reply, answer) = oneshot::channel();
-        self.queue().send(Command::Mint { rows, minted, reply }).map_err(|_| actor_closed())?;
-        answer.await.map_err(|_| actor_closed())?
-    }
-
-    /// The file a token grants, when the path asked for is that file (`requireGrant`).
-    pub async fn redeem(&self, token: &str, project_path: &str, rel_path: &str) -> WsResult<Granted> {
-        let token = required_string(token, "file access token", MAX_TOKEN_TEXT)?;
-        let project_path = required_string(project_path, "projectPath", MAX_ARG_TEXT)?;
-        let rel_path = required_string(rel_path, "relPath", MAX_ARG_TEXT)?;
-        let granted = self.granted_file(&token).await?.ok_or_else(|| WsError::coded("SELECTED_FILE_GRANT_UNAVAILABLE", UNAVAILABLE))?;
-        let requested = resolve(&Path::new(&project_path).join(&rel_path));
-        if comparable(&requested) != comparable(&granted) {
-            return Err(WsError::coded("MIXDOG_LOCAL_ACCESS_DENIED", MISMATCH));
-        }
-        Ok(Granted { root: dir_name(&granted), rel: base_name(&granted).unwrap_or_default(), absolute: granted })
-    }
-
-    /// Whether the token's grant lives and names exactly `absolute` (false once evicted).
-    pub async fn still_granted(&self, token: &str, absolute: &Path) -> WsResult<bool> {
-        let token = required_string(token, "file access token", MAX_TOKEN_TEXT)?;
-        Ok(self.granted_file(&token).await?.is_some_and(|granted| comparable(&granted) == comparable(&lexical(absolute))))
-    }
-
-    async fn granted_file(&self, token: &str) -> WsResult<Option<PathBuf>> {
-        let (reply, answer) = oneshot::channel();
-        self.queue().send(Command::Lookup { token: token.to_owned(), reply }).map_err(|_| actor_closed())?;
-        answer.await.map_err(|_| actor_closed())?
-    }
-
-    fn queue(&self) -> &mpsc::UnboundedSender<Command> {
-        self.queue.get_or_init(|| {
-            let (send, mut receive) = mpsc::unbounded_channel();
-            let disk = GrantDisk { path: self.path.clone(), lanes: self.lanes,
-                #[cfg(test)]
-                publish_probe: self.publish_probe.clone(),
-            };
-            mixdog_rt::spawn("desktop-grants", mixdog_rt::TaskClass::Work, async move {
-                let mut state = State::default();
-                while let Some(command) = receive.recv().await {
-                    match command {
-                        Command::Mint { rows, minted, reply } => {
-                            if reply.is_closed() { continue; }
-                            // Once begun, finish disk+memory publication even if its caller drops.
-                            let result = mint(&disk, &mut state, rows, minted).await;
-                            let _ = reply.send(result);
-                        }
-                        Command::Lookup { token, reply } => {
-                            if reply.is_closed() { continue; }
-                            let result = disk.load(&mut state).await.map(|()| {
-                                let key = token_hash(&token);
-                                state.grants.iter().find(|(hash, _)| *hash == key).map(|(_, file)| file.clone())
-                            });
-                            let _ = reply.send(result);
-                        }
-                    }
-                }
-            });
-            send
-        })
-    }
-}
-
 #[derive(Debug)]
 enum Command {
     Mint { rows: Vec<LocalPathEntry>, minted: Vec<(usize, PathBuf)>, reply: oneshot::Sender<WsResult<Vec<LocalPathEntry>>> },
     Lookup { token: String, reply: oneshot::Sender<WsResult<Option<PathBuf>>> },
-}
-
-fn actor_closed() -> WsError {
-    WsError::new(crate::error::Reason::Cancelled, "The request was cancelled.")
 }
 
 struct GrantDisk {
@@ -279,7 +156,7 @@ impl GrantDisk {
     async fn persist(&self, grants: &Grants) -> WsResult<()> {
         #[cfg(test)]
         if let Some(probe) = self.publish_probe.get()
-            && probe.remaining.fetch_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
+            && probe.remaining.try_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
             probe.entered.notify_one();
             probe.release.notified().await;
             if probe.fail { return Err(WsError::plain("fixture publication failure")); }
@@ -404,49 +281,6 @@ mod tests {
         files: Vec<PathBuf>,
         store_path: PathBuf,
         lanes: Lanes,
-    }
-
-    impl Fixture {
-        fn new() -> Self {
-            let dir = tempfile::tempdir().unwrap();
-            let root = crate::pathguard::canonical(dir.path()).unwrap();
-            let files = ["a.txt", "b.txt"].map(|name| root.join(name)).to_vec();
-            for file in &files {
-                std::fs::write(file, "fixture").unwrap();
-            }
-            let tokens = mixdog_rt::testing::tokens();
-            let lanes = Lanes {
-                interactive: tokens.interactive_io,
-                durability: tokens.durability_io,
-                maintenance: tokens.maintenance_io,
-                cpu_bulk: tokens.cpu_bulk,
-            };
-            let store_path = root.join("grants.json");
-            Self { _dir: dir, root, files, store_path, lanes }
-        }
-        fn store(&self) -> Arc<DesktopGrantStore> {
-            DesktopGrantStore::new(self.store_path.clone(), self.lanes)
-        }
-        fn seed(&self, text: &str) {
-            std::fs::write(&self.store_path, text).unwrap();
-        }
-        /// The file as 1.4.5 wrote it for these `(token, file)` pairs.
-        fn seed_grants(&self, grants: &[(&str, &Path)]) {
-            let rows: Grants = grants.iter().map(|(token, file)| (token_hash(token), file.to_path_buf())).collect();
-            std::fs::write(&self.store_path, serialize_grants(&rows)).unwrap();
-        }
-        fn persisted(&self) -> Grants {
-            parse_grants(&std::fs::read_to_string(&self.store_path).unwrap()).0
-        }
-        fn many(&self, count: usize) -> Vec<PathBuf> {
-            (0..count)
-                .map(|index| {
-                    let file = self.root.join(format!("other-{index}.txt"));
-                    std::fs::write(&file, "other").unwrap();
-                    file
-                })
-                .collect()
-        }
     }
 
     fn text(path: &Path) -> String {
@@ -676,6 +510,49 @@ mod tests {
         assert_eq!(store.redeem(&"t".repeat(129), "/", "a").await.unwrap_err().reason.code(), "invalidParams");
     }
 
+
+    impl Fixture {
+        fn new() -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            let root = crate::pathguard::canonical(dir.path()).unwrap();
+            let files = ["a.txt", "b.txt"].map(|name| root.join(name)).to_vec();
+            for file in &files {
+                std::fs::write(file, "fixture").unwrap();
+            }
+            let tokens = mixdog_rt::testing::tokens();
+            let lanes = Lanes {
+                interactive: tokens.interactive_io,
+                durability: tokens.durability_io,
+                maintenance: tokens.maintenance_io,
+                cpu_bulk: tokens.cpu_bulk,
+            };
+            let store_path = root.join("grants.json");
+            Self { _dir: dir, root, files, store_path, lanes }
+        }
+        fn store(&self) -> Arc<DesktopGrantStore> {
+            DesktopGrantStore::new(self.store_path.clone(), self.lanes)
+        }
+        fn seed(&self, text: &str) {
+            std::fs::write(&self.store_path, text).unwrap();
+        }
+        /// The file as 1.4.5 wrote it for these `(token, file)` pairs.
+        fn seed_grants(&self, grants: &[(&str, &Path)]) {
+            let rows: Grants = grants.iter().map(|(token, file)| (token_hash(token), file.to_path_buf())).collect();
+            std::fs::write(&self.store_path, serialize_grants(&rows)).unwrap();
+        }
+        fn persisted(&self) -> Grants {
+            parse_grants(&std::fs::read_to_string(&self.store_path).unwrap()).0
+        }
+        fn many(&self, count: usize) -> Vec<PathBuf> {
+            (0..count)
+                .map(|index| {
+                    let file = self.root.join(format!("other-{index}.txt"));
+                    std::fs::write(&file, "other").unwrap();
+                    file
+                })
+                .collect()
+        }
+    }
     #[test]
     fn the_file_keeps_the_newest_hundred_rows_and_a_repeated_key_keeps_its_place() {
         let dir = std::env::temp_dir();
@@ -701,3 +578,126 @@ struct PublishProbe {
 #[cfg(test)]
 #[path = "desktop_grants_tests.rs"]
 mod actor_tests;
+
+
+impl DesktopGrantStore {
+    pub fn new(path: PathBuf, lanes: Lanes) -> Arc<Self> {
+        Arc::new(Self { path, lanes, queue: OnceLock::new(),
+            #[cfg(test)]
+            publish_probe: Arc::new(OnceLock::new()),
+        })
+    }
+
+    /// Describes each path (1..=100). `mint` is false for a chat link: a file outside every project is then addressed as its own
+    /// folder's file with no token, so nothing is granted, persisted or capped. The picker and drop mint.
+    pub async fn describe(&self, paths: &[String], mint: bool, projects: &[PathBuf]) -> WsResult<Vec<LocalPathEntry>> {
+        if paths.is_empty() || paths.len() > 100 {
+            return Err(WsError::invalid("paths are invalid."));
+        }
+        let absolutes = paths.iter().map(|raw| absolute_local_path(raw)).collect::<WsResult<Vec<_>>>()?;
+        let stats = {
+            let absolutes = absolutes.clone();
+            run_in(self.lanes.interactive, &CancellationToken::new(), move |proof| {
+                absolutes
+                    .iter()
+                    .map(|path| mixdog_fsio::metadata(proof, path).at("stat", path).map(|info| (info.is_dir(), info.len())))
+                    .collect::<WsResult<Vec<_>>>()
+            })
+            .await??
+        };
+        let mut rows = Vec::with_capacity(absolutes.len());
+        // The files that need a grant: the index of their row, and the file.
+        let mut minted: Vec<(usize, PathBuf)> = Vec::new();
+        for (absolute, (dir, size)) in absolutes.iter().zip(stats) {
+            let mut row = LocalPathEntry {
+                absolute_path: absolute.to_string_lossy().into_owned(),
+                name: base_name(absolute).unwrap_or_else(|| absolute.to_string_lossy().into_owned()),
+                dir,
+                size,
+                project_path: None,
+                rel_path: None,
+                access_token: None,
+            };
+            if !dir {
+                if let Some((project, rel)) = owning_project(projects, absolute) {
+                    row.project_path = Some(project.to_string_lossy().into_owned());
+                    row.rel_path = Some(rel);
+                } else {
+                    row.project_path = Some(dir_name(absolute).to_string_lossy().into_owned());
+                    row.rel_path = base_name(absolute);
+                    if mint {
+                        minted.push((rows.len(), absolute.clone()));
+                    }
+                }
+            }
+            rows.push(row);
+        }
+        if minted.is_empty() {
+            return Ok(rows);
+        }
+        // Inspection is complete before entering the grant book's ordered transaction queue.
+        let (reply, answer) = oneshot::channel();
+        self.queue().send(Command::Mint { rows, minted, reply }).map_err(|_| actor_closed())?;
+        answer.await.map_err(|_| actor_closed())?
+    }
+
+    /// The file a token grants, when the path asked for is that file (`requireGrant`).
+    pub async fn redeem(&self, token: &str, project_path: &str, rel_path: &str) -> WsResult<Granted> {
+        let token = required_string(token, "file access token", MAX_TOKEN_TEXT)?;
+        let project_path = required_string(project_path, "projectPath", MAX_ARG_TEXT)?;
+        let rel_path = required_string(rel_path, "relPath", MAX_ARG_TEXT)?;
+        let granted = self.granted_file(&token).await?.ok_or_else(|| WsError::coded("SELECTED_FILE_GRANT_UNAVAILABLE", UNAVAILABLE))?;
+        let requested = resolve(&Path::new(&project_path).join(&rel_path));
+        if comparable(&requested) != comparable(&granted) {
+            return Err(WsError::coded("MIXDOG_LOCAL_ACCESS_DENIED", MISMATCH));
+        }
+        Ok(Granted { root: dir_name(&granted), rel: base_name(&granted).unwrap_or_default(), absolute: granted })
+    }
+
+    /// Whether the token's grant lives and names exactly `absolute` (false once evicted).
+    pub async fn still_granted(&self, token: &str, absolute: &Path) -> WsResult<bool> {
+        let token = required_string(token, "file access token", MAX_TOKEN_TEXT)?;
+        Ok(self.granted_file(&token).await?.is_some_and(|granted| comparable(&granted) == comparable(&lexical(absolute))))
+    }
+
+    async fn granted_file(&self, token: &str) -> WsResult<Option<PathBuf>> {
+        let (reply, answer) = oneshot::channel();
+        self.queue().send(Command::Lookup { token: token.to_owned(), reply }).map_err(|_| actor_closed())?;
+        answer.await.map_err(|_| actor_closed())?
+    }
+
+    fn queue(&self) -> &mpsc::UnboundedSender<Command> {
+        self.queue.get_or_init(|| {
+            let (send, mut receive) = mpsc::unbounded_channel();
+            let disk = GrantDisk { path: self.path.clone(), lanes: self.lanes,
+                #[cfg(test)]
+                publish_probe: self.publish_probe.clone(),
+            };
+            mixdog_rt::spawn("desktop-grants", mixdog_rt::TaskClass::Work, async move {
+                let mut state = State::default();
+                while let Some(command) = receive.recv().await {
+                    match command {
+                        Command::Mint { rows, minted, reply } => {
+                            if reply.is_closed() { continue; }
+                            // Once begun, finish disk+memory publication even if its caller drops.
+                            let result = mint(&disk, &mut state, rows, minted).await;
+                            let _ = reply.send(result);
+                        }
+                        Command::Lookup { token, reply } => {
+                            if reply.is_closed() { continue; }
+                            let result = disk.load(&mut state).await.map(|()| {
+                                let key = token_hash(&token);
+                                state.grants.iter().find(|(hash, _)| *hash == key).map(|(_, file)| file.clone())
+                            });
+                            let _ = reply.send(result);
+                        }
+                    }
+                }
+            });
+            send
+        })
+    }
+}
+fn actor_closed() -> WsError {
+    WsError::new(crate::error::Reason::Cancelled, "The request was cancelled.")
+}

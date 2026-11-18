@@ -20,8 +20,13 @@ use crate::memory::recall::ranking::{
 use crate::memory::recall::row::{P, Row};
 use crate::memory::recall::store::read_query;
 
-/// The entries scanned by the substring and exact lanes: the newest N by id.
-const LEX_SCAN_ROWS: i64 = 200_000;
+/// `envNonNegativeInt('MIXDOG_RECALL_LEXSCAN_ROWS', 200_000)`: the floored number the text reads as, unless it is not a number or is negative; 0 means no bound.
+fn lex_scan_rows(env: Option<&str>) -> i64 {
+    match env.map(mixdog_js::string_to_number).map(f64::floor) {
+        Some(rows) if rows.is_finite() && rows >= 0.0 => rows as i64,
+        _ => 200_000,
+    }
+}
 const MIN_EXACT_HITS: u32 = 1;
 
 pub const ENTRY_ROW_COLUMNS: &str = "id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
@@ -143,9 +148,12 @@ fn substring_predicate(column: &str, term: &str) -> String {
     format!("({column} ILIKE {pattern} OR ({column} IS NULL AND '' ILIKE {pattern}))")
 }
 
-fn lex_scan_bound(alias: &str) -> String {
+fn lex_scan_bound_over(rows: i64, alias: &str) -> String {
+    if rows <= 0 {
+        return String::new();
+    }
     let col = if alias.is_empty() { "id".to_owned() } else { format!("{alias}.id") };
-    format!("AND {col} >= (SELECT GREATEST(COALESCE(MAX(id), 0) - {LEX_SCAN_ROWS}, 0) FROM entries)")
+    format!("AND {col} >= (SELECT GREATEST(COALESCE(MAX(id), 0) - {rows}, 0) FROM entries)")
 }
 
 struct Filters {
@@ -198,170 +206,6 @@ sparse AS (
     )
 }
 
-fn trgm_cte(f: &Filters) -> String {
-    format!(
-        "
-trgm AS (
-  SELECT id,
-         1.0::float8 AS trg_sim,
-         ROW_NUMBER() OVER (ORDER BY ts DESC) AS trgm_rank
-  FROM entries
-  WHERE (
-      content ILIKE '%' || $3 || '%'
-      OR {}
-      OR {}
-    )
-    {}
-    {}
-    {}
-  ORDER BY ts DESC
-  LIMIT $4
-),",
-        substring_predicate("element", "$3"),
-        substring_predicate("summary", "$3"),
-        f.clause,
-        f.root,
-        lex_scan_bound("")
-    )
-}
-
-fn exact_cte(exact_param: usize, f: &Filters) -> String {
-    if exact_param == 0 {
-        return "
-exact_matches AS (
-  SELECT NULL::bigint AS id, NULL::bigint AS ts, NULL::text AS term, NULL::float8 AS term_df
-  WHERE false
-),
-exact AS (
-  SELECT NULL::bigint AS id, NULL::float8 AS exact_hits,
-         NULL::float8 AS exact_phrase_hits, NULL::float8 AS exact_rarity,
-         NULL::bigint AS exact_rank
-  WHERE false
-),"
-        .into();
-    }
-    format!(
-        "
-exact_matches AS (
-  SELECT ee.id,
-         ee.ts,
-         q.term,
-         COUNT(*) OVER (PARTITION BY q.term)::float8 AS term_df
-  FROM entries ee
-  CROSS JOIN LATERAL (
-    SELECT lower(ee.content) AS content, lower(ee.element) AS element, lower(ee.summary) AS summary
-    OFFSET 0
-  ) lc
-  JOIN LATERAL unnest(${exact_param}::text[]) AS q(term) ON (
-       strpos(lc.content, q.term) > 0
-       OR strpos(lc.element, q.term) > 0
-       OR strpos(lc.summary, q.term) > 0
-  )
-  WHERE true
-    {}
-    {}
-    {}
-),
-exact AS (
-  SELECT id,
-         COUNT(*)::float8 AS exact_hits,
-         COUNT(*) FILTER (WHERE POSITION(' ' IN term) > 0)::float8 AS exact_phrase_hits,
-         SUM(
-           (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)
-           / SQRT(GREATEST(term_df, 1))
-         )::float8 AS exact_rarity,
-         ROW_NUMBER() OVER (
-           ORDER BY SUM(
-                      (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)
-                      / SQRT(GREATEST(term_df, 1))
-                    ) DESC,
-                    COUNT(*) DESC,
-                    MAX(ts) DESC
-         ) AS exact_rank
-  FROM exact_matches
-  GROUP BY id
-  HAVING COUNT(*) >= {MIN_EXACT_HITS}
-  ORDER BY exact_rarity DESC, exact_hits DESC, MAX(ts) DESC
-  LIMIT $4
-),",
-        f.exact_clause,
-        f.exact_root,
-        lex_scan_bound("ee")
-    )
-}
-
-/// Param layout: $1 vector literal, $2 tsquery text, $3 clean text, $4 window,
-/// $5.. filter params, then the exact-term array.
-fn build_hybrid_query(plan: &Plan) -> (String, Vec<P>) {
-    let vector_sql = plan.query_vector.as_deref().map(embedding_to_sql);
-    let prefix = if utf16_len(&plan.clean) >= 3 { build_fts_prefix_query(&plan.clean) } else { None };
-    let fts: Option<String> = match (&prefix, utf16_len(&plan.clean) >= 3) {
-        (Some(query), _) => Some(query.clone()),
-        (None, true) => Some(build_fts_query(&plan.clean)).filter(|q| !q.is_empty()),
-        _ => None,
-    };
-    let exact_terms = build_exact_terms(&plan.clean);
-    let (clause, filter_params) = plan.filter(5, false, "");
-    let (exact_clause, _) = plan.filter(5, false, "ee");
-    let filters = Filters {
-        clause,
-        root: if plan.root_only { "AND is_root = 1" } else { "" },
-        exact_clause,
-        exact_root: if plan.root_only { "AND ee.is_root = 1" } else { "" },
-    };
-    let exact_param = if exact_terms.is_empty() { 0 } else { 5 + filter_params.len() };
-    let sql = format!(
-        "
-WITH
-{}
-{}
-{}
-{}
-combined AS (
-  SELECT id FROM dense  WHERE id IS NOT NULL UNION
-  SELECT id FROM sparse WHERE id IS NOT NULL UNION
-  SELECT id FROM trgm   WHERE id IS NOT NULL UNION
-  SELECT id FROM exact  WHERE id IS NOT NULL
-)
-SELECT
-  e.id, e.element, e.summary, e.category, e.status, e.score,
-  e.last_seen_at, e.ts, e.project_id, e.session_id, e.source_ref,
-  e.source_turn, e.content, e.chunk_root, e.concept_id, e.supersedes_id, e.is_root,
-  e.role,
-  d.sim        AS dense_sim,
-  d.dense_rank,
-  s.lex        AS sparse_lex,
-  s.sparse_rank,
-  t.trg_sim,
-  t.trgm_rank,
-  x.exact_hits,
-  x.exact_phrase_hits,
-  x.exact_rarity,
-  x.exact_rank
-FROM combined c
-JOIN   entries e ON e.id = c.id
-LEFT JOIN dense  d ON d.id = c.id
-LEFT JOIN sparse s ON s.id = c.id
-LEFT JOIN trgm   t ON t.id = c.id
-LEFT JOIN exact  x ON x.id = c.id",
-        dense_cte(vector_sql.is_some(), &filters),
-        sparse_cte(fts.as_deref(), prefix.is_some(), &filters),
-        trgm_cte(&filters),
-        exact_cte(exact_param, &filters),
-    );
-    let mut params = vec![
-        vector_sql.map_or(P::Null, P::Lit),
-        fts.map_or(P::T(String::new()), P::T),
-        P::T(plan.clean.clone()),
-        P::I(plan.candidate_window),
-    ];
-    params.extend(filter_params);
-    if exact_param != 0 {
-        params.push(P::TA(exact_terms));
-    }
-    (sql, params)
-}
-
 fn root_id_of(row: &Row) -> i64 {
     if row.is_root == 1 { row.id } else { row.chunk_root.unwrap_or(0) }
 }
@@ -383,6 +227,149 @@ struct RootResolution {
     member_hit_roots: HashSet<i64>,
     matched_members: HashMap<i64, HashSet<i64>>,
 }
+
+async fn fetch_final_rows(db: &Db, resolution: &RootResolution, plan: &Plan) -> Result<Vec<Row>> {
+    let top_ids: Vec<i64> = resolution.resolved.iter().map(|r| r.root.id).collect();
+    async fn fetch(db: &Db, ids: Vec<i64>, clause: String, params: Vec<P>) -> Result<Vec<Row>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut all = vec![P::IA(ids)];
+        all.extend(params);
+        read_query(db, &format!("SELECT {FINAL_ROW_COLUMNS}\n       FROM entries WHERE id = ANY($1::bigint[]) {clause}"), &all).await
+    }
+    let (window_clause, window_params) = plan.filter(2, false, "");
+    if resolution.member_hit_roots.is_empty() {
+        return fetch(db, top_ids, window_clause, window_params).await;
+    }
+    let non_exempt: Vec<i64> = top_ids.iter().copied().filter(|id| !resolution.member_hit_roots.contains(id)).collect();
+    let exempt: Vec<i64> = resolution.member_hit_roots.iter().copied().collect();
+    let (exempt_clause, exempt_params) = plan.filter(2, true, "");
+    let (windowed, exempt) = tokio::try_join!(
+        fetch(db, non_exempt, window_clause, window_params),
+        fetch(db, exempt, exempt_clause, exempt_params)
+    )?;
+    Ok(windowed.into_iter().chain(exempt).collect())
+}
+
+const RANK_KEYS: usize = 4;
+
+fn rank_values(row: &Row) -> [Option<i64>; RANK_KEYS] {
+    [row.dense_rank, row.sparse_rank, row.trgm_rank, row.exact_rank]
+}
+
+fn max_values(row: &Row) -> [Option<f64>; 6] {
+    [row.dense_sim, row.sparse_lex, row.trg_sim, row.exact_hits, row.exact_phrase_hits, row.exact_rarity]
+}
+
+fn set_ranks(row: &mut Row, v: [Option<i64>; RANK_KEYS]) {
+    [row.dense_rank, row.sparse_rank, row.trgm_rank, row.exact_rank] = v;
+}
+
+fn set_max(row: &mut Row, v: [Option<f64>; 6]) {
+    [row.dense_sim, row.sparse_lex, row.trg_sim, row.exact_hits, row.exact_phrase_hits, row.exact_rarity] = v;
+}
+
+fn inherit_anchor_evidence(latest: &Row, anchor: &Row, existing: Option<&Row>) -> Row {
+    let mut inherited = latest.clone();
+    set_ranks(&mut inherited, rank_values(anchor));
+    set_max(&mut inherited, max_values(anchor));
+    let Some(existing) = existing else { return inherited };
+    let (old_ranks, new_ranks) = (rank_values(existing), rank_values(&inherited));
+    let merged = std::array::from_fn(|i| match (old_ranks[i], new_ranks[i]) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    });
+    set_ranks(&mut inherited, merged);
+    let (old_max, new_max) = (max_values(existing), max_values(&inherited));
+    let merged = std::array::from_fn(|i| match (old_max[i], new_max[i]) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (a, b) => a.or(b),
+    });
+    set_max(&mut inherited, merged);
+    inherited
+}
+
+const LATEST_COLUMNS: &str = "e.id, e.ts, e.role, e.content, e.source_ref, e.session_id,
+                 e.source_turn, e.time_source, e.chunk_root, e.is_root,
+                 e.concept_id, e.supersedes_id, e.element, e.category,
+                 e.summary, e.project_id, e.status, e.score, e.last_seen_at";
+
+/// `preferLatestConceptRows`: each row replaced by the newest latest-row of one of its concepts.
+pub fn prefer_latest_concept_rows(rows: &[Row], latest: &[Row]) -> Vec<Row> {
+    let mut by_concept: HashMap<i64, &Row> = HashMap::new();
+    for row in latest {
+        by_concept.entry(row.matched_concept_id.or(row.concept_id).unwrap_or(row.id)).or_insert(row);
+    }
+    rows.iter()
+        .map(|row| {
+            let concept_ids: Vec<i64> =
+                if row.concept_ids.is_empty() { vec![row.concept_id.unwrap_or(row.id)] } else { row.concept_ids.clone() };
+            let mut best = row;
+            for concept in concept_ids {
+                let Some(candidate) = by_concept.get(&concept) else { continue };
+                if candidate.ts > best.ts || (candidate.ts == best.ts && candidate.id > best.id) {
+                    best = candidate;
+                }
+            }
+            best.clone()
+        })
+        .collect()
+}
+
+async fn attach_members(db: &Db, page: &mut [Row], matched: &HashMap<i64, HashSet<i64>>) -> Result<()> {
+    let root_ids: Vec<i64> = page.iter().filter(|r| r.is_root == 1).map(|r| r.id).collect();
+    if root_ids.is_empty() {
+        return Ok(());
+    }
+    let members = read_query(
+        db,
+        "SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, project_id, chunk_root
+         FROM entries WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
+         ORDER BY ts ASC, id ASC",
+        &[P::IA(root_ids)],
+    )
+    .await?;
+    let mut by_root: HashMap<i64, Vec<Row>> = HashMap::new();
+    for member in members {
+        by_root.entry(member.chunk_root.unwrap_or(0)).or_default().push(member);
+    }
+    for row in page.iter_mut().filter(|r| r.is_root == 1) {
+        let all = by_root.get(&row.id).cloned().unwrap_or_default();
+        let kept: Vec<Row> = match matched.get(&row.id).filter(|set| !set.is_empty()) {
+            Some(set) => all.iter().filter(|m| set.contains(&m.id)).cloned().collect(),
+            None => Vec::new(),
+        };
+        row.members = Some(if kept.is_empty() { all } else { kept });
+    }
+    Ok(())
+}
+
+/// Whether every returned candidate matched on meaning alone.
+pub fn semantic_only(rows: &[Row]) -> bool {
+    is_semantic_only(rows)
+}
+
+#[allow(dead_code)]
+fn evidence_of(row: &Row) -> &'static str {
+    evidence_kind(row)
+}
+
+#[cfg(test)]
+mod lex_scan_tests {
+    use super::*;
+
+    /// `MIXDOG_RECALL_LEXSCAN_ROWS` as Node's `envNonNegativeInt` reads it: unset, junk and negative values keep 200 000, a number is floored, 0 is no bound.
+    #[test]
+    fn the_scan_bound_follows_the_environment_as_node_reads_it() {
+        for (env, rows) in [(None, 200_000), (Some("abc"), 200_000), (Some("-5"), 200_000), (Some("20000"), 20_000), (Some("1500.9"), 1500), (Some(""), 0), (Some("0"), 0)] {
+            assert_eq!(lex_scan_rows(env), rows, "{env:?}");
+        }
+        assert_eq!(lex_scan_bound_over(20_000, "ee"), "AND ee.id >= (SELECT GREATEST(COALESCE(MAX(id), 0) - 20000, 0) FROM entries)");
+        assert_eq!(lex_scan_bound_over(0, "ee"), "");
+    }
+}
+
 
 async fn resolve_roots(
     db: &Db,
@@ -460,72 +447,173 @@ async fn resolve_roots(
     Ok(RootResolution { resolved, member_hit_roots, matched_members })
 }
 
-async fn fetch_final_rows(db: &Db, resolution: &RootResolution, plan: &Plan) -> Result<Vec<Row>> {
-    let top_ids: Vec<i64> = resolution.resolved.iter().map(|r| r.root.id).collect();
-    async fn fetch(db: &Db, ids: Vec<i64>, clause: String, params: Vec<P>) -> Result<Vec<Row>> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let mut all = vec![P::IA(ids)];
-        all.extend(params);
-        read_query(db, &format!("SELECT {FINAL_ROW_COLUMNS}\n       FROM entries WHERE id = ANY($1::bigint[]) {clause}"), &all).await
+/// The entries scanned by the substring and exact lanes: the newest N by id (`RECALL_LEXSCAN_ROWS`, read once as Node reads it at load).
+static LEX_SCAN_ROWS: std::sync::LazyLock<i64> = std::sync::LazyLock::new(|| lex_scan_rows(std::env::var("MIXDOG_RECALL_LEXSCAN_ROWS").ok().as_deref()));
+fn lex_scan_bound(alias: &str) -> String {
+    lex_scan_bound_over(*LEX_SCAN_ROWS, alias)
+}
+fn trgm_cte(f: &Filters) -> String {
+    format!(
+        "
+trgm AS (
+  SELECT id,
+         1.0::float8 AS trg_sim,
+         ROW_NUMBER() OVER (ORDER BY ts DESC) AS trgm_rank
+  FROM entries
+  WHERE (
+      content ILIKE '%' || $3 || '%'
+      OR {}
+      OR {}
+    )
+    {}
+    {}
+    {}
+  ORDER BY ts DESC
+  LIMIT $4
+),",
+        substring_predicate("element", "$3"),
+        substring_predicate("summary", "$3"),
+        f.clause,
+        f.root,
+        lex_scan_bound("")
+    )
+}
+fn exact_cte(exact_param: usize, f: &Filters) -> String {
+    if exact_param == 0 {
+        return "
+exact_matches AS (
+  SELECT NULL::bigint AS id, NULL::bigint AS ts, NULL::text AS term, NULL::float8 AS term_df
+  WHERE false
+),
+exact AS (
+  SELECT NULL::bigint AS id, NULL::float8 AS exact_hits,
+         NULL::float8 AS exact_phrase_hits, NULL::float8 AS exact_rarity,
+         NULL::bigint AS exact_rank
+  WHERE false
+),"
+        .into();
     }
-    let (window_clause, window_params) = plan.filter(2, false, "");
-    if resolution.member_hit_roots.is_empty() {
-        return fetch(db, top_ids, window_clause, window_params).await;
+    format!(
+        "
+exact_matches AS (
+  SELECT ee.id,
+         ee.ts,
+         q.term,
+         COUNT(*) OVER (PARTITION BY q.term)::float8 AS term_df
+  FROM entries ee
+  CROSS JOIN LATERAL (
+    SELECT lower(ee.content) AS content, lower(ee.element) AS element, lower(ee.summary) AS summary
+    OFFSET 0
+  ) lc
+  JOIN LATERAL unnest(${exact_param}::text[]) AS q(term) ON (
+       strpos(lc.content, q.term) > 0
+       OR strpos(lc.element, q.term) > 0
+       OR strpos(lc.summary, q.term) > 0
+  )
+  WHERE true
+    {}
+    {}
+    {}
+),
+exact AS (
+  SELECT id,
+         COUNT(*)::float8 AS exact_hits,
+         COUNT(*) FILTER (WHERE POSITION(' ' IN term) > 0)::float8 AS exact_phrase_hits,
+         SUM(
+           (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)
+           / SQRT(GREATEST(term_df, 1))
+         )::float8 AS exact_rarity,
+         ROW_NUMBER() OVER (
+           ORDER BY SUM(
+                      (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)
+                      / SQRT(GREATEST(term_df, 1))
+                    ) DESC,
+                    COUNT(*) DESC,
+                    MAX(ts) DESC
+         ) AS exact_rank
+  FROM exact_matches
+  GROUP BY id
+  HAVING COUNT(*) >= {MIN_EXACT_HITS}
+  ORDER BY exact_rarity DESC, exact_hits DESC, MAX(ts) DESC
+  LIMIT $4
+),",
+        f.exact_clause,
+        f.exact_root,
+        lex_scan_bound("ee")
+    )
+}
+/// Param layout: $1 vector literal, $2 tsquery text, $3 clean text, $4 window,
+/// $5.. filter params, then the exact-term array.
+fn build_hybrid_query(plan: &Plan) -> (String, Vec<P>) {
+    let vector_sql = plan.query_vector.as_deref().map(embedding_to_sql);
+    let prefix = if utf16_len(&plan.clean) >= 3 { build_fts_prefix_query(&plan.clean) } else { None };
+    let fts: Option<String> = match (&prefix, utf16_len(&plan.clean) >= 3) {
+        (Some(query), _) => Some(query.clone()),
+        (None, true) => Some(build_fts_query(&plan.clean)).filter(|q| !q.is_empty()),
+        _ => None,
+    };
+    let exact_terms = build_exact_terms(&plan.clean);
+    let (clause, filter_params) = plan.filter(5, false, "");
+    let (exact_clause, _) = plan.filter(5, false, "ee");
+    let filters = Filters {
+        clause,
+        root: if plan.root_only { "AND is_root = 1" } else { "" },
+        exact_clause,
+        exact_root: if plan.root_only { "AND ee.is_root = 1" } else { "" },
+    };
+    let exact_param = if exact_terms.is_empty() { 0 } else { 5 + filter_params.len() };
+    let sql = format!(
+        "
+WITH
+{}
+{}
+{}
+{}
+combined AS (
+  SELECT id FROM dense  WHERE id IS NOT NULL UNION
+  SELECT id FROM sparse WHERE id IS NOT NULL UNION
+  SELECT id FROM trgm   WHERE id IS NOT NULL UNION
+  SELECT id FROM exact  WHERE id IS NOT NULL
+)
+SELECT
+  e.id, e.element, e.summary, e.category, e.status, e.score,
+  e.last_seen_at, e.ts, e.project_id, e.session_id, e.source_ref,
+  e.source_turn, e.content, e.chunk_root, e.concept_id, e.supersedes_id, e.is_root,
+  e.role,
+  d.sim        AS dense_sim,
+  d.dense_rank,
+  s.lex        AS sparse_lex,
+  s.sparse_rank,
+  t.trg_sim,
+  t.trgm_rank,
+  x.exact_hits,
+  x.exact_phrase_hits,
+  x.exact_rarity,
+  x.exact_rank
+FROM combined c
+JOIN   entries e ON e.id = c.id
+LEFT JOIN dense  d ON d.id = c.id
+LEFT JOIN sparse s ON s.id = c.id
+LEFT JOIN trgm   t ON t.id = c.id
+LEFT JOIN exact  x ON x.id = c.id",
+        dense_cte(vector_sql.is_some(), &filters),
+        sparse_cte(fts.as_deref(), prefix.is_some(), &filters),
+        trgm_cte(&filters),
+        exact_cte(exact_param, &filters),
+    );
+    let mut params = vec![
+        vector_sql.map_or(P::Null, P::Lit),
+        fts.map_or(P::T(String::new()), P::T),
+        P::T(plan.clean.clone()),
+        P::I(plan.candidate_window),
+    ];
+    params.extend(filter_params);
+    if exact_param != 0 {
+        params.push(P::TA(exact_terms));
     }
-    let non_exempt: Vec<i64> = top_ids.iter().copied().filter(|id| !resolution.member_hit_roots.contains(id)).collect();
-    let exempt: Vec<i64> = resolution.member_hit_roots.iter().copied().collect();
-    let (exempt_clause, exempt_params) = plan.filter(2, true, "");
-    let (windowed, exempt) = tokio::try_join!(
-        fetch(db, non_exempt, window_clause, window_params),
-        fetch(db, exempt, exempt_clause, exempt_params)
-    )?;
-    Ok(windowed.into_iter().chain(exempt).collect())
+    (sql, params)
 }
 
-const RANK_KEYS: usize = 4;
-
-fn rank_values(row: &Row) -> [Option<i64>; RANK_KEYS] {
-    [row.dense_rank, row.sparse_rank, row.trgm_rank, row.exact_rank]
-}
-
-fn max_values(row: &Row) -> [Option<f64>; 6] {
-    [row.dense_sim, row.sparse_lex, row.trg_sim, row.exact_hits, row.exact_phrase_hits, row.exact_rarity]
-}
-
-fn set_ranks(row: &mut Row, v: [Option<i64>; RANK_KEYS]) {
-    [row.dense_rank, row.sparse_rank, row.trgm_rank, row.exact_rank] = v;
-}
-
-fn set_max(row: &mut Row, v: [Option<f64>; 6]) {
-    [row.dense_sim, row.sparse_lex, row.trg_sim, row.exact_hits, row.exact_phrase_hits, row.exact_rarity] = v;
-}
-
-fn inherit_anchor_evidence(latest: &Row, anchor: &Row, existing: Option<&Row>) -> Row {
-    let mut inherited = latest.clone();
-    set_ranks(&mut inherited, rank_values(anchor));
-    set_max(&mut inherited, max_values(anchor));
-    let Some(existing) = existing else { return inherited };
-    let (old_ranks, new_ranks) = (rank_values(existing), rank_values(&inherited));
-    let merged = std::array::from_fn(|i| match (old_ranks[i], new_ranks[i]) {
-        (Some(a), Some(b)) => Some(a.min(b)),
-        (a, b) => a.or(b),
-    });
-    set_ranks(&mut inherited, merged);
-    let (old_max, new_max) = (max_values(existing), max_values(&inherited));
-    let merged = std::array::from_fn(|i| match (old_max[i], new_max[i]) {
-        (Some(a), Some(b)) => Some(a.max(b)),
-        (a, b) => a.or(b),
-    });
-    set_max(&mut inherited, merged);
-    inherited
-}
-
-const LATEST_COLUMNS: &str = "e.id, e.ts, e.role, e.content, e.source_ref, e.session_id,
-                 e.source_turn, e.time_source, e.chunk_root, e.is_root,
-                 e.concept_id, e.supersedes_id, e.element, e.category,
-                 e.summary, e.project_id, e.status, e.score, e.last_seen_at";
 
 /// Widens the candidates with the newest root of every matched concept.
 async fn expand_latest_by_concept(db: &Db, raw: Vec<Row>, plan: &Plan) -> Result<(Vec<Row>, HashSet<i64>)> {
@@ -611,29 +699,6 @@ async fn expand_latest_by_concept(db: &Db, raw: Vec<Row>, plan: &Plan) -> Result
     }
     Ok((merged, expanded))
 }
-
-/// `preferLatestConceptRows`: each row replaced by the newest latest-row of one of its concepts.
-pub fn prefer_latest_concept_rows(rows: &[Row], latest: &[Row]) -> Vec<Row> {
-    let mut by_concept: HashMap<i64, &Row> = HashMap::new();
-    for row in latest {
-        by_concept.entry(row.matched_concept_id.or(row.concept_id).unwrap_or(row.id)).or_insert(row);
-    }
-    rows.iter()
-        .map(|row| {
-            let concept_ids: Vec<i64> =
-                if row.concept_ids.is_empty() { vec![row.concept_id.unwrap_or(row.id)] } else { row.concept_ids.clone() };
-            let mut best = row;
-            for concept in concept_ids {
-                let Some(candidate) = by_concept.get(&concept) else { continue };
-                if candidate.ts > best.ts || (candidate.ts == best.ts && candidate.id > best.id) {
-                    best = candidate;
-                }
-            }
-            best.clone()
-        })
-        .collect()
-}
-
 /// Annotates final roots with their concepts and resolves each to the latest
 /// root of its concept; the two lists stay index-aligned.
 async fn resolve_latest_concept_rows(db: &Db, final_rows: Vec<Row>, plan: &Plan) -> Result<(Vec<Row>, Vec<Row>)> {
@@ -706,40 +771,10 @@ async fn resolve_latest_concept_rows(db: &Db, final_rows: Vec<Row>, plan: &Plan)
     let resolved = prefer_latest_concept_rows(&annotated, &latest);
     Ok((annotated, resolved))
 }
-
-async fn attach_members(db: &Db, page: &mut [Row], matched: &HashMap<i64, HashSet<i64>>) -> Result<()> {
-    let root_ids: Vec<i64> = page.iter().filter(|r| r.is_root == 1).map(|r| r.id).collect();
-    if root_ids.is_empty() {
-        return Ok(());
-    }
-    let members = read_query(
-        db,
-        "SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, project_id, chunk_root
-         FROM entries WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
-         ORDER BY ts ASC, id ASC",
-        &[P::IA(root_ids)],
-    )
-    .await?;
-    let mut by_root: HashMap<i64, Vec<Row>> = HashMap::new();
-    for member in members {
-        by_root.entry(member.chunk_root.unwrap_or(0)).or_default().push(member);
-    }
-    for row in page.iter_mut().filter(|r| r.is_root == 1) {
-        let all = by_root.get(&row.id).cloned().unwrap_or_default();
-        let kept: Vec<Row> = match matched.get(&row.id).filter(|set| !set.is_empty()) {
-            Some(set) => all.iter().filter(|m| set.contains(&m.id)).cloned().collect(),
-            None => Vec::new(),
-        };
-        row.members = Some(if kept.is_empty() { all } else { kept });
-    }
-    Ok(())
-}
-
 /// `read_query` rows kept as driver rows for queries with ad-hoc columns.
 async fn read_query_raw(db: &Db, sql: &str, params: &[P]) -> Result<Vec<tokio_postgres::Row>> {
     crate::memory::recall::store::read_query_pg(db, sql, params).await
 }
-
 /// Hybrid search over `entries`. Numeric-only and empty queries find nothing.
 pub async fn search_relevant_hybrid(db: &Db, query: &str, options: &SearchOptions) -> Result<Vec<Row>> {
     let clean = js_trim(query);
@@ -790,14 +825,4 @@ pub async fn search_relevant_hybrid(db: &Db, query: &str, options: &SearchOption
         attach_members(db, &mut page, &resolution.matched_members).await?;
     }
     Ok(page)
-}
-
-/// Whether every returned candidate matched on meaning alone.
-pub fn semantic_only(rows: &[Row]) -> bool {
-    is_semantic_only(rows)
-}
-
-#[allow(dead_code)]
-fn evidence_of(row: &Row) -> &'static str {
-    evidence_kind(row)
 }

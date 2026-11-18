@@ -32,7 +32,7 @@ const entry = (id, desktopVersion, addedAt, extra = {}) => ({
 const legacyEntry = entry('legacy', '', 1, { legacy: true });
 const registry = (...releases) => parseReleaseIndex({ schemaVersion: 1, releases });
 
-test('selection: exact version, else newest compatible, else legacy', () => {
+test('selection: a reported app version must match exactly', () => {
   const index = registry(
     legacyEntry,
     entry('r100', '1.0.0', 10),
@@ -40,13 +40,9 @@ test('selection: exact version, else newest compatible, else legacy', () => {
     entry('r110', '1.1.0', 30)
   );
   assert.equal(selectRelease(index, { appVersion: '1.0.2' }).id, 'r102');
-  // No release for 1.0.5: the newest build that is not newer than the desktop.
-  assert.equal(selectRelease(index, { appVersion: '1.0.5' }).id, 'r102');
-  // A desktop newer than everything retained gets the newest release.
-  assert.equal(selectRelease(index, { appVersion: '9.0.0' }).id, 'r110');
-  // Older than every retained release, unparsable, or silent: legacy.
-  assert.equal(selectRelease(index, { appVersion: '0.9.0' }).id, 'legacy');
-  assert.equal(selectRelease(index, { appVersion: 'nightly' }).id, 'legacy');
+  for (const appVersion of ['1.0.5', '9.0.0', '0.9.0', 'nightly', '1.1.0+rebuild']) {
+    assert.equal(selectRelease(index, { appVersion }), null, appVersion);
+  }
   assert.equal(selectRelease(index, {}).id, 'legacy');
   assert.equal(selectRelease(index).id, 'legacy');
   // Same desktop version deployed twice: the later build wins.
@@ -54,11 +50,16 @@ test('selection: exact version, else newest compatible, else legacy', () => {
   assert.equal(selectRelease(rebuilt, { appVersion: '1.0.2' }).id, 'b');
 });
 
-test('selection: an exact renderer release id outranks the version, and no legacy means newest', () => {
+test('selection: a shell hash pins a rebuild but never overrides a reported version', () => {
   const pinned = 'c'.repeat(64);
   const index = registry(entry('old', '1.0.0', 10, { shellVersion: pinned }), entry('new', '1.1.0', 20));
-  assert.equal(selectRelease(index, { appVersion: '1.1.0', rendererRelease: pinned }).id, 'old');
+  assert.equal(selectRelease(index, { appVersion: '1.0.0', rendererRelease: pinned }).id, 'old');
+  assert.equal(selectRelease(index, { appVersion: '1.1.0', rendererRelease: pinned }).id, 'new');
+  assert.equal(selectRelease(index, { appVersion: '1.2.0', rendererRelease: pinned }), null);
   assert.equal(selectRelease(index, {}).id, 'new');
+  const adopted = entry('legacy', '', 1, { legacy: true, shellVersion: pinned });
+  assert.equal(selectRelease(registry(adopted), { appVersion: '0.9.0', rendererRelease: pinned }).id, 'legacy');
+  assert.equal(selectRelease(registry(adopted, ...index.releases), { appVersion: '0.9.0', rendererRelease: pinned }), null);
 });
 
 test('retention keeps legacy, the newest N and releases recently-seen devices still use', () => {
@@ -234,10 +235,13 @@ test('the relay serves each device the renderer release for its reported desktop
     assert.match(await (await fetch(`${restarted}/d/${modern}/`)).text(), /<body>new<\/body>/);
     assert.match(await (await fetch(`${restarted}/d/${silent}/`)).text(), /<body>legacy<\/body>/);
     // A device's version is learned again when its desktop upgrades.
-    const upgraded = await connectDesktop(relay, silent, { appVersion: '2.0.1' });
+    const upgraded = await connectDesktop(relay, silent, { appVersion: '2.0.1', rendererRelease: fixture.shells.new });
     sockets.push(upgraded);
     await until(() => relay.store.deviceVersion(silent).appVersion === '2.0.1');
-    assert.match(await (await fetch(`${restarted}/d/${silent}/`)).text(), /<body>new<\/body>/);
+    const pending = await fetch(`${restarted}/d/${silent}/`, { headers: { 'user-agent': 'MixdogApp/1.4.0' } });
+    assert.equal(pending.status, 200);
+    assert.equal(pending.headers.get('cache-control'), 'no-store');
+    assert.match(await pending.text(), /web client for this PC version is unavailable/);
     // Readiness reports every retained release.
     const ready = await (await fetch(`${restarted}/readyz`)).json();
     assert.deepEqual(
@@ -294,22 +298,21 @@ test('the phone app gets the update-PC page instead of the legacy renderer', asy
 
     // An extension-less deep link is the SPA index document too.
     assert.match(await (await get(stale, 'some/deep/link', appUa)).text(), /Update Mixdog on your PC/);
-    assert.match(await (await get(stale, 'some/deep/link', browserUa)).text(), /<body>legacy<\/body>/);
+    assert.match(await (await get(stale, 'some/deep/link', browserUa)).text(), /Web client unavailable/);
 
     // Only a top-level document: Fetch Metadata, when sent, must say so.
     for (const dest of ['empty', 'iframe']) {
       const sub = await get(stale, '', { ...appUa, 'sec-fetch-dest': dest });
-      assert.match(await sub.text(), /<body>legacy<\/body>/, dest);
+      assert.match(await sub.text(), /Web client unavailable/, dest);
     }
     const document = await get(stale, '', { ...appUa, 'sec-fetch-dest': 'document' });
     assert.match(await document.text(), /Update Mixdog on your PC/);
 
-    // A supported PC, browsers / home-screen apps and assets are unchanged.
+    // A supported or unidentified old PC can still load its shell. An unmatched
+    // version cannot get private assets from another release.
     assert.match(await (await get(modern, '', appUa)).text(), /<body>new<\/body>/);
-    assert.match(await (await get(stale, '', browserUa)).text(), /<body>legacy<\/body>/);
-    assert.match(await (await get(stale, '')).text(), /<body>legacy<\/body>/);
-    assert.match(await (await get(stale, 'icon.svg', appUa)).text(), /<title>legacy<\/title>/);
-    assert.match(await (await get(stale, 'assets/main-12345678.js', appUa)).text(), /'legacy'/);
+    assert.match(await (await get(silent, '', browserUa)).text(), /<body>legacy<\/body>/);
+    assert.equal((await get(stale, 'assets/main-12345678.js', appUa)).status, 404);
   } finally {
     for (const socket of sockets) socket.terminate();
     await relay.close();
@@ -331,7 +334,7 @@ test('oldest supported version is the lowest retained non-legacy desktop version
   assert.equal(oldestSupportedVersion(registry(legacyEntry)), '');
 });
 
-test('without a registry the relay serves the single renderer to everyone', async () => {
+test('only an absent registry enables single-renderer mode', async () => {
   const root = await mkdtemp(join(tmpdir(), 'mixdog-relay-single-'));
   try {
     await writeRelease(join(root, 'renderer'), 'only');
@@ -340,13 +343,16 @@ test('without a registry the relay serves the single renderer to everyone', asyn
       releasesDir: join(root, 'renderer-releases'),
     });
     assert.equal(catalog.dirFor({ appVersion: '9.9.9' }), join(root, 'renderer'));
-    // A registry naming a release whose files are gone falls back too.
+    // An incomplete retained tree must not fall back to a different release.
     await writeRegistry(join(root, 'renderer-releases'), [entry('gone', '1.0.0', 1)]);
     const stale = createRendererCatalog({
       rendererDir: join(root, 'renderer'),
       releasesDir: join(root, 'renderer-releases'),
     });
-    assert.equal(stale.dirFor({ appVersion: '1.0.0' }), join(root, 'renderer'));
+    assert.equal(stale.dirFor({ appVersion: '1.0.0' }), null);
+    await writeFile(join(root, 'renderer-releases', 'index.json'), '{broken');
+    const broken = createRendererCatalog({ rendererDir: join(root, 'renderer'), releasesDir: join(root, 'renderer-releases') });
+    assert.equal(broken.dirFor({ appVersion: '1.0.0' }), null);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

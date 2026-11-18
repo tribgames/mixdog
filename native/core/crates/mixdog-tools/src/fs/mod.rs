@@ -24,13 +24,17 @@ mod read_legacy;
 mod read_paths;
 pub mod read_state;
 mod search;
-#[cfg(test)]
+#[cfg(node_twin)]
+#[cfg(all(test, node_twin))]
 mod other_node_cases;
-#[cfg(test)]
+#[cfg(all(test, node_twin))]
 mod search_node_cases;
 #[cfg(test)]
-mod tests;
+mod search_paging_tests;
 #[cfg(test)]
+mod tests;
+#[cfg(node_twin)]
+#[cfg(all(test, node_twin))]
 mod node_cases;
 
 pub use edit::EditTool;
@@ -40,6 +44,7 @@ pub use patch::ApplyPatchTool;
 pub use read::READ_PDF_MAX_PAGES_PER_CALL;
 pub use read::ReadTool;
 pub(crate) use read::normalize_input_path;
+pub(crate) use read_paths::normalize_error_message;
 pub use read_state::FileVersion;
 pub use read_state::Persistence;
 pub use read_state::ReadState;
@@ -64,3 +69,35 @@ pub use search::FindTool;
 pub use search::GlobTool;
 pub use search::GrepTool;
 pub use search::SearchTimer;
+pub use search::glob_result_roots;
+
+/// Resolve a cache dependency by the same path rules as the filesystem tools.
+pub fn result_root(cwd: &std::path::Path, path: &str) -> Option<std::path::PathBuf> {
+    let cwd = mixdog_core_api::domain::common::AbsPath::new(cwd.to_path_buf())?;
+    Some(common::resolve_path(&cwd, path).ok()?.as_path().to_path_buf())
+}
+
+/// A read locator that names a file without the executor's coordinate or glob expansion.
+pub fn read_result_file(cwd: &std::path::Path, path: &str) -> Option<std::path::PathBuf> {
+    let path = read::normalize_input_path(path);
+    if common::has_glob_magic(&path) || read::has_line_coordinate(&path) {
+        return None;
+    }
+    result_root(cwd, &path)
+}
+
+/// The actual base used by `list`, including its find mode and glob-shaped paths.
+pub fn list_result_root(args: &mixdog_protocol::JsonValue) -> Option<String> {
+    let raw = common::optional_path_arg(args, "path", |_| String::new()).ok()?.unwrap_or(".");
+    let mode = common::arg_str(args, "mode");
+    let glob_find = mode != Some("tree")
+        && !common::arg_str(args, "name").is_some_and(|name| !name.is_empty())
+        && common::has_glob_magic(raw);
+    if (mode == Some("find") || glob_find) && list::uses_relative_time(args) {
+        return None;
+    }
+    if glob_find {
+        return Some(common::extract_glob_base_directory(raw).0.unwrap_or_else(|| ".".to_owned()));
+    }
+    Some(raw.to_owned())
+}

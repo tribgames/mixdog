@@ -189,3 +189,4 @@ mod tests {
         assert!(host.attachment_bytes("not a hash").await.is_none());
     }
 }
+

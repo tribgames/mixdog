@@ -21,6 +21,8 @@ export interface DesktopPortForward {
   status: DesktopPortForwardStatus;
   /** Why it stopped, for `error`. */
   message?: string;
+  /** The same by code, in the interface language. */
+  notice?: import('./contract-ssh').SshMessage;
 }
 
 export interface DesktopServerPortsView {

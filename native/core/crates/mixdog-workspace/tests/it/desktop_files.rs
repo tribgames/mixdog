@@ -69,6 +69,7 @@ fn env(enabled: bool) -> Env {
         code_graph: None,
         turn_review: None,
         releases: mixdog_workspace::release::FolderReleases::new(),
+        upload_chunk_bytes: mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
     })
     .unwrap();
     let row = mixdog_store::state::ProjectRow { path: root.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };

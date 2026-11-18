@@ -2,11 +2,10 @@
 // TUI and the phone read them unchanged. Ported from src/runtime/.../transcript-restore/restore.mjs (tool cards, `__aggregate__`
 // cards, attachments), src/tui/session/transcript-intake.mjs and agent-room.mjs `roomRowItem`; the helpers they call live in ./rows.
 //
-// Two steps, because the fold keeps one row per item and an aggregate card is a view over a run of them:
-//  - `rowOf` is one item's row (restore.mjs `restoredToolCallItems` + `attachRestoredToolResult` for a tool call);
+// The fold keeps an item's individual rows before it merges consecutive cards:
+//  - `itemRows` projects an item, using `rowOf` for ordinary rows;
 //  - `mergeToolRows` collapses a run of finished tool rows into one `__aggregate__` row (restore.mjs `mergeRestoredToolItems`).
-// Whatever the item cannot state in its own members (`callId`, `rawResult`, `uiDiff`, `toolMeta`, the room payload, ...) arrives in
-// `meta.ext`, the core's exact row attributes; `ext` is applied last, so the core always has the final word on a row.
+// `meta.ext` supplies remaining row attributes after the typed fields, except for payloads that need normalization.
 import type { Json } from './api.ts';
 import { asObj, isObj } from './obj.ts';
 import type { Obj } from './obj.ts';
@@ -31,15 +30,29 @@ function routeFields(m: Obj): Obj {
 }
 const atField = (m: Obj): Obj => (finite(m.at) ? { at: m.at } : {});
 
+/** Stored history positions are not display ids or serialized row attributes. An aggregate has a different edge in each direction. */
+const positions = new WeakMap<object, { before: string | undefined; after: string | undefined }>();
+export function historyPositionOf(row: unknown, direction: 'before' | 'after' = 'before'): string | undefined {
+  return row && typeof row === 'object' ? positions.get(row)?.[direction] : undefined;
+}
+export function setHistoryPositions<T extends object>(row: T, before: string | undefined, after: string | undefined): T {
+  if (before !== undefined || after !== undefined) positions.set(row, { before, after });
+  return row;
+}
+
 /** One `ThreadItem` as its transcript row; `null` for an item that has none (reasoning: today's thinking is the `thinking` state
  * field, never a row; control tools and task waits). */
 export function rowOf(item: Obj): Obj | null {
   const m = asObj(item.meta);
-  if (item.type === 'roomRow') return roomRowItem(item, m);
-  const row = rowBody(item, m);
+  const row = item.type === 'roomRow' ? roomRowItem(item, m) : rowBody(item, m);
   if (row === null) return null;
-  const { [DIVIDERS_AFTER]: _dividers, ...ext } = extOf(item, m);
-  return Object.assign(row, ext);
+  if (item.type !== 'roomRow') {
+    const { [DIVIDERS_AFTER]: _dividers, historyPosition: _position, ...ext } = extOf(item, m);
+    if (item.type === 'toolCall') delete ext.toolMeta; // toolRow validates both typed and legacy metadata
+    Object.assign(row, ext);
+  }
+  const position = text(asObj(m.ext).historyPosition) || undefined;
+  return setHistoryPositions(row, position, position);
 }
 
 /** The `ext` member a history page's row carries the compaction dividers shown after it under (the core's `DIVIDERS_AFTER`,
@@ -48,12 +61,161 @@ const DIVIDERS_AFTER = 'dividersAfter';
 
 /** A history page's item as its rows: its own row, then the rows of the compaction dividers that follow it. */
 export function rowsOf(item: Obj): Obj[] {
-  const own = rowOf(item);
   const after = asObj(asObj(item.meta).ext)[DIVIDERS_AFTER];
   const dividers = Array.isArray(after) ? after.map((divider) => rowOf(asObj(divider))).filter((row): row is Obj => row !== null) : [];
-  return own === null ? dividers : [own, ...dividers];
+  return [...itemRows(item), ...dividers];
 }
 
+/** One completion of a woken batch: where its text lies in the row's joined text, and what the batch recorded of its job. */
+interface BatchEntry {
+  start: number;
+  end: number;
+  execution: Obj;
+}
+
+const escapeField = (value: string): string => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
+/** The completions of a turn input row, located in its text. A row the core wrote for a batch carries them as data
+ * (`details.completions`, UTF-16 offsets into the text): nothing is cut by its content. A row stored before that data existed has
+ * only `details.consumedExecutionIds`, one id per queued entry in order, and an entry's text is its `<task-notification>` envelope
+ * whose first field is its own `<task-id>`: entry k starts at the first line after entry k-1's start that opens an envelope naming
+ * id k, and the last entry ends with the text. The envelope writers do not escape a result, so a result may quote envelopes; the
+ * only cut that can then be wrong is a result quoting the envelope of the very next completion (same task id) before that
+ * completion's own envelope. A row whose ids cannot all be found (an entry that named none, or an execution id other than its
+ * envelope's task id, as `restart:` ids are) is not split: it stays the one card it always was. */
+export function batchEntries(content: string, details: Obj): BatchEntry[] {
+  if (Array.isArray(details.completions) && details.completions.length > 0) {
+    return details.completions.map((entry) => {
+      const one = asObj(entry);
+      const execution: Obj = {
+        ...present('id', one.executionId),
+        ...present('surface', one.surface),
+        ...present('status', one.status),
+      };
+      return { start: Number(one.start), end: Number(one.end), execution };
+    });
+  }
+  const ids = Array.isArray(details.consumedExecutionIds) ? details.consumedExecutionIds : [];
+  if (ids.length < 2 || ids.some((id) => typeof id !== 'string' || !id)) return [];
+  const starts: number[] = [];
+  let from = 0;
+  for (const [at, id] of (ids as string[]).entries()) {
+    const opening = `<task-notification>\n<task-id>${escapeField(id)}</task-id>\n`;
+    const found = at === 0 ? (content.startsWith(opening) ? 0 : -1) : content.indexOf(`\n${opening}`, from) + 1 || -1;
+    if (found < 0) return [];
+    starts.push(found);
+    from = found + 1;
+  }
+  return starts.map((start, at) => ({
+    start,
+    end: at === starts.length - 1 ? content.length : (starts[at + 1] as number) - 1,
+    execution: envelopeExecution(content.slice(start, at === starts.length - 1 ? content.length : (starts[at + 1] as number) - 1)) ?? {},
+  }));
+}
+
+/** `parseTaskNotification`'s outer fields (task id, status, surface) of one envelope; null when it has none of a task's. */
+function envelopeExecution(envelope: string): Obj | null {
+  const head = envelope.split('\n<result>\n')[0] ?? '';
+  const field = (name: string) => new RegExp(`^<${name}>([^<]*)</${name}>$`, 'm').exec(head)?.[1]?.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&') ?? '';
+  const id = field('task-id');
+  const status = field('status');
+  const summary = field('summary');
+  if (!id || !summary || !/^(completed|failed|cancelled)$/.test(status)) return null;
+  const surface = summary.startsWith('Agent "') ? 'agent' : summary.startsWith('Shell task ') ? 'shell' : /^(\S+) task /.exec(summary)?.[1] || 'tool';
+  return { id, status, surface };
+}
+
+type ImportedTool = { name: string; count: number };
+
+/** The canonical marker written by the importers. The Rust importer clips names by UTF-16, the older importer by code point. */
+function importedToolLine(tools: ImportedTool[], codePoints: boolean): string {
+  const suffix = (remaining: number) => (remaining > 0 ? `, +${remaining} more` : '');
+  let body = '';
+  let shown = 0;
+  for (const { name, count } of tools) {
+    const chars = codePoints ? Array.from(name) : name;
+    const clipped = chars.slice(0, 39);
+    // A UTF-16 cut between surrogates is serialized by the Rust importer as U+FFFD.
+    const display = chars.length > 40 ? `${typeof clipped === 'string' ? clipped.replace(/[\uD800-\uDBFF]$/, '�') : clipped.join('')}…` : name;
+    const next = `${shown ? `${body}, ` : ''}${display} ×${count}`;
+    if (shown && `[ran tools: ${next}${suffix(tools.length - shown - 1)}]`.length > 400) break;
+    body = next;
+    shown++;
+  }
+  return `[ran tools: ${body}${suffix(tools.length - shown)}]`;
+}
+
+function importedAssistantRows(item: Obj, m: Obj): Obj[] | undefined {
+  if (typeof item.text !== 'string' || !Array.isArray(item.importedToolRuns) || !item.importedToolRuns.length) return undefined;
+  const content = item.text;
+  const assistant = rowOf(item)!;
+  const rows: Obj[] = [];
+  // The core uses `:<n>` for other items attached to this same stored message.
+  const nextId = () => (rows.length === 0 ? assistant.id! : `${String(assistant.id)}:import:${rows.length}`);
+  const pushText = (raw: string) => {
+    const prose = raw.trim();
+    if (prose) rows.push({ ...assistant, id: nextId(), text: prose });
+  };
+  let cursor = 0;
+  for (const entry of item.importedToolRuns) {
+    const run = asObj(entry);
+    const { start, end, tools } = run;
+    if (!finite(start) || !finite(end) || !Number.isInteger(start) || !Number.isInteger(end) || start < cursor || end <= start || end > content.length) continue;
+    if (!Array.isArray(tools) || !tools.length || !tools.every((tool) => {
+      const { name, count } = asObj(tool);
+      return typeof name === 'string' && finite(count) && Number.isInteger(count) && count > 0;
+    })) continue;
+    const calls = tools as ImportedTool[];
+    const line = content.slice(start, end);
+    if (line !== importedToolLine(calls, true) && line !== importedToolLine(calls, false)) continue;
+    pushText(content.slice(cursor, start));
+    for (const { name, count } of calls) {
+      if (node.isTranscriptHiddenControlToolName(name)) continue;
+      rows.push({
+        kind: 'tool', id: nextId(), name, count, completedCount: count, imported: true, expanded: false,
+        ...(finite(m.at) ? { at: m.at, startedAt: m.at, completedAt: m.at } : {}),
+        ...(assistant.archived === true ? { archived: true } : {}),
+      });
+    }
+    cursor = end;
+  }
+  pushText(content.slice(cursor));
+  return rows;
+}
+
+/** A reply may expand into imported prose and tools, and a queued batch into one card per completion.
+ * In either case the first visible row keeps the item id and subsequent ids are local to that item. */
+export function itemRows(item: Obj): Obj[] {
+  const m = asObj(item.meta);
+  if (item.type === 'agentMessage') {
+    const imported = importedAssistantRows(item, m);
+    if (imported !== undefined) {
+      const position = text(asObj(m.ext).historyPosition) || undefined;
+      for (const row of imported) setHistoryPositions(row, position, position);
+      return imported;
+    }
+  }
+  const details = asObj(item.details);
+  if (item.type === 'userMessage' && (m.source ?? details.source) === 'task-notification') {
+    const content = text(userRow(item, m).text);
+    const entries = batchEntries(content, details);
+    if (entries.length > 1) {
+      const ext = asObj(m.ext);
+      return entries
+        .map((entry, at) =>
+          rowOf({
+            ...item,
+            id: at === 0 ? (item.id as Json) : `${String(item.id)}:${at}`,
+            content: [{ type: 'text', text: content.slice(entry.start, entry.end) }],
+            meta: { ...m, ext: { ...ext, execution: entry.execution } },
+          }),
+        )
+        .filter((row): row is Obj => row !== null);
+    }
+  }
+  const row = rowOf(item);
+  return row === null ? [] : [row];
+}
 function rowBody(item: Obj, m: Obj): Obj | null {
   const id = item.id as Json;
   const failed = m.status === 'failed';
@@ -124,6 +286,15 @@ function outputText(v: unknown): string | undefined {
   return typeof v === 'string' ? v : JSON.stringify(v);
 }
 
+function toolMetaField(value: unknown): Obj {
+  const meta = asObj(value);
+  const code = text(meta.code);
+  if (!code) return {};
+  const missing = Array.isArray(meta.missing) ? meta.missing.filter((name) => typeof name === 'string' && name) : [];
+  const ownerSessionId = text(meta.ownerSessionId);
+  return { toolMeta: { code, missing, ...(/^[A-Za-z0-9_.:-]{1,128}$/.test(ownerSessionId) ? { ownerSessionId } : {}) } };
+}
+
 /** One tool call's row: restore.mjs `restoredToolCallItems` for the call, `attachRestoredToolResult` once it has finished. */
 function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output: string | undefined, failed: boolean): Obj | null {
   if (node.isTranscriptHiddenControlToolName(name) || node.isTaskWaitToolCall(name, args)) return null;
@@ -134,16 +305,19 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
   const run = asObj(item.run);
   const live = run.live === true;
   const completedAt = live && finite(run.completedAt) ? run.completedAt : m.at;
+  // A card the core extended with later responses (`agent_response`) states how many it covers on its run.
+  const count = Number.isInteger(run.count) && (run.count as number) >= 1 ? (run.count as number) : 1;
   const row: Obj = {
     kind: 'tool',
     id: item.id as Json,
     name,
     ...(args !== undefined && args !== '' ? { args } : {}),
     expanded: false,
-    count: 1,
-    completedCount: finished ? 1 : 0,
+    count,
+    completedCount: finished ? count : 0,
     ...(finite(m.at) ? { at: m.at, startedAt: live && finite(run.startedAt) ? run.startedAt : m.at, ...(finished ? { completedAt } : {}) } : {}),
-    ...present('callId', asObj(item.run).callId ?? ext.callId),
+    ...present('callId', run.callId ?? ext.callId),
+    ...present('messageId', m.messageId),
   };
   // The core ends a live card as `interrupted` only with the abort's error result: a failed call whose card the Stop ended.
   const stopped = live && m.status === 'interrupted';
@@ -153,12 +327,13 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
   const result = output ?? '';
   row.result = result;
   // `attachRestoredToolResult` -> `assignUiDiffFromMessage`: the result message's diff is the card's.
-  Object.assign(row, node.stringUiDiffPatch(asObj(item.run).uiDiff));
+  Object.assign(row, node.stringUiDiffPatch(run.uiDiff), toolMetaField(run.toolMeta ?? ext.toolMeta));
+  if (typeof run.rawResult === 'string') row.rawResult = run.rawResult;
   // A cancel/crash body is not a red failure (restore.mjs): it shows the Cancelled tone.
   const cancelled = node.toolResultTerminalStatus(result) === 'cancelled';
   const { isCallError, isExitError } = cancelled
     ? { isCallError: false, isExitError: false }
-    : node.toolCallOutcome({ isError: failed || stopped || ext.isError === true || asObj(item.run).isError === true, toolName: name }, result);
+    : node.toolCallOutcome({ isError: failed || stopped || ext.isError === true || run.isError === true, toolName: name }, result);
   row.isError = isCallError;
   row.errorCount = isCallError ? 1 : 0;
   row.callErrorCount = isCallError ? 1 : 0;
@@ -187,6 +362,32 @@ export function mergeToolRows(rows: readonly Obj[]): Obj[] {
 
 /** `mergeToolRows` in steps: yields every `ROWS_PER_STEP` rows so a long transcript merges in budgeted turns. */
 export const ROWS_PER_STEP = 16;
+
+// The rows are never mutated and every card is a function of the rows it is made from, so a merge hands back the card it made
+// before for the same rows: an unchanged run is the same object from one merge to the next, which a reader comparing by identity
+// (the desktop's reconcileTranscriptItems) takes as unchanged without walking it, and nothing is rebuilt per event.
+/** The card of a run, by its first row: the run's rows and liveness it was made from. */
+const runCards = new WeakMap<Obj, { live: boolean; rows: readonly Obj[]; card: Obj }>();
+/** A live standalone card, by its row. */
+const standaloneCards = new WeakMap<Obj, Obj>();
+/** A live card with its sealed header, by the card: [open, sealed]. */
+const sealedCards = new WeakMap<Obj, [Obj | undefined, Obj | undefined]>();
+const heldRunCard = (members: readonly { item: Obj }[], live: boolean): Obj | undefined => {
+  const held = runCards.get(members[0]!.item);
+  if (!held || held.live !== live || held.rows.length !== members.length) return undefined;
+  return held.rows.every((row, i) => row === members[i]!.item) ? held.card : undefined;
+};
+const sealed = (card: Obj, headerFinalized: boolean): Obj => {
+  const held = sealedCards.get(card) ?? [undefined, undefined];
+  const at = headerFinalized ? 1 : 0;
+  let out = held[at];
+  if (!out) {
+    out = setHistoryPositions({ ...card, headerFinalized }, historyPositionOf(card), historyPositionOf(card, 'after'));
+    held[at] = out;
+    sealedCards.set(card, held);
+  }
+  return out;
+};
 export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[], void> {
   const merged: Obj[] = [];
   let run: { bucket: string; live: boolean; members: { item: Obj; category: string }[] } | null = null;
@@ -198,9 +399,17 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
     if (live) liveCards.push({ at: merged.length, stopped: members.some((member) => stoppedRows.has(member.item)) });
     // A restore merges two or more finished cards (`mergeRestoredToolItems`); a live turn's tool cards put every call of a bucket on an aggregate, even one.
     if (members.length >= 2 || live) {
+      const held = heldRunCard(members, live);
+      if (held) {
+        merged.push(held);
+        return;
+      }
       const card = yield* aggregateRowSteps(members, live);
       // Node archives the card itself (compaction-view.mjs `archivedItem`): a card of calls a compaction took dims as they do.
-      merged.push(members.every((member) => member.item.archived === true) ? { ...card, archived: true } : card);
+      const shown = members.every((member) => member.item.archived === true) ? { ...card, archived: true } : card;
+      setHistoryPositions(shown, historyPositionOf(members[0]!.item), historyPositionOf(members.at(-1)!.item, 'after'));
+      runCards.set(members[0]!.item, { live, rows: members.map((member) => member.item), card: shown });
+      merged.push(shown);
     } else for (const member of members) merged.push(member.item);
   }
   // A live card's header is sealed (`finalizeToolHeaders`, header-sync.mjs:13-31) once the block it is in ends: the turn's next
@@ -223,7 +432,12 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
     if (!bucket) {
       yield* flush();
       // A live standalone card (`standaloneCardSpec`) is sealed (`finalizeToolHeaders`) and shown (`materialize`) when its turn ends.
-      merged.push(live ? { ...item, headerFinalized: true, deferredDisplayReady: true } : item);
+      let card = live ? standaloneCards.get(item) : item;
+      if (!card) {
+        card = setHistoryPositions({ ...item, headerFinalized: true, deferredDisplayReady: true }, historyPositionOf(item), historyPositionOf(item, 'after'));
+        standaloneCards.set(item, card);
+      }
+      merged.push(card);
       continue;
     }
     if (run && run.bucket === bucket && run.live === live) {
@@ -236,7 +450,7 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
   yield* flush();
   let lastOther = merged.length - 1;
   while (lastOther >= 0 && merged[lastOther]!.kind === 'tool') lastOther--;
-  for (const { at, stopped } of liveCards) merged[at] = { ...merged[at], headerFinalized: stopped || at < lastOther };
+  for (const { at, stopped } of liveCards) merged[at] = sealed(merged[at]!, stopped || at < lastOther);
   return merged;
 }
 
@@ -318,6 +532,15 @@ function* aggregateRowSteps(members: readonly { item: Obj; category: string }[],
   }
   const loadingTargets = yield* node.aggregateLoadingTargetsSteps(calls);
   const first = members[0]!.item;
+  // Ownership belongs to the individual call, not to an aggregate that can contain different owners.
+  function* restoreMemberMetadata(toolMembers: Obj[]): Generator<void, Obj[], void> {
+    for (const [i, member] of toolMembers.entries()) {
+      if (i % ROWS_PER_STEP === ROWS_PER_STEP - 1) yield;
+      const meta = members[i]?.item.toolMeta;
+      if (meta !== undefined) member.toolMeta = meta;
+    }
+    return toolMembers;
+  }
   const resolvedCount = calls.filter((call) => call.resolved).length;
   if (resolvedCount < calls.length) {
     return {
@@ -328,7 +551,7 @@ function* aggregateRowSteps(members: readonly { item: Obj; category: string }[],
       count: calls.length,
       completedCount: resolvedCount,
       categories: Object.fromEntries(header.categories) as unknown as Json,
-      toolMembers: (yield* node.aggregateToolMembersSteps(calls)) as unknown as Json,
+      toolMembers: yield* restoreMemberMetadata((yield* node.aggregateToolMembersSteps(calls)) as Obj[]),
       aggregate: true,
       result: null,
       rawResult: null,
@@ -341,6 +564,7 @@ function* aggregateRowSteps(members: readonly { item: Obj; category: string }[],
   }
   // Every pass over the members below steps with the same quantum: the Node helpers' stepped forks, and the two small ones here.
   const outcomePatch = yield* node.aggregateResultPatchSteps({ calls }, calls, calls.length);
+  if (Array.isArray(outcomePatch.toolMembers)) yield* restoreMemberMetadata(outcomePatch.toolMembers as Obj[]);
   let latestUiDiff: Obj | undefined;
   for (let i = members.length - 1; i >= 0; i--) {
     if ((members.length - i) % ROWS_PER_STEP === 0) yield;
@@ -432,6 +656,13 @@ function reactionsField(value: unknown): Obj {
   return out.length ? { reactions: out } : {};
 }
 
+function routineTriggerField(value: unknown): Obj {
+  const trigger = asObj(value);
+  const name = text(trigger.name).trim().slice(0, 200);
+  if (!name || (trigger.kind !== 'schedule' && trigger.kind !== 'webhook')) return {};
+  return { routineTrigger: { kind: trigger.kind, name, ...present('event', text(trigger.event).trim().slice(0, 200)) } };
+}
+
 /** The typed source of a user-role item that the product shows as something other than the user's prompt. */
 const NOTICE_SOURCES = new Set(['schedule-result', 'held-request', 'task-notification']);
 /** The ext keys the source branches consume to build the row themselves (the stored payloads, not row attributes). */
@@ -447,7 +678,7 @@ function extOf(item: Obj, m: Obj): Obj {
     const { clientSubmissionId, ...rest } = ext;
     return { ...rest, checkpointId: text(clientSubmissionId) };
   }
-  if (item.type !== 'userMessage' || !NOTICE_SOURCES.has(text(m.source))) return ext;
+  if (item.type !== 'userMessage' || !NOTICE_SOURCES.has(text(m.source ?? asObj(item.details).source))) return ext;
   const rest = { ...ext };
   for (const k of SOURCE_PAYLOAD_KEYS) delete rest[k];
   return rest;
@@ -455,7 +686,7 @@ function extOf(item: Obj, m: Obj): Obj {
 
 /** Posted into the thread outside any turn (restore.mjs `isPostedMessage`): stamped so, or a message id minted by the routine
  * delivery (`routine_<runId>`). */
-const postedField = (ext: Obj): Obj => (ext.posted === true || text(ext.messageId).startsWith('routine_') ? { posted: true } : {});
+const postedField = (posted: unknown, messageId: unknown): Obj => (posted === true || text(messageId).startsWith('routine_') ? { posted: true } : {});
 
 /** `normalizeHandoffFiles` (handoff-artifacts.mjs). */
 function handoffFiles(value: unknown): Obj[] {
@@ -473,7 +704,7 @@ function handoffFiles(value: unknown): Obj[] {
 }
 
 /** `routineResultNotice` (routine-result.mjs): the line, tone and `routine` payload of a stored routine result. */
-function routineNotice(ext: Obj): Obj {
+function routineNotice(ext: Obj, attachments: unknown): Obj {
   const routine = asObj(ext.routine);
   if (Number(routine.omitted) > 0) return { text: `⏱ Routine results omitted: ${routine.omitted}`, tone: 'info', routine: { omitted: routine.omitted! } };
   if (Number(routine.relayFailed) > 0) {
@@ -501,7 +732,7 @@ function routineNotice(ext: Obj): Obj {
         ...(files.length ? { files } : {}),
         ...present('line', routine.line),
       },
-      ...attachmentsField(ext.attachments),
+      ...attachmentsField([...(Array.isArray(attachments) ? attachments : []), ...(Array.isArray(ext.attachments) ? ext.attachments : [])]),
     };
   }
   const webhook = routine.kind === 'webhook';
@@ -531,8 +762,7 @@ function heldNotice(held: Obj): Obj {
 }
 
 /** A user-role item by its typed message source (`meta.source`; the core drops `skill` and `hook` rows and sends internal wrappers
- * and interrupted ends as typed records, so nothing here reads text). The stored payloads (`routine`, `heldRequest`, `execution`,
- * the stored attachments, `messageId`) are `meta.ext`. */
+ * and interrupted ends as typed records, so nothing here reads text). Some older items keep their payloads and stamps in `meta.ext`. */
 function userMessageRow(item: Obj, m: Obj): Obj | null {
   const id = item.id as Json;
   const body = userRow(item, m);
@@ -540,10 +770,11 @@ function userMessageRow(item: Obj, m: Obj): Obj | null {
   // The row's facts the item states in `details` (UserRowDetails): its source and held request.
   const details = asObj(item.details);
   const held = isObj(ext.heldRequest) ? ext.heldRequest : details.heldRequest;
-  const stamp: Obj = { ...present('messageId', ext.messageId), ...(finite(m.at) && m.at ? { at: m.at } : {}) };
+  const messageId = m.messageId ?? ext.messageId;
+  const stamp: Obj = { ...present('messageId', messageId), ...(finite(m.at) && m.at ? { at: m.at } : {}), ...postedField(m.posted ?? ext.posted, messageId) };
   switch (m.source ?? details.source) {
     case 'schedule-result':
-      return { kind: 'notice', id, ...routineNotice(ext), ...stamp, ...postedField(ext) };
+      return { kind: 'notice', id, ...routineNotice(ext, body.attachments), ...stamp };
     case 'held-request':
       // A held request without its id cannot be answered, so it has no row.
       return isObj(held) && held.id ? { kind: 'notice', id, ...heldNotice(held), ...stamp } : null;
@@ -558,7 +789,7 @@ function userMessageRow(item: Obj, m: Obj): Obj | null {
       return {
         kind: 'tool',
         id,
-        ...present('messageId', ext.messageId),
+        ...present('messageId', messageId),
         name: ['agent', 'shell', 'web_search'].includes(surface) ? surface : 'task',
         args: { type: 'result', ...(status ? { status } : {}), ...(exec.id === undefined ? {} : { task_id: exec.id }), surface },
         result,
@@ -613,6 +844,8 @@ function userRow(item: Obj, m: Obj): Obj {
     // `persistedUserTranscriptMetadata`: who sent a bot's message.
     ...present('sender', details.sender),
     ...present('fromAgent', details.fromAgent),
+    ...routineTriggerField(details.routineTrigger),
+    ...reactionsField(details.reactions),
     ...attachmentsField([...attachments, ...stored]),
     // restore.mjs: each `[Image: …]` line's stored original, which the transcript chip draws its picture from.
     ...(Array.isArray(imageRefs) && imageRefs.length ? { imageRefs: imageRefs as Json } : {}),

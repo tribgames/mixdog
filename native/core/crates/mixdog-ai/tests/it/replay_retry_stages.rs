@@ -29,8 +29,10 @@ use crate::provider_case::T0_MS;
 use crate::provider_case::within;
 use crate::provider_cases::plain;
 use crate::replay_errors::Left;
+#[cfg(node_twin)]
 use crate::replay_world;
 
+#[cfg(node_twin)]
 pub const REPLAYS: &[Replay] = &[Replay { set: "retry-stages", run: every_case_replays_as_nodes }];
 
 /// The manifest's line for the stages the core raises outside the provider send.
@@ -38,6 +40,7 @@ const OTHER_STAGES: &str = "streaming stages";
 
 /// The stages the send raised and the requests that arrived as one sequence, in the order they happened: each stage
 /// stands after the requests that had arrived when it was delivered.
+#[cfg(node_twin)]
 fn interleaved(events: &replay_world::Events, arrivals: usize) -> Exact {
     let mut sequence = Vec::new();
     for at in 0..=arrivals {
@@ -136,7 +139,59 @@ fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
     }
 }
 
+/// Why an Antigravity request's user agent is not the recorded one.
+const ANTIGRAVITY_AGENT_DEPARTURE: &str = "The client version the service gates models on has a floor (2.32.1, the pinned fallback; the recording's 2.19.1 is below it) \
+     and the user agent carries a changelist (`cl=`) only for a version whose changelist is known (2.19.1's is, 2.32.1's is not): the \
+     `antigravity/hub/<version> (aidev_client; os_type=…; arch=…)` form with the floored version and no changelist is the decided one.";
+
+/// The Antigravity user agents of `arrivals` under the decided form: each is asserted to be exactly the recorded one with the floored
+/// version and without its changelist, and is then given the recorded value so the rest of the request compares as recorded. Whether
+/// any was decided this way. The recording is not edited.
+fn decided_user_agents(case: &Case, arrivals: Vec<Exact>) -> (Vec<Exact>, bool) {
+    use mixdog_ai::providers::google::auth::antigravity::VERSION_FALLBACK;
+    let mut decided = false;
+    let restored = arrivals
+        .into_iter()
+        .enumerate()
+        .map(|(i, arrival)| {
+            let Exact::Object(fields) = arrival else { return arrival };
+            Exact::Object(
+                fields
+                    .into_iter()
+                    .map(|(name, value)| {
+                        let (Some(request), "headers", Exact::Array(pairs)) = (case.requests.get(i), name.as_str(), &value) else { return (name, value) };
+                        let recorded = request
+                            .get("headers")
+                            .as_array()
+                            .iter()
+                            .find(|pair| pair.as_array()[0].as_str().eq_ignore_ascii_case("user-agent"))
+                            .map(|pair| pair.as_array()[1].as_str().to_owned());
+                        let Some(recorded) = recorded.filter(|agent| agent.starts_with("antigravity/hub/")) else { return (name, value) };
+                        let (_, rest) = recorded.split_once(" (").expect("a user agent with its platform");
+                        let platform = rest.split("; cl=").next().unwrap_or(rest).trim_end_matches(')');
+                        let want = format!("antigravity/hub/{VERSION_FALLBACK} ({platform})");
+                        let pairs = pairs
+                            .iter()
+                            .map(|pair| match pair {
+                                Exact::Array(p) if matches!(&p[0], Exact::String(n) if n.eq_ignore_ascii_case("user-agent")) => {
+                                    assert_eq!(p[1], Exact::String(want.clone()), "{}: the decided user agent", case.id);
+                                    decided = true;
+                                    Exact::Array(vec![p[0].clone(), Exact::String(recorded.clone())])
+                                }
+                                other => other.clone(),
+                            })
+                            .collect();
+                        (name, Exact::Array(pairs))
+                    })
+                    .collect(),
+            )
+        })
+        .collect();
+    (restored, decided)
+}
+
 /// On the paused clock; every draw of the replay runs on the test's thread, whose scope holds its scripts.
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load("retry-stages");
@@ -288,7 +343,11 @@ async fn every_case_replays_as_nodes() {
         mixdog_ai::random::script_jitter(Vec::new());
         mixdog_ai::random::script(Vec::new());
         endpoint.assert_clock(case);
-        set.assert_requests(case, &endpoint.arrivals(), None);
+        let (arrivals, decided_agent) = decided_user_agents(case, endpoint.arrivals());
+        set.assert_requests(case, &arrivals, None);
+        if decided_agent {
+            set.departed(&case.id, ANTIGRAVITY_AGENT_DEPARTURE);
+        }
 
         let recorded = case.recorded();
         recorded.get("error").assert_error(&format!("{what} error"), ErrorSide::Send(&Left::of(&sent, &events)));
@@ -332,6 +391,7 @@ async fn every_case_replays_as_nodes() {
 
 /// A stage delivered after its request went out and came back is not where Node raised it: it sits after the request in
 /// the sequence, which the recorded one (the stage before the request) does not equal.
+#[cfg(node_twin)]
 #[test]
 fn a_stage_delivered_after_its_request_is_out_of_place() {
     let mut events = replay_world::Events::default();

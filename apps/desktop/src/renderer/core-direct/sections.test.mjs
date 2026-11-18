@@ -90,8 +90,10 @@ test('status_event_pushed', async () => {
   const { client, sections } = await setup();
   const pushes = [];
   sections.subscribe((p) => pushes.push(p));
-  client.emit({ type: 'status', status: { state: 'closed' } });
-  assert.deepEqual(pushes.at(-1), { kind: 'status', status: 'closed' });
+  client.emit({ type: 'status', status: { state: 'closed', reason: { kind: 'versionRefused', reason: 'serverOutdated', serverVersion: '1', clientVersion: '2' } } });
+  assert.deepEqual(pushes.at(-1), { kind: 'status', status: 'closed', link: { attempt: 0, closed: { cause: 'serverOutdated', message: '' } } });
+  client.emit({ type: 'status', status: { state: 'reconnecting', attempt: 2 } });
+  assert.deepEqual(pushes.at(-1), { kind: 'status', status: 'reconnecting', link: { attempt: 2, closed: null } });
 });
 
 test('call_closed_list_guard_and_core', async () => {
@@ -213,4 +215,26 @@ test('a burst of store changes is one push of the changed pairs with their lates
     sent[0].changes.map((c) => [c.section, c.key, c.entry.value]),
     [['config', null, 'b'], ['config', 'desktop', 'c']]
   );
+});
+
+test('a reconnect that fails publishes the closed state with its reason: the window never keeps showing "reconnecting"', async () => {
+  const client = fakeClient();
+  let opens = 0;
+  const connection = createRendererConnection({
+    open: async () => {
+      opens += 1;
+      if (opens === 2) throw new Error('the core is still down');
+      return client;
+    },
+  });
+  await connection.start();
+  const { sections } = createSectionsApi(createDirectContext(connection));
+  const pushes = [];
+  sections.subscribe((p) => p.kind === 'status' && pushes.push(p));
+  client.emit({ type: 'status', status: { state: 'closed', reason: { kind: 'versionRefused', reason: 'clientOutdated', serverVersion: '2', clientVersion: '1' } } });
+  pushes.length = 0;
+  await assert.rejects(sections.reconnect(), /still down/);
+  assert.deepEqual(pushes.map((p) => p.status), ['reconnecting', 'closed']);
+  assert.match(pushes.at(-1).link.closed.message, /still down/);
+  assert.equal((await sections.snapshot()).status, 'closed');
 });

@@ -206,7 +206,7 @@ test('a read dropped from the held ones is not prefetched again, and its button 
   window.mixdogDesktop = {
     readTranscriptItem: async (_session, id) => {
       asked.push(id);
-      return { id, result: `full ${id}` };
+      return { id, result: `full ${id}`, replayToken: id };
     },
   };
   const owner = {};
@@ -244,7 +244,7 @@ test('past 1,024 settlements a done read is not prefetched again and a failure k
     readTranscriptItem: async (_session, id) => {
       asked.push(id);
       if (failing.has(id)) throw new Error('offline');
-      return { id, result: `full ${id}` };
+      return { id, result: `full ${id}`, replayToken: id };
     },
   };
   const owner = {};
@@ -358,7 +358,7 @@ test('a mounted row keeps its full output past the limit; an unsubscribed read i
   window.mixdogDesktop = {
     readTranscriptItem: async (_session, id) => {
       asked.push(id);
-      return { id, result: `full ${id}` };
+      return { id, result: `full ${id}`, replayToken: id };
     },
   };
   const kept = cutRow('kept');

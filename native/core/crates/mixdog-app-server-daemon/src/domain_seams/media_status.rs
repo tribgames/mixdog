@@ -62,10 +62,13 @@ impl StatusReader for MediaStatus {
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "the test lays out its fixture files with blocking calls on the test thread")]
 mod tests {
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     const GOLDEN: &str = include_str!("../../../../fixtures/services/media-status-twin.json");
 
+    #[cfg(node_twin)]
     /// Node's `status domain:"media"` over each world of pins and remembered selections, rebuilt
     /// from the `defaults.json` Node's own writers left: the dispatcher's text, key order included.
     #[tokio::test]
@@ -95,3 +98,4 @@ mod tests {
         assert_eq!(checked, golden["cases"].as_array().unwrap().len());
     }
 }
+

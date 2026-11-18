@@ -30,9 +30,6 @@ use mixdog_office_com::com::value::Decimal;
 use serde_json::Value as Json;
 use serde_json::json;
 
-const CORPUS: &str = include_str!("fixtures/errors/corpus.json");
-const MANIFEST: &str = include_str!("fixtures/errors/MANIFEST.json");
-
 fn lines(entries: &[Json]) -> String {
     entries.iter().map(Json::to_string).collect::<Vec<_>>().join("\n")
 }
@@ -386,19 +383,7 @@ fn decimals_parse_and_print_exactly() {
     assert_eq!(Decimal::from_i64(-7).to_string(), "-7");
 }
 
-// ---- error texts, held to the corpus ------------------------------------------------------------------------
-
-fn corpus_entries() -> Vec<Json> {
-    let corpus: Json = serde_json::from_str(CORPUS).expect("corpus.json parses");
-    corpus["entries"]
-        .as_array()
-        .expect("entries")
-        .iter()
-        .filter(|entry| entry["reproduced"] == json!(true) && entry["innerHResult"].is_i64())
-        .cloned()
-        .collect()
-}
-
+#[cfg(node_twin)]
 fn access_of(entry: &Json) -> Access<'_> {
     let name = entry["member"].as_str().expect("member");
     match entry["kind"].as_str().expect("kind") {
@@ -407,35 +392,6 @@ fn access_of(entry: &Json) -> Access<'_> {
         "set" => Access::Set { name },
         other => panic!("kind {other}"),
     }
-}
-
-#[test]
-fn error_texts_and_hresults_equal_the_corpus() {
-    let entries = corpus_entries();
-    assert!(!entries.is_empty(), "the corpus has no reproduced failing call");
-    for entry in &entries {
-        let hresult = entry["innerHResult"].as_i64().expect("innerHResult") as i32;
-        let system = entry["systemText"].as_str().map(str::to_owned);
-        let raw = Raw { hresult, description: entry["description"].as_str().map(str::to_owned) };
-        let error = errtext::com_error(access_of(entry), &raw, &|code: i32| if code == hresult { system.clone() } else { None });
-        let id = entry["id"].as_str().expect("id");
-        assert_eq!(error.message, entry["message"].as_str().expect("message"), "{id}");
-        assert_eq!(error.inner_message, entry["innerMessage"].as_str().expect("innerMessage"), "{id}");
-        assert_eq!(i64::from(error.hresult), entry["hresult"].as_i64().expect("hresult"), "{id}");
-        assert_eq!(i64::from(error.inner_hresult), entry["innerHResult"].as_i64().expect("innerHResult"), "{id}");
-    }
-}
-
-#[test]
-fn the_corpus_manifest_names_the_sha256_of_the_corpus() {
-    use sha2::Digest;
-    use sha2::Sha256;
-    let manifest: Json = serde_json::from_str(MANIFEST).expect("MANIFEST.json parses");
-    let normalised = CORPUS.replace("\r\n", "\n");
-    let digest: String = Sha256::digest(normalised.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect();
-    assert_eq!(manifest["corpusSha256"].as_str().expect("corpusSha256"), digest);
-    let corpus: Json = serde_json::from_str(CORPUS).expect("corpus.json parses");
-    assert_eq!(manifest["recorded"], corpus["recorded"], "the manifest and the corpus disagree on whether it was recorded");
 }
 
 #[test]
@@ -520,20 +476,6 @@ fn an_operation_that_succeeds_after_a_few_busy_answers_returns_its_value() {
     })
     .expect("succeeds");
     assert_eq!((value, clock.pauses().len()), (42, 3));
-}
-
-#[test]
-fn retry_compares_the_outer_hresult_the_corpus_recorded() {
-    // `$_.Exception.HResult` is the PowerShell exception's, so a COM failure retries only when the corpus shows its
-    // outer HResult in the helper's list.
-    for entry in corpus_entries() {
-        let error = errtext::com_error(access_of(&entry), &Raw { hresult: entry["innerHResult"].as_i64().expect("innerHResult") as i32, description: None }, &|_: i32| None);
-        let outer = entry["hresult"].as_i64().expect("hresult") as i32;
-        let (attempts, _, _) = attempts_until_failure(outer, |clock, operation| retry::excel(clock, "x", &[], operation));
-        let expected = if retry::EXCEL_TRANSIENT.contains(&outer) { 50 } else { 1 };
-        assert_eq!(attempts, expected, "{}", entry["id"]);
-        assert_eq!(error.hresult, outer, "{}", entry["id"]);
-    }
 }
 
 // ---- the live backend over a counting fake IDispatch (Windows) ------------------------------------------------
@@ -720,5 +662,142 @@ mod live {
         assert_eq!(state.refs.load(Ordering::SeqCst), 1, "every AddRef was released exactly once");
         // SAFETY: the test's own reference is the last one; the allocation is freed once.
         unsafe { drop(Box::from_raw(raw)) };
+    }
+}
+
+
+#[cfg(node_twin)]
+const CORPUS: &str = include_str!("fixtures/errors/corpus.json");
+#[cfg(node_twin)]
+const MANIFEST: &str = include_str!("fixtures/errors/MANIFEST.json");
+// ---- error texts ------------------------------------------------------------------------
+
+#[test]
+fn a_failed_call_get_or_set_is_worded_by_how_the_member_was_reached() {
+    let raw = Raw { hresult: 0x8002_0009_u32 as i32, description: Some("Cannot do that".to_owned()) };
+    let nothing = |_: i32| None;
+    let call = errtext::com_error(Access::Method { name: "Open", argc: 2 }, &raw, &nothing);
+    assert_eq!(call.message, "Exception calling \"Open\" with \"2\" argument(s): \"Cannot do that\"");
+    let get = errtext::com_error(Access::Get { name: "Count" }, &raw, &nothing);
+    assert_eq!(get.message, "Exception getting \"Count\": \"Cannot do that\"");
+    let set = errtext::com_error(Access::Set { name: "Visible" }, &raw, &nothing);
+    assert_eq!(set.message, "Exception setting \"Visible\": \"Cannot do that\"");
+    // The wrapper carries the exception's own code; the COM code stays beside it, and the inner text is kept apart.
+    for error in [&call, &get, &set] {
+        assert_eq!(error.hresult, errtext::WRAPPED_HRESULT);
+        assert_eq!(error.hresult as u32, 0x8013_1501);
+        assert_eq!(error.inner_hresult, 0x8002_0009_u32 as i32);
+        assert_eq!(error.inner_message, "Cannot do that");
+        assert!(!error.unknown_member);
+    }
+}
+
+#[test]
+fn codes_the_runtime_maps_to_an_exception_use_that_exceptions_message_and_others_name_their_hresult() {
+    let system = |code: i32| Some(format!("system text for {code:08X}"));
+    for (code, message) in [
+        (0x8000_4001_u32, "The method or operation is not implemented."),
+        (0x8000_4003, "Object reference not set to an instance of an object."),
+        (0x8007_0005, "Access is denied."),
+        (0x8007_000E, "Insufficient memory to continue the execution of the program."),
+        (0x8007_0057, "Value does not fall within the expected range."),
+        (0x8002_000A, "Arithmetic operation resulted in an overflow."),
+        (0x8002_0012, "Attempted to divide by zero."),
+    ] {
+        let raw = Raw { hresult: code as i32, description: None };
+        assert_eq!(errtext::inner_message(&raw, &system), message, "{code:08X}");
+    }
+    // Any other code: the system's text, then the hex code and, when known, its symbolic name.
+    let raw = Raw { hresult: 0x8004_0154_u32 as i32, description: None };
+    assert_eq!(
+        errtext::inner_message(&raw, &system),
+        "system text for 80040154 (Exception from HRESULT: 0x80040154 (REGDB_E_CLASSNOTREG))"
+    );
+    // A description from the member wins over every rule.
+    let raw = Raw { hresult: 0x8007_0005_u32 as i32, description: Some("Mine".to_owned()) };
+    assert_eq!(errtext::inner_message(&raw, &system), "Mine");
+    // An empty system text adds nothing before the suffix.
+    let raw = Raw { hresult: 0x8004_0154_u32 as i32, description: None };
+    assert_eq!(
+        errtext::inner_message(&raw, &|_: i32| Some(String::new())),
+        "Exception from HRESULT: 0x80040154 (REGDB_E_CLASSNOTREG)"
+    );
+}
+
+#[test]
+fn a_member_the_object_does_not_have_and_a_call_on_null_are_refused_with_the_binders_words() {
+    let property = errtext::property_not_found("Zoom");
+    assert_eq!(property.message(), "The property 'Zoom' cannot be found on this object. Verify that the property exists and can be set.");
+    let method = errtext::method_not_found("System.__ComObject", "Frobnicate");
+    assert_eq!(method.message(), "Method invocation failed because [System.__ComObject] does not contain a method named 'Frobnicate'.");
+    assert_eq!(errtext::null_method_call().message(), "You cannot call a method on a null-valued expression.");
+    let unknown = errtext::unknown_member(0x8002_0006_u32 as i32);
+    assert!(unknown.unknown_member);
+    assert_eq!(unknown.message, "Exception from HRESULT: 0x80020006 (DISP_E_UNKNOWNNAME)");
+}
+
+#[test]
+fn a_com_failure_is_retried_by_the_wrapped_hresult_not_the_com_code() {
+    // The retry helpers compare `$_.Exception.HResult`, the wrapper's code: a failure whose COM code is on the list
+    // is not retried unless the wrapper carries a listed code too.
+    let raw = Raw { hresult: retry::EXCEL_TRANSIENT[0], description: None };
+    let wrapped = errtext::com_error(Access::Get { name: "Value" }, &raw, &|_: i32| None);
+    assert_eq!(wrapped.hresult, errtext::WRAPPED_HRESULT);
+    let (attempts, _, _) = attempts_until_failure(wrapped.hresult, |clock, operation| retry::excel(clock, "x", &[], operation));
+    assert_eq!(attempts, 1);
+}
+
+#[cfg(node_twin)]
+fn corpus_entries() -> Vec<Json> {
+    let corpus: Json = serde_json::from_str(CORPUS).expect("corpus.json parses");
+    corpus["entries"]
+        .as_array()
+        .expect("entries")
+        .iter()
+        .filter(|entry| entry["reproduced"] == json!(true) && entry["innerHResult"].is_i64())
+        .cloned()
+        .collect()
+}
+#[cfg(node_twin)]
+#[test]
+fn error_texts_and_hresults_equal_the_corpus() {
+    let entries = corpus_entries();
+    assert!(!entries.is_empty(), "the corpus has no reproduced failing call");
+    for entry in &entries {
+        let hresult = entry["innerHResult"].as_i64().expect("innerHResult") as i32;
+        let system = entry["systemText"].as_str().map(str::to_owned);
+        let raw = Raw { hresult, description: entry["description"].as_str().map(str::to_owned) };
+        let error = errtext::com_error(access_of(entry), &raw, &|code: i32| if code == hresult { system.clone() } else { None });
+        let id = entry["id"].as_str().expect("id");
+        assert_eq!(error.message, entry["message"].as_str().expect("message"), "{id}");
+        assert_eq!(error.inner_message, entry["innerMessage"].as_str().expect("innerMessage"), "{id}");
+        assert_eq!(i64::from(error.hresult), entry["hresult"].as_i64().expect("hresult"), "{id}");
+        assert_eq!(i64::from(error.inner_hresult), entry["innerHResult"].as_i64().expect("innerHResult"), "{id}");
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn the_corpus_manifest_names_the_sha256_of_the_corpus() {
+    use sha2::Digest;
+    use sha2::Sha256;
+    let manifest: Json = serde_json::from_str(MANIFEST).expect("MANIFEST.json parses");
+    let normalised = CORPUS.replace("\r\n", "\n");
+    let digest: String = Sha256::digest(normalised.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect();
+    assert_eq!(manifest["corpusSha256"].as_str().expect("corpusSha256"), digest);
+    let corpus: Json = serde_json::from_str(CORPUS).expect("corpus.json parses");
+    assert_eq!(manifest["recorded"], corpus["recorded"], "the manifest and the corpus disagree on whether it was recorded");
+}
+#[cfg(node_twin)]
+#[test]
+fn retry_compares_the_outer_hresult_the_corpus_recorded() {
+    // `$_.Exception.HResult` is the PowerShell exception's, so a COM failure retries only when the corpus shows its
+    // outer HResult in the helper's list.
+    for entry in corpus_entries() {
+        let error = errtext::com_error(access_of(&entry), &Raw { hresult: entry["innerHResult"].as_i64().expect("innerHResult") as i32, description: None }, &|_: i32| None);
+        let outer = entry["hresult"].as_i64().expect("hresult") as i32;
+        let (attempts, _, _) = attempts_until_failure(outer, |clock, operation| retry::excel(clock, "x", &[], operation));
+        let expected = if retry::EXCEL_TRANSIENT.contains(&outer) { 50 } else { 1 };
+        assert_eq!(attempts, expected, "{}", entry["id"]);
+        assert_eq!(error.hresult, outer, "{}", entry["id"]);
     }
 }

@@ -17,30 +17,6 @@ use mixdog_core_base::support::testing::scopes;
 use mixdog_core_base::support::testing::value;
 use mixdog_core_base::support::testing::with_op;
 
-const GOLDEN: &str = include_str!("../goldens/update.json");
-
-fn golden() -> Value {
-    serde_json::from_str(GOLDEN).unwrap()
-}
-
-#[test]
-fn semver_orders_as_the_node_comparison_does() {
-    let golden = golden();
-    for case in golden["semver"].as_array().unwrap() {
-        let (a, b, want) = (
-            case[0].as_str().unwrap(),
-            case[1].as_str().unwrap(),
-            case[2].as_i64().unwrap(),
-        );
-        let got = match compare_semver(a, b) {
-            Ordering::Less => -1,
-            Ordering::Equal => 0,
-            Ordering::Greater => 1,
-        };
-        assert_eq!(got, want, "compareSemver({a:?}, {b:?})");
-    }
-}
-
 /// What a scripted registry answers: each request takes the next entry, the last one repeats.
 struct Script {
     answers: Vec<(u16, &'static str)>,
@@ -83,6 +59,8 @@ fn closed() -> String {
 
 struct Installer {
     dev: bool,
+    /// The packaged desktop's core (`managed_by_desktop`).
+    desktop: bool,
     outcome: Result<Option<String>, String>,
     staged: Mutex<Vec<String>>,
     gate: Option<Arc<Notify>>,
@@ -93,6 +71,7 @@ impl Installer {
     fn new(outcome: Result<Option<String>, String>) -> Arc<Self> {
         Arc::new(Self {
             dev: false,
+        desktop: false,
             outcome,
             staged: Mutex::new(Vec::new()),
             gate: None,
@@ -105,6 +84,10 @@ impl Installer {
 impl UpdateInstaller for Installer {
     fn is_dev_install(&self) -> bool {
         self.dev
+    }
+
+    fn managed_by_desktop(&self) -> bool {
+        self.desktop
     }
 
     async fn stage(&self, version: &str) -> Result<Option<String>, String> {
@@ -125,7 +108,7 @@ impl UpdateInstaller for Installer {
 struct Rig {
     service: Arc<UpdateService>,
     host: Arc<MockHostChannel>,
-    dir: tempfile::TempDir,
+    _dir: tempfile::TempDir,
     /// The versions the "update ready" notice was sent for.
     notices: Arc<Mutex<Vec<String>>>,
 }
@@ -179,72 +162,11 @@ async fn rig(registry_url: String, installer: Arc<Installer>, current: &str) -> 
         },
         &mixdog_rt::testing::tokens(),
     );
-    Rig { service, host, dir, notices }
+    Rig { service, host, _dir: dir, notices }
 }
 
 fn cancel() -> mixdog_rt::CancellationToken {
     mixdog_rt::CancellationToken::new()
-}
-
-#[tokio::test]
-async fn the_registry_check_answers_what_the_node_check_answered() {
-    let golden = golden();
-    let local = golden["local"].as_str().unwrap().to_owned();
-    let day_ms = 24 * 3600 * 1000;
-    let now = now_ms();
-    for scenario in golden["scenarios"].as_array().unwrap() {
-        let name = scenario["name"].as_str().unwrap();
-        let (url, cache, force): (String, Option<Value>, bool) = match name {
-            "registry newer, force" => registry(200, r#"{"version":" 9.9.9 "}"#).0.pipe(|u| (u, None, true)),
-            "fresh cache is used" => (closed(), Some(json!({ "latestVersion": "9.9.8", "lastCheckedAt": now - 1000 })), false),
-            "stale cache refreshed" => registry(200, r#"{"version":"9.9.9"}"#)
-                .0
-                .pipe(|u| (u, Some(json!({ "latestVersion": "9.9.8", "lastCheckedAt": now - day_ms - 3_600_000 })), false)),
-            "offline falls back to stale cache" => {
-                (closed(), Some(json!({ "latestVersion": "9.9.8", "lastCheckedAt": 1000 })), true)
-            }
-            "registry not ok falls back" => registry(500, "{}")
-                .0
-                .pipe(|u| (u, Some(json!({ "latestVersion": "9.9.8", "lastCheckedAt": 1000 })), true)),
-            "registry body without version" => registry(200, "{}")
-                .0
-                .pipe(|u| (u, Some(json!({ "latestVersion": local, "lastCheckedAt": 1000 })), true)),
-            "older registry" => registry(200, r#"{"version":"0.0.1"}"#).0.pipe(|u| (u, None, true)),
-            other => panic!("unknown scenario {other}"),
-        };
-        let rig = rig(url, Installer::new(Ok(None)), &local).await;
-        if let Some(cache) = cache {
-            std::fs::write(rig.dir.path().join(CACHE_FILE), cache.to_string()).unwrap();
-        }
-        let got = rig.service.check_latest(&cancel(), force).await;
-        let want = &scenario["result"];
-        assert_eq!(
-            got.latest_version.as_deref(),
-            want["latestVersion"].as_str(),
-            "{name}"
-        );
-        assert_eq!(got.update_available, want["updateAvailable"], "{name}");
-        assert_eq!(got.from_cache, want["fromCache"], "{name}");
-        assert_eq!(got.current_version, local, "{name}");
-        let fresh = got.last_checked_at.as_i64().unwrap() > now - 60_000;
-        assert_eq!(fresh, want["fresh"], "{name}");
-        if !fresh {
-            assert_eq!(got.last_checked_at, scenario["lastCheckedAt"], "{name}");
-        }
-        // The cache file afterwards.
-        let written: Value =
-            serde_json::from_slice(&std::fs::read(rig.dir.path().join(CACHE_FILE)).unwrap())
-                .unwrap();
-        assert_eq!(
-            written["latestVersion"], scenario["cache"]["latestVersion"],
-            "{name}"
-        );
-        assert_eq!(
-            written["lastCheckedAt"].as_i64().unwrap() > now - 60_000,
-            scenario["cache"]["fresh"],
-            "{name}"
-        );
-    }
 }
 
 trait Pipe: Sized {
@@ -277,6 +199,37 @@ async fn the_boot_check_gives_up_on_a_staging_that_never_completes() {
     rig.service.start_boot_check().await.unwrap();
     assert_eq!(*installer.staged.lock().unwrap(), ["9.9.9"]);
     assert!(rig.notices.lock().unwrap().is_empty());
+}
+
+/// The packaged desktop's core still learns the latest version (the settings and the doctor row show it), but it never stages,
+/// never announces "update ready", and `runUpdateNow` says who installs updates there.
+#[tokio::test]
+async fn the_packaged_desktop_core_never_stages_or_announces_an_update() {
+    let (url, _) = registry(200, r#"{"version":"9.9.9"}"#);
+    let installer = Arc::new(Installer {
+        dev: false,
+        desktop: true,
+        outcome: Ok(None),
+        staged: Mutex::new(Vec::new()),
+        gate: None,
+        started: Arc::new(Notify::new()),
+    });
+    let desktop = rig(url, installer.clone(), "1.4.5").await;
+    desktop.service.start_boot_check().await.unwrap();
+    assert!(installer.staged.lock().unwrap().is_empty(), "nothing is staged");
+    assert!(desktop.notices.lock().unwrap().is_empty(), "no update-ready notice");
+    let settings = call(&desktop, "config/getUpdateSettings", json!({}), None).await.unwrap();
+    assert_eq!((settings["latestVersion"].as_str(), settings["updateAvailable"].as_bool()), (Some("9.9.9"), Some(true)));
+    assert_eq!(settings["managedBy"], "desktop");
+    let now = call(&desktop, "update/runUpdateNow", json!({}), Some(1)).await.unwrap();
+    assert_eq!((now["ok"].as_bool(), now["error"].as_str()), (Some(false), Some(MANAGED_BY_DESKTOP)));
+    assert!(installer.staged.lock().unwrap().is_empty());
+
+    // Every other install keeps the settings' shape: no `managedBy`.
+    let (url, _) = registry(200, r#"{"version":"9.9.9"}"#);
+    let plain = rig(url, Installer::new(Ok(None)), "1.4.5").await;
+    plain.service.start_boot_check().await.unwrap();
+    assert!(call(&plain, "config/getUpdateSettings", json!({}), None).await.unwrap().get("managedBy").is_none());
 }
 
 /// `startBootCheck()`: one forced check at boot fills the settings (`latestVersion`) that a
@@ -423,6 +376,7 @@ async fn update_now_reports_a_failed_stage_and_a_dev_install() {
 
     let dev = Arc::new(Installer {
         dev: true,
+        desktop: false,
         outcome: Ok(None),
         staged: Mutex::new(Vec::new()),
         gate: None,
@@ -445,6 +399,7 @@ async fn a_second_update_while_one_installs_is_told_so() {
     let gate = Arc::new(Notify::new());
     let installer = Arc::new(Installer {
         dev: false,
+        desktop: false,
         outcome: Ok(None),
         staged: Mutex::new(Vec::new()),
         gate: Some(gate.clone()),
@@ -546,6 +501,138 @@ fn sequence(bodies: &'static [&'static str]) -> (String, Arc<AtomicUsize>) {
     script(bodies.iter().map(|body| (200, *body)).collect())
 }
 
+
+/// What the checks, the switch and the controller answer for a local version 1.4.5, with the registry answers each scenario is given:
+/// the entries are the literal results (`<local>` is the local version, `<fresh>` a time within the last minute).
+fn golden() -> Value {
+    json!({
+        "local": "1.4.5",
+        "scenarios": [
+            { "name": "registry newer, force", "result": { "latestVersion": "9.9.9", "updateAvailable": true, "fromCache": false, "fresh": true }, "lastCheckedAt": 0, "cache": { "latestVersion": "9.9.9", "fresh": true } },
+            { "name": "fresh cache is used", "result": { "latestVersion": "9.9.8", "updateAvailable": true, "fromCache": true, "fresh": true }, "lastCheckedAt": 0, "cache": { "latestVersion": "9.9.8", "fresh": true } },
+            { "name": "stale cache refreshed", "result": { "latestVersion": "9.9.9", "updateAvailable": true, "fromCache": false, "fresh": true }, "lastCheckedAt": 0, "cache": { "latestVersion": "9.9.9", "fresh": true } },
+            { "name": "offline falls back to stale cache", "result": { "latestVersion": "9.9.8", "updateAvailable": true, "fromCache": true, "fresh": false }, "lastCheckedAt": 1000, "cache": { "latestVersion": "9.9.8", "fresh": false } },
+            { "name": "registry not ok falls back", "result": { "latestVersion": "9.9.8", "updateAvailable": true, "fromCache": true, "fresh": false }, "lastCheckedAt": 1000, "cache": { "latestVersion": "9.9.8", "fresh": false } },
+            { "name": "registry body without version", "result": { "latestVersion": "1.4.5", "updateAvailable": false, "fromCache": true, "fresh": false }, "lastCheckedAt": 1000, "cache": { "latestVersion": "1.4.5", "fresh": false } },
+            { "name": "older registry", "result": { "latestVersion": "0.0.1", "updateAvailable": false, "fromCache": false, "fresh": true }, "lastCheckedAt": 0, "cache": { "latestVersion": "0.0.1", "fresh": true } },
+        ],
+        "controller": [
+            { "name": "status at start", "result": { "phase": "idle", "version": null, "error": null } },
+            { "name": "update now before any check", "result": { "ok": false, "phase": "failed", "version": null, "error": "dev install — update skipped" } },
+            { "name": "status after refusal", "result": { "phase": "failed", "version": null, "error": "dev install — update skipped" } },
+            { "name": "check newer", "result": { "autoUpdate": true, "currentVersion": "<local>", "latestVersion": "9.9.9", "updateAvailable": true, "lastCheckedAt": "<fresh>" } },
+            { "name": "update now with an update found", "result": { "ok": false, "phase": "failed", "version": null, "error": "dev install — update skipped" } },
+            { "name": "check older", "result": { "autoUpdate": true, "currentVersion": "<local>", "latestVersion": "0.0.1", "updateAvailable": false, "lastCheckedAt": "<fresh>" } },
+            { "name": "check without force reads the fresh cache", "result": { "autoUpdate": true, "currentVersion": "<local>", "latestVersion": "0.0.1", "updateAvailable": false, "lastCheckedAt": "<fresh>" } },
+        ],
+        "autoSwitch": [
+            { "name": "settings with no stored switch", "result": { "autoUpdate": true, "currentVersion": "<local>", "latestVersion": "0.0.1", "updateAvailable": false, "lastCheckedAt": "<fresh>" }, "stored": {} },
+            { "name": "switch off", "result": { "autoUpdate": false, "currentVersion": "<local>", "latestVersion": "0.0.1", "updateAvailable": false, "lastCheckedAt": "<fresh>" }, "stored": { "update": { "auto": false } } },
+            { "name": "settings with the switch off", "result": { "autoUpdate": false, "currentVersion": "<local>", "latestVersion": "0.0.1", "updateAvailable": false, "lastCheckedAt": "<fresh>" }, "stored": { "update": { "auto": false } } },
+            { "name": "switch on", "result": { "autoUpdate": true, "currentVersion": "<local>", "latestVersion": "0.0.1", "updateAvailable": false, "lastCheckedAt": "<fresh>" }, "stored": { "update": { "auto": true } } },
+            { "name": "switch off again", "result": { "autoUpdate": false, "currentVersion": "<local>", "latestVersion": "0.0.1", "updateAvailable": false, "lastCheckedAt": "<fresh>" }, "stored": { "update": { "auto": false } } },
+        ],
+    })
+}
+/// `compareSemver` (`parse_semver`, `compare_semver`): the core's three numbers decide first (a missing or non-numeric one is 0, a fourth is
+/// ignored, a leading `v`, spaces and `+build` do not count); then a prerelease ranks below its release, identifiers compare numerically
+/// when both are numbers (a number ranks below a word), by ASCII otherwise, and the shorter of two equal prefixes is lower.
+#[test]
+fn semver_orders_by_the_core_numbers_then_the_prerelease_identifiers() {
+    for (a, b, want) in [
+        ("1.4.5", "1.4.5", 0),
+        ("1.4.5", "v1.4.5", 0),
+        ("1.4.5", "1.4.6", -1),
+        ("1.4.5", "1.10.0", -1),
+        ("1.4.5", "1.4", 1),
+        ("1.4.5", "2", -1),
+        ("1.4.5", "1.4.5+build7", 0),
+        ("1.4.5", "01.4.5", 0),
+        ("1.4.5", " 1.4.5 ", 0),
+        ("1.4.5", "1.2.3.4", 1),
+        ("1.4.5", "x.y.z", 1),
+        ("1.4.5", "", 1),
+        ("1.4.5", "1.4.5-beta.1", 1),
+        ("1.4.5-beta.1", "1.4.5", -1),
+        ("1.4.6", "1.4.5-beta.1", 1),
+        ("1.4.5-beta.1", "1.4.6", -1),
+        ("1.4.5-beta.1", "1.4.5-beta.1", 0),
+        ("1.4.5-beta.1", "1.4.5-beta.2", -1),
+        ("1.4.5-beta.9", "1.4.5-beta.10", -1),
+        ("1.4.5-beta", "1.4.5-beta.1", -1),
+        ("1.4.5-beta", "1.4.5-alpha", 1),
+        ("1.4.5-rc.1", "1.4.5-beta.1", 1),
+        ("1.4.5-1", "1.4.5-alpha", -1),
+        ("1.4.5-alpha", "1.4.5-1", 1),
+    ] {
+        let got = match compare_semver(a, b) {
+            Ordering::Less => -1,
+            Ordering::Equal => 0,
+            Ordering::Greater => 1,
+        };
+        assert_eq!(got, want, "compareSemver({a:?}, {b:?})");
+    }
+}
+#[tokio::test]
+async fn the_registry_check_answers_what_the_node_check_answered() {
+    let golden = golden();
+    let local = golden["local"].as_str().unwrap().to_owned();
+    let day_ms = 24 * 3600 * 1000;
+    let now = now_ms();
+    for scenario in golden["scenarios"].as_array().unwrap() {
+        let name = scenario["name"].as_str().unwrap();
+        let (url, cache, force): (String, Option<Value>, bool) = match name {
+            "registry newer, force" => registry(200, r#"{"version":" 9.9.9 "}"#).0.pipe(|u| (u, None, true)),
+            "fresh cache is used" => (closed(), Some(json!({ "latestVersion": "9.9.8", "lastCheckedAt": now - 1000 })), false),
+            "stale cache refreshed" => registry(200, r#"{"version":"9.9.9"}"#)
+                .0
+                .pipe(|u| (u, Some(json!({ "latestVersion": "9.9.8", "lastCheckedAt": now - day_ms - 3_600_000 })), false)),
+            "offline falls back to stale cache" => {
+                (closed(), Some(json!({ "latestVersion": "9.9.8", "lastCheckedAt": 1000 })), true)
+            }
+            "registry not ok falls back" => registry(500, "{}")
+                .0
+                .pipe(|u| (u, Some(json!({ "latestVersion": "9.9.8", "lastCheckedAt": 1000 })), true)),
+            "registry body without version" => registry(200, "{}")
+                .0
+                .pipe(|u| (u, Some(json!({ "latestVersion": local, "lastCheckedAt": 1000 })), true)),
+            "older registry" => registry(200, r#"{"version":"0.0.1"}"#).0.pipe(|u| (u, None, true)),
+            other => panic!("unknown scenario {other}"),
+        };
+        let rig = rig(url, Installer::new(Ok(None)), &local).await;
+        if let Some(cache) = cache {
+            std::fs::write(rig._dir.path().join(CACHE_FILE), cache.to_string()).unwrap();
+        }
+        let got = rig.service.check_latest(&cancel(), force).await;
+        let want = &scenario["result"];
+        assert_eq!(
+            got.latest_version.as_deref(),
+            want["latestVersion"].as_str(),
+            "{name}"
+        );
+        assert_eq!(got.update_available, want["updateAvailable"], "{name}");
+        assert_eq!(got.from_cache, want["fromCache"], "{name}");
+        assert_eq!(got.current_version, local, "{name}");
+        let fresh = got.last_checked_at.as_i64().unwrap() > now - 60_000;
+        assert_eq!(fresh, want["fresh"], "{name}");
+        if !fresh {
+            assert_eq!(got.last_checked_at, scenario["lastCheckedAt"], "{name}");
+        }
+        // The cache file afterwards.
+        let written: Value =
+            serde_json::from_slice(&std::fs::read(rig._dir.path().join(CACHE_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(
+            written["latestVersion"], scenario["cache"]["latestVersion"],
+            "{name}"
+        );
+        assert_eq!(
+            written["lastCheckedAt"].as_i64().unwrap() > now - 60_000,
+            scenario["cache"]["fresh"],
+            "{name}"
+        );
+    }
+}
 /// `getUpdateSettings` and `setAutoUpdate` of the Node settings API over a config the setter
 /// rewrites (`autoSwitch` of the golden), and the config file the Rust switch stores to.
 #[tokio::test]
@@ -586,7 +673,7 @@ async fn the_auto_update_switch_answers_what_the_node_api_answered() {
         assert_eq!(got, step["result"], "step {name}");
         // The switch is in the file: `update.auto` is what Node stored, and absent before.
         let stored: Value =
-            serde_json::from_slice(&std::fs::read(rig.dir.path().join("mixdog-config.json")).unwrap())
+            serde_json::from_slice(&std::fs::read(rig._dir.path().join("mixdog-config.json")).unwrap())
                 .unwrap();
         // The golden records the adopted config; the file holds it as `storedAgentForm`
         // writes it (orchestrator/config.mjs), the default `auto: true` dropped.
@@ -598,7 +685,6 @@ async fn the_auto_update_switch_answers_what_the_node_api_answered() {
         );
     }
 }
-
 /// The Node controller and its settings API replayed (`controller` of the golden). Node ran
 /// from a git checkout, a dev install, so its staging path is not recorded; the Rust service
 /// runs with a dev installer. `settings …` steps are `getUpdateSettings`, which the update
@@ -610,6 +696,7 @@ async fn the_update_methods_answer_what_the_node_api_answered() {
     let (url, hits) = sequence(&[r#"{"version":"9.9.9"}"#, r#"{"version":"0.0.1"}"#]);
     let installer = Arc::new(Installer {
         dev: true,
+        desktop: false,
         outcome: Ok(None),
         staged: Mutex::new(Vec::new()),
         gate: None,
@@ -661,4 +748,33 @@ async fn the_update_methods_answer_what_the_node_api_answered() {
         "the last check came from the cache"
     );
     assert!(installer.staged.lock().unwrap().is_empty());
+}
+
+/// A transport whose request is never answered: it gives up when the window the update check's exchange names has passed.
+struct Unanswered {
+    windows: Mutex<Vec<(std::time::Duration, Option<String>)>>,
+}
+
+#[async_trait]
+impl HttpSend for Unanswered {
+    async fn send(
+        &self,
+        _request: WireRequest,
+        exchange: mixdog_ai::transport::Exchange,
+    ) -> Result<mixdog_ai::transport::HttpResponse, mixdog_core_api::domain::provider::ProviderError> {
+        let expired = exchange.liveness.bound_head(std::future::pending::<()>()).await.expect_err("never answered");
+        self.windows.lock().unwrap().push((expired.after, exchange.surface.timeout_text(expired.after)));
+        Err(mixdog_ai::transport::link::deadline_error(expired, mixdog_core_api::domain::provider::DeliveryState::Ambiguous, exchange.surface))
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_registry_that_does_not_answer_is_given_five_seconds_and_no_check_result() {
+    let transport = Unanswered { windows: Mutex::new(Vec::new()) };
+    assert!(get_through(&transport, REGISTRY_URL).await.is_none());
+    assert_eq!(
+        *transport.windows.lock().unwrap(),
+        [(std::time::Duration::from_secs(5), Some(mixdog_ai::transport::ABORTED.to_owned()))],
+        "one request, five seconds, read as an aborted fetch"
+    );
 }

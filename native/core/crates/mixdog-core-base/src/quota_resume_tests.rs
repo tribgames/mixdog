@@ -5,19 +5,22 @@
 use std::sync::{Arc, Mutex};
 
 use mixdog_rt::CancellationToken;
-use serde_json::{Value, json};
+use serde_json::json;
+#[cfg(node_twin)]
+use serde_json::Value;
 
+#[cfg(node_twin)]
 use crate::support::on_lane;
-use crate::quota_resume::{Entry, QUOTA_RESUME_FILE, QuotaError, QuotaResumeStore, is_agent_only_session};
+#[cfg(node_twin)]
+use crate::quota_resume::{Entry, QUOTA_RESUME_FILE, QuotaError, is_agent_only_session};
+use crate::quota_resume::QuotaResumeStore;
 
-fn twin() -> Value {
-    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/quota-resume-twin.json")).unwrap()
-}
-
+#[cfg(node_twin)]
 fn generation(args: &Value) -> Option<u64> {
     args.get("generation").and_then(Value::as_u64)
 }
 
+#[cfg(node_twin)]
 fn answer(result: Result<Value, QuotaError>) -> Value {
     match result {
         Ok(value) => json!({ "value": value }),
@@ -26,6 +29,7 @@ fn answer(result: Result<Value, QuotaError>) -> Value {
     }
 }
 
+#[cfg(node_twin)]
 async fn run(store: &QuotaResumeStore, op: &str, args: &Value) -> Result<Value, QuotaError> {
     let id = args["sessionId"].as_str().unwrap_or_default();
     let text = |key: &str| args[key].as_str().unwrap_or_default().to_owned();
@@ -51,8 +55,54 @@ async fn run(store: &QuotaResumeStore, op: &str, args: &Value) -> Result<Value, 
 }
 
 /// Recorded cases per test: each opens its own store file.
+#[cfg(node_twin)]
 const CASE_CHUNK: usize = 10;
 
+/// Node commits and notifies in one synchronous step, so the listeners hear of change A before
+/// change B can commit. Here the changes are issued from many tasks at once: the notifications
+/// must come in commit (generation) order, and a listener that reads the store while it is told
+/// must see the state of the change it is told about.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_changes_notify_in_commit_order_and_each_listener_sees_its_own_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(QuotaResumeStore::open(dir.path(), mixdog_rt::testing::tokens().durability_io, CancellationToken::new()).await.unwrap());
+    let heard = Arc::new(Mutex::new(Vec::<(String, Option<u64>)>::new()));
+    let _subscription = store.subscribe({
+        let (store, heard) = (store.clone(), heard.clone());
+        move |id| {
+            let id = id.expect("a schedule names its session").to_owned();
+            let generation = store.entry(&id).map(|e| e.generation);
+            heard.lock().unwrap().push((id, generation));
+        }
+    });
+    let tasks: Vec<_> = (0..32)
+        .map(|i| {
+            let store = store.clone();
+            tokio::spawn(async move {
+                store.schedule(&json!({ "sessionId": format!("sess_{i}"), "turnKey": "turn:t", "provider": "p", "resetAt": 1 })).await.unwrap()
+            })
+        })
+        .collect();
+    let mut committed = Vec::new();
+    for task in tasks {
+        committed.push(task.await.unwrap());
+    }
+    let heard = heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 32);
+    let generations: Vec<u64> = heard.iter().map(|(_, g)| g.expect("the entry is there when it is announced")).collect();
+    assert!(generations.windows(2).all(|w| w[0] < w[1]), "commit order: {generations:?}");
+    for (id, generation) in &heard {
+        let own = committed.iter().find(|e| e.session_id == *id).unwrap();
+        assert_eq!(*generation, Some(own.generation), "{id} saw another change's state");
+    }
+}
+
+
+#[cfg(node_twin)]
+fn twin() -> Value {
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/quota-resume-twin.json")).unwrap()
+}
+#[cfg(node_twin)]
 mixdog_rt::replay_chunks!(STORE_TESTS, #[tokio::test] async the_store_chunk; [
     the_store_matches_node_00 = 0,
     the_store_matches_node_01 = 1,
@@ -77,12 +127,12 @@ mixdog_rt::replay_chunks!(STORE_TESTS, #[tokio::test] async the_store_chunk; [
     the_store_matches_node_20 = 20,
     the_store_matches_node_21 = 21,
 ]);
-
+#[cfg(node_twin)]
 #[test]
 fn every_recorded_case_has_its_store_test() {
     mixdog_rt::testing::assert_chunks_registered(STORE_TESTS, twin()["cases"].as_array().unwrap().len(), CASE_CHUNK);
 }
-
+#[cfg(node_twin)]
 async fn the_store_chunk(chunk: usize) {
     let twin = twin();
     let cases = twin["cases"].as_array().unwrap();
@@ -135,46 +185,7 @@ async fn the_store_chunk(chunk: usize) {
         }
     }
 }
-
-/// Node commits and notifies in one synchronous step, so the listeners hear of change A before
-/// change B can commit. Here the changes are issued from many tasks at once: the notifications
-/// must come in commit (generation) order, and a listener that reads the store while it is told
-/// must see the state of the change it is told about.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn concurrent_changes_notify_in_commit_order_and_each_listener_sees_its_own_state() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(QuotaResumeStore::open(dir.path(), mixdog_rt::testing::tokens().durability_io, CancellationToken::new()).await.unwrap());
-    let heard = Arc::new(Mutex::new(Vec::<(String, Option<u64>)>::new()));
-    let _subscription = store.subscribe({
-        let (store, heard) = (store.clone(), heard.clone());
-        move |id| {
-            let id = id.expect("a schedule names its session").to_owned();
-            let generation = store.entry(&id).map(|e| e.generation);
-            heard.lock().unwrap().push((id, generation));
-        }
-    });
-    let tasks: Vec<_> = (0..32)
-        .map(|i| {
-            let store = store.clone();
-            tokio::spawn(async move {
-                store.schedule(&json!({ "sessionId": format!("sess_{i}"), "turnKey": "turn:t", "provider": "p", "resetAt": 1 })).await.unwrap()
-            })
-        })
-        .collect();
-    let mut committed = Vec::new();
-    for task in tasks {
-        committed.push(task.await.unwrap());
-    }
-    let heard = heard.lock().unwrap().clone();
-    assert_eq!(heard.len(), 32);
-    let generations: Vec<u64> = heard.iter().map(|(_, g)| g.expect("the entry is there when it is announced")).collect();
-    assert!(generations.windows(2).all(|w| w[0] < w[1]), "commit order: {generations:?}");
-    for (id, generation) in &heard {
-        let own = committed.iter().find(|e| e.session_id == *id).unwrap();
-        assert_eq!(*generation, Some(own.generation), "{id} saw another change's state");
-    }
-}
-
+#[cfg(node_twin)]
 #[test]
 fn agent_children_never_own_a_resume() {
     for case in twin()["agentOnly"].as_array().unwrap() {

@@ -21,8 +21,6 @@ use super::migration::QuarantineCode;
 use super::migration::QuarantineReason;
 use super::record::Record;
 use super::sql::*;
-
-const FRAMES: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/schema/vectors/frames.json");
 const RECORDS: &str = include_str!("vectors/records.json");
 
 #[derive(Deserialize)]
@@ -79,10 +77,6 @@ struct RecordsDoc {
 struct Named {
     name: String,
     payload: String,
-}
-
-fn frames_doc() -> FramesDoc {
-    serde_json::from_str(&FRAMES).expect("frames.json")
 }
 
 fn records_doc() -> RecordsDoc {
@@ -250,33 +244,6 @@ fn kind_of(payload: &str) -> String {
     value["k"].as_str().expect("k").to_string()
 }
 
-#[test]
-fn constants_match_the_independent_generator() {
-    let c = frames_doc().constants;
-    assert_eq!(c.header_len, HEADER_LEN);
-    assert_eq!(c.hcrc_covered, HCRC_COVERED);
-    assert_eq!(c.frame_overhead, FRAME_OVERHEAD);
-    assert_eq!(c.inline_max, INLINE_MAX);
-    assert_eq!(c.max_frame_payload, MAX_FRAME_PAYLOAD);
-    assert_eq!(c.crc32c_check, format!("{CRC32C_CHECK:08x}"));
-    assert_eq!(crc32c(c.crc32c_check_input.as_bytes()), CRC32C_CHECK);
-    assert_eq!(
-        SEPARATORS,
-        [
-            ORDINAL_DIGITS,
-            LEN_AT + LEN_DIGITS,
-            CRC_AT + CRC_DIGITS,
-            HCRC_AT + HCRC_DIGITS
-        ]
-    );
-    assert_eq!(SEPARATORS.map(|at| at + 1)[..3], [LEN_AT, CRC_AT, HCRC_AT]);
-    assert_eq!(
-        (HCRC_COVERED, HCRC_AT + HCRC_DIGITS + 1),
-        (HCRC_AT, HEADER_LEN)
-    );
-    assert_eq!(REVERSE_SCAN_MAX, 9 * 1024 * 1024);
-}
-
 /// Every prefix of a valid header is torn and the whole header is accepted, by the same
 /// procedure: the short-tail and full-header paths cannot disagree.
 #[test]
@@ -289,56 +256,6 @@ fn every_header_prefix_is_a_prefix() {
         check_header(&frame[..HEADER_LEN], 7),
         Ok(Some(frame.len() - FRAME_OVERHEAD))
     );
-}
-
-#[test]
-fn single_frames_encode_identically() {
-    for single in frames_doc().single {
-        let bytes = encode(single.ordinal, single.payload.as_bytes());
-        assert_eq!(bytes, unhex(&single.hex), "ordinal {}", single.ordinal);
-        let (committed, end) = scan(&bytes, single.ordinal);
-        assert_eq!((committed.len(), end), (1, ScanEnd::Clean));
-    }
-}
-
-#[test]
-fn classification_table_matches_every_vector() {
-    let doc = frames_doc();
-    let mut seen = BTreeSet::new();
-    for case in &doc.classification {
-        let bytes = unhex(&case.hex);
-        let (committed, end) = scan(&bytes, case.start_ordinal);
-        assert_eq!(
-            (committed.len(), end),
-            (case.expect.committed, case.expect.end),
-            "{} (rule {})",
-            case.name,
-            case.rule
-        );
-        assert!(
-            (1..=9).map(|n| n.to_string()).any(|n| n == case.rule),
-            "{}",
-            case.name
-        );
-        if case.record_layer {
-            for range in committed {
-                let payload = std::str::from_utf8(&bytes[range]).expect("utf-8 payload");
-                round_trip::<Record>(&case.name, payload);
-            }
-        }
-        seen.insert(match end {
-            ScanEnd::Clean => "clean".to_string(),
-            ScanEnd::Torn { .. } => "torn".to_string(),
-            ScanEnd::Corrupt { cause, .. } => format!("{cause:?}"),
-        });
-    }
-    let all: BTreeSet<String> = [
-        "clean", "torn", "Header", "Length", "Framing", "Crc", "Ordinal",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
-    assert_eq!(seen, all, "every scan outcome has a vector");
 }
 
 #[test]
@@ -365,6 +282,7 @@ fn every_record_kind_parses_and_encodes_to_its_vector() {
         "checkpoint",
         "model_switch",
         "draft",
+        "work_stop",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -519,6 +437,7 @@ fn every_record_kind_fits_a_frame_at_its_type_bounds() {
         json!({"k": "op", "op": op, "state": "externalPending", "at": neg, "detail": slot}),
         json!({"k": "model_switch", "anchor": {"iid": id, "ordinal": big}, "op": op, "entry": switch}),
         json!({"k": "draft", "rid": id, "body": slot}),
+        json!({"k": "work_stop", "sid": id, "phase": "stopped", "at": neg, "body": slot}),
     ];
     let mut largest = 0;
     for value in records {
@@ -625,7 +544,6 @@ fn index_ddl_creates_the_catalog_and_serves_bounded_queries() {
             "amends",
             "approvals",
             "archived_agents",
-            "blob_refs",
             "compaction_dropped",
             "compactions",
             "fork_edges",
@@ -647,6 +565,7 @@ fn index_ddl_creates_the_catalog_and_serves_bounded_queries() {
             "session_search_docsize",
             "session_search_idx",
             "sessions",
+            "submissions",
             "thread_ops",
             "turns",
             "worker_removed",
@@ -667,7 +586,6 @@ fn index_ddl_creates_the_catalog_and_serves_bounded_queries() {
         "SELECT ordinal FROM history WHERE session = 'a' AND iid = 'x'",
         "SELECT min(h.ordinal) FROM history h WHERE h.session = 'a' AND h.iid IN ('x', 'y') AND h.ordinal < 99 AND h.visible = 1 AND (h.superseded_rev IS NULL OR h.superseded_rev >= 5)",
         "SELECT min(h.ordinal) FROM history_alias a JOIN history h ON h.session = a.session AND h.ordinal = a.ordinal WHERE a.session = 'a' AND a.alias = 'x' AND h.ordinal < 99 AND h.visible = 1 AND (h.superseded_rev IS NULL OR h.superseded_rev >= 5)",
-        "SELECT 1 FROM blob_refs WHERE digest = 'sha256:00' LIMIT 1",
         "SELECT child FROM fork_edges WHERE base = 'a' LIMIT 1",
         "SELECT rid FROM turns WHERE session = 'a' AND started_ordinal < 99 ORDER BY started_ordinal DESC LIMIT 50",
     ] {
@@ -727,7 +645,7 @@ fn session_search_matches_the_desktop_contract() {
             0,
             "store format spec",
             "last answer",
-            "c:/project/mixdog",
+            "c:/project/sample",
             "claude-opus",
         ),
         (
@@ -1029,4 +947,84 @@ fn a_route_rewrite_touches_no_session_day_rows() {
         plan.contains("SEARCH r USING INTEGER PRIMARY KEY"),
         "{plan}"
     );
+}
+
+
+const FRAMES: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/schema/vectors/frames.json");
+fn frames_doc() -> FramesDoc {
+    serde_json::from_str(&FRAMES).expect("frames.json")
+}
+#[test]
+fn constants_match_the_independent_generator() {
+    let c = frames_doc().constants;
+    assert_eq!(c.header_len, HEADER_LEN);
+    assert_eq!(c.hcrc_covered, HCRC_COVERED);
+    assert_eq!(c.frame_overhead, FRAME_OVERHEAD);
+    assert_eq!(c.inline_max, INLINE_MAX);
+    assert_eq!(c.max_frame_payload, MAX_FRAME_PAYLOAD);
+    assert_eq!(c.crc32c_check, format!("{CRC32C_CHECK:08x}"));
+    assert_eq!(crc32c(c.crc32c_check_input.as_bytes()), CRC32C_CHECK);
+    assert_eq!(
+        SEPARATORS,
+        [
+            ORDINAL_DIGITS,
+            LEN_AT + LEN_DIGITS,
+            CRC_AT + CRC_DIGITS,
+            HCRC_AT + HCRC_DIGITS
+        ]
+    );
+    assert_eq!(SEPARATORS.map(|at| at + 1)[..3], [LEN_AT, CRC_AT, HCRC_AT]);
+    assert_eq!(
+        (HCRC_COVERED, HCRC_AT + HCRC_DIGITS + 1),
+        (HCRC_AT, HEADER_LEN)
+    );
+    assert_eq!(REVERSE_SCAN_MAX, 9 * 1024 * 1024);
+}
+#[test]
+fn single_frames_encode_identically() {
+    for single in frames_doc().single {
+        let bytes = encode(single.ordinal, single.payload.as_bytes());
+        assert_eq!(bytes, unhex(&single.hex), "ordinal {}", single.ordinal);
+        let (committed, end) = scan(&bytes, single.ordinal);
+        assert_eq!((committed.len(), end), (1, ScanEnd::Clean));
+    }
+}
+#[test]
+fn classification_table_matches_every_vector() {
+    let doc = frames_doc();
+    let mut seen = BTreeSet::new();
+    for case in &doc.classification {
+        let bytes = unhex(&case.hex);
+        let (committed, end) = scan(&bytes, case.start_ordinal);
+        assert_eq!(
+            (committed.len(), end),
+            (case.expect.committed, case.expect.end),
+            "{} (rule {})",
+            case.name,
+            case.rule
+        );
+        assert!(
+            (1..=9).map(|n| n.to_string()).any(|n| n == case.rule),
+            "{}",
+            case.name
+        );
+        if case.record_layer {
+            for range in committed {
+                let payload = std::str::from_utf8(&bytes[range]).expect("utf-8 payload");
+                round_trip::<Record>(&case.name, payload);
+            }
+        }
+        seen.insert(match end {
+            ScanEnd::Clean => "clean".to_string(),
+            ScanEnd::Torn { .. } => "torn".to_string(),
+            ScanEnd::Corrupt { cause, .. } => format!("{cause:?}"),
+        });
+    }
+    let all: BTreeSet<String> = [
+        "clean", "torn", "Header", "Length", "Framing", "Crc", "Ordinal",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    assert_eq!(seen, all, "every scan outcome has a vector");
 }

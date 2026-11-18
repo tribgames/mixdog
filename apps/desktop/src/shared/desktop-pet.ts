@@ -164,6 +164,7 @@ export type DesktopPetCommand = (typeof DESKTOP_PET_COMMANDS)[number];
 
 /** What the pet window draws: the published state plus the pet's own settings. */
 export interface DesktopPetView extends DesktopPetState {
+  saveFailed?: boolean;
   collapsed: boolean;
   autoAdvance: boolean;
   autoClose: boolean;

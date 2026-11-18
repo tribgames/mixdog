@@ -10,6 +10,7 @@ use mixdog_app_protocol::v2::feed::ResumeWindow;
 use mixdog_app_protocol::v2::thread::ThreadClearParams;
 use mixdog_app_protocol::v2::thread::ThreadForkParams;
 use mixdog_app_protocol::v2::thread::ThreadResumeParams;
+use mixdog_app_protocol::v2::thread::ThreadRewindParams;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::Feed;
 use mixdog_core_api::FeedSource;
@@ -47,7 +48,10 @@ use tokio::sync::oneshot;
 use tokio::sync::watch;
 
 use super::SessionDeps;
+use super::actor::ForkSource;
+use super::actor::HistoryRevision;
 use super::actor::Inbox;
+use super::actor::RewindPreview;
 use super::control::ControlCell;
 use super::control::Ctl;
 use super::directory::CreateSpec;
@@ -89,6 +93,8 @@ pub struct SessionHandle {
     /// originals (session-turns.mjs keeps the claim synchronous so a later send cannot
     /// overtake an earlier one).
     pub(crate) submits: mixdog_rt::Gate,
+    /// Whether the images a restored history holds all have a verdict yet (open for a new session).
+    pub image_gate: Arc<super::image_gate::ImageGate>,
     /// The order threads were loaded in (the order of Node's `_liveSessions` Map, which lists
     /// sessions in the order they entered it).
     pub(crate) loaded_seq: u64,
@@ -98,6 +104,9 @@ pub struct SessionHandle {
 fn caller_cancelled(_: mixdog_rt::GateCancelled) -> CoreError {
     CoreError::Cancelled { by: "caller".into() }
 }
+
+/// How long [SessionHandle::model_messages] waits for the context's row count before it reads the whole conversation.
+const TAIL_COUNT_WAIT: std::time::Duration = std::time::Duration::from_millis(250);
 
 fn window_of(window: &ResumeWindow) -> Window {
     match window {
@@ -112,6 +121,11 @@ impl SessionHandle {
     #[cfg(any(test, feature = "test-support"))]
     pub fn stepped(&self) -> &tokio::sync::Notify {
         &self.cell.stepped
+    }
+    /// The published view's items, oldest first, then the in-progress ones.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn view_items(&self) -> Arc<[Arc<mixdog_protocol::ThreadItem>]> {
+        self.cell.view.load_full().items.clone()
     }
     /// The actor's `turn_busy()` after its last step: a next turn is queued while it holds.
     #[cfg(any(test, feature = "test-support"))]
@@ -284,7 +298,10 @@ impl SessionHandle {
         let long_text = LongText::Inline;
         let taken = if touches_store(&prompt, &options, long_text) {
             let store = self.deps.attachments.clone();
-            on_lane(self.deps.lanes.io, cancel, move |lane| materialize_prompt_submission(&LaneAttachments { store: &store, lane }, &prompt, &options, long_text)).await?
+            on_lane(self.deps.lanes.io, cancel, move |lane| {
+                materialize_prompt_submission(&LaneAttachments { store: &store, lane }, &prompt, &options, long_text)
+            })
+            .await?
         } else {
             materialize_prompt_submission(&NoStore, &prompt, &options, long_text)
         };
@@ -319,11 +336,16 @@ impl SessionHandle {
     }
 
     /// `turn/start` (`session-turns.mjs` `submitAdmitted`): the prompt is taken in ([`Self::take_in_prompt`]) and its PDFs
-    /// admitted, then the originals a composer staged for the message's images are claimed, so staging limits can no longer
-    /// take them; one that is gone (or cannot be claimed in time) is dropped from the message, leaving the resized copy. The
-    /// claim and the enqueue are not interleaved with another send's.
+    /// admitted, then each original a composer staged for the message's images is looked up in the store; the ones that are
+    /// not there are recorded for the actor, which drops them from the message it builds, leaving the resized copy. Sends are
+    /// not interleaved.
     async fn turn_start(&self, mut req: CoreRequest) -> Result<Reply, CoreError> {
         self.deferring(&req.ctx).await?;
+        // A thread just opened is still reading its history for images; the send is judged on that answer.
+        Scope::new().cancel(&req.ctx.cancel).run(self.image_gate.scanned()).await.done().ok_or(mixdog_rt::GateCancelled).map_err(caller_cancelled)?;
+        if let Some(sentence) = self.image_gate.refusal() {
+            return Err(mixdog_core_base::support::failed("session", sentence));
+        }
         // An admitted start (`admitted`, turn-gate.mjs): the idle-only delete refuses while one is
         // in its intake, and the thread refuses starts while that delete runs.
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
@@ -333,27 +355,34 @@ impl SessionHandle {
         let cancel = req.ctx.cancel.clone();
         let in_order = self.submits.enter(&cancel).await.map_err(caller_cancelled)?;
         self.take_in_prompt(&mut req, &cancel).await?;
-        // The attachments' intake comes first: a refused message claims nothing (`submitAdmitted` throws before
-        // `claimStagedOriginals`), and the refusal is the submit's answer.
+        // The attachments' intake comes first: the refusal is the submit's answer.
         let provider = self.header_snapshot().get("provider").and_then(Value::as_str).unwrap_or_default().to_owned();
         self.deps.prompt_intake.admit(&self.id, &provider, &req.params).await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
-        let named = super::staged_originals::named_originals(&req.params);
+        let mut named = super::staged_originals::named_originals(&req.params);
+        named.sort();
+        named.dedup();
+        let mut missing = Vec::new();
         if !named.is_empty() {
             let originals = self.deps.staged_originals.clone();
-            // A claim that cannot run claims nothing, as a throw inside `claimStagedOriginals` does.
-            // A full lane is waited out (the claim keeps the user's originals); only a lane that cannot run it claims nothing.
-            let claimed = mixdog_core_base::support::on_lane_wait(self.deps.lanes.durability, &req.ctx.cancel, move |lane| originals.claim(lane, &named)).await.unwrap_or_default();
-            super::staged_originals::drop_lost_originals(&mut req.params, &claimed);
+            // Only an original whose bytes are not in the store leaves the message; a look that cannot run keeps them all
+            // (nothing deletes a staged original, so the message keeps what it was sent with).
+            missing = mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &req.ctx.cancel, move |lane| named.into_iter().filter(|r| !originals.stored(lane, r)).collect())
+                .await
+                .unwrap_or_default();
         }
+        // The fact is the core's own, made at this acceptance (a replay of an accepted send joins that first record, so it is
+        // told once); what a caller put on the params under that name is replaced.
+        super::staged_originals::record_missing(&mut req.params, &missing);
         // A full inbox must not hold the gate past the caller's cancel.
         // A session whose thread has ended takes nothing (drain-enqueue.mjs:27, admission 	erminal): Node answers a refused submit alse.
         let closed = || mixdog_core_base::support::coded("session", super::actor::SUBMIT_REFUSED, "The session is closed.");
         let answer = Scope::new().cancel(&cancel).run(self.enqueue(req)).await.done().ok_or(mixdog_rt::GateCancelled).map_err(caller_cancelled)?.map_err(|error| if matches!(error, CoreError::ThreadClosing { .. }) { closed() } else { error })?;
         drop(in_order);
-        answer.await.map_err(|_| {
+        let reply = answer.await.map_err(|_| {
             tracing::warn!(thread = %self.id, method = "turn/start", "the session actor dropped the request's reply without answering it");
             closed()
-        })?
+        })??;
+        Ok(reply)
     }
 
     fn resume(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
@@ -383,18 +412,79 @@ impl SessionHandle {
         }))
     }
 
+    /// The model conversation (`session.messages`), for the core's own ports: what is stored, then what is held in memory
+    /// unsaved (asked first, so a record stored in between is read from the store; an amend replaces its row).
+    ///
+    /// `wanted`: only the newest stored rows are read, widened toward the oldest (16, then 8 times as many each step) until one
+    /// of the messages, amended as above, satisfies it, or the whole conversation is read. Whether any message satisfies
+    /// `wanted` is then the answer the whole conversation gives: a match is a message the whole read holds too, and no match
+    /// is only answered once every row is read.
+    pub async fn model_messages(&self, wanted: Option<&(dyn Fn(&serde_json::Value) -> bool + Sync)>) -> Result<Vec<serde_json::Value>, CoreError> {
+        let (tx, rx) = oneshot::channel();
+        self.inbox.send(Inbox::UnsavedRows { tx }).await.map_err(|_| self.closing())?;
+        let unsaved = rx.await.map_err(|_| self.closing())?;
+        let context = super::run::ModelContext {
+            store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
+            lanes: self.deps.lanes,
+            thread: self.id.clone(),
+            input: mixdog_core_api::ids::ItemId::from(String::new()),
+        };
+        // The count waits for a held store (a save that failed), which the whole read does not: a count that does not come at
+        // once reads the whole conversation, the answer the tail would have given.
+        let len = match wanted {
+            Some(_) => match tokio::time::timeout(TAIL_COUNT_WAIT, context.len()).await {
+                Ok(len) => len?,
+                Err(_) => 0,
+            },
+            None => 0,
+        };
+        let mut take = 16usize;
+        loop {
+            let skip = len.saturating_sub(take);
+            let mut rows: Vec<(String, serde_json::Value)> = context.read_from(skip).await?.into_iter().map(|(iid, message)| (iid.as_str().to_owned(), message)).collect();
+            for (iid, body, amend) in &unsaved {
+                match rows.iter_mut().find(|(row, _)| row == iid) {
+                    Some(row) => row.1 = body.clone(),
+                    None if !amend => rows.push((iid.clone(), body.clone())),
+                    None => {}
+                }
+            }
+            let messages: Vec<serde_json::Value> = rows.into_iter().map(|(_, message)| message).collect();
+            match wanted {
+                Some(wanted) if skip > 0 && !messages.iter().any(wanted) => take = take.saturating_mul(8),
+                _ => return Ok(messages),
+            }
+        }
+    }
+
     /// `thread/read`: the acked view, encoded on cpu-interactive (it can be a 2 MiB window).
     async fn read(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let view = self.cell.view.load_full();
+        // The read's `window` (the desktop asks `lastItems: 32`) selects as a resume's snapshot does; none sends the whole view.
+        let window = req.params.get("window").cloned().and_then(|w| serde_json::from_value::<ResumeWindow>(w).ok()).map(|w| window_of(&w));
         // A read waits for room on a full lane, bounded by the caller's cancel (never `QueueFull`).
         mixdog_core_base::support::on_lane_wait(self.deps.lanes.cpu, &req.ctx.cancel, move |_lane| {
-            serde_json::to_value(SnapshotParams {
+            let (items, has_older) = match &window {
+                Some(window) => {
+                    let items = view.select(window);
+                    let has_older = super::view::snapshot_has_older(view.has_older, window, items.len(), view.items.len());
+                    (items, has_older)
+                }
+                None => (view.items.iter().map(|item| item.as_ref()).collect(), view.has_older),
+            };
+            let mut read = serde_json::to_value(SnapshotParams {
                 thread: &view.summary,
                 state: &view.state,
-                items: view.items.iter().map(|item| item.as_ref()).collect(),
-                has_older: view.has_older,
+                items,
+                has_older,
             })
-            .expect("protocol types serialize")
+            .expect("protocol types serialize");
+            // A retrying spinner shows the wait left at this read, from the deadline the view holds.
+            if let Some(spinner) = read.pointer_mut("/state/runtime/spinner") {
+                super::spinner::project_retry(spinner, super::spinner::core_now_ms());
+            }
+            read
         })
         .await
         .map(Reply::Value)
@@ -558,9 +648,14 @@ impl SessionHandle {
         let rows = read.await.map_err(|_| CoreError::Internal { incident_id: "session-room-facts-dropped".into() })?;
         let set = req.params.get("set").cloned().unwrap_or(Value::Null);
         let unset = req.params.get("unset").cloned().unwrap_or(Value::Null);
+        // The room's view with these rows rides the commit, so the actor takes both in one plan.
+        let mut params = json!({ "rows": rows, "set": set, "unset": unset });
+        if let Some(view) = req.params.get("roomView") {
+            params["roomView"] = view.clone();
+        }
         let append = CoreRequest {
             method: mixdog_core_api::ids::Method("thread/roomRows/commit"),
-            params: json!({ "rows": rows, "set": set, "unset": unset }),
+            params,
             op: None,
             ctx: req.ctx,
         };
@@ -596,99 +691,156 @@ impl SessionHandle {
     /// was deleted), or with `ifIdle` the desktop's `deleteSessionIfIdle` (`{deleted, reason?}`).
     async fn delete(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
-        super::delete::serve(&directory, &req.params).await
+        super::delete::serve(&directory, &req.params, &req.ctx.cancel).await
     }
 
-    /// `thread/fork`: a new thread whose history continues this one's acked lineage.
+    async fn fork_source(&self, idle: bool) -> Result<ForkSource, CoreError> {
+        let (tx, rx) = oneshot::channel();
+        self.inbox.send(Inbox::ForkPlan { idle, tx }).await.map_err(|_| self.closing())?;
+        rx.await.map_err(|_| self.closing())?
+    }
+
+    pub(super) async fn require_fork_source(&self, source: &ForkSource, idle: bool) -> Result<(), CoreError> {
+        let actual = self.fork_source(idle).await?;
+        if actual.revision != source.revision || actual.active_input != source.active_input {
+            return Err(super::actor::history_conflict());
+        }
+        Ok(())
+    }
+
+    pub(super) async fn completed_history(&self, source: &ForkSource) -> Result<Vec<Value>, CoreError> {
+        let mut rows = self.history_context().read().await?;
+        self.require_fork_source(source, false).await?;
+        if let Some(input) = &source.active_input {
+            let at = rows.iter().position(|(item, _)| item == input).ok_or_else(super::actor::history_conflict)?;
+            rows.truncate(at);
+        }
+        Ok(rows.into_iter().map(|(_, body)| body).collect())
+    }
+
+    async fn commit_history(&self, req: CoreRequest, revision: HistoryRevision) -> Result<Reply, CoreError> {
+        let (tx, rx) = oneshot::channel();
+        self.inbox.send(Inbox::CheckedHistory { req, revision, tx }).await.map_err(|_| self.closing())?;
+        rx.await.map_err(|_| self.closing())?
+    }
+
+    fn history_context(&self) -> super::run::ModelContext {
+        super::run::ModelContext {
+            store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
+            lanes: self.deps.lanes,
+            thread: self.id.clone(),
+            input: mixdog_core_api::ids::ItemId::from(String::new()),
+        }
+    }
+
+    /// `thread/fork`: a new thread whose conversation continues the source's completed history.
     async fn fork(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let params: ThreadForkParams =
             serde_json::from_value(req.params.clone()).map_err(|_| CoreError::InvalidParams {
                 path: "params".into(),
                 expected: "ThreadForkParams".into(),
             })?;
-        let (tx, rx) = oneshot::channel();
-        self.inbox
-            .send(Inbox::ForkPlan { tx })
-            .await
-            .map_err(|_| self.closing())?;
-        let (_base, mut header) = rx.await.map_err(|_| self.closing())??;
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        let heirs = super::SessionDirectory::over(directory.clone());
+        let source = self.fork_source(false).await?;
+        let compact = params.compact == Some(true);
         if let Some(heir) = &params.into_thread_id {
-            let heirs = super::SessionDirectory::over(directory.clone());
             if heirs.try_stored_header(heir).await?.is_some() {
-                return heirs.carry_into(&self.id, heir, params.compact == Some(true)).await;
+                return heirs.carry_into(self, heir, &source, super::inheritance::CarryMode::Existing { compact }).await;
+            }
+            if heir == &self.id {
+                return Err(mixdog_core_base::support::failed("inheritance", "inheritFrom: a session cannot inherit from itself"));
             }
         }
+        let visible_heir = params.into_thread_id.is_none();
+        let heir = params.into_thread_id.unwrap_or_else(|| directory.mint_session_id());
+        let mut header = source.header.clone();
         // The desktop's `inheritSession` creates the heir where the source's Project is (or in the task workspace) with a
         // fresh classification, never in the source's worktree; an inherit into an existing thread keeps that thread's place.
-        if params.into_thread_id.is_none() {
+        if visible_heir {
             heir_place(&directory.deps, &mut header).await?;
+            root_heir_identity(&mut header);
         }
-        // The heir owns a Codex wire identity of its own: Node's cold heir drops the source's and mints one (`cold-heir.mjs:70`,
-        // `:143` `ensureCodexWireSessionId`), so the two sessions never share a `session_id` on the wire.
-        header.shift_remove("codexWireSessionId");
-        if header.get("provider").and_then(Value::as_str) == Some("openai-oauth") {
-            header.insert("codexWireSessionId".into(), Value::String(uuid::Uuid::now_v7().to_string()));
+        if let Some(route) = &params.route {
+            let pick = super::new_route::draft_pick(route);
+            let effective = self.deps.new_route.adopt(&heir, Some(&pick)).await
+                .map_err(|message| mixdog_core_base::support::failed("route", message))?;
+            heir_route(&mut header, pick, &effective)?;
         }
-        header.insert(
-            "inheritedFromSessionId".into(),
-            Value::String(self.id.as_str().to_owned()),
-        );
-        // The heir is a session of its own: Node stamps its creation, not the source's times.
+        let header = self.fresh_copy_header(header);
+        let created = match directory.create(CreateSpec {
+            id: Some(heir.clone()), header, base: None,
+            // Creation alone is not a completed fork.
+            op: None, op_audience: None, method: Method("thread/fork/create"), params: Value::Null,
+            seed: None, settings: None, starting: None,
+        }).await {
+            Ok(created) => created,
+            Err(error) => {
+                if visible_heir {
+                    // Even a failed create can leave files after an uncertain storage result.
+                    heirs.discard(&heir).await;
+                }
+                return Err(error);
+            }
+        };
+        let result = async {
+            if params.route.is_some() {
+                directory.deps.new_route.seat(&created.id).await
+                    .map_err(|message| mixdog_core_base::support::failed("route", message))?;
+            } else {
+                directory.deps.new_route.boot(&created.id, &created.cell.header.load_full());
+            }
+            directory.deps.empty_surface.refresh_empty(&created.id).await
+                .map_err(|message| mixdog_core_base::support::failed("session", message))?;
+            heirs.carry_into(self, &created.id, &source, super::inheritance::CarryMode::New { compact }).await
+        }.await;
+        if result.is_err() {
+            heirs.discard(&created.id).await;
+        }
+        result
+    }
+
+    fn fresh_copy_header(&self, mut header: mixdog_store::schema::record::Header) -> mixdog_store::schema::record::Header {
         fresh_heir_state(&mut header);
-        let now = json!(directory.deps.clock.now_ms());
+        header.insert("inheritedFromSessionId".into(), json!(self.id));
+        let now = json!(self.deps.clock.now_ms());
         for key in ["createdAt", "updatedAt", "lastUsedAt"] {
             header.insert(key.into(), now.clone());
         }
-        let heirs = super::SessionDirectory::over(directory.clone());
-        let new_heir = params.into_thread_id.is_none();
-        let created = directory
-            .create(CreateSpec {
-                id: params.into_thread_id,
-                header,
-                base: None,
-                op: req.op.clone(),
-                method: req.method,
-                params: req.params.clone(),
-                seed: None,
-                settings: None,
-                starting: None,
-            })
-            .await?;
-        // The heir's prompt is composed for the heir (`createSession`: its scratch directory, tools and workflow), never the
-        // source's text; `carryConversation` carries the conversation only ("System blocks belong to the session that BUILT them").
-        // A resume's `setRoute(resumedRoute)` (`resume.mjs`): the heir's runtime takes the route its record holds, which no open
-        // for use boots (the heir is created loaded).
-        directory.deps.new_route.boot(&created.id, &created.cell.header.load_full());
-        directory.deps.empty_surface.refresh_empty(&created.id).await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
-        // `inheritFrom` (`lifecycle/inheritance.mjs`): the heir is a created, empty session and the source's conversation is
-        // carried into it with its inheritance boundary, as an `intoThreadId` heir's is.
-        let carried = heirs.carry_into(&self.id, &created.id, params.compact == Some(true)).await;
-        // `inheritToNewSession` (`lifecycle/inheritance.mjs:258-266`): a cold heir is persisted only after the carry, so a carry
-        // that fails leaves no session. The heir is marked as being copied while it is measured, so a prune of the source waits.
-        if carried.is_err() && new_heir {
-            heirs.discard(&created.id).await;
-        }
-        carried
+        header
     }
 
-    /// `forkOutgoingTranscript` (`session-crud.mjs`): before the wipe, the conversation about to be discarded is copied
-    /// to a fresh session id, so it stays reachable by resume. Only a conversation the user took part in is worth a
-    /// copy (`hasUserConversationMessage`). Best-effort: a copy that fails is logged and never blocks the clear.
-    async fn keep_cleared_copy(&self) {
-        let view = self.cell.view.load_full();
-        let spoken = view.has_older || view.items.iter().any(|item| matches!(item.as_ref(), mixdog_protocol::ThreadItem::UserMessage { .. }));
-        if !spoken {
-            return;
+    /// The outgoing conversation is recovery data, not a prompt sized for a model.
+    async fn keep_cleared_copy(&self, source: &ForkSource) -> Result<Option<ThreadId>, CoreError> {
+        let rows = self.completed_history(source).await?;
+        if !super::route_session::has_user_conversation(&rows) {
+            return Ok(None);
         }
-        // `mintSessionId`: `sess_<pid>_<ms>_<uuid>`, unused by any other session.
-        let copy = format!("sess_{}_{}_{}", std::process::id(), self.deps.clock.now_ms(), uuid::Uuid::new_v4().simple());
-        let op = mixdog_core_api::ids::OpId::from(uuid::Uuid::now_v7().to_string());
-        let params = json!({ "threadId": self.id, "opId": op.as_str(), "intoThreadId": copy });
-        let fork = CoreRequest { method: mixdog_core_api::ids::Method("thread/fork"), params, op: Some(op), ctx: mixdog_core_api::call::CallContext::internal("clear-copy") };
-        if let Err(error) = self.fork(fork).await {
-            tracing::warn!("session {}: the cleared conversation was not kept as {copy}: {error:?}", self.id.as_str());
+        let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        let heirs = super::SessionDirectory::over(directory.clone());
+        let copy = directory.mint_session_id();
+        let mut header = self.fresh_copy_header(source.header.clone());
+        // A preserved copy has its source's provenance and title, but not its lifecycle.
+        for key in ["title", "titleSource", "titleLocked", "name"] {
+            if let Some(value) = source.header.get(key) {
+                header.insert(key.into(), value.clone());
+            }
         }
+        header.shift_remove("workspace"); // The source still owns its worktree.
+        let saved = async {
+            directory.create(CreateSpec {
+                id: Some(copy.clone()), header, base: None, op: None, op_audience: None,
+                method: Method("thread/clear/copy"), params: Value::Null,
+                seed: None, settings: None, starting: None,
+            }).await?;
+            heirs.carry_into(self, &copy, source, super::inheritance::CarryMode::Recovery { rows }).await
+        }.await;
+        if let Err(error) = saved {
+            heirs.discard(&copy).await;
+            return Err(error);
+        }
+        Ok(Some(copy))
     }
 
     /// `thread/clear`. With `rebuildPrompt` (an agent chat's reset, `session-ops.mjs clear`) it is refused while a turn runs, and
@@ -714,10 +866,21 @@ impl SessionHandle {
         }
         // A person's clear keeps the outgoing conversation as a resumable session of its own (`forkOutgoingTranscript`);
         // the core's own resets (an agent home, a room member) keep or drop their copy themselves (`archiveAs`, `fork: false`).
-        if matches!(req.ctx.caller, Caller::Connection(_)) {
-            self.keep_cleared_copy().await;
-        }
-        let reply = self.to_actor(req).await?;
+        let reply = if matches!(req.ctx.caller, Caller::Connection(_)) {
+            let _serial = self.submits.enter(&req.ctx.cancel).await.map_err(caller_cancelled)?;
+            let source = self.fork_source(true).await?;
+            let copy = self.keep_cleared_copy(&source).await?;
+            let result = self.commit_history(req, source.revision).await;
+            if matches!(result, Err(CoreError::PreconditionFailed { .. } | CoreError::BarrierFailed { .. }
+                | CoreError::WindowFull { .. } | CoreError::OpIdConflict { .. } | CoreError::OpFenced { .. })) &&
+                let (Some(copy), Some(directory)) = (copy, self.directory.upgrade())
+            {
+                super::SessionDirectory::over(directory).discard(&copy).await;
+            }
+            result?
+        } else {
+            self.to_actor(req).await?
+        };
         if !rebuild {
             return Ok(reply);
         }
@@ -741,11 +904,11 @@ impl SessionHandle {
 /// provenance, transcript identity and the source's own name and title are not carried (the carry gives the heir the source's title), and its compaction is the configuration alone, without the source's checks.
 fn fresh_heir_state(header: &mut mixdog_store::schema::record::Header) {
     const COMPACTION_CONFIG: [&str; 9] = ["auto", "model", "summaryModel", "timeoutMs", "memoryTimeoutMs", "bufferTokens", "mainBufferTokens", "reservedTokens", "boundaryTokens"];
-    const NOT_CARRIED: [&str; 46] = [
+    const NOT_CARRIED: [&str; 48] = [
         "offloadInheriting", "offloadInheritingBoot",
         "bp3Cursor", "closeProvenance", "lastCacheWriteTokens", "lastCachedReadTokens", "lastContextTokens", "lastContextTokensStaleAfterCompact",
         "lastContextTokensUpdatedAt", "lastInputTokens", "lastIterationIndex", "lastOutputTokens", "lastProviderSendAt", "lastTurnCompletedAt",
-        "lastProviderCachedPrefixTokens", "providerPrefixBaseline",
+        "lastPromptTokens", "lastProviderCachedPrefixTokens", "lastProviderCacheObservation", "providerPrefixBaseline",
         "lastUncachedInputTokens", "reasoningUsage", "titleUpdatedAt", "todo", "todoCheck", "totalCacheWriteTokens", "totalCachedReadTokens",
         "totalUncachedInputTokens", "transcriptEpoch", "turnBotChain", "turnCoverage", "pendingGoalReminder",
         "goalReminderRevision", "goalStalledNotice", "contextUsageSnapshot", "turnHop", "usageMetricsTurnId", "usageReadout",
@@ -755,15 +918,15 @@ fn fresh_heir_state(header: &mut mixdog_store::schema::record::Header) {
         header.shift_remove(key);
     }
     header.retain(|key, _| !key.starts_with("contextPressureBaseline"));
+    for key in ["providerState", "pendingRoute", "wireRoute", "activeTurnCheckpoint", "lastHeartbeatAt", "clientHostPid"] {
+        header.shift_remove(key);
+    }
+    header.insert("closed".into(), json!(false));
+    header.insert("status".into(), json!("idle"));
+    header.insert("generation".into(), json!(0));
     // `ensureCodexWireSessionId`: the heir's own wire id on an `openai-oauth` route, none on any other.
     let wire = if header.get("provider").and_then(Value::as_str) == Some("openai-oauth") { json!(uuid::Uuid::now_v7().to_string()) } else { Value::Null };
     header.insert("codexWireSessionId".into(), wire);
-    // Only the maintenance provenance is reset (to `ROOT_LEAD_IDENTITY.sourceType` of `cold-heir.mjs`): it would keep a user's fork out
-    // of memory when it closes. Every other source type travels, as the preserved copies of a clear or an archival reset (Node's
-    // `session-crud.mjs` copy) keep theirs.
-    if header.get("sourceType").and_then(Value::as_str) == Some(super::session_options::MEMORY_CYCLE_SOURCE) {
-        header.insert("sourceType".into(), json!("lead"));
-    }
     for key in ["totalInputTokens", "totalOutputTokens", "totalToolCalls", "tokensCumulative"] {
         header.insert(key.into(), json!(0));
     }
@@ -776,6 +939,42 @@ fn fresh_heir_state(header: &mut mixdog_store::schema::record::Header) {
             }
         }
     }
+}
+
+fn root_heir_identity(header: &mut mixdog_store::schema::record::Header) {
+    for key in ["parentSessionId", "ownerSessionId", "visibility", "agentTag", "taskType", "permissionMode", "scopeKey"] {
+        header.shift_remove(key);
+    }
+    header.extend([
+        ("owner".into(), json!("cli")), ("agent".into(), json!("lead")), ("lane".into(), json!("cli")),
+        ("sourceType".into(), json!("lead")), ("sourceName".into(), json!("main")),
+    ]);
+}
+
+fn heir_route(
+    header: &mut mixdog_store::schema::record::Header,
+    mut route: serde_json::Map<String, Value>,
+    effective: &serde_json::Map<String, Value>,
+) -> Result<(), CoreError> {
+    route.extend(effective.clone());
+    const FIELDS: &[&str] = &[
+        "provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent",
+        "contextTokens", "selectedContextWindow", "routeFallbacks", "routeFallbackSource",
+    ];
+    for key in FIELDS.iter().copied().chain([
+        "presetName", "routeFallbackIndex", "routeFallbackPrimary", "routeFallbackFailures",
+        "contextWindow", "rawContextWindow", "displayContextWindow", "effectiveContextWindowPercent",
+        "compactBoundaryTokens", "autoCompactTokenLimit",
+    ]) {
+        header.shift_remove(key);
+    }
+    header.extend(super::new_route::create_keys(&route).map_err(|message| mixdog_core_base::support::failed("route", message))?);
+    for key in FIELDS {
+        if let Some(value) = route.shift_remove(*key) {
+            header.insert((*key).into(), value);
+        }
+    }
+    Ok(())
 }
 
 async fn heir_place(deps: &SessionDeps, header: &mut mixdog_store::schema::record::Header) -> Result<(), CoreError> {
@@ -806,6 +1005,10 @@ async fn heir_place(deps: &SessionDeps, header: &mut mixdog_store::schema::recor
 }
 
 impl FeedSource for SessionHandle {
+    fn position(&self) -> FeedPosition {
+        self.subscriptions.position()
+    }
+
     fn feed_id(&self) -> FeedId {
         self.subscriptions.feed_id()
     }
@@ -841,9 +1044,71 @@ impl CountedFeed {
     fn counted(&self) -> std::sync::MutexGuard<'_, std::collections::HashSet<SubscriptionId>> {
         self.counted.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+
+    /// The attach of a new subscription whose admission ([`ControlCell::subscribing`]) was already taken.
+    fn attach_admitted(&self, req: AttachRequest) -> Result<AttachDecision, CoreError> {
+        let sub = req.sub.clone();
+        let decision = self.feed.attach(req);
+        let counted = decision.is_ok() && self.counted().insert(sub);
+        self.cell.subscribed(counted);
+        decision
+    }
+}
+
+/// The thread feed of a subscribing reply whose attach was admitted when the reply was made ([`ControlCell::subscribing`], taken
+/// by the directory under the shard lock the unload takes): no close is admitted between the reply and its attach, so the first
+/// attach of the reply cannot meet `threadClosing` from an unload. A reply never attached gives its admission back when it is
+/// dropped, as a detach would, so the thread goes back on its idle clock.
+pub(crate) struct AdmittedFeed {
+    feed: Arc<CountedFeed>,
+    admitted: std::sync::atomic::AtomicBool,
+}
+
+impl AdmittedFeed {
+    /// `feed`'s thread has admitted one attach for this reply.
+    pub(crate) fn new(feed: Arc<CountedFeed>) -> Self {
+        Self { feed, admitted: std::sync::atomic::AtomicBool::new(true) }
+    }
+}
+
+impl FeedSource for AdmittedFeed {
+    fn position(&self) -> FeedPosition {
+        self.feed.position()
+    }
+
+    fn feed_id(&self) -> FeedId {
+        self.feed.feed_id()
+    }
+
+    fn attach(&self, req: AttachRequest) -> Result<AttachDecision, CoreError> {
+        if !matches!(req.start, AttachStart::Recover { .. }) && self.admitted.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            return self.feed.attach_admitted(req);
+        }
+        self.feed.attach(req)
+    }
+
+    fn detach(&self, sub: SubscriptionId) {
+        self.feed.detach(sub);
+    }
+
+    fn ordered(&self) -> bool {
+        self.feed.ordered()
+    }
+}
+
+impl Drop for AdmittedFeed {
+    fn drop(&mut self) {
+        if self.admitted.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            self.feed.cell.unsubscribed();
+        }
+    }
 }
 
 impl FeedSource for CountedFeed {
+    fn position(&self) -> FeedPosition {
+        self.feed.position()
+    }
+
     fn feed_id(&self) -> FeedId {
         self.feed.feed_id()
     }
@@ -856,11 +1121,7 @@ impl FeedSource for CountedFeed {
         if !self.cell.subscribing() {
             return Err(CoreError::ThreadClosing { thread_id: self.cell.thread.clone() });
         }
-        let sub = req.sub.clone();
-        let decision = self.feed.attach(req);
-        let counted = decision.is_ok() && self.counted().insert(sub);
-        self.cell.subscribed(counted);
-        decision
+        self.attach_admitted(req)
     }
 
     fn detach(&self, sub: SubscriptionId) {
@@ -919,8 +1180,14 @@ impl SessionHandle {
     /// changes, so a refusal (`restoreFiles: false` over a file part) or an attachment read error leaves the
     /// conversation untouched; the actor then rewinds, and the payload rides its reply.
     async fn rewind(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        let restore = self.rewind_restore(&req).await?;
-        let (reply, restore) = match (self.to_actor(req).await?, restore) {
+        let params: ThreadRewindParams = serde_json::from_value(req.params.clone()).map_err(|_| CoreError::InvalidParams {
+            path: "params".into(), expected: "ThreadRewindParams".into(),
+        })?;
+        let (tx, rx) = oneshot::channel();
+        self.inbox.send(Inbox::RewindPreview { item: params.item_id, tx }).await.map_err(|_| self.closing())?;
+        let preview = rx.await.map_err(|_| self.closing())??;
+        let restore = self.rewind_restore(&preview, params.restore_files != Some(false)).await?;
+        let (reply, restore) = match (self.commit_history(req, preview.revision).await?, restore) {
             (Reply::Value(value), Some(restore)) => (value, restore),
             (reply, _) => return Ok(reply),
         };
@@ -933,45 +1200,36 @@ impl SessionHandle {
         Ok(Reply::Value(value))
     }
 
-    /// The restore payload of the prompt `itemId` names, read from the model context (Node's dry-run preview of the
-    /// stored message): `None` when the row is not there to read or is plain text, and the actor answers alone.
-    async fn rewind_restore(&self, req: &CoreRequest) -> Result<Option<Value>, CoreError> {
-        let Some(wanted) = req.params.get("itemId").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned) else { return Ok(None) };
-        let restore_files = req.params.get("restoreFiles").and_then(Value::as_bool) != Some(false);
-        let context = super::run::ModelContext {
-            store: self.deps.store.clone(),
-            sensitive: self.deps.sensitive.clone(),
-            lanes: self.deps.lanes,
-            thread: self.id.clone(),
-            input: mixdog_core_api::ids::ItemId::from(String::new()),
+    /// Resolve the exact row the actor previewed, including a prompt archived by a compaction.
+    async fn rewind_restore(&self, preview: &RewindPreview, restore_files: bool) -> Result<Option<Value>, CoreError> {
+        let rows = self.history_context().read().await?;
+        let body = match rows.into_iter().find(|(iid, _)| iid == &preview.item) {
+            Some((_, body)) => body,
+            None => {
+                let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+                let found = super::SessionDirectory::over(directory).history_row(&self.id, preview.item.as_str()).await?;
+                match found.map(|(_, row)| row.body) {
+                    Some(mixdog_store::schema::blob::Slot::Inline(body)) => body,
+                    _ => return Err(super::actor::history_conflict()),
+                }
+            }
         };
-        let Ok(rows) = context.read().await else { return Ok(None) };
-        // The displayed id first (a user row shows its submission id), then the row's own id (`position_of_id`).
-        let user = |body: &Value| body.get("role").and_then(Value::as_str) == Some("user");
-        let names = |body: &Value| {
-            ["/meta/transcript/submissionIds", "/meta/submissionIds"]
-                .iter()
-                .any(|path| body.pointer(path).and_then(Value::as_array).is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(wanted.as_str()))))
-        };
-        let found = rows.iter().find(|(_, body)| user(body) && names(body)).or_else(|| rows.iter().find(|(iid, body)| user(body) && iid.as_str() == wanted));
-        let Some((_, body)) = found else { return Ok(None) };
-        if !body.get("content").is_some_and(Value::is_array) {
+        let Some(content) = body.get("content").filter(|content| content.is_array()).cloned() else {
             return Ok(None);
-        }
-        let (store, body) = (self.deps.attachments.clone(), body.clone());
+        };
+        let (store, text) = (self.deps.attachments.clone(), preview.text.clone());
         mixdog_core_base::support::on_lane(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| {
-            // The row's text as the transcript shows it: the tokens name the references in order.
-            let Some(text) = store.facts(lane, &mut body.clone()).prompt else { return Ok(None) };
-            super::restore_hydrate::rewind_restore(&store, lane, &body["content"], &text, restore_files)
+            super::restore_hydrate::rewind_restore(&store, lane, &content, &text, restore_files)
         })
         .await?
     }
 
     /// `abort` while the scheduled compaction holds the turns back: the prompt submitted meanwhile is Node's ask waiting on
-    /// the gate, so the busy path runs (`abort.mjs:92`) with nothing to abort: the reply hands the prompt back
-    /// (`aborted: false`, its text and submission) and the ask still runs when the gate opens, so nothing leaves the queue.
+    /// the gate (`abort.mjs:92`, nothing to abort): the reply hands the prompt back (`aborted: false`, its text and submission).
+    /// Unlike Node, a prompt handed back is not also runnable: the actor freezes the entry under a recorded Stop, so it leaves the
+    /// queue and never runs, and the reply waits for that record to be durable (a failed save answers the storage error).
     /// `None` when no editable prompt waits, or the stop does not want it back.
-    async fn stop_gated(&self, restore_prompt: Option<bool>) -> Option<Value> {
+    async fn stop_gated(&self, restore_prompt: Option<bool>, ctx: &CallContext) -> Option<Result<Value, CoreError>> {
         if !self.cell.gated.load(std::sync::atomic::Ordering::SeqCst) || restore_prompt == Some(false) {
             return None;
         }
@@ -982,8 +1240,25 @@ impl SessionHandle {
         let Ok(Ok(restored)) = hydrated else {
             return None;
         };
+        let canceller = match &ctx.caller {
+            Caller::Connection(connection) => self.deps.devices.describe(*connection).device,
+            Caller::Internal(_) => String::new(),
+        };
+        let (tx, rx) = oneshot::channel();
+        self.cell.deliver(Ctl::StopQueued { qid: queued.qid.clone(), canceller, reply: tx });
+        let (restore_id, wait) = match rx.await {
+            Ok(Some(stopped)) => stopped,
+            Ok(None) => return None,
+            Err(_) => return Some(Err(self.closing())),
+        };
+        if let Err(error) = self.stop_saved(vec![wait]).await {
+            return Some(Err(error));
+        }
         let mut reply = stop_reply(None, false);
         reply["restoreText"] = restored["text"].clone();
+        if let Some(id) = restore_id {
+            reply["restoreId"] = json!(id);
+        }
         reply["pastedImages"] = restored["pastedImages"].clone();
         reply["pastedTexts"] = restored["pastedTexts"].clone();
         // The submissions the window named (`submittedIds`), not the queue's own entry ids.
@@ -993,7 +1268,51 @@ impl SessionHandle {
                 reply[key] = value.clone();
             }
         }
-        Some(reply)
+        Some(Ok(reply))
+    }
+
+    /// `abort` while no run is published: Node's `busy` covers the whole span a turn holds the session (reserved, starting,
+    /// settling, compacting), so the actor stops what it finds there through its owner. Only a session with nothing under
+    /// way takes the idle path (Node's exact `aborted: false`, no `reason`); a span whose owner cannot be stopped answers
+    /// `aborted: false` with `reason: "could-not-stop"` and a `notice` naming the stage.
+    async fn stop_busy(&self, submission: Option<String>, ctx: CallContext) -> Result<Value, CoreError> {
+        let (tx, rx) = oneshot::channel();
+        self.cell.deliver(Ctl::StopBusy(tx));
+        let busy = rx.await.map_err(|_| self.closing())?;
+        self.busy_reply(busy, submission, ctx).await
+    }
+
+    /// [`super::SessionDirectory::stop_work`] on this session.
+    pub(crate) async fn stop_work(&self, submissions: Vec<String>) -> Result<(), CoreError> {
+        let (tx, rx) = oneshot::channel();
+        self.cell.deliver(Ctl::StopWork { submissions, reply: tx });
+        let waits = rx.await.map_err(|_| self.closing())?;
+        self.stop_saved(waits).await
+    }
+
+    /// A Stop's answer: success only once every record it appended is durable; a save that failed answers its storage error
+    /// (the cancellation fired here and stands).
+    async fn stop_saved(&self, waits: Vec<super::stop::StopWait>) -> Result<(), CoreError> {
+        for wait in waits {
+            wait.await.map_err(|_| self.closing())??;
+        }
+        Ok(())
+    }
+
+    async fn busy_reply(&self, busy: super::control::BusyStop, submission: Option<String>, ctx: CallContext) -> Result<Value, CoreError> {
+        match busy {
+            super::control::BusyStop::Stopped(waits) => {
+                self.stop_saved(waits).await?;
+                Ok(stop_reply(None, true))
+            }
+            super::control::BusyStop::Idle => self.stop_idle(submission, ctx).await,
+            super::control::BusyStop::Unstoppable(stage) => {
+                let mut reply = stop_reply(None, false);
+                reply["reason"] = json!("could-not-stop");
+                reply["notice"] = json!(format!("Could not stop: the session is busy ({stage}) and that work cannot be cancelled."));
+                Ok(reply)
+            }
+        }
     }
 
     /// `abort` while nothing runs (`reclaimIdleSubmission`, `abort.mjs:84`): the queued submission the client names is handed
@@ -1049,17 +1368,46 @@ impl ThreadHandle for SessionHandle {
 
     /// Node's `abortSession` over the run's prompt (`abort.mjs`): see [`super::stop`].
     async fn stop(&self, request: Stop) -> Result<Value, CoreError> {
+        let stopped = self.stop_turn(request).await;
+        // An Agent stopping its own turn is the live parent signal for the agent jobs it started; a Lead's stop leaves delegated
+        // work alone (`abortSession`, `session-turns.mjs`: `cancelBackgroundTasks({ surface: 'agent', callerSessionId })`).
+        let mut header = (**self.cell.header.load()).clone();
+        if !header.contains_key("id") {
+            header.insert("id".into(), json!(self.id));
+        }
+        if mixdog_core_base::quota_resume::is_agent_only_session(&Value::Object(header)) {
+            self.deps.agent_signals.agent_turn_aborted(self.id.as_str());
+        }
+        stopped
+    }
+
+    async fn request(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        self.request_inner(req).await
+    }
+}
+
+impl SessionHandle {
+    /// [`ThreadHandle::stop`] without the agent's own jobs following it.
+    async fn stop_turn(&self, request: Stop) -> Result<Value, CoreError> {
         let Stop { turn: named, restore_prompt, submission_id, ctx } = request;
+        // A room log runs no turn: its Stop is the room's (`session-host.ts` `abortSession` → `agentRooms.stop`).
+        if let Some(room) = mixdog_core_base::rooms::ids::room_id_of_session(self.id.as_str())
+            && let Some(stopped) = self.deps.room_members.stop_room(&room)
+        {
+            // Success only once every member stop the room owes is durable.
+            stopped.saved.await?;
+            return Ok(stop_reply(None, stopped.stopped));
+        }
         let named_turn = named.is_some();
         let run = match (named, self.cell.run.load_full()) {
             (Some(turn), Some(run)) if run.turn == turn => run,
             (Some(turn), _) => return Err(CoreError::TurnNotActive { thread_id: self.id.clone(), turn_id: Some(turn) }),
             (None, Some(run)) => run,
             (None, None) => {
-                if let Some(reply) = self.stop_gated(restore_prompt).await {
-                    return Ok(reply);
+                if let Some(reply) = self.stop_gated(restore_prompt, &ctx).await {
+                    return reply;
                 }
-                return self.stop_idle(submission_id, ctx).await;
+                return self.stop_busy(submission_id, ctx).await;
             }
         };
         let canceller = match &ctx.caller {
@@ -1091,23 +1439,28 @@ impl ThreadHandle for SessionHandle {
         }
         #[cfg(any(test, feature = "test-support"))]
         run.prompt.paused().await;
-        // Decided against the prompt's facts as they are now and recorded in the same hold, so an output commit cannot land between
-        // the two; the actor reads the hand-back when the turn ends, which this abort may bring at once.
-        let decision = run.prompt.decide_and_record(restore_prompt, &canceller, steering, unreadable.is_some());
-        // `abortGoalTurn(runtime, flags, steering, reason)` (`goal-turn-state.mjs:3-12`): a Stop's own reason is `user-cancel`
-        // (`abort.mjs:118`), the text a call the abort ends reads (`runtime abort (reason=user-cancel)`, `session-close.mjs:102`).
-        let name = match decision.reason {
-            stop::Reason::Interrupt => "interrupt",
-            stop::Reason::KeepPrompt => "user-cancel-keep-prompt",
-            stop::Reason::UserCancel => mixdog_agent::cancel::USER_CANCEL,
+        // The actor decides against the prompt's facts as they are when it takes the Stop, recorded in the same hold of the prompt's
+        // lock, so an output commit cannot land between the two; it aborts the run at once (`abortGoalTurn`'s reason, `user-cancel`
+        // for a plain Stop, `abort.mjs:118`), appends the Stop's record, and answers with the decision and the record's
+        // durable-only waiter. A run whose end is already in is no longer this Stop's: the busy span answers.
+        let (tx, rx) = oneshot::channel();
+        self.cell.deliver(Ctl::StopRun { turn: run.turn.clone(), named: named_turn, restore_prompt, canceller, unreadable: unreadable.is_some(), reply: tx });
+        let (decision, wait, restore_id) = match rx.await.map_err(|_| self.closing())? {
+            super::control::RunStop::Decided(decision, wait, restore_id) => (decision, wait, restore_id),
+            super::control::RunStop::NotActive => return Err(CoreError::TurnNotActive { thread_id: self.id.clone(), turn_id: Some(run.turn.clone()) }),
+            super::control::RunStop::Busy(busy) => return self.busy_reply(busy, submission_id, ctx).await,
         };
-        if let Err(error) = self.cell.abort(&run.turn, &mixdog_agent::cancel::Abort::runtime_abort(self.id.as_str(), name)) {
-            run.prompt.record(None);
-            return if named_turn { Err(error) } else { Ok(stop_reply(None, false)) };
-        }
+        // Success only once the Stop's record is durable; a failed save answers the storage error, never `aborted` nor the
+        // restored text (the cancellation fired and stands).
+        self.stop_saved(vec![wait]).await?;
         let mut reply = stop_reply(Some(&run.turn), true);
         reply["restoreText"] = json!(decision.restore_text);
         reply["restoredSubmissionIds"] = json!(decision.restored_ids);
+        // The hand-back's id rides the restored text, the same id the session state would publish it under: a composer that
+        // saw both applies it once.
+        if let Some(id) = restore_id.filter(|_| !decision.restore_text.is_empty()) {
+            reply["restoreId"] = json!(id);
+        }
         if let Some(restored) = &restored {
             for key in ["pastedImages", "pastedTexts", "content", "notice"] {
                 if let Some(value) = restored.get(key) {
@@ -1126,7 +1479,7 @@ impl ThreadHandle for SessionHandle {
         Ok(reply)
     }
 
-    async fn request(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+    async fn request_inner(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         match req.method.as_str() {
             "thread/resume" => self.resume(&req),
             "thread/read" => self.read(&req).await,
@@ -1153,25 +1506,7 @@ impl ThreadHandle for SessionHandle {
             // The model conversation (`session.messages`), for the core's own ports: what is stored, then what is held in
             // memory unsaved (asked first, so a record stored in between is read from the store; an amend replaces its row).
             "thread/messages/read" if !matches!(req.ctx.caller, Caller::Connection(_)) => {
-                let (tx, rx) = oneshot::channel();
-                self.inbox.send(Inbox::UnsavedRows { tx }).await.map_err(|_| self.closing())?;
-                let unsaved = rx.await.map_err(|_| self.closing())?;
-                let context = super::run::ModelContext {
-                    store: self.deps.store.clone(),
-                    sensitive: self.deps.sensitive.clone(),
-                    lanes: self.deps.lanes,
-                    thread: self.id.clone(),
-                    input: mixdog_core_api::ids::ItemId::from(String::new()),
-                };
-                let mut rows: Vec<(String, serde_json::Value)> = context.read().await?.into_iter().map(|(iid, message)| (iid.as_str().to_owned(), message)).collect();
-                for (iid, body, amend) in unsaved {
-                    match rows.iter_mut().find(|(row, _)| *row == iid) {
-                        Some(row) => row.1 = body,
-                        None if !amend => rows.push((iid, body)),
-                        None => {}
-                    }
-                }
-                let messages: Vec<serde_json::Value> = rows.into_iter().map(|(_, message)| message).collect();
+                let messages = self.model_messages(None).await?;
                 Ok(Reply::Value(json!({ "messages": messages })))
             }
             // `restoreQueued` gives the entries' attachments back with their bytes: the actor answers the
@@ -1189,5 +1524,181 @@ impl ThreadHandle for SessionHandle {
             }
             _ => self.to_actor(req).await,
         }
+    }
+}
+
+#[cfg(test)]
+mod recovery_history_tests {
+    use super::*;
+    use crate::session::SessionDirectory;
+    use crate::session::testing::{Rig, lock};
+    use crate::session::tests::{request, start_thread, turn};
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::Record;
+    use std::sync::atomic::Ordering::SeqCst;
+
+    async fn append(handle: &SessionHandle, messages: Value) {
+        handle.request(CoreRequest {
+            method: Method("thread/inheritedRows/append"),
+            params: json!({ "messages": messages }),
+            op: None,
+            ctx: CallContext::internal("test"),
+        }).await.expect("append");
+    }
+
+    fn fail_copy(rig: &Rig) {
+        *lock(&rig.store.fail_when) = Some((Box::new(|record| {
+            matches!(record, Record::Meta(meta) if matches!(&meta.change, Slot::Inline(change) if change.set.contains_key("inheritedFromSessionId")))
+        }), false));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn ordinary_clear_recovers_the_original_without_fitting_or_summarizing_it() {
+        let rig = Rig::new();
+        *lock(&rig.inherit.basis) = Some((100, 200, true));
+        rig.compaction.heir_fails.store(true, SeqCst);
+        let directory = SessionDirectory::new(rig.deps());
+        let source = start_thread(&directory).await;
+        let original = json!([{ "role": "user", "content": "question" }, { "role": "assistant", "content": "answer" }]);
+        append(&source, original.clone()).await;
+        source.request(request("thread/clear", json!({ "threadId": source.id, "opId": "clear" }), "clear")).await.expect("clear");
+        assert!(directory.model_context(&source.id).read().await.unwrap().is_empty());
+        let copies: Vec<_> = rig.store.log_ids().into_iter().filter(|id| id != &source.id).collect();
+        assert_eq!(copies.len(), 1);
+        let copied: Vec<_> = directory.model_context(&copies[0]).read().await.unwrap().into_iter().map(|(_, body)| body).collect();
+        assert_eq!(json!(copied), original);
+        assert!(lock(&rig.inherit.asked).is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_clear_whose_recovery_copy_rolls_back_leaves_the_source_intact() {
+        let rig = Rig::new();
+        rig.store.listed.store(true, SeqCst);
+        let directory = SessionDirectory::new(rig.deps());
+        let source = start_thread(&directory).await;
+        append(&source, json!([{ "role": "user", "content": "keep me" }])).await;
+        fail_copy(&rig);
+        let clear = source.request(request("thread/clear", json!({ "threadId": source.id, "opId": "clear" }), "clear")).await;
+        assert!(matches!(clear, Err(CoreError::BarrierFailed { .. })), "{clear:?}");
+        assert_eq!(directory.model_context(&source.id).read().await.unwrap()[0].1["content"], "keep me");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_new_fork_does_not_acknowledge_a_copy_that_rolled_back() {
+        let rig = Rig::new();
+        rig.store.listed.store(true, SeqCst);
+        let directory = SessionDirectory::new(rig.deps());
+        let source = start_thread(&directory).await;
+        append(&source, json!([{ "role": "user", "content": "keep me" }])).await;
+        fail_copy(&rig);
+        let fork = source.request(request("thread/fork", json!({ "threadId": source.id, "opId": "fork" }), "fork")).await;
+        assert!(matches!(fork, Err(CoreError::BarrierFailed { .. })), "{fork:?}");
+        assert_eq!(directory.loaded_ids(), [source.id.clone()]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_fork_does_not_carry_the_live_turns_precommitted_prompt() {
+        use crate::session::seams::RunOutcome;
+        let rig = Rig::new();
+        let arrived = Arc::new(tokio::sync::Notify::new());
+        let finish = Arc::new(tokio::sync::Notify::new());
+        rig.set_script(Arc::new({
+            let (arrived, finish) = (arrived.clone(), finish.clone());
+            move |run| {
+                let (arrived, finish) = (arrived.clone(), finish.clone());
+                Box::pin(async move {
+                    run.port.input_durable().await.expect("precommitted prompt");
+                    arrived.notify_one();
+                    finish.notified().await;
+                    RunOutcome::Completed(Default::default())
+                })
+            }
+        }));
+        let directory = SessionDirectory::new(rig.deps());
+        let source = start_thread(&directory).await;
+        append(&source, json!([{ "role": "user", "content": "completed" }])).await;
+        turn(&source, "in flight", "turn").await;
+        arrived.notified().await;
+        let fork = source.request(request("thread/fork", json!({ "threadId": source.id, "opId": "fork" }), "fork")).await;
+        finish.notify_one();
+        let Reply::Value(fork) = fork.expect("fork") else { panic!("fork reply") };
+        let heir = ThreadId::from(fork["thread"]["id"].as_str().expect("heir id"));
+        let rows = directory.model_context(&heir).read().await.expect("heir context");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].1["content"], "completed");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_routed_fork_fits_the_destination_and_owns_its_history_as_a_root_lead() {
+        let rig = Rig::new();
+        let directory = SessionDirectory::new(rig.deps());
+        let source_id = ThreadId::from("sess_worker_source");
+        directory.create_with_id(source_id.clone(), json!({
+            "cwd": "/ws", "provider": "source-provider", "model": "source-model", "contextTokens": 64000,
+            "owner": "agent", "agent": "builder", "visibility": "agent-only", "ownerSessionId": "sess_parent",
+        }).as_object().unwrap().clone(), json!({})).await.expect("source");
+        let source = directory.open_handle(&source_id, &CallContext::internal("test")).await.expect("open source");
+        append(&source, json!([{ "role": "user", "content": "carry me" }])).await;
+        let fork = source.request(request("thread/fork", json!({
+            "threadId": source.id, "opId": "fork",
+            "route": { "provider": "openai", "model": "destination", "effort": "high", "fast": true,
+                "autoEffort": false, "modelParameters": { "context": "wide" }, "contextTokens": 12000 },
+        }), "fork")).await.expect("fork");
+        let Reply::Value(fork) = fork else { panic!("fork must return a value") };
+        let heir = ThreadId::from(fork["thread"]["id"].as_str().expect("heir id"));
+        let header = rig.store.stored_header(&heir).expect("durable heir");
+        assert_eq!(mixdog_store::summary::session_visibility(&header), "ordinary");
+        assert!(mixdog_store::summary::is_root_lead_session(&header));
+        assert_eq!(header["owner"], "cli");
+        assert_eq!(header["effort"], "high");
+        assert_eq!(header["fast"], true);
+        assert_eq!(header["autoEffort"], false);
+        assert_eq!(header["modelParameters"], json!({ "context": "wide" }));
+        assert_eq!(header["contextTokens"], 12000);
+        assert_eq!(*lock(&rig.inherit.asked), [("openai".into(), "destination".into(), None, Some(heir), 1)]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn rewind_refuses_failed_preparation_and_publishes_the_retained_users_display_id() {
+        let rig = Rig::new();
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.transcript = Arc::new(crate::session::testing::RecordTranscript::new());
+        let deps = Arc::new(deps);
+        let directory = SessionDirectory::new(deps.clone());
+        let source = start_thread(&directory).await;
+        append(&source, json!([
+            { "role": "user", "content": "first", "meta": { "transcript": { "submissionIds": ["shown-first"] } } },
+            { "role": "user", "content": "second", "meta": { "transcript": { "submissionIds": ["shown-second"] } } },
+        ])).await;
+        let first = source.view_items()[0].id().clone();
+        assert_ne!(first.as_str(), "shown-first");
+        assert_ne!(source.view_items()[1].id().as_str(), "shown-second");
+        let rewind = |op| request("thread/rewind", json!({ "threadId": source.id, "opId": op, "itemId": "shown-second" }), op);
+        rig.store.fail_context.store(true, SeqCst);
+        assert!(source.request(rewind("failed-read")).await.is_err());
+        assert_eq!(source.view_items().len(), 2);
+        let Reply::Value(reply) = source.request(rewind("rewind")).await.expect("rewind") else { panic!("rewind reply") };
+        assert_eq!(reply["text"], "second");
+        let reset = rig.feeds.frames(source.id.as_str()).into_iter().find(|(_, method, _)| method == "thread/historyReset").expect("reset");
+        assert_eq!(reset.2["fromItemId"], "shown-first");
+        let restored = SessionDirectory::new(deps).open_handle(&source.id, &CallContext::internal("restored")).await.expect("reopen");
+        assert_eq!(restored.view_items().iter().map(|item| item.id()).collect::<Vec<_>>(), [&first]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn rewind_refuses_a_commit_after_the_previewed_history_changes() {
+        let rig = Rig::new();
+        let directory = SessionDirectory::new(rig.deps());
+        let source = start_thread(&directory).await;
+        append(&source, json!([{ "role": "user", "content": "first" }])).await;
+        let item = source.view_items()[0].id().clone();
+        let (tx, rx) = oneshot::channel();
+        source.inbox.send(Inbox::RewindPreview { item: item.clone(), tx }).await.expect("preview request");
+        let preview = rx.await.unwrap().expect("preview");
+        assert!(source.rewind_restore(&preview, true).await.expect("restore").is_none());
+        append(&source, json!([{ "role": "user", "content": "second" }])).await;
+        let req = request("thread/rewind", json!({ "threadId": source.id, "opId": "stale", "itemId": item }), "stale");
+        assert!(matches!(source.commit_history(req, preview.revision).await, Err(CoreError::PreconditionFailed { .. })));
+        assert_eq!(source.view_items().len(), 2);
     }
 }

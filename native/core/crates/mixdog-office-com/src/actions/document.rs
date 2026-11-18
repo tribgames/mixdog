@@ -42,9 +42,17 @@ pub(crate) fn items_of(value: &Com) -> Result<Vec<Com>> {
     }
 }
 
-/// `Save-DocumentCopy`: a workbook's `SaveCopyAs(path)` and a deck's `SaveCopyAs(path, format)`; Word has no copy.
+/// `Save-DocumentCopy`: a workbook's `SaveCopyAs(path)` and a deck's `SaveCopyAs(path, format)`. Word has no copy command (`SaveAs2`
+/// would move the document to the new file), so its document is saved where it is and that file is copied: the session stays on
+/// its own target and a later edit and save land there.
 pub fn save_document_copy(document: &Obj, format: &str, output: &str) -> Result<()> {
     match format {
+        "docx" => {
+            document.call("Save", &[])?;
+            let full_name = document.get("FullName")?;
+            let source = full_name.as_str().ok_or_else(|| Error::host("The document has no file to copy".to_owned()))?;
+            copy_saved_file(source, output)
+        }
         "xlsx" => document.call("SaveCopyAs", &[Com::from(output)]).map(|_| ()),
         "pptx" => {
             let save_format = save_format_for_path(format, output).unwrap_or(24);
@@ -52,6 +60,11 @@ pub fn save_document_copy(document: &Obj, format: &str, output: &str) -> Result<
         }
         other => Err(Error::host(format!("Save-copy is unsupported for .{other}"))),
     }
+}
+
+/// A saved document's file copied to `output`.
+fn copy_saved_file(source: &str, output: &str) -> Result<()> {
+    mixdog_fsio::copy(&mixdog_fsio::Unlaned, source, output).map(|_| ()).map_err(|error| Error::host(format!("Save-copy of {source} to {output} failed: {error}")))
 }
 
 /// The sheets of a workbook put back from a checkpoint copy: the original sheets are replaced by the checkpoint's, so

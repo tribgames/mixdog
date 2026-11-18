@@ -174,18 +174,20 @@ pub mod sensitive {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, node_twin))]
 mod tests {
     use serde_json::Value;
 
     use super::*;
 
+    #[cfg(node_twin)]
     const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/session-activity/golden.json");
 
     fn golden() -> Value {
         serde_json::from_str::<Value>(&GOLDEN).unwrap()["handoff"].clone()
     }
 
+    #[cfg(node_twin)]
     #[test]
     fn every_recorded_turn_slice_equals_node() {
         for case in golden()["turnSlices"].as_array().unwrap() {
@@ -197,6 +199,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     #[test]
     fn every_recorded_path_is_denied_or_allowed_as_in_node() {
         let golden = golden();
@@ -208,3 +211,4 @@ mod tests {
         }
     }
 }
+

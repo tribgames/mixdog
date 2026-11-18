@@ -10,6 +10,7 @@ import type {
 import { reportComposerAction } from './composer-diagnostics';
 import { skillTitle, withSelectedSkill } from './composer-skill';
 import type { RecordValue } from './desktop-types';
+import { replyRestoreApplied } from './use-composer-prompt-restore';
 import { asRecord } from './text-format';
 import { hasSendablePromptContent, shouldBlockPromptSubmit } from './renderer-logic.mjs';
 import { registerSentAttachments, sentAttachmentData } from './attachment-menu';
@@ -31,7 +32,32 @@ import {
   resolveComposerSubmissionRecovery,
   retainComposerSubmissionRecovery,
   submissionRetryKey,
+  wasSubmittedHere,
 } from './composer-draft';
+
+/** A Stop reply that hands the prompt back names it with the id the session state's `promptRestore` would carry
+ *  (`restoreId`). It is registered with the composer's restore dedup (`replyRestoreApplied`): true when that id was already
+ *  applied here (the notification came first), so the reply inserts nothing; a later notification with the id is then
+ *  skipped. A reply whose submissions this composer never sent cannot be matched, and is applied as before. */
+export function restoreAlreadyApplied(
+  result: RecordValue,
+  sessionId: string,
+  applied?: Parameters<typeof replyRestoreApplied>[2]
+): boolean {
+  const id = typeof result.restoreId === 'string' ? result.restoreId : '';
+  const ids = Array.isArray(result.restoredSubmissionIds) ? result.restoredSubmissionIds.map(String).filter(Boolean) : [];
+  if (!id || !ids.some(wasSubmittedHere)) return false;
+  return replyRestoreApplied(id, sessionId, applied);
+}
+
+/** The core's code for a submission a user Stop ended before it ran (`TURN_STOPPED`, session/actor.rs). */
+const TURN_STOPPED = 'ETURNSTOPPED';
+
+/** A submission that ended because a user Stop stopped it: as in Node 1.4.5, where the submission had been accepted and
+ *  only the Stop's hand-back brought the prompt back, the Stop owns its prompt. Decided by the rejection's typed code. */
+export function stoppedSubmission(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === TURN_STOPPED;
+}
 
 function base64Bytes(data: string): number {
   let padding = 0;
@@ -168,6 +194,8 @@ interface ComposerSubmissionOptions {
   setSubmitting: Dispatch<SetStateAction<boolean>>;
   setSubmissionRecoveryVersion: Dispatch<SetStateAction<number>>;
   clearNotice(): void;
+  /** The composer's inline notice (a Stop that stopped nothing says so here). */
+  showNotice(message: string, tone?: 'info' | 'error'): void;
   setAttachmentError(message: string): void;
   removeAttachments(ids: Set<number>): void;
   mergeRestoredAttachments(restored: ComposerAttachment[], restoredText: string): string;
@@ -217,6 +245,7 @@ export function useComposerSubmission({
   setSubmitting,
   setSubmissionRecoveryVersion,
   clearNotice,
+  showNotice,
   setAttachmentError,
   removeAttachments,
   mergeRestoredAttachments,
@@ -387,6 +416,13 @@ export function useComposerSubmission({
             ...(Object.keys(pastedTexts).length ? { pastedTexts } : {}),
           });
         } catch (error) {
+          // Stopped: the Stop's hand-back is its one restoration path, so the failed-submission recovery does not run, no
+          // error shows, and a resend mints a new id (the stopped one never runs again).
+          if (stoppedSubmission(error)) {
+            resolveComposerSubmissionRecovery(submissionId);
+            if (submissionRetryRef.current?.id === submissionId) submissionRetryRef.current = null;
+            return;
+          }
           submissionRetryRef.current = { key: retryKey, id: submissionId };
           restoreSubmitted();
           throw error;
@@ -450,21 +486,61 @@ export function useComposerSubmission({
   );
 
   const stop = useCallback(
-    async (preserveDraft = false, submissionId = '') => {
+    async (
+      preserveDraft = false,
+      submissionId = '',
+      source: DesktopRendererComposerActionDiagnostic['source'] = 'stop-button'
+    ) => {
       const restorePrompt = submissionId ? !preserveDraft : false;
-      const result = asRecord(
-        await abort({
-          restorePrompt,
-          ...(submissionId ? { submissionId } : {}),
-        })
-      );
+      const report = (answer: Partial<DesktopRendererComposerActionDiagnostic>) =>
+        reportComposerAction({
+          kind: 'composer-action',
+          action: 'stop',
+          source,
+          turnBusy,
+          queueCount: Array.isArray(queued) ? queued.length : 0,
+          draftLength: draftRef.current.length,
+          composing: composingRef.current,
+          uptimeMs: performance.now(),
+          ...(submissionId ? { targeted: true } : {}),
+          ...answer,
+        });
+      let result: RecordValue | null;
+      try {
+        result = asRecord(
+          await abort({
+            restorePrompt,
+            ...(submissionId ? { submissionId } : {}),
+          })
+        );
+      } catch (error) {
+        report({ stopOutcome: 'failed', stopReason: error instanceof Error ? error.message : String(error) });
+        showNotice(t('The turn could not be stopped.'), 'error');
+        return;
+      }
+      const restoredSubmissions = Array.isArray(result?.restoredSubmissionIds) && result.restoredSubmissionIds.length > 0;
+      const reason = typeof result?.reason === 'string' ? result.reason : '';
+      const stopOutcome =
+        result?.aborted === true ? 'stopped' : result?.restoreText || restoredSubmissions ? 'restored' : 'nothing';
+      report({
+        stopOutcome,
+        aborted: result?.aborted === true,
+        ...(reason ? { stopReason: reason } : {}),
+      });
+      // Node's `aborted: false` carries no reason: nothing was running. A `reason` (`could-not-stop`) is the core saying
+      // something was under way that it could not stop.
+      if (stopOutcome === 'nothing') {
+        showNotice(reason ? t('The turn could not be stopped.') : t('Nothing was running to stop.'));
+      }
       if (submissionId && (result?.aborted === true || result?.restoreText)) {
         const restoredIds = Array.isArray(result.restoredSubmissionIds)
           ? result.restoredSubmissionIds.map(String).filter(Boolean)
           : [submissionId];
         onQueuedRestored?.(restoredIds.length ? restoredIds : [submissionId]);
       }
-      if (result?.restoreText) {
+      // A hand-back that already reached this composer as the session state's `promptRestore` (one id on both paths) is
+      // not inserted twice.
+      if (result?.restoreText && !restoreAlreadyApplied(result, sessionId || '')) {
         const restoredText = String(result.restoreText);
         const restored = restoredAttachments(result, restoredText);
         const acceptedText = mergeRestoredAttachments(restored.attachments, restored.text);
@@ -476,7 +552,20 @@ export function useComposerSubmission({
         window.setTimeout(() => textarea.current?.focus(), 0);
       }
     },
-    [abort, draftRef, mergeRestoredAttachments, onQueuedRestored, restoredAttachments, setDraft, textarea]
+    [
+      abort,
+      composingRef,
+      draftRef,
+      mergeRestoredAttachments,
+      onQueuedRestored,
+      queued,
+      restoredAttachments,
+      sessionId,
+      setDraft,
+      showNotice,
+      textarea,
+      turnBusy,
+    ]
   );
 
   return { send, stop };

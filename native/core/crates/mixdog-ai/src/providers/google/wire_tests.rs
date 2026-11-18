@@ -6,62 +6,115 @@
 //! cache schedules) are compared with what `GoogleAdapter::attempt` puts on the wire when the recorded answers come
 //! back, with the session state the send leaves behind.
 
+#[cfg(node_twin)]
 use std::collections::VecDeque;
+#[cfg(node_twin)]
 use std::sync::Arc;
+#[cfg(node_twin)]
 use std::sync::Mutex;
+#[cfg(node_twin)]
 use std::sync::atomic::AtomicU64;
+#[cfg(node_twin)]
 use std::sync::atomic::Ordering;
 
+#[cfg(node_twin)]
 use async_trait::async_trait;
+#[cfg(node_twin)]
 use bytes::Bytes;
+#[cfg(node_twin)]
 use futures::future::BoxFuture;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::Content;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::Message;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ModelRequest;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ProviderError;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ProviderState;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::RequestOptions;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::Role;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::StreamEvent;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::Temperature;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ToolCall;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ToolDefinition;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::TransportFault;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::WireRequest;
+#[cfg(node_twin)]
 use serde_json::Value;
+#[cfg(node_twin)]
 use serde_json::json;
 
+#[cfg(node_twin)]
 use super::cache::layer::CacheRuntime;
+#[cfg(node_twin)]
 use super::cache::policy::Tuning;
+#[cfg(node_twin)]
 use super::cache::registry::Registry;
+#[cfg(node_twin)]
 use super::traits::CatalogGoogleTraits;
+#[cfg(node_twin)]
 use crate::providers::anthropic::wire_tests::mismatch;
+#[cfg(node_twin)]
 use crate::providers::anthropic::wire_tests::recording;
+#[cfg(node_twin)]
 use crate::providers::anthropic::wire_tests::seen_of_recorded;
+#[cfg(node_twin)]
 use crate::providers::anthropic::wire_tests::seen_of_sent;
+#[cfg(node_twin)]
 use crate::registry::keys::ApiKeyStore;
+#[cfg(node_twin)]
 use crate::registry::keys::Environment;
+#[cfg(node_twin)]
 use crate::registry::keys::KeyConfig;
+#[cfg(node_twin)]
 use crate::registry::keys::MemoryVault;
+#[cfg(node_twin)]
 use crate::registry::keys::ProviderKey;
+#[cfg(node_twin)]
 use crate::catalog::CatalogService;
+#[cfg(node_twin)]
 use crate::catalog::CatalogSnapshot;
+#[cfg(node_twin)]
 use crate::catalog::ModelsDevSource;
+#[cfg(node_twin)]
 use crate::catalog::pricing::CatalogPricing;
+#[cfg(node_twin)]
 use crate::registry::accounted::AccountedAdapter;
+#[cfg(node_twin)]
 use crate::registry::accounted::AccountingDeps;
+#[cfg(node_twin)]
 use crate::registry::accounting::UsageRow;
+#[cfg(node_twin)]
 use crate::registry::accounting::UsageSink;
+#[cfg(node_twin)]
 use crate::transport::BodyStream;
+#[cfg(node_twin)]
 use crate::transport::HttpResponse;
+#[cfg(node_twin)]
 use crate::transport::HttpSend;
+#[cfg(node_twin)]
 use crate::oauth::CredentialIo;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::DeliveryState;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ErrorKind;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::SendEnd;
 
+#[cfg(node_twin)]
 struct Once(Option<Bytes>);
 
+#[cfg(node_twin)]
 #[async_trait]
 impl BodyStream for Once {
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
@@ -69,43 +122,19 @@ impl BodyStream for Once {
     }
 }
 
-/// Answers each request with the next recorded answer and keeps what was sent.
-struct Recorded {
-    replies: Mutex<VecDeque<(u16, String)>>,
-    sent: Mutex<Vec<WireRequest>>,
-    /// What the recording says happened to the environment when the server refused the key (a rotated or removed
-    /// key), applied once, at the first 401 this send is answered with.
-    on_refusal: Mutex<Vec<(String, Option<String>)>>,
-    env: Arc<ScenarioEnv>,
-}
-
+#[cfg(node_twin)]
 /// The process environment of a recorded scenario.
 #[derive(Default)]
 struct ScenarioEnv(Mutex<std::collections::HashMap<String, String>>);
 
+#[cfg(node_twin)]
 impl Environment for ScenarioEnv {
     fn var(&self, name: &str) -> Option<String> {
         self.0.lock().unwrap().get(name).cloned()
     }
 }
 
-#[async_trait]
-impl HttpSend for Recorded {
-    async fn send(&self, request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
-        self.sent.lock().unwrap().push(request);
-        let (status, body) = self.replies.lock().unwrap().pop_front().expect("a recorded answer for this request");
-        if status == 401 {
-            for (name, value) in self.on_refusal.lock().unwrap().drain(..) {
-                match value {
-                    Some(value) => self.env.0.lock().unwrap().insert(name, value),
-                    None => self.env.0.lock().unwrap().remove(&name),
-                };
-            }
-        }
-        Ok(HttpResponse { status, headers: vec![], body: Box::new(Once(Some(Bytes::from(body)))) })
-    }
-}
-
+#[cfg(node_twin)]
 /// Node's virtual time: a clock and a timer queue that runs a task only when `advance` reaches it (due time, then
 /// registration order, one task at a time).
 struct Virtual {
@@ -114,7 +143,9 @@ struct Virtual {
     timers: Mutex<Vec<(u64, u64, BoxFuture<'static, ()>)>>,
 }
 
+#[cfg(node_twin)]
 impl Virtual {
+    #[cfg(node_twin)]
     async fn advance(&self, ms: u64) {
         let target = self.now.load(Ordering::SeqCst) + ms;
         loop {
@@ -131,6 +162,7 @@ impl Virtual {
     }
 }
 
+#[cfg(node_twin)]
 impl CacheRuntime for Virtual {
     fn now_ms(&self) -> u64 {
         self.now.load(Ordering::SeqCst)
@@ -160,6 +192,7 @@ impl CacheRuntime for Virtual {
 /// How long a step of the test may take in real time before it is a failure (nothing here waits on the network).
 const STEP: std::time::Duration = std::time::Duration::from_secs(30);
 
+#[cfg(node_twin)]
 /// Every wait of this test has a deadline and says what it was waiting for when it passes.
 async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T {
     answered(what, wait).await.unwrap_or_else(|failure| panic!("{failure}"))
@@ -183,10 +216,12 @@ async fn a_wait_nobody_answers_fails_at_its_deadline_naming_it() {
     assert_eq!(failure, std::task::Poll::Ready(Err(format!("the awaited answer: no answer within {STEP:?}"))));
 }
 
+#[cfg(node_twin)]
 /// Nothing is fetched: the pricing catalog stays empty, as on a machine that never fetched the price tables (the
 /// recorder's, too), so a model is unpriced and the row says so.
 struct Offline;
 
+#[cfg(node_twin)]
 #[async_trait]
 impl HttpSend for Offline {
     async fn send(&self, _: WireRequest, _: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
@@ -194,6 +229,7 @@ impl HttpSend for Offline {
     }
 }
 
+#[cfg(node_twin)]
 pub(crate) async fn empty_pricing() -> Arc<CatalogPricing> {
     let tokens = mixdog_rt::testing::tokens();
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
@@ -201,10 +237,12 @@ pub(crate) async fn empty_pricing() -> Arc<CatalogPricing> {
     Arc::new(CatalogPricing(Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await)))
 }
 
+#[cfg(node_twin)]
 /// The usage rows the accounting wrote, in the shape Node's ledger takes them.
 #[derive(Default)]
 pub(crate) struct Rows(pub(crate) Mutex<Vec<Value>>);
 
+#[cfg(node_twin)]
 #[async_trait]
 impl UsageSink for Rows {
     async fn record_queued(&self, row: UsageRow) -> Result<(), String> {
@@ -213,6 +251,7 @@ impl UsageSink for Rows {
     }
 }
 
+#[cfg(node_twin)]
 fn message_of(recorded: &Value) -> Message {
     let role = match recorded["role"].as_str().expect("role") {
         "system" => Role::System,
@@ -234,6 +273,7 @@ fn message_of(recorded: &Value) -> Message {
     message
 }
 
+#[cfg(node_twin)]
 fn tool_of(recorded: &Value) -> ToolDefinition {
     ToolDefinition {
         name: recorded["name"].as_str().expect("name").into(),
@@ -244,6 +284,7 @@ fn tool_of(recorded: &Value) -> ToolDefinition {
     }
 }
 
+#[cfg(node_twin)]
 fn options_of(recorded: &Value) -> RequestOptions {
     RequestOptions {
         session_id: recorded["sessionId"].as_str().map(str::to_owned),
@@ -256,6 +297,35 @@ fn options_of(recorded: &Value) -> RequestOptions {
     }
 }
 
+
+#[cfg(node_twin)]
+/// Answers each request with the next recorded answer and keeps what was sent.
+struct Recorded {
+    replies: Mutex<VecDeque<(u16, String)>>,
+    sent: Mutex<Vec<WireRequest>>,
+    /// What the recording says happened to the environment when the server refused the key (a rotated or removed
+    /// key), applied once, at the first 401 this send is answered with.
+    on_refusal: Mutex<Vec<(String, Option<String>)>>,
+    env: Arc<ScenarioEnv>,
+}
+#[cfg(node_twin)]
+#[async_trait]
+impl HttpSend for Recorded {
+    async fn send(&self, request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        self.sent.lock().unwrap().push(request);
+        let (status, body) = self.replies.lock().unwrap().pop_front().expect("a recorded answer for this request");
+        if status == 401 {
+            for (name, value) in self.on_refusal.lock().unwrap().drain(..) {
+                match value {
+                    Some(value) => self.env.0.lock().unwrap().insert(name, value),
+                    None => self.env.0.lock().unwrap().remove(&name),
+                };
+            }
+        }
+        Ok(HttpResponse { status, headers: vec![], body: Box::new(Once(Some(Bytes::from(body)))) })
+    }
+}
+#[cfg(node_twin)]
 #[tokio::test]
 async fn every_recorded_send_puts_the_requests_node_sent_on_the_wire() {
     let document = recording("gemini.json");

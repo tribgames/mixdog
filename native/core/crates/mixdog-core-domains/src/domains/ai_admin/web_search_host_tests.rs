@@ -20,13 +20,13 @@ use mixdog_core_api::mock::MockStatePublisher;
 use mixdog_core_config::config::{Config, ConfigLanes};
 use mixdog_core_ports::ports::route::{LiveRoute, Route};
 use mixdog_rt::LaneToken as _;
-use mixdog_tools::web::{ConfiguredSearchRoutes, SearchCandidate, SearchHost, SearchRoutes};
+use mixdog_tools::web::SearchHost;
+#[cfg(node_twin)]
+use mixdog_tools::web::{ConfiguredSearchRoutes, SearchCandidate, SearchRoutes};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::web_search_host::RegistrySearchHost;
-
-const GOLDEN: &str = include_str!("../../../../../fixtures/hosted-search/golden.json");
 
 struct Offline;
 
@@ -95,6 +95,7 @@ async fn host(agent: Value, cells: HashMap<ThreadId, Route>) -> (tempfile::TempD
     (dir, Arc::new(RegistrySearchHost { cells: Arc::new(Cells(cells)), config, catalog, readiness, registry }))
 }
 
+#[cfg(node_twin)]
 fn view(candidate: &SearchCandidate) -> Value {
     json!({
         "provider": candidate.provider,
@@ -107,6 +108,7 @@ fn view(candidate: &SearchCandidate) -> Value {
 }
 
 /// What the recording says `thread`'s search resolves to for `case`.
+#[cfg(node_twin)]
 async fn expect(routes: &ConfiguredSearchRoutes, thread: &ThreadId, case: &Value) {
     let name = &case["name"];
     let got = routes.candidates(thread).await;
@@ -127,7 +129,25 @@ async fn expect(routes: &ConfiguredSearchRoutes, thread: &ThreadId, case: &Value
     }
 }
 
+#[cfg(node_twin)]
+fn main_of(case: &Value) -> Route {
+    case["main"].as_object().cloned().unwrap_or_default()
+}
+
+#[tokio::test]
+async fn a_thread_is_its_own_session_and_a_provider_is_the_registrys() {
+    let (_dir, host) = host(json!({ "webSearchRoute": { "provider": "openai", "model": "gpt-5.2" } }), HashMap::new()).await;
+    assert_eq!(host.session_id(&thread_of(7)).as_deref(), Some("thread-7"));
+    assert_eq!(host.stored_web_search_route(), json!({ "provider": "openai", "model": "gpt-5.2" }));
+    assert!(host.provider("openai").await.unwrap().is_some());
+    assert_eq!(host.main_route(&thread_of(7)), json!({}));
+}
+
+
+#[cfg(node_twin)]
+const GOLDEN: &str = include_str!("../../../../../fixtures/hosted-search/golden.json");
 /// The recorded route cases that read no catalog row.
+#[cfg(node_twin)]
 fn route_cases() -> Vec<Value> {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     golden["routes"]
@@ -138,11 +158,7 @@ fn route_cases() -> Vec<Value> {
         .cloned()
         .collect()
 }
-
-fn main_of(case: &Value) -> Route {
-    case["main"].as_object().cloned().unwrap_or_default()
-}
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_hosts_candidates_are_the_ones_node_resolves() {
     let cases = route_cases();
@@ -156,7 +172,7 @@ async fn the_hosts_candidates_are_the_ones_node_resolves() {
         expect(&ConfiguredSearchRoutes::new(host), &thread_of(0), case).await;
     }
 }
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn one_host_answers_each_thread_with_its_own_main_route() {
     // The recorded cases that differ only in their Main route share the stored route (none).
@@ -168,13 +184,4 @@ async fn one_host_answers_each_thread_with_its_own_main_route() {
     for (index, case) in cases.iter().enumerate().rev() {
         expect(&routes, &thread_of(index), case).await;
     }
-}
-
-#[tokio::test]
-async fn a_thread_is_its_own_session_and_a_provider_is_the_registrys() {
-    let (_dir, host) = host(json!({ "webSearchRoute": { "provider": "openai", "model": "gpt-5.2" } }), HashMap::new()).await;
-    assert_eq!(host.session_id(&thread_of(7)).as_deref(), Some("thread-7"));
-    assert_eq!(host.stored_web_search_route(), json!({ "provider": "openai", "model": "gpt-5.2" }));
-    assert!(host.provider("openai").await.unwrap().is_some());
-    assert_eq!(host.main_route(&thread_of(7)), json!({}));
 }

@@ -57,6 +57,9 @@ pub struct ProgramArgs {
     pub lock_wait_ms: Option<u64>,
     #[serde(default)]
     pub lock_stale_ms: Option<u64>,
+    /// probe/ensure: the saved host's grace in ms, the launched core's `MIXDOG_REMOTE_CLIENT_GRACE_MS`; absent: the core's own 30 minutes.
+    #[serde(default)]
+    pub grace_ms: Option<u64>,
 }
 
 impl ProgramArgs {

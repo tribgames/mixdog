@@ -18,6 +18,7 @@ use mixdog_app_protocol::v2::thread::ThreadSearchParams;
 use serde_json::Value;
 use serde_json::json;
 
+use super::access::MemoryAccess;
 use super::session_search::db::SessionSearchDb;
 
 const METHOD: &str = "thread/search";
@@ -25,12 +26,13 @@ const DOMAIN: &str = "memory";
 const LIMIT: i64 = 50;
 const MAX_QUERY_UNITS: usize = 1_024;
 
+/// Its searches are scoped operations of the memory stack's owner (`MemoryStack::search_access`).
 pub struct ThreadSearchService {
-    search: SessionSearchDb,
+    search: MemoryAccess,
 }
 
 impl ThreadSearchService {
-    pub fn new(search: SessionSearchDb) -> Arc<Self> {
+    pub fn new(search: MemoryAccess) -> Arc<Self> {
         Arc::new(Self { search })
     }
 
@@ -40,7 +42,12 @@ impl ThreadSearchService {
         if text.is_empty() || mixdog_js::utf16_len(text) > MAX_QUERY_UNITS {
             return Err(failed(DOMAIN, "session search query is invalid."));
         }
-        let hits = self.search.search(text, LIMIT).await.map_err(|e| failed(DOMAIN, e.to_string()))?;
+        let query = text.to_owned();
+        let hits = self
+            .search
+            .run("services.memory.thread-search", move |db| async move { SessionSearchDb::over(db).search(&query, LIMIT).await })
+            .await
+            .map_err(|e| failed(DOMAIN, e.to_string()))?;
         let mut out = Vec::with_capacity(hits.len());
         for hit in hits {
             // `ts_rank_cd` is a float4, which node-postgres parses from its shortest decimal
@@ -76,6 +83,87 @@ impl DomainService for ThreadSearchService {
     }
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "thread_search_tests.rs"]
-mod tests;
+mod node_answers;
+
+#[cfg(test)]
+mod tests {
+    use mixdog_core_api::CoreRequest;
+    use mixdog_core_api::DomainService;
+    use mixdog_core_api::Reply;
+    use mixdog_core_api::call::CallContext;
+    use mixdog_core_api::ids::Method;
+    use serde_json::{Value, json};
+
+    use super::ThreadSearchService;
+    use crate::memory::pg::db::Schema;
+    use crate::memory::session_search::db::SessionSearchDb;
+    use crate::memory::tests::support::TestPg;
+
+    async fn service_over(pg: &TestPg, sessions: &[(&str, Vec<Value>)]) -> std::sync::Arc<ThreadSearchService> {
+        let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.unwrap();
+        for (session, rows) in sessions {
+            db.append(session, rows).await.unwrap();
+        }
+        ThreadSearchService::new(crate::memory::access::MemoryAccess::over(db.db().clone()))
+    }
+
+    fn say(role: &str, text: &str) -> Value {
+        json!({ "role": role, "content": text })
+    }
+
+    #[tokio::test]
+    #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+    async fn a_query_answers_each_session_once_with_its_best_snippet_and_a_rank() {
+        let pg = TestPg::start().await;
+        let service = service_over(
+            &pg,
+            &[
+                ("s1", vec![say("user", "Deploy the staging cluster tonight"), say("assistant", "The staging cluster is deploying now")]),
+                ("s2", vec![say("user", "Unrelated talk about lunch")]),
+            ],
+        )
+        .await;
+        let hits = service.run("staging cluster").await.unwrap();
+        let hits = hits.as_array().unwrap();
+        assert_eq!(hits.len(), 1, "one answer per matching session");
+        assert_eq!(hits[0]["sessionId"], "s1");
+        assert!(hits[0]["snippet"].as_str().unwrap().contains("staging"));
+        assert!(hits[0]["rank"].as_f64().unwrap() > 0.0);
+        assert_eq!(service.run("nothing like it anywhere").await.unwrap(), json!([]));
+    }
+
+    #[tokio::test]
+    #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+    async fn the_strongest_session_comes_first_and_no_more_than_fifty_are_answered() {
+        let pg = TestPg::start().await;
+        let mut sessions: Vec<(String, Vec<Value>)> = (0..55).map(|n| (format!("many-{n:02}"), vec![say("user", "rollout rollout checklist")])).collect();
+        sessions.push(("strong".into(), vec![say("user", "rollout rollout rollout rollout rollout")]));
+        let borrowed: Vec<(&str, Vec<Value>)> = sessions.iter().map(|(id, rows)| (id.as_str(), rows.clone())).collect();
+        let service = service_over(&pg, &borrowed).await;
+        let hits = service.run("rollout").await.unwrap();
+        let hits = hits.as_array().unwrap();
+        assert_eq!(hits.len(), 50);
+        let ranks: Vec<f64> = hits.iter().map(|h| h["rank"].as_f64().unwrap()).collect();
+        assert!(ranks.windows(2).all(|w| w[0] >= w[1]), "strongest first: {ranks:?}");
+    }
+
+    #[tokio::test]
+    #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+    async fn a_blank_or_over_long_query_is_refused_and_the_route_answers_the_same_as_run() {
+        let pg = TestPg::start().await;
+        let service = service_over(&pg, &[("s1", vec![say("user", "Deploy the staging cluster")])]).await;
+        let long = "q".repeat(1025);
+        for bad in ["", "   ", long.as_str()] {
+            assert!(service.run(bad).await.unwrap_err().to_string().contains("session search query is invalid."), "{}", bad.len());
+        }
+        assert!(service.run(&"q".repeat(1024)).await.is_ok(), "1024 units is the limit");
+        let request = CoreRequest { method: Method("thread/search"), params: json!({ "query": "staging" }), op: None, ctx: CallContext::internal("thread-search-test") };
+        let Ok(Reply::Value(routed)) = service.call(request).await else { panic!("the route answers a value") };
+        assert_eq!(routed, service.run("staging").await.unwrap());
+        let wrong = CoreRequest { method: Method("thread/other"), params: json!({}), op: None, ctx: CallContext::internal("thread-search-test") };
+        assert!(service.call(wrong).await.is_err());
+    }
+}

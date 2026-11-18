@@ -174,7 +174,17 @@ async fn a_host_ends_with_its_daemon_killed_hard_while_the_host_is_loading() {
     let mut said = [0u8; 16];
     assert!(host.read(&mut said).await.unwrap() > 0, "the host says its pid");
     daemon.kill().await.expect("the daemon is killed hard");
-    let ended = mixdog_rt::time::timeout(HANG, host.read(&mut said)).await.expect("the host is gone within the deadline after its daemon was killed");
+    // The pid line may arrive in pieces: what is left of it is read out, and the stream must then end.
+    let ended = mixdog_rt::time::timeout(HANG, async {
+        loop {
+            match host.read(&mut said).await {
+                Ok(n) if n > 0 => continue,
+                other => break other,
+            }
+        }
+    })
+    .await
+    .expect("the host is gone within the deadline after its daemon was killed");
     assert!(matches!(ended, Ok(0) | Err(_)), "{ended:?}");
 }
 

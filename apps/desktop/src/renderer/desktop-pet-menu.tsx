@@ -127,7 +127,8 @@ export function PetMenu({
   const panel = useRef<HTMLDivElement | null>(null);
   const [side, setSide] = useState<'right' | 'left'>('right');
   const startScale = state.scale ?? DESKTOP_PET_SCALE.default;
-  const [scale, setScale] = useState(startScale);
+  const [draft, setDraft] = useState<{ from: number; to: number } | null>(null);
+  const scale = draft?.from === startScale ? draft.to : startScale;
   const chosen = useRef({ scale, startScale, onScale });
   chosen.current = { scale, startScale, onScale };
   useEffect(
@@ -139,7 +140,7 @@ export function PetMenu({
   );
   const step = (direction: -1 | 1) => {
     const next = steppedPetScale(scale, direction);
-    setScale(next);
+    setDraft({ from: startScale, to: next });
     // At an end its button disables: the keys stay on the other one.
     const end = direction < 0 ? DESKTOP_PET_SCALE.min : DESKTOP_PET_SCALE.max;
     if (next === end) panel.current?.querySelector<HTMLButtonElement>(`[data-step="${-direction}"]`)?.focus();

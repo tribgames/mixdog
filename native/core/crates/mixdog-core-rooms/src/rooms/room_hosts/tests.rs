@@ -1,16 +1,16 @@
+#[cfg(node_twin)]
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 
+#[cfg(node_twin)]
 use serde_json::{Value, json};
+#[cfg(node_twin)]
 use tokio::sync::oneshot;
 
 use super::*;
 use crate::rooms::calls::tests::{Fake, status};
 use crate::rooms::room_relay::tests::{options, relay_over};
 use mixdog_services::bots::delivery::env::FollowRecord;
-
-/// Node's recording of the real `agent-room-host.mjs` over attach and detach steps (`record-room-host.mjs`).
-const TWIN: &str = include_str!("../../../../../fixtures/room-host/room-host-twin.json");
 
 struct NoRecord;
 
@@ -26,11 +26,13 @@ fn follow() -> WakeFollow {
 }
 
 /// The recorder's stand-in host: its turn settles with its own name, and what it was asked is kept in the shared log.
+#[cfg(node_twin)]
 struct Named {
     name: String,
     asked: Arc<Mutex<Vec<Value>>>,
 }
 
+#[cfg(node_twin)]
 #[async_trait]
 impl RoomRelay for Named {
     async fn relay(&self, session_id: &str, prompt: &str, options: WakeOptions, _: WakeFollow) -> Result<Option<WakeTurn>, String> {
@@ -42,12 +44,47 @@ impl RoomRelay for Named {
 }
 
 /// `agentRoomHost()`: which host is active, told by the turn it answers.
+#[cfg(node_twin)]
 async fn active_name(registry: &RoomHostRegistry) -> Result<String, String> {
     let host = registry.active()?;
     let turn = host.relay("probe", "", options("", 0), follow()).await?.expect("a turn");
     Ok(status(turn.settled).await)
 }
 
+#[tokio::test]
+async fn the_attached_core_relays_in_its_room_and_a_detached_one_refuses_with_nodes_text() {
+    let runner = Arc::new(Fake::default());
+    let (member_relay, _) = relay_over(&runner).await;
+    let session = mixdog_core_base::rooms::ids::room_member_session_id("room01", "bench").unwrap();
+    let registry = Arc::new(RoomHostRegistry::default());
+
+    // Nothing attached yet: the relay throws before it reaches any room.
+    let before = registry.relay(&session, "REPORT: done", options("awake_1", 2), follow()).await;
+    assert_eq!(before.err().as_deref(), Some("group rooms run in the desktop app, and no desktop app is attached to this runtime"));
+
+    let attached = registry.register(Arc::new(member_relay));
+    let turn = registry.relay(&session, "REPORT: done", options("awake_2", 2), follow()).await.unwrap().expect("a turn");
+    assert_eq!(status(turn.settled).await, "done");
+    assert_eq!(*runner.seen.lock().unwrap(), vec![(vec!["bench".to_string()], true, 1)]);
+    assert_eq!(runner.cut_offs.load(Ordering::SeqCst), 0);
+
+    // The host's own refusals come through the registry unchanged.
+    let plain = registry.relay("sess_home_bench", "REPORT", options("awake_3", 0), follow()).await;
+    assert_eq!(plain.err().as_deref(), Some("Not a group-room member session."));
+
+    // Detached again: the next relay refuses and reaches no room.
+    attached.unregister();
+    runner.seen.lock().unwrap().clear();
+    let after = registry.relay(&session, "REPORT: done", options("awake_4", 2), follow()).await;
+    assert_eq!(after.err().as_deref(), Some(NO_HOST));
+    assert!(runner.seen.lock().unwrap().is_empty());
+}
+
+
+/// Node's recording of the real `agent-room-host.mjs` over attach and detach steps (`record-room-host.mjs`).
+#[cfg(node_twin)]
+const TWIN: &str = include_str!("../../../../../fixtures/room-host/room-host-twin.json");
+#[cfg(node_twin)]
 #[tokio::test]
 async fn attach_detach_and_relay_answer_as_nodes_registry_does() {
     let twin: Value = serde_json::from_str(TWIN).unwrap();
@@ -93,33 +130,4 @@ async fn attach_detach_and_relay_answer_as_nodes_registry_does() {
             other => panic!("a recorded step with no mapping: {other}"),
         }
     }
-}
-
-#[tokio::test]
-async fn the_attached_core_relays_in_its_room_and_a_detached_one_refuses_with_nodes_text() {
-    let runner = Arc::new(Fake::default());
-    let (member_relay, _) = relay_over(&runner).await;
-    let session = mixdog_core_base::rooms::ids::room_member_session_id("room01", "bench").unwrap();
-    let registry = Arc::new(RoomHostRegistry::default());
-
-    // Nothing attached yet: the relay throws before it reaches any room.
-    let before = registry.relay(&session, "REPORT: done", options("awake_1", 2), follow()).await;
-    assert_eq!(before.err().as_deref(), Some("group rooms run in the desktop app, and no desktop app is attached to this runtime"));
-
-    let attached = registry.register(Arc::new(member_relay));
-    let turn = registry.relay(&session, "REPORT: done", options("awake_2", 2), follow()).await.unwrap().expect("a turn");
-    assert_eq!(status(turn.settled).await, "done");
-    assert_eq!(*runner.seen.lock().unwrap(), vec![(vec!["bench".to_string()], true, 1)]);
-    assert_eq!(runner.cut_offs.load(Ordering::SeqCst), 0);
-
-    // The host's own refusals come through the registry unchanged.
-    let plain = registry.relay("sess_home_bench", "REPORT", options("awake_3", 0), follow()).await;
-    assert_eq!(plain.err().as_deref(), Some("Not a group-room member session."));
-
-    // Detached again: the next relay refuses and reaches no room.
-    attached.unregister();
-    runner.seen.lock().unwrap().clear();
-    let after = registry.relay(&session, "REPORT: done", options("awake_4", 2), follow()).await;
-    assert_eq!(after.err().as_deref(), Some(NO_HOST));
-    assert!(runner.seen.lock().unwrap().is_empty());
 }

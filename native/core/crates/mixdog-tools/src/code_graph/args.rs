@@ -17,6 +17,7 @@ pub(super) struct Args {
     pub limit: Option<f64>,
     pub depth: Option<f64>,
     pub page: Option<f64>,
+    pub node_offset: Option<usize>,
     pub language: Option<String>,
     pub cwd: Option<String>,
     /// `file` was a truthy value other than a string: Node resolves it as a path and throws Node's
@@ -146,6 +147,7 @@ impl Args {
             limit: number(v, "limit"),
             depth: number(v, "depth"),
             page: number(v, "page"),
+            node_offset: v.get("node_offset").and_then(Value::as_u64).and_then(|n| usize::try_from(n).ok()),
             language: text(v, "language"),
             cwd: text(v, "cwd"),
             file_type_error: v.get("file").and_then(file_type_error),

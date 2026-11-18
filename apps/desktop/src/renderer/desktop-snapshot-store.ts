@@ -77,6 +77,10 @@ const HEADER_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
   'commandStatus',
   'contextWindow',
   'displayContextWindow',
+  'contextTokens',
+  'rawContextWindow',
+  'usedTokens',
+  'fallbackUsedTokens',
   'autoCompactTokenLimit',
   'agentWorkers',
   'agentJobs',
@@ -93,6 +97,42 @@ const DOCK_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
   'agentJobs',
   'activeTools',
 ];
+
+// A mounted pane hands these views to React, not the store's publication.
+// An alternate Fiber (or a callback from that render) can outlive the swap.
+function snapshotView(fields: readonly string[]) {
+  const views = new WeakMap<Snapshot, Snapshot>();
+  return (snapshot: Snapshot): Snapshot => {
+    if (snapshot === EMPTY_SNAPSHOT) return snapshot;
+    let view = views.get(snapshot);
+    if (!view) {
+      view = {};
+      for (const key of fields) if (key in snapshot) view[key] = snapshot[key];
+      views.set(snapshot, view);
+    }
+    return view;
+  };
+}
+
+export const paneHeaderView = snapshotView([
+  ...HEADER_SNAPSHOT_FIELDS, 'shellJobs', 'stats',
+]);
+
+const COMPOSER_ROUTE_FIELDS = [
+  'sessionId', 'busy', 'commandBusy', 'workspace', 'promptRestore', 'promptHistoryList',
+  'provider', 'model', 'effort', 'fast', 'fastCapable', 'autoEffort', 'modelParameters', 'contextPercent', 'contextTokens',
+  'workflow', 'orchestrationMode', 'pendingWorkflowSwitch', 'pendingOrchestrationModeSwitch',
+];
+export const paneComposerRouteView = snapshotView(COMPOSER_ROUTE_FIELDS);
+
+const CONVERSATION_FIELDS = [
+  ...COMPOSER_ROUTE_FIELDS, 'items', 'transcriptHasOlder', 'transcriptTurnKeys', 'failedTurnKeys',
+  'queued', 'toolApproval', 'toolApprovalResult', 'toolApprovalsWaiting', 'handoffQuestions',
+  'quotaResume', 'currentProject', 'project', 'cwd', 'sessionProvider', 'sessionModel', 'turnEffort',
+  'spinner', 'commandStatus', 'thinking',
+  'agentWorkers', 'agentJobs', 'activeTools',
+];
+export const paneConversationView = snapshotView([...CONVERSATION_FIELDS, 'streamingTail', 'shellJobs']);
 
 function dockToolItem(snapshot: Snapshot) {
   const items = Array.isArray(snapshot.items) ? snapshot.items : [];
@@ -183,31 +223,9 @@ export function desktopConversationShellSnapshotsEqual(left: Snapshot, right: Sn
   if (left === right) return true;
   if (!preservesInitialBoundary(left, right)) return false;
   return (
-    left.items === right.items &&
+    snapshotFieldsEqual(left, right, CONVERSATION_FIELDS) &&
     streamingTailIdentityEqual(left, right) &&
-    left.failedTurnKeys === right.failedTurnKeys &&
-    left.transcriptTurnKeys === right.transcriptTurnKeys &&
-    left.busy === right.busy &&
-    left.commandBusy === right.commandBusy &&
-    left.toolApproval === right.toolApproval &&
-    left.toolApprovalsWaiting === right.toolApprovalsWaiting &&
-    left.handoffQuestions === right.handoffQuestions &&
-    left.queued === right.queued &&
-    left.sessionId === right.sessionId &&
-    left.currentProject === right.currentProject &&
-    left.project === right.project &&
-    left.cwd === right.cwd &&
-    left.promptHistoryList === right.promptHistoryList &&
-    left.provider === right.provider &&
-    left.model === right.model &&
-    left.sessionProvider === right.sessionProvider &&
-    left.sessionModel === right.sessionModel &&
-    left.effort === right.effort &&
-    left.turnEffort === right.turnEffort &&
-    left.fast === right.fast &&
-    left.fastCapable === right.fastCapable &&
-    left.autoEffort === right.autoEffort &&
-    left.workflow === right.workflow
+    shellJobsEqual(left, right)
   );
 }
 

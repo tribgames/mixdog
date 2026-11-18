@@ -10,9 +10,11 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::keepalive::TransportKeepalive;
+use mixdog_core_api::domain::provider::ConnectionInfo;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ErrorResponse;
+use mixdog_core_api::domain::provider::Exposure;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireRequest;
@@ -45,13 +47,27 @@ use super::ws::WsConnection;
 #[async_trait]
 pub trait BodyStream: Send {
     /// The next body chunk; `None` at a clean end of body. A fault is the
-    /// transport fact that ended the body.
+    /// transport fact that ended the body. A body is terminal once: after it yielded a fault, or `None`, every later read returns
+    /// `None` and the underlying source is not polled again (the model-exchange driver's body holds this for a deadline's
+    /// expiry, a transport fault and the end alike).
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>>;
 
     /// Keeps the connection of a body read to its end out of the pool until this body is dropped: Node's response
     /// returns its socket a check phase after the code that read it ran on, so a request that code sends at once finds
     /// that socket busy. The default does nothing.
     fn hold_connection(&mut self) {}
+
+    /// The connection this body is read off, where the transport knows it: carried on the failure of a request whose body
+    /// was cut ([`mixdog_core_api::domain::provider::ProviderError::connection`]). The default: unknown.
+    fn connection(&self) -> Option<mixdog_core_api::domain::provider::ConnectionInfo> {
+        None
+    }
+
+    /// The failure of the phase deadline that ended this body, when its fault was the model-exchange driver's expiry
+    /// ([`super::model_driver::DrivenBody`]) and not the wire's. The default: none.
+    fn expired(&self, _exposure: Exposure) -> Option<ProviderError> {
+        None
+    }
 }
 
 pub struct HttpResponse {
@@ -102,7 +118,7 @@ async fn drain(stream: &mut Box<dyn BodyStream>) -> Result<Vec<u8>, ProviderErro
                 match chunk {
                     Ok(bytes) => body.extend_from_slice(&bytes),
                     Err(fault) => {
-                        return Err(ProviderError::transport(fault, DeliveryState::Accepted));
+                        return Err(stream.expired(Exposure::default()).unwrap_or_else(|| ProviderError::transport(fault, DeliveryState::Accepted)));
                     }
                 }
             }
@@ -177,35 +193,6 @@ pub const SIGNAL_TIMED_OUT: &str = "The operation was aborted due to timeout";
 /// A bare `controller.abort()`'s `AbortError` message.
 pub const ABORTED: &str = "This operation was aborted";
 
-impl Surface {
-    /// Node's text for a connection failure, `None` where the link has none to give.
-    pub const fn connection_text(self) -> Option<&'static str> {
-        match self {
-            Self::Fetch | Self::FetchSignal | Self::FetchAborted | Self::FetchLabeled(_) => Some(FETCH_FAILED),
-            Self::Sdk => Some(CONNECTION_ERROR),
-            Self::Socket | Self::SocketLabeled(_) | Self::SocketConnect => None,
-        }
-    }
-
-    /// Node's text for an exchange that outlived its `after`, `None` where the link has none to give.
-    pub fn timeout_text(self, after: std::time::Duration) -> Option<String> {
-        match self {
-            Self::Fetch => Some(FETCH_FAILED.to_owned()),
-            Self::FetchSignal => Some(SIGNAL_TIMED_OUT.to_owned()),
-            Self::FetchAborted => Some(ABORTED.to_owned()),
-            Self::FetchLabeled(label) | Self::SocketLabeled(label) => Some(format!("{label} timed out after {}ms", after.as_millis())),
-            Self::Sdk => Some(REQUEST_TIMED_OUT.to_owned()),
-            Self::SocketConnect => Some("Cursor stream was aborted".to_owned()),
-            Self::Socket => None,
-        }
-    }
-
-    /// The text of a failure: Node's, else the link's own `fallback`.
-    pub fn text(self, fallback: impl FnOnce() -> String) -> String {
-        self.connection_text().map_or_else(fallback, str::to_owned)
-    }
-}
-
 /// The three per-request choices of an HTTP exchange: how long it may take, what a redirect does,
 /// and what a failure to connect reads as.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -249,6 +236,13 @@ pub trait HttpSend: Send + Sync {
         request: WireRequest,
         exchange: Exchange,
     ) -> Result<HttpResponse, ProviderError>;
+
+    /// Whether this transport tells a model attempt when it has its connection
+    /// (`model_driver::connected`), so connecting can be timed apart from the
+    /// provider's silence.
+    fn reports_connection(&self) -> bool {
+        false
+    }
 }
 
 /// Writes request-body frames of an open exchange.
@@ -463,26 +457,6 @@ pub fn deadline_error(expired: Expired, delivery: DeliveryState, surface: Surfac
     error
 }
 
-/// A `Unary` body ends at the exchange deadline; the stream below it keeps no timer.
-struct DeadlineBody {
-    inner: Box<dyn BodyStream>,
-    until: tokio::time::Instant,
-}
-
-#[async_trait]
-impl BodyStream for DeadlineBody {
-    fn hold_connection(&mut self) {
-        self.inner.hold_connection();
-    }
-
-    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-        match mixdog_rt::time::timeout_at(self.until, self.inner.next()).await {
-            Ok(item) => item,
-            Err(_) => Some(Err(TransportFault::Io { os_code: None })),
-        }
-    }
-}
-
 /// Redirects a request may follow before it fails (the fetch spec's limit).
 const MAX_REDIRECTS: usize = 20;
 
@@ -550,45 +524,8 @@ fn next_hop(
     Some(next)
 }
 
-/// The one place a request meets its [`Exchange`]: the head is bounded for both liveness
-/// classes, and a `Unary` body shares the same total.
-#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-async fn settle(
-    exchange: Exchange,
-    answer: impl std::future::Future<Output = Result<HttpResponse, ProviderError>>,
-) -> Result<HttpResponse, ProviderError> {
-    let liveness = exchange.liveness;
-    let started = tokio::time::Instant::now();
-    let mut response = liveness
-        .bound_head(answer)
-        .await
-        .map_err(|expired| deadline_error(expired, DeliveryState::Ambiguous, exchange.surface))??;
-    if let Some(total) = liveness.total_deadline() {
-        response.body = Box::new(DeadlineBody {
-            inner: response.body,
-            until: started + total,
-        });
-    }
-    Ok(response)
-}
-
 /// A link before its exchanges are redacted of the credentials they carried: only [`Guarded`] reaches it.
 struct Bare<'a, T>(&'a T);
-
-#[async_trait]
-impl HttpSend for Bare<'_, ReqwestLink> {
-    async fn send(
-        &self,
-        request: WireRequest,
-        exchange: Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
-        let answered = settle(exchange, self.0.hops(request, exchange));
-        // A turn waiting on the model's answer waits on a replay's input (feature `replay-bytes`).
-        #[cfg(feature = "replay-bytes")]
-        let answered = super::replay_bytes::parked(answered);
-        answered.await
-    }
-}
 
 #[async_trait]
 impl HttpSend for ReqwestLink {
@@ -598,6 +535,10 @@ impl HttpSend for ReqwestLink {
         exchange: Exchange,
     ) -> Result<HttpResponse, ProviderError> {
         Guarded(Bare(self)).send(request, exchange).await
+    }
+
+    fn reports_connection(&self) -> bool {
+        matches!(self.clients, Clients::Node(_))
     }
 }
 
@@ -677,49 +618,6 @@ impl BidiOpen for ReqwestLink {
         exchange: Exchange,
     ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
         Guarded(Bare(self)).open(request, first, exchange).await
-    }
-}
-
-#[async_trait]
-impl BidiOpen for Bare<'_, ReqwestLink> {
-    async fn open(
-        &self,
-        request: WireRequest,
-        first: Vec<u8>,
-        exchange: Exchange,
-    ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
-        // A streaming request body cannot be replayed, so a redirect is never followed.
-        let redirect = exchange.redirect;
-        if redirect == Redirect::Follow {
-            let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
-            error.message = "a streaming request body cannot follow a redirect".to_owned();
-            return Err(error);
-        }
-        let (tx, rx) = mpsc::unbounded_channel::<Bytes>();
-        let _ = tx.send(Bytes::from(first));
-        let stream = futures::stream::unfold(rx, |mut rx| async move {
-            rx.recv()
-                .await
-                .map(|bytes| (Ok::<_, std::io::Error>(bytes), rx))
-        });
-        let surface = exchange.surface;
-        let builder = self
-            .0
-            .builder(&request, surface)
-            .await?
-            .body(reqwest::Body::wrap_stream(stream));
-        let answer = async {
-            let raw = builder
-                .send()
-                .await
-                .map_err(|err| provider_error_from_reqwest(&err, surface))?;
-            if redirect == Redirect::Error && is_redirect(raw.status()) {
-                return Err(redirect_refused(raw.status(), surface));
-            }
-            Ok(response_of(raw))
-        };
-        let response = settle(exchange, answer).await?;
-        Ok((response, Arc::new(ChannelSink(tx))))
     }
 }
 
@@ -844,25 +742,6 @@ mod tests {
 
     use super::*;
 
-    /// Every loopback port against the set Node's `fetch` refused when asked for each one (`golden/connect_errors.json`
-    /// `badPorts`); the refusal is an I/O fault with Node's text, never a connect fault.
-    #[test]
-    fn the_ports_fetch_refuses_fail_before_connecting() {
-        let golden: serde_json::Value =
-            serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
-        let recorded: Vec<u16> = golden["badPorts"].as_array().unwrap().iter().map(|p| p.as_u64().unwrap() as u16).collect();
-        let refused: Vec<u16> =
-            (1..=u16::MAX).filter(|port| restricted_port(&format!("http://127.0.0.1:{port}/v1"), Surface::Fetch).is_some()).collect();
-        assert_eq!(refused, recorded);
-        let error = restricted_port("http://127.0.0.1:9/v1", Surface::Fetch).expect("port 9 is refused");
-        assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }));
-        assert_eq!(error.delivery, DeliveryState::NotSent);
-        // The text is the call site's (the golden's chain: `Connection error.` <- `fetch failed` <- `bad port`).
-        assert_eq!(error.message, "fetch failed");
-        assert_eq!(restricted_port("http://127.0.0.1:9/v1", Surface::Sdk).expect("refused").message, "Connection error.");
-        assert!(restricted_port("https://example.com/v1", Surface::Fetch).is_none(), "a default port is never restricted");
-    }
-
     /// A body whose peer holds the connection open and says nothing.
     struct Silent;
 
@@ -882,6 +761,17 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn the_error_body_of_a_stream_ends_at_the_dispatcher_ceiling() {
+        let error = head_of(Box::new(Silent))
+            .read_all()
+            .await
+            .expect_err("the error body never ends");
+        assert_eq!(error.delivery, DeliveryState::Accepted);
+        // The ceiling is the dispatcher's own: a raw `fetch`'s `fetch failed`.
+        assert_eq!(error.message, "fetch failed");
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn a_unary_body_that_never_ends_fails_at_its_total() {
         let total = Duration::from_secs(30);
         let body = DeadlineBody {
@@ -896,14 +786,182 @@ mod tests {
         assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }));
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn the_error_body_of_a_stream_ends_at_the_dispatcher_ceiling() {
-        let error = head_of(Box::new(Silent))
-            .read_all()
-            .await
-            .expect_err("the error body never ends");
-        assert_eq!(error.delivery, DeliveryState::Accepted);
-        // The ceiling is the dispatcher's own: a raw `fetch`'s `fetch failed`.
+    /// The ports `fetch` refuses to connect to (the fetch standard's "bad port" list).
+    const BAD_PORTS: [u16; 82] = [
+        1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119,
+        123, 135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990,
+        993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
+    ];
+
+    #[test]
+    fn exactly_the_ports_the_fetch_standard_restricts_are_refused_before_connecting() {
+        let refused: Vec<u16> =
+            (1..=u16::MAX).filter(|port| restricted_port(&format!("http://127.0.0.1:{port}/v1"), Surface::Fetch).is_some()).collect();
+        assert_eq!(refused, BAD_PORTS);
+    }
+
+    #[test]
+    fn a_refused_port_is_an_io_fault_that_never_connected_worded_by_the_call_site() {
+        let error = restricted_port("http://127.0.0.1:9/v1", Surface::Fetch).expect("port 9 is refused");
+        assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }));
+        assert_eq!(error.delivery, DeliveryState::NotSent);
         assert_eq!(error.message, "fetch failed");
+        assert_eq!(restricted_port("http://127.0.0.1:9/v1", Surface::Sdk).expect("refused").message, "Connection error.");
+    }
+
+    #[test]
+    fn a_default_port_is_never_restricted() {
+        for url in ["https://example.com/v1", "http://example.com/v1", "http://127.0.0.1:80/", "https://example.com:443/"] {
+            assert!(restricted_port(url, Surface::Fetch).is_none(), "{url}");
+        }
+    }
+
+    /// Every loopback port against the set Node's `fetch` refused when asked for each one (`golden/connect_errors.json`
+    /// `badPorts`); the refusal is an I/O fault with Node's text, never a connect fault.
+    #[cfg(node_twin)]
+    #[test]
+    fn the_ports_fetch_refuses_fail_before_connecting() {
+        let golden: serde_json::Value =
+            serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+        let recorded: Vec<u16> = golden["badPorts"].as_array().unwrap().iter().map(|p| p.as_u64().unwrap() as u16).collect();
+        let refused: Vec<u16> =
+            (1..=u16::MAX).filter(|port| restricted_port(&format!("http://127.0.0.1:{port}/v1"), Surface::Fetch).is_some()).collect();
+        assert_eq!(refused, recorded);
+        let error = restricted_port("http://127.0.0.1:9/v1", Surface::Fetch).expect("port 9 is refused");
+        assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }));
+        assert_eq!(error.delivery, DeliveryState::NotSent);
+        // The text is the call site's (the golden's chain: `Connection error.` <- `fetch failed` <- `bad port`).
+        assert_eq!(error.message, "fetch failed");
+        assert_eq!(restricted_port("http://127.0.0.1:9/v1", Surface::Sdk).expect("refused").message, "Connection error.");
+        assert!(restricted_port("https://example.com/v1", Surface::Fetch).is_none(), "a default port is never restricted");
+    }
+}
+
+
+impl Surface {
+    /// Node's text for a connection failure, `None` where the link has none to give.
+    pub const fn connection_text(self) -> Option<&'static str> {
+        match self {
+            Self::Fetch | Self::FetchSignal | Self::FetchAborted | Self::FetchLabeled(_) => Some(FETCH_FAILED),
+            Self::Sdk => Some(CONNECTION_ERROR),
+            Self::Socket | Self::SocketLabeled(_) | Self::SocketConnect => None,
+        }
+    }
+
+    /// Node's text for an exchange that outlived its `after`, `None` where the link has none to give.
+    pub fn timeout_text(self, after: std::time::Duration) -> Option<String> {
+        match self {
+            Self::Fetch => Some(FETCH_FAILED.to_owned()),
+            Self::FetchSignal => Some(SIGNAL_TIMED_OUT.to_owned()),
+            Self::FetchAborted => Some(ABORTED.to_owned()),
+            Self::FetchLabeled(label) | Self::SocketLabeled(label) => Some(format!("{label} timed out after {}ms", after.as_millis())),
+            Self::Sdk => Some(REQUEST_TIMED_OUT.to_owned()),
+            Self::SocketConnect => Some("Cursor stream was aborted".to_owned()),
+            Self::Socket => None,
+        }
+    }
+
+    /// The text of a failure: Node's, else the link's own `fallback`.
+    pub fn text(self, fallback: impl FnOnce() -> String) -> String {
+        self.connection_text().map_or_else(fallback, str::to_owned)
+    }
+}
+/// A `Unary` body ends at the exchange deadline; the stream below it keeps no timer.
+struct DeadlineBody {
+    inner: Box<dyn BodyStream>,
+    until: tokio::time::Instant,
+}
+#[async_trait]
+impl BodyStream for DeadlineBody {
+    fn hold_connection(&mut self) {
+        self.inner.hold_connection();
+    }
+
+    fn connection(&self) -> Option<ConnectionInfo> {
+        self.inner.connection()
+    }
+
+    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
+        match mixdog_rt::time::timeout_at(self.until, self.inner.next()).await {
+            Ok(item) => item,
+            Err(_) => Some(Err(TransportFault::Io { os_code: None })),
+        }
+    }
+}
+/// The one place a request meets its [`Exchange`]: the head is bounded for both liveness
+/// classes, and a `Unary` body shares the same total.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+async fn settle(
+    exchange: Exchange,
+    answer: impl std::future::Future<Output = Result<HttpResponse, ProviderError>>,
+) -> Result<HttpResponse, ProviderError> {
+    let liveness = exchange.liveness;
+    let started = tokio::time::Instant::now();
+    let mut response = liveness
+        .bound_head(answer)
+        .await
+        .map_err(|expired| deadline_error(expired, DeliveryState::Ambiguous, exchange.surface))??;
+    if let Some(total) = liveness.total_deadline() {
+        response.body = Box::new(DeadlineBody {
+            inner: response.body,
+            until: started + total,
+        });
+    }
+    Ok(response)
+}
+#[async_trait]
+impl HttpSend for Bare<'_, ReqwestLink> {
+    async fn send(
+        &self,
+        request: WireRequest,
+        exchange: Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
+        let answered = settle(exchange, self.0.hops(request, exchange));
+        // A turn waiting on the model's answer waits on a replay's input (feature `replay-bytes`).
+        #[cfg(feature = "replay-bytes")]
+        let answered = super::replay_bytes::parked(answered);
+        answered.await
+    }
+}
+#[async_trait]
+impl BidiOpen for Bare<'_, ReqwestLink> {
+    async fn open(
+        &self,
+        request: WireRequest,
+        first: Vec<u8>,
+        exchange: Exchange,
+    ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
+        // A streaming request body cannot be replayed, so a redirect is never followed.
+        let redirect = exchange.redirect;
+        if redirect == Redirect::Follow {
+            let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+            error.message = "a streaming request body cannot follow a redirect".to_owned();
+            return Err(error);
+        }
+        let (tx, rx) = mpsc::unbounded_channel::<Bytes>();
+        let _ = tx.send(Bytes::from(first));
+        let stream = futures::stream::unfold(rx, |mut rx| async move {
+            rx.recv()
+                .await
+                .map(|bytes| (Ok::<_, std::io::Error>(bytes), rx))
+        });
+        let surface = exchange.surface;
+        let builder = self
+            .0
+            .builder(&request, surface)
+            .await?
+            .body(reqwest::Body::wrap_stream(stream));
+        let answer = async {
+            let raw = builder
+                .send()
+                .await
+                .map_err(|err| provider_error_from_reqwest(&err, surface))?;
+            if redirect == Redirect::Error && is_redirect(raw.status()) {
+                return Err(redirect_refused(raw.status(), surface));
+            }
+            Ok(response_of(raw))
+        };
+        let response = settle(exchange, answer).await?;
+        Ok((response, Arc::new(ChannelSink(tx))))
     }
 }

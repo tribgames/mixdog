@@ -17,32 +17,6 @@ struct Desktop {
     reply: Mutex<Result<Value, ()>>,
 }
 
-impl Desktop {
-    fn answering(reply: Value) -> Arc<Self> {
-        Arc::new(Self { seen: Mutex::default(), reply: Mutex::new(Ok(reply)) })
-    }
-
-    fn refusing() -> Arc<Self> {
-        Arc::new(Self { seen: Mutex::default(), reply: Mutex::new(Err(())) })
-    }
-
-    fn seen(&self) -> Vec<(String, Value)> {
-        lock(&self.seen).clone()
-    }
-
-    /// The requests are sent by a task of their own: waits until `count` have arrived.
-    #[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
-    async fn until(&self, count: usize) -> Vec<(String, Value)> {
-        for _ in 0..2_000 {
-            if self.seen().len() >= count {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
-        self.seen()
-    }
-}
-
 #[async_trait]
 impl HostChannel for Desktop {
     async fn request(&self, _capability: HostCapability, method: Method, params: Value) -> Result<Value, HostError> {
@@ -76,43 +50,6 @@ fn shown(screen_id: &str, on_stop: Arc<dyn Fn() + Send + Sync>) -> IndicatorStat
     IndicatorState { client_label: "Phone".into(), controlling: false, screen_id: screen_id.into(), on_stop }
 }
 
-/// A session's places on the pill reach the desktop in the order the session made them, each with the label and what the pill needs.
-#[tokio::test]
-async fn the_pill_is_driven_in_the_order_the_session_made_its_calls() {
-    // The pill's requests go out on a task of their own (mixdog_rt::spawn).
-    let _ = mixdog_rt::testing::tokens();
-    let desktop = Desktop::answering(json!({}));
-    let indicator = DesktopIndicator::new(desktop.clone(), Arc::default());
-    indicator.show(shown("1", stop_counter().0));
-    indicator.update(true);
-    indicator.hide();
-    let seen = desktop.until(3).await;
-    assert_eq!(
-        seen,
-        vec![
-            ("host/screen/indicator".to_owned(), json!({"state": "show", "screenId": "1", "clientLabel": "Phone", "controlling": false})),
-            ("host/screen/indicator".to_owned(), json!({"state": "update", "screenId": "1", "clientLabel": "Phone", "controlling": true})),
-            ("host/screen/indicator".to_owned(), json!({"state": "hide", "screenId": "1"})),
-        ]
-    );
-}
-
-/// An update or a hide of a session that showed nothing asks nothing of the desktop, and a desktop that refuses the pill does not
-/// stop the session's later calls.
-#[tokio::test]
-async fn a_pill_that_was_never_shown_asks_nothing_and_a_refusing_desktop_is_not_a_failure() {
-    // The pill's requests go out on a task of their own (mixdog_rt::spawn).
-    let _ = mixdog_rt::testing::tokens();
-    let desktop = Desktop::refusing();
-    let indicator = DesktopIndicator::new(desktop.clone(), Arc::default());
-    indicator.update(true);
-    indicator.hide();
-    indicator.show(shown("2", stop_counter().0));
-    indicator.hide();
-    let seen = desktop.until(2).await;
-    assert_eq!(seen.len(), 2, "the show and the hide were both sent although the first was refused");
-}
-
 /// The pill's Stop ends the session of the display it names, only while that session is shown; a later session of the display keeps its
 /// Stop when an earlier one hides.
 #[test]
@@ -132,22 +69,6 @@ fn the_pills_stop_ends_the_session_of_its_display() {
     stops.clear("1", &second);
     stops.stopped("1");
     assert_eq!(second_count.load(Ordering::SeqCst), 1);
-}
-
-/// The desktop's Stop reaches the session through the same port the session showed its place by.
-#[tokio::test]
-async fn a_stop_reported_by_the_desktop_ends_the_shown_session() {
-    // The pill's requests go out on a task of their own (mixdog_rt::spawn).
-    let _ = mixdog_rt::testing::tokens();
-    let stops = Arc::new(IndicatorStops::default());
-    let indicator = DesktopIndicator::new(Desktop::answering(json!({})), stops.clone());
-    let (on_stop, count) = stop_counter();
-    indicator.show(shown("3", on_stop));
-    stops.stopped("3");
-    assert_eq!(count.load(Ordering::SeqCst), 1);
-    indicator.hide();
-    stops.stopped("3");
-    assert_eq!(count.load(Ordering::SeqCst), 1, "a hidden session has no Stop");
 }
 
 #[test]
@@ -239,4 +160,81 @@ fn the_desktops_screen_reports_wait_for_the_composition() {
     cell.displays_changed();
     cell.indicator_stopped("2");
     assert_eq!(*lock(&told.0), vec!["changed".to_owned(), "stopped 2".to_owned()]);
+}
+
+
+impl Desktop {
+    fn answering(reply: Value) -> Arc<Self> {
+        Arc::new(Self { seen: Mutex::default(), reply: Mutex::new(Ok(reply)) })
+    }
+
+    fn refusing() -> Arc<Self> {
+        Arc::new(Self { seen: Mutex::default(), reply: Mutex::new(Err(())) })
+    }
+
+    fn seen(&self) -> Vec<(String, Value)> {
+        lock(&self.seen).clone()
+    }
+
+    /// The requests are sent by a task of their own: waits until `count` have arrived.
+    #[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
+    async fn until(&self, count: usize) -> Vec<(String, Value)> {
+        for _ in 0..2_000 {
+            if self.seen().len() >= count {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        self.seen()
+    }
+}
+/// A session's places on the pill reach the desktop in the order the session made them, each with the label and what the pill needs.
+#[tokio::test]
+async fn the_pill_is_driven_in_the_order_the_session_made_its_calls() {
+    // The pill's requests go out on a task of their own (mixdog_rt::spawn).
+    let _ = mixdog_rt::testing::tokens();
+    let desktop = Desktop::answering(json!({}));
+    let indicator = DesktopIndicator::new(desktop.clone(), Arc::default());
+    indicator.show(shown("1", stop_counter().0));
+    indicator.update(true);
+    indicator.hide();
+    let seen = desktop.until(3).await;
+    assert_eq!(
+        seen,
+        vec![
+            ("host/screen/indicator".to_owned(), json!({"state": "show", "screenId": "1", "clientLabel": "Phone", "controlling": false})),
+            ("host/screen/indicator".to_owned(), json!({"state": "update", "screenId": "1", "clientLabel": "Phone", "controlling": true})),
+            ("host/screen/indicator".to_owned(), json!({"state": "hide", "screenId": "1"})),
+        ]
+    );
+}
+/// An update or a hide of a session that showed nothing asks nothing of the desktop, and a desktop that refuses the pill does not
+/// stop the session's later calls.
+#[tokio::test]
+async fn a_pill_that_was_never_shown_asks_nothing_and_a_refusing_desktop_is_not_a_failure() {
+    // The pill's requests go out on a task of their own (mixdog_rt::spawn).
+    let _ = mixdog_rt::testing::tokens();
+    let desktop = Desktop::refusing();
+    let indicator = DesktopIndicator::new(desktop.clone(), Arc::default());
+    indicator.update(true);
+    indicator.hide();
+    indicator.show(shown("2", stop_counter().0));
+    indicator.hide();
+    let seen = desktop.until(2).await;
+    assert_eq!(seen.len(), 2, "the show and the hide were both sent although the first was refused");
+}
+/// The desktop's Stop reaches the session through the same port the session showed its place by.
+#[tokio::test]
+async fn a_stop_reported_by_the_desktop_ends_the_shown_session() {
+    // The pill's requests go out on a task of their own (mixdog_rt::spawn).
+    let _ = mixdog_rt::testing::tokens();
+    let stops = Arc::new(IndicatorStops::default());
+    let indicator = DesktopIndicator::new(Desktop::answering(json!({})), stops.clone());
+    let (on_stop, count) = stop_counter();
+    indicator.show(shown("3", on_stop));
+    stops.stopped("3");
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    indicator.hide();
+    stops.stopped("3");
+    assert_eq!(count.load(Ordering::SeqCst), 1, "a hidden session has no Stop");
 }

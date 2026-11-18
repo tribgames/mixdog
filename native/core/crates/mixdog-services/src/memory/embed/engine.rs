@@ -125,6 +125,7 @@ pub struct Embedder {
     inner: Arc<Inner>,
 }
 
+
 impl Embedder {
     /// Whether a caller holds this model besides the provider's own cell (an embed in flight keeps its own handle).
     pub fn in_use(&self) -> bool {

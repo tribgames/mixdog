@@ -5,21 +5,35 @@
 //! turn over the recorder's hub: every request is compared whole with Node's, the answer whole with Node's result, and
 //! the stream callbacks in order.
 
+#[cfg(node_twin)]
 use std::sync::Arc;
 
+#[cfg(node_twin)]
 use super::wire_fixtures::Hub;
+#[cfg(node_twin)]
 use super::wire_fixtures::Inputs;
+#[cfg(node_twin)]
 use super::wire_fixtures::assert_same_events;
+#[cfg(node_twin)]
 use super::wire_fixtures::assert_same_requests;
+#[cfg(node_twin)]
 use super::wire_fixtures::assert_same_result;
+#[cfg(node_twin)]
 use super::wire_fixtures::attempt;
+#[cfg(node_twin)]
 use super::wire_fixtures::built;
+#[cfg(node_twin)]
 use super::wire_fixtures::core_result;
+#[cfg(node_twin)]
 use super::wire_fixtures::load;
+#[cfg(node_twin)]
 use super::wire_fixtures::node_result;
+#[cfg(node_twin)]
 use super::wire_fixtures::request_of;
+#[cfg(node_twin)]
 use super::wire_fixtures::scenarios;
 
+#[cfg(node_twin)]
 #[tokio::test]
 async fn every_compatible_provider_reports_the_model_that_answered() {
     let names = scenarios("served-model");

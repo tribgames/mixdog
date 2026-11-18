@@ -9,7 +9,6 @@
 //! the network observer keeps its 75 ms poll. The host is only asked for what the engine cannot see: a render checkpoint, a DOM
 //! quiet window, the page text and a stop.
 
-use std::convert::Infallible;
 use std::fmt;
 use std::future::Future;
 use std::future::poll_fn;
@@ -70,6 +69,9 @@ pub enum SettleError {
     Cancelled(Cancelled),
     /// The page could not be read after the gesture (the text says where to go next).
     Failed(String),
+    /// The host connection was lost after a request of the command was handed to it ([`HostCallError::ConnectionLost`]): the gesture
+    /// may have run, and the settle cannot say how it ended.
+    ConnectionLost,
 }
 
 impl From<Cancelled> for SettleError {
@@ -83,6 +85,7 @@ impl fmt::Display for SettleError {
         match self {
             Self::Cancelled(cancelled) => fmt::Display::fmt(cancelled, out),
             Self::Failed(text) => out.write_str(text),
+            Self::ConnectionLost => fmt::Display::fmt(&HostCallError::ConnectionLost, out),
         }
     }
 }
@@ -283,17 +286,23 @@ pub async fn wait_for_load(page: &Page<'_>, timeout: Duration, cancel: &CancelVi
 
 /// The page's DOM stays unchanged for the quiet window, or the DOM timeout ends. The host runs the observer; ending the wait early
 /// cancels its request (a cooperative stop: the page's own scripts are not terminated by the engine).
-async fn wait_for_dom_quiet(page: &Page<'_>, policy: &SettlePolicy, stop: Stop<'_>) {
+async fn wait_for_dom_quiet(page: &Page<'_>, policy: &SettlePolicy, stop: Stop<'_>) -> Result<(), SettleError> {
     if stop.fired() {
-        return;
+        return Ok(());
     }
     let millis = |duration: Duration| u32::try_from(duration.as_millis()).unwrap_or(u32::MAX);
     let quiet_ms = millis(policy.quiet).max(1);
     let params = HostBrowserPageDomQuietParams { page_id: page.id.to_string(), quiet_ms, timeout_ms: millis(policy.dom).max(quiet_ms) };
     let local = stop.cancel.token().child_token();
     // A failed observer (the document went away mid-observation) only ends the wait: the caller's own checks decide what is next.
-    if let Either::Right(()) = race(page.host.page_dom_quiet(params, &local), stop.wait()).await {
-        local.cancel();
+    // The connection lost under the request is not that: the gesture before it may have run, and the settle ends with the typed loss.
+    match race(page.host.page_dom_quiet(params, &local), stop.wait()).await {
+        Either::Left(Err(HostCallError::ConnectionLost)) => Err(SettleError::ConnectionLost),
+        Either::Left(_) => Ok(()),
+        Either::Right(()) => {
+            local.cancel();
+            Ok(())
+        }
     }
 }
 
@@ -323,32 +332,31 @@ async fn wait_for_network_quiet(page: &Page<'_>, policy: &SettlePolicy, stop: St
 }
 
 /// Load, DOM and network observation together, each bounded by its timeout. A failure of one observer only ends it; the command's
-/// own cancellation is the only error.
-async fn observe_quiet(page: &Page<'_>, policy: &SettlePolicy, stop: Stop<'_>) -> Result<(), Cancelled> {
+/// own cancellation and the typed loss of the host connection are the only errors; the loss stops the other observers at once.
+async fn observe_quiet(page: &Page<'_>, policy: &SettlePolicy, stop: Stop<'_>) -> Result<(), SettleError> {
     let observed = try_join3(
         async {
             wait_for_load_settle(page, policy.load, stop).await;
-            Ok::<(), Infallible>(())
+            Ok::<(), SettleError>(())
         },
-        async {
-            wait_for_dom_quiet(page, policy, stop).await;
-            Ok::<(), Infallible>(())
-        },
+        wait_for_dom_quiet(page, policy, stop),
         async {
             wait_for_network_quiet(page, policy, stop).await;
-            Ok::<(), Infallible>(())
+            Ok::<(), SettleError>(())
         },
     );
     // Racing the group, not only stopping it: an early exit must not wait for an observer that never looks at the cutoff.
     match stop.until {
         Some(until) => {
-            let _ = race(observed, until.cancelled()).await;
+            if let Either::Left(Err(error)) = race(observed, until.cancelled()).await {
+                return Err(error);
+            }
         }
         None => {
-            let _ = observed.await;
+            observed.await?;
         }
     }
-    throw_if_cancelled(stop.cancel)
+    Ok(throw_if_cancelled(stop.cancel)?)
 }
 
 struct Step {
@@ -360,7 +368,7 @@ struct Step {
 /// Lets input handlers and their rendering work run without waiting for unrelated DOM mutations. The next gesture still owns its
 /// target's actionability checks; the final reply waits for pending load/network work. A hidden page may throttle animation
 /// frames, so the checkpoint is bounded.
-async fn step_settle(page: &Page<'_>, cancel: &CancelView) -> Result<Step, Cancelled> {
+async fn step_settle(page: &Page<'_>, cancel: &CancelView) -> Result<Step, SettleError> {
     throw_if_cancelled(cancel)?;
     let mut unconfirmed = false;
     if page.probe.state().dialog.is_none() {
@@ -371,7 +379,11 @@ async fn step_settle(page: &Page<'_>, cancel: &CancelView) -> Result<Step, Cance
             Ok(checkpoint) => unconfirmed = !checkpoint.reached,
             Err(error) => {
                 if cancel.is_cancelled() || error == HostCallError::Cancelled {
-                    return Err(cancelled(cancel));
+                    return Err(cancelled(cancel).into());
+                }
+                // The input went out before this checkpoint: a connection lost now leaves it possibly executed, typed, not a note.
+                if error == HostCallError::ConnectionLost {
+                    return Err(SettleError::ConnectionLost);
                 }
                 // The host refused because a dialog blocks the page: the sequence is blocked, even before the page's facts say so.
                 if let HostCallError::DialogBlocking { dialog } = &error {
@@ -414,7 +426,7 @@ async fn step_settle(page: &Page<'_>, cancel: &CancelView) -> Result<Step, Cance
 
 /// `stepSettleResult`: the settle between the steps of a sequence. A step whose frame never confirmed the checkpoint gets the same
 /// bounded load/DOM/network quiet observation as a final settle; the input is neither replayed nor failed.
-pub async fn step_settle_result(page: &Page<'_>, policy: &SettlePolicy, cancel: &CancelView) -> Result<StepResult, Cancelled> {
+pub async fn step_settle_result(page: &Page<'_>, policy: &SettlePolicy, cancel: &CancelView) -> Result<StepResult, SettleError> {
     let step = step_settle(page, cancel).await?;
     if step.unconfirmed && step.result.outcome == StepKind::Completed {
         observe_quiet(page, policy, Stop { cancel, until: None }).await?;
@@ -594,6 +606,7 @@ pub(super) mod support {
                         Err(message) if message == DIALOG_BLOCKING => Err(HostCallError::DialogBlocking {
                             dialog: Box::new(serde_json::from_value(json!({"type": "alert", "message": "hi", "openedAt": 1, "bridge": false})).expect("dialog")),
                         }),
+                        Err(message) if message == CONNECTION_LOST => Err(HostCallError::ConnectionLost),
                         Err(message) => Err(HostCallError::Failed { message }),
                     }
                 }
@@ -636,6 +649,8 @@ pub(super) mod support {
 
     /// The checkpoint answer that makes the host refuse with -32014 (an `alert` blocks the page).
     pub const DIALOG_BLOCKING: &str = "dialog blocking";
+    /// A scripted checkpoint failure the host answers as the typed loss of its connection.
+    pub const CONNECTION_LOST: &str = "connection lost";
 
     pub fn fast_policy() -> SettlePolicy {
         SettlePolicy { quiet: Duration::from_millis(20), load: Duration::from_millis(200), dom: Duration::from_millis(200) }
@@ -788,6 +803,18 @@ mod tests {
         probe.set(|state| state.destroyed = true);
         let result = step_settle_result(&page(&host, &probe), &fast_policy(), &live()).await.expect("step");
         assert_eq!(result.outcome, StepKind::Inconclusive);
+    }
+
+    /// The input went out before the checkpoint: a connection lost at it is the typed loss, not an "inconclusive" note, in a step's
+    /// settle and in the settle after a gesture alike.
+    #[tokio::test]
+    async fn a_checkpoint_that_loses_the_connection_is_a_typed_connection_loss() {
+        let (probe, host) = rig(true);
+        *host.checkpoint.lock().expect("lock") = Err(CONNECTION_LOST.into());
+        let step = step_settle_result(&page(&host, &probe), &fast_policy(), &live()).await.expect_err("lost");
+        assert_eq!(step, SettleError::ConnectionLost);
+        let after = settle_after_action(&page(&host, &probe), &fast_policy(), &live(), None, &AfterAction::default()).await.expect_err("lost");
+        assert_eq!(after, SettleError::ConnectionLost);
     }
 
     #[tokio::test]

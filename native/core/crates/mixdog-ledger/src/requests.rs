@@ -14,7 +14,7 @@ use crate::db::Connection;
 use crate::db::OptionalExtension;
 use crate::db::params_from_iter;
 use crate::error::Result;
-use crate::measure::js_number;
+use crate::measure::{NO_USAGE_COST_SOURCE, is_unmeasuring_provider, js_number};
 
 pub const REQUEST_STATUSES: [&str; 4] = ["completed", "substituted", "retried", "failed"];
 const DEFAULT_PAGE: i64 = 50;
@@ -170,6 +170,8 @@ struct RouteInfo {
     kind: String,
     source_type: String,
     cost_source: String,
+    input_unknown: bool,
+    output_unknown: bool,
 }
 
 fn text(value: Option<String>) -> Value {
@@ -180,7 +182,10 @@ pub const MODEL_ROUTES_SQL: &str =
     "SELECT id FROM usage_routes WHERE json_extract(signature,'$[1]')=?";
 pub const ROUTE_INFO_SQL: &str =
     "SELECT json_extract(signature,'$[0]'),json_extract(signature,'$[1]'),json_extract(signature,'$[2]'),
-                        json_extract(signature,'$[3]'),json_extract(signature,'$[4]') FROM usage_routes WHERE id=?";
+            json_extract(signature,'$[3]'),json_extract(signature,'$[4]'),
+            COALESCE(json_extract(json_extract(signature,'$[5]'),'$.inputTokensKnown'),1)=0,
+            COALESCE(json_extract(json_extract(signature,'$[5]'),'$.outputTokensKnown'),1)=0
+     FROM usage_routes WHERE id=?";
 pub const SESSION_SQL: &str = "SELECT value FROM usage_sessions WHERE id=?";
 pub const OWNER_SQL: &str = "SELECT s.value FROM usage_session_owners o JOIN usage_sessions s ON s.id=o.owner WHERE o.session=?";
 /// Every route: the models list visits all of them, so it is not a bounded read.
@@ -312,6 +317,8 @@ pub(crate) fn read_request_rows(conn: &Connection, query: &RequestQuery) -> Resu
                         kind: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
                         source_type: r.get::<_, Option<String>>(3)?.unwrap_or_default(),
                         cost_source: r.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                        input_unknown: r.get(5)?,
+                        output_unknown: r.get(6)?,
                     })
                 })
                 .optional()?
@@ -351,13 +358,18 @@ pub(crate) fn read_request_rows(conn: &Connection, query: &RequestQuery) -> Resu
         out.insert("costSource".into(), Value::from(route.cost_source.as_str()));
         out.insert("sessionId".into(), text(session));
         out.insert("ownerSessionId".into(), text(owner));
-        out.insert("input".into(), js_number(row.input));
-        out.insert("output".into(), js_number(row.output));
-        out.insert("cacheRead".into(), js_number(row.cache_read));
-        out.insert("cacheWrite".into(), js_number(row.cache_write));
+        // Accounting uses zero placeholders. The request log must not turn them into readings.
+        let has_usage = route.cost_source != NO_USAGE_COST_SOURCE;
+        let output_known = has_usage && !route.output_unknown;
+        let prompt_known = output_known && !route.input_unknown && !is_unmeasuring_provider(&route.provider);
+        let measured = |known, tokens| if known { js_number(tokens) } else { Value::Null };
+        out.insert("input".into(), measured(prompt_known, row.input));
+        out.insert("output".into(), measured(output_known, row.output));
+        out.insert("cacheRead".into(), measured(prompt_known, row.cache_read));
+        out.insert("cacheWrite".into(), measured(prompt_known, row.cache_write));
         out.insert(
             "tokens".into(),
-            js_number(row.input + row.output + row.cache_read + row.cache_write),
+            measured(prompt_known, row.input + row.output + row.cache_read + row.cache_write),
         );
         out.insert(
             "costUsd".into(),

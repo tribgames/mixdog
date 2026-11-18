@@ -20,5 +20,7 @@ pub async fn separate(config: &Config, now_ms: i64) -> DefaultsSeparation {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, node_twin))]
 mod tests;
+#[cfg(test)]
+mod separation_tests;

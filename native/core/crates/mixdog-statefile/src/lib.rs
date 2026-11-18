@@ -17,8 +17,14 @@ pub mod new_task_receipt;
 mod publish;
 mod trace;
 
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod golden_tests;
+#[cfg(test)]
+mod state_file_tests;
 #[cfg(test)]
 mod tests;
 

@@ -107,6 +107,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_record_is_closed_once_the_command_ended() {
+        let timer = CommandTimer::start(1.0);
+        let first = timer.finish();
+        assert_eq!(first.queue_ms, 1.0);
+        timer.phase(Phase::Snapshot, async {}).await;
+        timer.merge_input(&[BrowserInputTiming { input_ms: 9.0, key_events: 0, mouse_events: 0 }]);
+        assert_eq!(timer.finish(), CommandTiming::default());
+    }
+
+
+    #[tokio::test]
     async fn the_target_and_actionability_waits_are_entered_on_the_commands_row_and_a_page_with_none_runs_them_bare() {
         let timer = CommandTimer::start(0.0);
         let slept = || async { std::thread::sleep(std::time::Duration::from_millis(3)) };
@@ -115,15 +126,5 @@ mod tests {
         assert_eq!(timed(None, Phase::Actionability, async { 7 }).await, 7);
         let timing = timer.finish();
         assert!(timing.target_ms >= 3.0 && timing.actionability_ms >= 3.0, "{timing:?}");
-    }
-
-    #[tokio::test]
-    async fn the_record_is_closed_once_the_command_ended() {
-        let timer = CommandTimer::start(1.0);
-        let first = timer.finish();
-        assert_eq!(first.queue_ms, 1.0);
-        timer.phase(Phase::Snapshot, async {}).await;
-        timer.merge_input(&[BrowserInputTiming { input_ms: 9.0, key_events: 0, mouse_events: 0 }]);
-        assert_eq!(timer.finish(), CommandTiming::default());
     }
 }

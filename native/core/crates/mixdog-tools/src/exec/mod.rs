@@ -46,7 +46,6 @@ pub use jobs::ExecConfig;
 pub use jobs::FixedShell;
 pub use jobs::OsPromptElevation;
 pub use jobs::ShellSource;
-pub use jobs::OwnerCycles;
 pub use jobs::SurvivorWatch;
 pub use jobs::Survivors;
 pub use jobs::ExecRuntime;
@@ -65,6 +64,10 @@ pub use wake::QueuedWake;
 pub use wake::Wake;
 pub use wake::WakeHub;
 pub use wake::WakeReason;
+pub use task::AgentTaskCancellation;
+pub use task::AgentTaskRow;
+pub use task::AgentTaskView;
+pub use task::AgentTasks;
 pub use task::TaskTool;
 pub(crate) use task::describe_type;
 pub(crate) use task::normalize_string_list_args;
@@ -75,8 +78,10 @@ pub(crate) const KILL_VERIFY: Duration = Duration::from_secs(5);
 #[cfg(test)]
 mod tests;
 
+#[cfg(node_twin)]
 #[cfg(test)]
 mod node_cases;
 
+#[cfg(node_twin)]
 #[cfg(test)]
 mod prefilter_tests;

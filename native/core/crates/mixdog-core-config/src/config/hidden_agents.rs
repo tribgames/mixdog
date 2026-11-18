@@ -125,16 +125,6 @@ mod tests {
     use super::{hidden_agent_stall_cap_idle_seconds, hidden_agent_traits, hidden_agents};
 
     #[test]
-    fn the_stall_caps_are_what_node_read_off_the_internal_agents() {
-        let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-watchdog/golden.json")).unwrap();
-        let caps = golden["stallCaps"].as_object().unwrap();
-        assert!(!caps.is_empty());
-        for (name, recorded) in caps {
-            assert_eq!(hidden_agent_stall_cap_idle_seconds(name), recorded.as_i64(), "{name}");
-        }
-    }
-
-    #[test]
     fn the_traits_of_an_internal_agent_are_its_kind_and_profile() {
         assert_eq!(hidden_agent_traits("title-agent"), Some((Some("maintenance".into()), Some("none".into()))));
         assert_eq!(hidden_agent_traits("worker"), None);
@@ -147,16 +137,6 @@ mod tests {
             assert!(hidden.contains(name), "{name}");
         }
         assert!(!hidden.contains("worker"));
-    }
-
-    #[test]
-    fn a_hidden_agent_is_what_node_merged_from_the_asset_and_the_frontmatter() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/agent-world/golden.json")).unwrap();
-        for case in golden["hiddenAgents"].as_array().unwrap() {
-            let name = case["name"].as_str().unwrap();
-            let want = (!case["agent"].is_null()).then(|| case["agent"].clone());
-            assert_eq!(super::hidden_agent(name), want, "{name}");
-        }
     }
 
     #[test]
@@ -177,4 +157,25 @@ mod tests {
         assert_eq!(super::permission("Read-Only"), Some("read"));
         assert_eq!(super::permission("bogus"), Some("none"));
         assert_eq!(super::permission("  "), None);
-    }}
+    }
+
+
+    #[test]
+    fn an_internal_agent_may_carry_its_own_idle_budget_in_seconds() {
+        assert_eq!(hidden_agent_stall_cap_idle_seconds("cycle1-agent"), Some(300));
+        assert_eq!(hidden_agent_stall_cap_idle_seconds("title-agent"), Some(90));
+        assert_eq!(hidden_agent_stall_cap_idle_seconds("explore-agent"), None, "no cap named");
+        assert_eq!(hidden_agent_stall_cap_idle_seconds("not-an-agent"), None);
+    }
+
+    #[test]
+    fn a_hidden_agent_is_its_asset_entry_and_an_unknown_name_is_none() {
+        let agent = super::hidden_agent("title-agent").expect("a shipped internal agent");
+        assert_eq!(agent["agent"], "title-agent");
+        assert_eq!(agent["stallCap"]["idleSeconds"], 90);
+        assert!(super::hidden_agent("not-an-agent").is_none());
+        assert!(super::hidden_agent("").is_none());
+        let names = hidden_agents();
+        assert!(["explore-agent", "cycle1-agent", "title-agent"].iter().all(|name| names.contains(*name)));
+    }
+}

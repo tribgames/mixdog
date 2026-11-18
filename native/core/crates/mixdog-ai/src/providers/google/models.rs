@@ -494,7 +494,7 @@ pub const DEFAULT_ANTIGRAVITY_MODEL: &str = crate::catalog::ANTIGRAVITY_FALLBACK
 
 /// The `family` the curated fallback rows carry (`ANTIGRAVITY_MODELS`, `provider-model-identities.mjs`); the
 /// Claude and gpt-oss rows have none.
-const FALLBACK_FAMILIES: [(&str, &str); 3] = [("gemini-3.8-flash", "gemini-flash"), ("gemini-3.1-pro", "gemini-pro"), ("gemini-4-argon", "gemini-pro")];
+const FALLBACK_FAMILIES: [(&str, &str); 3] = [("gemini-3.8-flash", "gemini-flash"), ("gemini-4-argon", "gemini-pro"), ("gemini-4-hydrogen", "gemini-pro")];
 
 /// `antigravityModelFamily(model)`: the catalog `family` of a picker id or one of its wire ids, from the listing the
 /// roster holds, else from the curated rows (`antigravityCatalogModels`: the last live list, else the fallback).
@@ -523,7 +523,9 @@ struct AntigravityRow {
 fn antigravity_rows(raw: &Map<String, Value>, traits: &dyn ModelTraits) -> Vec<AntigravityRow> {
     let mut families: Vec<(String, Family)> = Vec::new();
     for (wire_id, entry) in raw {
-        if !entry.is_object() || INTERNAL_ID.is_match(wire_id) {
+        // A row the service marks disabled or internal answers 404 ("Requested entity was not found"): it is no model.
+        let flagged = |flag: &str| entry.get(flag) == Some(&Value::Bool(true));
+        if !entry.is_object() || INTERNAL_ID.is_match(wire_id) || flagged("disabled") || flagged("isInternal") {
             continue;
         }
         let shown = entry.get("displayName").filter(|v| truthy(Some(v))).map(value_to_string).unwrap_or_default();

@@ -20,7 +20,7 @@ use mixdog_ssh::session::{Progress, SessionPhase};
 use tokio::sync::watch;
 
 use crate::host_store::{ModelLogin as StoredModelLogin, SshHostRecord, SshHostSettings, SshHostStore};
-use crate::link::{LinkPool, LinkSpec};
+use crate::link::{LinkOpen, LinkPool, LinkSpec};
 use crate::paths::StoreError;
 use crate::window_restore_store::WindowRestoreStore;
 
@@ -28,13 +28,19 @@ use crate::window_restore_store::WindowRestoreStore;
 #[async_trait]
 pub trait RestoreLinks: Send + Sync {
     /// Connects the server (bootstrap, tunnel, attach) under `context`, reporting its phases.
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<(), ConnectError>;
+    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<LinkOpen, ConnectError>;
+    /// Detaches the link the reopening made.
+    async fn rollback(&self, id: &str, token: u64);
 }
 
 #[async_trait]
 impl RestoreLinks for LinkPool {
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<(), ConnectError> {
-        LinkPool::open(self, spec, context, progress).await.map(|_| ())
+    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<LinkOpen, ConnectError> {
+        self.open_scoped(spec, context, progress, None).await.map(|(_, ownership)| ownership)
+    }
+
+    async fn rollback(&self, id: &str, token: u64) {
+        LinkPool::rollback(self, id, token).await;
     }
 }
 
@@ -91,6 +97,10 @@ impl Inner {
 
     async fn reopen(self: &Arc<Self>, record: &SshHostRecord, links: &dyn RestoreLinks, windows: &dyn RestoreWindows) -> Result<(), String> {
         let target = parse_ssh_target(&record.target).map_err(|error| error.to_string())?;
+        // In the server's turn, read again: a server forgotten since the list was read is not reopened.
+        let _turn = self.hosts.turn(&target.key()).await;
+        let Some(record) = self.hosts.get(&record.id) else { return Ok(()) };
+        let record = &record;
         let spec = LinkSpec { id: record.id.clone(), name: record.name.clone(), target };
         let (inner, shown) = (self.clone(), record.clone());
         let progress: Progress = Arc::new(move |phase| {
@@ -104,8 +114,13 @@ impl Inner {
             };
             inner.report(&shown, phase, None);
         });
-        links.open(spec, attempt_context(record), Some(progress)).await.map_err(|error| error.to_string())?;
-        windows.open(&record.id, &record.name).await
+        let ownership = links.open(spec, attempt_context(record), Some(progress)).await.map_err(|error| error.to_string())?;
+        let opened = windows.open(&record.id, &record.name).await;
+        // A window refusal only detaches the link this reopening made.
+        if opened.is_err() && let LinkOpen::Owned(token) = ownership {
+            links.rollback(&record.id, token).await;
+        }
+        opened
     }
 }
 

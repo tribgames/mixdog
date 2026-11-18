@@ -221,7 +221,7 @@ fn blocked_named(inner: &str, plain: Run, any: Run) -> bool {
 /// exit code.
 pub fn worker(args: &[String]) -> i32 {
     IN_WORKER.store(true, Ordering::Relaxed);
-    platform::elevated_worker(args, validate, serve)
+    platform::elevated_worker(args, validate)
 }
 
 /// Only the elevated supervisor starts this input child. A pipe, not a file
@@ -232,20 +232,76 @@ pub fn input() -> i32 {
     let mut reader = std::io::BufReader::new(std::io::stdin());
     let answer = (|| -> Result<Value, String> {
         let bytes = crate::elevated_launch::read_line(&mut reader, crate::elevated_launch::MAX_REQUEST)?;
-        let request: Value = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+        let mut request: Value = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+        // The admission word the unelevated launcher created and alone grants and closes: without it nothing is admitted.
+        let token = request
+            .as_object_mut()
+            .and_then(|request| request.remove("admission_token"))
+            .and_then(|token| token.as_str().map(str::to_owned))
+            .ok_or("privileged_worker_rejected: no admission section was named")?;
+        let scope = admission_scope(&token)?;
         let req = Req(request);
         validate(&req)?;
-        Ok(serve(&req.0.to_string()))
+        let controlled = scope.clone();
+        std::thread::spawn(move || control(reader, &controlled, std::io::stderr()));
+        let served = serve(&req.0.to_string(), scope.clone());
+        // The request is done: the child ends its own scope (closed, its holds let go of) and reports the cleanup, the
+        // launcher's positive evidence of a clean end.
+        scope.revoke();
+        scope.release_held();
+        write_report(&mut std::io::stderr(), &scope.report());
+        Ok(served)
     })();
     let body = answer.unwrap_or_else(|error| json!({"worker_error":error}));
     crate::elevated_launch::emit(body);
     0
 }
 
-/// Runs the one request in a host of its own. The observation the unelevated
-/// host made belongs to its observer, so the worker begins its own scope
-/// instead of resuming that one.
-fn serve(line: &str) -> Value {
+/// The child's scope over the word its launcher shares (pending until the launcher grants it).
+#[cfg(windows)]
+fn admission_scope(token: &str) -> Result<crate::port::Scope, String> {
+    Ok(crate::port::Scope::shared(super::SCOPE_EPOCH, Box::new(crate::port::windows::shared::open(token)?)))
+}
+
+#[cfg(not(windows))]
+fn admission_scope(_token: &str) -> Result<crate::port::Scope, String> {
+    Err("privileged_worker_unavailable: elevated input runs on Windows only".into())
+}
+
+/// The child's control path. Safety is the shared word's: the launcher's grant and closure are written there. The grant line
+/// only wakes a waiting admission; the revocation line (or a lost control connection) closes the word from this side too,
+/// reports the closure at once, lets go of what the child holds (its receipts are its own: the unelevated launcher cannot
+/// release into an elevated target), then reports the cleanup, and every later change of it (a pending hold compensated after
+/// the cleanup, a handed-over call finishing). Every report goes to the supervisor, which hands it on.
+fn control(input: impl std::io::BufRead, scope: &crate::port::Scope, acknowledge: impl std::io::Write + Send + 'static) {
+    for line in input.lines() {
+        let Ok(line) = line else { break };
+        if line == platform::ELEVATED_GRANT_LINE {
+            scope.wake();
+        } else if line == platform::ELEVATED_REVOKE_LINE {
+            break;
+        }
+    }
+    scope.revoke();
+    let writer = std::sync::Arc::new(std::sync::Mutex::new(acknowledge));
+    let report = move |report: &crate::port::Report| {
+        write_report(&mut *writer.lock().unwrap_or_else(|poisoned| poisoned.into_inner()), report);
+    };
+    report(&scope.report());
+    let later = report.clone();
+    scope.on_report(move |changed| later(changed));
+    scope.release_held();
+    report(&scope.report());
+}
+
+/// One report line to the supervisor.
+fn write_report(writer: &mut impl std::io::Write, report: &crate::port::Report) {
+    let _ = writeln!(writer, "{}{}", platform::ELEVATED_REVOKED_LINE, report.json()).and_then(|()| writer.flush());
+}
+
+/// Runs the one request in a host of its own, under the child's fenced scope. The observation the unelevated host made belongs
+/// to its observer, so the worker begins its own observation instead of resuming that one.
+fn serve(line: &str, scope: crate::port::Scope) -> Value {
     let line = match serde_json::from_str::<Value>(line) {
         Ok(Value::Object(mut request)) => {
             request.remove("observed_input_monitor_id");
@@ -256,14 +312,15 @@ fn serve(line: &str) -> Value {
     };
     let cfg = Config::from_env();
     let observer = Observer::new();
-    let desktop = platform::create(observer.shared.clone(), cfg.input_marker);
+    let desktop = platform::create(observer.shared.clone(), cfg.input_marker, &scope);
     let started = Instant::now();
     while !observer.read().ready && started.elapsed() < OBSERVER_READY {
         std::thread::sleep(Duration::from_millis(25));
     }
-    let host = Host::new(cfg, desktop, observer, Box::new(NoLease));
+    let host = Host::new(cfg, desktop, observer, Box::new(NoLease), scope.clone());
     let reply = host.reply(&line);
     host.release_on_exit();
+    scope.release_held();
     reply
 }
 
@@ -389,6 +446,77 @@ mod tests {
         ] {
             assert!(!blocked_keys(keys), "{keys}");
         }
+    }
+
+    /// The child's control path: a grant line only wakes (the launcher's word grants); the revocation line closes the word,
+    /// and the child reports the closure, then its cleanup, without discarding either; a lost connection closes it too.
+    #[test]
+    fn the_child_reports_its_closure_and_cleanup_and_closes_on_a_lost_connection() {
+        let scope = crate::port::Scope::pending(1);
+        let port = crate::port::fake::FakePort::new(&scope);
+        let acknowledgement = Written::default();
+        let input = format!("{}\n{}\n", platform::ELEVATED_GRANT_LINE, platform::ELEVATED_REVOKE_LINE);
+        std::thread::scope(|threads| {
+            let held = threads.spawn(|| port.act("click"));
+            control(std::io::Cursor::new(input), &scope, acknowledgement.clone());
+            assert_eq!(held.join().unwrap(), Err(crate::port::REVOKED.to_string()), "a grant line opens nothing");
+        });
+        let text = acknowledgement.text();
+        let reports: Vec<Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line.strip_prefix(platform::ELEVATED_REVOKED_LINE).unwrap()).unwrap())
+            .collect();
+        assert_eq!(reports.len(), 2);
+        assert_eq!((reports[0]["admission"].as_str(), reports[0]["cleanup"].as_str()), (Some("closed"), Some("pending")));
+        assert_eq!(reports[1]["cleanup"], json!("complete"));
+        assert!(port.driver.log().is_empty());
+
+        let lost = crate::port::Scope::open(1);
+        control(std::io::Cursor::new(""), &lost, Written::default());
+        assert!(lost.is_revoked());
+    }
+
+    /// What the child writes, shared with the test.
+    #[derive(Clone, Default)]
+    struct Written(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Written {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Written {
+        fn text(&self) -> String {
+            String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+        }
+    }
+
+    /// A compensation that completes after the child's cleanup report is carried: a later report follows with the cleanup
+    /// complete, so the parent never keeps the earlier pending one.
+    #[cfg(windows)]
+    #[test]
+    fn a_compensation_completing_after_the_cleanup_report_is_carried() {
+        use crate::port::windows::fake::FakeWin;
+        let scope = crate::port::Scope::open(1);
+        let (port, fake) = FakeWin::port(&scope);
+        let pause = fake.pause_inside("no_activate");
+        let acknowledgement = Written::default();
+        std::thread::scope(|threads| {
+            let holding = threads.spawn(|| port.hold_no_activate(7));
+            pause.reached.wait();
+            control(std::io::Cursor::new(format!("{}\n", platform::ELEVATED_REVOKE_LINE)), &scope, acknowledgement.clone());
+            let before: Vec<Value> = acknowledgement.text().lines().map(|line| serde_json::from_str(line.strip_prefix(platform::ELEVATED_REVOKED_LINE).unwrap()).unwrap()).collect();
+            assert_eq!(before.last().unwrap()["cleanup"], json!("pending"), "the pending hold is still out");
+            pause.resume.wait();
+            assert!(holding.join().unwrap().is_err());
+        });
+        let after: Vec<Value> = acknowledgement.text().lines().map(|line| serde_json::from_str(line.strip_prefix(platform::ELEVATED_REVOKED_LINE).unwrap()).unwrap()).collect();
+        assert_eq!(after.last().unwrap()["cleanup"], json!("complete"), "the compensation's report reached the parent: {after:?}");
     }
 
     #[test]

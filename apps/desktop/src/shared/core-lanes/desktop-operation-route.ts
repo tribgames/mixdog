@@ -131,7 +131,7 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   localPageAssetType: positional('projectFs/localPage/assetType', ['root', 'file', 'dataRoot']),
 
   // desktop settings are keys of the Config actor (desktop-services.md §3)
-  writeMarkdownDefaultView: ([, view]) => configWrite('desktop.editor.markdownDefaultView', view),
+  writeMarkdownDefaultView: ([, view]) => desktopWrite('desktop.editor.markdownDefaultView', view),
   updateActivityRailPins: ([pins, initializeIfMissing]) => {
     // Node's operation refused any flag that is not a boolean before it wrote (desktop-operations.ts `updateActivityRailPins`).
     if (initializeIfMissing !== undefined && typeof initializeIfMissing !== 'boolean') {
@@ -441,11 +441,8 @@ const SECTION_READS: Readonly<Record<string, SectionRead>> = {
 };
 export const SECTION_READ_DESKTOP_OPERATIONS: readonly string[] = Object.keys(SECTION_READS);
 
-/** Deleted by the spec, with a caller that still runs on a core connection (it shares code with the Node host). The
- *  pending browser approvals are core state (DS §12.3): the core raises `item/browser/requestApproval` to every client
- *  that can answer it, phones included, so nothing is announced; answered as Node answered it, `undefined`. (The two
- *  other announcements, `notifySettingsChanged` and `notifyProviderModelsChanged`, are the core's `ui/settings/announce`
- *  and `ui/providerModels/announce`, sent from `invoke`.) */
+/** Legacy publication call. Electron reports dialog marks via `host/state/set`; the core publishes its own
+ *  browser-card marks separately. Neither mark publication carries the card. */
 export const IGNORED_DESKTOP_OPERATIONS: readonly string[] = ['publishBrowserApprovalSessions'];
 
 /** Deleted or core-internal; no caller exists on a core connection. Calling one is a bug and is refused. */
@@ -460,7 +457,7 @@ export const DELETED_DESKTOP_OPERATIONS: Readonly<Record<string, string>> = {
   modelProxyEvent: 'replaced by server request model/proxy/execute (protocol/model-proxy-relay.ts)',
   modelProxyHeartbeat: 'replaced by connection liveness (protocol/model-proxy-relay.ts)',
   modelProxyResolve: 'replaced by server request model/proxy/execute (protocol/model-proxy-relay.ts)',
-  readBrowserApprovalSessions: 'browser approvals are core state (DS 12.3)',
+  readBrowserApprovalSessions: 'browser approval marks are held in the app feed (hostState)',
 };
 
 export const ROUTED_DESKTOP_OPERATIONS: readonly string[] = Object.keys(OPERATION_ROUTES);

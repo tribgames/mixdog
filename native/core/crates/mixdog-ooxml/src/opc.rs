@@ -49,17 +49,16 @@ pub mod posix {
         path.trim_end_matches('/').rsplit('/').next().unwrap_or("").to_owned()
     }
 
+
     /// `posix.normalize`.
     pub fn normalize(path: &str) -> String {
         nodepath::normalize(Style::Posix, path)
     }
-
     /// `posix.join`.
     pub fn join(parts: &[&str]) -> String {
         let joined: Vec<&str> = parts.iter().copied().filter(|part| !part.is_empty()).collect();
         if joined.is_empty() { ".".to_owned() } else { normalize(&joined.join("/")) }
     }
-
     /// `posix.relative` of two package paths. Node completes a relative path with the process directory, which both
     /// paths share; here they share a root, so the answer does not depend on where the process runs.
     pub fn relative(from: &str, to: &str) -> String {
@@ -301,26 +300,6 @@ pub fn relationship_target_by_type(relationships_xml: &str, relationship_type: &
 
 static RELATIONSHIP_ANY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<Relationship\b([^>]*?)\/?>", "g"));
 
-/// `relationshipTargetsByType(relationshipsXml, owner, type)`: every relationship of one type, as its Id and the package
-/// path it points at (a Target is written relative to the owning part unless it starts at the package root).
-pub fn relationship_targets_by_type(relationships_xml: &str, owner: &str, relationship_type: &str) -> RelationshipMap {
-    let mut targets = RelationshipMap::default();
-    let suffix = format!("/{relationship_type}");
-    for found in RELATIONSHIP_ANY.captures_iter(relationships_xml) {
-        let attributes = found.get(1).unwrap_or("");
-        if !xml_attribute(attributes, "Type").ends_with(&suffix) {
-            continue;
-        }
-        let id = xml_attribute(attributes, "Id");
-        let target = xml_attribute(attributes, "Target");
-        if id.is_empty() || target.is_empty() {
-            continue;
-        }
-        targets.set(&id, &part_from_target(&posix::dirname(owner), &target));
-    }
-    targets
-}
-
 /// One relationship of a rels part that points inside the package.
 struct InternalRelationship {
     block: String,
@@ -348,15 +327,6 @@ fn internal_relationships(xml: &str) -> Vec<InternalRelationship> {
         found.push(InternalRelationship { block: block.to_owned(), raw, target });
     }
     found
-}
-
-/// `partFromTarget(directory, target)`: the part a relationship target names: absolute from the package root, relative
-/// from the directory of the part that declares it.
-pub fn part_from_target(directory: &str, target: &str) -> String {
-    match target.strip_prefix('/') {
-        Some(rooted) => rooted.to_owned(),
-        None => posix::normalize(&posix::join(&[directory, target])),
-    }
 }
 
 static SOURCE_LABEL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:출처|자료|source)\s*[:：]", "i"));
@@ -507,242 +477,8 @@ static OWNED_BY_SLIDE: LazyLock<JsRegex> = LazyLock::new(|| {
     JsRegex::new_static(r"\/(chart|chartEx|diagramData|diagramLayout|diagramColors|diagramQuickStyle|diagramDrawing|comments)$", "")
 });
 
-/// `importPartTree(source, zip, sourcePath, cache)`: a part of another package copied in with the parts it points at;
-/// a part this package already holds byte for byte is reused.
-fn import_part_tree(source: &Package, zip: &mut Package, source_path: &str, cache: &mut HashMap<String, String>) -> Result<String, String> {
-    if let Some(known) = cache.get(source_path) {
-        return Ok(known.clone());
-    }
-    let Some(data) = source.file(source_path) else {
-        return Err(format!("import_slides source package is missing {source_path}"));
-    };
-    let data = data.to_vec();
-    let digest = sha1_hex(&data);
-    let directory = posix::dirname(source_path);
-    let (prefix, extension) = part_naming(source_path);
-    let sibling = compiled(
-        &format!("^{}/{}\\d*\\.{}$", tag_pattern(&directory), tag_pattern(&prefix), tag_pattern(&extension)),
-        "i",
-    );
-    let reused = find_matching_part(zip, &sibling, &digest);
-    if !reused.is_empty() {
-        cache.insert(source_path.to_owned(), reused.clone());
-        return Ok(reused);
-    }
-    let target_path = next_available_part(zip, &directory, &prefix, &extension);
-    zip.set(&target_path, data);
-    cache.insert(source_path.to_owned(), target_path.clone());
-    copy_part_content_type(source, zip, source_path, &target_path);
-    let relationships = source.text(&part_relationship_path(source_path));
-    if !relationships.is_empty() {
-        let rewritten = rewrite_imported_relationships(source, zip, source_path, &target_path, &relationships, cache)?;
-        zip.set(&part_relationship_path(&target_path), rewritten);
-    }
-    Ok(target_path)
-}
-
-/// `clonePartTree(zip, sourcePath, cache)`: a part and the parts it owns inside the same package, always as new parts: a
-/// duplicated slide that keeps pointing at the original chart makes an edit to one page silently rewrite the other.
-fn clone_part_tree(zip: &mut Package, source_path: &str, cache: &mut HashMap<String, String>) -> String {
-    if let Some(known) = cache.get(source_path) {
-        return known.clone();
-    }
-    let Some(data) = zip.file(source_path) else { return String::new() };
-    let data = data.to_vec();
-    let directory = posix::dirname(source_path);
-    let (prefix, extension) = part_naming(source_path);
-    let target_path = next_available_part(zip, &directory, &prefix, &extension);
-    zip.set(&target_path, data);
-    cache.insert(source_path.to_owned(), target_path.clone());
-    let rule = content_type_rule(&zip.text(CONTENT_TYPES_PART), source_path);
-    apply_content_type(zip, rule, &target_path);
-    let relationships = zip.text(&part_relationship_path(source_path));
-    if relationships.is_empty() {
-        return target_path;
-    }
-    let mut output = relationships.clone();
-    for relationship in internal_relationships(&relationships) {
-        if SHARED_ON_CLONE.is_match(&xml_attribute(&relationship.block, "Type")) {
-            continue;
-        }
-        let absolute = relationship.target.starts_with('/');
-        let cloned = clone_part_tree(zip, &part_from_target(&directory, &relationship.target), cache);
-        if cloned.is_empty() {
-            continue;
-        }
-        let rewritten = if absolute { format!("/{cloned}") } else { posix::relative(&posix::dirname(&target_path), &cloned) };
-        output = rewrite_target(&output, &relationship.block, &relationship.raw, &rewritten);
-    }
-    zip.set(&part_relationship_path(&target_path), output);
-    target_path
-}
-
-/// `cloneOwnedSlideParts(zip, relationshipsPath)`: the relationships a copied slide must own outright before it is
-/// editable on its own (everything else stays shared with the slide it was copied from); the parts copied.
-pub fn clone_owned_slide_parts(zip: &mut Package, relationships_path: &str) -> Vec<String> {
-    let xml = zip.text(relationships_path);
-    if xml.is_empty() {
-        return Vec::new();
-    }
-    let owner = posix::dirname(&posix::dirname(relationships_path));
-    let mut cache = HashMap::new();
-    let mut copied = Vec::new();
-    let mut output = xml.clone();
-    for relationship in internal_relationships(&xml) {
-        // A slide's comments are its own too: two slides pointing at one comments part are a file PowerPoint refuses as
-        // corrupted, and PowerPoint's Duplicate copies them with the slide.
-        if !OWNED_BY_SLIDE.is_match(&xml_attribute(&relationship.block, "Type")) {
-            continue;
-        }
-        let absolute = relationship.target.starts_with('/');
-        let cloned = clone_part_tree(zip, &part_from_target(&owner, &relationship.target), &mut cache);
-        if cloned.is_empty() {
-            continue;
-        }
-        let rewritten = if absolute { format!("/{cloned}") } else { posix::relative(&owner, &cloned) };
-        copied.push(cloned);
-        output = rewrite_target(&output, &relationship.block, &relationship.raw, &rewritten);
-    }
-    if !copied.is_empty() {
-        zip.set(relationships_path, output);
-    }
-    copied
-}
-
 /// Slide layout ids live above 2^31 by the OOXML convention PowerPoint writes.
 const FIRST_SLIDE_LAYOUT_ID: f64 = 2_147_483_648.0;
-
-/// The layout of an imported page, its relationships re-targeted at this deck's copies of the parts. The layout answers
-/// to this deck's master, which is what keeps one theme over every page instead of two masters fighting for the deck.
-fn remap_layout_relationships(
-    source: &Package,
-    zip: &mut Package,
-    layout_path: &str,
-    target_path: &str,
-    master: &str,
-    cache: &mut HashMap<String, String>,
-) -> Result<(), String> {
-    let relationships = source.text(&part_relationship_path(layout_path));
-    if relationships.is_empty() {
-        return Ok(());
-    }
-    let mut output = relationships.clone();
-    for relationship in internal_relationships(&relationships) {
-        let resolved = part_from_target(&posix::dirname(layout_path), &relationship.target);
-        let mapped = if xml_attribute(&relationship.block, "Type").ends_with("/slideMaster") {
-            master.to_owned()
-        } else {
-            import_part_tree(source, zip, &resolved, cache)?
-        };
-        if mapped.is_empty() {
-            continue;
-        }
-        output = retarget(&output, &relationship.block, &posix::relative(&posix::dirname(target_path), &mapped));
-    }
-    zip.set(&part_relationship_path(target_path), output);
-    Ok(())
-}
-
-/// `registerLayoutOnMaster`: lists the layout on the master, where PowerPoint reads the deck's layouts from.
-fn register_layout_on_master(zip: &mut Package, master: &str, target_path: &str) {
-    let relationship_id = add_package_relationship(
-        zip,
-        &part_relationship_path(master),
-        &format!("{OFFICE_RELATIONSHIP_BASE}/slideLayout"),
-        &posix::relative(&posix::dirname(master), target_path),
-        "",
-    );
-    let master_xml = zip.text(master);
-    static LAYOUT_ID: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"<p:sldLayoutId\b[^>]*\bid="(\d+)""#, "g"));
-    let highest = LAYOUT_ID
-        .captures_iter(&master_xml)
-        .map(|found| mixdog_js::string_to_number(found.get(1).unwrap_or("")))
-        .fold(FIRST_SLIDE_LAYOUT_ID, f64::max);
-    let entry = format!("<p:sldLayoutId id=\"{}\" r:id=\"{relationship_id}\"/>", number_to_string(highest + 1.0));
-    let next = if master_xml.contains("</p:sldLayoutIdLst>") {
-        replace_first(&master_xml, "</p:sldLayoutIdLst>", &format!("{entry}</p:sldLayoutIdLst>"))
-    } else {
-        static COLOUR_MAP: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(<p:clrMap\b[^>]*\/>)", ""));
-        match COLOUR_MAP.find(&master_xml) {
-            Some(range) => format!(
-                "{}<p:sldLayoutIdLst>{entry}</p:sldLayoutIdLst>{}",
-                &master_xml[..range.end],
-                &master_xml[range.end..]
-            ),
-            None => master_xml,
-        }
-    };
-    zip.set(master, next);
-}
-
-/// `adoptImportedLayout`: a page borrowed from another deck was drawn on that deck's layout. When this deck already
-/// holds the same layout the import points at it; when the two were cut from different templates the layout is copied in
-/// and adopted by this deck's master, so the page keeps the geometry it was built with and the master still lists every
-/// layout under it. Empty when this deck has no master to adopt it.
-fn adopt_imported_layout(source: &Package, zip: &mut Package, layout_path: &str, cache: &mut HashMap<String, String>) -> Result<String, String> {
-    static MASTER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^ppt\/slideMasters\/slideMaster\d+\.xml$", ""));
-    let mut masters: Vec<String> = zip.names().into_iter().filter(|name| MASTER.is_match(name)).collect();
-    masters.sort();
-    let (Some(master), Some(layout)) = (masters.into_iter().next(), source.file(layout_path)) else {
-        return Ok(String::new());
-    };
-    let layout = layout.to_vec();
-    let target_path = next_available_part(zip, "ppt/slideLayouts", "slideLayout", "xml");
-    zip.set(&target_path, layout);
-    cache.insert(layout_path.to_owned(), target_path.clone());
-    copy_part_content_type(source, zip, layout_path, &target_path);
-    remap_layout_relationships(source, zip, layout_path, &target_path, &master, cache)?;
-    register_layout_on_master(zip, &master, &target_path);
-    Ok(target_path)
-}
-
-/// `rewriteImportedRelationships(source, zip, sourceOwner, targetOwner, relationships, cache)`: the relationships of a
-/// part imported from another package, re-targeted at the copies in this one. A slide's notes are not carried; a
-/// relationship to a slide not imported is dropped; a layout is matched to this deck's or adopted.
-pub fn rewrite_imported_relationships(
-    source: &Package,
-    zip: &mut Package,
-    source_owner: &str,
-    target_owner: &str,
-    relationships: &str,
-    cache: &mut HashMap<String, String>,
-) -> Result<String, String> {
-    let source_directory = posix::dirname(source_owner);
-    let target_directory = posix::dirname(target_owner);
-    let mut output = relationships.to_owned();
-    for relationship in internal_relationships(relationships) {
-        let relationship_type = xml_attribute(&relationship.block, "Type");
-        let resolved = part_from_target(&source_directory, &relationship.target);
-        if relationship_type.ends_with("/notesSlide") {
-            output = replace_first(&output, &relationship.block, "");
-            continue;
-        }
-        let mapped = if relationship_type.ends_with("/slideLayout") {
-            static LAYOUT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^ppt\/slideLayouts\/slideLayout\d+\.xml$", ""));
-            let mut mapped = find_matching_part(zip, &LAYOUT, &part_digest(source, &resolved));
-            if mapped.is_empty() {
-                mapped = adopt_imported_layout(source, zip, &resolved, cache)?;
-            }
-            if mapped.is_empty() {
-                return Err(format!(
-                    "import_slides cannot place the layout of {resolved}: this presentation has no slide master to adopt it"
-                ));
-            }
-            mapped
-        } else if relationship_type.ends_with("/slide") {
-            let mapped = cache.get(&format!("slide:{resolved}")).cloned().unwrap_or_default();
-            if mapped.is_empty() {
-                output = replace_first(&output, &relationship.block, "");
-                continue;
-            }
-            mapped
-        } else {
-            import_part_tree(source, zip, &resolved, cache)?
-        };
-        output = retarget(&output, &relationship.block, &posix::relative(&target_directory, &mapped));
-    }
-    Ok(output)
-}
 
 /// `relationshipOwner(relPath)`: the part a rels part belongs to (empty for the package's own).
 pub fn relationship_owner(rel_path: &str) -> String {
@@ -780,21 +516,6 @@ pub(crate) fn decode_uri_component(text: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-/// `relationshipTarget(relPath, target)`: the package path a Target of a rels part names (the fragment and query cut, a
-/// percent escape decoded, a malformed one kept as written).
-pub fn relationship_target(rel_path: &str, target: &str) -> String {
-    let decoded_entities = xml_decode(target);
-    let without_fragment = decoded_entities.split('#').next().unwrap_or("");
-    let without_query = without_fragment.split('?').next().unwrap_or("");
-    let decoded = decode_uri_component(without_query).unwrap_or_else(|| without_query.to_owned());
-    let owner = relationship_owner(rel_path);
-    let base = if owner.is_empty() { String::new() } else { posix::dirname(&owner) };
-    match decoded.strip_prefix('/') {
-        Some(rooted) => posix::normalize(rooted),
-        None => posix::normalize(&posix::join(&[&base, &decoded])),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -803,36 +524,6 @@ mod tests {
 
     fn types(extra: &str) -> String {
         format!("{XML_HEADER}<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"xml\" ContentType=\"application/xml\"/>{extra}</Types>")
-    }
-
-    #[test]
-    fn posix_paths_follow_node() {
-        assert_eq!(posix::dirname("a/b/c.xml"), "a/b");
-        assert_eq!(posix::dirname("c.xml"), ".");
-        assert_eq!(posix::dirname("/c.xml"), "/");
-        assert_eq!(posix::dirname("a/b/"), "a");
-        assert_eq!(posix::basename("a/b/c.xml"), "c.xml");
-        assert_eq!(posix::basename("a/b/"), "b");
-        assert_eq!(posix::join(&["ppt/slides", "../media/a.png"]), "ppt/media/a.png");
-        assert_eq!(posix::join(&["", "x"]), "x");
-        assert_eq!(posix::relative("ppt/slides", "ppt/media/a.png"), "../media/a.png");
-        assert_eq!(part_relationship_path("ppt/slides/slide1.xml"), "ppt/slides/_rels/slide1.xml.rels");
-        assert_eq!(part_relationship_path("a.xml"), "./_rels/a.xml.rels");
-    }
-
-    #[test]
-    fn relationships_are_read_and_numbered() {
-        let xml = "<Relationships><Relationship Id=\"rId1\" Type=\"t/slide\" Target=\"slides/slide1.xml\"/><Relationship Id=\"rId7\" Type=\"t/theme\" Target=\"theme/theme1.xml\"></Relationship><Relationship Id=\"rId2\" Type=\"t/x\"/></Relationships>";
-        let map = relationship_map(xml);
-        assert_eq!(map.get("rId1"), Some("slides/slide1.xml"));
-        assert_eq!(map.get("rId7"), Some("theme/theme1.xml"));
-        assert_eq!(map.get("rId2"), None);
-        assert_eq!(next_relationship_id(xml), "rId8");
-        assert_eq!(next_relationship_id("<Relationships/>"), "rId1");
-        assert_eq!(relationship_target_by_type(xml, "theme"), "theme/theme1.xml");
-        assert_eq!(relationship_target_by_type(xml, "chart"), "");
-        let targets = relationship_targets_by_type(xml, "ppt/presentation.xml", "slide");
-        assert_eq!(targets.iter().collect::<Vec<_>>(), [("rId1", "ppt/slides/slide1.xml")]);
     }
 
     #[test]
@@ -896,16 +587,6 @@ mod tests {
         assert_eq!(provenance_citation(&json!(7)), "");
     }
 
-    #[test]
-    fn a_relationship_target_resolves_against_its_owner() {
-        assert_eq!(relationship_owner("_rels/.rels"), "");
-        assert_eq!(relationship_owner("ppt/slides/_rels/slide1.xml.rels"), "ppt/slides/slide1.xml");
-        assert_eq!(relationship_target("ppt/slides/_rels/slide1.xml.rels", "../media/a%20b.png#x"), "ppt/media/a b.png");
-        assert_eq!(relationship_target("ppt/slides/_rels/slide1.xml.rels", "/ppt/media/a.png"), "ppt/media/a.png");
-        assert_eq!(relationship_target("_rels/.rels", "word/document.xml"), "word/document.xml");
-        assert_eq!(relationship_target("_rels/.rels", "a%zz.xml"), "a%zz.xml");
-    }
-
     fn deck() -> Package {
         let mut zip = Package::new();
         zip.set(
@@ -924,6 +605,44 @@ mod tests {
         zip
     }
 
+
+    #[test]
+    fn posix_paths_follow_node() {
+        assert_eq!(posix::dirname("a/b/c.xml"), "a/b");
+        assert_eq!(posix::dirname("c.xml"), ".");
+        assert_eq!(posix::dirname("/c.xml"), "/");
+        assert_eq!(posix::dirname("a/b/"), "a");
+        assert_eq!(posix::basename("a/b/c.xml"), "c.xml");
+        assert_eq!(posix::basename("a/b/"), "b");
+        assert_eq!(posix::join(&["ppt/slides", "../media/a.png"]), "ppt/media/a.png");
+        assert_eq!(posix::join(&["", "x"]), "x");
+        assert_eq!(posix::relative("ppt/slides", "ppt/media/a.png"), "../media/a.png");
+        assert_eq!(part_relationship_path("ppt/slides/slide1.xml"), "ppt/slides/_rels/slide1.xml.rels");
+        assert_eq!(part_relationship_path("a.xml"), "./_rels/a.xml.rels");
+    }
+    #[test]
+    fn relationships_are_read_and_numbered() {
+        let xml = "<Relationships><Relationship Id=\"rId1\" Type=\"t/slide\" Target=\"slides/slide1.xml\"/><Relationship Id=\"rId7\" Type=\"t/theme\" Target=\"theme/theme1.xml\"></Relationship><Relationship Id=\"rId2\" Type=\"t/x\"/></Relationships>";
+        let map = relationship_map(xml);
+        assert_eq!(map.get("rId1"), Some("slides/slide1.xml"));
+        assert_eq!(map.get("rId7"), Some("theme/theme1.xml"));
+        assert_eq!(map.get("rId2"), None);
+        assert_eq!(next_relationship_id(xml), "rId8");
+        assert_eq!(next_relationship_id("<Relationships/>"), "rId1");
+        assert_eq!(relationship_target_by_type(xml, "theme"), "theme/theme1.xml");
+        assert_eq!(relationship_target_by_type(xml, "chart"), "");
+        let targets = relationship_targets_by_type(xml, "ppt/presentation.xml", "slide");
+        assert_eq!(targets.iter().collect::<Vec<_>>(), [("rId1", "ppt/slides/slide1.xml")]);
+    }
+    #[test]
+    fn a_relationship_target_resolves_against_its_owner() {
+        assert_eq!(relationship_owner("_rels/.rels"), "");
+        assert_eq!(relationship_owner("ppt/slides/_rels/slide1.xml.rels"), "ppt/slides/slide1.xml");
+        assert_eq!(relationship_target("ppt/slides/_rels/slide1.xml.rels", "../media/a%20b.png#x"), "ppt/media/a b.png");
+        assert_eq!(relationship_target("ppt/slides/_rels/slide1.xml.rels", "/ppt/media/a.png"), "ppt/media/a.png");
+        assert_eq!(relationship_target("_rels/.rels", "word/document.xml"), "word/document.xml");
+        assert_eq!(relationship_target("_rels/.rels", "a%zz.xml"), "a%zz.xml");
+    }
     #[test]
     fn a_duplicated_slide_owns_its_chart_and_shares_its_picture() {
         let mut zip = deck();
@@ -937,7 +656,6 @@ mod tests {
         assert_eq!(zip.file("ppt/embeddings/book2.xlsx"), Some(&[1_u8, 2, 3][..]));
         assert!(zip.text(CONTENT_TYPES_PART).contains("PartName=\"/ppt/charts/chart2.xml\" ContentType=\"c\""));
     }
-
     #[test]
     fn imported_relationships_point_at_this_decks_copies_and_drop_notes() {
         let source = deck();
@@ -960,7 +678,6 @@ mod tests {
             "import_slides cannot place the layout of ppt/slideLayouts/slideLayout1.xml: this presentation has no slide master to adopt it"
         );
     }
-
     #[test]
     fn a_missing_source_part_is_named() {
         let source = Package::new();
@@ -968,5 +685,275 @@ mod tests {
         let relationships = "<Relationships><Relationship Id=\"rId1\" Type=\"x/image\" Target=\"../media/none.png\"/></Relationships>";
         let result = rewrite_imported_relationships(&source, &mut target, "ppt/slides/slide1.xml", "ppt/slides/slide2.xml", relationships, &mut HashMap::new());
         assert_eq!(result.unwrap_err(), "import_slides source package is missing ppt/media/none.png");
+    }
+}
+
+
+/// `relationshipTargetsByType(relationshipsXml, owner, type)`: every relationship of one type, as its Id and the package
+/// path it points at (a Target is written relative to the owning part unless it starts at the package root).
+pub fn relationship_targets_by_type(relationships_xml: &str, owner: &str, relationship_type: &str) -> RelationshipMap {
+    let mut targets = RelationshipMap::default();
+    let suffix = format!("/{relationship_type}");
+    for found in RELATIONSHIP_ANY.captures_iter(relationships_xml) {
+        let attributes = found.get(1).unwrap_or("");
+        if !xml_attribute(attributes, "Type").ends_with(&suffix) {
+            continue;
+        }
+        let id = xml_attribute(attributes, "Id");
+        let target = xml_attribute(attributes, "Target");
+        if id.is_empty() || target.is_empty() {
+            continue;
+        }
+        targets.set(&id, &part_from_target(&posix::dirname(owner), &target));
+    }
+    targets
+}
+/// `partFromTarget(directory, target)`: the part a relationship target names: absolute from the package root, relative
+/// from the directory of the part that declares it.
+pub fn part_from_target(directory: &str, target: &str) -> String {
+    match target.strip_prefix('/') {
+        Some(rooted) => rooted.to_owned(),
+        None => posix::normalize(&posix::join(&[directory, target])),
+    }
+}
+/// `importPartTree(source, zip, sourcePath, cache)`: a part of another package copied in with the parts it points at;
+/// a part this package already holds byte for byte is reused.
+fn import_part_tree(source: &Package, zip: &mut Package, source_path: &str, cache: &mut HashMap<String, String>) -> Result<String, String> {
+    if let Some(known) = cache.get(source_path) {
+        return Ok(known.clone());
+    }
+    let Some(data) = source.file(source_path) else {
+        return Err(format!("import_slides source package is missing {source_path}"));
+    };
+    let data = data.to_vec();
+    let digest = sha1_hex(&data);
+    let directory = posix::dirname(source_path);
+    let (prefix, extension) = part_naming(source_path);
+    let sibling = compiled(
+        &format!("^{}/{}\\d*\\.{}$", tag_pattern(&directory), tag_pattern(&prefix), tag_pattern(&extension)),
+        "i",
+    );
+    let reused = find_matching_part(zip, &sibling, &digest);
+    if !reused.is_empty() {
+        cache.insert(source_path.to_owned(), reused.clone());
+        return Ok(reused);
+    }
+    let target_path = next_available_part(zip, &directory, &prefix, &extension);
+    zip.set(&target_path, data);
+    cache.insert(source_path.to_owned(), target_path.clone());
+    copy_part_content_type(source, zip, source_path, &target_path);
+    let relationships = source.text(&part_relationship_path(source_path));
+    if !relationships.is_empty() {
+        let rewritten = rewrite_imported_relationships(source, zip, source_path, &target_path, &relationships, cache)?;
+        zip.set(&part_relationship_path(&target_path), rewritten);
+    }
+    Ok(target_path)
+}
+/// `clonePartTree(zip, sourcePath, cache)`: a part and the parts it owns inside the same package, always as new parts: a
+/// duplicated slide that keeps pointing at the original chart makes an edit to one page silently rewrite the other.
+fn clone_part_tree(zip: &mut Package, source_path: &str, cache: &mut HashMap<String, String>) -> String {
+    if let Some(known) = cache.get(source_path) {
+        return known.clone();
+    }
+    let Some(data) = zip.file(source_path) else { return String::new() };
+    let data = data.to_vec();
+    let directory = posix::dirname(source_path);
+    let (prefix, extension) = part_naming(source_path);
+    let target_path = next_available_part(zip, &directory, &prefix, &extension);
+    zip.set(&target_path, data);
+    cache.insert(source_path.to_owned(), target_path.clone());
+    let rule = content_type_rule(&zip.text(CONTENT_TYPES_PART), source_path);
+    apply_content_type(zip, rule, &target_path);
+    let relationships = zip.text(&part_relationship_path(source_path));
+    if relationships.is_empty() {
+        return target_path;
+    }
+    let mut output = relationships.clone();
+    for relationship in internal_relationships(&relationships) {
+        if SHARED_ON_CLONE.is_match(&xml_attribute(&relationship.block, "Type")) {
+            continue;
+        }
+        let absolute = relationship.target.starts_with('/');
+        let cloned = clone_part_tree(zip, &part_from_target(&directory, &relationship.target), cache);
+        if cloned.is_empty() {
+            continue;
+        }
+        let rewritten = if absolute { format!("/{cloned}") } else { posix::relative(&posix::dirname(&target_path), &cloned) };
+        output = rewrite_target(&output, &relationship.block, &relationship.raw, &rewritten);
+    }
+    zip.set(&part_relationship_path(&target_path), output);
+    target_path
+}
+/// `cloneOwnedSlideParts(zip, relationshipsPath)`: the relationships a copied slide must own outright before it is
+/// editable on its own (everything else stays shared with the slide it was copied from); the parts copied.
+pub fn clone_owned_slide_parts(zip: &mut Package, relationships_path: &str) -> Vec<String> {
+    let xml = zip.text(relationships_path);
+    if xml.is_empty() {
+        return Vec::new();
+    }
+    let owner = posix::dirname(&posix::dirname(relationships_path));
+    let mut cache = HashMap::new();
+    let mut copied = Vec::new();
+    let mut output = xml.clone();
+    for relationship in internal_relationships(&xml) {
+        // A slide's comments are its own too: two slides pointing at one comments part are a file PowerPoint refuses as
+        // corrupted, and PowerPoint's Duplicate copies them with the slide.
+        if !OWNED_BY_SLIDE.is_match(&xml_attribute(&relationship.block, "Type")) {
+            continue;
+        }
+        let absolute = relationship.target.starts_with('/');
+        let cloned = clone_part_tree(zip, &part_from_target(&owner, &relationship.target), &mut cache);
+        if cloned.is_empty() {
+            continue;
+        }
+        let rewritten = if absolute { format!("/{cloned}") } else { posix::relative(&owner, &cloned) };
+        copied.push(cloned);
+        output = rewrite_target(&output, &relationship.block, &relationship.raw, &rewritten);
+    }
+    if !copied.is_empty() {
+        zip.set(relationships_path, output);
+    }
+    copied
+}
+/// The layout of an imported page, its relationships re-targeted at this deck's copies of the parts. The layout answers
+/// to this deck's master, which is what keeps one theme over every page instead of two masters fighting for the deck.
+fn remap_layout_relationships(
+    source: &Package,
+    zip: &mut Package,
+    layout_path: &str,
+    target_path: &str,
+    master: &str,
+    cache: &mut HashMap<String, String>,
+) -> Result<(), String> {
+    let relationships = source.text(&part_relationship_path(layout_path));
+    if relationships.is_empty() {
+        return Ok(());
+    }
+    let mut output = relationships.clone();
+    for relationship in internal_relationships(&relationships) {
+        let resolved = part_from_target(&posix::dirname(layout_path), &relationship.target);
+        let mapped = if xml_attribute(&relationship.block, "Type").ends_with("/slideMaster") {
+            master.to_owned()
+        } else {
+            import_part_tree(source, zip, &resolved, cache)?
+        };
+        if mapped.is_empty() {
+            continue;
+        }
+        output = retarget(&output, &relationship.block, &posix::relative(&posix::dirname(target_path), &mapped));
+    }
+    zip.set(&part_relationship_path(target_path), output);
+    Ok(())
+}
+/// `registerLayoutOnMaster`: lists the layout on the master, where PowerPoint reads the deck's layouts from.
+fn register_layout_on_master(zip: &mut Package, master: &str, target_path: &str) {
+    let relationship_id = add_package_relationship(
+        zip,
+        &part_relationship_path(master),
+        &format!("{OFFICE_RELATIONSHIP_BASE}/slideLayout"),
+        &posix::relative(&posix::dirname(master), target_path),
+        "",
+    );
+    let master_xml = zip.text(master);
+    static LAYOUT_ID: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"<p:sldLayoutId\b[^>]*\bid="(\d+)""#, "g"));
+    let highest = LAYOUT_ID
+        .captures_iter(&master_xml)
+        .map(|found| mixdog_js::string_to_number(found.get(1).unwrap_or("")))
+        .fold(FIRST_SLIDE_LAYOUT_ID, f64::max);
+    let entry = format!("<p:sldLayoutId id=\"{}\" r:id=\"{relationship_id}\"/>", number_to_string(highest + 1.0));
+    let next = if master_xml.contains("</p:sldLayoutIdLst>") {
+        replace_first(&master_xml, "</p:sldLayoutIdLst>", &format!("{entry}</p:sldLayoutIdLst>"))
+    } else {
+        static COLOUR_MAP: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(<p:clrMap\b[^>]*\/>)", ""));
+        match COLOUR_MAP.find(&master_xml) {
+            Some(range) => format!(
+                "{}<p:sldLayoutIdLst>{entry}</p:sldLayoutIdLst>{}",
+                &master_xml[..range.end],
+                &master_xml[range.end..]
+            ),
+            None => master_xml,
+        }
+    };
+    zip.set(master, next);
+}
+/// `adoptImportedLayout`: a page borrowed from another deck was drawn on that deck's layout. When this deck already
+/// holds the same layout the import points at it; when the two were cut from different templates the layout is copied in
+/// and adopted by this deck's master, so the page keeps the geometry it was built with and the master still lists every
+/// layout under it. Empty when this deck has no master to adopt it.
+fn adopt_imported_layout(source: &Package, zip: &mut Package, layout_path: &str, cache: &mut HashMap<String, String>) -> Result<String, String> {
+    static MASTER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^ppt\/slideMasters\/slideMaster\d+\.xml$", ""));
+    let mut masters: Vec<String> = zip.names().into_iter().filter(|name| MASTER.is_match(name)).collect();
+    masters.sort();
+    let (Some(master), Some(layout)) = (masters.into_iter().next(), source.file(layout_path)) else {
+        return Ok(String::new());
+    };
+    let layout = layout.to_vec();
+    let target_path = next_available_part(zip, "ppt/slideLayouts", "slideLayout", "xml");
+    zip.set(&target_path, layout);
+    cache.insert(layout_path.to_owned(), target_path.clone());
+    copy_part_content_type(source, zip, layout_path, &target_path);
+    remap_layout_relationships(source, zip, layout_path, &target_path, &master, cache)?;
+    register_layout_on_master(zip, &master, &target_path);
+    Ok(target_path)
+}
+/// `rewriteImportedRelationships(source, zip, sourceOwner, targetOwner, relationships, cache)`: the relationships of a
+/// part imported from another package, re-targeted at the copies in this one. A slide's notes are not carried; a
+/// relationship to a slide not imported is dropped; a layout is matched to this deck's or adopted.
+pub fn rewrite_imported_relationships(
+    source: &Package,
+    zip: &mut Package,
+    source_owner: &str,
+    target_owner: &str,
+    relationships: &str,
+    cache: &mut HashMap<String, String>,
+) -> Result<String, String> {
+    let source_directory = posix::dirname(source_owner);
+    let target_directory = posix::dirname(target_owner);
+    let mut output = relationships.to_owned();
+    for relationship in internal_relationships(relationships) {
+        let relationship_type = xml_attribute(&relationship.block, "Type");
+        let resolved = part_from_target(&source_directory, &relationship.target);
+        if relationship_type.ends_with("/notesSlide") {
+            output = replace_first(&output, &relationship.block, "");
+            continue;
+        }
+        let mapped = if relationship_type.ends_with("/slideLayout") {
+            static LAYOUT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^ppt\/slideLayouts\/slideLayout\d+\.xml$", ""));
+            let mut mapped = find_matching_part(zip, &LAYOUT, &part_digest(source, &resolved));
+            if mapped.is_empty() {
+                mapped = adopt_imported_layout(source, zip, &resolved, cache)?;
+            }
+            if mapped.is_empty() {
+                return Err(format!(
+                    "import_slides cannot place the layout of {resolved}: this presentation has no slide master to adopt it"
+                ));
+            }
+            mapped
+        } else if relationship_type.ends_with("/slide") {
+            let mapped = cache.get(&format!("slide:{resolved}")).cloned().unwrap_or_default();
+            if mapped.is_empty() {
+                output = replace_first(&output, &relationship.block, "");
+                continue;
+            }
+            mapped
+        } else {
+            import_part_tree(source, zip, &resolved, cache)?
+        };
+        output = retarget(&output, &relationship.block, &posix::relative(&target_directory, &mapped));
+    }
+    Ok(output)
+}
+/// `relationshipTarget(relPath, target)`: the package path a Target of a rels part names (the fragment and query cut, a
+/// percent escape decoded, a malformed one kept as written).
+pub fn relationship_target(rel_path: &str, target: &str) -> String {
+    let decoded_entities = xml_decode(target);
+    let without_fragment = decoded_entities.split('#').next().unwrap_or("");
+    let without_query = without_fragment.split('?').next().unwrap_or("");
+    let decoded = decode_uri_component(without_query).unwrap_or_else(|| without_query.to_owned());
+    let owner = relationship_owner(rel_path);
+    let base = if owner.is_empty() { String::new() } else { posix::dirname(&owner) };
+    match decoded.strip_prefix('/') {
+        Some(rooted) => posix::normalize(rooted),
+        None => posix::normalize(&posix::join(&[&base, &decoded])),
     }
 }

@@ -5,7 +5,6 @@ use mixdog_agent::env::DrainRequest;
 use mixdog_agent::env::SteerEntry;
 use mixdog_agent::env::SteerSource;
 use mixdog_core_api::domain::provider::Content;
-use mixdog_core_api::domain::provider::ContentPart;
 
 use mixdog_core_session::session::RunPort;
 use mixdog_core_session::session::SteerInput;
@@ -39,6 +38,8 @@ fn entry_of(input: SteerInput) -> SteerEntry {
         ids: input.queued_ids.iter().map(|id| id.as_str().to_owned()).collect(),
         submitted_at: input.submitted_at,
         message_id: input.message_id,
+        originals_missing: input.originals_missing,
+        transcript_meta: input.transcript_meta,
         mode: input.mode,
         execution: input.execution,
     }
@@ -58,8 +59,30 @@ impl SteerSource for SteerQueue {
 #[cfg(test)]
 mod tests {
     use mixdog_agent::env::SteerMode;
+    use mixdog_core_api::domain::provider::ContentPart;
 
     use super::*;
+
+    #[test]
+    fn a_task_notification_keeps_its_mode_and_text_content() {
+        let input = SteerInput {
+            queued_ids: vec![mixdog_core_api::ids::QueuedId::from("q1".to_owned())],
+            content: serde_json::json!("hi"),
+            text: None,
+            mode: SteerMode::TaskNotification,
+            execution: Some(serde_json::json!({"id": "e1"})),
+            submitted_at: None,
+            message_id: Some("m1".into()),
+            originals_missing: 0,
+            transcript_meta: None,
+        };
+        let entry = entry_of(input);
+        assert_eq!(entry.mode, SteerMode::TaskNotification);
+        assert_eq!(entry.content, Content::Text("hi".into()));
+        assert_eq!(entry.message_id.as_deref(), Some("m1"));
+        assert_eq!(entry.ids, ["q1"]);
+    }
+
 
     #[test]
     fn a_steered_prompt_keeps_its_image_part() {
@@ -84,6 +107,8 @@ mod tests {
             ids: vec!["s1".into()],
             submitted_at: None,
             message_id: None,
+            originals_missing: 0,
+            transcript_meta: None,
             mode: SteerMode::Prompt,
             execution: None,
         };
@@ -95,24 +120,6 @@ mod tests {
             assert_eq!(parts.len(), 3);
             assert!(matches!(&parts[2], ContentPart::File { source: mixdog_core_api::domain::provider::BinarySource::AttachmentRef(r), .. } if *r == reference));
         }
-    }
-
-    #[test]
-    fn a_task_notification_keeps_its_mode_and_text_content() {
-        let input = SteerInput {
-            queued_ids: vec![mixdog_core_api::ids::QueuedId::from("q1".to_owned())],
-            content: serde_json::json!("hi"),
-            text: None,
-            mode: SteerMode::TaskNotification,
-            execution: Some(serde_json::json!({"id": "e1"})),
-            submitted_at: None,
-            message_id: Some("m1".into()),
-        };
-        let entry = entry_of(input);
-        assert_eq!(entry.mode, SteerMode::TaskNotification);
-        assert_eq!(entry.content, Content::Text("hi".into()));
-        assert_eq!(entry.message_id.as_deref(), Some("m1"));
-        assert_eq!(entry.ids, ["q1"]);
     }
 }
 

@@ -8,7 +8,7 @@ import {
   DESKTOP_WORKTREE_ERROR_CODES,
   DESKTOP_WORKTREE_NEW_TASK_DEFAULTS,
 } from '../shared/contract.ts';
-import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-validation.ts';
+import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-capability-request.ts';
 import { worktreeErrorWithCode } from './worktree-validation.ts';
 import { WORKTREE_ERROR_CODES } from './test-support/worktree-contract.recorded.mjs';
 import { WORKTREE_NEW_TASK_DEFAULTS } from './test-support/worktree-contract.recorded.mjs';

@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use mixdog_app_server_client::{
     BlobDescriptor, BlobRef, ClientError, ClientEvent, Clock, ConnectOptions, ConnectionStatus,
     Connector, FeedStamp, Json, LadderConfig, ProtocolClient, RequestId, ResumeWindow,
-    RpcNotification, SectionName, ServerRequestAnswer, Target, ThreadId, ThreadReducer, connect,
+    ReplyAddress, RpcNotification, SectionName, ServerRequestAnswer, Target, ThreadId, ThreadReducer, connect,
     engine::Client,
 };
 
@@ -146,9 +146,11 @@ fn pump(
     events: &mut broadcast::Receiver<ClientEvent>,
     statuses: &mut Vec<String>,
     blob_failures: &mut Vec<ClientError>,
+    addresses: &mut Vec<ReplyAddress>,
 ) {
     while let Ok(e) = events.try_recv() {
         match e {
+            ClientEvent::ServerRequest(_, address) => addresses.push(address),
             ClientEvent::Status(st) => statuses.push(match st {
                 ConnectionStatus::Ready { .. } => "ready".into(),
                 ConnectionStatus::Reconnecting { attempt } => format!("reconnecting:{attempt}"),
@@ -165,6 +167,7 @@ async fn run(options: Json, steps: Vec<Json>, net: Arc<dyn Net>) {
     let mut caps = Caps::new();
     let mut statuses: Vec<String> = Vec::new();
     let mut blob_failures: Vec<ClientError> = Vec::new();
+    let mut addresses: Vec<ReplyAddress> = Vec::new();
     let mut status_at = 0;
     let mut conn: Option<Box<dyn ServerConn>> = None;
     let mut client: Option<Arc<Client>> = None;
@@ -382,7 +385,10 @@ async fn run(options: Json, steps: Vec<Json>, net: Arc<dyn Net>) {
                         data: None,
                     },
                 };
-                client.as_ref().unwrap().respond(id, answer).await.unwrap();
+                // Answered at the address the request arrived with: the socket it came in on.
+                pump(events.as_mut().unwrap(), &mut statuses, &mut blob_failures, &mut addresses);
+                let address = addresses.iter().rev().find(|a| a.request_id == id).cloned().expect("a respond step names a request that arrived");
+                client.as_ref().unwrap().respond(address, answer).await.unwrap();
             }
             "close" => client.as_ref().unwrap().close().await,
             "settle" => net.settle().await,
@@ -399,7 +405,7 @@ async fn run(options: Json, steps: Vec<Json>, net: Arc<dyn Net>) {
             }
             "expectStatus" => {
                 net.settle().await;
-                pump(events.as_mut().unwrap(), &mut statuses, &mut blob_failures);
+                pump(events.as_mut().unwrap(), &mut statuses, &mut blob_failures, &mut addresses);
                 let want: Vec<String> = s["states"]
                     .as_array()
                     .unwrap()
@@ -414,7 +420,7 @@ async fn run(options: Json, steps: Vec<Json>, net: Arc<dyn Net>) {
             }
             "expectBlobUnavailable" => {
                 net.settle().await;
-                pump(events.as_mut().unwrap(), &mut statuses, &mut blob_failures);
+                pump(events.as_mut().unwrap(), &mut statuses, &mut blob_failures, &mut addresses);
                 let got: Vec<Json> = blob_failures
                     .drain(..)
                     .map(|e| json!({ "kind": e.kind(), "digest": digest_of(&e) }))

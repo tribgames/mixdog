@@ -47,8 +47,6 @@ use super::hosted_sender::ProviderSearchSender;
 use super::hosted_sender::SenderDeps;
 use super::hosted_usage::NativeSearchUsageSinks;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/hosted-search/golden.json");
-
 /// Prices nothing, as an empty catalog does.
 struct Unpriced;
 
@@ -306,14 +304,6 @@ async fn expect_case(routes: &ConfiguredSearchRoutes, thread: &ThreadId, case: &
     }
 }
 
-#[tokio::test]
-async fn the_candidates_are_the_ones_node_resolves() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-    for case in golden["routes"].as_array().unwrap() {
-        expect_case(&ConfiguredSearchRoutes::new(World::of(case, 0)), &asking_thread(), case).await;
-    }
-}
-
 /// A daemon's host: the config and the catalog are one, and each thread has its own Main route
 /// and session (Node has one runtime per conversation).
 struct Threads {
@@ -340,26 +330,6 @@ impl SearchHost for Threads {
     }
     fn session_id(&self, thread: &ThreadId) -> Option<String> {
         Some(thread.as_str().to_owned())
-    }
-}
-
-#[tokio::test]
-async fn one_host_answers_each_thread_with_its_own_main_route() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-    // The recorded cases that differ only in their Main route.
-    let cases: Vec<&Value> = golden["routes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|case| ["webSearchRoute", "cached", "listed", "global"].iter().all(|key| case.get(*key).is_none()))
-        .collect();
-    assert!(cases.len() > 2);
-    let thread_of = |index: usize| ThreadId::from(format!("thread-{index}").as_str());
-    let mains = cases.iter().enumerate().map(|(index, case)| (thread_of(index), case["main"].clone())).collect();
-    let routes = ConfiguredSearchRoutes::new(Arc::new(Threads { shared: World::of(&json!({}), 0), mains }));
-    // Last thread first: no answer depends on which thread asked before.
-    for (index, case) in cases.iter().enumerate().rev() {
-        expect_case(&routes, &thread_of(index), case).await;
     }
 }
 
@@ -424,13 +394,85 @@ fn row_views(ledger: &Ledger) -> Vec<Value> {
         .collect()
 }
 
+#[test]
+fn a_turn_hears_the_newest_live_registration_of_its_session() {
+    let sinks = NativeSearchUsageSinks::new();
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let listener = |tag: &'static str| {
+        let heard = heard.clone();
+        Arc::new(move |_: Value| heard.lock().unwrap().push(tag)) as super::hosted_usage::UsageSink
+    };
+    let first = sinks.register("s1", listener("a"));
+    let second = sinks.register("s1", listener("b"));
+    sinks.report(Some("s1"), || json!({}));
+    drop(first);
+    sinks.report(Some("s1"), || json!({}));
+    drop(second);
+    sinks.report(Some("s1"), || json!({}));
+    sinks.report(Some("other"), || json!({}));
+    assert_eq!(*heard.lock().unwrap(), vec!["b", "b"]);
+    let third = sinks.register("s2", Arc::new(|_| panic!("boom")));
+    sinks.report(Some("s2"), || json!({}));
+    drop(third);
+}
+
+
+#[cfg(node_twin)]
+const GOLDEN: &str = include_str!("../../../../fixtures/hosted-search/golden.json");
+
+/// Cases that differ only in the thread's Main route: the route and the candidates it resolves to.
+fn main_route_cases() -> Vec<Value> {
+    vec![
+        json!({
+            "name": "default follows a capable main model",
+            "main": {"effort": "high", "fast": true, "model": "gpt-5.2", "modelParameters": {"verbosity": "low"}, "provider": "openai"},
+            "candidates": [{"effort": "high", "fast": true, "key": "default\nopenai\ngpt-5.2", "model": "gpt-5.2", "modelParameters": {"verbosity": "low"}, "provider": "openai", "source": "default-web-search-route", "toolType": null}],
+        }),
+        json!({
+            "name": "default takes the effective effort first",
+            "main": {"effectiveEffort": "medium", "effort": "low", "model": "gpt-5.2", "provider": "openai"},
+            "candidates": [{"effort": "medium", "fast": false, "key": "default\nopenai\ngpt-5.2", "model": "gpt-5.2", "modelParameters": {}, "provider": "openai", "source": "default-web-search-route", "toolType": null}],
+        }),
+        json!({
+            "name": "default refuses a codex main model",
+            "main": {"model": "gpt-5.2-codex", "provider": "openai-oauth"},
+            "candidates": [],
+            "noCandidate": "default web search route requires the current main model to support native web search (openai-oauth/gpt-5.2-codex)",
+        }),
+    ]
+}
+
+#[tokio::test]
+async fn the_default_search_route_follows_a_capable_main_model_and_refuses_a_codex_one() {
+    for case in main_route_cases() {
+        expect_case(&ConfiguredSearchRoutes::new(World::of(&case, 0)), &asking_thread(), &case).await;
+    }
+}
+#[tokio::test]
+async fn one_host_answers_each_thread_with_its_own_main_route() {
+    let owned = main_route_cases();
+    let cases: Vec<&Value> = owned.iter().collect();
+    let thread_of = |index: usize| ThreadId::from(format!("thread-{index}").as_str());
+    let mains = cases.iter().enumerate().map(|(index, case)| (thread_of(index), case["main"].clone())).collect();
+    let routes = ConfiguredSearchRoutes::new(Arc::new(Threads { shared: World::of(&json!({}), 0), mains }));
+    // Last thread first: no answer depends on which thread asked before.
+    for (index, case) in cases.iter().enumerate().rev() {
+        expect_case(&routes, &thread_of(index), case).await;
+    }
+}
+#[cfg(node_twin)]
 #[tokio::test]
 async fn every_send_is_asked_answered_accounted_and_reported_like_node() {
-    // The golden was recorded in Seoul: a row's day is the local day.
-    let _ = mixdog_js::time::set_process_zone(mixdog_js::time::Tz::Asia__Seoul);
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-    let start = golden["startedAt"].as_i64().unwrap();
-    for case in golden["sends"].as_array().unwrap() {
+    check_sends(golden["sends"].as_array().unwrap(), golden["startedAt"].as_i64().unwrap()).await;
+}
+
+/// One search through the real routes and sender for each case: its provider scripted with the case's replies, then the
+/// answer, the requests the provider got, the spend the asking turn heard and the ledger rows checked against the case.
+async fn check_sends(sends: &[Value], start: i64) {
+    // A row's day is the local day: the cases are written for Seoul.
+    let _ = mixdog_js::time::set_process_zone(mixdog_js::time::Tz::Asia__Seoul);
+    for case in sends {
         let name = &case["name"];
         let mut spec = case.clone();
         spec["main"] = json!({ "provider": "openai", "model": "gpt-5.2" });
@@ -470,7 +512,7 @@ async fn every_send_is_asked_answered_accounted_and_reported_like_node() {
 
         match (&case["result"], &case["error"]) {
             (Value::Object(want), _) => {
-                let got = got.unwrap_or_else(|error| panic!("{name}: {error}"));
+                let got = got.unwrap_or_else(|error| panic!("{name}: {error:?}"));
                 assert_eq!(got.answer, want["content"].as_str().unwrap(), "{name}");
                 assert_eq!(got.provider, want["provider"].as_str().unwrap(), "{name}");
                 let urls: Vec<(String, String)> = got.citations.iter().map(|c| (c.title.clone(), c.url.clone())).collect();
@@ -482,7 +524,7 @@ async fn every_send_is_asked_answered_accounted_and_reported_like_node() {
                     .collect();
                 assert_eq!(urls, want_urls, "{name}");
             }
-            (_, Value::String(error)) => assert_eq!(&got.unwrap_err(), error, "{name}"),
+            (_, Value::String(error)) => assert_eq!(got.unwrap_err().message(), error.as_str(), "{name}"),
             _ => panic!("{name}: no expectation"),
         }
 
@@ -517,24 +559,50 @@ async fn every_send_is_asked_answered_accounted_and_reported_like_node() {
     }
 }
 
-#[test]
-fn a_turn_hears_the_newest_live_registration_of_its_session() {
-    let sinks = NativeSearchUsageSinks::new();
-    let heard = Arc::new(Mutex::new(Vec::new()));
-    let listener = |tag: &'static str| {
-        let heard = heard.clone();
-        Arc::new(move |_: Value| heard.lock().unwrap().push(tag)) as super::hosted_usage::UsageSink
-    };
-    let first = sinks.register("s1", listener("a"));
-    let second = sinks.register("s1", listener("b"));
-    sinks.report(Some("s1"), || json!({}));
-    drop(first);
-    sinks.report(Some("s1"), || json!({}));
-    drop(second);
-    sinks.report(Some("s1"), || json!({}));
-    sinks.report(Some("other"), || json!({}));
-    assert_eq!(*heard.lock().unwrap(), vec!["b", "b"]);
-    let third = sinks.register("s2", Arc::new(|_| panic!("boom")));
-    sinks.report(Some("s2"), || json!({}));
-    drop(third);
+#[tokio::test]
+async fn a_search_asks_the_provider_for_its_hosted_tool_and_answers_with_citations_spend_and_a_ledger_row() {
+    let case = json!({
+        "name": "openai with usage, a model, citations and search calls",
+        "args": {"contextSize": "medium", "maxResults": 3, "prompt": "find x", "query": "q", "site": "a.com OR b.com"},
+        "session": "lead-1",
+        "webSearchRoute": {"effort": "high", "fast": true, "model": "zz-gpt", "modelParameters": {"verbosity": "low"}, "provider": "openai"},
+        "replies": [{"result": {
+            "citations": [{"title": "A", "url": "https://a.com/1"}],
+            "content": "  the answer  ",
+            "usage": {"cacheWriteTokens": 0, "cachedTokens": 40, "inputTokens": 120, "outputTokens": 30, "promptTokens": 120, "raw": {"output_tokens_details": {"reasoning_tokens": 7}}},
+            "webSearchCalls": [{"action": {"query": "x", "sources": [{"url": "https://b.com/2"}]}, "type": "web_search_call"}],
+        }}],
+        "result": {"content": "the answer", "provider": "openai", "citations": [{"title": "A", "url": "https://a.com/1"}, {"title": "x", "url": "https://b.com/2"}]},
+        "calls": [{
+            "provider": "openai",
+            "model": "zz-gpt",
+            "messages": [
+                {"role": "system", "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits."},
+                {"role": "user", "content": "find x"},
+            ],
+            "opts": {
+                "effort": "high", "fast": true, "modelParameters": {"verbosity": "low"}, "toolChoice": "required",
+                "nativeInclude": ["web_search_call.action.sources"],
+                "nativeTools": [{"filters": {"allowed_domains": ["a.com", "b.com"]}, "search_context_size": "medium", "type": "web_search"}],
+                "sessionId": "lead-1:native-web-search:loyw3v28",
+            },
+        }],
+        "deltas": [{
+            "agentRole": "web-search", "contextCacheWriteTokens": 0, "contextCachedReadTokens": 40, "contextInputTokens": 120,
+            "contextMeasuredTokens": null, "contextOutputTokens": 30, "contextPromptTokens": 120, "deltaCacheWrite": 0,
+            "deltaCachedRead": 40, "deltaInput": 120, "deltaOutput": 30, "deltaPrompt": 120, "deltaToolCalls": 0,
+            "iterationIndex": 0, "model": "zz-gpt", "promptKnown": true, "reasoningTokens": 7, "reasoningTokensComplete": true,
+            "requestMs": 0, "requestedModel": "zz-gpt", "sessionId": "lead-1:native-web-search:loyw3v28",
+            "source": "native_web_search", "ts": 1_700_000_000_250_i64,
+        }],
+        "rows": [{
+            "account": "", "attempts": 1, "cacheRead": 40, "cacheWrite": 0, "costSource": "unpriced", "costUsd": null,
+            "day": "2023-11-15", "durationMs": 250, "elapsedMs": 0, "id": "<req>", "input": 80, "kind": "api",
+            "model": "zz-gpt", "origin": "live", "output": 30, "provider": "openai",
+            "rates": "{\"requestedModel\":\"zz-gpt\",\"pricingModel\":\"zz-gpt\",\"pricingProvider\":\"openai\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+            "requestedModel": "", "requestedProvider": "", "responseId": "", "sessionId": "lead-1:native-web-search:loyw3v28",
+            "sourceType": "native-web-search", "status": "completed", "ts": 1_700_000_000_250_i64, "ttftMs": null,
+        }],
+    });
+    check_sends(&[case], 1_700_000_000_000).await;
 }

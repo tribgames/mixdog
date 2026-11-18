@@ -2,17 +2,18 @@
 //! device. Every Wayland compositor reads it like real hardware, which is
 //! why it works where no compositor protocol is shared.
 
+use super::port;
 use crate::keys::{Key, Mod, Named};
 use std::fs::{File, OpenOptions};
-use std::io::Write;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
+use std::sync::Arc;
 
-const EV_SYN: u16 = 0;
-const EV_KEY: u16 = 1;
+pub(crate) const EV_SYN: u16 = 0;
+pub(crate) const EV_KEY: u16 = 1;
 const EV_REL: u16 = 2;
 const EV_ABS: u16 = 3;
-const SYN_REPORT: u16 = 0;
+pub(crate) const SYN_REPORT: u16 = 0;
 const REL_HWHEEL: u16 = 6;
 const REL_WHEEL: u16 = 8;
 const ABS_X: u16 = 0;
@@ -72,9 +73,20 @@ struct InputEvent {
 pub const PERMISSION_HINT: &str = "input_unavailable: Wayland input needs write access to /dev/uinput; add the udev rule `KERNEL==\"uinput\", GROUP=\"input\", MODE=\"0660\", OPTIONS+=\"static_node=uinput\"`, add your user to the input group, then sign in again";
 
 pub struct Device {
-    file: File,
+    /// Kept open with the device; only the executor's port writes to it.
+    #[allow(dead_code)]
+    file: Arc<File>,
     /// The desktop area the absolute axes span.
     origin: (i32, i32),
+}
+
+/// One input event's bytes, as the kernel reads them.
+pub(crate) fn event_bytes(kind: u16, code: u16, value: i32) -> Vec<u8> {
+    let event = InputEvent { seconds: 0, microseconds: 0, kind, code, value };
+    // SAFETY: InputEvent is plain data; its bytes are what the kernel reads.
+    unsafe {
+        std::slice::from_raw_parts(&event as *const InputEvent as *const u8, std::mem::size_of::<InputEvent>()).to_vec()
+    }
 }
 
 fn ioctl(file: &File, request: libc::c_ulong, argument: libc::c_ulong) -> Result<(), String> {
@@ -137,47 +149,23 @@ impl Device {
         };
         ioctl(&file, UI_DEV_SETUP, &setup as *const Setup as _)?;
         ioctl(&file, UI_DEV_CREATE, 0)?;
-        // The compositor needs a moment to open a new input device.
+        // The compositor needs a moment to open a new input device; the wait holds nothing (the device sends nothing yet).
         std::thread::sleep(std::time::Duration::from_millis(400));
+        let file = Arc::new(file);
+        port::register_uinput(file.clone());
         Ok(Device {
             file,
             origin: (bounds.0, bounds.1),
         })
     }
 
-    fn emit(&self, kind: u16, code: u16, value: i32) -> Result<(), String> {
-        let event = InputEvent {
-            seconds: 0,
-            microseconds: 0,
-            kind,
-            code,
-            value,
-        };
-        // SAFETY: InputEvent is plain data; its bytes are what the kernel reads.
-        let bytes = unsafe {
-            std::slice::from_raw_parts(
-                &event as *const InputEvent as *const u8,
-                std::mem::size_of::<InputEvent>(),
-            )
-        };
-        (&self.file)
-            .write_all(bytes)
-            .map_err(|error| format!("input_delivery_failed: {error}"))
-    }
-
-    fn sync(&self) -> Result<(), String> {
-        self.emit(EV_SYN, SYN_REPORT, 0)
-    }
-
     pub fn move_to(&self, x: i32, y: i32) -> Result<(), String> {
-        self.emit(EV_ABS, ABS_X, x - self.origin.0)?;
-        self.emit(EV_ABS, ABS_Y, y - self.origin.1)?;
-        self.sync()
+        port::uinput_frame(port::Frame::Move { x: x - self.origin.0, y: y - self.origin.1 })
     }
 
+    /// A press owned from its write; a release the hold's own frame (`port::uinput_key`).
     pub fn key(&self, code: u16, down: bool) -> Result<(), String> {
-        self.emit(EV_KEY, code, down as i32)?;
-        self.sync()
+        port::uinput_key(code, down)
     }
 
     pub fn wheel(&self, clicks: i32, horizontal: bool) -> Result<(), String> {
@@ -188,8 +176,7 @@ impl Device {
             (REL_WHEEL, -clicks)
         };
         for _ in 0..clicks.unsigned_abs() {
-            self.emit(EV_REL, code, value.signum())?;
-            self.sync()?;
+            port::uinput_frame(port::Frame::Wheel { code, value: value.signum() })?;
         }
         Ok(())
     }

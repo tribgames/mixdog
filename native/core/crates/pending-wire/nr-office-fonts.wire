@@ -1,6 +1,0 @@
-# nr-office-fonts: reduced by the wire audit (t19). Applied: the workspace member and dependency, ttf-parser / rustybuzz / unicode-script, the lock entries, the daemon office_fonts.rs reduced to a host over mixdog_fonts::install, the office-measure index entry, immutable snapshots and collection registration, provisioning collision correction.
-
-## Open (in-crate, mixdog-fonts; the owner of the font implementation and of the oracle)
-- Phase 2: variable coordinates in shaping and outlines, bidi and cluster fallback, glyph offsets, synthetic styles and raster/hinting-compatible metrics, fontconfig and legacy cache contracts.
-- Phase 3: the historical twin_measure relaxes ink tolerances, skips cases and probes installed fonts, so it is not strict parity evidence (mixdog-fonts::twin_measure is in results/t8-fails.txt); it must be replaced by the isolated strict corpus (set DISABLE_SYSTEM_FONTS_LOAD=1 before importing canvas in the recorder process, register only explicitly supplied fixture paths) with actual resolved-face evidence and all TextMetrics at task tolerance, before product activation. A golden is never edited by hand and no tolerance is added.
-- Native-kernel source/tool preparation is pending the separately requested owner approval (owner decision).

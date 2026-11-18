@@ -1,0 +1,32 @@
+name: Set up Node 22 with the npm cache
+description: >-
+  actions/setup-node with the npm download cache, except that a pull request only restores it. setup-node saves
+  its cache from a post step on every miss, so each pull request ref kept a copy of the same 250-470 MB entry
+  (the repository's cache budget is 10 GB). Here the entry is saved by pushes (main, manual runs) only; a pull
+  request restores the one a push saved, under the key setup-node itself writes
+  (node-cache-<OS>-<arch>-npm-<hash of the lock files>).
+inputs:
+  cache-dependency-path:
+    description: Lock files (one per line) that key the npm cache, as setup-node's cache-dependency-path.
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      with:
+        node-version: "22"
+        cache: ${{ github.event_name != 'pull_request' && 'npm' || '' }}
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}
+    - name: Locate the npm cache of this runner
+      id: npm
+      if: github.event_name == 'pull_request'
+      shell: bash
+      run: |
+        echo "dir=$(npm config get cache)" >> "$GITHUB_OUTPUT"
+        echo "platform=${RUNNER_OS}-$(node -p process.arch)" >> "$GITHUB_OUTPUT"
+    - name: Restore the npm cache a push saved
+      if: github.event_name == 'pull_request'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.npm.outputs.dir }}
+        key: node-cache-${{ steps.npm.outputs.platform }}-npm-${{ hashFiles(inputs.cache-dependency-path) }}

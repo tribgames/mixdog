@@ -37,7 +37,6 @@ pub fn wrapped_line_rows(line: &str, width: usize) -> usize {
         if run_width > width {
             if col > 0 {
                 rows += 1;
-                col = 0;
             }
             rows += run_width.div_ceil(width) - 1;
             col = if run_width % width == 0 { width } else { run_width % width };

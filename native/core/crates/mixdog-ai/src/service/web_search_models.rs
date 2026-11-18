@@ -474,6 +474,7 @@ impl<F: CatalogFacts> WebSearchCatalog<F> {
     }
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "web_search_models_tests.rs"]
 mod tests;

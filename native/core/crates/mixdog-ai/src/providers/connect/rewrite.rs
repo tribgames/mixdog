@@ -48,6 +48,10 @@ impl<R: Rewriter> WireCodec for RewriteCodec<R> {
     fn transport(&self) -> TransportKind {
         self.inner.transport()
     }
+    /// A rewriter changes headers and the body's envelope, never the wire: the images travel the inner codec's branch.
+    fn image_branch(&self, request: &ModelRequest) -> mixdog_image_egress::route::WireBranch {
+        self.inner.image_branch(request)
+    }
 
     fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
         self.rewriter.rewrite(self.inner.encode(request)?, request)
@@ -91,6 +95,11 @@ pub trait Credential: Send + Sync {
 
     /// Marks the error of a resend refused again after a refresh.
     fn refused_again(&self, _status: u16, _error: &mut ProviderError) {}
+
+    /// The account `header` (a header this credential produced) signs in as, when the credential names one.
+    fn account_of(&self, _header: &(String, String)) -> Option<String> {
+        None
+    }
 }
 
 /// One credential header that never changes (or none: a keyless endpoint).
@@ -162,7 +171,9 @@ pub async fn run_fitted_attempt(
             }
             return Err(error);
         }
-        if credential.refreshes_on(status, &rejected.body) {
+        if !crate::providers::compat::login::opencode_go::gateway_owns_auth_recovery()
+            && credential.refreshes_on(status, &rejected.body)
+        {
             again = true;
             refreshed = true;
             let next = credential.header(true).await?;

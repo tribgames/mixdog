@@ -7,10 +7,10 @@
 use std::sync::Arc;
 
 use mixdog_core_api::domain::provider::DeliveryState;
+use mixdog_core_api::domain::provider::EffortProjection;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderError;
-use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::provider::WireRequest;
 use serde::Deserialize;
@@ -26,7 +26,7 @@ use crate::providers::compat::CompatProfile;
 use crate::providers::compat::profile::CredentialKind;
 use crate::providers::compat::profile::Wire;
 use crate::providers::compat::responses::CompatResponsesCodec;
-use crate::providers::compat::responses::normalize_cache_key;
+use crate::providers::compat::responses::session_cache_key;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use std::collections::HashSet;
 use std::sync::Mutex;
@@ -35,6 +35,7 @@ use std::sync::PoisonError;
 pub mod config;
 pub mod listing;
 pub mod reasoning;
+pub(crate) mod responses;
 
 pub const HEADER_LIMIT: usize = 64;
 pub const REQUEST_BODY_MAX_CHARS: usize = 16384;
@@ -66,6 +67,7 @@ pub struct CustomRequestConfig {
     pub base_url: String,
     pub headers: Vec<(String, String)>,
     pub request_body: Map<String, Value>,
+    pub responses_prompt_cache_key: Option<bool>,
     /// Per model: extra body fields and headers over the provider's.
     pub model_body: Map<String, Value>,
     pub model_headers: Vec<(String, Vec<(String, String)>)>,
@@ -159,6 +161,19 @@ impl ReasoningSource {
         let effort = request.options.effort.as_deref().or(self.configured.as_deref());
         reasoning::resolve(protocol, &reasoning_facts(row.as_deref()), effort, &self.base_url)
     }
+
+    fn responses_projection(&self, request: &ModelRequest) -> Option<EffortProjection> {
+        let projection = request.options.effort_projection.as_ref()?;
+        let row = reasoning_facts(self.rows.cached_row(&request.model).as_deref());
+        crate::effort::EffortProjection::from_session(
+            &projection.initial_effort,
+            projection.updates.iter().map(|(&index, effort)| (index, effort.clone())),
+            &|effort| {
+                reasoning::resolve(&Protocol::OpenaiResponses, &row, Some(effort), &self.base_url)
+                    .fields.get("reasoning")?.get("effort")?.as_str().map(str::to_owned)
+            },
+        ).map(Into::into)
+    }
 }
 
 /// The reasoning facts of the model `row` the provider holds (`null` when it holds none).
@@ -176,15 +191,6 @@ fn reasoning_facts(row: Option<&Value>) -> reasoning::ReasoningRow {
             .unwrap_or_default();
     }
     facts
-}
-
-/// `customSessionCacheKey`: the session's identity as a Responses `prompt_cache_key`, normalized; a one-shot role's
-/// shared scope keys on the request's own key first. Empty when neither is set.
-fn session_cache_key(options: &RequestOptions) -> String {
-    let named = options.prompt_cache_key.as_deref().filter(|k| !k.is_empty());
-    let session = options.session_id.as_deref().filter(|s| !s.is_empty());
-    let key = if options.prompt_cache_scope.as_deref() == Some("shared") { named.or(session) } else { session.or(named) };
-    key.map(normalize_cache_key).unwrap_or_default()
 }
 
 /// Takes `object`'s entries from the first of `keys` on, in their order; none when it has none of them.
@@ -218,13 +224,15 @@ impl Rewriter for CustomRewriter {
             Protocol::OpenaiChat | Protocol::OpenaiResponses => self.reasoning.resolve(&self.wire, request).fields,
             Protocol::Anthropic => Map::new(),
         };
-        // The Responses `reasoning` is what the row resolves (`resolveReasoning`), placed where Node's builder places it. The
-        // effort projection (`customEffortProjection`) is not encoded on this wire: it waits for the compat port of
-        // `withEffortConfigurationFallback`, without which a gateway refusing the update would fail the turn.
+        // The codec has already put the projected initial effort into the body; the turn's effort
+        // replaces it only on the per-request path.
         let reasoned = self.wire == Protocol::OpenaiResponses;
         let reasoning = if reasoned { own.shift_remove("reasoning") } else { None };
-        // Every custom Responses route keys the prompt cache on the session (`supportsPromptCacheKey`).
-        let session = if self.wire == Protocol::OpenaiResponses { session_cache_key(&request.options) } else { String::new() };
+        let session = if reasoned {
+            session_cache_key(&request.options, self.config.responses_prompt_cache_key, true)
+        } else {
+            String::new()
+        };
         if !session.is_empty() {
             own.insert("prompt_cache_key".to_owned(), Value::String(session.clone()));
         }
@@ -241,9 +249,8 @@ impl Rewriter for CustomRewriter {
                     Protocol::OpenaiResponses => Map::new(),
                 };
                 if reasoned {
-                    // The codec's own `reasoning` followed the turn's effort as sent; the row decides, and a row that serves
-                    // none leaves the request without one.
-                    object.shift_remove("reasoning");
+                    let encoded = object.shift_remove("reasoning");
+                    let reasoning = if request.options.effort_projection.is_some() { encoded } else { reasoning };
                     if let Some(reasoning) = reasoning {
                         let tail = split_from(object, &["instructions", "prompt_cache_key"]);
                         object.insert("reasoning".to_owned(), reasoning);
@@ -331,7 +338,7 @@ pub fn chat_codec(id: &str, base_url: &str, replay: crate::providers::compat::ch
 pub fn responses_codec(id: &str, base_url: &str) -> Arc<dyn WireCodec> {
     let profile = profile(id, Wire::Responses);
     let config = config(&profile, base_url);
-    Arc::new(CompatResponsesCodec::new(profile, config, TransportKind::Http1))
+    Arc::new(CompatResponsesCodec::new(profile, config, TransportKind::Http1).with_custom_effort_history())
 }
 
 #[cfg(test)]

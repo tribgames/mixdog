@@ -44,11 +44,19 @@ pub struct TurnError {
     pub carried_report: Option<String>,
     /// `error.partialHandoff`: the text a canonical turn read off its own transcript.
     pub partial_handoff: Option<String>,
+    /// What the owner must learn beside the failure (the background shell jobs a stall stopped), kept apart from
+    /// `message` so the presentation of the message cannot drop it.
+    pub notes: Vec<String>,
 }
 
 impl TurnError {
     pub fn new(message: impl Into<String>) -> Self {
         Self { message: message.into(), ..Self::default() }
+    }
+
+    /// The failure as plain text for a caller that shows it unpresented: the message, then each note.
+    pub fn text_with_notes(&self) -> String {
+        self.notes.iter().fold(self.message.clone(), |text, note| format!("{text} {note}"))
     }
 }
 
@@ -193,6 +201,25 @@ pub trait Admission: Send + Sync {
 /// `recordAgentTaskStart`: the tool call that started a job owns it.
 pub trait TaskStarts: Send + Sync {
     fn record(&self, tool_call_id: &str, task_id: &str);
+
+    /// `takeAgentTaskStarts`: the task ids tool call `tool_call_id` started, forgotten once taken.
+    fn take(&self, _tool_call_id: &str) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+/// The store the agent tool records into, for the tool batch to take from (Node's `agent-task-starts.mjs` is a module-level map).
+static CALL_STARTS: std::sync::Mutex<Option<Arc<dyn TaskStarts>>> = std::sync::Mutex::new(None);
+
+/// Binds the store `assemble` wired, replacing an earlier one.
+pub fn bind_call_starts(starts: Arc<dyn TaskStarts>) {
+    *CALL_STARTS.lock().unwrap_or_else(|p| p.into_inner()) = Some(starts);
+}
+
+/// The task ids an `agent` tool call started; none when no store is bound.
+pub fn take_call_starts(tool_call_id: &str) -> Vec<String> {
+    let starts = CALL_STARTS.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    starts.map(|s| s.take(tool_call_id)).unwrap_or_default()
 }
 
 /// A turn started on a worker session (`onTurnStart`).

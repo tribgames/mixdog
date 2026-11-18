@@ -3,7 +3,7 @@
 // the Node handlers returned from the same facts. Nothing is requested from the core and nothing is cached here:
 // each call reads the held store as it is.
 import type { ActivityRailPinsState } from '../activity-rail-pins';
-import type { DesktopSettings } from '../contract';
+import type { DesktopEditorSettings, DesktopSettings } from '../contract';
 import type { NotificationPreferencesState } from '../contract-notifications';
 import type { DesktopSectionsSnapshot } from '../contract-sections';
 import {
@@ -58,7 +58,10 @@ export function readZoom(snapshot: DesktopSectionsSnapshot): number {
   return 1;
 }
 
-export function readMarkdownDefaultView(snapshot: DesktopSectionsSnapshot) {
+/** The core adopts the legacy user preference before publishing it as canonical config. */
+export function readMarkdownDefaultView(
+  snapshot: DesktopSectionsSnapshot
+): DesktopEditorSettings['markdownDefaultView'] {
   return markdownDefaultViewSetting(record(configTree(snapshot, 'desktop').editor).markdownDefaultView);
 }
 

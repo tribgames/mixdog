@@ -249,12 +249,6 @@ async fn settle() {
     }
 }
 
-async fn advance(ms: u64) {
-    settle().await;
-    tokio::time::advance(Duration::from_millis(ms)).await;
-    settle().await;
-}
-
 /// The turn of `id` runs and ends.
 async fn finish(rig: &Rig, id: &str, title: &str) {
     rig.input.row(row(id, title, true));
@@ -302,6 +296,60 @@ fn rig_with_chats() -> Rig {
     rig
 }
 
+/// PN `pendingInputKey`: a blocked goal's identity is its id, `blocked` and its blocker; any other goal waits for nothing.
+#[test]
+fn a_blocked_goal_is_identified_by_its_id_and_blocker() {
+    assert_eq!(blocked_goal_key(Some(&json!({ "id": "g1", "status": "blocked", "blocker": "needs a key" }))).as_deref(), Some("g1:blocked:needs a key"));
+    assert_eq!(blocked_goal_key(Some(&json!({ "status": "blocked" }))).as_deref(), Some("goal:blocked:"));
+    assert_eq!(blocked_goal_key(Some(&json!({ "id": 7, "status": "blocked", "blocker": null }))).as_deref(), Some("7:blocked:"));
+    assert_eq!(blocked_goal_key(Some(&json!({ "id": "g1", "status": "active" }))), None);
+    assert_eq!(blocked_goal_key(Some(&Value::Null)), None);
+    assert_eq!(blocked_goal_key(None), None);
+}
+
+
+#[derive(Default)]
+struct AsyncGate {
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+
+impl AsyncGate {
+    async fn wait(&self) {
+        self.entered.notify_one();
+        self.release.notified().await;
+    }
+}
+
+struct InitialGoal {
+    value: Option<Value>,
+    gate: Option<Arc<AsyncGate>>,
+}
+
+#[async_trait]
+impl GoalSnapshots for InitialGoal {
+    async fn snapshot(&self, _: &str) -> Result<Option<Value>, String> {
+        if let Some(gate) = &self.gate { gate.wait().await; }
+        Ok(self.value.clone())
+    }
+}
+
+fn attach_initial_goal(rig: &Rig, gate: Option<Arc<AsyncGate>>) -> Arc<GoalFollower> {
+    let follower = Arc::new(GoalFollower {
+        source: Arc::new(InitialGoal { value: Some(json!({ "id": "g1", "status": "blocked", "blocker": "key" })), gate }),
+        sender: rig.input.0.clone(), revisions: Mutex::default(),
+        stopped: CancellationToken::new(), log: Arc::new(|_| {}),
+    });
+    *rig.input.1.lock().unwrap() = Some(follower.clone());
+    follower
+}
+
+
+async fn advance(ms: u64) {
+    settle().await;
+    tokio::time::advance(Duration::from_millis(ms)).await;
+    settle().await;
+}
 // ---- the turn's final answer
 
 /// DTN "a restored background completion produces one native notification with plain text and opens its session" (the click is
@@ -324,7 +372,6 @@ async fn a_finished_turn_is_one_toast_with_plain_text_for_its_session() {
     advance(STABILIZE_MS * 2).await;
     assert_eq!(rig.toasts().len(), 1, "a repeated idle roster does not announce the same finish twice");
 }
-
 /// PTE "the first roster only establishes a baseline", "a session that never started working is not announced".
 #[tokio::test(start_paused = true)]
 async fn a_session_never_seen_working_is_not_announced() {
@@ -335,7 +382,6 @@ async fn a_session_never_seen_working_is_not_announced() {
     assert!(rig.toasts().is_empty());
     assert!(rig.answers.reads.lock().unwrap().is_empty());
 }
-
 /// DTN "a session titled by attachments alone is notified with its kind in this PC's language" and "without labels an
 /// attachment-only title is notified in English" (a phone has no UI language: English).
 #[tokio::test(start_paused = true)]
@@ -348,7 +394,6 @@ async fn an_attachment_only_title_is_its_kind_in_this_pcs_language_and_english_f
     assert_eq!(rig.titles(), vec!["이미지".to_owned()]);
     assert_eq!(rig.pushes()[0].title, "Image");
 }
-
 /// DTN "a bot's home chat is notified under the bot's name, a rename included; a room under its room name" and
 /// "Mixy's home chat is notified as ...".
 #[tokio::test(start_paused = true)]
@@ -369,7 +414,6 @@ async fn a_bots_home_chat_is_told_under_the_bots_name_and_a_room_under_its_name(
     want.sort();
     assert_eq!(rig.titles(), want);
 }
-
 /// DTN "foreground-visible produces an explicit suppression, not a claimed native delivery", "on-screen state is rechecked at
 /// native delivery, including return during the quiet period", "a focused window showing session A does not suppress session
 /// B's completion", "every split pane session stays suppressed while a background session notifies", "a window that is focused
@@ -393,7 +437,6 @@ async fn what_the_window_shows_is_checked_when_the_toast_is_made() {
     advance(LEAD_FINISHED_MS + 50).await;
     assert!(late.toasts().is_empty(), "the user came back during the quiet period");
 }
-
 /// DTN "a restored background completion produces one native notification ..." diagnostics: every step of a notification is a
 /// `turn-notification-<step>` line, and a refusal names its reason.
 #[tokio::test(start_paused = true)]
@@ -408,7 +451,6 @@ async fn a_suppressed_toast_says_why_in_the_log() {
     assert!(log.contains("turn-notification-detected"), "{log}");
     assert!(log.contains("turn-notification-suppressed") && log.contains("\"reason\":\"foreground-visible\""), "{log}");
 }
-
 /// DTN "a schedule run still notifies on screen" / "a webhook run still notifies on screen".
 #[tokio::test(start_paused = true)]
 async fn an_automatic_run_still_notifies_on_screen() {
@@ -423,7 +465,6 @@ async fn an_automatic_run_still_notifies_on_screen() {
         assert_eq!(rig.toasts().len(), 1, "{source}");
     }
 }
-
 /// DTN "scope produces an explicit suppression", "this PC's preferences decide at delivery: bot chats only, a muted bot, quiet
 /// hours", "an 'always' conversation notifies even with this PC's notifications off".
 #[tokio::test(start_paused = true)]
@@ -462,7 +503,6 @@ async fn this_pcs_preferences_decide_when_the_toast_is_made() {
     advance(LEAD_FINISHED_MS + 50).await;
     assert!(scoped.toasts().is_empty());
 }
-
 /// DTN "a failed turn notifies only with errors on, in this PC's words" (the phone's words are English: PN `deliver` with
 /// `TURN_FAILED_TEXT`).
 #[tokio::test(start_paused = true)]
@@ -485,7 +525,6 @@ async fn a_failed_turn_notifies_only_with_errors_on_in_this_pcs_words() {
     let shown = rig.toasts();
     assert_eq!((shown[0]["title"].as_str(), shown[0]["body"].as_str()), (Some("Broken"), Some("오류로 멈췄습니다.")));
 }
-
 /// FAW "a late read from a previous turn cannot notify after another turn starts and finishes", "a turn that resumes within
 /// the quiet period is not delivered"; DTN "a held completion is dropped when its session starts another turn".
 #[tokio::test(start_paused = true)]
@@ -497,7 +536,6 @@ async fn a_session_that_resumes_before_the_answer_is_read_tells_nothing() {
     advance(STABILIZE_MS).await;
     assert!(rig.toasts().is_empty());
 }
-
 /// FAW "a turn answered by a reaction alone raises no notification", "a routine 'nothing new' answer raises no notification",
 /// "a failed turn is an error notification with no answer text; a cancelled one is silent".
 #[tokio::test(start_paused = true)]
@@ -516,7 +554,6 @@ async fn a_cancelled_turn_a_reaction_and_a_quiet_reply_tell_nothing() {
         assert_eq!(rig.answers.reads.lock().unwrap().len(), 1, "{name}: no more polling once decided");
     }
 }
-
 /// FAW "an answer arriving after idle is awaited instead of replaced by a preview or generic notice", "a mid-turn flicker
 /// with no new answer keeps polling"; DTN "a late answer is retried, but its pending diagnostic is not spammed".
 #[tokio::test(start_paused = true)]
@@ -535,7 +572,6 @@ async fn a_pending_answer_is_polled_until_it_lands() {
     advance(ANSWER_POLL_MS).await;
     assert_eq!(rig.toasts().len(), 1);
 }
-
 /// FAW "a Lead that stops to wait on background work is not announced until the work settles"; PTE "child-agent work counts
 /// as the session still working", "pending work comes from running child agents only, not shell jobs or the Lead row status",
 /// "background work settling without a new Lead turn announces the answer already given", "a running background shell job
@@ -562,7 +598,6 @@ async fn a_lead_waiting_on_its_agents_has_not_answered() {
     advance(LEAD_FINISHED_MS + 50).await;
     assert_eq!(shell_job.toasts().len(), 1, "the Lead's own row never holds its finished turn");
 }
-
 /// PTE "an archived session stays silent", "a sub-agent session stays silent while its Lead is still announced", "a deleted
 /// session leaves no state behind and re-baselines if it returns".
 #[tokio::test(start_paused = true)]
@@ -584,7 +619,6 @@ async fn archived_and_sub_agent_sessions_are_silent_and_a_deleted_one_is_forgott
     assert!(rig.toasts().is_empty());
     assert!(rig.answers.reads.lock().unwrap().is_empty());
 }
-
 /// FAW "a read failure is reported and the exact answer can arrive later", "transient read failures back off and are abandoned
 /// after a bounded number of tries".
 #[tokio::test(start_paused = true)]
@@ -613,7 +647,6 @@ async fn read_failures_back_off_and_end() {
     advance(STABILIZE_MS + 50).await;
     assert_eq!(late.toasts().len(), 1, "the exact answer can arrive later");
 }
-
 /// FAW "a session whose record is gone is cancelled after one read instead of re-read forever", "a session reported missing
 /// by error code is terminal whatever the message says".
 #[tokio::test(start_paused = true)]
@@ -626,7 +659,6 @@ async fn a_missing_session_is_not_read_again() {
     assert_eq!(rig.answers.reads.lock().unwrap().len(), 1);
     assert!(rig.toasts().is_empty());
 }
-
 /// FAW "only one answer read is in flight at a time across sessions".
 #[tokio::test(start_paused = true)]
 async fn answers_are_read_one_at_a_time() {
@@ -681,7 +713,6 @@ async fn answers_are_read_one_at_a_time() {
     assert_eq!(slow.most.load(Ordering::SeqCst), 1);
     assert_eq!(host.shown.lock().unwrap().len(), 3);
 }
-
 // ---- waits
 
 /// DTN "an unfocused session's approval and question notify in this PC's words, and a click opens that session", "without
@@ -700,7 +731,6 @@ async fn an_approval_and_a_question_are_told_in_this_pcs_words_for_their_session
     opened.sort();
     assert_eq!(opened, ["code", "home"]);
 }
-
 /// DTN "a waiting approval is not notified when muted / quiet-hours / foreground-visible / event".
 #[tokio::test(start_paused = true)]
 async fn a_wait_is_not_told_when_muted_in_quiet_hours_on_screen_or_switched_off() {
@@ -724,7 +754,6 @@ async fn a_wait_is_not_told_when_muted_in_quiet_hours_on_screen_or_switched_off(
         assert!(rig.toasts().is_empty(), "{mode}");
     }
 }
-
 /// DTN "an approval docked in every chat a hand-off reaches is one notification, not one per copy".
 #[tokio::test(start_paused = true)]
 async fn an_approval_docked_in_every_chat_a_hand_off_reaches_is_one_notification() {
@@ -746,7 +775,6 @@ async fn an_approval_docked_in_every_chat_a_hand_off_reaches_is_one_notification
     advance(0).await;
     assert_eq!(rig.toasts().len(), 2);
 }
-
 /// DTN "a sub-agent's approval is told as, and opens, the chat it shows in".
 #[tokio::test(start_paused = true)]
 async fn a_sub_agents_approval_is_told_as_the_chat_it_shows_in() {
@@ -757,7 +785,6 @@ async fn a_sub_agents_approval_is_told_as_the_chat_it_shows_in() {
     assert_eq!(shown[0]["title"], "Fix the bug · 승인을 기다리고 있습니다.");
     assert_eq!(shown[0]["threadId"], "code");
 }
-
 /// DTN "a replayed wait is not a new one".
 #[tokio::test(start_paused = true)]
 async fn a_replayed_wait_is_not_a_new_one() {
@@ -767,7 +794,6 @@ async fn a_replayed_wait_is_not_a_new_one() {
     advance(0).await;
     assert!(rig.toasts().is_empty());
 }
-
 /// DTN "an unreadable approval settled before preferences recover is forgotten, not told later" (this PC's preferences cannot
 /// fail to read in the core, so the held-and-offered-again path of the TypeScript decider does not exist): an approval answered
 /// while its bot's name is read is not told.
@@ -782,7 +808,6 @@ async fn an_approval_answered_before_it_is_shown_is_forgotten_not_told_later() {
     advance(0).await;
     assert_eq!(rig.toasts().len(), 1, "the same id asked again is a new wait");
 }
-
 // ---- the phones (push-notifier.ts)
 
 /// PN `deliver`: each paired device decides for itself; a device that holds while this PC is in use hears it after the hold if
@@ -818,7 +843,6 @@ async fn a_phone_that_holds_while_this_pc_is_in_use_hears_an_unread_turn_after_t
     advance(DESKTOP_HOLD_MS).await;
     assert!(read.pushes().is_empty(), "seen on the desktop");
 }
-
 /// PN `deliver` while this PC is idle: a turn that finishes is one push of the finished kind to the registered device at once, in the
 /// session's own title and the answer's words, and the same roster row again tells nothing more.
 #[tokio::test(start_paused = true)]
@@ -836,7 +860,6 @@ async fn a_finished_turn_is_exactly_one_push_of_its_kind_to_a_registered_phone()
     advance(DESKTOP_HOLD_MS).await;
     assert_eq!(rig.pushes().len(), 1, "one turn, one push");
 }
-
 /// PN `onSessionState`: an approval's push carries its id and whether Allow is offered; a question has none and says so in its
 /// own words; a wait answered during the hold is not pushed; one push per approval.
 #[tokio::test(start_paused = true)]
@@ -870,6 +893,28 @@ async fn a_waits_push_carries_the_approval_and_a_wait_answered_during_the_hold_i
     advance(0).await;
     assert_eq!(pointer.pushes()[0].approval, Some(PushApproval { id: "p1".into(), allow_once: false }), "a payment is allowed by a click only");
 }
+#[tokio::test(start_paused = true)]
+async fn only_a_regular_approval_can_produce_an_actionable_phone_push() {
+    let rig = rig_with_chats();
+    rig.phone("phone", DevicePreferences::default());
+    for (kind, id, session) in [(ApprovalKind::Browser, "browser", "task"), (ApprovalKind::Tool, "tool", "code")] {
+        let req = PendingServerRequest {
+            id: mixdog_core_api::ids::ServerRequestId(id.to_owned()),
+            method: kind.method(),
+            thread: session.into(),
+            surface: session.into(),
+            order: 1,
+            frame: bytes::Bytes::from(json!({ "params": { "card": { "id": id, "kind": "approval" } } }).to_string()),
+        };
+        if let Some(card) = notification_card(&req) {
+            rig.input.approval_state(session, Some(card), false);
+        }
+    }
+    advance(0).await;
+    let pushes = rig.pushes();
+    assert_eq!(pushes.len(), 1);
+    assert_eq!(pushes[0].approval, Some(PushApproval { id: "tool".into(), allow_once: true }));
+}
 
 /// PN `onSessionState`: a phone is told a wait once per session that shows it, under that session's own title and thread (a
 /// hand-off's copies and a sub-agent's docked request each push), while this PC's toast is once per approval.
@@ -891,7 +936,6 @@ async fn a_phone_is_told_a_wait_once_per_session_that_shows_it() {
         "one push per session, under that session",
     );
 }
-
 /// PN `pendingInputKey`: a blocked goal is told once, to a phone only, until it clears.
 #[tokio::test(start_paused = true)]
 async fn a_blocked_goal_is_pushed_once_until_it_clears() {
@@ -909,7 +953,6 @@ async fn a_blocked_goal_is_pushed_once_until_it_clears() {
     advance(0).await;
     assert_eq!(rig.pushes().len(), 2);
 }
-
 // ---- hosts and shutdown
 
 /// The engine keeps a toast the PC wanted while no host could show it, once, until a host attaches or the thread is read
@@ -934,7 +977,6 @@ async fn a_toast_without_a_host_is_shown_once_when_one_attaches_and_not_when_the
     assert_eq!(rig.toasts().len(), 1, "exactly once");
     assert_eq!(rig.engine.host_attached().len(), 0);
 }
-
 /// DTN "disposal cancels pending completions": a host that is closing is told nothing, and a dropped producer stops.
 #[tokio::test(start_paused = true)]
 async fn nothing_is_told_once_the_host_is_closing() {
@@ -954,18 +996,6 @@ async fn nothing_is_told_once_the_host_is_closing() {
     input.row(row("a", "Task", true));
     settle().await;
 }
-
-/// PN `pendingInputKey`: a blocked goal's identity is its id, `blocked` and its blocker; any other goal waits for nothing.
-#[test]
-fn a_blocked_goal_is_identified_by_its_id_and_blocker() {
-    assert_eq!(blocked_goal_key(Some(&json!({ "id": "g1", "status": "blocked", "blocker": "needs a key" }))).as_deref(), Some("g1:blocked:needs a key"));
-    assert_eq!(blocked_goal_key(Some(&json!({ "status": "blocked" }))).as_deref(), Some("goal:blocked:"));
-    assert_eq!(blocked_goal_key(Some(&json!({ "id": 7, "status": "blocked", "blocker": null }))).as_deref(), Some("7:blocked:"));
-    assert_eq!(blocked_goal_key(Some(&json!({ "id": "g1", "status": "active" }))), None);
-    assert_eq!(blocked_goal_key(Some(&Value::Null)), None);
-    assert_eq!(blocked_goal_key(None), None);
-}
-
 #[tokio::test(start_paused = true)]
 async fn independent_approval_and_goal_updates_preserve_each_other_and_deduplicate() {
     let rig = rig_with_chats();
@@ -995,7 +1025,6 @@ async fn independent_approval_and_goal_updates_preserve_each_other_and_deduplica
     assert_eq!(rig.pushes().len(), 4);
     assert_eq!(rig.pushes().iter().filter(|push| push.event == Event::Approval).count(), 2);
 }
-
 #[tokio::test(start_paused = true)]
 async fn clearing_one_wait_during_the_hold_keeps_the_other_due() {
     for clear_approval in [true, false] {
@@ -1016,7 +1045,6 @@ async fn clearing_one_wait_during_the_hold_keeps_the_other_due() {
         assert_eq!(rig.pushes()[0].event, if clear_approval { Event::Question } else { Event::Approval });
     }
 }
-
 #[tokio::test(start_paused = true)]
 async fn removing_a_session_cancels_both_held_waits() {
     let rig = rig_with_chats();
@@ -1029,21 +1057,6 @@ async fn removing_a_session_cancels_both_held_waits() {
     advance(DESKTOP_HOLD_MS).await;
     assert!(rig.pushes().is_empty());
 }
-
-
-#[derive(Default)]
-struct AsyncGate {
-    entered: tokio::sync::Notify,
-    release: tokio::sync::Notify,
-}
-
-impl AsyncGate {
-    async fn wait(&self) {
-        self.entered.notify_one();
-        self.release.notified().await;
-    }
-}
-
 #[tokio::test(start_paused = true)]
 async fn reused_wait_identity_gets_a_new_hold_deadline() {
     for approval in [true, false] {
@@ -1069,7 +1082,6 @@ async fn reused_wait_identity_gets_a_new_hold_deadline() {
         assert_eq!(rig.pushes().len(), 1);
     }
 }
-
 #[tokio::test(start_paused = true)]
 async fn a_deleted_completed_thread_does_not_push_at_its_hold_deadline() {
     let rig = rig();
@@ -1084,7 +1096,6 @@ async fn a_deleted_completed_thread_does_not_push_at_its_hold_deadline() {
     advance(DESKTOP_HOLD_MS).await;
     assert!(rig.pushes().is_empty());
 }
-
 #[tokio::test(start_paused = true)]
 async fn deletion_while_audience_is_pending_cannot_send_or_queue_a_stale_toast() {
     for supported in [true, false] {
@@ -1107,7 +1118,6 @@ async fn deletion_while_audience_is_pending_cannot_send_or_queue_a_stale_toast()
         assert!(rig.pushes().is_empty());
     }
 }
-
 #[tokio::test(start_paused = true)]
 async fn clearing_an_approval_also_cancels_a_toast_already_waiting_for_a_host() {
     let rig = rig_with_chats();
@@ -1120,7 +1130,6 @@ async fn clearing_an_approval_also_cancels_a_toast_already_waiting_for_a_host() 
     advance(0).await;
     assert!(rig.toasts().is_empty());
 }
-
 #[tokio::test(start_paused = true)]
 async fn a_skipped_question_does_not_reassign_an_older_approvals_queued_toast() {
     for cancel_approval in [true, false] {
@@ -1140,30 +1149,6 @@ async fn a_skipped_question_does_not_reassign_an_older_approvals_queued_toast() 
         assert_eq!(rig.toasts().len(), usize::from(!cancel_approval), "a skipped question must preserve the original toast's cancellation");
     }
 }
-
-struct InitialGoal {
-    value: Option<Value>,
-    gate: Option<Arc<AsyncGate>>,
-}
-
-#[async_trait]
-impl GoalSnapshots for InitialGoal {
-    async fn snapshot(&self, _: &str) -> Result<Option<Value>, String> {
-        if let Some(gate) = &self.gate { gate.wait().await; }
-        Ok(self.value.clone())
-    }
-}
-
-fn attach_initial_goal(rig: &Rig, gate: Option<Arc<AsyncGate>>) -> Arc<GoalFollower> {
-    let follower = Arc::new(GoalFollower {
-        source: Arc::new(InitialGoal { value: Some(json!({ "id": "g1", "status": "blocked", "blocker": "key" })), gate }),
-        sender: rig.input.0.clone(), revisions: Mutex::default(),
-        stopped: CancellationToken::new(), log: Arc::new(|_| {}),
-    });
-    *rig.input.1.lock().unwrap() = Some(follower.clone());
-    follower
-}
-
 #[tokio::test(start_paused = true)]
 async fn first_catalog_observation_seeds_an_existing_blocked_goal_once() {
     let rig = rig();
@@ -1175,7 +1160,6 @@ async fn first_catalog_observation_seeds_an_existing_blocked_goal_once() {
     assert_eq!(rig.pushes().len(), 1);
     assert_eq!(rig.pushes()[0].event, Event::Question);
 }
-
 #[tokio::test(start_paused = true)]
 async fn an_initial_goal_snapshot_cannot_overwrite_a_newer_change_or_deletion() {
     for deleted in [true, false] {
@@ -1193,8 +1177,6 @@ async fn an_initial_goal_snapshot_cannot_overwrite_a_newer_change_or_deletion() 
         assert!(rig.pushes().is_empty());
     }
 }
-
-
 #[tokio::test]
 #[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
 async fn a_real_goal_subscription_seeds_existing_state_and_remains_live_after_binding() {

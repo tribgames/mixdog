@@ -46,29 +46,6 @@ struct Ready {
     profile: PathBuf,
 }
 
-fn check_base(base: &Path, runtime: &Path) {
-    assert_eq!(
-        base,
-        base_dir(runtime),
-        "the supervisor only owns this test binary's scratch directory"
-    );
-    assert!(
-        !std::fs::symlink_metadata(base)
-            .expect("scratch directory")
-            .file_type()
-            .is_symlink(),
-        "scratch directory must not be a link"
-    );
-    let parent = std::env::temp_dir()
-        .canonicalize()
-        .expect("temporary directory");
-    assert_eq!(
-        base.canonicalize().expect("scratch directory").parent(),
-        Some(parent.as_path()),
-        "scratch stays directly inside the temporary directory"
-    );
-}
-
 fn check_profile(base: &Path, profile: &Path) {
     assert_eq!(
         profile.parent(),
@@ -96,6 +73,231 @@ fn check_profile(base: &Path, profile: &Path) {
     );
 }
 
+fn open_lock_file(path: &Path) -> File {
+    OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(path)
+        .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+/// The only recursively cleaned cluster directory is one freshly created by this
+/// supervisor. On abnormal process termination its owner.json remains for diagnosis;
+/// future supervisors never follow its PID file or reuse/delete its directory.
+struct OwnedProfile {
+    directory: Option<tempfile::TempDir>,
+    runtime: PathBuf,
+    base: PathBuf,
+}
+
+/// The lease of this process: held until it exits.
+static LEASE: OnceLock<(PathBuf, File)> = OnceLock::new();
+
+#[cfg(windows)]
+fn job_forbids_breakaway() -> bool {
+    use windows_sys::Win32::System::JobObjects::{
+        IsProcessInJob, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+        QueryInformationJobObject,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    // nextest 0.9.151 / nextest-runner 0.129.0 create_job() sets BREAKAWAY_OK.
+    // Other runners can forbid it. Only a positively identified job restriction
+    // selects the old owned-cluster path; query/spawn/auth/database failures remain errors.
+    unsafe {
+        let mut in_job = 0;
+        assert_ne!(
+            IsProcessInJob(GetCurrentProcess(), std::ptr::null_mut(), &mut in_job),
+            0,
+            "query current job: {}",
+            std::io::Error::last_os_error()
+        );
+        if in_job == 0 {
+            return false;
+        }
+        let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        assert_ne!(
+            QueryInformationJobObject(
+                std::ptr::null_mut(),
+                JobObjectExtendedLimitInformation,
+                (&mut limits as *mut JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                std::mem::size_of_val(&limits) as u32,
+                std::ptr::null_mut()
+            ),
+            0,
+            "query job limits: {}",
+            std::io::Error::last_os_error()
+        );
+        limits.BasicLimitInformation.LimitFlags
+            & (JOB_OBJECT_LIMIT_BREAKAWAY_OK | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)
+            == 0
+    }
+}
+
+/// This process's standard handles with their inheritance off, restored when dropped.
+#[cfg(windows)]
+struct NotInherited(Vec<(windows_sys::Win32::Foundation::HANDLE, u32)>);
+
+#[cfg(windows)]
+impl NotInherited {
+    fn std_handles() -> Self {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Foundation::{
+            GetHandleInformation, HANDLE_FLAG_INHERIT, SetHandleInformation,
+        };
+        let raw = [
+            std::io::stdin().as_raw_handle(),
+            std::io::stdout().as_raw_handle(),
+            std::io::stderr().as_raw_handle(),
+        ];
+        let mut saved = Vec::new();
+        for handle in raw {
+            let handle = handle as windows_sys::Win32::Foundation::HANDLE;
+            let mut flags = 0u32;
+            // SAFETY: plain Win32 calls on this process's own standard handles; a null or invalid handle makes the call fail and is skipped.
+            unsafe {
+                if !handle.is_null()
+                    && GetHandleInformation(handle, &mut flags) != 0
+                    && flags & HANDLE_FLAG_INHERIT != 0
+                    && SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) != 0
+                {
+                    saved.push((handle, flags & HANDLE_FLAG_INHERIT));
+                }
+            }
+        }
+        Self(saved)
+    }
+}
+
+#[cfg(windows)]
+impl Drop for NotInherited {
+    fn drop(&mut self) {
+        use windows_sys::Win32::Foundation::{HANDLE_FLAG_INHERIT, SetHandleInformation};
+        for (handle, flags) in &self.0 {
+            // SAFETY: as in `std_handles`.
+            unsafe { SetHandleInformation(*handle, HANDLE_FLAG_INHERIT, *flags) };
+        }
+    }
+}
+
+fn assert_database_name(name: &str) {
+    assert!(
+        name.starts_with('t')
+            && name.len() <= 63
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'),
+        "generated test database identifier"
+    );
+}
+
+/// Whether some live process holds a lease; the leases of dead processes (their lock is free) are removed.
+fn leases_held(leases: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(leases) else {
+        return true;
+    };
+    let mut held = false;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(file) = OpenOptions::new().read(true).write(true).open(&path) else {
+            held = true;
+            continue;
+        };
+        match file.try_lock() {
+            Ok(()) => {
+                let _ = file.unlock();
+                drop(file);
+                let _ = std::fs::remove_file(&path);
+            }
+            Err(_) => held = true,
+        }
+    }
+    held
+}
+
+#[test]
+fn publication_is_excluded_from_scans_until_the_lease_is_locked() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let leases = scratch.path().join("leases");
+    std::fs::create_dir(&leases).unwrap();
+    let gate = open_lock_file(&scratch.path().join("start.lock"));
+    gate.lock().unwrap();
+    let path = leases.join(format!("{}.lease", uuid::Uuid::new_v4().simple()));
+    let lease = OpenOptions::new()
+        .create_new(true)
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    let scanner = open_lock_file(&scratch.path().join("start.lock"));
+    assert!(
+        matches!(scanner.try_lock(), Err(TryLockError::WouldBlock)),
+        "no scan in the creation/locking gap"
+    );
+    lease.lock().unwrap();
+    drop(gate);
+    scanner.lock().unwrap();
+    assert!(leases_held(&leases));
+    assert!(path.exists());
+    drop(lease);
+    assert!(!leases_held(&leases));
+    assert!(!path.exists());
+}
+
+#[test]
+fn releasing_one_lease_does_not_remove_another_generation() {
+    let scratch = tempfile::tempdir().unwrap();
+    let gate = open_lock_file(&scratch.path().join("start.lock"));
+    gate.lock().unwrap();
+    let leases = scratch.path().join("leases");
+    std::fs::create_dir(&leases).unwrap();
+    let make = || {
+        let path = leases.join(format!("{}.lease", uuid::Uuid::new_v4().simple()));
+        let file = OpenOptions::new()
+            .create_new(true)
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        file.lock().unwrap();
+        (path, file)
+    };
+    let (first, a) = make();
+    let (second, b) = make();
+    assert_ne!(first, second);
+    drop(a);
+    assert!(leases_held(&leases));
+    assert!(!first.exists());
+    assert!(second.exists());
+    drop(b);
+    assert!(!leases_held(&leases));
+}
+
+
+fn check_base(base: &Path, runtime: &Path) {
+    assert_eq!(
+        base,
+        base_dir(runtime),
+        "the supervisor only owns this test binary's scratch directory"
+    );
+    assert!(
+        !std::fs::symlink_metadata(base)
+            .expect("scratch directory")
+            .file_type()
+            .is_symlink(),
+        "scratch directory must not be a link"
+    );
+    let parent = std::env::temp_dir()
+        .canonicalize()
+        .expect("temporary directory");
+    assert_eq!(
+        base.canonicalize().expect("scratch directory").parent(),
+        Some(parent.as_path()),
+        "scratch stays directly inside the temporary directory"
+    );
+}
 fn base_dir(runtime: &Path) -> PathBuf {
     use std::hash::{Hash, Hasher};
     // The template is made by this build's code: another build of the binary (other schema text) is another cluster.
@@ -112,17 +314,6 @@ fn base_dir(runtime: &Path) -> PathBuf {
     }
     std::env::temp_dir().join(format!("mixdog-test-pg-{:016x}", hasher.finish()))
 }
-
-fn open_lock_file(path: &Path) -> File {
-    OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .truncate(false)
-        .open(path)
-        .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
-}
-
 pub(super) fn owned_fallback_lock(runtime: &Path) -> File {
     let base = base_dir(runtime);
     std::fs::create_dir_all(&base).expect("fallback scratch directory");
@@ -131,16 +322,6 @@ pub(super) fn owned_fallback_lock(runtime: &Path) -> File {
     lock.lock().expect("serial owned-cluster fallback");
     lock
 }
-
-/// The only recursively cleaned cluster directory is one freshly created by this
-/// supervisor. On abnormal process termination its owner.json remains for diagnosis;
-/// future supervisors never follow its PID file or reuse/delete its directory.
-struct OwnedProfile {
-    directory: Option<tempfile::TempDir>,
-    runtime: PathBuf,
-    base: PathBuf,
-}
-
 impl OwnedProfile {
     fn new(base: &Path, runtime: &Path) -> Self {
         let directory = tempfile::Builder::new()
@@ -159,7 +340,6 @@ impl OwnedProfile {
         }
     }
 }
-
 impl Drop for OwnedProfile {
     fn drop(&mut self) {
         let Some(directory) = self.directory.take() else {
@@ -179,10 +359,6 @@ impl Drop for OwnedProfile {
         // Otherwise TempDir removes this exact generated directory after the bounded stop.
     }
 }
-
-/// The lease of this process: held until it exits.
-static LEASE: OnceLock<(PathBuf, File)> = OnceLock::new();
-
 /// The shared cluster, started when no live supervisor serves one. Blocks (the first start takes seconds).
 pub(super) fn acquire(runtime: &Path) -> Option<Shared> {
     #[cfg(windows)]
@@ -267,48 +443,6 @@ pub(super) fn acquire(runtime: &Path) -> Option<Shared> {
         std::thread::sleep(Duration::from_millis(50));
     }
 }
-
-#[cfg(windows)]
-fn job_forbids_breakaway() -> bool {
-    use windows_sys::Win32::System::JobObjects::{
-        IsProcessInJob, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
-        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-        QueryInformationJobObject,
-    };
-    use windows_sys::Win32::System::Threading::GetCurrentProcess;
-    // nextest 0.9.151 / nextest-runner 0.129.0 create_job() sets BREAKAWAY_OK.
-    // Other runners can forbid it. Only a positively identified job restriction
-    // selects the old owned-cluster path; query/spawn/auth/database failures remain errors.
-    unsafe {
-        let mut in_job = 0;
-        assert_ne!(
-            IsProcessInJob(GetCurrentProcess(), std::ptr::null_mut(), &mut in_job),
-            0,
-            "query current job: {}",
-            std::io::Error::last_os_error()
-        );
-        if in_job == 0 {
-            return false;
-        }
-        let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-        assert_ne!(
-            QueryInformationJobObject(
-                std::ptr::null_mut(),
-                JobObjectExtendedLimitInformation,
-                (&mut limits as *mut JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
-                std::mem::size_of_val(&limits) as u32,
-                std::ptr::null_mut()
-            ),
-            0,
-            "query job limits: {}",
-            std::io::Error::last_os_error()
-        );
-        limits.BasicLimitInformation.LimitFlags
-            & (JOB_OBJECT_LIMIT_BREAKAWAY_OK | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)
-            == 0
-    }
-}
-
 #[allow(
     clippy::disallowed_methods,
     reason = "test support: the detached supervisor of the shared cluster"
@@ -348,53 +482,6 @@ fn spawn_supervisor(runtime: &Path, base: &Path) -> std::process::Child {
     #[cfg(not(windows))]
     command.spawn().expect("the supervisor starts")
 }
-
-/// This process's standard handles with their inheritance off, restored when dropped.
-#[cfg(windows)]
-struct NotInherited(Vec<(windows_sys::Win32::Foundation::HANDLE, u32)>);
-
-#[cfg(windows)]
-impl NotInherited {
-    fn std_handles() -> Self {
-        use std::os::windows::io::AsRawHandle;
-        use windows_sys::Win32::Foundation::{
-            GetHandleInformation, HANDLE_FLAG_INHERIT, SetHandleInformation,
-        };
-        let raw = [
-            std::io::stdin().as_raw_handle(),
-            std::io::stdout().as_raw_handle(),
-            std::io::stderr().as_raw_handle(),
-        ];
-        let mut saved = Vec::new();
-        for handle in raw {
-            let handle = handle as windows_sys::Win32::Foundation::HANDLE;
-            let mut flags = 0u32;
-            // SAFETY: plain Win32 calls on this process's own standard handles; a null or invalid handle makes the call fail and is skipped.
-            unsafe {
-                if !handle.is_null()
-                    && GetHandleInformation(handle, &mut flags) != 0
-                    && flags & HANDLE_FLAG_INHERIT != 0
-                    && SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) != 0
-                {
-                    saved.push((handle, flags & HANDLE_FLAG_INHERIT));
-                }
-            }
-        }
-        Self(saved)
-    }
-}
-
-#[cfg(windows)]
-impl Drop for NotInherited {
-    fn drop(&mut self) {
-        use windows_sys::Win32::Foundation::{HANDLE_FLAG_INHERIT, SetHandleInformation};
-        for (handle, flags) in &self.0 {
-            // SAFETY: as in `std_handles`.
-            unsafe { SetHandleInformation(*handle, HANDLE_FLAG_INHERIT, *flags) };
-        }
-    }
-}
-
 /// A database of the shared cluster for one test, dropped by [`drop_database`].
 pub(super) async fn create_database(port: u16, name: &str) {
     assert_database_name(name);
@@ -402,7 +489,6 @@ pub(super) async fn create_database(port: u16, name: &str) {
         .await
         .expect("test database creation completes within 30 seconds");
 }
-
 async fn create_database_inner(port: u16, name: &str) {
     let (client, connection) = tokio_postgres::connect(
         &format!("host=127.0.0.1 port={port} user=postgres dbname=postgres"),
@@ -433,7 +519,6 @@ async fn create_database_inner(port: u16, name: &str) {
     drop(client);
     let _ = driver.await;
 }
-
 pub(super) fn drop_database(port: u16, name: String) {
     assert_database_name(&name);
     // From a thread of its own: a test's runtime may be ending.
@@ -464,18 +549,6 @@ pub(super) fn drop_database(port: u16, name: String) {
     });
     let _ = work.join();
 }
-
-fn assert_database_name(name: &str) {
-    assert!(
-        name.starts_with('t')
-            && name.len() <= 63
-            && name
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'),
-        "generated test database identifier"
-    );
-}
-
 /// The supervisor, in the process `spawn_supervisor` starts. Not a test: with `MIXDOG_TEST_PG_SUPERVISE` unset it does nothing.
 #[test]
 #[ignore = "the supervisor process of the shared test cluster (run by the tests that use it; does nothing when run on its own)"]
@@ -491,7 +564,6 @@ fn supervisor_entry() {
         .expect("a runtime");
     tokio.block_on(supervise(&base, &runtime));
 }
-
 async fn ensure(
     runtime: &Path,
     profile: &Path,
@@ -509,7 +581,6 @@ async fn ensure(
     )
     .await
 }
-
 async fn supervise(base: &Path, runtime: &Path) {
     check_base(base, runtime);
     let supervisor_lock = open_lock_file(&base.join("supervisor.lock"));
@@ -572,7 +643,6 @@ async fn supervise(base: &Path, runtime: &Path) {
         return;
     }
 }
-
 async fn initialize(runtime: &Path, profile: &Path) -> PgCluster {
     let lane = mixdog_rt::testing::tokens().durability_io;
     let first = ensure(runtime, profile, lane)
@@ -611,31 +681,6 @@ async fn initialize(runtime: &Path, profile: &Path) -> PgCluster {
         .expect("the template's schemas");
     cluster
 }
-
-/// Whether some live process holds a lease; the leases of dead processes (their lock is free) are removed.
-fn leases_held(leases: &Path) -> bool {
-    let Ok(entries) = std::fs::read_dir(leases) else {
-        return true;
-    };
-    let mut held = false;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Ok(file) = OpenOptions::new().read(true).write(true).open(&path) else {
-            held = true;
-            continue;
-        };
-        match file.try_lock() {
-            Ok(()) => {
-                let _ = file.unlock();
-                drop(file);
-                let _ = std::fs::remove_file(&path);
-            }
-            Err(_) => held = true,
-        }
-    }
-    held
-}
-
 /// `pg_ctl stop -m immediate` on a data directory (only the postmaster of that directory), when it holds a cluster.
 #[allow(
     clippy::disallowed_methods,
@@ -683,62 +728,4 @@ fn stop_postmaster_of(runtime: &Path, data_dir: &Path) -> bool {
         }
     }
     !data_dir.join("postmaster.pid").exists()
-}
-
-#[test]
-fn publication_is_excluded_from_scans_until_the_lease_is_locked() {
-    let scratch = tempfile::tempdir().expect("scratch");
-    let leases = scratch.path().join("leases");
-    std::fs::create_dir(&leases).unwrap();
-    let gate = open_lock_file(&scratch.path().join("start.lock"));
-    gate.lock().unwrap();
-    let path = leases.join(format!("{}.lease", uuid::Uuid::new_v4().simple()));
-    let lease = OpenOptions::new()
-        .create_new(true)
-        .read(true)
-        .write(true)
-        .open(&path)
-        .unwrap();
-    let scanner = open_lock_file(&scratch.path().join("start.lock"));
-    assert!(
-        matches!(scanner.try_lock(), Err(TryLockError::WouldBlock)),
-        "no scan in the creation/locking gap"
-    );
-    lease.lock().unwrap();
-    drop(gate);
-    scanner.lock().unwrap();
-    assert!(leases_held(&leases));
-    assert!(path.exists());
-    drop(lease);
-    assert!(!leases_held(&leases));
-    assert!(!path.exists());
-}
-
-#[test]
-fn releasing_one_lease_does_not_remove_another_generation() {
-    let scratch = tempfile::tempdir().unwrap();
-    let gate = open_lock_file(&scratch.path().join("start.lock"));
-    gate.lock().unwrap();
-    let leases = scratch.path().join("leases");
-    std::fs::create_dir(&leases).unwrap();
-    let make = || {
-        let path = leases.join(format!("{}.lease", uuid::Uuid::new_v4().simple()));
-        let file = OpenOptions::new()
-            .create_new(true)
-            .read(true)
-            .write(true)
-            .open(&path)
-            .unwrap();
-        file.lock().unwrap();
-        (path, file)
-    };
-    let (first, a) = make();
-    let (second, b) = make();
-    assert_ne!(first, second);
-    drop(a);
-    assert!(leases_held(&leases));
-    assert!(!first.exists());
-    assert!(second.exists());
-    drop(b);
-    assert!(!leases_held(&leases));
 }

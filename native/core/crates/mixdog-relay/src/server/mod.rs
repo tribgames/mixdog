@@ -9,7 +9,7 @@
 
 mod router;
 mod start;
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(node_twin)]
 pub mod twin;
 mod upgrade;
 
@@ -42,6 +42,18 @@ fn report(config: &Config, started: Result<RunningRelay, String>) -> Result<Runn
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_start_is_the_failure_line_and_exit_one() {
+        let config = Config::from_env(Default::default(), Default::default());
+        assert!(report(&config, Err("listen EADDRINUSE: address already in use 0.0.0.0:9800".to_owned())).is_err());
+    }
+}
+
+
 /// Runs the relay from the process environment until the process ends.
 pub fn run_cli() -> ExitCode {
     let config = Config::from_process();
@@ -58,15 +70,4 @@ pub fn run_cli() -> ExitCode {
             Err(code) => code,
         }
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_failed_start_is_the_failure_line_and_exit_one() {
-        let config = Config::from_env(Default::default(), Default::default());
-        assert!(report(&config, Err("listen EADDRINUSE: address already in use 0.0.0.0:9800".to_owned())).is_err());
-    }
 }

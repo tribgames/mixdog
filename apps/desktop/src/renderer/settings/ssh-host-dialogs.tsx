@@ -4,17 +4,19 @@ import type {
   DesktopSshCleanupProgress,
   DesktopSshFailure,
   DesktopSshHost,
+  DesktopSshLocalForget,
   DesktopSshHostSettings,
   DesktopSshModelLogin,
   DesktopSshServerLogins,
 } from '../../shared/contract-ssh';
-import { sshCleanupHost, sshUpdateHostSettings, subscribeSshCleanupProgress } from '../connections-core-api';
+import { sshCleanupHost, sshCleanupTarget, sshUpdateHostSettings, subscribeSshCleanupProgress } from '../connections-core-api';
 import { t } from '../i18n';
 import { record } from '../record-utils';
 import { providerLabel, rows, type CapabilityApi } from './capability-data';
 import { ConfirmDialog, ConnDialog } from './connection-dialogs';
 import { SshAskpassPrompt, useSshAskpass } from './ssh-askpass-prompt';
 import { sshErrorText } from './ssh-error-text';
+import { sshMessageText } from './ssh-message-text';
 import { readOrHeld } from '../section-capabilities';
 import { guidance, toGuidance } from './ssh-guidance';
 import { SshServerLoginsDialog, useServerLogins } from './ssh-server-logins-dialog';
@@ -200,8 +202,8 @@ function ModelLoginSwitchDialog({
 }) {
   const consequence =
     (busySessions ?? 0) > 0
-      ? t('The server’s Mixdog restarts, and {{count}} running sessions stop.', { count: busySessions })
-      : t('The server’s Mixdog restarts, and any running sessions stop.');
+      ? t('The app on the server restarts, and {{count}} running sessions stop.', { count: busySessions })
+      : t('The app on the server restarts, and any running sessions stop.');
   return (
     <ConnDialog
       title={to === 'server' ? t('Switch to server accounts?') : t('Switch to this PC’s accounts?')}
@@ -283,7 +285,7 @@ export function SshHostSettingsDialog({
         onClose();
       })
       .catch((reason: unknown) => {
-        setError(sshErrorText(reason));
+        setError(sshErrorText(reason, host.name));
         setSaving(false);
       });
   };
@@ -392,8 +394,8 @@ const CLEANUP_STEPS: Array<Exclude<DesktopSshCleanupProgress['phase'], 'done'>> 
 
 function cleanupStepLabel(step: (typeof CLEANUP_STEPS)[number]): string {
   if (step === 'connect') return t('Reach the server');
-  if (step === 'stop') return t('Stop the Mixdog daemon');
-  return t('Remove the Mixdog files');
+  if (step === 'stop') return t('Stop what is running on the server');
+  return t('Remove the app’s files');
 }
 
 function cleanupStepState(index: number, at: number): 'done' | 'now' | 'wait' {
@@ -431,27 +433,43 @@ function CleanupRunningDialog({ host, step }: { host: DesktopSshHost; step: Desk
       </ol>
       <div className="conn-field-msg conn-field-msg--busy" role="status">
         <span className="conn-spinner" aria-hidden="true" />
-        {t('Removing Mixdog from the server.')}
+        {t('Removing the app from the server.')}
       </div>
     </ConnDialog>
   );
 }
 
+/** The words about the list: removed, kept because not asked, or the server was cleaned but the local forget failed (it stays in
+ *  the list; "Forget" retries and does not clean the server again). */
+function forgetNote(forget: boolean, local: DesktopSshLocalForget | undefined): { description: string; note: string } {
+  if (!forget) return { description: t('The server is still in the list.'), note: '' };
+  if (local && !local.ok) {
+    return {
+      description: t('The server was cleaned up, but it could not be removed from this PC’s list. Click Forget to try again.'),
+      note: sshMessageText(local.notice, local.error ?? ''),
+    };
+  }
+  return { description: t('The server was removed from the list.'), note: '' };
+}
+
 function CleanupDoneDialog({
   host,
   forget,
+  local,
   detail,
   onClose,
 }: {
   host: DesktopSshHost;
   forget: boolean;
+  local: DesktopSshLocalForget | undefined;
   detail: string;
   onClose(): void;
 }) {
+  const { description, note } = forgetNote(forget, local);
   return (
     <ConnDialog
       title={t('Cleaned up {{name}}', { name: host.name })}
-      description={forget ? t('The server was removed from the list.') : t('The server is still in the list.')}
+      description={description}
       viewKey="cleanup-done"
       onEscape={onClose}
       footer={
@@ -463,6 +481,7 @@ function CleanupDoneDialog({
         </>
       }
     >
+      {note && <p className="conn-note">{note}</p>}
       {detail && <p className="conn-note conn-note--raw">{detail}</p>}
     </ConnDialog>
   );
@@ -507,10 +526,13 @@ function CleanupFailedDialog({
  *  the work history only when asked, then optionally forget the saved entry. */
 export function SshCleanupDialog({
   host,
+  unsavedTarget,
   onDone,
   onClose,
 }: {
   host: DesktopSshHost;
+  /** The address of a server that was never saved: the clean-up runs by it, and there is no entry to remove afterwards. */
+  unsavedTarget?: string;
   onDone(): void;
   onClose(): void;
 }) {
@@ -518,6 +540,7 @@ export function SshCleanupDialog({
   const [removeUserData, setRemoveUserData] = useState(false);
   const [forget, setForget] = useState(false);
   const [detail, setDetail] = useState('');
+  const [local, setLocal] = useState<DesktopSshLocalForget | undefined>(undefined);
   const [step, setStep] = useState<DesktopSshCleanupProgress['phase']>('connect');
   const operationId = useRef(globalThis.crypto.randomUUID());
   const { question, answer } = useSshAskpass((id) => id === operationId.current);
@@ -535,11 +558,13 @@ export function SshCleanupDialog({
     phaseRef.current = 'running';
     setStep('connect');
     setPhase('running');
-    void Promise.resolve(sshCleanupHost(host.id, { operationId: operationId.current, removeUserData, forget }))
+    const request = { operationId: operationId.current, removeUserData, forget };
+    void Promise.resolve(unsavedTarget ? sshCleanupTarget(unsavedTarget, request) : sshCleanupHost(host.id, request))
       .then((result) => {
         if (!result) return;
         if (result.ok) {
-          setDetail(result.detail ?? '');
+          setDetail(sshMessageText(result.detailNotice, result.detail ?? ''));
+          setLocal(result.forget);
           setPhase('done');
           onDone();
         } else if (result.failure.kind === 'cancelled') {
@@ -548,15 +573,15 @@ export function SshCleanupDialog({
           setPhase({ failure: result.failure });
         }
       })
-      .catch((reason: unknown) => setPhase({ failure: { kind: 'failed', message: sshErrorText(reason) } }));
+      .catch((reason: unknown) => setPhase({ failure: { kind: 'failed', message: sshErrorText(reason, host.name) } }));
   };
 
   if (phase === 'confirm') {
     return (
       <ConfirmDialog
-        title={t('Clean up Mixdog on {{name}}', { name: host.name })}
+        title={t('Clean up {{name}}', { name: host.name })}
         description={t(
-          'Mixdog and its files are removed from the server. The server window closes first, and the work running in it stops.'
+          'The app and its files are removed from the server. The server window closes first, and the work running in it stops.'
         )}
         confirmLabel={t('Clean up')}
         onConfirm={start}
@@ -570,9 +595,11 @@ export function SshCleanupDialog({
           <CheckRow checked={removeUserData} onChange={setRemoveUserData}>
             {t('Delete the work history too')}
           </CheckRow>
-          <CheckRow checked={forget} onChange={setForget}>
-            {t('Remove this server from the list afterwards')}
-          </CheckRow>
+          {!unsavedTarget && (
+            <CheckRow checked={forget} onChange={setForget}>
+              {t('Remove this server from the list afterwards')}
+            </CheckRow>
+          )}
         </div>
       </ConfirmDialog>
     );
@@ -583,6 +610,6 @@ export function SshCleanupDialog({
     }
     return <CleanupRunningDialog host={host} step={step} />;
   }
-  if (phase === 'done') return <CleanupDoneDialog host={host} forget={forget} detail={detail} onClose={onClose} />;
+  if (phase === 'done') return <CleanupDoneDialog host={host} forget={forget} local={local} detail={detail} onClose={onClose} />;
   return <CleanupFailedDialog failure={phase.failure} name={host.name} onRetry={start} onClose={onClose} />;
 }

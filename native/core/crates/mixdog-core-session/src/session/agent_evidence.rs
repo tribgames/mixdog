@@ -9,6 +9,7 @@
 //!   fails is the error. Node answers false without a Postgres cluster; the Rust routine rows live
 //!   in the core state store, which holds none in that case.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -32,38 +33,76 @@ const CREATION_GREETING: &str = "[mixdog-runtime] The user just created you as "
 pub struct SessionAgentEvidence {
     directory: Arc<SessionDirectory>,
     routines: Arc<dyn RoutineRecords>,
+    legacy_homes: Option<Arc<BTreeMap<String, HomeEvidence>>>,
+}
+
+pub struct HomeEvidence {
+    greeted: bool,
+    chatted: bool,
+    route: Option<Value>,
+}
+
+impl HomeEvidence {
+    /// Summarize the converter's winning source before home conversion starts.
+    pub fn from_history(header: &mixdog_store::schema::record::Header, messages: &[Value]) -> Self {
+        let (greeted, chatted) = home_evidence(messages);
+        Self { greeted, chatted, route: route_of(header) }
+    }
 }
 
 impl SessionAgentEvidence {
     /// `routines` is the routine runtime's records (`StoreRoutineRecords` over the schedule and
     /// webhook stores).
     pub fn new(directory: Arc<SessionDirectory>, routines: Arc<dyn RoutineRecords>) -> Self {
-        Self { directory, routines }
+        Self { directory, routines, legacy_homes: None }
+    }
+
+    /// Only the definition cutover may use evidence from unconverted homes.
+    pub fn with_legacy_homes(mut self, homes: Arc<BTreeMap<String, HomeEvidence>>) -> Self {
+        self.legacy_homes = Some(homes);
+        self
+    }
+
+    fn legacy_home(&self, agent_id: &str) -> Option<&HomeEvidence> {
+        self.legacy_homes.as_ref()?.get(agent_id)
     }
 
     /// `(greeted, chatted)` of the agent's home thread.
     async fn home(&self, agent_id: &str) -> (bool, bool) {
+        if let Some(home) = self.legacy_home(agent_id) {
+            return (home.greeted, home.chatted);
+        }
         let session = mixdog_store::agent_mode::agent_home_session_id(agent_id);
         if session.is_empty() {
             return (false, false);
         }
+        let thread = ThreadId::from(session.as_str());
         let deps = self.directory.deps();
-        // Absent, deleted or unreadable: it proves nothing.
-        let messages = read_context(&deps.store, &deps.lanes, &ThreadId::from(session.as_str())).await.unwrap_or_default();
-        let (mut greeted, mut chatted) = (false, false);
-        for (_, message) in &messages {
-            if message.get("role").and_then(Value::as_str) != Some("user") {
-                continue;
-            }
-            let text = message_text(message.get("content"));
-            if text.starts_with(CREATION_GREETING) || text.contains(&format!("\n{CREATION_GREETING}")) {
-                greeted = true;
-            } else if !js_trim(&text).is_empty() && !js_trim_start(&text).starts_with(RUNTIME_MARKER) {
-                chatted = true;
-            }
-        }
-        (greeted, chatted)
+        let messages = read_context(&deps.store, &deps.lanes, &thread).await.unwrap_or_default();
+        home_evidence(messages.iter().map(|(_, message)| message))
     }
+}
+
+fn route_of(header: &mixdog_store::schema::record::Header) -> Option<Value> {
+    let text = |key: &str| header.get(key).and_then(Value::as_str).map(js_trim).unwrap_or_default();
+    let (provider, model) = (text("provider"), text("model"));
+    (!provider.is_empty() && !model.is_empty()).then(|| serde_json::json!({ "provider": provider, "model": model }))
+}
+
+fn home_evidence<'a>(messages: impl IntoIterator<Item = &'a Value>) -> (bool, bool) {
+    let (mut greeted, mut chatted) = (false, false);
+    for message in messages {
+        if message.get("role").and_then(Value::as_str) != Some("user") {
+            continue;
+        }
+        let text = message_text(message.get("content"));
+        if text.lines().any(|line| line.starts_with(CREATION_GREETING)) {
+            greeted = true;
+        } else if !js_trim(&text).is_empty() && !js_trim_start(&text).starts_with(RUNTIME_MARKER) {
+            chatted = true;
+        }
+    }
+    (greeted, chatted)
 }
 
 /// `messageText(content)`: a string, or the array's string parts and part texts joined by lines.
@@ -93,11 +132,14 @@ impl AgentEvidence for SessionAgentEvidence {
     }
 
     async fn home_thread_route(&self, agent_id: &str) -> Option<Value> {
+        if let Some(home) = self.legacy_home(agent_id) {
+            return home.route.clone();
+        }
         let session = mixdog_store::agent_mode::agent_home_session_id(agent_id);
-        let header = self.directory.stored_header(&ThreadId::from(session.as_str())).await?;
-        let text = |key: &str| header.get(key).and_then(Value::as_str).map(js_trim).unwrap_or_default().to_owned();
-        let (provider, model) = (text("provider"), text("model"));
-        (!provider.is_empty() && !model.is_empty()).then(|| serde_json::json!({ "provider": provider, "model": model }))
+        if session.is_empty() {
+            return None;
+        }
+        route_of(&self.directory.stored_header(&ThreadId::from(session.as_str())).await?)
     }
 
     async fn mixy_owns_routines(&self) -> Result<bool, String> {
@@ -108,6 +150,23 @@ impl AgentEvidence for SessionAgentEvidence {
     }
 }
 
+#[cfg(test)]
+mod cutover_tests {
+    use super::*;
+
+    #[test]
+    fn creation_greeting_is_classification_evidence_without_a_converted_home() {
+        let messages = [serde_json::json!({"role":"user","content":"[mixdog-runtime] The user just created you as Buddy"})];
+        let evidence = HomeEvidence::from_history(&Default::default(), &messages);
+        assert!(evidence.greeted);
+        assert!(!evidence.chatted);
+    }
+}
+
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "agent_evidence_tests.rs"]
 mod tests;

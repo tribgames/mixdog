@@ -1,0 +1,9 @@
+{
+  "departures": [
+    {
+      "scenario": "workbook-features",
+      "kind": "excel_cursor_model",
+      "reason": "Every paged Excel read now follows the portable walk of 1.4.5: `offset` counts populated cells within the selected sheet or range, an explicit `sheet` selects only that sheet, and otherwise `sheetOffset` walks the worksheets in workbook order from the first (never the active sheet), one sheet per page, with `nextOffset` inside a sheet and `nextSheetOffset` at its end. The PowerShell host (office-com-host.ps1, Snapshot-ExcelPage) counted rectangular positions of the used range and started on the active sheet, and answered a whole read for a sheet of up to 500 cells; the recorded paged calls of this scenario are not held to those answers."
+    }
+  ]
+}

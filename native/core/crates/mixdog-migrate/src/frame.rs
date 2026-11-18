@@ -86,14 +86,6 @@ mod tests {
             .collect()
     }
 
-    fn doc() -> Doc {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../mixdog-store/src/schema/vectors/frames.json"
-        );
-        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
-    }
-
     #[test]
     fn crc_check_value() {
         assert_eq!(
@@ -102,6 +94,14 @@ mod tests {
         );
     }
 
+
+    fn doc() -> Doc {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../mixdog-store/src/schema/vectors/frames.json"
+        );
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    }
     #[test]
     fn encodes_the_store_vectors() {
         for single in doc().single {
@@ -111,7 +111,6 @@ mod tests {
             );
         }
     }
-
     #[test]
     fn classifies_every_store_vector() {
         for case in doc().classification {

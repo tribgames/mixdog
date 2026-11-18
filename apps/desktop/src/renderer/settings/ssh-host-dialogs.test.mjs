@@ -97,7 +97,7 @@ test('model login: switching to server accounts asks once, naming the running se
   const dialog = document.querySelector('.conn-dialog');
   assert.equal(dialog.getAttribute('role'), 'alertdialog');
   assert.equal(dialog.querySelector('h3').textContent, 'Switch to server accounts?');
-  assert.match(dialog.querySelector('.ssh-warn').textContent, /Running work stops\. .*1 running session/);
+  assert.match(dialog.querySelector('.ssh-warn').textContent, /The app on the server restarts, and 1 running session stops\./);
   assert.equal(
     calls.some((call) => call[0] === 'settings'),
     false,
@@ -288,6 +288,38 @@ test('server logins: a login whose start answers after the dialog closed is canc
 
 const IPC = (channel, message) => new Error(`Error invoking remote method '${channel}': Error: ${message}`);
 
+test('server logins: a status rejection before dispatch keeps the owning flow until the server reports it unknown', async (t) => {
+  const cancelled = [];
+  const status = Promise.withResolvers();
+  let reads = 0;
+  const { document } = await mount(t, {
+    host: { ...HOST, settings: { modelLogin: 'server' } },
+    sshServerLoginBegin: async () => ({
+      flowId: 'f5', provider: 'gemini-oauth', state: 'pending', forwarded: true,
+    }),
+    sshServerLoginStatus: async () => {
+      if (++reads === 1) throw new Error('This window has no connection to the core.');
+      return await status.promise;
+    },
+    sshServerLoginCancel: async (...args) => { cancelled.push(args); },
+  });
+  await click(buttonNamed(document, 'Manage server logins'));
+  await click(document.querySelectorAll('.ssh-login-row')[2].querySelector('button'));
+  assert.equal(reads, 1);
+  assert.ok(document.querySelector('.ssh-login-codebox'));
+  assert.deepEqual(cancelled, []);
+  const view = document.defaultView;
+  await act(async () => view.dispatchEvent(new view.Event('focus')));
+  assert.equal(reads, 2);
+  await act(async () => {
+    status.reject(IPC('mixdog:ssh-server-login-status', 'OAuth login flow is no longer available.'));
+    await status.promise.catch(() => undefined);
+  });
+  assert.equal(document.querySelector('.ssh-login-codebox'), null);
+  assert.equal(document.querySelector('[role="alert"]').textContent, 'OAuth login flow is no longer available.');
+  assert.deepEqual(cancelled, []);
+});
+
 test('server logins: a server that disconnects mid-login closes the steps and shows the connect-first note, not the list', async (t) => {
   const cancelled = [];
   let connected = true;
@@ -297,9 +329,9 @@ test('server logins: a server that disconnects mid-login closes the steps and sh
       connected ? SERVER_LOGINS : { connected: false, modelLogin: null, busySessions: null, providers: null },
     sshServerLoginBegin: (_id, provider) =>
       Promise.resolve({ flowId: 'f5', provider, state: 'pending', url: 'https://x', error: null, forwarded: true }),
-    sshServerLoginStatus: () => {
-      connected = false;
-      return Promise.reject(IPC('mixdog:ssh-server-login-status', 'Connect to build-box to manage its logins.'));
+    sshServerLoginStatus: async () => {
+      if (!connected) throw IPC('mixdog:ssh-server-login-status', 'connect-first: Connect to build-box to manage its logins.');
+      return { flowId: 'f5', provider: 'gemini-oauth', state: 'pending', url: null, error: null, forwarded: true };
     },
     sshServerLoginCancel: async (id, flowId) => {
       cancelled.push([id, flowId]);
@@ -310,7 +342,8 @@ test('server logins: a server that disconnects mid-login closes the steps and sh
   await click(document.querySelectorAll('.ssh-login-row')[2].querySelector('button'));
   await settle();
   assert.ok(document.querySelector('.ssh-login-codebox'));
-  // Returning from the browser reads the login once; nothing reads it on a clock.
+  // The initial read sees a pending flow; the next read sees the disconnect.
+  connected = false;
   const view = document.defaultView;
   await act(async () => void view.dispatchEvent(new view.Event('focus')));
   await settle();
@@ -348,6 +381,12 @@ test('server logins: a late answer for an earlier login does not end the one sta
         release = () =>
           done({ flowId, provider: 'a-oauth', state: 'complete', url: null, error: null, forwarded: false });
       }),
+    sshServerLoginStatus: async (_id, flowId) => ({
+      flowId,
+      provider: flowId === 'fa' ? 'a-oauth' : 'b-oauth',
+      state: 'pending',
+      forwarded: false,
+    }),
     sshServerLoginCancel: async () => undefined,
   });
   await click(buttonNamed(document, 'Manage server logins'));
@@ -378,6 +417,12 @@ test('server logins: a device code is shown, and paste controls only where manua
       userCode: 'ABCD-1234',
       manualCodeSupported: false,
     }),
+    sshServerLoginStatus: async () => ({
+      flowId: 'f7',
+      provider: 'gemini-oauth',
+      state: 'pending',
+      forwarded: false,
+    }),
     sshServerLoginCancel: async () => undefined,
   });
   await click(buttonNamed(document, 'Manage server logins'));
@@ -392,6 +437,29 @@ test('server logins: a device code is shown, and paste controls only where manua
   assert.equal(document.querySelector('.ssh-login-codebox input'), null);
 });
 
+test('server logins: the status read settles a flow even if a pending push arrived during the read', async (t) => {
+  const status = Promise.withResolvers();
+  const pending = { flowId: 'f6', provider: 'gemini-oauth', state: 'pending', forwarded: false };
+  let push;
+  const { document, calls } = await mount(t, {
+    host: { ...HOST, settings: { modelLogin: 'server' } },
+    sshServerLoginBegin: async () => pending,
+    sshServerLoginStatus: () => status.promise,
+    subscribeSshServerLoginUpdated: (listener) => {
+      push = listener;
+      return () => undefined;
+    },
+  });
+  await click(buttonNamed(document, 'Manage server logins'));
+  await click(document.querySelectorAll('.ssh-login-row')[2].querySelector('button'));
+  assert.ok(document.querySelector('.ssh-login-codebox'));
+  await act(async () => push({ id: 'h1', flow: { ...pending, forwarded: true } }));
+  const reads = calls.filter(([name]) => name === 'logins').length;
+  await act(async () => status.resolve({ ...pending, state: 'complete' }));
+  assert.equal(document.querySelector('.ssh-login-codebox'), null);
+  assert.equal(calls.filter(([name]) => name === 'logins').length, reads + 1);
+});
+
 test('server logins: a refusal shows without the IPC envelope', async (t) => {
   const { document } = await mount(t, {
     host: { ...HOST, settings: { modelLogin: 'server' } },
@@ -399,7 +467,7 @@ test('server logins: a refusal shows without the IPC envelope', async (t) => {
       Promise.reject(
         IPC(
           'mixdog:ssh-server-login-begin',
-          "build-box uses this PC's accounts. Switch it to server accounts to manage its logins."
+          "pc-accounts: build-box uses this PC's accounts. Switch it to server accounts to manage its logins."
         )
       ),
   });

@@ -13,6 +13,10 @@ const { window: testWindow } = installTestDom(null, {
 
 const { usePaneWorkspaceState } = await import('./use-pane-workspace-restore.ts');
 const { navigationKey } = await import('./text-format.ts');
+const { useSessionCatalog } = await import('./app-session-catalog.ts');
+const { useAppSessionActivity } = await import('./app-root/use-app-session-activity.ts');
+const { BOT_DELETED_EVENT } = await import('./agent-profile-actions.ts');
+const { filterPaneLayoutSessions, paneLeaves } = await import('./pane-layout.ts');
 
 const ELECTRON_UA =
   'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko) Mixdog/1.0 Chrome/130.0.0.0 Electron/41.0.0 Safari/537.36';
@@ -51,19 +55,47 @@ const shape = (node) =>
 const pause = (ms = 0) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
 
 /** A desktop bridge: the file copy, the catalog, and what the renderer reported. */
-function bridge({ file = null, catalog = SESSIONS } = {}) {
-  const calls = { fileReads: 0, fileWrites: [], diagnostics: [] };
+function bridge({ file = null, catalog = SESSIONS, sections = false, pool } = {}) {
+  const calls = { fileReads: 0, fileWrites: [], diagnostics: [], sessionReads: 0, poolReads: 0 };
+  // The core's `agentPool` section: no entry until `pool` is given or published.
+  const poolListeners = new Set();
+  let poolEntry = pool === undefined ? null : { section: 'agentPool', key: null, revision: 1, value: pool };
   const api = {
     catalog,
     listeners: new Set(),
+    ...(sections
+      ? {
+          sections: {
+            snapshot: async () => ({ status: 'ready', entries: poolEntry ? [poolEntry] : [] }),
+            subscribe(listener) {
+              poolListeners.add(listener);
+              return () => poolListeners.delete(listener);
+            },
+          },
+        }
+      : {}),
+    publishPool: async (rows) => {
+      poolEntry = { section: 'agentPool', key: null, revision: (poolEntry?.revision ?? 0) + 1, value: rows };
+      await act(async () => {
+        for (const listener of [...poolListeners]) {
+          listener({ kind: 'sections', changes: [{ section: 'agentPool', key: null, entry: poolEntry }] });
+        }
+      });
+      await pause();
+    },
     readPaneLayoutFile: () => {
       calls.fileReads += 1;
       return file;
     },
     writePaneLayoutFile: (layout) => calls.fileWrites.push(layout),
     listSessions: async () => {
+      calls.sessionReads += 1;
       if (!api.catalog) throw new Error('daemon offline');
       return api.catalog;
+    },
+    listAgentPool: async () => {
+      calls.poolReads += 1;
+      return [];
     },
     subscribeSessions: (listener) => {
       api.listeners.add(listener);
@@ -80,7 +112,33 @@ function bridge({ file = null, catalog = SESSIONS } = {}) {
   return { api, calls };
 }
 
-async function mount(t, { ua = ELECTRON_UA, local = null, desktop }) {
+/** The session lifecycle beside the restore, as the app wires them: the real catalog hook feeds the real activity hook,
+ *  whose pane close takes the session's tabs out of the pane tree. */
+function useLifecycle(workspace) {
+  const catalog = useSessionCatalog(() => {});
+  const [, setTabs] = React.useState([]);
+  useAppSessionActivity({
+    sessions: catalog.sessions,
+    setTabs,
+    refreshSessions: catalog.refreshSessions,
+    setSessionCatalogReady() {},
+    subscribeSessionsRemoved: catalog.subscribeRemoved,
+    closePaneTab: (key) =>
+      workspace.setState((prev) => {
+        const keep = new Set(
+          paneLeaves(prev.layout).flatMap((node) =>
+            node.tabs.flatMap((tab) => (tab.kind === 'session' && navigationKey(tab) !== key ? [tab.id] : []))
+          )
+        );
+        const layout = filterPaneLayoutSessions(prev.layout, keep);
+        if (layout === prev.layout || !layout) return prev;
+        const leaves = paneLeaves(layout);
+        return { layout, focusedLeafId: leaves.some((node) => node.id === prev.focusedLeafId) ? prev.focusedLeafId : leaves[0].id };
+      }),
+  });
+}
+
+async function mount(t, { ua = ELECTRON_UA, local = null, desktop, lifecycle = false }) {
   Object.defineProperty(testWindow.navigator, 'userAgent', { configurable: true, get: () => ua });
   testWindow.localStorage.clear();
   if (local !== null) testWindow.localStorage.setItem(PANE_LAYOUT_KEY, local);
@@ -88,6 +146,7 @@ async function mount(t, { ua = ELECTRON_UA, local = null, desktop }) {
   const renders = [];
   function Harness() {
     const workspace = usePaneWorkspaceState(null);
+    if (lifecycle) useLifecycle(workspace);
     renders.push(workspace);
     return null;
   }
@@ -114,9 +173,9 @@ test('localStorage empty + file present: the stored split tree restores from the
   const { api, calls } = bridge({ file: STORED_TEXT });
   const { renders, current } = await mount(t, { desktop: api });
   assert.equal(calls.fileReads, 1);
-  // First paint already carries the file's geometry, before the catalog answers.
+  // First paint already carries the file's geometry, before the catalog answers; restoring is local and gates nothing.
   assert.deepEqual(shape(renders[0].state.layout), STORED_SHAPE);
-  assert.equal(renders[0].restorePending, true);
+  assert.equal(renders[0].restorePending, false);
   assert.equal(current().restorePending, false);
   assert.deepEqual(shape(current().state.layout), STORED_SHAPE);
   assert.equal(current().state.focusedLeafId, 'top');
@@ -163,51 +222,194 @@ test('a persisted change reaches the profile file once, on the renderer debounce
   assert.equal(calls.fileWrites.length, 2);
 });
 
-test('catalog unavailable at startup: the stored layout is not overwritten, and the session list finishes validation', async (t) => {
-  const { api, calls } = bridge({ file: null, catalog: null });
-  const { current, pageHide } = await mount(t, { desktop: api, local: STORED_TEXT });
+// The stored layout is the initial value only: facts (the session catalog, the pushed `agentPool` section) reconcile the LIVE
+// tree. A restored session tab goes only when both are known and neither vouches for it; the pool is never requested.
+const fileB = { kind: 'file', project: '/p', rel: 'b.ts' };
+const LEAD = [{ id: 's1' }];
+const WORKER_POOL = [{ sessionId: 'w1', ownerSessionId: 's1' }];
+/** [left: s1, a.ts | right: ...right], the right leaf focused. */
+const workerStored = (...right) =>
+  JSON.stringify({
+    layout: {
+      type: 'split',
+      direction: 'row',
+      ratio: 0.5,
+      first: leaf('left', session('s1'), fileTab),
+      second: leaf('right', ...right),
+    },
+    focusedLeafId: 'right',
+  });
+const persisted = () => testWindow.localStorage.getItem(PANE_LAYOUT_KEY);
+/** Closes a.ts and opens b.ts in the left leaf, focuses it and moves the split. */
+const editLeft = (current) =>
+  act(async () =>
+    current().setState((prev) => ({
+      layout: {
+        ...prev.layout,
+        ratio: 0.3,
+        first: { ...prev.layout.first, tabs: [session('s1'), fileB], activeKey: navigationKey(fileB) },
+      },
+      focusedLeafId: 'left',
+    }))
+  );
 
-  // The boot cover is not held, and only addressable tabs show.
+test('edits made before a late pool survive it, and both stored copies hold the live layout', async (t) => {
+  const { api, calls } = bridge({ catalog: LEAD, sections: true });
+  const { current } = await mount(t, { desktop: api, local: workerStored(session('w1'), session('gone')) });
   assert.equal(current().restorePending, false);
-  assert.deepEqual(shape(current().state.layout), ['file:/p:a.ts']);
-  // The failure is reported through the renderer's diagnostic channel.
-  assert.equal(calls.diagnostics.length, 1);
-  assert.equal(calls.diagnostics[0].phase, 'unhandled-rejection');
-  assert.equal(calls.diagnostics[0].failureCode, 'pane-catalog-unavailable');
-
-  // Neither the debounce nor a page hide persists the pruned tree.
+  await editLeft(current);
   await pause(300);
-  await pageHide();
-  assert.equal(testWindow.localStorage.getItem(PANE_LAYOUT_KEY), STORED_TEXT);
-  assert.deepEqual(calls.fileWrites, []);
+  assert.equal(persisted(), JSON.stringify(current().state), 'persisted while the pool is unknown');
 
-  // A push while the daemon still cannot answer changes nothing.
-  api.listSessions = async () => {
-    throw new Error('daemon still starting');
-  };
-  await api.pushSessions();
-  assert.equal(calls.diagnostics.length, 2);
-  assert.deepEqual(shape(current().state.layout), ['file:/p:a.ts']);
-  await pageHide();
-  assert.equal(testWindow.localStorage.getItem(PANE_LAYOUT_KEY), STORED_TEXT);
-
-  // The daemon answers: validation completes and the stored split tree is back.
-  api.listSessions = async () => SESSIONS;
-  await api.pushSessions();
-  assert.deepEqual(shape(current().state.layout), STORED_SHAPE);
-  assert.equal(current().state.focusedLeafId, 'top');
-  assert.equal(current().restoredFromStorage, true);
-  assert.equal(api.listeners.size, 0, 'no longer listening once validated');
-  await pageHide();
-  assert.deepEqual(calls.fileWrites, [JSON.stringify(current().state)]);
-  assert.deepEqual(shape(JSON.parse(testWindow.localStorage.getItem(PANE_LAYOUT_KEY)).layout), STORED_SHAPE);
+  await api.publishPool(WORKER_POOL);
+  assert.deepEqual(shape(current().state.layout), ['row', ['session:s1', 'file:/p:b.ts'], ['session:w1']]);
+  assert.equal(current().state.layout.ratio, 0.3);
+  assert.equal(current().state.layout.first.activeKey, navigationKey(fileB));
+  assert.equal(current().state.focusedLeafId, 'left');
+  await pause(300);
+  assert.equal(persisted(), JSON.stringify(current().state));
+  assert.equal(calls.fileWrites.at(-1), JSON.stringify(current().state));
+  assert.deepEqual([calls.sessionReads, calls.poolReads], [1, 0]);
 });
 
-test('a readable catalog drops only the session tabs it does not list', async (t) => {
-  const { api } = bridge({ catalog: [{ id: 's2' }] });
-  const { current } = await mount(t, { desktop: api, local: STORED_TEXT });
-  assert.deepEqual(shape(current().state.layout), ['session:s2', 'file:/p:a.ts']);
+test('a pool that never arrives keeps worker tabs in place, gates nothing, and persists them with edits', async (t) => {
+  const { api, calls } = bridge({ catalog: LEAD, sections: true });
+  const { current, pageHide, unmount } = await mount(t, { desktop: api, local: workerStored(session('w1'), session('gone')) });
   assert.equal(current().restorePending, false);
+  assert.deepEqual(shape(current().state.layout), ['row', ['session:s1', 'file:/p:a.ts'], ['session:w1', 'session:gone']]);
+  await editLeft(current);
+  await pageHide();
+  assert.equal(persisted(), JSON.stringify(current().state));
+  assert.deepEqual(shape(JSON.parse(persisted()).layout), ['row', ['session:s1', 'file:/p:b.ts'], ['session:w1', 'session:gone']]);
+  assert.equal(calls.fileWrites.at(-1), persisted());
+  assert.deepEqual([calls.sessionReads, calls.poolReads], [1, 0]);
+  await unmount();
+
+  // No sections support proves nothing either; and an unreadable catalog with a known pool is unknown too.
+  for (const desktop of [bridge({ catalog: LEAD }), bridge({ catalog: null, sections: true, pool: [] })]) {
+    const view = await mount(t, { desktop: desktop.api, local: workerStored(session('w1'), session('gone')) });
+    assert.deepEqual(shape(view.current().state.layout), ['row', ['session:s1', 'file:/p:a.ts'], ['session:w1', 'session:gone']]);
+    assert.deepEqual([desktop.calls.sessionReads, desktop.calls.poolReads], [1, 0]);
+    await view.unmount();
+  }
+});
+
+test('a session push that beats the mount read governs over the read’s older rows', async (t) => {
+  const { api, calls } = bridge({ catalog: LEAD, sections: true, pool: WORKER_POOL });
+  let answer;
+  api.listSessions = () => {
+    calls.sessionReads += 1;
+    return new Promise((resolve) => (answer = resolve));
+  };
+  const { current } = await mount(t, { desktop: api, local: workerStored(session('w1'), session('kept')) });
+  // The push lists `kept`; the read, older, does not.
+  await act(async () => {
+    for (const listener of [...api.listeners]) listener([{ id: 's1' }, { id: 'kept' }]);
+  });
+  await act(async () => answer(LEAD));
+  await pause();
+  assert.deepEqual(shape(current().state.layout), ['row', ['session:s1', 'file:/p:a.ts'], ['session:w1', 'session:kept']]);
+  assert.deepEqual([calls.sessionReads, calls.poolReads], [1, 0]);
+});
+
+// Bootstrap validation happens once, when the catalog and the pool are first both known; after it, tabs close only through the
+// session lifecycle's own rules. An agent home keeps its fixed id for good and is never judged by absence.
+const HOME = 'sess_home_lead';
+const leafTabs = (current, id) => paneLeaves(current().state.layout).find((node) => node.id === id)?.tabs.map((tab) => navigationKey(tab));
+const addToLeft = (current, ...tabs) =>
+  act(async () =>
+    current().setState((prev) => {
+      const left = prev.layout.type === 'leaf' ? prev.layout : prev.layout.first;
+      const grown = { ...left, tabs: [...left.tabs, ...tabs] };
+      return { ...prev, layout: prev.layout.type === 'leaf' ? grown : { ...prev.layout, first: grown } };
+    })
+  );
+
+test('a home cleared after start stays open and persisted; an explicit bot deletion still closes it', async (t) => {
+  const { api, calls } = bridge({ catalog: [{ id: 's1' }, { id: HOME }], sections: true, pool: [] });
+  const { current } = await mount(t, { desktop: api, local: workerStored(session(HOME)), lifecycle: true });
+  assert.deepEqual(leafTabs(current, 'right'), [`session:${HOME}`]);
+  // `/clear` empties the home: the catalog leaves it out.
+  api.catalog = [{ id: 's1' }];
+  await api.pushSessions();
+  await pause(300);
+  assert.deepEqual(leafTabs(current, 'right'), [`session:${HOME}`], 'the cleared home stays open');
+  assert.equal(persisted(), JSON.stringify(current().state));
+  await act(async () =>
+    testWindow.dispatchEvent(new testWindow.CustomEvent(BOT_DELETED_EVENT, { detail: { sessionId: HOME } }))
+  );
+  await pause();
+  assert.deepEqual(shape(current().state.layout), ['session:s1', 'file:/p:a.ts'], 'deleting the bot closes its home');
+  assert.equal(calls.poolReads, 0);
+});
+
+test('a home absent from the first catalog and a published empty pool survives bootstrap', async (t) => {
+  const { api, calls } = bridge({ catalog: LEAD, sections: true, pool: [] });
+  const { current } = await mount(t, { desktop: api, local: workerStored(session(HOME), session('gone')) });
+  assert.deepEqual(leafTabs(current, 'right'), [`session:${HOME}`], 'the home stays; the unvouched session goes');
+  assert.deepEqual([calls.sessionReads, calls.poolReads], [1, 0]);
+});
+
+test("a pool whose first publication excludes a restored worker removes that worker alone", async (t) => {
+  const { api, calls } = bridge({ catalog: LEAD, sections: true });
+  const { current } = await mount(t, { desktop: api, local: workerStored(session('w1'), session('w2')) });
+  // Edits while the pool is unknown; focus stays on the right leaf.
+  await act(async () =>
+    current().setState((prev) => ({
+      ...prev,
+      layout: {
+        ...prev.layout,
+        ratio: 0.3,
+        first: { ...prev.layout.first, tabs: [session('s1'), fileB], activeKey: navigationKey(fileB) },
+      },
+    }))
+  );
+  await api.publishPool([{ sessionId: 'w2', ownerSessionId: 's1' }]);
+  assert.deepEqual(shape(current().state.layout), ['row', ['session:s1', 'file:/p:b.ts'], ['session:w2']]);
+  assert.equal(current().state.layout.ratio, 0.3);
+  assert.equal(current().state.layout.second.activeKey, 'session:w2', 'the removed tab’s selection moves to what remains');
+  assert.equal(current().state.focusedLeafId, 'right');
+  await pause(300);
+  assert.equal(persisted(), JSON.stringify(current().state));
+  assert.deepEqual([calls.sessionReads, calls.poolReads], [1, 0]);
+});
+
+test('a worker validated at bootstrap and excluded by a later pool is left alone by the restore', async (t) => {
+  const { api, calls } = bridge({ catalog: LEAD, sections: true, pool: WORKER_POOL });
+  const { current } = await mount(t, { desktop: api, local: workerStored(session('w1')) });
+  await api.publishPool([]);
+  await pause(300);
+  assert.deepEqual(leafTabs(current, 'right'), ['session:w1']);
+  assert.equal(persisted(), JSON.stringify(current().state));
+  assert.deepEqual([calls.sessionReads, calls.poolReads], [1, 0]);
+});
+
+test('after bootstrap a non-empty catalog dropping a listed session closes its tabs, restored or opened later; an empty one closes nothing', async (t) => {
+  const row = (id) => ({ id, title: id, preview: id, archived: false });
+  const { api, calls } = bridge({ catalog: ['s1', 's2', 's3'].map(row), sections: true, pool: [] });
+  const { current } = await mount(t, { desktop: api, local: workerStored(session('s2')), lifecycle: true });
+  await addToLeft(current, session('s3'));
+  assert.deepEqual(shape(current().state.layout), ['row', ['session:s1', 'file:/p:a.ts', 'session:s3'], ['session:s2']]);
+  api.catalog = [row('s1')];
+  await api.pushSessions();
+  assert.deepEqual(shape(current().state.layout), ['session:s1', 'file:/p:a.ts'], 'the restored s2 and the later s3 close');
+  await addToLeft(current, session('s4'));
+  api.catalog = [];
+  await api.pushSessions();
+  assert.deepEqual(shape(current().state.layout), ['session:s1', 'file:/p:a.ts', 'session:s4'], 'an empty catalog closes nothing');
+  assert.equal(calls.poolReads, 0);
+});
+
+test('a restored tab closed and reopened under the same id before the facts arrive is not closed by bootstrap', async (t) => {
+  const { api, calls } = bridge({ catalog: LEAD, sections: true });
+  const { current } = await mount(t, { desktop: api, local: workerStored(session('w1')) });
+  await act(async () => current().setState((prev) => ({ layout: prev.layout.first, focusedLeafId: 'left' })));
+  await pause();
+  await addToLeft(current, session('w1'));
+  await pause();
+  await api.publishPool([]);
+  assert.deepEqual(shape(current().state.layout), ['session:s1', 'file:/p:a.ts', 'session:w1']);
+  assert.deepEqual([calls.sessionReads, calls.poolReads], [1, 0]);
 });
 
 test('the phone surface keeps its behaviour: no file is read, none is written, tabs are not restored', async (t) => {

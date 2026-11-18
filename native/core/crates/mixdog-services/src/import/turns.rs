@@ -80,32 +80,6 @@ pub enum Stamp {
     Number(f64),
 }
 
-impl Stamp {
-    pub fn from_json(value: Option<&serde_json::Value>) -> Option<Self> {
-        match value? {
-            serde_json::Value::String(s) => Some(Self::Text(s.clone())),
-            serde_json::Value::Number(n) => n.as_f64().map(Self::Number),
-            _ => None,
-        }
-    }
-
-    /// Bytes of bookkeeping this stamp costs.
-    pub fn text_len(&self) -> usize {
-        match self {
-            Self::Text(s) => utf16_len(s),
-            Self::Number(_) => 0,
-        }
-    }
-
-    pub fn millis(&self) -> Option<i64> {
-        let ms = match self {
-            Self::Number(n) => *n,
-            Self::Text(s) => mixdog_js::time::date_parse(s),
-        };
-        (ms.is_finite() && ms > 0.0).then_some(ms as i64)
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct RawTurn {
     pub role: Role,
@@ -403,5 +377,32 @@ mod tests {
         let tools: Vec<ToolCount> = (0..80).map(|i| ToolCount { name: format!("tool-number-{i}"), count: 1 }).collect();
         let line = tool_run_line(&tools);
         assert!(utf16_len(&line) <= 400 && line.contains(", +") && line.ends_with(" more]"));
+    }
+}
+
+
+impl Stamp {
+    pub fn from_json(value: Option<&serde_json::Value>) -> Option<Self> {
+        match value? {
+            serde_json::Value::String(s) => Some(Self::Text(s.clone())),
+            serde_json::Value::Number(n) => n.as_f64().map(Self::Number),
+            _ => None,
+        }
+    }
+
+    /// Bytes of bookkeeping this stamp costs.
+    pub fn text_len(&self) -> usize {
+        match self {
+            Self::Text(s) => utf16_len(s),
+            Self::Number(_) => 0,
+        }
+    }
+
+    pub fn millis(&self) -> Option<i64> {
+        let ms = match self {
+            Self::Number(n) => *n,
+            Self::Text(s) => mixdog_js::time::date_parse(s),
+        };
+        (ms.is_finite() && ms > 0.0).then_some(ms as i64)
     }
 }

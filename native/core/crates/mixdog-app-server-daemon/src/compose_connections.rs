@@ -583,7 +583,7 @@ pub async fn compose_connections(inputs: ConnectionsInputs) -> Connections {
 
     let ssh_env = Arc::new(ssh_env);
     let login = Arc::new(EnvLoginHelpers::new(ssh_env.clone(), durability_io, user_data_dir, claims.resources()));
-    let opener = Arc::new(ServerWindowOpener::new(windows.clone(), window_restore.clone()));
+    let opener = Arc::new(ServerWindowOpener::new(windows.clone(), window_restore.clone(), pool.clone()));
     let attempts = Attempts::new(pool.clone(), Arc::new(NotifierPush(notifier.clone())));
     let view_pool = pool.pool().clone();
     let connect = Arc::new(Connect::new(ConnectDeps {
@@ -591,25 +591,26 @@ pub async fn compose_connections(inputs: ConnectionsInputs) -> Connections {
         machine: Arc::new(EnvMachine { env: ssh_env.clone(), configs }),
         login: login.clone(),
         hosts: hosts.clone(),
-        windows: opener,
+        windows: opener.clone(),
         view: Arc::new(move |record: &SshHostRecord| ssh_host_view(record, view_pool.get(&record.id).is_some())),
         clock: Arc::new(now_ms),
     }));
     let cleanup = Arc::new(Cleanup::new(CleanupDeps {
         hosts: hosts.clone(),
-        attempts,
+        attempts: attempts.clone(),
         cleaner: Arc::new(EnvCleaner { env: ssh_env.clone(), payloads }),
         login,
     }));
     let os_release = HostInfo::current().map(|info| info.os_release).unwrap_or_default();
     let diagnostics = Arc::new(DiagnosticsOps::new(hosts.clone(), Arc::new(EnvDiagnostics { env: ssh_env.clone(), os_release })));
-    let host_list = Arc::new(HostList::new(hosts.clone(), pool.clone()));
+    let host_list = Arc::new(HostList::new(hosts.clone(), pool.clone(), attempts));
     let logins = Arc::new(ServerLogins::new(pool.pool().clone(), ServerLoginStores { hosts: hosts.clone() }, (*ssh_env).clone()));
     let restore = Arc::new(Restore::new(window_restore.clone(), hosts.clone()));
     let feed = Arc::new(ConnectionsFeed::start(scoped_feeds, Arc::new(pool.pool().clone()), hosts.clone(), window_restore.clone(), &restore));
 
     let (relay_env, version_of, hosts_env) = (env.clone(), outgoing, ssh_env.clone());
     let service = Arc::new(ConnectionsService::new(ConnectionsDeps {
+        opener,
         hosts,
         remote_hosts,
         window_restore,

@@ -1,12 +1,6 @@
-//! The WebSocket layer of the relay against the `ws` package. The same byte streams are sent to this crate's server and to
-//! `tests/fixtures/node-ws-echo.mjs` (a `ws` WebSocketServer with the options `server.mjs` gives its own), and what the
-//! peer receives and what each side reports (messages, pings, errors, close code and reason, in order) must be equal.
-//! The Rust-only tests check what `ws` has no test for here: read gating, the raw tap, buffered accounting and the flush
-//! callback, the server's `close`.
-//!
-//! The Node half needs `node` on PATH and `ws` resolvable from the checkout.
+//! The WebSocket layer of the relay: read gating, the raw tap, buffered accounting and the flush callback, the server's
+//! `close`, the framing and handshake rules on the parser and over sockets, and a standard client against the server.
 
-use std::process::Stdio;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -19,7 +13,7 @@ use mixdog_relay::ws::{
 };
 use mixdog_rt::time::{Instant, sleep, timeout};
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 const KEY: &str = "dGhlIHNhbXBsZSBub25jZQ==";
@@ -198,41 +192,10 @@ async fn rust_target(max_payload: u64, close_timeout_ms: u64) -> Target {
     Target { port, log, _node: None }
 }
 
-async fn node_target(max_payload: u64, close_timeout_ms: u64) -> Target {
-    let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/node-ws-echo.mjs");
-    let options = json!({"maxPayload": max_payload, "closeTimeout": close_timeout_ms}).to_string();
-    let mut child = tokio::process::Command::new("node")
-        .arg(fixture)
-        .arg(options)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("node is on PATH");
-    let stdout = child.stdout.take().expect("piped stdout");
-    let mut lines = BufReader::new(stdout).lines();
-    let first = timeout(Duration::from_secs(20), lines.next_line())
-        .await
-        .expect("node-ws-echo.mjs started")
-        .expect("read the listening line")
-        .expect("a listening line");
-    let port =
-        serde_json::from_str::<Value>(&first).expect("a JSON line")["listening"].as_u64().expect("a port") as u16;
-    let log: Log = Arc::default();
-    let collected = Arc::clone(&log);
-    tokio::spawn(async move {
-        while let Ok(Some(line)) = lines.next_line().await {
-            if let Ok(event) = serde_json::from_str::<Value>(&line) {
-                record(&collected, event);
-            }
-        }
-    });
-    Target { port, log, _node: Some(child) }
-}
-
 #[derive(Clone)]
 enum Step {
     Send(Vec<u8>),
+    #[cfg(node_twin)]
     Wait(u64),
 }
 
@@ -269,7 +232,7 @@ impl Target {
         let from = snapshot(&self.log).len();
         let mut wire = Vec::new();
         {
-            let mut stream = TcpStream::connect(("127.0.0.1", self.port)).await.expect("connect");
+            let mut stream = TcpStream::connect(("127.0.0.1", self.port)).await.unwrap_or_else(|e| panic!("{}: connect: {e}", scenario.label));
             for step in &scenario.steps {
                 match step {
                     Step::Send(bytes) => {
@@ -277,6 +240,7 @@ impl Target {
                             break;
                         }
                     }
+                    #[cfg(node_twin)]
                     Step::Wait(ms) => sleep(Duration::from_millis(*ms)).await,
                 }
             }
@@ -301,399 +265,12 @@ impl Target {
     }
 }
 
-/// Run every scenario against both servers and require the same bytes and the same events.
-async fn compare(max_payload: u64, scenarios: Vec<Scenario>) {
-    let rust = rust_target(max_payload, 300).await;
-    let node = node_target(max_payload, 300).await;
-    for scenario in &scenarios {
-        let (rust_wire, rust_events) = rust.run(scenario).await;
-        let (node_wire, node_events) = node.run(scenario).await;
-        assert_eq!(
-            rust_wire,
-            node_wire,
-            "{}: the bytes the peer received differ\nrust {:?}\nnode {:?}",
-            scenario.label,
-            String::from_utf8_lossy(&rust_wire),
-            String::from_utf8_lossy(&node_wire)
-        );
-        assert_eq!(rust_events, node_events, "{}: the events differ", scenario.label);
-    }
-}
-
 fn send(bytes: Vec<u8>) -> Step {
     Step::Send(bytes)
 }
 
 fn joined(parts: &[Vec<u8>]) -> Vec<u8> {
     parts.concat()
-}
-
-// ---- twin tests ----
-
-#[tokio::test]
-async fn an_unmasked_client_frame_is_answered_with_1002_by_both() {
-    compare(
-        1024,
-        vec![
-            scenario("unmasked text", vec![send(upgrade()), send(frame(0x81, b"hi", false))]),
-            scenario(
-                "unmasked in the same write as the head",
-                vec![send(joined(&[upgrade(), frame(0x81, b"hi", false)]))],
-            ),
-        ],
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn reserved_bits_and_opcodes_are_answered_with_1002_by_both() {
-    compare(
-        1024,
-        vec![
-            scenario("rsv1", vec![send(upgrade()), send(frame(0xc1, b"hi", true))]),
-            scenario("rsv2", vec![send(upgrade()), send(frame(0xa1, b"hi", true))]),
-            scenario("rsv3", vec![send(upgrade()), send(frame(0x91, b"hi", true))]),
-            scenario("opcode 3", vec![send(upgrade()), send(frame(0x83, b"hi", true))]),
-            scenario("opcode 11", vec![send(upgrade()), send(frame(0x8b, b"", true))]),
-            scenario("continuation without a message", vec![send(upgrade()), send(frame(0x80, b"x", true))]),
-            scenario(
-                "a text frame inside a fragmented message",
-                vec![send(upgrade()), send(frame(0x01, b"a", true)), send(frame(0x81, b"b", true))],
-            ),
-        ],
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn control_frame_rules_are_answered_the_same_by_both() {
-    compare(
-        1024,
-        vec![
-            scenario("a fragmented ping", vec![send(upgrade()), send(frame(0x09, b"a", true))]),
-            scenario("a ping of 126 bytes", vec![send(upgrade()), send(frame(0x89, &[b'p'; 126], true))]),
-            scenario("a close of one byte", vec![send(upgrade()), send(frame(0x88, &[0x03], true))]),
-            scenario("close code 1005", vec![send(upgrade()), send(frame(0x88, &[0x03, 0xed], true))]),
-            scenario("close code 999", vec![send(upgrade()), send(frame(0x88, &[0x03, 0xe7], true))]),
-            scenario("close code 5000", vec![send(upgrade()), send(frame(0x88, &[0x13, 0x88], true))]),
-            scenario(
-                "close reason that is not UTF-8",
-                vec![send(upgrade()), send(frame(0x88, &[0x03, 0xe8, 0xff], true))],
-            ),
-            scenario("a length past 2^53", vec![send(upgrade()), send(frame_declaring(0x82, 1 << 53, b""))]),
-        ],
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn an_oversize_message_closes_with_1009_whole_or_fragmented() {
-    let whole = frame(0x82, &[7u8; 2000], true);
-    compare(
-        1024,
-        vec![
-            scenario("oversize whole", vec![send(upgrade()), send(whole)]),
-            scenario(
-                "oversize in two fragments",
-                vec![send(upgrade()), send(frame(0x02, &[1u8; 600], true)), send(frame(0x80, &[2u8; 600], true))],
-            ),
-            scenario(
-                "oversize declared, payload never sent",
-                vec![send(upgrade()), send(frame_declaring(0x82, 5000, b"abc"))],
-            ),
-            scenario(
-                "exactly the ceiling",
-                vec![send(upgrade()), send(frame(0x82, &[3u8; 1024], true)), send(close_frame(1000, ""))],
-            ),
-        ],
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn invalid_utf8_closes_with_1007_in_text_and_in_a_close_reason() {
-    compare(
-        1024,
-        vec![
-            scenario("invalid text", vec![send(upgrade()), send(frame(0x81, &[0xff, 0xfe], true))]),
-            scenario(
-                "a surrogate encoded in UTF-8",
-                vec![send(upgrade()), send(frame(0x81, &[0xed, 0xa0, 0x80], true))],
-            ),
-            scenario("an overlong encoding", vec![send(upgrade()), send(frame(0x81, &[0xc0, 0x80], true))]),
-            scenario(
-                "a sequence cut by the end of the message",
-                vec![send(upgrade()), send(frame(0x81, &[0xe2, 0x82], true))],
-            ),
-            scenario(
-                "a code point split across fragments is whole",
-                vec![
-                    send(upgrade()),
-                    send(frame(0x01, &[0xe2, 0x82], true)),
-                    send(frame(0x80, &[0xac], true)),
-                    send(close_frame(1000, "")),
-                ],
-            ),
-        ],
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn the_close_handshake_is_echoed_the_same_by_both() {
-    compare(
-        1024,
-        vec![
-            scenario("close 1000 with a reason", vec![send(upgrade()), send(close_frame(1000, "bye"))]),
-            scenario("close with no payload", vec![send(upgrade()), send(frame(0x88, b"", true))]),
-            scenario("close 4005", vec![send(upgrade()), send(close_frame(4005, "pairing rescan required"))]),
-            scenario(
-                "frames after the close frame are not read",
-                vec![send(joined(&[upgrade(), close_frame(1000, "x"), text("late")]))],
-            ),
-        ],
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn pings_are_answered_with_pongs_in_order_and_reported() {
-    compare(
-        1024,
-        vec![scenario(
-            "a ping burst around a message",
-            vec![
-                send(upgrade()),
-                send(joined(&[
-                    frame(0x89, b"one", true),
-                    frame(0x89, b"", true),
-                    text("between"),
-                    frame(0x89, &[b'z'; 125], true),
-                    frame(0x8a, b"unsolicited", true),
-                    close_frame(1000, ""),
-                ])),
-            ],
-        )],
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn messages_are_echoed_whole_across_fragments_and_length_forms() {
-    let large = vec![9u8; 70_000];
-    compare(
-        DEFAULT_MAX_PAYLOAD,
-        vec![
-            scenario(
-                "a fragmented text message with a ping inside it",
-                vec![
-                    send(upgrade()),
-                    send(frame(0x01, b"he", true)),
-                    send(frame(0x89, b"mid", true)),
-                    send(frame(0x00, b"ll", true)),
-                    send(frame(0x80, b"o", true)),
-                    send(close_frame(1000, "")),
-                ],
-            ),
-            scenario(
-                "an empty text and an empty binary",
-                vec![
-                    send(upgrade()),
-                    send(frame(0x81, b"", true)),
-                    send(frame(0x82, b"", true)),
-                    send(close_frame(1000, "")),
-                ],
-            ),
-            scenario(
-                "126 and 65535 bytes",
-                vec![
-                    send(upgrade()),
-                    send(frame(0x82, &[5u8; 126], true)),
-                    send(frame(0x82, &[6u8; 65535], true)),
-                    send(close_frame(1000, "")),
-                ],
-            ),
-            scenario(
-                "70000 bytes (the 64-bit length form)",
-                vec![send(upgrade()), send(frame(0x82, &large, true)), send(close_frame(1000, ""))],
-            ),
-            scenario(
-                "a masked frame with the zero key",
-                vec![send(upgrade()), send(frame_masked(0x81, b"plain", Some([0; 4]))), send(close_frame(1000, ""))],
-            ),
-            scenario("a frame split into single bytes", {
-                let mut steps = vec![send(upgrade())];
-                steps.extend(text("split").into_iter().map(|byte| send(vec![byte])));
-                steps.push(send(close_frame(1000, "")));
-                steps
-            }),
-        ],
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn the_server_closing_waits_for_the_peer_then_destroys_after_the_timeout() {
-    compare(
-        1024,
-        vec![
-            scenario(
-                "close sent, the peer stays silent",
-                vec![send(upgrade()), send(text("cmd:close:1000")), Step::Wait(900)],
-            )
-            .quiet(1500),
-            scenario(
-                "close sent, the peer answers",
-                vec![send(upgrade()), send(text("cmd:close:4003")), Step::Wait(100), send(close_frame(4003, "bye"))],
-            ),
-            scenario(
-                "close sent, the peer answers with another code",
-                vec![send(upgrade()), send(text("cmd:close:1000")), Step::Wait(100), send(close_frame(1001, "going"))],
-            ),
-        ],
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn terminate_drops_the_connection_with_no_close_frame() {
-    compare(
-        1024,
-        vec![
-            scenario("terminate", vec![send(upgrade()), send(text("cmd:terminate"))]),
-            scenario(
-                "server ping, the peer closes",
-                vec![send(upgrade()), send(text("cmd:ping")), Step::Wait(100), send(close_frame(1000, ""))],
-            ),
-        ],
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn refusals_and_the_101_head_are_the_same_bytes() {
-    let mut post = upgrade();
-    post[0..3].copy_from_slice(b"PUT");
-    compare(
-        1024,
-        vec![
-            scenario("PUT", vec![send(post)]).refused().quiet(500),
-            scenario(
-                "Upgrade: h2c",
-                vec![send(head(&[
-                    "GET /ws HTTP/1.1",
-                    "Host: relay",
-                    "Upgrade: h2c",
-                    "Connection: Upgrade",
-                    &format!("Sec-WebSocket-Key: {KEY}"),
-                    "Sec-WebSocket-Version: 13",
-                ]))],
-            )
-            .refused()
-            .quiet(500),
-            scenario(
-                "a key of the wrong length",
-                vec![send(head(&[
-                    "GET /ws HTTP/1.1",
-                    "Host: relay",
-                    "Upgrade: websocket",
-                    "Connection: Upgrade",
-                    "Sec-WebSocket-Key: abc==",
-                    "Sec-WebSocket-Version: 13",
-                ]))],
-            )
-            .refused()
-            .quiet(500),
-            scenario(
-                "two keys",
-                vec![send(head(&[
-                    "GET /ws HTTP/1.1",
-                    "Host: relay",
-                    "Upgrade: websocket",
-                    "Connection: Upgrade",
-                    &format!("Sec-WebSocket-Key: {KEY}"),
-                    &format!("Sec-WebSocket-Key: {KEY}"),
-                    "Sec-WebSocket-Version: 13",
-                ]))],
-            )
-            .refused()
-            .quiet(500),
-            scenario(
-                "version 12",
-                vec![send(head(&[
-                    "GET /ws HTTP/1.1",
-                    "Host: relay",
-                    "Upgrade: websocket",
-                    "Connection: Upgrade",
-                    &format!("Sec-WebSocket-Key: {KEY}"),
-                    "Sec-WebSocket-Version: 12",
-                ]))],
-            )
-            .refused()
-            .quiet(500),
-            scenario(
-                "no version",
-                vec![send(head(&[
-                    "GET /ws HTTP/1.1",
-                    "Host: relay",
-                    "Upgrade: websocket",
-                    "Connection: Upgrade",
-                    &format!("Sec-WebSocket-Key: {KEY}"),
-                ]))],
-            )
-            .refused()
-            .quiet(500),
-            scenario(
-                "a subprotocol list with a space inside a name",
-                vec![send(upgrade_with(&["Sec-WebSocket-Protocol: a b"]))],
-            )
-            .refused()
-            .quiet(500),
-            scenario("a repeated subprotocol", vec![send(upgrade_with(&["Sec-WebSocket-Protocol: chat, chat"]))])
-                .refused()
-                .quiet(500),
-            scenario(
-                "subprotocols: the first is answered",
-                vec![send(upgrade_with(&["Sec-WebSocket-Protocol: chat, superchat"])), send(close_frame(1000, ""))],
-            ),
-            scenario(
-                "extensions are ignored",
-                vec![
-                    send(upgrade_with(&["Sec-WebSocket-Extensions: permessage-deflate"])),
-                    send(close_frame(1000, "")),
-                ],
-            ),
-            scenario(
-                "version 13.0",
-                vec![
-                    send(head(&[
-                        "GET /ws HTTP/1.1",
-                        "Host: relay",
-                        "Upgrade: WebSocket",
-                        "Connection: Upgrade",
-                        &format!("Sec-WebSocket-Key: {KEY}"),
-                        "Sec-WebSocket-Version: 13.0",
-                    ])),
-                    send(close_frame(1000, "")),
-                ],
-            ),
-            scenario(
-                "version 8",
-                vec![
-                    send(head(&[
-                        "GET /ws HTTP/1.1",
-                        "Host: relay",
-                        "Upgrade: websocket",
-                        "Connection: Upgrade",
-                        &format!("Sec-WebSocket-Key: {KEY}"),
-                        "Sec-WebSocket-Version: 8",
-                    ])),
-                    send(close_frame(1000, "")),
-                ],
-            ),
-        ],
-    )
-    .await;
 }
 
 fn tungstenite_session(port: u16) -> Vec<String> {
@@ -726,16 +303,6 @@ async fn tungstenite_run(port: u16) -> Vec<String> {
         let _ = tx.send(tungstenite_session(port));
     });
     rx.await.expect("the client thread finished")
-}
-
-#[tokio::test]
-async fn a_tungstenite_client_sees_the_same_messages_from_both() {
-    let rust = rust_target(1024, 300).await;
-    let node = node_target(1024, 300).await;
-    let from_rust = tungstenite_run(rust.port).await;
-    let from_node = tungstenite_run(node.port).await;
-    assert_eq!(from_rust, from_node);
-    assert_eq!(from_rust.len(), 4, "text echo, binary echo, pong, close echo: {from_rust:?}");
 }
 
 // ---- Rust-only: gating, tap, accounting, server close ----
@@ -923,7 +490,9 @@ async fn a_send_after_close_fails_its_callback_and_stays_counted_as_ws_does() {
     ws.terminate();
     assert_eq!(ws.ready_state(), ReadyState::Closing);
     let (tx, rx) = tokio::sync::oneshot::channel();
-    ws.send_text("late", Some(Box::new(move |result| drop(tx.send(result)))));
+    ws.send_text("late", Some(Box::new(move |result| {
+        let _ = tx.send(result);
+    })));
     let result = timeout(Duration::from_secs(5), rx).await.expect("the callback ran").expect("sent");
     assert_eq!(
         result.map_err(|error| error.to_string()),
@@ -1158,7 +727,7 @@ fn the_handshake_validates_as_handle_upgrade_does() {
     assert_eq!((refusal.status, refusal.message), (405, "Invalid HTTP method"));
     let refusal = ok(&[("Sec-WebSocket-Key", KEY), ("Sec-WebSocket-Version", "13")]).expect_err("refused");
     assert_eq!((refusal.status, refusal.message), (400, "Invalid Upgrade header"));
-    // Repeated headers read as Node joins them.
+    // Repeated headers are joined.
     let twice = [
         ("Upgrade", "websocket"),
         ("Sec-WebSocket-Key", KEY),
@@ -1207,5 +776,693 @@ fn the_refusal_is_what_abort_handshake_writes() {
         ))
         .expect("ASCII"),
         "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: 47\r\nSec-WebSocket-Version: 13, 8\r\n\r\nMissing or invalid Sec-WebSocket-Version header"
+    );
+}
+
+
+/// The same byte streams sent to the `ws` package's own server, on this machine only.
+#[cfg(node_twin)]
+mod against_the_ws_package {
+use super::*;
+use std::process::Stdio;
+use tokio::io::{AsyncBufReadExt, BufReader};
+
+async fn node_target(max_payload: u64, close_timeout_ms: u64) -> Target {
+    let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/node-ws-echo.mjs");
+    let options = json!({"maxPayload": max_payload, "closeTimeout": close_timeout_ms}).to_string();
+    let mut child = tokio::process::Command::new("node")
+        .arg(fixture)
+        .arg(options)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("node is on PATH");
+    let stdout = child.stdout.take().expect("piped stdout");
+    let mut lines = BufReader::new(stdout).lines();
+    let first = timeout(Duration::from_secs(20), lines.next_line())
+        .await
+        .expect("node-ws-echo.mjs started")
+        .expect("read the listening line")
+        .expect("a listening line");
+    let port =
+        serde_json::from_str::<Value>(&first).expect("a JSON line")["listening"].as_u64().expect("a port") as u16;
+    let log: Log = Arc::default();
+    let collected = Arc::clone(&log);
+    tokio::spawn(async move {
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Ok(event) = serde_json::from_str::<Value>(&line) {
+                record(&collected, event);
+            }
+        }
+    });
+    Target { port, log, _node: Some(child) }
+}
+/// Run every scenario against both servers and require the same bytes and the same events.
+async fn compare(max_payload: u64, scenarios: Vec<Scenario>) {
+    let rust = rust_target(max_payload, 300).await;
+    let node = node_target(max_payload, 300).await;
+    for scenario in &scenarios {
+        let (rust_wire, rust_events) = rust.run(scenario).await;
+        let (node_wire, node_events) = node.run(scenario).await;
+        assert_eq!(
+            rust_wire,
+            node_wire,
+            "{}: the bytes the peer received differ\nrust {:?}\nnode {:?}",
+            scenario.label,
+            String::from_utf8_lossy(&rust_wire),
+            String::from_utf8_lossy(&node_wire)
+        );
+        assert_eq!(rust_events, node_events, "{}: the events differ", scenario.label);
+    }
+}
+// ---- twin tests ----
+
+#[tokio::test]
+async fn an_unmasked_client_frame_is_answered_with_1002_by_both() {
+    compare(
+        1024,
+        vec![
+            scenario("unmasked text", vec![send(upgrade()), send(frame(0x81, b"hi", false))]),
+            scenario(
+                "unmasked in the same write as the head",
+                vec![send(joined(&[upgrade(), frame(0x81, b"hi", false)]))],
+            ),
+        ],
+    )
+    .await;
+}
+#[tokio::test]
+async fn reserved_bits_and_opcodes_are_answered_with_1002_by_both() {
+    compare(
+        1024,
+        vec![
+            scenario("rsv1", vec![send(upgrade()), send(frame(0xc1, b"hi", true))]),
+            scenario("rsv2", vec![send(upgrade()), send(frame(0xa1, b"hi", true))]),
+            scenario("rsv3", vec![send(upgrade()), send(frame(0x91, b"hi", true))]),
+            scenario("opcode 3", vec![send(upgrade()), send(frame(0x83, b"hi", true))]),
+            scenario("opcode 11", vec![send(upgrade()), send(frame(0x8b, b"", true))]),
+            scenario("continuation without a message", vec![send(upgrade()), send(frame(0x80, b"x", true))]),
+            scenario(
+                "a text frame inside a fragmented message",
+                vec![send(upgrade()), send(frame(0x01, b"a", true)), send(frame(0x81, b"b", true))],
+            ),
+        ],
+    )
+    .await;
+}
+#[tokio::test]
+async fn control_frame_rules_are_answered_the_same_by_both() {
+    compare(
+        1024,
+        vec![
+            scenario("a fragmented ping", vec![send(upgrade()), send(frame(0x09, b"a", true))]),
+            scenario("a ping of 126 bytes", vec![send(upgrade()), send(frame(0x89, &[b'p'; 126], true))]),
+            scenario("a close of one byte", vec![send(upgrade()), send(frame(0x88, &[0x03], true))]),
+            scenario("close code 1005", vec![send(upgrade()), send(frame(0x88, &[0x03, 0xed], true))]),
+            scenario("close code 999", vec![send(upgrade()), send(frame(0x88, &[0x03, 0xe7], true))]),
+            scenario("close code 5000", vec![send(upgrade()), send(frame(0x88, &[0x13, 0x88], true))]),
+            scenario(
+                "close reason that is not UTF-8",
+                vec![send(upgrade()), send(frame(0x88, &[0x03, 0xe8, 0xff], true))],
+            ),
+            scenario("a length past 2^53", vec![send(upgrade()), send(frame_declaring(0x82, 1 << 53, b""))]),
+        ],
+    )
+    .await;
+}
+#[tokio::test]
+async fn an_oversize_message_closes_with_1009_whole_or_fragmented() {
+    let whole = frame(0x82, &[7u8; 2000], true);
+    compare(
+        1024,
+        vec![
+            scenario("oversize whole", vec![send(upgrade()), send(whole)]),
+            scenario(
+                "oversize in two fragments",
+                vec![send(upgrade()), send(frame(0x02, &[1u8; 600], true)), send(frame(0x80, &[2u8; 600], true))],
+            ),
+            scenario(
+                "oversize declared, payload never sent",
+                vec![send(upgrade()), send(frame_declaring(0x82, 5000, b"abc"))],
+            ),
+            scenario(
+                "exactly the ceiling",
+                vec![send(upgrade()), send(frame(0x82, &[3u8; 1024], true)), send(close_frame(1000, ""))],
+            ),
+        ],
+    )
+    .await;
+}
+#[tokio::test]
+async fn invalid_utf8_closes_with_1007_in_text_and_in_a_close_reason() {
+    compare(
+        1024,
+        vec![
+            scenario("invalid text", vec![send(upgrade()), send(frame(0x81, &[0xff, 0xfe], true))]),
+            scenario(
+                "a surrogate encoded in UTF-8",
+                vec![send(upgrade()), send(frame(0x81, &[0xed, 0xa0, 0x80], true))],
+            ),
+            scenario("an overlong encoding", vec![send(upgrade()), send(frame(0x81, &[0xc0, 0x80], true))]),
+            scenario(
+                "a sequence cut by the end of the message",
+                vec![send(upgrade()), send(frame(0x81, &[0xe2, 0x82], true))],
+            ),
+            scenario(
+                "a code point split across fragments is whole",
+                vec![
+                    send(upgrade()),
+                    send(frame(0x01, &[0xe2, 0x82], true)),
+                    send(frame(0x80, &[0xac], true)),
+                    send(close_frame(1000, "")),
+                ],
+            ),
+        ],
+    )
+    .await;
+}
+#[tokio::test]
+async fn the_close_handshake_is_echoed_the_same_by_both() {
+    compare(
+        1024,
+        vec![
+            scenario("close 1000 with a reason", vec![send(upgrade()), send(close_frame(1000, "bye"))]),
+            scenario("close with no payload", vec![send(upgrade()), send(frame(0x88, b"", true))]),
+            scenario("close 4005", vec![send(upgrade()), send(close_frame(4005, "pairing rescan required"))]),
+            scenario(
+                "frames after the close frame are not read",
+                vec![send(joined(&[upgrade(), close_frame(1000, "x"), text("late")]))],
+            ),
+        ],
+    )
+    .await;
+}
+#[tokio::test]
+async fn pings_are_answered_with_pongs_in_order_and_reported() {
+    compare(
+        1024,
+        vec![scenario(
+            "a ping burst around a message",
+            vec![
+                send(upgrade()),
+                send(joined(&[
+                    frame(0x89, b"one", true),
+                    frame(0x89, b"", true),
+                    text("between"),
+                    frame(0x89, &[b'z'; 125], true),
+                    frame(0x8a, b"unsolicited", true),
+                    close_frame(1000, ""),
+                ])),
+            ],
+        )],
+    )
+    .await;
+}
+#[tokio::test]
+async fn messages_are_echoed_whole_across_fragments_and_length_forms() {
+    let large = vec![9u8; 70_000];
+    compare(
+        DEFAULT_MAX_PAYLOAD,
+        vec![
+            scenario(
+                "a fragmented text message with a ping inside it",
+                vec![
+                    send(upgrade()),
+                    send(frame(0x01, b"he", true)),
+                    send(frame(0x89, b"mid", true)),
+                    send(frame(0x00, b"ll", true)),
+                    send(frame(0x80, b"o", true)),
+                    send(close_frame(1000, "")),
+                ],
+            ),
+            scenario(
+                "an empty text and an empty binary",
+                vec![
+                    send(upgrade()),
+                    send(frame(0x81, b"", true)),
+                    send(frame(0x82, b"", true)),
+                    send(close_frame(1000, "")),
+                ],
+            ),
+            scenario(
+                "126 and 65535 bytes",
+                vec![
+                    send(upgrade()),
+                    send(frame(0x82, &[5u8; 126], true)),
+                    send(frame(0x82, &[6u8; 65535], true)),
+                    send(close_frame(1000, "")),
+                ],
+            ),
+            scenario(
+                "70000 bytes (the 64-bit length form)",
+                vec![send(upgrade()), send(frame(0x82, &large, true)), send(close_frame(1000, ""))],
+            ),
+            scenario(
+                "a masked frame with the zero key",
+                vec![send(upgrade()), send(frame_masked(0x81, b"plain", Some([0; 4]))), send(close_frame(1000, ""))],
+            ),
+            scenario("a frame split into single bytes", {
+                let mut steps = vec![send(upgrade())];
+                steps.extend(text("split").into_iter().map(|byte| send(vec![byte])));
+                steps.push(send(close_frame(1000, "")));
+                steps
+            }),
+        ],
+    )
+    .await;
+}
+#[tokio::test]
+async fn the_server_closing_waits_for_the_peer_then_destroys_after_the_timeout() {
+    compare(
+        1024,
+        vec![
+            scenario(
+                "close sent, the peer stays silent",
+                vec![send(upgrade()), send(text("cmd:close:1000")), Step::Wait(900)],
+            )
+            .quiet(1500),
+            scenario(
+                "close sent, the peer answers",
+                vec![send(upgrade()), send(text("cmd:close:4003")), Step::Wait(100), send(close_frame(4003, "bye"))],
+            ),
+            scenario(
+                "close sent, the peer answers with another code",
+                vec![send(upgrade()), send(text("cmd:close:1000")), Step::Wait(100), send(close_frame(1001, "going"))],
+            ),
+        ],
+    )
+    .await;
+}
+#[tokio::test]
+async fn terminate_drops_the_connection_with_no_close_frame() {
+    compare(
+        1024,
+        vec![
+            scenario("terminate", vec![send(upgrade()), send(text("cmd:terminate"))]),
+            scenario(
+                "server ping, the peer closes",
+                vec![send(upgrade()), send(text("cmd:ping")), Step::Wait(100), send(close_frame(1000, ""))],
+            ),
+        ],
+    )
+    .await;
+}
+#[tokio::test]
+async fn refusals_and_the_101_head_are_the_same_bytes() {
+    let mut post = upgrade();
+    post[0..3].copy_from_slice(b"PUT");
+    compare(
+        1024,
+        vec![
+            scenario("PUT", vec![send(post)]).refused().quiet(500),
+            scenario(
+                "Upgrade: h2c",
+                vec![send(head(&[
+                    "GET /ws HTTP/1.1",
+                    "Host: relay",
+                    "Upgrade: h2c",
+                    "Connection: Upgrade",
+                    &format!("Sec-WebSocket-Key: {KEY}"),
+                    "Sec-WebSocket-Version: 13",
+                ]))],
+            )
+            .refused()
+            .quiet(500),
+            scenario(
+                "a key of the wrong length",
+                vec![send(head(&[
+                    "GET /ws HTTP/1.1",
+                    "Host: relay",
+                    "Upgrade: websocket",
+                    "Connection: Upgrade",
+                    "Sec-WebSocket-Key: abc==",
+                    "Sec-WebSocket-Version: 13",
+                ]))],
+            )
+            .refused()
+            .quiet(500),
+            scenario(
+                "two keys",
+                vec![send(head(&[
+                    "GET /ws HTTP/1.1",
+                    "Host: relay",
+                    "Upgrade: websocket",
+                    "Connection: Upgrade",
+                    &format!("Sec-WebSocket-Key: {KEY}"),
+                    &format!("Sec-WebSocket-Key: {KEY}"),
+                    "Sec-WebSocket-Version: 13",
+                ]))],
+            )
+            .refused()
+            .quiet(500),
+            scenario(
+                "version 12",
+                vec![send(head(&[
+                    "GET /ws HTTP/1.1",
+                    "Host: relay",
+                    "Upgrade: websocket",
+                    "Connection: Upgrade",
+                    &format!("Sec-WebSocket-Key: {KEY}"),
+                    "Sec-WebSocket-Version: 12",
+                ]))],
+            )
+            .refused()
+            .quiet(500),
+            scenario(
+                "no version",
+                vec![send(head(&[
+                    "GET /ws HTTP/1.1",
+                    "Host: relay",
+                    "Upgrade: websocket",
+                    "Connection: Upgrade",
+                    &format!("Sec-WebSocket-Key: {KEY}"),
+                ]))],
+            )
+            .refused()
+            .quiet(500),
+            scenario(
+                "a subprotocol list with a space inside a name",
+                vec![send(upgrade_with(&["Sec-WebSocket-Protocol: a b"]))],
+            )
+            .refused()
+            .quiet(500),
+            scenario("a repeated subprotocol", vec![send(upgrade_with(&["Sec-WebSocket-Protocol: chat, chat"]))])
+                .refused()
+                .quiet(500),
+            scenario(
+                "subprotocols: the first is answered",
+                vec![send(upgrade_with(&["Sec-WebSocket-Protocol: chat, superchat"])), send(close_frame(1000, ""))],
+            ),
+            scenario(
+                "extensions are ignored",
+                vec![
+                    send(upgrade_with(&["Sec-WebSocket-Extensions: permessage-deflate"])),
+                    send(close_frame(1000, "")),
+                ],
+            ),
+            scenario(
+                "version 13.0",
+                vec![
+                    send(head(&[
+                        "GET /ws HTTP/1.1",
+                        "Host: relay",
+                        "Upgrade: WebSocket",
+                        "Connection: Upgrade",
+                        &format!("Sec-WebSocket-Key: {KEY}"),
+                        "Sec-WebSocket-Version: 13.0",
+                    ])),
+                    send(close_frame(1000, "")),
+                ],
+            ),
+            scenario(
+                "version 8",
+                vec![
+                    send(head(&[
+                        "GET /ws HTTP/1.1",
+                        "Host: relay",
+                        "Upgrade: websocket",
+                        "Connection: Upgrade",
+                        &format!("Sec-WebSocket-Key: {KEY}"),
+                        "Sec-WebSocket-Version: 8",
+                    ])),
+                    send(close_frame(1000, "")),
+                ],
+            ),
+        ],
+    )
+    .await;
+}
+#[tokio::test]
+async fn a_tungstenite_client_sees_the_same_messages_from_both() {
+    let rust = rust_target(1024, 300).await;
+    let node = node_target(1024, 300).await;
+    let from_rust = tungstenite_run(rust.port).await;
+    let from_node = tungstenite_run(node.port).await;
+    assert_eq!(from_rust, from_node);
+    assert_eq!(from_rust.len(), 4, "text echo, binary echo, pong, close echo: {from_rust:?}");
+}
+}
+
+// ---- the protocol rules, on the parser ----
+
+fn fed(max_payload: u64, wire: &[u8]) -> (Vec<ReceiverEvent>, Option<(String, u16)>) {
+    feed_all(&mut Receiver::new(max_payload), &[wire])
+}
+
+fn refused_with(max_payload: u64, wire: &[u8]) -> u16 {
+    fed(max_payload, wire).1.unwrap_or_else(|| panic!("{wire:02x?} was accepted")).1
+}
+
+#[test]
+fn a_frame_that_breaks_the_framing_rules_ends_the_connection_with_1002() {
+    let broken: [(&str, Vec<u8>); 14] = [
+        ("unmasked", frame(0x81, b"hi", false)),
+        ("rsv1", frame(0xc1, b"hi", true)),
+        ("rsv2", frame(0xa1, b"hi", true)),
+        ("rsv3", frame(0x91, b"hi", true)),
+        ("reserved data opcode", frame(0x83, b"hi", true)),
+        ("reserved control opcode", frame(0x8b, b"", true)),
+        ("continuation without a message", frame(0x80, b"x", true)),
+        ("text inside a fragmented message", joined(&[frame(0x01, b"a", true), frame(0x81, b"b", true)])),
+        ("fragmented ping", frame(0x09, b"a", true)),
+        ("ping over 125 bytes", frame(0x89, &[b'p'; 126], true)),
+        ("close of one byte", frame(0x88, &[0x03], true)),
+        ("close code 1005 on the wire", frame(0x88, &[0x03, 0xed], true)),
+        ("close code below 1000", frame(0x88, &[0x03, 0xe7], true)),
+        ("close code 5000", frame(0x88, &[0x13, 0x88], true)),
+    ];
+    for (label, wire) in broken {
+        assert_eq!(refused_with(1024, &wire), 1002, "{label}");
+    }
+}
+
+#[test]
+fn a_message_over_the_ceiling_ends_the_connection_with_1009_whole_declared_or_fragmented() {
+    assert_eq!(refused_with(1024, &frame(0x82, &[7u8; 2000], true)), 1009);
+    assert_eq!(refused_with(1024, &joined(&[frame(0x02, &[1u8; 600], true), frame(0x80, &[2u8; 600], true)])), 1009);
+    // Declared too long: refused before the payload arrives.
+    assert_eq!(refused_with(1024, &frame_declaring(0x82, 5000, b"abc")), 1009);
+    assert_eq!(refused_with(1024, &frame_declaring(0x82, 1 << 53, b"")), 1009);
+    let (events, error) = fed(1024, &frame(0x82, &[3u8; 1024], true));
+    assert_eq!(error, None, "a message of exactly the ceiling is read");
+    assert_eq!(events, vec![ReceiverEvent::Message { data: Bytes::from(vec![3u8; 1024]), binary: true }]);
+}
+
+#[test]
+fn text_that_is_not_utf8_ends_the_connection_with_1007_and_a_split_code_point_is_whole() {
+    let invalid: [(&str, Vec<u8>); 5] = [
+        ("bytes that are no encoding", frame(0x81, &[0xff, 0xfe], true)),
+        ("an encoded surrogate", frame(0x81, &[0xed, 0xa0, 0x80], true)),
+        ("an overlong form", frame(0x81, &[0xc0, 0x80], true)),
+        ("a sequence cut by the end of the message", frame(0x81, &[0xe2, 0x82], true)),
+        ("a close reason", frame(0x88, &[0x03, 0xe8, 0xff], true)),
+    ];
+    for (label, wire) in invalid {
+        assert_eq!(refused_with(1024, &wire), 1007, "{label}");
+    }
+    let split = joined(&[frame(0x01, &[0xe2, 0x82], true), frame(0x80, &[0xac], true)]);
+    let (events, error) = fed(1024, &split);
+    assert_eq!(error, None);
+    assert_eq!(events, vec![ReceiverEvent::Message { data: Bytes::from("\u{20ac}"), binary: false }]);
+}
+
+#[test]
+fn a_close_frame_is_reported_with_its_code_and_reason_and_an_empty_one_as_1005() {
+    let (events, _) = fed(1024, &close_frame(1000, "bye"));
+    assert_eq!(events, vec![ReceiverEvent::Conclude { code: 1000, reason: Bytes::from_static(b"bye") }]);
+    let (events, _) = fed(1024, &frame(0x88, b"", true));
+    assert_eq!(events, vec![ReceiverEvent::Conclude { code: 1005, reason: Bytes::new() }]);
+    let (events, _) = fed(1024, &close_frame(4005, "pairing rescan required"));
+    assert_eq!(events, vec![ReceiverEvent::Conclude { code: 4005, reason: Bytes::from_static(b"pairing rescan required") }]);
+}
+
+#[test]
+fn pings_and_pongs_are_reported_in_order_and_do_not_split_a_fragmented_message() {
+    let wire = joined(&[
+        frame(0x89, b"one", true),
+        frame(0x89, b"", true),
+        text("between"),
+        frame(0x89, &[b'z'; 125], true),
+        frame(0x8a, b"unsolicited", true),
+    ]);
+    let (events, error) = fed(1024, &wire);
+    assert_eq!(error, None);
+    assert_eq!(
+        events,
+        vec![
+            ReceiverEvent::Ping(Bytes::from_static(b"one")),
+            ReceiverEvent::Ping(Bytes::new()),
+            ReceiverEvent::Message { data: Bytes::from_static(b"between"), binary: false },
+            ReceiverEvent::Ping(Bytes::from(vec![b'z'; 125])),
+            ReceiverEvent::Pong(Bytes::from_static(b"unsolicited")),
+        ]
+    );
+    let fragmented = joined(&[
+        frame(0x01, b"he", true),
+        frame(0x89, b"mid", true),
+        frame(0x00, b"ll", true),
+        frame(0x80, b"o", true),
+    ]);
+    let (events, _) = fed(1024, &fragmented);
+    assert_eq!(
+        events,
+        vec![
+            ReceiverEvent::Ping(Bytes::from_static(b"mid")),
+            ReceiverEvent::Message { data: Bytes::from_static(b"hello"), binary: false },
+        ]
+    );
+}
+
+#[test]
+fn messages_arrive_whole_in_every_length_form_and_with_any_mask_key() {
+    let large = vec![9u8; 70_000];
+    let cases: [(&str, Vec<u8>, Vec<u8>, bool); 6] = [
+        ("empty text", frame(0x81, b"", true), Vec::new(), false),
+        ("empty binary", frame(0x82, b"", true), Vec::new(), true),
+        ("126 bytes", frame(0x82, &[5u8; 126], true), vec![5u8; 126], true),
+        ("65535 bytes", frame(0x82, &[6u8; 65535], true), vec![6u8; 65535], true),
+        ("70000 bytes", frame(0x82, &large, true), large.clone(), true),
+        ("the zero mask key", frame_masked(0x81, b"plain", Some([0; 4])), b"plain".to_vec(), false),
+    ];
+    for (label, wire, data, binary) in cases {
+        let (events, error) = fed(DEFAULT_MAX_PAYLOAD, &wire);
+        assert_eq!(error, None, "{label}");
+        assert_eq!(events, vec![ReceiverEvent::Message { data: Bytes::from(data), binary }], "{label}");
+    }
+}
+
+// ---- the protocol rules, over a socket ----
+
+/// The frames a server wrote after its 101 answer: (opcode, payload); servers do not mask.
+fn server_frames(wire: &[u8]) -> Vec<(u8, Vec<u8>)> {
+    let start = wire.windows(4).position(|window| window == b"\r\n\r\n").expect("a response head") + 4;
+    let mut rest = &wire[start..];
+    let mut frames = Vec::new();
+    while rest.len() >= 2 {
+        let opcode = rest[0] & 0x0f;
+        let (length, header) = match rest[1] & 0x7f {
+            126 => (usize::from(u16::from_be_bytes([rest[2], rest[3]])), 4),
+            127 => (u64::from_be_bytes(rest[2..10].try_into().expect("eight bytes")) as usize, 10),
+            short => (usize::from(short), 2),
+        };
+        frames.push((opcode, rest[header..header + length].to_vec()));
+        rest = &rest[header + length..];
+    }
+    frames
+}
+
+fn status_line(wire: &[u8]) -> String {
+    String::from_utf8_lossy(wire).lines().next().unwrap_or_default().to_owned()
+}
+
+#[tokio::test]
+async fn an_upgraded_socket_echoes_messages_answers_pings_and_echoes_the_close() {
+    let target = rust_target(1024, 300).await;
+    let steps = vec![
+        send(upgrade()),
+        send(text("hello")),
+        send(frame(0x82, &[1, 2, 3], true)),
+        send(frame(0x89, b"p", true)),
+        send(close_frame(1000, "bye")),
+    ];
+    let (wire, events) = target.run(&scenario("echo", steps)).await;
+    assert_eq!(status_line(&wire), "HTTP/1.1 101 Switching Protocols");
+    assert!(String::from_utf8_lossy(&wire).contains("Sec-WebSocket-Accept: "));
+    let mut close = vec![0x03, 0xe8];
+    close.extend_from_slice(b"bye");
+    assert_eq!(
+        server_frames(&wire),
+        vec![(1, b"hello".to_vec()), (2, vec![1, 2, 3]), (0xa, b"p".to_vec()), (8, close)]
+    );
+    assert_eq!(events.last().expect("events")["ev"], "close");
+    assert_eq!(events.last().expect("events")["code"], 1000);
+}
+
+#[tokio::test]
+async fn a_protocol_violation_on_an_open_socket_is_answered_with_a_close_frame_of_its_code() {
+    let target = rust_target(1024, 300).await;
+    for (label, wire, code) in [
+        ("unmasked", frame(0x81, b"hi", false), 1002u16),
+        ("oversize", frame(0x82, &[7u8; 2000], true), 1009),
+        ("invalid text", frame(0x81, &[0xff, 0xfe], true), 1007),
+    ] {
+        let (answer, _) = target.run(&scenario(label, vec![send(upgrade()), send(wire)])).await;
+        let frames = server_frames(&answer);
+        let closing = frames.last().unwrap_or_else(|| panic!("{label}: no frame"));
+        assert_eq!(closing.0, 8, "{label}");
+        assert_eq!(u16::from_be_bytes([closing.1[0], closing.1[1]]), code, "{label}");
+    }
+}
+
+#[tokio::test]
+async fn a_close_the_server_starts_is_sent_and_the_connection_ends_when_the_peer_stays_silent() {
+    let target = rust_target(1024, 300).await;
+    let (wire, events) = target.run(&scenario("close", vec![send(upgrade()), send(text("cmd:close:4003"))]).quiet(1500)).await;
+    let mut payload = vec![0x0f, 0xa3];
+    payload.extend_from_slice(b"bye");
+    assert_eq!(server_frames(&wire), vec![(8, payload)]);
+    assert_eq!(events.last().expect("events")["ev"], "close");
+}
+
+#[tokio::test]
+async fn terminating_drops_the_connection_without_a_close_frame() {
+    let target = rust_target(1024, 300).await;
+    let (wire, _) = target.run(&scenario("terminate", vec![send(upgrade()), send(text("cmd:terminate"))])).await;
+    assert_eq!(status_line(&wire), "HTTP/1.1 101 Switching Protocols");
+    assert_eq!(server_frames(&wire), vec![], "nothing follows the 101 answer");
+}
+
+#[tokio::test]
+async fn an_upgrade_that_breaks_the_handshake_rules_is_refused_with_a_status_line() {
+    let target = rust_target(1024, 300).await;
+    let key = format!("Sec-WebSocket-Key: {KEY}");
+    let refuse = |lines: Vec<&str>| scenario("refused", vec![send(head(&lines))]).refused().quiet(500);
+    let mut put = upgrade();
+    put[0..3].copy_from_slice(b"PUT");
+    let (wire, _) = target.run(&scenario("put", vec![send(put)]).refused().quiet(500)).await;
+    assert_eq!(status_line(&wire), "HTTP/1.1 405 Method Not Allowed");
+    let base = ["GET /ws HTTP/1.1", "Host: relay", "Upgrade: websocket", "Connection: Upgrade"];
+    fn with<'a>(base: &[&'a str], extra: &[&'a str]) -> Vec<&'a str> {
+        [base, extra].concat()
+    }
+    for (label, lines) in [
+        ("a key of the wrong length", with(&base, &["Sec-WebSocket-Key: abc==", "Sec-WebSocket-Version: 13"])),
+        ("two keys", with(&base, &[key.as_str(), key.as_str(), "Sec-WebSocket-Version: 13"])),
+        ("version 12", with(&base, &[key.as_str(), "Sec-WebSocket-Version: 12"])),
+        ("no version", with(&base, &[key.as_str()])),
+        ("a subprotocol with a space", with(&base, &[key.as_str(), "Sec-WebSocket-Version: 13", "Sec-WebSocket-Protocol: a b"])),
+        ("a repeated subprotocol", with(&base, &[key.as_str(), "Sec-WebSocket-Version: 13", "Sec-WebSocket-Protocol: chat, chat"])),
+    ] {
+        let (wire, _) = target.run(&refuse(lines)).await;
+        assert_eq!(status_line(&wire), "HTTP/1.1 400 Bad Request", "{label}");
+    }
+    let (wire, _) = target.run(&refuse(with(&base, &[key.as_str(), "Sec-WebSocket-Version: 12"]))).await;
+    assert!(String::from_utf8_lossy(&wire).contains("Sec-WebSocket-Version: 13, 8\r\n"));
+}
+
+#[tokio::test]
+async fn the_first_offered_subprotocol_is_answered_and_extensions_are_not() {
+    let target = rust_target(1024, 300).await;
+    let steps = vec![send(upgrade_with(&["Sec-WebSocket-Protocol: chat, superchat", "Sec-WebSocket-Extensions: permessage-deflate"])), send(close_frame(1000, ""))];
+    let (wire, _) = target.run(&scenario("subprotocol", steps)).await;
+    let answer = String::from_utf8_lossy(&wire);
+    assert_eq!(status_line(&wire), "HTTP/1.1 101 Switching Protocols");
+    assert!(answer.contains("Sec-WebSocket-Protocol: chat\r\n"), "{answer}");
+    assert!(!answer.contains("Sec-WebSocket-Extensions"), "{answer}");
+}
+
+#[tokio::test]
+async fn a_standard_websocket_client_exchanges_text_binary_ping_and_close_with_the_server() {
+    let target = rust_target(1024, 300).await;
+    let seen = tungstenite_run(target.port).await;
+    assert_eq!(
+        seen,
+        vec![
+            "Text(Utf8Bytes(b\"hello\"))".to_owned(),
+            "Binary(b\"\\x01\\x02\\x03\")".to_owned(),
+            "Pong(b\"\\x07\")".to_owned(),
+            "Close(Some(CloseFrame { code: Normal, reason: Utf8Bytes(b\"done\") }))".to_owned(),
+        ]
     );
 }

@@ -450,14 +450,17 @@ fn walk(node: Node, secret_values: &[&str], changed: &mut bool) -> Node {
     }
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 mod tests {
     use serde_json::Value;
 
     use super::*;
 
+    #[cfg(node_twin)]
     const GOLDEN: &str = include_str!("../../../../fixtures/oauth-scrub/golden.json");
 
+    #[cfg(node_twin)]
     #[test]
     fn the_scrub_is_nodes_scrub_oauth_secrets() {
         let golden: Value = serde_json::from_str(GOLDEN).unwrap();
@@ -474,3 +477,5 @@ mod tests {
         }
     }
 }
+
+

@@ -114,6 +114,7 @@ export async function openComputerCore(): Promise<ComputerCore> {
   const { app, BrowserWindow, powerMonitor, screen } = await import('electron');
   const { HOST_CAPABILITIES } = await import('../../host/connection');
   const { createDesktopHost } = await import('../../host');
+  const { createComputerSwitch } = await import('../../host/computer-scope');
   const { createComputerPillSource } = await import('../../host/computer-pill');
   const { createProtocolConnection } = await import('../../protocol/connection');
   const { readLocalDiscovery } = await import('../../protocol/discovery');
@@ -199,6 +200,8 @@ export async function openComputerCore(): Promise<ComputerCore> {
         environment: { ready: app.whenReady(), sources: () => ({ power: powerMonitor, screen }) },
         desktopHostScreen: () => null,
         desktopHostCommand: () => null,
+        // The harness runs Computer Use on: the core's scopes and their revocation apply as in the desktop.
+        computerSwitch: createComputerSwitch(true),
       },
       notifications: {
         createNotification: () => {

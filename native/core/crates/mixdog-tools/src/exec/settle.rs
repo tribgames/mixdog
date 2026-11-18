@@ -43,23 +43,36 @@ impl Drop for SettleGuard {
 
 /// `effectiveShellCwd(args, sessionCwd)`: the `cwd` argument (home-expanded, resolved against the
 /// session cwd), or the session cwd when it is not a non-blank string. Nothing is checked on disk.
-pub(crate) fn effective_shell_cwd(session_cwd: &Path, requested: Option<&str>) -> String {
-    let Some(requested) = requested.filter(|r| !mixdog_js::js_trim(r).is_empty()) else {
-        return session_cwd.to_string_lossy().into_owned();
-    };
-    resolve(session_cwd, &expand_home(requested)).to_string_lossy().into_owned()
+/// `None` when `requested` names the home folder (`~`, `~/x`) and none can be resolved (`homedir()` throws in Node): a
+/// caller that runs something there must refuse rather than use another folder.
+pub(crate) fn resolved_shell_cwd(session_cwd: &Path, requested: Option<&str>) -> Option<String> {
+    resolve_shell_cwd(session_cwd, requested, dirs::home_dir())
 }
 
-/// `~`, `~/x` (and `~\x` on Windows) name the user's home folder.
-fn expand_home(path: &str) -> PathBuf {
-    let Some(home) = dirs::home_dir() else { return PathBuf::from(path) };
+fn resolve_shell_cwd(session_cwd: &Path, requested: Option<&str>, home: Option<PathBuf>) -> Option<String> {
+    let Some(requested) = requested.filter(|r| !mixdog_js::js_trim(r).is_empty()) else {
+        return Some(session_cwd.to_string_lossy().into_owned());
+    };
+    Some(resolve(session_cwd, &expand_home(requested, home)?).to_string_lossy().into_owned())
+}
+
+/// [`resolved_shell_cwd`] for the review settle step, which only names the folder a command ran in: with no home to
+/// resolve, the path as written.
+pub(crate) fn effective_shell_cwd(session_cwd: &Path, requested: Option<&str>) -> String {
+    resolved_shell_cwd(session_cwd, requested).unwrap_or_else(|| requested.unwrap_or_default().to_owned())
+}
+
+/// `~`, `~/x` (and `~\x` on Windows) name the user's home folder; `None` when that is needed and unknown.
+fn expand_home(path: &str, home: Option<PathBuf>) -> Option<PathBuf> {
+    let home_path = path == "~" || path.starts_with("~/") || (cfg!(windows) && path.starts_with("~\\"));
+    if !home_path {
+        return Some(PathBuf::from(path));
+    }
+    let home = home?;
     if path == "~" {
-        return home;
+        return Some(home);
     }
-    if path.starts_with("~/") || (cfg!(windows) && path.starts_with("~\\")) {
-        return resolve(&home, Path::new(&path[2..]));
-    }
-    PathBuf::from(path)
+    Some(resolve(&home, Path::new(&path[2..])))
 }
 
 /// `path.resolve(base, p)`: `p` against the absolute `base`, `.` and `..` folded, no trailing
@@ -169,6 +182,18 @@ mod tests {
 
     fn base() -> PathBuf {
         if cfg!(windows) { PathBuf::from(r"C:\work\repo") } else { PathBuf::from("/work/repo") }
+    }
+
+    /// Node's `homedir()` throws when there is none: a `~` path is unresolved, never read as a folder of that name.
+    /// Paths that do not name the home folder do not need one.
+    #[test]
+    fn a_home_path_without_a_home_folder_is_unresolved() {
+        let b = base();
+        for path in ["~", "~/x"] {
+            assert_eq!(resolve_shell_cwd(&b, Some(path), None), None, "{path}");
+        }
+        assert_eq!(resolve_shell_cwd(&b, Some("sub"), None), Some(b.join("sub").to_string_lossy().into_owned()));
+        assert_eq!(resolve_shell_cwd(&b, None, None), Some(b.to_string_lossy().into_owned()));
     }
 
     /// Values from Node's `effectiveShellCwd` (`path.resolve`), checked with posix separators

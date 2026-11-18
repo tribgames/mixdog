@@ -11,6 +11,7 @@ use std::sync::Arc;
 use mixdog_agent::env::Clock;
 use std::fs;
 use std::path::Path;
+#[cfg(node_twin)]
 use std::path::PathBuf;
 
 use base64::Engine;
@@ -32,11 +33,6 @@ impl Clock for Frozen {
     }
 }
 
-fn fixture() -> Value {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/prompt-sources/sources.json");
-    serde_json::from_str(&fs::read_to_string(path).expect("sources.json")).expect("json")
-}
-
 fn write_world(root: &Path, files: &Value) {
     for file in files.as_array().unwrap() {
         let target = root.join(file["path"].as_str().unwrap());
@@ -50,6 +46,7 @@ fn write_world(root: &Path, files: &Value) {
 }
 
 /// One query of the world, answered by the real sources.
+#[cfg(node_twin)]
 fn answer(sources: &RealSources, root: &Path, query: &Value) -> String {
     let args = query["args"].as_array().unwrap();
     let text = |index: usize| args[index].as_str();
@@ -68,95 +65,6 @@ fn answer(sources: &RealSources, root: &Path, query: &Value) -> String {
         }
         other => panic!("unknown query {other}"),
     }
-}
-
-#[tokio::test]
-async fn the_real_sources_answer_what_nodes_loaders_answered() {
-    let plugin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/prompt/plugin");
-    let tokens = mixdog_rt::testing::tokens();
-    let mut failures: Vec<String> = Vec::new();
-    for world in fixture()["worlds"].as_array().unwrap() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().to_path_buf();
-        write_world(&root, &world["files"]);
-        let (world, plugin) = (world.clone(), plugin.clone());
-        let name = world["name"].as_str().unwrap().to_owned();
-        let found = on_lane(tokens.interactive_io, &CancellationToken::new(), move |lane| {
-            let (data, home) = (root.join("data"), root.join("home"));
-            let observed = StartupObservations::new(Arc::new(Frozen));
-            let host = |path_env: &'static str| HostFacts {
-                plugin_root: &plugin,
-                data_dir: &data,
-                home_dir: &home,
-                path_env,
-                locale: "en-US",
-                instruction_files_forced_off: false,
-                stored_instruction_files: None,
-            };
-            let expected_of = |query: &Value| query["answer"].as_str().unwrap().replace("{ROOT}", &root.to_string_lossy());
-            let mut failed = Vec::new();
-            for query in world["queries"].as_array().unwrap() {
-                let args = query["args"].as_array().unwrap();
-                let path_of = |dirs: &Value| dirs.as_array().unwrap().iter().map(|d| root.join(d.as_str().unwrap().replace('/', "\\")).to_string_lossy().into_owned()).collect::<Vec<_>>().join(";");
-                let got = match query["fn"].as_str().unwrap() {
-                    "shellTools" => {
-                        let path = path_of(&args[0]);
-                        RealSources::new(lane, host(Box::leak(path.into_boxed_str())), &observed).shell_tools_line()
-                    }
-                    "git" => {
-                        let path = path_of(&args[0]);
-                        let cwd = root.join(args[1].as_str().unwrap().replace('/', "\\")).to_string_lossy().into_owned();
-                        RealSources::new(lane, host(Box::leak(path.into_boxed_str())), &observed).git_line(Some(&cwd))
-                    }
-                    _ => answer(&RealSources::new(lane, host(""), &observed), &root, query),
-                };
-                let expected = expected_of(query);
-                if got != expected {
-                    failed.push(format!("{} {}: {}\n  node: {expected:?}\n  rust: {got:?}", query["fn"], query["args"], ""));
-                }
-            }
-            failed
-        })
-        .await
-        .unwrap();
-        failures.extend(found.into_iter().map(|f| format!("[{name}] {f}")));
-    }
-    assert!(failures.is_empty(), "{} differ:\n{}", failures.len(), failures.iter().take(12).cloned().collect::<Vec<_>>().join("\n"));
-}
-
-/// An agent Node saved with a name and a job a phone sent cut inside an emoji
-/// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): its identity line is Node's
-/// `agentModeIdentityLine` (the half emoji as U+FFFD), not the bare id a failed manifest read gives.
-#[tokio::test]
-async fn an_agent_manifest_node_wrote_with_half_an_emoji_names_the_agent() {
-    let set = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
-    let cases: Value = serde_json::from_slice(&fs::read(set.join("cases.json")).unwrap()).unwrap();
-    let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "agent-definition").unwrap().clone();
-    let plugin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/prompt/plugin");
-    let dir = tempfile::tempdir().unwrap();
-    let data = dir.path().join("data");
-    fs::create_dir_all(data.join("agents/helper")).unwrap();
-    for file in ["agent.json", "AGENT.md"] {
-        fs::copy(set.join("agent-definition/before/agents/helper").join(file), data.join("agents/helper").join(file)).unwrap();
-    }
-    let home = dir.path().join("home");
-    let tokens = mixdog_rt::testing::tokens();
-    let line = on_lane(tokens.interactive_io, &CancellationToken::new(), move |lane| {
-        let observed = StartupObservations::new(Arc::new(Frozen));
-        let host = HostFacts {
-            plugin_root: &plugin,
-            data_dir: &data,
-            home_dir: &home,
-            path_env: "",
-            locale: "en-US",
-            instruction_files_forced_off: false,
-            stored_instruction_files: None,
-        };
-        RealSources::new(lane, host, &observed).agent_mode_identity_line("helper")
-    })
-    .await
-    .unwrap();
-    assert_eq!(line, case["nodeRead"]["identityLine"].as_str().unwrap());
 }
 
 #[tokio::test]
@@ -284,4 +192,100 @@ async fn an_agents_profile_stamp_follows_its_files() {
     assert_eq!(stamps.4, "coding-lead");
     assert_eq!(stamps.5, "");
     assert_eq!(stamps.6.len(), 24);
+}
+
+
+#[cfg(node_twin)]
+fn fixture() -> Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/prompt-sources/sources.json");
+    serde_json::from_str(&fs::read_to_string(path).expect("sources.json")).expect("json")
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn the_real_sources_answer_what_nodes_loaders_answered() {
+    let plugin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/prompt/plugin");
+    let tokens = mixdog_rt::testing::tokens();
+    let mut failures: Vec<String> = Vec::new();
+    for world in fixture()["worlds"].as_array().unwrap() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        write_world(&root, &world["files"]);
+        let (world, plugin) = (world.clone(), plugin.clone());
+        let name = world["name"].as_str().unwrap().to_owned();
+        let found = on_lane(tokens.interactive_io, &CancellationToken::new(), move |lane| {
+            let (data, home) = (root.join("data"), root.join("home"));
+            let observed = StartupObservations::new(Arc::new(Frozen));
+            let host = |path_env: &'static str| HostFacts {
+                plugin_root: &plugin,
+                data_dir: &data,
+                home_dir: &home,
+                path_env,
+                locale: "en-US",
+                instruction_files_forced_off: false,
+                stored_instruction_files: None,
+            };
+            let expected_of = |query: &Value| query["answer"].as_str().unwrap().replace("{ROOT}", &root.to_string_lossy());
+            let mut failed = Vec::new();
+            for query in world["queries"].as_array().unwrap() {
+                let args = query["args"].as_array().unwrap();
+                let path_of = |dirs: &Value| dirs.as_array().unwrap().iter().map(|d| root.join(d.as_str().unwrap().replace('/', "\\")).to_string_lossy().into_owned()).collect::<Vec<_>>().join(";");
+                let got = match query["fn"].as_str().unwrap() {
+                    "shellTools" => {
+                        let path = path_of(&args[0]);
+                        RealSources::new(lane, host(Box::leak(path.into_boxed_str())), &observed).shell_tools_line()
+                    }
+                    "git" => {
+                        let path = path_of(&args[0]);
+                        let cwd = root.join(args[1].as_str().unwrap().replace('/', "\\")).to_string_lossy().into_owned();
+                        RealSources::new(lane, host(Box::leak(path.into_boxed_str())), &observed).git_line(Some(&cwd))
+                    }
+                    _ => answer(&RealSources::new(lane, host(""), &observed), &root, query),
+                };
+                let expected = expected_of(query);
+                if got != expected {
+                    failed.push(format!("{} {}: {}\n  node: {expected:?}\n  rust: {got:?}", query["fn"], query["args"], ""));
+                }
+            }
+            failed
+        })
+        .await
+        .unwrap();
+        failures.extend(found.into_iter().map(|f| format!("[{name}] {f}")));
+    }
+    assert!(failures.is_empty(), "{} differ:\n{}", failures.len(), failures.iter().take(12).cloned().collect::<Vec<_>>().join("\n"));
+}
+/// An agent Node saved with a name and a job a phone sent cut inside an emoji
+/// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): its identity line is Node's
+/// `agentModeIdentityLine` (the half emoji as U+FFFD), not the bare id a failed manifest read gives.
+#[cfg(node_twin)]
+#[tokio::test]
+async fn an_agent_manifest_node_wrote_with_half_an_emoji_names_the_agent() {
+    let set = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+    let cases: Value = serde_json::from_slice(&fs::read(set.join("cases.json")).unwrap()).unwrap();
+    let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "agent-definition").unwrap().clone();
+    let plugin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/prompt/plugin");
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    fs::create_dir_all(data.join("agents/helper")).unwrap();
+    for file in ["agent.json", "AGENT.md"] {
+        fs::copy(set.join("agent-definition/before/agents/helper").join(file), data.join("agents/helper").join(file)).unwrap();
+    }
+    let home = dir.path().join("home");
+    let tokens = mixdog_rt::testing::tokens();
+    let line = on_lane(tokens.interactive_io, &CancellationToken::new(), move |lane| {
+        let observed = StartupObservations::new(Arc::new(Frozen));
+        let host = HostFacts {
+            plugin_root: &plugin,
+            data_dir: &data,
+            home_dir: &home,
+            path_env: "",
+            locale: "en-US",
+            instruction_files_forced_off: false,
+            stored_instruction_files: None,
+        };
+        RealSources::new(lane, host, &observed).agent_mode_identity_line("helper")
+    })
+    .await
+    .unwrap();
+    assert_eq!(line, case["nodeRead"]["identityLine"].as_str().unwrap());
 }

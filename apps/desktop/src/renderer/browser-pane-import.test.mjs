@@ -157,7 +157,7 @@ function chromeSource({ passwords = false, cookies = true, history = false } = {
   return {
     id: 'chrome',
     name: 'Google Chrome',
-    profiles: [{ id: 'Default', name: '재영', accountEmail: 'owner@example.test' }],
+    profiles: [{ id: 'Default', name: '길동', accountEmail: 'owner@example.test' }],
     supports: { passwords, cookies, history },
     supportReasons: {
       ...(!passwords ? { passwords: 'Password import unavailable in this build.' } : {}),

@@ -1,6 +1,0 @@
-{
-  "input": {},
-  "isError": true,
-  "text": "Error: task action is required",
-  "tool": "task"
-}

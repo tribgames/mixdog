@@ -30,7 +30,7 @@
           "callers",
           "callees"
         ],
-        "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+        "description": "Use files for imports, dependents, related, impact and symbols, or for a scoped overview (omit files for project overview). Use symbols for find_symbol, symbol_search/search, references, callers and callees."
       },
       "files": {
         "anyOf": [
@@ -44,7 +44,7 @@
             }
           }
         ],
-        "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files."
+        "description": "Project-relative or absolute paths. Optional file scope for symbol queries; callers uses files to select declarations, not to restrict where callers can be found."
       },
       "symbols": {
         "anyOf": [
@@ -58,7 +58,7 @@
             }
           }
         ],
-        "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls."
+        "description": "Exact identifiers or search keywords, depending on mode. In symbols mode these optionally filter the outline. When a symbol query also names files, it runs each symbol against each file; distinct pairs need separate calls."
       },
       "body": {
         "type": "boolean",
@@ -68,13 +68,23 @@
         "type": "integer",
         "minimum": 1,
         "maximum": 500,
-        "description": "Max results; modes may cap lower."
+        "description": "Max rows per result in symbols, find_symbol, symbol_search/search, references, and callers. Modes may cap lower; for transitive callers this is the page size."
       },
       "depth": {
         "type": "integer",
         "minimum": 1,
         "maximum": 5,
-        "description": "Overview hierarchy or caller traversal depth; default 1."
+        "description": "Single-file overview outline depth or caller traversal depth (callers depth 2–5 is transitive); default 1."
+      },
+      "page": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Page of transitive callers only (mode callers, depth 2–5); default 1. Keep the other arguments, including limit, unchanged when continuing."
+      },
+      "node_offset": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Recover an oversized transitive caller entry in UTF-8 byte chunks. Use one symbol, at most one file, limit:1 and the entry's page. Start at 0 and use the returned next offset."
       },
       "cwd": {
         "type": "string",

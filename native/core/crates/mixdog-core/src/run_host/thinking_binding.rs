@@ -150,7 +150,18 @@ fn tool_round_closure() -> Value {
 /// turn right after its last tool result, ahead of any later input; the next request then starts a
 /// new turn.
 pub fn rebind_to_changed_prefix(messages: &[Value]) -> (Vec<Value>, bool) {
-    let Some(open) = open_tool_round_start(messages) else { return without_thinking_replay(messages) };
+    let (rows, changed, _) = rebind_to_changed_prefix_at(messages);
+    (rows, changed)
+}
+
+/// [`rebind_to_changed_prefix`], and the index the ending runtime turn was inserted at (the one row that has no stored
+/// counterpart), for a caller that keeps the rows' ids beside them.
+pub fn rebind_to_changed_prefix_at(messages: &[Value]) -> (Vec<Value>, bool, Option<usize>) {
+    let plain = |messages: &[Value]| {
+        let (rows, changed) = without_thinking_replay(messages);
+        (rows, changed, None)
+    };
+    let Some(open) = open_tool_round_start(messages) else { return plain(messages) };
     let latest = messages.iter().rposition(|m| role(m) == Some("assistant")).map_or(0, |i| i + 1);
     let mut end = latest;
     while role(messages.get(end).unwrap_or(&Value::Null)) == Some("tool") {
@@ -158,20 +169,42 @@ pub fn rebind_to_changed_prefix(messages: &[Value]) -> (Vec<Value>, bool) {
     }
     let round_thinks = messages[open..end].iter().any(|m| assistant_message_without_thinking_replay(m).is_some());
     if !round_thinks {
-        return without_thinking_replay(messages);
+        return plain(messages);
     }
     let mut with_closure = messages[..end].to_vec();
     with_closure.push(tool_round_closure());
     with_closure.extend_from_slice(&messages[end..]);
-    (without_thinking_replay(&with_closure).0, true)
+    (without_thinking_replay(&with_closure).0, true, Some(end))
 }
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use super::*;
+
+    /// A prompt fold that moves the prefix ends an open round that carries thinking with a runtime turn: the caller that keeps
+    /// ids beside the rows is told where it went.
+    #[test]
+    fn the_ending_runtime_turn_is_reported_where_it_was_inserted() {
+        use serde_json::json;
+        let think = json!({ "type": "thinking", "thinking": "hm", "signature": "s" });
+        let rows = vec![
+            json!({ "role": "user", "content": "go" }),
+            json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": "c1", "name": "read", "arguments": {} }], "thinkingBlocks": [think] }),
+            json!({ "role": "tool", "toolCallId": "c1", "content": "ok" }),
+        ];
+        let (rebound, changed, closing) = super::rebind_to_changed_prefix_at(&rows);
+        assert!(changed);
+        assert_eq!(closing, Some(3));
+        assert_eq!(rebound.len(), rows.len() + 1);
+        assert!(rebound[1].get("thinkingBlocks").is_none(), "the stored thinking is dropped");
+        let (same, changed, closing) = super::rebind_to_changed_prefix_at(&rows[..1]);
+        assert!(!changed && closing.is_none() && same == rows[..1]);
+    }
 
     /// Node's real functions over nine transcripts.
     #[test]
+    #[cfg(node_twin)]
     fn thinking_binding_follows_node() {
         let golden: Value = serde_json::from_str(include_str!("golden/thinking_binding.json")).expect("fixture");
         for (name, row) in golden.as_object().unwrap() {
@@ -186,3 +219,5 @@ mod tests {
         }
     }
 }
+
+

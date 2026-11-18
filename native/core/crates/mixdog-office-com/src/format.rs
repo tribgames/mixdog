@@ -9,29 +9,19 @@
 use crate::com::Error;
 use crate::com::Obj;
 use crate::com::Result;
-use crate::com::Value as Com;
 use crate::drivers::Drivers;
 use crate::office::Env;
 use crate::office::get_full_path;
-use crate::office::long_of;
 use crate::ps::ObjectKind;
 use crate::ps::Value;
 use crate::ps::convert;
 use crate::ps::payload;
 use crate::state::ChartExcel;
 
-/// The size in cells above which a whole-workbook read becomes a page read.
-const EXCEL_WHOLE_READ_CELLS: i64 = 500;
-
 /// Reads a document of one format.
 pub trait FormatReader: Sync {
     /// `Snapshot-Word`, `Snapshot-Excel` or `Snapshot-PowerPoint`.
     fn snapshot(&self, env: &Env<'_>, document: &Obj, payload: &Value) -> Result<Value>;
-
-    /// `Snapshot-ExcelPage`: a read of one range of a sheet. Only Excel has one; every other format answers its snapshot.
-    fn snapshot_page(&self, env: &Env<'_>, document: &Obj, payload: &Value) -> Result<Value> {
-        self.snapshot(env, document, payload)
-    }
 
     /// `Issues-Word`, `Issues-Excel` or `Issues-PowerPoint`: either the list of issues or an object holding it as
     /// `issues` (and, for Excel, an `auditCoverage` beside it).
@@ -79,52 +69,12 @@ fn missing_reader(format: &str) -> Error {
     Error::host(format!("No Office reader is registered for .{format}"))
 }
 
-/// `[int64]$value` of a COM value.
-fn int64_of(value: &Com) -> Result<i64> {
-    long_of(value)
-        .ok_or_else(|| Error::host(format!("Cannot convert the value of type \"{}\" to type \"System.Int64\".", value.dotnet_type_name())))
-}
-
-/// `[Math]::Max(1, [int]$payload.limit)`.
-fn page_limit(payload: &Value) -> Result<i64> {
-    let limit = convert::to_int(&payload::property(payload, "limit")).map_err(Error::host)?;
-    Ok(i64::from(limit.max(1)))
-}
-
-/// The rule of `Snapshot-Document` that sends a workbook read to the page reader: paged with a range, more than 500 cells,
-/// an offset, or a whole-workbook read that did not fit the caller's size and asked for pages (`pageCells`). It is only
-/// asked of a request that is `paged`.
-fn excel_reads_a_page(document: &Obj, payload: &Value) -> Result<bool> {
-    if !convert::to_bool(&payload::property(payload, "paged")) {
-        return Ok(false);
-    }
-    let mut sheet = document.get("ActiveSheet")?;
-    let sheet_name = payload::property(payload, "sheet");
-    if convert::to_bool(&sheet_name) {
-        let name = Com::Str(convert::to_ps_string(&sheet_name));
-        sheet = document.get("Worksheets")?.call_member("Item", &[name])?;
-    }
-    let mut range = sheet.member("UsedRange")?;
-    let range_text = payload::property(payload, "range");
-    let has_range = convert::to_bool(&range_text);
-    if has_range {
-        range = sheet.call_member("Range", &[Com::Str(convert::to_ps_string(&range_text))])?;
-    }
-    let rows = int64_of(&range.member("Rows")?.member("Count")?)?;
-    let columns = int64_of(&range.member("Columns")?.member("Count")?)?;
-    let cell_total = rows * columns;
-    let paged = convert::to_bool(&payload::property(payload, "pageCells")) && cell_total > page_limit(payload)?;
-    Ok(has_range
-        || cell_total > EXCEL_WHOLE_READ_CELLS
-        || convert::to_int64(&payload::property(payload, "offset")).map_err(Error::host)? > 0
-        || paged)
-}
-
 /// `Snapshot-Document`: the reader of the format, and the selection when the request includes it.
 pub fn snapshot_document(drivers: &Drivers<'_>, env: &Env<'_>, document: &Obj, format: &str, payload: &Value) -> Result<Value> {
     let reader = drivers.reader(format).ok_or_else(|| missing_reader(format))?;
-    let page = format == "xlsx" && excel_reads_a_page(document, payload)?;
-    let mut value = if page { reader.snapshot_page(env, document, payload)? } else { reader.snapshot(env, document, payload)? };
+    // A paged read of a workbook is one read of every format, answered by the reader's snapshot: Excel walks sheet by sheet and by
+    // populated cell from the request's `sheet`, `sheetOffset`, `range` and `offset`, whatever the size of the sheet or the limit.
+    let mut value = reader.snapshot(env, document, payload)?;
     if convert::to_bool(&payload::property(payload, "includeSelection")) {
         let selection = snapshot_selection(drivers, env, document, format);
         if let Value::Object(object) = &mut value {

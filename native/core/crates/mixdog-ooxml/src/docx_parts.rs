@@ -9,7 +9,7 @@
 use std::path::Path;
 
 use mixdog_fsio::ReadProof;
-use mixdog_js::time::{Tz, local_fields_in, local_offset_ms};
+use mixdog_js::time::{Tz, local_fields_in};
 use mixdog_js::{JsRegex, js_trim, js_trim_end, math, number_to_string, to_number};
 use serde_json::Value;
 
@@ -773,11 +773,9 @@ pub fn document_tracks_changes(zip: &Package) -> bool {
     settings_track_changes(&zip.text("word/settings.xml"))
 }
 
-/// `revisionAttributes(id, author)` at the instant `now_ms`. Word keeps a revision's `w:date` in local wall-clock time (under a
-/// Z it does not mean): written in UTC, a change made in Seoul read nine hours early in Word's review pane.
+/// `revisionAttributes(id, author)` at the instant `now_ms`. The `w:date` is the instant in UTC, which is what its `Z` says.
 pub fn revision_attributes_at(id: u64, author: &str, now_ms: f64) -> String {
-    let local = now_ms + local_offset_ms(now_ms) as f64;
-    let date = local_fields_in(Tz::UTC, local).map_or_else(String::new, |fields| {
+    let date = local_fields_in(Tz::UTC, now_ms).map_or_else(String::new, |fields| {
         format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", fields.year, fields.month, fields.day, fields.hour, fields.minute, fields.second)
     });
     format!("w:id=\"{id}\" w:author=\"{}\" w:date=\"{date}\"", xml_encode(if author.is_empty() { "Mixdog" } else { author }))
@@ -1041,15 +1039,6 @@ mod tests {
     }
 
     #[test]
-    fn revision_dates_are_the_local_wall_clock() {
-        // 2023-11-14T22:13:20Z is 07:13:20 on the 15th in Seoul.
-        let seoul = mixdog_js::time::with_local_zone(Tz::Asia__Seoul, || revision_attributes_at(4, "", 1_700_000_000_000.0));
-        assert_eq!(seoul, "w:id=\"4\" w:author=\"Mixdog\" w:date=\"2023-11-15T07:13:20Z\"");
-        let utc = mixdog_js::time::with_local_zone(Tz::UTC, || revision_attributes_at(5, "A & B", 1_700_000_000_999.0));
-        assert_eq!(utc, "w:id=\"5\" w:author=\"A &amp; B\" w:date=\"2023-11-14T22:13:20Z\"");
-    }
-
-    #[test]
     fn comment_ids_are_eight_hex_digits() {
         assert_eq!(comment_paragraph_id(0), "10000000");
         assert_eq!(comment_paragraph_id(255), "100000FF");
@@ -1112,5 +1101,15 @@ mod tests {
         let mut zip = package(&[("[Content_Types].xml", "<Types></Types>")]);
         let part = numbering_after(&mut zip, "<w:numId w:val=\"9\"/>", &NumberingChoice { continued: true, scheme: "number" });
         assert!(part.created);
+    }
+
+
+    #[test]
+    fn revision_dates_are_utc_whatever_the_local_zone() {
+        // 2023-11-14T22:13:20Z is 07:13:20 on the 15th in Seoul; the date still says the UTC instant.
+        let seoul = mixdog_js::time::with_local_zone(Tz::Asia__Seoul, || revision_attributes_at(4, "", 1_700_000_000_000.0));
+        assert_eq!(seoul, "w:id=\"4\" w:author=\"Mixdog\" w:date=\"2023-11-14T22:13:20Z\"");
+        let utc = mixdog_js::time::with_local_zone(Tz::UTC, || revision_attributes_at(5, "A & B", 1_700_000_000_999.0));
+        assert_eq!(utc, "w:id=\"5\" w:author=\"A &amp; B\" w:date=\"2023-11-14T22:13:20Z\"");
     }
 }

@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-launch.mjs';
+import { VIRTUAL_CLOCK } from './test-support/virtual-clock.mjs';
 import { BURSTY_MARKDOWN, createBurstyStream } from './test-support/bursty-stream.mjs';
 
 const STREAM_SEED = 7;
@@ -154,14 +155,18 @@ const HARNESS = `
       scrollHeight: viewport.scrollHeight,
       rowHeight: row ? row.getBoundingClientRect().height : -1,
       text: row ? row.textContent : '',
+      // The reply settles once its last fade ended, after its text stopped.
+      settled: Boolean(row?.querySelector('article.message.settled')),
     };
   };
-  // The reply has stopped changing (text, row height, scroll extent) for 20
-  // frames, then the transcript is watched for the quiet window.
+  // The reply has settled and stopped changing (text, row height, scroll
+  // extent) for 20 frames, then the transcript is watched for the quiet
+  // window. It settles once its last fade ended, after its text stopped; one
+  // that never settles is read after 600 frames.
   window.watchQuiet = async (quietMs) => {
     let previous = '';
     let stable = 0;
-    while (stable < 20) {
+    for (let frames = 0; (stable < 20 || !readTranscript().settled) && frames < 600; frames += 1) {
       await frame();
       const now = JSON.stringify(readTranscript());
       stable = now === previous ? stable + 1 : 0;
@@ -264,6 +269,7 @@ async function streamOnce(browser, assets, { shrinkAtMs, seed = STREAM_SEED } = 
     page.on('pageerror', (error) => errors.push(error.message));
     await page.setViewport(VIEWPORT);
     await page.setContent('<!doctype html><html><head></head><body><div id="root"></div></body></html>');
+    await page.evaluate(VIRTUAL_CLOCK);
     await page.evaluate(() => {
       // The stream metrics run behind the scroll-diagnostics flag.
       window.__mixdogTranscriptScroll = true;

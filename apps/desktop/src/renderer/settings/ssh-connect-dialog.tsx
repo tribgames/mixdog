@@ -7,6 +7,7 @@ import { SshAskpassPrompt } from './ssh-askpass-prompt';
 import { SshAddressDialog, useSshAddressField } from './ssh-address-dialog';
 import { SshChangedDialog, SshTrustDialog } from './ssh-host-key-views';
 import { SshDaemonDialog, SshFailureDialog, SshForwardsDialog, SshStepsDialog } from './ssh-connect-views';
+import { SshCleanupDialog } from './ssh-host-dialogs';
 import { SshLogDialog } from './ssh-log-dialogs';
 import { useSshConnectAttempt } from './use-ssh-connect-attempt';
 
@@ -30,6 +31,7 @@ export function SshConnectDialog({
   const attempt = useSshConnectAttempt({ host, onConnected, onClose });
   const field = useSshAddressField(attempt.configHosts, host?.target ?? '');
   const [logOpen, setLogOpen] = useState(false);
+  const [cleaningUp, setCleaningUp] = useState(false);
   const { view, shown, summary, question } = attempt;
   const { chooseFile } = api;
 
@@ -42,6 +44,11 @@ export function SshConnectDialog({
     onClose();
   };
 
+  if (cleaningUp) {
+    // A first connection that failed has no saved entry: the clean-up runs by the address, then the failure is shown again.
+    const unsaved: DesktopSshHost = { id: '', name: shown.name, target: shown.target, lastConnectedAt: null, open: false };
+    return <SshCleanupDialog host={unsaved} unsavedTarget={shown.target} onDone={() => undefined} onClose={() => setCleaningUp(false)} />;
+  }
   if (logOpen)
     return <SshLogDialog reference={shown.target} name={shown.name} onClose={() => setLogOpen(false)} />;
   if (question && question.kind !== 'close' && view.kind === 'steps') {
@@ -95,6 +102,7 @@ export function SshConnectDialog({
           onViewLog={() => setLogOpen(true)}
           onClose={onClose}
           onRetry={() => void attempt.run(shown.target, shown.name)}
+          onCleanUp={() => setCleaningUp(true)}
         />
       );
     case 'input':

@@ -263,10 +263,26 @@ fn api_record(row: &Value) -> Option<ModelRecord> {
     Some(record)
 }
 
-#[async_trait]
-impl ModelListing for OpenAiModels {
-    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+impl OpenAiModels {
+    /// The Codex roster is the account's of the credential that asks, listed for the client version the request names; the
+    /// public API's list is neither.
+    fn identity_of(&self, credential: &crate::providers::openai::adapter::Credential) -> mixdog_core_api::domain::provider::RosterIdentity {
+        if !matches!(self.codec.route(), Route::Codex) {
+            return Default::default();
+        }
+        let account = credential.account_id.as_deref().filter(|id| !id.is_empty());
+        mixdog_core_api::domain::provider::RosterIdentity {
+            account: account.map(|id| crate::catalog::account_fingerprint(&[id])),
+            endpoint: None,
+            client_version: self.codec.identity().map(|i| i.version.get()).filter(|v| !v.is_empty()),
+        }
+    }
+
+    /// One fetch with one credential read, and the identity of that credential: the answer is its account's.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn list_with_credential(&self) -> Result<(Vec<ModelRecord>, mixdog_core_api::domain::provider::RosterIdentity), ProviderError> {
         let credential = self.credentials.current().await?;
+        let identity = self.identity_of(&credential);
         let (url, headers) = match self.codec.route() {
             Route::ApiKey => (
                 API_MODELS_URL.to_owned(),
@@ -304,19 +320,36 @@ impl ModelListing for OpenAiModels {
             return Err(self.codec.classify(&read));
         }
         let document: Value = serde_json::from_slice(&read.body).map_err(|_| malformed("JSON"))?;
-        match self.codec.route() {
+        let rows = match self.codec.route() {
             Route::ApiKey => {
                 let rows = document.get("data").map_or(Some(&[][..]), |d| d.as_array().map(Vec::as_slice));
                 let listed = rows.ok_or_else(|| malformed("a list"))?.iter().filter_map(api_record).collect();
-                Ok(self.lookup.sanitize_listed("openai", self.lookup.enrich_listed("openai", listed)))
+                self.lookup.sanitize_listed("openai", self.lookup.enrich_listed("openai", listed))
             }
             Route::Codex => {
                 let rows = document.get("models").map_or(Some(&[][..]), |m| m.as_array().map(Vec::as_slice));
                 let mut listed: Vec<ModelRecord> = rows.ok_or_else(|| malformed("a list"))?.iter().filter_map(codex_record).collect();
                 mark_latest(&mut listed);
-                Ok(self.lookup.enrich_listed("openai-oauth", listed))
+                self.lookup.enrich_listed("openai-oauth", listed)
             }
-        }
+        };
+        Ok((rows, identity))
+    }
+}
+
+#[async_trait]
+impl ModelListing for OpenAiModels {
+    async fn roster_identity(&self) -> mixdog_core_api::domain::provider::RosterIdentity {
+        self.credentials.current().await.map(|credential| self.identity_of(&credential)).unwrap_or_default()
+    }
+
+    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+        Ok(self.list_with_credential().await?.0)
+    }
+
+    async fn list_roster(&self) -> Result<mixdog_core_api::domain::provider::ListedRoster, ProviderError> {
+        let (rows, identity) = self.list_with_credential().await?;
+        Ok(mixdog_core_api::domain::provider::ListedRoster { rows, provenance: mixdog_core_api::domain::provider::Provenance::Fetched, identity })
     }
 }
 
@@ -357,32 +390,6 @@ mod tests {
 
     struct Creds;
 
-    #[async_trait]
-    impl crate::providers::openai::adapter::CredentialSource for Creds {
-        async fn current(&self) -> Result<crate::providers::openai::adapter::Credential, ProviderError> {
-            Ok(crate::providers::openai::adapter::Credential { bearer: "t".into(), account_id: Some("a".into()) })
-        }
-        async fn after_rejection(&self, _: &crate::providers::openai::adapter::Credential) -> Result<Option<crate::providers::openai::adapter::Credential>, ProviderError> {
-            Ok(None)
-        }
-    }
-
-    /// The catalog that outlives its timer reads as the real Node function did (`sites.openaiCatalog`).
-    #[tokio::test(start_paused = true)]
-    async fn a_catalog_that_outlives_its_timer_reads_as_nodes() {
-        use crate::providers::openai::config::{CodexIdentity, NoFacts, OpenAiConfig};
-        use crate::transport::site_probe::{TimingOut, assert_rejected_as_nodes, assert_transport};
-
-        let identity = CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "0.166.0".into(), beta_features: "b".into() };
-        let config = OpenAiConfig::codex(false, false, identity, Arc::new(NoFacts), Arc::new(Ctx));
-        let transport = TimingOut::new();
-        let models = OpenAiModels::new(OpenAiCodec::new(config, TransportKind::Http1), transport.clone(), Arc::new(Creds), ListingLookup::new());
-        let error = models.list_models().await.expect_err("never answers");
-        assert_transport("openaiCatalog", &transport);
-        // Node's catalog swallows the failure (it resolves empty); the catalog store above this listing does the same.
-        assert_rejected_as_nodes("openaiCatalog", &error.message);
-    }
-
     #[test]
     fn the_newest_of_each_family_is_latest_as_nodes_pass_marks_it() {
         let mut rows: Vec<ModelRecord> = NODE_MARKS.iter().filter_map(|(id, ..)| codex_record(&json!({ "slug": id }))).collect();
@@ -400,5 +407,32 @@ mod tests {
         assert_eq!(stated.picker.default_service_tier.as_deref(), Some("priority"));
         let silent = codex_record(&json!({ "slug": "m", "supports_reasoning_effort_updates": "yes", "default_service_tier": "" })).unwrap();
         assert_eq!((silent.supports_reasoning_effort_updates, silent.picker.default_service_tier), (None, None));
+    }
+
+    #[async_trait]
+    impl crate::providers::openai::adapter::CredentialSource for Creds {
+        async fn current(&self) -> Result<crate::providers::openai::adapter::Credential, ProviderError> {
+            Ok(crate::providers::openai::adapter::Credential { bearer: "t".into(), account_id: Some("a".into()) })
+        }
+        async fn after_rejection(&self, _: &crate::providers::openai::adapter::Credential) -> Result<Option<crate::providers::openai::adapter::Credential>, ProviderError> {
+            Ok(None)
+        }
+    }
+
+
+    /// The catalog that outlives its timer reads as the real Node function did (`sites.openaiCatalog`).
+    #[tokio::test(start_paused = true)]
+    async fn a_catalog_that_outlives_its_timer_reads_as_nodes() {
+        use crate::providers::openai::config::{CodexIdentity, NoFacts, OpenAiConfig};
+        use crate::transport::site_probe::{TimingOut, assert_rejected_as_nodes, assert_transport};
+
+        let identity = CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "0.166.0".into(), beta_features: "b".into() };
+        let config = OpenAiConfig::codex(false, identity, Arc::new(NoFacts), Arc::new(Ctx));
+        let transport = TimingOut::new();
+        let models = OpenAiModels::new(OpenAiCodec::new(config, TransportKind::Http1), transport.clone(), Arc::new(Creds), ListingLookup::new());
+        let error = models.list_models().await.expect_err("never answers");
+        assert_transport("openaiCatalog", &transport);
+        // Node's catalog swallows the failure (it resolves empty); the catalog store above this listing does the same.
+        assert_rejected_as_nodes("openaiCatalog", &error.message);
     }
 }

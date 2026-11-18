@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode, useEffect, useState } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { ErrorNotice } from '../ErrorNotice';
 
 import type { DesktopApi } from '../../shared/contract';
@@ -8,7 +8,6 @@ import { customProviderDisplayNames, resolveProviderDisplayName } from '../model
 import { record } from '../record-utils';
 import { isSshConnectionWindow } from '../desktop-connection';
 import { isRemoteHostRenderer } from '../remote-ui-projection';
-import { subscribeSetupChanges } from '../setup-change-refresh';
 import { updaterBusyNotice } from '../use-desktop-updater';
 import {
   setToolActivityExpansion,
@@ -20,7 +19,8 @@ import { AuthPanel } from './auth-panel';
 import { BuiltInFeaturesPanel } from './built-in-features-panel';
 import { ConnectionPanel } from './connection-panel';
 import { DeveloperPanel } from './developer-panel';
-import { getCachedDesktopStatus, readDesktopStatus, storeDesktopStatus } from './desktop-status-cache';
+import { writeDesktopStatus } from './desktop-status-cache';
+import { useDesktopStatus } from './use-desktop-status';
 import { DisplayPanel, GeneralPanel, WorkPanel } from './general-panel';
 import { DelegationPanel, InstructionBadges, useInstructionEditor } from './instruction-editor';
 import { SkinPanel } from './skin-panel';
@@ -63,11 +63,11 @@ export function CategoryPanel({ category, context }: { category: CapabilityCateg
   if (category === 'context') return <ContextPanel {...context} />;
   if (category === 'system') return <SystemPanel {...context} />;
   if (category === 'shortcuts') return <ShortcutsPanel />;
-  if (category === 'connection') return <ConnectionPanel api={context.api} />;
+  if (category === 'connection') return <ConnectionPanel api={context.api} active={context.active} />;
   if (category === 'auth') return <AuthPanel api={context.api} active={context.active} />;
   if (category === 'notifications') return <NotificationsPanel api={context.api} openCategory={context.openCategory} />;
   if (category === 'developer') return <DeveloperPanel {...context} />;
-  if (category === 'about') return <AboutPanel />;
+  if (category === 'about') return <AboutPanel active={context.active} />;
   if (category === 'display') return <DisplayPanel {...context} />;
   if (category === 'skin') return <SkinPanel {...context} />;
   if (category === 'bots') return <BotsPanel {...context} />;
@@ -77,8 +77,7 @@ export function CategoryPanel({ category, context }: { category: CapabilityCateg
   return <GeneralPanel {...context} />;
 }
 
-// Keybind reference (read-only). Bindings live in App.tsx's
-// global keydown handler and the composer key map; keep this list in sync.
+// Read-only reference for the workbench and focused surfaces.
 export const SHORTCUT_GROUPS: ReadonlyArray<
   readonly [string, ReadonlyArray<readonly [ReadonlyArray<string>, string]>]
 > = [
@@ -88,8 +87,9 @@ export const SHORTCUT_GROUPS: ReadonlyArray<
       [['Ctrl+N'], 'New task'],
       [['Ctrl+Alt+N'], 'New task without a project'],
       [['Ctrl+W'], 'Close tab'],
-      [['Ctrl+Tab', 'Ctrl+Shift+]'], 'Next tab'],
-      [['Ctrl+Shift+Tab', 'Ctrl+Shift+['], 'Previous tab'],
+      [['Ctrl+Tab', 'Ctrl+Shift+Tab'], 'Switch recently used tabs'],
+      [['Ctrl+Shift+]'], 'Next tab'],
+      [['Ctrl+Shift+['], 'Previous tab'],
       [['Ctrl+1–8', 'Ctrl+9'], 'Go to tab / last tab'],
       [['Ctrl+[', 'Ctrl+]'], 'Go back / forward'],
     ],
@@ -109,7 +109,7 @@ export const SHORTCUT_GROUPS: ReadonlyArray<
     [
       [['Ctrl+Shift+B'], 'Toggle left side bar'],
       [['Ctrl+B'], 'Toggle right utility panel'],
-      [['Ctrl+`', 'Ctrl+T'], 'Toggle terminal panel'],
+      [['Ctrl+J'], 'Toggle bottom panel'],
       [['Ctrl+,'], 'Open settings'],
       [['Esc'], 'Close menus and popovers'],
     ],
@@ -118,7 +118,7 @@ export const SHORTCUT_GROUPS: ReadonlyArray<
     'Composer',
     [
       [['Enter'], 'Send message'],
-      [['Shift+Enter', 'Ctrl+Enter', 'Ctrl+J'], 'Insert new line'],
+      [['Shift+Enter', 'Ctrl+Enter', 'Alt+Enter'], 'Insert new line'],
       [['Ctrl+U'], 'Delete to line start'],
       [['↑', '↓'], 'Prompt history (empty draft)'],
       [['/'], 'Command palette'],
@@ -322,7 +322,7 @@ function updaterInstallLabel(state: PanelContext['updaterState']): string {
   }
 }
 
-function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, installDesktopUpdate }: PanelContext) {
+function UpdatePanel({ api, data, pending, run, updaterState, checkDesktopUpdate, installDesktopUpdate }: PanelContext) {
   const update = record(data.update);
   const version = 'version' in updaterState ? updaterState.version : String(update.latestVersion || '');
   const busy =
@@ -335,7 +335,7 @@ function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, ins
   const current = String(update.currentVersion || '');
   let versionMeta: string | undefined;
   if (updaterState.status === 'checking') versionMeta = t('Checking for update…');
-  else if (updaterState.status === 'error') versionMeta = t('Update unavailable');
+  else if (updaterState.status === 'error' || updaterState.status === 'disabled') versionMeta = t('Update unavailable');
   else if (updaterState.status === 'up-to-date') versionMeta = t('Up to date');
   else if (version && version !== current) versionMeta = t('Version {{version}} is available', { version });
   else if (version) versionMeta = t('Up to date');
@@ -348,17 +348,26 @@ function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, ins
         title={t('Mixdog {{version}}', { version: current || t('unknown') })}
         meta={versionMeta}
         actions={
-          <ActionButton disabled={busy} onClick={() => void checkDesktopUpdate()}>
+          <ActionButton
+            disabled={busy || updaterState.status === 'disabled' || !api.checkForDesktopUpdate}
+            onClick={() => void checkDesktopUpdate()}
+          >
             {onHost ? t('Check on host computer') : t('Check now')}
           </ActionButton>
         }
       />
-      <ToggleRow
-        title={t('Auto-update')}
-        checked={update.autoUpdate === true}
-        disabled={busy}
-        onChange={(enabled) => void run('setAutoUpdate', [enabled])}
-      />
+      {typeof update.autoUpdate === 'boolean' ? (
+        <ToggleRow
+          title={t('Auto-update')}
+          description={t('Automatically check for and download updates. You still choose when to install.')}
+          showDescription
+          checked={update.autoUpdate}
+          disabled={Boolean(pending) || updaterState.status === 'disabled'}
+          onChange={(enabled) => void run('setAutoUpdate', [enabled])}
+        />
+      ) : (
+        <ResourceRow title={t('Auto-update')} meta={t('Unavailable')} />
+      )}
       {(updaterState.status === 'ready' ||
         updaterState.status === 'downloading' ||
         updaterState.status === 'installing') && (
@@ -442,11 +451,13 @@ function ContextPanel({ data, pending, run }: PanelContext) {
         />
         <ToggleRow
           title={t('Auto-compact on model change')}
+          showDescription
           description={t(
-            'Compact the conversation on its current model before the chat switches to another model. Skipped when the current model has run out of usage.'
+            'Before the next turn switches models, try to compact the conversation using the current route and your summary model setting. Skipped if the current route is known to be out of usage.'
           )}
           checked={compaction.onModelChange !== false}
           disabled={busy}
+          optimistic={false}
           onChange={(enabled) => void run('setCompactionSettings', [{ onModelChange: enabled }])}
         />
         <SelectRow
@@ -556,28 +567,17 @@ function ContextPanel({ data, pending, run }: PanelContext) {
 // own state. Hidden when the hosting shell exposes no settings surface.
 function DesktopPowerGroup() {
   const api = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
-  const cached = getCachedDesktopStatus(api, 'settings');
-  const [keepAwake, setKeepAwake] = useState<boolean | null>(() => (cached ? cached.keepAwake !== false : null));
-  const [runInBackground, setRunInBackground] = useState(() => cached?.runInBackground !== false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read per render; it is kept as the re-read trigger.
-  useEffect(() => {
-    let live = true;
-    const read = () =>
-      void readDesktopStatus(api, 'settings')
-        ?.then((settings) => {
-          if (!live) return;
-          setKeepAwake(settings.keepAwake !== false);
-          setRunInBackground(settings.runInBackground !== false);
-        })
-        .catch(() => {});
-    read();
-    const unsubscribe = subscribeSetupChanges(read);
-    return () => {
-      live = false;
-      unsubscribe();
-    };
-  }, [api]);
-  if (keepAwake === null || !api?.updateSetting) return null;
+  // Hidden only while unknown; a late or failed first read is corrected by the next settings announcement.
+  const settings = useDesktopStatus(api, 'settings');
+  if (!settings || !api?.updateSetting) return null;
+  const keepAwake = settings.keepAwake !== false;
+  const runInBackground = settings.runInBackground !== false;
+  // The choice shows while the write is in flight.
+  const update = (key: 'keepAwake' | 'runInBackground', enabled: boolean) => {
+    void writeDesktopStatus(api, 'settings', () => api.updateSetting?.(key, enabled), { [key]: enabled }).catch(
+      () => {}
+    );
+  };
   return (
     <Group
       title={t('Power')}
@@ -586,29 +586,16 @@ function DesktopPowerGroup() {
       <ToggleRow
         title={t('Keep system awake while working')}
         checked={keepAwake}
-        onChange={(enabled) => {
-          setKeepAwake(enabled);
-          void api
-            .updateSetting?.('keepAwake', enabled)
-            .then((saved) => storeDesktopStatus(api, 'settings', saved))
-            .catch(() => {});
-        }}
+        onChange={(enabled) => update('keepAwake', enabled)}
       />
       <SelectRow
         title={t('When closing the window')}
         value={runInBackground ? 'tray' : 'quit'}
         options={[
-          { value: 'tray', label: t('Hide to tray') },
+          { value: 'tray', label: t('Keep running in background') },
           { value: 'quit', label: t('Quit completely') },
         ]}
-        onChange={(value) => {
-          const enabled = value === 'tray';
-          setRunInBackground(enabled);
-          void api
-            .updateSetting?.('runInBackground', enabled)
-            .then((saved) => storeDesktopStatus(api, 'settings', saved))
-            .catch(() => {});
-        }}
+        onChange={(value) => update('runInBackground', value === 'tray')}
       />
     </Group>
   );

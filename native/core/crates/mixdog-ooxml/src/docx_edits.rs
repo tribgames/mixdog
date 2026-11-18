@@ -622,7 +622,7 @@ pub fn set_docx_table_style(zip: &mut Package, requested: &Value) -> Result<Valu
 pub fn edit_docx_table_rows_or_columns(zip: &mut Package, op: &Value) -> Result<Value, String> {
     let current = zip.text(DOCUMENT_PART);
     let table = docx_table(&current, op.get("table"))?;
-    let mut next_table = table.xml.clone();
+    let next_table: String;
     if is_op(op, "insert_table_row") || is_op(op, "delete_table_row") {
         let rows = table_row_matches(&table.xml);
         if rows.is_empty() {

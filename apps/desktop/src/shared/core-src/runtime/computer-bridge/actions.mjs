@@ -99,7 +99,9 @@ for (const name of [
     policy: FOREGROUND_ACTION_POLICY[name] || 'window',
   });
 }
-action('clipboard_write', { foreground: true });
+// The clipboard is neither a window nor an observation of one, so a write keeps
+// every window's refs (like clipboard_read).
+action('clipboard_write', { foreground: true, retainNativeRefs: true });
 // A saved login written into the focused field of the user's browser window:
 // an input bound to a fresh observation, always on the foreground lane, with no
 // automatic capture (the reply never carries the field it filled).

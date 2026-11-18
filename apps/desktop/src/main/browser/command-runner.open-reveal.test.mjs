@@ -145,7 +145,7 @@ test('a saved-login sign-in on open runs first and rides along; the reply is sti
 });
 
 test('a linked sign-in line leads the reply, follows an open placement, and skips sequence steps', async () => {
-  const LINE = 'Linked sign-in: chatgpt.com last signed in with Google as tempest1033@gmail.com';
+  const LINE = 'Linked sign-in: chatgpt.com last signed in with Google as sample.user1@gmail.com';
   const calls = [];
   const linkedSignIn = {
     beforeAction: (guest, action, command) => calls.push(['before', guest.id, action, command.ref]),

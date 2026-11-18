@@ -288,6 +288,7 @@ test('a removed row leaves the lock queue on the next enqueue while frames are w
   );
 });
 
+// @test-input ./desktop/
 test('every stylesheet rule that runs a decorative loop targets a loop host', async () => {
   const { readdirSync, readFileSync } = await import('node:fs');
   const { DECORATIVE_LOOP_HOSTS } = await import('./decorative-motion-sync.ts');

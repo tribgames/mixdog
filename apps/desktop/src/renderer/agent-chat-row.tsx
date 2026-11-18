@@ -365,11 +365,15 @@ export function AgentRoutineBody({ item }: { item: TranscriptItem }) {
 export function AgentTypingRow({
   member,
   lead,
+  deciding = false,
   after,
 }: {
   member: RoomMemberLabel;
   /** The bubble opens a run: face, name and tail. */
   lead: boolean;
+  /** A group room's hand-off: nobody types, the supervisor is choosing the next speaker. Its own status; the band keeps the
+   *  named band's footprint (the name line is one fixed line, agent-chat.css). */
+  deciding?: boolean;
   /** Under the bubble, in its column (the turn's hand-off lines). */
   after?: ReactNode;
 }) {
@@ -378,12 +382,17 @@ export function AgentTypingRow({
       place={{ side: 'agent', speaker: member.id, first: lead, last: false, at: 0, newDay: false }}
       member={member}
       faceState="typing"
+      band
       after={after}
     >
       <div
         className="message assistant mx-chat-typing"
         role="status"
-        aria-label={t('{{name}} is typing…', { name: member.name })}
+        aria-label={
+          deciding
+            ? t('Choosing who speaks next…')
+            : t('{{name}} is typing…', { name: member.name })
+        }
       >
         <div className="message-body">
           <span className="mx-chat-dots" aria-hidden="true">
@@ -402,9 +411,12 @@ export function AgentChatRow({
   member,
   card = false,
   faceState,
+  band = false,
   after,
   children,
 }: {
+  /** The typing band: its name line is one fixed line (agent-chat.css). */
+  band?: boolean;
   /** Under the bubble, in its column (the turn's hand-off lines). */
   after?: ReactNode;
   /** null: a tool round or the live band, outside any run. */
@@ -441,7 +453,7 @@ export function AgentChatRow({
         {lead && <RoomMemberFace member={member} className="mx-chat-face" state={faceState} />}
         <div className="mx-chat-column">
           {lead && (
-            <div className="mx-chat-name">
+            <div className="mx-chat-name" data-band={band ? 'true' : undefined} title={band && member.name ? member.name : undefined}>
               {member.name}
               {place?.bot && <span className="mx-chat-bot-tag">{t('Bot message')}</span>}
             </div>

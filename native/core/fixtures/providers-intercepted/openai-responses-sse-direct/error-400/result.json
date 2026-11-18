@@ -1,8 +1,0 @@
-{
-  "dispatchedToolCalls": [],
-  "error": {
-    "message": "OpenAI HTTP fallback 400: fixture upstream error",
-    "name": "Error",
-    "status": 400
-  }
-}

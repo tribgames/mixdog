@@ -31,9 +31,10 @@ fn kind(record: &Record) -> usize {
         Record::Checkpoint(_) => 10,
         Record::ModelSwitch(_) => 11,
         Record::Draft(_) => 12,
+        Record::WorkStop(_) => 13,
     }
 }
-const KINDS: usize = 13;
+const KINDS: usize = 14;
 
 /// One record of each kind, every text it can carry holding the value (`None`: the kind carries no text).
 fn samples() -> Vec<(Record, bool)> {
@@ -58,6 +59,8 @@ fn samples() -> Vec<(Record, bool)> {
             "runs":[],"approvals":[],"queue":[],"header":{"title":format!("{CODE} is the code")}}}}), true),
         (json!({"k":"model_switch","anchor":{"iid":"a","ordinal":1},"entry":{"inline":{"provider":"p","modelId":"m","at":1}}}), false),
         (json!({"k":"draft","rid":"r","body":{"inline":{"text":format!("{CODE} is the code")}}}), true),
+        (json!({"k":"work_stop","sid":"s","phase":"stopped","at":1,"body":{"inline":{"work":["w"],"queues":[],"submissions":[],
+            "disposition":"handedBack","restore":{"text":format!("{CODE} is the code"),"ids":[],"device":"d"}}}}), true),
     ];
     samples.into_iter().map(|(value, text)| (serde_json::from_value(value).expect("a record"), text)).collect()
 }

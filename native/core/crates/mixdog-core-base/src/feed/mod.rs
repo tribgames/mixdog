@@ -4,8 +4,8 @@
 //! A feed holds its byte-bounded ring, its current view, its subscriber lanes and its snapshot
 //! flights under one `std::sync::Mutex` that belongs to that feed alone, so nothing one feed
 //! does (a slow or lagged consumer, a snapshot encode, a replay) can delay another feed's
-//! publish or attach. Under the lock every step is O(1) or O(frames handed over): the
-//! snapshot encode runs after the lock is released, on cpu-interactive, single-flighted per
+//! publish or attach. The snapshot encode runs after the lock is released,
+//! on cpu-interactive, single-flighted per
 //! `(S, window)` ([`snapshot`]). Lanes never wait: a full connection budget lags the lane
 //! (P §6.5) and the writer later recovers it through the same [`FeedSource::attach`].
 //!
@@ -26,6 +26,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 
+use bytes::Bytes;
+
 use mixdog_core_api::error::CoreError;
 use mixdog_core_api::feed::AttachDecision;
 use mixdog_core_api::feed::AttachMode;
@@ -43,6 +45,7 @@ use mixdog_core_api::ids::FeedEpoch;
 use mixdog_core_api::ids::FeedId;
 use mixdog_core_api::ids::SubscriptionId;
 use mixdog_core_api::sink::Lane;
+use mixdog_core_api::sink::SlotFill;
 use mixdog_core_api::sink::SnapshotSlot;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::CpuInteractive;
@@ -60,7 +63,8 @@ use self::snapshot::SnapshotCache;
 pub struct FeedLimits {
     /// `ringBytes`: 4 MiB per thread feed, 1 MiB for the app feed.
     pub ring_bytes: usize,
-    /// `maxSnapshotBytes`: the reservation of every snapshot slot.
+    /// `maxSnapshotBytes`: the reservation of every snapshot slot and the per-feed
+    /// budget for cached completed encodings.
     pub max_snapshot_bytes: usize,
 }
 
@@ -82,7 +86,13 @@ struct Shared {
 struct State {
     seq: u64,
     view: Arc<dyn FeedView>,
+    /// The seq the view describes: `seq` unless the latest frames were published deferred ([`Feed::publish_deferred`]).
+    view_seq: u64,
     ring: Ring,
+    /// A client has attached in this epoch, so one may hold a position of it to resume from. Until then the frames the view
+    /// already describes have no reader (an attach is served the view and the frames after it), and the ring keeps none of
+    /// them: a session nobody watches, a delegated agent's, would otherwise hold a full ring for as long as it is loaded.
+    watched: bool,
     subs: HashMap<SubscriptionId, Subscriber>,
     snapshots: SnapshotCache,
     /// Set by [`CoreFeed::close`]: the answer to every later attach.
@@ -100,6 +110,20 @@ struct PendingSnapshot {
     flight: Arc<Flight>,
     /// Present when this attach leads the flight and must submit the encode.
     encode: Option<Encode>,
+}
+
+/// A snapshot slot that hands its lane the view's delivery-time form of the frame ([FeedView::at_delivery]):
+/// what depends on delivery time is set on the copy each lane gets, not on the shared encoding.
+struct Delivered {
+    slot: SnapshotSlot,
+    view: Arc<dyn FeedView>,
+}
+
+impl SlotFill for Delivered {
+    fn fill(self: Box<Self>, frame: Bytes) {
+        let Delivered { slot, view } = *self;
+        slot.fill(view.at_delivery(frame));
+    }
 }
 
 struct Encode {
@@ -150,9 +174,11 @@ impl CoreFeed {
                 state: Mutex::new(State {
                     seq: 0,
                     view,
+                    view_seq: 0,
                     ring: Ring::new(limits.ring_bytes),
+                    watched: false,
                     subs: HashMap::new(),
-                    snapshots: SnapshotCache::default(),
+                    snapshots: SnapshotCache::new(limits.max_snapshot_bytes),
                     closed: None,
                 }),
             }),
@@ -213,11 +239,24 @@ impl Shared {
 
     /// Submits the leader's encode to cpu-interactive. The job owns the flight's [`Lead`]:
     /// a job that never runs fails the flight, lagging its parked lanes for recovery.
-    fn encode(&self, flight: Arc<Flight>, job: Encode) {
+    fn encode(self: &Arc<Self>, flight: Arc<Flight>, job: Encode) {
         let lead = Lead::new(flight);
+        let shared = Arc::downgrade(self);
         let _ = self.cpu.submit(&CancellationToken::new(), move |lane| {
             let frame = job.view.encode_snapshot(lane, job.at, &job.window);
-            lead.finish(frame);
+            let waiting = {
+                let shared = shared.upgrade();
+                let mut state = shared.as_ref().map(|shared| shared.lock());
+                // Account for the ready flight before another attach can find it.
+                let (flight, waiting) = lead.finish(frame.clone());
+                if let Some(state) = &mut state {
+                    state.snapshots.retain_completed(&job.window, &flight, frame.len());
+                }
+                waiting
+            };
+            for slot in waiting {
+                slot.fill(frame.clone());
+            }
         });
     }
 }
@@ -227,8 +266,13 @@ impl FeedSource for CoreFeed {
         self.shared.id.clone()
     }
 
+    fn position(&self) -> FeedPosition {
+        let seq = self.shared.lock().seq;
+        FeedPosition { epoch: self.shared.epoch.clone(), seq }
+    }
+
     fn attach(&self, req: AttachRequest) -> Result<AttachDecision, CoreError> {
-        let shared = &*self.shared;
+        let shared = &self.shared;
         let mut state = shared.lock();
         let seq = state.seq;
         let mut decision = AttachDecision {
@@ -267,17 +311,39 @@ impl FeedSource for CoreFeed {
         };
         let mut pending = None;
         if decision.mode == AttachMode::Snapshot {
-            let reservation =
-                reservation.or_else(|| lane.try_reserve_snapshot(shared.max_snapshot_bytes).ok());
+            // The view may lag the frames (`publish_deferred`): the snapshot is the view's, at its seq, and the frames after it
+            // follow from the ring. A ring that no longer holds them cannot serve the attach now; the lane lags and recovers once
+            // the producer swaps a current view in.
+            let at = state.view_seq;
+            let catch_up = if at < seq { state.ring.after(at, seq) } else { None };
+            decision.start_seq = at + 1;
+            let reservation = if at < seq && catch_up.is_none() {
+                None
+            } else {
+                reservation.or_else(|| lane.try_reserve_snapshot(shared.max_snapshot_bytes).ok())
+            };
             match reservation {
                 Some(reservation) => {
-                    let slot = lane.push_slot(reservation);
-                    let (flight, leads) = state.snapshots.flight(seq, &window);
+                    let slot = SnapshotSlot::new(Box::new(Delivered { slot: lane.push_slot(reservation), view: state.view.clone() }));
+                    if let Some(frames) = catch_up {
+                        match lane.try_reserve(frames.bytes) {
+                            Ok(mut reserved) => {
+                                for frame in frames {
+                                    let part = reserved.split(frame.bytes.len()).expect("the reservation holds the catch-up's byte sum");
+                                    lane.push(part, frame.bytes.clone());
+                                }
+                            }
+                            Err(_) => {
+                                lane.lag();
+                            }
+                        }
+                    }
+                    let (flight, leads) = state.snapshots.flight(at, &window);
                     let encode = leads.then(|| Encode {
                         view: state.view.clone(),
                         at: FeedPosition {
                             epoch: shared.epoch.clone(),
-                            seq,
+                            seq: at,
                         },
                         window: window.clone(),
                     });
@@ -293,6 +359,7 @@ impl FeedSource for CoreFeed {
             }
         }
         state.subs.insert(req.sub, Subscriber { lane, window });
+        state.watched = true;
         drop(state);
 
         if let Some(PendingSnapshot {
@@ -322,21 +389,44 @@ impl FeedSource for CoreFeed {
 }
 
 impl Feed for CoreFeed {
-    fn position(&self) -> FeedPosition {
-        let seq = self.shared.lock().seq;
-        FeedPosition {
-            epoch: self.shared.epoch.clone(),
-            seq,
-        }
-    }
-
     fn publish(
         &self,
         frames: &[FeedFrame],
         view: Option<Arc<dyn FeedView>>,
     ) -> Result<(), PublishError> {
+        // A no-op publish does not make a deferred view current.
+        if frames.is_empty() && view.is_none() {
+            return Ok(());
+        }
         let mut guard = self.shared.lock();
         let state = &mut *guard;
+        Shared::append(state, frames)?;
+        // A view swapped with no frame is a new state at the same seq: no snapshot cached of the old view may serve it.
+        state.snapshots.clear();
+        if let Some(view) = view {
+            state.view = view;
+        }
+        state.view_seq = state.seq;
+        if !state.watched {
+            state.ring.drop_through(state.view_seq);
+        }
+        Ok(())
+    }
+
+    fn defers(&self) -> bool {
+        true
+    }
+
+    fn publish_deferred(&self, frames: &[FeedFrame]) -> Result<(), PublishError> {
+        let mut guard = self.shared.lock();
+        // The view and its cached snapshots stay those of `view_seq`: an attach serves them and replays these frames.
+        Shared::append(&mut guard, frames)
+    }
+}
+
+impl Shared {
+    /// The frames into the ring and to every live subscriber, after their seqs are checked.
+    fn append(state: &mut State, frames: &[FeedFrame]) -> Result<(), PublishError> {
         for (offset, frame) in frames.iter().enumerate() {
             let expected = state.seq + 1 + offset as u64;
             if frame.seq != expected {
@@ -361,13 +451,6 @@ impl Feed for CoreFeed {
                     }
                 }
             }
-        }
-        // A view swapped with no frame is a new state at the same seq: no snapshot cached of the old view may serve it.
-        if !frames.is_empty() || view.is_some() {
-            state.snapshots.clear();
-        }
-        if let Some(view) = view {
-            state.view = view;
         }
         Ok(())
     }

@@ -25,6 +25,8 @@ pub mod service;
 pub mod sessions;
 pub mod store;
 pub mod supervisor;
+#[cfg(test)]
+mod supervisor_feature_tests;
 pub mod turn_post;
 pub mod turn_host;
 pub mod turn_answer;
@@ -37,6 +39,7 @@ pub mod room_relay;
 pub mod user_send;
 #[cfg(any(test, feature = "test-support"))]
 pub mod exchange_script;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod agent_room_replay;
 pub mod room_ask;

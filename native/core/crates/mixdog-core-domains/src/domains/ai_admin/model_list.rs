@@ -27,6 +27,7 @@ use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ProviderReadiness};
 use mixdog_ai::registry::effective::EffectiveProviders;
 use mixdog_ai::registry::providers::NO_ENABLED_PROVIDERS;
 use mixdog_ai::effort::effort_items_for;
+use mixdog_ai::effort::effort_options_for;
 use mixdog_ai::service::admin_models::{
     HydrationFacts, hydrate_provider_model_row, is_selectable_llm_model, model_proxy_client_mode, provider_available,
     provider_model_cache_row, sort_provider_models, with_catalog_state,
@@ -80,9 +81,25 @@ pub struct ListHost {
     pub(super) claim_hook: Arc<Mutex<Option<Arc<dyn Fn(&ListHost) + Send + Sync>>>>,
 }
 
-/// One load every reader and warm shares (`caches.providerModelsPromise`): `Ok(false)` is a load that found no enabled provider
-/// (or a warm that failed, which Node's `onFailed` turns into an empty answer for everyone joined to it).
-type Load = Shared<BoxFuture<'static, Result<bool, String>>>;
+#[derive(Clone)]
+enum LoadOutcome {
+    Ready { with_secrets: bool },
+    NoListings,
+}
+
+type Load = Shared<BoxFuture<'static, Result<LoadOutcome, String>>>;
+
+struct CatalogRead {
+    models: Vec<Value>,
+    /// Providers whose listing answered, including successful zero-model listings.
+    complete_providers: Vec<String>,
+}
+
+impl CatalogRead {
+    fn empty() -> Self {
+        Self { models: Vec::new(), complete_providers: Vec::new() }
+    }
+}
 
 struct Flight {
     id: u64,
@@ -199,7 +216,7 @@ impl ListHost {
     }
 
     /// `Array.isArray(caches.providerModelsCache.models)` as it stands, without syncing the revision.
-    #[cfg(test)]
+    #[cfg(all(test, node_twin))]
     pub(super) fn held(&self) -> bool {
         self.cache().loaded
     }
@@ -269,7 +286,7 @@ impl ListHost {
 
     /// `startSharedLoad`: the load in flight, or a new one that every warm and reader joins. `load_secrets` is
     /// Node's `loadSecrets`: the load prepares the secrets first, and only such a load is adopted as the cache.
-    /// `swallow` is `onFailed`: a failed load is logged and answers `Ok(false)` to everyone joined to it. The load's
+    /// `swallow` is `onFailed`: a failed warm load is logged and has no authoritative rows. The load's
     /// sequence is taken here, as `++providerModelsLoadSeq` is, before anything it prepares.
     fn shared_load(&self, catalog: &Arc<CatalogService>, load_secrets: bool, swallow: bool) -> Load {
         let mut cache = self.cache();
@@ -296,7 +313,7 @@ impl ListHost {
             match handle.await {
                 Ok(Err(error)) if swallow => {
                     tracing::warn!(%error, "[provider-models] the warm load failed");
-                    Ok(false)
+                    Ok(LoadOutcome::NoListings)
                 }
                 Ok(outcome) => outcome,
                 Err(error) => Err(error.to_string()),
@@ -312,10 +329,9 @@ impl ListHost {
     /// load carries secrets. `started` is the sequence the load began under. A preparation moves the registry's
     /// revision (it registers the providers it lists), so a load still current after it carries the sequence forward
     /// (`ownsLoad`); one an invalidation superseded during the preparation keeps `started`, and `adopt` refuses it.
-    /// `false`: no provider is enabled, nothing was loaded.
-    async fn run_load(&self, catalog: &CatalogService, load_secrets: bool, started: u64) -> Result<bool, String> {
+    async fn run_load(&self, catalog: &CatalogService, load_secrets: bool, started: u64) -> Result<LoadOutcome, String> {
         if !self.prepare(load_secrets, true).await? {
-            return Ok(false);
+            return Ok(LoadOutcome::NoListings);
         }
         let (loaded, seq) = self.claim(started);
         if !loaded {
@@ -327,7 +343,7 @@ impl ListHost {
         if load_secrets && answered(&catalog.snapshot()) {
             self.adopt(seq);
         }
-        Ok(true)
+        Ok(LoadOutcome::Ready { with_secrets: load_secrets })
     }
     /// `loadConfig()`: the canonical agent section with the providers merged onto it.
     pub async fn loaded(&self) -> Result<Loaded, String> {
@@ -354,7 +370,12 @@ impl ListHost {
     /// (`await reg().refreshProviderCatalogsOnStartup()`), so it never snapshots a catalog that refresh then drops.
     async fn prepare(&self, load_secrets: bool, join: bool) -> Result<bool, String> {
         let providers = if load_secrets { Some(self.loaded().await?.providers) } else { None };
-        match self.readiness.ensure_providers_ready(providers).await {
+        // A forced load in the client mode reads the PC's providers afresh first (`loadModelProxyProviderConfig({ force: true })`).
+        let ready = match if join { Ok(()) } else { self.readiness.reread_remote().await } {
+            Ok(()) => self.readiness.ensure_providers_ready(providers).await,
+            Err(error) => Err(error),
+        };
+        match ready {
             Ok(()) => {}
             Err(error) if error.code == Some(NO_ENABLED_PROVIDERS) => return Ok(false),
             Err(error) => return Err(error.message),
@@ -368,9 +389,13 @@ impl ListHost {
 /// The facts row hydration reads, over the catalog and the effort modules.
 struct RowFacts<'a> {
     catalog: &'a CatalogService,
+    /// The same catalog, shared: an Anthropic route's wire gates read through it.
+    catalog_arc: &'a Arc<CatalogService>,
     snapshot: &'a CatalogSnapshot,
     unsupported: &'a UnsupportedEfforts,
     config: &'a Obj,
+    /// What endpoints refused, read once per hydration pass: the judge's ladder removes the same levels.
+    rejections: std::cell::OnceCell<std::collections::HashMap<String, mixdog_ai::effort::RejectionEntry>>,
 }
 
 impl HydrationFacts for RowFacts<'_> {
@@ -384,11 +409,29 @@ impl HydrationFacts for RowFacts<'_> {
 
     fn effort_items(&self, provider: &str, row: &Value) -> Value {
         Value::Array(
-            effort_items_for(provider, row, None, None)
+            effort_items_for(provider, row, None, {
+                let id = row.get("id").and_then(Value::as_str).unwrap_or_default();
+                self.rejections.get_or_init(|| self.catalog.effort_rejections()).get(&mixdog_ai::effort::rejection_key(provider, id))
+            })
                 .into_iter()
                 .map(|item| json!({ "value": item.value, "label": item.label, "description": item.description }))
                 .collect(),
         )
+    }
+
+    /// The turn judge's options for the route: `effortOptionsFor(provider, autoEffortModel(..))` over the provider's stored
+    /// row and the endpoint's refusals. An Anthropic route's ladder comes from its wire gates (`CatalogCaps`), not read here.
+    fn auto_effort_options(&self, provider: &str, model: &str) -> Option<Vec<String>> {
+        let rejected = self.rejections.get_or_init(|| self.catalog.effort_rejections());
+        let rejected = rejected.get(&mixdog_ai::effort::rejection_key(provider, model));
+        if matches!(provider, "anthropic" | "anthropic-oauth") {
+            let flag = std::env::var("MIXDOG_ANTHROPIC_ALWAYS_ENABLE_EFFORT").ok();
+            let levels = mixdog_ai::providers::anthropic::catalog_caps::CatalogCaps::with_flag(self.catalog_arc.clone(), flag.as_deref()).effort_levels_for(model);
+            return Some(effort_options_for(provider, &mixdog_ai::effort::anthropic_ladder_row(model, levels), rejected));
+        }
+        let stored = self.catalog.cached_row(provider, model).and_then(|row| row.as_object().cloned());
+        let row = mixdog_ai::effort::ladder_row(model, stored);
+        Some(effort_options_for(provider, &row, rejected))
     }
 
     fn effort_configuration_mode(&self, provider: &str, model: &str, opts: &Value) -> bool {
@@ -461,7 +504,7 @@ impl ModelListService {
     }
 
     /// `Array.isArray(caches.providerModelsCache.models)` without `syncCatalogRevision()` (a host's cache only).
-    #[cfg(test)]
+    #[cfg(all(test, node_twin))]
     pub(super) fn cache_held(&self) -> bool {
         self.host.as_ref().is_some_and(|host| host.held())
     }
@@ -515,7 +558,11 @@ impl ModelListService {
     /// `collectProviderModels({ force, quick, provider })`: `provider` scopes a forced refresh. `Err`
     /// is a provider load that failed, which Node's `collectProviderModels` rejects with.
     pub async fn rows_for(&self, force: bool, quick: bool, provider: Option<&str>) -> Result<Vec<Value>, String> {
-        match &self.host {
+        Ok(self.read_catalog(force, quick, provider).await?.models)
+    }
+
+    async fn read_catalog(&self, force: bool, quick: bool, provider: Option<&str>) -> Result<CatalogRead, String> {
+        let authoritative_read = match &self.host {
             Some(host) if !force => {
                 let snapshot = self.catalog.snapshot();
                 if quick && !self.cache_loaded() {
@@ -523,27 +570,43 @@ impl ModelListService {
                     // (`warmProviderModelCache({ loadSecrets: true })`, joining a load already in flight).
                     self.warm_cache(true);
                     let Loaded { agent, providers } = host.loaded().await?;
-                    return Ok(self.quick_rows(&snapshot, &providers, &agent, &(host.route)()));
+                    return Ok(CatalogRead {
+                        models: self.quick_rows(&snapshot, &providers, &agent, &(host.route)()),
+                        complete_providers: Vec::new(),
+                    });
                 }
                 // The one load in flight is joined, never raced (`startSharedLoad`); a read that finds none starts it.
-                if !host.shared_load(&self.catalog, true, false).await? {
-                    return Ok(Vec::new());
+                match host.shared_load(&self.catalog, true, false).await? {
+                    LoadOutcome::Ready { with_secrets } => with_secrets,
+                    LoadOutcome::NoListings => return Ok(CatalogRead::empty()),
                 }
             }
             Some(host) => {
                 if !host.prepare(true, false).await? {
-                    return Ok(Vec::new());
+                    return Ok(CatalogRead::empty());
                 }
                 self.ready(force, provider).await;
+                true
             }
-            None => self.ready(force, provider).await,
-        }
+            None => {
+                self.ready(force, provider).await;
+                true
+            }
+        };
         let snapshot = self.catalog.snapshot();
         let mut rows = self.from_cache_rows(&snapshot, &self.cache_rows(&snapshot));
+        let complete_providers = if authoritative_read {
+            snapshot.status.iter()
+                .filter(|(_, status)| matches!(status, mixdog_ai::catalog::ProviderStatus::Ok))
+                .map(|(id, _)| id.as_str().to_owned())
+                .collect()
+        } else {
+            Vec::new()
+        };
         if snapshot.partial() {
             let missing: Vec<String> = snapshot.missing().iter().map(|id| id.as_str().to_owned()).collect();
             let retry_at = snapshot.retry_at().map_or(f64::NAN, |at| at as f64);
-            return Ok(with_catalog_state(rows, Some((&missing, retry_at))));
+            rows = with_catalog_state(rows, Some((&missing, retry_at)));
         }
         // A quick answer from the loaded catalog already is the full catalog; saying so lets a
         // caller skip the full read it would otherwise follow up with.
@@ -554,7 +617,7 @@ impl ModelListService {
                 }
             }
         }
-        Ok(rows)
+        Ok(CatalogRead { models: rows, complete_providers })
     }
     /// `warmProviderModelCache({ loadSecrets })`: the load in the background. Nothing starts when the cache is loaded
     /// or a load is in flight (Node's `models` / `promise` guard); a load without secrets runs but is never adopted.
@@ -591,7 +654,7 @@ impl ModelListService {
         let config = self.config.agent();
         let developer = config.get("developer").cloned().unwrap_or(Value::Null);
         let client_mode = model_proxy_client_mode(&|name| std::env::var(name).ok());
-        let facts = RowFacts { catalog: &self.catalog, snapshot, unsupported: &self.unsupported, config: &config };
+        let facts = RowFacts { catalog: &self.catalog, catalog_arc: &self.catalog, snapshot, unsupported: &self.unsupported, config: &config, rejections: Default::default() };
         let mut rows: Vec<Value> = rows
             .iter()
             .filter(|row| provider_available(row.get("provider").and_then(Value::as_str).unwrap_or_default(), client_mode, &developer))
@@ -650,11 +713,16 @@ impl DomainService for ModelListService {
         let params: ModelListParams = serde_json::from_value(req.params).map_err(|e| invalid(&e.to_string()))?;
         // `refresh` is the setup tool's name for `force`.
         let force = params.force == Some(true) || params.refresh == Some(true);
-        let rows = self
-            .rows(force, params.quick == Some(true))
+        let read = self
+            .read_catalog(force, params.quick == Some(true), None)
             .await
             .map_err(|message| CoreError::DomainError { domain: "providers".into(), code: None, message: Some(message.into()), detail: None })?;
-        Ok(Reply::Value(Value::Array(rows)))
+        let value = if params.with_catalog_state == Some(true) {
+            json!({ "models": read.models, "completeProviders": read.complete_providers })
+        } else {
+            Value::Array(read.models)
+        };
+        Ok(Reply::Value(value))
     }
 
     fn notify(&self, _: Method, _: Value, _: ConnectionId) -> Admit {

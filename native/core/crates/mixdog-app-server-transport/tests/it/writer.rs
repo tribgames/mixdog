@@ -612,6 +612,112 @@ fn parsed(text: &str) -> serde_json::Value {
     serde_json::from_str(text).expect("a JSON frame")
 }
 
+/// A client resuming from a position inside a range another client got coalesced is replayed every frame after it, and its own
+/// appends are coalesced from there.
+#[tokio::test(start_paused = true)]
+async fn a_resume_inside_a_coalesced_range_replays_from_the_next_position() {
+    install_rt();
+    let limits = small_limits();
+    let hub = ConnectionHub::new(limits.clone()).unwrap();
+    let feed = new_feed("thread:t", &limits);
+    feed.publish(&(1..=5).map(|seq| append(seq, &seq.to_string())).collect::<Vec<_>>(), view()).expect("contiguous frames");
+    let mut phone = connect(&hub, ConnectionOrigin::Loopback, true);
+    phone.connection.sink.coalesce_appends();
+    let resume = ResumeFrom { position: FeedPosition { epoch: epoch(9), seq: 3 }, window: Window::LastItems(50) };
+    let attached = subscribe_to(&feed, &phone, "p", Window::LastItems(50), Some(resume));
+    assert_eq!(attached.decision.mode, AttachMode::Replay);
+    respond(&phone, attached, "resp");
+    assert_eq!(phone.take_text(1).await, ["resp"]);
+    let first = parsed(&phone.take_text(1).await[0]);
+    assert_eq!(first["feed"]["seq"], 4, "the replay starts right after the resumed position");
+    let next = parsed(&phone.take_text(1).await[0]);
+    assert_eq!((next["feed"]["seq"].clone(), next["params"]["delta"].clone()), (serde_json::json!(5), serde_json::json!("5")));
+    assert!(next["feed"].get("from").is_none(), "one held append leaves as it came");
+}
+/// A frame of the app feed (or a thread's), as it is encoded: `method`, `params`, the feed stamp.
+fn frame_of(method: &str, params: serde_json::Value, seq: u64) -> FeedFrame {
+    let frame = serde_json::json!({ "method": method, "params": params, "feed": { "id": "app", "epoch": epoch(9), "seq": seq } });
+    FeedFrame { seq, bytes: Bytes::from(frame.to_string()) }
+}
+
+/// A section update: the whole value of `(section, key)`, `revision` strictly increasing.
+fn section_frame(method: &str, section: &str, key: Option<&str>, value: serde_json::Value, seq: u64) -> FeedFrame {
+    frame_of(method, serde_json::json!({ "section": section, "key": key, "revision": seq, "value": value }), seq)
+}
+
+/// What the connection holds of its event budget once `count` frames were published to a peer that reads nothing (the first
+/// frame at the socket is the response, so every frame published waits in the lane), and what each frame is.
+async fn held_after(count: u64, make: &dyn Fn(u64) -> FeedFrame) -> usize {
+    install_rt();
+    let limits = mixdog_app_protocol::limits::Limits::default();
+    let hub = ConnectionHub::new(limits.clone()).unwrap();
+    let peer = connect(&hub, ConnectionOrigin::Loopback, false);
+    let feed = new_feed("app", &limits);
+    let attached = subscribe_to(&feed, &peer, "w", Window::Fixed, None);
+    respond(&peer, attached, "resp");
+    settle().await;
+    for seq in 1..=count {
+        feed.publish(&[make(seq)], view()).expect("contiguous frames");
+        settle().await;
+    }
+    assert!(!peer.connection.sink.is_closed(), "the lane lags, the connection stays open");
+    limits.event_budget_bytes as usize - peer.connection.sink.event_budget_free()
+}
+
+/// The queue's growth by kind of event, measured with the real writer and a peer that reads nothing, as the desktop window does
+/// while its process is busy: every frame is queued whole, as it is for the desktop window. Run with
+/// `--nocapture` for the table (kind, frame bytes, frames, bytes held).
+#[tokio::test]
+async fn bytes_queued_for_a_peer_that_reads_nothing_by_kind_of_event() {
+    let pad = |n: usize| "x".repeat(n);
+    let pool = |seq: u64| {
+        // 85 agent sessions, as the affected profile has; a row of about 700 bytes.
+        let rows: Vec<_> = (0..85).map(|i| serde_json::json!({ "id": format!("agent-{i}"), "state": "running", "pad": pad(640) })).collect();
+        section_frame("agent/pool/updated", "agentPool", None, serde_json::json!(rows), seq)
+    };
+    let summary = |seq: u64| section_frame("thread/summary/updated", "threadSummary", Some("t1"), serde_json::json!({ "id": "t1", "pad": pad(900) }), seq);
+    let delta = |seq: u64| frame_of("item/agentMessage/delta", serde_json::json!({ "threadId": "t", "turnId": "u", "itemId": "answer", "delta": "word " }), seq);
+    // The recorded Rust-core turn (`packages/protocol-client/test/live-turn-items.json`): a context update is 812 bytes at most,
+    // a token-usage update 23 KiB, its `usage.sendTools` the tool list the model call carried.
+    let context = |seq: u64| frame_of("thread/context/updated", serde_json::json!({ "threadId": "t", "value": { "pad": pad(700) } }), seq);
+    let usage = |seq: u64| frame_of("thread/tokenUsage/updated", serde_json::json!({ "threadId": "t", "usage": { "sendTools": pad(22_496) } }), seq);
+    let kinds: Vec<(&str, &dyn Fn(u64) -> FeedFrame)> = vec![
+        ("agent/pool/updated (85 rows)", &pool as &dyn Fn(u64) -> FeedFrame),
+        ("thread/summary/updated (one row)", &summary as &dyn Fn(u64) -> FeedFrame),
+        ("item/agentMessage/delta", &delta as &dyn Fn(u64) -> FeedFrame),
+        ("thread/context/updated", &context as &dyn Fn(u64) -> FeedFrame),
+        ("thread/tokenUsage/updated", &usage as &dyn Fn(u64) -> FeedFrame),
+    ];
+    let count = 40;
+    for (kind, make) in kinds {
+        let one = make(1).bytes.len();
+        let held = held_after(count, make).await;
+        eprintln!("queued {kind}: frame {one} B x {count}: {held} B held");
+        assert!(held >= one * count as usize, "{kind}: every frame is queued whole");
+    }
+}
+/// What closes a connection as a slow consumer is written to the daemon log (the hub's line sink): the cause, the frame that
+/// found no room and what each queue held by kind of frame.
+#[tokio::test]
+async fn a_slow_consumer_close_writes_what_was_queued_to_the_daemon_log() {
+    install_rt();
+    let limits = small_limits();
+    let hub = ConnectionHub::new(limits.clone()).unwrap();
+    let lines = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink_lines = Arc::clone(&lines);
+    assert!(hub.set_log(Arc::new(move |line: &str| sink_lines.lock().unwrap().push(line.to_owned()))).is_ok());
+    let peer = connect(&hub, ConnectionOrigin::Loopback, false);
+    let sink = peer.connection.sink.clone();
+    let frame = Bytes::from(serde_json::json!({ "method": "agent/pool/updated", "params": { "pad": "c".repeat(30_000) } }).to_string());
+    assert!((0..8).any(|_| sink.send_control(frame.clone()).is_err()), "the reserve must run out");
+    let lines = lines.lock().unwrap();
+    assert_eq!(lines.len(), 1, "one line per close: {lines:?}");
+    for part in ["connection slowConsumer", "cause=controlReserve", "frame_kind=agent/pool/updated", "kinds=[agent/pool/updated x"] {
+        assert!(lines[0].contains(part), "{part} in {}", lines[0]);
+    }
+}
+
+
 /// Two clients on one stream: the one that announced `feedRanges` gets the first append at once and the window's appends as one
 /// frame standing for their positions (`feed.from`); the other gets every frame as before.
 #[tokio::test(start_paused = true)]
@@ -646,27 +752,4 @@ async fn only_a_feed_ranges_client_gets_a_window_of_appends_as_one_ranged_frame(
     let every: Vec<serde_json::Value> = older.take_text(4).await.iter().map(|text| parsed(text)).collect();
     assert_eq!(every.iter().map(|frame| frame["feed"]["seq"].as_u64().unwrap()).collect::<Vec<_>>(), [1, 2, 3, 4]);
     assert!(every.iter().all(|frame| frame["feed"].get("from").is_none()), "a client without `feedRanges` never sees a range");
-}
-
-/// A client resuming from a position inside a range another client got coalesced is replayed every frame after it, and its own
-/// appends are coalesced from there.
-#[tokio::test(start_paused = true)]
-async fn a_resume_inside_a_coalesced_range_replays_from_the_next_position() {
-    install_rt();
-    let limits = small_limits();
-    let hub = ConnectionHub::new(limits.clone()).unwrap();
-    let feed = new_feed("thread:t", &limits);
-    feed.publish(&(1..=5).map(|seq| append(seq, &seq.to_string())).collect::<Vec<_>>(), view()).expect("contiguous frames");
-    let mut phone = connect(&hub, ConnectionOrigin::Loopback, true);
-    phone.connection.sink.coalesce_appends();
-    let resume = ResumeFrom { position: FeedPosition { epoch: epoch(9), seq: 3 }, window: Window::LastItems(50) };
-    let attached = subscribe_to(&feed, &phone, "p", Window::LastItems(50), Some(resume));
-    assert_eq!(attached.decision.mode, AttachMode::Replay);
-    respond(&phone, attached, "resp");
-    assert_eq!(phone.take_text(1).await, ["resp"]);
-    let first = parsed(&phone.take_text(1).await[0]);
-    assert_eq!(first["feed"]["seq"], 4, "the replay starts right after the resumed position");
-    let next = parsed(&phone.take_text(1).await[0]);
-    assert_eq!((next["feed"]["seq"].clone(), next["params"]["delta"].clone()), (serde_json::json!(5), serde_json::json!("5")));
-    assert!(next["feed"].get("from").is_none(), "one held append leaves as it came");
 }

@@ -1,7 +1,6 @@
 //! The MXT transport's signalling and media-adapter messages (`shared/remote-transport.ts`
 //! `parseRemoteTransportSignal`, `readRemoteTransportMedia`). Every check, its order and its error
-//! text are Node's (`tests/it/transport_signals.rs` replays the recorded outcomes). Lengths count
-//! UTF-16 units.
+//! text are part of the wire contract (`tests/it/wire_contracts.rs`). Lengths count UTF-16 units.
 
 use std::sync::LazyLock;
 

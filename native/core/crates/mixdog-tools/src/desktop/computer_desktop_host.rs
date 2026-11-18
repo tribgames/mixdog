@@ -41,7 +41,9 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+use super::computer_authority::Authority;
 use super::computer_backend::HOST_READ_ACTIONS;
+use super::computer_backend::is_lifecycle;
 use super::computer_backend::ObserveOnly;
 use super::computer_backend::REPORTED_CODE;
 use super::computer_command::host_command;
@@ -127,253 +129,9 @@ pub struct DesktopHostBackend {
     secret_focus: AtomicBool,
     /// The in-process half (phone input, displays, screen frames): the desktop host does not serve it.
     screen: Screen,
-}
-
-impl DesktopHostBackend {
-    pub fn new(desktop: Arc<dyn HostChannel>, blobs: Arc<dyn ComputerBlobs>, session_id: impl Into<String>, observe_only: ObserveOnly) -> Self {
-        Self { desktop, blobs, session_id: session_id.into(), observe_only, bound: AtomicBool::new(false), secret_focus: AtomicBool::new(false), screen: Screen::default() }
-    }
-
-    /// `applySecretFocusHold`: while a typed secret's field may hold focus a read is refused, and the next action (which moves on)
-    /// lifts the hold; a lifecycle control leaves it as it is.
-    fn hold_for_secret(&self, command: &Map<String, Value>) -> Result<(), ComputerError> {
-        if !self.secret_focus.load(Ordering::SeqCst) {
-            return Ok(());
-        }
-        let action = text(command, "action");
-        if HOST_READ_ACTIONS.contains(&action) {
-            return Err(reported("capture_withheld: a secret field may be focused; move focus (Tab or a click elsewhere) first"));
-        }
-        if !matches!(action, "execution_end" | "session_release" | "session_abort" | "turn_settle") {
-            self.secret_focus.store(false, Ordering::SeqCst);
-        }
-        Ok(())
-    }
-
-    /// The backend the section reports.
-    pub fn backend_name(&self) -> &'static str {
-        BACKEND_NAME
-    }
-
-    /// One session-level command of the host (`session_abort`, `execution_end`, `session_release`, `turn_settle`): whether the host
-    /// confirmed it (`sendComputerSessionControl`). Nothing is sent without a desktop serving the host or a session.
-    pub async fn session_control(&self, action: &str, extra: Map<String, Value>, timeout: Duration) -> bool {
-        let id = js_trim(&self.session_id);
-        if id.is_empty() || !self.desktop.serves(HostCapability::Computer) {
-            return false;
-        }
-        let mut command = Map::new();
-        command.insert("action".into(), json!(action));
-        command.insert("session_id".into(), json!(id));
-        command.extend(extra);
-        matches!(self.post(command, &CancellationToken::new(), timeout).await, Ok(Posted::Reply(_)))
-    }
-
-    /// One `host/computer/command` request and the host's answer, with the failures worded as the client worded them.
-    /// `ComputerError::Cancelled` here only says the caller's token fired; the caller decides what that means.
-    async fn post(&self, command: Map<String, Value>, cancel: &CancellationToken, timeout: Duration) -> Result<Posted, ComputerError> {
-        let uncertain = may_have_executed(&command);
-        let params = json!({ "sessionThreadId": self.session_id, "command": command });
-        let timed_out = || if uncertain { uncertain_mutation() } else { reported("Error: computer bridge timed out") };
-        let asked = mixdog_rt::time::timeout(timeout, self.desktop.request_scoped(HostCapability::Computer, Method(METHOD), params, cancel)).await;
-        let Ok(answer) = asked else { return Err(timed_out()) };
-        match answer {
-            Ok(body) => self.read_body(&body, uncertain).await,
-            Err(_) if cancel.is_cancelled() => Err(ComputerError::Cancelled),
-            Err(HostError::Rpc { code: METHOD_NOT_FOUND, .. }) => Err(bridge_unavailable()),
-            Err(HostError::Rpc { message, .. }) => Ok(Posted::Refused(message)),
-            // The channel's own deadline for the computer capability is the client's request timeout.
-            Err(HostError::Core(CoreError::CapabilityUnavailable { detail, .. })) if &*detail == "timedOut" => Err(timed_out()),
-            Err(HostError::Core(_)) => Err(if uncertain { uncertain_mutation() } else { bridge_unavailable() }),
-        }
-    }
-
-    /// The host's result object: its refusal, or its reply (`readComputerBridgeBody`, `validateComputerReply`).
-    async fn read_body(&self, body: &Value, uncertain: bool) -> Result<Posted, ComputerError> {
-        let Some(body) = body.as_object() else {
-            return Err(reported(if uncertain {
-                "Error: computer command may have executed but the bridge returned an invalid response; inspect fresh state before retrying"
-            } else {
-                "Error: computer bridge returned an invalid response"
-            }));
-        };
-        if body.get("ok") != Some(&Value::Bool(true)) {
-            let message = match body.get("error") {
-                Some(Value::String(error)) if !error.is_empty() => error.clone(),
-                _ => "computer bridge request failed".to_owned(),
-            };
-            return Ok(Posted::Refused(message));
-        }
-        let invalid = |what: &str| reported(format!("Error: computer bridge returned {what}; input may have executed and was not replayed"));
-        let Some(Value::String(reply_text)) = body.get("text") else { return Err(invalid("invalid or oversized text")) };
-        if utf16_len(reply_text) > MAX_TEXT_CHARS {
-            return Err(invalid("invalid or oversized text"));
-        }
-        let image = match body.get("imageBlob") {
-            None | Some(Value::Null) => None,
-            Some(blob) => Some(self.read_image(blob).await.ok_or_else(|| invalid("an invalid or oversized image"))?),
-        };
-        Ok(Posted::Reply(HostReply {
-            // `String(value.text || 'OK')`.
-            text: if reply_text.is_empty() { "OK".into() } else { reply_text.clone() },
-            image,
-            is_error: body.get("isError") == Some(&Value::Bool(true)),
-        }))
-    }
-
-    /// An `imageBlob` `{ digest, byteLength, mimeType }`: the stored bytes when they are the size and type it says, bounded as
-    /// the client bounded a base64 image.
-    async fn read_image(&self, blob: &Value) -> Option<(String, Vec<u8>)> {
-        let mime = blob.get("mimeType")?.as_str().filter(|mime| matches!(*mime, "image/png" | "image/jpeg"))?;
-        let digest = blob.get("digest")?.as_str().filter(|digest| !digest.is_empty())?;
-        let length = usize::try_from(blob.get("byteLength")?.as_u64()?).ok()?;
-        if length.div_ceil(3) * 4 > MAX_IMAGE_CHARS {
-            return None;
-        }
-        let bytes = self.blobs.read(digest).await.ok()?;
-        (bytes.len() == length).then(|| (mime.to_owned(), bytes))
-    }
-
-    /// `cancelledComputerResult`: the session is aborted on the host, and the call ends with what is known about its input.
-    async fn aborted(&self, command: &Map<String, Value>) -> ComputerError {
-        let confirmed = self.session_control("session_abort", Map::new(), SESSION_ABORT_TIMEOUT).await;
-        let cleanup = if confirmed { "input state and session resources were released" } else { "host cleanup could not be confirmed" };
-        let partial = if may_have_executed(command) { "; input may have partially executed; inspect fresh state before retrying" } else { "" };
-        reported(format!("Error: computer command aborted; {cleanup}{partial}"))
-    }
-
-    /// A refusal of the host: for a stale target the exact window is captured again and returned with it (`refusalWithRecapture`:
-    /// the refusal text, the capture's text and its image), any other is the host's text with its code.
-    async fn refused(&self, message: String, request: &ComputerRequest, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
-        if let Some(window) = recapture_window(request.action.wire_name(), &request.input, &message) {
-            let capture = ComputerRequest { action: mixdog_core_api::domain::computer::ComputerAction::Capture, input: json!({ "window_id": window.clone() }) };
-            if let Ok(parts) = self.run(capture, cancel.clone()).await {
-                return Ok(refusal_with_capture(&message, &window, parts));
-            }
-        }
-        Err(host_error(&message))
-    }
-
-    /// A read-only command of a pending wait (`pendingWorkReader`); `Err` is a connection that is lost or a reply that is refused.
-    async fn read_only(&self, mut command: Map<String, Value>, cancel: &CancellationToken) -> Result<HostReply, ()> {
-        if !js_trim(&self.session_id).is_empty() {
-            command.insert("session_id".into(), json!(self.session_id));
-        }
-        let capture = text(&command, "action") == "capture";
-        match self.post(command, cancel, REQUEST_TIMEOUT).await {
-            Ok(Posted::Reply(reply)) => Ok(reply),
-            // The capture of a session the person still holds: the work is still pending.
-            Ok(Posted::Refused(message)) if capture && is_user_control_active(&message) => Ok(HostReply {
-                text: json!({ "ok": false, "status": "paused", "code": PENDING_CODE }).to_string(),
-                image: None,
-                is_error: false,
-            }),
-            _ => Err(()),
-        }
-    }
-
-    /// `continuePendingComputerWork`: the call stays pending while the person has the desktop; only read-only waits and captures are
-    /// sent, and the original command is never sent again.
-    async fn settle_pending(&self, initial: HostReply, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<HostReply, ComputerError> {
-        let interrupted = || async {
-            self.session_control("session_abort", Map::new(), SESSION_ABORT_TIMEOUT).await;
-            reported("Error: pending computer work was interrupted; no input was replayed. Inspect fresh state before continuing.")
-        };
-        let progress = payload(&initial.text);
-        let finish = |text: Value| HostReply { text: text.to_string(), image: None, is_error: false };
-        loop {
-            if cancel.is_cancelled() {
-                return Err(interrupted().await);
-            }
-            let waited = match self.read_only(command_of(&[("action", json!("wait_for_user")), ("timeout_ms", json!(60_000))]), cancel).await {
-                Ok(reply) => payload(&reply.text),
-                Err(()) if cancel.is_cancelled() => return Err(interrupted().await),
-                Err(()) => return Ok(finish(read_failed(&progress))),
-            };
-            if cancel.is_cancelled() {
-                return Err(interrupted().await);
-            }
-            let status = waited.get("status").and_then(Value::as_str);
-            if status == Some("timeout") && waited.get("reason").and_then(Value::as_str) == Some("user_pause") {
-                continue;
-            }
-            if status != Some("resumed") || waited.get("resumed") != Some(&Value::Bool(true)) {
-                let reason = waited.get("reason").filter(|reason| truthy(reason)).cloned().unwrap_or(json!("resume_unconfirmed"));
-                return Ok(finish(Value::Object(merged(
-                    &progress,
-                    [
-                        ("ok", json!(false)),
-                        ("status", json!(if status == Some("cancelled") { "cancelled" } else { "paused" })),
-                        ("reason", reason),
-                        ("input_replayed", json!(false)),
-                        ("recovery", json!({ "next": "wait_for_user", "guidance": "Work has not completed. Resume was not confirmed; no input was replayed." })),
-                    ],
-                ))));
-            }
-            let completed = progress.get("total_steps").is_some_and(Value::is_number)
-                && progress.get("completed_steps") == progress.get("total_steps")
-                && progress.get("pending_work").and_then(|work| work.get("uncertain_step")).is_none();
-            let mut resumed = progress.clone();
-            resumed.shift_remove("code");
-            resumed.shift_remove("error");
-            let resumed = merged(&resumed, [("status", json!("resumed")), ("reason", json!("")), ("completed", json!(completed))]);
-            let Some(target) = capture_target(command) else {
-                return Ok(finish(Value::Object(merged(
-                    &resumed,
-                    [
-                        ("fresh_capture_required", json!(true)),
-                        ("verdict", json!({ "decision": "escalate", "recommended": "recapture" })),
-                        (
-                            "recovery",
-                            json!({
-                                "next": "capture",
-                                "guidance": "User control ended. Capture the intended target, then continue remaining intent without replaying completed or uncertain input."
-                            }),
-                        ),
-                    ],
-                ))));
-            };
-            let mut read = command_of(&[("action", json!("capture"))]);
-            read.extend(target);
-            let captured = match self.read_only(read, cancel).await {
-                Ok(reply) => reply,
-                Err(()) if cancel.is_cancelled() => return Err(interrupted().await),
-                Err(()) => return Ok(finish(read_failed(&progress))),
-            };
-            if is_pending(&captured.text) {
-                continue;
-            }
-            let observation = payload(&captured.text);
-            let fresh = observation.get("ok") == Some(&Value::Bool(true));
-            let (decision, recommended, next, guidance) = if fresh {
-                (
-                    "verify_fresh_state",
-                    "continue_pending_work",
-                    "continue_pending_work",
-                    "Continue the remaining intent from this fresh observation. Completed or uncertain input must not be replayed blindly.",
-                )
-            } else {
-                (
-                    "escalate",
-                    "recapture",
-                    "capture",
-                    "User control ended, but fresh observation is unavailable. Capture the target before continuing; never replay completed or uncertain input blindly.",
-                )
-            };
-            let body = merged(
-                &resumed,
-                [
-                    ("ok", json!(fresh)),
-                    ("observation", Value::Object(observation)),
-                    ("input_replayed", json!(false)),
-                    ("fresh_capture_required", json!(!fresh)),
-                    ("verdict", json!({ "decision": decision, "recommended": recommended })),
-                    ("recovery", json!({ "next": next, "guidance": guidance })),
-                ],
-            );
-            return Ok(HostReply { text: Value::Object(body).to_string(), ..captured });
-        }
-    }
+    /// The scope the commands are handed over under: checked here, named in every request (the pool hands this backend the scoped
+    /// channel), and enforced again by the desktop, which keeps a revocable context per scope.
+    authority: Authority,
 }
 
 /// `result.code` of a reply that says the person's intervention has paused the work.
@@ -769,6 +527,8 @@ impl ComputerSecretHost for DesktopHostBackend {
             ComputerError::Denied => "denied".to_owned(),
             ComputerError::Cancelled => "cancelled".to_owned(),
         };
+        // Off is reported as off, whatever else would also refuse; `post` looks again where it sends.
+        self.authority.check().map_err(message)?;
         if !self.desktop.serves(HostCapability::Computer) {
             return Err(message(bridge_unavailable()));
         }
@@ -1087,26 +847,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_cancelled_call_abandons_the_request_and_aborts_the_session() {
-        let host = FakeHost::new(vec![Answer::Hang, ok("OK")]);
-        let cancel = CancellationToken::new();
-        let stop = cancel.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            stop.cancel();
-        });
-        let click = ComputerRequest { action: ComputerAction::Window, input: json!({ "window_id": "hwnd:0x2", "operation": "focus" }) };
-        let (code, message) = failure(backend(&host).run(click, cancel).await.unwrap_err());
-        assert_eq!(code, REPORTED_CODE);
-        assert_eq!(
-            message,
-            "Error: computer command aborted; input state and session resources were released; input may have partially executed; inspect fresh state before retrying"
-        );
-        let abort = &host.commands()[1]["command"];
-        assert_eq!((abort["action"].clone(), abort["session_id"].clone()), (json!("session_abort"), json!("thread-1")));
-    }
-
-    #[tokio::test]
     async fn a_pause_by_the_person_is_waited_out_and_ends_with_a_fresh_capture() {
         let paused = json!({ "ok": false, "status": "paused", "code": PENDING_CODE, "completed_steps": 1, "total_steps": 2 }).to_string();
         let resumed = json!({ "status": "resumed", "resumed": true }).to_string();
@@ -1191,5 +931,293 @@ mod tests {
         let mut read_only = command("sequence");
         read_only.insert("read_only".into(), json!(true));
         assert!(!may_have_executed(&read_only));
+    }
+
+
+    #[tokio::test]
+    async fn a_cancelled_call_abandons_the_request_and_aborts_the_session() {
+        let host = FakeHost::new(vec![Answer::Hang, ok("OK")]);
+        let cancel = CancellationToken::new();
+        let stop = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            stop.cancel();
+        });
+        let click = ComputerRequest { action: ComputerAction::Window, input: json!({ "window_id": "hwnd:0x2", "operation": "focus" }) };
+        let (code, message) = failure(backend(&host).run(click, cancel).await.unwrap_err());
+        assert_eq!(code, REPORTED_CODE);
+        assert_eq!(
+            message,
+            "Error: computer command aborted; input state and session resources were released; input may have partially executed; inspect fresh state before retrying"
+        );
+        let abort = &host.commands()[1]["command"];
+        assert_eq!((abort["action"].clone(), abort["session_id"].clone()), (json!("session_abort"), json!("thread-1")));
+    }
+}
+
+
+impl DesktopHostBackend {
+    pub fn new(desktop: Arc<dyn HostChannel>, blobs: Arc<dyn ComputerBlobs>, session_id: impl Into<String>, observe_only: ObserveOnly) -> Self {
+        Self { desktop, blobs, session_id: session_id.into(), observe_only, bound: AtomicBool::new(false), secret_focus: AtomicBool::new(false), screen: Screen::default(), authority: Authority::default() }
+    }
+
+    /// Hands commands to the desktop's host only under `authority`.
+    pub fn with_authority(mut self, authority: Authority) -> Self {
+        self.authority = authority;
+        self
+    }
+
+    /// The scope the commands are handed over under.
+    pub fn authority(&self) -> &Authority {
+        &self.authority
+    }
+
+    /// `applySecretFocusHold`: while a typed secret's field may hold focus a read is refused, and the next action (which moves on)
+    /// lifts the hold; a lifecycle control leaves it as it is.
+    fn hold_for_secret(&self, command: &Map<String, Value>) -> Result<(), ComputerError> {
+        if !self.secret_focus.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        let action = text(command, "action");
+        if HOST_READ_ACTIONS.contains(&action) {
+            return Err(reported("capture_withheld: a secret field may be focused; move focus (Tab or a click elsewhere) first"));
+        }
+        if !matches!(action, "execution_end" | "session_release" | "session_abort" | "turn_settle") {
+            self.secret_focus.store(false, Ordering::SeqCst);
+        }
+        Ok(())
+    }
+
+    /// The backend the section reports.
+    pub fn backend_name(&self) -> &'static str {
+        BACKEND_NAME
+    }
+
+    /// One session-level command of the host (`session_abort`, `execution_end`, `session_release`, `turn_settle`): whether the host
+    /// confirmed it (`sendComputerSessionControl`). Nothing is sent without a desktop serving the host or a session.
+    pub async fn session_control(&self, action: &str, extra: Map<String, Value>, timeout: Duration) -> bool {
+        let id = js_trim(&self.session_id);
+        if id.is_empty() || !self.desktop.serves(HostCapability::Computer) {
+            return false;
+        }
+        let mut command = Map::new();
+        command.insert("action".into(), json!(action));
+        command.insert("session_id".into(), json!(id));
+        command.extend(extra);
+        matches!(self.post(command, &CancellationToken::new(), timeout).await, Ok(Posted::Reply(_)))
+    }
+
+    /// One `host/computer/command` request and the host's answer, with the failures worded as the client worded them.
+    /// `ComputerError::Cancelled` here only says the caller's token fired; the caller decides what that means.
+    async fn post(&self, command: Map<String, Value>, cancel: &CancellationToken, timeout: Duration) -> Result<Posted, ComputerError> {
+        // Every command of the session, a secret fill's included, is handed over here: refused once the switch is off or the backend revoked,
+        // whatever it waited for before. A session-level end (abort, release) still reaches a host that holds something.
+        // A revoked scope sends nothing, a session-level end included: the desktop revokes its context of the scope instead.
+        if !is_lifecycle(text(&command, "action")) {
+            self.authority.check()?;
+        } else if self.authority.is_revoked() {
+            return Err(bridge_unavailable());
+        }
+        let uncertain = may_have_executed(&command);
+        let params = json!({ "sessionThreadId": self.session_id, "command": command });
+        let timed_out = || if uncertain { uncertain_mutation() } else { reported("Error: computer bridge timed out") };
+        let asked = mixdog_rt::time::timeout(timeout, self.desktop.request_scoped(HostCapability::Computer, Method(METHOD), params, cancel)).await;
+        let Ok(answer) = asked else { return Err(timed_out()) };
+        match answer {
+            Ok(body) => self.read_body(&body, uncertain).await,
+            Err(_) if cancel.is_cancelled() => Err(ComputerError::Cancelled),
+            Err(HostError::Rpc { code: METHOD_NOT_FOUND, .. }) => Err(bridge_unavailable()),
+            Err(HostError::Rpc { message, .. }) => Ok(Posted::Refused(message)),
+            // The channel's own deadline for the computer capability is the client's request timeout.
+            Err(HostError::Core(CoreError::CapabilityUnavailable { detail, .. })) if &*detail == "timedOut" => Err(timed_out()),
+            Err(HostError::Core(_)) => Err(if uncertain { uncertain_mutation() } else { bridge_unavailable() }),
+        }
+    }
+
+    /// The host's result object: its refusal, or its reply (`readComputerBridgeBody`, `validateComputerReply`).
+    async fn read_body(&self, body: &Value, uncertain: bool) -> Result<Posted, ComputerError> {
+        let Some(body) = body.as_object() else {
+            return Err(reported(if uncertain {
+                "Error: computer command may have executed but the bridge returned an invalid response; inspect fresh state before retrying"
+            } else {
+                "Error: computer bridge returned an invalid response"
+            }));
+        };
+        if body.get("ok") != Some(&Value::Bool(true)) {
+            let message = match body.get("error") {
+                Some(Value::String(error)) if !error.is_empty() => error.clone(),
+                _ => "computer bridge request failed".to_owned(),
+            };
+            return Ok(Posted::Refused(message));
+        }
+        let invalid = |what: &str| reported(format!("Error: computer bridge returned {what}; input may have executed and was not replayed"));
+        let Some(Value::String(reply_text)) = body.get("text") else { return Err(invalid("invalid or oversized text")) };
+        if utf16_len(reply_text) > MAX_TEXT_CHARS {
+            return Err(invalid("invalid or oversized text"));
+        }
+        let image = match body.get("imageBlob") {
+            None | Some(Value::Null) => None,
+            Some(blob) => Some(self.read_image(blob).await.ok_or_else(|| invalid("an invalid or oversized image"))?),
+        };
+        Ok(Posted::Reply(HostReply {
+            // `String(value.text || 'OK')`.
+            text: if reply_text.is_empty() { "OK".into() } else { reply_text.clone() },
+            image,
+            is_error: body.get("isError") == Some(&Value::Bool(true)),
+        }))
+    }
+
+    /// An `imageBlob` `{ digest, byteLength, mimeType }`: the stored bytes when they are the size and type it says, bounded as
+    /// the client bounded a base64 image.
+    async fn read_image(&self, blob: &Value) -> Option<(String, Vec<u8>)> {
+        let mime = blob.get("mimeType")?.as_str().filter(|mime| matches!(*mime, "image/png" | "image/jpeg"))?;
+        let digest = blob.get("digest")?.as_str().filter(|digest| !digest.is_empty())?;
+        let length = usize::try_from(blob.get("byteLength")?.as_u64()?).ok()?;
+        if length.div_ceil(3) * 4 > MAX_IMAGE_CHARS {
+            return None;
+        }
+        let bytes = self.blobs.read(digest).await.ok()?;
+        (bytes.len() == length).then(|| (mime.to_owned(), bytes))
+    }
+
+    /// `cancelledComputerResult`: the session is aborted on the host, and the call ends with what is known about its input.
+    async fn aborted(&self, command: &Map<String, Value>) -> ComputerError {
+        let confirmed = self.session_control("session_abort", Map::new(), SESSION_ABORT_TIMEOUT).await;
+        let cleanup = if confirmed { "input state and session resources were released" } else { "host cleanup could not be confirmed" };
+        let partial = if may_have_executed(command) { "; input may have partially executed; inspect fresh state before retrying" } else { "" };
+        reported(format!("Error: computer command aborted; {cleanup}{partial}"))
+    }
+
+    /// A refusal of the host: for a stale target the exact window is captured again and returned with it (`refusalWithRecapture`:
+    /// the refusal text, the capture's text and its image), any other is the host's text with its code.
+    async fn refused(&self, message: String, request: &ComputerRequest, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+        if let Some(window) = recapture_window(request.action.wire_name(), &request.input, &message) {
+            let capture = ComputerRequest { action: mixdog_core_api::domain::computer::ComputerAction::Capture, input: json!({ "window_id": window.clone() }) };
+            if let Ok(parts) = self.run(capture, cancel.clone()).await {
+                return Ok(refusal_with_capture(&message, &window, parts));
+            }
+        }
+        Err(host_error(&message))
+    }
+
+    /// A read-only command of a pending wait (`pendingWorkReader`); `Err` is a connection that is lost or a reply that is refused.
+    async fn read_only(&self, mut command: Map<String, Value>, cancel: &CancellationToken) -> Result<HostReply, ()> {
+        if !js_trim(&self.session_id).is_empty() {
+            command.insert("session_id".into(), json!(self.session_id));
+        }
+        let capture = text(&command, "action") == "capture";
+        match self.post(command, cancel, REQUEST_TIMEOUT).await {
+            Ok(Posted::Reply(reply)) => Ok(reply),
+            // The capture of a session the person still holds: the work is still pending.
+            Ok(Posted::Refused(message)) if capture && is_user_control_active(&message) => Ok(HostReply {
+                text: json!({ "ok": false, "status": "paused", "code": PENDING_CODE }).to_string(),
+                image: None,
+                is_error: false,
+            }),
+            _ => Err(()),
+        }
+    }
+
+    /// `continuePendingComputerWork`: the call stays pending while the person has the desktop; only read-only waits and captures are
+    /// sent, and the original command is never sent again.
+    async fn settle_pending(&self, initial: HostReply, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<HostReply, ComputerError> {
+        let interrupted = || async {
+            self.session_control("session_abort", Map::new(), SESSION_ABORT_TIMEOUT).await;
+            reported("Error: pending computer work was interrupted; no input was replayed. Inspect fresh state before continuing.")
+        };
+        let progress = payload(&initial.text);
+        let finish = |text: Value| HostReply { text: text.to_string(), image: None, is_error: false };
+        loop {
+            if cancel.is_cancelled() {
+                return Err(interrupted().await);
+            }
+            let waited = match self.read_only(command_of(&[("action", json!("wait_for_user")), ("timeout_ms", json!(60_000))]), cancel).await {
+                Ok(reply) => payload(&reply.text),
+                Err(()) if cancel.is_cancelled() => return Err(interrupted().await),
+                Err(()) => return Ok(finish(read_failed(&progress))),
+            };
+            if cancel.is_cancelled() {
+                return Err(interrupted().await);
+            }
+            let status = waited.get("status").and_then(Value::as_str);
+            if status == Some("timeout") && waited.get("reason").and_then(Value::as_str) == Some("user_pause") {
+                continue;
+            }
+            if status != Some("resumed") || waited.get("resumed") != Some(&Value::Bool(true)) {
+                let reason = waited.get("reason").filter(|reason| truthy(reason)).cloned().unwrap_or(json!("resume_unconfirmed"));
+                return Ok(finish(Value::Object(merged(
+                    &progress,
+                    [
+                        ("ok", json!(false)),
+                        ("status", json!(if status == Some("cancelled") { "cancelled" } else { "paused" })),
+                        ("reason", reason),
+                        ("input_replayed", json!(false)),
+                        ("recovery", json!({ "next": "wait_for_user", "guidance": "Work has not completed. Resume was not confirmed; no input was replayed." })),
+                    ],
+                ))));
+            }
+            let completed = progress.get("total_steps").is_some_and(Value::is_number)
+                && progress.get("completed_steps") == progress.get("total_steps")
+                && progress.get("pending_work").and_then(|work| work.get("uncertain_step")).is_none();
+            let mut resumed = progress.clone();
+            resumed.shift_remove("code");
+            resumed.shift_remove("error");
+            let resumed = merged(&resumed, [("status", json!("resumed")), ("reason", json!("")), ("completed", json!(completed))]);
+            let Some(target) = capture_target(command) else {
+                return Ok(finish(Value::Object(merged(
+                    &resumed,
+                    [
+                        ("fresh_capture_required", json!(true)),
+                        ("verdict", json!({ "decision": "escalate", "recommended": "recapture" })),
+                        (
+                            "recovery",
+                            json!({
+                                "next": "capture",
+                                "guidance": "User control ended. Capture the intended target, then continue remaining intent without replaying completed or uncertain input."
+                            }),
+                        ),
+                    ],
+                ))));
+            };
+            let mut read = command_of(&[("action", json!("capture"))]);
+            read.extend(target);
+            let captured = match self.read_only(read, cancel).await {
+                Ok(reply) => reply,
+                Err(()) if cancel.is_cancelled() => return Err(interrupted().await),
+                Err(()) => return Ok(finish(read_failed(&progress))),
+            };
+            if is_pending(&captured.text) {
+                continue;
+            }
+            let observation = payload(&captured.text);
+            let fresh = observation.get("ok") == Some(&Value::Bool(true));
+            let (decision, recommended, next, guidance) = if fresh {
+                (
+                    "verify_fresh_state",
+                    "continue_pending_work",
+                    "continue_pending_work",
+                    "Continue the remaining intent from this fresh observation. Completed or uncertain input must not be replayed blindly.",
+                )
+            } else {
+                (
+                    "escalate",
+                    "recapture",
+                    "capture",
+                    "User control ended, but fresh observation is unavailable. Capture the target before continuing; never replay completed or uncertain input blindly.",
+                )
+            };
+            let body = merged(
+                &resumed,
+                [
+                    ("ok", json!(fresh)),
+                    ("observation", Value::Object(observation)),
+                    ("input_replayed", json!(false)),
+                    ("fresh_capture_required", json!(!fresh)),
+                    ("verdict", json!({ "decision": decision, "recommended": recommended })),
+                    ("recovery", json!({ "next": next, "guidance": guidance })),
+                ],
+            );
+            return Ok(HostReply { text: Value::Object(body).to_string(), ..captured });
+        }
     }
 }

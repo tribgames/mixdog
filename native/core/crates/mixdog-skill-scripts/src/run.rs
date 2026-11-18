@@ -20,36 +20,6 @@ use crate::shipped::run_native;
 use crate::shipped::shipped_script;
 use crate::user::UserScriptRuntime;
 
-/// Runs the skill script `args` names (what follows `skill-run` on the command line) and returns its exit
-/// code. A shipped script with a native version runs in this process; any other goes to `user_runtime`.
-pub fn skill_run(args: Vec<OsString>, user_runtime: UserScriptRuntime) -> ExitCode {
-    let command_line: Vec<String> = args.iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
-    let carried_value = std::env::var_os(SKILL_ARGV_ENV).map(|value| value.to_string_lossy().into_owned());
-    let carried = command_line.is_empty() && decode_skill_argv(carried_value.as_deref()).is_some();
-    let entry = entry_arguments(&command_line, carried_value.as_deref());
-    let Some(target) = entry.target.filter(|target| !target.is_empty()) else {
-        eprintln!("{USAGE}");
-        return ExitCode::from(2);
-    };
-    let script = script_path(&target);
-    let skills_root = user_runtime.skills_root().unwrap_or_else(|| PathBuf::from("defaults").join("skills"));
-    let code = match shipped_script(&Unlaned, &script, &skills_root).and_then(|shipped| shipped.native).filter(|native| native.runs_here()) {
-        Some(native) => emit(&run_native(&Unlaned, native, &entry.args, &utc_today())),
-        None => user_runtime.run(&script, &entry.args, carried),
-    };
-    exit_code(code)
-}
-
-/// The script against the working directory, then through its real path; a missing file keeps the resolved
-/// path, which the failure then names.
-fn script_path(target: &str) -> PathBuf {
-    let resolved = PathBuf::from(nodepath::resolve_host(&[target]));
-    match mixdog_fsio::canonicalize(&Unlaned, &resolved) {
-        Ok(real) => without_verbatim_prefix(&real),
-        Err(_) => resolved,
-    }
-}
-
 /// Windows' `canonicalize` answers `\\?\C:\x`; the path a script sees is `C:\x`.
 fn without_verbatim_prefix(path: &Path) -> PathBuf {
     let text = path.to_string_lossy();
@@ -103,12 +73,13 @@ mod tests {
         assert_eq!(without_verbatim_prefix(Path::new("/a/b.mjs")), PathBuf::from("/a/b.mjs"));
     }
 
+
+
     #[test]
     fn a_missing_script_keeps_its_resolved_path() {
         let path = script_path("no-such-dir-xyz/missing.mjs");
         assert!(path.is_absolute() && path.ends_with("missing.mjs"));
     }
-
     #[test]
     fn a_builtin_plaintext_extract_runs_without_an_office_engine_or_script_interpreter() {
         assert!(crate::source_extract::installed_office_engine().is_none());
@@ -127,7 +98,6 @@ mod tests {
         );
         assert_eq!(code, ExitCode::SUCCESS, "the native text path must not fall through to the unavailable interpreter");
     }
-
     #[test]
     fn an_unrecognized_user_script_still_reports_the_unavailable_interpreter() {
         let dir = tempfile::tempdir().expect("isolated folder");
@@ -140,5 +110,34 @@ mod tests {
         );
         assert_eq!(code, ExitCode::from(1));
     }
+}
 
+
+/// Runs the skill script `args` names (what follows `skill-run` on the command line) and returns its exit
+/// code. A shipped script with a native version runs in this process; any other goes to `user_runtime`.
+pub fn skill_run(args: Vec<OsString>, user_runtime: UserScriptRuntime) -> ExitCode {
+    let command_line: Vec<String> = args.iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
+    let carried_value = std::env::var_os(SKILL_ARGV_ENV).map(|value| value.to_string_lossy().into_owned());
+    let carried = command_line.is_empty() && decode_skill_argv(carried_value.as_deref()).is_some();
+    let entry = entry_arguments(&command_line, carried_value.as_deref());
+    let Some(target) = entry.target.filter(|target| !target.is_empty()) else {
+        eprintln!("{USAGE}");
+        return ExitCode::from(2);
+    };
+    let script = script_path(&target);
+    let skills_root = user_runtime.skills_root().unwrap_or_else(|| PathBuf::from("defaults").join("skills"));
+    let code = match shipped_script(&Unlaned, &script, &skills_root).and_then(|shipped| shipped.native).filter(|native| native.runs_here()) {
+        Some(native) => emit(&run_native(&Unlaned, native, &entry.args, &utc_today())),
+        None => user_runtime.run(&script, &entry.args, carried),
+    };
+    exit_code(code)
+}
+/// The script against the working directory, then through its real path; a missing file keeps the resolved
+/// path, which the failure then names.
+fn script_path(target: &str) -> PathBuf {
+    let resolved = PathBuf::from(nodepath::resolve_host(&[target]));
+    match mixdog_fsio::canonicalize(&Unlaned, &resolved) {
+        Ok(real) => without_verbatim_prefix(&real),
+        Err(_) => resolved,
+    }
 }

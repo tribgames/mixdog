@@ -1,6 +1,4 @@
-//! The static gate: the cases of `lib/relay-static-gate.test.mjs`, `lib/preview-frame-credentials.test.mjs` and the gate cases
-//! of `security.test.mjs` that need no WebSocket. Each runs a whole exchange over a connection against `StaticGate` on a
-//! renderer tree built in a temporary folder.
+//! The static gate: each test runs a whole exchange over a connection against `StaticGate` on a renderer tree built in a temporary folder.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -29,10 +27,6 @@ const NATIVE_APP: &str = "Mozilla/5.0 MixdogApp/1.0";
 /// Headers of a fetch or subresource from the opaque-origin preview frame.
 const FROM_PREVIEW_FRAME: [(&str, &str); 4] =
     [("Origin", "null"), ("Sec-Fetch-Site", "cross-site"), ("Sec-Fetch-Mode", "cors"), ("Sec-Fetch-Dest", "empty")];
-
-fn io() -> InteractiveIo {
-    mixdog_rt::testing::tokens().interactive_io
-}
 
 fn write(path: &Path, bytes: impl AsRef<[u8]>) {
     mixdog_fsio::create_dir_all(&Unlaned, path.parent().unwrap()).unwrap();
@@ -109,45 +103,6 @@ fn decode_chunked(mut data: &[u8]) -> Vec<u8> {
     }
 }
 
-/// One request over its own connection, answered by `gate`.
-async fn exchange(gate: &Arc<GateHandler>, method: &str, target: &str, headers: &[(&str, &str)]) -> Answer {
-    let mut raw = format!("{method} {target} HTTP/1.1\r\nHost: relay\r\nConnection: close\r\nContent-Length: 0\r\n");
-    for (name, value) in headers {
-        raw.push_str(&format!("{name}: {value}\r\n"));
-    }
-    raw.push_str("\r\n");
-    let (mut client, server) = tokio::io::duplex(64 * 1024);
-    let served = tokio::spawn(serve_connection(
-        server,
-        ConnInfo { remote_address: Some("203.0.113.9".to_owned()), encrypted: false },
-        gate.clone() as Arc<dyn Handler>,
-        Limits::default(),
-        Arc::new(Lifecycle::default()),
-    ));
-    client.write_all(raw.as_bytes()).await.unwrap();
-    let mut data = Vec::new();
-    timeout(Duration::from_secs(10), client.read_to_end(&mut data)).await.expect("the connection answers").unwrap();
-    served.await.unwrap();
-    let split = data.windows(4).position(|window| window == b"\r\n\r\n").expect("a head");
-    let head = std::str::from_utf8(&data[..split]).unwrap();
-    let mut lines = head.split("\r\n");
-    let status = lines.next().unwrap().split(' ').nth(1).unwrap().parse().unwrap();
-    let mut answered = Vec::new();
-    let mut chunked = false;
-    for line in lines {
-        let (name, value) = line.split_once(": ").unwrap();
-        chunked |= name.eq_ignore_ascii_case("transfer-encoding");
-        answered.push((name.to_owned(), value.to_owned()));
-    }
-    let body = &data[split + 4..];
-    Answer { status, headers: answered, body: if chunked { decode_chunked(body) } else { body.to_vec() } }
-}
-
-fn gate_for(renderer: &Path, releases: &Path, store: FakeStore, limiter: RateLimiter) -> Arc<GateHandler> {
-    let catalog = Arc::new(RendererCatalog::new(renderer, releases));
-    Arc::new(GateHandler(Arc::new(StaticGate::new(io(), catalog, Arc::new(store), Arc::new(Mutex::new(limiter))))))
-}
-
 fn paired_store() -> FakeStore {
     FakeStore {
         tokens: HashMap::from([(TOKEN.to_owned(), DEVICE.to_owned())]),
@@ -171,7 +126,7 @@ fn open_limiter() -> RateLimiter {
     RateLimiter::new(1000, 60_000)
 }
 
-// ---- lib/relay-static-gate.test.mjs ----
+// ---- the static gate ----
 
 #[test]
 fn device_routes_require_a_trailing_slash_before_they_can_resolve_relative_assets() {
@@ -191,106 +146,7 @@ fn installability_assets_are_the_only_pairing_gate_exemptions() {
     assert_eq!(PUBLIC_APP_ASSETS, ["/manifest.webmanifest", "/mixdog.svg", "/mixdog-logo-titanium.svg", "/mixdog-192.png", "/mixdog-512.png"]);
 }
 
-#[tokio::test]
-async fn a_share_post_that_outran_the_worker_reopens_the_app_shell() {
-    assert_eq!(share_target_shell(&format!("/d/{DEVICE}/share-target")), format!("/d/{DEVICE}/"));
-    assert_eq!(share_target_shell("/share-target"), "/");
-    assert_eq!(share_target_shell("/other"), "");
-    assert_eq!(share_target_shell("/share-target?source=share#ignored"), "/");
-    assert_eq!(share_target_shell("/%73hare-target"), "/");
-    assert_eq!(share_target_shell("/d/aaaaaaaa/share-target"), "/d/aaaaaaaa/");
-    assert_eq!(share_target_shell("/share-target%"), "");
-    assert_eq!(share_target_shell("http://["), "");
-    assert_eq!(share_target_shell(""), "");
-    let gate = gate_for(Path::new(""), Path::new(""), FakeStore::default(), open_limiter());
-    let answer = exchange(&gate, "POST", &format!("/d/{DEVICE}/share-target"), &[]).await;
-    assert_eq!(answer.status, 303);
-    assert_eq!(answer.header("Location"), Some(format!("/d/{DEVICE}/").as_str()));
-}
-
-#[tokio::test]
-async fn the_preview_frame_is_public_sandboxed_cookie_free_and_frameable_only_by_self() {
-    let gate = gate_for(Path::new(""), Path::new(""), FakeStore::default(), open_limiter());
-    let answer = exchange(&gate, "GET", "/preview-frame", &[]).await;
-    assert_eq!(answer.status, 200);
-    let csp = answer.header("Content-Security-Policy").unwrap();
-    assert_eq!(csp, PREVIEW_FRAME_CSP);
-    assert!(csp.split("; ").any(|entry| entry == "sandbox allow-scripts allow-forms allow-modals"));
-    // Opaque origin, no escape: never same-origin, top navigation or popups.
-    for forbidden in ["allow-same-origin", "allow-top-navigation", "allow-popups"] {
-        assert!(!csp.contains(forbidden), "{forbidden}");
-    }
-    let directives: HashMap<&str, Vec<&str>> = csp
-        .split("; ")
-        .map(|entry| {
-            let mut words = entry.split(' ');
-            (words.next().unwrap(), words.collect())
-        })
-        .collect();
-    // Outside network over https only (no http:, ws:, '*' or 'self').
-    assert_eq!(directives["default-src"], ["'none'"]);
-    assert_eq!(directives["script-src"], ["'unsafe-inline'", "'unsafe-eval'", "blob:", "data:", "https:"]);
-    assert_eq!(directives["style-src"], ["'unsafe-inline'", "data:", "https:"]);
-    assert_eq!(directives["img-src"], ["data:", "blob:", "https:"]);
-    assert_eq!(directives["font-src"], ["data:", "https:"]);
-    assert_eq!(directives["media-src"], ["data:", "blob:", "https:"]);
-    assert_eq!(directives["connect-src"], ["https:"]);
-    assert_eq!(directives["frame-src"], ["https:"]);
-    for locked in ["object-src", "base-uri", "form-action"] {
-        assert_eq!(directives[locked], ["'none'"], "{locked}");
-    }
-    let outside = csp.replace("frame-ancestors 'self'", "");
-    assert!(!outside.split([' ', ';']).any(|word| matches!(word, "http:" | "ws:" | "wss:" | "*" | "'self'")));
-    assert_eq!(directives["frame-ancestors"], ["'self'"]);
-    assert_eq!(answer.header("Referrer-Policy"), Some("no-referrer"));
-    assert!(answer.cookies().is_empty());
-    assert_eq!(answer.header("X-Frame-Options"), None);
-    assert_eq!(answer.header("Cache-Control"), Some("public, max-age=300"));
-    assert!(answer.header("Content-Type").unwrap().starts_with("text/html"));
-    let body = answer.text();
-    assert!(body.contains("event.source !== window.parent"));
-    assert!(body.contains("mixdog-preview-document"));
-    assert_eq!(answer.header("Content-Length"), Some(body.len().to_string().as_str()));
-    let head = exchange(&gate, "HEAD", "/preview-frame", &[]).await;
-    assert_eq!((head.status, head.body.len()), (200, 0));
-    assert_eq!(head.header("Content-Length"), answer.header("Content-Length"));
-}
-
-#[tokio::test]
-async fn healthz_is_public_and_other_writes_still_405() {
-    let gate = gate_for(Path::new(""), Path::new(""), FakeStore::default(), open_limiter());
-    let answer = exchange(&gate, "GET", "/healthz", &[]).await;
-    assert_eq!(answer.status, 200);
-    assert_eq!(answer.header("Content-Type"), Some("application/json"));
-    assert_eq!(answer.text(), r#"{"status":"ok"}"#);
-    assert_eq!(exchange(&gate, "PUT", "/healthz", &[]).await.status, 405);
-    assert_eq!(exchange(&gate, "GET", "/%", &[]).await.status, 400);
-}
-
-#[tokio::test]
-async fn without_a_renderer_directory_the_gate_answers_404_text_after_healthz() {
-    let gate = gate_for(Path::new(""), Path::new(""), paired_store(), open_limiter());
-    assert_eq!(exchange(&gate, "GET", "/healthz", &[]).await.status, 200);
-    let answer = exchange(&gate, "GET", "/manifest.webmanifest", &[]).await;
-    assert_eq!(answer.status, 404);
-    assert_eq!(answer.text(), "Mixdog relay: no RENDERER_DIR configured; this relay only forwards WebSocket traffic.");
-    assert_eq!(answer.header("Content-Type"), Some("text/plain; charset=utf-8"));
-    // The credential check comes first: an unknown caller learns nothing of the configuration.
-    assert_eq!(exchange(&gate, "GET", "/", &[]).await.status, 401);
-}
-
-#[tokio::test]
-async fn a_caller_past_the_unauthorized_limiter_is_throttled() {
-    let dir = tempfile::tempdir().unwrap();
-    let gate = gate_for(&renderer(dir.path()), Path::new(""), paired_store(), RateLimiter::new(1, 60_000));
-    assert_eq!(exchange(&gate, "GET", "/", &[]).await.status, 401);
-    let throttled = exchange(&gate, "GET", "/", &[]).await;
-    assert_eq!(throttled.status, 429);
-    assert_eq!(throttled.header("Retry-After"), Some("60"));
-    assert_eq!(throttled.text(), "Too many requests.");
-}
-
-// ---- lib/preview-frame-credentials.test.mjs ----
+// ---- the preview frame ----
 
 #[test]
 fn relay_cookies_are_samesite_lax_host_only_and_the_pairing_token_is_httponly() {
@@ -371,6 +227,141 @@ fn a_cookie_authenticates_only_same_origin_browser_initiated_or_top_level_naviga
     assert_eq!(request_cookie_token(&request_headers(&framed)), "");
 }
 
+
+fn io() -> InteractiveIo {
+    mixdog_rt::testing::tokens().interactive_io
+}
+/// One request over its own connection, answered by `gate`.
+async fn exchange(gate: &Arc<GateHandler>, method: &str, target: &str, headers: &[(&str, &str)]) -> Answer {
+    let mut raw = format!("{method} {target} HTTP/1.1\r\nHost: relay\r\nConnection: close\r\nContent-Length: 0\r\n");
+    for (name, value) in headers {
+        raw.push_str(&format!("{name}: {value}\r\n"));
+    }
+    raw.push_str("\r\n");
+    let (mut client, server) = tokio::io::duplex(64 * 1024);
+    let served = tokio::spawn(serve_connection(
+        server,
+        ConnInfo { remote_address: Some("203.0.113.9".to_owned()), encrypted: false },
+        gate.clone() as Arc<dyn Handler>,
+        Limits::default(),
+        Arc::new(Lifecycle::default()),
+    ));
+    client.write_all(raw.as_bytes()).await.unwrap();
+    let mut data = Vec::new();
+    timeout(Duration::from_secs(10), client.read_to_end(&mut data)).await.expect("the connection answers").unwrap();
+    served.await.unwrap();
+    let split = data.windows(4).position(|window| window == b"\r\n\r\n").expect("a head");
+    let head = std::str::from_utf8(&data[..split]).unwrap();
+    let mut lines = head.split("\r\n");
+    let status = lines.next().unwrap().split(' ').nth(1).unwrap().parse().unwrap();
+    let mut answered = Vec::new();
+    let mut chunked = false;
+    for line in lines {
+        let (name, value) = line.split_once(": ").unwrap();
+        chunked |= name.eq_ignore_ascii_case("transfer-encoding");
+        answered.push((name.to_owned(), value.to_owned()));
+    }
+    let body = &data[split + 4..];
+    Answer { status, headers: answered, body: if chunked { decode_chunked(body) } else { body.to_vec() } }
+}
+fn gate_for(renderer: &Path, releases: &Path, store: FakeStore, limiter: RateLimiter) -> Arc<GateHandler> {
+    let catalog = Arc::new(RendererCatalog::new(renderer, releases));
+    Arc::new(GateHandler(Arc::new(StaticGate::new(io(), catalog, Arc::new(store), Arc::new(Mutex::new(limiter))))))
+}
+#[tokio::test]
+async fn a_share_post_that_outran_the_worker_reopens_the_app_shell() {
+    assert_eq!(share_target_shell(&format!("/d/{DEVICE}/share-target")), format!("/d/{DEVICE}/"));
+    assert_eq!(share_target_shell("/share-target"), "/");
+    assert_eq!(share_target_shell("/other"), "");
+    assert_eq!(share_target_shell("/share-target?source=share#ignored"), "/");
+    assert_eq!(share_target_shell("/%73hare-target"), "/");
+    assert_eq!(share_target_shell("/d/aaaaaaaa/share-target"), "/d/aaaaaaaa/");
+    assert_eq!(share_target_shell("/share-target%"), "");
+    assert_eq!(share_target_shell("http://["), "");
+    assert_eq!(share_target_shell(""), "");
+    let gate = gate_for(Path::new(""), Path::new(""), FakeStore::default(), open_limiter());
+    let answer = exchange(&gate, "POST", &format!("/d/{DEVICE}/share-target"), &[]).await;
+    assert_eq!(answer.status, 303);
+    assert_eq!(answer.header("Location"), Some(format!("/d/{DEVICE}/").as_str()));
+}
+#[tokio::test]
+async fn the_preview_frame_is_public_sandboxed_cookie_free_and_frameable_only_by_self() {
+    let gate = gate_for(Path::new(""), Path::new(""), FakeStore::default(), open_limiter());
+    let answer = exchange(&gate, "GET", "/preview-frame", &[]).await;
+    assert_eq!(answer.status, 200);
+    let csp = answer.header("Content-Security-Policy").unwrap();
+    assert_eq!(csp, PREVIEW_FRAME_CSP);
+    assert!(csp.split("; ").any(|entry| entry == "sandbox allow-scripts allow-forms allow-modals"));
+    // Opaque origin, no escape: never same-origin, top navigation or popups.
+    for forbidden in ["allow-same-origin", "allow-top-navigation", "allow-popups"] {
+        assert!(!csp.contains(forbidden), "{forbidden}");
+    }
+    let directives: HashMap<&str, Vec<&str>> = csp
+        .split("; ")
+        .map(|entry| {
+            let mut words = entry.split(' ');
+            (words.next().unwrap(), words.collect())
+        })
+        .collect();
+    // Outside network over https only (no http:, ws:, '*' or 'self').
+    assert_eq!(directives["default-src"], ["'none'"]);
+    assert_eq!(directives["script-src"], ["'unsafe-inline'", "'unsafe-eval'", "blob:", "data:", "https:"]);
+    assert_eq!(directives["style-src"], ["'unsafe-inline'", "data:", "https:"]);
+    assert_eq!(directives["img-src"], ["data:", "blob:", "https:"]);
+    assert_eq!(directives["font-src"], ["data:", "https:"]);
+    assert_eq!(directives["media-src"], ["data:", "blob:", "https:"]);
+    assert_eq!(directives["connect-src"], ["https:"]);
+    assert_eq!(directives["frame-src"], ["https:"]);
+    for locked in ["object-src", "base-uri", "form-action"] {
+        assert_eq!(directives[locked], ["'none'"], "{locked}");
+    }
+    let outside = csp.replace("frame-ancestors 'self'", "");
+    assert!(!outside.split([' ', ';']).any(|word| matches!(word, "http:" | "ws:" | "wss:" | "*" | "'self'")));
+    assert_eq!(directives["frame-ancestors"], ["'self'"]);
+    assert_eq!(answer.header("Referrer-Policy"), Some("no-referrer"));
+    assert!(answer.cookies().is_empty());
+    assert_eq!(answer.header("X-Frame-Options"), None);
+    assert_eq!(answer.header("Cache-Control"), Some("public, max-age=300"));
+    assert!(answer.header("Content-Type").unwrap().starts_with("text/html"));
+    let body = answer.text();
+    assert!(body.contains("event.source !== window.parent"));
+    assert!(body.contains("mixdog-preview-document"));
+    assert_eq!(answer.header("Content-Length"), Some(body.len().to_string().as_str()));
+    let head = exchange(&gate, "HEAD", "/preview-frame", &[]).await;
+    assert_eq!((head.status, head.body.len()), (200, 0));
+    assert_eq!(head.header("Content-Length"), answer.header("Content-Length"));
+}
+#[tokio::test]
+async fn healthz_is_public_and_other_writes_still_405() {
+    let gate = gate_for(Path::new(""), Path::new(""), FakeStore::default(), open_limiter());
+    let answer = exchange(&gate, "GET", "/healthz", &[]).await;
+    assert_eq!(answer.status, 200);
+    assert_eq!(answer.header("Content-Type"), Some("application/json"));
+    assert_eq!(answer.text(), r#"{"status":"ok"}"#);
+    assert_eq!(exchange(&gate, "PUT", "/healthz", &[]).await.status, 405);
+    assert_eq!(exchange(&gate, "GET", "/%", &[]).await.status, 400);
+}
+#[tokio::test]
+async fn without_a_renderer_directory_the_gate_answers_404_text_after_healthz() {
+    let gate = gate_for(Path::new(""), Path::new(""), paired_store(), open_limiter());
+    assert_eq!(exchange(&gate, "GET", "/healthz", &[]).await.status, 200);
+    let answer = exchange(&gate, "GET", "/manifest.webmanifest", &[]).await;
+    assert_eq!(answer.status, 404);
+    assert_eq!(answer.text(), "Mixdog relay: no RENDERER_DIR configured; this relay only forwards WebSocket traffic.");
+    assert_eq!(answer.header("Content-Type"), Some("text/plain; charset=utf-8"));
+    // The credential check comes first: an unknown caller learns nothing of the configuration.
+    assert_eq!(exchange(&gate, "GET", "/", &[]).await.status, 401);
+}
+#[tokio::test]
+async fn a_caller_past_the_unauthorized_limiter_is_throttled() {
+    let dir = tempfile::tempdir().unwrap();
+    let gate = gate_for(&renderer(dir.path()), Path::new(""), paired_store(), RateLimiter::new(1, 60_000));
+    assert_eq!(exchange(&gate, "GET", "/", &[]).await.status, 401);
+    let throttled = exchange(&gate, "GET", "/", &[]).await;
+    assert_eq!(throttled.status, 429);
+    assert_eq!(throttled.header("Retry-After"), Some("60"));
+    assert_eq!(throttled.text(), "Too many requests.");
+}
 #[tokio::test]
 async fn the_static_gate_ignores_the_pairing_cookie_on_a_request_from_the_preview_frame() {
     let dir = tempfile::tempdir().unwrap();
@@ -387,8 +378,7 @@ async fn the_static_gate_ignores_the_pairing_cookie_on_a_request_from_the_previe
     ];
     assert_eq!(exchange(&gate, "GET", "/", &app).await.status, 200, "the app itself still authenticates by cookie");
 }
-
-// ---- security.test.mjs ----
+// ---- the gate and the static routes ----
 
 #[tokio::test]
 async fn installability_assets_bypass_the_pairing_gate_and_the_app_shell_never_does() {
@@ -401,7 +391,6 @@ async fn installability_assets_bypass_the_pairing_gate_and_the_app_shell_never_d
     assert_eq!(exchange(&gate, "GET", "/", &[]).await.status, 401);
     assert_eq!(exchange(&gate, "GET", "/index.html", &[]).await.status, 401);
 }
-
 #[tokio::test]
 async fn an_unknown_query_token_is_never_persisted_as_the_pairing_cookie() {
     let dir = tempfile::tempdir().unwrap();
@@ -420,7 +409,6 @@ async fn an_unknown_query_token_is_never_persisted_as_the_pairing_cookie() {
     let both = exchange(&gate, "GET", &format!("/manifest.webmanifest?token={TOKEN}"), &[("Cookie", &format!("{DEVICE_COOKIE_NAME}={DEVICE}"))]).await;
     assert_eq!(both.cookies().len(), 2);
 }
-
 #[tokio::test]
 async fn the_device_route_opens_the_shell_and_aims_its_manifest_back_at_that_route() {
     let dir = tempfile::tempdir().unwrap();
@@ -454,7 +442,6 @@ async fn the_device_route_opens_the_shell_and_aims_its_manifest_back_at_that_rou
     assert_eq!(exchange(&gate, "GET", &format!("/d/{DEVICE}/mixdog-192.png"), &[]).await.status, 200);
     assert_eq!(exchange(&gate, "GET", &format!("/d/{DEVICE}/missing.js"), &[]).await.status, 404);
 }
-
 #[tokio::test]
 async fn a_share_post_reopens_the_shell_and_every_other_write_is_refused() {
     let dir = tempfile::tempdir().unwrap();
@@ -466,22 +453,25 @@ async fn a_share_post_reopens_the_shell_and_every_other_write_is_refused() {
     assert_eq!(exchange(&gate, "POST", "/index.html", &[]).await.status, 405);
     assert_eq!(exchange(&gate, "DELETE", "/share-target", &[]).await.status, 405);
 }
-
-// ---- the update page (lib/relay-static-gate.mjs serveUpdatePcPage) ----
+// ---- the update page ----
 
 #[tokio::test]
-async fn the_phone_app_gets_the_update_page_for_the_document_of_a_legacy_served_pc() {
+async fn only_unmatched_pcs_see_recovery_and_the_worker_can_still_update() {
     let dir = tempfile::tempdir().unwrap();
     let releases = dir.path().join("releases");
     let renderer_dir = renderer(dir.path());
-    let entry = |id: &str, version: &str, legacy: bool| {
-        serde_json::json!({ "id": id, "desktopVersion": version, "shellVersion": "", "addedAt": 10, "legacy": legacy })
+    let entry = |id: &str, version: &str, hash: &str, legacy: bool| {
+        serde_json::json!({ "id": id, "desktopVersion": version, "shellVersion": hash, "addedAt": 10, "legacy": legacy })
     };
-    let index = serde_json::json!({ "schemaVersion": 1, "releases": [entry("legacy", "", true), entry("r110", "1.1.0", false)] });
+    let hash = "a".repeat(64);
+    let index = serde_json::json!({ "schemaVersion": 1, "releases": [entry("legacy", "", &hash, true), entry("r110", "1.1.0", "", false)] });
     write(&releases.join("index.json"), index.to_string());
     write(&releases.join("legacy").join("index.html"), "<!doctype html><title>Legacy</title>");
     write(&releases.join("legacy").join("boot.js"), "boot");
     write(&releases.join("r110").join("index.html"), "<!doctype html><title>Current</title>");
+    for file in ["sw.js", "sw-shell.js", "sw-media.js", "ui-language.js", "boot.js"] {
+        write(&renderer_dir.join(file), format!("// {file}"));
+    }
     let mut store = paired_store();
     store.versions.insert(DEVICE.to_owned(), DeviceReport { app_version: "0.9.0".to_owned(), renderer_release: String::new() });
     let gate = gate_for(&renderer_dir, &releases, store, open_limiter());
@@ -495,14 +485,36 @@ async fn the_phone_app_gets_the_update_page_for_the_document_of_a_legacy_served_
     // A deep link of the SPA fallback is the document too; HEAD answers the head only.
     assert!(exchange(&gate, "GET", &format!("{route}some/deep/link"), &[("User-Agent", NATIVE_APP)]).await.text().contains("data-min"));
     assert_eq!(exchange(&gate, "HEAD", &route, &[("User-Agent", NATIVE_APP)]).await.body.len(), 0);
-    // Browsers, assets, fetch() and iframe requests keep the legacy renderer.
-    assert!(exchange(&gate, "GET", &route, &[("User-Agent", "Mozilla/5.0")]).await.text().contains("Legacy"));
-    assert_eq!(exchange(&gate, "GET", &format!("{route}boot.js"), &[("User-Agent", NATIVE_APP)]).await.text(), "boot");
-    assert!(exchange(&gate, "GET", &route, &[("User-Agent", NATIVE_APP), ("Sec-Fetch-Dest", "iframe")]).await.text().contains("Legacy"));
+    // Browsers and iframes do not receive native update advice; app assets cannot fall back.
+    assert!(exchange(&gate, "GET", &route, &[("User-Agent", "Mozilla/5.0")]).await.text().contains("Web client unavailable"));
+    assert_eq!(exchange(&gate, "GET", &format!("{route}boot.js"), &[("User-Agent", NATIVE_APP)]).await.status, 404);
+    assert!(exchange(&gate, "GET", &route, &[("User-Agent", NATIVE_APP), ("Sec-Fetch-Dest", "iframe")]).await.text().contains("Web client unavailable"));
     assert!(exchange(&gate, "GET", &route, &[("User-Agent", NATIVE_APP), ("Sec-Fetch-Dest", "document")]).await.text().contains("data-min"));
     // A PC that reports a current version is served its own release.
     let mut current = paired_store();
     current.versions.insert(DEVICE.to_owned(), DeviceReport { app_version: "1.1.0".to_owned(), renderer_release: String::new() });
     let gate = gate_for(&renderer_dir, &releases, current, open_limiter());
     assert!(exchange(&gate, "GET", &route, &[("User-Agent", NATIVE_APP)]).await.text().contains("Current"));
+
+    let mut adopted = paired_store();
+    adopted.versions.insert(DEVICE.to_owned(), DeviceReport { app_version: "0.9.0".to_owned(), renderer_release: hash });
+    let gate = gate_for(&renderer_dir, &releases, adopted, open_limiter());
+    assert!(exchange(&gate, "GET", &route, &[("User-Agent", NATIVE_APP)]).await.text().contains("Legacy"));
+
+    let mut upgraded = paired_store();
+    upgraded.versions.insert(DEVICE.to_owned(), DeviceReport { app_version: "1.2.0".to_owned(), renderer_release: String::new() });
+    let gate = gate_for(&renderer_dir, &releases, upgraded, open_limiter());
+    for agent in [NATIVE_APP, "Mozilla/5.0"] {
+        let unavailable = exchange(&gate, "GET", &route, &[("User-Agent", agent)]).await;
+        assert_eq!(unavailable.status, 200, "the shipped worker ignores non-OK refreshes");
+        assert_eq!(unavailable.header("Cache-Control"), Some("no-store"));
+        assert!(unavailable.text().contains("Reload page"));
+        assert!(!unavailable.text().contains("data-min"));
+    }
+    let cookie = format!("{DEVICE_COOKIE_NAME}={DEVICE}");
+    for script in ["/sw.js", "/sw-shell.js", "/sw-media.js", "/ui-language.js"] {
+        let reply = exchange(&gate, "GET", script, &[("Cookie", &cookie)]).await;
+        assert_eq!(reply.status, 200);
+        assert_eq!(reply.text(), format!("// {}", &script[1..]));
+    }
 }

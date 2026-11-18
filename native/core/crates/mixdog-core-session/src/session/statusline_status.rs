@@ -632,129 +632,6 @@ fn is_local_estimate_window(window: &Value) -> bool {
     source.is_empty() || source.contains("local") || source.contains("config")
 }
 
-/// `formatGatewayLimitSegments(status, fmt)`: what the footer prints for the limits of a status: the quota windows
-/// (as many as the width takes), the route spend and the credit balance.
-pub fn format_gateway_limit_segments(status: &Value, fmt: &SegmentFormat<'_>) -> Vec<String> {
-    if !status.is_object() {
-        return Vec::new();
-    }
-    let (d, r) = (fmt.dim, fmt.reset);
-    let mut segments: Vec<String> = Vec::new();
-    let lower = |key: &str| js_to_lowercase(&clean(status.get(key).filter(|v| truthy(Some(v)))));
-    let kind = lower("providerKind");
-    let provider_id = lower("provider");
-    let status_source = lower("source");
-    let balance_source = js_to_lowercase(&clean(status.get("balance").and_then(|b| b.get("source")).filter(|v| truthy(Some(v)))));
-    let is_openai_oauth = (kind == "oauth" || provider_id.contains("oauth"))
-        && (provider_id == "openai-oauth" || status_source.contains("openai") || status_source.contains("codex") || balance_source.contains("openai") || balance_source.contains("codex"));
-    let is_plain_api = kind == "api";
-    let empty = Vec::new();
-    let windows: &Vec<Value> = if is_plain_api { &empty } else { status.get("quotaWindows").and_then(Value::as_array).unwrap_or(&empty) };
-    let max_windows = if fmt.cols >= 120 { 3 } else if fmt.cols >= 80 { 2 } else { 1 };
-    let route_spend = num(status.get("routeSpend").and_then(|spend| spend.get("costUsd")));
-    let label = clean(status.get("routeSpend").and_then(|spend| spend.get("label")));
-    let route_spend_label = if label.is_empty() { (if fmt.cols >= 120 { "SESS" } else { "S" }).to_owned() } else { label };
-    // The percentage and the reset time are right-aligned in their own columns so the separators stop drifting as the
-    // values change width. Off below 80 columns, where the narrow layout keeps its own shape.
-    let align = fmt.cols >= 80;
-    let reset_width = if align { 5 } else { 0 };
-    let window_reset_text = |window: &Value| -> String {
-        if is_local_estimate_window(window) {
-            return String::new();
-        }
-        let Some(at) = num(window.get("resetAt")).filter(|at| *at != 0.0 && *at > fmt.now) else { return String::new() };
-        if at - fmt.now < 24.0 * 60.0 * 60_000.0 {
-            return (fmt.epoch_ms_to_hhmm)(at);
-        }
-        match mixdog_js::time::local_fields(at) {
-            Some(t) => format!("{:02}-{:02} {:02}:{:02}", t.month, t.day, t.hour, t.minute),
-            None => String::new(),
-        }
-    };
-    let with_reset = |segment: String, window: &Value| {
-        let reset = window_reset_text(window);
-        if reset.is_empty() { segment } else { format!("{segment} {d}↻ {}{r}", pad_left_visible(&reset, reset_width)) }
-    };
-    let add_route_spend = |segments: &mut Vec<String>| -> bool {
-        match route_spend {
-            Some(spend) if spend > 0.0 => {
-                segments.push(format!("{d}{}{r} {}", route_spend_label.to_uppercase(), money(spend)));
-                true
-            }
-            _ => false,
-        }
-    };
-    let add_api_balance = |segments: &mut Vec<String>| -> bool {
-        if is_openai_oauth {
-            return false;
-        }
-        let remaining = num(status.get("balance").and_then(|balance| balance.get("remainingUsd")));
-        if let Some(remaining) = remaining {
-            segments.push(format!("{d}Credit{r} {}", money(remaining)));
-        }
-        remaining.is_some()
-    };
-    if is_plain_api {
-        add_route_spend(&mut segments);
-        if add_api_balance(&mut segments) || !segments.is_empty() {
-            return segments;
-        }
-    }
-    for window in windows.iter().take(max_windows) {
-        let label = window.get("label").filter(|v| truthy(Some(v))).map_or_else(|| "USE".to_owned(), value_to_string).to_uppercase();
-        let pct = num(window.get("usedPct"));
-        let field = |key: &str| if is_openai_oauth { None } else { num(window.get(key)) };
-        let (remaining, limit, used) = (field("remainingUsd"), field("limitUsd"), field("usedUsd"));
-        let (remaining_credits, limit_credits, used_credits) = (field("remainingCredits"), field("limitCredits"), field("usedCredits"));
-        let estimated = is_local_estimate_window(window);
-        let est = if estimated { "est " } else { "" };
-        let credit_color = if estimated { fmt.yellow } else if pct.is_some_and(|p| p >= 95.0) { fmt.red } else if pct.is_some_and(|p| p >= 80.0) { fmt.yellow } else { fmt.green };
-        let segment = if let Some(remaining) = remaining {
-            let color = if estimated { fmt.yellow } else if remaining <= 1.0 { fmt.red } else if remaining <= 5.0 { fmt.yellow } else { fmt.green };
-            format!("{d}{label}{r} {color}{est}{}{r}", money(remaining))
-        } else if let (Some(used), Some(limit)) = (used, limit) {
-            format!("{d}{label}{r} {est}{}/{}", money(used), money(limit))
-        } else if let (Some(left), Some(limit)) = (remaining_credits, limit_credits) {
-            format!("{d}{label}{r} {credit_color}{est}{}/{}{r}", compact_number(left), compact_number(limit))
-        } else if let Some(left) = remaining_credits {
-            format!("{d}{label}{r} {credit_color}{est}{}{r}", compact_number(left))
-        } else if let (Some(used), Some(limit)) = (used_credits, limit_credits) {
-            format!("{d}{label}{r} {est}{}/{}", compact_number(used), compact_number(limit))
-        } else if let Some(pct) = pct {
-            let pct_text = (fmt.colour_pct)(math::round(pct) as i64);
-            let shown = if align { pad_left_visible(&pct_text, 4) } else { pct_text };
-            format!("{d}{label}{r} {est}{shown}")
-        } else {
-            continue;
-        };
-        segments.push(with_reset(segment, window));
-    }
-    add_route_spend(&mut segments);
-    if !is_plain_api && fmt.cols >= 80 {
-        add_api_balance(&mut segments);
-    }
-    if !segments.is_empty() {
-        return segments;
-    }
-    let remaining = if is_openai_oauth { None } else { num(status.get("balance").and_then(|balance| balance.get("remainingUsd"))) };
-    if let Some(remaining) = remaining {
-        segments.push(format!("{d}Credit{r} {}", money(remaining)));
-        add_route_spend(&mut segments);
-        return segments;
-    }
-    if add_route_spend(&mut segments) {
-        return segments;
-    }
-    let last_cost = num(status.get("lastUsage").and_then(|usage| usage.get("costUsd")));
-    let provider_text = status.get("provider").filter(|v| truthy(Some(v))).map(value_to_string).unwrap_or_default();
-    if let Some(cost) = last_cost.filter(|cost| *cost > 0.0)
-        && !provider_text.contains("oauth")
-    {
-        segments.push(format!("{d}${r} {}", money(cost)));
-    }
-    segments
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -922,6 +799,16 @@ mod tests {
     }
 
     #[test]
+    fn money_and_compact_numbers_round_as_the_footer_does() {
+        assert_eq!([money(0.0), money(12.6), money(3.14159), money(0.0449), money(0.00004), money(f64::NAN)], ["$0", "$13", "$3.14", "$0.045", "$0.0000", ""]);
+        assert_eq!([compact_number(1_250_000.0), compact_number(12_000_000.0), compact_number(1500.0), compact_number(15_000.0), compact_number(42.0), compact_number(3.14), compact_number(0.5)], ["1.3M", "12M", "1.5K", "15K", "42", "3.1", "0.50"]);
+        assert_eq!(visible_length("\u{1b}[31mab\u{1b}[0m"), 2);
+        assert_eq!(strip_statusline_model_suffixes("Opus 4.8 XHIGH fast"), "Opus 4.8");
+        assert_eq!(strip_statusline_model_suffixes("HIGH"), "HIGH");
+    }
+
+
+    #[test]
     fn oauth_windows_print_their_percentage_and_reset_aligned_in_columns() {
         let status = json!({
             "provider": "openai-oauth", "providerKind": "oauth",
@@ -944,7 +831,6 @@ mod tests {
         assert_eq!(narrow[0], "5H 5% ↻ 07:59");
         assert_eq!(narrow.len(), 2);
     }
-
     #[test]
     fn a_plain_api_route_prints_spend_and_credit_not_windows() {
         let status = json!({ "provider": "deepseek", "providerKind": "api", "quotaWindows": [{ "label": "5H", "usedPct": 5 }], "routeSpend": { "label": "sess", "costUsd": 12.3456 }, "balance": { "remainingUsd": 0.004 } });
@@ -953,7 +839,6 @@ mod tests {
         assert_eq!(format_gateway_limit_segments(&none, &plain(120, 0.0)), vec!["$ $2.50".to_owned()]);
         assert!(format_gateway_limit_segments(&Value::Null, &plain(120, 0.0)).is_empty());
     }
-
     #[test]
     fn dollar_and_credit_windows_colour_by_what_is_left() {
         let colour = SegmentFormat { green: "<g>", yellow: "<y>", red: "<r>", reset: "</>", ..plain(120, 0.0) };
@@ -970,13 +855,128 @@ mod tests {
         assert_eq!(segments[1], "B</> <y>est $20</>");
         assert_eq!(segments[2], "C</> <r>1.5K/20K</>");
     }
+}
 
-    #[test]
-    fn money_and_compact_numbers_round_as_the_footer_does() {
-        assert_eq!([money(0.0), money(12.6), money(3.14159), money(0.0449), money(0.00004), money(f64::NAN)], ["$0", "$13", "$3.14", "$0.045", "$0.0000", ""]);
-        assert_eq!([compact_number(1_250_000.0), compact_number(12_000_000.0), compact_number(1500.0), compact_number(15_000.0), compact_number(42.0), compact_number(3.14), compact_number(0.5)], ["1.3M", "12M", "1.5K", "15K", "42", "3.1", "0.50"]);
-        assert_eq!(visible_length("\u{1b}[31mab\u{1b}[0m"), 2);
-        assert_eq!(strip_statusline_model_suffixes("Opus 4.8 XHIGH fast"), "Opus 4.8");
-        assert_eq!(strip_statusline_model_suffixes("HIGH"), "HIGH");
+
+/// `formatGatewayLimitSegments(status, fmt)`: what the footer prints for the limits of a status: the quota windows
+/// (as many as the width takes), the route spend and the credit balance.
+pub fn format_gateway_limit_segments(status: &Value, fmt: &SegmentFormat<'_>) -> Vec<String> {
+    if !status.is_object() {
+        return Vec::new();
     }
+    let (d, r) = (fmt.dim, fmt.reset);
+    let mut segments: Vec<String> = Vec::new();
+    let lower = |key: &str| js_to_lowercase(&clean(status.get(key).filter(|v| truthy(Some(v)))));
+    let kind = lower("providerKind");
+    let provider_id = lower("provider");
+    let status_source = lower("source");
+    let balance_source = js_to_lowercase(&clean(status.get("balance").and_then(|b| b.get("source")).filter(|v| truthy(Some(v)))));
+    let is_openai_oauth = (kind == "oauth" || provider_id.contains("oauth"))
+        && (provider_id == "openai-oauth" || status_source.contains("openai") || status_source.contains("codex") || balance_source.contains("openai") || balance_source.contains("codex"));
+    let is_plain_api = kind == "api";
+    let empty = Vec::new();
+    let windows: &Vec<Value> = if is_plain_api { &empty } else { status.get("quotaWindows").and_then(Value::as_array).unwrap_or(&empty) };
+    let max_windows = if fmt.cols >= 120 { 3 } else if fmt.cols >= 80 { 2 } else { 1 };
+    let route_spend = num(status.get("routeSpend").and_then(|spend| spend.get("costUsd")));
+    let label = clean(status.get("routeSpend").and_then(|spend| spend.get("label")));
+    let route_spend_label = if label.is_empty() { (if fmt.cols >= 120 { "SESS" } else { "S" }).to_owned() } else { label };
+    // The percentage and the reset time are right-aligned in their own columns so the separators stop drifting as the
+    // values change width. Off below 80 columns, where the narrow layout keeps its own shape.
+    let align = fmt.cols >= 80;
+    let reset_width = if align { 5 } else { 0 };
+    let window_reset_text = |window: &Value| -> String {
+        if is_local_estimate_window(window) {
+            return String::new();
+        }
+        let Some(at) = num(window.get("resetAt")).filter(|at| *at != 0.0 && *at > fmt.now) else { return String::new() };
+        if at - fmt.now < 24.0 * 60.0 * 60_000.0 {
+            return (fmt.epoch_ms_to_hhmm)(at);
+        }
+        match mixdog_js::time::local_fields(at) {
+            Some(t) => format!("{:02}-{:02} {:02}:{:02}", t.month, t.day, t.hour, t.minute),
+            None => String::new(),
+        }
+    };
+    let with_reset = |segment: String, window: &Value| {
+        let reset = window_reset_text(window);
+        if reset.is_empty() { segment } else { format!("{segment} {d}↻ {}{r}", pad_left_visible(&reset, reset_width)) }
+    };
+    let add_route_spend = |segments: &mut Vec<String>| -> bool {
+        match route_spend {
+            Some(spend) if spend > 0.0 => {
+                segments.push(format!("{d}{}{r} {}", route_spend_label.to_uppercase(), money(spend)));
+                true
+            }
+            _ => false,
+        }
+    };
+    let add_api_balance = |segments: &mut Vec<String>| -> bool {
+        if is_openai_oauth {
+            return false;
+        }
+        let remaining = num(status.get("balance").and_then(|balance| balance.get("remainingUsd")));
+        if let Some(remaining) = remaining {
+            segments.push(format!("{d}Credit{r} {}", money(remaining)));
+        }
+        remaining.is_some()
+    };
+    if is_plain_api {
+        add_route_spend(&mut segments);
+        if add_api_balance(&mut segments) || !segments.is_empty() {
+            return segments;
+        }
+    }
+    for window in windows.iter().take(max_windows) {
+        let label = window.get("label").filter(|v| truthy(Some(v))).map_or_else(|| "USE".to_owned(), value_to_string).to_uppercase();
+        let pct = num(window.get("usedPct"));
+        let field = |key: &str| if is_openai_oauth { None } else { num(window.get(key)) };
+        let (remaining, limit, used) = (field("remainingUsd"), field("limitUsd"), field("usedUsd"));
+        let (remaining_credits, limit_credits, used_credits) = (field("remainingCredits"), field("limitCredits"), field("usedCredits"));
+        let estimated = is_local_estimate_window(window);
+        let est = if estimated { "est " } else { "" };
+        let credit_color = if estimated { fmt.yellow } else if pct.is_some_and(|p| p >= 95.0) { fmt.red } else if pct.is_some_and(|p| p >= 80.0) { fmt.yellow } else { fmt.green };
+        let segment = if let Some(remaining) = remaining {
+            let color = if estimated { fmt.yellow } else if remaining <= 1.0 { fmt.red } else if remaining <= 5.0 { fmt.yellow } else { fmt.green };
+            format!("{d}{label}{r} {color}{est}{}{r}", money(remaining))
+        } else if let (Some(used), Some(limit)) = (used, limit) {
+            format!("{d}{label}{r} {est}{}/{}", money(used), money(limit))
+        } else if let (Some(left), Some(limit)) = (remaining_credits, limit_credits) {
+            format!("{d}{label}{r} {credit_color}{est}{}/{}{r}", compact_number(left), compact_number(limit))
+        } else if let Some(left) = remaining_credits {
+            format!("{d}{label}{r} {credit_color}{est}{}{r}", compact_number(left))
+        } else if let (Some(used), Some(limit)) = (used_credits, limit_credits) {
+            format!("{d}{label}{r} {est}{}/{}", compact_number(used), compact_number(limit))
+        } else if let Some(pct) = pct {
+            let pct_text = (fmt.colour_pct)(math::round(pct) as i64);
+            let shown = if align { pad_left_visible(&pct_text, 4) } else { pct_text };
+            format!("{d}{label}{r} {est}{shown}")
+        } else {
+            continue;
+        };
+        segments.push(with_reset(segment, window));
+    }
+    add_route_spend(&mut segments);
+    if !is_plain_api && fmt.cols >= 80 {
+        add_api_balance(&mut segments);
+    }
+    if !segments.is_empty() {
+        return segments;
+    }
+    let remaining = if is_openai_oauth { None } else { num(status.get("balance").and_then(|balance| balance.get("remainingUsd"))) };
+    if let Some(remaining) = remaining {
+        segments.push(format!("{d}Credit{r} {}", money(remaining)));
+        add_route_spend(&mut segments);
+        return segments;
+    }
+    if add_route_spend(&mut segments) {
+        return segments;
+    }
+    let last_cost = num(status.get("lastUsage").and_then(|usage| usage.get("costUsd")));
+    let provider_text = status.get("provider").filter(|v| truthy(Some(v))).map(value_to_string).unwrap_or_default();
+    if let Some(cost) = last_cost.filter(|cost| *cost > 0.0)
+        && !provider_text.contains("oauth")
+    {
+        segments.push(format!("{d}${r} {}", money(cost)));
+    }
+    segments
 }

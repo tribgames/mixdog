@@ -1,8 +1,8 @@
-//! The device store: the store-level cases of `apps/relay/security.test.mjs`, the credential rules of `device-store-auth.mjs`,
-//! and the file round trip with Node's own `lib/device-store.mjs`. Time is the virtual clock of tokio's paused test runtime
-//! through `mixdog_rt::time`; the disk is a temporary directory.
+//! The device store: credential rules, registration, revocation, debounced activity writes, persistence failures and the devices file format. Time is the virtual clock of tokio's paused test runtime.
 
+#[cfg(node_twin)]
 use std::collections::BTreeSet;
+#[cfg(node_twin)]
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -21,14 +21,6 @@ const DEVICE: &str = "6f1d3c2e-8a4b-4c5d-9e7f-0a1b2c3d4e5f";
 const HASH_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const HASH_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const HASH_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-
-fn io() -> mixdog_rt::DurabilityIo {
-    mixdog_rt::testing::tokens().durability_io
-}
-
-async fn open(dir: &Path) -> DeviceStore {
-    DeviceStore::open(dir, io()).await.expect("the store opens")
-}
 
 fn devices_file(dir: &Path) -> PathBuf {
     dir.join("devices.json")
@@ -67,7 +59,7 @@ fn device_authentication_accepts_headers_and_never_a_url() {
 }
 
 #[test]
-fn a_basic_header_is_split_at_the_first_colon_and_read_as_node_reads_it() {
+fn a_basic_header_is_split_at_the_first_colon_of_the_decoded_text() {
     let split = read_device_credentials(Some(&basic("id:se:cret")));
     assert_eq!((split.device_id.as_str(), split.secret.as_str()), ("id", "se:cret"));
     let lower = read_device_credentials(Some(&basic("id:secret").replacen("Basic", "bAsIc", 1)));
@@ -125,6 +117,53 @@ fn version_fields_have_their_patterns() {
     assert!(!is_shell_version(&"a".repeat(63)));
 }
 
+// ---- the file form ----
+
+fn node_file_text(extra_client_name: &str) -> String {
+    let rows = json!({
+        "6f1d3c2e-8a4b-4c5d-9e7f-0a1b2c3d4e5f": {
+            "secretHash": HASH_A,
+            "clientTokenHash": HASH_B,
+            "clients": {
+                "12345678": { "tokenHash": HASH_C, "name": extra_client_name, "platform": "iPhone", "browser": "Safari", "createdAt": 1_700_000_000_000_i64, "lastSeenAt": 1_700_000_000_001_i64 },
+                "bbbbbbbb": { "tokenHash": HASH_A, "name": "Browser", "platform": "", "browser": "", "createdAt": 1_700_000_000_002_i64, "lastSeenAt": 1_700_000_000_003_i64 },
+            },
+            "appVersion": "1.2.3",
+            "rendererRelease": hex64(),
+            "versionSeenAt": 1_700_000_000_004_i64,
+        },
+    });
+    mixdog_relay::js::pretty(&rows)
+}
+
+#[cfg(node_twin)]
+fn relay_lib() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../apps/relay/lib/device-store.mjs")
+}
+
+#[cfg(node_twin)]
+fn node_output(script: &str) -> String {
+    let args = [OsStr::new("--input-type=module"), OsStr::new("-e"), OsStr::new(script)];
+    testkit::output("node", &args)
+}
+
+#[cfg(node_twin)]
+fn quoted(path: &Path) -> String {
+    mixdog_relay::js::wire(&Value::String(path.to_string_lossy().into_owned()))
+}
+
+#[cfg(node_twin)]
+fn quoted_text(text: &str) -> String {
+    mixdog_relay::js::wire(&Value::String(text.to_owned()))
+}
+
+
+fn io() -> mixdog_rt::DurabilityIo {
+    mixdog_rt::testing::tokens().durability_io
+}
+async fn open(dir: &Path) -> DeviceStore {
+    DeviceStore::open(dir, io()).await.expect("the store opens")
+}
 // ---- persistence ----
 
 #[tokio::test]
@@ -154,7 +193,6 @@ async fn devices_json_is_owner_only_and_corrupt_state_is_refused_at_load() {
     assert!(error.to_string().starts_with("failed to load device store: "), "{error}");
     assert!(error.to_string().contains("JSON"), "{error}");
 }
-
 #[tokio::test]
 async fn every_invalid_row_refuses_the_start_and_a_missing_file_is_an_empty_store() {
     let dir = tempfile::tempdir().unwrap();
@@ -178,7 +216,6 @@ async fn every_invalid_row_refuses_the_start_and_a_missing_file_is_an_empty_stor
         assert_eq!(error.to_string(), format!("failed to load device store: {reason}"), "{document}");
     }
 }
-
 #[tokio::test]
 async fn a_new_registration_is_persisted_before_the_credential_authenticates() {
     let dir = tempfile::tempdir().unwrap();
@@ -200,7 +237,6 @@ async fn a_new_registration_is_persisted_before_the_credential_authenticates() {
     assert!(!store.set_client_token(&device, TOKEN).await);
     assert_eq!(store.device_id_for_client_token(TOKEN), None);
 }
-
 #[tokio::test]
 async fn trust_on_first_use_refuses_a_guessable_id_and_a_wrong_secret() {
     let dir = tempfile::tempdir().unwrap();
@@ -218,7 +254,6 @@ async fn trust_on_first_use_refuses_a_guessable_id_and_a_wrong_secret() {
     assert!(first && !second);
     assert!(store.authenticate(&racing, SECRET).await);
 }
-
 #[tokio::test]
 async fn a_revocation_that_cannot_persist_reports_failure_and_keeps_both_pairing_and_phone() {
     let dir = tempfile::tempdir().unwrap();
@@ -244,7 +279,6 @@ async fn a_revocation_that_cannot_persist_reports_failure_and_keeps_both_pairing
     assert_eq!(store.client_access_for_token(&phone.token), None);
     assert!(open(&data).await.client_access_for_token(&phone.token).is_none());
 }
-
 #[tokio::test(start_paused = true)]
 async fn client_activity_writes_coalesce_into_one_debounced_rewrite() {
     let dir = tempfile::tempdir().unwrap();
@@ -269,7 +303,6 @@ async fn client_activity_writes_coalesce_into_one_debounced_rewrite() {
     assert!(!store.touch_client(DEVICE, "cccccccc", &renamed));
     assert!(!store.touch_client("00000000", "bbbbbbbb", &renamed));
 }
-
 #[tokio::test(start_paused = true)]
 async fn a_credential_write_carries_pending_activity_and_cancels_the_beat() {
     let dir = tempfile::tempdir().unwrap();
@@ -279,12 +312,11 @@ async fn a_credential_write_carries_pending_activity_and_cancels_the_beat() {
     assert!(store.register_client(DEVICE, "bbbbbbbb", &ProfileInput::default()).await.is_some());
     assert!(store.touch_client(DEVICE, "bbbbbbbb", &ProfileInput::text("Quiet", "", "")));
     assert!(store.save_pending());
-    // Node's save() writes the whole map: the touch rides on this registration and the beat is not needed.
+    // A save writes the whole map: the touch rides on this registration and the beat is not needed.
     assert!(store.register_client(DEVICE, "cccccccc", &ProfileInput::default()).await.is_some());
     assert!(!store.save_pending());
     assert_eq!(parsed(&data)[DEVICE]["clients"]["bbbbbbbb"]["name"], "Quiet");
 }
-
 #[tokio::test]
 async fn a_failed_beat_is_logged_and_the_state_stays_in_memory() {
     let dir = tempfile::tempdir().unwrap();
@@ -296,7 +328,6 @@ async fn a_failed_beat_is_logged_and_the_state_stays_in_memory() {
     assert!(store.save().await.is_err());
     assert!(store.is_known(DEVICE));
 }
-
 // ---- browser credentials ----
 
 #[tokio::test]
@@ -335,7 +366,6 @@ async fn browser_credentials_are_isolated_per_desktop_and_individually_revocable
     assert!(store.register_client(DEVICE, "NOT-ROUTING", &ProfileInput::default()).await.is_none());
     assert!(store.register_client(DEVICE, "short", &ProfileInput::default()).await.is_none());
 }
-
 #[tokio::test]
 async fn a_browser_registration_clips_its_profile_defaults_its_name_and_replaces_the_previous_token() {
     let dir = tempfile::tempdir().unwrap();
@@ -357,7 +387,6 @@ async fn a_browser_registration_clips_its_profile_defaults_its_name_and_replaces
     let listed: Vec<String> = store.list_clients(DEVICE, &|_| false).into_iter().map(|row| row.id).collect();
     assert_eq!(listed.len(), 2);
 }
-
 #[tokio::test]
 async fn at_most_256_browsers_are_paired_to_one_desktop_and_a_known_one_is_still_replaced() {
     let dir = tempfile::tempdir().unwrap();
@@ -378,7 +407,6 @@ async fn at_most_256_browsers_are_paired_to_one_desktop_and_a_known_one_is_still
     assert!(store.revoke_client(DEVICE, "00000001").await);
     assert!(store.register_client(DEVICE, "0000ffff", &ProfileInput::default()).await.is_some());
 }
-
 #[tokio::test]
 async fn tokens_are_looked_up_by_digest_and_an_empty_one_matches_nothing() {
     let dir = tempfile::tempdir().unwrap();
@@ -394,7 +422,6 @@ async fn tokens_are_looked_up_by_digest_and_an_empty_one_matches_nothing() {
     assert_eq!(store.device_id_for_client_token(TOKEN), None);
     assert_eq!(store.device_id_for_client_token("0123456789abcdef0").as_deref(), Some(DEVICE));
 }
-
 // ---- desktop versions ----
 
 #[tokio::test(start_paused = true)]
@@ -431,7 +458,6 @@ async fn a_desktop_version_report_is_stored_and_an_unchanged_one_is_rewritten_on
     assert_eq!((row["appVersion"].as_str(), row.get("rendererRelease")), (Some("1.2.4"), None));
     assert_eq!(store.device_version(DEVICE).renderer_release, "");
 }
-
 #[tokio::test]
 async fn unusable_version_fields_are_dropped_at_load_and_the_rest_of_the_row_is_kept() {
     let dir = tempfile::tempdir().unwrap();
@@ -455,26 +481,6 @@ async fn unusable_version_fields_are_dropped_at_load_and_the_rest_of_the_row_is_
     assert_eq!(saved["abcdef56"]["clients"], json!({}));
     assert_eq!(saved["abcdef56"]["extra"], json!({ "kept": true }));
 }
-
-// ---- the file form ----
-
-fn node_file_text(extra_client_name: &str) -> String {
-    let rows = json!({
-        "6f1d3c2e-8a4b-4c5d-9e7f-0a1b2c3d4e5f": {
-            "secretHash": HASH_A,
-            "clientTokenHash": HASH_B,
-            "clients": {
-                "12345678": { "tokenHash": HASH_C, "name": extra_client_name, "platform": "iPhone", "browser": "Safari", "createdAt": 1_700_000_000_000_i64, "lastSeenAt": 1_700_000_000_001_i64 },
-                "bbbbbbbb": { "tokenHash": HASH_A, "name": "Browser", "platform": "", "browser": "", "createdAt": 1_700_000_000_002_i64, "lastSeenAt": 1_700_000_000_003_i64 },
-            },
-            "appVersion": "1.2.3",
-            "rendererRelease": hex64(),
-            "versionSeenAt": 1_700_000_000_004_i64,
-        },
-    });
-    mixdog_relay::js::pretty(&rows)
-}
-
 #[tokio::test]
 async fn a_file_with_a_clipped_emoji_name_and_an_all_digit_client_id_is_rewritten_byte_for_byte() {
     let dir = tempfile::tempdir().unwrap();
@@ -494,9 +500,8 @@ async fn a_file_with_a_clipped_emoji_name_and_an_all_digit_client_id_is_rewritte
     store.save().await.unwrap();
     assert!(testkit::read_string(devices_file(dir.path())).contains(&clipped));
 }
-
 #[tokio::test]
-async fn a_name_clipped_at_registration_is_the_text_node_stores() {
+async fn a_name_clipped_at_registration_is_stored_with_a_lone_surrogate_escape() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(dir.path()).await;
     assert!(store.authenticate(DEVICE, SECRET).await);
@@ -507,20 +512,7 @@ async fn a_name_clipped_at_registration_is_the_text_node_stores() {
     assert!(written.contains(&format!("\"name\": \"{}\\ud83d\"", "a".repeat(79))), "{written}");
     assert!(open(dir.path()).await.has_client(DEVICE, "bbbbbbbb"));
 }
-
-fn relay_lib() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../apps/relay/lib/device-store.mjs")
-}
-
-fn node_output(script: &str) -> String {
-    let args = [OsStr::new("--input-type=module"), OsStr::new("-e"), OsStr::new(script)];
-    testkit::output("node", &args)
-}
-
-fn quoted(path: &Path) -> String {
-    mixdog_relay::js::wire(&Value::String(path.to_string_lossy().into_owned()))
-}
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn a_devices_json_written_by_node_loads_rewrites_byte_identical_and_loads_again_in_node() {
     let dir = tempfile::tempdir().unwrap();
@@ -575,8 +567,4 @@ async fn a_devices_json_written_by_node_loads_rewrites_byte_identical_and_loads_
     assert_eq!(store.device_id_for_client_token(TOKEN).as_deref(), Some(DEVICE));
     let tokens: BTreeSet<String> = store.list_clients(DEVICE, &|_| false).into_iter().map(|row| row.id).collect();
     assert_eq!(tokens, BTreeSet::from(["12345678".to_owned(), "bbbbbbbb".to_owned(), "cccccccc".to_owned()]));
-}
-
-fn quoted_text(text: &str) -> String {
-    mixdog_relay::js::wire(&Value::String(text.to_owned()))
 }

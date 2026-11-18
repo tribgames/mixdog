@@ -7,14 +7,19 @@ mod projection;
 mod rates;
 mod registry;
 mod resolve;
+#[cfg(node_twin)]
 #[cfg(test)]
 pub(super) mod fixtures;
 #[cfg(test)]
-mod tests;
+mod layers_tests;
 
+pub(crate) use projection::litellm_row;
+pub(crate) use projection::models_dev_row;
+#[cfg(test)]
 pub use projection::project_litellm;
 pub use rates::Obj;
 pub use rates::RATE_KEYS;
+#[cfg(test)]
 pub use projection::project_models_dev;
 pub use registry::ANTIGRAVITY_FALLBACK;
 pub use registry::models_dev_provider_id;

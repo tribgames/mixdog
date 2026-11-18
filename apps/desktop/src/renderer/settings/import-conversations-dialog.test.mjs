@@ -161,6 +161,79 @@ async function mount(t, { rows, calls, api = {}, invoke, complete = true }) {
 const click = (element) => act(async () => element.click());
 const primary = (host) => host.querySelector('footer button.primary');
 
+test('a single import joins early app progress to its start response and ignores acknowledged replay', async (t) => {
+  const { announcedEvent } = await import('../../shared/core-announcements.ts');
+  const { importJobStore } = await import('../import-job-store.ts');
+  const listeners = new Set();
+  const opened = [];
+  const onOpen = (event) => opened.push(event.detail.sessionId);
+  window.addEventListener('mixdog:open-imported-session', onOpen);
+  t.after(() => {
+    window.removeEventListener('mixdog:open-imported-session', onOpen);
+    importJobStore.dispose();
+  });
+  const publish = (snapshot) => {
+    const event = announcedEvent('import/progress/updated', { job: snapshot });
+    assert.equal(event?.name, 'conversation-import-progress');
+    for (const listener of listeners) listener(event.value);
+  };
+  const completed = job({
+    state: 'completed',
+    seq: 3,
+    results: [
+      { candidateId: 'b', status: 'imported', sessionId: 'other', warnings: [] },
+      { candidateId: 'a', status: 'imported', sessionId: 'chosen', warnings: [] },
+    ],
+  });
+  const unrelated = { ...completed, jobId: 'unrelated' };
+  const host = await mount(t, {
+    calls: [],
+    rows: [row('a')],
+    api: {
+      subscribeConversationImportProgress(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    },
+    invoke(capability) {
+      if (capability !== 'startConversationImport') return undefined;
+      publish(unrelated);
+      publish(completed);
+      return job();
+    },
+  });
+  await click(host.querySelector('.settings-import-item > input'));
+  await click(primary(host));
+  await act(async () => publish(completed));
+  assert.deepEqual(opened, ['chosen']);
+  assert.equal(importJobStore.get()?.jobId, 'unrelated');
+});
+
+test('a terminal start reply stays available when the dialog closes before the session opens', async (t) => {
+  const { importJobStore } = await import('../import-job-store.ts');
+  t.after(() => importJobStore.dispose());
+  const completed = job({
+    state: 'completed',
+    imported: 1,
+    results: [{ candidateId: 'a', status: 'imported', sessionId: 'chosen', warnings: [] }],
+  });
+  let releaseProjects;
+  await t.test('close while preparing the project', async (dialog) => {
+    const host = await mount(dialog, {
+      rows: [row('a')],
+      calls: [],
+      api: { listProjects: () => new Promise((resolve) => { releaseProjects = resolve; }) },
+      invoke: (capability) => capability === 'startConversationImport' ? completed : undefined,
+    });
+    await click(host.querySelector('.settings-import-item > input'));
+    await click(primary(host));
+    await click(host.querySelector('header button'));
+  });
+  await act(async () => releaseProjects([]));
+  const reopened = await mount(t, { rows: [row('a')], calls: [] });
+  assert.match(reopened.textContent, /Imported 1 conversation(?!s)/);
+});
+
 test('dialog: labels follow the selection, select-all is mixed', async (t) => {
   const calls = [];
   const host = await mount(t, { rows: [row('a'), row('b'), row('c')], calls });

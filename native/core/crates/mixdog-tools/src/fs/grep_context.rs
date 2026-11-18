@@ -42,6 +42,15 @@ struct Anchor {
     content: String,
     order: usize,
     priority: u64,
+    /// `compactAnchorContent` of `content`, made the first time the anchor is shown as a `path:line` row: fitting lays
+    /// the same anchors out again after every dropped one.
+    compact: std::sync::OnceLock<String>,
+}
+
+impl Anchor {
+    fn compact(&self) -> &str {
+        self.compact.get_or_init(|| compact_anchor_content(&self.content))
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -50,14 +59,63 @@ struct Span {
     after: u64,
 }
 
-struct Block {
-    path: String,
+/// The lines of a window, borrowed from the anchors and the sources read once for the call.
+enum Lines<'a> {
+    /// The match line alone, as the search clipped it (its file was not read, or the line is not in what was read).
+    Lone(&'a str),
+    /// The lines `start..=end` of a file's read lines, every one of them present.
+    Run(&'a HashMap<u64, String>),
+    /// Windows of both kinds joined.
+    Mixed(Vec<&'a str>),
+}
+
+/// A window of source lines. Fitting lays the same anchors out again at every radius and after every dropped anchor
+/// (a large search drops hundreds, one at a time), so a window names its lines instead of holding a list of them, and
+/// the passes that only need the length of the text count it instead of building it: copies of the lines, and then
+/// lists of them and the text itself, were gigabytes of allocation for one large search.
+struct Block<'a> {
+    path: &'a str,
     match_line: u64,
     start: u64,
     end: u64,
-    contents: Vec<String>,
+    lines: Lines<'a>,
     priority: u64,
     order: usize,
+}
+
+impl<'a> Block<'a> {
+    fn each(&self, mut line: impl FnMut(&'a str)) {
+        match &self.lines {
+            Lines::Lone(only) => line(only),
+            Lines::Run(source) => (self.start..=self.end).for_each(|n| line(source[&n].as_str())),
+            Lines::Mixed(lines) => lines.iter().for_each(|l| line(*l)),
+        }
+    }
+
+    fn listed(&self) -> Vec<&'a str> {
+        let mut lines = Vec::new();
+        self.each(|line| lines.push(line));
+        lines
+    }
+
+    /// `# path:line [lines a-b]` and the lines under it.
+    fn write(&self, out: &mut impl std::fmt::Write) {
+        let _ = write!(out, "# {}:{} [lines {}-{}]", self.path, self.match_line, self.start, self.end);
+        self.each(|line| {
+            let _ = out.write_char('\n');
+            let _ = out.write_str(line);
+        });
+    }
+}
+
+/// The UTF-16 length of what is written to it (what the budget is counted in).
+struct Utf16Length(usize);
+
+impl std::fmt::Write for Utf16Length {
+    fn write_str(&mut self, text: &str) -> std::fmt::Result {
+        self.0 += utf16_len(text);
+        Ok(())
+    }
 }
 
 /// `grepPagingNotice`.
@@ -84,11 +142,13 @@ pub(super) async fn expand(
     ctx: &ToolContext,
     matches: Vec<Match<'_>>,
     pattern: &str,
+    case_insensitive: bool,
     offset: usize,
     limit: usize,
     known: bool,
     requested: u64,
     char_budget: usize,
+    prefix: bool,
 ) -> Result<String, ToolError> {
     let mut anchors: Vec<Anchor> = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -97,9 +157,9 @@ pub(super) async fn expand(
             continue;
         }
         let order = anchors.len();
-        anchors.push(Anchor { path: m.label.to_owned(), abs: m.path.clone(), line: m.line, content: m.text, order, priority: NO_PRIORITY });
+        anchors.push(Anchor { path: m.label.to_owned(), abs: m.path.clone(), line: m.line, content: m.text, order, priority: NO_PRIORITY, compact: std::sync::OnceLock::new() });
     }
-    rank_anchors(&mut anchors, pattern);
+    rank_anchors(&mut anchors, pattern, case_insensitive);
     let total = anchors.len();
     if total == 0 {
         return Ok(String::new());
@@ -111,7 +171,8 @@ pub(super) async fn expand(
     }
     let shown = limit.min(after_offset.len());
     let omitted = after_offset.len() - shown;
-    let (selected, next) = if omitted == 0 || shown == 0 {
+    // `prefix`: a page that was cut to fit a byte cap is the first `shown` anchors, none skipped or shown twice across pages.
+    let (selected, next) = if omitted == 0 || shown == 0 || prefix {
         (after_offset[..shown].to_vec(), offset + shown)
     } else {
         let head = shown.div_ceil(2).max(1);
@@ -128,13 +189,14 @@ pub(super) async fn expand(
     let span = if requested > 0 { Span { before: requested, after: requested } } else { Span { before: AUTO_BEFORE.min(AUTO_AFTER), after: AUTO_AFTER } };
     let budget = char_budget.max(512);
     let sources = read_sources(ctx, &selected, span).await?;
-    Ok(fit(selected, &sources, span, budget, notice, total, known, offset))
+    Ok(fit(selected, &sources, span, budget, notice, total, known, offset, prefix))
 }
 
 /// `rankAnchors`: with two or more branches (top-level alternatives of the unwrapped pattern), an anchor's priority is
 /// the hit count of the rarest branch it matches.
-fn rank_anchors(anchors: &mut [Anchor], pattern: &str) {
-    let (source, ignore_case) = unwrap_pattern_shell(pattern);
+fn rank_anchors(anchors: &mut [Anchor], pattern: &str, case_insensitive: bool) {
+    let (source, shell_ignores_case) = unwrap_pattern_shell(pattern);
+    let ignore_case = case_insensitive || shell_ignores_case;
     let branches: Vec<Option<mixdog_js::JsRegex>> = split_top_level_alternatives(&source)
         .into_iter()
         .filter(|b| !b.is_empty())
@@ -278,14 +340,14 @@ async fn read_sources(ctx: &ToolContext, selected: &[Anchor], span: Span) -> Res
 }
 
 /// `sourceBlock`: the anchor's window as far as its source has lines, or the match line alone.
-fn source_block(anchor: &Anchor, source: Option<&HashMap<u64, String>>, span: Span) -> Block {
+fn source_block<'a>(anchor: &'a Anchor, source: Option<&'a HashMap<u64, String>>, span: Span) -> Block<'a> {
     let Some(lines) = source.filter(|l| l.contains_key(&anchor.line)) else {
         return Block {
-            path: anchor.path.clone(),
+            path: &anchor.path,
             match_line: anchor.line,
             start: anchor.line,
             end: anchor.line,
-            contents: vec![anchor.content.clone()],
+            lines: Lines::Lone(anchor.content.as_str()),
             priority: anchor.priority,
             order: anchor.order,
         };
@@ -298,26 +360,33 @@ fn source_block(anchor: &Anchor, source: Option<&HashMap<u64, String>>, span: Sp
     while end > anchor.line && !lines.contains_key(&end) {
         end -= 1;
     }
-    let mut contents = Vec::new();
-    for n in start..=end {
-        let Some(line) = lines.get(&n) else { break };
-        contents.push(line.clone());
-    }
-    let end = start + contents.len() as u64 - 1;
-    Block { path: anchor.path.clone(), match_line: anchor.line, start, end, contents, priority: anchor.priority, order: anchor.order }
+    // The window ends before the first line that was not read.
+    let held = (start..=end).take_while(|n| lines.contains_key(n)).count() as u64;
+    let end = start + held - 1;
+    Block { path: &anchor.path, match_line: anchor.line, start, end, lines: Lines::Run(lines), priority: anchor.priority, order: anchor.order }
 }
 
 /// `mergeBlocks`: overlapping or touching windows of a file joined (the higher-priority match line heads them), then
 /// ordered by priority and first appearance.
-fn merge_blocks(blocks: Vec<Block>) -> Vec<Block> {
+fn merge_blocks(blocks: Vec<Block<'_>>) -> Vec<Block<'_>> {
     let mut sorted = blocks;
-    sorted.sort_by(|a, b| mixdog_js::locale_compare(&a.path, &b.path).then(a.start.cmp(&b.start)).then(a.end.cmp(&b.end)));
-    let mut merged: Vec<Block> = Vec::new();
+    sorted.sort_by(|a, b| mixdog_js::locale_compare(a.path, b.path).then(a.start.cmp(&b.start)).then(a.end.cmp(&b.end)));
+    let mut merged: Vec<Block<'_>> = Vec::new();
     for block in sorted {
         match merged.last_mut() {
             Some(prev) if prev.path == block.path && block.start <= prev.end + 1 => {
-                let overlap = (prev.end + 1).saturating_sub(block.start) as usize;
-                prev.contents.extend(block.contents.into_iter().skip(overlap));
+                // The joined window is the earlier one's lines, then the later one's past where they overlap. Two runs
+                // of the same read lines are the run over both; anything else is listed.
+                let same_run = matches!((&prev.lines, &block.lines), (Lines::Run(a), Lines::Run(b)) if std::ptr::eq(*a, *b));
+                if !same_run {
+                    let overlap = (prev.end + 1).saturating_sub(block.start) as usize;
+                    if !matches!(prev.lines, Lines::Mixed(_)) {
+                        prev.lines = Lines::Mixed(prev.listed());
+                    }
+                    if let Lines::Mixed(lines) = &mut prev.lines {
+                        lines.extend(block.listed().into_iter().skip(overlap));
+                    }
+                }
                 prev.end = prev.end.max(block.end);
                 if block.priority < prev.priority || (block.priority == prev.priority && block.order < prev.order) {
                     prev.match_line = block.match_line;
@@ -332,24 +401,29 @@ fn merge_blocks(blocks: Vec<Block>) -> Vec<Block> {
     merged
 }
 
-fn render_blocks(blocks: &[Block]) -> String {
-    blocks
-        .iter()
-        .map(|b| format!("# {}:{} [lines {}-{}]\n{}", b.path, b.match_line, b.start, b.end, b.contents.join("\n")))
-        .collect::<Vec<_>>()
-        .join("\n")
+/// The blocks, one under the other.
+fn write_blocks<'b>(out: &mut impl std::fmt::Write, blocks: impl Iterator<Item = &'b Block<'b>>) {
+    for (nth, block) in blocks.enumerate() {
+        if nth > 0 {
+            let _ = out.write_char('\n');
+        }
+        block.write(out);
+    }
 }
 
 type Sources = HashMap<AbsPath, Option<HashMap<u64, String>>>;
 
-fn blocks_for(selected: &[Anchor], sources: &Sources, span: Span) -> Vec<Block> {
-    merge_blocks(selected.iter().map(|a| source_block(a, sources.get(&a.abs).and_then(Option::as_ref), span)).collect())
+fn blocks_for<'a>(selected: impl Iterator<Item = &'a Anchor>, sources: &'a Sources, span: Span) -> Vec<Block<'a>> {
+    merge_blocks(selected.map(|a| source_block(a, sources.get(&a.abs).and_then(Option::as_ref), span)).collect())
 }
 
 /// `renderAtRadius`: the text and its block count.
 fn render_at_radius(selected: &[Anchor], sources: &Sources, span: Span, notice: &str) -> (String, usize) {
-    let blocks = blocks_for(selected, sources, span);
-    (format!("{}{notice}", render_blocks(&blocks)), blocks.len())
+    let blocks = blocks_for(selected.iter(), sources, span);
+    let mut text = String::new();
+    write_blocks(&mut text, blocks.iter());
+    text.push_str(notice);
+    (text, blocks.len())
 }
 
 fn anchor_priority(a: &Anchor, b: &Anchor) -> Ordering {
@@ -379,15 +453,16 @@ fn compact_anchor_content(content: &str) -> String {
 }
 
 /// `renderFocusedContext`: at least three clusters raw, more while their text fits the budget; the other anchors as
-/// `path:line:content [lines a-b]` under `# Additional matches`.
-fn render_focused(selected: &[Anchor], sources: &Sources, span: Span, budget: usize, notice: &str) -> String {
-    let mut ordered = selected.to_vec();
-    ordered.sort_by(anchor_priority);
-    let ranked = blocks_for(&ordered, sources, span);
-    let mut raw: Vec<&Block> = Vec::new();
+/// `path:line:content [lines a-b]` under `# Additional matches`. Written to `out`: the text, or its length alone.
+fn write_focused(out: &mut impl std::fmt::Write, selected: &[Anchor], sources: &Sources, span: Span, budget: usize, notice: &str) {
+    let mut ordered: Vec<&Anchor> = selected.iter().collect();
+    ordered.sort_by(|a, b| anchor_priority(a, b));
+    let ranked = blocks_for(ordered.iter().copied(), sources, span);
+    let mut raw: Vec<&Block<'_>> = Vec::new();
     let mut raw_length = 0usize;
     for block in &ranked {
-        let length = utf16_len(&block.path) + block.contents.iter().map(|l| utf16_len(l) + 1).sum::<usize>() + 32;
+        let mut length = utf16_len(block.path) + 32;
+        block.each(|line| length += utf16_len(line) + 1);
         if raw.len() >= FOCUSED_RAW_BLOCKS && raw_length + length > budget {
             break;
         }
@@ -395,51 +470,63 @@ fn render_focused(selected: &[Anchor], sources: &Sources, span: Span, budget: us
         raw_length += length;
     }
     let covered = |a: &Anchor| raw.iter().any(|b| a.path == b.path && a.line >= b.start && a.line <= b.end);
-    let compact: Vec<&Anchor> = ordered.iter().filter(|a| !covered(a)).collect();
-    let raw_text = raw.iter().map(|b| format!("# {}:{} [lines {}-{}]\n{}", b.path, b.match_line, b.start, b.end, b.contents.join("\n"))).collect::<Vec<_>>().join("\n");
-    if compact.is_empty() {
-        return format!("{raw_text}{notice}");
+    write_blocks(out, raw.iter().copied());
+    let mut compact = ordered.iter().copied().filter(|a| !covered(a)).peekable();
+    if compact.peek().is_none() {
+        let _ = out.write_str(notice);
+        return;
     }
-    let rows: Vec<String> = compact
-        .iter()
-        .map(|a| {
-            let hint = format!("lines {}-{}", a.line.saturating_sub(span.before).max(1), a.line + span.after);
-            format!("{}:{}:{} [{hint}]", a.path, a.line, compact_anchor_content(&a.content))
-        })
-        .collect();
+    let _ = out.write_str("\n# Additional matches");
+    for a in compact {
+        let _ = write!(out, "\n{}:{}:{} [lines {}-{}]", a.path, a.line, a.compact(), a.line.saturating_sub(span.before).max(1), a.line + span.after);
+    }
     // `anchorOverflowSummary`.
-    let summary = match notice.strip_suffix(']') {
-        Some(head) if !notice.is_empty() => format!("{head}; {} source spans, rest as path:line anchors]", raw.len()),
-        _ => format!("\n[{} of {} shown; rest as path:line anchors]", raw.len(), ordered.len()),
+    let _ = match notice.strip_suffix(']') {
+        Some(head) if !notice.is_empty() => write!(out, "{head}; {} source spans, rest as path:line anchors]", raw.len()),
+        _ => write!(out, "\n[{} of {} shown; rest as path:line anchors]", raw.len(), ordered.len()),
     };
-    format!("{raw_text}\n# Additional matches\n{}{summary}", rows.join("\n"))
+}
+
+fn render_focused(selected: &[Anchor], sources: &Sources, span: Span, budget: usize, notice: &str) -> String {
+    let mut text = String::new();
+    write_focused(&mut text, selected, sources, span, budget, notice);
+    text
+}
+
+/// The UTF-16 length of [`render_focused`]'s text, without the text.
+fn focused_length(selected: &[Anchor], sources: &Sources, span: Span, budget: usize, notice: &str) -> usize {
+    let mut length = Utf16Length(0);
+    write_focused(&mut length, selected, sources, span, budget, notice);
+    length.0
 }
 
 /// `fitContextToBudget`.
 #[allow(clippy::too_many_arguments)]
-fn fit(mut selected: Vec<Anchor>, sources: &Sources, span: Span, budget: usize, mut notice: String, total: usize, known: bool, offset: usize) -> String {
+fn fit(mut selected: Vec<Anchor>, sources: &Sources, span: Span, budget: usize, mut notice: String, total: usize, known: bool, offset: usize, prefix: bool) -> String {
     let (text, blocks) = render_at_radius(&selected, sources, span, &notice);
     if blocks <= 2 && utf16_len(&text) <= budget {
         return text;
     }
     let mut focused = Span { before: span.before.min(FOCUSED_BEFORE), after: span.after.min(FOCUSED_AFTER) };
-    let mut text = render_focused(&selected, sources, focused, budget, &notice);
-    while utf16_len(&text) > budget && (focused.before > 0 || focused.after > 0) {
+    // Each pass below decides on the length of the text alone; the text is built once, for the layout that is kept.
+    let mut length = focused_length(&selected, sources, focused, budget, &notice);
+    while length > budget && (focused.before > 0 || focused.after > 0) {
         // `shrinkSpan`: the wider side gives first.
         focused = if focused.after > focused.before {
             Span { before: focused.before, after: focused.after - 1 }
         } else {
             Span { before: focused.before.saturating_sub(1), after: focused.after }
         };
-        text = render_focused(&selected, sources, focused, budget, &notice);
+        length = focused_length(&selected, sources, focused, budget, &notice);
     }
-    while utf16_len(&text) > budget && selected.len() > 1 {
+    // A prefix page keeps every anchor it was given: the caller shrinks the page instead of dropping anchors out of order.
+    while !prefix && length > budget && selected.len() > 1 {
         selected.sort_by(anchor_priority);
         selected.pop();
         let shown = selected.len();
         let omitted = total.saturating_sub(offset + shown);
         notice = paging_notice(shown, total, known, omitted, offset, offset + shown);
-        text = render_focused(&selected, sources, focused, budget, &notice);
+        length = focused_length(&selected, sources, focused, budget, &notice);
     }
-    text
+    render_focused(&selected, sources, focused, budget, &notice)
 }

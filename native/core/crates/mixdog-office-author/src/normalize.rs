@@ -87,7 +87,6 @@ pattern!(SVG_EXTENSION_DECLARED, r#"Extension="svg""#, "i");
 pattern!(DRAWING_ID, r#"<p:cNvPr\b[^>]*\bid="(\d+)""#, "g");
 pattern!(DRAWING_ID_ATTRIBUTE, r#"(<p:cNvPr\b[^>]*\bid=")(\d+)(")"#, "g");
 pattern!(PREFIX, r"^\w+:", "");
-pattern!(RELATIONSHIP_ID, r#"\bId="rId(\d+)""#, "g");
 pattern!(SERIES_BODY, r"<c:ser>([\s\S]*?)<\/c:ser>", "g");
 pattern!(CHILD_TAG, r"<(\/?)([\w:]+)[^>]*?(\/?)>", "g");
 pattern!(LINE_GROUPING, r"<c:grouping\b", "");

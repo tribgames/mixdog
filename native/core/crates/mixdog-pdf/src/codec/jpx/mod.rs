@@ -48,8 +48,6 @@ impl fmt::Display for JpxError {
     }
 }
 
-impl std::error::Error for JpxError {}
-
 /// A parsed JPEG 2000 stream.
 pub struct Image {
     /// The JP2 boxes; `None` for a bare codestream.
@@ -173,3 +171,6 @@ impl Codestream {
         Ok(Some(tile))
     }
 }
+
+
+impl std::error::Error for JpxError {}

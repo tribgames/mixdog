@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { realpath } from 'node:fs/promises';
+import { access, realpath } from 'node:fs/promises';
 import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { filePreviewTypeForPath, type DesktopFilePreviewKind } from '../shared/file-preview';
@@ -15,6 +15,17 @@ interface FilePreviewRecord {
   /** When set, the file is served only while it still resolves inside this
    *  folder: a parent swapped for a link to elsewhere must not leak bytes. */
   root?: string;
+  /** Set when `path` is a cache product (a converted document): converts the
+   *  original again, so an evicted file is regenerated under the same token. */
+  regenerate?: () => Promise<{ path: string; mtimeMs: number; size: number }>;
+  /** The source revision (`mtimeMs:size`) the token was registered for: the core's cache is keyed by it, so only that
+   *  revision is regenerated. A source saved since is another document, which the viewer reaches by its own new URL. */
+  version: string;
+  /** Counts the re-pointings. The converter's bytes are not guaranteed stable, so each is another representation: the served
+   *  validator carries it and a reader of an earlier one is not continued with this one. */
+  generation: number;
+  /** The reconversion in flight, shared by every read that misses meanwhile. */
+  regenerating?: Promise<void>;
 }
 
 const filePreviews = new Map<string, FilePreviewRecord>();
@@ -23,7 +34,7 @@ const filePreviewTokensByKey = new Map<string, string>();
 export function registerFilePreview(
   path: string,
   cacheVersion: string | number = '',
-  options: { root?: string } = {}
+  options: { root?: string; regenerate?: () => Promise<{ path: string; mtimeMs: number; size: number }> } = {}
 ): {
   url: string;
   kind: DesktopFilePreviewKind;
@@ -43,6 +54,7 @@ export function registerFilePreview(
   if (existingToken && existing) {
     filePreviews.delete(existingToken);
     filePreviews.set(existingToken, existing);
+    if (options.regenerate) existing.regenerate = options.regenerate;
     return {
       url: `${FILE_PREVIEW_SCHEME}://preview/${existingToken}/${encodeURIComponent(basename(absolute))}`,
       kind: existing.kind,
@@ -51,7 +63,15 @@ export function registerFilePreview(
   }
   if (existingToken) filePreviewTokensByKey.delete(cacheKey);
   const token = randomUUID();
-  filePreviews.set(token, { path: absolute, cacheKey, ...(root ? { root } : {}), ...type });
+  filePreviews.set(token, {
+    path: absolute,
+    cacheKey,
+    version: String(cacheVersion),
+    generation: 0,
+    ...(root ? { root } : {}),
+    ...(options.regenerate ? { regenerate: options.regenerate } : {}),
+    ...type,
+  });
   filePreviewTokensByKey.set(cacheKey, token);
   while (filePreviews.size > MAX_REGISTERED_FILE_PREVIEWS) {
     const oldest = filePreviews.keys().next().value;
@@ -75,6 +95,26 @@ export function resolveFilePreview(token: string): FilePreviewRecord | null {
   filePreviews.delete(token);
   filePreviews.set(token, preview);
   return preview;
+}
+
+/** Makes sure a converted preview's file exists, re-pointing the token at a
+ *  fresh conversion when the cache evicted it. One conversion at a time per
+ *  preview; a failed one leaves the file missing, as without a source. */
+export async function ensureFilePreviewFile(preview: FilePreviewRecord): Promise<void> {
+  if (!preview.regenerate) return;
+  if (!preview.regenerating) {
+    const regenerate = preview.regenerate;
+    preview.regenerating = (async () => {
+      if (await access(preview.path).then(() => true, () => false)) return;
+      const fresh = await regenerate();
+      if (`${fresh.mtimeMs}:${fresh.size}` !== preview.version) throw new Error('The source changed since this preview.');
+      preview.path = resolve(fresh.path);
+      preview.generation += 1;
+    })().finally(() => {
+      preview.regenerating = undefined;
+    });
+  }
+  await preview.regenerating.catch(() => undefined);
 }
 
 /** Whether a preview may be served now: a rooted preview must still resolve

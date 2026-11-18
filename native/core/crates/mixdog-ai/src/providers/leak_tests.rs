@@ -1,37 +1,63 @@
 //! The leaked tool-call guard and the decoders that wire it, replayed from Node's recorded behaviour
 //! (`golden/leaked_toolcall.json`).
 
+#[cfg(node_twin)]
 use std::sync::Arc;
 
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::StopReason;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::StreamEvent;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::WireDecoder;
+#[cfg(node_twin)]
 use mixdog_protocol::ProviderId;
+#[cfg(node_twin)]
 use serde_json::Value;
 
+#[cfg(node_twin)]
 use super::compat::chat::ChatDecoder;
+#[cfg(node_twin)]
 use super::connect::frame;
+#[cfg(node_twin)]
 use super::cursor::decoder::CursorDecoder;
+#[cfg(node_twin)]
 use super::cursor::request::BlobStore;
+#[cfg(node_twin)]
 use super::compat::profile::CompatProfile;
+#[cfg(node_twin)]
 use super::compat::profile::CredentialKind;
+#[cfg(node_twin)]
 use super::google::decode::DecodeDialect;
+#[cfg(node_twin)]
 use super::google::decode::GeminiDecoder;
+#[cfg(node_twin)]
 use super::google::decode::UsageStyle;
+#[cfg(node_twin)]
 use super::google::error::ErrorDialect;
 use super::leak::Dedupe;
 use super::leak::LeakGuard;
+#[cfg(node_twin)]
 use super::leak_golden::calls_of;
+#[cfg(node_twin)]
 use super::leak_golden::check;
+#[cfg(node_twin)]
 use super::leak_golden::golden;
+#[cfg(node_twin)]
 use super::leak_golden::known;
+#[cfg(node_twin)]
 use super::leak_golden::route;
+#[cfg(node_twin)]
 use super::leak_golden::text_of;
+#[cfg(node_twin)]
 use super::openai::config::WireContext;
+#[cfg(node_twin)]
 use super::openai::decoder::Framing;
+#[cfg(node_twin)]
 use super::openai::decoder::ResponsesDecoder;
 
 /// The guard on its own: the chunks of a text in, per chunk the visible text and the calls recovered, then the flush.
+#[cfg(node_twin)]
 #[test]
 fn the_guard_recovers_and_holds_back_what_node_s_does() {
     for case in golden()["guard"].as_array().expect("guard") {
@@ -55,19 +81,6 @@ fn the_guard_recovers_and_holds_back_what_node_s_does() {
     }
 }
 
-/// One 300 000-character delta passes in linear time: only its last characters can start an opener.
-#[test]
-fn a_long_delta_holds_back_only_its_opener_tail() {
-    let mut guard = LeakGuard::new(["read".to_owned()].into_iter().collect(), false);
-    let body = "x".repeat(300_000);
-    let started = std::time::Instant::now();
-    let (text, calls) = guard.push(&format!("{body}<inv"), false);
-    assert!(started.elapsed() < std::time::Duration::from_secs(10), "took {:?}", started.elapsed());
-    assert_eq!(text, body);
-    assert!(calls.is_empty());
-    assert_eq!(guard.flush().0, "<inv");
-}
-
 /// A repeated native id is one call; a name+arguments repeat of a minted id is one call; a native call a leak
 /// already ran is suppressed once.
 #[test]
@@ -81,8 +94,10 @@ fn the_dedupe_follows_node_s_identity_rules() {
     assert!(!dedupe.should_dispatch("read", &args, "call_other"));
 }
 
+#[cfg(node_twin)]
 struct Ctx;
 
+#[cfg(node_twin)]
 impl WireContext for Ctx {
     fn request_id(&self) -> String {
         "0".repeat(32)
@@ -95,10 +110,12 @@ impl WireContext for Ctx {
     }
 }
 
+#[cfg(node_twin)]
 fn sse_unit(event: &Value) -> Vec<u8> {
     format!("data: {event}\n\n").into_bytes()
 }
 
+#[cfg(node_twin)]
 /// Every wire event as one unit, then the end of the body; the events of each step.
 fn run(decoder: &mut dyn WireDecoder, scenario: &Value, unit: fn(&Value) -> Vec<u8>) -> Vec<Vec<StreamEvent>> {
     let mut steps: Vec<Vec<StreamEvent>> = scenario["wire"]
@@ -111,12 +128,111 @@ fn run(decoder: &mut dyn WireDecoder, scenario: &Value, unit: fn(&Value) -> Vec<
     steps
 }
 
+#[cfg(node_twin)]
 fn chat_decoder(scenario: &Value) -> ChatDecoder {
     let profile = CompatProfile::plain("groq", "https://api.groq.com/v1", CredentialKind::StaticKey { reauth_on_401: false });
     // The recorder's `providerName`.
     ChatDecoder::new(profile, ProviderId::from("custom")).with_known_tools(known(scenario))
 }
 
+#[cfg(node_twin)]
+fn responses_decoder(scenario: &Value, framing: Framing, compat: bool) -> ResponsesDecoder {
+    let decoder = ResponsesDecoder::new(framing, Arc::new(Ctx), ProviderId::from("openai")).with_known_tools(known(scenario));
+    if compat { decoder.compat_events() } else { decoder }
+}
+
+#[cfg(node_twin)]
+fn ws_unit(event: &Value) -> Vec<u8> {
+    event.to_string().into_bytes()
+}
+
+#[cfg(node_twin)]
+fn replay_responses(route_name: &str, framing: Framing, compat: bool, unit: fn(&Value) -> Vec<u8>) {
+    let scenarios = route(route_name);
+    assert!(!scenarios.is_empty());
+    for scenario in scenarios {
+        let label = format!("{route_name} / {}", scenario["name"]);
+        let mut decoder = responses_decoder(&scenario, framing, compat);
+        let steps = run(&mut decoder, &scenario, unit);
+        check(&label, &scenario, &steps, true);
+    }
+}
+
+#[cfg(node_twin)]
+#[test]
+fn the_websocket_responses_decoder_replays_node_s_leaked_calls() {
+    replay_responses("responses-ws", Framing::WebSocket, false, ws_unit);
+}
+
+#[cfg(node_twin)]
+#[test]
+fn the_http_responses_decoder_replays_node_s_leaked_calls() {
+    replay_responses("responses-sse", Framing::Sse, false, sse_unit);
+}
+
+#[cfg(node_twin)]
+#[test]
+fn the_compatible_responses_decoder_replays_node_s_leaked_calls() {
+    replay_responses("responses-compat", Framing::Sse, true, sse_unit);
+}
+
+/// Cursor's text path: the frames Node's stream response consumed, the chat consumer's guard after its think filter.
+#[cfg(node_twin)]
+#[test]
+fn the_cursor_decoder_replays_node_s_leaked_calls() {
+    let scenarios = route("cursor");
+    assert!(!scenarios.is_empty());
+    for scenario in scenarios {
+        let label = format!("cursor / {}", scenario["name"]);
+        let mut decoder =
+            CursorDecoder::new(BlobStore::default(), Vec::new(), None).with_known_tools(known(&scenario));
+        let steps = run(&mut decoder, &scenario, cursor_unit);
+        check(&label, &scenario, &steps, true);
+    }
+}
+
+#[cfg(node_twin)]
+fn cursor_unit(payload: &Value) -> Vec<u8> {
+    let bytes: Vec<u8> = payload
+        .as_str()
+        .expect("hex")
+        .as_bytes()
+        .chunks(2)
+        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).expect("ascii"), 16).expect("hex digit"))
+        .collect();
+    frame::encode(&bytes, 0)
+}
+
+#[cfg(node_twin)]
+fn gemini_unit(event: &Value) -> Vec<u8> {
+    format!("data: {event}\r\n\r\n").into_bytes()
+}
+
+/// Gemini holds a recovered call until the stream finished cleanly and returns the native calls first; a turn that
+/// carries a recovered call has no parts to replay.
+#[cfg(node_twin)]
+#[test]
+fn the_gemini_decoder_replays_node_s_leaked_calls() {
+    let scenarios = route("gemini");
+    assert!(!scenarios.is_empty());
+    for scenario in scenarios {
+        let label = format!("gemini / {}", scenario["name"]);
+        let mut decoder = GeminiDecoder::new(DecodeDialect {
+            owner: ProviderId::from("gemini"),
+            envelope: false,
+            usage: UsageStyle::Inclusive,
+            errors: ErrorDialect::gemini("Gemini REST streamGenerateContent"),
+        })
+        .with_known_tools(known(&scenario));
+        let steps = run(&mut decoder, &scenario, gemini_unit);
+        check(&label, &scenario, &steps, false);
+        let replayed = steps.iter().flatten().any(|event| matches!(event, StreamEvent::ReasoningReplay(_)));
+        assert_eq!(replayed, scenario["result"]["replay"] == true, "{label}: replay");
+    }
+}
+
+
+#[cfg(node_twin)]
 #[test]
 fn chat_replays_node_s_leaked_calls() {
     let scenarios = route("chat");
@@ -185,88 +301,15 @@ fn chat_replays_node_s_leaked_calls() {
     }
 }
 
-fn responses_decoder(scenario: &Value, framing: Framing, compat: bool) -> ResponsesDecoder {
-    let decoder = ResponsesDecoder::new(framing, Arc::new(Ctx), ProviderId::from("openai")).with_known_tools(known(scenario));
-    if compat { decoder.compat_events() } else { decoder }
-}
-
-fn ws_unit(event: &Value) -> Vec<u8> {
-    event.to_string().into_bytes()
-}
-
-fn replay_responses(route_name: &str, framing: Framing, compat: bool, unit: fn(&Value) -> Vec<u8>) {
-    let scenarios = route(route_name);
-    assert!(!scenarios.is_empty());
-    for scenario in scenarios {
-        let label = format!("{route_name} / {}", scenario["name"]);
-        let mut decoder = responses_decoder(&scenario, framing, compat);
-        let steps = run(&mut decoder, &scenario, unit);
-        check(&label, &scenario, &steps, true);
-    }
-}
-
+/// One 300 000-character delta passes in linear time: only its last characters can start an opener.
 #[test]
-fn the_websocket_responses_decoder_replays_node_s_leaked_calls() {
-    replay_responses("responses-ws", Framing::WebSocket, false, ws_unit);
-}
-
-#[test]
-fn the_http_responses_decoder_replays_node_s_leaked_calls() {
-    replay_responses("responses-sse", Framing::Sse, false, sse_unit);
-}
-
-#[test]
-fn the_compatible_responses_decoder_replays_node_s_leaked_calls() {
-    replay_responses("responses-compat", Framing::Sse, true, sse_unit);
-}
-
-/// Cursor's text path: the frames Node's stream response consumed, the chat consumer's guard after its think filter.
-#[test]
-fn the_cursor_decoder_replays_node_s_leaked_calls() {
-    let scenarios = route("cursor");
-    assert!(!scenarios.is_empty());
-    for scenario in scenarios {
-        let label = format!("cursor / {}", scenario["name"]);
-        let mut decoder =
-            CursorDecoder::new(BlobStore::default(), Vec::new(), None).with_known_tools(known(&scenario));
-        let steps = run(&mut decoder, &scenario, cursor_unit);
-        check(&label, &scenario, &steps, true);
-    }
-}
-
-fn cursor_unit(payload: &Value) -> Vec<u8> {
-    let bytes: Vec<u8> = payload
-        .as_str()
-        .expect("hex")
-        .as_bytes()
-        .chunks(2)
-        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).expect("ascii"), 16).expect("hex digit"))
-        .collect();
-    frame::encode(&bytes, 0)
-}
-
-fn gemini_unit(event: &Value) -> Vec<u8> {
-    format!("data: {event}\r\n\r\n").into_bytes()
-}
-
-/// Gemini holds a recovered call until the stream finished cleanly and returns the native calls first; a turn that
-/// carries a recovered call has no parts to replay.
-#[test]
-fn the_gemini_decoder_replays_node_s_leaked_calls() {
-    let scenarios = route("gemini");
-    assert!(!scenarios.is_empty());
-    for scenario in scenarios {
-        let label = format!("gemini / {}", scenario["name"]);
-        let mut decoder = GeminiDecoder::new(DecodeDialect {
-            owner: ProviderId::from("gemini"),
-            envelope: false,
-            usage: UsageStyle::Inclusive,
-            errors: ErrorDialect::gemini("Gemini REST streamGenerateContent"),
-        })
-        .with_known_tools(known(&scenario));
-        let steps = run(&mut decoder, &scenario, gemini_unit);
-        check(&label, &scenario, &steps, false);
-        let replayed = steps.iter().flatten().any(|event| matches!(event, StreamEvent::ReasoningReplay(_)));
-        assert_eq!(replayed, scenario["result"]["replay"] == true, "{label}: replay");
-    }
+fn a_long_delta_holds_back_only_its_opener_tail() {
+    let mut guard = LeakGuard::new(["read".to_owned()].into_iter().collect(), false);
+    let body = "x".repeat(300_000);
+    let started = std::time::Instant::now();
+    let (text, calls) = guard.push(&format!("{body}<inv"), false);
+    assert!(started.elapsed() < std::time::Duration::from_secs(10), "took {:?}", started.elapsed());
+    assert_eq!(text, body);
+    assert!(calls.is_empty());
+    assert_eq!(guard.flush().0, "<inv");
 }

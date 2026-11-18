@@ -6,14 +6,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use base64::Engine;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::HostError;
 use mixdog_core_api::ids::Method;
-use base64::engine::general_purpose::STANDARD;
-use mixdog_core_api::domain::tool::ImageData;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
 use mixdog_core_api::domain::tool::ToolOutcome;
@@ -34,11 +31,9 @@ use crate::orch::util::unavailable;
 /// The JSON-RPC code the host answers a failed command with.
 pub const HOST_COMMAND_FAILED: i64 = -32000;
 pub const MAX_TEXT_CHARS: usize = 250_000;
-const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
-/// How long a `visualize` command may take: 30 s, and 60 s for the export and act actions that render or drive a page.
-const VISUALIZE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-const VISUALIZE_LONG_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 const VISUALIZE_TIMED_OUT: &str = "visualize bridge timed out";
+const VISUALIZE_CONNECTION_LOST: &str = "the desktop host connection was lost during the visualize command; it may not have completed";
+const BROWSER_CONNECTION_LOST: &str = "browser bridge connection failed after command dispatch; the action may have executed and was not replayed";
 pub const BROWSER_UNAVAILABLE: &str = "browser use is unavailable; open the Mixdog desktop app and enable Browser Use";
 
 /// Why a host command produced no result.
@@ -72,45 +67,11 @@ pub trait HostCommands: Send + Sync {
 /// (`MIXDOG_AGENT_TRACE_TIMING` / `_VERBOSE`); without it nothing is timed or built.
 pub type BrowserTimingLog = Arc<dyn Fn(serde_json::Map<String, Value>) + Send + Sync>;
 
-/// The clock of one `host/browser/command` for its `browser_timing` row, as Node's `requestBridge`
-/// (`browser-bridge/client.mjs`) traces in its `finally` each request it sent, whatever came back. The core's browser tools,
-/// handoff and saved-login commands ([`ChannelHostCommands`]) and the secret fill's requests are timed with it.
-pub struct BrowserCommandClock {
-    log: BrowserTimingLog,
-    started: std::time::Instant,
-}
-
-impl BrowserCommandClock {
-    /// Starts as the command is sent; `None`, and nothing timed, without a log.
-    pub fn start(log: Option<&BrowserTimingLog>) -> Option<Self> {
-        log.map(|log| Self { log: Arc::clone(log), started: std::time::Instant::now() })
-    }
-
-    /// The command `action` of `thread`, carrying `turn_id` when its input names one, ended with the channel's `answer`:
-    /// its row goes to the log, unless no host held the role and nothing was sent.
-    pub fn stop(self, thread: &ThreadId, action: &str, turn_id: Option<Value>, answer: Result<&JsonValue, &HostError>) {
-        if let Some(args) = browser_timing_args(thread, action, turn_id, self.started.elapsed().as_secs_f64() * 1000.0, answer) {
-            (self.log)(args);
-        }
-    }
-}
-
 /// The real [`HostCommands`]: `host/browser/command` and `host/visualize/command` over the
 /// host channel to the desktop that declared the matching capability.
 pub struct ChannelHostCommands {
     channel: Arc<dyn HostChannel>,
     timing: Option<BrowserTimingLog>,
-}
-
-impl ChannelHostCommands {
-    pub fn new(channel: Arc<dyn HostChannel>) -> Arc<Self> {
-        Arc::new(Self { channel, timing: None })
-    }
-
-    /// Also hands each browser command's `browser_timing` row to `timing` ([`BrowserCommandClock`]).
-    pub fn with_timing(channel: Arc<dyn HostChannel>, timing: BrowserTimingLog) -> Arc<Self> {
-        Arc::new(Self { channel, timing: Some(timing) })
-    }
 }
 
 /// The host's answer to a command as the tools read it.
@@ -136,34 +97,33 @@ fn host_answer(answer: Result<JsonValue, HostError>, cancel: &CancellationToken)
     }
 }
 
-#[async_trait]
-impl HostCommands for ChannelHostCommands {
-    async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
-        let turn_id = self.timing.as_ref().and_then(|_| input.get("turn_id").cloned());
-        let params = serde_json::json!({ "threadId": thread, "action": action, "input": input });
-        let clock = BrowserCommandClock::start(self.timing.as_ref());
-        let answer = self.channel.request_scoped(HostCapability::Browser, Method("host/browser/command"), params, cancel).await;
-        if let Some(clock) = clock {
-            clock.stop(thread, action, turn_id, answer.as_ref());
+/// A command whose host connection closed or lapsed after the request went out ([`mixdog_core_api::host::lost_after_dispatch`]) is a
+/// failed command, not a missing desktop; no claimant, an unlisted method and the like never sent it and stay unavailable.
+fn visualize_answer(answer: Result<JsonValue, HostError>, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
+    match &answer {
+        Err(HostError::Core(CoreError::CapabilityUnavailable { detail, .. })) if !cancel.is_cancelled() && mixdog_core_api::host::lost_after_dispatch(detail) => {
+            Err(HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: VISUALIZE_CONNECTION_LOST.to_owned(), timing: None })
         }
-        host_answer(answer, cancel)
+        _ => host_answer(answer, cancel),
     }
+}
 
-    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, mut input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
-        // An open's tool call id (`input.callId`, set by the tool) is a field of the request, beside `sessionId`, not of the input.
-        let call_id = if action == "open" { input.as_object_mut().and_then(|input| input.shift_remove("callId")) } else { None };
-        let mut params = serde_json::json!({ "sessionId": thread, "cwd": cwd, "action": action, "input": input });
-        if let (Some(call_id), Some(params)) = (call_id, params.as_object_mut()) {
-            params.insert("callId".to_owned(), call_id);
+/// `executeBrowserTool`'s failure after a dispatch (`browser-bridge/client.mjs:514-527`): an observation reads as the missing
+/// desktop (it can be asked again); a state-changing action that may already have run says so and is not replayed.
+pub(super) fn browser_connection_lost(action: &str) -> HostCommandError {
+    if super::browser::OBSERVATION_ACTIONS.contains(&action) {
+        return HostCommandError::NoHost;
+    }
+    HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: BROWSER_CONNECTION_LOST.to_owned(), timing: None }
+}
+
+/// A browser command whose host connection closed or lapsed after the request went out; the same rule as [`visualize_answer`].
+fn browser_answer(answer: Result<JsonValue, HostError>, cancel: &CancellationToken, action: &str) -> Result<JsonValue, HostCommandError> {
+    match &answer {
+        Err(HostError::Core(CoreError::CapabilityUnavailable { detail, .. })) if !cancel.is_cancelled() && mixdog_core_api::host::lost_after_dispatch(detail) => {
+            Err(browser_connection_lost(action))
         }
-        let budget = if action == "export" || action == "act" { VISUALIZE_LONG_TIMEOUT } else { VISUALIZE_TIMEOUT };
-        let request = self.channel.request(HostCapability::Visualize, Method("host/visualize/command"), params);
-        // The command is abandoned when the time is up, as when the caller cancels.
-        match Scope::new().cancel(cancel).within(budget).run(request).await {
-            Scoped::Done(answer) => host_answer(answer, cancel),
-            Scoped::DeadlineExceeded => Err(HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: VISUALIZE_TIMED_OUT.to_owned(), timing: None }),
-            Scoped::Cancelled => Err(HostCommandError::Cancelled),
-        }
+        _ => host_answer(answer, cancel),
     }
 }
 
@@ -220,6 +180,17 @@ pub fn command_error(tool_unavailable: &str, error: HostCommandError) -> ToolErr
     }
 }
 
+/// [`command_error`] of a `visualize` command: a refusal without a message is `visualize bridge request failed (HTTP N)`
+/// (`visualize-bridge/client.mjs`); every answer the desktop gives a command is HTTP 200.
+pub fn visualize_command_error(tool_unavailable: &str, error: HostCommandError) -> ToolError {
+    match error {
+        HostCommandError::Rpc { message, timing, .. } if mixdog_js::js_trim(&message).is_empty() => {
+            command_error(tool_unavailable, HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: "visualize bridge request failed (HTTP 200)".to_owned(), timing })
+        }
+        error => command_error(tool_unavailable, error),
+    }
+}
+
 /// A command the caller's cancel ended, in Node's words (`browser-bridge/client.mjs` `settleFailure`,
 /// `visualize-bridge/client.mjs`): `<tool> command cancelled`, and for a state-changing action
 /// (`may_have_run`) that it may already have executed and was not replayed.
@@ -233,7 +204,7 @@ fn bad(message: &str) -> ToolError {
 }
 
 /// `browserToolError(message)` (`browser-bridge/client.mjs:277`): the bridge's own refusal of a reply, `Error: ` led.
-fn bridge_error(message: &str) -> ToolError {
+pub(super) fn bridge_error(message: &str) -> ToolError {
     ToolError::new(ToolErrorCode::Failed { reason: message.to_owned() }, format!("Error: {message}"))
 }
 
@@ -242,50 +213,25 @@ fn bridge_error(message: &str) -> ToolError {
 pub fn browser_output(value: &Value) -> ToolOutcome {
     let empty = serde_json::Map::new();
     let value = value.as_object().unwrap_or(&empty);
-    let text = value.get("text").and_then(Value::as_str).filter(|t| !t.is_empty()).unwrap_or("OK");
-    if mixdog_js::utf16_len(text) > MAX_TEXT_CHARS {
+    let mut text = value.get("text").and_then(Value::as_str).filter(|t| !t.is_empty()).unwrap_or("OK").to_owned();
+    if mixdog_js::utf16_len(&text) > MAX_TEXT_CHARS {
         return Err(bridge_error("browser bridge returned oversized text"));
     }
-    let mut parts = vec![ToolPart::Text(text.to_owned())];
+    // The image and the attached download (`result.file`) become the parts their kind is (`browser_media`); a download that stays
+    // on disk takes the reply's "Attached" sentence back, so `text` is settled before it leads the parts.
+    let mut media = Vec::new();
     if let Some(image) = value.get("image").and_then(Value::as_object) {
-        let mime = image.get("mimeType").and_then(Value::as_str).unwrap_or_default();
-        let data = image.get("data").and_then(Value::as_str).unwrap_or_default();
-        if !data.is_empty() && !mime.is_empty() {
-            let bytes = (mime == "image/jpeg" || mime == "image/png")
-                .then(|| STANDARD.decode(data).ok())
-                .flatten()
-                .filter(|b| b.len() <= MAX_IMAGE_BYTES);
-            let Some(bytes) = bytes else {
-                return Err(bridge_error("browser bridge returned an invalid image"));
-            };
-            parts.push(ToolPart::Image { mime: mime.to_owned(), data: ImageData::Bytes(bytes), width: None, height: None });
-        }
+        media.extend(super::browser_media::image_part(image)?);
     }
-    // An attached download (`result.file`): a PDF as a document, an image as an image, a text type as its text under the file name;
-    // any other type stays named in the reply text only.
     if let Some(file) = value.get("file").and_then(Value::as_object) {
-        let mime = file.get("mimeType").and_then(Value::as_str).unwrap_or_default();
-        let name = file.get("name").and_then(Value::as_str).unwrap_or_default();
-        let bytes = file.get("data").and_then(Value::as_str).and_then(|data| STANDARD.decode(data).ok());
-        let Some(bytes) = bytes else {
-            return Err(bridge_error("browser bridge returned an invalid file"));
-        };
-        let kind = mime.split(';').next().unwrap_or_default().trim().to_ascii_lowercase();
-        if kind == "application/pdf" {
-            parts.push(ToolPart::Document { mime: kind, data: bytes });
-        } else if kind == "image/jpeg" || kind == "image/png" {
-            if bytes.len() > MAX_IMAGE_BYTES {
-                return Err(bridge_error("browser bridge returned an invalid image"));
-            }
-            parts.push(ToolPart::Image { mime: kind, data: ImageData::Bytes(bytes), width: None, height: None });
-        } else if kind.starts_with("text/") || matches!(kind.as_str(), "application/json" | "application/xml" | "image/svg+xml") {
-            parts.push(ToolPart::Text(format!("{name}\n{}", String::from_utf8_lossy(&bytes))));
-        }
+        super::browser_media::file_parts(file, &mut text, &mut media)?;
     }
+    let mut parts = vec![ToolPart::Text(text.clone())];
+    parts.extend(media);
     let output = ToolOutput { parts, ..ToolOutput::default() };
     // An inconclusive outcome is a failure carrying its output, as the bridge flagged it.
     if value.get("outcome").and_then(Value::as_str) == Some("blocked") {
-        let mut error = bad(text);
+        let mut error = bad(&text);
         error.partial = Some(output);
         return Err(error);
     }
@@ -298,24 +244,6 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-
-    /// Golden: the failure a model saw from `{ok:false, error, timing}` over HTTP is the same
-    /// text from the host's `-32000` error, whose `data.timing` never reaches the model.
-    #[test]
-    fn host_failure_reads_as_the_bridge_error_did() {
-        let golden: Vec<Value> =
-            serde_json::from_str(include_str!("golden/host_error.json")).expect("golden");
-        for case in golden {
-            let rpc = HostCommandError::Rpc {
-                code: case["code"].as_i64().unwrap(),
-                message: case["message"].as_str().unwrap().to_owned(),
-                timing: case["data"].get("timing").cloned(),
-            };
-            let error = command_error(BROWSER_UNAVAILABLE, rpc);
-            assert_eq!(error.message_for_model, case["model_text"].as_str().unwrap(), "{}", case["name"]);
-            assert!(error.partial.is_none());
-        }
-    }
 
     #[tokio::test]
     async fn commands_ride_the_host_channel_and_map_its_errors() {
@@ -348,23 +276,6 @@ mod tests {
         }
         fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
             Ok(())
-        }
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_visualize_command_that_is_not_answered_times_out_after_30_seconds_and_60_for_export_and_act() {
-        use std::time::Duration;
-
-        let silent = Arc::new(Silent::default());
-        let commands = ChannelHostCommands::new(silent.clone());
-        let thread = ThreadId::from("t1");
-        let live = CancellationToken::new();
-        for (action, seconds) in [("check", 30), ("export", 60), ("act", 60)] {
-            let started = tokio::time::Instant::now();
-            let answer = commands.visualize(&thread, "/w", action, json!({}), &live).await;
-            assert_eq!(started.elapsed(), Duration::from_secs(seconds), "{action}");
-            let error = command_error("unavailable", answer.unwrap_err());
-            assert_eq!(error.message_for_model, "Error: visualize bridge timed out", "{action}");
         }
     }
 
@@ -436,7 +347,11 @@ mod tests {
         cancelled.cancel();
         assert_eq!(commands.browser(&thread, "read", json!({}), &cancelled).await, Err(HostCommandError::Cancelled));
         let closing = ChannelHostCommands::with_timing(Arc::new(Closing), log);
-        assert_eq!(closing.browser(&thread, "type", json!({ "ref": "e2" }), &live).await, Err(HostCommandError::NoHost));
+        // A typing command whose host closed after it went out may have run: not the missing desktop (`client.mjs:514-527`).
+        assert_eq!(
+            closing.browser(&thread, "type", json!({ "ref": "e2" }), &live).await,
+            Err(HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: BROWSER_CONNECTION_LOST.to_owned(), timing: None })
+        );
 
         let seen: Vec<(Value, Option<Value>)> = rows
             .lock()
@@ -465,6 +380,68 @@ mod tests {
         );
     }
 
+    /// A host that closes while a visualize command waits is a lost connection, not "the desktop app must be running".
+    #[tokio::test]
+    async fn visualize_connection_lost_mid_command_is_not_the_unavailable_wording() {
+        struct Closing(&'static str);
+        #[async_trait]
+        impl HostChannel for Closing {
+            async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
+                Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: self.0.into() }))
+            }
+            fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
+                Ok(())
+            }
+        }
+        let thread = ThreadId::from("t1");
+        let live = CancellationToken::new();
+        let lost = ChannelHostCommands::new(Arc::new(Closing("claimantClosed"))).visualize(&thread, "/w", "open", json!({}), &live).await.unwrap_err();
+        let text = command_error("visualize is unavailable; the Mixdog desktop app must be running", lost).message_for_model;
+        assert!(text.starts_with("Error: the desktop host connection was lost"), "{text}");
+        let none = ChannelHostCommands::new(Arc::new(Closing("noClaimant"))).visualize(&thread, "/w", "open", json!({}), &live).await;
+        assert_eq!(none, Err(HostCommandError::NoHost));
+    }
+
+    /// `client.mjs:514-527`: a host lost after a state-changing command went out says it may have run and was not replayed;
+    /// an observation (or no host at all) is the unavailable wording.
+    #[tokio::test]
+    async fn browser_connection_lost_mid_command_says_a_mutation_may_have_run() {
+        struct Closing(&'static str);
+        #[async_trait]
+        impl HostChannel for Closing {
+            async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
+                Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: self.0.into() }))
+            }
+            fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
+                Ok(())
+            }
+        }
+        let thread = ThreadId::from("t1");
+        let live = CancellationToken::new();
+        let lost = ChannelHostCommands::new(Arc::new(Closing("claimantClosed")));
+        let click = lost.browser(&thread, "click", json!({}), &live).await.unwrap_err();
+        assert_eq!(
+            command_error(BROWSER_UNAVAILABLE, click).message_for_model,
+            "Error: browser bridge connection failed after command dispatch; the action may have executed and was not replayed"
+        );
+        assert_eq!(lost.browser(&thread, "snapshot", json!({}), &live).await, Err(HostCommandError::NoHost));
+        // Known to be before any dispatch: no claimant, a method the claimant does not serve.
+        for detail in ["noClaimant", "unsupportedMethod", "claimantChanged"] {
+            let never_sent = ChannelHostCommands::new(Arc::new(Closing(detail)));
+            assert_eq!(never_sent.browser(&thread, "click", json!({}), &live).await, Err(HostCommandError::NoHost), "{detail}");
+            assert_eq!(never_sent.visualize(&thread, "/w", "open", json!({}), &live).await, Err(HostCommandError::NoHost), "{detail}");
+        }
+        // A wait that timed out after the frame went out is a loss too.
+        let timed_out = ChannelHostCommands::new(Arc::new(Closing("timedOut")));
+        assert!(matches!(timed_out.browser(&thread, "click", json!({}), &live).await, Err(HostCommandError::Rpc { .. })));
+    }
+
+    #[test]
+    fn a_visualize_refusal_without_a_message_names_the_visualize_bridge() {
+        let empty = HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: String::new(), timing: None };
+        assert_eq!(visualize_command_error("x", empty).message_for_model, "Error: visualize bridge request failed (HTTP 200)");
+    }
+
     #[test]
     fn missing_host_is_the_unavailable_wording() {
         let error = command_error(BROWSER_UNAVAILABLE, HostCommandError::NoHost);
@@ -479,5 +456,106 @@ mod tests {
         let err = browser_output(&json!({"text":"held","outcome":"blocked"})).unwrap_err();
         assert_eq!(err.message_for_model, "held");
         assert!(err.partial.is_some());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_visualize_command_that_is_not_answered_times_out_after_30_seconds_and_60_for_export_and_act() {
+        use std::time::Duration;
+
+        let silent = Arc::new(Silent::default());
+        let commands = ChannelHostCommands::new(silent.clone());
+        let thread = ThreadId::from("t1");
+        let live = CancellationToken::new();
+        for (action, seconds) in [("check", 30), ("export", 60), ("act", 60)] {
+            let started = tokio::time::Instant::now();
+            let answer = commands.visualize(&thread, "/w", action, json!({}), &live).await;
+            assert_eq!(started.elapsed(), Duration::from_secs(seconds), "{action}");
+            let error = command_error("unavailable", answer.unwrap_err());
+            assert_eq!(error.message_for_model, "Error: visualize bridge timed out", "{action}");
+        }
+    }
+
+
+    /// The model reads the host's `-32000` message, led by `Error:` once; its timing never reaches the model and an
+    /// empty message reads as a failed bridge request.
+    #[test]
+    fn a_host_failure_reads_as_its_message_led_by_error_and_carries_no_timing() {
+        let timing = Some(json!({ "totalMs": 812, "stages": { "dispatch": 3, "settle": 790 } }));
+        for (message, want) in [
+            ("browser action \"click\" ref e5 is not in the latest snapshot", "Error: browser action \"click\" ref e5 is not in the latest snapshot"),
+            ("Error: navigation timed out", "Error: navigation timed out"),
+            ("", "Error: browser bridge request failed"),
+        ] {
+            let rpc = HostCommandError::Rpc { code: -32000, message: message.to_owned(), timing: timing.clone() };
+            let error = command_error(BROWSER_UNAVAILABLE, rpc);
+            assert_eq!(error.message_for_model, want);
+            assert!(error.partial.is_none());
+        }
+    }
+}
+
+
+/// How long a `visualize` command may take: 30 s, and 60 s for the export and act actions that render or drive a page.
+const VISUALIZE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const VISUALIZE_LONG_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// The clock of one `host/browser/command` for its `browser_timing` row, as Node's `requestBridge`
+/// (`browser-bridge/client.mjs`) traces in its `finally` each request it sent, whatever came back. The core's browser tools,
+/// handoff and saved-login commands ([`ChannelHostCommands`]) and the secret fill's requests are timed with it.
+pub struct BrowserCommandClock {
+    log: BrowserTimingLog,
+    started: std::time::Instant,
+}
+impl BrowserCommandClock {
+    /// Starts as the command is sent; `None`, and nothing timed, without a log.
+    pub fn start(log: Option<&BrowserTimingLog>) -> Option<Self> {
+        log.map(|log| Self { log: Arc::clone(log), started: std::time::Instant::now() })
+    }
+
+    /// The command `action` of `thread`, carrying `turn_id` when its input names one, ended with the channel's `answer`:
+    /// its row goes to the log, unless no host held the role and nothing was sent.
+    pub fn stop(self, thread: &ThreadId, action: &str, turn_id: Option<Value>, answer: Result<&JsonValue, &HostError>) {
+        if let Some(args) = browser_timing_args(thread, action, turn_id, self.started.elapsed().as_secs_f64() * 1000.0, answer) {
+            (self.log)(args);
+        }
+    }
+}
+impl ChannelHostCommands {
+    pub fn new(channel: Arc<dyn HostChannel>) -> Arc<Self> {
+        Arc::new(Self { channel, timing: None })
+    }
+
+    /// Also hands each browser command's `browser_timing` row to `timing` ([`BrowserCommandClock`]).
+    pub fn with_timing(channel: Arc<dyn HostChannel>, timing: BrowserTimingLog) -> Arc<Self> {
+        Arc::new(Self { channel, timing: Some(timing) })
+    }
+}
+#[async_trait]
+impl HostCommands for ChannelHostCommands {
+    async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
+        let turn_id = self.timing.as_ref().and_then(|_| input.get("turn_id").cloned());
+        let params = serde_json::json!({ "threadId": thread, "action": action, "input": input });
+        let clock = BrowserCommandClock::start(self.timing.as_ref());
+        let answer = self.channel.request_scoped(HostCapability::Browser, Method("host/browser/command"), params, cancel).await;
+        if let Some(clock) = clock {
+            clock.stop(thread, action, turn_id, answer.as_ref());
+        }
+        browser_answer(answer, cancel, action)
+    }
+
+    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, mut input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
+        // An open's tool call id (`input.callId`, set by the tool) is a field of the request, beside `sessionId`, not of the input.
+        let call_id = if action == "open" { input.as_object_mut().and_then(|input| input.shift_remove("callId")) } else { None };
+        let mut params = serde_json::json!({ "sessionId": thread, "cwd": cwd, "action": action, "input": input });
+        if let (Some(call_id), Some(params)) = (call_id, params.as_object_mut()) {
+            params.insert("callId".to_owned(), call_id);
+        }
+        let budget = if action == "export" || action == "act" { VISUALIZE_LONG_TIMEOUT } else { VISUALIZE_TIMEOUT };
+        let request = self.channel.request(HostCapability::Visualize, Method("host/visualize/command"), params);
+        // The command is abandoned when the time is up, as when the caller cancels.
+        match Scope::new().cancel(cancel).within(budget).run(request).await {
+            Scoped::Done(answer) => visualize_answer(answer, cancel),
+            Scoped::DeadlineExceeded => Err(HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: VISUALIZE_TIMED_OUT.to_owned(), timing: None }),
+            Scoped::Cancelled => Err(HostCommandError::Cancelled),
+        }
     }
 }

@@ -78,8 +78,8 @@ function createBrowserRestartState(
 export function createPartitionSignIns(
   partition: Electron.Session,
   cookieJar: ReturnType<typeof createBrowserCookieJar>,
-  profileImporter: Pick<BrowserProfileImportService, 'clearImportedData'>,
-  sessionStore: Pick<ReturnType<typeof createBrowserSessionStore>, 'save'>,
+  profileImporter: Pick<BrowserProfileImportService, 'clearImportedData' | 'withCookieMutation' | 'withSiteSignOut'>,
+  sessionStore: Pick<ReturnType<typeof createBrowserSessionStore>, 'withSnapshotInvalidated'>,
   vault: Pick<CredentialVault, 'pauseOrigin'>
 ) {
   return createBrowserSignIns({
@@ -96,7 +96,8 @@ export function createPartitionSignIns(
       await partition.clearAuthCache();
     },
     clearImportedData: () => profileImporter.clearImportedData(),
-    saveSessionCookies: () => sessionStore.save(),
+    withCookieMutation: (work) => profileImporter.withCookieMutation(() => sessionStore.withSnapshotInvalidated(work)),
+    withSiteSignOut: (site, work) => profileImporter.withSiteSignOut(site, () => sessionStore.withSnapshotInvalidated(work, site)),
     pauseAutoSignIn: (site) => vault.pauseOrigin(site),
   });
 }

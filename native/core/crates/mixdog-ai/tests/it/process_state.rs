@@ -16,100 +16,6 @@ enum Verdict {
 }
 use Verdict::*;
 
-const VALUES: &[(&str, &str, Verdict)] = &[
-    ("providers/anthropic/adapter.rs", "GZIP_LATCHED", Reset("adapter::reset_gzip_latch()")),
-    ("providers/anthropic/fast_mode.rs", "PROCESS", Reset("fast_mode::process().clear()")),
-    ("providers/anthropic/threads.rs", "PROCESS", Reset("threads::reset_process()")),
-    ("providers/compat/schema.rs", "WARNED", Reset("compat::schema::reset_warned()")),
-    ("providers/openai/adapter.rs", "ZSTD_LATCHED", Reset("openai::adapter::reset_zstd_latch()")),
-    ("providers/google/adapter.rs", "ANNOUNCED", Reset("google::adapter::reset_announced()")),
-    ("providers/google/cache/registry.rs", "SHARED", Reset("Registry::reset_shared()")),
-    ("transport/preconnect.rs", "PRECONNECTED_AT", Reset("transport::preconnect::reset()")),
-    ("oauth/carried.rs", "REGISTRY", Reset("oauth::carried::reset_registry()")),
-    ("oauth/carried.rs", "TOUCHED", NotState("a unit test's count of the index entries its own thread made, compiled only into unit tests")),
-    ("oauth/carried.rs", "SCANNING", NotState("a unit test's hook that parks its own thread's scan, compiled only into unit tests")),
-    ("providers/grok/mod.rs", "NUMBERED_REQUEST_IDS", Reset("providers::grok::reset_process_state()")),
-    ("providers/grok/auth.rs", "DISCOVERED", Reset("providers::grok::reset_process_state()")),
-    ("random.rs", "NEXT", Reset("random::script(Vec::new())")),
-    ("random.rs", "JITTER", Reset("random::script_jitter(Vec::new())")),
-    ("random.rs", "SCOPES", NotState("the source of fresh scope ids: a replay's scope is a new one each run")),
-    ("random.rs", "SCOPE", NotState("the scope a thread draws in, entered and left by `run_scoped` around each replay")),
-    ("wall.rs", "CLOCK", Reset("wall::set(None)")),
-    ("pid.rs", "PID", Reset("pid::set(None)")),
-    ("providers/google/request.rs", "GEMINI_OWNER", NotState("a constant provider id")),
-    ("providers/google/request.rs", "ANTIGRAVITY_OWNER", NotState("a constant provider id")),
-    (
-        "oauth/lease.rs",
-        "THIS",
-        Survives("this process's identity as a lease owner and the leases it holds, keyed by lock path; a lease leaves when its holder ends, and a replay's credential files are its own"),
-    ),
-    (
-        "providers/grok/auth.rs",
-        "THIS",
-        Survives("this process's running Grok refreshes keyed by credential file path; an entry leaves when its refresh ends, and a replay's credential files are its own"),
-    ),
-    ("broker/send.rs", "NEXT", Survives("the counter that keeps the ids of the broker's send groups distinct; no recording names an id, and a replay's groups end with their sends")),
-    ("catalog/listing.rs", "EMPTY", NotState("an empty JSON object")),
-    ("catalog/service.rs", "EMPTY", NotState("an empty JSON object")),
-    ("catalog/lookup/registry.rs", "PRICING_OVERRIDES", NotState("a constant price table")),
-    ("catalog/lookup/registry.rs", "CURSOR_PRICING", NotState("a constant price table")),
-    ("providers/compat/ajv_meta.rs", "BUNDLE", NotState("the bundled meta-schema, parsed once")),
-    ("providers/devin/families.rs", "REVIEWED", NotState("a constant family table")),
-    ("providers/devin/families.rs", "REVIEWED_CLAIMS", NotState("derived from the constant family table")),
-    ("providers/compat/schema.rs", "MEMO", NotState("verdicts of a pure schema check by schema text")),
-    ("providers/cursor/request.rs", "SCHEMAS", NotState("verdicts of a pure schema check by schema text")),
-    ("providers/compat/wire_route.rs", "COMPILED", NotState("compiled patterns by pattern text")),
-    ("providers/custom/mod.rs", "IDS", NotState("interned id strings")),
-    ("transport/deadlines.rs", "LABELS", NotState("interned deadline labels")),
-    ("admission/settings.rs", "SETTINGS", Reset("settings::reset_process_lane_settings()")),
-    ("providers/first_byte.rs", "AT_START", Reset("FirstByteSettings::reset_process()")),
-    ("oauth/single_flight.rs", "FLIGHTS", Reset("single_flight::reset()")),
-    ("claude_floors.rs", "UNSUPPORTED", Reset("claude_floors::reset_process()")),
-    ("accounts/binding.rs", "SCOPED", NotState("task-local: the account a task runs under, gone with the task")),
-    ("registry/gateway.rs", "SEND_HEADERS", NotState("task-local: the headers of one gateway send, gone with the send")),
-    ("registry/gateway.rs", "REFUSAL", NotState("task-local: the refusal one routed attempt received, gone with the attempt")),
-    ("work.rs", "CREDENTIAL_READS", NotState("a `count-work` measurement counter no send reads")),
-    ("work.rs", "PROVIDERS_BUILT", NotState("a `count-work` measurement counter no send reads")),
-    ("work.rs", "PROVIDER_LOADS", NotState("a `count-work` measurement counter no send reads")),
-    (
-        "providers/action_input.rs",
-        "NESTED_BY_FLAT",
-        Survives("the unions tool modules register as they load (Node registers them at import, `action-schema.mjs:414`), keyed by content"),
-    ),
-    ("accounts/binding.rs", "BINDINGS", Survives("the host's account bindings; `replace_provider_auth_bindings` hands its caller the restore step")),
-    (
-        "registry/keys.rs",
-        "KEY_BINDINGS",
-        Survives("the API keys a headless exec binds in memory for its run; `replace_provider_api_key_bindings` hands its caller the restore step"),
-    ),
-    (
-        "providers/anthropic/prefix_trace.rs",
-        "BY_SESSION",
-        Survives("the last request prefix of each session by session id (Node's module `bySession` Map); a replay's sessions are its own"),
-    ),
-    ("transport/node_http.rs", "PIN", NotState("a test-support switch a spawned binary reads from its environment once")),
-    (
-        "transport/replay_bytes.rs",
-        "ANNOUNCER",
-        Survives("the socket to the listener `MIXDOG_REPLAY_BYTES` names and the bytes announced on it since the process began: a spawned core's one barrier, which its replay counts from the process's start"),
-    ),
-    ("transport/replay_bytes.rs", "RUN", NotState("task-local: the run a turn's task counts its waits on, gone with the task")),
-    ("transport/replay_bytes.rs", "RUNS", Survives("the count of turns alive now; a turn leaves it when its task ends, and a replay's turns end with it")),
-    ("transport/replay_bytes.rs", "PARKED_RUNS", Survives("the count of alive turns parked on an input now; a run leaves it when its wait or its task ends")),
-    ("transport/replay_bytes.rs", "OUTSIDE", Survives("the count of waits parked outside any run now; a wait leaves it when it ends or is dropped")),
-    ("transport/replay_bytes.rs", "ON_CHANGE", NotState("the settled signal's hook, a function pointer installed once per process")),
-    (
-        "netproxy/tunnel.rs",
-        "CONFIG",
-        Survives("the product TLS configuration and its session cache; a replay connects through its own server's configuration (`Pinned::tls`)"),
-    ),
-    (
-        "transport/node_http.rs",
-        "CONFIG",
-        Survives("the product TLS configuration with Node's ALPN; a replay connects through its own server's configuration (`Pinned::tls`)"),
-    ),
-];
-
 fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
@@ -257,6 +163,21 @@ fn statics(code: &str) -> (Vec<(usize, String, String)>, Vec<(usize, String)>) {
     (read, unreadable)
 }
 
+// The scan reads a declaration however it is laid out, and refuses what it cannot read instead of skipping it.
+#[test]
+fn the_scan_reads_every_static_or_names_it_unreadable() {
+    let source = "// static IN_COMMENT: u8 = 0;\nconst S: &str = \"static IN_STRING: u8\";\nfn f(x: &'static str) {}\n\
+                  static lower: Mutex<u8> = Mutex::new(0);\nstatic\n    NEXT_LINE\n    : AtomicU64 = AtomicU64::new(0);\n\
+                  static A: u8 = 0; static B: u8 = 0;\nmacro_rules! m { ($name:ident) => { static $name: u8 = 0; }; }\n\
+                  thread_local !{ static T: u8 = 0; }\nlazy_static !{ static ref L: u8 = 0; }\nconst C: char = '\"'; static AFTER_CHAR: u8 = 0;\n\
+                  const R: &str = r#\"static IN_RAW: u8\"#;\nstatic mut M: u8 = 0;\n/* static IN_BLOCK: u8 /* nested */ */\n";
+    let (read, unreadable) = statics(&code(source));
+    let names: Vec<(usize, &str)> = read.iter().map(|(line, name, _)| (*line, name.as_str())).collect();
+    assert_eq!(names, [(4, "lower"), (5, "NEXT_LINE"), (8, "A"), (8, "B"), (10, "T"), (12, "AFTER_CHAR"), (14, "M")]);
+    assert_eq!(read[1].2, "AtomicU64", "the type is read across lines");
+    let lines: Vec<usize> = unreadable.iter().map(|(line, _)| *line).collect();
+    assert_eq!(lines, [9, 11, 11], "{unreadable:?}: the macro's `static $name` and the spaced `lazy_static !` with its `static ref`");
+}
 // The lanes' queue bound is read from the environment once per process (Node builds its scheduler once); a replay
 // after the environment changed reads it again, as a new process would.
 #[test]
@@ -275,22 +196,99 @@ fn a_replay_reads_the_lane_queue_bound_from_the_environment_again() {
     unsafe { std::env::remove_var(NAME) };
 }
 
-// The scan reads a declaration however it is laid out, and refuses what it cannot read instead of skipping it.
-#[test]
-fn the_scan_reads_every_static_or_names_it_unreadable() {
-    let source = "// static IN_COMMENT: u8 = 0;\nconst S: &str = \"static IN_STRING: u8\";\nfn f(x: &'static str) {}\n\
-                  static lower: Mutex<u8> = Mutex::new(0);\nstatic\n    NEXT_LINE\n    : AtomicU64 = AtomicU64::new(0);\n\
-                  static A: u8 = 0; static B: u8 = 0;\nmacro_rules! m { ($name:ident) => { static $name: u8 = 0; }; }\n\
-                  thread_local !{ static T: u8 = 0; }\nlazy_static !{ static ref L: u8 = 0; }\nconst C: char = '\"'; static AFTER_CHAR: u8 = 0;\n\
-                  const R: &str = r#\"static IN_RAW: u8\"#;\nstatic mut M: u8 = 0;\n/* static IN_BLOCK: u8 /* nested */ */\n";
-    let (read, unreadable) = statics(&code(source));
-    let names: Vec<(usize, &str)> = read.iter().map(|(line, name, _)| (*line, name.as_str())).collect();
-    assert_eq!(names, [(4, "lower"), (5, "NEXT_LINE"), (8, "A"), (8, "B"), (10, "T"), (12, "AFTER_CHAR"), (14, "M")]);
-    assert_eq!(read[1].2, "AtomicU64", "the type is read across lines");
-    let lines: Vec<usize> = unreadable.iter().map(|(line, _)| *line).collect();
-    assert_eq!(lines, [9, 11, 11], "{unreadable:?}: the macro's `static $name` and the spaced `lazy_static !` with its `static ref`");
-}
 
+const VALUES: &[(&str, &str, Verdict)] = &[
+    ("providers/anthropic/adapter.rs", "GZIP_LATCHED", Reset("adapter::reset_gzip_latch()")),
+    ("providers/anthropic/fast_mode.rs", "PROCESS", Reset("fast_mode::process().clear()")),
+    ("providers/anthropic/threads.rs", "PROCESS", Reset("threads::reset_process()")),
+    ("providers/compat/schema.rs", "WARNED", Reset("compat::schema::reset_warned()")),
+    ("providers/openai/adapter.rs", "ZSTD_LATCHED", Reset("openai::adapter::reset_zstd_latch()")),
+    ("providers/google/adapter.rs", "ANNOUNCED", Reset("google::adapter::reset_announced()")),
+    ("providers/google/cache/registry.rs", "SHARED", Reset("Registry::reset_shared()")),
+    ("transport/preconnect.rs", "PRECONNECTED_AT", Reset("transport::preconnect::reset()")),
+    ("oauth/carried.rs", "REGISTRY", Reset("oauth::carried::reset_registry()")),
+    ("oauth/carried.rs", "TOUCHED", NotState("a unit test's count of the index entries its own thread made, compiled only into unit tests")),
+    ("oauth/carried.rs", "SCANNING", NotState("a unit test's hook that parks its own thread's scan, compiled only into unit tests")),
+    ("providers/grok/mod.rs", "NUMBERED_REQUEST_IDS", Reset("providers::grok::reset_process_state()")),
+    ("providers/grok/auth.rs", "DISCOVERED", Reset("providers::grok::reset_process_state()")),
+    ("random.rs", "NEXT", Reset("random::script(Vec::new())")),
+    ("random.rs", "JITTER", Reset("random::script_jitter(Vec::new())")),
+    ("random.rs", "SCOPES", NotState("the source of fresh scope ids: a replay's scope is a new one each run")),
+    ("random.rs", "SCOPE", NotState("the scope a thread draws in, entered and left by `run_scoped` around each replay")),
+    ("wall.rs", "CLOCK", Reset("wall::set(None)")),
+    ("pid.rs", "PID", Reset("pid::set(None)")),
+    ("providers/google/request.rs", "GEMINI_OWNER", NotState("a constant provider id")),
+    ("providers/google/request.rs", "ANTIGRAVITY_OWNER", NotState("a constant provider id")),
+    (
+        "oauth/lease.rs",
+        "THIS",
+        Survives("this process's identity as a lease owner and the leases it holds, keyed by lock path; a lease leaves when its holder ends, and a replay's credential files are its own"),
+    ),
+    (
+        "providers/grok/auth.rs",
+        "THIS",
+        Survives("this process's running Grok refreshes keyed by credential file path; an entry leaves when its refresh ends, and a replay's credential files are its own"),
+    ),
+    ("broker/send.rs", "NEXT", Survives("the counter that keeps the ids of the broker's send groups distinct; no recording names an id, and a replay's groups end with their sends")),
+    ("catalog/overlay.rs", "EMPTY", NotState("the empty overlay document a cold layer reads")),
+    ("catalog/lookup/registry.rs", "PRICING_OVERRIDES", NotState("a constant price table")),
+    ("catalog/lookup/registry.rs", "CURSOR_PRICING", NotState("a constant price table")),
+    ("providers/compat/ajv_meta.rs", "BUNDLE", NotState("the bundled meta-schema, parsed once")),
+    ("providers/devin/families.rs", "REVIEWED", NotState("a constant family table")),
+    ("providers/devin/families.rs", "REVIEWED_CLAIMS", NotState("derived from the constant family table")),
+    ("providers/compat/schema.rs", "MEMO", NotState("verdicts of a pure schema check by schema text")),
+    ("providers/cursor/request.rs", "SCHEMAS", NotState("verdicts of a pure schema check by schema text")),
+    ("providers/compat/wire_route.rs", "COMPILED", NotState("compiled patterns by pattern text")),
+    ("providers/custom/mod.rs", "IDS", NotState("interned id strings")),
+    ("transport/deadlines.rs", "LABELS", NotState("interned deadline labels")),
+    ("admission/settings.rs", "SETTINGS", Reset("settings::reset_process_lane_settings()")),
+    ("providers/first_byte.rs", "AT_START", Reset("FirstByteSettings::reset_process()")),
+    ("oauth/single_flight.rs", "FLIGHTS", Reset("single_flight::reset()")),
+    ("claude_floors.rs", "UNSUPPORTED", Reset("claude_floors::reset_process()")),
+    ("accounts/binding.rs", "SCOPED", NotState("task-local: the account a task runs under, gone with the task")),
+    ("registry/gateway.rs", "SEND_HEADERS", NotState("task-local: the headers of one gateway send, gone with the send")),
+    ("registry/gateway.rs", "REFUSAL", NotState("task-local: the refusal one routed attempt received, gone with the attempt")),
+    ("work.rs", "CREDENTIAL_READS", NotState("a `count-work` measurement counter no send reads")),
+    ("work.rs", "PROVIDERS_BUILT", NotState("a `count-work` measurement counter no send reads")),
+    ("work.rs", "PROVIDER_LOADS", NotState("a `count-work` measurement counter no send reads")),
+    (
+        "providers/action_input.rs",
+        "NESTED_BY_FLAT",
+        Survives("the unions tool modules register as they load (Node registers them at import, `action-schema.mjs:414`), keyed by content"),
+    ),
+    ("accounts/binding.rs", "BINDINGS", Survives("the host's account bindings; `replace_provider_auth_bindings` hands its caller the restore step")),
+    (
+        "registry/keys.rs",
+        "KEY_BINDINGS",
+        Survives("the API keys a headless exec binds in memory for its run; `replace_provider_api_key_bindings` hands its caller the restore step"),
+    ),
+    (
+        "providers/anthropic/prefix_trace.rs",
+        "BY_SESSION",
+        Survives("the last request prefix of each session by session id (Node's module `bySession` Map); a replay's sessions are its own"),
+    ),
+    ("transport/node_http.rs", "PIN", NotState("a test-support switch a spawned binary reads from its environment once")),
+    (
+        "transport/replay_bytes.rs",
+        "ANNOUNCER",
+        Survives("the socket to the listener `MIXDOG_REPLAY_BYTES` names and the bytes announced on it since the process began: a spawned core's one barrier, which its replay counts from the process's start"),
+    ),
+    ("transport/replay_bytes.rs", "RUN", NotState("task-local: the run a turn's task counts its waits on, gone with the task")),
+    ("transport/replay_bytes.rs", "RUNS", Survives("the count of turns alive now; a turn leaves it when its task ends, and a replay's turns end with it")),
+    ("transport/replay_bytes.rs", "PARKED_RUNS", Survives("the count of alive turns parked on an input now; a run leaves it when its wait or its task ends")),
+    ("transport/replay_bytes.rs", "OUTSIDE", Survives("the count of waits parked outside any run now; a wait leaves it when it ends or is dropped")),
+    ("transport/replay_bytes.rs", "ON_CHANGE", NotState("the settled signal's hook, a function pointer installed once per process")),
+    (
+        "netproxy/tunnel.rs",
+        "CONFIG",
+        Survives("the product TLS configuration and its session cache; a replay connects through its own server's configuration (`Pinned::tls`)"),
+    ),
+    (
+        "transport/node_http.rs",
+        "CONFIG",
+        Survives("the product TLS configuration with Node's ALPN; a replay connects through its own server's configuration (`Pinned::tls`)"),
+    ),
+];
 #[test]
 fn every_process_wide_value_is_reset_for_a_replay_or_named_with_its_reason() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");

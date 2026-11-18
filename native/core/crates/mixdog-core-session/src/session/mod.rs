@@ -20,7 +20,12 @@
 //! directory's sharded map, whose shard locks guard O(1) work only.
 
 mod actor;
+pub use actor::STOP_NOT_SAVED;
 mod archived_read;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod archived_read_tests;
 mod restore_hydrate;
@@ -39,17 +44,27 @@ mod spinner;
 mod resumed_tools_tests;
 #[cfg(test)]
 mod room_questions_tests;
+#[cfg(test)]
+mod room_view_tests;
+#[cfg(test)]
+mod remote_control_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod fixture_fs;
 pub mod delete;
 pub mod purge;
 pub mod sub_agent_retention;
+pub mod archive_trees;
+pub mod auto_retention;
 #[cfg(test)]
 mod thread_list_overlay_tests;
 pub mod heartbeat_catalog;
 pub mod shell_jobs;
 pub mod thread_list;
 pub mod thread_edges;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod thread_edges_tests;
 pub mod thread_context;
@@ -128,6 +143,10 @@ mod stats;
 pub use self::live_end::BuiltinSkills;
 pub use self::live_end::done_verb;
 pub mod turn_warm;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod pending_read_tests;
 mod reads;
@@ -144,11 +163,21 @@ mod usage_books;
 mod usage_metadata;
 pub mod goal_recovery_host;
 pub mod quota_resume_host;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod quota_resume_host_tests;
 pub mod quota_resume_scheduler;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod quota_resume_scheduler_tests;
+#[cfg(test)]
+mod quota_resume_scheduler_rules_tests;
 pub mod run;
 pub mod delegated_host;
 pub mod handoff_questions;
@@ -176,6 +205,10 @@ pub mod turn_snapshots;
 mod turn_snapshots_tests;
 pub mod user_text;
 pub mod node_hidden;
+pub mod image_overlay_store;
+pub mod image_recovery;
+pub mod image_recovery_service;
+pub mod image_gate;
 pub mod user_cwd;
 pub mod user_facts;
 pub mod agent_route;
@@ -198,10 +231,15 @@ mod turn_actions_tests;
 pub mod tui_client_methods;
 #[cfg(test)]
 mod tui_client_methods_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod agent_control_tests;
 
 #[cfg(any(test, feature = "test-support"))]
+#[path = "testing/mod.rs"]
 pub mod testing;
 #[cfg(any(test, feature = "test-support"))]
 pub mod thread_settings_rig;
@@ -215,44 +253,79 @@ mod sensitive_record_tests;
 mod items_tail_tests;
 #[cfg(test)]
 mod sensitive_carry_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod message_sanitize_replay;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod address_replay;
 #[cfg(test)]
+mod thread_fence_tests;
+#[cfg(test)]
+mod session_grants_tests;
+#[cfg(node_twin)]
+#[cfg(test)]
 mod switch_replay;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod lifecycle_replay;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod sequence_replay;
 #[cfg(test)]
 mod goal_lane_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod goal_snapshot_replay_tests;
 #[cfg(test)]
 mod client_chain_replay_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod idle_state_replay_tests;
 #[cfg(test)]
 mod turn_admission_tests;
 #[cfg(test)]
 mod delete_idle_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod offload_prune_order_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod steer_tests;
 #[cfg(test)]
 mod assembly_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod recorded_145_tests;
 #[cfg(test)]
 mod phone_chat_tests;
 #[cfg(test)]
 mod stop_race_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod session_reentry_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod task_notification_envelope_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod message_attachments_tests;
 #[cfg(test)]
@@ -269,6 +342,7 @@ use mixdog_rt::InteractiveIo;
 
 pub use self::directory::ArrivingThreads;
 pub use self::directory::SessionDirectory;
+pub use self::directory::is_process_exit_reason;
 pub use self::reads::transcript_row;
 pub use self::transcript::live_end;
 #[cfg(any(test, feature = "test-support"))]
@@ -286,6 +360,7 @@ pub use self::run::CompactUsageReport;
 pub use self::run::UsageReport;
 pub use self::seams::AgentTurn;
 pub use self::seams::AppendPosition;
+pub use self::seams::PrefixGuardSlot;
 pub use self::seams::BarrierError;
 pub use self::seams::CloseIngest;
 pub use self::seams::SensitiveMarks;
@@ -366,10 +441,139 @@ pub enum StartHold {
     Closed(mixdog_protocol::DrainReason),
 }
 
+/// A turn of any origin started on a thread (`session-activity-signal.mjs`
+/// `onSessionTurnStart`): the worker index clears the owner's release mark, and a Lead's pool row
+/// reads running; and it settled (`turn-settle.mjs:105`): a Lead's pool row reads idle.
+pub trait TurnStarts: Send + Sync {
+    fn turn_started(&self, thread: &mixdog_core_api::ids::ThreadId);
+    fn turn_settled(&self, _thread: &mixdog_core_api::ids::ThreadId) {}
+}
+
+/// The core lifecycle's count of the sessions' running work (Node's `busySessions`, `daemon.mjs:452`, `busy.mjs` `sessionTurnBusy`):
+/// with nobody attached the core does not stop itself while a session is busy (`maybeSelfShutdown` defers it: "A turn in flight
+/// outlives every view"), and a stop that waits for the core to be idle waits for it.
+pub trait CoreWork: Send + Sync {
+    /// `thread` turned busy: it is running work, listed with `title`, until the hold drops.
+    fn busy(&self, thread: &mixdog_core_api::ids::ThreadId, title: &str) -> Box<dyn BusyHold>;
+}
+
+/// A busy session's hold on the core ([`CoreWork::busy`]).
+pub trait BusyHold: Send + Sync {
+    /// The run under way: a confirmed stop's abort cancels it through `cancel`, until the returned registration drops.
+    fn run(&self, cancel: &mixdog_rt::CancellationToken) -> Box<dyn Send + Sync>;
+}
+
+/// [`CoreWork`] of a core with no lifecycle: nothing is counted.
+pub struct NoCoreWork;
+
+impl CoreWork for NoCoreWork {
+    fn busy(&self, _: &mixdog_core_api::ids::ThreadId, _: &str) -> Box<dyn BusyHold> {
+        Box::new(NoCoreWork)
+    }
+}
+
+impl BusyHold for NoCoreWork {
+    fn run(&self, _: &mixdog_rt::CancellationToken) -> Box<dyn Send + Sync> {
+        Box::new(())
+    }
+}
+
+/// [`TurnStarts`] bound after the sessions exist: the agent registry reads the session
+/// directory, which is built over the deps that carry this. Unbound, a turn start tells no one.
+#[derive(Default)]
+pub struct LateTurnStarts(std::sync::OnceLock<Arc<dyn TurnStarts>>);
+
+impl LateTurnStarts {
+    /// Binds the listener; a second bind is refused.
+    pub fn bind(&self, listener: Arc<dyn TurnStarts>) -> Result<(), Arc<dyn TurnStarts>> {
+        self.0.set(listener)
+    }
+}
+
+impl TurnStarts for LateTurnStarts {
+    fn turn_started(&self, thread: &mixdog_core_api::ids::ThreadId) {
+        if let Some(listener) = self.0.get() {
+            listener.turn_started(thread);
+        }
+    }
+
+    fn turn_settled(&self, thread: &mixdog_core_api::ids::ThreadId) {
+        if let Some(listener) = self.0.get() {
+            listener.turn_settled(thread);
+        }
+    }
+}
+
+/// The lane tokens sessions use (RL §3, §13): open reads, encodes and decodes, durability.
+#[derive(Clone, Copy, Debug)]
+pub struct SessionLanes {
+    pub cpu: CpuInteractive,
+    pub io: InteractiveIo,
+    pub durability: DurabilityIo,
+}
+
+pub struct SystemClock;
+
+/// Per-thread bounds (RL §5.1, §6.2, §12.2; FORMAT.md §3.3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SessionLimits {
+    /// Actor inbox (C2 and C1 requests that need the actor).
+    pub inbox: usize,
+    /// Actor control lane (abort, steer, decisions, run ends).
+    pub control_lane: usize,
+    /// Steer entries waiting for the run's next model-call boundary.
+    pub steer_queue: usize,
+    /// Producer lane (runs and internal section producers).
+    pub producer_lane: usize,
+    /// Normal durability window: unacked records and their encoded bytes.
+    pub window_records: usize,
+    pub window_bytes: usize,
+    /// Control reserve on top of the normal window: run status, approvals, steer entries.
+    pub reserve_records: usize,
+    pub reserve_bytes: usize,
+    /// Most encoded bytes in one group commit (`DURABILITY_WINDOW_BYTES`).
+    pub batch_bytes: usize,
+    /// Released-in-order backlog behind an unacked record before producers are paused.
+    pub outbox_entries: usize,
+    /// UI window kept in the view (RL §5.5): newest visible items.
+    pub view_items: usize,
+}
+
+impl Default for SessionLimits {
+    fn default() -> Self {
+        Self {
+            inbox: 256,
+            control_lane: 32,
+            steer_queue: 16,
+            producer_lane: 64,
+            window_records: 64,
+            window_bytes: 4 << 20,
+            reserve_records: 16,
+            reserve_bytes: 256 << 10,
+            batch_bytes: mixdog_store::schema::frame::DURABILITY_WINDOW_BYTES as usize,
+            outbox_entries: 1024,
+            view_items: 200,
+        }
+    }
+}
+
+/// A fresh 128-bit feed epoch (P §6.1), lowercase hex.
+fn new_epoch() -> mixdog_core_api::ids::FeedEpoch {
+    mixdog_core_api::ids::FeedEpoch::from(uuid::Uuid::new_v4().simple().to_string())
+}
+
+/// A fresh time-ordered id (turns, queue entries, items created by the core).
+fn new_id() -> String {
+    uuid::Uuid::now_v7().to_string()
+}
+
+
 /// Everything a session needs from the rest of the core. Built once by the composition root;
 /// every thread shares the same `Arc`.
 pub struct SessionDeps {
     pub store: Arc<dyn ThreadStore>,
+    /// The transcript-cache books of this store's open sessions: a session id names a book of this store only.
+    pub cache_tail: Arc<mixdog_ai::cache_tail::Books>,
     pub codec: Arc<dyn RecordCodec>,
     pub transcript: Arc<dyn Transcript>,
     pub prompts: Arc<dyn PromptHistoryStore>,
@@ -454,8 +658,7 @@ pub struct SessionDeps {
     /// The Goal runtime the session's turns start, settle and continue.
     pub goals: Arc<dyn goal_lane::SessionGoals>,
     /// What a Goal continuation reads of the session: its todo list, and the background work it
-    /// waits on (`goal-facade-api.mjs` `goalContinuation`). The cycles are the ones the turn
-    /// guards begin at each genuine user prompt.
+    /// waits on (`goal-facade-api.mjs` `goalContinuation`).
     pub todos: Arc<dyn mixdog_tools::state::todo::TodoStore>,
     pub work: Arc<dyn mixdog_core_run::run_host::guards::RunningWork>,
     /// The agent tool's status for a session, published as its `agents` section when a job of
@@ -477,7 +680,6 @@ pub struct SessionDeps {
     pub agent_signals: Arc<dyn agent_activity::AgentSignals>,
     /// `agentDisplayName`: a sub-agent's approval card names who asks by it (`delegation::approval_surface`).
     pub agent_names: Arc<dyn delegation::AgentNames>,
-    pub cycles: Arc<mixdog_core_run::run_host::guards::UserCycles>,
     /// The quota-resume queue a quota-failed turn queues its resume on.
     pub quota: quota_lane::SessionQuota,
     pub lanes: SessionLanes,
@@ -488,74 +690,14 @@ pub struct SessionDeps {
     pub warm: Arc<dyn turn_warm::TurnWarmth>,
     /// The built-in skills a live turn hides the loads of (`builtinSkillNamesFor`).
     pub builtin_skills: Arc<dyn BuiltinSkills>,
+    /// The one archive authority every reader and writer of a session's archive state goes through
+    /// ([`mixdog_store::archive_state`], [`archive_trees`]).
+    pub archive: Arc<mixdog_store::archive_state::ArchiveStates>,
     /// `surfaceGeneration`: a delete moves it (`session-delete.mjs` `invalidatePreSessionToolSurface()`).
     /// A `thread/resume` attaches to a live thread and retargets no runtime, so it does not (Node's
     /// `resume.mjs` bumps because it swaps the runtime's current session); a thread loaded from disk is
     /// checked once anyway, having no applied key in this process.
     pub surface: mixdog_core_base::surface::SurfaceGeneration,
-}
-
-/// A turn of any origin started on a thread (`session-activity-signal.mjs`
-/// `onSessionTurnStart`): the worker index clears the owner's release mark.
-pub trait TurnStarts: Send + Sync {
-    fn turn_started(&self, thread: &mixdog_core_api::ids::ThreadId);
-}
-
-/// The core lifecycle's count of the sessions' running work (Node's `busySessions`, `daemon.mjs:452`, `busy.mjs` `sessionTurnBusy`):
-/// with nobody attached the core does not stop itself while a session is busy (`maybeSelfShutdown` defers it: "A turn in flight
-/// outlives every view"), and a stop that waits for the core to be idle waits for it.
-pub trait CoreWork: Send + Sync {
-    /// `thread` turned busy: it is running work, listed with `title`, until the hold drops.
-    fn busy(&self, thread: &mixdog_core_api::ids::ThreadId, title: &str) -> Box<dyn BusyHold>;
-}
-
-/// A busy session's hold on the core ([`CoreWork::busy`]).
-pub trait BusyHold: Send + Sync {
-    /// The run under way: a confirmed stop's abort cancels it through `cancel`, until the returned registration drops.
-    fn run(&self, cancel: &mixdog_rt::CancellationToken) -> Box<dyn Send + Sync>;
-}
-
-/// [`CoreWork`] of a core with no lifecycle: nothing is counted.
-pub struct NoCoreWork;
-
-impl CoreWork for NoCoreWork {
-    fn busy(&self, _: &mixdog_core_api::ids::ThreadId, _: &str) -> Box<dyn BusyHold> {
-        Box::new(NoCoreWork)
-    }
-}
-
-impl BusyHold for NoCoreWork {
-    fn run(&self, _: &mixdog_rt::CancellationToken) -> Box<dyn Send + Sync> {
-        Box::new(())
-    }
-}
-
-/// [`TurnStarts`] bound after the sessions exist: the agent registry reads the session
-/// directory, which is built over the deps that carry this. Unbound, a turn start tells no one.
-#[derive(Default)]
-pub struct LateTurnStarts(std::sync::OnceLock<Arc<dyn TurnStarts>>);
-
-impl LateTurnStarts {
-    /// Binds the listener; a second bind is refused.
-    pub fn bind(&self, listener: Arc<dyn TurnStarts>) -> Result<(), Arc<dyn TurnStarts>> {
-        self.0.set(listener)
-    }
-}
-
-impl TurnStarts for LateTurnStarts {
-    fn turn_started(&self, thread: &mixdog_core_api::ids::ThreadId) {
-        if let Some(listener) = self.0.get() {
-            listener.turn_started(thread);
-        }
-    }
-}
-
-/// The lane tokens sessions use (RL §3, §13): open reads, encodes and decodes, durability.
-#[derive(Clone, Copy, Debug)]
-pub struct SessionLanes {
-    pub cpu: CpuInteractive,
-    pub io: InteractiveIo,
-    pub durability: DurabilityIo,
 }
 
 /// Wall-clock milliseconds since the Unix epoch, for record and resolution timestamps.
@@ -574,9 +716,6 @@ pub trait Clock: Send + Sync + 'static {
         Box::pin(mixdog_rt::time::sleep(after))
     }
 }
-
-pub struct SystemClock;
-
 impl Clock for SystemClock {
     fn now_ms(&self) -> i64 {
         // On a replay's clock, the replay's wall clock (mixdog_rt::virtual_clock).
@@ -586,7 +725,6 @@ impl Clock for SystemClock {
         i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
     }
 }
-
 /// The same wall clock for the agent tool, its job board and its worker turns
 /// (`mixdog_agent::env::Clock`, a separate trait from the session layer's).
 impl mixdog_agent::env::Clock for SystemClock {
@@ -594,55 +732,6 @@ impl mixdog_agent::env::Clock for SystemClock {
         Clock::now_ms(self)
     }
 }
-
-/// Per-thread bounds (RL §5.1, §6.2, §12.2; FORMAT.md §3.3).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SessionLimits {
-    /// Actor inbox (C2 and C1 requests that need the actor).
-    pub inbox: usize,
-    /// Actor control lane (abort, steer, decisions, run ends).
-    pub control_lane: usize,
-    /// Steer entries waiting for the run's next model-call boundary.
-    pub steer_queue: usize,
-    /// Producer lane (runs and internal section producers).
-    pub producer_lane: usize,
-    /// Normal durability window: unacked records and their encoded bytes.
-    pub window_records: usize,
-    pub window_bytes: usize,
-    /// Control reserve on top of the normal window: run status, approvals, steer entries.
-    pub reserve_records: usize,
-    pub reserve_bytes: usize,
-    /// Most encoded bytes in one group commit (`DURABILITY_WINDOW_BYTES`).
-    pub batch_bytes: usize,
-    /// Released-in-order backlog behind an unacked record before producers are paused.
-    pub outbox_entries: usize,
-    /// UI window kept in the view (RL §5.5): newest visible items.
-    pub view_items: usize,
-}
-
-impl Default for SessionLimits {
-    fn default() -> Self {
-        Self {
-            inbox: 256,
-            control_lane: 32,
-            steer_queue: 16,
-            producer_lane: 64,
-            window_records: 64,
-            window_bytes: 4 << 20,
-            reserve_records: 16,
-            reserve_bytes: 256 << 10,
-            batch_bytes: mixdog_store::schema::frame::DURABILITY_WINDOW_BYTES as usize,
-            outbox_entries: 1024,
-            view_items: 200,
-        }
-    }
-}
-
-/// A fresh 128-bit feed epoch (P §6.1), lowercase hex.
-fn new_epoch() -> mixdog_core_api::ids::FeedEpoch {
-    mixdog_core_api::ids::FeedEpoch::from(uuid::Uuid::new_v4().simple().to_string())
-}
-
 /// A new session id as Node mints it (`mintSessionId`, `session-id.mjs`): `sess_<pid>_<counter>_<ms>_<32 hex>`, the counter a
 /// process-wide sequence that starts at the time of the first mint.
 fn new_session_id(now_ms: i64) -> String {
@@ -652,9 +741,4 @@ fn new_session_id(now_ms: i64) -> String {
         .get_or_init(|| AtomicU64::new(mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis() as u64)))
         .fetch_add(1, Ordering::Relaxed);
     format!("sess_{}_{counter}_{now_ms}_{}", std::process::id(), uuid::Uuid::new_v4().simple())
-}
-
-/// A fresh time-ordered id (turns, queue entries, items created by the core).
-fn new_id() -> String {
-    uuid::Uuid::now_v7().to_string()
 }

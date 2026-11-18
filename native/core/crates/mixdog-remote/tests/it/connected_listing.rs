@@ -1,10 +1,11 @@
-//! The section's `info.connected` is Node's "the descriptor is answered": it turns true after the first successful
+//! The section's `info.connected` means "the descriptor is answered": it turns true after the first successful
 //! client listing on the relay leg, not when the runtime connects (`remote.descriptor()` is `null` until
-//! `relay.listClients()` succeeds; recorded from Node in apps/desktop/src/main/protocol/fixtures/remote-info-node-states.json).
+//! `relay.listClients()` succeeds).
 
 use crate::common;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use common::{NoDial, NoEffects, Quiet};
 use futures::{SinkExt, StreamExt};
@@ -15,8 +16,10 @@ use mixdog_remote::access::settings::AccessSettings;
 use mixdog_remote::registry::DeviceRegistry;
 use mixdog_remote::section::{RemoteSection, RemoteSectionValue};
 use serde_json::{Value, json};
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::{Notify, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
+
+const WAIT: Duration = Duration::from_secs(10);
 
 /// Wakes the test on every publish of the section.
 #[derive(Default)]
@@ -30,13 +33,15 @@ impl StatePublisher for Wake {
 
 /// A relay that accepts one leg, declares its capabilities and answers nothing it is not told to: a `list-clients` request is
 /// handed to the test, which answers it when it chooses.
-async fn silent_relay() -> (u16, mpsc::UnboundedReceiver<Value>, mpsc::UnboundedSender<Value>) {
+async fn silent_relay() -> (u16, oneshot::Sender<()>, mpsc::UnboundedReceiver<Value>, mpsc::UnboundedSender<Value>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let (asked_tx, asked) = mpsc::unbounded_channel();
     let (answer, mut answers) = mpsc::unbounded_channel::<Value>();
+    let (open, opening) = oneshot::channel();
     tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        opening.await.unwrap();
         let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
         let caps = json!({ "type": "relay-capabilities", "textFrames": 1, "maxFrameBytes": 1_048_576 });
         ws.send(Message::Text(caps.to_string().into())).await.unwrap();
@@ -59,70 +64,74 @@ async fn silent_relay() -> (u16, mpsc::UnboundedReceiver<Value>, mpsc::Unbounded
             }
         }
     });
-    (port, asked, answer)
+    (port, open, asked, answer)
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn connected_turns_true_after_a_client_listing_and_a_failed_first_one_is_retried_by_the_next_ask() {
-    let dir = tempfile::tempdir().unwrap();
-    let (port, mut asked, answer) = silent_relay().await;
-    let wake = Arc::new(Wake::default());
+fn runtime(dir: &std::path::Path, port: u16, wake: Arc<Wake>) -> RemoteRuntime {
     let cfg = RuntimeConfig {
-        dir: dir.path().to_path_buf(),
+        dir: dir.to_path_buf(),
         relay_url: Some(format!("ws://127.0.0.1:{port}")),
         app_version: None,
         durability: mixdog_rt::testing::tokens().durability_io,
         dialer: Arc::new(NoDial),
         registry: Arc::new(DeviceRegistry::default()),
-        section: Arc::new(RemoteSection::new(wake.clone(), RemoteSectionValue::default())),
-        settings: Arc::new(AccessSettings::new(dir.path().to_path_buf(), Arc::new(|| "PC".to_owned()))),
+        section: Arc::new(RemoteSection::new(wake, RemoteSectionValue::default())),
+        settings: Arc::new(AccessSettings::new(dir, Arc::new(|| "PC".to_owned()))),
         link: LegLink::default(),
         events: Arc::new(Quiet),
     };
-    let runtime = RemoteRuntime::new(cfg, Box::new(|_| Box::new(NoEffects)));
-    let mut link = runtime.watch_connected();
+    RemoteRuntime::new(cfg, Box::new(|_| Box::new(NoEffects)))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_read_before_open_is_followed_by_a_ready_publication_without_another_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let (port, open, mut asked, answer) = silent_relay().await;
+    let wake = Arc::new(Wake::default());
+    let runtime = runtime(dir.path(), port, wake.clone());
     runtime.start(true).await.unwrap();
-    link.wait_for(|up| *up).await.unwrap();
-    assert!(runtime.is_connected());
-    // The leg is open and nobody has asked for the client list: Node's descriptor is `null` here, and the runtime asks nothing
-    // on its own (Node listed only when a window asked).
-    loop {
-        let info = runtime.section_value().info;
-        if info["enabled"] == json!(true) {
-            assert_eq!(info["connected"], json!(false), "a connected leg that has not answered a listing is not connected yet");
-            break;
-        }
-        wake.0.notified().await;
-    }
-    assert!(asked.try_recv().is_err(), "opening the leg lists nothing");
-    // A window asks and the relay never answers (a failed listing): still not connected.
-    let failed = tokio::spawn({
-        let runtime = runtime.clone();
-        async move { runtime.list_if_unanswered().await }
-    });
-    let first = asked.recv().await.expect("the ask lists");
-    failed.abort();
+    runtime.list_if_unanswered().await;
     assert_eq!(runtime.section_value().info["connected"], json!(false));
-    // Node retried on the next ask, not on a timer or a relay event: `list_if_unanswered` is that ask, and its own request is
-    // the one the relay answers.
+    open.send(()).unwrap();
+    let request = mixdog_rt::time::timeout(WAIT, asked.recv())
+        .await.expect("the open leg must list without a second read").expect("relay ended");
+    assert_eq!(runtime.section_value().info["connected"], json!(false), "only a successful listing makes the QR ready");
+    let paired = json!({ "id": "0123456789abcdef0123456789abcdef", "name": "Pixel 9 · Mixdog App", "browser": "Mixdog App", "createdAt": 5, "online": true });
+    answer.send(json!({ "type": "clients-list", "requestId": request["requestId"], "clients": [paired] })).unwrap();
+    mixdog_rt::time::timeout(WAIT, async {
+        loop {
+            let section = runtime.section_value();
+            if section.info["connected"] == json!(true) {
+                assert_eq!(section.clients[0]["id"], paired["id"]);
+                assert_eq!(section.clients[0]["online"], json!(true));
+                break;
+            }
+            wake.0.notified().await;
+        }
+    }).await.expect("a successful listing must publish the ready descriptor and roster");
+    runtime.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_state_read_can_retry_an_unanswered_listing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (port, open, mut asked, answer) = silent_relay().await;
+    let runtime = runtime(dir.path(), port, Arc::new(Wake::default()));
+    runtime.start(true).await.unwrap();
+    open.send(()).unwrap();
+    let first = mixdog_rt::time::timeout(WAIT, asked.recv())
+        .await.expect("the initial listing").expect("relay ended");
+    answer.send(json!({ "type": "clients-list", "requestId": first["requestId"], "ok": false })).unwrap();
+    assert_eq!(runtime.section_value().info["connected"], json!(false));
     let asking = tokio::spawn({
         let runtime = runtime.clone();
         async move { runtime.list_if_unanswered().await }
     });
-    let second = asked.recv().await.expect("the next ask lists again");
+    let second = mixdog_rt::time::timeout(WAIT, asked.recv())
+        .await.expect("the next ask lists again").expect("relay ended");
     assert_ne!(second["requestId"], first["requestId"]);
-    let paired = json!({ "id": "0123456789abcdef0123456789abcdef", "name": "Pixel 9 · Mixdog App", "browser": "Mixdog App", "createdAt": 5, "online": true });
-    answer.send(json!({ "type": "clients-list", "requestId": second["requestId"], "clients": [paired] })).unwrap();
+    answer.send(json!({ "type": "clients-list", "requestId": second["requestId"], "clients": [] })).unwrap();
     asking.await.unwrap();
-    loop {
-        if runtime.section_value().info["connected"] == json!(true) {
-            break;
-        }
-        wake.0.notified().await;
-    }
-    // The section names the devices that listing reported, as soon as it answered, online as the relay said.
-    let section = runtime.section_value();
-    let listed: Vec<(&Value, &Value)> = section.clients.iter().map(|client| (&client["id"], &client["online"])).collect();
-    assert_eq!(listed, [(&paired["id"], &json!(true))]);
+    assert_eq!(runtime.section_value().info["connected"], json!(true));
     runtime.close().await;
 }

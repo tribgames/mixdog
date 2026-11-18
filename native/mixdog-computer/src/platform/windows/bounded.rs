@@ -210,6 +210,26 @@ mod tests {
     }
 
     #[test]
+    fn a_later_stage_waits_only_for_what_an_earlier_stage_left_of_the_one_deadline() {
+        let state = bounded();
+        // 900 of the 1000 ms went to the element search; the enrichment that follows gets the other 100, not a fresh 1000.
+        let shared = Deadline { start: Instant::now().checked_sub(Duration::from_millis(900)).unwrap(), budget_ms: 1000 };
+        let (release, held) = mpsc::channel::<()>();
+        let begun = Instant::now();
+        let timed_out = state.run(Some(&shared), "the MSAA enrichment", move || {
+            let _ = held.recv();
+            Ok(1)
+        });
+        assert_eq!(
+            timed_out,
+            Err("computer_command_timeout: accessibility read exceeded 1000ms during the MSAA enrichment; the read was abandoned and the input host kept running".into())
+        );
+        assert!(begun.elapsed() < Duration::from_millis(700), "the stage waited {:?}, not the 100 ms that were left", begun.elapsed());
+        drop(release);
+        state.abandoned.lock().unwrap().take().unwrap().join().unwrap();
+    }
+
+    #[test]
     fn a_panic_becomes_an_error() {
         let failed: Result<u8, String> = bounded().run(Some(&deadline(5000)), "the stage", || panic!("provider"));
         assert_eq!(failed, Err("accessibility read failed during the stage".into()));

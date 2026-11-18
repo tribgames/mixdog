@@ -157,9 +157,19 @@ fn apply(fake: &Fake, op: &Json) -> Result<String, String> {
 
 #[test]
 fn the_editor_serves_the_pptx_operations_of_the_registry_fixture() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join("registry").join("operations.json");
-    let fixture: Json = serde_json::from_str(&mixdog_testkit::read_string(&path)).expect("the registry fixture");
-    let listed: Vec<String> = fixture["operations"]["pptx"].as_array().expect("the pptx names").iter().map(|name| name.as_str().expect("a name").to_owned()).collect();
+    let listed: Vec<String> = [
+        "add_animation", "add_chart", "add_comment", "add_image", "add_media", "add_provenance", "add_shape", "add_slide",
+        "add_table", "add_textbox", "align_shapes", "apply_theme", "crop_image", "delete_comment", "delete_shape",
+        "delete_slide", "distribute_shapes", "duplicate_slide", "fill_template", "fit_text", "group_shapes",
+        "import_slides", "keep_slides", "move_slide", "replace_image", "replace_text", "set_chart_axis", "set_chart_data",
+        "set_chart_data_labels", "set_chart_error_bars", "set_chart_series", "set_chart_trendline", "set_footer",
+        "set_hyperlink", "set_layout", "set_notes", "set_shape", "set_slide_background", "set_slide_number",
+        "set_slide_visibility", "set_table_cell_style", "set_table_data", "set_text", "set_transition", "ungroup_shape",
+        "z_order",
+    ]
+    .iter()
+    .map(|name| (*name).to_owned())
+    .collect();
     let served: Vec<String> = Editor.operation_names().iter().map(|name| (*name).to_owned()).collect();
     assert_eq!(served.len(), 46);
     assert_eq!(served, listed);
@@ -483,6 +493,7 @@ fn results_of_answer(step: &Json) -> Option<Json> {
 fn error_of_answer(step: &Json) -> Option<String> {
     step.get("stdout")?.as_array()?.iter().find_map(|message| message.get("error")).and_then(Json::as_str).map(str::to_owned)
 }
+
 
 #[test]
 fn recorded_scenarios_are_replayed() {

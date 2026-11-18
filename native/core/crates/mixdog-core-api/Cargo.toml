@@ -16,7 +16,9 @@ mixdog-protocol = { workspace = true }
 mixdog-app-protocol = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-js = { workspace = true }
+mixdog-image-egress = { workspace = true }
 async-trait = { workspace = true }
+base64 = { workspace = true }
 bytes = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -25,13 +27,14 @@ tokio-util = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 tokio = { workspace = true, features = ["rt", "macros"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-app-protocol = { workspace = true }
 mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-protocol = { workspace = true }

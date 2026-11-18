@@ -3,21 +3,30 @@
 //! bookkeeping. Fixture loading reads files synchronously; tests are not lane code.
 #![allow(clippy::disallowed_methods)]
 
+#[cfg(node_twin)]
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
+#[cfg(node_twin)]
 use std::sync::atomic::AtomicUsize;
+#[cfg(node_twin)]
 use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::board::CancelAll;
 use mixdog_agent::agent_tool::board::CancelNotice;
 use mixdog_agent::agent_tool::board::JobBoard;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::board::JobMeta;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::board::JobOwner;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::board::NewJob;
 use mixdog_agent::agent_tool::flow::early::EarlyNotice;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::flow::job_starter::JobStarter;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::flow::job_starter::StartContext;
 use mixdog_agent::agent_tool::flow::reconcile::JobHandle;
 use mixdog_agent::agent_tool::flow::seams::*;
@@ -25,25 +34,27 @@ use mixdog_agent::agent_tool::flow::turn::TurnPlan;
 use mixdog_agent::agent_tool::flow::turn::TurnRunner;
 use mixdog_agent::agent_tool::flow::worker_turns::Claim;
 use mixdog_agent::agent_tool::flow::worker_turns::TurnOwner;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::flow::worker_turns::WorkerTurns;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::host::CloseOptions;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::host::Sessions;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::scope::Scope;
 use mixdog_agent::env::Clock;
 use mixdog_agent::response::Termination;
+#[cfg(node_twin)]
 use mixdog_protocol::ThreadId;
+#[cfg(node_twin)]
 use mixdog_tools::exec::TaskNotifier;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
+#[cfg(node_twin)]
 use tokio::sync::oneshot;
 
-const START: i64 = 1_772_359_200_000; // 2026-03-01T10:00:00.000Z
-
-fn fixture(name: &str) -> Vec<Value> {
-    let text = std::fs::read_to_string(format!("{}/../../fixtures/agent/turns/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap();
-    serde_json::from_str::<Value>(&text).unwrap().as_array().unwrap().clone()
-}
+const START: i64 = 1_772_359_200_000;
 
 struct FixedClock;
 impl Clock for FixedClock {
@@ -58,6 +69,7 @@ fn backend() {
     mixdog_rt::testing::tokens();
 }
 
+#[cfg(node_twin)]
 async fn settle() {
     for _ in 0..4 {
         mixdog_rt::time::sleep(std::time::Duration::from_millis(15)).await;
@@ -146,6 +158,7 @@ impl TurnSessions for Sess {
                     message: error["message"].as_str().unwrap().to_owned(),
                     carried_report: error.get("carriedReport").and_then(Value::as_str).map(str::to_owned),
                     partial_handoff: error.get("partialHandoff").and_then(Value::as_str).map(str::to_owned),
+                    notes: Vec::new(),
                 });
             }
         }
@@ -244,7 +257,9 @@ impl OwnerNotify for Owner {
     }
 }
 
+#[cfg(node_twin)]
 struct Delivered(Arc<World>);
+#[cfg(node_twin)]
 #[async_trait]
 impl TaskNotifier for Delivered {
     async fn finished(&self, owner: &ThreadId, _surface: &str, _task_id: &str, _status: &str, notification: String) {
@@ -259,7 +274,9 @@ impl WorkerInbox for NoInbox {
     }
 }
 
+#[cfg(node_twin)]
 struct Closer;
+#[cfg(node_twin)]
 #[async_trait]
 impl Sessions for Closer {
     async fn rehydrate_agent_sessions(&self) -> bool {
@@ -280,8 +297,11 @@ impl Sessions for Closer {
     fn clear_statusline_route(&self, _: &str) {}
 }
 
+#[cfg(node_twin)]
 struct Open;
+#[cfg(node_twin)]
 struct Slot;
+#[cfg(node_twin)]
 #[async_trait]
 impl Lease for Slot {
     async fn release(self: Box<Self>) {}
@@ -290,8 +310,10 @@ impl Lease for Slot {
     }
 }
 
+#[cfg(node_twin)]
 /// A slot that hands nothing back: the task just runs.
 struct Immediate;
+#[cfg(node_twin)]
 #[async_trait]
 impl mixdog_agent::env::Yielder for Immediate {
     async fn run_yielded(&self, task: futures::future::BoxFuture<'_, bool>, _: Option<&mixdog_agent::cancel::Cancel>) -> Result<(), String> {
@@ -300,6 +322,7 @@ impl mixdog_agent::env::Yielder for Immediate {
     }
 }
 
+#[cfg(node_twin)]
 #[async_trait]
 impl Admission for Open {
     async fn acquire(&self, _: &str, _: Option<&str>, _: &mixdog_agent::cancel::Cancel) -> Result<Box<dyn Lease>, String> {
@@ -307,7 +330,9 @@ impl Admission for Open {
     }
 }
 
+#[cfg(node_twin)]
 struct NoStarts;
+#[cfg(node_twin)]
 impl TaskStarts for NoStarts {
     fn record(&self, _: &str, _: &str) {}
 }
@@ -326,7 +351,9 @@ impl TurnOwner for TurnsOwner {
         true
     }
 }
+#[cfg(node_twin)]
 struct Names;
+#[cfg(node_twin)]
 impl SessionNames for Names {
     fn tag_for_session(&self, _: &str) -> Option<String> {
         Some("scout".into())
@@ -346,10 +373,72 @@ fn identity(spawn: bool, agent: &str) -> Map<String, Value> {
     value.as_object().unwrap().clone()
 }
 
+#[cfg(node_twin)]
 fn mask(value: &Value, id: &str) -> Value {
     serde_json::from_str(&value.to_string().replace(id, "job")).unwrap()
 }
 
+// ---- worker turns ---------------------------------------------------------------------------
+
+#[cfg(node_twin)]
+#[derive(Default)]
+struct Probe {
+    rows: Mutex<Vec<Value>>,
+    changed: AtomicUsize,
+    unobserved: Arc<AtomicUsize>,
+    listeners: Mutex<HashMap<String, Arc<dyn TurnListener>>>,
+}
+
+#[cfg(node_twin)]
+struct ProbeSource(Arc<Probe>);
+#[cfg(node_twin)]
+impl TurnSource for ProbeSource {
+    fn observe_session_turns(&self, session_id: &str, listener: Arc<dyn TurnListener>) -> Option<Unobserve> {
+        lock(&self.0.listeners).insert(session_id.to_owned(), listener);
+        let counter = self.0.unobserved.clone();
+        Some(Box::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }))
+    }
+}
+
+#[cfg(node_twin)]
+struct ProbeRows(Arc<Probe>);
+#[cfg(node_twin)]
+impl WorkerRows for ProbeRows {
+    fn upsert(&self, session_id: &str, tag: Option<&str>, update: RowUpdate) {
+        let mut patch = Map::new();
+        if let Some(v) = update.status {
+            patch.insert("status".into(), json!(v));
+        }
+        if let Some(v) = update.stage {
+            patch.insert("stage".into(), json!(v));
+        }
+        if let Some(v) = update.task_id {
+            patch.insert("task_id".into(), json!(v));
+        }
+        if let Some(v) = update.turn_started_at {
+            patch.insert("turnStartedAt".into(), json!(v));
+        }
+        if let Some(v) = update.finished_at {
+            patch.insert("finishedAt".into(), json!(v));
+        }
+        if let Some(v) = update.failure_reason {
+            patch.insert("failureReason".into(), json!(v));
+        }
+        lock(&self.0.rows).push(json!({ "session": session_id, "tag": tag, "patch": patch }));
+    }
+}
+
+
+ // 2026-03-01T10:00:00.000Z
+
+#[cfg(node_twin)]
+fn fixture(name: &str) -> Vec<Value> {
+    let text = std::fs::read_to_string(format!("{}/../../fixtures/agent/turns/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    serde_json::from_str::<Value>(&text).unwrap().as_array().unwrap().clone()
+}
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn a_workers_turn_equals_nodes_runner() {
     backend();
@@ -446,54 +535,7 @@ async fn a_workers_turn_equals_nodes_runner() {
         assert_eq!(got, want, "{name}");
     }
 }
-
-// ---- worker turns ---------------------------------------------------------------------------
-
-#[derive(Default)]
-struct Probe {
-    rows: Mutex<Vec<Value>>,
-    changed: AtomicUsize,
-    unobserved: Arc<AtomicUsize>,
-    listeners: Mutex<HashMap<String, Arc<dyn TurnListener>>>,
-}
-
-struct ProbeSource(Arc<Probe>);
-impl TurnSource for ProbeSource {
-    fn observe_session_turns(&self, session_id: &str, listener: Arc<dyn TurnListener>) -> Option<Unobserve> {
-        lock(&self.0.listeners).insert(session_id.to_owned(), listener);
-        let counter = self.0.unobserved.clone();
-        Some(Box::new(move || {
-            counter.fetch_add(1, Ordering::SeqCst);
-        }))
-    }
-}
-
-struct ProbeRows(Arc<Probe>);
-impl WorkerRows for ProbeRows {
-    fn upsert(&self, session_id: &str, tag: Option<&str>, update: RowUpdate) {
-        let mut patch = Map::new();
-        if let Some(v) = update.status {
-            patch.insert("status".into(), json!(v));
-        }
-        if let Some(v) = update.stage {
-            patch.insert("stage".into(), json!(v));
-        }
-        if let Some(v) = update.task_id {
-            patch.insert("task_id".into(), json!(v));
-        }
-        if let Some(v) = update.turn_started_at {
-            patch.insert("turnStartedAt".into(), json!(v));
-        }
-        if let Some(v) = update.finished_at {
-            patch.insert("finishedAt".into(), json!(v));
-        }
-        if let Some(v) = update.failure_reason {
-            patch.insert("failureReason".into(), json!(v));
-        }
-        lock(&self.0.rows).push(json!({ "session": session_id, "tag": tag, "patch": patch }));
-    }
-}
-
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn worker_turn_rows_equal_nodes() {
     backend();
@@ -586,7 +628,7 @@ async fn worker_turn_rows_equal_nodes() {
         }
     }
 }
-
+#[cfg(node_twin)]
 /// The recorder numbers its worker-turns scenarios from one, in order.
 fn scenario_number(name: &str) -> usize {
     fixture("worker-turns.json").iter().position(|s| s["name"] == name).unwrap() + 1

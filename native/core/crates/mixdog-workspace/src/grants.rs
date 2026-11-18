@@ -353,158 +353,6 @@ mod tests {
         }
     }
 
-    /// Node's flow (`fixtures/desktop/grants/record.mjs`, recorded on win32), replayed step for step: the same
-    /// mints and redemptions, an hour of life moved by a manual clock, the conversation going away, the cap.
-    #[tokio::test]
-    async fn the_grant_flow_matches_the_recorded_node_steps() {
-        let recorded: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../fixtures/desktop/grants/corpus.json"
-        )))
-        .unwrap();
-        let clock = Arc::new(Manual(Instant::now(), AtomicU64::new(0)));
-        let catalog = Arc::new(Catalog::default());
-        let store = GrantStore::new(clock.clone(), catalog.clone());
-        let base = std::env::temp_dir().join("outside");
-        let file = |name: &str| base.join(name);
-        let mut tokens: HashMap<String, String> = HashMap::new();
-        let mut steps = recorded["steps"].as_array().unwrap().iter();
-
-        // The recorded step must be the one this replay is at, so the two cannot drift apart.
-        let mut next = |label: &str| -> serde_json::Value {
-            let step = steps.next().unwrap_or_else(|| panic!("no recorded step for {label}"));
-            assert_eq!(step["label"], label);
-            step.clone()
-        };
-        macro_rules! mint {
-            ($name:expr, $path:expr, $session:expr) => {{
-                let token = store.mint("dev", 1, &$path, $session).await.unwrap();
-                tokens.insert($name.to_owned(), token);
-            }};
-        }
-        let same = |tokens: &HashMap<String, String>, a: &str, b: &str| tokens[a] == tokens[b];
-        // A step's answer is the redeemed file, or the error: same sentence, same code.
-        let check = |recorded: &serde_json::Value, got: WsResult<Granted>, base: &Path, name: &str| {
-            let label = recorded["label"].as_str().unwrap();
-            match (recorded.get("ok"), got) {
-                (Some(ok), Ok(granted)) => {
-                    assert_eq!(granted.rel, ok["rel"].as_str().unwrap(), "{label}");
-                    assert_eq!(granted.absolute, base.join(name), "{label}");
-                    assert_eq!(granted.root, base, "{label}");
-                }
-                (Some(_), Err(error)) => panic!("{label}: Node granted it, got {error}"),
-                (None, Ok(_)) => panic!("{label}: Node refused it with {}", recorded["error"]),
-                (None, Err(error)) => {
-                    assert_eq!(error.message, recorded["error"]["message"].as_str().unwrap(), "{label}");
-                    if let Some(code) = recorded["error"]["code"].as_str() {
-                        assert_eq!(error.reason.code(), code, "{label}");
-                    }
-                }
-            }
-        };
-        let tok = |tokens: &HashMap<String, String>, name: &str| tokens.get(name).cloned().unwrap_or_else(|| name.to_owned());
-        let advance = |minutes: u64| {
-            clock.1.fetch_add(minutes * 60_000, Ordering::SeqCst);
-        };
-
-        mint!("a", file("a.txt"), "");
-        next("mint a.txt for no conversation");
-        mint!("a2", file("a.txt"), "");
-        let step = next("mint a.txt again: the same token");
-        assert_eq!(step["ok"]["same"], same(&tokens, "a", "a2"));
-        mint!("a-s1", file("a.txt"), "s1");
-        let step = next("mint a.txt for a conversation: another token");
-        assert_eq!(step["ok"]["same"], same(&tokens, "a", "a-s1"));
-        mint!("a-s1b", file("a.txt"), "s1");
-        let step = next("mint a.txt for that conversation again: its token");
-        assert_eq!(step["ok"]["same"], same(&tokens, "a-s1", "a-s1b"));
-
-        let step = next("redeem with the folder and name");
-        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
-        // Windows compares file names without case; elsewhere the names differ.
-        let step = next("redeem with the folder and the name in another case");
-        let got = store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "A.TXT").await;
-        if cfg!(windows) {
-            check(&step, got, &base, "a.txt");
-        } else {
-            assert_eq!(got.unwrap_err().message, "The selected-file permission does not match this path.");
-        }
-        let step = next("redeem with a relative path inside the folder");
-        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "sub/../a.txt").await, &base, "a.txt");
-        let step = next("redeem for another file");
-        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "b.txt").await, &base, "b.txt");
-        let step = next("redeem for the parent folder");
-        let parent = base.parent().unwrap().to_str().unwrap().to_owned();
-        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), &parent, "outside/a.txt").await, &base, "a.txt");
-        let step = next("redeem an unknown token");
-        check(&step, store.redeem("dev", 1, "no-such-token", base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
-        let step = next("redeem an empty token");
-        check(&step, store.redeem("dev", 1, "", base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
-        let step = next("redeem a token longer than 128");
-        check(&step, store.redeem("dev", 1, &"x".repeat(129), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
-        // "a token that is not a string" cannot be sent: the request decoder refuses it before the store.
-        next("redeem a token that is not a string");
-        let step = next("redeem with an empty project path");
-        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), "", "a.txt").await, &base, "a.txt");
-        let step = next("redeem with an empty rel path");
-        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "").await, &base, "a.txt");
-
-        advance(59);
-        let step = next("redeem after 59 minutes");
-        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
-        mint!("a3", file("a.txt"), "");
-        let step = next("mint a.txt again at 59 minutes: the same token, one more hour");
-        assert_eq!(step["ok"]["same"], same(&tokens, "a", "a3"));
-        advance(59);
-        let step = next("redeem 118 minutes in: alive through the renewal");
-        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
-        advance(61);
-        let step = next("redeem past the hour after the renewal");
-        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
-        let step = next("redeem it again: the grant was deleted");
-        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
-        mint!("a4", file("a.txt"), "");
-        let step = next("mint a.txt after it expired: a new token");
-        assert_eq!(step["ok"]["same"], same(&tokens, "a", "a4"));
-
-        mint!("a-s1", file("a.txt"), "s1");
-        let step = next("redeem the conversation token while its conversation lives");
-        check(&step, store.redeem("dev", 1, &tok(&tokens, "a-s1"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
-        // Node's download service has seen the conversation in a published catalog before it leaves it.
-        mixdog_core_api::state::CatalogObserver::published(&store, &["s1"]);
-        catalog.0.lock().unwrap().insert("s1".to_owned());
-        let step = next("redeem the conversation token once the conversation is gone");
-        check(&step, store.redeem("dev", 1, &tok(&tokens, "a-s1"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
-        mint!("a-s1c", file("a.txt"), "s1");
-        let step = next("mint for the gone conversation: a new token");
-        assert_eq!(step["ok"]["same"], same(&tokens, "a-s1", "a-s1c"));
-        catalog.0.lock().unwrap().remove("s1");
-
-        for i in 0..100 {
-            mint!(format!("f{i}"), file(&format!("f{i}.txt")), "");
-        }
-        let redeem_file = |token: String, file: &'static str| {
-            let base = base.clone();
-            let store = &store;
-            async move { store.redeem("dev", 1, &token, base.to_str().unwrap(), file).await }
-        };
-        let step = next("the newest hundred are held: the first of them");
-        check(&step, redeem_file(tok(&tokens, "f0"), "f0.txt").await, &base, "f0.txt");
-        let step = next("the newest hundred are held: the last of them");
-        check(&step, redeem_file(tok(&tokens, "f99"), "f99.txt").await, &base, "f99.txt");
-        let step = next("a grant older than those hundred is gone");
-        check(&step, redeem_file(tok(&tokens, "a4"), "a.txt").await, &base, "a.txt");
-        let token = store.mint("dev", 1, &file("f100.txt"), "").await.unwrap();
-        tokens.insert("f100".to_owned(), token);
-        let step = next("one more evicts the oldest remaining (f0)");
-        check(&step, redeem_file(tok(&tokens, "f0"), "f0.txt").await, &base, "f0.txt");
-        let step = next("and the next oldest is held");
-        check(&step, redeem_file(tok(&tokens, "f1"), "f1.txt").await, &base, "f1.txt");
-        let step = next("and the one just minted is held");
-        check(&step, redeem_file(tok(&tokens, "f100"), "f100.txt").await, &base, "f100.txt");
-        assert!(steps.next().is_none(), "every recorded step was replayed");
-    }
-
     /// A conversation no published catalog ever listed is not "gone" however the catalog answers (`seenSessions.has`).
     #[tokio::test]
     async fn a_conversation_is_gone_only_once_a_published_catalog_has_listed_it() {
@@ -577,5 +425,79 @@ mod tests {
         let (project, relative) = owning_project(&projects, &inner.join("src").join("a.rs")).unwrap();
         assert_eq!((project, relative.as_str()), (projects[1].as_str(), "src/a.rs"));
         assert!(owning_project(&projects, &root.join("elsewhere").join("a.rs")).is_none());
+    }
+
+
+    #[cfg(node_twin)]
+    include!("node-twin/grants.rs");
+
+    /// A selected-file grant: the same file for the same conversation is one token, kept alive an hour from its last mint; it
+    /// redeems for its file under the folder given however the path is spelled, and nothing else; an unknown token, a wrong file,
+    /// an expired grant, a gone conversation and the 101st newest grant are all refused.
+    #[tokio::test]
+    async fn a_grant_is_one_token_per_file_and_conversation_that_redeems_for_its_file_until_it_ends() {
+        let clock = Arc::new(Manual(Instant::now(), AtomicU64::new(0)));
+        let catalog = Arc::new(Catalog::default());
+        let store = GrantStore::new(clock.clone(), catalog.clone());
+        let base = std::env::temp_dir().join("outside");
+        let dir = base.to_str().unwrap().to_owned();
+        let redeem = |token: String, project: String, rel: &'static str| {
+            let store = &store;
+            async move { store.redeem("dev", 1, &token, &project, rel).await }
+        };
+        let a = store.mint("dev", 1, &base.join("a.txt"), "").await.unwrap();
+        assert_eq!(store.mint("dev", 1, &base.join("a.txt"), "").await.unwrap(), a);
+        let a_s1 = store.mint("dev", 1, &base.join("a.txt"), "s1").await.unwrap();
+        assert_ne!(a_s1, a);
+        assert_eq!(store.mint("dev", 1, &base.join("a.txt"), "s1").await.unwrap(), a_s1);
+
+        let granted = redeem(a.clone(), dir.clone(), "a.txt").await.unwrap();
+        assert_eq!((granted.rel.as_str(), granted.absolute.clone(), granted.root.clone()), ("a.txt", base.join("a.txt"), base.clone()));
+        let inside = redeem(a.clone(), dir.clone(), "sub/../a.txt").await.unwrap();
+        assert_eq!(inside.absolute, base.join("a.txt"));
+        let from_parent = redeem(a.clone(), base.parent().unwrap().to_str().unwrap().to_owned(), "outside/a.txt").await.unwrap();
+        assert_eq!((from_parent.rel.as_str(), from_parent.root), ("a.txt", base.clone()));
+        let other_case = redeem(a.clone(), dir.clone(), "A.TXT").await;
+        // Windows compares file names without case.
+        assert_eq!(other_case.is_ok(), cfg!(windows));
+        assert_eq!(redeem(a.clone(), dir.clone(), "b.txt").await.unwrap_err().message, "The selected-file permission does not match this path.");
+        let unknown = redeem("no-such-token".into(), dir.clone(), "a.txt").await.unwrap_err();
+        assert_eq!((unknown.reason.code(), unknown.message.as_str()), (GRANT_UNAVAILABLE_CODE, "The selected-file permission is unavailable."));
+        assert_eq!(redeem(String::new(), dir.clone(), "a.txt").await.unwrap_err().message, "file access token is invalid.");
+        assert_eq!(redeem("x".repeat(129), dir.clone(), "a.txt").await.unwrap_err().message, "file access token is invalid.");
+        assert_eq!(redeem(a.clone(), String::new(), "a.txt").await.unwrap_err().message, "projectPath is invalid.");
+        assert_eq!(redeem(a.clone(), dir.clone(), "").await.unwrap_err().message, "relPath is invalid.");
+
+        // An hour of life, renewed by minting again.
+        clock.1.fetch_add(59 * 60_000, Ordering::SeqCst);
+        assert!(redeem(a.clone(), dir.clone(), "a.txt").await.is_ok());
+        assert_eq!(store.mint("dev", 1, &base.join("a.txt"), "").await.unwrap(), a);
+        clock.1.fetch_add(59 * 60_000, Ordering::SeqCst);
+        assert!(redeem(a.clone(), dir.clone(), "a.txt").await.is_ok(), "alive through the renewal");
+        clock.1.fetch_add(61 * 60_000, Ordering::SeqCst);
+        for _ in 0..2 {
+            assert_eq!(redeem(a.clone(), dir.clone(), "a.txt").await.unwrap_err().reason.code(), GRANT_UNAVAILABLE_CODE);
+        }
+        assert_ne!(store.mint("dev", 1, &base.join("a.txt"), "").await.unwrap(), a, "an expired grant is not reused");
+
+        // A grant of a conversation the host has seen and then lost ends; a new mint for it is a new token.
+        let live = store.mint("dev", 1, &base.join("a.txt"), "s1").await.unwrap();
+        assert!(redeem(live.clone(), dir.clone(), "a.txt").await.is_ok());
+        mixdog_core_api::state::CatalogObserver::published(&store, &["s1"]);
+        catalog.0.lock().unwrap().insert("s1".to_owned());
+        assert_eq!(redeem(live.clone(), dir.clone(), "a.txt").await.unwrap_err().reason.code(), GRANT_UNAVAILABLE_CODE);
+        assert_ne!(store.mint("dev", 1, &base.join("a.txt"), "s1").await.unwrap(), live);
+        catalog.0.lock().unwrap().remove("s1");
+
+        // Only the newest hundred are held: the oldest is evicted by the next one.
+        let mut tokens = Vec::new();
+        for number in 0..MAX_GRANTS {
+            tokens.push(store.mint("dev", 1, &base.join(format!("f{number}.txt")), "").await.unwrap());
+        }
+        assert!(redeem(tokens[0].clone(), dir.clone(), "f0.txt").await.is_ok());
+        let newest = store.mint("dev", 1, &base.join("f100.txt"), "").await.unwrap();
+        assert!(redeem(tokens[0].clone(), dir.clone(), "f0.txt").await.is_err(), "the oldest remaining was evicted");
+        assert!(redeem(tokens[1].clone(), dir.clone(), "f1.txt").await.is_ok());
+        assert!(redeem(newest, dir.clone(), "f100.txt").await.is_ok());
     }
 }

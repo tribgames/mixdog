@@ -165,7 +165,7 @@ fn diagnostics(error_code: Option<&str>, is_error: bool, failures: &[Failure], a
     lines
 }
 
-pub fn format_fetch(items: &[FetchItem], urls_truncated: usize) -> String {
+pub fn format_fetch(items: &[&FetchItem], urls_truncated: usize) -> String {
     if items.is_empty() {
         return "(no fetch results)".to_string();
     }
@@ -179,6 +179,7 @@ pub fn format_fetch(items: &[FetchItem], urls_truncated: usize) -> String {
     };
     let rendered: Vec<String> = items
         .iter()
+        .copied()
         .map(|item| match item {
             FetchItem::Error {
                 url,

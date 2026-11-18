@@ -46,52 +46,6 @@ fn selection(result: serde_json::Value, ref_id: &str) -> Result<Selection, RefEr
     Ok(serde_json::from_value(checked_ref_result(result, ref_id)?).unwrap_or_default())
 }
 
-fn cancelled() -> RefError {
-    crate::error::HostCallError::Cancelled.into()
-}
-
-impl RefActions {
-    /// `selectCustomRef`: opens a custom dropdown and chooses the one open option that matches `values[0]`, waiting up to
-    /// `dropdown_timeout` for the list to render.
-    pub async fn select_custom_ref(&self, ref_id: &str, values: &[String]) -> Result<Vec<String>, RefError> {
-        let [wanted] = values else {
-            return Err(RefError::Failed("custom dropdowns require exactly one non-empty value".into()));
-        };
-        let wanted = wanted.trim();
-        if wanted.is_empty() {
-            return Err(RefError::Failed("custom dropdowns require exactly one non-empty value".into()));
-        }
-        selection(self.call(ref_id, &custom_function(OPEN_CUSTOM), Vec::new()).await?, ref_id)?;
-        let deadline = time::Instant::now() + self.dropdown_timeout;
-        let pick = custom_function(PICK_CUSTOM);
-        loop {
-            throw_if_cancelled(&self.cancel).map_err(|_| cancelled())?;
-            let result = selection(self.call(ref_id, &pick, vec![json!(wanted)]).await?, ref_id)?;
-            if let Some(values) = result.values {
-                return Ok(values);
-            }
-            if !result.pending || time::Instant::now() >= deadline {
-                return Err(RefError::Failed("no open option list was found for this control; take a fresh snapshot".into()));
-            }
-            pause(self.dropdown_poll, &self.cancel).await.map_err(|_| cancelled())?;
-        }
-    }
-
-    /// `selectRef`: chooses the options named by `values` (a value or a label each) in a native `<select>`, or the option of a
-    /// custom dropdown; answers the values now selected.
-    pub async fn select_ref(&self, ref_id: &str, values: &[String]) -> Result<Vec<String>, RefError> {
-        if values.is_empty() {
-            return Err(RefError::Failed("select requires at least one value".into()));
-        }
-        let declaration = SELECT_NATIVE.replace(EDITABILITY_PLACEHOLDER, EDITABILITY_CHECK);
-        let result = selection(self.call(ref_id, &declaration, vec![json!(values)]).await?, ref_id)?;
-        if result.custom {
-            return self.select_custom_ref(ref_id, values).await;
-        }
-        Ok(result.values.unwrap_or_default())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -161,6 +115,7 @@ mod tests {
         host.finish().expect("no call was made");
     }
 
+
     #[tokio::test]
     async fn a_cancelled_wait_ends_as_a_cancel() {
         let token = CancellationToken::new();
@@ -170,5 +125,51 @@ mod tests {
         token.cancel();
         let error = actions.select_custom_ref(REF, &values(&["Blue"])).await.expect_err("cancelled");
         assert_eq!(error, RefError::Host(crate::error::HostCallError::Cancelled));
+    }
+}
+
+
+fn cancelled() -> RefError {
+    crate::error::HostCallError::Cancelled.into()
+}
+impl RefActions {
+    /// `selectCustomRef`: opens a custom dropdown and chooses the one open option that matches `values[0]`, waiting up to
+    /// `dropdown_timeout` for the list to render.
+    pub async fn select_custom_ref(&self, ref_id: &str, values: &[String]) -> Result<Vec<String>, RefError> {
+        let [wanted] = values else {
+            return Err(RefError::Failed("custom dropdowns require exactly one non-empty value".into()));
+        };
+        let wanted = wanted.trim();
+        if wanted.is_empty() {
+            return Err(RefError::Failed("custom dropdowns require exactly one non-empty value".into()));
+        }
+        selection(self.call(ref_id, &custom_function(OPEN_CUSTOM), Vec::new()).await?, ref_id)?;
+        let deadline = time::Instant::now() + self.dropdown_timeout;
+        let pick = custom_function(PICK_CUSTOM);
+        loop {
+            throw_if_cancelled(&self.cancel).map_err(|_| cancelled())?;
+            let result = selection(self.call(ref_id, &pick, vec![json!(wanted)]).await?, ref_id)?;
+            if let Some(values) = result.values {
+                return Ok(values);
+            }
+            if !result.pending || time::Instant::now() >= deadline {
+                return Err(RefError::Failed("no open option list was found for this control; take a fresh snapshot".into()));
+            }
+            pause(self.dropdown_poll, &self.cancel).await.map_err(|_| cancelled())?;
+        }
+    }
+
+    /// `selectRef`: chooses the options named by `values` (a value or a label each) in a native `<select>`, or the option of a
+    /// custom dropdown; answers the values now selected.
+    pub async fn select_ref(&self, ref_id: &str, values: &[String]) -> Result<Vec<String>, RefError> {
+        if values.is_empty() {
+            return Err(RefError::Failed("select requires at least one value".into()));
+        }
+        let declaration = SELECT_NATIVE.replace(EDITABILITY_PLACEHOLDER, EDITABILITY_CHECK);
+        let result = selection(self.call(ref_id, &declaration, vec![json!(values)]).await?, ref_id)?;
+        if result.custom {
+            return self.select_custom_ref(ref_id, values).await;
+        }
+        Ok(result.values.unwrap_or_default())
     }
 }

@@ -22,6 +22,7 @@ pub mod free_text;
 pub mod inventory;
 pub mod limits;
 pub mod media;
+pub mod message;
 pub mod mgmt;
 pub mod methods;
 pub mod notifications;

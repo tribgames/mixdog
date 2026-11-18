@@ -228,13 +228,46 @@ fn reviewers(record: &Value) -> Vec<Value> {
         .collect()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_args_allow_only_the_known_fields() {
+        let args = create_args(&json!({"base": "main", "head": "topic", "title": "T", "body": "B", "draft": true})).unwrap();
+        assert_eq!(
+            args,
+            ["pr", "create", "--base", "main", "--head", "topic", "--title", "T", "--body", "B", "--draft"]
+        );
+        assert!(create_args(&json!({"base": "main", "head": "MAIN", "title": "T"})).is_err());
+        assert!(create_args(&json!({"base": "a", "head": "b", "title": "T", "extra": 1})).is_err());
+    }
+
+    #[test]
+    fn check_rollup_counts_each_verdict_once() {
+        let checks = summarize_checks(Some(&json!([
+            {"conclusion": "SUCCESS"}, {"conclusion": "FAILURE"}, {"state": "PENDING"}, {"conclusion": null, "state": "SUCCESS"}
+        ])));
+        assert_eq!(checks, json!({"total": 4, "passing": 2, "failing": 1, "pending": 1}));
+    }
+
+    #[test]
+    fn a_later_review_supersedes_an_earlier_one() {
+        let record = json!({"reviews": [
+            {"author": {"login": "a"}, "state": "CHANGES_REQUESTED"},
+            {"author": {"login": "a"}, "state": "APPROVED"}
+        ], "reviewRequests": [{"login": "b"}]});
+        assert_eq!(reviewers(&record), vec![json!({"login": "a", "state": "APPROVED"}), json!({"login": "b", "state": "PENDING"})]);
+    }
+}
+
+
 fn parse(raw: &str) -> Result<Value, ScmFailure> {
     serde_json::from_str(raw).map_err(|_| ScmFailure::Command {
         domain: crate::error::GITHUB_DOMAIN,
         text: "GitHub returned an unreadable response.".into(),
     })
 }
-
 impl Scm {
     async fn gh_pane(
         &self,
@@ -376,38 +409,5 @@ impl Scm {
             "state": text(&record, "state"),
             "baseRefName": text(&record, "baseRefName"),
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn create_args_allow_only_the_known_fields() {
-        let args = create_args(&json!({"base": "main", "head": "topic", "title": "T", "body": "B", "draft": true})).unwrap();
-        assert_eq!(
-            args,
-            ["pr", "create", "--base", "main", "--head", "topic", "--title", "T", "--body", "B", "--draft"]
-        );
-        assert!(create_args(&json!({"base": "main", "head": "MAIN", "title": "T"})).is_err());
-        assert!(create_args(&json!({"base": "a", "head": "b", "title": "T", "extra": 1})).is_err());
-    }
-
-    #[test]
-    fn check_rollup_counts_each_verdict_once() {
-        let checks = summarize_checks(Some(&json!([
-            {"conclusion": "SUCCESS"}, {"conclusion": "FAILURE"}, {"state": "PENDING"}, {"conclusion": null, "state": "SUCCESS"}
-        ])));
-        assert_eq!(checks, json!({"total": 4, "passing": 2, "failing": 1, "pending": 1}));
-    }
-
-    #[test]
-    fn a_later_review_supersedes_an_earlier_one() {
-        let record = json!({"reviews": [
-            {"author": {"login": "a"}, "state": "CHANGES_REQUESTED"},
-            {"author": {"login": "a"}, "state": "APPROVED"}
-        ], "reviewRequests": [{"login": "b"}]});
-        assert_eq!(reviewers(&record), vec![json!({"login": "a", "state": "APPROVED"}), json!({"login": "b", "state": "PENDING"})]);
     }
 }

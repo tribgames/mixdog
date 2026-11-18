@@ -24,10 +24,6 @@ use crate::registry::{HandlerResult, Outcome, Registry};
 /// The messages the engines answer a cancelled call with.
 const CANCELLED_MESSAGES: [&str; 2] = ["PDF rendering was cancelled", "PDF OCR was cancelled"];
 
-pub(super) fn register(registry: &mut Registry) {
-    registry.register("pdf.render", render);
-}
-
 /// The executors and the tokens of this process: started by the first call that needs a lane and kept until the process ends.
 struct Lanes {
     tokens: LaneTokens,
@@ -35,7 +31,7 @@ struct Lanes {
 }
 
 static LANES: OnceLock<Result<Lanes, String>> = OnceLock::new();
-static FONTS: OnceLock<Arc<FontRegistry>> = OnceLock::new();
+static FONTS: tokio::sync::OnceCell<Arc<FontRegistry>> = tokio::sync::OnceCell::const_new();
 
 /// The lane tokens of this process, starting its executors the first time.
 pub(super) fn lanes() -> Result<LaneTokens, CodedError> {
@@ -46,24 +42,6 @@ pub(super) fn lanes() -> Result<LaneTokens, CodedError> {
         Ok(lanes) => Ok(lanes.tokens),
         Err(reason) => Err(CodedError::failed(reason.clone())),
     }
-}
-
-/// The system fonts the repainted page numbers and the sheet labels are set with, scanned once (on the interactive I/O lane) and
-/// shared.
-pub(super) async fn fonts(lanes: LaneTokens, cancel: &CancellationToken) -> Result<Arc<FontRegistry>, CodedError> {
-    if let Some(known) = FONTS.get() {
-        return Ok(Arc::clone(known));
-    }
-    let lost = |error: String| if cancel.is_cancelled() { CodedError::cancelled() } else { CodedError::failed(format!("the font scan failed: {error}")) };
-    let home = std::env::home_dir().unwrap_or_default();
-    let env = HostEnv::current(&|name| std::env::var(name).ok(), &home);
-    let job = lanes
-        .interactive_io
-        .submit_wait(cancel, move |lane| Arc::new(scan(lane, &env).registry))
-        .await
-        .map_err(|error| lost(error.to_string()))?;
-    let scanned = job.await.map_err(|error| lost(error.to_string()))?;
-    Ok(Arc::clone(FONTS.get_or_init(|| scanned)))
 }
 
 /// What a failed render or recognition answers: the cancel when the call was cancelled, else code `failed` with the message.
@@ -102,25 +80,6 @@ fn render_options(params: &Value, cancel: &CancellationToken) -> RenderPagesOpti
     }
 }
 
-async fn render(ctx: CallCtx) -> HandlerResult {
-    let file: PathBuf = ctx.approved_path(&js_string(ctx.params.get("path")), "")?;
-    let lanes = lanes()?;
-    let registry = fonts(lanes, &ctx.cancel).await?;
-    let options = render_options(&ctx.params, &ctx.cancel);
-    let rendered = render_pdf_pages(lanes, registry, Arc::new(NoWriteNote), &file, options).await.map_err(|error| failure(&ctx, &error))?;
-    let mut value = rendered.to_json();
-    let entries = value.get_mut("images").and_then(Value::as_array_mut);
-    for (entry, image) in entries.into_iter().flatten().zip(&rendered.images) {
-        let bytes = image.png();
-        ctx.emit(bytes).await?;
-        if let Some(entry) = entry.as_object_mut() {
-            entry.remove("data");
-            entry.insert("bytes".to_owned(), Value::from(bytes.len()));
-        }
-    }
-    Ok(Outcome::value(value))
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -144,4 +103,55 @@ mod tests {
         assert_eq!(pages(None), None);
         assert_eq!(pages(Some(&json!([]))), Some(Vec::new()));
     }
+
+
+    #[tokio::test]
+    async fn concurrent_callers_share_one_font_scan() {
+        let lanes = lanes().expect("lanes");
+        let cancel = CancellationToken::new();
+        let (a, b) = tokio::join!(fonts(lanes, &cancel), fonts(lanes, &cancel));
+        assert!(Arc::ptr_eq(&a.unwrap(), &b.unwrap()));
+    }
+}
+
+
+pub(super) fn register(registry: &mut Registry) {
+    registry.register("pdf.render", render);
+}
+/// The system fonts the repainted page numbers and the sheet labels are set with, scanned once (on the interactive I/O lane) and
+/// shared.
+pub(super) async fn fonts(lanes: LaneTokens, cancel: &CancellationToken) -> Result<Arc<FontRegistry>, CodedError> {
+    // One scan at a time: callers arriving while it runs wait for it, so no second registry is ever built.
+    FONTS
+        .get_or_try_init(|| async {
+            let lost = |error: String| if cancel.is_cancelled() { CodedError::cancelled() } else { CodedError::failed(format!("the font scan failed: {error}")) };
+            let home = std::env::home_dir().unwrap_or_default();
+            let env = HostEnv::current(&|name| std::env::var(name).ok(), &home);
+            let job = lanes
+                .interactive_io
+                .submit_wait(cancel, move |lane| Arc::new(scan(lane, &env).registry))
+                .await
+                .map_err(|error| lost(error.to_string()))?;
+            job.await.map_err(|error| lost(error.to_string()))
+        })
+        .await
+        .map(Arc::clone)
+}
+async fn render(ctx: CallCtx) -> HandlerResult {
+    let file: PathBuf = ctx.approved_path(&js_string(ctx.params.get("path")), "")?;
+    let lanes = lanes()?;
+    let registry = fonts(lanes, &ctx.cancel).await?;
+    let options = render_options(&ctx.params, &ctx.cancel);
+    let rendered = render_pdf_pages(lanes, registry, Arc::new(NoWriteNote), &file, options).await.map_err(|error| failure(&ctx, &error))?;
+    let mut value = rendered.to_json();
+    let entries = value.get_mut("images").and_then(Value::as_array_mut);
+    for (entry, image) in entries.into_iter().flatten().zip(&rendered.images) {
+        let bytes = image.png();
+        ctx.emit(bytes).await?;
+        if let Some(entry) = entry.as_object_mut() {
+            entry.remove("data");
+            entry.insert("bytes".to_owned(), Value::from(bytes.len()));
+        }
+    }
+    Ok(Outcome::value(value))
 }

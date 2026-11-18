@@ -33,32 +33,6 @@ pub struct Host {
     env: BTreeMap<String, String>,
 }
 
-impl Host {
-    /// This process: its system, its environment, `os.homedir()` and `os.tmpdir()`.
-    pub fn process() -> Self {
-        let env: BTreeMap<String, String> = std::env::vars().collect();
-        let os = Os::current();
-        let home_variable = if os == Os::Windows { "USERPROFILE" } else { "HOME" };
-        let home = env.get(home_variable).filter(|value| !value.is_empty()).map(PathBuf::from).unwrap_or_default();
-        Self { os, home, temp_dir: std::env::temp_dir(), env }
-    }
-
-    /// A host of the given system with the given variables.
-    pub fn new(os: Os, home: impl Into<PathBuf>, temp_dir: impl Into<PathBuf>, env: &[(&str, &str)]) -> Self {
-        Self {
-            os,
-            home: home.into(),
-            temp_dir: temp_dir.into(),
-            env: env.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(),
-        }
-    }
-
-    /// `process.env[name]`, an empty variable counting as unset (`process.env.X || fallback`).
-    pub fn variable(&self, name: &str) -> Option<&str> {
-        self.env.get(name).map(String::as_str).filter(|value| !value.is_empty())
-    }
-}
-
 /// `pathToFileURL(path).href`: the profile is named to LibreOffice by URL.
 pub fn file_url(path: &Path) -> String {
     reqwest::Url::from_file_path(path).map_or_else(|()| format!("file://{}", path.display()), Into::into)
@@ -178,18 +152,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn conversions_launch_in_a_private_profile_with_first_start_and_recovery_prompts_off() {
-        let profile = std::env::temp_dir().join("profile-x");
-        let args = convert_arguments(&profile, "xlsx", Path::new("out"), Path::new("in.xls"));
-        assert!(args[0].starts_with("-env:UserInstallation=file:///"), "{}", args[0]);
-        assert!(args[0].ends_with("/profile-x") && !args[0].contains('\\'), "{}", args[0]);
-        for flag in ["--headless", "--norestore", "--nofirststartwizard", "--nologo", "--invisible"] {
-            assert!(args.iter().any(|arg| arg == flag), "{flag}");
-        }
-        assert_eq!(args[args.len() - 5..], ["--convert-to", "xlsx", "--outdir", "out", "in.xls"]);
-    }
-
-    #[test]
     fn the_registry_text_is_the_one_node_writes() {
         let lines: Vec<&str> = MACRO_LOCKDOWN_REGISTRY.split('\n').collect();
         assert_eq!(lines.len(), 6);
@@ -252,5 +214,45 @@ mod tests {
     fn output_is_named_after_the_source_without_its_own_extension() {
         assert_eq!(converted_output_path(Path::new("out"), Path::new("dir/report.v2.docx"), "pdf"), Path::new("out").join("report.v2.pdf"));
         assert_eq!(converted_output_path(Path::new("out"), Path::new("t.csv"), "xlsx"), Path::new("out").join("t.xlsx"));
+    }
+
+
+    #[test]
+    fn conversions_launch_in_a_private_profile_with_first_start_and_recovery_prompts_off() {
+        let profile = std::env::temp_dir().join("profile-x");
+        let args = convert_arguments(&profile, "xlsx", Path::new("out"), Path::new("in.xls"));
+        assert!(args[0].starts_with("-env:UserInstallation=file:///"), "{}", args[0]);
+        assert!(args[0].ends_with("/profile-x") && !args[0].contains('\\'), "{}", args[0]);
+        for flag in ["--headless", "--norestore", "--nofirststartwizard", "--nologo", "--invisible"] {
+            assert!(args.iter().any(|arg| arg == flag), "{flag}");
+        }
+        assert_eq!(args[args.len() - 5..], ["--convert-to", "xlsx", "--outdir", "out", "in.xls"]);
+    }
+}
+
+
+impl Host {
+    /// This process: its system, its environment, `os.homedir()` and `os.tmpdir()`.
+    pub fn process() -> Self {
+        let env: BTreeMap<String, String> = std::env::vars().collect();
+        let os = Os::current();
+        let home_variable = if os == Os::Windows { "USERPROFILE" } else { "HOME" };
+        let home = env.get(home_variable).filter(|value| !value.is_empty()).map(PathBuf::from).unwrap_or_default();
+        Self { os, home, temp_dir: std::env::temp_dir(), env }
+    }
+
+    /// A host of the given system with the given variables.
+    pub fn new(os: Os, home: impl Into<PathBuf>, temp_dir: impl Into<PathBuf>, env: &[(&str, &str)]) -> Self {
+        Self {
+            os,
+            home: home.into(),
+            temp_dir: temp_dir.into(),
+            env: env.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(),
+        }
+    }
+
+    /// `process.env[name]`, an empty variable counting as unset (`process.env.X || fallback`).
+    pub fn variable(&self, name: &str) -> Option<&str> {
+        self.env.get(name).map(String::as_str).filter(|value| !value.is_empty())
     }
 }

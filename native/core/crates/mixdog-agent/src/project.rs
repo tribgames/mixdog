@@ -280,12 +280,14 @@ pub fn is_protected_context_user(m: &AgentMessage) -> bool {
         return false;
     }
     let mut content = mixdog_js::js_trim(text);
-    if !content.to_lowercase().starts_with("<system-reminder>") {
+    // ASCII folding keeps byte offsets: the tags are ASCII, and a full Unicode lower-casing can change a
+    // character's byte length, which would shift the index used to slice `content`.
+    if !content.to_ascii_lowercase().starts_with("<system-reminder>") {
         return false;
     }
     let closing = "</system-reminder>";
-    while content.to_lowercase().starts_with("<system-reminder>") {
-        let Some(at) = content.to_lowercase().find(closing) else {
+    while content.to_ascii_lowercase().starts_with("<system-reminder>") {
+        let Some(at) = content.to_ascii_lowercase().find(closing) else {
             return true;
         };
         content = mixdog_js::js_trim(&content[at + closing.len()..]);
@@ -451,12 +453,14 @@ pub fn project_for_wire(messages: &[AgentMessage]) -> Vec<Message> {
             let mut wire = m.wire();
             if let Some(kind) = classify_synthetic_user(m) {
                 let restart = mixdog_js::js_trim(&user_text(m)) == PROCESS_RESTART_MARKER;
+                let restart_text;
                 let source = if restart {
-                    Content::Text(PROCESS_RESTART_WIRE_TEXT.to_owned())
+                    restart_text = Content::Text(PROCESS_RESTART_WIRE_TEXT.to_owned());
+                    &restart_text
                 } else {
-                    m.message.content.clone()
+                    &m.message.content
                 };
-                wire.content = envelope_content(&source, kind);
+                wire.content = envelope_content(source, kind);
             }
             wire
         })
@@ -485,6 +489,16 @@ mod tests {
         assert!(wrapped(&AgentMessage::user("<skill>body</skill>")).contains("kind=\"context-attachment\""));
         // a steering message is the human's own voice
         assert_eq!(wrapped(&AgentMessage::sourced(Source::Steering, "also b")), "also b");
+    }
+
+    /// `İ` lower-cases to three bytes from two: the text after the envelope must be cut where the envelope ends, not one
+    /// byte later (which lands inside `é`).
+    #[test]
+    fn a_reminder_envelope_is_cut_at_its_own_closing_tag_whatever_it_holds() {
+        let only_reminders = AgentMessage::user("<system-reminder>İ</system-reminder>\n<SYSTEM-REMINDER>b</System-Reminder>");
+        assert!(is_protected_context_user(&only_reminders));
+        let with_prompt = AgentMessage::user("<system-reminder>İ</system-reminder>é prompt");
+        assert!(!is_protected_context_user(&with_prompt));
     }
 
     #[test]

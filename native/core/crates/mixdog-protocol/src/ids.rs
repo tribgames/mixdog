@@ -94,8 +94,6 @@ impl std::fmt::Display for InvalidBlobDigest {
     }
 }
 
-impl std::error::Error for InvalidBlobDigest {}
-
 impl BlobDigest {
     const PREFIX: &'static str = "sha256:";
     const HEX_LEN: usize = 64;
@@ -194,3 +192,6 @@ mod tests {
         assert!(serde_json::from_str::<crate::BlobDescriptor>(&text("sha256:AB")).is_err());
     }
 }
+
+
+impl std::error::Error for InvalidBlobDigest {}

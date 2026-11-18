@@ -333,35 +333,10 @@ pub fn parse_version_text(text: &str) -> String {
     String::new()
 }
 
-/// Version of a host-provided managed module (PSScriptAnalyzer under pwsh/powershell). Spawns
-/// a PowerShell host, so callers on a polled path must cache it.
-pub async fn probe_host_managed_module(processes: &Processes, engine: &Resolved, cancel: Option<&CancellationToken>) -> String {
-    let Some(args) = engine_entry(&engine.id).and_then(|e| e.version_args.clone()) else { return String::new() };
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mut options = RunOptions::new(&cwd);
-    options.timeout = VERSION_PROBE_TIMEOUT;
-    options.cancel = cancel;
-    let result = processes.run(&engine.command, &args, options).await;
-    let version = parse_dotted(&result.stdout);
-    if result.code == 0 { version } else { String::new() }
-}
-
 /// `\d+\.\d+(\.\d+)?` only.
 fn parse_dotted(text: &str) -> String {
     let v = parse_version_text(text);
     v.split(['-', '+']).next().unwrap_or("").to_owned()
-}
-
-async fn probe_version(processes: &Processes, engine: &Resolved, cancel: Option<&CancellationToken>) -> String {
-    let defaults = vec!["--version".to_owned()];
-    let version_args = engine_entry(&engine.id).and_then(|e| e.version_args.clone()).unwrap_or(defaults);
-    let args: Vec<String> = engine.args.iter().cloned().chain(version_args).collect();
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mut options = RunOptions::new(&cwd);
-    options.timeout = VERSION_PROBE_TIMEOUT;
-    options.cancel = cancel;
-    let result = processes.run(&engine.command, &args, options).await;
-    parse_version_text(&format!("{}\n{}", result.stdout, result.stderr))
 }
 
 /// Answers the host-module version, cached by the caller on polled paths.
@@ -406,6 +381,144 @@ impl Resolution {
     }
 }
 
+/// Engines that can actually run: resolved, not suppressed, not config-gated.
+#[cfg(test)]
+fn runnable_engines(engines: &[Resolved]) -> Vec<&Resolved> {
+    engines.iter().filter(|e| e.runnable()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write(dir: &Path, rel: &str, body: &str) {
+        let p = dir.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, body).unwrap();
+    }
+
+    fn bin(name: &str) -> String {
+        if cfg!(windows) { format!("{name}.exe") } else { name.to_owned() }
+    }
+
+    fn opts(ids: &[&str], path_dir: &Path) -> ResolveOptions {
+        ResolveOptions {
+            engine_ids: ids.iter().map(|s| (*s).to_owned()).collect(),
+            env: Some(HashMap::from([("PATH".to_owned(), path_dir.to_string_lossy().into_owned())])),
+            manifest: Some(json!({"engines": {}})),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn versions_are_the_first_dotted_token() {
+        assert_eq!(parse_version_text("ruff 0.4.1 (abc)"), "0.4.1");
+        assert_eq!(parse_version_text("v2.5-rc.1\n"), "2.5-rc.1");
+        assert_eq!(parse_version_text("no digits"), "");
+        assert_eq!(parse_version_text("1 2 3.4"), "3.4");
+    }
+
+    #[test]
+    fn download_policy_prefers_project_config_and_reports_unknown_values() {
+        let mut config = TidyConfig::default();
+        assert_eq!(resolve_download_policy(&config, None).source, "default");
+        assert_eq!(resolve_download_policy(&config, Some(" NEVER ")), DownloadPolicy { downloads: "never".into(), source: "env", warning: None });
+        config.policy.insert("downloads".into(), json!("ask"));
+        assert_eq!(resolve_download_policy(&config, Some("never")).downloads, "ask");
+        config.policy.insert("downloads".into(), json!("sometimes"));
+        let p = resolve_download_policy(&config, None);
+        assert_eq!((p.downloads.as_str(), p.source), ("auto", "default"));
+        assert!(p.warning.unwrap().contains("sometimes"));
+    }
+
+
+    #[tokio::test]
+    async fn resolution_order_is_config_then_project_local_then_path_then_missing() {
+        let project = tempfile::tempdir().unwrap();
+        let path_dir = tempfile::tempdir().unwrap();
+        write(path_dir.path(), &bin("shfmt"), "x");
+        write(path_dir.path(), &bin("ruff"), "x");
+        write(project.path(), &format!("node_modules/.bin/{}", bin("prettier")), "x");
+        write(project.path(), ".mixdog/tidy.json", r#"{"engines":{"ruff":{"command":"/custom/ruff","args":["--x"]}}}"#);
+        let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["ruff", "prettier", "shfmt", "stylua", "eslint", "nope"], path_dir.path())).await;
+        let by = |id: &str| r.engines.iter().find(|e| e.id == id).unwrap();
+        assert_eq!((by("ruff").source.as_str(), by("ruff").command.as_str(), by("ruff").args.clone()), ("project-config", "/custom/ruff", vec!["--x".to_owned()]));
+        assert_eq!(by("prettier").source, "project-local");
+        assert_eq!(by("shfmt").source, "path");
+        assert!(by("stylua").missing && by("stylua").source == "missing");
+        assert!(by("eslint").missing, "project-local-only engines never come from PATH");
+        assert_eq!(r.unknown_engines, ["nope"]);
+        assert!(r.config.present);
+    }
+    /// A lookup whose lane job never ran is neither a missing engine nor an excuse to run another
+    /// binary: the engine is `unavailable` and does not run.
+    #[tokio::test]
+    async fn a_lookup_that_never_ran_is_unavailable_not_missing_and_not_the_path_binary() {
+        let project = tempfile::tempdir().unwrap();
+        let path_dir = tempfile::tempdir().unwrap();
+        write(path_dir.path(), &bin("ruff"), "x");
+        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+        let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["ruff"], path_dir.path())).await;
+        let ruff = &r.engines[0];
+        assert!(ruff.unavailable.as_deref().is_some_and(|why| why.contains("could not be looked up")), "{ruff:?}");
+        assert_eq!(ruff.source, "unavailable");
+        assert!(!ruff.missing && !ruff.runnable() && ruff.command.is_empty());
+        assert!(ruff.to_json()["unavailable"].is_string());
+    }
+    #[tokio::test]
+    async fn biome_stands_down_for_a_project_prettier_and_gated_engines_are_skipped() {
+        let project = tempfile::tempdir().unwrap();
+        let path_dir = tempfile::tempdir().unwrap();
+        write(path_dir.path(), &bin("biome"), "x");
+        write(path_dir.path(), &bin("dprint"), "x");
+        write(project.path(), &format!("node_modules/.bin/{}", bin("prettier")), "x");
+        let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["biome", "prettier", "dprint"], path_dir.path())).await;
+        let by = |id: &str| r.engines.iter().find(|e| e.id == id).unwrap();
+        assert_eq!(by("biome").skipped.as_deref(), Some("project uses prettier"));
+        assert_eq!(by("dprint").skipped.as_deref(), Some("no project config for this engine"));
+        assert_eq!(runnable_engines(&r.engines).iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["prettier"]);
+        write(project.path(), "dprint.json", "{}");
+        let again = resolve_engines(&Processes::for_tests(), project.path(), opts(&["dprint"], path_dir.path())).await;
+        assert!(again.engines[0].skipped.is_none() && again.engines[0].config_file.as_deref() == Some("dprint.json"));
+    }
+    #[tokio::test]
+    async fn no_scope_resolves_nothing_and_subcommand_engines_carry_their_prefix() {
+        let project = tempfile::tempdir().unwrap();
+        let path_dir = tempfile::tempdir().unwrap();
+        write(path_dir.path(), &bin("dotnet"), "x");
+        assert!(resolve_engines(&Processes::for_tests(), project.path(), opts(&[], path_dir.path())).await.engines.is_empty());
+        let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["dotnet-format"], path_dir.path())).await;
+        assert_eq!(r.engines[0].args, ["format"]);
+        let by_language = resolve_engines(&Processes::for_tests(), project.path(), ResolveOptions { languages: vec!["python".into()], ..opts(&[], path_dir.path()) }).await;
+        assert_eq!(by_language.engines.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["ruff"]);
+        assert_eq!(by_language.to_json()["engines"][0]["source"], "missing");
+    }
+}
+
+
+/// Version of a host-provided managed module (PSScriptAnalyzer under pwsh/powershell). Spawns
+/// a PowerShell host, so callers on a polled path must cache it.
+pub async fn probe_host_managed_module(processes: &Processes, engine: &Resolved, cancel: Option<&CancellationToken>) -> String {
+    let Some(args) = engine_entry(&engine.id).and_then(|e| e.version_args.clone()) else { return String::new() };
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut options = RunOptions::new(&cwd);
+    options.timeout = VERSION_PROBE_TIMEOUT;
+    options.cancel = cancel;
+    let result = processes.run(&engine.command, &args, options).await;
+    let version = parse_dotted(&result.stdout);
+    if result.code == 0 { version } else { String::new() }
+}
+async fn probe_version(processes: &Processes, engine: &Resolved, cancel: Option<&CancellationToken>) -> String {
+    let defaults = vec!["--version".to_owned()];
+    let version_args = engine_entry(&engine.id).and_then(|e| e.version_args.clone()).unwrap_or(defaults);
+    let args: Vec<String> = engine.args.iter().cloned().chain(version_args).collect();
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut options = RunOptions::new(&cwd);
+    options.timeout = VERSION_PROBE_TIMEOUT;
+    options.cancel = cancel;
+    let result = processes.run(&engine.command, &args, options).await;
+    parse_version_text(&format!("{}\n{}", result.stdout, result.stderr))
+}
 /// Resolves every engine that can touch the requested languages. With neither `languages` nor
 /// `engine_ids` there is nothing to resolve: a scope that holds no tracked file of a known
 /// language must not probe the whole catalog.
@@ -466,7 +579,6 @@ pub async fn resolve_engines(processes: &Processes, cwd: &Path, options: Resolve
     }
     Resolution { engines: resolved, policy, config, unknown_engines: unknown }
 }
-
 async fn refine_managed_modules(processes: &Processes, engines: &mut [Resolved], probe: Option<&HostModuleProbe>, cancel: Option<&CancellationToken>) {
     let candidates: Vec<(usize, Resolved)> = engines.iter().cloned().enumerate().filter(|(_, e)| engine_entry(&e.id).is_some_and(|c| c.managed_module) && !e.command.is_empty()).collect();
     if candidates.is_empty() {
@@ -494,121 +606,5 @@ async fn refine_managed_modules(processes: &Processes, engines: &mut [Resolved],
         e.module_path = None;
         e.missing = false;
         e.installable = false;
-    }
-}
-
-/// Engines that can actually run: resolved, not suppressed, not config-gated.
-#[cfg(test)]
-fn runnable_engines(engines: &[Resolved]) -> Vec<&Resolved> {
-    engines.iter().filter(|e| e.runnable()).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn write(dir: &Path, rel: &str, body: &str) {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, body).unwrap();
-    }
-
-    fn bin(name: &str) -> String {
-        if cfg!(windows) { format!("{name}.exe") } else { name.to_owned() }
-    }
-
-    fn opts(ids: &[&str], path_dir: &Path) -> ResolveOptions {
-        ResolveOptions {
-            engine_ids: ids.iter().map(|s| (*s).to_owned()).collect(),
-            env: Some(HashMap::from([("PATH".to_owned(), path_dir.to_string_lossy().into_owned())])),
-            manifest: Some(json!({"engines": {}})),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn versions_are_the_first_dotted_token() {
-        assert_eq!(parse_version_text("ruff 0.4.1 (abc)"), "0.4.1");
-        assert_eq!(parse_version_text("v2.5-rc.1\n"), "2.5-rc.1");
-        assert_eq!(parse_version_text("no digits"), "");
-        assert_eq!(parse_version_text("1 2 3.4"), "3.4");
-    }
-
-    #[test]
-    fn download_policy_prefers_project_config_and_reports_unknown_values() {
-        let mut config = TidyConfig::default();
-        assert_eq!(resolve_download_policy(&config, None).source, "default");
-        assert_eq!(resolve_download_policy(&config, Some(" NEVER ")), DownloadPolicy { downloads: "never".into(), source: "env", warning: None });
-        config.policy.insert("downloads".into(), json!("ask"));
-        assert_eq!(resolve_download_policy(&config, Some("never")).downloads, "ask");
-        config.policy.insert("downloads".into(), json!("sometimes"));
-        let p = resolve_download_policy(&config, None);
-        assert_eq!((p.downloads.as_str(), p.source), ("auto", "default"));
-        assert!(p.warning.unwrap().contains("sometimes"));
-    }
-
-    #[tokio::test]
-    async fn resolution_order_is_config_then_project_local_then_path_then_missing() {
-        let project = tempfile::tempdir().unwrap();
-        let path_dir = tempfile::tempdir().unwrap();
-        write(path_dir.path(), &bin("shfmt"), "x");
-        write(path_dir.path(), &bin("ruff"), "x");
-        write(project.path(), &format!("node_modules/.bin/{}", bin("prettier")), "x");
-        write(project.path(), ".mixdog/tidy.json", r#"{"engines":{"ruff":{"command":"/custom/ruff","args":["--x"]}}}"#);
-        let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["ruff", "prettier", "shfmt", "stylua", "eslint", "nope"], path_dir.path())).await;
-        let by = |id: &str| r.engines.iter().find(|e| e.id == id).unwrap();
-        assert_eq!((by("ruff").source.as_str(), by("ruff").command.as_str(), by("ruff").args.clone()), ("project-config", "/custom/ruff", vec!["--x".to_owned()]));
-        assert_eq!(by("prettier").source, "project-local");
-        assert_eq!(by("shfmt").source, "path");
-        assert!(by("stylua").missing && by("stylua").source == "missing");
-        assert!(by("eslint").missing, "project-local-only engines never come from PATH");
-        assert_eq!(r.unknown_engines, ["nope"]);
-        assert!(r.config.present);
-    }
-
-    /// A lookup whose lane job never ran is neither a missing engine nor an excuse to run another
-    /// binary: the engine is `unavailable` and does not run.
-    #[tokio::test]
-    async fn a_lookup_that_never_ran_is_unavailable_not_missing_and_not_the_path_binary() {
-        let project = tempfile::tempdir().unwrap();
-        let path_dir = tempfile::tempdir().unwrap();
-        write(path_dir.path(), &bin("ruff"), "x");
-        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
-        let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["ruff"], path_dir.path())).await;
-        let ruff = &r.engines[0];
-        assert!(ruff.unavailable.as_deref().is_some_and(|why| why.contains("could not be looked up")), "{ruff:?}");
-        assert_eq!(ruff.source, "unavailable");
-        assert!(!ruff.missing && !ruff.runnable() && ruff.command.is_empty());
-        assert!(ruff.to_json()["unavailable"].is_string());
-    }
-
-    #[tokio::test]
-    async fn biome_stands_down_for_a_project_prettier_and_gated_engines_are_skipped() {
-        let project = tempfile::tempdir().unwrap();
-        let path_dir = tempfile::tempdir().unwrap();
-        write(path_dir.path(), &bin("biome"), "x");
-        write(path_dir.path(), &bin("dprint"), "x");
-        write(project.path(), &format!("node_modules/.bin/{}", bin("prettier")), "x");
-        let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["biome", "prettier", "dprint"], path_dir.path())).await;
-        let by = |id: &str| r.engines.iter().find(|e| e.id == id).unwrap();
-        assert_eq!(by("biome").skipped.as_deref(), Some("project uses prettier"));
-        assert_eq!(by("dprint").skipped.as_deref(), Some("no project config for this engine"));
-        assert_eq!(runnable_engines(&r.engines).iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["prettier"]);
-        write(project.path(), "dprint.json", "{}");
-        let again = resolve_engines(&Processes::for_tests(), project.path(), opts(&["dprint"], path_dir.path())).await;
-        assert!(again.engines[0].skipped.is_none() && again.engines[0].config_file.as_deref() == Some("dprint.json"));
-    }
-
-    #[tokio::test]
-    async fn no_scope_resolves_nothing_and_subcommand_engines_carry_their_prefix() {
-        let project = tempfile::tempdir().unwrap();
-        let path_dir = tempfile::tempdir().unwrap();
-        write(path_dir.path(), &bin("dotnet"), "x");
-        assert!(resolve_engines(&Processes::for_tests(), project.path(), opts(&[], path_dir.path())).await.engines.is_empty());
-        let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["dotnet-format"], path_dir.path())).await;
-        assert_eq!(r.engines[0].args, ["format"]);
-        let by_language = resolve_engines(&Processes::for_tests(), project.path(), ResolveOptions { languages: vec!["python".into()], ..opts(&[], path_dir.path()) }).await;
-        assert_eq!(by_language.engines.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["ruff"]);
-        assert_eq!(by_language.to_json()["engines"][0]["source"], "missing");
     }
 }

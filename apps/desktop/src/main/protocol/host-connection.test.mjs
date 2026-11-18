@@ -74,6 +74,8 @@ async function browserHost() {
       execute: (command, signal) => {
         signals.push(signal);
         if (command.action === 'hang') return new Promise((resolve) => hanging.push(resolve));
+        if (command.action === 'big') return Promise.resolve({ text: 'x'.repeat(300_000) });
+        if (command.action === 'bigerror') return Promise.reject(new Error(`evaluate threw: ${'e'.repeat(300_000)}`));
         if (command.action !== 'wait') return Promise.resolve({ text: 'ok' });
         return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason)));
       },
@@ -133,6 +135,39 @@ test("a restarted core's resolved frame ends its own command, not the old connec
     await turns();
     assert.equal(signals[1].aborted, true, "the new core's resolved frame ends its own command");
     assert.deepEqual(next.sent, [], 'and neither command is answered on the new connection');
+  } finally {
+    await connection.close();
+  }
+});
+
+// The core closes a connection (1009, dropping every subscription and what the host holds) on a text frame over
+// maxInboundFrameBytes (262144 here): no host message may reach the wire over it.
+test('an answer or request over the inbound frame limit is never sent: the answer becomes an error, the link stays up', async () => {
+  const { connection, conn } = await browserHost();
+  try {
+    conn.serverSend(command('host-1', 'big'));
+    const answer = JSON.parse(await within(conn.nextSent(), 'the error answer'));
+    assert.equal(answer.id, 'host-1');
+    assert.equal(answer.result, undefined);
+    assert.equal(answer.error.code, -32000);
+    assert.match(answer.error.message, /host\/browser\/command answer could not be sent: .*maxInboundFrameBytes 262144/);
+    assert.ok(JSON.stringify(answer).length < 1000);
+
+    // An error answer is an answer too: one whose message does not fit is replaced by a small one, not dropped.
+    conn.serverSend(command('host-3', 'bigerror'));
+    const failed = JSON.parse(await within(conn.nextSent(), 'the replacement error'));
+    assert.equal(failed.id, 'host-3');
+    assert.equal(failed.error.code, -32000);
+    assert.match(failed.error.message, /answer could not be sent: .*maxInboundFrameBytes 262144/);
+    assert.ok(JSON.stringify(failed).length < 1000);
+
+    await assert.rejects(
+      connection.call('host/state/set', { key: 'visualize', value: [{ sessionId: 's', tabs: [], pad: 'x'.repeat(300_000) }] }),
+      (error) => /maxInboundFrameBytes/.test(error.detail?.what ?? error.message)
+    );
+    assert.equal(connection.status, 'ready', 'the connection was not closed');
+    conn.serverSend(command('host-2', 'snapshot'));
+    assert.deepEqual(JSON.parse(await within(conn.nextSent(), 'the next answer')), { id: 'host-2', result: { text: 'ok' } });
   } finally {
     await connection.close();
   }

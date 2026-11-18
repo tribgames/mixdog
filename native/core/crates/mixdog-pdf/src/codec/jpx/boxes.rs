@@ -145,18 +145,19 @@ fn short() -> JpxError {
     JpxError::new("a JP2 box is shorter than its fields")
 }
 
-/// A resolution box value: `numerator / denominator * 10^exponent` grid points per metre.
+/// A resolution box (T.800 I.5.3.7): VRcN, VRcD, HRcN, HRcD (two bytes each), VRcE and HRcE (one byte each), the
+/// resolution being `numerator / denominator * 10^exponent` grid points per metre: `(vertical, horizontal)`.
 fn resolution(d: &[u8]) -> Option<(f64, f64)> {
-    let value = |p: usize| -> Option<f64> {
-        let num = be16(d, p)? as f64;
-        let den = be16(d, p + 2)? as f64;
-        let exp = *d.get(p + 4)? as i8;
+    let value = |at: usize, exponent: usize| -> Option<f64> {
+        let num = be16(d, at)? as f64;
+        let den = be16(d, at + 2)? as f64;
+        let exp = *d.get(exponent)? as i8;
         if den == 0.0 {
             return None;
         }
         Some(num / den * 10f64.powi(exp as i32))
     };
-    Some((value(0)?, value(5)?))
+    Some((value(0, 8)?, value(4, 9)?))
 }
 
 fn parse_header_box(kind: u32, c: &[u8], info: &mut Jp2Info) -> Result<(), JpxError> {

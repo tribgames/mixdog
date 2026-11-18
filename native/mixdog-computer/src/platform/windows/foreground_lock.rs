@@ -110,6 +110,7 @@ impl LockNative for SystemLock {
         native::pid_of(native::foreground())
     }
     fn sleep_ms(&self, ms: u32) {
+        // Only an unlock retry waits here; it holds nothing (an unlock is never refused).
         std::thread::sleep(Duration::from_millis(u64::from(ms)));
     }
 }

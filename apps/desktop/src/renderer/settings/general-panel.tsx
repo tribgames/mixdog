@@ -128,15 +128,23 @@ function MarkdownDefaultViewChoice({ pending }: Pick<PanelContext, 'pending'>) {
   );
   const [error, setError] = useState('');
   useEffect(() => {
-    let live = true;
-    void api
-      ?.readMarkdownDefaultView?.()
-      .then((configured) => {
-        if (live) setView(configured);
-      })
-      .catch(() => undefined);
+    let revision = 0;
+    const refresh = () => {
+      const current = ++revision;
+      void api
+        ?.readMarkdownDefaultView?.()
+        .then((configured) => {
+          if (current === revision) setView(configured);
+        })
+        .catch(() => undefined);
+    };
+    const unsubscribe = api?.subscribeSettingsChanged?.(({ scope }) => {
+      if (scope === 'desktop') refresh();
+    });
+    refresh();
     return () => {
-      live = false;
+      ++revision;
+      unsubscribe?.();
     };
   }, [api]);
   const choose = (next: DesktopEditorSettings['markdownDefaultView']) => {

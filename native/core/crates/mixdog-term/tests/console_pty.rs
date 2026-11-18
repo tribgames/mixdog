@@ -1,3 +1,5 @@
+
+
 //! The raw console, the reader and the guard on a real terminal.
 //!
 //! Unix: a test program (this test binary run again on `unix_pty::pty_child`) enters the screen, turns raw mode on, reads
@@ -280,6 +282,7 @@ mod unix_pty {
         assert_back_on_the_main_screen(&output);
     }
 }
+
 
 #[cfg(windows)]
 mod windows_console {

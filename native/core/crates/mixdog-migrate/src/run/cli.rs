@@ -1,6 +1,7 @@
 //! `mixdogd migrate`: the argument-driven entry. SPEC/LR define the subcommand only as
 //! "convert a 1.4.5 data directory (one-shot)", resumable by running it again; there is
 //! no status, dry-run or verify mode (the journal and `complete.json` are the status).
+//! Home histories are handed to `serve`, which owns the prerequisite bot classification.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -10,6 +11,7 @@ use std::sync::Arc;
 use mixdog_store::paths::Paths;
 use mixdog_store::schema::migration::Complete;
 
+use super::Front;
 use super::MigrateOptions;
 use super::Migrator;
 use super::product_drivers;
@@ -91,7 +93,16 @@ pub fn roots(args: &MigrateArgs) -> Result<MigrationRoots, u8> {
 /// blocking error on stderr, and returns the exit status (`EXIT_*`). Call it outside every async
 /// context: `office` is driven with its runtime handle from this thread.
 pub fn main(roots: MigrationRoots, projector: Arc<dyn IndexProjector>, office: OfficeExtractor) -> u8 {
-    match migrate(roots, projector, office) {
+    let outcome = match front(roots, projector, office, MigrateOptions::default()) {
+        Ok(Front::Complete(complete)) => Ok(complete),
+        Ok(Front::Pending(back)) if back.has_pending_home_history() => {
+            eprintln!("mixdogd migrate: migration_blocked: run mixdogd serve with these roots to classify bots before converting their home histories");
+            return EXIT_BLOCKED;
+        }
+        Ok(Front::Pending(back)) => back.run(),
+        Err(blocked) => Err(blocked),
+    };
+    match outcome {
         Ok(complete) => {
             println!("{}", serde_json::to_string(&complete).expect("complete encodes"));
             EXIT_COMPLETE

@@ -220,6 +220,103 @@ fn raw_either<'a>(dict: &'a Dict, key1: &str, key2: &str) -> Option<&'a Obj> {
     }
 }
 
+/// `undoPreblend` of a whole RGBA buffer without a soft mask (the premultiplied alpha of a JPX image).
+fn undo_preblend(buffer: &mut [u8], matte: [u8; 3]) {
+    let length = buffer.len();
+    super::smask::undo_preblend_buffer(buffer, length, matte);
+}
+
+/// `JpegStream.#skipUselessBytes`: the data from the first SOI marker.
+fn skip_useless_bytes(data: &[u8]) -> &[u8] {
+    for i in 0..data.len().saturating_sub(1) {
+        if data[i] == 0xff && data[i + 1] == 0xd8 {
+            return &data[i..];
+        }
+    }
+    data
+}
+
+/// `JpxImage.parseImageProperties`: `(width, height, components)` from the SIZ marker, found by scanning the bytes.
+fn parse_jpx_properties(bytes: &[u8]) -> Result<(f64, f64, usize)> {
+    let at = |i: usize| -> i32 { bytes.get(i).map_or(-1, |b| i32::from(*b)) };
+    let int32 = |i: usize| -> u32 {
+        ((at(i) << 24) + (at(i + 1) << 16) + (at(i + 2) << 8) + at(i + 3)) as u32
+    };
+    let mut pos = 0usize;
+    let mut new_byte = at(pos);
+    pos += 1;
+    while new_byte >= 0 {
+        let old_byte = new_byte;
+        new_byte = at(pos);
+        pos += 1;
+        if (old_byte << 8 | new_byte) == 0xff51 {
+            pos += 4;
+            let xsiz = f64::from(int32(pos));
+            let ysiz = f64::from(int32(pos + 4));
+            let xosiz = f64::from(int32(pos + 8));
+            let yosiz = f64::from(int32(pos + 12));
+            pos += 16 + 16;
+            let csiz = ((at(pos) << 8) + at(pos + 1)).max(0) as usize;
+            return Ok((xsiz - xosiz, ysiz - yosiz, csiz));
+        }
+    }
+    Err(PdfError::Unknown(
+        "No size marker found in JPX stream".to_owned(),
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_largest_component_value_follows_javascript_shifts() {
+        assert_eq!(max_value(1), 1.0);
+        assert_eq!(max_value(8), 255.0);
+        assert_eq!(max_value(16), 65535.0);
+        // `1 << 32` is 1 in JavaScript
+        assert_eq!(max_value(32), 0.0);
+    }
+
+    #[test]
+    fn buffer_lengths_refuse_what_a_typed_array_refuses() {
+        assert_eq!(buffer_length(&[3, 4, 5]).ok(), Some(60));
+        assert!(buffer_length(&[1 << 20, 1 << 20]).is_err());
+        assert!(buffer_length(&[usize::MAX, 2]).is_err());
+    }
+
+    #[test]
+    fn the_size_marker_of_a_jpx_stream_is_found_by_scanning() {
+        let mut bytes = vec![0x00, 0x01, 0xff, 0x4f, 0xff, 0x51, 0x00, 0x2f, 0x00, 0x00];
+        for value in [640u32, 480, 16, 8] {
+            bytes.extend(value.to_be_bytes());
+        }
+        bytes.extend([0u8; 16]);
+        bytes.extend([0x00, 0x03]);
+        let (width, height, components) = parse_jpx_properties(&bytes).expect("a size marker");
+        assert_eq!((width, height, components), (624.0, 472.0, 3));
+        assert!(parse_jpx_properties(&[1, 2, 3]).is_err());
+    }
+
+    #[test]
+    fn leading_bytes_before_the_start_of_image_are_skipped() {
+        assert_eq!(skip_useless_bytes(&[1, 2, 0xff, 0xd8, 3]), &[0xff, 0xd8, 3]);
+        assert_eq!(skip_useless_bytes(&[1, 2, 3]), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn a_comps_store_truncates_and_drops_what_does_not_fit() {
+        let mut comps = Comps::U8(vec![0, 0]);
+        comps.set(0, 7.9);
+        comps.set(1, f64::NAN);
+        comps.set(5, 1.0);
+        assert_eq!((comps.get(0), comps.get(1)), (7.0, 0.0));
+        assert!(comps.get(5).is_nan());
+        assert_eq!(comps.len(), 2);
+    }
+}
+
+
 impl PdfImage {
     /// The `PDFImage` constructor. `res` is the resources of the content stream (read only for an inline image).
     #[allow(clippy::too_many_arguments)]
@@ -914,56 +1011,9 @@ impl PdfImage {
         self.image_bytes(xref, length, BytesOptions::default())
     }
 }
-
-/// `undoPreblend` of a whole RGBA buffer without a soft mask (the premultiplied alpha of a JPX image).
-fn undo_preblend(buffer: &mut [u8], matte: [u8; 3]) {
-    let length = buffer.len();
-    super::smask::undo_preblend_buffer(buffer, length, matte);
-}
-
 fn codec_error(error: codec::CodecError) -> PdfError {
     PdfError::Unknown(error.message().to_owned())
 }
-
-/// `JpegStream.#skipUselessBytes`: the data from the first SOI marker.
-fn skip_useless_bytes(data: &[u8]) -> &[u8] {
-    for i in 0..data.len().saturating_sub(1) {
-        if data[i] == 0xff && data[i + 1] == 0xd8 {
-            return &data[i..];
-        }
-    }
-    data
-}
-
-/// `JpxImage.parseImageProperties`: `(width, height, components)` from the SIZ marker, found by scanning the bytes.
-fn parse_jpx_properties(bytes: &[u8]) -> Result<(f64, f64, usize)> {
-    let at = |i: usize| -> i32 { bytes.get(i).map_or(-1, |b| i32::from(*b)) };
-    let int32 = |i: usize| -> u32 {
-        ((at(i) << 24) + (at(i + 1) << 16) + (at(i + 2) << 8) + at(i + 3)) as u32
-    };
-    let mut pos = 0usize;
-    let mut new_byte = at(pos);
-    pos += 1;
-    while new_byte >= 0 {
-        let old_byte = new_byte;
-        new_byte = at(pos);
-        pos += 1;
-        if (old_byte << 8 | new_byte) == 0xff51 {
-            pos += 4;
-            let xsiz = f64::from(int32(pos));
-            let ysiz = f64::from(int32(pos + 4));
-            let xosiz = f64::from(int32(pos + 8));
-            let yosiz = f64::from(int32(pos + 12));
-            pos += 16 + 16;
-            let csiz = ((at(pos) << 8) + at(pos + 1)).max(0) as usize;
-            return Ok((xsiz - xosiz, ysiz - yosiz, csiz));
-        }
-    }
-    Err(PdfError::Unknown(
-        "No size marker found in JPX stream".to_owned(),
-    ))
-}
-
 /// `JpxImage.decode`: the 8-bit interleaved samples OpenJPEG's wasm wrapper delivers. Inferred from what pdf.js
 /// gives (the wrapper has no source in the tree; checked against the recording): with no component count asked for,
 /// or with the alpha of `SMaskInData`, every image is delivered as RGBA (gray, gray and alpha, RGB, or four
@@ -995,55 +1045,4 @@ fn jpx_pixels(bytes: &[u8], options: JpxOptions) -> Result<Vec<u8>> {
         }
     }
     Ok(out)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_largest_component_value_follows_javascript_shifts() {
-        assert_eq!(max_value(1), 1.0);
-        assert_eq!(max_value(8), 255.0);
-        assert_eq!(max_value(16), 65535.0);
-        // `1 << 32` is 1 in JavaScript
-        assert_eq!(max_value(32), 0.0);
-    }
-
-    #[test]
-    fn buffer_lengths_refuse_what_a_typed_array_refuses() {
-        assert_eq!(buffer_length(&[3, 4, 5]).ok(), Some(60));
-        assert!(buffer_length(&[1 << 20, 1 << 20]).is_err());
-        assert!(buffer_length(&[usize::MAX, 2]).is_err());
-    }
-
-    #[test]
-    fn the_size_marker_of_a_jpx_stream_is_found_by_scanning() {
-        let mut bytes = vec![0x00, 0x01, 0xff, 0x4f, 0xff, 0x51, 0x00, 0x2f, 0x00, 0x00];
-        for value in [640u32, 480, 16, 8] {
-            bytes.extend(value.to_be_bytes());
-        }
-        bytes.extend([0u8; 16]);
-        bytes.extend([0x00, 0x03]);
-        let (width, height, components) = parse_jpx_properties(&bytes).expect("a size marker");
-        assert_eq!((width, height, components), (624.0, 472.0, 3));
-        assert!(parse_jpx_properties(&[1, 2, 3]).is_err());
-    }
-
-    #[test]
-    fn leading_bytes_before_the_start_of_image_are_skipped() {
-        assert_eq!(skip_useless_bytes(&[1, 2, 0xff, 0xd8, 3]), &[0xff, 0xd8, 3]);
-        assert_eq!(skip_useless_bytes(&[1, 2, 3]), &[1, 2, 3]);
-    }
-
-    #[test]
-    fn a_comps_store_truncates_and_drops_what_does_not_fit() {
-        let mut comps = Comps::U8(vec![0, 0]);
-        comps.set(0, 7.9);
-        comps.set(1, f64::NAN);
-        comps.set(5, 1.0);
-        assert_eq!((comps.get(0), comps.get(1)), (7.0, 0.0));
-        assert!(comps.get(5).is_nan());
-        assert_eq!(comps.len(), 2);
-    }
 }

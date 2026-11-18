@@ -281,6 +281,10 @@ mod tests {
 
     #[async_trait]
     impl super::super::provider::ToolSettings for Owner {
+        fn runtime_activation_epoch(&self) -> u64 { 0 }
+
+        async fn runtime_installed(&self, _: u64) -> Result<(), String> { Ok(()) }
+
         async fn tool_module_settings(&self) -> Value {
             json!({"autoEffortBase": "medium"})
         }

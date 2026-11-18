@@ -69,104 +69,6 @@ fn rejected(status: u16) -> MockAttempt {
     })
 }
 
-fn setup() -> (ModelBroker, SendRequest) {
-    mixdog_rt::testing::tokens();
-    let admission = Arc::new(Admission::new());
-    let lane = admission.lane(&LaneKey::new("mock".into(), "default"), LaneSettings::default());
-    let request = Arc::new(ModelRequest {
-        model: "m".into(),
-        messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
-        tools: Vec::new(),
-        options: RequestOptions::default(),
-    });
-    let broker = ModelBroker::new(admission, Arc::new(StandardRetryDecider));
-    (
-        broker,
-        SendRequest {
-            request,
-            lane,
-            admission: AdmissionRequest::default(),
-        },
-    )
-}
-
-#[tokio::test(start_paused = true)]
-async fn retries_through_failures_and_discards_each_failed_attempt() {
-    let (broker, send) = setup();
-    let provider = MockProvider::new([
-        rejected(503),
-        MockAttempt::Fault {
-            fault: TransportFault::Reset,
-            reached: DeliveryState::Ambiguous,
-        },
-        MockAttempt::Body(b"t:hi\ndone\n".to_vec()),
-    ]);
-    let mut sink = Sink::default();
-    let attempts = broker
-        .send(&provider, send, &mut sink, &CancellationToken::new())
-        .await
-        .unwrap();
-    assert_eq!(attempts, 3);
-    assert_eq!(sink.discards, 2);
-    assert!(matches!(sink.events.last(), Some(StreamEvent::Completed { .. })));
-    assert_eq!(provider.attempts.load(Ordering::Relaxed), 3);
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_retried_attempt_that_reported_usage_is_handed_to_the_sink_once() {
-    let (broker, send) = setup();
-    let provider = MockProvider::new([
-        MockAttempt::Body(b"u:10,5\n".to_vec()),
-        MockAttempt::Body(b"t:hi\ndone\n".to_vec()),
-    ]);
-    let mut sink = Sink::default();
-    let attempts = broker.send(&provider, send, &mut sink, &CancellationToken::new()).await.unwrap();
-    assert_eq!(attempts, 2);
-    assert_eq!(sink.abandoned, vec![(10, 5, None)]);
-}
-
-#[tokio::test(start_paused = true)]
-async fn deterministic_refusal_surfaces_after_one_attempt() {
-    let (broker, send) = setup();
-    let provider = MockProvider::new([rejected(401)]);
-    let err = broker
-        .send(&provider, send, &mut Sink::default(), &CancellationToken::new())
-        .await
-        .unwrap_err();
-    assert!(matches!(err, SendError::Provider(e) if e.status == Some(401)));
-    assert_eq!(provider.attempts.load(Ordering::Relaxed), 1);
-}
-
-#[tokio::test(start_paused = true)]
-async fn spent_row_is_exhausted() {
-    let (broker, send) = setup();
-    // Empty script: every attempt fails to connect.
-    let provider = MockProvider::new([]);
-    let err = broker
-        .send(&provider, send, &mut Sink::default(), &CancellationToken::new())
-        .await
-        .unwrap_err();
-    assert!(matches!(err, SendError::Exhausted(_)));
-    assert_eq!(provider.attempts.load(Ordering::Relaxed), 5, "1 + 4 retries");
-}
-
-#[tokio::test(start_paused = true)]
-async fn cancel_ends_the_retry_wait() {
-    let (broker, send) = setup();
-    let provider = MockProvider::new([rejected(503)]);
-    let cancel = CancellationToken::new();
-    let stopper = cancel.clone();
-    tokio::spawn(async move {
-        mixdog_rt::time::sleep(std::time::Duration::from_millis(50)).await;
-        stopper.cancel();
-    });
-    let err = broker
-        .send(&provider, send, &mut Sink::default(), &cancel)
-        .await
-        .unwrap_err();
-    assert!(matches!(err, SendError::Cancelled));
-}
-
 /// A provider whose first attempt fails with `message`, its retry line worded as the OpenAI-compatible ladder's.
 struct Refusing {
     inner: MockProvider,
@@ -212,22 +114,6 @@ impl ProviderAdapter for Refusing {
     }
 }
 
-/// The line written before a retry carries the server's text: a credential the process holds is redacted from it.
-#[tokio::test(start_paused = true)]
-async fn the_retry_line_redacts_a_credential_the_refusal_echoes() {
-    let (broker, send) = setup();
-    mixdog_ai::oauth::carried::keep("config the-retry-line-test", &["retry-line-key-3f9a71c2"]);
-    let provider = Refusing {
-        inner: MockProvider::new([MockAttempt::Body(b"t:hi\ndone\n".to_vec())]),
-        message: "upstream 503: key retry-line-key-3f9a71c2 is overloaded".into(),
-    };
-    let (lines, _capture) = mixdog_rt::node_log::capture();
-    broker.send(&provider, send, &mut Sink::default(), &CancellationToken::new()).await.unwrap();
-    let lines: Vec<String> = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
-    assert_eq!(lines.len(), 1, "{lines:?}");
-    assert!(lines[0].starts_with("[custom] retry attempt 2 after upstream 503: key [REDACTED] is overloaded"), "{}", lines[0]);
-}
-
 struct Echo;
 
 #[async_trait]
@@ -271,23 +157,6 @@ struct Scripted {
 struct ScriptedStream(VecDeque<(Duration, StreamEvent)>);
 
 #[async_trait]
-impl ModelStream for ScriptedStream {
-    async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
-        let Some((after, event)) = self.0.pop_front() else {
-            return std::future::pending().await;
-        };
-        mixdog_rt::time::sleep(after).await;
-        Some(Ok(event))
-    }
-
-    fn delivery(&self) -> DeliveryState {
-        DeliveryState::Accepted
-    }
-
-    fn on_wire_left(&mut self, _left: std::sync::Arc<dyn Fn() + Send + Sync>) {}
-}
-
-#[async_trait]
 impl ProviderAdapter for Scripted {
     fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
@@ -321,112 +190,12 @@ struct Run {
     send: tokio::task::JoinHandle<Result<u32, SendError>>,
 }
 
-/// A send on a one-slot lane with a 60 s unattended lease, over a stream that
-/// plays `script` and then says nothing.
-fn start(attended: bool, script: Vec<(Duration, StreamEvent)>) -> Run {
-    mixdog_rt::testing::tokens();
-    let admission = Arc::new(Admission::new());
-    let lane = admission.lane(
-        &LaneKey::new("mock".into(), "default"),
-        LaneSettings {
-            concurrency: Some(1),
-            unattended_lease: Some(LEASE),
-            ..LaneSettings::default()
-        },
-    );
-    let broker = ModelBroker::new(admission.clone(), Arc::new(StandardRetryDecider));
-    let request = SendRequest {
-        request: Arc::new(ModelRequest {
-            model: "m".into(),
-            messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
-            tools: Vec::new(),
-            options: RequestOptions::default(),
-        }),
-        lane: lane.clone(),
-        admission: AdmissionRequest {
-            liveness: Some(RunLiveness::new(attended)),
-            ..AdmissionRequest::default()
-        },
-    };
-    let provider = Scripted {
-        inner: MockProvider::new([]),
-        script: Mutex::new(Some(script.into())),
-    };
-    let abort = CancellationToken::new();
-    let send = {
-        let abort = abort.clone();
-        tokio::spawn(async move { broker.send(&provider, request, &mut Sink::default(), &abort).await })
-    };
-    Run { admission, lane, abort, send }
-}
-
-/// Moves paused time forward one second at a time, letting every task it woke
-/// run, so an event due mid-way sees the time it was due.
-async fn settle(total: Duration) {
-    let mut left = total;
-    loop {
-        let step = left.min(Duration::from_secs(1));
-        tokio::time::advance(step).await;
-        left -= step;
-        for _ in 0..8 {
-            tokio::task::yield_now().await;
-        }
-        if left.is_zero() {
-            break;
-        }
-    }
-}
-
 fn held(admission: &Admission) -> usize {
     admission.snapshot()[0].active
 }
 
 fn keepalives() -> Vec<(Duration, StreamEvent)> {
     (0..5).map(|_| (Duration::from_secs(10), StreamEvent::ProviderKeepalive)).collect()
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_silent_unattended_send_returns_its_permit_and_stays_abortable() {
-    let run = start(false, keepalives());
-    settle(Duration::ZERO).await;
-    assert_eq!(held(&run.admission), 1);
-    // Keepalives at 10..50 s are not progress.
-    settle(LEASE - Duration::from_secs(1)).await;
-    assert_eq!(held(&run.admission), 1);
-    settle(Duration::from_secs(1)).await;
-    assert_eq!(held(&run.admission), 0);
-    let other = run
-        .admission
-        .acquire(&run.lane, AdmissionRequest::default(), &CancellationToken::new())
-        .await
-        .unwrap();
-    assert!(!run.send.is_finished(), "the silent run is still alive");
-    run.abort.cancel();
-    assert!(matches!(run.send.await.unwrap(), Err(SendError::Cancelled)));
-    assert_eq!(held(&run.admission), 1, "its end returned nothing a second time");
-    drop(other);
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_silent_attended_send_keeps_its_permit() {
-    let run = start(true, keepalives());
-    settle(Duration::ZERO).await;
-    settle(LEASE * 10).await;
-    assert_eq!(held(&run.admission), 1);
-    assert!(!run.send.is_finished());
-    run.abort.cancel();
-    assert!(matches!(run.send.await.unwrap(), Err(SendError::Cancelled)));
-    assert_eq!(held(&run.admission), 0);
-}
-
-#[tokio::test(start_paused = true)]
-async fn content_moves_the_lease_of_an_unattended_send() {
-    let run = start(false, vec![(Duration::from_secs(40), StreamEvent::TextDelta("x".into()))]);
-    settle(Duration::ZERO).await;
-    settle(Duration::from_secs(99)).await;
-    assert_eq!(held(&run.admission), 1, "99 s in, 59 s after the text");
-    settle(Duration::from_secs(1)).await;
-    assert_eq!(held(&run.admission), 0, "60 s after the text");
 }
 /// A provider whose first stream shows one event and then dies with `message`; its spent send is re-issued as `recovered`.
 struct Dying {
@@ -490,6 +259,273 @@ impl ProviderAdapter for Dying {
     }
 }
 
+
+fn setup() -> (ModelBroker, SendRequest) {
+    mixdog_rt::testing::tokens();
+    let admission = Arc::new(Admission::new());
+    let lane = admission.lane(&LaneKey::new("mock".into(), "default"), LaneSettings::default());
+    let request = Arc::new(ModelRequest {
+        model: "m".into(),
+        messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
+        tools: Vec::new(),
+        options: RequestOptions::default(),
+    });
+    let broker = ModelBroker::new(admission, Arc::new(StandardRetryDecider));
+    (
+        broker,
+        SendRequest {
+            request,
+            lane,
+            admission: AdmissionRequest::default(),
+        },
+    )
+}
+#[tokio::test(start_paused = true)]
+async fn retries_through_failures_and_discards_each_failed_attempt() {
+    let (broker, send) = setup();
+    let provider = MockProvider::new([
+        rejected(503),
+        MockAttempt::Fault {
+            fault: TransportFault::Reset,
+            reached: DeliveryState::Ambiguous,
+        },
+        MockAttempt::Body(b"t:hi\ndone\n".to_vec()),
+    ]);
+    let mut sink = Sink::default();
+    let attempts = broker
+        .send(&provider, send, &mut sink, &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(attempts, 3);
+    assert_eq!(sink.discards, 2);
+    assert!(matches!(sink.events.last(), Some(StreamEvent::Completed { .. })));
+    assert_eq!(provider.attempts.load(Ordering::Relaxed), 3);
+}
+#[tokio::test(start_paused = true)]
+async fn a_retried_attempt_that_reported_usage_is_handed_to_the_sink_once() {
+    let (broker, send) = setup();
+    let provider = MockProvider::new([
+        MockAttempt::Body(b"u:10,5\n".to_vec()),
+        MockAttempt::Body(b"t:hi\ndone\n".to_vec()),
+    ]);
+    let mut sink = Sink::default();
+    let attempts = broker.send(&provider, send, &mut sink, &CancellationToken::new()).await.unwrap();
+    assert_eq!(attempts, 2);
+    assert_eq!(sink.abandoned, vec![(10, 5, None)]);
+}
+#[tokio::test(start_paused = true)]
+async fn deterministic_refusal_surfaces_after_one_attempt() {
+    let (broker, send) = setup();
+    let provider = MockProvider::new([rejected(401)]);
+    let err = broker
+        .send(&provider, send, &mut Sink::default(), &CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert!(matches!(err, SendError::Provider(e) if e.status == Some(401)));
+    assert_eq!(provider.attempts.load(Ordering::Relaxed), 1);
+}
+#[tokio::test(start_paused = true)]
+async fn spent_row_is_exhausted() {
+    let (broker, send) = setup();
+    // Empty script: every attempt fails to connect.
+    let provider = MockProvider::new([]);
+    let err = broker
+        .send(&provider, send, &mut Sink::default(), &CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert!(matches!(err, SendError::Exhausted(_)));
+    assert_eq!(provider.attempts.load(Ordering::Relaxed), 5, "1 + 4 retries");
+}
+#[tokio::test(start_paused = true)]
+async fn cancel_ends_the_retry_wait() {
+    let (broker, send) = setup();
+    let provider = MockProvider::new([rejected(503)]);
+    let cancel = CancellationToken::new();
+    let stopper = cancel.clone();
+    tokio::spawn(async move {
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(50)).await;
+        stopper.cancel();
+    });
+    let err = broker
+        .send(&provider, send, &mut Sink::default(), &cancel)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, SendError::Cancelled));
+}
+/// A retry's wait holds no capacity: on a one-slot lane another send is admitted at once while the first one backs off, the
+/// backing-off send queues for the slot again and finishes, and a cancel during the wait leaves nothing held.
+#[tokio::test(start_paused = true)]
+async fn a_retry_wait_gives_the_lanes_slot_back_and_takes_one_again() {
+    mixdog_rt::testing::tokens();
+    let admission = Arc::new(Admission::new());
+    let lane = admission.lane(&LaneKey::new("mock".into(), "default"), LaneSettings { concurrency: Some(1), ..LaneSettings::default() });
+    let broker = ModelBroker::new(admission.clone(), Arc::new(StandardRetryDecider));
+    let request = || SendRequest {
+        request: Arc::new(ModelRequest { model: "m".into(), messages: vec![Message::new(Role::User, Content::Text("hi".into()))], tools: Vec::new(), options: RequestOptions::default() }),
+        lane: lane.clone(),
+        admission: AdmissionRequest { owner: Arc::from("backing-off"), ..AdmissionRequest::default() },
+    };
+    let (trace, _guard) = mixdog_rt::node_log::capture_trace();
+    let provider = MockProvider::new([rejected(503), MockAttempt::Body(b"t:hi\ndone\n".to_vec())]);
+    let cancel = CancellationToken::new();
+    let mut sink = Sink::default();
+    {
+        let mut sending = std::pin::pin!(broker.send(&provider, request(), &mut sink, &cancel));
+        tokio::select! {
+            _ = &mut sending => panic!("the retry's wait is longer than a millisecond"),
+            _ = tokio::time::sleep(Duration::from_millis(1)) => {}
+        }
+        assert_eq!(held(&admission), 0, "the waiting send holds no slot");
+        let other = AdmissionRequest { owner: Arc::from("other"), ..AdmissionRequest::default() };
+        let taken = admission.acquire(&lane, other, &CancellationToken::new()).await.expect("admitted at once");
+        assert_eq!(held(&admission), 1);
+        drop(taken);
+        assert_eq!(sending.await.expect("the retry ran on a slot of its own"), 2);
+    }
+    assert_eq!(held(&admission), 0, "the send's end gave back the one slot it held");
+    let lines: Vec<String> = trace.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
+    let phases: Vec<&str> = lines.iter().filter_map(|line| line.split(" phase=").nth(1)?.split(' ').next()).collect();
+    assert!(phases.starts_with(&["capacity-granted", "request-prepared"]), "{lines:?}");
+    assert!(phases.contains(&"retry-scheduled") && phases.iter().filter(|p| **p == "capacity-granted").count() == 2, "{lines:?}");
+    assert!(lines.iter().all(|line| line.contains(" send=broker-") && line.contains(" attempt=")), "{lines:?}");
+
+    // Cancelled during the wait: nothing is held and nothing is given back twice.
+    let provider = MockProvider::new([rejected(503)]);
+    let stopper = cancel.clone();
+    tokio::spawn(async move {
+        mixdog_rt::time::sleep(Duration::from_millis(1)).await;
+        stopper.cancel();
+    });
+    assert!(matches!(broker.send(&provider, request(), &mut Sink::default(), &cancel).await, Err(SendError::Cancelled)));
+    assert_eq!(held(&admission), 0);
+}
+
+/// The line written before a retry carries the server's text: a credential the process holds is redacted from it.
+#[tokio::test(start_paused = true)]
+async fn the_retry_line_redacts_a_credential_the_refusal_echoes() {
+    let (broker, send) = setup();
+    mixdog_ai::oauth::carried::keep("config the-retry-line-test", &["retry-line-key-3f9a71c2"]);
+    let provider = Refusing {
+        inner: MockProvider::new([MockAttempt::Body(b"t:hi\ndone\n".to_vec())]),
+        message: "upstream 503: key retry-line-key-3f9a71c2 is overloaded".into(),
+    };
+    let (lines, _capture) = mixdog_rt::node_log::capture();
+    broker.send(&provider, send, &mut Sink::default(), &CancellationToken::new()).await.unwrap();
+    let lines: Vec<String> = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("[custom] retry attempt 2 after upstream 503: key [REDACTED] is overloaded"), "{}", lines[0]);
+}
+#[async_trait]
+impl ModelStream for ScriptedStream {
+    async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+        let Some((after, event)) = self.0.pop_front() else {
+            return std::future::pending().await;
+        };
+        mixdog_rt::time::sleep(after).await;
+        Some(Ok(event))
+    }
+
+    fn delivery(&self) -> DeliveryState {
+        DeliveryState::Accepted
+    }
+
+    fn on_wire_left(&mut self, _left: std::sync::Arc<dyn Fn() + Send + Sync>) {}
+}
+/// A send on a one-slot lane with a 60 s unattended lease, over a stream that
+/// plays `script` and then says nothing.
+fn start(attended: bool, script: Vec<(Duration, StreamEvent)>) -> Run {
+    mixdog_rt::testing::tokens();
+    let admission = Arc::new(Admission::new());
+    let lane = admission.lane(
+        &LaneKey::new("mock".into(), "default"),
+        LaneSettings {
+            concurrency: Some(1),
+            unattended_lease: Some(LEASE),
+            ..LaneSettings::default()
+        },
+    );
+    let broker = ModelBroker::new(admission.clone(), Arc::new(StandardRetryDecider));
+    let request = SendRequest {
+        request: Arc::new(ModelRequest {
+            model: "m".into(),
+            messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
+            tools: Vec::new(),
+            options: RequestOptions::default(),
+        }),
+        lane: lane.clone(),
+        admission: AdmissionRequest {
+            liveness: Some(RunLiveness::new(attended)),
+            ..AdmissionRequest::default()
+        },
+    };
+    let provider = Scripted {
+        inner: MockProvider::new([]),
+        script: Mutex::new(Some(script.into())),
+    };
+    let abort = CancellationToken::new();
+    let send = {
+        let abort = abort.clone();
+        tokio::spawn(async move { broker.send(&provider, request, &mut Sink::default(), &abort).await })
+    };
+    Run { admission, lane, abort, send }
+}
+/// Moves paused time forward one second at a time, letting every task it woke
+/// run, so an event due mid-way sees the time it was due.
+async fn settle(total: Duration) {
+    let mut left = total;
+    loop {
+        let step = left.min(Duration::from_secs(1));
+        tokio::time::advance(step).await;
+        left -= step;
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        if left.is_zero() {
+            break;
+        }
+    }
+}
+#[tokio::test(start_paused = true)]
+async fn a_silent_unattended_send_returns_its_permit_and_stays_abortable() {
+    let run = start(false, keepalives());
+    settle(Duration::ZERO).await;
+    assert_eq!(held(&run.admission), 1);
+    // Keepalives at 10..50 s are not progress.
+    settle(LEASE - Duration::from_secs(1)).await;
+    assert_eq!(held(&run.admission), 1);
+    settle(Duration::from_secs(1)).await;
+    assert_eq!(held(&run.admission), 0);
+    let other = run
+        .admission
+        .acquire(&run.lane, AdmissionRequest::default(), &CancellationToken::new())
+        .await
+        .unwrap();
+    assert!(!run.send.is_finished(), "the silent run is still alive");
+    run.abort.cancel();
+    assert!(matches!(run.send.await.unwrap(), Err(SendError::Cancelled)));
+    assert_eq!(held(&run.admission), 1, "its end returned nothing a second time");
+    drop(other);
+}
+#[tokio::test(start_paused = true)]
+async fn a_silent_attended_send_keeps_its_permit() {
+    let run = start(true, keepalives());
+    settle(Duration::ZERO).await;
+    settle(LEASE * 10).await;
+    assert_eq!(held(&run.admission), 1);
+    assert!(!run.send.is_finished());
+    run.abort.cancel();
+    assert!(matches!(run.send.await.unwrap(), Err(SendError::Cancelled)));
+    assert_eq!(held(&run.admission), 0);
+}
+#[tokio::test(start_paused = true)]
+async fn content_moves_the_lease_of_an_unattended_send() {
+    let run = start(false, vec![(Duration::from_secs(40), StreamEvent::TextDelta("x".into()))]);
+    settle(Duration::ZERO).await;
+    settle(Duration::from_secs(99)).await;
+    assert_eq!(held(&run.admission), 1, "99 s in, 59 s after the text");
+    settle(Duration::from_secs(1)).await;
+    assert_eq!(held(&run.admission), 0, "60 s after the text");
+}
 /// The line written after a dead stream is re-issued names the stream's failure, which repeats what the endpoint answered: a
 /// credential the process holds is redacted from it.
 #[tokio::test(start_paused = true)]

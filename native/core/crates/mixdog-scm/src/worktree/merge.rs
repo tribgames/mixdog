@@ -65,6 +65,18 @@ pub fn parse_status_paths(text: &str) -> Vec<String> {
     parse_status_entries(text).into_iter().map(|(_, path)| path).collect()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_paths_skip_a_renames_origin() {
+        let paths = parse_status_paths(" M a.txt\0R  new.txt\0old.txt\0?? b.txt\0");
+        assert_eq!(paths, ["a.txt", "new.txt", "b.txt"]);
+    }
+}
+
+
 impl Scm {
     async fn outcome(
         &self,
@@ -232,7 +244,14 @@ impl Scm {
                     .outcome(cancel, cwd, &["merge", "--abort"])
                     .await?
                     .success();
-            return Err(errors::merge_failed("merge-failed", None, Some(aborted)));
+            let diagnostic = [merged.stderr_text(), merged.stdout_text()]
+                .iter()
+                .map(|text| text.trim().to_owned())
+                .find(|text| !text.is_empty())
+                .unwrap_or_else(|| "no diagnostic".to_owned());
+            let outcome = if aborted { " (the merge was aborted; the project folder is unchanged)" } else { "" };
+            let message = format!("git merge failed (exit {}): {diagnostic}{outcome}", merged.code.map_or_else(|| "undefined".to_owned(), |code| code.to_string()));
+            return Err(errors::merge_failed_with_output(message, aborted));
         }
         let commit = self.rev_parse(cancel, cwd, "HEAD^{commit}").await?;
         let second_parent = self.rev_parse(cancel, cwd, "HEAD^2").await?;
@@ -246,16 +265,5 @@ impl Scm {
             conflicts: None,
             up_to_date: false,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn status_paths_skip_a_renames_origin() {
-        let paths = parse_status_paths(" M a.txt\0R  new.txt\0old.txt\0?? b.txt\0");
-        assert_eq!(paths, ["a.txt", "new.txt", "b.txt"]);
     }
 }

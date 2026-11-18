@@ -34,8 +34,13 @@ tracing = { workspace = true }
 mixdog-office-base = { workspace = true, features = ["test-support"] }
 mixdog-testkit = { workspace = true }
 serde_json = { workspace = true }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 flate2 = { workspace = true }
 sha2 = { workspace = true }
 zip = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "net", "io-util", "sync", "macros"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (<build-tools>\unify-test-features.py).
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-office-com = { workspace = true, features = ["test-support"] }

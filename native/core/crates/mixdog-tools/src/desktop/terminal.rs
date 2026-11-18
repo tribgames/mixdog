@@ -3,10 +3,12 @@
 //! here so the model only ever receives clean, bounded output.
 
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
+use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
@@ -280,12 +282,48 @@ pub struct TerminalRun {
     pub shown: Option<bool>,
 }
 
+#[derive(Clone, Copy)]
+enum Delivery {
+    Waiting,
+    Admitted,
+    Delivered,
+}
+
+#[derive(Default)]
+pub struct TerminalDelivery(Mutex<Option<(u64, u64, Delivery)>>);
+
+impl TerminalDelivery {
+    fn set(&self, tab: u64, cursor: u64, phase: Delivery) {
+        *self.0.lock().expect("terminal delivery") = Some((tab, cursor, phase));
+    }
+
+    fn cancelled(&self) -> ToolError {
+        let mut error = cancelled();
+        let state = *self.0.lock().expect("terminal delivery");
+        let message = match state {
+            None | Some((_, _, Delivery::Waiting)) => "Cancelled before the command was admitted to the PTY.",
+            Some((_, _, Delivery::Admitted)) => {
+                error.outcome_unknown = true;
+                "Cancelled after PTY admission; the command may have been entered. Read output before retrying."
+            }
+            Some((_, _, Delivery::Delivered)) => "The command was sent to the PTY before cancellation; terminal reveal was not confirmed.",
+        };
+        let mut text = message.to_owned();
+        if let Some((tab, cursor, _)) = state {
+            text.push_str(&format!("\nRead with action=read tab={tab} since={cursor}."));
+            error.partial = Some(crate::orch::util::text_output(text.clone()));
+        }
+        error.message_for_model = text;
+        error
+    }
+}
+
 /// The side-terminal service: per-session tabs over the PTY manager.
 #[async_trait]
 pub trait TerminalPort: Send + Sync {
     async fn list(&self, thread: &ThreadId) -> Result<Vec<TabInfo>, PortError>;
     async fn read(&self, thread: &ThreadId, tab: Option<u64>, since: Option<u64>) -> Result<TerminalRead, PortError>;
-    async fn run(&self, thread: &ThreadId, tab: Option<u64>, command: &str) -> Result<TerminalRun, PortError>;
+    async fn run(&self, thread: &ThreadId, tab: Option<u64>, command: &str, delivery: &TerminalDelivery) -> Result<TerminalRun, PortError>;
 }
 
 /// The production [`TerminalPort`]: a thread's side-terminal tabs are the `TerminalTabs` of the
@@ -363,7 +401,7 @@ impl TerminalPort for TabsTerminalPort {
         Ok(TerminalRead { tab: info_of(target), raw: snapshot.text, cursor: snapshot.cursor, reset: snapshot.reset })
     }
 
-    async fn run(&self, thread: &ThreadId, tab: Option<u64>, command: &str) -> Result<TerminalRun, PortError> {
+    async fn run(&self, thread: &ThreadId, tab: Option<u64>, command: &str, delivery: &TerminalDelivery) -> Result<TerminalRun, PortError> {
         let session = session_id(thread)?;
         let mut open = self.tabs.session_tabs(session);
         if open.is_empty() {
@@ -394,9 +432,18 @@ impl TerminalPort for TabsTerminalPort {
         }
         let target = target_of(&open, tab)?.clone();
         let before = self.tabs.snapshot(&target.id, None).ok_or_else(|| gone(target.tab))?;
-        if let Some(pending) = self.tabs.write(&target.id, &mixdog_spawn::terminal::terminal_command_input(command)) {
-            pending.finish().await;
-        }
+        let (tab, cursor) = (u64::from(target.tab), before.cursor);
+        delivery.set(tab, cursor, Delivery::Waiting);
+        self.tabs
+            .write_command(&target.id, &mixdog_spawn::terminal::terminal_command_input(command), || {
+                delivery.set(tab, cursor, Delivery::Admitted);
+            })
+            .await
+            .map_err(|e| PortError::Failed {
+                capability: "terminal".to_owned(),
+                message: format!("could not send command to terminal tab {}: {e:?}", target.tab),
+            })?;
+        delivery.set(tab, cursor, Delivery::Delivered);
         // Only a command that was entered is revealed, so the dock never opens on a failed run.
         let shown = self.host.reveal(session, &target, &open).await;
         Ok(TerminalRun { tab: info_of(&target), cursor: before.cursor, shown: Some(shown) })
@@ -414,17 +461,6 @@ pub trait CommandPolicy: Send + Sync {
 /// prompt is the user's confirmation (`applyShellElevationGate`); a deny is never lifted.
 pub struct ExecPolicyGate {
     policy: Arc<dyn crate::policy::CommandPolicy>,
-}
-
-impl ExecPolicyGate {
-    pub fn new(policy: Arc<dyn crate::policy::CommandPolicy>) -> Self {
-        Self { policy }
-    }
-
-    /// The production gate: Node's command classifier.
-    pub fn node() -> Self {
-        Self::new(Arc::new(crate::policy::exec::NodeCommandPolicy))
-    }
 }
 
 impl CommandPolicy for ExecPolicyGate {
@@ -528,25 +564,12 @@ impl TerminalTool {
     }
 }
 
-#[async_trait]
-impl Tool for TerminalTool {
-    fn spec(&self) -> &ToolSpec {
-        &self.spec
-    }
-
-    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        // On every exit, a cancelled call included, the command is a turn boundary for the
-        // session's folder.
-        let _settled = crate::exec::settle::SettleGuard::new(ctx.review.clone(), ctx.cwd.as_path().to_string_lossy().into_owned());
-        self.run(ctx, args).await
-    }
-}
-
 impl TerminalTool {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured tool error and existing call contract by value without an extra boxing allocation")]
     async fn run(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let action = validate(&args).map_err(|m| invalid("action", m))?;
         let thread = &ctx.thread_id;
+        let delivery = TerminalDelivery::default();
         let work = async {
             match &action {
                 TerminalAction::List => Ok(format_list(&self.terminals.list(thread).await?)),
@@ -554,7 +577,7 @@ impl TerminalTool {
                     if let Some(refusal) = self.policy.refusal(thread, command) {
                         return Err(PortError::Refused { rule: "exec-policy".to_owned(), message: refusal });
                     }
-                    Ok(format_run(&self.terminals.run(thread, *tab, command).await?))
+                    Ok(format_run(&self.terminals.run(thread, *tab, command, &delivery).await?))
                 }
                 TerminalAction::Read { tab, lines, since, grep, offset_lines } => {
                     let read = self.terminals.read(thread, *tab, *since).await?;
@@ -564,7 +587,11 @@ impl TerminalTool {
         };
         let result = tokio::select! {
             biased;
-            _ = ctx.cancel.cancelled() => return Err(cancelled()),
+            _ = ctx.cancel.cancelled() => return Err(if matches!(&action, TerminalAction::Run { .. }) {
+                delivery.cancelled()
+            } else {
+                cancelled()
+            }),
             r = work => r,
         };
         match result {
@@ -619,25 +646,46 @@ mod tests {
         async fn read(&self, _: &ThreadId, _: Option<u64>, _: Option<u64>) -> Result<TerminalRead, PortError> {
             Err(PortError::Invalid { field: "tab".into(), reason: "no such tab".into() })
         }
-        async fn run(&self, _: &ThreadId, _: Option<u64>, _: &str) -> Result<TerminalRun, PortError> {
+        async fn run(&self, _: &ThreadId, _: Option<u64>, _: &str, _: &TerminalDelivery) -> Result<TerminalRun, PortError> {
             Err(PortError::Invalid { field: "tab".into(), reason: "no such tab".into() })
         }
     }
 
-    /// Every terminal call — answered, failed by the port, refused by the policy or invalid —
-    /// tells the turn review the session's folder.
+    struct InterruptedWrite(Delivery, tokio_util::sync::CancellationToken);
+
+    #[async_trait]
+    impl TerminalPort for InterruptedWrite {
+        async fn list(&self, _: &ThreadId) -> Result<Vec<TabInfo>, PortError> {
+            unreachable!()
+        }
+
+        async fn read(&self, _: &ThreadId, _: Option<u64>, _: Option<u64>) -> Result<TerminalRead, PortError> {
+            unreachable!()
+        }
+
+        async fn run(&self, _: &ThreadId, _: Option<u64>, _: &str, delivery: &TerminalDelivery) -> Result<TerminalRun, PortError> {
+            delivery.set(2, 42, self.0);
+            self.1.cancel();
+            std::future::pending().await
+        }
+    }
+
     #[tokio::test]
-    async fn a_finished_terminal_call_notes_the_session_folder_for_the_turn_review() {
-        let review = Arc::new(crate::exec::settle::RecordingReview::default());
-        let tool = TerminalTool::new(Arc::new(QuietPort), Arc::new(ExecPolicyGate::node()));
-        let mut ctx = crate::orch::tests::ctx();
-        ctx.review = Some(review.clone());
-        let _ = tool.call(&ctx, json!({"action": "list"})).await;
-        let _ = tool.call(&ctx, json!({"action": "read"})).await;
-        let _ = tool.call(&ctx, json!({"action": "run", "command": "shutdown now"})).await;
-        let _ = tool.call(&ctx, json!({"action": "nope"})).await;
-        let folder = ctx.cwd.as_path().to_string_lossy().into_owned();
-        assert_eq!(*review.notes.lock().unwrap(), vec![Some(vec![folder]); 4]);
+    async fn cancelled_terminal_runs_keep_the_delivery_phase_and_read_cursor() {
+        for (phase, unknown, message) in [
+            (Delivery::Waiting, false, "before the command was admitted"),
+            (Delivery::Admitted, true, "the command may have been entered"),
+            (Delivery::Delivered, false, "the command was sent"),
+        ] {
+            let ctx = crate::orch::tests::ctx();
+            let tool = TerminalTool::new(Arc::new(InterruptedWrite(phase, ctx.cancel.clone())), Arc::new(ExecPolicyGate::node()));
+            let error = tool.call(&ctx, json!({"action":"run", "tab":2, "command":"echo fixture"})).await.unwrap_err();
+            assert!(matches!(error.code, mixdog_core_api::domain::tool::ToolErrorCode::Cancelled));
+            assert_eq!(error.outcome_unknown, unknown);
+            assert!(error.message_for_model.to_lowercase().contains(message));
+            assert!(error.message_for_model.contains("tab=2 since=42"));
+            assert!(error.partial.is_some());
+        }
     }
 
     #[test]
@@ -696,6 +744,26 @@ mod tests {
         revealed: std::sync::atomic::AtomicBool,
     }
 
+    #[cfg(all(test, node_twin))]
+    fn tab_json(info: &TabInfo) -> Value {
+        serde_json::json!({ "tab": info.tab, "id": info.id, "shell": info.shell, "running": info.running, "cwd": info.cwd })
+    }
+
+    /// Every terminal call — answered, failed by the port, refused by the policy or invalid —
+    /// tells the turn review the session's folder.
+    #[tokio::test]
+    async fn a_finished_terminal_call_notes_the_session_folder_for_the_turn_review() {
+        let review = Arc::new(crate::exec::settle::RecordingReview::default());
+        let tool = TerminalTool::new(Arc::new(QuietPort), Arc::new(ExecPolicyGate::node()));
+        let mut ctx = crate::orch::tests::ctx();
+        ctx.review = Some(review.clone());
+        let _ = tool.call(&ctx, json!({"action": "list"})).await;
+        let _ = tool.call(&ctx, json!({"action": "read"})).await;
+        let _ = tool.call(&ctx, json!({"action": "run", "command": "shutdown now"})).await;
+        let _ = tool.call(&ctx, json!({"action": "nope"})).await;
+        let folder = ctx.cwd.as_path().to_string_lossy().into_owned();
+        assert_eq!(*review.notes.lock().unwrap(), vec![Some(vec![folder]); 4]);
+    }
     #[async_trait]
     impl mixdog_spawn::terminal::TerminalBridgeHost for Host {
         async fn session_cwd(&self, _session_id: &str) -> Option<String> {
@@ -707,16 +775,52 @@ mod tests {
             true
         }
     }
+    /// A session with no tab lists nothing and cannot read; `run` starts the first terminal,
+    /// types the command into its real shell, and a later read from the returned cursor sees the
+    /// output.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn tabs_port_lists_runs_and_reads_a_real_terminal() {
+        let manager = mixdog_spawn::LocalProcessManager::new(
+            mixdog_rt::testing::tokens().spawn_io,
+            mixdog_spawn::ProcessConfig::default(),
+        );
+        let config = mixdog_spawn::terminal::TerminalConfig::new(Arc::new(NoEvents));
+        let tabs = Arc::new(mixdog_spawn::terminal::TerminalTabs::new(manager, config));
+        let host = Arc::new(Host { revealed: Default::default() });
+        let port = TabsTerminalPort::new(Arc::clone(&tabs), host.clone());
+        let thread = ThreadId::from("port-test");
 
-    fn tab_json(info: &TabInfo) -> Value {
-        serde_json::json!({ "tab": info.tab, "id": info.id, "shell": info.shell, "running": info.running, "cwd": info.cwd })
+        assert!(port.list(&thread).await.unwrap().is_empty());
+        assert!(matches!(port.read(&thread, None, None).await, Err(PortError::NotFound { .. })));
+        assert!(matches!(port.run(&thread, Some(2), "echo x", &TerminalDelivery::default()).await, Err(PortError::NotFound { .. })));
+        assert!(port.list(&ThreadId::from("bad id!")).await.is_err());
+
+        let run = port.run(&thread, None, "echo port-marker-4242", &TerminalDelivery::default()).await.unwrap();
+        assert_eq!(run.tab.tab, 1);
+        assert_eq!(run.shown, Some(true));
+        assert!(host.revealed.load(std::sync::atomic::Ordering::SeqCst));
+        assert_eq!(port.list(&thread).await.unwrap().len(), 1);
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        loop {
+            let read = port.read(&thread, Some(1), Some(run.cursor)).await.unwrap();
+            // The typed command is echoed too, so the marker's output line is the second hit.
+            if read.raw.matches("port-marker-4242").count() >= 2 {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "the output never arrived: {:?}", read.raw);
+            mixdog_rt::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        tabs.dispose_all();
     }
+
 
     /// The tab list and snapshot payloads of Node's terminal manager (`termSessionTabs`, `termSnapshot`, recorded in
     /// `session-tabs.json` with the real manager over a scripted PTY), against the same tabs in the Rust tab layer over the scripted
     /// shell (`mixdog_spawn::scripted`, which prints the recorded writes and nothing else). Every recorded fact is compared whole:
     /// the listings of every session, every snapshot (text, cursor against the tab's own base, flag), the listing after an exit
     /// with the exited tab's snapshot, and the state after a dispose. A guard fails the test if a recorded key was never consumed.
+    #[cfg(node_twin)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn the_tab_list_and_snapshots_equal_nodes_recorded_payloads() {
         use std::collections::BTreeSet;
@@ -733,7 +837,8 @@ mod tests {
         let mut config = mixdog_spawn::terminal::TerminalConfig::new(Arc::new(NoEvents));
         config.piped = true;
         let tabs = Arc::new(mixdog_spawn::terminal::TerminalTabs::new(manager.clone(), config));
-        let port = TabsTerminalPort::new(Arc::clone(&tabs), Arc::new(Host { revealed: Default::default() }));
+        let host = Arc::new(Host { revealed: Default::default() });
+        let port = TabsTerminalPort::new(Arc::clone(&tabs), host.clone());
         // Opened in the order Node's recording opened them; ids that are not tabs of a session are never listed.
         for id in ["session-terminal:S:3", "session-terminal:S", "session-terminal:S:2", "session-terminal:T", "term_other", "session-terminal:S:03", "session-terminal:S:0"] {
             let request = mixdog_spawn::terminal::EnsureRequest { cwd: Some(cwd.clone()), profile: Some(mixdog_spawn::scripted::profile()), ..Default::default() };
@@ -799,6 +904,8 @@ mod tests {
         let want = shell_of_the_platform(fill(&take("exited")), &got);
         assert_eq!(Value::Array(got), want, "listing after the exit");
         assert_eq!(whole(port.read(&thread, Some(3), None).await.unwrap(), exited_base), take("exitedSnapshot"), "exitedSnapshot");
+        assert!(matches!(port.run(&thread, Some(3), "echo unreachable", &TerminalDelivery::default()).await, Err(PortError::Failed { .. })));
+        assert!(!host.revealed.load(std::sync::atomic::Ordering::SeqCst));
         // Disposed: gone from the list and from snapshots.
         tabs.dispose("session-terminal:S:2");
         let got = listed("S").await;
@@ -820,42 +927,29 @@ mod tests {
         }
         assert_eq!(*consumed.borrow(), recorded_paths, "a recorded key was never replayed");
     }
-    /// A session with no tab lists nothing and cannot read; `run` starts the first terminal,
-    /// types the command into its real shell, and a later read from the returned cursor sees the
-    /// output.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn tabs_port_lists_runs_and_reads_a_real_terminal() {
-        let manager = mixdog_spawn::LocalProcessManager::new(
-            mixdog_rt::testing::tokens().spawn_io,
-            mixdog_spawn::ProcessConfig::default(),
-        );
-        let config = mixdog_spawn::terminal::TerminalConfig::new(Arc::new(NoEvents));
-        let tabs = Arc::new(mixdog_spawn::terminal::TerminalTabs::new(manager, config));
-        let host = Arc::new(Host { revealed: Default::default() });
-        let port = TabsTerminalPort::new(Arc::clone(&tabs), host.clone());
-        let thread = ThreadId::from("port-test");
+}
 
-        assert!(port.list(&thread).await.unwrap().is_empty());
-        assert!(matches!(port.read(&thread, None, None).await, Err(PortError::NotFound { .. })));
-        assert!(matches!(port.run(&thread, Some(2), "echo x").await, Err(PortError::NotFound { .. })));
-        assert!(port.list(&ThreadId::from("bad id!")).await.is_err());
 
-        let run = port.run(&thread, None, "echo port-marker-4242").await.unwrap();
-        assert_eq!(run.tab.tab, 1);
-        assert_eq!(run.shown, Some(true));
-        assert!(host.revealed.load(std::sync::atomic::Ordering::SeqCst));
-        assert_eq!(port.list(&thread).await.unwrap().len(), 1);
+impl ExecPolicyGate {
+    pub fn new(policy: Arc<dyn crate::policy::CommandPolicy>) -> Self {
+        Self { policy }
+    }
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
-        loop {
-            let read = port.read(&thread, Some(1), Some(run.cursor)).await.unwrap();
-            // The typed command is echoed too, so the marker's output line is the second hit.
-            if read.raw.matches("port-marker-4242").count() >= 2 {
-                break;
-            }
-            assert!(std::time::Instant::now() < deadline, "the output never arrived: {:?}", read.raw);
-            mixdog_rt::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-        tabs.dispose_all();
+    /// The production gate: Node's command classifier.
+    pub fn node() -> Self {
+        Self::new(Arc::new(crate::policy::exec::NodeCommandPolicy))
+    }
+}
+#[async_trait]
+impl Tool for TerminalTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        // On every exit, a cancelled call included, the command is a turn boundary for the
+        // session's folder.
+        let _settled = crate::exec::settle::SettleGuard::new(ctx.review.clone(), ctx.cwd.as_path().to_string_lossy().into_owned());
+        self.run(ctx, args).await
     }
 }

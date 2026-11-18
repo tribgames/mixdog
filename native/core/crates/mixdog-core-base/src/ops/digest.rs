@@ -5,8 +5,12 @@
 use std::fmt::Write as _;
 use std::io::Write;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
+use mixdog_core_api::call::{CallContext, Caller, WindowRole};
+use mixdog_protocol::Origin;
 use serde_json::Value;
+use serde_json::json;
 use sha2::Digest as _;
 use sha2::Sha256;
 
@@ -38,6 +42,31 @@ impl PayloadDigest {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// Persist a fingerprint of the trusted authorization context, not connection headers or client params.
+/// Only an authenticated relay peer keeps its audience across socket reconnects. Window and
+/// host attributes can narrow an audience but never identify a caller.
+pub fn replay_audience(ctx: &CallContext) -> PayloadDigest {
+    static EPOCH: OnceLock<String> = OnceLock::new();
+    let principal = match &ctx.caller {
+        Caller::Internal(name) => json!(["internal", name]),
+        Caller::Connection(id) => match (&ctx.replay_principal, ctx.origin) {
+            (Some(principal), Origin::Relay) => json!(["paired-relay", principal]),
+            _ => {
+                let epoch = EPOCH.get_or_init(|| uuid::Uuid::new_v4().to_string());
+                match ctx.replay_socket {
+                    Some(socket) => json!(["accepted-socket", epoch, socket]),
+                    None => json!(["direct-connection", epoch, id.0]),
+                }
+            }
+        },
+    };
+    let window = ctx.window.as_ref().map(|window| match &window.role {
+        WindowRole::Main => json!([window.id, "main"]),
+        WindowRole::Server { connection_id } => json!([window.id, "server", connection_id]),
+    });
+    PayloadDigest::of_params(&json!([ctx.origin, principal, window, ctx.host_claimant]))
 }
 
 fn write_canonical(out: &mut Sha256, value: &Value) {

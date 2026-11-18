@@ -170,12 +170,9 @@ impl PublicReply {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
-
     use mixdog_ai::netproxy::NetworkProxy;
     use mixdog_ai::netproxy::ProcessEnv;
     use mixdog_ai::netproxy::SystemProxy;
-    use serde_json::Value;
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
     use tokio::net::TcpListener;
@@ -189,11 +186,6 @@ mod tests {
     use super::super::gai::LookupKind;
     use super::super::ssrf::lookup_failure;
     use super::*;
-
-    /// What Node's own `assertPublicUrl`, `resolveAndValidate` and undici answered
-    /// (`record-public-get.mjs`).
-    static GOLDEN: LazyLock<Value> =
-        LazyLock::new(|| serde_json::from_str(include_str!("../../../../fixtures/public-get/golden.json")).unwrap());
 
     fn lanes() -> WebLanes {
         let tokens = mixdog_rt::testing::tokens();
@@ -214,7 +206,7 @@ mod tests {
         PublicGet::new(clients(), lanes())
     }
 
-    /// The words Node's media path gives each kind (what the golden recorded).
+    /// The words the media path gives each kind of failure.
     fn said(error: &PublicError) -> String {
         match error {
             PublicError::InvalidUrl => "Invalid URL".to_owned(),
@@ -233,113 +225,142 @@ mod tests {
         Ok(body)
     }
 
+    #[tokio::test]
+    async fn a_refused_address_is_never_connected_to() {
+        let server = MockServer::start().await;
+        Mock::given(any()).respond_with(ResponseTemplate::new(200)).mount(&server).await;
+        let port = server.address().port();
+        let guard = public();
+        let literal = guard.get(&format!("http://127.0.0.1:{port}/"), &[]).await.err().unwrap();
+        assert_eq!(said(&literal), "Blocked request to private address: 127.0.0.1");
+        let invalid = guard.get("not a url", &[]).await.err().unwrap();
+        assert_eq!((invalid.clone(), said(&invalid).as_str(), invalid.code()), (PublicError::InvalidUrl, "Invalid URL", Some("ERR_INVALID_URL")));
+        // A name the URL rules pass is refused where it is resolved, before any connection: the
+        // client itself (the URL check skipped) validates the address it is about to dial.
+        let sent = guard.client().unwrap().get(format!("http://localhost:{port}/")).send().await.unwrap_err();
+        let named = send_failure(&sent);
+        assert!(said(&named).starts_with("Blocked request to private address: "), "{named:?}");
+        assert!(server.received_requests().await.unwrap().is_empty());
+    }
+
+
     #[test]
-    fn every_address_gets_the_verdict_nodes_assert_public_url_gave() {
-        let cases = GOLDEN["urls"].as_array().unwrap();
-        assert!(cases.len() > 100, "the golden covers the address forms");
-        for case in cases {
-            let url = case["url"].as_str().unwrap();
+    fn an_address_that_is_not_public_is_refused_in_every_spelling_of_it() {
+        let blocked = |url: &str, shown: &str| {
+            let got = guard_url(AddressPolicy::PublicOnly, url).expect_err(url);
+            assert_eq!((said(&got).as_str(), got.code()), (format!("Blocked request to private address: {shown}").as_str(), None), "{url}");
+        };
+        for (url, shown) in [
+            ("http://localhost/", "localhost"), ("http://LOCALHOST:8080/x", "localhost"), ("https://localhost:3000", "localhost"),
+            ("http://127.0.0.1/", "127.0.0.1"), ("http://127.255.255.254/", "127.255.255.254"), ("http://10.0.0.1/", "10.0.0.1"),
+            ("http://0.0.0.0/", "0.0.0.0"), ("http://172.16.0.1/", "172.16.0.1"), ("http://172.31.255.255/", "172.31.255.255"),
+            ("http://192.168.0.1/", "192.168.0.1"), ("http://169.254.169.254/latest/meta-data/", "169.254.169.254"),
+            ("http://100.64.0.1/", "100.64.0.1"), ("http://100.127.255.255/", "100.127.255.255"), ("http://198.18.0.1/", "198.18.0.1"),
+            ("http://192.0.2.1/", "192.0.2.1"), ("http://198.51.100.1/", "198.51.100.1"), ("http://203.0.113.1/", "203.0.113.1"),
+            ("http://224.0.0.1/", "224.0.0.1"), ("http://240.0.0.1/", "240.0.0.1"), ("http://255.255.255.255/", "255.255.255.255"),
+            // The same loopback and private addresses spelled as one number, in hex, in octal or short.
+            ("http://2130706433/", "127.0.0.1"), ("http://0x7f.0.0.1/", "127.0.0.1"), ("http://0x7f000001/", "127.0.0.1"),
+            ("http://127.1/", "127.0.0.1"), ("http://017700000001/", "127.0.0.1"), ("http://0177.0.0.1/", "127.0.0.1"),
+            ("http://3232235521/", "192.168.0.1"),
+            ("http://[::1]/", "[::1]"), ("http://[::]/", "[::]"), ("http://[0:0:0:0:0:0:0:1]/", "[::1]"),
+            ("http://[fe80::1]/", "[fe80::1]"), ("http://[febf::1]/", "[febf::1]"), ("http://[fec0::1]/", "[fec0::1]"),
+        ] {
+            blocked(url, shown);
+        }
+    }
+
+    #[test]
+    fn a_public_address_or_name_is_allowed_including_the_neighbours_of_every_blocked_range() {
+        for url in [
+            "https://example.com/a.png", "http://example.com:8080/x?y=1#z", "https://EXAMPLE.com/", "http://8.8.8.8/", "https://1.1.1.1/dns-query",
+            "http://[2606:4700:4700::1111]/", "http://[2001:4860:4860::8888]:443/", "http://foo.localhost/", "http://notlocalhost/",
+            "http://172.15.255.255/", "http://172.32.0.1/", "http://192.167.0.1/", "http://169.253.0.1/", "http://100.63.255.255/",
+            "http://100.128.0.1/", "http://198.17.255.255/", "http://198.20.0.1/", "http://203.0.114.1/", "http://223.255.255.255/",
+            "http://134744072/", "http://[fe7f::1]/", "http://[fb00::1]/", "http://[2606:4700::1111]/", "http://[::ffff:8.8.8.8]/",
+        ] {
             let got = guard_url(AddressPolicy::PublicOnly, url);
-            match case["error"].as_object() {
-                None => assert!(got.is_ok(), "{url}: {got:?}"),
-                Some(error) => {
-                    let got = got.expect_err(url);
-                    assert_eq!(
-                        (said(&got).as_str(), got.code()),
-                        (error["message"].as_str().unwrap(), error["code"].as_str()),
-                        "{url}"
-                    );
-                }
-            }
+            assert!(got.is_ok(), "{url}: {got:?}");
         }
     }
 
     #[test]
-    fn every_resolved_address_gets_the_verdict_nodes_resolver_gave() {
-        let cases = GOLDEN["lookups"].as_array().unwrap();
-        for case in cases {
-            let host = case["host"].as_str().unwrap();
-            let ips: Vec<std::net::IpAddr> =
-                case["addresses"].as_array().unwrap().iter().map(|a| a.as_str().unwrap().parse().unwrap()).collect();
-            let got = AddressPolicy::PublicOnly.validate_resolved(host, &ips);
-            match case["error"].as_str() {
-                None => assert_eq!(got.unwrap().len(), ips.len(), "{host} {ips:?}"),
-                Some(message) => assert_eq!(got.unwrap_err().message, message, "{host} {ips:?}"),
-            }
+    fn a_url_that_is_not_http_or_carries_credentials_is_refused_before_any_address_is_considered() {
+        for (url, scheme) in [("ftp://example.com/file", "ftp:"), ("file:///etc/passwd", "file:"), ("data:text/plain,hello", "data:"), ("javascript:alert(1)", "javascript:"), ("ws://example.com/", "ws:")] {
+            let got = guard_url(AddressPolicy::PublicOnly, url).expect_err(url);
+            assert_eq!(said(&got), format!("Blocked non-HTTP protocol: {scheme}"), "{url}");
+        }
+        for (url, host) in [("http://user:pass@example.com/", "example.com"), ("https://user@example.com/", "example.com"), ("http://:pw@example.com/", "example.com"), ("http://user@localhost/", "localhost")] {
+            let got = guard_url(AddressPolicy::PublicOnly, url).expect_err(url);
+            assert_eq!(said(&got), format!("Blocked URL with userinfo credentials: {host}"), "{url}");
         }
     }
 
     #[test]
-    fn a_failed_name_lookup_reads_as_nodes_resolver_failure() {
-        for case in GOLDEN["lookup_failures"].as_array().unwrap() {
-            let host = case["host"].as_str().unwrap();
-            let node = case["message"].as_str().unwrap();
-            let kind = match case["code"].as_str().unwrap() {
-                "ENOTFOUND" => LookupKind::NotFound,
-                "ENODATA" => LookupKind::NoData,
-                _ => LookupKind::TryAgain,
-            };
-            let got = lookup_failure(host, LookupError { kind, code: 0 });
-            if kind == LookupKind::TryAgain {
-                // The web tools word it `fetch failed: getaddrinfo <code> <host>`; the guarded GET
-                // keeps the kind (code and host) and the media fetch words it as Node's media path.
-                assert_eq!(got.message, format!("fetch failed: {node}"));
-                let kept = PublicError::from(got);
-                assert_eq!(kept, PublicError::Lookup { code: "EAI_AGAIN".to_owned(), host: host.to_owned() });
-                assert_eq!(said(&kept), node);
-            } else {
-                assert_eq!(got.message, node);
-                assert_eq!(said(&PublicError::from(got)), node);
-            }
+    fn a_name_that_resolves_to_any_non_public_address_is_refused_whole() {
+        let ips = |list: &[&str]| list.iter().map(|a| a.parse::<std::net::IpAddr>().unwrap()).collect::<Vec<_>>();
+        for list in [&["8.8.8.8"][..], &["8.8.8.8", "1.1.1.1"], &["2606:4700::1111"], &["8.8.8.8", "2606:4700::1111"]] {
+            assert_eq!(AddressPolicy::PublicOnly.validate_resolved("media.example.com", &ips(list)).unwrap().len(), list.len());
         }
+        for (list, shown) in [
+            (&["8.8.8.8", "10.0.0.5"][..], "10.0.0.5"), (&["10.0.0.5", "8.8.8.8"], "10.0.0.5"), (&["127.0.0.1"], "127.0.0.1"),
+            (&["169.254.169.254"], "169.254.169.254"), (&["100.64.0.1"], "100.64.0.1"), (&["0.0.0.0"], "0.0.0.0"), (&["8.8.8.8", "::1"], "::1"),
+        ] {
+            let error = AddressPolicy::PublicOnly.validate_resolved("rebind.example.com", &ips(list)).unwrap_err();
+            assert_eq!(error.message, format!("Blocked request to private address: {shown}"), "{list:?}");
+        }
+    }
+
+    #[test]
+    fn a_failed_name_lookup_reads_as_a_resolver_failure() {
+        for (kind, code) in [(LookupKind::NotFound, "ENOTFOUND"), (LookupKind::NoData, "ENODATA")] {
+            let got = lookup_failure("unreachable.example.com", LookupError { kind, code: 0 });
+            assert_eq!(got.message, "DNS returned no addresses for unreachable.example.com", "{code}");
+            assert_eq!(said(&PublicError::from(got)), "DNS returned no addresses for unreachable.example.com");
+        }
+        // A temporary failure keeps its kind: the web tools word it `fetch failed: getaddrinfo <code> <host>`, the guarded GET
+        // keeps the code and the host.
+        let got = lookup_failure("unreachable.example.com", LookupError { kind: LookupKind::TryAgain, code: 0 });
+        assert_eq!(got.message, "fetch failed: getaddrinfo EAI_AGAIN unreachable.example.com");
+        let kept = PublicError::from(got);
+        assert_eq!(kept, PublicError::Lookup { code: "EAI_AGAIN".to_owned(), host: "unreachable.example.com".to_owned() });
+        assert_eq!(said(&kept), "getaddrinfo EAI_AGAIN unreachable.example.com");
     }
 
     #[tokio::test]
     async fn a_redirect_is_returned_and_never_followed() {
-        let wire = &GOLDEN["wire"]["redirect"];
         let server = MockServer::start().await;
-        Mock::given(path("/start"))
-            .respond_with(
-                ResponseTemplate::new(302)
-                    .insert_header("location", wire["location"].as_str().unwrap())
-                    .set_body_string(wire["body"].as_str().unwrap()),
-            )
-            .mount(&server)
-            .await;
-        Mock::given(path(wire["location"].as_str().unwrap())).respond_with(ResponseTemplate::new(200)).expect(0).mount(&server).await;
+        Mock::given(path("/start")).respond_with(ResponseTemplate::new(302).insert_header("location", "/next").set_body_string("moved")).mount(&server).await;
+        Mock::given(path("/next")).respond_with(ResponseTemplate::new(200)).expect(0).mount(&server).await;
         let mut reply = open().get(&format!("{}/start", server.uri()), &[]).await.unwrap();
-        assert_eq!(u64::from(reply.status()), wire["status"].as_u64().unwrap());
-        assert_eq!(reply.header("location").as_deref(), wire["location"].as_str());
-        assert_eq!(reply.has_body(), wire["hasBody"].as_bool().unwrap());
-        assert_eq!(String::from_utf8(drain(&mut reply).await.unwrap()).unwrap(), wire["body"].as_str().unwrap());
-        assert_eq!(server.received_requests().await.unwrap().len() as u64, wire["requests"].as_u64().unwrap());
+        assert_eq!(reply.status(), 302);
+        assert_eq!(reply.header("location").as_deref(), Some("/next"));
+        assert!(reply.has_body());
+        assert_eq!(String::from_utf8(drain(&mut reply).await.unwrap()).unwrap(), "moved");
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
     }
 
     #[tokio::test]
-    async fn the_request_carries_the_headers_a_node_fetch_sends() {
-        let wire = &GOLDEN["wire"]["request"];
+    async fn the_request_carries_the_headers_of_a_browser_style_fetch_and_the_callers_own() {
         let server = MockServer::start().await;
         Mock::given(any()).respond_with(ResponseTemplate::new(200)).mount(&server).await;
         let asked = [("x-goog-api-key".to_owned(), "k".to_owned())];
         open().get(&format!("{}/media", server.uri()), &asked).await.unwrap();
         let seen = server.received_requests().await.unwrap();
         assert_eq!(seen.len(), 1);
-        assert_eq!(seen[0].method.as_str(), wire["method"].as_str().unwrap());
-        for (name, want) in wire["compared"].as_object().unwrap() {
-            let got = seen[0].headers.get(name.as_str()).map(|v| v.to_str().unwrap());
-            assert_eq!(got, want.as_str(), "{name}");
+        assert_eq!(seen[0].method.as_str(), "GET");
+        for (name, want) in [("user-agent", "undici"), ("accept", "*/*"), ("accept-language", "*"), ("sec-fetch-mode", "cors"), ("x-goog-api-key", "k")] {
+            assert_eq!(seen[0].headers.get(name).map(|v| v.to_str().unwrap()), Some(want), "{name}");
         }
     }
 
     #[tokio::test]
     async fn a_body_less_status_has_no_body() {
         let server = MockServer::start().await;
-        for case in GOLDEN["wire"]["bodies"].as_array().unwrap() {
-            let status = case["status"].as_u64().unwrap() as u16;
+        for (status, has_body) in [(200, true), (204, false), (205, false), (304, false), (302, true)] {
             server.reset().await;
             Mock::given(any()).respond_with(ResponseTemplate::new(status)).mount(&server).await;
             let reply = open().get(&server.uri(), &[]).await.unwrap();
-            assert_eq!((reply.status(), reply.has_body()), (status, case["hasBody"].as_bool().unwrap()));
+            assert_eq!((reply.status(), reply.has_body()), (status, has_body), "{status}");
         }
     }
 
@@ -357,27 +378,9 @@ mod tests {
         let mut reply = open().get(&format!("http://127.0.0.1:{port}/"), &[]).await.unwrap();
         let cut = drain(&mut reply).await.unwrap_err();
         served.await.unwrap();
-        assert_eq!(said(&cut), GOLDEN["wire"]["cut"]["message"].as_str().unwrap());
+        assert_eq!(said(&cut), "terminated");
         // The listener is gone: the port refuses.
         let refused = open().get(&format!("http://127.0.0.1:{port}/"), &[]).await.err().unwrap();
-        assert_eq!(said(&refused), GOLDEN["wire"]["refused"]["message"].as_str().unwrap());
-    }
-
-    #[tokio::test]
-    async fn a_refused_address_is_never_connected_to() {
-        let server = MockServer::start().await;
-        Mock::given(any()).respond_with(ResponseTemplate::new(200)).mount(&server).await;
-        let port = server.address().port();
-        let guard = public();
-        let literal = guard.get(&format!("http://127.0.0.1:{port}/"), &[]).await.err().unwrap();
-        assert_eq!(said(&literal), "Blocked request to private address: 127.0.0.1");
-        let invalid = guard.get("not a url", &[]).await.err().unwrap();
-        assert_eq!((invalid.clone(), said(&invalid).as_str(), invalid.code()), (PublicError::InvalidUrl, "Invalid URL", Some("ERR_INVALID_URL")));
-        // A name the URL rules pass is refused where it is resolved, before any connection: the
-        // client itself (the URL check skipped) validates the address it is about to dial.
-        let sent = guard.client().unwrap().get(format!("http://localhost:{port}/")).send().await.unwrap_err();
-        let named = send_failure(&sent);
-        assert!(said(&named).starts_with("Blocked request to private address: "), "{named:?}");
-        assert!(server.received_requests().await.unwrap().is_empty());
+        assert_eq!(said(&refused), "fetch failed");
     }
 }

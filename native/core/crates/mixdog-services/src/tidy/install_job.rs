@@ -4,6 +4,7 @@
 use std::sync::Mutex;
 
 use serde_json::{Value, json};
+use tokio::sync::{Semaphore, SemaphorePermit};
 
 use crate::media::store::now_ms;
 
@@ -54,14 +55,28 @@ impl Job {
     }
 }
 
-#[derive(Default)]
 pub struct InstallJob {
+    install: Semaphore,
     job: Mutex<Option<Job>>,
     /// Bumped on every mutation, so a status cache can tell it is stale.
     stamp: std::sync::atomic::AtomicU64,
 }
 
+impl Default for InstallJob {
+    fn default() -> Self {
+        Self {
+            install: Semaphore::new(1),
+            job: Mutex::default(),
+            stamp: std::sync::atomic::AtomicU64::default(),
+        }
+    }
+}
+
 impl InstallJob {
+    pub(super) async fn install_turn(&self) -> SemaphorePermit<'_> {
+        self.install.acquire().await.expect("the install semaphore is never closed")
+    }
+
     pub fn stamp(&self) -> u64 {
         self.stamp.load(std::sync::atomic::Ordering::SeqCst)
     }
@@ -72,8 +87,8 @@ impl InstallJob {
         out
     }
 
-    /// Starts a job over `ids`; `None` while one is running (overlapping presses share it).
-    pub fn begin(&self, ids: &[&str]) -> bool {
+    /// Initializes progress for the request holding the install turn.
+    pub(super) fn begin(&self, ids: &[&str]) -> bool {
         self.change(|slot| {
             if slot.as_ref().is_some_and(|j| j.active) {
                 return false;

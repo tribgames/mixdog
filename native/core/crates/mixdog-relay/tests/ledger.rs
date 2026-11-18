@@ -14,6 +14,7 @@
 //!
 //! `"note"` is prose and is not checked. A Node test of which several tasks each port a part has one row per part: a
 //! title is covered when at least one row names it.
+#![cfg(node_twin)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -484,6 +485,7 @@ fn titles_are_read_as_node_prints_them_and_a_template_must_be_expanded() {
     templates.insert("a.test.mjs::${name} logo".to_owned(), vec!["/a logo".to_owned(), "/b logo".to_owned()]);
     assert_eq!(titles_of("a.test.mjs", source, &templates), Ok(vec!["plain".to_owned(), "it's \\x01".to_owned(), "/a logo".to_owned(), "/b logo".to_owned()]));
 }
+
 
 /// `deploy/release-transaction.test.sh` took the place of the Node file that ran its scenarios one by one: it runs every
 /// scenario itself, and this runs it where a POSIX shell is installed (the deploy host's shell; Git's on Windows).

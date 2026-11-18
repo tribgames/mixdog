@@ -161,8 +161,11 @@ struct Shared {
     app_subscribed: bool,
     /// Feeds of scoped subscriptions the caller made on this connection (they end with it: the caller subscribes again).
     scoped: HashSet<String>,
-    server_requests: Vec<ServerRequest>,
+    /// Held requests with the address their answer goes to (the socket they arrived on).
+    server_requests: Vec<(ServerRequest, ReplyAddress)>,
     recv: HashMap<String, (String, u64)>,
+    /// This client's writer identity (see [`AttachmentId`]): with `generation` it names the live socket.
+    writer: u64,
     generation: u64,
     responses: u64,
     class_responses: [u64; 4],
@@ -186,6 +189,10 @@ enum Cmd {
     },
     Send {
         frame: Json,
+        /// The socket the frame is meant for; `None` is the current one. Compared where the frame is written (the driver
+        /// owns the writer and the retirement of a socket), so a frame queued for a socket that has gone since never reaches
+        /// its successor.
+        attachment: Option<AttachmentId>,
         reply: oneshot::Sender<Result<(), ClientError>>,
     },
     Close {
@@ -208,6 +215,722 @@ pub struct Inner {
     events: broadcast::Sender<ClientEvent>,
     store_changes: broadcast::Sender<StoreChange>,
 }
+
+// ───────────── driver ─────────────
+
+struct Pending {
+    cls: Option<RequestClass>,
+    hook: Option<Hook>,
+    park: Option<Box<Park>>,
+    reply: Reply,
+}
+
+enum Wake {
+    Cmd(Box<Option<Cmd>>),
+    Event(TransportEvent),
+}
+
+async fn next_event(reader: &mut Option<Box<dyn TransportReader>>) -> TransportEvent {
+    match reader {
+        Some(r) => r.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
+struct Driver {
+    inner: Arc<Inner>,
+    cmd_rx: mpsc::UnboundedReceiver<Cmd>,
+    writer: Option<Box<dyn TransportWriter>>,
+    reader: Option<Box<dyn TransportReader>>,
+    pending: HashMap<u64, Pending>,
+    /// Fold lanes of the current connection; dropped with it (queued items of the old generation are discarded by their check).
+    lanes: HashMap<Option<String>, mpsc::UnboundedSender<FoldItem>>,
+    next_id: u64,
+    ever_ready: bool,
+    /// An attach was asked for: the next wait of the ladder is skipped.
+    attach_now: bool,
+    done: bool,
+}
+
+// ───────────── public client ─────────────
+
+pub struct Client {
+    inner: Arc<Inner>,
+}
+
+struct StoreView(Arc<Inner>);
+
+impl FoldStore for StoreView {
+    fn thread(&self, thread_id: &str) -> Option<ThreadFold> {
+        self.0.lock().store.threads.get(thread_id).cloned()
+    }
+    fn section(&self, section: SectionName, key: Option<&str>) -> Option<SectionEntry> {
+        self.0
+            .lock()
+            .store
+            .sections
+            .get(&section)?
+            .get(key.unwrap_or_default())
+            .cloned()
+    }
+    fn sections(&self, section: SectionName) -> Vec<SectionEntry> {
+        self.0
+            .lock()
+            .store
+            .sections
+            .get(&section)
+            .map(|b| b.values().cloned().collect())
+            .unwrap_or_default()
+    }
+    fn app_feed(&self) -> Option<FeedStamp> {
+        self.0.lock().store.app.clone()
+    }
+    fn subscribe(&self) -> broadcast::Receiver<StoreChange> {
+        self.0.store_changes.subscribe()
+    }
+}
+
+/// Opens the transport, performs `initialize` + `initialized`, and returns when the connection is ready. A failure before the
+/// first ready connection is the caller's to handle (e.g. start the core); the ladder only runs after a ready connection drops.
+pub async fn connect(options: ConnectOptions) -> Result<Client, ClientError> {
+    let (cmd, cmd_rx) = mpsc::unbounded_channel();
+    let shared = Shared {
+        status: ConnectionStatus::Reconnecting { attempt: 0 },
+        server: None,
+        connected: false,
+        terminal: None,
+        store: StoreData::default(),
+        subs: Vec::new(),
+        app_subscribed: false,
+        scoped: HashSet::new(),
+        server_requests: Vec::new(),
+        recv: HashMap::new(),
+        writer: AttachmentId::mint_writer(),
+        generation: 0,
+        responses: 0,
+        class_responses: [0; 4],
+        feed_events: 0,
+        thread_last_event: HashMap::new(),
+        unanswered: Vec::new(),
+    };
+    let inner = Arc::new(Inner {
+        opts: options,
+        status: watch::channel(shared.status.clone()).0,
+        shared: Mutex::new(shared),
+        cmd,
+        pulse: watch::channel(0).0,
+        events: broadcast::channel(1024).0,
+        store_changes: broadcast::channel(1024).0,
+    });
+    let mut driver = Driver {
+        inner: inner.clone(),
+        cmd_rx,
+        writer: None,
+        reader: None,
+        pending: HashMap::new(),
+        lanes: HashMap::new(),
+        next_id: 1,
+        ever_ready: false,
+        attach_now: false,
+        done: false,
+    };
+    driver.open().await?;
+    if let Err(e) = driver.handshake().await {
+        driver.drop_transport("handshake failed").await;
+        return Err(e);
+    }
+    driver.ever_ready = true;
+    let id = inner
+        .lock()
+        .server
+        .as_ref()
+        .expect("initialized")
+        .server_instance_id
+        .clone();
+    inner.set_status(ConnectionStatus::Ready {
+        server_instance_id: id,
+    });
+    tokio::spawn(driver.run());
+    Ok(Client { inner })
+}
+
+#[async_trait]
+impl ProtocolClient for Client {
+    fn store(&self) -> Arc<dyn FoldStore> {
+        Arc::new(StoreView(self.inner.clone()))
+    }
+    fn server(&self) -> InitializeResponse {
+        self.inner.lock().server.clone().expect("initialized")
+    }
+    fn status(&self) -> ConnectionStatus {
+        self.inner.lock().status.clone()
+    }
+
+    async fn call_raw(
+        &self,
+        method: &str,
+        params: Json,
+        options: CallOptions,
+    ) -> Result<Json, ClientError> {
+        let info =
+            method_info(method).ok_or_else(|| ClientError::UnknownMethod(method.to_string()))?;
+        let mut params = params;
+        if info.is_mutation() {
+            let obj = params.as_object_mut().ok_or_else(|| {
+                ClientError::ProtocolViolation("mutation params must be an object".into())
+            })?;
+            let given = obj.get("opId").and_then(Json::as_str).map(str::to_string);
+            let op_id = options.op_id.or(given).unwrap_or_else(|| {
+                self.inner
+                    .opts
+                    .new_op_id
+                    .as_ref()
+                    .map_or_else(new_op_id, |f| f())
+            });
+            obj.insert("opId".into(), Json::String(op_id));
+        }
+        let hook = scoped_feed_of(method, &params, true).map(|feed_id| Hook::Scoped { feed_id });
+        if let Some(feed) = scoped_feed_of(method, &params, false) {
+            {
+                let mut s = self.inner.lock();
+                s.scoped.remove(&feed);
+                s.recv.remove(&feed);
+            }
+            let _ = self.inner.cmd.send(Cmd::DropLane { feed });
+        }
+        self.inner.run(method, params, &info, hook, false).await
+    }
+
+    async fn notify(&self, method: &str, params: Json) -> Result<(), ClientError> {
+        self.send_frame(None, json!({ "method": method, "params": params }))
+            .await
+    }
+
+    async fn notify_on(
+        &self,
+        attachment: AttachmentId,
+        method: &str,
+        params: Json,
+    ) -> Result<(), ClientError> {
+        self.send_frame(Some(attachment), json!({ "method": method, "params": params }))
+            .await
+    }
+
+    async fn resume_thread(
+        &self,
+        thread_id: &ThreadId,
+        window: ResumeWindow,
+    ) -> Result<ThreadResumeResponse, ClientError> {
+        let params = self.inner.resume_params(thread_id, &window);
+        let hook = Hook::Attach {
+            feed_id: thread_id.to_string(),
+            thread: Some((thread_id.to_string(), window)),
+        };
+        from_json(
+            self.inner
+                .run("thread/resume", params, &INTERNAL, Some(hook), false)
+                .await?,
+        )
+    }
+
+    async fn unsubscribe_thread(&self, thread_id: &ThreadId) -> Result<(), ClientError> {
+        {
+            let mut s = self.inner.lock();
+            s.subs.retain(|(t, _)| t != thread_id.as_str());
+            s.recv.remove(thread_id.as_str());
+            s.store.threads.remove(thread_id.as_str());
+        }
+        let _ = self.inner.cmd.send(Cmd::DropLane {
+            feed: thread_id.as_str().to_string(),
+        });
+        let params = to_json(&ThreadIdParams {
+            thread_id: thread_id.clone(),
+        });
+        self.inner
+            .run("thread/unsubscribe", params, &INTERNAL, None, false)
+            .await
+            .map(|_| ())
+    }
+
+    async fn subscribe_app(&self) -> Result<(), ClientError> {
+        let hook = Hook::Attach {
+            feed_id: APP_FEED_ID.to_string(),
+            thread: None,
+        };
+        self.inner
+            .run(
+                "app/subscribe",
+                self.inner.app_params(),
+                &INTERNAL,
+                Some(hook),
+                false,
+            )
+            .await
+            .map(|_| ())
+    }
+
+    fn pending_server_requests(&self) -> Vec<ServerRequest> {
+        self.inner.lock().server_requests.iter().map(|(request, _)| request.clone()).collect()
+    }
+
+    async fn respond(
+        &self,
+        address: ReplyAddress,
+        answer: ServerRequestAnswer,
+    ) -> Result<(), ClientError> {
+        let ReplyAddress {
+            attachment,
+            request_id,
+        } = address;
+        let mut frame = json!({ "id": request_id });
+        match answer {
+            ServerRequestAnswer::Result(r) => frame["result"] = r,
+            ServerRequestAnswer::Error {
+                code,
+                message,
+                data,
+            } => {
+                frame["error"] = json!({ "code": code, "message": message });
+                if let Some(d) = data {
+                    frame["error"]["data"] = d;
+                }
+            }
+        }
+        self.send_frame(Some(attachment), frame).await
+    }
+
+    async fn read_blob(&self, blob: &BlobRef) -> Result<Vec<u8>, ClientError> {
+        self.inner.read_pages(&blob.blob, false).await
+    }
+
+    async fn put_blob(&self, bytes: &[u8], media_type: &str) -> Result<BlobRef, ClientError> {
+        let digest: BlobDigest = format!(
+            "sha256:{}",
+            Sha256::digest(bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        )
+        .parse()
+        .map_err(|e: InvalidBlobDigest| ClientError::ProtocolViolation(e.to_string()))?;
+        let chunk = self
+            .inner
+            .lock()
+            .server
+            .as_ref()
+            .expect("initialized")
+            .limits
+            .max_blob_put_chunk_bytes as usize;
+        let mut offset = 0;
+        loop {
+            let end = (offset + chunk).min(bytes.len());
+            let params = to_json(&BlobPutParams {
+                digest: digest.clone(),
+                offset: offset as u64,
+                bytes_b64: B64.encode(&bytes[offset..end]),
+            });
+            self.inner
+                .run("blob/put", params, &READ_C1, None, false)
+                .await?;
+            offset += chunk;
+            if offset >= bytes.len() {
+                break;
+            }
+        }
+        Ok(BlobRef {
+            blob: BlobDescriptor {
+                digest,
+                bytes: bytes.len() as u64,
+                media_type: media_type.to_string(),
+            },
+        })
+    }
+
+    fn events(&self) -> broadcast::Receiver<ClientEvent> {
+        self.inner.events.subscribe()
+    }
+
+    async fn close(&self) {
+        let (reply, rx) = oneshot::channel();
+        if self.inner.cmd.send(Cmd::Close { reply }).is_ok() {
+            let _ = rx.await;
+        }
+    }
+}
+
+impl Drop for Client {
+    /// The driver and folder hold the shared state, so they would outlive the last handle; dropping it closes the connection.
+    fn drop(&mut self) {
+        let (reply, _) = oneshot::channel();
+        let _ = self.inner.cmd.send(Cmd::Close { reply });
+    }
+}
+
+/// What makes a waiting client attach now: a clone of it that outlives nothing the client does not (it only sends a command).
+#[derive(Clone)]
+pub struct Attacher {
+    cmd: mpsc::UnboundedSender<Cmd>,
+}
+
+impl Attacher {
+    /// A client that waits out the ladder before its next attempt dials now instead; one that is connected, or already
+    /// dialling, is not affected.
+    pub fn attach_now(&self) {
+        let _ = self.cmd.send(Cmd::AttachNow);
+    }
+}
+
+/// The feed a scoped subscription call opens (`subscribe`) or ends (`!subscribe`); `None` for any other call.
+fn scoped_feed_of(method: &str, params: &Json, subscribe: bool) -> Option<String> {
+    let (generic, ports) = if subscribe {
+        ("feed/subscribe", "system/ports/subscribe")
+    } else {
+        ("feed/unsubscribe", "system/ports/unsubscribe")
+    };
+    if method == ports {
+        return Some(ScopedFeedKind::Ports.prefix().to_owned());
+    }
+    if method == generic {
+        return params.get("feedId").and_then(Json::as_str).map(str::to_owned);
+    }
+    None
+}
+
+impl Shared {
+    /// The live socket of this client.
+    fn attachment(&self) -> AttachmentId {
+        AttachmentId::new(self.writer, self.generation)
+    }
+}
+
+impl Client {
+    /// The held requests with the address each answer goes to: an answer from this snapshot reaches only the socket the
+    /// request arrived on, of this client.
+    pub fn pending_replies(&self) -> Vec<(ServerRequest, ReplyAddress)> {
+        self.inner.lock().server_requests.clone()
+    }
+
+    /// The handle that makes this client's ladder attach at once (see [`Attacher`]).
+    pub fn attacher(&self) -> Attacher {
+        Attacher { cmd: self.inner.cmd.clone() }
+    }
+
+    async fn send_frame(
+        &self,
+        attachment: Option<AttachmentId>,
+        frame: Json,
+    ) -> Result<(), ClientError> {
+        let (reply, rx) = oneshot::channel();
+        self.inner
+            .cmd
+            .send(Cmd::Send {
+                frame,
+                attachment,
+                reply,
+            })
+            .map_err(|_| ClientError::ClientClosed)?;
+        rx.await.map_err(|_| ClientError::ClientClosed)?
+    }
+}
+
+/// The tool approval the core sends is the card Node's engine produced (`name`, `args`, `kind` of the hook request: `approval`,
+/// `outbound`, or a human gate's `secret`, `takeover`, `permission`, `connector`, and the whole card under `card`), which the
+/// desktop and the phone read; the typed `ToolApprovalRequestParams` names the same request by `tool`, `request` and the tool's
+/// class. The reader fills in what the typed view needs from the card, so a request the core really sends is a request here (a
+/// frame the typed view refused left every approval of a terminal session unanswerable, the turn waiting on a card nobody was
+/// shown). The card itself travels whole in `request`.
+fn conform_tool_approval(frame: &mut Json) {
+    if frame.get("method").and_then(Json::as_str) != Some("item/tool/requestApproval") {
+        return;
+    }
+    let Some(params) = frame.get_mut("params").and_then(Json::as_object_mut) else { return };
+    let name = ["name", "tool"].iter().find_map(|key| params.get(*key).and_then(Json::as_str)).map(str::to_owned);
+    if !params.contains_key("request") {
+        let card = params.get("card").filter(|card| card.is_object()).cloned();
+        let content = card.unwrap_or_else(|| {
+            let content: serde_json::Map<String, Json> = ["name", "args", "cwd", "reason", "kind", "agentId", "grantAction", "remember", "outbound", "secret", "takeover", "permission", "connector"]
+                .iter()
+                .filter_map(|key| params.get(*key).map(|value| ((*key).to_owned(), value.clone())))
+                .collect();
+            Json::Object(content)
+        });
+        params.insert("request".to_owned(), content);
+    }
+    if !params.contains_key("tool") {
+        params.insert("tool".to_owned(), Json::String(name.clone().unwrap_or_default()));
+    }
+    let class = match params.get("kind").and_then(Json::as_str) {
+        Some("approval") => {
+            let tool = name.as_deref().unwrap_or_default();
+            Some(if tool.starts_with("mcp__") {
+                "mcp"
+            } else if matches!(tool, "bash" | "shell" | "powershell") {
+                "shell"
+            } else if tool == "apply_patch" {
+                "patch"
+            } else {
+                "builtin"
+            })
+        }
+        Some("secret" | "takeover" | "permission" | "connector") => Some("humanGate"),
+        _ => None,
+    };
+    if let Some(class) = class {
+        params.insert("kind".to_owned(), Json::String(class.to_owned()));
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods)] // reads the shared scenario options file
+mod tests {
+
+    use super::*;
+    use crate::mock::MockNetwork;
+
+    #[test]
+    fn the_cores_tool_approval_frame_is_the_typed_request_it_names() {
+        let mut frame = json!({
+            "id": "1",
+            "method": "item/tool/requestApproval",
+            "params": {
+                "name": "glob", "args": { "pattern": "*.txt" }, "cwd": "/w", "reason": "why", "kind": "approval", "agentId": "lead",
+                "threadId": "t1", "turnId": "r1", "itemId": "c1", "requestedAt": 5, "order": 1,
+                "card": { "id": "itm_1", "name": "glob", "kind": "approval", "args": { "pattern": "*.txt" } }
+            }
+        });
+        conform_tool_approval(&mut frame);
+        let request: ServerRequest = serde_json::from_value(frame).expect("the frame is a typed request");
+        let wire = serde_json::to_value(&request).unwrap();
+        assert_eq!((wire["params"]["kind"].clone(), wire["params"]["tool"].clone()), (json!("builtin"), json!("glob")));
+        assert_eq!(wire["params"]["request"]["args"], json!({ "pattern": "*.txt" }));
+        assert_eq!(wire["params"]["request"]["kind"], json!("approval"), "the card keeps its own kind");
+
+        let mut gate = json!({ "id": "2", "method": "item/tool/requestApproval", "params": { "name": "handoff_user", "kind": "secret", "threadId": "t1", "requestedAt": 5, "order": 2 } });
+        conform_tool_approval(&mut gate);
+        assert_eq!(gate["params"]["kind"], json!("humanGate"));
+        let mut shell = json!({ "id": "3", "method": "item/tool/requestApproval", "params": { "name": "bash", "kind": "approval", "threadId": "t1", "requestedAt": 5, "order": 3 } });
+        conform_tool_approval(&mut shell);
+        assert_eq!(shell["params"]["kind"], json!("shell"));
+        let mut typed = json!({ "id": "4", "method": "item/tool/requestApproval", "params": { "kind": "patch", "tool": "apply_patch", "request": {}, "threadId": "t1", "requestedAt": 5, "order": 4 } });
+        let before = typed.clone();
+        conform_tool_approval(&mut typed);
+        assert_eq!(typed, before, "a request that is already typed stays as it is");
+    }
+
+    fn thread_result(id: &str) -> Json {
+        json!({
+            "thread": { "id": id, "preview": "", "title": "T", "updatedAt": 1, "messageCount": 0, "cwd": "/w", "classification": {}, "projectPath": null },
+            "subscription": { "id": format!("sub-{id}"), "mode": "snapshot", "epoch": "e1", "startSeq": 1 }
+        })
+    }
+
+    async fn until(_what: &str, mut ok: impl FnMut() -> bool) {
+        while !ok() {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    /// A lane's task holds a reference on the shared state, so the reference count shows whether the task is alive.
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_unsubscribed_feeds_lane_ends_after_its_queued_items() {
+        let options: Json = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../../packages/protocol-client/conformance/options.json"
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        let net = Arc::new(MockNetwork::default());
+        let mut opts = ConnectOptions::new(
+            Target { id: "local".into() },
+            net.clone(),
+            serde_json::from_value(options["clientInfo"].clone()).unwrap(),
+        );
+        opts.capabilities = serde_json::from_value(options["capabilities"].clone()).unwrap();
+        let connecting = tokio::spawn(connect(opts));
+        let conn = net.accept().await;
+        let init: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        let mut result = options["initializeResult"].clone();
+        result["serverInstanceId"] = json!("s1");
+        conn.server_send(&json!({ "id": init["id"], "result": result }));
+        conn.next_sent().await; // initialized
+        let client = Arc::new(connecting.await.unwrap().unwrap());
+
+        let resume = {
+            let c = client.clone();
+            tokio::spawn(async move {
+                c.resume_thread(&ThreadId::from("t1"), ResumeWindow::LastItems { last_items: 50 })
+                    .await
+            })
+        };
+        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        conn.server_send(&json!({ "id": req["id"], "result": thread_result("t1") }));
+        resume.await.unwrap().unwrap();
+        let base = Arc::strong_count(&client.inner);
+
+        // The first item waits on a blob read nobody answers yet; the second is queued behind it.
+        let digest = format!("sha256:{}", "a".repeat(64));
+        conn.server_send(&json!({ "method": "thread/snapshot", "params": { "text": { "blob": { "digest": digest, "bytes": 5, "mediaType": "text/plain" } } }, "feed": { "id": "t1", "epoch": "e1", "seq": 1 } }));
+        let read: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        assert_eq!(read["method"], "blob/read");
+        conn.server_send(&json!({ "method": "item/completed", "params": { "n": 2 }, "feed": { "id": "t1", "epoch": "e1", "seq": 2 } }));
+        until("lane started", || Arc::strong_count(&client.inner) == base + 1).await;
+
+        let unsub = {
+            let c = client.clone();
+            tokio::spawn(async move { c.unsubscribe_thread(&ThreadId::from("t1")).await })
+        };
+        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        assert_eq!(req["method"], "thread/unsubscribe");
+        conn.server_send(&json!({ "id": req["id"], "result": {} }));
+        unsub.await.unwrap().unwrap();
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            Arc::strong_count(&client.inner),
+            base + 1,
+            "the lane stays alive while its queued items are unfinished"
+        );
+
+        conn.server_send(&json!({ "id": read["id"], "result": { "bytesB64": "aGVsbG8=" } }));
+        until("lane ended", || Arc::strong_count(&client.inner) == base).await;
+    }
+
+    /// A clock whose waits never end: only a cut-short wait lets the ladder go on.
+    struct Stalled;
+
+    #[async_trait]
+    impl Clock for Stalled {
+        async fn sleep(&self, _ms: u64) {
+            std::future::pending::<()>().await
+        }
+        fn jitter(&self) -> f64 {
+            0.5
+        }
+    }
+
+    async fn ready(clock: Option<Arc<dyn Clock>>) -> (Arc<Client>, Arc<MockNetwork>, crate::mock::MockConn) {
+        let options: Json = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../../packages/protocol-client/conformance/options.json"
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        let net = Arc::new(MockNetwork::default());
+        let mut opts = ConnectOptions::new(
+            Target { id: "local".into() },
+            net.clone(),
+            serde_json::from_value(options["clientInfo"].clone()).unwrap(),
+        );
+        opts.capabilities = serde_json::from_value(options["capabilities"].clone()).unwrap();
+        if let Some(clock) = clock {
+            opts.clock = clock;
+        }
+        let connecting = tokio::spawn(connect(opts));
+        let conn = net.accept().await;
+        let init: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        let mut result = options["initializeResult"].clone();
+        result["serverInstanceId"] = json!("s1");
+        conn.server_send(&json!({ "id": init["id"], "result": result }));
+        conn.next_sent().await; // initialized
+        (Arc::new(connecting.await.unwrap().unwrap()), net, conn)
+    }
+
+    async fn next_notification(events: &mut broadcast::Receiver<ClientEvent>) -> RpcNotification {
+        loop {
+            if let ClientEvent::Notification(n) = events.recv().await.unwrap() {
+                return n;
+            }
+        }
+    }
+
+    async fn subscribe_to(client: &Arc<Client>, conn: &crate::mock::MockConn, method: &str, params: Json, mode: &str) {
+        let call = {
+            let c = client.clone();
+            let method = method.to_owned();
+            tokio::spawn(async move { c.call_raw(&method, params, CallOptions::default()).await })
+        };
+        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        assert_eq!(req["method"], method);
+        let subscription = json!({ "id": "sub-1", "mode": mode, "epoch": "e1", "startSeq": 1 });
+        let result = if method == "system/ports/subscribe" { subscription } else { json!({ "subscription": subscription }) };
+        conn.server_send(&json!({ "id": req["id"], "result": result }));
+        call.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn the_ports_feed_is_tracked_after_its_subscribe_and_its_frames_pass_through() {
+        let (client, _net, conn) = ready(None).await;
+        let mut events = client.events();
+        subscribe_to(&client, &conn, "system/ports/subscribe", json!({}), "snapshot").await;
+        conn.server_send(&json!({ "method": "feed/snapshot", "params": { "feedId": "ports", "state": { "sections": [] } }, "feed": { "id": "ports", "epoch": "e1", "seq": 0 } }));
+        let snapshot = next_notification(&mut events).await;
+        assert_eq!(snapshot.method, "feed/snapshot");
+        conn.server_send(&json!({ "method": "system/ports/updated", "params": { "section": "ports", "revision": 1, "value": [] }, "feed": { "id": "ports", "epoch": "e1", "seq": 1 } }));
+        let update = next_notification(&mut events).await;
+        assert_eq!(update.method, "system/ports/updated");
+        assert_eq!(update.feed.as_ref().unwrap().id.as_str(), "ports");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_gap_in_a_scoped_feed_closes_the_socket() {
+        let (client, _net, conn) = ready(None).await;
+        subscribe_to(&client, &conn, "feed/subscribe", json!({ "feedId": "login:f1" }), "replay").await;
+        conn.server_send(&json!({ "method": "login/updated", "params": {}, "feed": { "id": "login:f1", "epoch": "e1", "seq": 5 } }));
+        until("socket closed", || conn.client_close().is_some()).await;
+        assert_eq!(conn.client_close(), Some(1002));
+    }
+
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_frame_of_a_feed_nobody_subscribed_is_dropped() {
+        let (client, _net, conn) = ready(None).await;
+        let mut events = client.events();
+        conn.server_send(&json!({ "method": "login/updated", "params": {}, "feed": { "id": "login:f1", "epoch": "e1", "seq": 1 } }));
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        assert!(matches!(events.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_unsubscribe_ends_the_tracking_of_a_scoped_feed() {
+        let (client, _net, conn) = ready(None).await;
+        let mut events = client.events();
+        subscribe_to(&client, &conn, "feed/subscribe", json!({ "feedId": "login:f1" }), "snapshot").await;
+        conn.server_send(&json!({ "method": "login/updated", "params": { "n": 1 }, "feed": { "id": "login:f1", "epoch": "e1", "seq": 1 } }));
+        assert_eq!(next_notification(&mut events).await.method, "login/updated");
+        let unsubscribe = {
+            let c = client.clone();
+            tokio::spawn(async move { c.call_raw("feed/unsubscribe", json!({ "feedId": "login:f1" }), CallOptions::default()).await })
+        };
+        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        assert_eq!(req["method"], "feed/unsubscribe");
+        conn.server_send(&json!({ "id": req["id"], "result": {} }));
+        unsubscribe.await.unwrap().unwrap();
+        conn.server_send(&json!({ "method": "login/updated", "params": { "n": 2 }, "feed": { "id": "login:f1", "epoch": "e1", "seq": 2 } }));
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        assert!(matches!(events.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn attach_now_ends_the_wait_of_the_ladder() {
+        let (client, net, conn) = ready(Some(Arc::new(Stalled))).await;
+        let mut status = client.inner.status.subscribe();
+        conn.server_close(1006, "gone");
+        status.wait_for(|s| matches!(s, ConnectionStatus::Reconnecting { .. })).await.unwrap();
+        assert_eq!(net.opened(), 1, "the stalled ladder has not dialled");
+        client.attacher().attach_now();
+        let next = tokio::time::timeout(std::time::Duration::from_secs(5), net.accept()).await.expect("the client dials at once");
+        let init: Json = serde_json::from_str(&next.next_sent().await).unwrap();
+        assert_eq!(init["method"], "initialize");
+    }
+}
+
 
 impl Inner {
     fn lock(&self) -> MutexGuard<'_, Shared> {
@@ -498,7 +1221,7 @@ impl Inner {
                         Some(Ok(p)) => {
                             self.lock()
                                 .server_requests
-                                .retain(|r| *r.id() != p.request_id);
+                                .retain(|(r, _)| *r.id() != p.request_id);
                             self.emit(ClientEvent::ServerRequestResolved(p));
                         }
                         _ => self.emit(ClientEvent::ProtocolViolation(
@@ -756,43 +1479,6 @@ impl Inner {
         }
     }
 }
-
-// ───────────── driver ─────────────
-
-struct Pending {
-    cls: Option<RequestClass>,
-    hook: Option<Hook>,
-    park: Option<Box<Park>>,
-    reply: Reply,
-}
-
-enum Wake {
-    Cmd(Box<Option<Cmd>>),
-    Event(TransportEvent),
-}
-
-async fn next_event(reader: &mut Option<Box<dyn TransportReader>>) -> TransportEvent {
-    match reader {
-        Some(r) => r.recv().await,
-        None => std::future::pending().await,
-    }
-}
-
-struct Driver {
-    inner: Arc<Inner>,
-    cmd_rx: mpsc::UnboundedReceiver<Cmd>,
-    writer: Option<Box<dyn TransportWriter>>,
-    reader: Option<Box<dyn TransportReader>>,
-    pending: HashMap<u64, Pending>,
-    /// Fold lanes of the current connection; dropped with it (queued items of the old generation are discarded by their check).
-    lanes: HashMap<Option<String>, mpsc::UnboundedSender<FoldItem>>,
-    next_id: u64,
-    ever_ready: bool,
-    /// An attach was asked for: the next wait of the ladder is skipped.
-    attach_now: bool,
-    done: bool,
-}
-
 impl Driver {
     async fn open(&mut self) -> Result<(), ClientError> {
         let halves = self
@@ -927,8 +1613,19 @@ impl Driver {
                 park,
                 reply,
             } => self.register(method, params, cls, hook, park, reply).await,
-            Cmd::Send { frame, reply } => {
-                let r = self.write(&frame).await;
+            Cmd::Send {
+                frame,
+                attachment,
+                reply,
+            } => {
+                // The generation moves when a socket ends (`on_closed`), in this same task: a frame meant for a socket that
+                // has ended is refused here, before any byte is handed to the writer of its successor.
+                let stale = attachment.is_some_and(|a| a != self.inner.lock().attachment());
+                let r = if stale {
+                    Err(ClientError::StaleAttachment)
+                } else {
+                    self.write(&frame).await
+                };
                 let _ = reply.send(r);
             }
             Cmd::Close { reply } => {
@@ -1013,10 +1710,15 @@ impl Driver {
                     Ok(r) => {
                         // A capability holder's request is its handler's to end: only what the core resolves itself is held (a
                         // method the protocol does not list does not parse, so it is never held: the TS client's `isOfferedRequest`).
+                        // The address is taken here, on decode: the socket this frame came in on, whenever its handler runs.
+                        let address = ReplyAddress {
+                            attachment: self.inner.lock().attachment(),
+                            request_id: r.id().clone(),
+                        };
                         if r.requires().is_none() {
-                            self.inner.lock().server_requests.push(r.clone());
+                            self.inner.lock().server_requests.push((r.clone(), address.clone()));
                         }
-                        self.inner.emit(ClientEvent::ServerRequest(r));
+                        self.inner.emit(ClientEvent::ServerRequest(r, address));
                     }
                     Err(e) => self.inner.emit(ClientEvent::ProtocolViolation(format!(
                         "bad server request: {e}"
@@ -1291,645 +1993,5 @@ impl Driver {
                 self.reconnect().await;
             }
         }
-    }
-}
-
-// ───────────── public client ─────────────
-
-pub struct Client {
-    inner: Arc<Inner>,
-}
-
-struct StoreView(Arc<Inner>);
-
-impl FoldStore for StoreView {
-    fn thread(&self, thread_id: &str) -> Option<ThreadFold> {
-        self.0.lock().store.threads.get(thread_id).cloned()
-    }
-    fn section(&self, section: SectionName, key: Option<&str>) -> Option<SectionEntry> {
-        self.0
-            .lock()
-            .store
-            .sections
-            .get(&section)?
-            .get(key.unwrap_or_default())
-            .cloned()
-    }
-    fn sections(&self, section: SectionName) -> Vec<SectionEntry> {
-        self.0
-            .lock()
-            .store
-            .sections
-            .get(&section)
-            .map(|b| b.values().cloned().collect())
-            .unwrap_or_default()
-    }
-    fn app_feed(&self) -> Option<FeedStamp> {
-        self.0.lock().store.app.clone()
-    }
-    fn subscribe(&self) -> broadcast::Receiver<StoreChange> {
-        self.0.store_changes.subscribe()
-    }
-}
-
-/// Opens the transport, performs `initialize` + `initialized`, and returns when the connection is ready. A failure before the
-/// first ready connection is the caller's to handle (e.g. start the core); the ladder only runs after a ready connection drops.
-pub async fn connect(options: ConnectOptions) -> Result<Client, ClientError> {
-    let (cmd, cmd_rx) = mpsc::unbounded_channel();
-    let shared = Shared {
-        status: ConnectionStatus::Reconnecting { attempt: 0 },
-        server: None,
-        connected: false,
-        terminal: None,
-        store: StoreData::default(),
-        subs: Vec::new(),
-        app_subscribed: false,
-        scoped: HashSet::new(),
-        server_requests: Vec::new(),
-        recv: HashMap::new(),
-        generation: 0,
-        responses: 0,
-        class_responses: [0; 4],
-        feed_events: 0,
-        thread_last_event: HashMap::new(),
-        unanswered: Vec::new(),
-    };
-    let inner = Arc::new(Inner {
-        opts: options,
-        status: watch::channel(shared.status.clone()).0,
-        shared: Mutex::new(shared),
-        cmd,
-        pulse: watch::channel(0).0,
-        events: broadcast::channel(1024).0,
-        store_changes: broadcast::channel(1024).0,
-    });
-    let mut driver = Driver {
-        inner: inner.clone(),
-        cmd_rx,
-        writer: None,
-        reader: None,
-        pending: HashMap::new(),
-        lanes: HashMap::new(),
-        next_id: 1,
-        ever_ready: false,
-        attach_now: false,
-        done: false,
-    };
-    driver.open().await?;
-    if let Err(e) = driver.handshake().await {
-        driver.drop_transport("handshake failed").await;
-        return Err(e);
-    }
-    driver.ever_ready = true;
-    let id = inner
-        .lock()
-        .server
-        .as_ref()
-        .expect("initialized")
-        .server_instance_id
-        .clone();
-    inner.set_status(ConnectionStatus::Ready {
-        server_instance_id: id,
-    });
-    tokio::spawn(driver.run());
-    Ok(Client { inner })
-}
-
-#[async_trait]
-impl ProtocolClient for Client {
-    fn store(&self) -> Arc<dyn FoldStore> {
-        Arc::new(StoreView(self.inner.clone()))
-    }
-    fn server(&self) -> InitializeResponse {
-        self.inner.lock().server.clone().expect("initialized")
-    }
-    fn status(&self) -> ConnectionStatus {
-        self.inner.lock().status.clone()
-    }
-
-    async fn call_raw(
-        &self,
-        method: &str,
-        params: Json,
-        options: CallOptions,
-    ) -> Result<Json, ClientError> {
-        let info =
-            method_info(method).ok_or_else(|| ClientError::UnknownMethod(method.to_string()))?;
-        let mut params = params;
-        if info.is_mutation() {
-            let obj = params.as_object_mut().ok_or_else(|| {
-                ClientError::ProtocolViolation("mutation params must be an object".into())
-            })?;
-            let given = obj.get("opId").and_then(Json::as_str).map(str::to_string);
-            let op_id = options.op_id.or(given).unwrap_or_else(|| {
-                self.inner
-                    .opts
-                    .new_op_id
-                    .as_ref()
-                    .map_or_else(new_op_id, |f| f())
-            });
-            obj.insert("opId".into(), Json::String(op_id));
-        }
-        let hook = scoped_feed_of(method, &params, true).map(|feed_id| Hook::Scoped { feed_id });
-        if let Some(feed) = scoped_feed_of(method, &params, false) {
-            {
-                let mut s = self.inner.lock();
-                s.scoped.remove(&feed);
-                s.recv.remove(&feed);
-            }
-            let _ = self.inner.cmd.send(Cmd::DropLane { feed });
-        }
-        self.inner.run(method, params, &info, hook, false).await
-    }
-
-    async fn notify(&self, method: &str, params: Json) -> Result<(), ClientError> {
-        self.send_frame(json!({ "method": method, "params": params }))
-            .await
-    }
-
-    async fn resume_thread(
-        &self,
-        thread_id: &ThreadId,
-        window: ResumeWindow,
-    ) -> Result<ThreadResumeResponse, ClientError> {
-        let params = self.inner.resume_params(thread_id, &window);
-        let hook = Hook::Attach {
-            feed_id: thread_id.to_string(),
-            thread: Some((thread_id.to_string(), window)),
-        };
-        from_json(
-            self.inner
-                .run("thread/resume", params, &INTERNAL, Some(hook), false)
-                .await?,
-        )
-    }
-
-    async fn unsubscribe_thread(&self, thread_id: &ThreadId) -> Result<(), ClientError> {
-        {
-            let mut s = self.inner.lock();
-            s.subs.retain(|(t, _)| t != thread_id.as_str());
-            s.recv.remove(thread_id.as_str());
-            s.store.threads.remove(thread_id.as_str());
-        }
-        let _ = self.inner.cmd.send(Cmd::DropLane {
-            feed: thread_id.as_str().to_string(),
-        });
-        let params = to_json(&ThreadIdParams {
-            thread_id: thread_id.clone(),
-        });
-        self.inner
-            .run("thread/unsubscribe", params, &INTERNAL, None, false)
-            .await
-            .map(|_| ())
-    }
-
-    async fn subscribe_app(&self) -> Result<(), ClientError> {
-        let hook = Hook::Attach {
-            feed_id: APP_FEED_ID.to_string(),
-            thread: None,
-        };
-        self.inner
-            .run(
-                "app/subscribe",
-                self.inner.app_params(),
-                &INTERNAL,
-                Some(hook),
-                false,
-            )
-            .await
-            .map(|_| ())
-    }
-
-    fn pending_server_requests(&self) -> Vec<ServerRequest> {
-        self.inner.lock().server_requests.clone()
-    }
-
-    async fn respond(&self, id: RequestId, answer: ServerRequestAnswer) -> Result<(), ClientError> {
-        let mut frame = json!({ "id": id });
-        match answer {
-            ServerRequestAnswer::Result(r) => frame["result"] = r,
-            ServerRequestAnswer::Error {
-                code,
-                message,
-                data,
-            } => {
-                frame["error"] = json!({ "code": code, "message": message });
-                if let Some(d) = data {
-                    frame["error"]["data"] = d;
-                }
-            }
-        }
-        self.send_frame(frame).await
-    }
-
-    async fn read_blob(&self, blob: &BlobRef) -> Result<Vec<u8>, ClientError> {
-        self.inner.read_pages(&blob.blob, false).await
-    }
-
-    async fn put_blob(&self, bytes: &[u8], media_type: &str) -> Result<BlobRef, ClientError> {
-        let digest: BlobDigest = format!(
-            "sha256:{}",
-            Sha256::digest(bytes)
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<String>()
-        )
-        .parse()
-        .map_err(|e: InvalidBlobDigest| ClientError::ProtocolViolation(e.to_string()))?;
-        let chunk = self
-            .inner
-            .lock()
-            .server
-            .as_ref()
-            .expect("initialized")
-            .limits
-            .max_blob_put_chunk_bytes as usize;
-        let mut offset = 0;
-        loop {
-            let end = (offset + chunk).min(bytes.len());
-            let params = to_json(&BlobPutParams {
-                digest: digest.clone(),
-                offset: offset as u64,
-                bytes_b64: B64.encode(&bytes[offset..end]),
-            });
-            self.inner
-                .run("blob/put", params, &READ_C1, None, false)
-                .await?;
-            offset += chunk;
-            if offset >= bytes.len() {
-                break;
-            }
-        }
-        Ok(BlobRef {
-            blob: BlobDescriptor {
-                digest,
-                bytes: bytes.len() as u64,
-                media_type: media_type.to_string(),
-            },
-        })
-    }
-
-    fn events(&self) -> broadcast::Receiver<ClientEvent> {
-        self.inner.events.subscribe()
-    }
-
-    async fn close(&self) {
-        let (reply, rx) = oneshot::channel();
-        if self.inner.cmd.send(Cmd::Close { reply }).is_ok() {
-            let _ = rx.await;
-        }
-    }
-}
-
-impl Drop for Client {
-    /// The driver and folder hold the shared state, so they would outlive the last handle; dropping it closes the connection.
-    fn drop(&mut self) {
-        let (reply, _) = oneshot::channel();
-        let _ = self.inner.cmd.send(Cmd::Close { reply });
-    }
-}
-
-/// What makes a waiting client attach now: a clone of it that outlives nothing the client does not (it only sends a command).
-#[derive(Clone)]
-pub struct Attacher {
-    cmd: mpsc::UnboundedSender<Cmd>,
-}
-
-impl Attacher {
-    /// A client that waits out the ladder before its next attempt dials now instead; one that is connected, or already
-    /// dialling, is not affected.
-    pub fn attach_now(&self) {
-        let _ = self.cmd.send(Cmd::AttachNow);
-    }
-}
-
-/// The feed a scoped subscription call opens (`subscribe`) or ends (`!subscribe`); `None` for any other call.
-fn scoped_feed_of(method: &str, params: &Json, subscribe: bool) -> Option<String> {
-    let (generic, ports) = if subscribe {
-        ("feed/subscribe", "system/ports/subscribe")
-    } else {
-        ("feed/unsubscribe", "system/ports/unsubscribe")
-    };
-    if method == ports {
-        return Some(ScopedFeedKind::Ports.prefix().to_owned());
-    }
-    if method == generic {
-        return params.get("feedId").and_then(Json::as_str).map(str::to_owned);
-    }
-    None
-}
-
-impl Client {
-    /// The handle that makes this client's ladder attach at once (see [`Attacher`]).
-    pub fn attacher(&self) -> Attacher {
-        Attacher { cmd: self.inner.cmd.clone() }
-    }
-
-    async fn send_frame(&self, frame: Json) -> Result<(), ClientError> {
-        let (reply, rx) = oneshot::channel();
-        self.inner
-            .cmd
-            .send(Cmd::Send { frame, reply })
-            .map_err(|_| ClientError::ClientClosed)?;
-        rx.await.map_err(|_| ClientError::ClientClosed)?
-    }
-}
-
-/// The tool approval the core sends is the card Node's engine produced (`name`, `args`, `kind` of the hook request: `approval`,
-/// `outbound`, or a human gate's `secret`, `takeover`, `permission`, `connector`, and the whole card under `card`), which the
-/// desktop and the phone read; the typed `ToolApprovalRequestParams` names the same request by `tool`, `request` and the tool's
-/// class. The reader fills in what the typed view needs from the card, so a request the core really sends is a request here (a
-/// frame the typed view refused left every approval of a terminal session unanswerable, the turn waiting on a card nobody was
-/// shown). The card itself travels whole in `request`.
-fn conform_tool_approval(frame: &mut Json) {
-    if frame.get("method").and_then(Json::as_str) != Some("item/tool/requestApproval") {
-        return;
-    }
-    let Some(params) = frame.get_mut("params").and_then(Json::as_object_mut) else { return };
-    let name = ["name", "tool"].iter().find_map(|key| params.get(*key).and_then(Json::as_str)).map(str::to_owned);
-    if !params.contains_key("request") {
-        let card = params.get("card").filter(|card| card.is_object()).cloned();
-        let content = card.unwrap_or_else(|| {
-            let content: serde_json::Map<String, Json> = ["name", "args", "cwd", "reason", "kind", "agentId", "grantAction", "remember", "outbound", "secret", "takeover", "permission", "connector"]
-                .iter()
-                .filter_map(|key| params.get(*key).map(|value| ((*key).to_owned(), value.clone())))
-                .collect();
-            Json::Object(content)
-        });
-        params.insert("request".to_owned(), content);
-    }
-    if !params.contains_key("tool") {
-        params.insert("tool".to_owned(), Json::String(name.clone().unwrap_or_default()));
-    }
-    let class = match params.get("kind").and_then(Json::as_str) {
-        Some("approval") => {
-            let tool = name.as_deref().unwrap_or_default();
-            Some(if tool.starts_with("mcp__") {
-                "mcp"
-            } else if matches!(tool, "bash" | "shell" | "powershell") {
-                "shell"
-            } else if tool == "apply_patch" {
-                "patch"
-            } else {
-                "builtin"
-            })
-        }
-        Some("secret" | "takeover" | "permission" | "connector") => Some("humanGate"),
-        _ => None,
-    };
-    if let Some(class) = class {
-        params.insert("kind".to_owned(), Json::String(class.to_owned()));
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::disallowed_methods)] // reads the shared scenario options file
-mod tests {
-
-    use super::*;
-    use crate::mock::MockNetwork;
-
-    #[test]
-    fn the_cores_tool_approval_frame_is_the_typed_request_it_names() {
-        let mut frame = json!({
-            "id": "1",
-            "method": "item/tool/requestApproval",
-            "params": {
-                "name": "glob", "args": { "pattern": "*.txt" }, "cwd": "/w", "reason": "why", "kind": "approval", "agentId": "lead",
-                "threadId": "t1", "turnId": "r1", "itemId": "c1", "requestedAt": 5, "order": 1,
-                "card": { "id": "itm_1", "name": "glob", "kind": "approval", "args": { "pattern": "*.txt" } }
-            }
-        });
-        conform_tool_approval(&mut frame);
-        let request: ServerRequest = serde_json::from_value(frame).expect("the frame is a typed request");
-        let wire = serde_json::to_value(&request).unwrap();
-        assert_eq!((wire["params"]["kind"].clone(), wire["params"]["tool"].clone()), (json!("builtin"), json!("glob")));
-        assert_eq!(wire["params"]["request"]["args"], json!({ "pattern": "*.txt" }));
-        assert_eq!(wire["params"]["request"]["kind"], json!("approval"), "the card keeps its own kind");
-
-        let mut gate = json!({ "id": "2", "method": "item/tool/requestApproval", "params": { "name": "handoff_user", "kind": "secret", "threadId": "t1", "requestedAt": 5, "order": 2 } });
-        conform_tool_approval(&mut gate);
-        assert_eq!(gate["params"]["kind"], json!("humanGate"));
-        let mut shell = json!({ "id": "3", "method": "item/tool/requestApproval", "params": { "name": "bash", "kind": "approval", "threadId": "t1", "requestedAt": 5, "order": 3 } });
-        conform_tool_approval(&mut shell);
-        assert_eq!(shell["params"]["kind"], json!("shell"));
-        let mut typed = json!({ "id": "4", "method": "item/tool/requestApproval", "params": { "kind": "patch", "tool": "apply_patch", "request": {}, "threadId": "t1", "requestedAt": 5, "order": 4 } });
-        let before = typed.clone();
-        conform_tool_approval(&mut typed);
-        assert_eq!(typed, before, "a request that is already typed stays as it is");
-    }
-
-    fn thread_result(id: &str) -> Json {
-        json!({
-            "thread": { "id": id, "preview": "", "title": "T", "updatedAt": 1, "messageCount": 0, "cwd": "/w", "classification": {}, "projectPath": null },
-            "subscription": { "id": format!("sub-{id}"), "mode": "snapshot", "epoch": "e1", "startSeq": 1 }
-        })
-    }
-
-    async fn until(_what: &str, mut ok: impl FnMut() -> bool) {
-        while !ok() {
-            tokio::task::yield_now().await;
-        }
-    }
-
-    /// A lane's task holds a reference on the shared state, so the reference count shows whether the task is alive.
-    #[tokio::test(flavor = "current_thread")]
-    async fn an_unsubscribed_feeds_lane_ends_after_its_queued_items() {
-        let options: Json = serde_json::from_str(
-            &std::fs::read_to_string(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../../../packages/protocol-client/conformance/options.json"
-            ))
-            .unwrap(),
-        )
-        .unwrap();
-        let net = Arc::new(MockNetwork::default());
-        let mut opts = ConnectOptions::new(
-            Target { id: "local".into() },
-            net.clone(),
-            serde_json::from_value(options["clientInfo"].clone()).unwrap(),
-        );
-        opts.capabilities = serde_json::from_value(options["capabilities"].clone()).unwrap();
-        let connecting = tokio::spawn(connect(opts));
-        let conn = net.accept().await;
-        let init: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
-        let mut result = options["initializeResult"].clone();
-        result["serverInstanceId"] = json!("s1");
-        conn.server_send(&json!({ "id": init["id"], "result": result }));
-        conn.next_sent().await; // initialized
-        let client = Arc::new(connecting.await.unwrap().unwrap());
-
-        let resume = {
-            let c = client.clone();
-            tokio::spawn(async move {
-                c.resume_thread(&ThreadId::from("t1"), ResumeWindow::LastItems { last_items: 50 })
-                    .await
-            })
-        };
-        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
-        conn.server_send(&json!({ "id": req["id"], "result": thread_result("t1") }));
-        resume.await.unwrap().unwrap();
-        let base = Arc::strong_count(&client.inner);
-
-        // The first item waits on a blob read nobody answers yet; the second is queued behind it.
-        let digest = format!("sha256:{}", "a".repeat(64));
-        conn.server_send(&json!({ "method": "thread/snapshot", "params": { "text": { "blob": { "digest": digest, "bytes": 5, "mediaType": "text/plain" } } }, "feed": { "id": "t1", "epoch": "e1", "seq": 1 } }));
-        let read: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
-        assert_eq!(read["method"], "blob/read");
-        conn.server_send(&json!({ "method": "item/completed", "params": { "n": 2 }, "feed": { "id": "t1", "epoch": "e1", "seq": 2 } }));
-        until("lane started", || Arc::strong_count(&client.inner) == base + 1).await;
-
-        let unsub = {
-            let c = client.clone();
-            tokio::spawn(async move { c.unsubscribe_thread(&ThreadId::from("t1")).await })
-        };
-        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
-        assert_eq!(req["method"], "thread/unsubscribe");
-        conn.server_send(&json!({ "id": req["id"], "result": {} }));
-        unsub.await.unwrap().unwrap();
-        for _ in 0..50 {
-            tokio::task::yield_now().await;
-        }
-        assert_eq!(
-            Arc::strong_count(&client.inner),
-            base + 1,
-            "the lane stays alive while its queued items are unfinished"
-        );
-
-        conn.server_send(&json!({ "id": read["id"], "result": { "bytesB64": "aGVsbG8=" } }));
-        until("lane ended", || Arc::strong_count(&client.inner) == base).await;
-    }
-
-    /// A clock whose waits never end: only a cut-short wait lets the ladder go on.
-    struct Stalled;
-
-    #[async_trait]
-    impl Clock for Stalled {
-        async fn sleep(&self, _ms: u64) {
-            std::future::pending::<()>().await
-        }
-        fn jitter(&self) -> f64 {
-            0.5
-        }
-    }
-
-    async fn ready(clock: Option<Arc<dyn Clock>>) -> (Arc<Client>, Arc<MockNetwork>, crate::mock::MockConn) {
-        let options: Json = serde_json::from_str(
-            &std::fs::read_to_string(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../../../packages/protocol-client/conformance/options.json"
-            ))
-            .unwrap(),
-        )
-        .unwrap();
-        let net = Arc::new(MockNetwork::default());
-        let mut opts = ConnectOptions::new(
-            Target { id: "local".into() },
-            net.clone(),
-            serde_json::from_value(options["clientInfo"].clone()).unwrap(),
-        );
-        opts.capabilities = serde_json::from_value(options["capabilities"].clone()).unwrap();
-        if let Some(clock) = clock {
-            opts.clock = clock;
-        }
-        let connecting = tokio::spawn(connect(opts));
-        let conn = net.accept().await;
-        let init: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
-        let mut result = options["initializeResult"].clone();
-        result["serverInstanceId"] = json!("s1");
-        conn.server_send(&json!({ "id": init["id"], "result": result }));
-        conn.next_sent().await; // initialized
-        (Arc::new(connecting.await.unwrap().unwrap()), net, conn)
-    }
-
-    async fn next_notification(events: &mut broadcast::Receiver<ClientEvent>) -> RpcNotification {
-        loop {
-            if let ClientEvent::Notification(n) = events.recv().await.unwrap() {
-                return n;
-            }
-        }
-    }
-
-    async fn subscribe_to(client: &Arc<Client>, conn: &crate::mock::MockConn, method: &str, params: Json, mode: &str) {
-        let call = {
-            let c = client.clone();
-            let method = method.to_owned();
-            tokio::spawn(async move { c.call_raw(&method, params, CallOptions::default()).await })
-        };
-        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
-        assert_eq!(req["method"], method);
-        let subscription = json!({ "id": "sub-1", "mode": mode, "epoch": "e1", "startSeq": 1 });
-        let result = if method == "system/ports/subscribe" { subscription } else { json!({ "subscription": subscription }) };
-        conn.server_send(&json!({ "id": req["id"], "result": result }));
-        call.await.unwrap().unwrap();
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn the_ports_feed_is_tracked_after_its_subscribe_and_its_frames_pass_through() {
-        let (client, _net, conn) = ready(None).await;
-        let mut events = client.events();
-        subscribe_to(&client, &conn, "system/ports/subscribe", json!({}), "snapshot").await;
-        conn.server_send(&json!({ "method": "feed/snapshot", "params": { "feedId": "ports", "state": { "sections": [] } }, "feed": { "id": "ports", "epoch": "e1", "seq": 0 } }));
-        let snapshot = next_notification(&mut events).await;
-        assert_eq!(snapshot.method, "feed/snapshot");
-        conn.server_send(&json!({ "method": "system/ports/updated", "params": { "section": "ports", "revision": 1, "value": [] }, "feed": { "id": "ports", "epoch": "e1", "seq": 1 } }));
-        let update = next_notification(&mut events).await;
-        assert_eq!(update.method, "system/ports/updated");
-        assert_eq!(update.feed.as_ref().unwrap().id.as_str(), "ports");
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn a_frame_of_a_feed_nobody_subscribed_is_dropped() {
-        let (client, _net, conn) = ready(None).await;
-        let mut events = client.events();
-        conn.server_send(&json!({ "method": "login/updated", "params": {}, "feed": { "id": "login:f1", "epoch": "e1", "seq": 1 } }));
-        for _ in 0..50 {
-            tokio::task::yield_now().await;
-        }
-        assert!(matches!(events.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn an_unsubscribe_ends_the_tracking_of_a_scoped_feed() {
-        let (client, _net, conn) = ready(None).await;
-        let mut events = client.events();
-        subscribe_to(&client, &conn, "feed/subscribe", json!({ "feedId": "login:f1" }), "snapshot").await;
-        conn.server_send(&json!({ "method": "login/updated", "params": { "n": 1 }, "feed": { "id": "login:f1", "epoch": "e1", "seq": 1 } }));
-        assert_eq!(next_notification(&mut events).await.method, "login/updated");
-        let unsubscribe = {
-            let c = client.clone();
-            tokio::spawn(async move { c.call_raw("feed/unsubscribe", json!({ "feedId": "login:f1" }), CallOptions::default()).await })
-        };
-        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
-        assert_eq!(req["method"], "feed/unsubscribe");
-        conn.server_send(&json!({ "id": req["id"], "result": {} }));
-        unsubscribe.await.unwrap().unwrap();
-        conn.server_send(&json!({ "method": "login/updated", "params": { "n": 2 }, "feed": { "id": "login:f1", "epoch": "e1", "seq": 2 } }));
-        for _ in 0..50 {
-            tokio::task::yield_now().await;
-        }
-        assert!(matches!(events.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn a_gap_in_a_scoped_feed_closes_the_socket() {
-        let (client, _net, conn) = ready(None).await;
-        subscribe_to(&client, &conn, "feed/subscribe", json!({ "feedId": "login:f1" }), "replay").await;
-        conn.server_send(&json!({ "method": "login/updated", "params": {}, "feed": { "id": "login:f1", "epoch": "e1", "seq": 5 } }));
-        until("socket closed", || conn.client_close().is_some()).await;
-        assert_eq!(conn.client_close(), Some(1002));
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn attach_now_ends_the_wait_of_the_ladder() {
-        let (client, net, conn) = ready(Some(Arc::new(Stalled))).await;
-        let mut status = client.inner.status.subscribe();
-        conn.server_close(1006, "gone");
-        status.wait_for(|s| matches!(s, ConnectionStatus::Reconnecting { .. })).await.unwrap();
-        assert_eq!(net.opened(), 1, "the stalled ladder has not dialled");
-        client.attacher().attach_now();
-        let next = tokio::time::timeout(std::time::Duration::from_secs(5), net.accept()).await.expect("the client dials at once");
-        let init: Json = serde_json::from_str(&next.next_sent().await).unwrap();
-        assert_eq!(init["method"], "initialize");
     }
 }

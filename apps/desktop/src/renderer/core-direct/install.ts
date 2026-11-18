@@ -12,14 +12,17 @@ import { createSettingsApi } from './api-settings.ts';
 import { createTakeoverApi } from './api-takeover.ts';
 import { createTerminalApi } from './api-terminal.ts';
 import { connectionsApi } from '../connections-core-api.ts';
-import { openDirectClient, reportCoreLink } from './client.ts';
+import { CONNECTION_REATTACHED_EVENT } from '../desktop-connection';
+import { noteFirstPcCoreOpen, openDirectClient, pcCoreClient, reportCoreLink } from './client.ts';
 import { createDirectContext } from './context.ts';
 import { withApiFileGrantRefresh } from '../remote-file-grant-refresh.ts';
 import type { CorePortBridge } from './port-connector.ts';
 import { createRendererConnection, type RendererConnection } from './renderer-connection.ts';
+import { watchLocalCoreLink } from '../local-core-link.ts';
 import { createSectionsApi } from './sections.ts';
 import { withServerGates } from './server-gates.ts';
 import { sizedCall } from './sized-call.ts';
+import { watchWake } from './wake-check.ts';
 
 /** The window's globals this composes from and assigns to. */
 export interface InstallTarget {
@@ -42,6 +45,7 @@ export async function installDirectDesktopApi(options: InstallOptions = {}): Pro
   const host = target.mixdogDesktopHost;
   if (!host) throw new Error('The desktop host bridge is not available.');
   const bridge = target.mixdogCorePort;
+  const server = host.connection?.kind === 'ssh';
   let connection = options.connection;
   if (!connection) {
     if (!bridge) throw new Error('The core port bridge is not available.');
@@ -50,14 +54,33 @@ export async function installDirectDesktopApi(options: InstallOptions = {}): Pro
       log: reportCoreLink,
     });
   }
+  watchLocalCoreLink(connection);
   const ctx = createDirectContext(connection);
+  const live = connection;
+  const events = typeof window === 'undefined' ? undefined : window;
+  watchWake({
+    check: () => server
+      ? Promise.all([live.protocolClient()?.checkLink(), pcCoreClient()?.checkLink()])
+      : live.protocolClient()?.checkLink(),
+    events,
+  });
   ctx.setSender((client, method, params) => sizedCall(client as never, method, params));
-  try {
-    await connection.start();
-  } catch (error) {
+  // The management client carries only PC requests and scoped feeds. It cannot wait for the server it may need to reconnect.
+  if (server && bridge) {
+    noteFirstPcCoreOpen(openDirectClient({ bridge, version: desktopPackage.version, slot: 'pc' }).catch((error: unknown) => {
+      console.error('The PC connection did not open:', error);
+    }));
+    events?.addEventListener(CONNECTION_REATTACHED_EVENT, () => {
+      // A long outage may have exhausted the primary open. Leave healthy or still-retrying clients alone.
+      if (live.status === 'closed') void live.ensureOpen().catch(() => undefined);
+    });
+  }
+  // Start before exposing the API so early workspace calls can join the in-flight open.
+  const opening = connection.start().catch((error: unknown) => {
     // The connection reopens on a call; the window still gets its API and shows the connection's own status.
     console.error('The core connection did not open:', error);
-  }
+  });
+  if (!server) noteFirstPcCoreOpen(opening);
   const direct = {
     ...createSessionsApi(ctx),
     ...createFilesApi(ctx),
@@ -72,5 +95,5 @@ export async function installDirectDesktopApi(options: InstallOptions = {}): Pro
   // A held token for a file outside every Project can lose its grant (the oldest of the capped grants is dropped): such a
   // refusal re-grants the file through `resolveLocalPaths` and retries once, so a held link keeps opening.
   const composed = withApiFileGrantRefresh({ ...host, ...direct } as unknown as DesktopApi);
-  target.mixdogDesktop = Object.freeze(host.connection?.kind === 'ssh' ? withServerGates(composed) : composed);
+  target.mixdogDesktop = Object.freeze(server ? withServerGates(composed) : composed);
 }

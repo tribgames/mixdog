@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 import test from 'node:test';
 import { MarkdownWorkerHost } from './markdown-worker-host.ts';
 
@@ -39,18 +40,15 @@ test('the parser starts on demand, then stays resident across idle time', async 
   });
   t.mock.timers.tick(120_000);
   assert.equal(workers.length, 0);
-  host.prewarm();
-  host.prewarm();
-  assert.equal(workers.length, 1);
-  t.mock.timers.tick(600_000);
   const first = host.parse('one');
+  assert.equal(workers.length, 1);
   workers[0].reply(0);
   assert.equal((await first).children[0].value, 'one');
   t.mock.timers.tick(600_000);
   const second = host.parse('two');
   workers[0].reply(1);
   assert.equal((await second).children[0].value, 'two');
-  assert.equal(workers.length, 1, 'the prewarmed parser serves every later parse');
+  assert.equal(workers.length, 1, 'the same parser serves every later parse');
   assert.equal(workers[0].terminated, 0);
 });
 
@@ -112,11 +110,13 @@ test('client boots one resident parser, shares concurrent parses and preserves f
       }
     },
   });
-  const { parseStreamingMarkdownAst } = await import('./markdown-worker-client.ts');
+  const { parseStreamingMarkdownAst, preloadSyncMarkdownParser, syncMarkdownParserLoad } =
+    await import('./markdown-worker-client.ts');
   const { _runIdleReclaimForTest } = await import('./idle-reclaim.ts');
   try {
-    assert.equal(workers.length, 1, 'the parser boots with the client, before any parse');
+    assert.equal(workers.length, 0, 'loading the client for an empty conversation needs no parser worker');
     const requests = Array.from({ length: 50 }, () => parseStreamingMarkdownAst('shared'));
+    assert.equal(workers.length, 1);
     assert.equal(workers[0].sent.length, 1);
     workers[0].reply(0);
     const roots = await Promise.all(requests);
@@ -127,6 +127,20 @@ test('client boots one resident parser, shares concurrent parses and preserves f
     assert.equal(workers[0].sent.length, 2, 'idle reclaim drops the AST cache');
     workers[0].reply(1);
     await next;
+    const hooks = registerHooks({
+      resolve(specifier, context, nextResolve) {
+        if (specifier === './markdown-ast' && context.parentURL?.includes('markdown-worker-client')) {
+          throw new Error('simulated preload failure');
+        }
+        return nextResolve(specifier, context);
+      },
+    });
+    try {
+      await preloadSyncMarkdownParser();
+      assert.match(syncMarkdownParserLoad().error.message, /simulated preload failure/);
+    } finally {
+      hooks.deregister();
+    }
     const recovered = [parseStreamingMarkdownAst('**recovered**'), parseStreamingMarkdownAst('**recovered**')];
     workers[0].emit('error', { message: 'bootstrap failed', preventDefault() {} });
     const fallback = await Promise.all(recovered);

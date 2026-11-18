@@ -268,12 +268,13 @@ export async function sendIslandGitRequest(deps: IslandGitRequestDeps): Promise<
 }
 
 export function useIslandGitRequest(input: { sessionId: string; cwd: string }): {
+  changes: ReturnType<typeof useSessionChanges>;
   /** False when the session cannot take a request (no session, not a git repo). */
   ready: boolean;
   request(action: IslandGitAction): void;
 } {
   const { sessionId, cwd } = input;
-  const changes = useSessionChanges({ cwd, sessionId, active: true });
+  const changes = useSessionChanges({ cwd, sessionId, active: true, gitOnly: true });
   const latest = useRef({
     source: changes.source,
     rows: changes.rows,
@@ -291,5 +292,5 @@ export function useIslandGitRequest(input: { sessionId: string; cwd: string }): 
     },
     [sessionId, cwd]
   );
-  return { ready, request };
+  return { changes, ready, request };
 }

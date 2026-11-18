@@ -43,16 +43,6 @@ pub const CALLBACK_PORT: u16 = 5959;
 const CALLBACK_PATH: &str = "/callback";
 const CALLBACK_FIELDS: [&str; 4] = ["apiKey", "userId", "userName", "keyName"];
 
-/// `~/.commandcode/auth.json`, the Command Code CLI's own login.
-pub fn default_cli_auth_path() -> PathBuf {
-    std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from)
-        .unwrap_or_default()
-        .join(".commandcode")
-        .join("auth.json")
-}
-
 #[derive(Deserialize)]
 struct CliAuth {
     #[serde(rename = "apiKey", default)]
@@ -148,19 +138,6 @@ async fn whoami(http: &Http, api_key: &str) -> Result<(String, String), LoginFai
     Ok((user_id, text("userName")))
 }
 
-/// Validates the key under its whoami identity and stores it.
-async fn settle(http: &Http, file: &CredentialFile, candidate: CommandCodeCredentials) -> Result<Option<String>, LoginFailure> {
-    let (user_id, user_name) = whoami(http, &candidate.api_key).await?;
-    let credentials = CommandCodeCredentials {
-        api_key: candidate.api_key,
-        user_id,
-        user_name: if user_name.is_empty() { candidate.user_name } else { user_name },
-    };
-    file.keep(&[&credentials.api_key]);
-    file.save(&credentials).await.map_err(|err| failed("store", err.to_string()))?;
-    Ok(Some(credentials.user_id))
-}
-
 fn cors(response: Response) -> Response {
     response
         .header("access-control-allow-origin", COMMAND_CODE_STUDIO_ORIGIN)
@@ -179,6 +156,207 @@ fn json_reply(status: u16, success: bool, error: Option<&str>) -> Response {
     cors(Response::new(status).body("application/json", body.to_string()))
 }
 
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpStream;
+use crate::oauth::http::testing::Scripted;
+use crate::oauth::http::testing::finish;
+    use super::*;
+    use crate::oauth::CredentialIo;
+    use crate::oauth::Probe;
+
+    async fn post(port: u16, origin: &str, body: &str) -> String {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let request = format!(
+            "POST /callback HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: {origin}\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut out = String::new();
+        stream.read_to_string(&mut out).await.unwrap();
+        out
+    }
+
+    async fn start_url(session: &dyn LoginSession) -> (u16, String) {
+        loop {
+            if let Some(LoginState::Authorize { url, .. }) = session.next().await {
+                let url = url::Url::parse(&url).unwrap();
+                let query: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+                let port = url::Url::parse(&query["callback"]).unwrap().port().unwrap();
+                return (port, query["state"].clone());
+            }
+        }
+    }
+
+    const WHOAMI: &str = r#"{"user":{"id":"U1","userName":"ann"}}"#;
+
+    #[test]
+    fn pasted_input_is_checked() {
+        assert!(parse_pasted_input("", "s").is_err());
+        assert!(parse_pasted_input("has space", "s").is_err());
+        assert!(parse_pasted_input("{\"state\":\"x\"}", "s").is_err());
+        let doc = json!({"state": "s", "apiKey": "k", "userId": "u", "userName": "n", "keyName": "kn"}).to_string();
+        assert_eq!(parse_pasted_input(&doc, "s").unwrap().user_id, "u");
+    }
+
+    fn store(dir: &tempfile::TempDir) -> CredentialFile {
+        let tokens = mixdog_rt::testing::tokens();
+        CredentialFile::new(
+            dir.path().join("command-code-oauth.json"),
+            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
+        )
+    }
+    fn accounts(dir: &tempfile::TempDir) -> AccountStore {
+        let tokens = mixdog_rt::testing::tokens();
+        AccountStore::new(
+            dir.path().to_path_buf(),
+            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
+        )
+    }
+    fn cli_auth(dir: &tempfile::TempDir) -> CredentialFile {
+        let tokens = mixdog_rt::testing::tokens();
+        CredentialFile::new(
+            dir.path().join("cli-auth.json"),
+            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
+        )
+    }
+    #[tokio::test]
+    async fn the_studio_callback_stores_the_key_under_its_whoami_identity() {
+        mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let http = Scripted::new(&[(200, WHOAMI)]);
+        let flow = CommandCodeLogin::new(http.clone(), store(&dir), cli_auth(&dir), accounts(&dir));
+        let session = flow.start().await.unwrap();
+        let (port, state) = start_url(session.as_ref()).await;
+        let body = |state: &str, key: &str| json!({"state": state, "apiKey": key, "userId": "x", "userName": "n", "keyName": "k"}).to_string();
+        assert!(post(port, "https://evil.example", &body(&state, "key-1")).await.starts_with("HTTP/1.1 403"));
+        assert!(post(port, COMMAND_CODE_STUDIO_ORIGIN, &body("other", "key-1")).await.contains("state mismatch"));
+        assert!(post(port, COMMAND_CODE_STUDIO_ORIGIN, "not json").await.starts_with("HTTP/1.1 400"));
+        let ok = post(port, COMMAND_CODE_STUDIO_ORIGIN, &body(&state, "key-1")).await;
+        assert!(ok.starts_with("HTTP/1.1 200") && ok.contains("access-control-allow-origin"), "{ok}");
+        assert_eq!(finish(session.as_ref()).await.last(), Some(&LoginState::Done { account: Some("U1".into()) }));
+        assert!(http.seen.lock().unwrap()[0].headers.contains(&("authorization".into(), "Bearer key-1".into())));
+        let Probe::Present(saved) = store(&dir).load::<CommandCodeCredentials>().await else { panic!("stored") };
+        assert_eq!((saved.api_key.as_str(), saved.user_id.as_str(), saved.user_name.as_str()), ("key-1", "U1", "ann"));
+    }
+    #[tokio::test]
+    async fn a_pasted_key_and_an_adopted_cli_login_complete_the_same_way() {
+        mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let flow = CommandCodeLogin::new(Scripted::new(&[(200, WHOAMI)]), store(&dir), cli_auth(&dir), accounts(&dir));
+        let session = flow.start().await.unwrap();
+        session.provide(mixdog_core_api::domain::login::LoginInput::AuthorizationCode("  key-2 ".into())).await.unwrap();
+        assert_eq!(finish(session.as_ref()).await.last(), Some(&LoginState::Done { account: Some("U1".into()) }));
+        store(&dir).remove().await.unwrap();
+
+        // The CLI's login is adopted on a first sign-in, without a browser step.
+        cli_auth(&dir).save(&json!({"apiKey": "cli-key", "userId": "cli-user"})).await.unwrap();
+        let first = CommandCodeLogin::new(Scripted::new(&[(200, WHOAMI)]), store(&dir), cli_auth(&dir), accounts(&dir));
+        let session = first.start().await.unwrap();
+        let states = finish(session.as_ref()).await;
+        assert!(!states.iter().any(|s| matches!(s, LoginState::Authorize { .. })), "no browser step");
+        assert_eq!(states.last(), Some(&LoginState::Done { account: Some("U1".into()) }));
+        let Probe::Present(saved) = store(&dir).load::<CommandCodeCredentials>().await else { panic!("stored") };
+        assert_eq!(saved.api_key, "cli-key");
+
+        // Not on a reconnect (the default slot holds a credential): a fresh browser identity.
+        let flow = CommandCodeLogin::new(Scripted::new(&[]), store(&dir), cli_auth(&dir), accounts(&dir));
+        let session = flow.start().await.unwrap();
+        assert!(matches!(session.next().await, Some(LoginState::Authorize { .. })));
+        session.cancel();
+
+        // Nor when the roster already has an account, even with no default credential.
+        store(&dir).remove().await.unwrap();
+        let second = crate::accounts::new_account_id();
+        accounts(&dir).register(PROVIDER_ID, &second, "Second", false).await.unwrap();
+        let flow = CommandCodeLogin::new(Scripted::new(&[]), store(&dir), cli_auth(&dir), accounts(&dir));
+        let session = flow.start().await.unwrap();
+        assert!(matches!(session.next().await, Some(LoginState::Authorize { .. })));
+        session.cancel();
+
+        // A rejected CLI login falls through to the browser.
+        accounts(&dir).remove(PROVIDER_ID, &second).await.unwrap();
+        let stale = CommandCodeLogin::new(Scripted::new(&[(401, "")]), store(&dir), cli_auth(&dir), accounts(&dir));
+        let session = stale.start().await.unwrap();
+        assert!(matches!(session.next().await, Some(LoginState::Authorize { .. })));
+        session.cancel();
+    }
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "test fixture write")]
+    async fn a_newer_roster_reads_as_empty_and_a_failed_read_is_not_first() {
+        mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        cli_auth(&dir).save(&json!({"apiKey": "cli-key", "userId": "cli-user"})).await.unwrap();
+        // Node's reader returns the empty fallback for a newer roster, so only
+        // the default-slot credential decides: none, hence a first sign-in.
+        std::fs::write(accounts(&dir).roster_path(), r#"{"version":2,"providers":{}}"#).unwrap();
+        let flow = CommandCodeLogin::new(Scripted::new(&[(200, WHOAMI)]), store(&dir), cli_auth(&dir), accounts(&dir));
+        assert!(flow.is_first_sign_in().await);
+
+        // A read that fails (here: the roster path is a directory) reaches
+        // Node's `catch`, which cannot prove a first account: false.
+        std::fs::remove_file(accounts(&dir).roster_path()).unwrap();
+        std::fs::create_dir(accounts(&dir).roster_path()).unwrap();
+        let flow = CommandCodeLogin::new(Scripted::new(&[]), store(&dir), cli_auth(&dir), accounts(&dir));
+        assert!(accounts(&dir).accounts(PROVIDER_ID).await.is_err());
+        assert!(!flow.is_first_sign_in().await);
+        let session = flow.start().await.unwrap();
+        assert!(matches!(session.next().await, Some(LoginState::Authorize { .. })));
+        session.cancel();
+    }
+
+
+    /// An identity read that never answers fails the login step after its timer.
+    #[tokio::test(start_paused = true)]
+    async fn an_identity_read_that_outlives_its_timer_fails_the_step() {
+        let transport = crate::transport::timeout_probe::NeverAnswers::new();
+        let http: Http = transport.clone();
+        let failure = whoami(&http, "k").await.expect_err("never answers");
+        assert!(matches!(&failure, LoginFailure::Failed { message, .. } if !message.is_empty()), "{failure:?}");
+        transport.assert_each_request_was_bounded(1);
+    }
+
+    /// The identity read that outlives its timer reads as the real Node function did (`sites.commandCodeIdentity`).
+    #[tokio::test(start_paused = true)]
+    async fn an_identity_read_that_outlives_its_timer_reads_as_nodes() {
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::login_message;
+
+        let transport = TimingOut::new();
+        let http: Http = transport.clone();
+        let failure = whoami(&http, "k").await.expect_err("never answers");
+        assert_transport("commandCodeIdentity", &transport);
+        assert_thrown("commandCodeIdentity", login_message(&failure));
+    }
+}
+
+
+/// `~/.commandcode/auth.json`, the Command Code CLI's own login.
+pub fn default_cli_auth_path() -> PathBuf {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from)
+        .unwrap_or_default()
+        .join(".commandcode")
+        .join("auth.json")
+}
+/// Validates the key under its whoami identity and stores it.
+async fn settle(http: &Http, file: &CredentialFile, candidate: CommandCodeCredentials) -> Result<Option<String>, LoginFailure> {
+    let (user_id, user_name) = whoami(http, &candidate.api_key).await?;
+    let credentials = CommandCodeCredentials {
+        api_key: candidate.api_key,
+        user_id,
+        user_name: if user_name.is_empty() { candidate.user_name } else { user_name },
+    };
+    file.keep(&[&credentials.api_key]);
+    file.save(&credentials).await.map_err(|err| failed("store", err.to_string()))?;
+    Ok(Some(credentials.user_id))
+}
 pub struct CommandCodeLogin {
     target: LoginTarget,
     http: Http,
@@ -190,7 +368,6 @@ pub struct CommandCodeLogin {
     accounts: AccountStore,
     running: Arc<AtomicBool>,
 }
-
 impl CommandCodeLogin {
     pub fn new(http: Http, file: CredentialFile, cli_auth: CredentialFile, accounts: AccountStore) -> Self {
         Self {
@@ -211,7 +388,6 @@ impl CommandCodeLogin {
             && matches!(self.accounts.has_credential(provider, "default").await, Ok(false))
     }
 }
-
 #[async_trait]
 impl LoginFlow for CommandCodeLogin {
     fn target(&self) -> &LoginTarget {
@@ -284,178 +460,5 @@ impl LoginFlow for CommandCodeLogin {
                 }
             }
         }))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-    use tokio::io::AsyncReadExt;
-    use tokio::io::AsyncWriteExt;
-    use tokio::net::TcpStream;
-use crate::oauth::http::testing::Scripted;
-use crate::oauth::http::testing::finish;
-    use super::*;
-    use crate::oauth::CredentialIo;
-    use crate::oauth::Probe;
-
-    fn store(dir: &tempfile::TempDir) -> CredentialFile {
-        let tokens = mixdog_rt::testing::tokens();
-        CredentialFile::new(
-            dir.path().join("command-code-oauth.json"),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        )
-    }
-
-    /// The identity read that outlives its timer reads as the real Node function did (`sites.commandCodeIdentity`).
-    #[tokio::test(start_paused = true)]
-    async fn an_identity_read_that_outlives_its_timer_reads_as_nodes() {
-        use crate::transport::site_probe::TimingOut;
-        use crate::transport::site_probe::assert_thrown;
-        use crate::transport::site_probe::assert_transport;
-        use crate::transport::site_probe::login_message;
-
-        let transport = TimingOut::new();
-        let http: Http = transport.clone();
-        let failure = whoami(&http, "k").await.expect_err("never answers");
-        assert_transport("commandCodeIdentity", &transport);
-        assert_thrown("commandCodeIdentity", login_message(&failure));
-    }
-
-    fn accounts(dir: &tempfile::TempDir) -> AccountStore {
-        let tokens = mixdog_rt::testing::tokens();
-        AccountStore::new(
-            dir.path().to_path_buf(),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        )
-    }
-
-    fn cli_auth(dir: &tempfile::TempDir) -> CredentialFile {
-        let tokens = mixdog_rt::testing::tokens();
-        CredentialFile::new(
-            dir.path().join("cli-auth.json"),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        )
-    }
-
-    async fn post(port: u16, origin: &str, body: &str) -> String {
-        let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-        let request = format!(
-            "POST /callback HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: {origin}\r\nContent-Length: {}\r\n\r\n{body}",
-            body.len()
-        );
-        stream.write_all(request.as_bytes()).await.unwrap();
-        let mut out = String::new();
-        stream.read_to_string(&mut out).await.unwrap();
-        out
-    }
-
-    async fn start_url(session: &dyn LoginSession) -> (u16, String) {
-        loop {
-            if let Some(LoginState::Authorize { url, .. }) = session.next().await {
-                let url = url::Url::parse(&url).unwrap();
-                let query: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
-                let port = url::Url::parse(&query["callback"]).unwrap().port().unwrap();
-                return (port, query["state"].clone());
-            }
-        }
-    }
-
-    const WHOAMI: &str = r#"{"user":{"id":"U1","userName":"ann"}}"#;
-
-    #[tokio::test]
-    async fn the_studio_callback_stores_the_key_under_its_whoami_identity() {
-        mixdog_rt::testing::tokens();
-        let dir = tempfile::tempdir().unwrap();
-        let http = Scripted::new(&[(200, WHOAMI)]);
-        let flow = CommandCodeLogin::new(http.clone(), store(&dir), cli_auth(&dir), accounts(&dir));
-        let session = flow.start().await.unwrap();
-        let (port, state) = start_url(session.as_ref()).await;
-        let body = |state: &str, key: &str| json!({"state": state, "apiKey": key, "userId": "x", "userName": "n", "keyName": "k"}).to_string();
-        assert!(post(port, "https://evil.example", &body(&state, "key-1")).await.starts_with("HTTP/1.1 403"));
-        assert!(post(port, COMMAND_CODE_STUDIO_ORIGIN, &body("other", "key-1")).await.contains("state mismatch"));
-        assert!(post(port, COMMAND_CODE_STUDIO_ORIGIN, "not json").await.starts_with("HTTP/1.1 400"));
-        let ok = post(port, COMMAND_CODE_STUDIO_ORIGIN, &body(&state, "key-1")).await;
-        assert!(ok.starts_with("HTTP/1.1 200") && ok.contains("access-control-allow-origin"), "{ok}");
-        assert_eq!(finish(session.as_ref()).await.last(), Some(&LoginState::Done { account: Some("U1".into()) }));
-        assert!(http.seen.lock().unwrap()[0].headers.contains(&("authorization".into(), "Bearer key-1".into())));
-        let Probe::Present(saved) = store(&dir).load::<CommandCodeCredentials>().await else { panic!("stored") };
-        assert_eq!((saved.api_key.as_str(), saved.user_id.as_str(), saved.user_name.as_str()), ("key-1", "U1", "ann"));
-    }
-
-    #[tokio::test]
-    async fn a_pasted_key_and_an_adopted_cli_login_complete_the_same_way() {
-        mixdog_rt::testing::tokens();
-        let dir = tempfile::tempdir().unwrap();
-        let flow = CommandCodeLogin::new(Scripted::new(&[(200, WHOAMI)]), store(&dir), cli_auth(&dir), accounts(&dir));
-        let session = flow.start().await.unwrap();
-        session.provide(mixdog_core_api::domain::login::LoginInput::AuthorizationCode("  key-2 ".into())).await.unwrap();
-        assert_eq!(finish(session.as_ref()).await.last(), Some(&LoginState::Done { account: Some("U1".into()) }));
-        store(&dir).remove().await.unwrap();
-
-        // The CLI's login is adopted on a first sign-in, without a browser step.
-        cli_auth(&dir).save(&json!({"apiKey": "cli-key", "userId": "cli-user"})).await.unwrap();
-        let first = CommandCodeLogin::new(Scripted::new(&[(200, WHOAMI)]), store(&dir), cli_auth(&dir), accounts(&dir));
-        let session = first.start().await.unwrap();
-        let states = finish(session.as_ref()).await;
-        assert!(!states.iter().any(|s| matches!(s, LoginState::Authorize { .. })), "no browser step");
-        assert_eq!(states.last(), Some(&LoginState::Done { account: Some("U1".into()) }));
-        let Probe::Present(saved) = store(&dir).load::<CommandCodeCredentials>().await else { panic!("stored") };
-        assert_eq!(saved.api_key, "cli-key");
-
-        // Not on a reconnect (the default slot holds a credential): a fresh browser identity.
-        let flow = CommandCodeLogin::new(Scripted::new(&[]), store(&dir), cli_auth(&dir), accounts(&dir));
-        let session = flow.start().await.unwrap();
-        assert!(matches!(session.next().await, Some(LoginState::Authorize { .. })));
-        session.cancel();
-
-        // Nor when the roster already has an account, even with no default credential.
-        store(&dir).remove().await.unwrap();
-        let second = crate::accounts::new_account_id();
-        accounts(&dir).register(PROVIDER_ID, &second, "Second", false).await.unwrap();
-        let flow = CommandCodeLogin::new(Scripted::new(&[]), store(&dir), cli_auth(&dir), accounts(&dir));
-        let session = flow.start().await.unwrap();
-        assert!(matches!(session.next().await, Some(LoginState::Authorize { .. })));
-        session.cancel();
-
-        // A rejected CLI login falls through to the browser.
-        accounts(&dir).remove(PROVIDER_ID, &second).await.unwrap();
-        let stale = CommandCodeLogin::new(Scripted::new(&[(401, "")]), store(&dir), cli_auth(&dir), accounts(&dir));
-        let session = stale.start().await.unwrap();
-        assert!(matches!(session.next().await, Some(LoginState::Authorize { .. })));
-        session.cancel();
-    }
-
-    #[tokio::test]
-    #[allow(clippy::disallowed_methods, reason = "test fixture write")]
-    async fn a_newer_roster_reads_as_empty_and_a_failed_read_is_not_first() {
-        mixdog_rt::testing::tokens();
-        let dir = tempfile::tempdir().unwrap();
-        cli_auth(&dir).save(&json!({"apiKey": "cli-key", "userId": "cli-user"})).await.unwrap();
-        // Node's reader returns the empty fallback for a newer roster, so only
-        // the default-slot credential decides: none, hence a first sign-in.
-        std::fs::write(accounts(&dir).roster_path(), r#"{"version":2,"providers":{}}"#).unwrap();
-        let flow = CommandCodeLogin::new(Scripted::new(&[(200, WHOAMI)]), store(&dir), cli_auth(&dir), accounts(&dir));
-        assert!(flow.is_first_sign_in().await);
-
-        // A read that fails (here: the roster path is a directory) reaches
-        // Node's `catch`, which cannot prove a first account: false.
-        std::fs::remove_file(accounts(&dir).roster_path()).unwrap();
-        std::fs::create_dir(accounts(&dir).roster_path()).unwrap();
-        let flow = CommandCodeLogin::new(Scripted::new(&[]), store(&dir), cli_auth(&dir), accounts(&dir));
-        assert!(accounts(&dir).accounts(PROVIDER_ID).await.is_err());
-        assert!(!flow.is_first_sign_in().await);
-        let session = flow.start().await.unwrap();
-        assert!(matches!(session.next().await, Some(LoginState::Authorize { .. })));
-        session.cancel();
-    }
-
-    #[test]
-    fn pasted_input_is_checked() {
-        assert!(parse_pasted_input("", "s").is_err());
-        assert!(parse_pasted_input("has space", "s").is_err());
-        assert!(parse_pasted_input("{\"state\":\"x\"}", "s").is_err());
-        let doc = json!({"state": "s", "apiKey": "k", "userId": "u", "userName": "n", "keyName": "kn"}).to_string();
-        assert_eq!(parse_pasted_input(&doc, "s").unwrap().user_id, "u");
     }
 }

@@ -210,11 +210,21 @@ pub trait FeedView: Send + Sync + 'static {
         at: FeedPosition,
         window: &Window,
     ) -> Bytes;
+
+    /// The encoded snapshot as it is delivered to one lane now. A snapshot is encoded once and shared by every attach at its seq,
+    /// so a value that depends on the time of delivery (the wait left of a retrying turn) is set here, by a copy of the frame
+    /// and never by encoding it again. The default delivers the frame as it is.
+    fn at_delivery(&self, frame: Bytes) -> Bytes {
+        frame
+    }
 }
 
 /// The subscriber side of a feed, as the server sees it.
 pub trait FeedSource: Send + Sync {
     fn feed_id(&self) -> FeedId;
+
+    /// The last published position.
+    fn position(&self) -> FeedPosition;
 
     /// The atomic attach (module docs). Never waits: the snapshot is encoded after return and
     /// fills its slot. Fails with `connectionClosed` (recovery of a detached subscription) or
@@ -285,9 +295,6 @@ impl LaneRecovery for FeedRecovery {
 
 /// The producer side of a feed.
 pub trait Feed: FeedSource {
-    /// The last published position.
-    fn position(&self) -> FeedPosition;
-
     /// Appends `frames` (contiguous, starting at `position().seq + 1`) and, if given, swaps the
     /// view to the state after the last frame, all under the feed lock. Called only by the
     /// feed's single producer, after the state the frames describe is durable.
@@ -296,6 +303,19 @@ pub trait Feed: FeedSource {
         frames: &[FeedFrame],
         view: Option<Arc<dyn FeedView>>,
     ) -> Result<(), PublishError>;
+
+    /// Whether [`Self::publish_deferred`] is supported: the view may then lag the frames, and a snapshot attach is given the
+    /// view at the seq it was built for and the frames after it from the ring.
+    fn defers(&self) -> bool {
+        false
+    }
+
+    /// Appends `frames` whose state the current view does not include yet (a burst of streaming deltas): the producer
+    /// rebuilds its view later instead of once per frame, as a client applies the frames to the snapshot it holds. Only for a
+    /// feed that [`defers`](Self::defers); the default publishes with no view swap.
+    fn publish_deferred(&self, frames: &[FeedFrame]) -> Result<(), PublishError> {
+        self.publish(frames, None)
+    }
 }
 
 /// A scoped feed (`fs:<watchId>`, `search:<sessionId>`, …; DS §2.1), created through

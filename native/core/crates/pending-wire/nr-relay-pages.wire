@@ -1,8 +1,0 @@
-# nr-relay-pages: reduced by the wire audit (t19). Already applied: the router and startup calls (AppPages::load, connect_page, update_pc_page / is_native_app_request in web/gate.rs), the crate manifest.
-
-## native/core/fixtures/MANIFEST.json (lead hot file)
-Index the set relay-pages (files: golden.json, record.mjs, extract-assets.mjs). It has no MANIFEST.json yet: run "node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index" so the verifier writes the set manifest and the index row (no entry text can be given before that; it computes the digest). record.mjs regenerates golden.json from a Node tree:
-    node native/core/fixtures/relay-pages/record.mjs <tree>/apps/relay/lib > native/core/fixtures/relay-pages/golden.json
-
-## Later deletion task (the Node pages)
-apps/desktop/src/renderer/connect-copy.test.mjs still imports sendConnectPage from apps/relay/lib/connect-page.mjs to read the served CSS. When that Node file is deleted the test must read native/core/crates/mixdog-relay/assets/pages/pairing.css instead (that file is exactly apps/mobile/src/index.html from ".mxp-screen{" to "</style>").

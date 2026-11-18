@@ -32,6 +32,7 @@ pub(crate) const DEADLINE: Duration = Duration::from_secs(20);
 
 /// `rig`'s server served on a loopback listener.
 pub(crate) struct Wire {
+    #[cfg(node_twin)]
     pub(crate) rig: Rig,
     addr: std::net::SocketAddr,
     _hub: ConnectionHub,
@@ -68,7 +69,7 @@ impl Wire {
                 });
             }
         });
-        Self { rig, addr, _hub: hub, _accept: accept }
+        Self { #[cfg(node_twin)] rig, addr, _hub: hub, _accept: accept }
     }
 
     /// A client connection that has completed `initialize` as a `kind` client named `device`; its frames start after the
@@ -129,6 +130,7 @@ impl WireClient {
     }
 
     /// Closes the connection from the client side.
+    #[cfg(node_twin)]
     pub(crate) async fn close(mut self) {
         self.ws.close(None).await.expect("close");
     }
@@ -139,6 +141,7 @@ impl WireClient {
 /// and item ids are or embed one; a 32-hex feed epoch; and each string of `generated`, the thread ids the core minted), and
 /// clock readings (`*At` fields, `clientHostPid`) become `<clock>` / `<pid>`. Everything else is compared as received. The
 /// expected frames go through the same function, so two ids are compared by whether they are the same id.
+#[cfg(node_twin)]
 pub(crate) fn normalized(frames: &[Value], generated: &[&str]) -> Value {
     fn name(names: &mut Vec<String>, id: &str) -> String {
         let at = names.iter().position(|n| n == id).unwrap_or_else(|| {
@@ -190,6 +193,7 @@ pub(crate) fn normalized(frames: &[Value], generated: &[&str]) -> Value {
 
 /// Writes `frames` to the replay's frame log (`MIXDOG_REPLAY_FRAMES`, a directory) when set, so a reviewer can read what
 /// a client received; the comparison never reads it.
+#[cfg(node_twin)]
 pub(crate) fn log(name: &str, frames: &Value) {
     if let Ok(dir) = std::env::var("MIXDOG_REPLAY_FRAMES") {
         std::fs::write(format!("{dir}/{name}.json"), serde_json::to_string_pretty(frames).unwrap()).expect("write the frame log");

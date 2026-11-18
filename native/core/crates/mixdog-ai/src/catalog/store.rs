@@ -46,6 +46,10 @@ pub enum ProviderStatus {
     /// ms) has passed.
     #[serde(rename_all = "camelCase")]
     Missing { retry_at: u64, message: String },
+    /// The refresh failed (or answered nothing) but the provider's last good models are kept and shown: stale. Asked again
+    /// like a missing one once `retry_at` has passed; `message` says why the refresh did not replace them.
+    #[serde(rename_all = "camelCase")]
+    Stale { retry_at: u64, message: String },
 }
 
 impl CatalogSnapshot {
@@ -58,14 +62,14 @@ impl CatalogSnapshot {
     pub fn missing(&self) -> Vec<&ProviderId> {
         self.status
             .iter()
-            .filter(|(_, s)| matches!(s, ProviderStatus::Missing { .. }))
+            .filter(|(_, s)| matches!(s, ProviderStatus::Missing { .. } | ProviderStatus::Stale { .. }))
             .map(|(id, _)| id)
             .collect()
     }
 
     /// `catalogPartial`: some providers answered and some did not.
     pub fn partial(&self) -> bool {
-        !self.complete() && self.status.values().any(|s| *s == ProviderStatus::Ok)
+        !self.complete() && self.status.values().any(|s| !matches!(s, ProviderStatus::Missing { .. }))
     }
 
     /// `catalogRetryAt`: when the first missing provider may be asked again;
@@ -77,7 +81,7 @@ impl CatalogSnapshot {
         self.status
             .values()
             .filter_map(|s| match s {
-                ProviderStatus::Missing { retry_at, .. } => Some(*retry_at),
+                ProviderStatus::Missing { retry_at, .. } | ProviderStatus::Stale { retry_at, .. } => Some(*retry_at),
                 ProviderStatus::Ok => None,
             })
             .min()
@@ -123,7 +127,7 @@ pub enum Ask {
     Due,
 }
 
-type Listing = Result<Vec<ModelRecord>, ProviderError>;
+type Listing = Result<super::sources::SourceListing, ProviderError>;
 
 /// A listing operation (`startOp`): driven on its own task until it settles,
 /// whatever its callers do.
@@ -217,230 +221,6 @@ pub struct ProviderCatalog {
     after_spawn: Option<Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>>,
 }
 
-impl ProviderCatalog {
-    pub fn new(initial: CatalogSnapshot) -> Self {
-        Self {
-            current: ArcSwap::from_pointee(initial),
-            epoch: AtomicU64::new(0),
-            publish_lock: Mutex::new(()),
-            serial: AtomicU64::new(0),
-            flights: Arc::default(),
-            failures: Arc::new(CatalogFailureStore::default()),
-            now_ms: Arc::new(|| {
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as u64)
-            }),
-            #[cfg(test)]
-            after_spawn: None,
-        }
-    }
-
-    /// Replaces the wall clock that stamps `retry_at` (tests).
-    pub fn with_clock(mut self, now_ms: Arc<dyn Fn() -> u64 + Send + Sync>) -> Self {
-        self.set_clock(now_ms);
-        self
-    }
-
-    /// [`with_clock`](Self::with_clock) in place.
-    pub fn set_clock(&mut self, now_ms: Arc<dyn Fn() -> u64 + Send + Sync>) {
-        self.now_ms = now_ms;
-    }
-
-    /// An auth/account change (`invalidateSharedProviderCatalog`): the rows
-    /// listed under the previous account are dropped, so the next due refresh
-    /// asks every provider, and listings still running for the old one are
-    /// neither joined nor published. They keep running, and one that stalled
-    /// still holds its provider (`bumpProviderCatalogGeneration` leaves the
-    /// operation tables alone).
-    pub fn invalidate_accounts(&self) {
-        let _publishing = self.publish_lock.lock().unwrap_or_else(PoisonError::into_inner);
-        self.epoch.fetch_add(1, Ordering::SeqCst);
-        // The failures belonged to the previous account too (`clearProviderCatalogFailures`).
-        self.failures.clear();
-        self.current.rcu(|current| {
-            Arc::new(CatalogSnapshot {
-                generation: current.generation + 1,
-                models: BTreeMap::new(),
-                status: BTreeMap::new(),
-            })
-        });
-    }
-
-    /// One bounded, single-flight listing (`boundedProviderCatalogOp`). The
-    /// caller waits at most the deadline; the operation runs on until it
-    /// settles, and while it overran a deadline nobody asks the provider again.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn list_bounded(&self, source: &ModelSource, epoch: u64) -> Listing {
-        let provider = source.provider().clone();
-        // The deadline's instant is fixed before the listing can start (Node arms it synchronously, `CD:123-124`, and
-        // runs the provider a microtask later, `:73-74`): another worker may run the listing at once, and its own
-        // timer must never be due before this one.
-        let deadline = mixdog_rt::time::sleep(LIST_DEADLINE);
-        let flight = {
-            let mut flights = self.flights.lock().unwrap_or_else(PoisonError::into_inner);
-            match flights.latest.get(&provider) {
-                // `catalog-deadline.mjs:146-150`: fail fast instead of waiting out another deadline.
-                Some(flight) if flight.epoch == epoch && flight.timed_out.load(Ordering::SeqCst) => {
-                    return Err(pending_error(&provider));
-                }
-                Some(flight) if flight.epoch == epoch => flight.clone(),
-                // Superseded (`:140-145`): a stalled operation of any epoch holds the provider.
-                _ if flights.stalled(&provider) => return Err(stalled_error(&provider)),
-                _ => {
-                    let serial = self.serial.fetch_add(1, Ordering::SeqCst);
-                    let (source, tables, settled) = (source.clone(), self.flights.clone(), provider.clone());
-                    // The work leaves the tables inside its own future, so no caller sees its answer while it is
-                    // still listed (`settled.then` cleanup runs before the callers' races in Node).
-                    let work: Shared<BoxFuture<'static, Listing>> = async move {
-                        let listing = source.list().await;
-                        tables.lock().unwrap_or_else(PoisonError::into_inner).settle(&settled, serial);
-                        listing
-                    }
-                    .boxed()
-                    .shared();
-                    let flight = Flight { epoch, serial, timed_out: Arc::default(), work: work.clone() };
-                    flights.latest.insert(provider.clone(), flight.clone());
-                    flights.running.entry(provider.clone()).or_default().push(flight.clone());
-                    tokio::spawn(work.map(drop));
-                    flight
-                }
-            }
-        };
-        #[cfg(test)]
-        if let Some(hook) = &self.after_spawn {
-            hook().await;
-        }
-        // On a tie with the listing's own timer the deadline wins; poll it first.
-        tokio::select! {
-            biased;
-            () = deadline => {
-                flight.timed_out.store(true, Ordering::SeqCst);
-                Err(deadline_error(&provider))
-            }
-            listing = flight.work => listing,
-        }
-    }
-
-    /// The failure store (`providerCatalogFailure`).
-    pub fn failures(&self) -> &Arc<CatalogFailureStore> {
-        &self.failures
-    }
-
-    /// One atomic load; never waits on a refresh.
-    pub fn snapshot(&self) -> Arc<CatalogSnapshot> {
-        self.current.load_full()
-    }
-
-    /// Lists every source concurrently and publishes one new snapshot. A
-    /// failing source keeps its previous models. Runs off the read path.
-    pub async fn refresh(&self, sources: &[ModelSource]) -> RefreshOutcome {
-        self.refresh_asking(sources, Ask::All).await
-    }
-
-    /// [`refresh`](Self::refresh), asking only the providers `ask` selects.
-    pub async fn refresh_asking(&self, sources: &[ModelSource], ask: Ask) -> RefreshOutcome {
-        let listed = self.list_all(sources, ask).await;
-        self.publish(listed)
-    }
-
-    /// [`refresh_asking`](Self::refresh_asking) of the whole catalog: `sources` are every provider it has, so the
-    /// models and status of any other (one removed from the registry since) leave the published snapshot.
-    pub async fn refresh_whole(&self, sources: &[ModelSource], ask: Ask) -> RefreshOutcome {
-        let mut listed = self.list_all(sources, ask).await;
-        listed.whole = Some(sources.iter().map(|s| s.provider().clone()).collect());
-        self.publish(listed)
-    }
-
-    /// Lists the providers `ask` selects, concurrently. A provider not asked
-    /// is absent from the result and keeps its models and status.
-    async fn list_all(&self, sources: &[ModelSource], ask: Ask) -> Listed {
-        let epoch = self.epoch.load(Ordering::SeqCst);
-        let now = (self.now_ms)();
-        let current = self.current.load();
-        let nobody_answered = !sources
-            .iter()
-            .any(|s| current.status.get(s.provider()) == Some(&ProviderStatus::Ok));
-        let asked: Vec<&ModelSource> = sources
-            .iter()
-            .filter(|s| match ask {
-                Ask::All => true,
-                Ask::Due => {
-                    nobody_answered
-                        || match current.status.get(s.provider()) {
-                            None => true,
-                            Some(ProviderStatus::Ok) => false,
-                            Some(ProviderStatus::Missing { retry_at, .. }) => now >= *retry_at,
-                        }
-                }
-            })
-            .collect();
-        let entries = futures::future::join_all(asked.iter().map(|s| async move {
-            let listing = self.list_bounded(s, epoch).await;
-            (s.provider().clone(), listing, (self.now_ms)())
-        }))
-        .await;
-        Listed { epoch, entries, whole: None }
-    }
-
-    fn publish(&self, listed: Listed) -> RefreshOutcome {
-        let mut outcome = RefreshOutcome {
-            refreshed: Vec::new(),
-            failed: Vec::new(),
-        };
-        let mut answers = Vec::new();
-        for (provider, listing, ended_at) in listed.entries {
-            match listing {
-                // Kept in listing order, as Node's catalog keeps it: the picker's sort is not total (duplicate ids,
-                // comparator ties), so its answer depends on that order.
-                Ok(list) => {
-                    answers.push((provider.clone(), list, ProviderStatus::Ok));
-                    outcome.refreshed.push(provider);
-                }
-                Err(err) => {
-                    let status = ProviderStatus::Missing { retry_at: ended_at + RETRY_AFTER_MS, message: err.message.clone() };
-                    answers.push((provider.clone(), Vec::new(), status));
-                    outcome.failed.push((provider, err));
-                }
-            }
-        }
-        // Concurrent refreshes each publish a complete snapshot; the later
-        // generation number wins. A listing begun before an account change
-        // describes the previous account and is not published.
-        let _publishing = self.publish_lock.lock().unwrap_or_else(PoisonError::into_inner);
-        if self.epoch.load(Ordering::SeqCst) != listed.epoch {
-            return outcome;
-        }
-        // Only a listing of the current account is recorded (`callerGeneration === generation`).
-        for provider in &outcome.refreshed {
-            self.failures.recover(provider.as_str());
-        }
-        for (provider, error) in &outcome.failed {
-            self.failures.record(provider.as_str(), error);
-        }
-        self.current.rcu(|current| {
-            let mut models = current.models.clone();
-            let mut status = current.status.clone();
-            for (provider, list, state) in &answers {
-                if *state == ProviderStatus::Ok {
-                    models.insert(provider.clone(), list.clone());
-                }
-                status.insert(provider.clone(), state.clone());
-            }
-            if let Some(whole) = &listed.whole {
-                models.retain(|provider, _| whole.contains(provider));
-                status.retain(|provider, _| whole.contains(provider));
-            }
-            Arc::new(CatalogSnapshot {
-                generation: current.generation + 1,
-                models,
-                status,
-            })
-        });
-        outcome
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -505,18 +285,6 @@ mod tests {
     struct Slow {
         delay: Option<Duration>,
         calls: Arc<AtomicU64>,
-    }
-
-    #[async_trait]
-    impl ModelListing for Slow {
-        async fn list_models(&self) -> Result<Vec<ListedRecord>, ProviderError> {
-            self.calls.fetch_add(1, Ordering::SeqCst);
-            match self.delay {
-                Some(delay) => mixdog_rt::time::sleep(delay).await,
-                None => std::future::pending::<()>().await,
-            }
-            Ok(vec![ListedRecord::new("m")])
-        }
     }
 
     fn slow(id: &str, delay: Option<Duration>) -> (ModelSource, Arc<AtomicU64>) {
@@ -607,122 +375,13 @@ mod tests {
         assert!(catalog.snapshot().complete());
     }
 
-    /// Node's deadline timer is armed before the listing's own 4 s timer, so a listing that ends exactly at the deadline
-    /// (a cold Claude OAuth warm against an unreachable registry) has missed it (`record-catalog-deadline-tie.mjs`).
-    /// Three unforced reads, each against its own recorded point: the first, answered while the tied listing is still
-    /// pending; one at once, while it still is; and one after it settled at the same instant. Each publishes Node's
-    /// models and state at Node's time, asks the providers Node asked and leaves Node's operations pending.
-    #[tokio::test(start_paused = true)]
-    async fn a_listing_ending_exactly_at_the_deadline_reads_as_nodes_at_each_point() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/catalog-deadline-tie/golden.json")).unwrap();
-        let now = golden["now"].as_u64().unwrap();
-        // One virtual clock for the whole recording, as the recorder's.
-        let start = tokio::time::Instant::now();
-        let at = move || start.elapsed().as_millis() as u64;
-        for scenario in golden["scenarios"].as_array().unwrap() {
-            let name = scenario["name"].as_str().unwrap();
-            let catalog = ProviderCatalog::new(CatalogSnapshot::default()).with_clock(Arc::new(move || now + at()));
-            let (sources, calls): (Vec<_>, Vec<_>) = scenario["providers"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|p| slow(p["name"].as_str().unwrap(), Some(Duration::from_millis(p["answersAfterMs"].as_u64().unwrap()))))
-                .unzip();
-            let mut codes = BTreeMap::new();
-            for point in ["first", "whilePending", "afterSettle"] {
-                if point == "afterSettle" {
-                    // The tied listing's own timer, at the instant the deadline fired; its settlement leaves the table.
-                    latest_work(&catalog, "tie").await.unwrap();
-                    assert_eq!(pending_ops(&catalog).0, scenario["settledOps"], "{name}: operations once the listing settled");
-                }
-                read_as_recorded(&catalog, &sources, &calls, &mut codes, now, &at, &scenario[point], &format!("{name}: {point}")).await;
-            }
-            drain(&catalog, name).await;
-        }
-    }
-
-    /// `record-catalog-deadline-tie.mjs` `crossEpoch`: a listing overruns its deadline, an account change opens a new
-    /// epoch, and the new epoch's read fails on the still-unsettled operation ("ignored its deadline") without asking
-    /// the provider; once that listing settles a read asks again. Each point against its own recording.
-    #[tokio::test(start_paused = true)]
-    async fn a_stalled_listing_holds_its_provider_across_an_account_change_as_nodes() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/catalog-deadline-tie/golden.json")).unwrap();
-        let now = golden["now"].as_u64().unwrap();
-        let scenario = &golden["crossEpoch"];
-        let name = scenario["name"].as_str().unwrap();
-        let start = tokio::time::Instant::now();
-        let at = move || start.elapsed().as_millis() as u64;
-        // The recorder's virtual clock runs on from the scenarios before this one.
-        tokio::time::advance(Duration::from_millis(scenario["startedAt"].as_u64().unwrap())).await;
-        let catalog = ProviderCatalog::new(CatalogSnapshot::default()).with_clock(Arc::new(move || now + at()));
-        let (sources, calls): (Vec<_>, Vec<_>) = scenario["providers"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|p| slow(p["name"].as_str().unwrap(), Some(Duration::from_millis(p["answersAfterMs"].as_u64().unwrap()))))
-            .unzip();
-        let mut codes = BTreeMap::new();
-        for point in ["first", "afterAccountChange", "afterSettle"] {
-            match point {
-                "afterAccountChange" => catalog.invalidate_accounts(),
-                "afterSettle" => {
-                    // The old epoch's listing runs to its own timer; its settlement leaves both tables.
-                    latest_work(&catalog, "stall").await.unwrap();
-                    let (ops, stalled) = pending_ops(&catalog);
-                    assert_eq!(ops, scenario["settledOps"], "{name}: operations once the listing settled");
-                    assert_eq!(stalled, scenario["settledStalled"], "{name}: stalled operations once it settled");
-                }
-                _ => {}
-            }
-            read_as_recorded(&catalog, &sources, &calls, &mut codes, now, &at, &scenario[point], &format!("{name}: {point}")).await;
-        }
-        drain(&catalog, name).await;
-    }
-
-    /// A caller descheduled between starting the listing and polling its deadline, while the listing runs to its own
-    /// 4 s timer (on another worker in production; here the seam yields to it and moves time on): the deadline was
-    /// fixed when the caller came in, so the tie still reads as Node's first point, a missed deadline at 4000 ms.
-    #[tokio::test(start_paused = true)]
-    async fn a_caller_descheduled_after_starting_the_listing_still_misses_a_tied_deadline() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/catalog-deadline-tie/golden.json")).unwrap();
-        let recorded = &golden["scenarios"][0]["first"];
-        let start = tokio::time::Instant::now();
-        let (tie, calls) = slow("tie", Some(LIST_DEADLINE));
-        let mut catalog = ProviderCatalog::new(CatalogSnapshot::default());
-        let (flights, started) = (catalog.flights.clone(), calls.clone());
-        catalog.after_spawn = Some(Arc::new(move || {
-            let (flights, started) = (flights.clone(), started.clone());
-            async move {
-                // The listing starts and arms its own timer,
-                while started.load(Ordering::SeqCst) == 0 {
-                    tokio::task::yield_now().await;
-                }
-                // then reaches it and settles before the caller runs again.
-                tokio::time::advance(LIST_DEADLINE).await;
-                while !flights.lock().unwrap().running.is_empty() {
-                    tokio::task::yield_now().await;
-                }
-            }
-            .boxed()
-        }));
-        let outcome = catalog.refresh_asking(std::slice::from_ref(&tie), Ask::Due).await;
-        let failed: Vec<serde_json::Value> = outcome
-            .failed
-            .iter()
-            .map(|(p, e)| serde_json::json!({ "name": p.as_str(), "models": [], "error": { "code": e.code, "message": e.message } }))
-            .collect();
-        let mut expected = recorded["entries"].clone();
-        expected[0].as_object_mut().unwrap().remove("retryAt");
-        assert_eq!(serde_json::Value::Array(failed), expected);
-        assert_eq!(serde_json::json!(start.elapsed().as_millis() as u64), recorded["at"]);
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-    }
-
+    #[cfg(node_twin)]
     /// The latest operation's work for `provider`.
     fn latest_work(catalog: &ProviderCatalog, provider: &str) -> Shared<BoxFuture<'static, Listing>> {
         catalog.flights.lock().unwrap().latest[&ProviderId::from(provider)].work.clone()
     }
 
+    #[cfg(node_twin)]
     /// `pendingProviderCatalogOps()` and `stalledProviderCatalogOps()`.
     fn pending_ops(catalog: &ProviderCatalog) -> (serde_json::Value, serde_json::Value) {
         let flights = catalog.flights.lock().unwrap();
@@ -736,6 +395,7 @@ mod tests {
         (serde_json::json!(names), serde_json::Value::Array(stalled))
     }
 
+    #[cfg(node_twin)]
     /// One unforced read, compared with its recorded point: entries, provider calls, time, pending and stalled
     /// operations. `codes` keeps the latest listing's error code per provider: what Node's kept entry carries.
     #[allow(clippy::too_many_arguments)]
@@ -782,6 +442,7 @@ mod tests {
         assert_eq!(stalled, recorded["stalled"], "{label}: operations stalled");
     }
 
+    #[cfg(node_twin)]
     /// A listing the last read started runs to its end, as the recorder drives it; nothing pends afterwards.
     async fn drain(catalog: &ProviderCatalog, name: &str) {
         let left = catalog.flights.lock().unwrap().latest.values().map(|f| f.work.clone()).collect::<Vec<_>>();
@@ -789,39 +450,6 @@ mod tests {
             let _ = work.await;
         }
         assert!(catalog.flights.lock().unwrap().running.is_empty(), "{name}: nothing pends at the end");
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_listing_begun_before_an_account_change_is_not_published() {
-        let clock = Arc::new(AtomicU64::new(0));
-        let catalog = clocked(&clock);
-        let (one, calls) = slow("one", Some(Duration::from_millis(100)));
-        let sources = [one];
-        let refresh = catalog.refresh(&sources);
-        let change = async {
-            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
-            catalog.invalidate_accounts();
-        };
-        futures::future::join(refresh, change).await;
-        assert!(catalog.snapshot().models_of(&"one".into()).is_empty());
-        assert!(catalog.snapshot().status.is_empty());
-        catalog.refresh(&sources).await;
-        assert_eq!(calls.load(Ordering::SeqCst), 2, "the new epoch asks again");
-        assert_eq!(catalog.snapshot().models_of(&"one".into()).len(), 1);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_failures_backoff_runs_from_when_it_failed_not_from_the_slowest_listing() {
-        let start = tokio::time::Instant::now();
-        let catalog = ProviderCatalog::new(CatalogSnapshot::default())
-            .with_clock(Arc::new(move || 1_000 + start.elapsed().as_millis() as u64));
-        let failing = ModelSource::new("a".into(), Arc::new(Keyed { key: None }));
-        let (slow_ok, _) = slow("b", Some(Duration::from_secs(3)));
-        catalog.refresh(&[failing, slow_ok]).await;
-        match catalog.snapshot().status.get(&ProviderId::from("a")) {
-            Some(ProviderStatus::Missing { retry_at, .. }) => assert_eq!(*retry_at, 1_000 + RETRY_AFTER_MS),
-            other => panic!("a should be missing, got {other:?}"),
-        }
     }
 
     #[test]
@@ -853,5 +481,392 @@ mod tests {
         let again = CatalogSnapshot::from_json(&snap.to_json().unwrap()).unwrap();
         assert_eq!(&again, &*snap);
         assert!(CatalogSnapshot::from_json(b"not json").is_none());
+    }
+
+    #[async_trait]
+    impl ModelListing for Slow {
+        async fn list_models(&self) -> Result<Vec<ListedRecord>, ProviderError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            match self.delay {
+                Some(delay) => mixdog_rt::time::sleep(delay).await,
+                None => std::future::pending::<()>().await,
+            }
+            Ok(vec![ListedRecord::new("m")])
+        }
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_listing_begun_before_an_account_change_is_not_published() {
+        let clock = Arc::new(AtomicU64::new(0));
+        let catalog = clocked(&clock);
+        let (one, calls) = slow("one", Some(Duration::from_millis(100)));
+        let sources = [one];
+        let refresh = catalog.refresh(&sources);
+        let change = async {
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
+            catalog.invalidate_accounts();
+        };
+        futures::future::join(refresh, change).await;
+        assert!(catalog.snapshot().models_of(&"one".into()).is_empty());
+        assert!(catalog.snapshot().status.is_empty());
+        catalog.refresh(&sources).await;
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "the new epoch asks again");
+        assert_eq!(catalog.snapshot().models_of(&"one".into()).len(), 1);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_failures_backoff_runs_from_when_it_failed_not_from_the_slowest_listing() {
+        let start = tokio::time::Instant::now();
+        let catalog = ProviderCatalog::new(CatalogSnapshot::default())
+            .with_clock(Arc::new(move || 1_000 + start.elapsed().as_millis() as u64));
+        let failing = ModelSource::new("a".into(), Arc::new(Keyed { key: None }));
+        let (slow_ok, _) = slow("b", Some(Duration::from_secs(3)));
+        catalog.refresh(&[failing, slow_ok]).await;
+        match catalog.snapshot().status.get(&ProviderId::from("a")) {
+            Some(ProviderStatus::Missing { retry_at, .. }) => assert_eq!(*retry_at, 1_000 + RETRY_AFTER_MS),
+            other => panic!("a should be missing, got {other:?}"),
+        }
+    }
+
+
+    /// Node's deadline timer is armed before the listing's own 4 s timer, so a listing that ends exactly at the deadline
+    /// (a cold Claude OAuth warm against an unreachable registry) has missed it (`record-catalog-deadline-tie.mjs`).
+    /// Three unforced reads, each against its own recorded point: the first, answered while the tied listing is still
+    /// pending; one at once, while it still is; and one after it settled at the same instant. Each publishes Node's
+    /// models and state at Node's time, asks the providers Node asked and leaves Node's operations pending.
+    #[cfg(node_twin)]
+    #[tokio::test(start_paused = true)]
+    async fn a_listing_ending_exactly_at_the_deadline_reads_as_nodes_at_each_point() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/catalog-deadline-tie/golden.json")).unwrap();
+        let now = golden["now"].as_u64().unwrap();
+        // One virtual clock for the whole recording, as the recorder's.
+        let start = tokio::time::Instant::now();
+        let at = move || start.elapsed().as_millis() as u64;
+        for scenario in golden["scenarios"].as_array().unwrap() {
+            let name = scenario["name"].as_str().unwrap();
+            let catalog = ProviderCatalog::new(CatalogSnapshot::default()).with_clock(Arc::new(move || now + at()));
+            let (sources, calls): (Vec<_>, Vec<_>) = scenario["providers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| slow(p["name"].as_str().unwrap(), Some(Duration::from_millis(p["answersAfterMs"].as_u64().unwrap()))))
+                .unzip();
+            let mut codes = BTreeMap::new();
+            for point in ["first", "whilePending", "afterSettle"] {
+                if point == "afterSettle" {
+                    // The tied listing's own timer, at the instant the deadline fired; its settlement leaves the table.
+                    latest_work(&catalog, "tie").await.unwrap();
+                    assert_eq!(pending_ops(&catalog).0, scenario["settledOps"], "{name}: operations once the listing settled");
+                }
+                read_as_recorded(&catalog, &sources, &calls, &mut codes, now, &at, &scenario[point], &format!("{name}: {point}")).await;
+            }
+            drain(&catalog, name).await;
+        }
+    }
+    /// `record-catalog-deadline-tie.mjs` `crossEpoch`: a listing overruns its deadline, an account change opens a new
+    /// epoch, and the new epoch's read fails on the still-unsettled operation ("ignored its deadline") without asking
+    /// the provider; once that listing settles a read asks again. Each point against its own recording.
+    #[cfg(node_twin)]
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_listing_holds_its_provider_across_an_account_change_as_nodes() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/catalog-deadline-tie/golden.json")).unwrap();
+        let now = golden["now"].as_u64().unwrap();
+        let scenario = &golden["crossEpoch"];
+        let name = scenario["name"].as_str().unwrap();
+        let start = tokio::time::Instant::now();
+        let at = move || start.elapsed().as_millis() as u64;
+        // The recorder's virtual clock runs on from the scenarios before this one.
+        tokio::time::advance(Duration::from_millis(scenario["startedAt"].as_u64().unwrap())).await;
+        let catalog = ProviderCatalog::new(CatalogSnapshot::default()).with_clock(Arc::new(move || now + at()));
+        let (sources, calls): (Vec<_>, Vec<_>) = scenario["providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| slow(p["name"].as_str().unwrap(), Some(Duration::from_millis(p["answersAfterMs"].as_u64().unwrap()))))
+            .unzip();
+        let mut codes = BTreeMap::new();
+        for point in ["first", "afterAccountChange", "afterSettle"] {
+            match point {
+                "afterAccountChange" => catalog.invalidate_accounts(),
+                "afterSettle" => {
+                    // The old epoch's listing runs to its own timer; its settlement leaves both tables.
+                    latest_work(&catalog, "stall").await.unwrap();
+                    let (ops, stalled) = pending_ops(&catalog);
+                    assert_eq!(ops, scenario["settledOps"], "{name}: operations once the listing settled");
+                    assert_eq!(stalled, scenario["settledStalled"], "{name}: stalled operations once it settled");
+                }
+                _ => {}
+            }
+            read_as_recorded(&catalog, &sources, &calls, &mut codes, now, &at, &scenario[point], &format!("{name}: {point}")).await;
+        }
+        drain(&catalog, name).await;
+    }
+    /// A caller descheduled between starting the listing and polling its deadline, while the listing runs to its own
+    /// 4 s timer (on another worker in production; here the seam yields to it and moves time on): the deadline was
+    /// fixed when the caller came in, so the tie still reads as Node's first point, a missed deadline at 4000 ms.
+    #[cfg(node_twin)]
+    #[tokio::test(start_paused = true)]
+    async fn a_caller_descheduled_after_starting_the_listing_still_misses_a_tied_deadline() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/catalog-deadline-tie/golden.json")).unwrap();
+        let recorded = &golden["scenarios"][0]["first"];
+        let start = tokio::time::Instant::now();
+        let (tie, calls) = slow("tie", Some(LIST_DEADLINE));
+        let mut catalog = ProviderCatalog::new(CatalogSnapshot::default());
+        let (flights, started) = (catalog.flights.clone(), calls.clone());
+        catalog.after_spawn = Some(Arc::new(move || {
+            let (flights, started) = (flights.clone(), started.clone());
+            async move {
+                // The listing starts and arms its own timer,
+                while started.load(Ordering::SeqCst) == 0 {
+                    tokio::task::yield_now().await;
+                }
+                // then reaches it and settles before the caller runs again.
+                tokio::time::advance(LIST_DEADLINE).await;
+                while !flights.lock().unwrap().running.is_empty() {
+                    tokio::task::yield_now().await;
+                }
+            }
+            .boxed()
+        }));
+        let outcome = catalog.refresh_asking(std::slice::from_ref(&tie), Ask::Due).await;
+        let failed: Vec<serde_json::Value> = outcome
+            .failed
+            .iter()
+            .map(|(p, e)| serde_json::json!({ "name": p.as_str(), "models": [], "error": { "code": e.code, "message": e.message } }))
+            .collect();
+        let mut expected = recorded["entries"].clone();
+        expected[0].as_object_mut().unwrap().remove("retryAt");
+        assert_eq!(serde_json::Value::Array(failed), expected);
+        assert_eq!(serde_json::json!(start.elapsed().as_millis() as u64), recorded["at"]);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+}
+
+impl ProviderCatalog {
+    pub fn new(initial: CatalogSnapshot) -> Self {
+        Self {
+            current: ArcSwap::from_pointee(initial),
+            epoch: AtomicU64::new(0),
+            publish_lock: Mutex::new(()),
+            serial: AtomicU64::new(0),
+            flights: Arc::default(),
+            failures: Arc::new(CatalogFailureStore::default()),
+            now_ms: Arc::new(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis() as u64)
+            }),
+            #[cfg(test)]
+            after_spawn: None,
+        }
+    }
+
+    /// Replaces the wall clock that stamps `retry_at` (tests).
+    pub fn with_clock(mut self, now_ms: Arc<dyn Fn() -> u64 + Send + Sync>) -> Self {
+        self.set_clock(now_ms);
+        self
+    }
+
+    /// [`with_clock`](Self::with_clock) in place.
+    pub fn set_clock(&mut self, now_ms: Arc<dyn Fn() -> u64 + Send + Sync>) {
+        self.now_ms = now_ms;
+    }
+
+    /// An auth/account change (`invalidateSharedProviderCatalog`): the rows
+    /// listed under the previous account are dropped, so the next due refresh
+    /// asks every provider, and listings still running for the old one are
+    /// neither joined nor published. They keep running, and one that stalled
+    /// still holds its provider (`bumpProviderCatalogGeneration` leaves the
+    /// operation tables alone).
+    pub fn invalidate_accounts(&self) {
+        let _publishing = self.publish_lock.lock().unwrap_or_else(PoisonError::into_inner);
+        self.epoch.fetch_add(1, Ordering::SeqCst);
+        // The failures belonged to the previous account too (`clearProviderCatalogFailures`).
+        self.failures.clear();
+        self.current.rcu(|current| {
+            Arc::new(CatalogSnapshot {
+                generation: current.generation + 1,
+                models: BTreeMap::new(),
+                status: BTreeMap::new(),
+            })
+        });
+    }
+
+    /// One bounded, single-flight listing (`boundedProviderCatalogOp`). The
+    /// caller waits at most the deadline; the operation runs on until it
+    /// settles, and while it overran a deadline nobody asks the provider again.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn list_bounded(&self, source: &ModelSource, epoch: u64) -> Listing {
+        let provider = source.provider().clone();
+        // The deadline's instant is fixed before the listing can start (Node arms it synchronously, `CD:123-124`, and
+        // runs the provider a microtask later, `:73-74`): another worker may run the listing at once, and its own
+        // timer must never be due before this one.
+        let deadline = mixdog_rt::time::sleep(LIST_DEADLINE);
+        let flight = {
+            let mut flights = self.flights.lock().unwrap_or_else(PoisonError::into_inner);
+            match flights.latest.get(&provider) {
+                // `catalog-deadline.mjs:146-150`: fail fast instead of waiting out another deadline.
+                Some(flight) if flight.epoch == epoch && flight.timed_out.load(Ordering::SeqCst) => {
+                    return Err(pending_error(&provider));
+                }
+                Some(flight) if flight.epoch == epoch => flight.clone(),
+                // Superseded (`:140-145`): a stalled operation of any epoch holds the provider.
+                _ if flights.stalled(&provider) => return Err(stalled_error(&provider)),
+                _ => {
+                    let serial = self.serial.fetch_add(1, Ordering::SeqCst);
+                    let (source, tables, settled) = (source.clone(), self.flights.clone(), provider.clone());
+                    // The work leaves the tables inside its own future, so no caller sees its answer while it is
+                    // still listed (`settled.then` cleanup runs before the callers' races in Node).
+                    let work: Shared<BoxFuture<'static, Listing>> = async move {
+                        let listing = source.listing().await;
+                        tables.lock().unwrap_or_else(PoisonError::into_inner).settle(&settled, serial);
+                        listing
+                    }
+                    .boxed()
+                    .shared();
+                    let flight = Flight { epoch, serial, timed_out: Arc::default(), work: work.clone() };
+                    flights.latest.insert(provider.clone(), flight.clone());
+                    flights.running.entry(provider.clone()).or_default().push(flight.clone());
+                    tokio::spawn(work.map(drop));
+                    flight
+                }
+            }
+        };
+        #[cfg(test)]
+        if let Some(hook) = &self.after_spawn {
+            hook().await;
+        }
+        // On a tie with the listing's own timer the deadline wins; poll it first.
+        tokio::select! {
+            biased;
+            () = deadline => {
+                flight.timed_out.store(true, Ordering::SeqCst);
+                Err(deadline_error(&provider))
+            }
+            listing = flight.work => listing,
+        }
+    }
+
+    /// The failure store (`providerCatalogFailure`).
+    pub fn failures(&self) -> &Arc<CatalogFailureStore> {
+        &self.failures
+    }
+
+    /// One atomic load; never waits on a refresh.
+    pub fn snapshot(&self) -> Arc<CatalogSnapshot> {
+        self.current.load_full()
+    }
+
+    /// Lists every source concurrently and publishes one new snapshot. A
+    /// failing source keeps its previous models. Runs off the read path.
+    pub async fn refresh(&self, sources: &[ModelSource]) -> RefreshOutcome {
+        self.refresh_asking(sources, Ask::All).await
+    }
+
+    /// [`refresh`](Self::refresh), asking only the providers `ask` selects.
+    pub async fn refresh_asking(&self, sources: &[ModelSource], ask: Ask) -> RefreshOutcome {
+        let listed = self.list_all(sources, ask).await;
+        self.publish(listed)
+    }
+
+    /// [`refresh_asking`](Self::refresh_asking) of the whole catalog: `sources` are every provider it has, so the
+    /// models and status of any other (one removed from the registry since) leave the published snapshot.
+    pub async fn refresh_whole(&self, sources: &[ModelSource], ask: Ask) -> RefreshOutcome {
+        let mut listed = self.list_all(sources, ask).await;
+        listed.whole = Some(sources.iter().map(|s| s.provider().clone()).collect());
+        self.publish(listed)
+    }
+
+    /// Lists the providers `ask` selects, concurrently. A provider not asked
+    /// is absent from the result and keeps its models and status.
+    async fn list_all(&self, sources: &[ModelSource], ask: Ask) -> Listed {
+        let epoch = self.epoch.load(Ordering::SeqCst);
+        let now = (self.now_ms)();
+        let current = self.current.load();
+        let nobody_answered = !sources
+            .iter()
+            .any(|s| matches!(current.status.get(s.provider()), Some(ProviderStatus::Ok | ProviderStatus::Stale { .. })));
+        let asked: Vec<&ModelSource> = sources
+            .iter()
+            .filter(|s| match ask {
+                Ask::All => true,
+                Ask::Due => {
+                    nobody_answered
+                        || match current.status.get(s.provider()) {
+                            None => true,
+                            Some(ProviderStatus::Ok) => false,
+                            Some(ProviderStatus::Missing { retry_at, .. } | ProviderStatus::Stale { retry_at, .. }) => now >= *retry_at,
+                        }
+                }
+            })
+            .collect();
+        let entries = futures::future::join_all(asked.iter().map(|s| async move {
+            let listing = self.list_bounded(s, epoch).await;
+            (s.provider().clone(), listing, (self.now_ms)())
+        }))
+        .await;
+        Listed { epoch, entries, whole: None }
+    }
+
+    fn publish(&self, listed: Listed) -> RefreshOutcome {
+        let mut outcome = RefreshOutcome {
+            refreshed: Vec::new(),
+            failed: Vec::new(),
+        };
+        let mut answers = Vec::new();
+        for (provider, listing, ended_at) in listed.entries {
+            match listing {
+                // Kept in listing order, as Node's catalog keeps it: the picker's sort is not total (duplicate ids,
+                // comparator ties), so its answer depends on that order.
+                Ok(listed) => {
+                    let status = match listed.stale {
+                        Some(message) => ProviderStatus::Stale { retry_at: ended_at + RETRY_AFTER_MS, message },
+                        None => ProviderStatus::Ok,
+                    };
+                    answers.push((provider.clone(), listed.rows, status));
+                    outcome.refreshed.push(provider);
+                }
+                Err(err) => {
+                    let status = ProviderStatus::Missing { retry_at: ended_at + RETRY_AFTER_MS, message: err.message.clone() };
+                    answers.push((provider.clone(), Vec::new(), status));
+                    outcome.failed.push((provider, err));
+                }
+            }
+        }
+        // Concurrent refreshes each publish a complete snapshot; the later
+        // generation number wins. A listing begun before an account change
+        // describes the previous account and is not published.
+        let _publishing = self.publish_lock.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.epoch.load(Ordering::SeqCst) != listed.epoch {
+            return outcome;
+        }
+        // Only a listing of the current account is recorded (`callerGeneration === generation`).
+        for provider in &outcome.refreshed {
+            // A stale roster is a refresh that failed: the failure it recorded stands.
+            if !answers.iter().any(|(answered, _, state)| answered == provider && matches!(state, ProviderStatus::Stale { .. })) {
+                self.failures.recover(provider.as_str());
+            }
+        }
+        for (provider, error) in &outcome.failed {
+            self.failures.record(provider.as_str(), error);
+        }
+        self.current.rcu(|current| {
+            let mut models = current.models.clone();
+            let mut status = current.status.clone();
+            for (provider, list, state) in &answers {
+                if !matches!(state, ProviderStatus::Missing { .. }) {
+                    models.insert(provider.clone(), list.clone());
+                }
+                status.insert(provider.clone(), state.clone());
+            }
+            if let Some(whole) = &listed.whole {
+                models.retain(|provider, _| whole.contains(provider));
+                status.retain(|provider, _| whole.contains(provider));
+            }
+            Arc::new(CatalogSnapshot {
+                generation: current.generation + 1,
+                models,
+                status,
+            })
+        });
+        outcome
     }
 }

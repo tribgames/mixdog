@@ -74,9 +74,9 @@ impl CorePort for Faulty {
         self.at("close_ext_host");
         self.inner.close_ext_host();
     }
-    fn close_data_handles(&self) {
+    fn close_data_handles(&self, drain: &ManagedDrain) {
         self.at("close_data_handles");
-        self.inner.close_data_handles();
+        self.inner.close_data_handles(drain);
     }
     fn flush_log(&self) {
         (self.flush)();
@@ -104,87 +104,8 @@ struct Run {
     _unwedge: mpsc::Sender<()>,
 }
 
-/// Serves, then drops the only client: an idle core stops and the release runs.
-fn release_with(fault: (&'static str, Fault), budgets: ReleaseBudgets) -> Run {
-    let flushes = Arc::new(AtomicU32::new(0));
-    let counted = flushes.clone();
-    release_flushing(fault, budgets, flushes, Arc::new(move || {
-        counted.fetch_add(1, Ordering::SeqCst);
-    }))
-}
-
-/// [`release_with`] whose exit flush is `flush`.
-fn release_flushing(fault: (&'static str, Fault), budgets: ReleaseBudgets, flushes: Arc<AtomicU32>, flush: Arc<dyn Fn() + Send + Sync>) -> Run {
-    let recorder = Arc::new(Recorder::default());
-    let root = tempfile::tempdir().unwrap();
-    let (unwedge, hold) = mpsc::channel();
-    let lifecycle = Lifecycle::with_grace(
-        LifecycleConfig { instance_id: "instance-1".into(), version: "1.4.6".into(), runtime_root: root.path().to_owned() },
-        Ports {
-            core: Arc::new(Faulty { inner: recorder.clone(), fault, hold: Mutex::new(hold), flush }),
-            discovery: recorder.clone(),
-            exiter: recorder.clone(),
-        },
-        budgets,
-        crate::lifecycle::ClientGrace::immediate(),
-        crate::lifecycle::testing::ManualTimer::new(),
-    );
-    lifecycle.set_serving().unwrap();
-    drop(lifecycle.connection(crate::lifecycle::ClientKind::Session));
-    Run { recorder, root, flushes, _unwedge: unwedge }
-}
-
 fn last_exit(root: &std::path::Path) -> serde_json::Value {
     serde_json::from_slice(&std::fs::read(root.join(LAST_EXIT_FILE)).unwrap()).unwrap()
-}
-
-#[test]
-fn a_wedged_release_step_is_named_and_the_process_still_exits() {
-    for (step, name) in [
-        ("final_barriers", "finalBarriers"),
-        ("close_connections", "closeConnections"),
-        ("close_ext_host", "closeExtHost"),
-        ("close_data_handles", "closeDataHandles"),
-    ] {
-        let run = release_with((step, Fault::Wedge), budgets(step));
-        run.recorder.wait_exit();
-        let exit = last_exit(run.root.path());
-        assert_eq!(exit["stuckStep"], name, "{step}");
-        assert_eq!(exit["reason"], "noClients", "{step}");
-        // Node's exit hook writes the queued log tail on a forced exit too: the flush does not depend on the skipped steps.
-        assert_eq!(run.flushes.load(Ordering::SeqCst), 1, "the log is flushed once before the exit after {step} wedged");
-        let events = run.recorder.events();
-        assert!(events.contains(&"withdraw".to_owned()), "discovery is withdrawn after {step} wedged: {events:?}");
-        if step != "close_data_handles" {
-            assert!(!events.contains(&"close_data_handles".to_owned()), "the closing steps after {step} are skipped: {events:?}");
-        }
-    }
-}
-
-#[test]
-fn a_panicking_release_step_does_not_stop_the_release() {
-    let run = release_with(("close_connections", Fault::Panic), budgets(""));
-    run.recorder.wait_exit();
-    let events = run.recorder.events();
-    assert!(events.contains(&"close_ext_host".to_owned()), "{events:?}");
-    assert!(events.contains(&"close_data_handles".to_owned()), "{events:?}");
-    assert!(last_exit(run.root.path()).get("stuckStep").is_none());
-}
-
-/// An async step is supervised on its own thread, and its wait is a timer of the runtime: under
-/// paused time the budget runs out by itself, with nothing slept.
-#[tokio::test(start_paused = true)]
-async fn an_async_step_over_its_budget_is_abandoned_at_the_budget() {
-    let (release, held) = tokio::sync::oneshot::channel::<()>();
-    let started = tokio::time::Instant::now();
-    let end = supervise_async("held", Duration::from_secs(30), async move {
-        let _ = held.await;
-    })
-    .await;
-    assert_eq!(end, StepEnd::OverBudget);
-    assert_eq!(started.elapsed(), Duration::from_secs(30));
-    // The abandoned step ends when its wait does.
-    drop(release);
 }
 
 /// The two tests below run on the real clock with an ample budget. Under paused time the runtime
@@ -208,13 +129,6 @@ async fn an_async_step_that_panics_is_reported_and_the_caller_goes_on() {
     assert_eq!(end, StepEnd::Panicked);
 }
 
-#[test]
-fn a_clean_release_names_no_stuck_step() {
-    let run = release_with(("none", Fault::Wedge), budgets(""));
-    run.recorder.wait_exit();
-    assert!(last_exit(run.root.path()).get("stuckStep").is_none());
-}
-
 /// Writes nothing on its own: a job scheduled on it never runs, so a batch can only reach the disk through a flush.
 struct NeverFires;
 
@@ -226,12 +140,98 @@ impl mixdog_core_session::session::gateway_usage::Scheduler for NeverFires {
 
 struct Unpriced;
 
-impl mixdog_ai::registry::accounting::UsagePricing for Unpriced {
-    fn price_usage(&self, _: &mixdog_ai::catalog::UsageArgs) -> mixdog_ai::catalog::PricedUsage {
-        mixdog_ai::catalog::PricedUsage { input: 0.0, cost_usd: None, rates: Default::default() }
+#[cfg(node_twin)]
+struct Now;
+
+/// Serves, then drops the only client: an idle core stops and the release runs.
+fn release_with(fault: (&'static str, Fault), budgets: ReleaseBudgets) -> Run {
+    let flushes = Arc::new(AtomicU32::new(0));
+    let counted = flushes.clone();
+    release_flushing(fault, budgets, flushes, Arc::new(move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+    }))
+}
+/// [`release_with`] whose exit flush is `flush`.
+fn release_flushing(fault: (&'static str, Fault), budgets: ReleaseBudgets, flushes: Arc<AtomicU32>, flush: Arc<dyn Fn() + Send + Sync>) -> Run {
+    let recorder = Arc::new(Recorder::default());
+    let root = tempfile::tempdir().unwrap();
+    let (unwedge, hold) = mpsc::channel();
+    let lifecycle = Lifecycle::with_grace(
+        LifecycleConfig { instance_id: "instance-1".into(), version: "1.4.6".into(), runtime_root: root.path().to_owned() },
+        Ports {
+            core: Arc::new(Faulty { inner: recorder.clone(), fault, hold: Mutex::new(hold), flush }),
+            discovery: recorder.clone(),
+            exiter: recorder.clone(),
+        },
+        budgets,
+        crate::lifecycle::ClientGrace::immediate(),
+        crate::lifecycle::testing::ManualTimer::new(),
+    );
+    lifecycle.set_serving().unwrap();
+    drop(lifecycle.connection(crate::lifecycle::ClientKind::Session));
+    Run { recorder, root, flushes, _unwedge: unwedge }
+}
+#[test]
+fn a_wedged_release_step_is_named_and_the_process_still_exits() {
+    for (step, name) in [
+        ("final_barriers", "finalBarriers"),
+        ("close_connections", "closeConnections"),
+        ("close_ext_host", "closeExtHost"),
+        ("close_data_handles", "closeDataHandles"),
+    ] {
+        let run = release_with((step, Fault::Wedge), budgets(step));
+        run.recorder.wait_exit();
+        let exit = last_exit(run.root.path());
+        assert_eq!(exit["stuckStep"], name, "{step}");
+        assert_eq!(exit["reason"], "noClients", "{step}");
+        // Node's exit hook writes the queued log tail on a forced exit too: the flush does not depend on the skipped steps.
+        assert_eq!(run.flushes.load(Ordering::SeqCst), 1, "the log is flushed once before the exit after {step} wedged");
+        let events = run.recorder.events();
+        assert!(events.contains(&"withdraw".to_owned()), "discovery is withdrawn after {step} wedged: {events:?}");
+        // The stop steps (the sessions' teardown, the records, the database) run before the connections and the extension host, so a
+        // step wedged there never keeps them from running; one wedged before them, or in them, skips what follows it.
+        let order = ["final_barriers", "close_data_handles", "close_connections", "close_ext_host"];
+        let wedged = order.iter().position(|s| *s == step).unwrap();
+        for (at, later) in order.iter().enumerate() {
+            // The wedged step itself blocks before it records.
+            if at == wedged {
+                continue;
+            }
+            let ran = events.contains(&(*later).to_owned());
+            assert_eq!(ran, at < wedged, "{later} after {step} wedged: {events:?}");
+        }
     }
 }
-
+#[test]
+fn a_panicking_release_step_does_not_stop_the_release() {
+    let run = release_with(("close_connections", Fault::Panic), budgets(""));
+    run.recorder.wait_exit();
+    let events = run.recorder.events();
+    assert!(events.contains(&"close_ext_host".to_owned()), "{events:?}");
+    assert!(events.contains(&"close_data_handles".to_owned()), "{events:?}");
+    assert!(last_exit(run.root.path()).get("stuckStep").is_none());
+}
+/// An async step is supervised on its own thread, and its wait is a timer of the runtime: under
+/// paused time the budget runs out by itself, with nothing slept.
+#[tokio::test(start_paused = true)]
+async fn an_async_step_over_its_budget_is_abandoned_at_the_budget() {
+    let (release, held) = tokio::sync::oneshot::channel::<()>();
+    let started = tokio::time::Instant::now();
+    let end = supervise_async("held", Duration::from_secs(30), async move {
+        let _ = held.await;
+    })
+    .await;
+    assert_eq!(end, StepEnd::OverBudget);
+    assert_eq!(started.elapsed(), Duration::from_secs(30));
+    // The abandoned step ends when its wait does.
+    drop(release);
+}
+#[test]
+fn a_clean_release_names_no_stuck_step() {
+    let run = release_with(("none", Fault::Wedge), budgets(""));
+    run.recorder.wait_exit();
+    assert!(last_exit(run.root.path()).get("stuckStep").is_none());
+}
 /// Node writes the last gateway usage batch in `process.on('exit', flushGatewayUsageEventsSync)`
 /// (`route-meta.mjs:416`), and `process.exit` runs it on every path the process can end on
 /// (`cli.mjs:88`, `process-shutdown.mjs:79,141`): after a stop step over its budget as well. The release
@@ -280,15 +280,21 @@ async fn a_pending_gateway_usage_batch_is_written_when_a_stop_step_wedged() {
     assert_eq!(lines.len(), 1, "{text}");
     assert!(lines[0].contains("\"provider\":\"p\"") && lines[0].contains("\"inputTokens\":5"), "{text}");
 }
-
-struct Now;
-
+#[cfg(node_twin)]
 impl mixdog_agent::env::Clock for Now {
     fn now_ms(&self) -> i64 {
         i64::try_from(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()).unwrap()
     }
 }
 
+impl mixdog_ai::registry::accounting::UsagePricing for Unpriced {
+    fn price_usage(&self, _: &mixdog_ai::catalog::UsageArgs) -> mixdog_ai::catalog::PricedUsage {
+        mixdog_ai::catalog::PricedUsage { input: 0.0, cost_usd: None, rates: Default::default() }
+    }
+}
+
+
+#[cfg(node_twin)]
 /// Node queues a failure row and writes it 1000 ms later or in its `beforeExit`/`exit` hooks (`agent-trace-io.mjs:214-221`), which
 /// `process.exit` runs on every ordinary end of the daemon (`daemon.mjs:412`, the shutdown every stop and signal comes to). The
 /// recording `fixtures/tool-failures` scenario "a failed call whose row is still queued when the process stops" held Node's 1000 ms

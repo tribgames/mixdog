@@ -10,7 +10,7 @@ import MarkdownBody from './MarkdownBody.tsx';
 import { CopyControl } from './transcript-primitives.tsx';
 import { parseStreamingMarkdownAst } from './markdown-worker-client.ts';
 import { t } from './i18n.ts';
-import { requiredDesktopCapabilityRequest } from '../main/ipc-validation.ts';
+import { requiredDesktopCapabilityRequest } from '../main/ipc-capability-request.ts';
 
 test('reasoning uses current occupancy for category percentages and maps, never cumulative generation', () => {
   for (const reasoningTokens of [0, 1200]) {

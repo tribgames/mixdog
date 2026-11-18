@@ -113,9 +113,16 @@ test('workflow contracts: strict gate, Latest guard triggers, post-release job, 
   const { parse } = (await import('node:module')).createRequire(import.meta.url)('yaml');
   const read = (name) => readFile(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8');
   // Source-text on purpose: workflow YAML runs only on GitHub runners.
-  const deploy = await read('deploy.yml');
-  assert.match(deploy, /refusing to release an ungated commit/);
-  const jobs = parse(deploy).jobs;
+  const { jobs } = parse(await read('deploy.yml'));
+  assert.equal(jobs['coverage-gate'].uses, './.github/workflows/release-gate.yml');
+  for (const name of ['runtime', 'voice', 'graph']) {
+    assert.ok(jobs[name].needs.includes('coverage-gate'), `${name} needs the full native gate`);
+    assert.equal(jobs[name].with.sha, jobs['coverage-gate'].with.ref);
+  }
+  const releaseJobs = parse(await read('release.yml')).jobs;
+  assert.equal(releaseJobs['coverage-gate'].uses, './.github/workflows/release-gate.yml');
+  assert.equal(releaseJobs['coverage-gate'].with.ref, '${{ inputs.ref }}');
+  assert.ok(releaseJobs.publish.needs.includes('coverage-gate'));
   assert.deepEqual(jobs['post-release-check'].needs, ['plan', 'prepare-app', 'release']);
   // Runs even when mobile/relay turn `release` red after the desktop publish,
   // but not when the release call was cancelled or never ran.
@@ -135,7 +142,25 @@ test('workflow contracts: strict gate, Latest guard triggers, post-release job, 
   const guard = parse(await read('latest-guard.yml'));
   assert.deepEqual(guard.on.release.types, ['published', 'edited', 'released']);
   assert.ok('workflow_dispatch' in guard.on && guard.on.schedule.length === 1);
-  assert.deepEqual(guard.permissions, { contents: 'write', issues: 'write' });
+  assert.deepEqual(guard.permissions, { contents: 'read', issues: 'write' });
+  assert.equal(guard.jobs.guard.permissions, undefined, 'the guard must inherit read-only release access');
   // The one native tool still released on its own publishes without taking Latest.
   assert.match(await read('graph-release.yml'), /-F draft=false -f make_latest=false/);
+});
+
+test('standalone runtime dispatch forwards both options and hands off the gated worker’s exact manifest', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { parse } = (await import('node:module')).createRequire(import.meta.url)('yaml');
+  const workflow = parse(await readFile(new URL('../.github/workflows/refresh-runtime-manifest.yml', import.meta.url), 'utf8'));
+  const { inputs } = workflow.on.workflow_dispatch;
+  const { refresh, handoff } = workflow.jobs;
+  for (const option of ['force_rebuild', 'refresh_manifest']) {
+    assert.equal(inputs[option].type, 'boolean');
+    assert.equal(refresh.with[option], `\${{ inputs.${option} }}`);
+  }
+  assert.deepEqual(handoff.permissions, { contents: 'read' });
+  assert.ok([handoff.needs].flat().includes('refresh'));
+  const download = handoff.steps.find((step) => step.uses?.startsWith('actions/download-artifact@'));
+  assert.equal(download?.with['artifact-ids'], '${{ needs.refresh.outputs.manifest_id }}');
+  assert.equal(download?.with['digest-mismatch'], 'error');
 });

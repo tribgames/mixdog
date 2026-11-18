@@ -15,7 +15,7 @@ use mixdog_agent::compact::text_utils::StoredText;
 use mixdog_ai::service::model_proxy_inline::{AttachmentReader, ReadError};
 use mixdog_protocol::message_class::user_text::attachment_text;
 use mixdog_agent::message::AgentMessage;
-use mixdog_core_api::domain::provider::{BinarySource, Content, ContentPart, DocumentSource, ImageSource, Role};
+use mixdog_core_api::domain::provider::{BinarySource, Content, ContentPart, DocumentSource, ImageSource};
 
 use super::media::{inline_file_kind, AttachmentFacts, FileKind};
 
@@ -27,6 +27,11 @@ pub use mixdog_tools::fs::READ_PDF_MAX_PAGES_PER_CALL;
 pub struct StoredFile {
     pub reference: String,
     pub size_bytes: u64,
+}
+
+/// The store's form of an image part: a reference with its picture type, no bytes and no text.
+fn stored_image(reference: String, mime_type: &str) -> ContentPart {
+    ContentPart::File { source: BinarySource::AttachmentRef(reference), mime_type: mime_type.to_owned(), filename: None, text: None }
 }
 
 /// `record.original`: the file as picked, behind a stored converted copy.
@@ -46,6 +51,12 @@ pub trait AttachmentFiles: Send + Sync {
     /// `storeInlineImagePart` / `storeInlineDocumentPart`: writes an inline payload so it gets a
     /// path too; `None` when the store cannot take it.
     async fn store_inline(&self, base64: &str, mime_type: &str, filename: &str) -> Option<StoredFile>;
+    /// The store's refusal text for a stored image it judged unusable (its verdict is permanent); `None` for any other
+    /// reference. A refused image is referenced by the store, never carried inline and never turned into text.
+    async fn refusal_of(&self, reference: &str) -> Option<String> {
+        let _ = reference;
+        None
+    }
     /// `namedAttachmentFile`: the copy under the file's own name and extension, for a file
     /// chooser or an office tool.
     ///
@@ -195,9 +206,6 @@ impl ReferencedMedia {
     /// `messageAttachmentTokens`: what a user message's own referencable media cost inline.
     fn inline_tokens(&self, message: &AgentMessage, native_pdf: bool) -> u64 {
         let Content::Parts(parts) = &message.message.content else { return 0 };
-        if message.role() != Role::User {
-            return 0;
-        }
         parts
             .iter()
             .filter(|p| is_referencable(p))
@@ -212,7 +220,7 @@ impl ReferencedMedia {
     /// that reads PDFs as text, so inline it says nothing.
     async fn carries_textless_scan(&self, message: &AgentMessage, native_pdf: bool) -> bool {
         let Content::Parts(parts) = &message.message.content else { return false };
-        if native_pdf || message.role() != Role::User {
+        if native_pdf {
             return false;
         }
         for part in parts.iter().filter(|p| is_referencable(p) && !is_image_part(p)) {
@@ -237,7 +245,14 @@ impl ReferencedMedia {
         let (reference, size, mime, filename, image) = match part {
             ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => {
                 let stored = self.files.store_inline(data, mime_type, "").await?;
+                if self.files.refusal_of(&stored.reference).await.is_some() {
+                    return Some(stored_image(stored.reference, mime_type));
+                }
                 (stored.reference, stored.size_bytes, mime_type.clone(), String::new(), true)
+            }
+            ContentPart::File { source: BinarySource::AttachmentRef(r), mime_type, .. } if is_image_mime(mime_type) && self.files.refusal_of(r).await.is_some() => {
+                // Already the store's own form of a refused picture: the part stays exactly as it is, for a send to name.
+                return None;
             }
             ContentPart::File { source: BinarySource::AttachmentRef(r), mime_type, filename, .. } => {
                 let size = self.facts.facts(r).await.map_or(0, |f| f.size_bytes);
@@ -312,9 +327,6 @@ impl AttachmentSeam for ReferencedMedia {
     async fn reference_media(&self, message: &AgentMessage) -> AgentMessage {
         // The message's own attachment records name each file as picked.
         let records = attached_records(message);
-        if message.role() != Role::User {
-            return message.clone();
-        }
         let Content::Parts(parts) = &message.message.content else { return message.clone() };
         let mut changed = false;
         let mut next: Vec<ContentPart> = Vec::with_capacity(parts.len());
@@ -443,19 +455,107 @@ impl ReferencedMedia {
         Some(ContentPart::Text(text, Some(meta)))
     }
 }
+
 #[cfg(test)]
-mod tests {
-    use base64::Engine;
-    use base64::engine::general_purpose::STANDARD;
-    use mixdog_agent::compact::estimate::PartMeter;
-    use serde_json::Value;
+mod refusal_tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use mixdog_agent::compact::estimate::{MediaMeter, PartMeter};
+    use mixdog_agent::message::ToolKind;
 
     use super::*;
     use crate::run_host::media::StoredFacts;
 
+    const REFUSED: &str = "aa";
+    const FINE: &str = "bb";
+
+    /// A store whose verdicts are fixed: the image "aa" is refused, every other one is usable.
+    struct Files;
+    #[async_trait]
+    impl AttachmentFiles for Files {
+        async fn store_inline(&self, base64: &str, _: &str, _: &str) -> Option<StoredFile> {
+            Some(StoredFile { reference: if base64 == "refused" { REFUSED } else { FINE }.to_owned(), size_bytes: 3 })
+        }
+        async fn refusal_of(&self, reference: &str) -> Option<String> {
+            (reference == REFUSED).then(|| "damaged".to_owned())
+        }
+        async fn named_file(&self, reference: &str, _: &str, _: &str, _: Option<&OriginalFile>) -> Result<String, ()> {
+            Ok(format!("/files/{reference}"))
+        }
+        fn blob_path(&self, reference: &str) -> Result<String, InvalidReference> {
+            Ok(format!("/blobs/{reference}"))
+        }
+    }
+
+    struct Facts;
+    #[async_trait]
+    impl AttachmentFacts for Facts {
+        async fn facts(&self, _: &str) -> Option<StoredFacts> {
+            None
+        }
+    }
+
+    struct Meter;
+    impl MediaMeter for Meter {
+        fn part(&self, _: &ContentPart) -> PartMeter {
+            PartMeter { text: String::new(), tokens: 1 }
+        }
+    }
+
+    fn seam() -> ReferencedMedia {
+        ReferencedMedia::new(Arc::new(Files), Arc::new(Facts), Arc::new(Meter))
+    }
+
+    fn inline(data: &str) -> ContentPart {
+        ContentPart::Image(ImageSource::Base64 { data: data.into(), mime_type: "image/png".into(), width: None, height: None })
+    }
+
+    #[tokio::test]
+    async fn a_refused_image_becomes_the_stores_reference_never_text_and_never_stays_inline() {
+        let got = seam().reference_part(&inline("refused")).await.expect("replaced");
+        assert_eq!(got, ContentPart::File { source: BinarySource::AttachmentRef(REFUSED.into()), mime_type: "image/png".into(), filename: None, text: None });
+        assert!(matches!(seam().reference_part(&inline("fine")).await, Some(ContentPart::Text(..))), "a usable image is referenced by its path as before");
+        // The store's own form of a refused picture is left exactly as it is (a send names it).
+        assert_eq!(seam().reference_part(&got).await, None);
+    }
+
+    #[tokio::test]
+    async fn every_role_is_referenced_and_a_tool_result_keeps_its_call() {
+        for message in [AgentMessage::user("x"), AgentMessage::tool_text("c1", "x", ToolKind::Normal)] {
+            let mut message = message;
+            message.message.content = Content::Parts(vec![ContentPart::Text("see".into(), None), inline("fine"), inline("refused")]);
+            let out = seam().reference_media(&message).await;
+            let Content::Parts(parts) = &out.message.content else { panic!("parts") };
+            assert_eq!(parts.len(), 3, "no part is dropped or merged");
+            assert!(matches!(&parts[1], ContentPart::Text(..)));
+            assert!(matches!(&parts[2], ContentPart::File { source: BinarySource::AttachmentRef(r), .. } if r == REFUSED));
+            assert_eq!(out.tool_call_id(), message.tool_call_id());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(node_twin)]
+    use base64::Engine;
+    #[cfg(node_twin)]
+    use base64::engine::general_purpose::STANDARD;
+    #[cfg(node_twin)]
+    use mixdog_agent::compact::estimate::PartMeter;
+    #[cfg(node_twin)]
+    use serde_json::Value;
+
+    #[cfg(node_twin)]
+    use super::*;
+    #[cfg(node_twin)]
+    use crate::run_host::media::StoredFacts;
+
     /// A store that names a payload by its filename and finds the path Node's run gave it.
+    #[cfg(node_twin)]
     struct Files(Value);
     #[async_trait]
+    #[cfg(node_twin)]
     impl AttachmentFiles for Files {
         async fn store_inline(&self, base64: &str, _: &str, filename: &str) -> Option<StoredFile> {
             Some(StoredFile { reference: filename.to_owned(), size_bytes: STANDARD.decode(base64).unwrap().len() as u64 })
@@ -477,8 +577,10 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Facts;
     #[async_trait]
+    #[cfg(node_twin)]
     impl AttachmentFacts for Facts {
         async fn facts(&self, reference: &str) -> Option<StoredFacts> {
             let (pages, text) = match reference {
@@ -491,23 +593,28 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Meter;
+    #[cfg(node_twin)]
     impl MediaMeter for Meter {
         fn part(&self, part: &ContentPart) -> PartMeter {
             PartMeter { text: String::new(), tokens: if matches!(part, ContentPart::Text(_, _)) { 0 } else { 100 } }
         }
     }
 
+    #[cfg(node_twin)]
     fn seam(golden: &Value) -> ReferencedMedia {
         ReferencedMedia::new(Arc::new(Files(golden.clone())), Arc::new(Facts), Arc::new(Meter))
     }
 
+    #[cfg(node_twin)]
     fn b64(text: &str) -> String {
         STANDARD.encode(text)
     }
 
     /// Node's `mediaPartToReference` text on eight parts; the path line is the one the store gave.
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn reference_texts_follow_node() {
         let golden: Value = serde_json::from_str(include_str!("golden/attachment_reference.json")).unwrap();
         let pdf = b64(&format!("%PDF-1.4 {}", "x".repeat(2000)));
@@ -551,6 +658,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn only_a_user_messages_media_is_referenced_and_tokens_count_media_only() {
         let golden: Value = serde_json::from_str(include_str!("golden/attachment_reference.json")).unwrap();
         let s = seam(&golden);
@@ -564,15 +672,16 @@ mod tests {
         assert_eq!(parts[0], ContentPart::Text("see".into(), None));
         assert!(matches!(&parts[1], ContentPart::Text(t, _) if t.starts_with("[Attachment kept on disk, not inlined: \"one.pdf\" (PDF, 1 page, text layer on every page, 12 bytes)")));
         assert!(!s.has_referencable_media(&referenced));
-        // A tool result is left as it is.
+        // A tool result's media is referenced like a user's (an intended departure from Node, which left it inline).
         let mut tool = AgentMessage::tool_text("c1", "x", mixdog_agent::message::ToolKind::Normal);
         tool.message.content = Content::Parts(vec![pdf]);
-        assert_eq!(s.reference_media(&tool).await, tool);
+        assert!(!s.has_referencable_media(&s.reference_media(&tool).await));
     }
 
     /// Neither the named copy nor the bare blob path can be made for a reference that names no blob
     /// (Node throws): the part stays inline.
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_reference_that_names_no_blob_is_not_referenced() {
         let golden: Value = serde_json::from_str(include_str!("golden/attachment_reference.json")).unwrap();
         let s = seam(&golden);
@@ -582,6 +691,7 @@ mod tests {
 
     /// The summarizer's stored text comes from the store's bytes, worded as a request words it.
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn stored_text_reads_the_blob_and_tells_gone_from_transient() {
         struct Reader;
         #[async_trait]
@@ -611,6 +721,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn the_attached_files_note_names_each_path_and_keeps_the_files_object() {
         let golden: Value = serde_json::from_str(include_str!("golden/attachment_reference.json")).unwrap();
         let s = seam(&golden);
@@ -624,3 +735,5 @@ mod tests {
         assert_eq!(meta["files"][0]["attachmentRef"], "one.pdf");
         assert_eq!(meta["files"][0]["sizeBytes"], 7);
     }}
+
+

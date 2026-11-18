@@ -50,20 +50,14 @@ pub fn frontmost_pid() -> i32 {
     }
 }
 
-fn running_application(pid: i32) -> *mut AnyObject {
+pub(crate) fn running_application(pid: i32) -> *mut AnyObject {
     // SAFETY: returns nil when no such application runs.
     unsafe { msg_send![class!(NSRunningApplication), runningApplicationWithProcessIdentifier: pid] }
 }
 
-/// Brings the application forward, ahead of whichever app is active.
+/// Brings the application forward, ahead of whichever app is active: one operation of the executor's port.
 pub fn activate(pid: i32) -> bool {
-    let app = running_application(pid);
-    if app.is_null() {
-        return false;
-    }
-    // NSApplicationActivateIgnoringOtherApps.
-    // SAFETY: app is a live NSRunningApplication.
-    unsafe { msg_send![app, activateWithOptions: 2usize] }
+    crate::port::macos::activate(pid)
 }
 
 /// macOS 14 activation is cooperative: a process that is not frontmost (this
@@ -86,14 +80,9 @@ pub fn activate_through_launch_services(pid: i32) -> bool {
     if path.is_empty() {
         return false;
     }
-    std::process::Command::new("/usr/bin/open")
-        .arg("-a")
-        .arg(&path)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+    // `open` hands the request to Launch Services: handed over by the executor's port.
+    crate::port::macos::open(&["-a".to_string(), path])
+        .is_ok_and(|output| output.is_ok_and(|output| output.status.success()))
 }
 
 /// The pid of a running application whose bundle lives at `path`.
@@ -150,7 +139,7 @@ pub fn screens() -> Vec<(CGRect, CGRect)> {
     out
 }
 
-const PLAIN_TEXT: &str = "public.utf8-plain-text";
+pub(crate) const PLAIN_TEXT: &str = "public.utf8-plain-text";
 
 pub fn pasteboard_read() -> String {
     // SAFETY: general pasteboard read.
@@ -161,17 +150,8 @@ pub fn pasteboard_read() -> String {
     }
 }
 
-pub fn pasteboard_write(text: &str) -> bool {
-    // SAFETY: general pasteboard write.
-    unsafe {
-        let board: *mut AnyObject = msg_send![class!(NSPasteboard), generalPasteboard];
-        let _: isize = msg_send![board, clearContents];
-        if text.is_empty() {
-            return pasteboard_read().is_empty();
-        }
-        let kind = NSString::from_str(PLAIN_TEXT);
-        let value = NSString::from_str(text);
-        let _: bool = msg_send![board, setString: &*value, forType: &*kind];
-    }
-    pasteboard_read() == text
+/// The pasteboard write, one operation of the executor's port; the read-back after it holds nothing.
+pub fn pasteboard_write(text: &str) -> Result<bool, String> {
+    crate::port::macos::pasteboard_write(text)?;
+    Ok(pasteboard_read() == text)
 }

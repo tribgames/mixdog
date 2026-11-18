@@ -4,35 +4,38 @@
 // never in the default discovery lane. Source-shape packaging invariants stay
 // in packaging.test.mjs.
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { access, open, readdir, readFile, stat } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { access, lstat, open, readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { extractFile } from '@electron/asar';
 import { CORE_READS, onnxRuntimeSupported, ortBinaryDir, UNPACKED_NODE_MODULES } from '../../scripts/core-layout.mjs';
+import { packagedOutputName } from '../../scripts/packaged-output.mjs';
 import { verifyStagedResources } from '../../scripts/verify-staged-package.mjs';
-
-/** The `resources` directories under `directory` (win-unpacked/resources, linux-unpacked/resources,
- *  Mixdog.app/Contents/Resources): the directories holding the core and the unpacked runtime. */
-async function findPackagedResources(directory, depth = 0) {
-  if (depth > 8) return [];
-  let entries;
-  try {
-    entries = await readdir(directory, { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === 'ENOENT') return [];
-    throw error;
-  }
-  const names = new Set(entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name));
-  if (names.has('core') && names.has('runtime.asar.unpacked')) return [directory];
-  const found = [];
-  for (const entry of entries) {
-    if (entry.isDirectory()) found.push(...(await findPackagedResources(join(directory, entry.name), depth + 1)));
-  }
-  return found;
-}
+import { artifactFile, artifactPath, withPackagedCore } from './test-support/packaged-runtime.mjs';
 
 const distDir = () => fileURLToPath(new URL('../../dist', import.meta.url));
+
+async function packagedResources() {
+  const expected = packagedOutputName(process.platform, process.arch);
+  const { MIXDOG_PACKAGED_OUTPUT: name, MIXDOG_PACKAGED_BUILD_STARTED_AT: startedAt } = process.env;
+  assert.ok(name && startedAt, 'an explicit package output and pre-build timestamp are required');
+  assert.equal(name, expected, 'package lane handed off the wrong Electron Builder output');
+  const cutoff = Number(startedAt);
+  assert.ok(/^[1-9]\d*$/.test(startedAt) && Number.isSafeInteger(cutoff) && cutoff <= Date.now(), 'invalid package build timestamp');
+  assert.ok((await lstat(distDir())).isDirectory(), 'dist must be a real directory');
+  const output = join(distDir(), name);
+  const info = await lstat(output);
+  assert.ok(info.isDirectory(), `${output} is not an unpacked package directory`);
+  assert.ok(info.birthtimeMs >= cutoff, `${output} existed before this package build`);
+  const resources = process.platform === 'darwin'
+    ? join(output, 'Mixdog.app', 'Contents', 'Resources')
+    : join(output, 'resources');
+  await artifactPath(output, resources);
+  assert.ok((await stat(resources)).isDirectory(), `${resources} is not a directory`);
+  return resources;
+}
 
 /** Every file under `directory`, as paths relative to it. */
 async function filesUnder(directory) {
@@ -139,13 +142,9 @@ test('the build staged the core the app starts, with its js-runtime manifest bes
   await access(join(core, 'js-runtime.json'));
 });
 
-test('the built runtime is the staged real-file tree: no archive, the closure, the ONNX library of this target, nothing foreign', async () => {
-  const stagedModules = fileURLToPath(new URL('../../.runtime/native-modules/', import.meta.url));
-  await access(stagedModules);
+async function assertRuntimeEmitted(resources, stagedModules, stagedFiles) {
   // Targets without an onnxruntime-node binding (darwin-x64) ship none at all.
   const onnx = onnxRuntimeSupported(process.platform, process.arch);
-  const [resources] = await findPackagedResources(distDir());
-  assert.ok(resources, `dist is missing a packaged ${process.platform}-${process.arch} resources directory with core/ and runtime.asar.unpacked/`);
   assert.equal(await stat(join(resources, 'runtime.asar')).then(() => true, () => false), false, 'the package ships a runtime.asar nothing opens');
   const builtModules = join(resources, UNPACKED_NODE_MODULES);
   const files = await filesUnder(builtModules);
@@ -173,9 +172,8 @@ test('the built runtime is the staged real-file tree: no archive, the closure, t
   const nativeBinaries = files.filter((entry) => /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(entry));
   assert.ok(nativeBinaries.some((entry) => entry.endsWith('.node')), 'the built runtime contains no native addon');
   // Every staged file reached the package unchanged (a signed macOS binary: same code and data segments).
-  const staged = await filesUnder(stagedModules);
   const builtSet = new Set(files);
-  for (const entry of staged.filter((file) => /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(file) || file.startsWith('mixdog/src/defaults/skills/'))) {
+  for (const entry of stagedFiles.filter((file) => /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(file) || file.startsWith('mixdog/src/defaults/skills/'))) {
     assert.ok(builtSet.has(entry), `${entry} is not in the built runtime`);
     assert.deepEqual(
       await emittedFileIdentity(join(builtModules, ...entry.split('/'))),
@@ -183,15 +181,83 @@ test('the built runtime is the staged real-file tree: no archive, the closure, t
       `${entry} was not emitted unchanged`
     );
   }
+}
+
+test('the built runtime is the staged real-file tree: no archive, the closure, the ONNX library of this target, nothing foreign', async () => {
+  const resources = await packagedResources();
+  const stagedModules = fileURLToPath(new URL('../../.runtime/native-modules/', import.meta.url));
+  const stagedFiles = await filesUnder(stagedModules);
+  await assertRuntimeEmitted(resources, stagedModules, stagedFiles);
 });
 
 test('the packaged resources hold the Rust core, its unpacked resource root, the ONNX library and the extension host closure', async () => {
-  const resources = (await findPackagedResources(distDir()))[0];
-  assert.ok(resources, 'dist holds no packaged resources with a core/ directory');
+  const resources = await packagedResources();
+  const archive = await artifactFile(resources, join(resources, 'app.asar'));
+  assert.ok(extractFile(archive, 'out/preload/index.js').length > 0, 'the package is missing the desktop preload');
   assert.deepEqual(verifyStagedResources({ resources, platform: process.platform, arch: process.arch }).sort(), [
     'darwin-arm64',
     'darwin-x64',
     'linux-arm64',
     'linux-x64',
   ]);
+});
+
+test('the shipped desktop core serves MCP connectors and bundled skills from the package', async (t) => {
+  const resources = await packagedResources();
+  const { version } = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'));
+  assert.ok(typeof version === 'string' && version, 'the selected desktop version is missing');
+  const archive = await artifactFile(resources, join(resources, 'app.asar'));
+  const packagedDesktop = JSON.parse(extractFile(archive, 'package.json').toString('utf8'));
+  assert.equal(packagedDesktop.version, version, 'the packaged desktop version must match the selected desktop version');
+  await withPackagedCore(resources, version, async ({ call, program, source, workspace, copyFixture, runGuardedSkill, launchSkill }) => {
+    await t.test(`MCP stdio connector (${relative(distDir(), resources)})`, async () => {
+      const name = 'packaged-smoke';
+      const fixture = await copyFixture('packaged-mcp-server.mjs');
+      const added = await call('mcp/addMcpServer', {
+        opId: randomUUID(),
+        input: {
+          name,
+          command: program,
+          args: [fixture, program],
+          cwd: workspace,
+          env: { ELECTRON_RUN_AS_NODE: '1' },
+        },
+      });
+      const server = added.status.servers.find((row) => row.name === name);
+      assert.equal(server?.connected, true, `the packaged MCP server did not connect: ${JSON.stringify(server)}`);
+      assert.deepEqual(await call('connector/listConnectorTools', { connectorId: name }), [
+        {
+          name: 'packaged_echo',
+          description: 'Echoes fixture text.',
+          readOnly: true,
+          annotations: { readOnlyHint: true },
+        },
+      ]);
+    });
+
+    await t.test(`bundled skill and launcher (${relative(distDir(), resources)})`, async () => {
+      const name = 'skill-creator';
+      const skill = join(source, 'defaults', 'skills', name);
+      const packagedBody = await artifactFile(source, join(skill, 'SKILL.md'));
+      const validator = await artifactFile(source, join(skill, 'scripts', 'validate-skill.mjs'));
+      const status = await call('skills/skillsStatus', { options: { cwd: workspace } });
+      const discovered = status.skills.find((row) => row.name === name);
+      assert.equal(discovered?.source, 'builtin');
+      const content = await call('skills/skillContent', { name });
+      assert.equal(content.source, 'builtin');
+      for (const filePath of [discovered.filePath, content.filePath]) {
+        assert.equal(await artifactFile(source, filePath), packagedBody);
+      }
+      assert.match(content.content, /scripts\/validate-skill\.mjs/);
+
+      // Calling the validator directly via skill-run can take its native fast
+      // path. The driver makes the generated launcher reach the shipped JS entry.
+      const driver = await copyFixture('packaged-skill-driver.mjs');
+      const forwarded = ['argument with spaces', ''];
+      const args = [driver, program, validator, skill, ...forwarded];
+      const expected = { skill: name, forwarded };
+      assert.deepEqual(JSON.parse(await launchSkill(args)), expected);
+      assert.deepEqual(JSON.parse(await runGuardedSkill(args)), expected);
+    });
+  });
 });

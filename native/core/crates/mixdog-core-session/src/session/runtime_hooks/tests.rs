@@ -50,6 +50,17 @@ fn last(feed: &Feed) -> Option<(String, Vec<Value>)> {
 }
 
 #[tokio::test]
+async fn a_runtime_that_starts_before_the_feed_is_bound_holds_nothing() {
+    let host = DelegatedApprovalHost::new();
+    let hub = HandoffQuestionsHub::new(host.clone());
+    hub.started(&ThreadId::from("home".to_owned()));
+    host.delegate_approval(question("q1", "home"));
+    assert!(host.delegated_approvals_for("home").len() == 1);
+    assert_eq!(hub.finish_question(&ThreadId::from("home".to_owned()), "q1", &Answered::default()), None);
+}
+
+
+#[tokio::test]
 async fn a_runtime_shows_the_questions_waiting_for_it_and_those_that_come_until_it_stops() {
     let host = DelegatedApprovalHost::new();
     let hub = HandoffQuestionsHub::new(host.clone());
@@ -91,14 +102,4 @@ async fn a_runtime_shows_the_questions_waiting_for_it_and_those_that_come_until_
         crate::session::testing::awaiting(|| "a drain task to end once every owner of its queue is gone".to_owned(), publisher).await.unwrap();
     }
     assert_eq!(ids(&feed), ["q2"]);
-}
-
-#[tokio::test]
-async fn a_runtime_that_starts_before_the_feed_is_bound_holds_nothing() {
-    let host = DelegatedApprovalHost::new();
-    let hub = HandoffQuestionsHub::new(host.clone());
-    hub.started(&ThreadId::from("home".to_owned()));
-    host.delegate_approval(question("q1", "home"));
-    assert!(host.delegated_approvals_for("home").len() == 1);
-    assert_eq!(hub.finish_question(&ThreadId::from("home".to_owned()), "q1", &Answered::default()), None);
 }

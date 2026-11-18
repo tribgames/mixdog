@@ -109,6 +109,7 @@ pub fn assemble(parts: AgentParts) -> Assembled {
         default_cwd,
         mcp_scope_id,
     } = parts;
+    super::flow::seams::bind_call_starts(starts.clone());
     let early = Arc::new(EarlyNotice::new(owner_notify, clock.clone()));
     let runner = Arc::new(TurnRunner::new(turn_sessions.clone(), turns.clone(), reviews, events, inbox, early));
     let starter = Arc::new(JobStarter::new(board.clone(), sessions.clone(), turn_sessions, admission, starts, status_changed.clone()));
@@ -137,7 +138,7 @@ pub fn assemble(parts: AgentParts) -> Assembled {
         runner,
         turns,
         default_cwd: default_cwd.clone(),
-    }));
+    }).with_sessions(sessions.clone()));
     let runtime = Arc::new(AgentRuntime::new(AgentDeps {
         registry,
         send_flow: Arc::new(send.clone()),

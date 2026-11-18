@@ -363,8 +363,8 @@ export class DesktopServiceClient implements DesktopService {
   async setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<SessionSnapshot> {
     return (await this.options.capabilityLane.invoke('setRoute', [modelRouteWrite(selection, sessionId)], sessionId)).snapshot;
   }
-  setFast(enabled: boolean, sessionId?: string): Promise<SessionSnapshot> {
-    return this.invoke('setFast', [enabled, sessionId]);
+  async setFast(enabled: boolean, sessionId?: string): Promise<SessionSnapshot> {
+    return (await this.options.capabilityLane.invoke('setFast', [enabled], sessionId)).snapshot;
   }
   invokeCapability<T = unknown>(
     capability: DesktopCapability,

@@ -10,7 +10,7 @@ use std::rc::Rc;
 use mixdog_tui_widgets::picker::IndexMode;
 use serde_json::{Value, json};
 
-use super::{AppAction, AppCtx, AppState};
+use super::{AppAction, AppState};
 use crate::pickers::common::{Onboarding, PickerFn, PickerHost, PickerPanel};
 use crate::pickers::extensions::Extensions;
 use crate::pickers::model::agents::{AgentsOptions, open_agents_picker};

@@ -406,12 +406,12 @@ test('a reopen whose handshake fails leaves nothing half-open: the next reopen s
   await connection.start();
   await assert.rejects(connection.reopen(), /refused/);
   await assert.rejects(connection.whenSynced(), /refused/);
-  await assert.rejects(connection.call('x/y', {}), /not open/);
   assert.equal(connection.status, 'closed', 'nothing serves after the failed open');
-  await connection.reopen();
+  // A call on a connection that ended opens it anew, once for the callers waiting.
+  await Promise.all([connection.call('x/y', {}), connection.call('x/y', {})]);
   await connection.whenSynced();
-  await connection.call('x/y', {});
-  assert.equal(again.calls.at(-1).method, 'x/y');
+  assert.equal(connection.status, 'ready');
+  assert.equal(again.calls.filter((c) => c.method === 'x/y').length, 2);
   await connection.close();
   await assert.rejects(connection.reopen(), /closed/);
 });
@@ -724,4 +724,28 @@ test('an approval is answered only on the client that asked it: a reopened conne
   await lane.resolveToolApproval('pane-2', '7', { approved: true });
   assert.deepEqual(answered(second), [{ method: 'thread/approval/answer', params: { threadId: 'pane-2', approvalId: '7', result: { approved: true } } }]);
   assert.deepEqual(answered(first), []);
+});
+test('a first connection that failed is opened again by the next call; what attaches to the link is told it is ready, and the replacement is announced', async () => {
+  const client = fakeClient();
+  let opens = 0;
+  const connection = createProtocolConnection({
+    open: async () => {
+      opens += 1;
+      if (opens === 1) throw new Error('the core was not serving yet');
+      return client;
+    },
+  });
+  const statuses = [];
+  connection.onEvent((event) => event.type === 'status' && statuses.push(event.status.state));
+  let replaced = 0;
+  connection.onReplaced(() => (replaced += 1));
+  await assert.rejects(connection.start(), /not serving yet/);
+  assert.equal(connection.status, 'closed');
+  const [a, b] = await Promise.all([connection.call('model/list', {}), connection.call('model/list', {})]);
+  assert.deepEqual([opens, client.calls.filter((c) => c.method === 'model/list').length], [2, 2], 'one reopen served both calls');
+  assert.equal(connection.status, 'ready');
+  assert.deepEqual(statuses, ['reconnecting', 'ready']);
+  assert.equal(replaced, 1);
+  void a;
+  void b;
 });

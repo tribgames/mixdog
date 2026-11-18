@@ -47,6 +47,21 @@ export function createWorkerRequests(
     string,
     { child: ChildProcessWithoutNullStreams; confirmable: boolean }
   >();
+  // A retired worker gets no further request; its exit, once observed, settles what a fenced caller counted on it.
+  const retiring = new WeakSet<ChildProcessWithoutNullStreams>();
+  const exits = new WeakMap<ChildProcessWithoutNullStreams, { seen: Promise<void>; seenNow: () => void }>();
+  const exitOf = (child: ChildProcessWithoutNullStreams) => {
+    let exit = exits.get(child);
+    if (!exit) {
+      let seenNow!: () => void;
+      const seen = new Promise<void>((resolve) => {
+        seenNow = resolve;
+      });
+      exit = { seen, seenNow };
+      exits.set(child, exit);
+    }
+    return exit;
+  };
   const latchUnconfirmed = (sessionId: string, child: ChildProcessWithoutNullStreams, confirmable: boolean) => {
     const existing = unconfirmedBackgroundSessions.get(sessionId);
     unconfirmedBackgroundSessions.set(sessionId, {
@@ -56,6 +71,7 @@ export function createWorkerRequests(
   };
 
   function retire(child: ChildProcessWithoutNullStreams, error: Error): void {
+    retiring.add(child);
     const retiredSessionIds: string[] = [];
     let interruptedInput = false;
     for (const [sessionId, activeChild] of powerShellBySession) {
@@ -158,6 +174,11 @@ export function createWorkerRequests(
           new Error(`computer_command_timeout: command exceeded ${commandTimeoutMs}ms; the input host was restarted`)
         );
       }, commandTimeoutMs);
+      if (retiring.has(child)) {
+        clearTimeout(timer);
+        reject(new Error('computer_worker_retiring: the worker is retiring; the request was not sent'));
+        return;
+      }
       pending.set(id, { resolve, reject, timer, child, ...traits });
       try {
         child.stdin.write(line);
@@ -180,6 +201,17 @@ export function createWorkerRequests(
     retire,
     handleReply,
     dispatch,
+    /** The worker's process is gone (its exit, or it never started): what waited for it is told. */
+    workerGone(child: ChildProcessWithoutNullStreams): void {
+      exitOf(child).seenNow();
+    },
+    /** Whether the worker was retired (its kill may not have taken effect yet). */
+    isRetired: (child: ChildProcessWithoutNullStreams): boolean => retiring.has(child),
+    /** Settles once the worker's end is observed (at once for one already gone). */
+    exitObserved(child: ChildProcessWithoutNullStreams): Promise<void> {
+      if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+      return exitOf(child).seen;
+    },
     hasUnconfirmedBackgroundInput: (sessionId?: string) =>
       sessionId === undefined ? unconfirmedBackgroundSessions.size > 0 : unconfirmedBackgroundSessions.has(sessionId),
     clearUnconfirmedBackgroundInput(): void {

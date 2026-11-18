@@ -3,7 +3,7 @@
 // "New branch" · "New worktree" · "Clean up", in one theme. Its data, the
 // popup's placement, actions and dialogs live here; each host owns only its
 // trigger.
-import { BrushCleaning, Check, ChevronDown, ChevronRight, FolderGit2, GitBranch, Plus, Search, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, FolderGit2, GitBranch, Plus, Search, X } from 'lucide-react';
 import {
   type CSSProperties,
   type ReactNode,
@@ -12,6 +12,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -23,6 +24,7 @@ import { t } from './i18n';
 import { scrimDismiss } from './scrim-dismiss';
 import { BranchRowActions } from './branch-row-actions';
 import { useMobileBack } from './mobile-back';
+import { IslandPanelFoot, TidyButton } from './IslandPanelFoot';
 import { MxIcon } from './MxIcon';
 import { ProgressSpinner } from './ProgressSpinner';
 import { containDialogTab, PaneDialogLayer } from './sidebar-dialog';
@@ -494,8 +496,8 @@ export function useBranchMenuActions({
   };
 
   // Whether "Clean up" has anything to act on (a cheap read, no git checks):
-  // unknown (loading, failed) keeps the button usable. Re-read whenever the
-  // menu is read again and after a prune.
+  // unknown (loading, failed) keeps the button usable. Read when the menu
+  // opens, again when a menu read changes what it depends on, and after a prune.
   const repoCommonDir = menu?.workspace.repoCommonDir;
   const [cleanup, setCleanup] = useState<{ repoCommonDir: string; empty: boolean } | null>(null);
   const cleanupRead = useRef(0);
@@ -511,9 +513,16 @@ export function useBranchMenuActions({
       .catch(() => false);
     if (id === cleanupRead.current) setCleanup({ repoCommonDir, empty });
   }, [repoCommonDir, sessionId]);
-  // `menu` itself is a fresh object per render for a draft's chosen branch;
-  // its occupancy list is the read's own identity.
-  const menuRead = menu?.occupancy;
+  // What the preview depends on: the repository's branches and who holds them.
+  // Each menu read (one per turn start and end while the menu is open) is a
+  // fresh object, so the preview follows its content, not its identity.
+  const branches = menu?.branches;
+  const occupancy = menu?.occupancy;
+  const retained = menu?.retainedWorktree;
+  const menuRead = useMemo(
+    () => JSON.stringify([branches ?? null, occupancy ?? null, retained ?? null]),
+    [branches, occupancy, retained]
+  );
   // Only an open menu shows the button the answer decides: a closed one (a composer per running session, each re-reading
   // its menu on every turn) asked the runtime for a repository scan it never displayed.
   // biome-ignore lint/correctness/useExhaustiveDependencies: menuRead is the deliberate re-read trigger
@@ -936,25 +945,19 @@ function PruneWorktreesButton({
   empty: boolean;
   onPrune(): Promise<void>;
 }) {
-  const disabled = busy || empty;
   return (
-    <button
-      type="button"
+    <TidyButton
       className={className}
-      data-kind="prune"
-      aria-disabled={disabled || undefined}
-      title={
+      kind="prune"
+      label={t('Clean up')}
+      description={
         empty
           ? t('Nothing to clean up.')
           : t('Remove clean, merged worktrees no session keeps, and forget deleted worktree folders')
       }
-      onClick={() => {
-        if (!disabled) void onPrune();
-      }}
-    >
-      <BrushCleaning size={14} aria-hidden="true" />
-      <span>{t('Clean up')}</span>
-    </button>
+      disabled={busy || empty}
+      onClick={() => void onPrune()}
+    />
   );
 }
 
@@ -1145,35 +1148,39 @@ export function BranchIslandPanel({
           autoFocusSearch={!touchPrimaryPointer() && !worktreeActions}
           onCreateFromSearch={worktreeActions ? undefined : onCreateBranch}
         />
-        <div className="composer-island-pfoot branch-menu-foot">
-          {worktreeActions ?? (
-            <>
-              <CreateBranchButton
-                className="composer-island-button"
-                pending={contents.pending?.kind === 'create'}
-                disabled={contents.busy || Boolean(contents.locked)}
-                onCreate={onCreateBranch}
-              />
-              <NewWorktreeButton
-                className="composer-island-button"
-                intent={contents.intent}
-                pending={contents.pending?.kind === 'worktree'}
-                disabled={contents.busy || Boolean(contents.locked)}
-                unavailable={contents.worktreeUnavailable}
-                onPick={contents.onPickWorktree}
-              />
-            </>
-          )}
-          {contents.management?.prune && (
+      </div>
+      <IslandPanelFoot
+        className="branch-menu-foot"
+        end={
+          contents.management?.prune && (
             <PruneWorktreesButton
               className="composer-island-button"
               busy={contents.busy}
               empty={contents.management.nothingToClean === true}
               onPrune={contents.management.prune}
             />
-          )}
-        </div>
-      </div>
+          )
+        }
+      >
+        {worktreeActions ?? (
+          <>
+            <CreateBranchButton
+              className="composer-island-button"
+              pending={contents.pending?.kind === 'create'}
+              disabled={contents.busy || Boolean(contents.locked)}
+              onCreate={onCreateBranch}
+            />
+            <NewWorktreeButton
+              className="composer-island-button"
+              intent={contents.intent}
+              pending={contents.pending?.kind === 'worktree'}
+              disabled={contents.busy || Boolean(contents.locked)}
+              unavailable={contents.worktreeUnavailable}
+              onPick={contents.onPickWorktree}
+            />
+          </>
+        )}
+      </IslandPanelFoot>
     </section>
   );
 }

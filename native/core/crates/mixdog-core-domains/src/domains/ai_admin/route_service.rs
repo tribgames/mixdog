@@ -34,6 +34,9 @@ pub trait SessionFollow: Send + Sync {
     fn open_lease(&self, thread: &ThreadId, origin: Option<u64>) -> u64;
     async fn follow(&self, thread: &ThreadId, options: &FollowOptions) -> Result<Followed, PortError>;
     async fn tune(&self, thread: &ThreadId) -> Result<(), PortError>;
+    async fn tuning_pick(&self, _thread: &ThreadId) -> Result<Option<Route>, PortError> {
+        Ok(None)
+    }
     /// `continueSessionInModel`'s switch of the conversation in place.
     async fn switch_now(&self, thread: &ThreadId) -> Result<Option<Value>, PortError>;
     /// Whether the thread has its session (`getSession()?.id`).
@@ -54,6 +57,10 @@ impl SessionFollow for SessionRoutes {
 
     async fn tune(&self, thread: &ThreadId) -> Result<(), PortError> {
         SessionRoutes::tune(self, thread).await
+    }
+
+    async fn tuning_pick(&self, thread: &ThreadId) -> Result<Option<Route>, PortError> {
+        SessionRoutes::tuning_pick(self, thread).await
     }
 
     async fn switch_now(&self, thread: &ThreadId) -> Result<Option<Value>, PortError> {
@@ -287,6 +294,18 @@ impl RouteService {
     /// a model already there).
     async fn adopt_route(&self, thread: &ThreadId, next: &Obj, options: &SetRouteOptions, lease: Option<u64>) -> Result<bool, String> {
         let (selected, fast_capable, meta) = self.resolve_selected_route(thread, next).await?;
+        // An explicit composer pick is a write, not a suggested default to silently clamp.
+        if options.follow.apply_to_current_session && next.get("fast") == Some(&Value::Bool(true)) {
+            let (provider, model) = (clean(selected.get("provider")), clean(selected.get("model")));
+            if !fast_capable {
+                return Err(format!("fast mode is not available for {provider}/{model}"));
+            }
+            if next.get("modelParameters").and_then(|p| p.get("serviceTier")).and_then(Value::as_str) == Some("ultrafast")
+                && !self.facts.ultrafast_capable(&provider, &meta)
+            {
+                return Err(format!("ultrafast is not available for {provider}/{model}"));
+            }
+        }
         // The Lead's fallback chain travels with an explicit main-model choice only; a session's
         // own pick never touches it.
         let mut persisted = selected.clone();
@@ -489,14 +508,22 @@ impl RouteService {
         self.session.tune(thread).await.map_err(port)
     }
 
+    async fn tuning_route(&self, thread: &ThreadId) -> Result<Route, String> {
+        let pick = self.session.tuning_pick(thread).await.map_err(port)?;
+        let live = self.writer.route(thread);
+        match pick.filter(|pick| !same_model(pick, &live)) {
+            Some(pick) => self.resolve(&self.config.agent(), &pick),
+            None => Ok(live),
+        }
+    }
+
     /// `setFast(value)`: whether Fast is on afterwards.
     pub async fn set_fast(&self, thread: &ThreadId, value: FastValue) -> Result<bool, String> {
-        let route = self.writer.route(thread);
+        let route = self.tuning_route(thread).await?;
         let (provider, model) = (clean(route.get("provider")), clean(route.get("model")));
         let ultra = value == FastValue::Ultrafast;
         let enabled = value != FastValue::Off;
         let meta = self.facts.model_meta(&provider, &model);
-        let route = self.writer.route(thread);
         if ultra && !self.facts.ultrafast_capable(&provider, &meta) {
             return Err(format!("ultrafast is not available for {provider}/{model}"));
         }
@@ -516,11 +543,10 @@ impl RouteService {
         if enabled && !fast_capable {
             return Err(format!("fast mode is not available for {provider}/{model}"));
         }
-        let request = json!({
-            "provider": route.get("provider"), "model": route.get("model"), "effort": route.get("effort"),
-            "fast": fast_capable && enabled, "modelParameters": parameters,
-        });
-        let resolved = self.resolve(&self.config.agent(), request.as_object().expect("a request is an object"))?;
+        let mut request = route;
+        request.insert("fast".into(), Value::Bool(fast_capable && enabled));
+        request.insert("modelParameters".into(), parameters);
+        let resolved = self.resolve(&self.config.agent(), &request)?;
         self.writer.set_route_state(thread, resolved);
         self.commit_route_tuning(thread, fast_capable, meta, false).await?;
         Ok(self.writer.route(thread).get("fast") == Some(&Value::Bool(true)))
@@ -537,7 +563,7 @@ impl RouteService {
         let normalized = normalize_effort_input(Some(value))?;
         // An explicit level is the user's choice for this route: Auto effort would replace it on
         // the next turn, so the pick turns the route's Auto off.
-        let mut route = self.writer.route(thread);
+        let mut route = self.tuning_route(thread).await?;
         route.insert("effort".into(), normalized.clone().map_or(Value::Null, Value::from));
         if normalized.is_some() {
             route.insert("autoEffort".into(), Value::Bool(false));

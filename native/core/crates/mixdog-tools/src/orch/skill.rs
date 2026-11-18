@@ -94,7 +94,7 @@ pub fn result_envelope(name: &str, content: &str, dir: Option<&str>) -> String {
     format!("<skill>\n<name>{}</name>\n{dir_line}{body}\n</skill>", escape_xml(name))
 }
 
-fn stub(name: &str, source: &str) -> String {
+pub fn stub(name: &str, source: &str) -> String {
     let kind = if source == "builtin" { "built-in skill" } else { "skill" };
     format!("Loaded {kind}: {}", name.js_trim())
 }
@@ -191,23 +191,6 @@ mod tests {
         Arc::new(Port { notice, loaded: Ok(()), present })
     }
 
-    /// The Skill result of every recorded Node load (`fixtures/skill-session/golden.json`): the
-    /// stub, its already-active suffix, the notice lines and the native tool-search payload, byte
-    /// for byte; an unchanged repeat load injects no body.
-    #[tokio::test]
-    async fn the_result_reads_as_node_words_it() {
-        let golden: serde_json::Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/skill-session/golden.json")).expect("fixture");
-        for case in golden["arm"].as_array().expect("arm cases") {
-            let lines = case["notice"]["lines"].as_array().expect("lines").iter().map(|line| line.as_str().expect("line").to_owned()).collect();
-            let native = Some(case["notice"]["native"].clone()).filter(|native| !native.is_null());
-            let already = case["already"].as_bool().expect("already");
-            let tool = SkillTool::new(port(ArmNotice { lines, native }, Ok(already)));
-            let output = tool.call(&crate::orch::tests::ctx(), serde_json::json!({"name": "deck-guide"})).await.expect("loaded");
-            assert_eq!(output.parts, vec![ToolPart::Text(case["result"].as_str().expect("result").to_owned())], "{}", case["name"]);
-            assert_eq!(output.follow_up_messages.is_empty(), already, "{}", case["name"]);
-        }
-    }
-
     struct NoSkill;
 
     #[async_trait]
@@ -243,5 +226,49 @@ mod tests {
         let arming = SkillTool::new(Arc::new(Port { notice: ArmNotice::default(), loaded: Err(failure), present: Ok(false) }));
         let error = arming.call(&crate::orch::tests::ctx(), serde_json::json!({"name": "deck-guide"})).await.expect_err("fails");
         assert_eq!(error.message_for_model, expected.message_for_model);
+    }
+
+
+    async fn result_of(notice: ArmNotice, already: bool) -> (Vec<ToolPart>, bool) {
+        let tool = SkillTool::new(port(notice, Ok(already)));
+        let output = tool.call(&crate::orch::tests::ctx(), serde_json::json!({"name": "deck-guide"})).await.expect("loaded");
+        (output.parts, output.follow_up_messages.is_empty())
+    }
+
+    /// The Skill result is the stub followed by the notice lines in order; a load of a skill already active says so and
+    /// injects no body again.
+    #[tokio::test]
+    async fn the_result_is_the_stub_then_the_notice_lines() {
+        let lines = vec!["Required tools unavailable: nope (not available in this session)".to_owned(), "No tools were installed or enabled and no permissions were changed.".to_owned()];
+        let (parts, no_body) = result_of(ArmNotice { lines, native: None }, false).await;
+        assert_eq!(
+            parts,
+            vec![ToolPart::Text("Loaded skill: deck-guide\nRequired tools unavailable: nope (not available in this session)\nNo tools were installed or enabled and no permissions were changed.".to_owned())]
+        );
+        assert!(!no_body, "a first load injects the skill's body");
+    }
+
+    #[tokio::test]
+    async fn a_native_tool_load_answers_with_the_tool_search_payload_and_the_summary() {
+        let native = serde_json::json!({"provider": "openai-oauth", "toolReferences": ["office"], "openaiTools": [{"type": "function", "name": "office"}]});
+        let line = "Required tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.";
+        let (parts, no_body) = result_of(ArmNotice { lines: vec![line.to_owned()], native: Some(native) }, false).await;
+        let expected = serde_json::json!({"nativeToolSearch": {
+            "provider": "openai-oauth", "toolReferences": ["office"], "openaiTools": [{"type": "function", "name": "office"}],
+            "summary": format!("Loaded skill: deck-guide\n{line}"),
+        }});
+        assert_eq!(parts, vec![ToolPart::Text(expected.to_string())]);
+        assert!(!no_body);
+    }
+
+    #[tokio::test]
+    async fn an_unchanged_repeat_load_is_already_active_still_reports_the_tools_and_injects_no_body() {
+        let line = "Required tools available directly: read.";
+        let (parts, no_body) = result_of(ArmNotice { lines: vec![line.to_owned()], native: None }, true).await;
+        assert_eq!(
+            parts,
+            vec![ToolPart::Text(format!("Loaded skill: deck-guide (already active; instructions unchanged — follow them without calling Skill again)\n{line}"))]
+        );
+        assert!(no_body);
     }
 }

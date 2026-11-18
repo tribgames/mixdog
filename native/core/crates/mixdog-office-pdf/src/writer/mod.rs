@@ -60,8 +60,6 @@ impl fmt::Display for WriterError {
     }
 }
 
-impl std::error::Error for WriterError {}
-
 impl From<EmbedError> for WriterError {
     fn from(error: EmbedError) -> Self {
         Self(error.to_string())
@@ -447,12 +445,6 @@ mod tests {
     use super::*;
     use crate::{LayoutOptions, PdfSource, extract_pdf_text_layout};
 
-    fn scratch(name: &str) -> PathBuf {
-        let directory = std::env::temp_dir().join(format!("mixdog-office-writer-{}-{name}", std::process::id()));
-        mixdog_testkit::create_dir_all(&directory);
-        directory
-    }
-
     fn write(path: &Path, spec: &Value) -> WriterResult<Value> {
         create_pdf(&Unlaned, &FontEnv::default(), &SvgFonts::none(), &path.to_string_lossy(), spec)
     }
@@ -462,6 +454,20 @@ mod tests {
         layout.pages.iter().map(|page| page.items.iter().map(|item| item.text.as_str()).collect::<Vec<_>>().join(" ")).collect()
     }
 
+    #[test]
+    fn document_properties_are_set_when_given() {
+        let mut document = PdfDocument::create();
+        apply_document_properties(&mut document, &json!({ "title": "T", "author": null, "keywords": ["a", "b"] }));
+        assert_eq!(document.title().as_deref(), Some("T"));
+        assert_eq!(document.keywords().as_deref(), Some("a b"));
+    }
+
+
+    fn scratch(name: &str) -> PathBuf {
+        let directory = std::env::temp_dir().join(format!("mixdog-office-writer-{}-{name}", std::process::id()));
+        mixdog_testkit::create_dir_all(&directory);
+        directory
+    }
     #[test]
     fn a_report_flows_onto_pages_with_footers_and_reads_back() {
         let directory = scratch("report");
@@ -495,7 +501,6 @@ mod tests {
         assert!(text[1].contains("\u{2014} Someone") && text[1].contains("answers") && text[1].contains("Mind the gap."));
         mixdog_testkit::remove_dir_all(&directory);
     }
-
     #[test]
     fn one_page_is_not_numbered_unless_asked() {
         let directory = scratch("numbering");
@@ -508,7 +513,6 @@ mod tests {
         assert_eq!((off["pages"].clone(), off["pageNumbers"].clone()), (json!(2), json!(false)));
         mixdog_testkit::remove_dir_all(&directory);
     }
-
     #[test]
     fn a_long_table_repeats_its_header_and_never_strands_a_row() {
         let directory = scratch("table");
@@ -522,7 +526,6 @@ mod tests {
         assert!(text.last().is_some_and(|page| page.contains("Row 80")));
         mixdog_testkit::remove_dir_all(&directory);
     }
-
     #[test]
     fn a_block_list_with_faults_is_refused_before_a_file_is_written() {
         let directory = scratch("refused");
@@ -536,7 +539,6 @@ mod tests {
         assert_eq!(colour.message(), "Invalid PDF color: nope");
         mixdog_testkit::remove_dir_all(&directory);
     }
-
     #[test]
     fn form_fields_flow_with_their_blocks_and_hand_placed_ones_keep_their_coordinates() {
         let directory = scratch("form");
@@ -563,7 +565,6 @@ mod tests {
         assert!(text.contains("Name") && text.contains("Alpha") && text.contains("Beta") && text.contains("Agreed"));
         mixdog_testkit::remove_dir_all(&directory);
     }
-
     #[test]
     fn a_form_with_an_unnamed_field_is_refused_with_the_lint_errors() {
         let directory = scratch("unnamed");
@@ -572,7 +573,6 @@ mod tests {
         assert_eq!(refused.message(), "PDF form layout is invalid: Form field name is required.");
         mixdog_testkit::remove_dir_all(&directory);
     }
-
     #[test]
     fn a_chart_pdf_is_cut_to_the_chart() {
         let directory = scratch("chart");
@@ -588,13 +588,8 @@ mod tests {
         assert_eq!(refused.message(), "PDF block 1 (chart) values must be a non-empty array of numbers, zero or more.");
         mixdog_testkit::remove_dir_all(&directory);
     }
-
-    #[test]
-    fn document_properties_are_set_when_given() {
-        let mut document = PdfDocument::create();
-        apply_document_properties(&mut document, &json!({ "title": "T", "author": null, "keywords": ["a", "b"] }));
-        assert_eq!(document.title().as_deref(), Some("T"));
-        assert_eq!(document.keywords().as_deref(), Some("a b"));
-    }
 }
 
+
+
+impl std::error::Error for WriterError {}

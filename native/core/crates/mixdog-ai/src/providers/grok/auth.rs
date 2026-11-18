@@ -33,8 +33,10 @@ use crate::oauth::RefreshFailure;
 use crate::oauth::Refusal;
 use crate::oauth::classify_refresh_failure;
 use crate::oauth::http;
-use crate::oauth::lease::LeaseOpts;
 use crate::oauth::lease::LockProcess;
+use crate::oauth::lease::REFRESH_LEASE;
+use crate::oauth::lease::lease_error;
+use crate::oauth::lease::refresh_lock_path;
 use crate::oauth::pace::Pace;
 use crate::oauth::pace::SystemPace;
 use crate::oauth::pages;
@@ -56,6 +58,7 @@ const OPERATION: &str = "[grok-oauth] token exchange";
 
 /// `grok-oauth.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(from = "StoredDocument")]
 pub struct StoredTokens {
     pub access_token: String,
     pub refresh_token: String,
@@ -73,6 +76,43 @@ pub struct StoredTokens {
     pub principal_id: String,
     #[serde(default)]
     pub email: String,
+}
+
+/// The stored document as it reads: `_normalizeExpiresAt(raw.expires_at ?? raw.expiresAt)`; it is written back with
+/// `expires_at` only (Node's `saveTokens`), and a stale `expiresAt` left in the file loses to it.
+#[derive(Deserialize)]
+struct StoredDocument {
+    access_token: String,
+    refresh_token: String,
+    #[serde(default)]
+    expires_at: Option<Value>,
+    #[serde(default, rename = "expiresAt")]
+    expires_at_camel: Option<Value>,
+    #[serde(default, deserialize_with = "null_as_default")]
+    token_endpoint: String,
+    #[serde(default)]
+    user_id: String,
+    #[serde(default)]
+    principal_type: String,
+    #[serde(default)]
+    principal_id: String,
+    #[serde(default)]
+    email: String,
+}
+
+impl From<StoredDocument> for StoredTokens {
+    fn from(document: StoredDocument) -> Self {
+        Self {
+            access_token: document.access_token,
+            refresh_token: document.refresh_token,
+            expires_at: crate::accounts::validity::stated_expiry(document.expires_at, document.expires_at_camel),
+            token_endpoint: document.token_endpoint,
+            user_id: document.user_id,
+            principal_type: document.principal_type,
+            principal_id: document.principal_id,
+            email: document.email,
+        }
+    }
 }
 
 fn null_as_default<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
@@ -134,105 +174,6 @@ pub fn refresh_form(tokens: &StoredTokens) -> String {
     form.finish()
 }
 
-/// A failed refresh (`_postRefresh`, `grok-oauth-tokens.mjs:339`): `[grok-oauth] token refresh <status>: <the body,
-/// secrets redacted, its first 200 characters>`; the body's OAuth `error`, lower-cased, is its code (none when it names
-/// none); `invalid_grant` and `invalid_client` are terminal (no further attempt, a new sign-in), everything else
-/// leaves the refresh token valid and is tried again.
-pub fn refresh_error(status: u16, headers: &[(String, String)], body: &[u8], secrets: &[&str]) -> ProviderError {
-    let parsed: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
-    // `String(json?.error || '').toLowerCase()`.
-    let truthy = |value: &&Value| match value {
-        Value::Null | Value::Bool(false) => false,
-        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0),
-        Value::String(text) => !text.is_empty(),
-        _ => true,
-    };
-    let oauth = mixdog_js::js_to_lowercase(&parsed.get("error").filter(truthy).map(mixdog_js::value_to_string).unwrap_or_default());
-    let terminal = oauth == "invalid_grant" || oauth == "invalid_client";
-    let text = String::from_utf8_lossy(body);
-    let mut error = provider_error(
-        ConnectFailure {
-            code: String::new(),
-            message: format!("[grok-oauth] token refresh {status}: {}", crate::oauth::scrub::scrubbed_prefix(&text, secrets, 200)),
-            http_status: Some(status),
-            retry_after: advice::from_headers(headers, SystemTime::now()),
-        },
-        DeliveryState::Accepted,
-    );
-    if terminal {
-        error.kind = ErrorKind::Auth;
-        error.reauth_required = true;
-    }
-    error.code = (!oauth.is_empty()).then_some(oauth);
-    error
-}
-
-/// One refresh exchange (`_postRefresh`). xAI rotates refresh tokens; the prior one is kept only when the response
-/// omits it. `pace` is the clock the new expiry counts from.
-pub async fn refresh(http: &dyn HttpSend, pace: &dyn Pace, tokens: &StoredTokens) -> Result<StoredTokens, ProviderError> {
-    // The discovery answer's connection is held until the exchange went out: Node returns its socket a check phase
-    // after the code that read it has run on, and the exchange follows at once, so it does not get it.
-    let cached = DISCOVERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
-    let (endpoint, discovered) = if !tokens.token_endpoint.is_empty() {
-        (trusted_xai_endpoint(&tokens.token_endpoint)?.to_string(), None)
-    } else if let Some(endpoint) = cached {
-        (endpoint, None)
-    } else {
-        let (endpoint, held) = discover_token_endpoint(http).await?;
-        (endpoint, Some(held))
-    };
-    let head = http
-        .send(
-            WireRequest {
-                transport: TransportKind::Http1,
-                method: "POST".to_owned(),
-                url: endpoint.clone(),
-                // The letter case Node's call writes (`grok-oauth-tokens.mjs` `refreshTokens`).
-                headers: vec![("Content-Type".to_owned(), "application/x-www-form-urlencoded".to_owned())],
-                body: refresh_form(tokens).into_bytes(),
-            },
-            TOKEN_GROK,
-        )
-        .await;
-    drop(discovered);
-    let head = head?;
-    let success = head.is_success();
-    let response = head.read_all().await?;
-    if !success {
-        return Err(refresh_error(response.status.unwrap_or(0), &response.headers, &response.body, &[&tokens.refresh_token, &tokens.access_token]));
-    }
-    let json: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
-    let Some(access) = json.get("access_token").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
-        let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
-        error.message = "[grok-oauth] token refresh returned no access token".to_owned();
-        return Err(error);
-    };
-    let text = |key: &str, fallback: &str| {
-        json.get(key)
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-            .unwrap_or(fallback)
-            .to_owned()
-    };
-    let now = pace.now_ms();
-    let id_token = json.get("id_token").and_then(Value::as_str).unwrap_or_default();
-    Ok(StoredTokens {
-        access_token: access.to_owned(),
-        refresh_token: text("refresh_token", &tokens.refresh_token),
-        expires_at: match json.get("expires_in").and_then(Value::as_f64) {
-            Some(seconds) => now + (seconds * 1000.0) as u64,
-            None => json.get("expires_at").and_then(Value::as_u64).unwrap_or(0),
-        },
-        token_endpoint: endpoint,
-        // `tokens.user_id || _identityFromAccessToken(accessToken).user_id || ''`.
-        user_id: [tokens.user_id.clone(), identity_of(access).user_id].into_iter().find(|id| !id.is_empty()).unwrap_or_default(),
-        principal_type: text("principal_type", &tokens.principal_type),
-        principal_id: text("principal_id", &tokens.principal_id),
-        // `_emailFromJwts(json?.id_token, accessToken) || tokens.email || ''`.
-        email: email_from_jwts(&[id_token, access]).unwrap_or_else(|| tokens.email.clone()),
-    })
-}
-
 /// `decodeJwtPayload`: the object the middle of a three-part token decodes to, else none.
 fn jwt_payload(token: &str) -> Option<serde_json::Map<String, Value>> {
     let parts: Vec<&str> = token.split('.').collect();
@@ -282,31 +223,6 @@ pub(super) fn identity_of(token: &str) -> Identity {
     let principal_type = first(&["principal_type", "principalType"]);
     let user_id = [first(&["user_id", "userId"]), principal_id.clone(), first(&["sub"])].into_iter().find(|id| !id.is_empty()).unwrap_or_default();
     Identity { user_id, principal_type, principal_id }
-}
-
-/// `tokensFromGrant`: the stored tokens a granted code (the PKCE exchange or the device poll) yields, the identity
-/// claims of the access token filling what the grant does not name.
-pub(super) fn tokens_from_grant(grant: &Value, token_endpoint: &str, now_ms: u64) -> Result<StoredTokens, LoginFailure> {
-    let text = |key: &str| grant.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or_default();
-    let (access, refresh) = (text("access_token"), text("refresh_token"));
-    if access.is_empty() || refresh.is_empty() {
-        return Err(failed("token_exchange", "[grok-oauth] token exchange response missing access_token or refresh_token".to_owned()));
-    }
-    let identity = identity_of(access);
-    let first = |own: &str, claimed: String| if own.is_empty() { claimed } else { own.to_owned() };
-    Ok(StoredTokens {
-        access_token: access.to_owned(),
-        refresh_token: refresh.to_owned(),
-        expires_at: match grant.get("expires_in").and_then(Value::as_f64) {
-            Some(seconds) => now_ms + (seconds * 1000.0) as u64,
-            None => grant.get("expires_at").and_then(Value::as_u64).unwrap_or(0),
-        },
-        token_endpoint: token_endpoint.to_owned(),
-        user_id: identity.user_id,
-        principal_type: first(text("principal_type"), identity.principal_type),
-        principal_id: first(text("principal_id"), identity.principal_id),
-        email: email_from_jwts(&[text("id_token"), access]).unwrap_or_default(),
-    })
 }
 
 /// `saveTokens` (`grok-oauth-tokens.mjs:213`): the document the whole file becomes, with Node's fallbacks: no expiry is
@@ -375,14 +291,374 @@ async fn discover_token_endpoint(http: &dyn HttpSend) -> Result<(String, Box<dyn
     }
 }
 
-/// `_postRefresh`: one exchange, its tokens saved over the whole file (`saveTokens`, under the file's write lock).
+fn is_invalid_grant(error: &ProviderError) -> bool {
+    error.reauth_required && error.code.as_deref() == Some("invalid_grant")
+}
+
+/// The stored generation `_loadOwnTokens` reads: one with both tokens, else none.
+async fn load_own(file: &CredentialFile) -> Option<StoredTokens> {
+    match file.load::<StoredTokens>().await {
+        Probe::Present(mut tokens) if !tokens.access_token.is_empty() && !tokens.refresh_token.is_empty() => {
+            file.keep(&[&tokens.access_token, &tokens.refresh_token]);
+            // `_normalizeExpiresAt(raw.expires_at ?? raw.expiresAt) || expiryFromAccessToken(raw.access_token)`.
+            tokens.expires_at = crate::accounts::validity::expiry_or_claim(tokens.expires_at, &tokens.access_token);
+            Some(tokens)
+        }
+        _ => None,
+    }
+}
+
+type SharedRefresh = futures::future::Shared<futures::future::BoxFuture<'static, Result<StoredTokens, ProviderError>>>;
+
+/// Which refresh a flight is: the credential file and the refresh token it exchanges. A login that replaced the file holds
+/// another refresh token, so it never joins (and is never handed the tokens of) the previous login's refresh.
+type FlightKey = (std::path::PathBuf, String);
+
+/// What the Grok credentials of one process share: the process as the lease's lock protocol sees it, and the refresh
+/// in flight per credential (`_refreshesInFlight`, `grok-oauth-tokens.mjs:313`), shared by every send of the
+/// process that needs one while it runs and gone once it settled.
+pub struct RefreshProcess {
+    lock: Arc<LockProcess>,
+    flights: std::sync::Mutex<std::collections::HashMap<FlightKey, (u64, SharedRefresh)>>,
+    generation: std::sync::atomic::AtomicU64,
+}
+
+impl RefreshProcess {
+    /// This process's.
+    fn this_process() -> Arc<Self> {
+        static THIS: std::sync::LazyLock<Arc<RefreshProcess>> = std::sync::LazyLock::new(|| Arc::new(RefreshProcess::new(LockProcess::this_process())));
+        THIS.clone()
+    }
+
+    fn new(lock: Arc<LockProcess>) -> Self {
+        Self { lock, flights: std::sync::Mutex::default(), generation: std::sync::atomic::AtomicU64::new(0) }
+    }
+
+    fn flights(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<FlightKey, (u64, SharedRefresh)>> {
+        self.flights.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+fn storage_error(message: &str) -> ProviderError {
+    let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+    error.message = format!("[grok-oauth] {message}");
+    error
+}
+
+fn not_connected() -> ProviderError {
+    let mut error = ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent);
+    error.reauth_required = true;
+    error.message = format!("Grok OAuth is not connected: {REAUTH_GUIDANCE}");
+    error
+}
+
+/// `EXPIRED_TOKEN_CODES` (`grok-oauth.mjs:53`): the typed codes that say the bearer itself expired or was revoked.
+const EXPIRED_TOKEN_CODES: [&str; 6] = ["token_expired", "expired_token", "access_token_expired", "token_revoked", "revoked_token", "invalid_token"];
+
+/// `hasExpiredTokenSignature`: the refusal's error object names one of [`EXPIRED_TOKEN_CODES`] as its `code` or `type`
+/// (the fields Node's client lifts from the body's `error`), trimmed and lower-cased.
+fn has_expired_token_signature(body: &[u8]) -> bool {
+    let parsed: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+    let error = &parsed["error"];
+    ["code", "type"].iter().any(|field| {
+        error.get(field).and_then(Value::as_str).is_some_and(|text| EXPIRED_TOKEN_CODES.contains(&text.trim().to_lowercase().as_str()))
+    })
+}
+
+pub const CALLBACK_PORT: u16 = 56121;
+pub const CALLBACK_PATH: &str = "/callback";
+
+/// The PKCE sign-in: authorization endpoint from the discovery document, the
+/// registered loopback redirect, and the code exchange.
+pub struct GrokLogin {
+    http: Arc<dyn HttpSend>,
+    file: CredentialFile,
+    authorization_endpoint: Url,
+    token_endpoint: Url,
+}
+
+impl GrokLogin {
+    pub fn new(
+        http: Arc<dyn HttpSend>,
+        file: CredentialFile,
+        authorization_endpoint: &str,
+        token_endpoint: &str,
+    ) -> Result<Self, ProviderError> {
+        Ok(Self {
+            http,
+            file,
+            authorization_endpoint: trusted_xai_endpoint(authorization_endpoint)?,
+            token_endpoint: trusted_xai_endpoint(token_endpoint)?,
+        })
+    }
+}
+
+fn failed(code: &str, message: String) -> LoginFailure {
+    LoginFailure::Failed {
+        code: code.to_owned(),
+        message,
+    }
+}
+#[cfg(node_twin)]
+#[cfg(test)]
+#[path = "refresh_lease/tests.rs"]
+mod refresh_lease_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `raw.expires_at ?? raw.expiresAt`: both spellings present is read, with `expires_at` first.
+    #[test]
+    fn a_document_with_both_expiry_spellings_reads_with_nodes_precedence() {
+        let read = |extra: &str| serde_json::from_str::<StoredTokens>(&format!(r#"{{"access_token":"a","refresh_token":"r",{extra}}}"#)).unwrap();
+        assert_eq!(read(r#""expires_at":1893456000000,"expiresAt":1"#).expires_at, 1_893_456_000_000);
+        assert_eq!(read(r#""expiresAt":1893456000"#).expires_at, 1_893_456_000_000);
+    }
+
+    #[test]
+    fn only_x_ai_https_endpoints_are_trusted() {
+        assert!(trusted_xai_endpoint("https://auth.x.ai/oauth2/token").is_ok());
+        assert!(trusted_xai_endpoint("https://x.ai/token").is_ok());
+        for bad in ["http://auth.x.ai/t", "https://evilx.ai/t", "https://x.ai.evil.com/t", "nope"] {
+            assert!(trusted_xai_endpoint(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn refresh_form_carries_the_principal_when_known() {
+        let t = StoredTokens {
+            refresh_token: "r&1".into(),
+            principal_type: "user".into(),
+            ..StoredTokens::default()
+        };
+        assert_eq!(
+            refresh_form(&t),
+            format!("grant_type=refresh_token&client_id={CLIENT_ID}&refresh_token=r%261&principal_type=user")
+        );
+    }
+
+    /// `expiring = expires_at < now + TOKEN_REFRESH_SKEW_MS` (`grok-oauth.mjs:392`): an expiry exactly at the margin is
+    /// not due, one a millisecond inside it is.
+    #[test]
+    fn expiry_is_due_inside_the_skew() {
+        let t = StoredTokens {
+            expires_at: 1_000_000,
+            ..StoredTokens::default()
+        };
+        assert!(!t.needs_refresh(1_000_000 - REFRESH_SKEW_MS));
+        assert!(t.needs_refresh(1_000_000 - REFRESH_SKEW_MS + 1));
+        assert!(!t.needs_refresh(0));
+        assert!(!StoredTokens::default().needs_refresh(u64::MAX / 2));
+    }
+
+
+    /// Each Grok request that outlives its timer reads as the real Node function of the same site did
+    /// (`sites.grokDiscovery`, `grokRefresh`, `grokCodeExchange`): the refresh and the discovery under their labelled
+    /// timers, the authorization-code exchange under `AbortSignal.timeout` (not the refresh's label).
+    #[tokio::test(start_paused = true)]
+    async fn a_grok_request_that_outlives_its_timer_reads_as_nodes_site() {
+        use crate::oauth::CredentialIo;
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::login_message;
+
+        let tokens = StoredTokens {
+            access_token: "a".into(),
+            refresh_token: "r".into(),
+            token_endpoint: "https://auth.x.ai/oauth2/token".into(),
+            ..StoredTokens::default()
+        };
+        let transport = TimingOut::new();
+        let error = refresh(transport.as_ref(), &SystemPace, &tokens).await.expect_err("the token endpoint never answers");
+        assert_transport("grokRefresh", &transport);
+        assert_thrown("grokRefresh", &error.message);
+
+        let transport = TimingOut::new();
+        let error = refresh(transport.as_ref(), &SystemPace, &StoredTokens { token_endpoint: String::new(), ..tokens.clone() })
+            .await
+            .expect_err("the discovery never answers");
+        assert_transport("grokDiscovery", &transport);
+        assert_thrown("grokDiscovery", &error.message);
+
+        let transport = TimingOut::new();
+        let dir = tempfile::tempdir().unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(
+            dir.path().join("grok-oauth.json"),
+            CredentialIo { read: rt.interactive_io, write: rt.durability_io },
+        );
+        let login = GrokLogin::new(transport.clone(), file, "https://auth.x.ai/authorize", "https://auth.x.ai/oauth2/token").unwrap();
+        let failure = login.exchange("abc", "v", "http://127.0.0.1:56121/callback").await.expect_err("the exchange never answers");
+        assert_transport("grokCodeExchange", &transport);
+        // Node words the exchange's failure itself (`oauthRequestError`), and so does the Rust login.
+        assert_thrown("grokCodeExchange", login_message(&failure));
+    }
+    #[test]
+    fn dead_grants_need_a_new_sign_in_and_throttles_do_not() {
+        let dead = refresh_error(400, &[], br#"{"error":"invalid_grant"}"#, &[]);
+        assert!(dead.reauth_required);
+        assert_eq!(dead.code.as_deref(), Some("invalid_grant"));
+        let throttled = refresh_error(429, &[], b"slow down", &[]);
+        assert!(!throttled.reauth_required);
+        assert_eq!(throttled.kind, ErrorKind::RateLimited);
+    }
+    /// One grant-to-tokens step for the PKCE exchange and the device poll: both tokens are required, the expiry counts from
+    /// now, and the identity the grant does not name comes from the access token's claims.
+    #[test]
+    fn a_grant_becomes_tokens_with_the_identity_of_its_access_token() {
+        let claims = URL_SAFE_NO_PAD.encode(br#"{"sub":"u-1","principal_type":"user","principal_id":"p-1","email":"a@x.ai"}"#);
+        let access = format!("h.{claims}.s");
+        let grant = serde_json::json!({ "access_token": access, "refresh_token": "r", "expires_in": 60, "principal_id": "" });
+        let tokens = tokens_from_grant(&grant, "https://auth.x.ai/oauth2/token", 1_000).unwrap();
+        assert_eq!(tokens.expires_at, 61_000);
+        assert_eq!((tokens.user_id.as_str(), tokens.principal_type.as_str(), tokens.principal_id.as_str()), ("p-1", "user", "p-1"));
+        assert_eq!(tokens.email, "a@x.ai");
+        let missing = serde_json::json!({ "access_token": "a" });
+        assert!(tokens_from_grant(&missing, "https://auth.x.ai/oauth2/token", 0).is_err());
+    }
+}
+
+
+/// A failed refresh (`_postRefresh`, `grok-oauth-tokens.mjs:339`): `[grok-oauth] token refresh <status>: <the body,
+/// secrets redacted, its first 200 characters>`; the body's OAuth `error`, lower-cased, is its code (none when it names
+/// none); `invalid_grant` and `invalid_client` are terminal (no further attempt, a new sign-in), everything else
+/// leaves the refresh token valid and is tried again.
+pub fn refresh_error(status: u16, headers: &[(String, String)], body: &[u8], secrets: &[&str]) -> ProviderError {
+    let parsed: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+    // `String(json?.error || '').toLowerCase()`.
+    let truthy = |value: &&Value| match value {
+        Value::Null | Value::Bool(false) => false,
+        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0),
+        Value::String(text) => !text.is_empty(),
+        _ => true,
+    };
+    let oauth = mixdog_js::js_to_lowercase(&parsed.get("error").filter(truthy).map(mixdog_js::value_to_string).unwrap_or_default());
+    let terminal = oauth == "invalid_grant" || oauth == "invalid_client";
+    let text = String::from_utf8_lossy(body);
+    let mut error = provider_error(
+        ConnectFailure {
+            code: String::new(),
+            message: format!("[grok-oauth] token refresh {status}: {}", crate::oauth::scrub::scrubbed_prefix(&text, secrets, 200)),
+            http_status: Some(status),
+            retry_after: advice::from_headers(headers, SystemTime::now()),
+        },
+        DeliveryState::Accepted,
+    );
+    if terminal {
+        error.kind = ErrorKind::Auth;
+        error.reauth_required = true;
+    }
+    error.code = (!oauth.is_empty()).then_some(oauth);
+    error
+}
+/// One refresh exchange (`_postRefresh`). xAI rotates refresh tokens; the prior one is kept only when the response
+/// omits it. `pace` is the clock the new expiry counts from.
+pub async fn refresh(http: &dyn HttpSend, pace: &dyn Pace, tokens: &StoredTokens) -> Result<StoredTokens, ProviderError> {
+    // The discovery answer's connection is held until the exchange went out: Node returns its socket a check phase
+    // after the code that read it has run on, and the exchange follows at once, so it does not get it.
+    let cached = DISCOVERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    let (endpoint, discovered) = if !tokens.token_endpoint.is_empty() {
+        (trusted_xai_endpoint(&tokens.token_endpoint)?.to_string(), None)
+    } else if let Some(endpoint) = cached {
+        (endpoint, None)
+    } else {
+        let (endpoint, held) = discover_token_endpoint(http).await?;
+        (endpoint, Some(held))
+    };
+    let head = http
+        .send(
+            WireRequest {
+                transport: TransportKind::Http1,
+                method: "POST".to_owned(),
+                url: endpoint.clone(),
+                // The letter case Node's call writes (`grok-oauth-tokens.mjs` `refreshTokens`).
+                headers: vec![("Content-Type".to_owned(), "application/x-www-form-urlencoded".to_owned())],
+                body: refresh_form(tokens).into_bytes(),
+            },
+            TOKEN_GROK,
+        )
+        .await;
+    drop(discovered);
+    let head = head?;
+    let success = head.is_success();
+    let response = head.read_all().await?;
+    if !success {
+        return Err(refresh_error(response.status.unwrap_or(0), &response.headers, &response.body, &[&tokens.refresh_token, &tokens.access_token]));
+    }
+    let json: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
+    let Some(access) = json.get("access_token").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+        let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+        error.message = "[grok-oauth] token refresh returned no access token".to_owned();
+        return Err(error);
+    };
+    let text = |key: &str, fallback: &str| {
+        json.get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(fallback)
+            .to_owned()
+    };
+    let now = pace.now_ms();
+    let id_token = json.get("id_token").and_then(Value::as_str).unwrap_or_default();
+    Ok(StoredTokens {
+        access_token: access.to_owned(),
+        refresh_token: text("refresh_token", &tokens.refresh_token),
+        expires_at: match json.get("expires_in").and_then(Value::as_f64) {
+            Some(seconds) => now + (seconds * 1000.0) as u64,
+            None => json.get("expires_at").and_then(Value::as_u64).unwrap_or(0),
+        },
+        token_endpoint: endpoint,
+        // `tokens.user_id || _identityFromAccessToken(accessToken).user_id || ''`.
+        user_id: [tokens.user_id.clone(), identity_of(access).user_id].into_iter().find(|id| !id.is_empty()).unwrap_or_default(),
+        principal_type: text("principal_type", &tokens.principal_type),
+        principal_id: text("principal_id", &tokens.principal_id),
+        // `_emailFromJwts(json?.id_token, accessToken) || tokens.email || ''`.
+        email: email_from_jwts(&[id_token, access]).unwrap_or_else(|| tokens.email.clone()),
+    })
+}
+/// `tokensFromGrant`: the stored tokens a granted code (the PKCE exchange or the device poll) yields, the identity
+/// claims of the access token filling what the grant does not name.
+pub(super) fn tokens_from_grant(grant: &Value, token_endpoint: &str, now_ms: u64) -> Result<StoredTokens, LoginFailure> {
+    let text = |key: &str| grant.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or_default();
+    let (access, refresh) = (text("access_token"), text("refresh_token"));
+    if access.is_empty() || refresh.is_empty() {
+        return Err(failed("token_exchange", "[grok-oauth] token exchange response missing access_token or refresh_token".to_owned()));
+    }
+    let identity = identity_of(access);
+    let first = |own: &str, claimed: String| if own.is_empty() { claimed } else { own.to_owned() };
+    Ok(StoredTokens {
+        access_token: access.to_owned(),
+        refresh_token: refresh.to_owned(),
+        expires_at: match grant.get("expires_in").and_then(Value::as_f64) {
+            Some(seconds) => now_ms + (seconds * 1000.0) as u64,
+            None => grant.get("expires_at").and_then(Value::as_u64).unwrap_or(0),
+        },
+        token_endpoint: token_endpoint.to_owned(),
+        user_id: identity.user_id,
+        principal_type: first(text("principal_type"), identity.principal_type),
+        principal_id: first(text("principal_id"), identity.principal_id),
+        email: email_from_jwts(&[text("id_token"), access]).unwrap_or_default(),
+    })
+}
+/// `_postRefresh`: one exchange, its tokens saved over the whole file (`saveTokens`, under the file's write lock) as the
+/// same sign-in, and only while the file still holds the generation it exchanged: a sign-in stored meanwhile is not
+/// overwritten, and its tokens are the answer. That is the rule, not a leak: the roster row is the identity, as in Node
+/// 1.4.5.
 async fn post_refresh(http: &dyn HttpSend, pace: &dyn Pace, file: &CredentialFile, tokens: &StoredTokens) -> Result<StoredTokens, ProviderError> {
     let fresh = refresh(http, pace, tokens).await?;
     file.keep(&[&fresh.access_token, &fresh.refresh_token]);
-    file.replace(saved_document(&fresh)).await.map_err(|_| storage_error("the refreshed tokens could not be stored"))?;
-    Ok(fresh)
+    let exchanged = tokens.refresh_token.clone();
+    let written = file
+        .replace_refreshed(move |stored| stored.get("refresh_token").and_then(Value::as_str) == Some(exchanged.as_str()), saved_document(&fresh))
+        .await
+        .map_err(|_| storage_error("the refreshed tokens could not be stored"))?;
+    if written {
+        return Ok(fresh);
+    }
+    load_own(file).await.ok_or_else(not_connected)
 }
-
 /// `_postRefreshWithRetry` (`grok-oauth-tokens.mjs:376`): three exchanges (each saved) at most. A terminal refusal
 /// (`invalid_grant`, `invalid_client`) ends it at once; between two, a pause of `min(2 s, 200 ms·2^n)` plus up to as
 /// much again at random.
@@ -402,41 +678,6 @@ async fn refresh_with_retry(http: &dyn HttpSend, pace: &dyn Pace, file: &Credent
         }
     }
 }
-
-fn is_invalid_grant(error: &ProviderError) -> bool {
-    error.reauth_required && error.code.as_deref() == Some("invalid_grant")
-}
-
-/// The stored generation `_loadOwnTokens` reads: one with both tokens, else none.
-async fn load_own(file: &CredentialFile) -> Option<StoredTokens> {
-    match file.load::<StoredTokens>().await {
-        Probe::Present(tokens) if !tokens.access_token.is_empty() && !tokens.refresh_token.is_empty() => {
-            file.keep(&[&tokens.access_token, &tokens.refresh_token]);
-            Some(tokens)
-        }
-        _ => None,
-    }
-}
-
-/// `getRefreshLockPath`: `${getOwnTokenPath()}.refresh.lock`.
-fn refresh_lock_path(file: &std::path::Path) -> std::path::PathBuf {
-    let mut name = file.as_os_str().to_owned();
-    name.push(".refresh.lock");
-    std::path::PathBuf::from(name)
-}
-
-/// `refreshTokens`' lease (`grok-oauth-tokens.mjs:427-431`): a 120 s wait for the lease, a lease that names no owner
-/// taken over once 120 s old, the lease file the user's alone.
-const REFRESH_LEASE: LeaseOpts = LeaseOpts { timeout: std::time::Duration::from_secs(120), stale: std::time::Duration::from_secs(120), secret: true };
-
-/// A lease that could not be taken, as `withFileLock` throws it (`ELOCKTIMEOUT`, `ELOCKCONTENDED`, or the file error).
-fn lease_error(error: mixdog_statefile::LockError) -> ProviderError {
-    let mut failure = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
-    failure.code = error.code().map(str::to_owned);
-    failure.message = error.to_string();
-    failure
-}
-
 /// `refreshTokens` (`grok-oauth-tokens.mjs:387-433`): xAI rotates refresh tokens single-use, so the whole refresh runs
 /// holding the cross-process lease beside the credential file. Under it the file is read again: a generation another
 /// writer stored meanwhile (either token differs from `tokens`) is adopted without an exchange when it has no expiry or
@@ -482,34 +723,6 @@ async fn refresh_tokens(
     };
     file.lease(&refresh_lock_path(file.path()), process, pace, REFRESH_LEASE, held).await.map_err(lease_error)?
 }
-
-type SharedRefresh = futures::future::Shared<futures::future::BoxFuture<'static, Result<StoredTokens, ProviderError>>>;
-
-/// What the Grok credentials of one process share: the process as the lease's lock protocol sees it, and the refresh
-/// in flight per credential file (`_refreshesInFlight`, `grok-oauth-tokens.mjs:313`), shared by every send of the
-/// process that needs one while it runs and gone once it settled.
-pub struct RefreshProcess {
-    lock: Arc<LockProcess>,
-    flights: std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, (u64, SharedRefresh)>>,
-    generation: std::sync::atomic::AtomicU64,
-}
-
-impl RefreshProcess {
-    /// This process's.
-    fn this_process() -> Arc<Self> {
-        static THIS: std::sync::LazyLock<Arc<RefreshProcess>> = std::sync::LazyLock::new(|| Arc::new(RefreshProcess::new(LockProcess::this_process())));
-        THIS.clone()
-    }
-
-    fn new(lock: Arc<LockProcess>) -> Self {
-        Self { lock, flights: std::sync::Mutex::default(), generation: std::sync::atomic::AtomicU64::new(0) }
-    }
-
-    fn flights(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<std::path::PathBuf, (u64, SharedRefresh)>> {
-        self.flights.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-}
-
 /// The Bearer credential of the Grok CLI proxy (`ensureAuth`, `grok-oauth.mjs:370`). A turn refreshes first when the
 /// token is inside its skew; a rejected token is refreshed once more; a refresh that fails while the token is still
 /// valid leaves the token in use for the skew (the grace window) instead of failing the turn.
@@ -522,20 +735,6 @@ pub struct GrokCredential {
     /// `_refreshFallbackUntil`: until when (Unix ms) a failed unforced refresh is not tried again.
     fallback_until: std::sync::atomic::AtomicU64,
 }
-
-fn storage_error(message: &str) -> ProviderError {
-    let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
-    error.message = format!("[grok-oauth] {message}");
-    error
-}
-
-fn not_connected() -> ProviderError {
-    let mut error = ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent);
-    error.reauth_required = true;
-    error.message = format!("Grok OAuth is not connected: {REAUTH_GUIDANCE}");
-    error
-}
-
 impl GrokCredential {
     pub fn new(http: Arc<dyn HttpSend>, file: CredentialFile) -> Self {
         Self {
@@ -554,6 +753,7 @@ impl GrokCredential {
         self
     }
 
+    #[cfg(node_twin)]
     /// A credential of another process sharing this one's credential file: its own lease owner and line, its own
     /// refreshes in flight (two copies of Node's token module in one process are two such processes).
     #[cfg(test)]
@@ -596,28 +796,33 @@ impl GrokCredential {
         }
     }
 
-    /// The refresh in flight for this credential's file, if one is.
-    fn in_flight(&self) -> Option<SharedRefresh> {
-        self.process.flights().get(self.file.path()).map(|(_, shared)| shared.clone())
+    fn flight_key(&self, tokens: &StoredTokens) -> FlightKey {
+        (self.file.path().to_path_buf(), tokens.refresh_token.clone())
     }
 
-    /// Starts the refresh of `tokens` every send needing one shares until it settled.
+    /// The refresh in flight for the credential `tokens` holds, if one is.
+    fn in_flight(&self, tokens: &StoredTokens) -> Option<SharedRefresh> {
+        self.process.flights().get(&self.flight_key(tokens)).map(|(_, shared)| shared.clone())
+    }
+
+    /// Starts the refresh of `tokens` every send holding them shares until it settled.
     fn start(&self, tokens: StoredTokens, force: bool) -> SharedRefresh {
         use futures::FutureExt;
         let generation = self.process.generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let (http, pace, file, process) = (self.http.clone(), self.pace.clone(), self.file.clone(), self.process.clone());
-        let path = file.path().to_path_buf();
+        let key = self.flight_key(&tokens);
+        let settled = key.clone();
         let shared = async move {
             let outcome = refresh_tokens(http.as_ref(), pace.as_ref(), &file, &process.lock, tokens, force).await;
             let mut flights = process.flights();
-            if flights.get(&path).is_some_and(|(id, _)| *id == generation) {
-                flights.remove(&path);
+            if flights.get(&settled).is_some_and(|(id, _)| *id == generation) {
+                flights.remove(&settled);
             }
             outcome
         }
         .boxed()
         .shared();
-        self.process.flights().insert(self.file.path().to_path_buf(), (generation, shared.clone()));
+        self.process.flights().insert(key, (generation, shared.clone()));
         shared
     }
 
@@ -633,13 +838,13 @@ impl GrokCredential {
             return Ok(tokens);
         }
         let refused = tokens.access_token.clone();
-        let outcome = match self.in_flight() {
+        let outcome = match self.in_flight(&tokens) {
             Some(shared) => match shared.await {
                 // A forced caller does not take back the token that was refused: it starts its own forced refresh.
                 Ok(shared) if force && shared.access_token == refused => {
                     tokens = shared.clone();
                     self.current.store(Some(Arc::new(shared.clone())));
-                    self.in_flight().unwrap_or_else(|| self.start(shared, true)).await
+                    self.in_flight(&shared).unwrap_or_else(|| self.start(shared, true)).await
                 }
                 outcome => outcome,
             },
@@ -662,20 +867,6 @@ impl GrokCredential {
         }
     }
 }
-
-/// `EXPIRED_TOKEN_CODES` (`grok-oauth.mjs:53`): the typed codes that say the bearer itself expired or was revoked.
-const EXPIRED_TOKEN_CODES: [&str; 6] = ["token_expired", "expired_token", "access_token_expired", "token_revoked", "revoked_token", "invalid_token"];
-
-/// `hasExpiredTokenSignature`: the refusal's error object names one of [`EXPIRED_TOKEN_CODES`] as its `code` or `type`
-/// (the fields Node's client lifts from the body's `error`), trimmed and lower-cased.
-fn has_expired_token_signature(body: &[u8]) -> bool {
-    let parsed: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
-    let error = &parsed["error"];
-    ["code", "type"].iter().any(|field| {
-        error.get(field).and_then(Value::as_str).is_some_and(|text| EXPIRED_TOKEN_CODES.contains(&text.trim().to_lowercase().as_str()))
-    })
-}
-
 #[async_trait]
 impl Credential for GrokCredential {
     async fn header(&self, force_refresh: bool) -> Result<Option<(String, String)>, ProviderError> {
@@ -712,43 +903,13 @@ impl Credential for GrokCredential {
     fn refreshable(&self) -> bool {
         true
     }
-}
 
-pub const CALLBACK_PORT: u16 = 56121;
-pub const CALLBACK_PATH: &str = "/callback";
-
-/// The PKCE sign-in: authorization endpoint from the discovery document, the
-/// registered loopback redirect, and the code exchange.
-pub struct GrokLogin {
-    http: Arc<dyn HttpSend>,
-    file: CredentialFile,
-    authorization_endpoint: Url,
-    token_endpoint: Url,
-}
-
-impl GrokLogin {
-    pub fn new(
-        http: Arc<dyn HttpSend>,
-        file: CredentialFile,
-        authorization_endpoint: &str,
-        token_endpoint: &str,
-    ) -> Result<Self, ProviderError> {
-        Ok(Self {
-            http,
-            file,
-            authorization_endpoint: trusted_xai_endpoint(authorization_endpoint)?,
-            token_endpoint: trusted_xai_endpoint(token_endpoint)?,
-        })
+    /// The user the access token's claims name; a token whose claims name none (or that is not a bearer) has no account.
+    fn account_of(&self, header: &(String, String)) -> Option<String> {
+        let token = header.1.strip_prefix("Bearer ")?;
+        Some(identity_of(token).user_id).filter(|id| !id.is_empty())
     }
 }
-
-fn failed(code: &str, message: String) -> LoginFailure {
-    LoginFailure::Failed {
-        code: code.to_owned(),
-        message,
-    }
-}
-
 #[async_trait]
 impl PkceProvider for GrokLogin {
     fn redirect(&self) -> crate::oauth::Redirect {
@@ -827,117 +988,5 @@ impl PkceProvider for GrokLogin {
             .await
             .map_err(|_| failed("storage", "the tokens could not be stored".to_owned()))?;
         Ok((!tokens.email.is_empty()).then_some(tokens.email))
-    }
-}
-#[cfg(test)]
-#[path = "refresh_lease/tests.rs"]
-mod refresh_lease_tests;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_x_ai_https_endpoints_are_trusted() {
-        assert!(trusted_xai_endpoint("https://auth.x.ai/oauth2/token").is_ok());
-        assert!(trusted_xai_endpoint("https://x.ai/token").is_ok());
-        for bad in ["http://auth.x.ai/t", "https://evilx.ai/t", "https://x.ai.evil.com/t", "nope"] {
-            assert!(trusted_xai_endpoint(bad).is_err(), "{bad}");
-        }
-    }
-
-    #[test]
-    fn refresh_form_carries_the_principal_when_known() {
-        let t = StoredTokens {
-            refresh_token: "r&1".into(),
-            principal_type: "user".into(),
-            ..StoredTokens::default()
-        };
-        assert_eq!(
-            refresh_form(&t),
-            format!("grant_type=refresh_token&client_id={CLIENT_ID}&refresh_token=r%261&principal_type=user")
-        );
-    }
-
-    #[test]
-    fn dead_grants_need_a_new_sign_in_and_throttles_do_not() {
-        let dead = refresh_error(400, &[], br#"{"error":"invalid_grant"}"#, &[]);
-        assert!(dead.reauth_required);
-        assert_eq!(dead.code.as_deref(), Some("invalid_grant"));
-        let throttled = refresh_error(429, &[], b"slow down", &[]);
-        assert!(!throttled.reauth_required);
-        assert_eq!(throttled.kind, ErrorKind::RateLimited);
-    }
-
-    /// Each Grok request that outlives its timer reads as the real Node function of the same site did
-    /// (`sites.grokDiscovery`, `grokRefresh`, `grokCodeExchange`): the refresh and the discovery under their labelled
-    /// timers, the authorization-code exchange under `AbortSignal.timeout` (not the refresh's label).
-    #[tokio::test(start_paused = true)]
-    async fn a_grok_request_that_outlives_its_timer_reads_as_nodes_site() {
-        use crate::oauth::CredentialIo;
-        use crate::transport::site_probe::TimingOut;
-        use crate::transport::site_probe::assert_thrown;
-        use crate::transport::site_probe::assert_transport;
-        use crate::transport::site_probe::login_message;
-
-        let tokens = StoredTokens {
-            access_token: "a".into(),
-            refresh_token: "r".into(),
-            token_endpoint: "https://auth.x.ai/oauth2/token".into(),
-            ..StoredTokens::default()
-        };
-        let transport = TimingOut::new();
-        let error = refresh(transport.as_ref(), &SystemPace, &tokens).await.expect_err("the token endpoint never answers");
-        assert_transport("grokRefresh", &transport);
-        assert_thrown("grokRefresh", &error.message);
-
-        let transport = TimingOut::new();
-        let error = refresh(transport.as_ref(), &SystemPace, &StoredTokens { token_endpoint: String::new(), ..tokens.clone() })
-            .await
-            .expect_err("the discovery never answers");
-        assert_transport("grokDiscovery", &transport);
-        assert_thrown("grokDiscovery", &error.message);
-
-        let transport = TimingOut::new();
-        let dir = tempfile::tempdir().unwrap();
-        let rt = mixdog_rt::testing::tokens();
-        let file = CredentialFile::new(
-            dir.path().join("grok-oauth.json"),
-            CredentialIo { read: rt.interactive_io, write: rt.durability_io },
-        );
-        let login = GrokLogin::new(transport.clone(), file, "https://auth.x.ai/authorize", "https://auth.x.ai/oauth2/token").unwrap();
-        let failure = login.exchange("abc", "v", "http://127.0.0.1:56121/callback").await.expect_err("the exchange never answers");
-        assert_transport("grokCodeExchange", &transport);
-        // Node words the exchange's failure itself (`oauthRequestError`), and so does the Rust login.
-        assert_thrown("grokCodeExchange", login_message(&failure));
-    }
-
-    /// `expiring = expires_at < now + TOKEN_REFRESH_SKEW_MS` (`grok-oauth.mjs:392`): an expiry exactly at the margin is
-    /// not due, one a millisecond inside it is.
-    #[test]
-    fn expiry_is_due_inside_the_skew() {
-        let t = StoredTokens {
-            expires_at: 1_000_000,
-            ..StoredTokens::default()
-        };
-        assert!(!t.needs_refresh(1_000_000 - REFRESH_SKEW_MS));
-        assert!(t.needs_refresh(1_000_000 - REFRESH_SKEW_MS + 1));
-        assert!(!t.needs_refresh(0));
-        assert!(!StoredTokens::default().needs_refresh(u64::MAX / 2));
-    }
-
-    /// One grant-to-tokens step for the PKCE exchange and the device poll: both tokens are required, the expiry counts from
-    /// now, and the identity the grant does not name comes from the access token's claims.
-    #[test]
-    fn a_grant_becomes_tokens_with_the_identity_of_its_access_token() {
-        let claims = URL_SAFE_NO_PAD.encode(br#"{"sub":"u-1","principal_type":"user","principal_id":"p-1","email":"a@x.ai"}"#);
-        let access = format!("h.{claims}.s");
-        let grant = serde_json::json!({ "access_token": access, "refresh_token": "r", "expires_in": 60, "principal_id": "" });
-        let tokens = tokens_from_grant(&grant, "https://auth.x.ai/oauth2/token", 1_000).unwrap();
-        assert_eq!(tokens.expires_at, 61_000);
-        assert_eq!((tokens.user_id.as_str(), tokens.principal_type.as_str(), tokens.principal_id.as_str()), ("p-1", "user", "p-1"));
-        assert_eq!(tokens.email, "a@x.ai");
-        let missing = serde_json::json!({ "access_token": "a" });
-        assert!(tokens_from_grant(&missing, "https://auth.x.ai/oauth2/token", 0).is_err());
     }
 }

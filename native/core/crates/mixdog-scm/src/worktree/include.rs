@@ -260,44 +260,6 @@ fn digest_type(meta: &std::fs::Metadata) -> char {
     if meta.file_type().is_symlink() { 'l' } else if meta.is_dir() { 'd' } else { 'f' }
 }
 
-/// Digest of a copied tree (relative path, type, size, mtime). `None` when the tree is gone or
-/// too large to fingerprint.
-fn tree_digest(path: &Path) -> Option<String> {
-    let mut hash = Sha256::new();
-    let mut count = 0usize;
-    fn walk(current: &Path, rel: &str, hash: &mut Sha256, count: &mut usize) -> Option<()> {
-        let meta = std::fs::symlink_metadata(current).ok()?;
-        *count += 1;
-        if *count > MAX_DIGEST_ENTRIES {
-            return None;
-        }
-        let kind = digest_type(&meta);
-        let (size, mtime) = if kind == 'f' {
-            let mtime = meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0, |d| d.as_millis());
-            (meta.len(), mtime)
-        } else {
-            (0, 0)
-        };
-        hash.update(format!("{rel}\0{kind}\0{size}\0{mtime}\n").as_bytes());
-        if kind != 'd' {
-            return Some(());
-        }
-        let mut names: Vec<String> = std::fs::read_dir(current).ok()?.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
-        names.sort();
-        for name in names {
-            let child = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
-            walk(&current.join(&name), &child, hash, count)?;
-        }
-        Some(())
-    }
-    walk(path, "", &mut hash, &mut count)?;
-    Some(hex(&hash.finalize()))
-}
-
 fn assert_plain_parents(worktree: &Path, dest: &Path) -> Result<(), ()> {
     let Ok(relative) = dest.parent().unwrap_or(dest).strip_prefix(worktree) else {
         return Ok(());
@@ -400,52 +362,6 @@ fn copy_tree(source: &Path, dest: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Copies/links every planned item into `worktree`. `record` is told `pending` before each
-/// resource is made and `created` after.
-pub fn apply_includes(
-    plan: &IncludePlan,
-    worktree: &Path,
-    record: &mut dyn FnMut(&IncludeItem) -> Result<(), ScmFailure>,
-) -> Result<Vec<String>, ScmFailure> {
-    let mut warnings = Vec::new();
-    for item in &plan.items {
-        let dest = item.rel.split('/').fold(worktree.to_path_buf(), |p, s| p.join(s));
-        if std::fs::symlink_metadata(&dest).is_ok() {
-            warnings.push(format!("include-exists:{}", item.rel));
-            continue;
-        }
-        if assert_plain_parents(worktree, &dest).is_err() {
-            warnings.push(format!("include-skipped:{}", item.rel));
-            continue;
-        }
-        let mut ledger = IncludeItem {
-            mode: if item.link { "link" } else { "copy" }.into(),
-            rel: item.rel.clone(),
-            path: dest.to_string_lossy().into_owned(),
-            status: "pending".into(),
-            digest: None,
-            source: item.link.then(|| item.source.to_string_lossy().into_owned()),
-            link_type: None,
-            dependency: false,
-        };
-        record(&ledger)?;
-        if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        if item.link {
-            ledger.link_type = Some(link_item(item, &dest)?.to_owned());
-        } else {
-            copy_tree(&item.source, &dest)?;
-        }
-        ledger.status = "created".into();
-        if !item.link {
-            ledger.digest = tree_digest(&dest);
-        }
-        record(&ledger)?;
-    }
-    Ok(warnings)
-}
-
 /// Removes the links this worktree made, never traversing their targets. Copies stay (they
 /// live inside the checkout and go with it). Returns the links that could not be removed.
 pub fn remove_include_links(items: &[IncludeItem]) -> Vec<String> {
@@ -497,16 +413,6 @@ pub fn restore_include_links(items: &[IncludeItem]) -> Vec<(String, String)> {
     failures
 }
 
-/// Copied include paths whose content changed since creation (or are unknown).
-pub fn modified_include_copies(items: &[IncludeItem]) -> Vec<String> {
-    items
-        .iter()
-        .filter(|item| item.mode == "copy" && std::fs::symlink_metadata(&item.path).is_ok())
-        .filter(|item| item.status != "created" || item.digest.is_none() || tree_digest(Path::new(&item.path)) != item.digest)
-        .map(|item| item.rel.clone())
-        .collect()
-}
-
 /// The include items of a record's ledger.
 pub fn ledger_of(record: &WorktreeRecord) -> Vec<IncludeItem> {
     record
@@ -517,6 +423,159 @@ pub fn ledger_of(record: &WorktreeRecord) -> Vec<IncludeItem> {
         .unwrap_or_default()
 }
 
+/// Whether `path` (forward-slash, relative) is one of the include items or inside one.
+pub fn covered_by_includes(roots: &[String], path: &str) -> bool {
+    let target = key(path.replace('\\', "/").trim_end_matches('/'));
+    roots.iter().any(|root| covered_by(&key(root), &target))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn include_lines_are_parsed_and_unsafe_paths_are_invalid_not_fatal() {
+        let entries = parse_include_entries(
+            "# comment\ncopy .env.local\nlink data/cache\ncopy ../outside\nbuild/**\n",
+        )
+        .unwrap();
+        assert_eq!(entries[0], IncludeEntry::Copy { rel: ".env.local".into(), line: 2 });
+        assert_eq!(entries[1], IncludeEntry::Link { rel: "data/cache".into(), line: 3 });
+        assert_eq!(entries[2], IncludeEntry::Invalid { line: 4 });
+        assert_eq!(entries[3], IncludeEntry::Pattern { pattern: Some("build/**".into()), line: 5 });
+        assert!(parse_include_entries("copy a\ncopy a/b\n").is_err());
+        for bad in ["/abs", "C:\\x", "a/../b", ".git/config", "a:b", ""] {
+            assert!(validate_include_path(bad, 1).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn coverage_follows_the_ledger_roots() {
+        assert!(covered_by_includes(&[".env".into(), "cache".into()], "cache/x/y"));
+        assert!(!covered_by_includes(&["cache".into()], "cache2"));
+    }
+
+
+    #[test]
+    fn copies_are_digested_and_a_changed_copy_is_reported() {
+        let source = tempfile::tempdir().unwrap();
+        let tree = tempfile::tempdir().unwrap();
+        std::fs::write(source.path().join("f.txt"), "one").unwrap();
+        let plan = IncludePlan {
+            items: vec![PlannedItem { link: false, rel: "f.txt".into(), source: source.path().join("f.txt"), directory: false, bytes: 3 }],
+            copy_bytes: 3,
+            warnings: Vec::new(),
+        };
+        let mut ledger = Vec::new();
+        apply_includes(&plan, tree.path(), &mut |item| {
+            ledger.push(item.clone());
+            Ok(())
+        })
+        .unwrap();
+        let made: Vec<IncludeItem> = vec![ledger.last().unwrap().clone()];
+        assert_eq!(made[0].status, "created");
+        assert!(modified_include_copies(&made).is_empty());
+        std::fs::write(tree.path().join("f.txt"), "changed!").unwrap();
+        assert_eq!(modified_include_copies(&made), ["f.txt"]);
+        // An existing path is never overwritten.
+        let mut again = Vec::new();
+        let warnings = apply_includes(&plan, tree.path(), &mut |i| { again.push(i.clone()); Ok(()) }).unwrap();
+        assert_eq!(warnings, ["include-exists:f.txt"]);
+    }
+}
+
+
+/// Digest of a copied tree (relative path, type, size, mtime). `None` when the tree is gone or
+/// too large to fingerprint.
+fn tree_digest(path: &Path) -> Option<String> {
+    let mut hash = Sha256::new();
+    let mut count = 0usize;
+    fn walk(current: &Path, rel: &str, hash: &mut Sha256, count: &mut usize) -> Option<()> {
+        let meta = std::fs::symlink_metadata(current).ok()?;
+        *count += 1;
+        if *count > MAX_DIGEST_ENTRIES {
+            return None;
+        }
+        let kind = digest_type(&meta);
+        let (size, mtime) = if kind == 'f' {
+            let mtime = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_millis());
+            (meta.len(), mtime)
+        } else {
+            (0, 0)
+        };
+        hash.update(format!("{rel}\0{kind}\0{size}\0{mtime}\n").as_bytes());
+        if kind != 'd' {
+            return Some(());
+        }
+        let mut names: Vec<String> = std::fs::read_dir(current).ok()?.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        for name in names {
+            let child = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
+            walk(&current.join(&name), &child, hash, count)?;
+        }
+        Some(())
+    }
+    walk(path, "", &mut hash, &mut count)?;
+    Some(hex(&hash.finalize()))
+}
+/// Copies/links every planned item into `worktree`. `record` is told `pending` before each
+/// resource is made and `created` after.
+pub fn apply_includes(
+    plan: &IncludePlan,
+    worktree: &Path,
+    record: &mut dyn FnMut(&IncludeItem) -> Result<(), ScmFailure>,
+) -> Result<Vec<String>, ScmFailure> {
+    let mut warnings = Vec::new();
+    for item in &plan.items {
+        let dest = item.rel.split('/').fold(worktree.to_path_buf(), |p, s| p.join(s));
+        if std::fs::symlink_metadata(&dest).is_ok() {
+            warnings.push(format!("include-exists:{}", item.rel));
+            continue;
+        }
+        if assert_plain_parents(worktree, &dest).is_err() {
+            warnings.push(format!("include-skipped:{}", item.rel));
+            continue;
+        }
+        let mut ledger = IncludeItem {
+            mode: if item.link { "link" } else { "copy" }.into(),
+            rel: item.rel.clone(),
+            path: dest.to_string_lossy().into_owned(),
+            status: "pending".into(),
+            digest: None,
+            source: item.link.then(|| item.source.to_string_lossy().into_owned()),
+            link_type: None,
+            dependency: false,
+        };
+        record(&ledger)?;
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        if item.link {
+            ledger.link_type = Some(link_item(item, &dest)?.to_owned());
+        } else {
+            copy_tree(&item.source, &dest)?;
+        }
+        ledger.status = "created".into();
+        if !item.link {
+            ledger.digest = tree_digest(&dest);
+        }
+        record(&ledger)?;
+    }
+    Ok(warnings)
+}
+/// Copied include paths whose content changed since creation (or are unknown).
+pub fn modified_include_copies(items: &[IncludeItem]) -> Vec<String> {
+    items
+        .iter()
+        .filter(|item| item.mode == "copy" && std::fs::symlink_metadata(&item.path).is_ok())
+        .filter(|item| item.status != "created" || item.digest.is_none() || tree_digest(Path::new(&item.path)) != item.digest)
+        .map(|item| item.rel.clone())
+        .collect()
+}
 impl Worktrees {
     /// Applies the plan into `worktree`, persisting the record's ledger before and after every
     /// resource. Returns the apply warnings; the record carries the final ledger.
@@ -790,65 +849,5 @@ impl Worktrees {
         .await??;
         warnings.extend(extra);
         Ok(IncludePlan { items, copy_bytes, warnings })
-    }
-}
-
-/// Whether `path` (forward-slash, relative) is one of the include items or inside one.
-pub fn covered_by_includes(roots: &[String], path: &str) -> bool {
-    let target = key(path.replace('\\', "/").trim_end_matches('/'));
-    roots.iter().any(|root| covered_by(&key(root), &target))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn include_lines_are_parsed_and_unsafe_paths_are_invalid_not_fatal() {
-        let entries = parse_include_entries(
-            "# comment\ncopy .env.local\nlink data/cache\ncopy ../outside\nbuild/**\n",
-        )
-        .unwrap();
-        assert_eq!(entries[0], IncludeEntry::Copy { rel: ".env.local".into(), line: 2 });
-        assert_eq!(entries[1], IncludeEntry::Link { rel: "data/cache".into(), line: 3 });
-        assert_eq!(entries[2], IncludeEntry::Invalid { line: 4 });
-        assert_eq!(entries[3], IncludeEntry::Pattern { pattern: Some("build/**".into()), line: 5 });
-        assert!(parse_include_entries("copy a\ncopy a/b\n").is_err());
-        for bad in ["/abs", "C:\\x", "a/../b", ".git/config", "a:b", ""] {
-            assert!(validate_include_path(bad, 1).is_err(), "{bad}");
-        }
-    }
-
-    #[test]
-    fn copies_are_digested_and_a_changed_copy_is_reported() {
-        let source = tempfile::tempdir().unwrap();
-        let tree = tempfile::tempdir().unwrap();
-        std::fs::write(source.path().join("f.txt"), "one").unwrap();
-        let plan = IncludePlan {
-            items: vec![PlannedItem { link: false, rel: "f.txt".into(), source: source.path().join("f.txt"), directory: false, bytes: 3 }],
-            copy_bytes: 3,
-            warnings: Vec::new(),
-        };
-        let mut ledger = Vec::new();
-        apply_includes(&plan, tree.path(), &mut |item| {
-            ledger.push(item.clone());
-            Ok(())
-        })
-        .unwrap();
-        let made: Vec<IncludeItem> = vec![ledger.last().unwrap().clone()];
-        assert_eq!(made[0].status, "created");
-        assert!(modified_include_copies(&made).is_empty());
-        std::fs::write(tree.path().join("f.txt"), "changed!").unwrap();
-        assert_eq!(modified_include_copies(&made), ["f.txt"]);
-        // An existing path is never overwritten.
-        let mut again = Vec::new();
-        let warnings = apply_includes(&plan, tree.path(), &mut |i| { again.push(i.clone()); Ok(()) }).unwrap();
-        assert_eq!(warnings, ["include-exists:f.txt"]);
-    }
-
-    #[test]
-    fn coverage_follows_the_ledger_roots() {
-        assert!(covered_by_includes(&[".env".into(), "cache".into()], "cache/x/y"));
-        assert!(!covered_by_includes(&["cache".into()], "cache2"));
     }
 }

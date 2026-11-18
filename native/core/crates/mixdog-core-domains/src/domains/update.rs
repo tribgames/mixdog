@@ -58,12 +58,19 @@ const DOMAIN: &str = "update";
 pub const REGISTRY_URL: &str = "https://registry.npmjs.org/mixdog/latest";
 const CACHE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 const CACHE_FILE: &str = "update-check-cache.json";
+/// What `update/runUpdateNow` answers in the packaged desktop, and what the Doctor's update row says in its place.
+pub const MANAGED_BY_DESKTOP: &str = "updates are installed by the Mixdog desktop app";
 
 /// Stages the next version; the swap into place happens at the next clean launch.
 #[async_trait]
 pub trait UpdateInstaller: Send + Sync {
     /// A source checkout or any install that is not a normal package: never self-updated.
     fn is_dev_install(&self) -> bool;
+    /// The packaged desktop's core: its own updater (electron-updater) replaces the app and the core in it, so this core
+    /// neither stages nor announces an update of its own.
+    fn managed_by_desktop(&self) -> bool {
+        false
+    }
     /// Stages and verifies `version`. `Ok` carries the version actually staged when it differs;
     /// `Err` is the failure text the user reads (`npm install exited with code 1`, …).
     async fn stage(&self, version: &str) -> Result<Option<String>, String>;
@@ -91,20 +98,25 @@ pub struct ReqwestRegistry;
 impl RegistryHttp for ReqwestRegistry {
     async fn get(&self, url: &str) -> Option<RegistryAnswer> {
         let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false).ok()?;
-        let request = WireRequest {
-            transport: TransportKind::Http1,
-            method: "GET".to_owned(),
-            url: url.to_owned(),
-            headers: Vec::new(),
-            body: Vec::new(),
-        };
-        let response = link.send(request, UPDATE_CHECK).await.ok()?;
-        let success = response.is_success();
-        if !success {
-            return Some(RegistryAnswer { success, body: Vec::new() });
-        }
-        Some(RegistryAnswer { success, body: response.read_all().await.ok()?.body })
+        get_through(&link, url).await
     }
+}
+
+/// The registry GET over `http`, under the update check's own window.
+async fn get_through(http: &dyn HttpSend, url: &str) -> Option<RegistryAnswer> {
+    let request = WireRequest {
+        transport: TransportKind::Http1,
+        method: "GET".to_owned(),
+        url: url.to_owned(),
+        headers: Vec::new(),
+        body: Vec::new(),
+    };
+    let response = http.send(request, UPDATE_CHECK).await.ok()?;
+    let success = response.is_success();
+    if !success {
+        return Some(RegistryAnswer { success, body: Vec::new() });
+    }
+    Some(RegistryAnswer { success, body: response.read_all().await.ok()?.body })
 }
 
 /// `STAGE_POLL_MS` and `STAGE_POLL_MAX_MS` of `self-update.mjs`.
@@ -510,6 +522,7 @@ impl UpdateService {
             if let Some(version) = version
                 && (service.config.auto_update)()
                 && !service.installer.is_dev_install()
+                && !service.installer.managed_by_desktop()
             {
                 service.stage_and_announce(&version).await;
             }
@@ -540,13 +553,18 @@ impl UpdateService {
     /// `getUpdateSettings()`.
     pub fn settings(&self) -> Value {
         let check = self.state().check.clone();
-        json!({
+        let mut settings = json!({
             "autoUpdate": (self.config.auto_update)(),
             "currentVersion": check.current_version.unwrap_or_else(|| self.config.current_version.clone()),
             "latestVersion": check.latest_version,
             "updateAvailable": check.update_available,
             "lastCheckedAt": check.last_checked_at,
-        })
+        });
+        // Only the packaged desktop names who installs its updates, so every other answer keeps Node's shape.
+        if self.installer.managed_by_desktop() {
+            settings["managedBy"] = json!("desktop");
+        }
+        settings
     }
 
     /// `runUpdateNow()` of the controller, then `{ ok: phase === 'installed', ...state }`.
@@ -559,6 +577,14 @@ impl UpdateService {
                 busy.insert("error".into(), json!("update already in progress"));
                 busy.insert("ok".into(), json!(false));
                 return Value::Object(busy);
+            }
+            if self.installer.managed_by_desktop() {
+                state.process = ProcessState {
+                    phase: Phase::Failed,
+                    version: None,
+                    error: Some(MANAGED_BY_DESKTOP.into()),
+                };
+                return Self::with_ok(&state.process);
             }
             if self.installer.is_dev_install() {
                 state.process = ProcessState {

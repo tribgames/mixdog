@@ -20,7 +20,8 @@ use serde_json::{Map, Value, json};
 
 pub mod maintenance;
 
-use crate::memory::core::action::{CoreContext, run};
+use crate::memory::core::action::{CoreContext, run_cancellable};
+use crate::memory::core::store::DeleteSettlement;
 use crate::memory::ingest::SessionIngest;
 use crate::memory::pg::db::Db;
 use crate::memory::recall::{Recall, RecallOutcome};
@@ -46,12 +47,7 @@ pub trait SessionSource: Send + Sync {
 }
 
 /// The runtime proxy's refusal of a call whose memory runtime never came up (`memory-runtime-proxy/discovery.mjs:95`).
-const RUNTIME_NOT_READY: &str = "memory runtime did not become ready";
-
-/// How long after the launch of the memory runtime's opening a call waits for it: Node's proxy waits 60 s for the spawned child's ready message
-/// (`memory-runtime-proxy/daemon-spawn.mjs:62`) and, on its timeout, 30 s more for the still running child to publish a live port (`:141`), then refuses.
-/// A child that exited before ready (its opening failed) is waited for in the same 30 s although nothing can bring it back: the core answers that at once.
-pub const RUNTIME_READY_WAIT: std::time::Duration = std::time::Duration::from_secs(90);
+pub(crate) const RUNTIME_NOT_READY: &str = "memory runtime did not become ready";
 
 /// The memory runtime's tool entry: `handleToolCall(name, args)` as text.
 #[async_trait]
@@ -78,10 +74,19 @@ pub trait MemoryModule: Send + Sync {
     }
 }
 
+/// What a call refused by the database's lifecycle owner (sealed or revoked: the stack is stopping) answers.
+const STOPPING: &str = "memory service stopping";
+
 /// The memory runtime over the local Postgres. `memory` serves the curated
 /// core-memory actions; `ingest_session` stores a live transcript as recall
 /// entries through the session ingest it is built with.
-pub struct LocalMemory {
+///
+/// Every action and recall runs as work of the database's scope ([`Db::scope`]), registered before it starts: a caller that is cancelled or dropped
+/// stops waiting, the work (an ingest, its embedding, its queued flushes) stays owned until it completes or the stop revokes it.
+pub struct LocalMemory(Arc<LocalParts>);
+
+/// The parts of a [`LocalMemory`], shared with the work it starts.
+pub struct LocalParts {
     db: Db,
     data_dir: PathBuf,
     /// The process's one snapshot revision counter; the rooms' memory control shares it.
@@ -96,116 +101,11 @@ pub struct LocalMemory {
     maintenance: std::sync::OnceLock<Maintenance>,
 }
 
-impl LocalMemory {
-    pub fn new(db: Db, data_dir: PathBuf, recall: Recall, ingest: SessionIngest, lane: mixdog_rt::DurabilityIo) -> Self {
-        Self { db, data_dir, revision: Arc::new(AtomicU64::new(0)), recall, ingest, lane, session_uses: Mutex::default(), maintenance: std::sync::OnceLock::new() }
-    }
+impl std::ops::Deref for LocalMemory {
+    type Target = LocalParts;
 
-    /// Hands the maintenance actions what they run cycle1, embed and ingest transcripts with; the first attachment stands.
-    pub fn attach_maintenance(&self, maintenance: Maintenance) {
-        let _ = self.maintenance.set(maintenance);
-    }
-
-    pub fn db(&self) -> &Db {
-        &self.db
-    }
-
-    pub fn data_dir(&self) -> &std::path::Path {
-        &self.data_dir
-    }
-
-    pub fn snapshot_revision(&self) -> Arc<AtomicU64> {
-        self.revision.clone()
-    }
-
-    /// The `memory` tool's reply, with the error flag the text alone does not carry: the action it names
-    /// (`core` when it names none) and, for a name outside the table, the unknown-action answer.
-    pub async fn memory_reply(&self, args: &Value) -> ToolReply {
-        self.memory_reply_cancellable(args, &tokio_util::sync::CancellationToken::new()).await
-    }
-
-    /// [`Self::memory_reply`] for a request `cancel` ends (Node's `signal` of `handleMemoryAction`).
-    pub async fn memory_reply_cancellable(&self, args: &Value, cancel: &tokio_util::sync::CancellationToken) -> ToolReply {
-        if cancel.is_cancelled() {
-            return maintenance::failure_reply(&crate::memory::recall::aborted());
-        }
-        let action = match maintenance::parse_action(args) {
-            Ok(action) => action,
-            Err(name) => return maintenance::unknown_action_reply(&name),
-        };
-        match self.run_action(action, args, cancel).await {
-            Ok(reply) => reply,
-            Err(error) => maintenance::failure_reply(&error),
-        }
-    }
-
-    async fn run_action(&self, action: Action, args: &Value, cancel: &tokio_util::sync::CancellationToken) -> crate::memory::error::Result<ToolReply> {
-        Ok(match action {
-            Action::Core => {
-                let ctx = CoreContext { db: &self.db, data_dir: &self.data_dir, session_cwd: None, snapshot_revision: &self.revision, lane: self.lane };
-                run(&ctx, args).await
-            }
-            Action::Status => crate::memory::status::status(&self.db, self.recall.now_ms()).await,
-            Action::IngestSession => {
-                // Node's proxy projects the transcript before the runtime sees it (`prepareMemoryToolArgumentsForWire`), so
-                // the ingest's `limit` window and the collected rows' times count the projected rows.
-                let mut args = args.clone();
-                if let Some(messages) = args.get_mut("messages").filter(|m| m.is_array()) {
-                    *messages = Value::Array(crate::memory::ingest_shape::project_session_messages_for_ingest(messages));
-                }
-                ToolReply::ok(self.ingest.ingest_session(&args).await.unwrap_or_else(|error| error.message()))
-            }
-            Action::Search => {
-                let outcome = self.recall.handle_search(args, cancel).await?;
-                maintenance::search_reply(outcome)
-            }
-            Action::DumpSessionRoots => maintenance::dump_session_roots(&self.db, args).await?,
-            Action::Prune => maintenance::prune(&self.db, args).await?,
-            Action::Purge => maintenance::purge(&self.db, args).await?,
-            Action::Cycle1 | Action::Flush | Action::Rebuild | Action::Backfill | Action::Manage => match self.maintenance.get() {
-                Some(maintenance) => maintenance.run(&self.db, action, args, cancel).await?,
-                None => ToolReply::error("memory maintenance is not available in this process"),
-            },
-        })
-    }
-
-    /// The `recall` tool's outcome, with the error flag the text alone does not carry, for a request `cancel` ends (the turn's stop: Node's request signal, `tool-routes.mjs:19-46`).
-    pub async fn recall_outcome_cancellable(&self, args: &Value, cancel: &tokio_util::sync::CancellationToken) -> RecallOutcome {
-        self.recall.recall_cancellable(args, cancel).await
-    }
-
-    /// `refreshCoreMemorySnapshot(reason)`: a failure is logged, never raised.
-    pub async fn refresh_snapshot(&self, reason: &str) {
-        if let Err(error) = crate::memory::core::snapshot::refresh(self.lane, &self.db, &self.data_dir, &self.revision).await {
-            tracing::warn!(reason, error = %error.message(), "core memory: snapshot refresh failed");
-        }
-    }
-}
-
-#[async_trait]
-impl MemoryModule for LocalMemory {
-    async fn ready(&self) -> Result<(), String> {
-        self.db.ready_within(RUNTIME_READY_WAIT).await.map_err(|error| error.message())
-    }
-
-    async fn memory(&self, args: Value) -> String {
-        self.memory_reply(&args).await.text
-    }
-
-    async fn memory_cancellable(&self, args: Value, cancel: &tokio_util::sync::CancellationToken) -> String {
-        self.memory_reply_cancellable(&args, cancel).await.text
-    }
-
-    async fn recall(&self, args: Value, cancel: &tokio_util::sync::CancellationToken) -> String {
-        self.recall_outcome_cancellable(&args, cancel).await.text
-    }
-
-    fn note_session_use(&self, thread: &str) {
-        self.session_uses.lock().expect("session uses").insert(thread.to_owned());
-    }
-
-    fn take_session_use(&self, thread: &str) -> bool {
-        self.session_uses.lock().expect("session uses").remove(thread)
+    fn deref(&self) -> &LocalParts {
+        &self.0
     }
 }
 
@@ -331,6 +231,199 @@ pub fn current_session_recall_rows(messages: &[Value], query: &str, limit: Optio
     if rows.is_empty() { "(no results)".into() } else { rows.join("\n") }
 }
 
+#[async_trait]
+impl DomainService for MemoryService {
+    async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        match req.method.as_str() {
+            "memory/memoryControl" => Ok(Reply::Value(self.memory_control(&req.params, &req.ctx.cancel).await?)),
+            "memory/recall" => Ok(Reply::Value(self.recall(&req.params, &req.ctx.cancel).await?)),
+            _ => Err(CoreError::InvalidParams { path: "method".into(), expected: "memory/*".into() }),
+        }
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &["memory/memoryControl", "memory/recall"]
+    }
+
+    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
+        Admit::Accepted
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_queries_are_recognised_after_removing_spaces() {
+        assert!(is_identity_query("내가 누구야"));
+        assert!(is_identity_query("Who am I"));
+        assert!(is_identity_query("whoami"));
+        assert!(is_identity_query("what is my name"));
+        assert!(!is_identity_query("deploy the cluster"));
+        assert!(!is_identity_query(""));
+    }
+
+    #[test]
+    fn the_session_rows_are_newest_first_filtered_by_terms_and_limited() {
+        let messages = vec![
+            json!({ "role": "user", "content": "deploy the staging cluster" }),
+            json!({ "role": "assistant", "content": [{ "type": "text", "text": "Deploying now" }], "toolCalls": [{ "id": "c1" }] }),
+            json!({ "role": "system", "content": "deploy hidden" }),
+            json!({ "role": "tool", "toolCallId": "c1", "content": "ok" }),
+            json!({ "role": "user", "content": "thanks" }),
+        ];
+        let rows = current_session_recall_rows(&messages, "deploy", None);
+        assert_eq!(
+            rows,
+            "[session:2] assistant: Deploying now [{\"id\":\"c1\"}]\n[session:1] user: deploy the staging cluster"
+        );
+        assert_eq!(current_session_recall_rows(&messages, "", Some(&json!(2))).lines().count(), 2);
+        assert_eq!(current_session_recall_rows(&messages, "zzz", None), "(no results)");
+        assert_eq!(current_session_recall_rows(&[], "x", None), "(no results)");
+    }
+
+
+    #[tokio::test]
+    async fn the_memory_tool_names_an_unknown_action_and_asks_for_the_attachment_of_the_cycle_pieces() {
+        use crate::memory::ingest::embed_flush::RawEmbedFlush;
+        use crate::memory::pg::db::Schema;
+        use crate::memory::recall::period::Clock;
+        use crate::memory::recall::{Recall, RecallDeps};
+        use crate::memory::schema::ensure_memory_schema;
+        use crate::memory::tests::support::TestPg;
+
+        let pg = TestPg::start().await;
+        let db = pg.db(Schema::Memory).await;
+        ensure_memory_schema(&db, 384, &Value::Null).await.expect("schema");
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let recall = Recall::new(RecallDeps {
+            db: db.clone(),
+            clock: Arc::new(|| Clock { now_ms: 0, zone: chrono_tz::UTC }),
+            embedder: None,
+            session_cwd: None,
+            lane,
+            estimate_tokens: Arc::new(mixdog_js::token_estimate::estimate_tokens),
+            trace: None,
+        });
+        let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), None)), None, Arc::new(|| 0), lane);
+        let memory = LocalMemory::new(db, pg.dir.path().join("data"), recall, ingest, lane);
+        let unknown = memory.memory_reply(&json!({ "action": "format_disk" })).await;
+        assert!(unknown.is_error && unknown.text == "unknown memory action: format_disk; valid: core, status. Mutation verbs belong in op.", "{}", unknown.text);
+        let unattached = memory.memory_reply(&json!({ "action": "backfill" })).await;
+        assert_eq!((unattached.is_error, unattached.text.as_str()), (true, "memory maintenance is not available in this process"));
+        let purge = memory.memory_reply(&json!({ "action": "purge" })).await;
+        assert_eq!(purge.text, "purge requires confirm: \"DELETE ALL MEMORY\"");
+        let dump = memory.memory_reply(&json!({ "action": "dump_session_roots" })).await;
+        assert_eq!(dump.text, "(no current session)");
+    }
+}
+
+#[cfg(test)]
+#[path = "service/cancellation_tests.rs"]
+mod cancellation_tests;
+
+
+impl LocalMemory {
+    pub fn new(db: Db, data_dir: PathBuf, recall: Recall, ingest: SessionIngest, lane: mixdog_rt::DurabilityIo) -> Self {
+        Self(Arc::new(LocalParts { db, data_dir, revision: Arc::new(AtomicU64::new(0)), recall, ingest, lane, session_uses: Mutex::default(), maintenance: std::sync::OnceLock::new() }))
+    }
+
+    /// Hands the maintenance actions what they run cycle1, embed and ingest transcripts with; the first attachment stands.
+    pub fn attach_maintenance(&self, maintenance: Maintenance) {
+        let _ = self.maintenance.set(maintenance);
+    }
+
+    pub fn db(&self) -> &Db {
+        &self.db
+    }
+
+    pub fn data_dir(&self) -> &std::path::Path {
+        &self.data_dir
+    }
+
+    pub fn snapshot_revision(&self) -> Arc<AtomicU64> {
+        self.revision.clone()
+    }
+
+    /// The `memory` tool's reply, with the error flag the text alone does not carry: the action it names
+    /// (`core` when it names none) and, for a name outside the table, the unknown-action answer.
+    pub async fn memory_reply(&self, args: &Value) -> ToolReply {
+        self.memory_reply_cancellable(args, &tokio_util::sync::CancellationToken::new()).await
+    }
+
+    /// [`Self::memory_reply`] for a request `cancel` ends (Node's `signal` of `handleMemoryAction`).
+    pub async fn memory_reply_cancellable(&self, args: &Value, cancel: &tokio_util::sync::CancellationToken) -> ToolReply {
+        self.memory_reply_settled(args, cancel, None).await
+    }
+
+    pub(crate) async fn memory_reply_settled(
+        &self, args: &Value, cancel: &tokio_util::sync::CancellationToken, settlement: Option<Arc<DeleteSettlement>>,
+    ) -> ToolReply {
+        if cancel.is_cancelled() {
+            return maintenance::failure_reply(&crate::memory::recall::aborted());
+        }
+        let action = match maintenance::parse_action(args) {
+            Ok(action) => action,
+            Err(name) => return maintenance::unknown_action_reply(&name),
+        };
+        let (parts, args, cancel) = (self.0.clone(), args.clone(), cancel.child_token());
+        let _cancel_on_drop = cancel.clone().drop_guard();
+        let work = self.db.scope().spawn("services.memory.action", async move {
+            match parts.run_action(action, &args, &cancel, settlement.as_deref()).await {
+                Ok(reply) => reply,
+                Err(error) => maintenance::failure_reply(&error),
+            }
+        });
+        let answered = match work {
+            Some(work) => work.await,
+            None => None,
+        };
+        answered.unwrap_or_else(|| maintenance::failure_reply(&crate::memory::error::MemoryError::rejected(STOPPING)))
+    }
+
+    /// The `recall` tool's outcome, with the error flag the text alone does not carry, for a request `cancel` ends (the turn's stop: Node's request signal, `tool-routes.mjs:19-46`).
+    pub async fn recall_outcome_cancellable(&self, args: &Value, cancel: &tokio_util::sync::CancellationToken) -> RecallOutcome {
+        let (recall, args, token) = (self.recall.clone(), args.clone(), cancel.clone());
+        let work = self.db.scope().spawn("services.memory.recall", async move { recall.recall_cancellable(&args, &token).await });
+        let answered = match work {
+            Some(work) => work.await,
+            None => None,
+        };
+        answered.unwrap_or_else(|| RecallOutcome { text: format!("recall failed: {STOPPING}"), next_cursor: None, is_error: true, cancelled: cancel.is_cancelled() })
+    }
+}
+
+/// How long after the launch of the memory runtime's opening a call waits for it: Node's proxy waits 60 s for the spawned child's ready message
+/// (`memory-runtime-proxy/daemon-spawn.mjs:62`) and, on its timeout, 30 s more for the still running child to publish a live port (`:141`), then refuses.
+/// A child that exited before ready (its opening failed) is waited for in the same 30 s although nothing can bring it back: the core answers that at once.
+pub const RUNTIME_READY_WAIT: std::time::Duration = std::time::Duration::from_secs(90);
+#[async_trait]
+impl MemoryModule for LocalMemory {
+    async fn ready(&self) -> Result<(), String> {
+        self.db.ready_within(RUNTIME_READY_WAIT).await.map_err(|error| error.message())
+    }
+
+    async fn memory(&self, args: Value) -> String {
+        self.memory_reply(&args).await.text
+    }
+
+    async fn memory_cancellable(&self, args: Value, cancel: &tokio_util::sync::CancellationToken) -> String {
+        self.memory_reply_cancellable(&args, cancel).await.text
+    }
+
+    async fn recall(&self, args: Value, cancel: &tokio_util::sync::CancellationToken) -> String {
+        self.recall_outcome_cancellable(&args, cancel).await.text
+    }
+
+    fn note_session_use(&self, thread: &str) {
+        self.session_uses.lock().expect("session uses").insert(thread.to_owned());
+    }
+
+    fn take_session_use(&self, thread: &str) -> bool {
+        self.session_uses.lock().expect("session uses").remove(thread)
+    }
+}
 impl MemoryService {
     pub fn new(memory: Arc<dyn MemoryModule>, sessions: Arc<dyn SessionSource>) -> Self {
         Self { memory, sessions }
@@ -433,93 +526,47 @@ impl MemoryService {
     }
 }
 
-#[async_trait]
-impl DomainService for MemoryService {
-    async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        match req.method.as_str() {
-            "memory/memoryControl" => Ok(Reply::Value(self.memory_control(&req.params, &req.ctx.cancel).await?)),
-            "memory/recall" => Ok(Reply::Value(self.recall(&req.params, &req.ctx.cancel).await?)),
-            _ => Err(CoreError::InvalidParams { path: "method".into(), expected: "memory/*".into() }),
+
+impl LocalParts {
+    async fn run_action(
+        &self, action: Action, args: &Value, cancel: &tokio_util::sync::CancellationToken, settlement: Option<&DeleteSettlement>,
+    ) -> crate::memory::error::Result<ToolReply> {
+        if cancel.is_cancelled() {
+            return Err(crate::memory::recall::aborted());
+        }
+        Ok(match action {
+            Action::Core => {
+                let ctx = CoreContext { db: &self.db, data_dir: &self.data_dir, session_cwd: None, snapshot_revision: &self.revision, lane: self.lane };
+                run_cancellable(&ctx, args, Some(cancel), settlement).await
+            }
+            Action::Status => crate::memory::status::status(&self.db, self.recall.now_ms()).await,
+            Action::IngestSession => {
+                // Node's proxy projects the transcript before the runtime sees it (`prepareMemoryToolArgumentsForWire`), so
+                // the ingest's `limit` window and the collected rows' times count the projected rows.
+                let mut args = args.clone();
+                if let Some(messages) = args.get_mut("messages").filter(|m| m.is_array()) {
+                    *messages = Value::Array(crate::memory::ingest_shape::project_session_messages_for_ingest(messages));
+                }
+                ToolReply::ok(self.ingest.ingest_session_cancellable(&args, cancel).await?)
+            }
+            Action::Search => {
+                let outcome = self.recall.handle_search(args, cancel).await?;
+                maintenance::search_reply(outcome)
+            }
+            Action::DumpSessionRoots => maintenance::dump_session_roots(&self.db, args).await?,
+            Action::Prune => maintenance::prune(&self.db, args).await?,
+            Action::Purge => maintenance::purge(&self.db, args).await?,
+            Action::Cycle1 | Action::Flush | Action::Rebuild | Action::Backfill | Action::Manage => match self.maintenance.get() {
+                Some(maintenance) => maintenance.run(&self.db, action, args, cancel).await?,
+                None => ToolReply::error("memory maintenance is not available in this process"),
+            },
+        })
+    }
+
+    /// `refreshCoreMemorySnapshot(reason)`: a failure is logged, never raised.
+    pub async fn refresh_snapshot(&self, reason: &str) {
+        if let Err(error) = crate::memory::core::snapshot::refresh(self.lane, &self.db, &self.data_dir, &self.revision).await {
+            tracing::warn!(reason, error = %error.message(), "core memory: snapshot refresh failed");
         }
     }
-
-    fn methods(&self) -> &'static [&'static str] {
-        &["memory/memoryControl", "memory/recall"]
-    }
-
-    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
-        Admit::Accepted
-    }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn identity_queries_are_recognised_after_removing_spaces() {
-        assert!(is_identity_query("내가 누구야"));
-        assert!(is_identity_query("Who am I"));
-        assert!(is_identity_query("whoami"));
-        assert!(is_identity_query("what is my name"));
-        assert!(!is_identity_query("deploy the cluster"));
-        assert!(!is_identity_query(""));
-    }
-
-    #[test]
-    fn the_session_rows_are_newest_first_filtered_by_terms_and_limited() {
-        let messages = vec![
-            json!({ "role": "user", "content": "deploy the staging cluster" }),
-            json!({ "role": "assistant", "content": [{ "type": "text", "text": "Deploying now" }], "toolCalls": [{ "id": "c1" }] }),
-            json!({ "role": "system", "content": "deploy hidden" }),
-            json!({ "role": "tool", "toolCallId": "c1", "content": "ok" }),
-            json!({ "role": "user", "content": "thanks" }),
-        ];
-        let rows = current_session_recall_rows(&messages, "deploy", None);
-        assert_eq!(
-            rows,
-            "[session:2] assistant: Deploying now [{\"id\":\"c1\"}]\n[session:1] user: deploy the staging cluster"
-        );
-        assert_eq!(current_session_recall_rows(&messages, "", Some(&json!(2))).lines().count(), 2);
-        assert_eq!(current_session_recall_rows(&messages, "zzz", None), "(no results)");
-        assert_eq!(current_session_recall_rows(&[], "x", None), "(no results)");
-    }
-
-    #[tokio::test]
-    async fn the_memory_tool_names_an_unknown_action_and_asks_for_the_attachment_of_the_cycle_pieces() {
-        use crate::memory::ingest::embed_flush::RawEmbedFlush;
-        use crate::memory::pg::db::Schema;
-        use crate::memory::recall::period::Clock;
-        use crate::memory::recall::{Recall, RecallDeps};
-        use crate::memory::schema::ensure_memory_schema;
-        use crate::memory::tests::support::TestPg;
-
-        let pg = TestPg::start().await;
-        let db = pg.db(Schema::Memory).await;
-        ensure_memory_schema(&db, 384, &Value::Null).await.expect("schema");
-        let lane = mixdog_rt::testing::tokens().durability_io;
-        let recall = Recall::new(RecallDeps {
-            db: db.clone(),
-            clock: Arc::new(|| Clock { now_ms: 0, zone: chrono_tz::UTC }),
-            embedder: None,
-            session_cwd: None,
-            lane,
-            estimate_tokens: Arc::new(mixdog_js::token_estimate::estimate_tokens),
-            trace: None,
-        });
-        let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), None)), None, Arc::new(|| 0), lane);
-        let memory = LocalMemory::new(db, pg.dir.path().join("data"), recall, ingest, lane);
-        let unknown = memory.memory_reply(&json!({ "action": "format_disk" })).await;
-        assert!(unknown.is_error && unknown.text == "unknown memory action: format_disk; valid: core, status. Mutation verbs belong in op.", "{}", unknown.text);
-        let unattached = memory.memory_reply(&json!({ "action": "backfill" })).await;
-        assert_eq!((unattached.is_error, unattached.text.as_str()), (true, "memory maintenance is not available in this process"));
-        let purge = memory.memory_reply(&json!({ "action": "purge" })).await;
-        assert_eq!(purge.text, "purge requires confirm: \"DELETE ALL MEMORY\"");
-        let dump = memory.memory_reply(&json!({ "action": "dump_session_roots" })).await;
-        assert_eq!(dump.text, "(no current session)");
-    }
-}
-
-#[cfg(test)]
-#[path = "service/cancellation_tests.rs"]
-mod cancellation_tests;

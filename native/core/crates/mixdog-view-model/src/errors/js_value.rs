@@ -35,7 +35,7 @@ pub fn first_defined<'a>(values: &[Js<'a>]) -> Js<'a> {
 }
 
 /// `typeof value === 'string'`.
-pub fn str_of(value: Js) -> Option<&str> {
+pub fn str_of(value: Js<'_>) -> Option<&str> {
     value?.as_str()
 }
 

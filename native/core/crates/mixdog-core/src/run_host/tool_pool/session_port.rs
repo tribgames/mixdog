@@ -464,7 +464,7 @@ impl DirectorySessionPort {
                 session_control::list(self.parts.listing.as_ref(), &call.args, own.as_deref(), target.limit).await.map_err(failed)
             }
             "read" => {
-                let Some((rows, has_older)) = self.transcript(&thread, target.offset + target.limit).await? else {
+                let Some((rows, has_older)) = self.transcript(&thread, target.offset, target.limit).await? else {
                     return Err(failed(format!("session {} is not available", target.session_id)));
                 };
                 session_control::read(&target.session_id, &rows, has_older, &target, call.args.get("item_id")).map_err(failed)
@@ -495,29 +495,33 @@ impl DirectorySessionPort {
         }
     }
 
-    /// At least the newest `newest + 1` rows of `thread` (all when it holds fewer), oldest first,
-    /// as Node transcript rows, and whether older rows exist; `None` for a session that does not
-    /// exist.
-    async fn transcript(&self, thread: &ThreadId, newest: usize) -> Result<Option<(Vec<Value>, bool)>, PortError> {
+    /// Only the requested window, oldest first, and whether older rows exist.
+    async fn transcript(&self, thread: &ThreadId, mut skip: usize, want: usize) -> Result<Option<(Vec<Value>, bool)>, PortError> {
         if self.parts.callers.header(thread).await?.is_none() {
             return Ok(None);
         }
         let mut rows: Vec<Value> = Vec::new();
         let mut cursor: Option<String> = None;
         loop {
-            let limit = (newest + 1).saturating_sub(rows.len()).clamp(1, 512);
+            let remaining = want - rows.len();
+            let limit = skip.saturating_add(remaining).clamp(1, 512);
             let mut params = json!({ "threadId": thread.as_str(), "opId": uuid::Uuid::now_v7().to_string(), "limit": limit, "sortDirection": "desc" });
             if let Some(cursor) = &cursor {
                 params["cursor"] = json!(cursor);
             }
             let reply = self.parts.requests.request(thread, "thread/items/list", params).await.map_err(core)?;
             let page: ThreadItemsListResponse = serde_json::from_value(reply).map_err(|e| failed(format!("session: unreadable transcript page ({e})")))?;
-            let mut older: Vec<Value> = page.data.iter().map(transcript_row).collect();
-            older.append(&mut rows);
-            rows = older;
-            cursor = page.next_cursor.filter(|_| page.has_older && rows.len() <= newest);
+            let skipped = skip.min(page.data.len());
+            skip -= skipped;
+            let available = page.data.len() - skipped;
+            rows.extend(page.data.iter().rev().skip(skipped).take(remaining).map(transcript_row));
+            if rows.len() == want || !page.has_older {
+                rows.reverse();
+                return Ok(Some((rows, available > remaining || page.has_older)));
+            }
+            cursor = page.next_cursor;
             if cursor.is_none() {
-                return Ok(Some((rows, page.has_older)));
+                return Err(failed("session: transcript page is missing its continuation cursor"));
             }
         }
     }

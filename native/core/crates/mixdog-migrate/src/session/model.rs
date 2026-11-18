@@ -52,5 +52,9 @@ pub struct SessionModel {
     pub metas: Vec<Header>,
     /// Pending-job seqs dropped because their segment is published.
     pub superseded_jobs: Vec<u64>,
+    /// The parts of the compaction archive sidecars that could not be read and were skipped, as
+    /// `source::skipped` describes them; empty when nothing was skipped. The session opens without
+    /// them (the display archive is only a look back) and the note keeps what was dropped.
+    pub archive_damage: Vec<Value>,
     pub replaced_surrogates: u64,
 }

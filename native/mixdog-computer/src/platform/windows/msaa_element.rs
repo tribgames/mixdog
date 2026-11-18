@@ -5,28 +5,33 @@ use super::background::{hold_inactive, release_inactive};
 use super::msaa::{state_text, AccNode, MsaaNode};
 use crate::a11y::{Element, Stale};
 use crate::platform::Wid;
+use crate::port::windows::WinPort;
 use crate::protocol::Obj;
 use std::cell::RefCell;
+use std::sync::Arc;
 use windows::Win32::UI::Accessibility::IAccessible;
 
 /// The node a snapshot read, which every read of the element refreshes
 /// (MixMsaaNode.Refresh) so a ref sees the control as it is now.
 pub struct MsaaElement<A = IAccessible> {
     node: RefCell<MsaaNode<A>>,
+    /// The executor's port, which every write goes through.
+    port: Arc<WinPort>,
     hold: Hold,
 }
 
 /// How a write keeps its window non-activatable; a test swaps in one that
 /// touches no window.
 struct Hold {
-    acquire: fn(Wid) -> Wid,
-    release: fn(Wid) -> Result<(), String>,
+    acquire: fn(&WinPort, Wid) -> Wid,
+    release: fn(&WinPort, Wid) -> Result<(), String>,
 }
 
 impl<A: AccNode> MsaaElement<A> {
-    pub fn new(node: MsaaNode<A>) -> Self {
+    pub fn new(node: MsaaNode<A>, port: Arc<WinPort>) -> Self {
         Self::with_hold(
             node,
+            port,
             Hold {
                 acquire: hold_inactive,
                 release: release_inactive,
@@ -34,9 +39,10 @@ impl<A: AccNode> MsaaElement<A> {
         )
     }
 
-    fn with_hold(node: MsaaNode<A>, hold: Hold) -> Self {
+    fn with_hold(node: MsaaNode<A>, port: Arc<WinPort>, hold: Hold) -> Self {
         Self {
             node: RefCell::new(node),
+            port,
             hold,
         }
     }
@@ -52,15 +58,15 @@ impl<A: AccNode> MsaaElement<A> {
     /// Runs one write on a refreshed node with its window held
     /// non-activatable, as UIA actions are: a legacy host may raise itself
     /// while it answers (MixMsaaNode.DoDefaultAction, SetValue).
-    fn act<T>(&self, write: impl FnOnce(&MsaaNode<A>) -> Result<T, String>) -> Result<T, String> {
+    fn act<T>(&self, write: impl FnOnce(&MsaaNode<A>, &WinPort) -> Result<T, String>) -> Result<T, String> {
         let mut node = self.node.borrow_mut();
         if !node.refresh() {
             return Err("MSAA element is stale".into());
         }
-        let held = (self.hold.acquire)(node.window);
-        let outcome = write(&node);
+        let held = (self.hold.acquire)(&self.port, node.window);
+        let outcome = write(&node, &self.port);
         node.refresh();
-        let released = (self.hold.release)(held);
+        let released = (self.hold.release)(&self.port, held);
         let value = outcome?;
         released?;
         Ok(value)
@@ -96,7 +102,7 @@ impl<A: AccNode + 'static> Element for MsaaElement<A> {
     }
     /// DoDefaultAction: the control's default action, when it has one.
     fn press(&self) -> Result<(), String> {
-        self.act(MsaaNode::do_default_action)
+        self.act(|node, port| node.do_default_action(port))
     }
     fn can_press(&self) -> bool {
         self.live(|node| !node.default_action.trim().is_empty())
@@ -118,7 +124,7 @@ impl<A: AccNode + 'static> Element for MsaaElement<A> {
         self.live(|node| matches!(node.control_type(), "Edit" | "ComboBox") && !node.read_only())
     }
     fn set_value(&self, text: &str) -> Result<(), String> {
-        self.act(|node| node.acc.put_value(node.child, text))
+        self.act(|node, port| node.acc.put_value(port, node.window, node.child, text))
     }
     fn can_select(&self) -> bool {
         false
@@ -197,11 +203,11 @@ mod tests {
         fn child_count(&self) -> Option<i32> {
             None
         }
-        fn do_default_action(&self, child: i32) -> Result<(), String> {
+        fn do_default_action(&self, _: &WinPort, _: Wid, child: i32) -> Result<(), String> {
             self.1.borrow_mut().push(format!("do {child}"));
             Ok(())
         }
-        fn put_value(&self, child: i32, value: &str) -> Result<(), String> {
+        fn put_value(&self, _: &WinPort, _: Wid, child: i32, value: &str) -> Result<(), String> {
             self.1.borrow_mut().push(format!("put {child} {value}"));
             self.0.borrow_mut().as_mut().ok_or("gone")?.value = value.into();
             Ok(())
@@ -238,10 +244,11 @@ mod tests {
         let mut node = MsaaNode::new(Fake(cell.clone(), log.clone()), 0, "0/1".into(), 7, "hwnd:0x7");
         node.refresh();
         let hold = Hold {
-            acquire: |_| 0,
-            release: |_| Ok(()),
+            acquire: |_, _| 0,
+            release: |_, _| Ok(()),
         };
-        (MsaaElement::with_hold(node, hold), cell, log)
+        let (port, _) = crate::port::windows::fake::FakeWin::port(&crate::port::Scope::open(1));
+        (MsaaElement::with_hold(node, port, hold), cell, log)
     }
 
     #[test]

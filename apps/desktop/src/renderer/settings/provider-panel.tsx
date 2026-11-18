@@ -2,6 +2,7 @@ import { ExternalLink, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import type { DesktopApi } from '../../shared/contract';
+import { isSshConnectionWindow } from '../desktop-connection';
 import { t } from '../i18n';
 import { ErrorNotice, verificationUrlOf } from '../ErrorNotice';
 import { record } from '../record-utils';
@@ -48,6 +49,78 @@ const VERTEX_DEFAULT_LOCATION = 'global';
 const VERTEX_SERVICE_ACCOUNT = 'service-account';
 const VERTEX_ADC = 'adc';
 const VERTEX_API_KEY = 'api-key';
+
+/** Keep the draft in the uncontrolled form, not in settings data or in an error message. */
+function useProviderKeySave(run: PanelContext['run'], providerId: unknown, onClose: () => void) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [error, setError] = useState('');
+  const save = async (secret: string, options?: Record<string, string>) => {
+    setError('');
+    const args = options ? [providerId, secret, options] : [providerId, secret];
+    const saved = await run(
+      'saveProviderApiKey',
+      args,
+      `provider-key-${String(providerId)}`,
+      true,
+      false,
+      'throw'
+    ).catch(() => undefined);
+    if (!formRef.current) return;
+    if (!saved) {
+      setError(t('Could not save the provider credentials. Try again.'));
+      return;
+    }
+    formRef.current.reset();
+    onClose();
+  };
+  return { formRef, error, setError, save };
+}
+
+function ApiKeyForm({
+  provider,
+  busy,
+  run,
+  onClose,
+}: {
+  provider: RecordValue;
+  busy: boolean;
+  run: PanelContext['run'];
+  onClose(): void;
+}) {
+  const { formRef, error, save } = useProviderKeySave(run, provider.id, onClose);
+  return (
+    <>
+      <form
+        ref={formRef}
+        className="settings-provider-secret"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!busy) void save(String(new FormData(event.currentTarget).get('secret') ?? ''));
+        }}
+      >
+        <input
+          name="secret"
+          data-provider-key={String(provider.id)}
+          type="password"
+          autoComplete="off"
+          placeholder={t('API key')}
+          aria-label={`${providerLabel(provider)} ${t('API key')}`}
+          required
+          disabled={busy}
+        />
+        <button type="submit" disabled={busy}>
+          {t('Save')}
+        </button>
+      </form>
+      {error && (
+        <p className="settings-error" role="alert">
+          {error}
+        </p>
+      )}
+      <ActionButton onClick={onClose}>{t('Cancel')}</ActionButton>
+    </>
+  );
+}
 
 /** The location the user saved ('' when the row's location is only the environment's or the default). */
 function vertexSavedLocation(provider: RecordValue): string {
@@ -111,7 +184,7 @@ function VertexKeyForm({
   onMode(mode: string): void;
   onClose(): void;
 }) {
-  const [keyError, setKeyError] = useState('');
+  const { formRef, error: keyError, setError: setKeyError, save } = useProviderKeySave(run, provider.id, onClose);
   return (
     <>
       {/* biome-ignore lint/a11y/useSemanticElements: a div button group, same as the API key source picker. */}
@@ -136,21 +209,15 @@ function VertexKeyForm({
         ))}
       </div>
       <form
+        ref={formRef}
         className="settings-provider-secret"
         onSubmit={(event) => {
           event.preventDefault();
-          const form = event.currentTarget;
-          const fields = new FormData(form);
+          if (busy) return;
+          const fields = new FormData(event.currentTarget);
           // Empty: unset, so the runtime follows the environment's region (then global).
           const location = String(fields.get('location') || '').trim();
           const projectId = String(fields.get('projectId') || '').trim();
-          const save = async (secret: string, options: Record<string, string>) => {
-            const result = await run('saveProviderApiKey', [provider.id, secret, options], 'provider-key-vertex-ai');
-            if (result !== undefined) {
-              form.reset();
-              onClose();
-            }
-          };
           // The gcloud login sends no secret.
           if (mode === VERTEX_ADC) {
             void save('', { authMode: VERTEX_ADC, location, projectId });
@@ -167,9 +234,18 @@ function VertexKeyForm({
             void save(secret, { authMode: VERTEX_API_KEY });
             return;
           }
-          const file = fields.get('secretFile');
-          if (!(file instanceof File)) return;
-          void file.text().then((secret) => save(secret, { location, projectId }));
+          const currentFile = () =>
+            formRef.current?.querySelector<HTMLInputElement>('input[name="secretFile"]')?.files?.[0];
+          const file = currentFile();
+          if (!file) return;
+          void file.text().then(
+            (secret) => {
+              if (currentFile() === file) return save(secret, { location, projectId });
+            },
+            () => {
+              if (currentFile() === file) setKeyError(t('Could not read the service-account key file.'));
+            }
+          );
         }}
       >
         {mode === VERTEX_SERVICE_ACCOUNT && (
@@ -257,8 +333,7 @@ function useKeychainRefresh(run: PanelContext['run']) {
     // (desktop-services.md §15 P8); a change reads it into the panel. No timer.
     const sections = sectionStoreFor(window.mixdogDesktop);
     const stopCadence = sections?.subscribe('providerSetup', poll) ?? (() => undefined);
-    // Returning to the window re-snapshots the keyring right away instead of
-    // waiting for the daemon's TTL (secret-tool may have changed it meanwhile).
+    // Ask the owning daemon for a passive keyring check when returning to the window.
     window.addEventListener('focus', onFocus);
     return () => {
       stopCadence();
@@ -409,6 +484,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
     return credentialNote(provider);
   };
   const closeKeyForm = (id: string) => {
+    if (openKeyId !== id) return;
     pendingFocus.current = { id, target: 'connect' };
     setOpenKeyId(null);
   };
@@ -467,33 +543,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
             />
           )}
           {!provider.authenticated && openKeyId === String(provider.id) && provider.id !== 'vertex-ai' && (
-            <>
-              <form
-                className="settings-provider-secret"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const form = event.currentTarget;
-                  const secret = new FormData(form).get('secret');
-                  form.reset();
-                  closeKeyForm(String(provider.id));
-                  void run('saveProviderApiKey', [provider.id, secret], `provider-key-${String(provider.id)}`);
-                }}
-              >
-                <input
-                  name="secret"
-                  data-provider-key={String(provider.id)}
-                  type="password"
-                  autoComplete="off"
-                  placeholder={t('API key')}
-                  aria-label={`${providerLabel(provider)} ${t('API key')}`}
-                  required
-                />
-                <button type="submit" disabled={busy}>
-                  {t('Save')}
-                </button>
-              </form>
-              <ActionButton onClick={() => closeKeyForm(String(provider.id))}>{t('Cancel')}</ActionButton>
-            </>
+            <ApiKeyForm provider={provider} busy={busy} run={run} onClose={() => closeKeyForm(String(provider.id))} />
           )}
           {/* A gcloud login that stopped working can still be switched off. */}
           {Boolean(
@@ -585,7 +635,7 @@ export function OAuthControl({
   const providerId = String(provider.id || '');
   const {
     flow,
-    setFlow,
+    mergeFlow,
     error,
     pasteError,
     setPasteError,
@@ -596,11 +646,14 @@ export function OAuthControl({
     run,
     keyId: providerId,
     cancelCapability: 'cancelOAuthProviderLogin',
+    statusCapability: 'getOAuthProviderLoginStatus',
+    // The callback belongs to the daemon handling the capability, not this window's PC.
+    remote: isSshConnectionWindow() || undefined,
     statusError:
       providerId === 'cursor-oauth'
         ? t('Cursor OAuth status could not be checked.')
         : t('OAuth status could not be checked.'),
-    // A browser-callback login completes through status polling, never through
+    // A browser-callback login completes through the feed or a status read, never through
     // completeOAuthProviderLogin, so it invalidates the provider-derived caches
     // (setup snapshot and model pickers) itself. The daemon reports `complete`
     // only after it adopted the new credentials.
@@ -693,10 +746,14 @@ export function OAuthControl({
                       'throw'
                     )
                       .then((next) => {
-                        if (next) setFlow(record(next));
-                        else setPasteError(t('Sign-in could not be completed with this authorization code.'));
+                        if (next) mergeFlow(record(next));
+                        else if (form.isConnected) {
+                          setPasteError(t('Sign-in could not be completed with this authorization code.'));
+                        }
                       })
-                      .catch((reason) => setPasteError(pasteErrorText(reason)));
+                      .catch((reason) => {
+                        if (form.isConnected) setPasteError(pasteErrorText(reason));
+                      });
                   },
                 }
               : undefined

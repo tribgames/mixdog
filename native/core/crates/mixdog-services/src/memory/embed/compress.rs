@@ -49,6 +49,82 @@ pub async fn compress_model_cache(windows: bool, lane: CpuBulk, cache_dir: &Path
     Ok(Some(dir))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_model_path_stays_below_the_cache_root() {
+        let root = Path::new(if cfg!(windows) { r"C:\models" } else { "/models" });
+        assert_eq!(model_cache_path(root, "onnx-community/harrier").unwrap(), root.join("onnx-community").join("harrier"));
+        for id in ["../outside", "a/./b", "", "//", r"a\..\b"] {
+            assert!(model_cache_path(root, id).unwrap_err().starts_with("Invalid embedding model id"), "{id}");
+        }
+        let absolute = if cfg!(windows) { "C:/elsewhere" } else { "a/../../x" };
+        assert!(model_cache_path(root, absolute).is_err(), "{absolute}");
+    }
+
+    type Calls = Arc<std::sync::Mutex<Vec<Vec<String>>>>;
+
+    /// A compactor that records each call and answers `answer`.
+    fn scripted(answer: Result<(), String>) -> (Compact, Calls) {
+        let calls = Calls::default();
+        let seen = calls.clone();
+        let compact: Compact = Arc::new(move |args| {
+            seen.lock().unwrap().push(args);
+            let answer = answer.clone();
+            Box::pin(async move { answer })
+        });
+        (compact, calls)
+    }
+
+    async fn compress(windows: bool, cache: &Path, id: &str, compact: &Compact) -> Result<Option<PathBuf>, String> {
+        compress_model_cache(windows, mixdog_rt::testing::tokens().cpu_bulk, cache, id, compact).await
+    }
+
+    #[tokio::test]
+    async fn off_windows_nothing_is_touched_and_compact_is_never_run() {
+        let cache = tempfile::tempdir().unwrap();
+        let (compact, calls) = scripted(Ok(()));
+        assert_eq!(compress(false, cache.path(), "org/model", &compact).await, Ok(None));
+        assert_eq!(compress(false, cache.path(), "../escape", &compact).await, Ok(None));
+        assert!(calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_model_folder_is_compressed_whole_with_lzx_and_its_path_is_returned() {
+        let cache = tempfile::tempdir().unwrap();
+        let dir = cache.path().join("org").join("model");
+        std::fs::create_dir_all(&dir).unwrap();
+        let (compact, calls) = scripted(Ok(()));
+        assert_eq!(compress(true, cache.path(), "org/model", &compact).await, Ok(Some(dir.clone())));
+        let shown = dir.display().to_string();
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![vec!["/c".to_owned(), format!("/s:{shown}"), "/i".into(), "/q".into(), "/exe:lzx".into(), format!("{shown}{}*", std::path::MAIN_SEPARATOR)]]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unusable_id_or_a_missing_folder_fails_before_compact_runs() {
+        let cache = tempfile::tempdir().unwrap();
+        let (compact, calls) = scripted(Ok(()));
+        assert!(compress(true, cache.path(), "../escape", &compact).await.unwrap_err().starts_with("Invalid embedding model id"));
+        assert!(compress(true, cache.path(), "org/absent", &compact).await.is_err());
+        assert!(calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_failed_compaction_is_reported_with_its_reason() {
+        let cache = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(cache.path().join("org").join("model")).unwrap();
+        let (compact, calls) = scripted(Err("compact.exe exited with 1: no".to_owned()));
+        assert_eq!(compress(true, cache.path(), "org/model", &compact).await, Err("compact.exe exited with 1: no".to_owned()));
+        assert_eq!(calls.lock().unwrap().len(), 1);
+    }
+}
+
+
 /// `compact.exe` under the shared process manager, with Node's two-minute limit.
 pub fn compact_with(processes: Processes) -> Compact {
     Arc::new(move |args| {
@@ -64,20 +140,4 @@ pub fn compact_with(processes: Processes) -> Compact {
             }
         })
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_model_path_stays_below_the_cache_root() {
-        let root = Path::new(if cfg!(windows) { r"C:\models" } else { "/models" });
-        assert_eq!(model_cache_path(root, "onnx-community/harrier").unwrap(), root.join("onnx-community").join("harrier"));
-        for id in ["../outside", "a/./b", "", "//", r"a\..\b"] {
-            assert!(model_cache_path(root, id).unwrap_err().starts_with("Invalid embedding model id"), "{id}");
-        }
-        let absolute = if cfg!(windows) { "C:/elsewhere" } else { "a/../../x" };
-        assert!(model_cache_path(root, absolute).is_err(), "{absolute}");
-    }
 }

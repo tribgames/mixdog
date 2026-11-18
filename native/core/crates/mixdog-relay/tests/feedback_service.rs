@@ -1,6 +1,4 @@
-//! The feedback queue (`lib/feedback.mjs`, `lib/feedback-attachments.mjs`): the service-level cases of
-//! `lib/feedback.test.mjs` on a clock the tests move, and the records the Node service wrote (`fixtures/relay-feedback-records`)
-//! loaded, hashed, mailed and rewritten by this one. No test starts a mail server: the sender is a scripted fake.
+//! The feedback queue on a clock the tests move: persistence before acceptance, idempotence, validation, attachments, retry with backoff across restarts, capacity, and corrupt or unreadable storage.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -818,110 +816,6 @@ async fn an_attachment_free_payload_hashes_as_before() {
     service.close().await;
 }
 
-// ---- records written by the Node service ----
-
-fn node_fixture() -> Value {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/relay-feedback-records/records.json");
-    js::parse(&mixdog_fsio::read_to_string(&Unlaned, path).expect("the recorded Node records")).unwrap()
-}
-
-#[tokio::test(start_paused = true)]
-async fn records_the_node_service_wrote_load_hash_and_are_mailed_with_the_same_bytes() {
-    let fixture = node_fixture();
-    let now = fixture["nowMs"].as_i64().unwrap();
-    let cases = fixture["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 5);
-    for case in cases {
-        let name = case["name"].as_str().unwrap();
-        let file = case["file"].as_str().unwrap();
-        let id = file.trim_end_matches(".json");
-        let delivered = case["sentAt"].as_i64().unwrap() != 0;
-        let world = World::new();
-        world.clock.0.store(case["nextAttemptAt"].as_i64().unwrap().max(now), Ordering::SeqCst);
-        mixdog_fsio::create_dir_all(&Unlaned, world.feedback()).unwrap();
-        mixdog_fsio::write(&Unlaned, world.feedback().join(file), case["text"].as_str().unwrap()).unwrap();
-        let sender = Fake::ok();
-        let service = world.start(Some(&sender), world.options()).await;
-        assert!(world.lines.all().is_empty(), "{name}: a record the Node relay wrote is not corrupt");
-        // The hash Node computed is the one this service computes for the same submission: an id retried across the switch.
-        service.submit(&case["submitted"]).await.unwrap_or_else(|error| panic!("{name}: {error}"));
-        if delivered {
-            settle().await;
-            assert_eq!(sender.calls(), 0, "{name}: a delivered record is not mailed again");
-            assert_eq!(world.text(id), case["text"].as_str().unwrap());
-            service.close().await;
-            continue;
-        }
-        wait_for("the retry", || sender.delivered() == 1).await;
-        let expected = &case["sent"];
-        let mail = sender.mails().remove(0);
-        assert_eq!(mail.from, expected["from"].as_str().unwrap(), "{name}");
-        assert_eq!(mail.to, expected["to"].as_str().unwrap(), "{name}");
-        assert_eq!(mail.reply_to.as_deref(), expected["replyTo"].as_str(), "{name}");
-        assert_eq!(mail.subject, expected["subject"].as_str().unwrap(), "{name}");
-        assert_eq!(mail.text, expected["text"].as_str().unwrap(), "{name}");
-        assert_eq!(mail.message_id, expected["messageId"].as_str().unwrap(), "{name}");
-        let files: Vec<Value> = mail
-            .attachments
-            .iter()
-            .map(|a| json!({ "filename": a.filename, "contentType": a.content_type, "base64": STANDARD.encode(&a.content) }))
-            .collect();
-        assert_eq!(Value::Array(files), expected["attachments"], "{name}");
-        wait_for("the sent mark", || world.sent_at(id) > 0.0).await;
-        let after = world.record(id);
-        assert_eq!(after["hash"], case["hash"], "{name}");
-        assert!(after.get("payload").is_none(), "{name}");
-        service.close().await;
-    }
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_record_rewritten_after_a_failed_retry_is_the_text_node_would_write() {
-    let fixture = node_fixture();
-    for case in fixture["cases"].as_array().unwrap() {
-        if case["sentAt"].as_i64().unwrap() != 0 {
-            continue;
-        }
-        let name = case["name"].as_str().unwrap();
-        let file = case["file"].as_str().unwrap();
-        let id = file.trim_end_matches(".json");
-        let world = World::new();
-        let due = case["nextAttemptAt"].as_i64().unwrap();
-        world.clock.0.store(due, Ordering::SeqCst);
-        mixdog_fsio::create_dir_all(&Unlaned, world.feedback()).unwrap();
-        let text = case["text"].as_str().unwrap();
-        mixdog_fsio::write(&Unlaned, world.feedback().join(file), text).unwrap();
-        let sender = Fake::failing("EAUTH");
-        let service = world.start(Some(&sender), world.options()).await;
-        wait_for("the retry", || sender.calls() == 1).await;
-        let expected = text.replace(
-            &format!("\"attempts\":1,\"nextAttemptAt\":{due}"),
-            &format!("\"attempts\":2,\"nextAttemptAt\":{}", due + 60_000),
-        );
-        assert_ne!(expected, text, "{name}");
-        wait_for("the state write", || world.text(id) == expected).await;
-        assert!(world.lines.has(&format!("[relay] feedback send failed id={id} code=EAUTH")), "{name}");
-        service.close().await;
-    }
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_lone_surrogate_in_a_node_record_is_mailed_as_node_encodes_it() {
-    let fixture = node_fixture();
-    let case = fixture["cases"].as_array().unwrap().iter().find(|case| case["name"] == "lone-surrogate").unwrap();
-    let world = World::new();
-    world.clock.0.store(case["nextAttemptAt"].as_i64().unwrap(), Ordering::SeqCst);
-    mixdog_fsio::create_dir_all(&Unlaned, world.feedback()).unwrap();
-    mixdog_fsio::write(&Unlaned, world.feedback().join(case["file"].as_str().unwrap()), case["text"].as_str().unwrap()).unwrap();
-    let sender = Fake::ok();
-    let service = world.start(Some(&sender), world.options()).await;
-    wait_for("the mail", || sender.delivered() == 1).await;
-    let text = &sender.mails()[0].text;
-    assert_eq!(js::js_len(text), 10, "cut \\ud83d here: the lone surrogate is one unit");
-    assert_eq!(js::node_utf8(text), "cut \u{fffd} here".as_bytes());
-    service.close().await;
-}
-
 #[tokio::test(start_paused = true)]
 async fn legacy_records_without_attachments_load_and_corrupt_attachments_fail_closed() {
     let legacy = |id: &str, payload: Value| {
@@ -1001,4 +895,111 @@ async fn what_the_strict_loader_refuses() {
         assert!(world.lines.all().is_empty(), "{record}");
         service.close().await;
     }
+}
+
+
+#[cfg(node_twin)]
+mod records_of_the_previous_service {
+use super::*;
+// ---- records written by the Node service ----
+
+fn node_fixture() -> Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/relay-feedback-records/records.json");
+    js::parse(&mixdog_fsio::read_to_string(&Unlaned, path).expect("the recorded Node records")).unwrap()
+}
+#[tokio::test(start_paused = true)]
+async fn records_the_node_service_wrote_load_hash_and_are_mailed_with_the_same_bytes() {
+    let fixture = node_fixture();
+    let now = fixture["nowMs"].as_i64().unwrap();
+    let cases = fixture["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 5);
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let file = case["file"].as_str().unwrap();
+        let id = file.trim_end_matches(".json");
+        let delivered = case["sentAt"].as_i64().unwrap() != 0;
+        let world = World::new();
+        world.clock.0.store(case["nextAttemptAt"].as_i64().unwrap().max(now), Ordering::SeqCst);
+        mixdog_fsio::create_dir_all(&Unlaned, world.feedback()).unwrap();
+        mixdog_fsio::write(&Unlaned, world.feedback().join(file), case["text"].as_str().unwrap()).unwrap();
+        let sender = Fake::ok();
+        let service = world.start(Some(&sender), world.options()).await;
+        assert!(world.lines.all().is_empty(), "{name}: a record the Node relay wrote is not corrupt");
+        // The hash Node computed is the one this service computes for the same submission: an id retried across the switch.
+        service.submit(&case["submitted"]).await.unwrap_or_else(|error| panic!("{name}: {error}"));
+        if delivered {
+            settle().await;
+            assert_eq!(sender.calls(), 0, "{name}: a delivered record is not mailed again");
+            assert_eq!(world.text(id), case["text"].as_str().unwrap());
+            service.close().await;
+            continue;
+        }
+        wait_for("the retry", || sender.delivered() == 1).await;
+        let expected = &case["sent"];
+        let mail = sender.mails().remove(0);
+        assert_eq!(mail.from, expected["from"].as_str().unwrap(), "{name}");
+        assert_eq!(mail.to, expected["to"].as_str().unwrap(), "{name}");
+        assert_eq!(mail.reply_to.as_deref(), expected["replyTo"].as_str(), "{name}");
+        assert_eq!(mail.subject, expected["subject"].as_str().unwrap(), "{name}");
+        assert_eq!(mail.text, expected["text"].as_str().unwrap(), "{name}");
+        assert_eq!(mail.message_id, expected["messageId"].as_str().unwrap(), "{name}");
+        let files: Vec<Value> = mail
+            .attachments
+            .iter()
+            .map(|a| json!({ "filename": a.filename, "contentType": a.content_type, "base64": STANDARD.encode(&a.content) }))
+            .collect();
+        assert_eq!(Value::Array(files), expected["attachments"], "{name}");
+        wait_for("the sent mark", || world.sent_at(id) > 0.0).await;
+        let after = world.record(id);
+        assert_eq!(after["hash"], case["hash"], "{name}");
+        assert!(after.get("payload").is_none(), "{name}");
+        service.close().await;
+    }
+}
+#[tokio::test(start_paused = true)]
+async fn a_record_rewritten_after_a_failed_retry_is_the_text_node_would_write() {
+    let fixture = node_fixture();
+    for case in fixture["cases"].as_array().unwrap() {
+        if case["sentAt"].as_i64().unwrap() != 0 {
+            continue;
+        }
+        let name = case["name"].as_str().unwrap();
+        let file = case["file"].as_str().unwrap();
+        let id = file.trim_end_matches(".json");
+        let world = World::new();
+        let due = case["nextAttemptAt"].as_i64().unwrap();
+        world.clock.0.store(due, Ordering::SeqCst);
+        mixdog_fsio::create_dir_all(&Unlaned, world.feedback()).unwrap();
+        let text = case["text"].as_str().unwrap();
+        mixdog_fsio::write(&Unlaned, world.feedback().join(file), text).unwrap();
+        let sender = Fake::failing("EAUTH");
+        let service = world.start(Some(&sender), world.options()).await;
+        wait_for("the retry", || sender.calls() == 1).await;
+        let expected = text.replace(
+            &format!("\"attempts\":1,\"nextAttemptAt\":{due}"),
+            &format!("\"attempts\":2,\"nextAttemptAt\":{}", due + 60_000),
+        );
+        assert_ne!(expected, text, "{name}");
+        wait_for("the state write", || world.text(id) == expected).await;
+        assert!(world.lines.has(&format!("[relay] feedback send failed id={id} code=EAUTH")), "{name}");
+        service.close().await;
+    }
+}
+#[tokio::test(start_paused = true)]
+async fn a_lone_surrogate_in_a_node_record_is_mailed_as_node_encodes_it() {
+    let fixture = node_fixture();
+    let case = fixture["cases"].as_array().unwrap().iter().find(|case| case["name"] == "lone-surrogate").unwrap();
+    let world = World::new();
+    world.clock.0.store(case["nextAttemptAt"].as_i64().unwrap(), Ordering::SeqCst);
+    mixdog_fsio::create_dir_all(&Unlaned, world.feedback()).unwrap();
+    mixdog_fsio::write(&Unlaned, world.feedback().join(case["file"].as_str().unwrap()), case["text"].as_str().unwrap()).unwrap();
+    let sender = Fake::ok();
+    let service = world.start(Some(&sender), world.options()).await;
+    wait_for("the mail", || sender.delivered() == 1).await;
+    let text = &sender.mails()[0].text;
+    assert_eq!(js::js_len(text), 10, "cut \\ud83d here: the lone surrogate is one unit");
+    assert_eq!(js::node_utf8(text), "cut \u{fffd} here".as_bytes());
+    service.close().await;
+}
+
 }

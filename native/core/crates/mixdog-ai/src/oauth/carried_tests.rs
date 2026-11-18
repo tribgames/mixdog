@@ -426,28 +426,6 @@ fn generated_encodings_never_leave_the_credential_and_never_touch_other_text() {
     }
 }
 
-/// The cost on a streaming path: 1 MiB of event stream in 16 KiB chunks, five credentials, one pass per chunk with the
-/// automaton built once. The figures are printed (`--nocapture`); the text, holding none of them, arrives unchanged.
-#[test]
-fn a_megabyte_stream_with_five_credentials() {
-    let credentials: Vec<String> = (0..5).map(|i| format!("credential-{i}-7f3a9c1d2e4b6a80")).collect();
-    let scrub = Arc::new(Matcher::new(&credentials));
-    let event = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"the quick brown fox \\u00e9 jumps\"}}\n\n";
-    let text: Vec<u8> = event.as_bytes().iter().copied().cycle().take(1 << 20).collect();
-    let started = std::time::Instant::now();
-    let mut stream = Stream::new(scrub);
-    let mut out = Vec::with_capacity(text.len());
-    let chunks = text.chunks(16 * 1024);
-    let count = chunks.len();
-    for chunk in chunks {
-        out.extend(stream.push(chunk));
-    }
-    out.extend(stream.finish());
-    let spent = started.elapsed();
-    assert!(out == text, "the stream holds no credential");
-    println!("1 MiB in {count} chunks, five credentials: {spent:?} in all, {:?} per chunk", spent / count as u32);
-}
-
 // ---- the registry ------------------------------------------------------------------------------------------------------
 
 fn registry(retired: usize, carried: usize) -> Arc<Registry> {
@@ -531,50 +509,6 @@ fn the_registry_finds_an_old_credential_in_any_encoding() {
     assert_eq!(scrub.redacted(b"nothing of the kind"), None);
 }
 
-/// A scan reads the index as the registry held it when the scan began, holding no lock: a registration made while a scan
-/// is parked inside its read finishes at once (review 1124n P2: the scan held the registry's read guard through the whole
-/// redaction, and a registration waited for its write lock). The next scan reads the new value.
-#[test]
-fn a_scan_holds_no_lock_and_a_registration_never_waits_for_it() {
-    use std::sync::mpsc;
-    use std::time::Duration;
-
-    let registry = registry(RETIRED_CAP, CARRIED_CAP);
-    registry.keep("file before.json", &["registered-before-the-scan-3c1a"]);
-    let scrub = Arc::new(Matcher::of_registry(registry.clone()));
-    let text = "one registered-before-the-scan-3c1a two registered-during-the-scan-9e7b";
-    let (parked, parked_seen) = mpsc::channel::<()>();
-    let (resume, resumed) = mpsc::channel::<()>();
-    let scanner = std::thread::spawn({
-        let scrub = scrub.clone();
-        move || {
-            SCANNING.with(|hook| {
-                *hook.borrow_mut() = Some(Box::new(move || {
-                    parked.send(()).expect("the test waits for the parked scan");
-                    resumed.recv().expect("the test resumes the scan");
-                }))
-            });
-            scrub.redact_str(text)
-        }
-    });
-    parked_seen.recv_timeout(Duration::from_secs(60)).expect("the scan parked once it held its snapshot");
-    let (registered, registered_seen) = mpsc::channel::<()>();
-    let registering = std::thread::spawn({
-        let registry = registry.clone();
-        move || {
-            registry.keep("file during.json", &["registered-during-the-scan-9e7b"]);
-            registered.send(()).expect("the test waits for the registration");
-        }
-    });
-    let finished = registered_seen.recv_timeout(Duration::from_secs(20));
-    resume.send(()).expect("the scan is parked");
-    registering.join().expect("the registration");
-    let scanned = scanner.join().expect("the scan");
-    assert!(finished.is_ok(), "the registration waited for a scan that was parked inside its read");
-    assert_eq!(scanned, "one [REDACTED] two registered-during-the-scan-9e7b", "the scan read the index of its beginning");
-    assert_eq!(scrub.redact_str(text), "one [REDACTED] two [REDACTED]");
-}
-
 /// A credential at least this long: one a random text of the generated test does not hold by chance.
 fn long_credential(rng: &mut Rng) -> String {
     loop {
@@ -622,6 +556,71 @@ fn generated_encodings_registered_mid_stream_or_long_ago_never_leave() {
     }
 }
 
+
+/// The cost on a streaming path: 1 MiB of event stream in 16 KiB chunks, five credentials, one pass per chunk with the
+/// automaton built once. The figures are printed (`--nocapture`); the text, holding none of them, arrives unchanged.
+#[test]
+fn a_megabyte_stream_with_five_credentials() {
+    let credentials: Vec<String> = (0..5).map(|i| format!("credential-{i}-7f3a9c1d2e4b6a80")).collect();
+    let scrub = Arc::new(Matcher::new(&credentials));
+    let event = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"the quick brown fox \\u00e9 jumps\"}}\n\n";
+    let text: Vec<u8> = event.as_bytes().iter().copied().cycle().take(1 << 20).collect();
+    let started = std::time::Instant::now();
+    let mut stream = Stream::new(scrub);
+    let mut out = Vec::with_capacity(text.len());
+    let chunks = text.chunks(16 * 1024);
+    let count = chunks.len();
+    for chunk in chunks {
+        out.extend(stream.push(chunk));
+    }
+    out.extend(stream.finish());
+    let spent = started.elapsed();
+    assert!(out == text, "the stream holds no credential");
+    println!("1 MiB in {count} chunks, five credentials: {spent:?} in all, {:?} per chunk", spent / count as u32);
+}
+/// A scan reads the index as the registry held it when the scan began, holding no lock: a registration made while a scan
+/// is parked inside its read finishes at once (review 1124n P2: the scan held the registry's read guard through the whole
+/// redaction, and a registration waited for its write lock). The next scan reads the new value.
+#[test]
+fn a_scan_holds_no_lock_and_a_registration_never_waits_for_it() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let registry = registry(RETIRED_CAP, CARRIED_CAP);
+    registry.keep("file before.json", &["registered-before-the-scan-3c1a"]);
+    let scrub = Arc::new(Matcher::of_registry(registry.clone()));
+    let text = "one registered-before-the-scan-3c1a two registered-during-the-scan-9e7b";
+    let (parked, parked_seen) = mpsc::channel::<()>();
+    let (resume, resumed) = mpsc::channel::<()>();
+    let scanner = std::thread::spawn({
+        let scrub = scrub.clone();
+        move || {
+            SCANNING.with(|hook| {
+                *hook.borrow_mut() = Some(Box::new(move || {
+                    parked.send(()).expect("the test waits for the parked scan");
+                    resumed.recv().expect("the test resumes the scan");
+                }))
+            });
+            scrub.redact_str(text)
+        }
+    });
+    parked_seen.recv_timeout(Duration::from_secs(60)).expect("the scan parked once it held its snapshot");
+    let (registered, registered_seen) = mpsc::channel::<()>();
+    let registering = std::thread::spawn({
+        let registry = registry.clone();
+        move || {
+            registry.keep("file during.json", &["registered-during-the-scan-9e7b"]);
+            registered.send(()).expect("the test waits for the registration");
+        }
+    });
+    let finished = registered_seen.recv_timeout(Duration::from_secs(20));
+    resume.send(()).expect("the scan is parked");
+    registering.join().expect("the registration");
+    let scanned = scanner.join().expect("the scan");
+    assert!(finished.is_ok(), "the registration waited for a scan that was parked inside its read");
+    assert_eq!(scanned, "one [REDACTED] two registered-during-the-scan-9e7b", "the scan read the index of its beginning");
+    assert_eq!(scrub.redact_str(text), "one [REDACTED] two [REDACTED]");
+}
 /// The bounds, at 512 and 10,000 JWT-sized values (1.2 KiB, the most an access token takes), each a source's own (10,000
 /// is more than the caps let the registry hold besides what sources yield: 8,192):
 /// - one more value (what a send does before it is dispatched) touches the entries of its own 28 forms, whatever the

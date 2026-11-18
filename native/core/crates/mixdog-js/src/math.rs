@@ -857,32 +857,117 @@ mod tests {
         }
     }
 
+    // ECMA-262 21.3.2: Math.abs, floor, ceil and sqrt, and the `+` and `*` of numbers, on the zeros, the infinities and NaN.
+    #[test]
+    fn abs_floor_ceil_sqrt_add_and_mul_follow_the_specification_on_zeros_infinities_and_nan() {
+        assert!(abs(-0.0).is_sign_positive() && abs(f64::NEG_INFINITY) == f64::INFINITY && abs(f64::NAN).is_nan());
+        assert_eq!((floor(-0.5), floor(2.9), floor(-2.1)), (-1.0, 2.0, -3.0));
+        assert!(floor(-0.0).is_sign_negative() && floor(f64::INFINITY) == f64::INFINITY);
+        assert_eq!((ceil(0.2), ceil(-2.9), ceil(2.0)), (1.0, -2.0, 2.0));
+        assert!(ceil(-0.5).is_sign_negative(), "the ceiling of a negative fraction is -0");
+        assert_eq!((sqrt(9.0), sqrt(0.0), sqrt(f64::INFINITY)), (3.0, 0.0, f64::INFINITY));
+        assert!(sqrt(-0.0).is_sign_negative() && sqrt(-1.0).is_nan() && sqrt(f64::NAN).is_nan());
+        assert!(add(f64::INFINITY, f64::NEG_INFINITY).is_nan() && add(f64::NAN, 1.0).is_nan());
+        assert!(add(-0.0, -0.0).is_sign_negative() && add(-0.0, 0.0).is_sign_positive());
+        assert_eq!((add(0.1, 0.2), add(1.0, 2.0)), (0.30000000000000004, 3.0));
+        assert!(mul(0.0, f64::INFINITY).is_nan() && mul(f64::NAN, 0.0).is_nan());
+        assert!(mul(-0.0, 5.0).is_sign_negative() && mul(-1.0, -0.0).is_sign_positive());
+        assert_eq!(mul(f64::INFINITY, -2.0), f64::NEG_INFINITY);
+    }
+    #[test]
+    fn max_and_min_follow_ecmascript() {
+        assert!(max(f64::NAN, 1.0).is_nan() && min(1.0, f64::NAN).is_nan());
+        assert!(max(-0.0, 0.0).is_sign_positive() && min(0.0, -0.0).is_sign_negative());
+        assert_eq!((max(1.0, 2.0), min(1.0, 2.0)), (2.0, 1.0));
+    }
+
+
+    #[test]
+    fn exponential_and_logarithm_special_values_follow_the_specification() {
+        assert_eq!(exp(0.0), 1.0);
+        assert_eq!(exp(f64::NEG_INFINITY), 0.0);
+        assert_eq!(exp(f64::INFINITY), f64::INFINITY);
+        assert_eq!(exp(1.0), std::f64::consts::E);
+        assert_eq!(ln(1.0), 0.0);
+        assert_eq!(ln(0.0), f64::NEG_INFINITY);
+        assert!(ln(-1.0).is_nan());
+        assert_eq!(ln(std::f64::consts::E), 1.0);
+        assert!(ln_1p(0.0).is_sign_positive() && ln_1p(-0.0).is_sign_negative(), "log1p(-0) is -0");
+        assert_eq!(ln_1p(-1.0), f64::NEG_INFINITY);
+        assert!(ln_1p(-2.0).is_nan());
+        assert_eq!(exp_m1(0.0), 0.0);
+        assert_eq!(exp_m1(f64::NEG_INFINITY), -1.0);
+        assert_eq!(exp_m1(1e-10), 1.00000000005e-10, "no cancellation near zero");
+    }
+
+    #[test]
+    fn pow_special_values_follow_the_specification() {
+        assert_eq!(pow(2.0, 10.0), 1024.0);
+        assert_eq!(pow(2.0, -1.0), 0.5);
+        assert_eq!(pow(f64::NAN, 0.0), 1.0, "anything to the power of zero is 1");
+        assert_eq!(pow(0.0, 0.0), 1.0);
+        assert!(pow(1.0, f64::INFINITY).is_nan(), "ECMAScript differs from C here");
+        assert!(pow(-1.0, f64::INFINITY).is_nan());
+        assert!(pow(f64::NAN, 1.0).is_nan());
+        assert!(pow(-8.0, 1.0 / 3.0).is_nan());
+        assert_eq!(pow(-2.0, 3.0), -8.0);
+        assert_eq!(pow(0.0, -1.0), f64::INFINITY);
+        assert_eq!(pow(-0.0, -1.0), f64::NEG_INFINITY);
+        assert_eq!(pow(-0.0, -2.0), f64::INFINITY);
+    }
+
+    #[test]
+    fn hypot_is_infinite_if_any_argument_is_and_zero_without_arguments() {
+        assert_eq!(hypot(&[]), 0.0);
+        assert_eq!(hypot(&[3.0, 4.0]), 5.0);
+        assert_eq!(hypot(&[f64::NAN, f64::INFINITY]), f64::INFINITY);
+        assert!(hypot(&[f64::NAN, 1.0]).is_nan());
+        assert_eq!(hypot(&[1e200, 1e200]), 1.4142135623730951e200, "no overflow in the squares");
+    }
+
+    #[test]
+    fn round_goes_toward_positive_infinity_on_ties_and_keeps_the_sign_of_zero() {
+        assert_eq!(round(2.5), 3.0);
+        assert_eq!(round(-2.5), -2.0);
+        assert_eq!(round(1.4999999999999999), 2.0);
+        assert!(round(-0.4).is_sign_negative() && round(-0.4) == 0.0, "rounds to -0");
+        assert!(round(-0.5).is_sign_negative());
+        assert_eq!(round(0.49999999999999994), 0.0, "not 1: adding 0.5 would round up");
+        assert_eq!(round(4503599627370497.0), 4503599627370497.0);
+        assert!(round(f64::NAN).is_nan());
+    }
+
+    #[test]
+    fn to_fixed_writes_the_decimal_nearest_to_the_exact_value() {
+        assert_eq!(to_fixed(1.5, 0), "2");
+        assert_eq!(to_fixed(2.5, 0), "3");
+        assert_eq!(to_fixed(-1.5, 0), "-2");
+        assert_eq!(to_fixed(1.005, 2), "1.00", "1.005 is a little below 1.005");
+        assert_eq!(to_fixed(0.000001, 6), "0.000001");
+        assert_eq!(to_fixed(123.456, 1), "123.5");
+        assert_eq!(to_fixed(0.0, 6), "0.000000");
+        assert_eq!(to_fixed(1e21, 2), "1e+21");
+    }
+}
+
+/// The recorded outputs of the reference runtime; compiled only on the machine that holds them.
+#[cfg(all(test, node_twin))]
+mod node_twin {
+    use super::*;
+
     fn bits(hex: &str) -> f64 {
         f64::from_bits(u64::from_str_radix(hex, 16).expect("hex"))
     }
 
-    /// Node's answers (`testdata/math_v8.json`, recorded with V8 12.4) equal these bit for bit.
     #[test]
-    fn equals_v8_bit_for_bit() {
-        let cases: Vec<serde_json::Value> =
-            serde_json::from_str(mixdog_testkit::fixture!("testdata/math_v8.json"))
-                .expect("golden");
+    fn equals_the_recorded_answers_bit_for_bit() {
+        let cases: Vec<serde_json::Value> = serde_json::from_str(mixdog_testkit::fixture!("testdata/math_v8.json")).expect("golden");
         assert!(cases.len() > 3000);
         for case in &cases {
             let name = case[0].as_str().expect("name");
-            let args: Vec<f64> = case[1]
-                .as_array()
-                .expect("args")
-                .iter()
-                .map(|v| bits(v.as_str().expect("hex")))
-                .collect();
+            let args: Vec<f64> = case[1].as_array().expect("args").iter().map(|v| bits(v.as_str().expect("hex"))).collect();
             if name == "toFixed6" {
-                assert_eq!(
-                    to_fixed(args[0], 6),
-                    case[2].as_str().expect("text"),
-                    "toFixed {:?}",
-                    args
-                );
+                assert_eq!(to_fixed(args[0], 6), case[2].as_str().expect("text"), "toFixed {args:?}");
                 continue;
             }
             let got = match name {
@@ -896,18 +981,7 @@ mod tests {
                 other => panic!("unknown case {other}"),
             };
             let want = bits(case[2].as_str().expect("hex"));
-            assert_eq!(
-                got.to_bits(),
-                want.to_bits(),
-                "{name}{args:?}: {got:e} vs {want:e}"
-            );
+            assert_eq!(got.to_bits(), want.to_bits(), "{name}{args:?}: {got:e} vs {want:e}");
         }
-    }
-
-    #[test]
-    fn max_and_min_follow_ecmascript() {
-        assert!(max(f64::NAN, 1.0).is_nan() && min(1.0, f64::NAN).is_nan());
-        assert!(max(-0.0, 0.0).is_sign_positive() && min(0.0, -0.0).is_sign_negative());
-        assert_eq!((max(1.0, 2.0), min(1.0, 2.0)), (2.0, 1.0));
     }
 }

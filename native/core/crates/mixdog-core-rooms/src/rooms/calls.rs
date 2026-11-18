@@ -135,6 +135,20 @@ pub struct Request {
     pub calls: Vec<RoomCall>,
 }
 
+/// One member submission an exchange owns: the member's session and the submission id its turn runs under.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Owned {
+    pub session: String,
+    pub submission: String,
+}
+
+/// The exchange's ownership record: the member submissions it made, and whether a Stop sealed it against more.
+#[derive(Default)]
+struct Ownership {
+    sealed: bool,
+    owned: Vec<Owned>,
+}
+
 /// What an exchange in flight shares with the scheduler (`RunState`).
 #[derive(Default)]
 pub struct Run {
@@ -143,9 +157,56 @@ pub struct Run {
     /// The calls the exchange in flight answers; shared, so a member that leaves takes its calls
     /// out of it (`cancel_owed_to`).
     calls: Mutex<Vec<RoomCall>>,
+    /// The exchange's stable identity, stamped into every member submission it makes.
+    exchange: std::sync::OnceLock<String>,
+    ownership: Mutex<Ownership>,
 }
 
 impl Run {
+    /// The exchange's identity.
+    pub fn exchange(&self) -> &str {
+        self.exchange.get_or_init(|| format!("exch_{:016x}", rand::random::<u64>()))
+    }
+
+    fn ownership(&self) -> MutexGuard<'_, Ownership> {
+        self.ownership.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Registers the member submission `submission` into `session` before it is submitted (before any await of the submission):
+    /// a Stop from here on freezes it, in flight or not. False once a Stop sealed the exchange: it is never submitted.
+    pub fn register(&self, session: &str, submission: &str) -> bool {
+        let mut ownership = self.ownership();
+        if ownership.sealed {
+            return false;
+        }
+        let owned = Owned { session: session.to_owned(), submission: submission.to_owned() };
+        if !ownership.owned.contains(&owned) {
+            ownership.owned.push(owned);
+        }
+        true
+    }
+
+    /// The member's turn under `submission` answered: it is no work a Stop still has to freeze.
+    pub fn answered(&self, session: &str, submission: &str) {
+        let mut ownership = self.ownership();
+        if !ownership.sealed {
+            ownership.owned.retain(|owned| !(owned.session == session && owned.submission == submission));
+        }
+    }
+
+    /// The Stop's linearization point: the exchange is sealed against further registration and stopped, the submissions it
+    /// owns now are the frozen target set (the same set on every repeat), and `latch` makes every target ineligible in its
+    /// member session, all inside the one critical section `register` takes: no registration falls between the seal and the
+    /// latches, and a member start of a target meets the member session's start gate either latched (it does not run) or
+    /// already running (the latch aborts it).
+    fn seal(&self, latch: impl FnOnce(&[Owned])) -> Vec<Owned> {
+        let mut ownership = self.ownership();
+        ownership.sealed = true;
+        self.stop.store(true, Ordering::SeqCst);
+        latch(&ownership.owned);
+        ownership.owned.clone()
+    }
+
     /// The live list the exchange in flight answers: a turn takes its member's calls out of it.
     pub(crate) fn calls_lock(&self) -> MutexGuard<'_, Vec<RoomCall>> {
         self.calls.lock().unwrap_or_else(|e| e.into_inner())
@@ -161,6 +222,7 @@ impl Run {
     }
 
     /// The stop button was pressed (`RoomCalls::stop`).
+    #[cfg(test)]
     pub(crate) fn set_stopped(&self) {
         self.stop.store(true, Ordering::SeqCst);
     }
@@ -188,6 +250,94 @@ pub trait CallRunner: Send + Sync {
 
     /// A request merged into the exchange in flight: abort the member speaking in the room.
     async fn cut_off(&self, room_id: &str);
+
+    /// A user Stop of exactly the member submissions `submissions` in member session `session` (`stop_work`): answers once
+    /// their cancelled dispositions are durable in that session, else the storage failure.
+    async fn stop_work(&self, _room_id: &str, _session: &str, _submissions: &[String]) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// The synchronous half of [`Self::stop_work`], at the Stop's seal: member session `session` treats `submissions` as terminal
+    /// at once (nothing drains, injects, admits or starts them), before any storage wait.
+    fn latch_work(&self, _room_id: &str, _session: &str, _submissions: &[String]) {}
+}
+
+/// The targets grouped by member session, in the order first seen.
+fn by_session(targets: &[Owned]) -> Vec<(String, Vec<String>)> {
+    let mut sessions: Vec<(String, Vec<String>)> = Vec::new();
+    for target in targets {
+        match sessions.iter_mut().find(|(session, _)| *session == target.session) {
+            Some((_, ids)) => ids.push(target.submission.clone()),
+            None => sessions.push((target.session.clone(), vec![target.submission.clone()])),
+        }
+    }
+    sessions
+}
+
+/// The completion of a room Stop's durable member stops.
+pub type StopSaved = std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>;
+
+/// A room Stop as it was latched ([`RoomCalls::stop_ticket`]): whether anything was stopped, and the member submissions the
+/// sealed exchange owned at that point, the frozen target set. [`Self::saved`] makes each target's stop durable in its member
+/// session; calling it again (a retry) acts on the same frozen set, never on an exchange started after the seal.
+#[derive(Clone)]
+pub struct StopTicket {
+    pub found: bool,
+    room_id: String,
+    targets: Vec<Owned>,
+    runner: Option<Arc<dyn CallRunner>>,
+}
+
+impl StopTicket {
+    pub fn targets(&self) -> &[Owned] {
+        &self.targets
+    }
+
+    /// Every target's stop, durable: the member sessions' records are written concurrently (one member's blocked save holds no
+    /// other's, and the targets were made ineligible at the seal already), and this answers once all of them landed. A failure
+    /// names every member session whose stop could not be saved; the others' stops stand.
+    ///
+    /// The accepted exception: without this answering `Ok` (a save failed, or the process crashed before every save completed,
+    /// a request interrupted mid-way included) there is no restart guarantee for the members not yet saved; the latches hold
+    /// their work only while this process lives. Members already saved stay terminal either way.
+    pub async fn saved(&self) -> Result<(), String> {
+        let Some(runner) = &self.runner else { return Ok(()) };
+        let mut saves: Vec<(String, StopSaved, Option<Result<(), String>>)> = by_session(&self.targets)
+            .into_iter()
+            .map(|(session, ids)| {
+                let (runner, room_id, told) = (runner.clone(), self.room_id.clone(), session.clone());
+                let save: StopSaved = Box::pin(async move { runner.stop_work(&room_id, &told, &ids).await });
+                (session, save, None)
+            })
+            .collect();
+        std::future::poll_fn(|cx| {
+            let mut pending = false;
+            for (_, save, done) in &mut saves {
+                if done.is_none() {
+                    match std::future::Future::poll(save.as_mut(), cx) {
+                        std::task::Poll::Ready(result) => *done = Some(result),
+                        std::task::Poll::Pending => pending = true,
+                    }
+                }
+            }
+            if pending { std::task::Poll::Pending } else { std::task::Poll::Ready(()) }
+        })
+        .await;
+        let failed: Vec<String> = saves
+            .into_iter()
+            .filter_map(|(session, _, done)| match done {
+                Some(Err(error)) => Some(format!("the stop of member session {session} could not be saved ({error})")),
+                _ => None,
+            })
+            .collect();
+        if failed.is_empty() { Ok(()) } else { Err(format!("The room was stopped here, but {}: those stopped turns may run again after a restart.", failed.join("; "))) }
+    }
+
+    /// `(found, saved)`, the stop's completion owned by the returned future.
+    pub fn into_parts(self) -> (bool, StopSaved) {
+        let found = self.found;
+        (found, Box::pin(async move { self.saved().await }))
+    }
 }
 
 #[derive(Default)]
@@ -490,10 +640,14 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
         self.start(room_id, request, run);
     }
 
-    /// The stop button: the relays held back end cancelled, the user messages and requests on their way are
-    /// stopped, the speaking member's turn is cut off and no one else gets a turn. True when an exchange was
-    /// cancelled or a message or request was on its way.
-    pub fn stop(self: &Arc<Self>, room_id: &str) -> bool {
+    /// The stop button, latched synchronously: the relays held back end cancelled, the user messages and requests on their way
+    /// are stopped, and the exchange in flight is sealed (no one else gets a turn) with the member submissions it owns frozen
+    /// (a submission in flight among them) and made ineligible in each member session at once ([`CallRunner::latch_work`]). Its
+    /// member's turn is not cut off here: the ticket's targeted stops abort a member's run only if it owns a frozen submission,
+    /// and leave the member's unrelated work alone. `found`: an exchange was stopped or a message or request was on its way.
+    /// The one Stop path: every caller answers success only once [`StopTicket::saved`] completes.
+    pub fn stop_ticket(self: &Arc<Self>, room_id: &str) -> StopTicket {
+        let runner: Arc<dyn CallRunner> = self.runner.clone();
         let (queued, active, requests) = {
             let mut state = self.state();
             let requests = state.intakes.get(room_id).map_or(0, |pending| {
@@ -513,14 +667,19 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
             }
             !pending.is_empty()
         };
-        let Some(active) = active else { return incoming || requests > 0 };
-        active.set_stopped();
+        let Some(active) = active else {
+            return StopTicket { found: incoming || requests > 0, room_id: room_id.to_owned(), targets: Vec::new(), runner: None };
+        };
+        // Frozen and at once ineligible in every member session, inside the seal, before any storage wait.
+        let targets = active.seal(|owned| {
+            for (session, ids) in by_session(owned) {
+                runner.latch_work(room_id, &session, &ids);
+            }
+        });
         if let Some(pending) = active.pending().take() {
             cancel_all(&pending.calls);
         }
-        let (this, room_id) = (Arc::clone(self), room_id.to_owned());
-        mixdog_rt::spawn("room-cut-off", TaskClass::Work, async move { this.runner.cut_off(&room_id).await });
-        true
+        StopTicket { found: true, room_id: room_id.to_owned(), targets, runner: Some(runner) }
     }
 
     /// A save the room's talk needed failed (`failRelays`, `dropRelays(roomId, { status: 'failed',

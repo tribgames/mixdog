@@ -139,6 +139,8 @@ pub struct Candidate {
     pub cache_write: f64,
     pub cost_usd: Option<f64>,
     pub signature: String,
+    /// The record's 1-hour cache-write count (`usage_event_cache_1h`).
+    pub cache_write_1h: Option<f64>,
 }
 
 #[derive(Clone, Debug)]
@@ -186,18 +188,26 @@ pub fn cost_source(kind: &str, cost: Option<f64>, subscription: bool) -> &'stati
 
 /// The rows a repair examines, with their route signatures.
 pub fn select_candidates(conn: &Connection, options: &RepairOptions) -> Result<Vec<Candidate>> {
-    // `+e.ts`: a bound of "now" matches every row, so a scan beats one primary-key search per
-    // usage_events_time entry.
-    let sql = format!(
-        "SELECT e.id,e.ts,e.route,e.input,e.output,e.cache_read,e.cache_write,e.cost_usd,r.signature
-         FROM usage_events e JOIN usage_routes r ON r.id=e.route WHERE +e.ts<=?1 {} {}",
-        if options.since_ts.is_some() { "AND +e.ts>?2" } else { "" },
-        if options.only_unpriced {
-            "AND e.cost_usd IS NULL AND json_extract(r.signature,'$[4]')='unpriced'"
-        } else {
-            ""
-        },
-    );
+    // Every record: `+e.ts`, since a bound of "now" matches every row, so a scan beats one primary-key search per
+    // usage_events_time entry. Only the unpriced ones: their routes first (`CROSS JOIN`), then their records through
+    // usage_events_route_time, so only those records are read (refresh.rs `unpriced_pending`); in time order, as the scan
+    // gave them.
+    let since = if options.since_ts.is_some() { "AND e.ts>?2" } else { "" };
+    let sql = if options.only_unpriced {
+        format!(
+            "SELECT e.id,e.ts,e.route,e.input,e.output,e.cache_read,e.cache_write,e.cost_usd,r.signature,c.tokens
+             FROM usage_routes r CROSS JOIN usage_events e ON e.route=r.id LEFT JOIN usage_event_cache_1h c ON c.id=e.id
+             WHERE json_extract(r.signature,'$[4]')='unpriced' AND e.cost_usd IS NULL AND e.ts<=?1 {since}
+             ORDER BY e.ts,e.route,e.id"
+        )
+    } else {
+        format!(
+            "SELECT e.id,e.ts,e.route,e.input,e.output,e.cache_read,e.cache_write,e.cost_usd,r.signature,c.tokens
+             FROM usage_events e JOIN usage_routes r ON r.id=e.route LEFT JOIN usage_event_cache_1h c ON c.id=e.id
+             WHERE +e.ts<=?1 {}",
+            since.replace("e.ts", "+e.ts")
+        )
+    };
     let mut stmt = conn.prepare(&sql)?;
     let map = |row: &rusqlite::Row<'_>| {
         Ok(Candidate {
@@ -210,6 +220,7 @@ pub fn select_candidates(conn: &Connection, options: &RepairOptions) -> Result<V
             cache_write: row.get(6)?,
             cost_usd: row.get(7)?,
             signature: row.get(8)?,
+            cache_write_1h: row.get(9)?,
         })
     };
     let rows = match options.since_ts {
@@ -284,7 +295,8 @@ pub fn plan_repair(
                     output_tokens: row.output,
                     cache_read_tokens: row.cache_read,
                     cache_write_tokens: row.cache_write,
-                    cache_write_1h_tokens: rate("cacheWrite1hTokens").and_then(Value::as_f64),
+                    // A route written before v4 still names it in its rates.
+                    cache_write_1h_tokens: row.cache_write_1h.or_else(|| rate("cacheWrite1hTokens").and_then(Value::as_f64)),
                     request_service_tier: old_rates
                         .as_ref()
                         .and_then(|r| optional_text(r, "requestServiceTier"))
@@ -303,7 +315,24 @@ pub fn plan_repair(
             }
             let subscription = kind == "oauth" || kind == "quota-api";
             signature[4] = Value::from(cost_source(&kind, cost, subscription));
-            signature[5] = priced.rates.map_or(Value::Null, Value::from);
+            // The count stays the record's own (`usage_event_cache_1h`), never part of the route.
+            // The dispatched speed tier and missing output evidence cannot be rederived by the pricer.
+            let sent_speed = old_rates.as_ref().and_then(|r| optional_text(r, "sentSpeedTier"));
+            let output_unknown = rate("outputTokensKnown") == Some(&Value::Bool(false));
+            let mut rates = priced.rates;
+            if sent_speed.is_some() || output_unknown {
+                let parsed = rates.as_deref().and_then(|text| serde_json::from_str::<serde_json::Map<String, Value>>(text).ok());
+                if let Some(mut object) = parsed.or_else(|| output_unknown.then(serde_json::Map::new)) {
+                    if let Some(tier) = sent_speed {
+                        object.insert("sentSpeedTier".to_string(), Value::from(tier));
+                    }
+                    if output_unknown {
+                        object.insert("outputTokensKnown".to_string(), Value::Bool(false));
+                    }
+                    rates = Some(mixdog_js::json_stringify(&Value::Object(object)));
+                }
+            }
+            signature[5] = rates.map_or(Value::Null, |rates| Value::from(crate::append::split_cache_1h(&rates).0.as_ref()));
             if row.cost_usd.is_none() && cost.is_some() {
                 report.repriced += 1;
             }

@@ -153,6 +153,7 @@ mod tests {
         assert_eq!(state.get("m"), json!({}));
     }
 
+
     #[test]
     fn inference_reports_running_then_a_finished_summary() {
         let state = Arc::new(ModelState::default());

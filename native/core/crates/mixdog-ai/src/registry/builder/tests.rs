@@ -22,205 +22,20 @@ impl ModelTraits for Traits {
     }
 }
 
-/// A credential file holding two tokens (Muse's `apiKey` and `accessToken`) keeps both redacted: values other sources retire
-/// afterwards evict neither.
-#[tokio::test]
-#[allow(clippy::disallowed_methods, reason = "the fixture file is written directly")]
-async fn a_file_key_registers_every_token_its_file_holds() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("muse.json");
-    std::fs::write(&path, r#"{"apiKey":"two-token-api-key-71c9e0","accessToken":"two-token-access-4d82fa"}"#).unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let file = CredentialFile::new(path, CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
-    let key = FileKey { file, provider: "muse-code-oauth" };
-    assert_eq!(key.read().await.unwrap(), "two-token-api-key-71c9e0");
-    for i in 0..=crate::oauth::carried::RETIRED_CAP {
-        crate::oauth::carried::keep("file the-unrelated-account-of-the-file-key-test.json", &[&format!("file-key-test-unrelated-{i:05}")]);
-    }
-    let registry = crate::oauth::carried::registry();
-    assert!(registry.holds("two-token-api-key-71c9e0") && registry.holds("two-token-access-4d82fa"));
-}
-
-fn builder(dir: &tempfile::TempDir) -> DefaultProviderBuilder {
-    builder_with(dir, Arc::new(ProcessEnv))
-}
-
-fn builder_with(dir: &tempfile::TempDir, env: Arc<dyn Environment>) -> DefaultProviderBuilder {
-    builder_over(dir, env, None, Arc::new(SessionContext::new()))
-}
-
-/// A builder whose requests go to `http` when given (else the real link), reading time off `context`.
-fn builder_over(dir: &tempfile::TempDir, env: Arc<dyn Environment>, http: Option<Arc<dyn HttpSend>>, context: Arc<SessionContext>) -> DefaultProviderBuilder {
-    let tokens = mixdog_rt::testing::tokens();
-    let link = Arc::new(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap());
-    DefaultProviderBuilder::new(BuilderEnv {
-        http: http.unwrap_or_else(|| link.clone()),
-        bidi: link,
-        dial: Arc::new(KeepaliveDialer::new(KeepaliveSchedule::SPEC)),
-        keys: ApiKeyStore::new(Arc::new(MemoryVault::default()), env.clone(), false),
-        accounts: AccountStore::new(
-            dir.path().to_path_buf(),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        ),
-        anthropic_caps: Arc::new(|_| None),
-        google_traits: Arc::new(Traits),
-        route_traits: Arc::new(|_| None),
-        openai_facts: Arc::new(NoFacts),
-        openai_context: context,
-        codex_identity: CodexIdentity {
-            installation_id: "i".into(),
-            user_agent: "ua".into(),
-            version: "1".into(),
-            beta_features: String::new(),
-        },
-        pace: Arc::new(crate::oauth::pace::FakePace::default()),
-        gzip_lane: tokens.cpu_bulk,
-        client_version: "1.0.0".into(),
-        client_versions: None,
-        grok_client_version: None,
-        cursor_client_version: None,
-        antigravity_client_version: "1.0.0".into(),
-        listing: crate::catalog::ListingLookup::new(),
-        env,
-        home_dir: dir.path().to_path_buf(),
-        io: CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        gated_off: Arc::new(|name| name == "gated"),
-        local: None,
-    })
-}
-
 async fn id_of(b: &DefaultProviderBuilder, name: &str, cfg: Value) -> String {
     b.build(name, &cfg).await.unwrap_or_else(|e| panic!("{name}: {e}")).id().to_string()
 }
 
-#[tokio::test]
-async fn each_family_builds_under_its_own_id() {
-    let dir = tempfile::tempdir().unwrap();
-    let b = builder(&dir);
-    for name in ["anthropic", "openai", "gemini", "xai", "deepseek", "openrouter", "cursor-api"] {
-        assert_eq!(id_of(&b, name, json!({"enabled": true, "apiKey": "k"})).await, name);
-    }
-    let custom = json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/",
-        "apiKey": "k", "headers": {"X-A": "1"}, "requestBody": {"top_k": 5}});
-    assert_eq!(id_of(&b, "custom-abc", custom).await, "custom-abc");
-}
-
-/// What each built provider takes as a document on the route a request goes to, against what the instance of Node's
-/// class declared for the same route (`fixtures/media-wire/table.json`: the flags `preparePdfTextForProvider` read).
-/// The builder names each row; a row Rust cannot build here is declared in the set's manifest.
-#[tokio::test]
-#[allow(clippy::disallowed_methods)]
-async fn each_route_takes_the_documents_nodes_instance_declared() {
-    use mixdog_core_api::domain::provider::{MediaSupport, ModelRequest, RequestOptions};
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/media-wire/table.json");
-    let table: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let declared = |provider: &str| -> MediaSupport {
-        let row = table["rows"].as_array().unwrap().iter().find(|r| r["provider"] == provider).unwrap_or_else(|| panic!("{provider} is a row of the table"));
-        let flags = &row["capabilities"];
-        // `providerTakesNativePdf`: only an explicit `false` lowers a PDF to text.
-        MediaSupport { native_pdf: flags["nativePdf"] != json!(false), native_documents: flags["nativeDocuments"].as_bool() }
-    };
-    let dir = tempfile::tempdir().unwrap();
-    let b = builder(&dir);
-    // A session's request carries tools, which is what puts it on a gateway's agent route.
-    let tool = mixdog_core_api::domain::provider::ToolDefinition {
-        name: "read".to_owned(),
-        description: "read".to_owned(),
-        input_schema: json!({"type": "object", "properties": {}}),
-        defer_loading: false,
-        freeform: None,
-    };
-    let request = |model: &str, agent: bool| ModelRequest {
-        model: model.to_owned(),
-        messages: Vec::new(),
-        tools: if agent { vec![tool.clone()] } else { Vec::new() },
-        options: RequestOptions::default(),
-    };
-    let enabled = json!({"enabled": true, "apiKey": "k"});
-    let custom = json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "anthropic", "baseURL": "http://localhost:1", "apiKey": "k"});
-    // (the table's provider, the builder's name and config, the model whose route the row is for, the wire it is on)
-    let routes = [
-        ("anthropic", "anthropic", enabled.clone(), "claude-sonnet-4-5", None),
-        ("openai", "openai", enabled.clone(), "gpt-5", None),
-        ("gemini", "gemini", enabled.clone(), "gemini-2.5-pro", None),
-        ("xai", "xai", enabled.clone(), "grok-4", None),
-        ("cursor-api", "cursor-api", enabled.clone(), "auto", None),
-        ("custom-anthropic", "custom-z", custom, "m", None),
-        ("deepseek", "deepseek", enabled.clone(), "deepseek-v4-pro", Some("messages")),
-        ("openrouter", "openrouter", enabled.clone(), "anthropic/claude-sonnet-4.5", Some("messages")),
-        // The product's own adapters for the routes the table names after Node's classes: OpenCode Go's Messages engine
-        // (a model its routing sends there) and DeepSeek's Chat wire (`OpenAICompatProvider('deepseek')`), which only a
-        // one-shot request without tools takes (DeepSeek's Messages endpoint is for agent sessions).
-        ("opencode-go", "opencode-go-oauth", enabled.clone(), "minimax-m2", Some("messages")),
-        ("deepseek-chat", "deepseek", enabled.clone(), "deepseek-v4-pro", Some("chat")),
-    ];
-    for (row, name, cfg, model, wire) in routes {
-        let agent = row != "deepseek-chat";
-        let adapter = b.build(name, &cfg).await.unwrap_or_else(|e| panic!("{name}: {e}"));
-        if let Some(wire) = wire {
-            let context = mixdog_core_api::domain::provider::WireRouteContext { agent, ..Default::default() };
-            let route = adapter.wire_routing().expect("a gateway routes").resolve_wire_route(model, &context).await.unwrap().unwrap();
-            assert_eq!(route.wire, wire, "{row}: {model} is on the wire the row is for");
-        }
-        assert_eq!(adapter.media_support(&request(model, agent)).await, declared(row), "{row}");
-    }
-}
-
-/// `createCustomProvider` registers a wire profile for every OpenAI-compatible protocol, so a one-wire provider
-/// routes (and pins) its wire. The route is the one the real-turn harness recorded in Node's stored header
-/// (`out/read/compare/stored-header.node.json` `wireRoute`: `custom-harness:chat`, source `default`); the
-/// anthropic protocol has no profile and no `resolveWireRoute`.
-#[tokio::test]
-async fn a_one_wire_custom_provider_routes_its_wire_like_node() {
-    use mixdog_core_api::domain::provider::WireRouteContext;
-    let dir = tempfile::tempdir().unwrap();
-    let b = builder(&dir);
-    let context = WireRouteContext { agent: true, ..WireRouteContext::default() };
-    let chat = b.build("custom-harness", &json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/", "apiKey": "k"})).await.unwrap();
-    let route = chat.wire_routing().expect("an OpenAI-compatible custom provider routes").resolve_wire_route("harness-model", &context).await.unwrap().unwrap();
-    assert_eq!((route.wire.as_str(), route.source.as_str(), route.profile_id.as_str()), ("chat", "default", "custom-harness:chat"));
-    let responses = b.build("custom-r", &json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-responses", "baseURL": "http://localhost:1/v1/", "apiKey": "k"})).await.unwrap();
-    let route = responses.wire_routing().expect("routes").resolve_wire_route("m", &context).await.unwrap().unwrap();
-    assert_eq!((route.wire.as_str(), route.profile_id.as_str()), ("responses", "custom-r:responses"));
-    let anthropic = b.build("custom-a", &json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "anthropic", "baseURL": "http://localhost:1", "apiKey": "k"})).await.unwrap();
-    assert!(anthropic.wire_routing().is_none());
-}
-
-/// `createCustomProvider` reads an unversioned entry through `normalizeCustomProviderConfig` (`migrateLegacy`): its `models`
-/// are manual rows with their name, window and output ceiling, as the same entry saved as schema 2 states them.
-#[tokio::test]
-async fn a_legacy_custom_entrys_models_are_its_manual_rows() {
-    let dir = tempfile::tempdir().unwrap();
-    let b = builder(&dir);
-    let legacy = json!({"type": "custom", "name": "Legacy", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "k",
-        "models": [{"id": "smoke", "name": "Smoke Legacy", "contextWindow": 30000, "maxOutputTokens": 1234}]});
-    let parts = b.build_custom_parts("custom-legacy", &legacy).unwrap();
-    let rows = parts.listing.cached_rows();
-    let row = rows.iter().find(|row| row.id == "smoke").expect("the legacy model is a row");
-    assert_eq!((row.name.as_deref(), row.context_window, row.max_output_tokens, row.manual, row.hidden), (Some("Smoke Legacy"), Some(30_000), Some(1_234), true, false));
-}
-
-/// `createCustomProvider` throws what `normalizeCustomProviderConfig` throws: a nameless entry, a v2 entry with a field the normalizer
-/// does not know and a legacy entry with v2 fields are not built; `instantiateProvider` strips `customKeyIds` before the constructor.
-#[tokio::test]
-async fn a_custom_entry_the_normalizer_refuses_is_not_built() {
-    let dir = tempfile::tempdir().unwrap();
-    let b = builder(&dir);
-    let v2 = json!({"type": "custom", "schemaVersion": 2, "name": "N", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "k"});
-    let err = |cfg: Value| b.build_custom_parts("custom-x", &cfg).err();
-    let mut nameless = v2.clone();
-    nameless.as_object_mut().unwrap().remove("name");
-    assert_eq!(err(nameless).as_deref(), Some("[custom-provider] name is required"));
-    let mut unknown = v2.clone();
-    unknown["surprise"] = json!(1);
-    assert!(err(unknown).is_some());
-    let mut legacy_headers = v2.clone();
-    legacy_headers.as_object_mut().unwrap().remove("schemaVersion");
-    legacy_headers["headers"] = json!({"X-A": "1"});
-    assert_eq!(err(legacy_headers).as_deref(), Some("[custom-provider] headers require schemaVersion 2"));
-    let mut with_ids = v2;
-    with_ids["customKeyIds"] = json!(["k1"]);
-    assert!(err(with_ids).is_none());
+#[test]
+fn account_plan_meters_ignore_endpoint_settings_that_do_not_change_transport() {
+    let upper = json!({"baseURL":"https://gateway.example.invalid"});
+    let lower = json!({"baseUrl":"https://gateway.example.invalid"});
+    assert!(plan_meters_describe("anthropic-oauth", &upper));
+    assert!(plan_meters_describe("anthropic-oauth", &lower));
+    assert!(!plan_meters_describe("muse-code-oauth", &upper));
+    assert!(plan_meters_describe("muse-code-oauth", &lower));
+    assert!(!plan_meters_describe("devin-oauth", &lower));
+    assert!(plan_meters_describe("devin-oauth", &upper));
 }
 
 /// `describeVertexAdc` against Node's (`fixtures/vertex-adc/golden.json`, `record-vertex-adc.mjs`):
@@ -233,6 +48,7 @@ mod adc {
 
     use super::*;
 
+    #[cfg(node_twin)]
     const GOLDEN: &str = include_str!("../../../../../fixtures/vertex-adc/golden.json");
 
     struct MapEnv(HashMap<String, String>);
@@ -243,6 +59,121 @@ mod adc {
         }
     }
 
+    /// What the settings show of the gcloud login in a folder seeded with `files`, under `env`.
+    async fn described(files: &[(&str, &str)], env: &[(&str, &str)], project_override: &str) -> (Value, String) {
+        let dir = tempfile::tempdir().unwrap();
+        for (relative, text) in files {
+            let path = dir.path().join(relative);
+            let bytes = text.as_bytes().to_vec();
+            mixdog_rt::testing::tokens()
+                .durability_io
+                .submit(&CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &path, &bytes, &mixdog_statefile::Opts::default()))
+                .unwrap()
+                .await
+                .unwrap()
+                .unwrap();
+        }
+        let mut vars: HashMap<String, String> = env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+        vars.insert("CLOUDSDK_CONFIG".into(), dir.path().to_string_lossy().into_owned());
+        let builder = builder_with(&dir, Arc::new(MapEnv(vars)));
+        let value = builder.adc_describe(project_override, false).await;
+        (value, dir.path().to_string_lossy().into_owned())
+    }
+
+    const LOGIN_FILE: &str = "application_default_credentials.json";
+    const USER_LOGIN: &str = r#"{"type":"authorized_user","client_id":"id","client_secret":"secret","refresh_token":"refresh","quota_project_id":"quota-proj"}"#;
+
+    #[tokio::test]
+    async fn project_vertex_routes_use_the_selected_models_region_unless_pinned() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = MapEnv(HashMap::from([
+            ("CLOUDSDK_CONFIG".into(), dir.path().to_string_lossy().into_owned()),
+            ("GOOGLE_VERTEX_LOCATION".into(), "us-central1".into()),
+            ("VERTEX_REGION_CLAUDE_4_6_SONNET".into(), "us-east5".into()),
+        ]));
+        let builder = builder_with(&dir, Arc::new(env));
+        builder.metadata_project.set(Some("metadata-proj".into())).unwrap();
+        let adc = json!({"authMode":"adc"});
+        let service = json!({"authMode":"service-account","apiKey":json!({
+            "client_email":"fixture@example.invalid","private_key":"not used by encode","project_id":"service-proj"
+        }).to_string()});
+        let check = |adapter: &dyn ProviderAdapter, project: &str, pin: Option<&str>| {
+            for (model, region) in [("publishers/anthropic/models/claude-sonnet-4-6", "us-east5"), ("gemini-2.5-pro", "us-central1")] {
+                let request = custom_turn(model, Default::default());
+                let wire = adapter.codec().encode(&request).unwrap();
+                let region = pin.unwrap_or(region);
+                assert!(wire.url.contains(&format!("/projects/{project}/locations/{region}/")), "{model}: {}", wire.url);
+            }
+        };
+        for pin in [None, Some("us-west1")] {
+            let pinned = |mut cfg: Value| {
+                if let Some(location) = pin {
+                    cfg["location"] = json!(location);
+                }
+                cfg
+            };
+            check(builder.build("vertex-ai", &pinned(adc.clone())).await.unwrap().as_ref(), "metadata-proj", pin);
+            check(builder.build("vertex-ai", &pinned(service.clone())).await.unwrap().as_ref(), "service-proj", pin);
+        }
+        let path = dir.path().join(LOGIN_FILE);
+        mixdog_rt::testing::tokens().durability_io
+            .submit(&CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &path, USER_LOGIN.as_bytes(), &mixdog_statefile::Opts::default()))
+            .unwrap().await.unwrap().unwrap();
+        check(builder.build("vertex-ai", &adc).await.unwrap().as_ref(), "quota-proj", None);
+    }
+
+    #[tokio::test]
+    async fn without_a_gcloud_login_the_settings_say_so_and_name_the_command_to_run() {
+        let (shown, _) = described(&[], &[], "").await;
+        assert_eq!(shown["state"], "missing");
+        assert_eq!(shown["message"], "No gcloud login found. Run `gcloud auth application-default login`.");
+    }
+
+    #[tokio::test]
+    async fn a_login_is_shown_with_its_type_and_the_project_the_environment_the_file_or_the_override_names() {
+        let (file_project, _) = described(&[(LOGIN_FILE, USER_LOGIN)], &[], "").await;
+        assert_eq!((file_project["state"].clone(), file_project["type"].clone()), (json!("ready"), json!("authorized_user")));
+        assert_eq!(file_project["projectId"], "quota-proj", "the file's quota project");
+        let (from_env, _) = described(&[(LOGIN_FILE, USER_LOGIN)], &[("GOOGLE_CLOUD_PROJECT", "env-proj")], "").await;
+        assert_eq!(from_env["projectId"], "env-proj", "the environment comes before the file");
+        let (overridden, _) = described(&[(LOGIN_FILE, USER_LOGIN)], &[("GOOGLE_CLOUD_PROJECT", "env-proj")], "  chosen-proj ").await;
+        assert_eq!(overridden["projectId"], "chosen-proj", "the settings' project comes before everything");
+    }
+
+    #[tokio::test]
+    async fn the_description_never_carries_a_token_or_a_key() {
+        let (shown, _) = described(&[(LOGIN_FILE, USER_LOGIN)], &[], "").await;
+        let text = shown.to_string();
+        for secret in ["secret", "refresh"] {
+            assert!(!text.contains(secret), "{text}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_explicit_credentials_file_that_is_missing_is_reported_by_its_path() {
+        let (shown, dir) = described(&[], &[("GOOGLE_APPLICATION_CREDENTIALS", "/nowhere/key.json")], "").await;
+        assert_eq!(shown["state"], "invalid");
+        let message = shown["message"].as_str().unwrap();
+        assert!(message.starts_with("GOOGLE_APPLICATION_CREDENTIALS points to ") && message.ends_with("which does not exist."), "{message} ({dir})");
+    }
+
+    #[tokio::test]
+    async fn a_file_that_is_not_json_and_a_credential_type_vertex_does_not_take_read_as_invalid_and_unsupported() {
+        let (broken, _) = described(&[(LOGIN_FILE, "not json")], &[], "").await;
+        assert_eq!(broken["state"], "invalid");
+        assert!(broken["message"].as_str().unwrap().ends_with("is not valid JSON."));
+        let (other, _) = described(&[(LOGIN_FILE, r#"{"type":"external_account"}"#)], &[], "").await;
+        assert_eq!((other["state"].clone(), other["type"].clone()), (json!("unsupported"), json!("external_account")));
+    }
+
+    #[tokio::test]
+    async fn an_impersonated_login_needs_a_valid_service_account_url() {
+        let (shown, _) = described(&[(LOGIN_FILE, r#"{"type":"impersonated_service_account","service_account_impersonation_url":"https://x/y"}"#)], &[], "").await;
+        assert_eq!(shown["state"], "invalid");
+        assert!(shown["message"].as_str().unwrap().contains("have no valid service_account_impersonation_url"));
+    }
+
+    #[cfg(node_twin)]
     /// Paths as the recording wrote them: the folder is `{dir}`, `/` separates.
     fn normalized(value: &Value, dir: &str) -> Value {
         match value {
@@ -252,6 +183,7 @@ mod adc {
         }
     }
 
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn every_login_is_described_as_node_does() {
         let golden: Value = serde_json::from_str(GOLDEN).unwrap();
@@ -288,45 +220,8 @@ mod adc {
         }
     }
 }
-#[tokio::test]
-async fn a_name_without_an_adapter_says_why() {
-    let dir = tempfile::tempdir().unwrap();
-    let b = builder(&dir);
-    let err = |name: &str, cfg: Value| {
-        let b = &b;
-        let name = name.to_owned();
-        async move { b.build(&name, &cfg).await.err().unwrap() }
-    };
-    assert_eq!(err("nope", json!({})).await, "unknown enabled provider: nope");
-    assert_eq!(
-        err("mixdog-local", json!({})).await,
-        "mixdog-local needs the managed local runtime, which this host does not have"
-    );
-    let wires = |protocol: &str, extra: Value| {
-        let mut cfg = json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": protocol, "baseURL": "https://x/v1"});
-        cfg.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-        cfg
-    };
-    let bad = err("custom-1", wires("anthropic", json!({"wires": ["messages"]}))).await;
-    assert_eq!(bad, "[custom-provider] wires requires an 'openai-chat' or 'openai-responses' protocol");
-    assert_eq!(
-        err("custom-1", wires("openai-chat", json!({"wires": ["responses"]}))).await,
-        "[custom-provider] wires must include the protocol wire: chat"
-    );
-    assert_eq!(
-        err("custom-1", wires("openai-chat", json!({"wires": ["chat", "messages"], "modelWires": {"m": "responses"}}))).await,
-        "[custom-provider] modelWires[m] must be one of the served wires: chat, messages"
-    );
-    // The anthropic protocol and a multi-wire endpoint both build.
-    let ok = |cfg: Value| {
-        let b = &b;
-        async move { b.build("custom-1", &cfg).await.is_ok() }
-    };
-    assert!(ok(wires("anthropic", json!({}))).await);
-    assert!(ok(wires("openai-chat", json!({"wires": ["messages", "chat"], "modelWires": {"c": "messages"}}))).await);
-    assert!(!b.available("gated") && b.available("openai"));
-    assert!(!b.oauth_credentials_usable("openai-oauth").await.unwrap());
-}
+
+
 
 /// `MIXDOG_OAI_TRANSPORT` reaches the adapter's WebSocket mode as `resolveOpenAiTransportPolicy` resolves it: `ws-full`
 /// pins full frames (Node's `full_default`), `ws-delta` pins delta frames without the HTTP fallback.
@@ -339,6 +234,7 @@ fn the_transport_setting_selects_the_websocket_mode() {
     assert_eq!(pick(None), (TransportKind::WebSocket, TransportMode::Auto));
     assert_eq!(pick(Some("quantum")), (TransportKind::WebSocket, TransportMode::Auto));
 }
+
 /// Providers of one kind built through the registry as separate configurations would be (one store each), each over a
 /// network of its own that answers every token exchange with the next tokens of its account.
 mod account_keys {
@@ -451,10 +347,940 @@ mod account_keys {
     }
 }
 
+
+/// A keyless custom provider on `protocol` at a stand-in endpoint, not warmed, with `overrides` as its `modelOverrides`.
+fn custom_config(protocol: &str, overrides: Value) -> Value {
+    json!({
+        "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": protocol, "baseURL": "https://shape.test/v1", "auth": "none", "preconnect": false,
+        "modelOverrides": overrides,
+    })
+}
+
+/// A one-message request of `model` with `options`.
+fn custom_turn(model: &str, options: mixdog_core_api::domain::provider::RequestOptions) -> ModelRequest {
+    use mixdog_core_api::domain::provider::{Content, Message, Role};
+    ModelRequest {
+        model: model.to_owned(),
+        messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
+        tools: Vec::new(),
+        options,
+    }
+}
+
+#[tokio::test]
+async fn custom_responses_retries_rejected_history_on_the_configured_wire_at_the_turn_effort() {
+    use mixdog_core_api::domain::provider::{Content, EffortProjection, Message, RequestOptions, Role, StreamEvent};
+
+    let dir = tempfile::tempdir().unwrap();
+    let wire = Arc::new(crate::providers::listing_row::testing::Replay::new(|request| {
+        let body: Value = serde_json::from_slice(&request.body).unwrap();
+        if body["input"].as_array().is_some_and(|items| items.iter().any(|item| item["type"] == "configuration_update")) {
+            (400, br#"{"error":{"message":"Unsupported item type configuration_update"}}"#.to_vec())
+        } else {
+            (200, b"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_ok\",\"status\":\"completed\",\"output\":[]}}\n\n".to_vec())
+        }
+    }));
+    let b = builder_over(&dir, Arc::new(ProcessEnv), Some(wire.clone()), Arc::new(SessionContext::new()));
+    let model = "gateway/gpt-6";
+    let mut cfg = custom_config("openai-chat", json!({
+        "gateway/gpt-6": {"manual": true, "reasoning": {
+            "levels": ["low", "medium", "high"], "wireValues": {"low":"lite","medium":"lite","high":"deep"}
+        }}
+    }));
+    cfg["wires"] = json!(["chat", "responses"]);
+    cfg["modelWires"] = json!({"gateway/gpt-6":"responses"});
+    let provider = b.build("custom-effort-history", &cfg).await.unwrap();
+    let mut request = custom_turn(model, RequestOptions {
+        effort: Some("high".into()),
+        effort_projection: Some(EffortProjection {
+            initial_effort: "low".into(),
+            updates: [(1, "medium".into()), (2, "high".into())].into(),
+        }),
+        ..RequestOptions::default()
+    });
+    request.messages.push(Message::new(Role::User, Content::Text("keep going".into())));
+    request.messages.push(Message::new(Role::User, Content::Text("next".into())));
+    for _ in 0..2 {
+        let mut stream = provider.attempt(Arc::new(request.clone())).await.unwrap();
+        loop {
+            let event = stream.next().await.expect("terminal event").unwrap();
+            if matches!(event, StreamEvent::Completed { .. }) {
+                break;
+            }
+        }
+    }
+    let sent = wire.requests.lock().unwrap();
+    assert_eq!(sent.len(), 3, "one retry, and no history probe on the following turn");
+    assert!(sent.iter().all(|request| request.url == "https://shape.test/v1/responses"));
+    let bodies: Vec<Value> = sent.iter().map(|request| serde_json::from_slice(&request.body).unwrap()).collect();
+    assert_eq!(bodies[0]["reasoning"]["effort"], "lite");
+    let input = bodies[0]["input"].as_array().unwrap();
+    assert_eq!(input.len(), 4, "the two efforts mapped to lite do not generate an update");
+    assert_eq!(input[2], json!({"type":"configuration_update","reasoning":{"effort":"deep"}}));
+    assert_eq!(input[3]["content"][0]["text"], "next");
+    assert_eq!(bodies[1]["reasoning"]["effort"], "deep");
+    assert_eq!(bodies[1]["input"], json!([&input[0], &input[1], &input[3]]));
+    assert_eq!(bodies[2], bodies[1]);
+}
+
+fn builder(dir: &tempfile::TempDir) -> DefaultProviderBuilder {
+    builder_with(dir, Arc::new(ProcessEnv))
+}
+fn builder_with(dir: &tempfile::TempDir, env: Arc<dyn Environment>) -> DefaultProviderBuilder {
+    builder_over(dir, env, None, Arc::new(SessionContext::new()))
+}
+/// A builder whose requests go to `http` when given (else the real link), reading time off `context`.
+fn builder_over(dir: &tempfile::TempDir, env: Arc<dyn Environment>, http: Option<Arc<dyn HttpSend>>, context: Arc<SessionContext>) -> DefaultProviderBuilder {
+    let tokens = mixdog_rt::testing::tokens();
+    let link = Arc::new(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap());
+    DefaultProviderBuilder::new(BuilderEnv {
+        http: http.unwrap_or_else(|| link.clone()),
+        bidi: link,
+        dial: Arc::new(KeepaliveDialer::new(KeepaliveSchedule::SPEC)),
+        keys: ApiKeyStore::new(Arc::new(MemoryVault::default()), env.clone(), false),
+        accounts: AccountStore::new(
+            dir.path().to_path_buf(),
+            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
+        ),
+        anthropic_caps: Arc::new(|_| None),
+        google_traits: Arc::new(Traits),
+        route_traits: Arc::new(|_| None),
+        openai_facts: Arc::new(NoFacts),
+        openai_context: context,
+        codex_identity: CodexIdentity {
+            installation_id: "i".into(),
+            user_agent: "ua".into(),
+            version: "1".into(),
+            beta_features: String::new(),
+        },
+        pace: Arc::new(crate::oauth::pace::FakePace::default()),
+        gzip_lane: tokens.cpu_bulk,
+        client_version: "1.0.0".into(),
+        client_versions: None,
+        grok_client_version: None,
+        cursor_client_version: None,
+        antigravity_client_version: "1.0.0".into(),
+        listing: crate::catalog::ListingLookup::new(),
+        env,
+        home_dir: dir.path().to_path_buf(),
+        io: CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
+        gated_off: Arc::new(|name| name == "gated"),
+        local: None,
+    })
+}
+#[tokio::test]
+async fn each_family_builds_under_its_own_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let b = builder(&dir);
+    for name in ["anthropic", "openai", "gemini", "xai", "deepseek", "openrouter", "cursor-api"] {
+        assert_eq!(id_of(&b, name, json!({"enabled": true, "apiKey": "k"})).await, name);
+    }
+    let custom = json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/",
+        "apiKey": "k", "headers": {"X-A": "1"}, "requestBody": {"top_k": 5}});
+    assert_eq!(id_of(&b, "custom-abc", custom).await, "custom-abc");
+}
+
+#[tokio::test]
+async fn public_openai_store_respects_either_opt_out_without_affecting_oauth() {
+    struct StoreEnv(Option<&'static str>);
+    impl Environment for StoreEnv {
+        fn var(&self, name: &str) -> Option<String> {
+            match name {
+                "MIXDOG_OAI_STORE" => self.0.map(str::to_owned),
+                "MIXDOG_OAI_TRANSPORT" => Some("http-sse".into()),
+                _ => None,
+            }
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let request = custom_turn("gpt-5.2", Default::default());
+    for (env, provider, config, expected) in [
+        (None, "openai", json!({}), true),
+        (Some("0"), "openai", json!({}), false),
+        (Some("0"), "openai", json!({"store": true}), false),
+        (Some("1"), "openai", json!({"store": false}), false),
+        (Some("1"), "openai-oauth", json!({"store": true}), false),
+    ] {
+        let adapter = builder_with(&dir, Arc::new(StoreEnv(env))).build(provider, &config).await.unwrap();
+        let wire = adapter.codec().encode(&request).unwrap();
+        let body: Value = serde_json::from_slice(&wire.body).unwrap();
+        assert_eq!(body["store"], expected, "{provider} with environment {env:?} and config {config}");
+    }
+}
+
+#[tokio::test]
+async fn mimo_region_discovery_errors_only_when_mimo_is_used() {
+    use crate::transport::{Exchange, HttpResponse};
+    use mixdog_core_api::domain::provider::WireRequest;
+
+    struct NoNetwork(std::sync::atomic::AtomicUsize);
+    #[async_trait]
+    impl HttpSend for NoNetwork {
+        async fn send(&self, _: WireRequest, _: Exchange) -> Result<HttpResponse, ProviderError> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent))
+        }
+    }
+    struct EmptyEnv;
+    impl Environment for EmptyEnv {
+        fn var(&self, _: &str) -> Option<String> { None }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let network = Arc::new(NoNetwork(std::sync::atomic::AtomicUsize::new(0)));
+    let builder = Arc::new(builder_over(&dir, Arc::new(EmptyEnv), Some(network.clone()), Arc::new(SessionContext::new())));
+    builder.env.accounts.credential_file("mimo-oauth", "default").unwrap()
+        .save(&json!({"apiKey":"tp-fixture","uid":"fixture"})).await.unwrap();
+    let registry = super::super::providers::ProviderRegistry::new(builder);
+    let config = json!({"mimo-oauth":{"enabled":true},"openai":{"enabled":true}});
+    registry.init_providers(config.as_object().unwrap()).await.unwrap();
+    assert!(registry.registered("openai").is_some());
+    assert_eq!(network.0.load(std::sync::atomic::Ordering::Relaxed), 0);
+    let request = Arc::new(custom_turn("mimo-v2.6-pro", Default::default()));
+    let error = registry.registered("mimo-oauth").unwrap().attempt(request).await.err().expect("that send fails discovery");
+    assert_eq!((error.kind, error.delivery), (ErrorKind::Transient, DeliveryState::NotSent));
+    assert!(network.0.load(std::sync::atomic::Ordering::Relaxed) > 0);
+}
+
+#[tokio::test]
+async fn anthropic_subscription_messages_never_use_the_api_key_destination() {
+    use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError, RequestOptions, WireRequest};
+    use crate::transport::{Exchange, HttpResponse, Redirect};
+
+    struct EmptyEnv;
+    impl Environment for EmptyEnv {
+        fn var(&self, _: &str) -> Option<String> {
+            None
+        }
+    }
+
+    #[derive(Default)]
+    struct Network(std::sync::Mutex<Vec<(WireRequest, Redirect)>>);
+    #[async_trait]
+    impl HttpSend for Network {
+        async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
+            if request.method == "POST" {
+                self.0.lock().unwrap().push((request, exchange.redirect));
+            }
+            Err(ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent))
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let network = Arc::new(Network::default());
+    let builder = builder_over(&dir, Arc::new(EmptyEnv), Some(network.clone()), Arc::new(SessionContext::new()));
+    let file = builder.file("anthropic-oauth").unwrap();
+    file.save(&json!({"claudeAiOauth": {
+        "accessToken": "fixture-subscription-token", "refreshToken": "fixture-refresh", "expiresAt": 4_000_000_000_000u64
+    }})).await.unwrap();
+    let config = json!({"enabled": true, "baseURL": "https://gateway.example/custom/", "apiKey": "fixture-api-key"});
+    let request = Arc::new(custom_turn("claude-sonnet-4-6", RequestOptions::default()));
+    for provider in ["anthropic", "anthropic-oauth"] {
+        let built = builder.build(provider, &config).await.unwrap();
+        let _ = built.attempt(request.clone()).await;
+    }
+
+    let session = Arc::new(OAuthSession::new(file, network.clone()));
+    for base in ["https://gateway.example/custom", "https://api.anthropic.com/not-messages"] {
+        let mut config = AnthropicConfig::new(Arc::new(|_| None));
+        config.base_url = base.into();
+        let oauth = AnthropicAdapter::oauth(config, network.clone(), session.clone(), false, builder.env.gzip_lane);
+        let error = oauth.attempt(request.clone()).await.err().expect("the destination is refused");
+        assert_eq!((error.kind, error.delivery), (ErrorKind::InvalidRequest, DeliveryState::NotSent));
+    }
+
+    let writes = network.0.lock().unwrap();
+    assert_eq!(writes.len(), 2, "only the correctly routed requests reached transport");
+    let header = |wire: &WireRequest, name: &str| {
+        wire.headers.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, value)| value.clone())
+    };
+    let (api, api_redirect) = &writes[0];
+    assert_eq!(api.url, "https://gateway.example/custom/v1/messages");
+    assert_eq!(header(api, "x-api-key").as_deref(), Some("fixture-api-key"));
+    assert_eq!(header(api, "authorization"), None);
+    assert_eq!(*api_redirect, Redirect::Follow);
+
+    let (oauth, oauth_redirect) = &writes[1];
+    assert_eq!(oauth.url, "https://api.anthropic.com/v1/messages");
+    assert_eq!(header(oauth, "authorization").as_deref(), Some("Bearer fixture-subscription-token"));
+    assert_eq!(header(oauth, "x-api-key"), None);
+    assert_eq!(*oauth_redirect, Redirect::Error);
+    for wire in [api, oauth] {
+        assert_eq!(wire.transport, TransportKind::Http1);
+        let body: Value = serde_json::from_slice(&wire.body).unwrap();
+        assert_eq!(body["messages"][0]["content"][0]["text"], "hi");
+    }
+}
+
+/// `createCustomProvider` registers a wire profile for every OpenAI-compatible protocol, so a one-wire provider
+/// routes (and pins) its wire. The route is the one the real-turn harness recorded in Node's stored header
+/// (`out/read/compare/stored-header.node.json` `wireRoute`: `custom-harness:chat`, source `default`); the
+/// anthropic protocol has no profile and no `resolveWireRoute`.
+#[tokio::test]
+async fn a_one_wire_custom_provider_routes_its_wire_like_node() {
+    use mixdog_core_api::domain::provider::WireRouteContext;
+    let dir = tempfile::tempdir().unwrap();
+    let b = builder(&dir);
+    let context = WireRouteContext { agent: true, ..WireRouteContext::default() };
+    let chat = b.build("custom-harness", &json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/", "apiKey": "k"})).await.unwrap();
+    let route = chat.wire_routing().expect("an OpenAI-compatible custom provider routes").resolve_wire_route("harness-model", &context).await.unwrap().unwrap();
+    assert_eq!((route.wire.as_str(), route.source.as_str(), route.profile_id.as_str()), ("chat", "default", "custom-harness:chat"));
+    let responses = b.build("custom-r", &json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-responses", "baseURL": "http://localhost:1/v1/", "apiKey": "k"})).await.unwrap();
+    let route = responses.wire_routing().expect("routes").resolve_wire_route("m", &context).await.unwrap().unwrap();
+    assert_eq!((route.wire.as_str(), route.profile_id.as_str()), ("responses", "custom-r:responses"));
+    let anthropic = b.build("custom-a", &json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "anthropic", "baseURL": "http://localhost:1", "apiKey": "k"})).await.unwrap();
+    assert!(anthropic.wire_routing().is_none());
+}
+/// `createCustomProvider` reads an unversioned entry through `normalizeCustomProviderConfig` (`migrateLegacy`): its `models`
+/// are manual rows with their name, window and output ceiling, as the same entry saved as schema 2 states them.
+#[tokio::test]
+async fn a_legacy_custom_entrys_models_are_its_manual_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let b = builder(&dir);
+    let legacy = json!({"type": "custom", "name": "Legacy", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "k",
+        "models": [{"id": "smoke", "name": "Smoke Legacy", "contextWindow": 30000, "maxOutputTokens": 1234}]});
+    let parts = b.build_custom_parts("custom-legacy", &legacy).unwrap();
+    let rows = parts.listing.cached_rows();
+    let row = rows.iter().find(|row| row.id == "smoke").expect("the legacy model is a row");
+    assert_eq!((row.name.as_deref(), row.context_window, row.max_output_tokens, row.manual, row.hidden), (Some("Smoke Legacy"), Some(30_000), Some(1_234), true, false));
+}
+/// `createCustomProvider` throws what `normalizeCustomProviderConfig` throws: a nameless entry, a v2 entry with a field the normalizer
+/// does not know and a legacy entry with v2 fields are not built; `instantiateProvider` strips `customKeyIds` before the constructor.
+#[tokio::test]
+async fn a_custom_entry_the_normalizer_refuses_is_not_built() {
+    let dir = tempfile::tempdir().unwrap();
+    let b = builder(&dir);
+    let v2 = json!({"type": "custom", "schemaVersion": 2, "name": "N", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "k"});
+    let err = |cfg: Value| b.build_custom_parts("custom-x", &cfg).err();
+    let mut nameless = v2.clone();
+    nameless.as_object_mut().unwrap().remove("name");
+    assert_eq!(err(nameless).as_deref(), Some("[custom-provider] name is required"));
+    let mut unknown = v2.clone();
+    unknown["surprise"] = json!(1);
+    assert!(err(unknown).is_some());
+    let mut legacy_headers = v2.clone();
+    legacy_headers.as_object_mut().unwrap().remove("schemaVersion");
+    legacy_headers["headers"] = json!({"X-A": "1"});
+    assert_eq!(err(legacy_headers).as_deref(), Some("[custom-provider] headers require schemaVersion 2"));
+    let mut with_ids = v2;
+    with_ids["customKeyIds"] = json!(["k1"]);
+    assert!(err(with_ids).is_none());
+}
+#[tokio::test]
+async fn a_name_without_an_adapter_says_why() {
+    let dir = tempfile::tempdir().unwrap();
+    let b = builder(&dir);
+    let err = |name: &str, cfg: Value| {
+        let b = &b;
+        let name = name.to_owned();
+        async move { b.build(&name, &cfg).await.err().unwrap() }
+    };
+    assert_eq!(err("nope", json!({})).await, "unknown enabled provider: nope");
+    assert_eq!(
+        err("mixdog-local", json!({})).await,
+        "mixdog-local needs the managed local runtime, which this host does not have"
+    );
+    let wires = |protocol: &str, extra: Value| {
+        let mut cfg = json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": protocol, "baseURL": "https://x/v1"});
+        cfg.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        cfg
+    };
+    let bad = err("custom-1", wires("anthropic", json!({"wires": ["messages"]}))).await;
+    assert_eq!(bad, "[custom-provider] wires requires an 'openai-chat' or 'openai-responses' protocol");
+    assert_eq!(
+        err("custom-1", wires("openai-chat", json!({"wires": ["responses"]}))).await,
+        "[custom-provider] wires must include the protocol wire: chat"
+    );
+    assert_eq!(
+        err("custom-1", wires("openai-chat", json!({"wires": ["chat", "messages"], "modelWires": {"m": "responses"}}))).await,
+        "[custom-provider] modelWires[m] must be one of the served wires: chat, messages"
+    );
+    // The anthropic protocol and a multi-wire endpoint both build.
+    let ok = |cfg: Value| {
+        let b = &b;
+        async move { b.build("custom-1", &cfg).await.is_ok() }
+    };
+    assert!(ok(wires("anthropic", json!({}))).await);
+    assert!(ok(wires("openai-chat", json!({"wires": ["messages", "chat"], "modelWires": {"c": "messages"}}))).await);
+    assert!(!b.available("gated") && b.available("openai"));
+    assert!(!b.oauth_credentials_usable("openai-oauth").await.unwrap());
+}
+
+/// A credential file holding two tokens (Muse's `apiKey` and `accessToken`) keeps both redacted: values other sources retire
+/// afterwards evict neither.
+#[tokio::test]
+#[allow(clippy::disallowed_methods, reason = "the fixture file is written directly")]
+async fn a_file_key_registers_every_token_its_file_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("muse.json");
+    std::fs::write(&path, r#"{"apiKey":"two-token-api-key-71c9e0","accessToken":"two-token-access-4d82fa"}"#).unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let file = CredentialFile::new(path, CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    let key = FileKey { file, provider: "muse-code-oauth" };
+    assert_eq!(key.read().await.unwrap(), "two-token-api-key-71c9e0");
+    for i in 0..=crate::oauth::carried::RETIRED_CAP {
+        crate::oauth::carried::keep("file the-unrelated-account-of-the-file-key-test.json", &[&format!("file-key-test-unrelated-{i:05}")]);
+    }
+    let registry = crate::oauth::carried::registry();
+    assert!(registry.holds("two-token-api-key-71c9e0") && registry.holds("two-token-access-4d82fa"));
+}
+
+/// `xaiServerToolSearchEnabled` (`openai-compat-xai-send.mjs`): `provider.config?.xaiServerToolSearch === true` and nothing else
+/// turns the server's tool search on. On, the xAI Responses body declares one `tool_search` tool and marks the deferred tools
+/// (`toResponsesTools(.., { serverToolSearch: true })`); unset or anything but `true`, every tool is a plain function.
+#[tokio::test]
+async fn the_xai_server_tool_search_is_the_providers_own_opt_in() {
+    use mixdog_core_api::domain::provider::{ModelRequest, RequestOptions, ToolDefinition};
+    let dir = tempfile::tempdir().unwrap();
+    // The network keeps each request's body and refuses it: the request as it leaves is all that is read.
+    let sent = Arc::new(std::sync::Mutex::new(Vec::<(String, Vec<u8>)>::new()));
+    let record = sent.clone();
+    let net: Arc<dyn HttpSend> = Arc::new(crate::providers::listing_row::testing::Replay::new(move |request| {
+        record.lock().unwrap().push((request.url.clone(), request.body.clone()));
+        (400, b"{}".to_vec())
+    }));
+    let b = builder_over(&dir, Arc::new(ProcessEnv), Some(net), Arc::new(SessionContext::new()));
+    let tool = |name: &str, defer_loading: bool| ToolDefinition {
+        name: name.to_owned(),
+        description: name.to_owned(),
+        input_schema: json!({"type": "object", "properties": {}}),
+        defer_loading,
+        freeform: None,
+    };
+    let request = Arc::new(ModelRequest {
+        model: "grok-4".to_owned(),
+        messages: Vec::new(),
+        tools: vec![tool("read", false), tool("load_tool", false), tool("mcp__a__b", true)],
+        options: RequestOptions::default(),
+    });
+    let kinds = |cfg: Value| {
+        let (b, request, sent) = (&b, request.clone(), sent.clone());
+        async move {
+            let adapter = b.build("xai", &cfg).await.unwrap();
+            sent.lock().unwrap().clear();
+            let _ = adapter.attempt(request).await;
+            let sent = sent.lock().unwrap();
+            let (url, body) = sent.first().expect("the request left");
+            assert!(url.ends_with("/v1/responses"), "{url}");
+            let body: Value = serde_json::from_slice(body).unwrap();
+            body["tools"].as_array().unwrap().iter().map(|t| (t["type"].as_str().unwrap().to_owned(), t.get("defer_loading").is_some())).collect::<Vec<_>>()
+        }
+    };
+    let function = |deferred: bool| ("function".to_owned(), deferred);
+    let plain = vec![function(false), function(false), function(false)];
+    assert_eq!(kinds(json!({"enabled": true, "apiKey": "k"})).await, plain);
+    assert_eq!(kinds(json!({"enabled": true, "apiKey": "k", "xaiServerToolSearch": "true"})).await, plain, "only the boolean opts in");
+    assert_eq!(kinds(json!({"enabled": true, "apiKey": "k", "xaiServerToolSearch": false})).await, plain);
+    assert_eq!(
+        kinds(json!({"enabled": true, "apiKey": "k", "xaiServerToolSearch": true})).await,
+        vec![function(false), ("tool_search".to_owned(), false), function(true)]
+    );
+    assert!(xai_server_tool_search(&json!({"xaiServerToolSearch": true})));
+    assert!(!xai_server_tool_search(&json!({})) && !xai_server_tool_search(&json!({"xaiServerToolSearch": 1})));
+}
+/// The request a custom provider built from `cfg` sent for `request`, over a network that refuses it: its header names
+/// lower-cased and its body parsed.
+async fn custom_request(cfg: &Value, request: ModelRequest) -> (HashMap<String, String>, Value) {
+    let dir = tempfile::tempdir().unwrap();
+    let replay = Arc::new(crate::providers::listing_row::testing::Replay::new(|_| {
+        (400, br#"{"error":{"message":"scripted refusal","type":"invalid_request_error"}}"#.to_vec())
+    }));
+    let b = builder_over(&dir, Arc::new(ProcessEnv), Some(replay.clone() as Arc<dyn HttpSend>), Arc::new(SessionContext::new()));
+    let provider = b.build("custom-shape", cfg).await.unwrap_or_else(|e| panic!("{e}"));
+    let _ = provider.attempt(Arc::new(request)).await;
+    let requests = replay.requests.lock().unwrap();
+    let sent = requests.iter().find(|r| r.method == "POST").expect("the request left");
+    let headers = sent.headers.iter().map(|(name, value)| (name.to_ascii_lowercase(), value.clone())).collect();
+    (headers, serde_json::from_slice(&sent.body).unwrap())
+}
+/// A model's own `requestHeaders` (the key `modelOverrides[id]` stores them under) ride every request of that model on
+/// each protocol's wire, over the provider's headers of the same name, and no other model's (`customRequestHeaders`).
+#[tokio::test]
+async fn a_custom_models_request_headers_ride_its_requests_only() {
+    for protocol in ["openai-chat", "openai-responses", "anthropic"] {
+        let mut cfg = custom_config(
+            protocol,
+            json!({
+                "smoke": {"manual": true, "requestHeaders": {"X-Model": "smoke", "X-Team": "model"}},
+                "plain": {"manual": true},
+            }),
+        );
+        cfg["headers"] = json!({"X-Team": "provider"});
+        let (headers, _) = custom_request(&cfg, custom_turn("smoke", Default::default())).await;
+        let sent = |name: &str| headers.get(name).cloned();
+        assert_eq!((sent("x-model"), sent("x-team")), (Some("smoke".to_owned()), Some("model".to_owned())), "{protocol}");
+        let (headers, _) = custom_request(&cfg, custom_turn("plain", Default::default())).await;
+        let sent = |name: &str| headers.get(name).cloned();
+        assert_eq!((sent("x-model"), sent("x-team")), (None, Some("provider".to_owned())), "{protocol}");
+    }
+}
+/// The turn's effort reaches a custom provider's request on each wire as the model's own row says
+/// (`resolveCustomReasoning`): snapped onto the row's levels and spelled by its `wireValues`, as the Chat wire's
+/// `reasoning_effort`, the Responses wire's `reasoning.effort`, and on the Messages wire as adaptive `thinking` with
+/// `output_config.effort` and the effort beta in place of the engine's own (`none` turns thinking off, which keeps a
+/// forced tool choice). A model whose row declares no levels gets no reasoning field.
+#[tokio::test]
+async fn a_custom_request_carries_its_model_rows_reasoning_at_the_turns_effort() {
+    use mixdog_core_api::domain::provider::{RequestOptions, ToolDefinition};
+    let overrides = json!({
+        "smoke": {"manual": true, "reasoning": {"levels": ["none", "low", "medium", "high"], "wireValues": {"high": "HIGH-WIRE"}}},
+        "plain": {"manual": true},
+    });
+    let at = |effort: &str| RequestOptions { effort: Some(effort.to_owned()), ..RequestOptions::default() };
+
+    let chat = custom_config("openai-chat", overrides.clone());
+    let (_, body) = custom_request(&chat, custom_turn("smoke", at("xhigh"))).await;
+    assert_eq!(body["reasoning_effort"], "HIGH-WIRE", "xhigh snaps to the row's high, sent as its wire value");
+    let (_, body) = custom_request(&chat, custom_turn("smoke", at("low"))).await;
+    assert_eq!(body["reasoning_effort"], "low");
+    let (_, body) = custom_request(&chat, custom_turn("plain", at("high"))).await;
+    assert!(body.get("reasoning_effort").is_none(), "{body}");
+
+    let responses = custom_config("openai-responses", overrides.clone());
+    let (_, body) = custom_request(&responses, custom_turn("smoke", at("medium"))).await;
+    assert_eq!(body["reasoning"], json!({"effort": "medium"}));
+    let (_, body) = custom_request(&responses, custom_turn("plain", at("medium"))).await;
+    assert!(body.get("reasoning").is_none(), "{body}");
+
+    let anthropic = custom_config("anthropic", overrides);
+    let effort_beta = |headers: &HashMap<String, String>| {
+        headers.get("anthropic-beta").is_some_and(|betas| betas.split(',').any(|name| name == "effort-2025-11-24"))
+    };
+    let forced = |effort: &str| {
+        let mut request = custom_turn("smoke", RequestOptions { tool_choice: Some("lookup".to_owned()), ..at(effort) });
+        request.tools = vec![ToolDefinition {
+            name: "lookup".to_owned(),
+            description: "lookup".to_owned(),
+            input_schema: json!({"type": "object", "properties": {}}),
+            defer_loading: false,
+            freeform: None,
+        }];
+        request
+    };
+    let (headers, body) = custom_request(&anthropic, forced("high")).await;
+    assert_eq!((&body["thinking"], &body["output_config"]), (&json!({"type": "adaptive"}), &json!({"effort": "HIGH-WIRE"})));
+    let place = |key: &str| body.as_object().unwrap().keys().position(|k| k == key);
+    assert!(place("thinking") < place("output_config"), "the custom branch places thinking first: {body}");
+    assert!(effort_beta(&headers), "{headers:?}");
+    assert!(body.get("tool_choice").is_none(), "a forced tool choice is dropped while thinking is on: {body}");
+    let (headers, body) = custom_request(&anthropic, forced("none")).await;
+    assert_eq!(body["thinking"], json!({"type": "disabled"}));
+    assert!(body.get("output_config").is_none() && !effort_beta(&headers), "{body}");
+    assert_eq!(body["tool_choice"], json!({"type": "tool", "name": "lookup"}), "thinking off keeps the forced choice");
+    let (headers, body) = custom_request(&anthropic, custom_turn("plain", at("high"))).await;
+    assert!(body.get("thinking").is_none() && body.get("output_config").is_none() && !effort_beta(&headers), "{body}");
+}
+/// A custom provider's Responses request carries the session as its `prompt_cache_key` and as the `session-id` /
+/// `x-client-request-id` headers, under a header of the same name the provider or the model sets itself; a one-shot
+/// role's shared scope keys on the request's own key first; a request with neither carries none, and the Chat wire none
+/// at all (`customSessionCacheKey`, `customSessionHeaders`; `openai-compat-responses-boundaries.test.mjs`).
+#[tokio::test]
+async fn a_custom_responses_request_carries_its_session_as_cache_key_and_headers() {
+    use mixdog_core_api::domain::provider::RequestOptions;
+    let some = |text: &str| Some(text.to_owned());
+    let session = |id: &str| RequestOptions { session_id: Some(id.to_owned()), ..RequestOptions::default() };
+    let identity = |headers: &HashMap<String, String>| (headers.get("session-id").cloned(), headers.get("x-client-request-id").cloned());
+    let overrides = json!({
+        "plain": {"manual": true},
+        "own": {"manual": true, "requestHeaders": {"X-Client-Request-ID": "model-request"}},
+    });
+
+    let responses = custom_config("openai-responses", overrides.clone());
+    let (headers, body) = custom_request(&responses, custom_turn("plain", session("sess-shape-1"))).await;
+    assert_eq!(body["prompt_cache_key"], "sess-shape-1");
+    assert_eq!(identity(&headers), (some("sess-shape-1"), some("sess-shape-1")));
+    let shared = RequestOptions { prompt_cache_key: some("role-key"), prompt_cache_scope: some("shared"), ..session("sess-shape-1") };
+    let (headers, body) = custom_request(&responses, custom_turn("plain", shared)).await;
+    assert_eq!(body["prompt_cache_key"], "role-key");
+    assert_eq!(identity(&headers), (some("role-key"), some("role-key")));
+    let (headers, body) = custom_request(&responses, custom_turn("plain", RequestOptions::default())).await;
+    assert!(body.get("prompt_cache_key").is_none() && identity(&headers) == (None, None), "{body}");
+
+    let mut own = responses;
+    own["headers"] = json!({"Session-ID": "provider-session"});
+    let (headers, body) = custom_request(&own, custom_turn("own", session("sess-shape-1"))).await;
+    assert_eq!(body["prompt_cache_key"], "sess-shape-1");
+    assert_eq!(identity(&headers), (some("provider-session"), some("model-request")));
+
+    let chat = custom_config("openai-chat", overrides);
+    let (headers, body) = custom_request(&chat, custom_turn("plain", session("sess-shape-1"))).await;
+    assert!(body.get("prompt_cache_key").is_none() && identity(&headers) == (None, None), "{body}");
+}
+/// A custom provider's own body fields sit where Node's request builders put them: on the Chat and Messages wires
+/// before the stream flags the app sets last (`params.stream` follows `applyCustomRequestBody` in
+/// `openai-compat-chat-send.mjs` and `buildAnthropicApiRequest`), on the Responses wire after everything the app builds
+/// (`buildCompatResponsesParams`: the reasoning, the session's cache key, then the provider's and the model's
+/// `requestBody`).
+#[tokio::test]
+async fn a_custom_requests_own_fields_sit_where_node_puts_them() {
+    use mixdog_core_api::domain::provider::RequestOptions;
+    let overrides = json!({
+        "smoke": {"manual": true, "reasoning": {"levels": ["none", "low", "medium", "high"]}, "requestBody": {"top_p": 0.5}},
+    });
+    let options = RequestOptions {
+        effort: Some("high".to_owned()),
+        session_id: Some("sess-order".to_owned()),
+        ..RequestOptions::default()
+    };
+    let last = |body: &Value, n: usize| {
+        let keys: Vec<&str> = body.as_object().unwrap().keys().map(String::as_str).collect();
+        keys[keys.len().saturating_sub(n)..].iter().map(|k| (*k).to_owned()).collect::<Vec<_>>()
+    };
+    let config = |protocol: &str| {
+        let mut cfg = custom_config(protocol, overrides.clone());
+        cfg["requestBody"] = json!({"top_k": 7});
+        cfg
+    };
+
+    let (_, body) = custom_request(&config("openai-chat"), custom_turn("smoke", options.clone())).await;
+    assert_eq!(last(&body, 5), ["reasoning_effort", "top_k", "top_p", "stream", "stream_options"], "{body}");
+    let (_, body) = custom_request(&config("anthropic"), custom_turn("smoke", options.clone())).await;
+    assert_eq!(last(&body, 5), ["thinking", "output_config", "top_k", "top_p", "stream"], "{body}");
+    let (_, body) = custom_request(&config("openai-responses"), custom_turn("smoke", options)).await;
+    assert_eq!(last(&body, 4), ["reasoning", "prompt_cache_key", "top_k", "top_p"], "{body}");
+}
+/// A custom Responses request's `reasoning` is the row's (`resolveReasoning`), placed where `buildCompatResponsesParams` puts it:
+/// ahead of the session's cache key.
+#[tokio::test]
+async fn a_custom_responses_requests_reasoning_is_the_rows_ahead_of_the_cache_key() {
+    use mixdog_core_api::domain::provider::RequestOptions;
+    let overrides = json!({"smoke": {"manual": true, "reasoning": {"levels": ["none", "low", "medium", "high"]}}});
+    let config = custom_config("openai-responses", overrides);
+    let keyed = RequestOptions { effort: Some("high".to_owned()), session_id: Some("s".to_owned()), ..RequestOptions::default() };
+    let (_, body) = custom_request(&config, custom_turn("smoke", keyed)).await;
+    let keys: Vec<&str> = body.as_object().unwrap().keys().map(String::as_str).collect();
+    let at = |name: &str| keys.iter().position(|k| *k == name).unwrap();
+    assert!(at("reasoning") < at("prompt_cache_key"), "{body}");
+}
+/// On the Messages wire the request's own `anthropic-beta` (here the effort beta) is a per-request header over the
+/// provider's default headers and the model's; a request that names no beta sends the model's, else the provider's
+/// (`requestHeadersFor`, `customRequestHeaders`, the SDK's `defaultHeaders` under a request's headers).
+#[tokio::test]
+async fn a_custom_messages_requests_own_betas_win_over_configured_ones() {
+    use mixdog_core_api::domain::provider::RequestOptions;
+    let mut cfg = custom_config(
+        "anthropic",
+        json!({
+            "smoke": {"manual": true, "reasoning": {"levels": ["low", "high"]}, "requestHeaders": {"Anthropic-Beta": "model-beta"}},
+            "plain": {"manual": true},
+        }),
+    );
+    cfg["headers"] = json!({"anthropic-beta": "provider-beta"});
+    let at = |effort: Option<&str>| RequestOptions { effort: effort.map(str::to_owned), ..RequestOptions::default() };
+    let beta = |headers: &HashMap<String, String>| headers.get("anthropic-beta").cloned();
+    let (headers, _) = custom_request(&cfg, custom_turn("smoke", at(Some("high")))).await;
+    assert_eq!(beta(&headers).as_deref(), Some("effort-2025-11-24"), "{headers:?}");
+    let (headers, _) = custom_request(&cfg, custom_turn("smoke", at(None))).await;
+    assert_eq!(beta(&headers).as_deref(), Some("model-beta"), "{headers:?}");
+    let (headers, _) = custom_request(&cfg, custom_turn("plain", at(Some("high")))).await;
+    assert_eq!(beta(&headers).as_deref(), Some("provider-beta"), "{headers:?}");
+}
+
+
+/// What each built provider takes as a document on the route a request goes to, against what the instance of Node's
+/// class declared for the same route (`fixtures/media-wire/table.json`: the flags `preparePdfTextForProvider` read).
+/// The builder names each row; a row Rust cannot build here is declared in the set's manifest.
+#[cfg(node_twin)]
+#[tokio::test]
+#[allow(clippy::disallowed_methods)]
+async fn each_route_takes_the_documents_nodes_instance_declared() {
+    use mixdog_core_api::domain::provider::{MediaSupport, ModelRequest, RequestOptions};
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/media-wire/table.json");
+    let table: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let declared = |provider: &str| -> MediaSupport {
+        let row = table["rows"].as_array().unwrap().iter().find(|r| r["provider"] == provider).unwrap_or_else(|| panic!("{provider} is a row of the table"));
+        let flags = &row["capabilities"];
+        // `providerTakesNativePdf`: only an explicit `false` lowers a PDF to text.
+        MediaSupport { native_pdf: flags["nativePdf"] != json!(false), native_documents: flags["nativeDocuments"].as_bool() }
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let b = builder(&dir);
+    // A session's request carries tools, which is what puts it on a gateway's agent route.
+    let tool = mixdog_core_api::domain::provider::ToolDefinition {
+        name: "read".to_owned(),
+        description: "read".to_owned(),
+        input_schema: json!({"type": "object", "properties": {}}),
+        defer_loading: false,
+        freeform: None,
+    };
+    let request = |model: &str, agent: bool| ModelRequest {
+        model: model.to_owned(),
+        messages: Vec::new(),
+        tools: if agent { vec![tool.clone()] } else { Vec::new() },
+        options: RequestOptions::default(),
+    };
+    let enabled = json!({"enabled": true, "apiKey": "k"});
+    let custom = json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "anthropic", "baseURL": "http://localhost:1", "apiKey": "k"});
+    // (the table's provider, the builder's name and config, the model whose route the row is for, the wire it is on)
+    let routes = [
+        ("anthropic", "anthropic", enabled.clone(), "claude-sonnet-4-5", None),
+        ("openai", "openai", enabled.clone(), "gpt-5", None),
+        ("gemini", "gemini", enabled.clone(), "gemini-2.5-pro", None),
+        ("xai", "xai", enabled.clone(), "grok-4", None),
+        ("cursor-api", "cursor-api", enabled.clone(), "auto", None),
+        ("custom-anthropic", "custom-z", custom, "m", None),
+        ("deepseek", "deepseek", enabled.clone(), "deepseek-v4-pro", Some("messages")),
+        ("openrouter", "openrouter", enabled.clone(), "anthropic/claude-sonnet-4.5", Some("messages")),
+        // The product's own adapters for the routes the table names after Node's classes: OpenCode Go's Messages engine
+        // (a model its routing sends there) and DeepSeek's Chat wire (`OpenAICompatProvider('deepseek')`), which only a
+        // one-shot request without tools takes (DeepSeek's Messages endpoint is for agent sessions).
+        ("opencode-go", "opencode-go-oauth", enabled.clone(), "minimax-m2", Some("messages")),
+        ("deepseek-chat", "deepseek", enabled.clone(), "deepseek-v4-pro", Some("chat")),
+    ];
+    for (row, name, cfg, model, wire) in routes {
+        let agent = row != "deepseek-chat";
+        let adapter = b.build(name, &cfg).await.unwrap_or_else(|e| panic!("{name}: {e}"));
+        if let Some(wire) = wire {
+            let context = mixdog_core_api::domain::provider::WireRouteContext { agent, ..Default::default() };
+            let route = adapter.wire_routing().expect("a gateway routes").resolve_wire_route(model, &context).await.unwrap().unwrap();
+            assert_eq!(route.wire, wire, "{row}: {model} is on the wire the row is for");
+        }
+        assert_eq!(adapter.media_support(&request(model, agent)).await, declared(row), "{row}");
+    }
+}
+/// The account whose credential a request puts on the wire is the account its continuation state was chosen for and the
+/// account the state it leaves is stamped with, through the adapter the builder registers.
+mod pinned_credentials {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    use bytes::Bytes;
+    use mixdog_core_api::domain::provider::AccountRouting;
+    use mixdog_core_api::domain::provider::Content;
+    use mixdog_core_api::domain::provider::Message;
+    use mixdog_core_api::domain::provider::ModelRequest;
+    use mixdog_core_api::domain::provider::ProviderReplay;
+    use mixdog_core_api::domain::provider::ProviderState;
+    use mixdog_core_api::domain::provider::RequestOptions;
+    use mixdog_core_api::domain::provider::Role;
+    use mixdog_core_api::domain::provider::StreamEvent;
+    use mixdog_core_api::domain::provider::TransportFault;
+    use mixdog_core_api::domain::provider::WireRequest;
+
+    use super::*;
+    use crate::accounts::AccountChange;
+    use crate::accounts::rotation::AccountRotation;
+    use crate::transport::BodyStream;
+    use crate::transport::Exchange;
+    use crate::transport::HttpResponse;
+
+    const OPENAI: &str = "openai-oauth";
+    const ID_A: &str = "11111111-1111-4111-8111-111111111111";
+    const ID_B: &str = "22222222-2222-4222-8222-222222222222";
+    const MODEL: &str = "gpt-5.2";
+
+    struct Vars(HashMap<String, String>);
+
+    impl Environment for Vars {
+        fn var(&self, name: &str) -> Option<String> {
+            self.0.get(name).cloned()
+        }
+    }
+
+    struct Once(Option<Bytes>);
+
+    #[async_trait]
+    impl BodyStream for Once {
+        async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
+            self.0.take().map(Ok)
+        }
+    }
+
+    /// One request as it left: its URL, its `authorization` header and its body.
+    #[derive(Clone, Debug)]
+    struct Sent {
+        url: String,
+        authorization: String,
+        body: String,
+    }
+
+    /// The provider's endpoint. The model request at `refuse_at` moves the roster's selection from A to B and is refused
+    /// with a 401 (the moment a send re-reads its credential); every other one answers, its encrypted reasoning naming
+    /// the credential it was sent with. A token refresh renews the refresh token it was sent, for the same account.
+    struct Endpoint {
+        store: AccountStore,
+        refuse_at: Option<usize>,
+        sent: Mutex<Vec<Sent>>,
+    }
+
+    impl Endpoint {
+        fn model_requests(&self) -> Vec<Sent> {
+            self.sent.lock().unwrap().iter().filter(|s| s.url.ends_with("/responses")).cloned().collect()
+        }
+    }
+
+    fn answered(status: u16, body: String) -> HttpResponse {
+        HttpResponse { status, headers: vec![("content-type".into(), "text/event-stream".into())], body: Box::new(Once(Some(Bytes::from(body)))) }
+    }
+
+    /// A completed Responses stream whose reasoning item's encrypted content is `encrypted`.
+    fn completed(encrypted: &str) -> String {
+        let reasoning = json!({"type": "reasoning", "id": "rs_1", "encrypted_content": encrypted, "summary": []});
+        let message = json!({"type": "message", "id": "msg_1", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "ok", "annotations": []}]});
+        let frames = [
+            json!({"type": "response.created", "response": {"id": "resp_1", "status": "in_progress"}}),
+            json!({"type": "response.output_item.done", "output_index": 0, "item": reasoning}),
+            json!({"type": "response.output_item.done", "output_index": 1, "item": message}),
+            json!({"type": "response.completed", "response": {"id": "resp_1", "status": "completed", "output": [reasoning, message], "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}}}),
+        ];
+        frames.iter().map(|frame| format!("data: {frame}\n\n")).collect()
+    }
+
+    #[async_trait]
+    impl HttpSend for Endpoint {
+        async fn send(&self, request: WireRequest, _exchange: Exchange) -> Result<HttpResponse, ProviderError> {
+            let authorization = request.headers.iter().find(|(name, _)| name.eq_ignore_ascii_case("authorization")).map(|(_, v)| v.clone()).unwrap_or_default();
+            let body = String::from_utf8_lossy(&request.body).into_owned();
+            self.sent.lock().unwrap().push(Sent { url: request.url.clone(), authorization: authorization.clone(), body: body.clone() });
+            if request.url == crate::providers::openai::oauth::TOKEN_URL {
+                let spent = url::form_urlencoded::parse(body.as_bytes()).find(|(k, _)| k == "refresh_token").map(|(_, v)| v.into_owned()).unwrap_or_default();
+                let mut login = spent.splitn(3, '.').skip(1);
+                let (account, tag) = (login.next().unwrap_or_default(), login.next().unwrap_or_default());
+                let renewed = json!({"access_token": token(account, &format!("{tag}-renewed")), "refresh_token": refresh(account, &format!("{tag}-next")), "expires_in": 3600});
+                return Ok(answered(200, renewed.to_string()));
+            }
+            if !request.url.ends_with("/responses") {
+                return Ok(answered(200, r#"{"data":[]}"#.to_owned()));
+            }
+            if self.refuse_at == Some(self.model_requests().len() - 1) {
+                self.store.change(OPENAI, AccountChange { selected_id: Some(ID_B.into()), ..Default::default() }).await.unwrap();
+                return Ok(answered(401, r#"{"error":{"message":"token expired","type":"invalid_request_error"}}"#.to_owned()));
+            }
+            Ok(answered(200, completed(&format!("enc-from-{}", tag_of(&authorization)))))
+        }
+    }
+
+    fn endpoint(store: AccountStore, refuse_at: Option<usize>) -> Arc<Endpoint> {
+        Arc::new(Endpoint { store, refuse_at, sent: Mutex::default() })
+    }
+
+    /// A ChatGPT access token of `account` (the claim the Codex route and its refresh read the account from); `tag`
+    /// tells one token of the account from another.
+    fn token(account: &str, tag: &str) -> String {
+        use base64::Engine;
+        let claims = json!({"https://api.openai.com/auth": {"chatgpt_account_id": account}, "tag": tag});
+        format!("e30.{}.sig", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string()))
+    }
+
+    fn refresh(account: &str, tag: &str) -> String {
+        format!("refresh.{account}.{tag}")
+    }
+
+    /// The tag of the bearer an `authorization` header carries; a key that is no token is its own tag.
+    fn tag_of(authorization: &str) -> String {
+        let bearer = authorization.trim_start_matches("Bearer ");
+        crate::accounts::validity::decode_jwt_payload(bearer)
+            .and_then(|claims| claims.get("tag")?.as_str().map(str::to_owned))
+            .unwrap_or_else(|| bearer.to_owned())
+    }
+
+    fn said(role: Role, text: &str) -> Message {
+        Message::new(role, Content::Text(text.into()))
+    }
+
+    fn turn(messages: Vec<Message>, provider_state: Option<ProviderState>) -> Arc<ModelRequest> {
+        let options = RequestOptions { session_id: Some("s1".into()), provider_state, ..RequestOptions::default() };
+        Arc::new(ModelRequest { model: MODEL.into(), messages, tools: Vec::new(), options })
+    }
+
+    /// What an answer leaves for the next request: its replay, the routing that names who served it (a roster walk's
+    /// answer only), its state.
+    struct Answer {
+        replay: ProviderReplay,
+        routing: Option<AccountRouting>,
+        state: Option<ProviderState>,
+    }
+
+    async fn answer_of(adapter: &Arc<dyn ProviderAdapter>, request: Arc<ModelRequest>) -> Answer {
+        let mut stream = adapter.attempt(request).await.unwrap_or_else(|e| panic!("{}", e.message));
+        let (mut replay, mut routing, mut state) = (None, None, None);
+        while let Some(event) = stream.next().await {
+            match event.unwrap_or_else(|e| panic!("{}", e.message)) {
+                StreamEvent::ReasoningReplay(left) => replay = Some(left),
+                StreamEvent::AccountRouting(named) => routing = Some(named),
+                StreamEvent::ProviderState(reported) => state = Some(reported),
+                _ => {}
+            }
+        }
+        Answer { replay: replay.expect("the answer leaves its replay"), routing, state }
+    }
+
+    /// A's answer as the session stored it: the Responses replay of its encrypted reasoning, served by slot `ID_A` with
+    /// A's credential.
+    fn left_by_a() -> Message {
+        let reasoning = json!({"type": "reasoning", "id": "rs_a", "encrypted_content": "enc-of-a", "summary": []});
+        let message = json!({"type": "message", "id": "msg_a", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "a", "annotations": []}]});
+        let mut left = said(Role::Assistant, "a");
+        left.push_replay(ProviderReplay { owner: mixdog_protocol::ProviderId::from("openai-responses"), items: json!([reasoning, message]) });
+        left.account_routing = Some(AccountRouting {
+            provider: OPENAI.into(),
+            account_id: ID_A.into(),
+            session_account_id: Some(ID_A.into()),
+        });
+        left
+    }
+
+    /// `account`'s login (tokens tagged `tag`) signed in to roster slot `slot`, replacing whatever login the slot held.
+    #[allow(clippy::disallowed_methods, reason = "the credential files are written directly")]
+    fn signed_in(store: &AccountStore, slot: &str, account: &str, tag: &str) {
+        let path = store.credential_file(OPENAI, slot).unwrap().path().to_owned();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let login = json!({"access_token": token(account, tag), "refresh_token": refresh(account, tag), "expires_at": 4_102_444_800_000u64, "account_id": account});
+        std::fs::write(path, login.to_string()).unwrap();
+    }
+
+    /// An `openai-oauth` adapter as the product builds it over `net`, its roster slots registered, `selected` selected,
+    /// with the host's rotation bound when `bound`.
+    async fn openai(dir: &tempfile::TempDir, slots: &[&str], selected: &str, bound: bool, refuse_at: Option<usize>) -> (Arc<dyn ProviderAdapter>, AccountStore, Arc<Endpoint>) {
+        let vars = Arc::new(Vars([("MIXDOG_OAI_TRANSPORT".to_owned(), "http-sse".to_owned())].into()));
+        let probe = builder_over(dir, vars.clone(), None, Arc::new(SessionContext::new()));
+        let store = probe.env.accounts.clone();
+        for slot in slots {
+            store.register(OPENAI, slot, slot, false).await.unwrap();
+        }
+        store.change(OPENAI, AccountChange { selected_id: Some(selected.into()), ..Default::default() }).await.unwrap();
+        let net = endpoint(store.clone(), refuse_at);
+        let b = builder_over(dir, vars, Some(net.clone() as Arc<dyn HttpSend>), Arc::new(SessionContext::new()));
+        if bound {
+            b.bind_account_rotation(AccountRotation::new(store.clone(), Arc::new(crate::registry::key_pool::NoMeter), Arc::new(crate::oauth::pace::FakePace::default())));
+        }
+        (b.build(OPENAI, &json!({"enabled": true})).await.unwrap(), store, net)
+    }
+
+    /// The roster moves from A to B while A's request is out: the 401 makes the send read its credential again, which
+    /// must still be A's (its refresh), never B's. The Codex route carries no provider state: A's continuation is the
+    /// replay of A's answer (its encrypted reasoning), which both of A's requests carried. Without a bound rotation and
+    /// with one, whose roster walk names A's row as the one that served the answer.
+    #[tokio::test]
+    async fn the_roster_moving_inside_a_send_does_not_move_its_credential() {
+        for bound in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let (adapter, store, net) = openai(&dir, &[ID_A, ID_B], ID_A, bound, Some(0)).await;
+            signed_in(&store, ID_A, "acct-a", "a");
+            signed_in(&store, ID_B, "acct-b", "b");
+
+            let left = answer_of(&adapter, turn(vec![said(Role::User, "q"), left_by_a(), said(Role::User, "next")], None)).await;
+
+            let sent = net.model_requests();
+            assert_eq!(sent.len(), 2, "bound {bound}: the refused request and its resend");
+            assert_eq!(sent[0].authorization, format!("Bearer {}", token("acct-a", "a")), "bound {bound}");
+            assert_eq!(sent[1].authorization, format!("Bearer {}", token("acct-a", "a-renewed")), "bound {bound}: the resend renewed A's credential, not B's");
+            assert!(sent.iter().all(|s| s.body.contains("enc-of-a")), "bound {bound}: A's requests carry A's replay");
+            let refreshes: Vec<String> = net.sent.lock().unwrap().iter().filter(|s| s.url == crate::providers::openai::oauth::TOKEN_URL).map(|s| s.body.clone()).collect();
+            assert!(!refreshes.is_empty() && refreshes.iter().all(|body| body.contains("refresh.acct-a.a") && !body.contains("acct-b")), "bound {bound}: {refreshes:?}");
+            assert_eq!(left.routing.map(|routing| routing.account_id), bound.then(|| ID_A.to_owned()), "bound {bound}: only a roster walk names the row");
+            assert!(left.replay.items.to_string().contains("enc-from-a-renewed"), "bound {bound}: and is what A's credential was answered");
+            assert!(left.state.is_none(), "bound {bound}: the Codex route keeps no provider state");
+        }
+    }
+
+}
+
 /// A custom provider serving the Chat, Responses and Messages wires warms its endpoint as Node's does, on the process clock
 /// moved past the keep-alive window (`custom-warmups/golden.json`, `record-custom-warmups.mjs`): the provider's construction
 /// warms; a send inside the window does not; a send after it re-warms on the Chat and Responses wires and not on Messages,
 /// which Node hands straight to the Anthropic client. The sends that reached the endpoint show each took its wire.
+#[cfg(node_twin)]
 #[tokio::test]
 async fn a_custom_provider_warms_on_the_wires_node_warms_on() {
     use std::sync::atomic::AtomicU64;
@@ -514,281 +1340,4 @@ async fn a_custom_provider_warms_on_the_wires_node_warms_on() {
             recorded["sent"].as_array().unwrap().iter().map(|w| (w[0].as_str().unwrap().to_owned(), w[1].as_str().unwrap().to_owned())).collect();
         assert_eq!(sent, recorded_sent, "{wire}: the requests the sends made");
     }
-}
-
-/// `xaiServerToolSearchEnabled` (`openai-compat-xai-send.mjs`): `provider.config?.xaiServerToolSearch === true` and nothing else
-/// turns the server's tool search on. On, the xAI Responses body declares one `tool_search` tool and marks the deferred tools
-/// (`toResponsesTools(.., { serverToolSearch: true })`); unset or anything but `true`, every tool is a plain function.
-#[tokio::test]
-async fn the_xai_server_tool_search_is_the_providers_own_opt_in() {
-    use mixdog_core_api::domain::provider::{ModelRequest, RequestOptions, ToolDefinition};
-    let dir = tempfile::tempdir().unwrap();
-    // The network keeps each request's body and refuses it: the request as it leaves is all that is read.
-    let sent = Arc::new(std::sync::Mutex::new(Vec::<(String, Vec<u8>)>::new()));
-    let record = sent.clone();
-    let net: Arc<dyn HttpSend> = Arc::new(crate::providers::listing_row::testing::Replay::new(move |request| {
-        record.lock().unwrap().push((request.url.clone(), request.body.clone()));
-        (400, b"{}".to_vec())
-    }));
-    let b = builder_over(&dir, Arc::new(ProcessEnv), Some(net), Arc::new(SessionContext::new()));
-    let tool = |name: &str, defer_loading: bool| ToolDefinition {
-        name: name.to_owned(),
-        description: name.to_owned(),
-        input_schema: json!({"type": "object", "properties": {}}),
-        defer_loading,
-        freeform: None,
-    };
-    let request = Arc::new(ModelRequest {
-        model: "grok-4".to_owned(),
-        messages: Vec::new(),
-        tools: vec![tool("read", false), tool("load_tool", false), tool("mcp__a__b", true)],
-        options: RequestOptions::default(),
-    });
-    let kinds = |cfg: Value| {
-        let (b, request, sent) = (&b, request.clone(), sent.clone());
-        async move {
-            let adapter = b.build("xai", &cfg).await.unwrap();
-            sent.lock().unwrap().clear();
-            let _ = adapter.attempt(request).await;
-            let sent = sent.lock().unwrap();
-            let (url, body) = sent.first().expect("the request left");
-            assert!(url.ends_with("/v1/responses"), "{url}");
-            let body: Value = serde_json::from_slice(body).unwrap();
-            body["tools"].as_array().unwrap().iter().map(|t| (t["type"].as_str().unwrap().to_owned(), t.get("defer_loading").is_some())).collect::<Vec<_>>()
-        }
-    };
-    let function = |deferred: bool| ("function".to_owned(), deferred);
-    let plain = vec![function(false), function(false), function(false)];
-    assert_eq!(kinds(json!({"enabled": true, "apiKey": "k"})).await, plain);
-    assert_eq!(kinds(json!({"enabled": true, "apiKey": "k", "xaiServerToolSearch": "true"})).await, plain, "only the boolean opts in");
-    assert_eq!(kinds(json!({"enabled": true, "apiKey": "k", "xaiServerToolSearch": false})).await, plain);
-    assert_eq!(
-        kinds(json!({"enabled": true, "apiKey": "k", "xaiServerToolSearch": true})).await,
-        vec![function(false), ("tool_search".to_owned(), false), function(true)]
-    );
-    assert!(xai_server_tool_search(&json!({"xaiServerToolSearch": true})));
-    assert!(!xai_server_tool_search(&json!({})) && !xai_server_tool_search(&json!({"xaiServerToolSearch": 1})));
-}
-
-/// The request a custom provider built from `cfg` sent for `request`, over a network that refuses it: its header names
-/// lower-cased and its body parsed.
-async fn custom_request(cfg: &Value, request: ModelRequest) -> (HashMap<String, String>, Value) {
-    let dir = tempfile::tempdir().unwrap();
-    let replay = Arc::new(crate::providers::listing_row::testing::Replay::new(|_| {
-        (400, br#"{"error":{"message":"scripted refusal","type":"invalid_request_error"}}"#.to_vec())
-    }));
-    let b = builder_over(&dir, Arc::new(ProcessEnv), Some(replay.clone() as Arc<dyn HttpSend>), Arc::new(SessionContext::new()));
-    let provider = b.build("custom-shape", cfg).await.unwrap_or_else(|e| panic!("{e}"));
-    let _ = provider.attempt(Arc::new(request)).await;
-    let requests = replay.requests.lock().unwrap();
-    let sent = requests.iter().find(|r| r.method == "POST").expect("the request left");
-    let headers = sent.headers.iter().map(|(name, value)| (name.to_ascii_lowercase(), value.clone())).collect();
-    (headers, serde_json::from_slice(&sent.body).unwrap())
-}
-
-/// A keyless custom provider on `protocol` at a stand-in endpoint, not warmed, with `overrides` as its `modelOverrides`.
-fn custom_config(protocol: &str, overrides: Value) -> Value {
-    json!({
-        "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": protocol, "baseURL": "https://shape.test/v1", "auth": "none", "preconnect": false,
-        "modelOverrides": overrides,
-    })
-}
-
-/// A one-message request of `model` with `options`.
-fn custom_turn(model: &str, options: mixdog_core_api::domain::provider::RequestOptions) -> ModelRequest {
-    use mixdog_core_api::domain::provider::{Content, Message, Role};
-    ModelRequest {
-        model: model.to_owned(),
-        messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
-        tools: Vec::new(),
-        options,
-    }
-}
-
-/// A model's own `requestHeaders` (the key `modelOverrides[id]` stores them under) ride every request of that model on
-/// each protocol's wire, over the provider's headers of the same name, and no other model's (`customRequestHeaders`).
-#[tokio::test]
-async fn a_custom_models_request_headers_ride_its_requests_only() {
-    for protocol in ["openai-chat", "openai-responses", "anthropic"] {
-        let mut cfg = custom_config(
-            protocol,
-            json!({
-                "smoke": {"manual": true, "requestHeaders": {"X-Model": "smoke", "X-Team": "model"}},
-                "plain": {"manual": true},
-            }),
-        );
-        cfg["headers"] = json!({"X-Team": "provider"});
-        let (headers, _) = custom_request(&cfg, custom_turn("smoke", Default::default())).await;
-        let sent = |name: &str| headers.get(name).cloned();
-        assert_eq!((sent("x-model"), sent("x-team")), (Some("smoke".to_owned()), Some("model".to_owned())), "{protocol}");
-        let (headers, _) = custom_request(&cfg, custom_turn("plain", Default::default())).await;
-        let sent = |name: &str| headers.get(name).cloned();
-        assert_eq!((sent("x-model"), sent("x-team")), (None, Some("provider".to_owned())), "{protocol}");
-    }
-}
-
-/// The turn's effort reaches a custom provider's request on each wire as the model's own row says
-/// (`resolveCustomReasoning`): snapped onto the row's levels and spelled by its `wireValues`, as the Chat wire's
-/// `reasoning_effort`, the Responses wire's `reasoning.effort`, and on the Messages wire as adaptive `thinking` with
-/// `output_config.effort` and the effort beta in place of the engine's own (`none` turns thinking off, which keeps a
-/// forced tool choice). A model whose row declares no levels gets no reasoning field.
-#[tokio::test]
-async fn a_custom_request_carries_its_model_rows_reasoning_at_the_turns_effort() {
-    use mixdog_core_api::domain::provider::{RequestOptions, ToolDefinition};
-    let overrides = json!({
-        "smoke": {"manual": true, "reasoning": {"levels": ["none", "low", "medium", "high"], "wireValues": {"high": "HIGH-WIRE"}}},
-        "plain": {"manual": true},
-    });
-    let at = |effort: &str| RequestOptions { effort: Some(effort.to_owned()), ..RequestOptions::default() };
-
-    let chat = custom_config("openai-chat", overrides.clone());
-    let (_, body) = custom_request(&chat, custom_turn("smoke", at("xhigh"))).await;
-    assert_eq!(body["reasoning_effort"], "HIGH-WIRE", "xhigh snaps to the row's high, sent as its wire value");
-    let (_, body) = custom_request(&chat, custom_turn("smoke", at("low"))).await;
-    assert_eq!(body["reasoning_effort"], "low");
-    let (_, body) = custom_request(&chat, custom_turn("plain", at("high"))).await;
-    assert!(body.get("reasoning_effort").is_none(), "{body}");
-
-    let responses = custom_config("openai-responses", overrides.clone());
-    let (_, body) = custom_request(&responses, custom_turn("smoke", at("medium"))).await;
-    assert_eq!(body["reasoning"], json!({"effort": "medium"}));
-    let (_, body) = custom_request(&responses, custom_turn("plain", at("medium"))).await;
-    assert!(body.get("reasoning").is_none(), "{body}");
-
-    let anthropic = custom_config("anthropic", overrides);
-    let effort_beta = |headers: &HashMap<String, String>| {
-        headers.get("anthropic-beta").is_some_and(|betas| betas.split(',').any(|name| name == "effort-2025-11-24"))
-    };
-    let forced = |effort: &str| {
-        let mut request = custom_turn("smoke", RequestOptions { tool_choice: Some("lookup".to_owned()), ..at(effort) });
-        request.tools = vec![ToolDefinition {
-            name: "lookup".to_owned(),
-            description: "lookup".to_owned(),
-            input_schema: json!({"type": "object", "properties": {}}),
-            defer_loading: false,
-            freeform: None,
-        }];
-        request
-    };
-    let (headers, body) = custom_request(&anthropic, forced("high")).await;
-    assert_eq!((&body["thinking"], &body["output_config"]), (&json!({"type": "adaptive"}), &json!({"effort": "HIGH-WIRE"})));
-    let place = |key: &str| body.as_object().unwrap().keys().position(|k| k == key);
-    assert!(place("thinking") < place("output_config"), "the custom branch places thinking first: {body}");
-    assert!(effort_beta(&headers), "{headers:?}");
-    assert!(body.get("tool_choice").is_none(), "a forced tool choice is dropped while thinking is on: {body}");
-    let (headers, body) = custom_request(&anthropic, forced("none")).await;
-    assert_eq!(body["thinking"], json!({"type": "disabled"}));
-    assert!(body.get("output_config").is_none() && !effort_beta(&headers), "{body}");
-    assert_eq!(body["tool_choice"], json!({"type": "tool", "name": "lookup"}), "thinking off keeps the forced choice");
-    let (headers, body) = custom_request(&anthropic, custom_turn("plain", at("high"))).await;
-    assert!(body.get("thinking").is_none() && body.get("output_config").is_none() && !effort_beta(&headers), "{body}");
-}
-
-/// A custom provider's Responses request carries the session as its `prompt_cache_key` and as the `session-id` /
-/// `x-client-request-id` headers, under a header of the same name the provider or the model sets itself; a one-shot
-/// role's shared scope keys on the request's own key first; a request with neither carries none, and the Chat wire none
-/// at all (`customSessionCacheKey`, `customSessionHeaders`; `openai-compat-responses-boundaries.test.mjs`).
-#[tokio::test]
-async fn a_custom_responses_request_carries_its_session_as_cache_key_and_headers() {
-    use mixdog_core_api::domain::provider::RequestOptions;
-    let some = |text: &str| Some(text.to_owned());
-    let session = |id: &str| RequestOptions { session_id: Some(id.to_owned()), ..RequestOptions::default() };
-    let identity = |headers: &HashMap<String, String>| (headers.get("session-id").cloned(), headers.get("x-client-request-id").cloned());
-    let overrides = json!({
-        "plain": {"manual": true},
-        "own": {"manual": true, "requestHeaders": {"X-Client-Request-ID": "model-request"}},
-    });
-
-    let responses = custom_config("openai-responses", overrides.clone());
-    let (headers, body) = custom_request(&responses, custom_turn("plain", session("sess-shape-1"))).await;
-    assert_eq!(body["prompt_cache_key"], "sess-shape-1");
-    assert_eq!(identity(&headers), (some("sess-shape-1"), some("sess-shape-1")));
-    let shared = RequestOptions { prompt_cache_key: some("role-key"), prompt_cache_scope: some("shared"), ..session("sess-shape-1") };
-    let (headers, body) = custom_request(&responses, custom_turn("plain", shared)).await;
-    assert_eq!(body["prompt_cache_key"], "role-key");
-    assert_eq!(identity(&headers), (some("role-key"), some("role-key")));
-    let (headers, body) = custom_request(&responses, custom_turn("plain", RequestOptions::default())).await;
-    assert!(body.get("prompt_cache_key").is_none() && identity(&headers) == (None, None), "{body}");
-
-    let mut own = responses;
-    own["headers"] = json!({"Session-ID": "provider-session"});
-    let (headers, body) = custom_request(&own, custom_turn("own", session("sess-shape-1"))).await;
-    assert_eq!(body["prompt_cache_key"], "sess-shape-1");
-    assert_eq!(identity(&headers), (some("provider-session"), some("model-request")));
-
-    let chat = custom_config("openai-chat", overrides);
-    let (headers, body) = custom_request(&chat, custom_turn("plain", session("sess-shape-1"))).await;
-    assert!(body.get("prompt_cache_key").is_none() && identity(&headers) == (None, None), "{body}");
-}
-
-/// A custom provider's own body fields sit where Node's request builders put them: on the Chat and Messages wires
-/// before the stream flags the app sets last (`params.stream` follows `applyCustomRequestBody` in
-/// `openai-compat-chat-send.mjs` and `buildAnthropicApiRequest`), on the Responses wire after everything the app builds
-/// (`buildCompatResponsesParams`: the reasoning, the session's cache key, then the provider's and the model's
-/// `requestBody`).
-#[tokio::test]
-async fn a_custom_requests_own_fields_sit_where_node_puts_them() {
-    use mixdog_core_api::domain::provider::RequestOptions;
-    let overrides = json!({
-        "smoke": {"manual": true, "reasoning": {"levels": ["none", "low", "medium", "high"]}, "requestBody": {"top_p": 0.5}},
-    });
-    let options = RequestOptions {
-        effort: Some("high".to_owned()),
-        session_id: Some("sess-order".to_owned()),
-        ..RequestOptions::default()
-    };
-    let last = |body: &Value, n: usize| {
-        let keys: Vec<&str> = body.as_object().unwrap().keys().map(String::as_str).collect();
-        keys[keys.len().saturating_sub(n)..].iter().map(|k| (*k).to_owned()).collect::<Vec<_>>()
-    };
-    let config = |protocol: &str| {
-        let mut cfg = custom_config(protocol, overrides.clone());
-        cfg["requestBody"] = json!({"top_k": 7});
-        cfg
-    };
-
-    let (_, body) = custom_request(&config("openai-chat"), custom_turn("smoke", options.clone())).await;
-    assert_eq!(last(&body, 5), ["reasoning_effort", "top_k", "top_p", "stream", "stream_options"], "{body}");
-    let (_, body) = custom_request(&config("anthropic"), custom_turn("smoke", options.clone())).await;
-    assert_eq!(last(&body, 5), ["thinking", "output_config", "top_k", "top_p", "stream"], "{body}");
-    let (_, body) = custom_request(&config("openai-responses"), custom_turn("smoke", options)).await;
-    assert_eq!(last(&body, 4), ["reasoning", "prompt_cache_key", "top_k", "top_p"], "{body}");
-}
-
-/// A custom Responses request's `reasoning` is the row's (`resolveReasoning`), placed where `buildCompatResponsesParams` puts it:
-/// ahead of the session's cache key.
-#[tokio::test]
-async fn a_custom_responses_requests_reasoning_is_the_rows_ahead_of_the_cache_key() {
-    use mixdog_core_api::domain::provider::RequestOptions;
-    let overrides = json!({"smoke": {"manual": true, "reasoning": {"levels": ["none", "low", "medium", "high"]}}});
-    let config = custom_config("openai-responses", overrides);
-    let keyed = RequestOptions { effort: Some("high".to_owned()), session_id: Some("s".to_owned()), ..RequestOptions::default() };
-    let (_, body) = custom_request(&config, custom_turn("smoke", keyed)).await;
-    let keys: Vec<&str> = body.as_object().unwrap().keys().map(String::as_str).collect();
-    let at = |name: &str| keys.iter().position(|k| *k == name).unwrap();
-    assert!(at("reasoning") < at("prompt_cache_key"), "{body}");
-}
-
-/// On the Messages wire the request's own `anthropic-beta` (here the effort beta) is a per-request header over the
-/// provider's default headers and the model's; a request that names no beta sends the model's, else the provider's
-/// (`requestHeadersFor`, `customRequestHeaders`, the SDK's `defaultHeaders` under a request's headers).
-#[tokio::test]
-async fn a_custom_messages_requests_own_betas_win_over_configured_ones() {
-    use mixdog_core_api::domain::provider::RequestOptions;
-    let mut cfg = custom_config(
-        "anthropic",
-        json!({
-            "smoke": {"manual": true, "reasoning": {"levels": ["low", "high"]}, "requestHeaders": {"Anthropic-Beta": "model-beta"}},
-            "plain": {"manual": true},
-        }),
-    );
-    cfg["headers"] = json!({"anthropic-beta": "provider-beta"});
-    let at = |effort: Option<&str>| RequestOptions { effort: effort.map(str::to_owned), ..RequestOptions::default() };
-    let beta = |headers: &HashMap<String, String>| headers.get("anthropic-beta").cloned();
-    let (headers, _) = custom_request(&cfg, custom_turn("smoke", at(Some("high")))).await;
-    assert_eq!(beta(&headers).as_deref(), Some("effort-2025-11-24"), "{headers:?}");
-    let (headers, _) = custom_request(&cfg, custom_turn("smoke", at(None))).await;
-    assert_eq!(beta(&headers).as_deref(), Some("model-beta"), "{headers:?}");
-    let (headers, _) = custom_request(&cfg, custom_turn("plain", at(Some("high")))).await;
-    assert_eq!(beta(&headers).as_deref(), Some("provider-beta"), "{headers:?}");
 }

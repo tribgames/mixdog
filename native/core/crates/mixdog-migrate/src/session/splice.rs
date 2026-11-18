@@ -395,8 +395,8 @@ mod tests {
 
     use super::*;
 
-    /// The one blob the restore golden stores (`checkpoint_restore.json` `blob`).
-    struct OneBlob(Vec<u8>);
+    /// An attachment store holding one blob, found by the sha256 of its bytes.
+    pub(super) struct OneBlob(pub(super) Vec<u8>);
 
     impl AttachmentBytes for OneBlob {
         type Error = String;
@@ -410,83 +410,160 @@ mod tests {
         }
     }
 
-    fn golden_blob(golden: &Value) -> OneBlob {
-        OneBlob(golden["blob"].as_str().unwrap().as_bytes().to_vec())
+    /// A header on `epoch` 1 with `turnCoverage` unset.
+    fn header_on_epoch(epoch: &str) -> Map<String, Value> {
+        json!({"transcriptEpoch": epoch}).as_object().unwrap().clone()
     }
 
-    /// The cases of `vectors/checkpoint_splice.cases.json` against what v1.4.5 leaves for them
-    /// (`vectors/checkpoint_splice.mjs`).
-    #[test]
-    fn splices_as_v145_recovery_does() {
-        let cases: Map<String, Value> = serde_json::from_str(include_str!("vectors/checkpoint_splice.cases.json")).unwrap();
-        let golden: Map<String, Value> = serde_json::from_str(include_str!("vectors/checkpoint_splice.json")).unwrap();
-        assert_eq!(cases.len(), golden.len());
-        for (name, case) in &cases {
-            let durable = case["durable"].as_object().unwrap();
-            let messages = durable["messages"].as_array().unwrap();
-            let got = splice(durable, messages, case["checkpoint"].as_object().unwrap(), &OneBlob(Vec::new())).unwrap();
-            let want = &golden[name];
-            match got {
-                Splice::Replay { keep, turn } => {
-                    assert_eq!(want["action"], "replay", "{name}");
-                    let spliced: Vec<Value> = messages[..keep].iter().cloned().chain(turn).collect();
-                    // Byte-exact: key order included.
-                    assert_eq!(
-                        serde_json::to_string(&spliced).unwrap(),
-                        serde_json::to_string(&want["messages"]).unwrap(),
-                        "{name}"
-                    );
-                }
-                Splice::Covered => assert_eq!(want["action"], "covered", "{name}"),
-                Splice::Conflict => assert_eq!(want["action"], "conflict", "{name}"),
-            }
-        }
+    fn checkpoint(value: Value) -> Map<String, Value> {
+        value.as_object().unwrap().clone()
     }
 
-    /// A checkpoint whose context state v1.4.5 captured: the spliced transcript and the header
-    /// are those v1.4.5 recovery leaves (`vectors/checkpoint_restore.mjs`), key order included.
+    fn user(text: &str) -> Value {
+        json!({"role": "user", "content": text})
+    }
+
+    fn restart() -> Value {
+        json!({"role": "user", "content": "[Request interrupted by process restart]"})
+    }
+
+    fn splice_of(header: &Map<String, Value>, messages: &[Value], checkpoint: &Map<String, Value>) -> Splice {
+        splice(header, messages, checkpoint, &OneBlob(Vec::new())).unwrap()
+    }
+
     #[test]
-    fn restores_the_header_as_v145_recovery_does() {
-        let golden: Value = serde_json::from_str(include_str!("vectors/checkpoint_restore.json")).unwrap();
-        let mut header = golden["durable"].as_object().unwrap().clone();
-        let messages = header.shift_remove("messages").unwrap();
-        let messages = messages.as_array().unwrap();
-        let checkpoint = &golden["checkpoint"];
-        let blobs = golden_blob(&golden);
-        let Splice::Replay { keep, turn } = splice(&header, messages, checkpoint.as_object().unwrap(), &blobs).unwrap() else {
-            panic!("a replay");
+    fn a_turn_the_record_already_carries_is_covered() {
+        let mut header = header_on_epoch("e1");
+        header.insert("turnCoverage".into(), json!("t1"));
+        let covered = checkpoint(json!({"turnToken": "t1", "base": {"epoch": "e1", "length": 1}, "boundary": 1, "turnMessages": []}));
+        assert_eq!(splice_of(&header, &[user("a")], &covered), Splice::Covered);
+        let other = checkpoint(json!({"turnToken": "t2", "base": {"epoch": "e1", "length": 1}, "boundary": 1, "turnMessages": []}));
+        assert!(matches!(splice_of(&header, &[user("a")], &other), Splice::Replay { .. }));
+    }
+
+    #[test]
+    fn the_record_keeps_its_messages_up_to_the_boundary_and_the_turn_follows() {
+        let messages = [user("a"), user("b"), user("c")];
+        let cp = checkpoint(json!({"turnToken": "t", "base": {"epoch": "e1", "length": 3}, "boundary": 2, "turnMessages": [user("q")]}));
+        assert_eq!(splice_of(&header_on_epoch("e1"), &messages, &cp), Splice::Replay { keep: 2, turn: vec![user("q")] });
+    }
+
+    #[test]
+    fn a_checkpoint_taken_against_another_record_is_kept_unrecovered() {
+        let messages = [user("a"), user("b")];
+        let against = |value: Value| splice_of(&header_on_epoch("e1"), &messages, &checkpoint(value));
+        let base = json!({"epoch": "e1", "length": 2});
+        // Another epoch, a boundary past the base or past the record, and an unusable boundary.
+        assert_eq!(against(json!({"turnToken": "t", "base": {"epoch": "e2", "length": 2}, "boundary": 1})), Splice::Conflict);
+        assert_eq!(against(json!({"turnToken": "t", "base": base, "boundary": 3})), Splice::Conflict);
+        assert_eq!(against(json!({"turnToken": "t", "base": {"epoch": "e1", "length": 5}, "boundary": 3})), Splice::Conflict);
+        assert_eq!(against(json!({"turnToken": "t", "base": base, "boundary": -1})), Splice::Conflict);
+        assert_eq!(against(json!({"turnToken": "t", "base": base, "boundary": 1.5})), Splice::Conflict);
+        assert_eq!(against(json!({"turnToken": "t", "boundary": 1})), Splice::Conflict, "no base epoch");
+    }
+
+    #[test]
+    fn a_full_transcript_checkpoint_replaces_the_record_from_its_start() {
+        let messages = [user("a"), user("b")];
+        let full = checkpoint(json!({"turnToken": "t", "fullTranscript": true, "base": {"epoch": "e1"}, "boundary": 9, "turnMessages": [user("all")]}));
+        assert_eq!(splice_of(&header_on_epoch("e1"), &messages, &full), Splice::Replay { keep: 0, turn: vec![user("all")] });
+        assert_eq!(splice_of(&header_on_epoch("other"), &messages, &full), Splice::Conflict);
+        // On another epoch it still applies to the turn the record was marked active for.
+        let mut header = header_on_epoch("other");
+        header.insert("activeTurnCheckpoint".into(), json!({"turnToken": "t"}));
+        assert_eq!(splice_of(&header, &messages, &full), Splice::Replay { keep: 0, turn: vec![user("all")] });
+    }
+
+    #[test]
+    fn a_checkpoint_without_a_base_is_replayed_only_on_the_prefix_it_signed() {
+        let messages = [user("a"), user("b")];
+        let mut header = Map::new();
+        header.insert("generation".into(), json!(2));
+        let unsigned = checkpoint(json!({"turnToken": "t", "generation": 2, "contextState": {"committedPrefixCount": 1, "committedPrefixSignature": "not-the-signature"}}));
+        assert_eq!(splice_of(&header, &messages, &unsigned), Splice::Conflict, "the signature does not match the prefix");
+        let other_generation = checkpoint(json!({"turnToken": "t", "generation": 1, "contextState": {"committedPrefixCount": 0, "committedPrefixSignature": ""}}));
+        assert_eq!(splice_of(&header, &messages, &other_generation), Splice::Conflict);
+        let no_state = checkpoint(json!({"turnToken": "t", "generation": 2}));
+        assert_eq!(splice_of(&header, &messages, &no_state), Splice::Conflict);
+    }
+
+    #[test]
+    fn a_started_response_is_closed_with_its_partial_answer_and_the_restart_line() {
+        let header = header_on_epoch("e1");
+        let cp = |interruption: Value, extra: Value| {
+            let mut cp = checkpoint(json!({"turnToken": "t", "base": {"epoch": "e1", "length": 0}, "boundary": 0, "turnMessages": [user("q")], "interruption": interruption}));
+            cp.extend(extra.as_object().unwrap().clone());
+            cp
         };
-        let rows: Vec<Value> = messages[..keep].iter().cloned().chain(turn).collect();
-        assert_eq!(serde_json::to_string(&rows).unwrap(), serde_json::to_string(&golden["messages"]).unwrap());
-        // Without `boundary` it is a legacy checkpoint: replayed on the prefix its context state
-        // signed (v1.4.5's own signature), a conflict on any other.
-        let mut legacy = checkpoint.as_object().unwrap().clone();
-        legacy.shift_remove("boundary");
-        legacy.shift_remove("base");
-        assert_eq!(splice(&header, messages, &legacy, &blobs).unwrap(), Splice::Replay { keep, turn: rows[keep..].to_vec() });
-        // The stored text is part of the signed prefix: without its blob the prefix differs.
-        assert_eq!(splice(&header, messages, &legacy, &OneBlob(Vec::new())).unwrap(), Splice::Conflict);
-        legacy["contextState"]["committedPrefixSignature"] = json!("other");
-        assert_eq!(splice(&header, messages, &legacy, &blobs).unwrap(), Splice::Conflict);
-
-        restore_header(&mut header, &rows, checkpoint, &blobs, 0.0).unwrap();
-        assert_eq!(serde_json::to_string(&header).unwrap(), serde_json::to_string(&golden["header"]).unwrap());
+        let replay = |cp| match splice_of(&header, &[], &cp) {
+            Splice::Replay { turn, .. } => turn,
+            other => panic!("{other:?}"),
+        };
+        // A response that never started leaves the turn whole.
+        assert_eq!(replay(cp(json!({"responseStarted": false}), json!({}))), [user("q")]);
+        // While streaming, the request's tail is marked as sent, the partial answer is kept, the restart line closes the turn.
+        assert_eq!(
+            replay(cp(json!({"responseStarted": true, "partialAssistantContent": "pa", "partialReasoningContent": "why"}), json!({}))),
+            [
+                json!({"role": "user", "content": "q", "meta": {"sentRequestTail": true}}),
+                json!({"role": "assistant", "content": "pa", "reasoningContent": "why"}),
+                restart(),
+            ]
+        );
+        // A sealed turn is kept as it is.
+        assert_eq!(replay(cp(json!({"responseStarted": true, "partialAssistantContent": "pa"}), json!({"sealed": true}))), [user("q")]);
     }
 
-    /// Without its context state's slice, the reading stays as it was and is marked unanchored
-    /// when it holds tokens; the marker still goes.
     #[test]
-    fn an_unprovable_reading_is_marked_unanchored() {
-        let golden: Value = serde_json::from_str(include_str!("vectors/checkpoint_restore.json")).unwrap();
-        let mut header = golden["durable"].as_object().unwrap().clone();
-        header.shift_remove("messages");
-        header.insert("lastContextTokens".into(), json!(10));
-        let mut checkpoint = golden["checkpoint"].clone();
-        checkpoint["contextState"]["committedPrefixSignature"] = json!("other");
-        restore_header(&mut header, golden["messages"].as_array().unwrap(), &checkpoint, &golden_blob(&golden), 0.0).unwrap();
-        assert_eq!(header["contextPressureUnanchoredAfterRestart"], true);
-        assert!(!header.contains_key("contextPressureBaselineTokens"));
-        assert_eq!(header["providerPrefixBaseline"], json!({"hash":"p1","count":3}));
+    fn calls_observed_in_the_turn_get_their_result_or_are_cancelled() {
+        let header = header_on_epoch("e1");
+        let call = json!({"id": "c1", "name": "read", "arguments": {}});
+        let turn_of = |interruption: Value| {
+            let cp = checkpoint(json!({"turnToken": "t", "base": {"epoch": "e1", "length": 0}, "boundary": 0, "turnMessages": [user("q")], "interruption": interruption}));
+            match splice_of(&header, &[], &cp) {
+                Splice::Replay { turn, .. } => turn,
+                other => panic!("{other:?}"),
+            }
+        };
+        let answered = turn_of(json!({
+            "responseStarted": true, "phase": "tools",
+            "observedToolCalls": [["c1", {"call": call}]],
+            "observedToolResults": [["c1", {"toolCallId": "c1", "content": "out"}]],
+        }));
+        assert_eq!(
+            answered,
+            [user("q"), json!({"role": "assistant", "content": "", "toolCalls": [call.clone()]}), json!({"role": "tool", "content": "out", "toolCallId": "c1"}), restart()],
+            "no sent-tail mark while tools run"
+        );
+        let cancelled = turn_of(json!({"responseStarted": true, "phase": "tools", "observedToolCalls": [["c1", {"call": call}]]}));
+        assert_eq!(cancelled[2], json!({"role": "tool", "content": "Cancelled", "toolCallId": "c1", "toolKind": "error"}));
+    }
+
+    #[test]
+    fn a_turn_whose_route_changed_loses_its_provider_replay_state() {
+        let mut header = header_on_epoch("e1");
+        header.insert("activeTurnCheckpoint".into(), json!({"turnToken": "t", "routeChanged": true}));
+        let assistant = json!({
+            "role": "assistant", "content": "x", "providerReplay": {"version": 1}, "reasoning": "r", "providerMetadata": {"a": 1},
+            "toolCalls": [{"id": "c", "name": "n", "thoughtSignature": "sig"}],
+        });
+        let cp = checkpoint(json!({"turnToken": "t", "base": {"epoch": "e1", "length": 0}, "boundary": 0, "sealed": true, "turnMessages": [assistant]}));
+        let Splice::Replay { turn, .. } = splice_of(&header, &[], &cp) else { panic!("a replay") };
+        assert_eq!(turn, [json!({"role": "assistant", "content": "x", "toolCalls": [{"id": "c", "name": "n"}]})]);
+    }
+
+    #[test]
+    fn restoring_the_header_keeps_the_prefix_baseline_and_drops_the_active_turn_marker() {
+        let mut header = header_on_epoch("e1");
+        header.insert("activeTurnCheckpoint".into(), json!({"turnToken": "t"}));
+        let cp = json!({"turnToken": "t", "contextState": {"prefixBaseline": {"hash": "p1", "count": 3}}});
+        restore_header(&mut header, &[], &cp, &OneBlob(Vec::new()), 0.0).unwrap();
         assert!(!header.contains_key("activeTurnCheckpoint"));
+        assert_eq!(header["providerPrefixBaseline"], json!({"hash": "p1", "count": 3}));
     }
 }
+
+#[cfg(node_twin)]
+#[cfg(test)]
+#[path = "node-twin/splice_cases.rs"]
+mod splice_cases;

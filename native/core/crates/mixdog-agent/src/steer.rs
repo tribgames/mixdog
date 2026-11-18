@@ -21,6 +21,8 @@ pub struct Merged {
     pub ids: Vec<String>,
     pub submitted_at: Option<i64>,
     pub message_id: Option<String>,
+    pub originals_missing: u32,
+    pub transcript_meta: Option<JsonValue>,
     pub task_notification: bool,
     pub execution: Option<JsonValue>,
 }
@@ -35,7 +37,7 @@ pub fn normalize(entry: &SteerEntry) -> Option<Merged> {
             if value.is_empty() {
                 return None;
             }
-            let text = entry.text.as_deref().map(str::trim).unwrap_or(value);
+            let text = entry.text.as_deref().map(mixdog_js::js_trim).unwrap_or(value);
             let text = if text.is_empty() { value } else { text };
             (Content::Text(value.to_owned()), text.to_owned())
         }
@@ -63,6 +65,8 @@ pub fn normalize(entry: &SteerEntry) -> Option<Merged> {
         ids,
         submitted_at: entry.submitted_at.filter(|at| *at > 0),
         message_id: entry.message_id.clone(),
+        originals_missing: entry.originals_missing,
+        transcript_meta: entry.transcript_meta.clone(),
         task_notification,
         execution: task_notification.then(|| entry.execution.clone()).flatten(),
     })
@@ -99,6 +103,8 @@ pub fn inject(
     }
     message.submission_ids = merged.ids.clone();
     message.message_id = Some(message_id.clone());
+    message.originals_missing = merged.originals_missing;
+    message.transcript_meta = merged.transcript_meta.clone();
     let event = SteerInjected {
         text,
         ids: merged.ids,
@@ -123,9 +129,36 @@ mod tests {
             ids: vec!["a".into(), "a".into(), "b".into()],
             submitted_at: Some(0),
             message_id: None,
+            originals_missing: 0,
+            transcript_meta: None,
             mode: SteerMode::Prompt,
             execution: None,
         }
+    }
+
+    /// The entry's `transcriptMeta` rides on the message it becomes: its row stores it in `meta.transcript`, beside the
+    /// message id, and an entry without one stores nothing of it.
+    #[test]
+    fn the_entrys_transcript_meta_is_stored_on_the_message_it_becomes() {
+        let mut bot = entry("look");
+        bot.transcript_meta = Some(serde_json::json!({ "sender": "bot", "hop": 2 }));
+        let (message, _) = inject(normalize(&bot).unwrap(), DrainStage::PreSend, 5, || "m1".into());
+        let transcript = &crate::message_row::row_of(&message)["meta"]["transcript"];
+        assert_eq!((transcript["sender"].clone(), transcript["hop"].clone(), transcript["messageId"].clone()), ("bot".into(), 2.into(), "m1".into()));
+        let (plain, _) = inject(normalize(&entry("look")).unwrap(), DrainStage::PreSend, 5, || "m2".into());
+        assert!(crate::message_row::row_of(&plain)["meta"]["transcript"].get("sender").is_none());
+    }
+
+    /// The count the core computed for an entry is part of the message it becomes: its row records it, and an entry
+    /// that lost nothing records nothing.
+    #[test]
+    fn the_cores_count_of_missing_originals_is_recorded_on_the_message_it_becomes() {
+        let mut lost = entry("look");
+        lost.originals_missing = 2;
+        let (message, _) = inject(normalize(&lost).unwrap(), DrainStage::PreSend, 5, || "m1".into());
+        assert_eq!(crate::message_row::row_of(&message)["meta"]["transcript"]["originalImagesMissing"], 2);
+        let (message, _) = inject(normalize(&entry("look")).unwrap(), DrainStage::PreSend, 5, || "m2".into());
+        assert!(crate::message_row::row_of(&message)["meta"]["transcript"].get("originalImagesMissing").is_none());
     }
 
     #[test]
@@ -136,6 +169,14 @@ mod tests {
         assert_eq!(merged.text, "fix it");
         assert_eq!(merged.ids, vec!["a".to_owned(), "b".to_owned()]);
         assert_eq!(merged.submitted_at, None);
+    }
+
+    /// The display text is trimmed as `String#trim` does: a byte-order mark goes, a next-line character stays.
+    #[test]
+    fn the_display_text_is_trimmed_by_javascript_rules() {
+        let mut task = entry("body");
+        task.text = Some("\u{feff} shown \u{85}".into());
+        assert_eq!(normalize(&task).unwrap().text, "shown \u{85}");
     }
 
     #[test]

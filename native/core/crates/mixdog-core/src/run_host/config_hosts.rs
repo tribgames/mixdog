@@ -72,12 +72,20 @@ impl CustomAgentIds for AgentDefinitions {
 #[async_trait]
 pub trait ProvidersReady: Send + Sync {
     async fn ensure(&self, providers: Map<String, Value>) -> Result<(), String>;
+
+    fn provider_registered(&self, _provider: &str) -> bool {
+        false
+    }
 }
 
 #[async_trait]
 impl ProvidersReady for CatalogFacts {
     async fn ensure(&self, providers: Map<String, Value>) -> Result<(), String> {
         self.readiness.ensure_providers_ready(Some(providers)).await.map(|_| ()).map_err(|error| error.message)
+    }
+
+    fn provider_registered(&self, provider: &str) -> bool {
+        self.readiness.provider_registered(provider)
     }
 }
 
@@ -122,6 +130,9 @@ impl CompactionHost for ConfigHosts {
         }
     }
 
+    /// The saved `autoClear` this call follows is what `compaction_follow::follow` watches: the save ticks the config's changes and
+    /// every loaded Lead thread's `providerCacheOpts` is re-derived there (as for any other writer of the section), so this
+    /// call has nothing of its own to do.
     fn refresh_lead_cache_opts(&self, _thread: Option<&ThreadId>, _agent: &Doc) {}
 }
 
@@ -151,6 +162,10 @@ impl WorkflowHost for ConfigHosts {
     fn provider_available(&self, provider: &str) -> bool {
         let developer = self.config.agent().get("developer").cloned().unwrap_or(Value::Null);
         provider_available(provider, model_proxy_client_mode(&*self.env), &developer)
+    }
+
+    fn proxy_provider_registered(&self, provider: &str) -> bool {
+        model_proxy_client_mode(&*self.env) && self.ready.provider_registered(provider)
     }
 
     fn require_local_provider_management(&self) -> Result<(), String> {

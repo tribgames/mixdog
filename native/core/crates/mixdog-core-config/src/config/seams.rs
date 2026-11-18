@@ -21,7 +21,7 @@ use tokio::sync::Semaphore;
 use super::Config;
 use super::ConfigError;
 use crate::tool_modules::builtin_feature_active;
-use crate::tool_modules::with_grandfathered_builtins;
+use crate::tool_modules::adopted_stored_agent;
 
 /// The id of the local provider in `providers`.
 const LOCAL_PROVIDER_ID: &str = "mixdog-local";
@@ -46,7 +46,7 @@ impl ConfigFeatureGate {
 #[async_trait]
 impl FeatureGate for ConfigFeatureGate {
     async fn github_enabled(&self) -> bool {
-        let doc = with_grandfathered_builtins(&self.config.agent());
+        let doc = adopted_stored_agent(&self.config.agent());
         builtin_feature_active(&doc, "git", &*self.env, true)
     }
 }

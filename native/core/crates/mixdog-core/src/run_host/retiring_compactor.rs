@@ -42,8 +42,8 @@ impl Compactor for RetiringCompactor {
         Ok(output)
     }
 
-    fn cache_expired(&self) -> bool {
-        self.inner.cache_expired()
+    async fn adopted(&self, messages: &[AgentMessage]) {
+        self.inner.adopted(messages).await;
     }
 
     async fn preflight_attachments(&self, messages: &[AgentMessage]) -> Option<mixdog_agent::compact::fresh::Preflight> {
@@ -52,5 +52,10 @@ impl Compactor for RetiringCompactor {
 
     fn request_media(&self, messages: &[AgentMessage]) -> bool {
         self.inner.request_media(messages)
+    }
+
+    fn resized(&self, seated: &mixdog_agent::env::SeatedRoute) -> Option<Arc<dyn Compactor>> {
+        let inner = self.inner.resized(seated)?;
+        Some(Arc::new(Self::new(inner, self.world.clone(), self.thread.clone())))
     }
 }

@@ -13,6 +13,9 @@ import {
   type PaneWorkspaceState,
 } from './pane-workspace-storage';
 import { reportRendererFailure } from './RendererRecovery';
+import { sectionStoreFor } from './section-store';
+import type { DesktopSessionSummary } from '../shared/contract';
+import { isAgentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 
 /** Session ids a persisted tab may address at startup. The session catalog is
  *  authoritative: a pool row never revives a Lead tab (stale rows outlive a
@@ -32,8 +35,15 @@ export function restorableSessionIds(
   return known;
 }
 
-/** Startup restore (session-address validation after first paint), the live
- *  workspace state, and debounced persistence of the tree. */
+type PoolRows = Parameters<typeof restorableSessionIds>[1];
+
+function sessionIdsOf(layout: PaneWorkspaceState['layout']): string[] {
+  return paneLeaves(layout).flatMap((leaf) => leaf.tabs.flatMap((tab) => (tab.kind === 'session' ? [tab.id] : [])));
+}
+
+/** Startup restore (the stored layout as the initial value, its session tabs
+ *  reconciled against the catalog and the pool as they become known), the
+ *  live workspace state, and debounced persistence of the tree. */
 export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | null) {
   const startupRestore = useRef<{
     stored: PaneWorkspaceState | null;
@@ -66,108 +76,117 @@ export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | nul
     };
   }
   const restorePlan = startupRestore.current;
-  const [restorePending, setRestorePending] = useState(restorePlan.requiresSessionValidation && !restorePlan.mobile);
-  const [validationPending, setValidationPending] = useState(restorePlan.requiresSessionValidation);
-  const [restoredFromStorage, setRestoredFromStorage] = useState(
-    Boolean(restorePlan.stored && (restorePlan.mobile || !restorePlan.requiresSessionValidation))
-  );
-  // Keep the stored split tree on the first frame. PaneWorkspace gates every
-  // addressable surface while session validation runs, so geometry can restore
-  // immediately without sending an unverified session id to the daemon.
+  // The stored layout is the initial value only, restored whole on the first
+  // frame: restoring is local, so nothing waits on the core. From then on the
+  // user owns the layout; an unconfirmed session tab stays in place and shows
+  // its own unavailable state if its content cannot be read.
+  const restorePending = false;
+  const restoredFromStorage = Boolean(restorePlan.stored);
   const [state, setState] = useState<PaneWorkspaceState>(() =>
     initialPaneWorkspaceState(restorePlan.stored, initialSelection)
   );
 
+  // Bootstrap validation, once. The restored session tabs stay unresolved (kept,
+  // shown, persisted) until the catalog and the pool are both known; then the
+  // ones still unresolved are judged in the live tree, and the obligation ends:
+  // from there on tabs close only through the session lifecycle's own rules
+  // (`use-app-session-activity.ts`). A restored tab the user closes or replaces
+  // first leaves the obligation; the same id reopened later is the lifecycle's.
+  // Unknown is not invalid: a missing `agentPool` entry, or no sections at all,
+  // leaves validation unresolved, never the UI or persistence; a published
+  // empty pool is known. The session list is read once, at mount; a push
+  // carries the whole catalog and, once one has arrived, outranks the mount
+  // read. The pool is never requested: the core pushes it.
+  const unresolved = useRef<Set<string> | null>(null);
+  if (!unresolved.current) {
+    unresolved.current = new Set(
+      restorePlan.requiresSessionValidation && restorePlan.stored ? sessionIdsOf(restorePlan.stored.layout) : []
+    );
+  }
   useEffect(() => {
-    const stored = restorePlan.stored;
-    if (!validationPending || !stored) return undefined;
-    let stopped = false;
-    let unverifiedShown = false;
-    // Only a successfully READ catalog is authoritative. Cold boot: the daemon
-    // catalog can lag the first paint, and a failed read must not be taken for
-    // "no session exists" — that dropped EVERY persisted session tab and the
-    // pruned tree was then persisted over the stored layout.
-    const readCatalog = async (): Promise<Set<string> | null> => {
-      const listSessions = window.mixdogDesktop?.listSessions;
-      if (typeof listSessions !== 'function') return null;
-      try {
-        const [rows, agents] = await Promise.all([
-          listSessions(),
-          window.mixdogDesktop?.listAgentPool?.() ?? Promise.resolve([]),
-        ]);
-        return restorableSessionIds(rows, agents);
-      } catch (error) {
-        reportRendererFailure('unhandled-rejection', error, {
-          components: ['PaneWorkspaceRestore'],
-          failureCode: 'pane-catalog-unavailable',
-        });
-        return null;
-      }
+    const pending = unresolved.current!;
+    if (!pending.size) return;
+    const shown = new Set(sessionIdsOf(state.layout));
+    for (const id of [...pending]) if (!shown.has(id)) pending.delete(id);
+  }, [state.layout]);
+  useEffect(() => {
+    const pending = unresolved.current!;
+    if (!pending.size) return undefined;
+    let active = true;
+    let catalog: DesktopSessionSummary[] | undefined;
+    let pool: PoolRows | undefined;
+    let pushed = false;
+    const stops: Array<(() => void) | undefined> = [];
+    const finish = () => {
+      active = false;
+      for (const stop of stops.splice(0)) stop?.();
     };
-    // The stored geometry with only the session tabs `addressable` vouches for
-    // (file/utility/draft tabs always stay).
-    const showStored = (addressable: Set<string>) => {
-      const filtered = filterPaneLayoutSessions(stored.layout, addressable);
-      const layout = filtered ?? createNewTaskPaneLeaf();
-      const leaves = paneLeaves(layout);
-      setState({
-        layout,
-        focusedLeafId: leaves.some((leaf) => leaf.id === stored.focusedLeafId) ? stored.focusedLeafId : leaves[0].id,
+    const validate = () => {
+      if (!active || !catalog || !pool) return;
+      const established = restorableSessionIds(catalog, pool);
+      // An agent's home keeps its fixed id for good: emptied by a clear, the
+      // catalog leaves it out, yet it is that agent's chat.
+      const rejected = new Set(
+        [...pending].filter((id) => !isAgentHomeSessionId(id) && !established.has(id))
+      );
+      pending.clear();
+      finish();
+      if (!rejected.size) return;
+      setState((prev) => {
+        const keep = new Set(sessionIdsOf(prev.layout).filter((id) => !rejected.has(id)));
+        const pruned = filterPaneLayoutSessions(prev.layout, keep);
+        if (pruned === prev.layout) return prev;
+        const layout = pruned ?? createNewTaskPaneLeaf();
+        const leaves = paneLeaves(layout);
+        return {
+          layout,
+          focusedLeafId: leaves.some((leaf) => leaf.id === prev.focusedLeafId) ? prev.focusedLeafId : leaves[0].id,
+        };
       });
-      setRestoredFromStorage(filtered !== null);
-      setRestorePending(false);
     };
-    const restore = async () => {
-      // Reconcile after first paint.
-      const addressable = await readCatalog();
-      if (stopped) return;
-      if (!addressable) {
-        // The boot cover waits for the layout to settle, so a catalog that
-        // cannot be read must not hold it: show what can be addressed. The
-        // stored layout stays as it is (persistState is paused until a
-        // catalog read validates it) and the session list the daemon pushes
-        // once it answers finishes the validation.
-        if (!unverifiedShown) {
-          unverifiedShown = true;
-          showStored(new Set());
-        }
-        return;
-      }
-      stopped = true;
-      if (restorePlan.mobile) {
-        // The phone has been interactive since the first frame, so prune the
-        // LIVE tree instead of replaying the stored one — a tab opened or
-        // switched during validation must survive.
-        setState((prev) => {
-          const pruned = filterPaneLayoutSessions(prev.layout, addressable) ?? createNewTaskPaneLeaf();
-          if (pruned === prev.layout) return prev;
-          const leaves = paneLeaves(pruned);
-          return {
-            layout: pruned,
-            focusedLeafId: leaves.some((leaf) => leaf.id === prev.focusedLeafId) ? prev.focusedLeafId : leaves[0].id,
-          };
-        });
-        setValidationPending(false);
-        return;
-      }
-      showStored(addressable);
-      setValidationPending(false);
+    const takeCatalog = (rows: DesktopSessionSummary[]) => {
+      catalog = rows;
+      validate();
     };
-    void restore();
-    const unsubscribeSessions = window.mixdogDesktop?.subscribeSessions?.(() => {
-      if (!stopped) void restore();
-    });
-    return () => {
-      stopped = true;
-      unsubscribeSessions?.();
+    const api = window.mixdogDesktop;
+    // Subscribed before the read is issued: a push that lands meanwhile is not lost.
+    stops.push(
+      api?.subscribeSessions?.((rows) => {
+        pushed = true;
+        takeCatalog(rows);
+      })
+    );
+    const sections = sectionStoreFor(api);
+    const takePool = () => {
+      const entry = sections?.get('agentPool');
+      pool = entry ? (entry.value as PoolRows) : undefined;
+      validate();
     };
-  }, [validationPending, restorePlan]);
+    stops.push(sections?.subscribe('agentPool', takePool));
+    takePool();
+    const listSessions = api?.listSessions;
+    if (typeof listSessions === 'function') {
+      void Promise.resolve()
+        .then(listSessions)
+        .then(
+          (rows) => {
+            if (active && !pushed) takeCatalog(rows);
+          },
+          (error: unknown) => {
+            if (!active) return;
+            reportRendererFailure('unhandled-rejection', error, {
+              components: ['PaneWorkspaceRestore'],
+              failureCode: 'pane-catalog-unavailable',
+            });
+          }
+        );
+    }
+    return finish;
+  }, []);
 
   const fileCopy = useRef<string | null>(null);
   const persistState = useCallback(() => {
-    // Until a catalog read has validated the stored layout, `state` may only be
-    // a view of it (session tabs left out): both stored copies stay untouched.
-    if (validationPending) return;
+    // The live layout, unconfirmed tabs included: they are the user's.
     const serialized = JSON.stringify(state);
     try {
       window.localStorage.setItem(PANE_LAYOUT_KEY, serialized);
@@ -179,15 +198,14 @@ export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | nul
     if (restorePlan.mobile || fileCopy.current === serialized) return;
     fileCopy.current = serialized;
     window.mixdogDesktop?.writePaneLayoutFile?.(serialized);
-  }, [restorePlan, validationPending, state]);
+  }, [restorePlan, state]);
   usePageHideFlush(persistState);
   useEffect(() => {
-    if (validationPending) return undefined;
     // Focus, drag and tab operations must paint before the synchronous storage
     // write. The short debounce also collapses resize/reorder bursts.
     const timer = window.setTimeout(persistState, 120);
     return () => window.clearTimeout(timer);
-  }, [persistState, validationPending]);
+  }, [persistState]);
 
   return { state, setState, restorePending, restoredFromStorage };
 }

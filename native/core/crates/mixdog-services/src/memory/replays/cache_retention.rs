@@ -29,31 +29,6 @@ fn the_recording_has_four_cases() {
     assert_case_count(&golden(SET), 4);
 }
 
-#[test]
-fn embedding_cache_defaults_to_ten_thousand_rows_with_a_positive_override() {
-    let g = golden(SET);
-    let c = case(&g, 0, "embedding cache defaults to ten thousand rows with a positive override");
-    let default = resolve_cache_max_rows(None);
-    same("defaultMaxRows", c.get("defaultMaxRows"), &int(default));
-    for step in c.get("resolve").as_array() {
-        let value = match step.get("value") {
-            Exact::String(s) => Some(s.as_str()),
-            Exact::Null | Exact::Undefined => None,
-            other => panic!("resolve value {other:?}"),
-        };
-        let rust = resolve_cache_max_rows(value);
-        same(&format!("resolve {value:?}"), step.get("result"), &int(rust));
-    }
-    let from_env = c.get("fromEnv").as_array();
-    // SAFETY: no other test reads or writes this variable.
-    unsafe { std::env::remove_var("MIXDOG_EMBED_CACHE_MAX_ROWS") };
-    same("fromEnv unset", from_env[0].get("result"), &int(resolve_cache_max_rows(std::env::var("MIXDOG_EMBED_CACHE_MAX_ROWS").ok().as_deref())));
-    unsafe { std::env::set_var("MIXDOG_EMBED_CACHE_MAX_ROWS", "321") };
-    let set = resolve_cache_max_rows(std::env::var("MIXDOG_EMBED_CACHE_MAX_ROWS").ok().as_deref());
-    unsafe { std::env::remove_var("MIXDOG_EMBED_CACHE_MAX_ROWS") };
-    same("fromEnv 321", from_env[1].get("result"), &int(set));
-}
-
 mod pg {
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -227,4 +202,31 @@ mod pg {
             prune(&pg, &format!("{name}: prune {at}"), recorded).await;
         }
     }
+}
+
+
+
+#[test]
+fn embedding_cache_defaults_to_ten_thousand_rows_with_a_positive_override() {
+    let g = golden(SET);
+    let c = case(&g, 0, "embedding cache defaults to ten thousand rows with a positive override");
+    let default = resolve_cache_max_rows(None);
+    same("defaultMaxRows", c.get("defaultMaxRows"), &int(default));
+    for step in c.get("resolve").as_array() {
+        let value = match step.get("value") {
+            Exact::String(s) => Some(s.as_str()),
+            Exact::Null | Exact::Undefined => None,
+            other => panic!("resolve value {other:?}"),
+        };
+        let rust = resolve_cache_max_rows(value);
+        same(&format!("resolve {value:?}"), step.get("result"), &int(rust));
+    }
+    let from_env = c.get("fromEnv").as_array();
+    // SAFETY: no other test reads or writes this variable.
+    unsafe { std::env::remove_var("MIXDOG_EMBED_CACHE_MAX_ROWS") };
+    same("fromEnv unset", from_env[0].get("result"), &int(resolve_cache_max_rows(std::env::var("MIXDOG_EMBED_CACHE_MAX_ROWS").ok().as_deref())));
+    unsafe { std::env::set_var("MIXDOG_EMBED_CACHE_MAX_ROWS", "321") };
+    let set = resolve_cache_max_rows(std::env::var("MIXDOG_EMBED_CACHE_MAX_ROWS").ok().as_deref());
+    unsafe { std::env::remove_var("MIXDOG_EMBED_CACHE_MAX_ROWS") };
+    same("fromEnv 321", from_env[1].get("result"), &int(set));
 }

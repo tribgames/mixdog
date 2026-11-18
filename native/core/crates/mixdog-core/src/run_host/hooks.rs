@@ -68,50 +68,6 @@ pub struct SessionToolHooks {
     unattended: bool,
 }
 
-impl SessionToolHooks {
-    pub fn new(session_id: &str, cwd: &Path, dispatch: Arc<dyn PostToolDispatch>, unattended: bool) -> Self {
-        Self { session_id: session_id.to_owned(), cwd: cwd.to_string_lossy().into_owned(), dispatch, unattended }
-    }
-
-    /// The event reports the folder the call was prepared in (`call.cwd = prepared.cwd`), not the session's folder at the time
-    /// it finished.
-    fn event(&self, call_id: &str, call: &GateCall, result: &str) -> PostToolEvent {
-        let cwd = call.cwd.as_ref().map_or_else(|| self.cwd.clone(), |cwd| cwd.to_string_lossy().into_owned());
-        PostToolEvent {
-            call_id: call_id.to_owned(),
-            name: call.name.clone(),
-            args: call.args.clone(),
-            cwd: effective_tool_cwd(&call.name, &call.args, &cwd),
-            session_id: self.session_id.clone(),
-            result: result.to_owned(),
-        }
-    }
-}
-
-fn expand_home(path: &str) -> String {
-    let home = || std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")).unwrap_or_default();
-    if path == "~" {
-        return home();
-    }
-    match path.strip_prefix("~/").or_else(|| if cfg!(windows) { path.strip_prefix("~\\") } else { None }) {
-        Some(rest) => super::result_reuse::resolve(&home(), rest),
-        None => path.to_owned(),
-    }
-}
-
-/// `effectiveToolCwd`: the shell's `cwd` argument resolved against the session cwd; the session
-/// cwd for every other tool.
-pub(crate) fn effective_tool_cwd(tool: &str, args: &JsonValue, session_cwd: &str) -> String {
-    if tool != "shell" {
-        return session_cwd.to_owned();
-    }
-    let Some(requested) = args.get("cwd").and_then(|c| c.as_str()).filter(|c| !mixdog_js::js_trim(c).is_empty()) else {
-        return session_cwd.to_owned();
-    };
-    let resolved = super::result_reuse::resolve(session_cwd, &expand_home(requested));
-    if cfg!(windows) { resolved.replace('/', "\\") } else { resolved }
-}
-
 /// `normalizeHookUpdatedToolOutput` for a text result: a string as is, null as empty, a legacy
 /// MCP text envelope joined. A value with non-text parts or of another type is not text, so the
 /// result stays as the tool gave it.
@@ -350,4 +306,46 @@ impl mixdog_agent::agent_tool::flow::seams::SubagentEvents for HookSubagentEvent
     fn stop(&self, agent: &str, session_id: &str, _tag: &str, _status: &str) {
         self.emit(true, agent, session_id);
     }
+}
+
+impl SessionToolHooks {
+    pub fn new(session_id: &str, cwd: &Path, dispatch: Arc<dyn PostToolDispatch>, unattended: bool) -> Self {
+        Self { session_id: session_id.to_owned(), cwd: cwd.to_string_lossy().into_owned(), dispatch, unattended }
+    }
+
+    /// The event reports the folder the call was prepared in (`call.cwd = prepared.cwd`), not the session's folder at the time
+    /// it finished.
+    fn event(&self, call_id: &str, call: &GateCall, result: &str) -> PostToolEvent {
+        let cwd = call.cwd.as_ref().map_or_else(|| self.cwd.clone(), |cwd| cwd.to_string_lossy().into_owned());
+        PostToolEvent {
+            call_id: call_id.to_owned(),
+            name: call.name.clone(),
+            args: call.args.clone(),
+            cwd: effective_tool_cwd(&call.name, &call.args, &cwd),
+            session_id: self.session_id.clone(),
+            result: result.to_owned(),
+        }
+    }
+}
+fn expand_home(path: &str) -> String {
+    let home = || std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")).unwrap_or_default();
+    if path == "~" {
+        return home();
+    }
+    match path.strip_prefix("~/").or_else(|| if cfg!(windows) { path.strip_prefix("~\\") } else { None }) {
+        Some(rest) => super::result_reuse::resolve(&home(), rest),
+        None => path.to_owned(),
+    }
+}
+/// `effectiveToolCwd`: the shell's `cwd` argument resolved against the session cwd; the session
+/// cwd for every other tool.
+pub(crate) fn effective_tool_cwd(tool: &str, args: &JsonValue, session_cwd: &str) -> String {
+    if tool != "shell" {
+        return session_cwd.to_owned();
+    }
+    let Some(requested) = args.get("cwd").and_then(|c| c.as_str()).filter(|c| !mixdog_js::js_trim(c).is_empty()) else {
+        return session_cwd.to_owned();
+    };
+    let resolved = super::result_reuse::resolve(session_cwd, &expand_home(requested));
+    if cfg!(windows) { resolved.replace('/', "\\") } else { resolved }
 }

@@ -56,19 +56,27 @@ use tokio_util::sync::CancellationToken;
 use crate::browser_engine_service::ClaimantProbe;
 
 /// The engine's frames are kept apart from the computer's: `<data>/frames/browser`.
-pub fn frame_dir(data_dir: &Path) -> PathBuf {
-    data_dir.join("frames").join("browser")
+/// [`mixdog_tools::desktop::browser_engine::BrowserSwitch`] over `desktop.browserControl` of the config the core holds: read
+/// at each command, and told at each adoption of a document so a command in flight learns the moment the switch goes off.
+pub struct ConfigBrowserSwitch {
+    config: mixdog_core_config::config::Config,
+    on: tokio::sync::watch::Sender<bool>,
+    _adoption: mixdog_core_config::config::AdoptionGuard,
 }
 
-/// The operator's policy of which steps ask or are refused, read once at start (the desktop's `host-foundation.ts` read the same
-/// variables of its own environment, which the core inherits).
-pub fn action_policy(env: &dyn Fn(&str) -> Option<String>) -> ActionPolicy {
-    ActionPolicy::from_env(
-        env("MIXDOG_BROWSER_CONFIRM_ACTIONS").as_deref(),
-        env("MIXDOG_BROWSER_DENY_ACTIONS").as_deref(),
-        env("MIXDOG_BROWSER_CONFIRM_SUBMIT").as_deref(),
-        mixdog_browser_engine::actions::registry::is_action,
-    )
+impl ConfigBrowserSwitch {
+    pub fn new(config: mixdog_core_config::config::Config) -> Arc<Self> {
+        let (on, _) = tokio::sync::watch::channel(config.desktop_settings().browser_control);
+        let (hook_config, hook_on) = (config.clone(), on.clone());
+        let adoption = config.on_adoption(move || {
+            hook_on.send_replace(hook_config.desktop_settings().browser_control);
+        });
+        Arc::new(Self { config, on, _adoption: adoption })
+    }
+}
+
+pub fn frame_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join("frames").join("browser")
 }
 
 /// `browserUrlPolicyFromEnvironment` for a session that works on this PC (`remote: false`): private networks are the person's
@@ -242,135 +250,6 @@ impl BrowserApprovalContext {
             agent_session: row.get("agentSession").and_then(serde_json::Value::as_bool).unwrap_or(false),
             agent_home: agent_id_of_home_session(session_id).unwrap_or_default(),
         })
-    }
-}
-
-#[async_trait]
-impl ApprovalContext for BrowserApprovalContext {
-    async fn facts(&self, thread: &ThreadId) -> SessionFacts {
-        // The life mark, and the unattended run that owns the session with its owner (`bridge-tools.mjs`: `unattendedRun:
-        // isGrantedRun(run)`, `unattendedAgent: run?.agentId || ''`); the bot is read from the session id.
-        let life = self.late.live_header(thread.as_str()).and_then(|header| mixdog_core_ports::ports::gate::life_mark(&header));
-        let run = self.unattended.named_run_of(thread).await.map(|(run, _)| run);
-        SessionFacts {
-            life,
-            agent_id: run.as_ref().map(|run| run.agent_id.clone()).unwrap_or_default(),
-            run: run.map(|run| run.kind),
-            ..SessionFacts::default()
-        }
-    }
-
-    fn settings(&self) -> PolicySettings {
-        PolicySettings { allow_all_actions: self.allow_all.allow_all_actions() }
-    }
-
-    fn session_grants(&self, thread: &ThreadId) -> SessionGrants {
-        SessionGrants::of(self.session_grants.clone(), thread.as_str())
-    }
-
-    async fn requester(&self, thread: &ThreadId) -> Requester {
-        // Only a bot's own session asks (its home chat, listed; or its room member session, unlisted), and a sub-agent is no bot's:
-        // the asking session's own row is all the roster the name needs.
-        let sessions: Vec<SessionRow> = self.session_row(thread.as_str()).await.into_iter().collect();
-        let names = self.names.names().await;
-        let lead = names.get(MIXY_AGENT_ID).cloned().unwrap_or_default();
-        let agent_name = |agent: &str| names.get(agent).cloned();
-        let pool: [PoolRow; 0] = [];
-        resolve_requester(thread.as_str(), &Sources { sessions: &sessions, pool: &pool, agent_name: &agent_name, lead_name: &lead })
-    }
-
-    /// A browser tool call raises its card through the call's own gate (`BrowserTool::call` runs inside `with_call_approvals`); a
-    /// command no tool call made (a bridge command) raises it on the session's running turn, where that session's own card of the
-    /// turn is shown. A session with no loaded thread or no turn under way has none.
-    fn session_gate(&self, thread: &ThreadId) -> Option<Arc<dyn ApprovalGate>> {
-        self.late.live_header(thread.as_str())?;
-        self.run_gates.live(thread)
-    }
-
-    fn hold_card(&self, request_id: &str, thread: &ThreadId) -> CardHold {
-        self.card_holds.hold_for_request_in(request_id, HumanOnlyCard::BrowserApproval, CardScope { thread: Some(thread.clone()), ..CardScope::default() });
-        let (holds, id) = (self.card_holds.clone(), request_id.to_owned());
-        CardHold::new(move || {
-            holds.release(&id);
-        })
-    }
-
-    /// The notice the session shows when an "always" allow could not be saved (the desktop's card toast `saveFailed`): a toast of the
-    /// asking session, as the one place a session's notices go.
-    async fn save_failed(&self, thread: &ThreadId) {
-        let Some(directory) = self.late.directory() else { return };
-        let Some(session) = mixdog_mcp::mcp_service::SessionToasts::incarnation(&*directory, thread.as_str()) else { return };
-        if let Err(error) = session.toast(mixdog_tools::desktop::browser_approval::SAVE_FAILED_NOTICE, "warn").await {
-            tracing::warn!(%error, "the notice that an always-allow was not saved could not be posted");
-        }
-    }
-}
-
-/// `test/browserEngine/run`'s runner: one `browser` or `browser_devtools` call over the same host commands the tools are built over.
-#[cfg(feature = "test-hooks")]
-pub struct EngineToolRunner(pub Arc<dyn mixdog_tools::desktop::host::HostCommands>);
-
-#[cfg(feature = "test-hooks")]
-#[async_trait]
-impl crate::browser_engine_service::BrowserToolRunner for EngineToolRunner {
-    async fn run(
-        &self,
-        thread: ThreadId,
-        _tool: mixdog_app_protocol::v2::browser_engine::BrowserTestTool,
-        args: serde_json::Value,
-        cancel: CancellationToken,
-    ) -> mixdog_app_protocol::v2::browser_engine::BrowserEngineTestRunResult {
-        use mixdog_app_protocol::v2::browser_engine::BrowserEngineTestRunResult;
-        use mixdog_app_protocol::v2::browser_engine::BrowserTestRunImage;
-        use mixdog_core_api::domain::tool::ToolPart;
-
-        let Some(action) = args.get("action").and_then(serde_json::Value::as_str) else {
-            return BrowserEngineTestRunResult { text: "Error: action is required".to_owned(), image: None, is_error: true, outcome: None };
-        };
-        let mut input = match args.get("input") {
-            Some(serde_json::Value::Object(input)) => input.clone(),
-            _ => serde_json::Map::new(),
-        };
-        // The request is validated as the bridge validates a command before it runs (the tool's own contract: an unknown action, a
-        // field the action does not take, a missing target); `turn_id` is the runtime's, beside the tool's fields.
-        let turn = input.shift_remove("turn_id");
-        let mut command = input;
-        command.insert("action".to_owned(), serde_json::Value::String(action.to_owned()));
-        let (action, mut input) = match mixdog_tools::desktop::browser_bridge_run::validated_command(command) {
-            Ok(validated) => validated,
-            Err(message) => {
-                return BrowserEngineTestRunResult { text: format!("Error: {message}"), image: None, is_error: true, outcome: None };
-            }
-        };
-        if let Some(turn) = turn {
-            input.insert("turn_id".to_owned(), turn);
-        }
-        let (action, input) = (action.as_str(), serde_json::Value::Object(input));
-        // The corpus's refused address was recorded by a remote session (the old host ran with `remoteSession: true`: private networks
-        // blocked); `remoteSession: true` of the run puts the commands under that stance, a session of this core being the person's own.
-        let _remote = (args.get("remoteSession") == Some(&serde_json::Value::Bool(true)))
-            .then(|| mixdog_browser_engine::runner::runner::UrlPolicyOfRun::set(UrlPolicy::default()));
-        let ran = self.0.browser(&thread, action, input, &cancel).await;
-        match ran {
-            Ok(value) => {
-                let rendered = mixdog_tools::desktop::host::browser_output(&value);
-                let image = value.get("image").and_then(|image| {
-                    Some(BrowserTestRunImage { mime_type: image.get("mimeType")?.as_str()?.to_owned(), data: image.get("data")?.as_str()?.to_owned() })
-                });
-                let outcome = value.get("outcome").cloned();
-                match rendered {
-                    Ok(output) => {
-                        let text = output.parts.iter().filter_map(|part| if let ToolPart::Text(text) = part { Some(text.as_str()) } else { None }).collect::<Vec<_>>().join("\n");
-                        BrowserEngineTestRunResult { text, image, is_error: false, outcome }
-                    }
-                    Err(error) => BrowserEngineTestRunResult { text: error.message_for_model, image, is_error: true, outcome },
-                }
-            }
-            Err(error) => {
-                let error = mixdog_tools::desktop::host::command_error(mixdog_tools::desktop::host::BROWSER_UNAVAILABLE, error);
-                BrowserEngineTestRunResult { text: error.message_for_model, image: None, is_error: true, outcome: None }
-            }
-        }
     }
 }
 
@@ -564,5 +443,155 @@ mod run_gate_tests {
         let (_a, _b) = (gates.gate_for(&s1, older.clone()), gates.gate_for(&s1, newer.clone()));
         let live = gates.live(&s1).unwrap();
         assert!(std::ptr::addr_eq(Arc::as_ptr(&live), Arc::as_ptr(&newer)));
+    }
+}
+
+
+#[async_trait]
+impl mixdog_tools::desktop::browser_engine::BrowserSwitch for ConfigBrowserSwitch {
+    fn enabled(&self) -> bool {
+        self.config.desktop_settings().browser_control
+    }
+
+    async fn off(&self) {
+        let mut on = self.on.subscribe();
+        // `wait_for` ends once the value is `false`; the sender lives as long as `self`.
+        let _ = on.wait_for(|on| !*on).await;
+    }
+}
+/// The operator's policy of which steps ask or are refused, read once at start (the desktop's `host-foundation.ts` read the same
+/// variables of its own environment, which the core inherits).
+pub fn action_policy(env: &dyn Fn(&str) -> Option<String>) -> ActionPolicy {
+    ActionPolicy::from_env(
+        env("MIXDOG_BROWSER_CONFIRM_ACTIONS").as_deref(),
+        env("MIXDOG_BROWSER_DENY_ACTIONS").as_deref(),
+        env("MIXDOG_BROWSER_CONFIRM_SUBMIT").as_deref(),
+        mixdog_browser_engine::actions::registry::is_action,
+    )
+}
+#[async_trait]
+impl ApprovalContext for BrowserApprovalContext {
+    async fn facts(&self, thread: &ThreadId) -> SessionFacts {
+        // The life mark, and the unattended run that owns the session with its owner (`bridge-tools.mjs`: `unattendedRun:
+        // isGrantedRun(run)`, `unattendedAgent: run?.agentId || ''`); the bot is read from the session id.
+        let life = self.late.live_header(thread.as_str()).and_then(|header| mixdog_core_ports::ports::gate::life_mark(&header));
+        let run = self.unattended.named_run_of(thread).await.map(|(run, _)| run);
+        SessionFacts {
+            life,
+            agent_id: run.as_ref().map(|run| run.agent_id.clone()).unwrap_or_default(),
+            run: run.map(|run| run.kind),
+            ..SessionFacts::default()
+        }
+    }
+
+    fn settings(&self) -> PolicySettings {
+        PolicySettings { allow_all_actions: self.allow_all.allow_all_actions() }
+    }
+
+    fn session_grants(&self, thread: &ThreadId) -> SessionGrants {
+        SessionGrants::of(self.session_grants.clone(), thread.as_str())
+    }
+
+    async fn requester(&self, thread: &ThreadId) -> Requester {
+        // Only a bot's own session asks (its home chat, listed; or its room member session, unlisted), and a sub-agent is no bot's:
+        // the asking session's own row is all the roster the name needs.
+        let sessions: Vec<SessionRow> = self.session_row(thread.as_str()).await.into_iter().collect();
+        let names = self.names.names().await;
+        let lead = names.get(MIXY_AGENT_ID).cloned().unwrap_or_default();
+        let agent_name = |agent: &str| names.get(agent).cloned();
+        let pool: [PoolRow; 0] = [];
+        resolve_requester(thread.as_str(), &Sources { sessions: &sessions, pool: &pool, agent_name: &agent_name, lead_name: &lead })
+    }
+
+    /// A browser tool call raises its card through the call's own gate (`BrowserTool::call` runs inside `with_call_approvals`); a
+    /// command no tool call made (a bridge command) raises it on the session's running turn, where that session's own card of the
+    /// turn is shown. A session with no loaded thread or no turn under way has none.
+    fn session_gate(&self, thread: &ThreadId) -> Option<Arc<dyn ApprovalGate>> {
+        self.late.live_header(thread.as_str())?;
+        self.run_gates.live(thread)
+    }
+
+    fn hold_card(&self, request_id: &str, thread: &ThreadId) -> CardHold {
+        self.card_holds.hold_for_request_in(request_id, HumanOnlyCard::BrowserApproval, CardScope { thread: Some(thread.clone()), ..CardScope::default() });
+        let (holds, id) = (self.card_holds.clone(), request_id.to_owned());
+        CardHold::new(move || {
+            holds.release(&id);
+        })
+    }
+
+    /// The notice the session shows when an "always" allow could not be saved (the desktop's card toast `saveFailed`): a toast of the
+    /// asking session, as the one place a session's notices go.
+    async fn save_failed(&self, thread: &ThreadId) {
+        let Some(directory) = self.late.directory() else { return };
+        let Some(session) = mixdog_mcp::mcp_service::SessionToasts::incarnation(&*directory, thread.as_str()) else { return };
+        if let Err(error) = session.toast(mixdog_tools::desktop::browser_approval::SAVE_FAILED_NOTICE, "warn").await {
+            tracing::warn!(%error, "the notice that an always-allow was not saved could not be posted");
+        }
+    }
+}
+/// `test/browserEngine/run`'s runner: one `browser` or `browser_devtools` call over the same host commands the tools are built over.
+#[cfg(feature = "test-hooks")]
+pub struct EngineToolRunner(pub Arc<dyn mixdog_tools::desktop::host::HostCommands>);
+#[cfg(feature = "test-hooks")]
+#[async_trait]
+impl crate::browser_engine_service::BrowserToolRunner for EngineToolRunner {
+    async fn run(
+        &self,
+        thread: ThreadId,
+        _tool: mixdog_app_protocol::v2::browser_engine::BrowserTestTool,
+        args: serde_json::Value,
+        cancel: CancellationToken,
+    ) -> mixdog_app_protocol::v2::browser_engine::BrowserEngineTestRunResult {
+        use mixdog_app_protocol::v2::browser_engine::BrowserEngineTestRunResult;
+        use mixdog_app_protocol::v2::browser_engine::BrowserTestRunImage;
+        use mixdog_core_api::domain::tool::ToolPart;
+
+        let Some(action) = args.get("action").and_then(serde_json::Value::as_str) else {
+            return BrowserEngineTestRunResult { text: "Error: action is required".to_owned(), image: None, is_error: true, outcome: None };
+        };
+        let mut input = match args.get("input") {
+            Some(serde_json::Value::Object(input)) => input.clone(),
+            _ => serde_json::Map::new(),
+        };
+        // The request is validated as the bridge validates a command before it runs (the tool's own contract: an unknown action, a
+        // field the action does not take, a missing target); `turn_id` is the runtime's, beside the tool's fields.
+        let turn = input.shift_remove("turn_id");
+        let mut command = input;
+        command.insert("action".to_owned(), serde_json::Value::String(action.to_owned()));
+        let (action, mut input) = match mixdog_tools::desktop::browser_bridge_run::validated_command(command) {
+            Ok(validated) => validated,
+            Err(message) => {
+                return BrowserEngineTestRunResult { text: format!("Error: {message}"), image: None, is_error: true, outcome: None };
+            }
+        };
+        if let Some(turn) = turn {
+            input.insert("turn_id".to_owned(), turn);
+        }
+        let (action, input) = (action.as_str(), serde_json::Value::Object(input));
+        // The corpus's refused address was recorded by a remote session (the old host ran with `remoteSession: true`: private networks
+        // blocked); `remoteSession: true` of the run puts the commands under that stance, a session of this core being the person's own.
+        let _remote = (args.get("remoteSession") == Some(&serde_json::Value::Bool(true)))
+            .then(|| mixdog_browser_engine::runner::runner::UrlPolicyOfRun::set(UrlPolicy::default()));
+        let ran = self.0.browser(&thread, action, input, &cancel).await;
+        match ran {
+            Ok(value) => {
+                let rendered = mixdog_tools::desktop::host::browser_output(&value);
+                let image = value.get("image").and_then(|image| {
+                    Some(BrowserTestRunImage { mime_type: image.get("mimeType")?.as_str()?.to_owned(), data: image.get("data")?.as_str()?.to_owned() })
+                });
+                let outcome = value.get("outcome").cloned();
+                match rendered {
+                    Ok(output) => {
+                        let text = output.parts.iter().filter_map(|part| if let ToolPart::Text(text) = part { Some(text.as_str()) } else { None }).collect::<Vec<_>>().join("\n");
+                        BrowserEngineTestRunResult { text, image, is_error: false, outcome }
+                    }
+                    Err(error) => BrowserEngineTestRunResult { text: error.message_for_model, image, is_error: true, outcome },
+                }
+            }
+            Err(error) => {
+                let error = mixdog_tools::desktop::host::command_error(mixdog_tools::desktop::host::BROWSER_UNAVAILABLE, error);
+                BrowserEngineTestRunResult { text: error.message_for_model, image: None, is_error: true, outcome: None }
+            }
+        }
     }
 }

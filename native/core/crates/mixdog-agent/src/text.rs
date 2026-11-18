@@ -69,6 +69,12 @@ pub fn unknown_tool_message(name: &str, surface_names: &[&str]) -> String {
     }
 }
 
+/// A call to a tool the session's catalog holds but this core cannot run: the reason, not "unknown" (what `load_tool`
+/// answered for it, so the model reads the same cause on both sides).
+pub fn unavailable_tool_message(name: &str, reason: &str) -> String {
+    format!("Error: tool \"{name}\" is unavailable in this session: {reason}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

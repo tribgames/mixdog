@@ -38,3 +38,9 @@ async-trait = { workspace = true }
 tokio = { workspace = true, features = ["rt", "time", "net"] }
 # The live twin test starts the lane executors a route's file and image work runs on.
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (<build-tools>\unify-test-features.py).
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-office-com = { workspace = true, features = ["test-support"] }

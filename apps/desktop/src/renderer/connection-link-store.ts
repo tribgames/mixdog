@@ -1,4 +1,4 @@
-// A server window's link to its daemon, as main pushes it: the state the
+// A server window's link to its daemon, as this PC's core reports it: the state the
 // banner, the title-bar chip, the composer and the terminals read, the notices
 // main sends once attached again, and the tool calls whose result never came.
 import { useSyncExternalStore } from 'react';
@@ -14,12 +14,10 @@ import {
   subscribeConnectionNotice,
   subscribeServerRestoreProgress,
 } from './connections-core-api';
-import { isSshConnectionWindow } from './desktop-connection';
+import { CONNECTION_REATTACHED_EVENT, isSshConnectionWindow } from './desktop-connection';
 import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 
-/** Fired on window when a server window is attached again after an outage:
- *  terminals re-attach and replay what they missed. */
-export const CONNECTION_REATTACHED_EVENT = 'mixdog:connection-reattached';
+export { CONNECTION_REATTACHED_EVENT } from './desktop-connection';
 
 let view: DesktopConnectionLinkView | null = null;
 let started = false;

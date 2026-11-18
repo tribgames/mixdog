@@ -23,6 +23,7 @@ use mixdog_core_session::session::CoreWork;
 use mixdog_core_session::session::NoCoreWork;
 use mixdog_core_session::session::StartHold;
 use mixdog_protocol::ConnectionKind;
+use mixdog_protocol::Origin;
 use mixdog_rt::CancellationToken;
 use tokio::sync::watch;
 
@@ -58,7 +59,7 @@ impl CorePort for Inert {
     fn final_barriers(&self) {}
     fn close_connections(&self) {}
     fn close_ext_host(&self) {}
-    fn close_data_handles(&self) {}
+    fn close_data_handles(&self, _: &crate::lifecycle::ManagedDrain) {}
 }
 
 impl Publication for Inert {
@@ -80,101 +81,16 @@ pub type WorkLog = Arc<dyn Fn(&str) + Send + Sync>;
 #[derive(Default)]
 pub struct LateLifecycle(OnceLock<Arc<Lifecycle>>, Mutex<HashMap<ConnectionId, ConnectionGuard>>, watch::Sender<StartHold>, Arc<CancelRegistry>, Option<WorkLog>);
 
-impl LateLifecycle {
-    /// The cell of a composed core: running work begun before the bind is said in `log` ([`Self::begin_work`]).
-    pub fn logging(log: WorkLog) -> Self {
-        Self(Default::default(), Default::default(), Default::default(), Default::default(), Some(log))
-    }
-
-    /// The cancellation tokens of the running work registered here, by activity: the core port's `cancel_running` (a confirmed stop's
-    /// abort) cancels them.
-    pub fn cancels(&self) -> &Arc<CancelRegistry> {
-        &self.3
-    }
-
-    /// `info` is running work until the returned guard drops, and the core that stops when it ends says `settled` (Node's
-    /// self-shutdown text for that work: `BUSY_WORK_SETTLED`, `MEMORY_AGENT_ACTIVITY_CHANGED`). Before the bind (a startup bug: the
-    /// listener accepts only after it) it is not counted, which is said in the cell's log, the one place every consumer reports it.
-    pub fn begin_work(&self, info: ActivityInfo, settled: &'static str) -> Option<ActivityGuard> {
-        let Some(lifecycle) = self.0.get() else {
-            if let Some(log) = &self.4 {
-                log(&format!("running work ({:?}: {}) started before the lifecycle was bound; it is not counted", info.kind, info.title));
-            }
-            return None;
-        };
-        Some(lifecycle.begin_activity_settling(info, settled))
-    }
-
-    pub fn bind(&self, lifecycle: Arc<Lifecycle>) -> Result<(), &'static str> {
-        self.0.set(lifecycle).map_err(|_| "lifecycle")
-    }
-
-    /// The lifecycle of a core that serves no daemon (`mixdog exec` composes its core in its own process): it counts the calls in flight,
-    /// while nothing publishes, cancels, exits or withdraws on its behalf: the process ends when the exec does.
-    pub fn bind_in_process(&self) -> Result<(), &'static str> {
-        let ports = Ports { core: Arc::new(Inert), discovery: Arc::new(Inert), exiter: Arc::new(Inert) };
-        let config = LifecycleConfig { instance_id: new_instance_id(), version: env!("CARGO_PKG_VERSION").to_owned(), runtime_root: std::path::PathBuf::new() };
-        self.bind(Lifecycle::new(config, ports))
-    }
-
-    /// `None` before the bind: a startup bug (the listener accepts only after it), which each reader reports in its own words.
-    pub fn get(&self) -> Option<&Arc<Lifecycle>> {
-        self.0.get()
-    }
-
-    /// A client connection finished its handshake (`CoreHandle::connection_opened`): counted until [`Self::client_closed`].
-    pub fn client_opened(&self, connection: ConnectionId, kind: ConnectionKind) -> Result<(), &'static str> {
-        let lifecycle = self.0.get().ok_or("a connection opened before the lifecycle was bound; it is not counted")?;
-        let guard = lifecycle.connection(client_kind(kind));
-        self.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(connection, guard);
-        Ok(())
-    }
-
-    /// The connection closed (`CoreHandle::connection_closed`); the last one to leave lets the core stop itself.
-    pub fn client_closed(&self, connection: ConnectionId) {
-        let guard = self.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&connection);
-        drop(guard);
-    }
-
-    /// The hold on turn starts the sessions follow (`Lifecycle::hold_gate`, LR §5.1). The sessions are built before the lifecycle,
-    /// so they read this copy, which [`Self::follow`] keeps at the lifecycle's hold; it reads [`StartHold::Open`] until then, and
-    /// for good in a core that serves no daemon.
-    pub fn start_hold(&self) -> watch::Receiver<StartHold> {
-        self.2.subscribe()
-    }
-
-    /// Follows `lifecycle` (`serving::attach` spawns it): `on_state` hears each move of its state, which the composed core answers
-    /// admission from, and the sessions' copy of the hold is kept at the lifecycle's (`Lifecycle::hold_gate`: closed once the drain
-    /// commit dropped a hold, open again when that drain is cancelled), whose latest reading is the whole of it. Subscribed when
-    /// called, so a move made before the future first runs is not missed.
-    pub fn follow<F: Fn(CoreState) + Send + 'static>(self: &Arc<Self>, lifecycle: &Lifecycle, on_state: F) -> impl Future<Output = ()> + Send + 'static + use<F> {
-        let (late, mut state, mut hold) = (self.clone(), lifecycle.state(), lifecycle.hold_gate());
-        async move {
-            loop {
-                let read = *hold.borrow_and_update();
-                late.2.send_if_modified(|gate| std::mem::replace(gate, read) != read);
-                tokio::select! {
-                    moved = state.changed() => match moved {
-                        Ok(()) => on_state(state.borrow().clone()),
-                        Err(_) => break,
-                    },
-                    moved = hold.changed() => {
-                        if moved.is_err() {
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// The registry a connection is in on Node's side: the channel bridge's, the remote clients' (phone, remote desktop), or the
 /// session transport's.
-fn client_kind(kind: ConnectionKind) -> ClientKind {
+/// A desktop that arrives through the ssh tunnel is a remote client whatever it calls itself (1.4.5's ssh-attached desktop
+/// registered with `remote: true`, `session-transport.ts` attachSession): its leaving takes the long grace, not the local 10 s.
+/// Only the ssh tunnel: 1.4.5's relay peers were `externalClients`, never session clients with a grace of their own.
+fn client_kind(origin: Origin, kind: ConnectionKind) -> ClientKind {
     match kind {
         ConnectionKind::ChannelBridge => ClientKind::Channel,
         ConnectionKind::RemoteDesktop | ConnectionKind::Phone => ClientKind::Remote,
+        ConnectionKind::Desktop | ConnectionKind::Tui | ConnectionKind::Cli if origin == Origin::Ssh => ClientKind::Remote,
         ConnectionKind::Desktop | ConnectionKind::Tui | ConnectionKind::Cli => ClientKind::Session,
     }
 }
@@ -218,6 +134,50 @@ mod tests {
     use super::*;
     use crate::lifecycle::ClientKind;
     use crate::lifecycle::testing::fixture;
+
+    /// Two server windows are two counted ssh clients: closing one starts no idle shutdown, closing the last arms the remote grace, and a
+    /// client back inside it cancels the grace (virtual time).
+    #[test]
+    fn two_ssh_windows_hold_the_core_until_the_last_one_leaves_and_a_return_cancels_the_grace() {
+        use crate::lifecycle::ClientGrace;
+        use std::time::Duration;
+        let grace = ClientGrace { local: ClientGrace::NODE_LOCAL, remote: Some(ClientGrace::NODE_REMOTE) };
+        let timer = crate::lifecycle::testing::ManualTimer::new();
+        let fx = crate::lifecycle::testing::fixture_with_grace(grace, timer.clone());
+        fx.lifecycle.set_serving().unwrap();
+        let late = LateLifecycle::default();
+        late.bind(fx.lifecycle.clone()).unwrap();
+        late.client_opened(ConnectionId(1), Origin::Ssh, ConnectionKind::Desktop).unwrap();
+        late.client_opened(ConnectionId(2), Origin::Ssh, ConnectionKind::Desktop).unwrap();
+        late.client_closed(ConnectionId(1));
+        assert!(timer.armed().is_empty(), "one window left: no idle shutdown");
+        late.client_closed(ConnectionId(2));
+        assert_eq!(timer.armed(), [ClientGrace::NODE_REMOTE]);
+        late.client_opened(ConnectionId(3), Origin::Ssh, ConnectionKind::Desktop).unwrap();
+        timer.advance(ClientGrace::NODE_REMOTE + Duration::from_secs(1));
+        assert!(!fx.recorder.has_exited(), "a reconnect inside the window cancelled the pending shutdown");
+    }
+
+    /// A desktop attached through the ssh tunnel is a remote client: its leaving arms the long grace (1.4.5: `remote: true`); a
+    /// local one, or one that came through the relay, does not change what it was: the 10 s.
+    #[test]
+    fn a_desktop_that_came_through_the_ssh_tunnel_leaves_the_core_up_for_the_remote_grace() {
+        use crate::lifecycle::ClientGrace;
+        use std::time::Duration;
+        let grace = ClientGrace { local: ClientGrace::NODE_LOCAL, remote: Some(ClientGrace::NODE_REMOTE) };
+        for (origin, expected) in [(Origin::Ssh, ClientGrace::NODE_REMOTE), (Origin::Relay, ClientGrace::NODE_LOCAL), (Origin::Local, ClientGrace::NODE_LOCAL)] {
+            let timer = crate::lifecycle::testing::ManualTimer::new();
+            let fx = crate::lifecycle::testing::fixture_with_grace(grace, timer.clone());
+            fx.lifecycle.set_serving().unwrap();
+            let late = LateLifecycle::default();
+            late.bind(fx.lifecycle.clone()).unwrap();
+            late.client_opened(ConnectionId(1), origin, ConnectionKind::Desktop).unwrap();
+            late.client_closed(ConnectionId(1));
+            assert_eq!(timer.armed(), [expected], "{origin:?}");
+            timer.advance(expected - Duration::from_secs(1));
+            assert!(!fx.recorder.has_exited(), "{origin:?}: the core outlives its last client until the grace is over");
+        }
+    }
 
     #[test]
     fn a_call_in_flight_keeps_an_unattended_core_alive_and_the_last_one_ends_it_with_nodes_text() {
@@ -266,6 +226,11 @@ mod tests {
         fx.recorder.wait_exit();
     }
 
+    #[cfg(node_twin)]
+    fn released(events: &[String]) -> Vec<&str> {
+        events.iter().filter_map(|e| e.strip_prefix("release_started:")).collect()
+    }
+
     /// Waits for the sessions' copy of the hold to read `expected`.
     async fn reads(gate: &mut watch::Receiver<StartHold>, expected: StartHold) {
         mixdog_rt::time::timeout(std::time::Duration::from_secs(5), gate.wait_for(|hold| *hold == expected))
@@ -273,7 +238,6 @@ mod tests {
             .unwrap_or_else(|_| panic!("the copy of the hold never read {expected:?}"))
             .expect("the cell keeps its sender");
     }
-
     /// LR §5.1, as [`LateLifecycle::follow`] keeps it: the sessions' copy of the hold reads held while the lifecycle holds turn
     /// starts and open once it is released; the drain commit that drops a hold closes it with the drain's reason, so what it held
     /// is refused rather than started, and a cancelled drain opens it again, telling the core the state it is back in.
@@ -311,7 +275,6 @@ mod tests {
         drop(work);
         fx.recorder.wait_exit();
     }
-
     /// A hold released and a drain committed before the follower wakes again: the copy reads open, so the client prompts the
     /// release let go start and an in-core start that waited is admitted, rather than being refused as starts the commit held.
     #[tokio::test]
@@ -341,17 +304,15 @@ mod tests {
         fx.recorder.wait_exit();
     }
 
+
+    #[cfg(node_twin)]
     fn recorded(path: &str) -> serde_json::Value {
         let path = format!("{}/../../fixtures/{path}", env!("CARGO_MANIFEST_DIR"));
         #[allow(clippy::disallowed_methods, reason = "the recording is read at run time")]
         let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
         serde_json::from_str(&text).unwrap()
     }
-
-    fn released(events: &[String]) -> Vec<&str> {
-        events.iter().filter_map(|e| e.strip_prefix("release_started:")).collect()
-    }
-
+    #[cfg(node_twin)]
     /// `session-transport-state-lanes` case 428: an external client and an in-daemon one attach; the in-daemon one does not hold
     /// the daemon's lifetime, so the external one closing empties the clients. Each recorded step is compared whole as the core
     /// has it after the same calls the server makes at handshake and close (`ComposedCore::connection_opened` /
@@ -366,7 +327,7 @@ mod tests {
         let fx = fixture();
         fx.lifecycle.set_serving().unwrap();
         let late = LateLifecycle::default();
-        assert!(late.client_opened(ConnectionId(1), ConnectionKind::Desktop).is_err(), "not counted before the bind");
+        assert!(late.client_opened(ConnectionId(1), Origin::Local, ConnectionKind::Desktop).is_err(), "not counted before the bind");
         late.bind(fx.lifecycle.clone()).unwrap();
         let state = |late: &LateLifecycle, fx: &crate::lifecycle::testing::Fixture| {
             let empty = released(&fx.recorder.events()).contains(&"no live session clients");
@@ -379,14 +340,14 @@ mod tests {
             step
         };
         let steps = node["result"]["steps"].as_array().unwrap();
-        late.client_opened(ConnectionId(2), ConnectionKind::Desktop).unwrap();
+        late.client_opened(ConnectionId(2), Origin::Local, ConnectionKind::Desktop).unwrap();
         assert_eq!(state(&late, &fx), in_daemon(&steps[0]), "{}", steps[0]["step"]);
         late.client_closed(ConnectionId(2));
         fx.recorder.wait_exit();
         assert_eq!(state(&late, &fx), in_daemon(&steps[1]), "{}", steps[1]["step"]);
         assert_eq!(steps.len(), 2);
     }
-
+    #[cfg(node_twin)]
     /// Node's `POST /shutdown` with and without a client attached (`fixtures/self-shutdown-deferral`), with the clients attached
     /// through the connection entry the server calls (`client_opened` / `client_closed`): a request with a client is put off
     /// with the clients kept, and the stop that ends each case carries the text Node logged. Each case's outcome is compared
@@ -405,7 +366,7 @@ mod tests {
             late.bind(fx.lifecycle.clone()).unwrap();
             let clients = case["clients"].as_u64().unwrap();
             for n in 0..clients {
-                late.client_opened(ConnectionId(n), ConnectionKind::Desktop).unwrap();
+                late.client_opened(ConnectionId(n), Origin::Local, ConnectionKind::Desktop).unwrap();
             }
             let work = case["running"].is_string().then(|| fx.lifecycle.begin_activity(crate::lifecycle::ActivityInfo {
                 kind: crate::lifecycle::ActivityKind::Turn,
@@ -425,6 +386,96 @@ mod tests {
             let core = serde_json::json!({ "aliveAfter": alive, "clients": counted, "ended": released(&fx.recorder.events()) });
             let node = serde_json::json!({ "aliveAfter": case["aliveAfter"], "clients": case["clients"], "ended": [reason_of(ended)] });
             assert_eq!(core, node, "{name}");
+        }
+    }
+}
+
+
+impl LateLifecycle {
+    /// The cell of a composed core: running work begun before the bind is said in `log` ([`Self::begin_work`]).
+    pub fn logging(log: WorkLog) -> Self {
+        Self(Default::default(), Default::default(), Default::default(), Default::default(), Some(log))
+    }
+
+    /// The cancellation tokens of the running work registered here, by activity: the core port's `cancel_running` (a confirmed stop's
+    /// abort) cancels them.
+    pub fn cancels(&self) -> &Arc<CancelRegistry> {
+        &self.3
+    }
+
+    /// `info` is running work until the returned guard drops, and the core that stops when it ends says `settled` (Node's
+    /// self-shutdown text for that work: `BUSY_WORK_SETTLED`, `MEMORY_AGENT_ACTIVITY_CHANGED`). Before the bind (a startup bug: the
+    /// listener accepts only after it) it is not counted, which is said in the cell's log, the one place every consumer reports it.
+    pub fn begin_work(&self, info: ActivityInfo, settled: &'static str) -> Option<ActivityGuard> {
+        let Some(lifecycle) = self.0.get() else {
+            if let Some(log) = &self.4 {
+                log(&format!("running work ({:?}: {}) started before the lifecycle was bound; it is not counted", info.kind, info.title));
+            }
+            return None;
+        };
+        Some(lifecycle.begin_activity_settling(info, settled))
+    }
+
+    pub fn bind(&self, lifecycle: Arc<Lifecycle>) -> Result<(), &'static str> {
+        self.0.set(lifecycle).map_err(|_| "lifecycle")
+    }
+
+    /// The lifecycle of a core that serves no daemon (`mixdog exec` composes its core in its own process): it counts the calls in flight,
+    /// while nothing publishes, cancels, exits or withdraws on its behalf: the process ends when the exec does.
+    pub fn bind_in_process(&self) -> Result<(), &'static str> {
+        let ports = Ports { core: Arc::new(Inert), discovery: Arc::new(Inert), exiter: Arc::new(Inert) };
+        let config = LifecycleConfig { instance_id: new_instance_id(), version: env!("CARGO_PKG_VERSION").to_owned(), runtime_root: std::path::PathBuf::new() };
+        self.bind(Lifecycle::new(config, ports))
+    }
+
+    /// `None` before the bind: a startup bug (the listener accepts only after it), which each reader reports in its own words.
+    pub fn get(&self) -> Option<&Arc<Lifecycle>> {
+        self.0.get()
+    }
+
+    /// A client connection finished its handshake (`CoreHandle::connection_opened`): counted until [`Self::client_closed`].
+    pub fn client_opened(&self, connection: ConnectionId, origin: Origin, kind: ConnectionKind) -> Result<(), &'static str> {
+        let lifecycle = self.0.get().ok_or("a connection opened before the lifecycle was bound; it is not counted")?;
+        let guard = lifecycle.connection(client_kind(origin, kind));
+        self.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(connection, guard);
+        Ok(())
+    }
+
+    /// The connection closed (`CoreHandle::connection_closed`); the last one to leave lets the core stop itself.
+    pub fn client_closed(&self, connection: ConnectionId) {
+        let guard = self.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&connection);
+        drop(guard);
+    }
+
+    /// The hold on turn starts the sessions follow (`Lifecycle::hold_gate`, LR §5.1). The sessions are built before the lifecycle,
+    /// so they read this copy, which [`Self::follow`] keeps at the lifecycle's hold; it reads [`StartHold::Open`] until then, and
+    /// for good in a core that serves no daemon.
+    pub fn start_hold(&self) -> watch::Receiver<StartHold> {
+        self.2.subscribe()
+    }
+
+    /// Follows `lifecycle` (`serving::attach` spawns it): `on_state` hears each move of its state, which the composed core answers
+    /// admission from, and the sessions' copy of the hold is kept at the lifecycle's (`Lifecycle::hold_gate`: closed once the drain
+    /// commit dropped a hold, open again when that drain is cancelled), whose latest reading is the whole of it. Subscribed when
+    /// called, so a move made before the future first runs is not missed.
+    pub fn follow<F: Fn(CoreState) + Send + 'static>(self: &Arc<Self>, lifecycle: &Lifecycle, on_state: F) -> impl Future<Output = ()> + Send + 'static + use<F> {
+        let (late, mut state, mut hold) = (self.clone(), lifecycle.state(), lifecycle.hold_gate());
+        async move {
+            loop {
+                let read = *hold.borrow_and_update();
+                late.2.send_if_modified(|gate| std::mem::replace(gate, read) != read);
+                tokio::select! {
+                    moved = state.changed() => match moved {
+                        Ok(()) => on_state(state.borrow().clone()),
+                        Err(_) => break,
+                    },
+                    moved = hold.changed() => {
+                        if moved.is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
         }
     }
 }

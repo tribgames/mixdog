@@ -72,10 +72,6 @@ impl Log {
         self.push(json!({"obj": id, "kind": "get", "member": member, "flags": 3, "args": args, "result": result}));
     }
 
-    fn call(&mut self, id: u64, member: &str, args: Vec<Json>, result: Json) {
-        self.push(json!({"obj": id, "kind": "call", "member": member, "flags": 3, "args": args, "result": result}));
-    }
-
     fn next(&mut self, id: u64, result: Json) {
         self.push(json!({"obj": id, "kind": "enum-next", "member": "", "flags": 0, "args": [], "result": result}));
     }
@@ -696,6 +692,7 @@ fn replay_segment(kind: &str, calls: &[Json], request: &Json, expected: &Json, l
         assert!(CLEAN_UP_MEMBERS.contains(&member), "{label}: the reader stopped before the recorded call {call}");
     }
 }
+
 
 #[test]
 fn recorded_scenarios_are_replayed() {

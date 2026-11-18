@@ -34,35 +34,6 @@ const MAX_REPLY_BYTES: usize = 1024 * 1024;
 /// How often a server that keeps answering `334` to an empty line is asked again.
 const MAX_AUTH_CONTINUATIONS: usize = 8;
 
-/// The server and the credentials; the timeout is applied to the four timeouts of `createTransport`.
-#[derive(Clone)]
-pub struct MailConfig {
-    pub host: String,
-    pub port: u16,
-    pub user: String,
-    pub pass: String,
-    pub timeout: Duration,
-    /// Implicit TLS: the connection is encrypted from its first byte. Otherwise the session starts in plain text and
-    /// STARTTLS is required. `new` sets it for port 465 only (`secure: config.port === 465`); the field is public so a
-    /// test can run both ways on an ephemeral port.
-    pub secure: bool,
-}
-
-impl MailConfig {
-    /// `FEEDBACK_DEFAULTS.smtpTimeoutMs`.
-    pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
-
-    pub fn new(host: impl Into<String>, port: u16, user: impl Into<String>, pass: impl Into<String>) -> Self {
-        Self { host: host.into(), port, user: user.into(), pass: pass.into(), timeout: Self::DEFAULT_TIMEOUT, secure: port == 465 }
-    }
-}
-
-impl fmt::Debug for MailConfig {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MailConfig").field("host", &self.host).field("port", &self.port).field("user", &self.user).field("pass", &"<redacted>").field("timeout", &self.timeout).field("secure", &self.secure).finish()
-    }
-}
-
 /// nodemailer's `error.code` vocabulary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MailCode {
@@ -139,22 +110,6 @@ impl fmt::Display for MailError {
     }
 }
 
-impl std::error::Error for MailError {}
-
-/// `transport.sendMail(message)` with the relay's transport options.
-pub async fn send(config: &MailConfig, message: &Message) -> Result<(), MailError> {
-    static TLS: OnceLock<Result<Arc<rustls::ClientConfig>, String>> = OnceLock::new();
-    let tls = TLS.get_or_init(|| tls_config(&[])).clone().map_err(|error| MailError::new(MailCode::Socket, error))?;
-    run(config, message, tls).await
-}
-
-/// [`send`] trusting the given DER certificates besides the webpki roots: the fake servers of the tests.
-#[cfg(any(test, feature = "test-support"))]
-pub async fn send_trusting(config: &MailConfig, message: &Message, roots: &[Vec<u8>]) -> Result<(), MailError> {
-    let tls = tls_config(roots).map_err(|error| MailError::new(MailCode::Socket, error))?;
-    run(config, message, tls).await
-}
-
 fn tls_config(extra_roots: &[Vec<u8>]) -> Result<Arc<rustls::ClientConfig>, String> {
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -172,107 +127,6 @@ fn tls_config(extra_roots: &[Vec<u8>]) -> Result<Arc<rustls::ClientConfig>, Stri
 
 trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
-
-async fn run(config: &MailConfig, message: &Message, tls: Arc<rustls::ClientConfig>) -> Result<(), MailError> {
-    let built = mime::build(message);
-    let deadline = Instant::now() + config.timeout;
-    let name = ServerName::try_from(config.host.clone()).map_err(|_| MailError::new(MailCode::Dns, format!("Invalid host name {}", config.host)))?;
-    let connector = TlsConnector::from(tls);
-    let secure = config.secure;
-
-    let tcp = connect_tcp(config, deadline).await?;
-    let io: Box<dyn Io> = if secure {
-        match timeout_at(deadline, connector.connect(name.clone(), tcp)).await {
-            Ok(Ok(stream)) => Box::new(stream),
-            Ok(Err(error)) => return Err(MailError { command: Some("CONN"), ..MailError::new(MailCode::Socket, error.to_string()) }),
-            Err(_) => return Err(MailError::timed_out("Connection timeout")),
-        }
-    } else {
-        Box::new(tcp)
-    };
-    let mut session = Session { io: Some(io), buffer: Vec::new(), lines: Vec::new(), idle: config.timeout, secure, upgrading: false, connector, name, deadline, timeout: config.timeout };
-
-    let greeting = session.reply(Some((session.setup_deadline(), "Greeting never received"))).await?;
-    if !greeting.starts_with("220") {
-        return Err(MailError::failed(MailCode::Protocol, &format!("Invalid greeting. response={greeting}"), &greeting, "CONN"));
-    }
-    let capabilities = session.hello(&hello_name(), !secure).await?;
-    if capabilities.allows_auth {
-        session.login(&capabilities, &config.user, &config.pass).await?;
-    }
-    session.transact(&built, &capabilities).await?;
-    // nodemailer closes the socket; the server is told so with QUIT, best effort.
-    let _ = timeout(Duration::from_millis(500), session.command("QUIT")).await;
-    Ok(())
-}
-
-/// `_getHostname()`: the machine name when it is fully qualified, otherwise `[127.0.0.1]`.
-fn hello_name() -> String {
-    #[cfg(unix)]
-    let host = {
-        let mut buffer = [0u8; 256];
-        // SAFETY: the buffer is valid for its length; the name is truncated, not overrun.
-        let status = unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) };
-        let end = buffer.iter().position(|&b| b == 0).unwrap_or(buffer.len());
-        if status == 0 { String::from_utf8_lossy(&buffer[..end]).into_owned() } else { String::new() }
-    };
-    #[cfg(windows)]
-    let host = std::env::var("COMPUTERNAME").unwrap_or_default();
-    if !host.contains('.') {
-        return "[127.0.0.1]".to_owned();
-    }
-    let parts: Vec<&str> = host.split('.').collect();
-    let is_ipv4 = parts.len() == 4 && parts.iter().all(|p| (1..=3).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit()));
-    if is_ipv4 { format!("[{host}]") } else { host }
-}
-
-/// The DNS lookup and the addresses in turn, all inside the connection deadline. nodemailer picks one address at random
-/// and falls back to the others when it fails, each attempt with a full connection timeout; here every address is still
-/// tried, but within the one deadline: the IPv6 addresses first, each family shuffled; a family that is the only one
-/// gets its share of what is left, a mixed list moves on after a quarter of a second so a dead IPv6 path costs little.
-async fn connect_tcp(config: &MailConfig, deadline: Instant) -> Result<TcpStream, MailError> {
-    let dns_limit = config.timeout.min(deadline.saturating_duration_since(Instant::now()));
-    let resolved = match timeout(dns_limit, lookup_host((config.host.as_str(), config.port))).await {
-        Ok(Ok(addresses)) => addresses.collect::<Vec<SocketAddr>>(),
-        Ok(Err(error)) => return Err(MailError { command: Some("CONN"), ..MailError::new(MailCode::Dns, error.to_string()) }),
-        Err(_) => return Err(MailError { command: Some("CONN"), ..MailError::new(MailCode::Dns, "DNS lookup timed out") }),
-    };
-    let (mut v6, mut v4): (Vec<SocketAddr>, Vec<SocketAddr>) = resolved.into_iter().partition(SocketAddr::is_ipv6);
-    if v6.is_empty() && v4.is_empty() {
-        return Err(MailError { command: Some("CONN"), ..MailError::new(MailCode::Dns, format!("No address found for {}", config.host)) });
-    }
-    let mixed = !v6.is_empty() && !v4.is_empty();
-    v6.shuffle(&mut rand::rng());
-    v4.shuffle(&mut rand::rng());
-    let ordered: Vec<SocketAddr> = v6.into_iter().chain(v4).collect();
-    let total = ordered.len();
-    let mut last: Option<io::Error> = None;
-    for (index, address) in ordered.into_iter().enumerate() {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            break;
-        }
-        let attempt = if index + 1 == total {
-            remaining
-        } else if mixed {
-            Duration::from_millis(250).min(remaining)
-        } else {
-            (remaining / (total - index) as u32).max(Duration::from_millis(10)).min(remaining)
-        };
-        match timeout(attempt, TcpStream::connect(address)).await {
-            Ok(Ok(stream)) => {
-                let _ = stream.set_nodelay(true);
-                return Ok(stream);
-            }
-            Ok(Err(error)) => last = Some(error),
-            Err(_) => last = None,
-        }
-    }
-    Err(match last {
-        Some(error) => MailError { command: Some("CONN"), ..MailError::new(MailCode::Socket, error.to_string()) },
-        None => MailError::timed_out("Connection timeout"),
-    })
-}
 
 /// What the final EHLO reply said.
 #[derive(Debug, Default)]
@@ -577,41 +431,6 @@ struct Envelope {
     rejected: Vec<MailError>,
 }
 
-impl Envelope {
-    fn mail(&mut self, reply: &str) {
-        if !reply.starts_with('2') {
-            let message = if self.utf8 && reply.starts_with("550 ") && self.from_non_ascii { "Internationalized mailbox name not allowed" } else { "Mail command failed" };
-            self.mail_error = Some(MailError::failed(MailCode::Envelope, message, reply, "MAIL FROM"));
-        }
-    }
-
-    fn recipient(&mut self, to: &str, reply: &str) {
-        if reply.starts_with('2') {
-            self.accepted += 1;
-        } else {
-            let message = if self.utf8 && reply.starts_with("553 ") && to.chars().any(|c| c as u32 >= 0x80) { "Internationalized mailbox name not allowed" } else { "Recipient command failed" };
-            self.rejected.push(MailError::failed(MailCode::Envelope, message, reply, "RCPT TO"));
-        }
-    }
-
-    /// `_envelopeError`: how the envelope went once every reply is in; `None` when DATA can go ahead.
-    fn error(&self, reply: &str, pipelined: bool) -> Option<MailError> {
-        if let Some(error) = &self.mail_error {
-            return Some(error.clone());
-        }
-        if self.accepted > 0 {
-            return None;
-        }
-        // A temporary rejection is reported when there is one: the last reply would mark the whole message as permanently failed.
-        let deferred = self.rejected.iter().find(|e| e.response_code.is_some_and(|code| code < 500));
-        let response = deferred
-            .and_then(|e| e.response.as_deref())
-            .or(if pipelined { self.rejected.last().and_then(|e| e.response.as_deref()) } else { None })
-            .unwrap_or(reply);
-        Some(MailError::failed(MailCode::Envelope, "Can't send mail - all recipients were rejected", response, "RCPT TO"))
-    }
-}
-
 fn quote(text: &str) -> String {
     js::wire(&Value::String(text.to_owned()))
 }
@@ -754,9 +573,183 @@ mod tests {
         assert_eq!(error.message, "Invalid login: 535 5.7.8 bad credentials");
     }
 
+
     #[test]
     fn the_hello_name_is_a_fully_qualified_name_or_the_loopback_literal() {
         let name = hello_name();
         assert!(name == "[127.0.0.1]" || name.contains('.') || name.starts_with('['), "{name}");
+    }
+}
+
+
+/// The server and the credentials; the timeout is applied to the four timeouts of `createTransport`.
+#[derive(Clone)]
+pub struct MailConfig {
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub pass: String,
+    pub timeout: Duration,
+    /// Implicit TLS: the connection is encrypted from its first byte. Otherwise the session starts in plain text and
+    /// STARTTLS is required. `new` sets it for port 465 only (`secure: config.port === 465`); the field is public so a
+    /// test can run both ways on an ephemeral port.
+    pub secure: bool,
+}
+impl MailConfig {
+    /// `FEEDBACK_DEFAULTS.smtpTimeoutMs`.
+    pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
+
+    pub fn new(host: impl Into<String>, port: u16, user: impl Into<String>, pass: impl Into<String>) -> Self {
+        Self { host: host.into(), port, user: user.into(), pass: pass.into(), timeout: Self::DEFAULT_TIMEOUT, secure: port == 465 }
+    }
+}
+impl fmt::Debug for MailConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MailConfig").field("host", &self.host).field("port", &self.port).field("user", &self.user).field("pass", &"<redacted>").field("timeout", &self.timeout).field("secure", &self.secure).finish()
+    }
+}
+impl std::error::Error for MailError {}
+/// `transport.sendMail(message)` with the relay's transport options.
+pub async fn send(config: &MailConfig, message: &Message) -> Result<(), MailError> {
+    static TLS: OnceLock<Result<Arc<rustls::ClientConfig>, String>> = OnceLock::new();
+    let tls = TLS.get_or_init(|| tls_config(&[])).clone().map_err(|error| MailError::new(MailCode::Socket, error))?;
+    run(config, message, tls).await
+}
+/// [`send`] trusting the given DER certificates besides the webpki roots: the fake servers of the tests.
+#[cfg(any(test, feature = "test-support"))]
+pub async fn send_trusting(config: &MailConfig, message: &Message, roots: &[Vec<u8>]) -> Result<(), MailError> {
+    let tls = tls_config(roots).map_err(|error| MailError::new(MailCode::Socket, error))?;
+    run(config, message, tls).await
+}
+async fn run(config: &MailConfig, message: &Message, tls: Arc<rustls::ClientConfig>) -> Result<(), MailError> {
+    let built = mime::build(message);
+    let deadline = Instant::now() + config.timeout;
+    let name = ServerName::try_from(config.host.clone()).map_err(|_| MailError::new(MailCode::Dns, format!("Invalid host name {}", config.host)))?;
+    let connector = TlsConnector::from(tls);
+    let secure = config.secure;
+
+    let tcp = connect_tcp(config, deadline).await?;
+    let io: Box<dyn Io> = if secure {
+        match timeout_at(deadline, connector.connect(name.clone(), tcp)).await {
+            Ok(Ok(stream)) => Box::new(stream),
+            Ok(Err(error)) => return Err(MailError { command: Some("CONN"), ..MailError::new(MailCode::Socket, error.to_string()) }),
+            Err(_) => return Err(MailError::timed_out("Connection timeout")),
+        }
+    } else {
+        Box::new(tcp)
+    };
+    let mut session = Session { io: Some(io), buffer: Vec::new(), lines: Vec::new(), idle: config.timeout, secure, upgrading: false, connector, name, deadline, timeout: config.timeout };
+
+    let greeting = session.reply(Some((session.setup_deadline(), "Greeting never received"))).await?;
+    if !greeting.starts_with("220") {
+        return Err(MailError::failed(MailCode::Protocol, &format!("Invalid greeting. response={greeting}"), &greeting, "CONN"));
+    }
+    let capabilities = session.hello(&hello_name(), !secure).await?;
+    if capabilities.allows_auth {
+        session.login(&capabilities, &config.user, &config.pass).await?;
+    }
+    session.transact(&built, &capabilities).await?;
+    // nodemailer closes the socket; the server is told so with QUIT, best effort.
+    let _ = timeout(Duration::from_millis(500), session.command("QUIT")).await;
+    Ok(())
+}
+/// `_getHostname()`: the machine name when it is fully qualified, otherwise `[127.0.0.1]`.
+fn hello_name() -> String {
+    #[cfg(unix)]
+    let host = {
+        let mut buffer = [0u8; 256];
+        // SAFETY: the buffer is valid for its length; the name is truncated, not overrun.
+        let status = unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) };
+        let end = buffer.iter().position(|&b| b == 0).unwrap_or(buffer.len());
+        if status == 0 { String::from_utf8_lossy(&buffer[..end]).into_owned() } else { String::new() }
+    };
+    #[cfg(windows)]
+    let host = std::env::var("COMPUTERNAME").unwrap_or_default();
+    if !host.contains('.') {
+        return "[127.0.0.1]".to_owned();
+    }
+    let parts: Vec<&str> = host.split('.').collect();
+    let is_ipv4 = parts.len() == 4 && parts.iter().all(|p| (1..=3).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit()));
+    if is_ipv4 { format!("[{host}]") } else { host }
+}
+/// The DNS lookup and the addresses in turn, all inside the connection deadline. nodemailer picks one address at random
+/// and falls back to the others when it fails, each attempt with a full connection timeout; here every address is still
+/// tried, but within the one deadline: the IPv6 addresses first, each family shuffled; a family that is the only one
+/// gets its share of what is left, a mixed list moves on after a quarter of a second so a dead IPv6 path costs little.
+async fn connect_tcp(config: &MailConfig, deadline: Instant) -> Result<TcpStream, MailError> {
+    let dns_limit = config.timeout.min(deadline.saturating_duration_since(Instant::now()));
+    let resolved = match timeout(dns_limit, lookup_host((config.host.as_str(), config.port))).await {
+        Ok(Ok(addresses)) => addresses.collect::<Vec<SocketAddr>>(),
+        Ok(Err(error)) => return Err(MailError { command: Some("CONN"), ..MailError::new(MailCode::Dns, error.to_string()) }),
+        Err(_) => return Err(MailError { command: Some("CONN"), ..MailError::new(MailCode::Dns, "DNS lookup timed out") }),
+    };
+    let (mut v6, mut v4): (Vec<SocketAddr>, Vec<SocketAddr>) = resolved.into_iter().partition(SocketAddr::is_ipv6);
+    if v6.is_empty() && v4.is_empty() {
+        return Err(MailError { command: Some("CONN"), ..MailError::new(MailCode::Dns, format!("No address found for {}", config.host)) });
+    }
+    let mixed = !v6.is_empty() && !v4.is_empty();
+    v6.shuffle(&mut rand::rng());
+    v4.shuffle(&mut rand::rng());
+    let ordered: Vec<SocketAddr> = v6.into_iter().chain(v4).collect();
+    let total = ordered.len();
+    let mut last: Option<io::Error> = None;
+    for (index, address) in ordered.into_iter().enumerate() {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        let attempt = if index + 1 == total {
+            remaining
+        } else if mixed {
+            Duration::from_millis(250).min(remaining)
+        } else {
+            (remaining / (total - index) as u32).max(Duration::from_millis(10)).min(remaining)
+        };
+        match timeout(attempt, TcpStream::connect(address)).await {
+            Ok(Ok(stream)) => {
+                let _ = stream.set_nodelay(true);
+                return Ok(stream);
+            }
+            Ok(Err(error)) => last = Some(error),
+            Err(_) => last = None,
+        }
+    }
+    Err(match last {
+        Some(error) => MailError { command: Some("CONN"), ..MailError::new(MailCode::Socket, error.to_string()) },
+        None => MailError::timed_out("Connection timeout"),
+    })
+}
+impl Envelope {
+    fn mail(&mut self, reply: &str) {
+        if !reply.starts_with('2') {
+            let message = if self.utf8 && reply.starts_with("550 ") && self.from_non_ascii { "Internationalized mailbox name not allowed" } else { "Mail command failed" };
+            self.mail_error = Some(MailError::failed(MailCode::Envelope, message, reply, "MAIL FROM"));
+        }
+    }
+
+    fn recipient(&mut self, to: &str, reply: &str) {
+        if reply.starts_with('2') {
+            self.accepted += 1;
+        } else {
+            let message = if self.utf8 && reply.starts_with("553 ") && to.chars().any(|c| c as u32 >= 0x80) { "Internationalized mailbox name not allowed" } else { "Recipient command failed" };
+            self.rejected.push(MailError::failed(MailCode::Envelope, message, reply, "RCPT TO"));
+        }
+    }
+
+    /// `_envelopeError`: how the envelope went once every reply is in; `None` when DATA can go ahead.
+    fn error(&self, reply: &str, pipelined: bool) -> Option<MailError> {
+        if let Some(error) = &self.mail_error {
+            return Some(error.clone());
+        }
+        if self.accepted > 0 {
+            return None;
+        }
+        // A temporary rejection is reported when there is one: the last reply would mark the whole message as permanently failed.
+        let deferred = self.rejected.iter().find(|e| e.response_code.is_some_and(|code| code < 500));
+        let response = deferred
+            .and_then(|e| e.response.as_deref())
+            .or(if pipelined { self.rejected.last().and_then(|e| e.response.as_deref()) } else { None })
+            .unwrap_or(reply);
+        Some(MailError::failed(MailCode::Envelope, "Can't send mail - all recipients were rejected", response, "RCPT TO"))
     }
 }

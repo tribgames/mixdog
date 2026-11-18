@@ -6,8 +6,8 @@
 //! success, failure and cancellation.
 //!
 //! The chain stops on a miss, a failure, a late timer, a turn in flight, a new real request, a
-//! compaction, a clear, a close or a delete; the idle auto-clear then runs from the last real or
-//! successful warm use (the [`WarmLedger`] mirrors the touch store's warm uses for it).
+//! compaction, a clear, a close or a delete. Whether a warm may go out, and what it proved, is the
+//! session's cache book's (`crate::cache_tail`), asked by the provider at the warm's dispatch.
 //!
 //! The process supplies [`WarmDeps`]; time and timers are seams so a chain can be driven on a
 //! fake clock.
@@ -21,12 +21,11 @@ use tokio_util::sync::CancellationToken;
 
 use super::plan::{
     CacheStrategy, Gap, LEAD_MS, Plan, PlanInput, Prices, TurnKind, entry_lapsed, plan_cache_warm, warm_delay_ms, warm_rewrote,
-    written_cache_ttl_ms,
 };
 use super::stores::{GapStore, Touch, TouchStore};
 use super::stream::{WarmFailure, WarmUsage};
 use crate::accounts::ACCOUNT_PROVIDERS;
-use crate::registry::warm::{WarmLedger, WarmUse};
+use crate::registry::warm::WarmUse;
 use crate::service::routes::provider_tail_cache_lifetime_ms;
 
 /// The request a warm replays (`side-question-store.mjs` snapshot) and the facts the warmer reads
@@ -107,7 +106,8 @@ pub struct ArmResponse {
     pub input: f64,
     pub cached: f64,
     pub cache_write: f64,
-    pub cache_write_1h: f64,
+    /// The lifetime of the tail entry the session's cache book proved for this send; `None` when nothing proved one.
+    pub tail_ttl_ms: Option<f64>,
     /// The usage's own prompt size, when it reports one.
     pub prompt_tokens: Option<f64>,
     /// `providerMetadata.accountRouting.accountId`.
@@ -241,18 +241,13 @@ pub struct Warmer {
     deps: Arc<dyn WarmDeps>,
     touches: Arc<TouchStore>,
     gaps: Arc<GapStore>,
-    ledger: WarmLedger,
     state: Mutex<State>,
 }
 
 impl Warmer {
-    /// The warmer over `deps` and the two stores; `ledger` mirrors the touch store's warm uses for
-    /// the idle auto-clear and is seeded from them.
-    pub fn new(deps: Arc<dyn WarmDeps>, touches: Arc<TouchStore>, gaps: Arc<GapStore>, ledger: WarmLedger) -> Arc<Self> {
-        for (id, warm) in touches.warm_uses() {
-            ledger.record(&id, warm);
-        }
-        Arc::new(Self { deps, touches, gaps, ledger, state: Mutex::new(State::default()) })
+    /// The warmer over `deps` and the two stores.
+    pub fn new(deps: Arc<dyn WarmDeps>, touches: Arc<TouchStore>, gaps: Arc<GapStore>) -> Arc<Self> {
+        Arc::new(Self { deps, touches, gaps, state: Mutex::new(State::default()) })
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -288,13 +283,11 @@ impl Warmer {
     }
 
     fn record_use(&self, session_id: &str, warm: WarmUse) {
-        self.touches.record_warm_use(session_id, warm.clone());
-        self.ledger.record(session_id, warm);
+        self.touches.record_warm_use(session_id, warm);
     }
 
     fn forget_use(&self, session_id: &str) {
         self.touches.forget_warm_use(session_id);
-        self.ledger.forget(session_id);
     }
 
     /// A session deleted for good drops everything it learned and touched.
@@ -426,18 +419,6 @@ impl Warmer {
         }
     }
 
-    /// The session's cached prefix is gone (compaction, clear, rewind): the chain, its durable
-    /// touch and its warm use go.
-    pub fn forget(&self, session_id: &str) {
-        self.cancel(session_id);
-        if session_id.is_empty() {
-            return;
-        }
-        self.state().missed.remove(session_id);
-        self.touches.forget(session_id);
-        self.forget_use(session_id);
-    }
-
     fn record_touch(&self, session_id: &str, chain: &Chain) {
         let c = chain.inner();
         self.touches.record(
@@ -538,7 +519,7 @@ impl Warmer {
             return;
         }
         let touch_at = request.sent_at();
-        let ttl_ms = written_cache_ttl_ms(response.cache_write, response.cache_write_1h, request.cache_strategy().as_ref());
+        let ttl_ms = response.tail_ttl_ms.unwrap_or(0.0);
         let prompt_tokens = response.prompt_tokens.unwrap_or(response.input + response.cached + response.cache_write);
         if touch_at.is_nan() || touch_at <= 0.0 || ttl_ms == 0.0 || prompt_tokens.is_nan() || prompt_tokens <= 0.0 {
             self.touches.forget(session_id);

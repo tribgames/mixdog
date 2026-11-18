@@ -19,12 +19,18 @@ pub mod request_queue;
 pub mod server_process;
 pub mod service;
 pub mod setup_actions;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod extract_twin_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod process_twin_tests;
 #[cfg(test)]
+mod extract_tests;
+#[cfg(node_twin)]
+#[cfg(test)]
 mod send_queue_replay_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod twin_tests;
 

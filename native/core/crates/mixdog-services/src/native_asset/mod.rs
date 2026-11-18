@@ -115,6 +115,7 @@ pub struct GraphBinary {
     platforms: Vec<String>,
 }
 
+
 impl GraphBinary {
     /// `manifest` is [`bundled_manifest`] in the product.
     pub fn new(data_dir: PathBuf, manifest: Value, durability: DurabilityIo, bulk: CpuBulk, downloader: Arc<dyn AssetDownloader>, now: NowMs) -> Self {

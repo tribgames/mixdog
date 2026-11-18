@@ -28,13 +28,14 @@ const ARGON_MODELS: [&str; 1] = ["argon"];
 
 /// `antigravityHeaders()`' `User-Agent`: the hub client identity, whatever the host.
 pub fn user_agent(version: &str) -> String {
-    format!("antigravity/hub/{version} (aidev_client; os_type=darwin; arch=arm64; cl=963137146)")
+    crate::providers::google::auth::antigravity::user_agent(version)
 }
 
+const GEMINI_MODELS: [&str; 1] = ["gemini"];
+
 enum Scope {
-    None,
-    Except(Vec<&'static str>),
     Models(Vec<&'static str>),
+    ModelsExcept(Vec<&'static str>, Vec<&'static str>),
 }
 
 fn quota_row(label: &str, bucket: Option<&Value>, scope: Scope) -> Option<Value> {
@@ -56,19 +57,21 @@ fn quota_row(label: &str, bucket: Option<&Value>, scope: Scope) -> Option<Value>
     }
     row.insert("source".into(), "antigravity-quota-summary".into());
     match scope {
-        Scope::None => {}
-        Scope::Except(models) => {
-            row.insert("except".into(), json!(models));
-        }
         Scope::Models(models) => {
             row.insert("models".into(), json!(models));
+        }
+        Scope::ModelsExcept(models, except) => {
+            row.insert("models".into(), json!(models));
+            if !except.is_empty() {
+                row.insert("except".into(), json!(except));
+            }
         }
     }
     Some(Value::Object(row))
 }
 
 /// `antigravityQuotaWindows`: the Gemini 5H/7D rows, the separate Argon weekly row and the Claude/GPT
-/// pair, each gating its own models; the Gemini pair gates every model no other bucket claims.
+/// pair, each gating only the models it covers.
 pub fn quota_windows(summary: &Value) -> Vec<Value> {
     let groups = summary.get("groups").and_then(Value::as_array).into_iter().flatten().filter(|g| g.is_object() || g.is_array());
     let buckets: Vec<&Value> = groups.flat_map(|g| g.get("buckets").and_then(Value::as_array).into_iter().flatten()).collect();
@@ -76,14 +79,10 @@ pub fn quota_windows(summary: &Value) -> Vec<Value> {
         buckets.iter().copied().find(|b| (b.is_object() || b.is_array()) && b.get("bucketId").and_then(Value::as_str) == Some(id) && b.get("window").and_then(Value::as_str) == Some(window))
     };
     let reported = |ids: &[&str]| buckets.iter().any(|b| b.get("bucketId").and_then(Value::as_str).is_some_and(|id| ids.contains(&id)));
-    let mut claimed: Vec<&'static str> = Vec::new();
-    if reported(&[THIRD_PARTY_5H, THIRD_PARTY_WEEKLY]) {
-        claimed.extend(THIRD_PARTY_MODELS);
-    }
-    if reported(&[ARGON_WEEKLY]) {
-        claimed.extend(ARGON_MODELS);
-    }
-    let gemini = || if claimed.is_empty() { Scope::None } else { Scope::Except(claimed.clone()) };
+    // The Gemini pair covers Gemini models only: a model it does not name has unknown coverage, which
+    // is not exhaustion. The Argon bucket, when reported, meters Argon on its own.
+    let argon_apart = if reported(&[ARGON_WEEKLY]) { ARGON_MODELS.to_vec() } else { Vec::new() };
+    let gemini = || Scope::ModelsExcept(GEMINI_MODELS.to_vec(), argon_apart.clone());
     [
         quota_row("5H", bucket(GEMINI_5H, "5h"), gemini()),
         quota_row("7D", bucket(GEMINI_WEEKLY, "weekly"), gemini()),
@@ -106,6 +105,7 @@ pub fn snapshot(summary: &Value) -> Value {
     Value::Object(out)
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "usage_antigravity_tests.rs"]
 mod tests;

@@ -5,6 +5,7 @@
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use arc_swap::ArcSwap;
 use mixdog_js::JsRegex;
@@ -23,6 +24,7 @@ use crate::skills::SkillSource;
 use crate::skills::collect_skills;
 use crate::skills::parse_document;
 use crate::skills_watch::SkillsWatch;
+use crate::skills_watch::WatchTargets;
 
 /// The skill roots, in precedence order (global, plugins, bundled).
 ///
@@ -70,12 +72,6 @@ pub enum CatalogError {
     Read(std::io::Error),
 }
 
-/// `MIXDOG_DISABLE_SKILLS`:`1`, `true`, `on` or `yes`.
-pub fn skills_disabled_by_env() -> bool {
-    let value = std::env::var("MIXDOG_DISABLE_SKILLS").unwrap_or_default().to_ascii_lowercase();
-    matches!(value.as_str(), "1" | "true" | "on" | "yes")
-}
-
 /// The directory a skill runs from: a packaged desktop runtime reads built-in skills from
 /// inside `runtime.asar`, which only Electron can open, so the build ships them as real files
 /// beside the archive under `runtime.asar.unpacked`.
@@ -106,8 +102,42 @@ pub struct SkillCatalog {
     settings: Arc<dyn SkillSettingsSource>,
     changes: watch::Receiver<u64>,
     cache: ArcSwap<Option<Cached>>,
+    /// What the watcher watches, re-registered with every collection (set once at composition).
+    watching: OnceLock<(Arc<SkillsWatch>, SkillWatchTargets)>,
 }
 
+/// The directories the skill list depends on, evaluated on the maintenance lane.
+pub type SkillWatchTargets = Arc<dyn Fn(&mixdog_rt::InLane<MaintenanceIo>) -> WatchTargets + Send + Sync>;
+
+fn read_text(_lane: &mixdog_rt::InLane<MaintenanceIo>, path: &Path) -> std::io::Result<Option<String>> {
+    mixdog_statefile::read_content(path)?
+        .map(|bytes| String::from_utf8(bytes).map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error)))
+        .transpose()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtin_skills_in_the_archive_run_from_the_unpacked_copy() {
+        let dir = Path::new("/app/resources/runtime.asar/src/skills/demo");
+        assert_eq!(skill_execution_dir(dir, SkillSource::Builtin), "/app/resources/runtime.asar.unpacked/src/skills/demo");
+        assert_eq!(skill_execution_dir(dir, SkillSource::Global), dir.to_string_lossy());
+        let plain = Path::new("/app/runtime.asarx/demo");
+        assert_eq!(skill_execution_dir(plain, SkillSource::Builtin), plain.to_string_lossy());
+    }
+}
+
+
+/// `MIXDOG_DISABLE_SKILLS`:`1`, `true`, `on` or `yes`.
+pub fn skills_disabled_by_env() -> bool {
+    std::env::var("MIXDOG_DISABLE_SKILLS").is_ok_and(|value| skills_disabled(&value))
+}
+
+pub fn skills_disabled(value: &str) -> bool {
+    ["1", "true", "on", "yes"].iter().any(|flag| value.eq_ignore_ascii_case(flag))
+}
 impl SkillCatalog {
     pub fn new(
         data_dir: PathBuf,
@@ -123,7 +153,15 @@ impl SkillCatalog {
             settings,
             changes: watch.subscribe(),
             cache: ArcSwap::from_pointee(None),
+            watching: OnceLock::new(),
         })
+    }
+
+    /// Has `watch` follow the skill and plugin roots: each collection registers `targets` on it first,
+    /// so a change after the scan is never missed, and a root created later is seen through its
+    /// nearest existing ancestor and picked up by the collection that change causes.
+    pub fn watch_roots(&self, watch: Arc<SkillsWatch>, targets: SkillWatchTargets) {
+        let _ = self.watching.set((watch, targets));
     }
 
     /// Drops the list so the next read collects it again (every write the app makes itself).
@@ -138,15 +176,30 @@ impl SkillCatalog {
             return Ok(Arc::new(Vec::new()));
         }
         let generation = *self.changes.borrow();
-        if let Some(cached) = &**self.cache.load()
+        let before = self.cache.load_full();
+        if let Some(cached) = before.as_ref()
             && cached.generation == generation
         {
             return Ok(Arc::clone(&cached.skills));
         }
         let (data_dir, roots) = (self.data_dir.clone(), Arc::clone(&self.roots));
-        let collected = self.run(move |lane| collect_skills(lane, &data_dir, &roots(lane))).await?;
+        let watching = self.watching.get().cloned();
+        let (collected, watch_complete) = self
+            .run(move |lane| {
+                let registered = watching.as_ref().and_then(|(watch, targets)| {
+                    let before = targets(lane);
+                    watch.set_targets(&before).then_some((before, targets))
+                });
+                let skills = collect_skills(lane, &data_dir, &roots(lane));
+                // An ancestor alone may have missed a root created before registration.
+                let complete = registered.is_some_and(|(before, targets)| before == targets(lane));
+                (skills, complete)
+            })
+            .await?;
         let skills = Arc::new(collected);
-        self.cache.store(Arc::new(Some(Cached { generation, skills: Arc::clone(&skills) })));
+        if watch_complete {
+            let _ = self.cache.compare_and_swap(&before, Arc::new(Some(Cached { generation, skills: Arc::clone(&skills) })));
+        }
         Ok(skills)
     }
 
@@ -208,7 +261,7 @@ impl SkillCatalog {
         if let Some(refusal) = self.refusal(&skills, name, cwd) {
             return Ok(SkillLoad::Refused(refusal));
         }
-        Ok(match self.resource(name).await? {
+        Ok(match self.resource_from(&skills, name).await? {
             Some(resource) => SkillLoad::Loaded(resource),
             None => SkillLoad::NotFound,
         })
@@ -218,6 +271,10 @@ impl SkillCatalog {
     /// or not settings or scope would hide it from the model.
     pub async fn resource(&self, name: &str) -> Result<Option<SkillResource>, CatalogError> {
         let skills = self.skills().await?;
+        self.resource_from(&skills, name).await
+    }
+
+    async fn resource_from(&self, skills: &[Skill], name: &str) -> Result<Option<SkillResource>, CatalogError> {
         let wanted = js_trim(name);
         let Some(skill) = skills.iter().find(|s| s.name == wanted).cloned() else { return Ok(None) };
         let path = skill.file_path.clone();
@@ -235,25 +292,5 @@ impl SkillCatalog {
         let parent = skill.file_path.parent().unwrap_or_else(|| Path::new(""));
         let dir = skill_execution_dir(parent, skill.source);
         Ok(Some(SkillResource { body: document.body, dir, skill }))
-    }
-}
-
-fn read_text(_lane: &mixdog_rt::InLane<MaintenanceIo>, path: &Path) -> std::io::Result<Option<String>> {
-    mixdog_statefile::read_content(path)?
-        .map(|bytes| String::from_utf8(bytes).map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error)))
-        .transpose()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn builtin_skills_in_the_archive_run_from_the_unpacked_copy() {
-        let dir = Path::new("/app/resources/runtime.asar/src/skills/demo");
-        assert_eq!(skill_execution_dir(dir, SkillSource::Builtin), "/app/resources/runtime.asar.unpacked/src/skills/demo");
-        assert_eq!(skill_execution_dir(dir, SkillSource::Global), dir.to_string_lossy());
-        let plain = Path::new("/app/runtime.asarx/demo");
-        assert_eq!(skill_execution_dir(plain, SkillSource::Builtin), plain.to_string_lossy());
     }
 }

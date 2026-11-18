@@ -337,6 +337,38 @@ fn compare_version(a: &str, b: &str) -> Ordering {
     mixdog_js::locale_compare(a, b)
 }
 
+/// `isUnknownModel` (anthropic-oauth.mjs:932): a 404, or a refusal whose text says the model is unknown or not found.
+pub(super) fn names_unknown_model(status: Option<u16>, text: &str) -> bool {
+    crate::providers::rejections::names_unknown_model(status, text)
+}
+
+/// `resolveAnthropicModelAfter404`: the id to continue on when `requested` is no longer listed in `rows` (the refreshed
+/// catalog): the highest version of its family, else for an opus the newest opus or sonnet. `None` while the id is listed
+/// or nothing newer exists.
+pub(super) fn resolve_after_404(rows: &[AnthropicModel], requested: &str) -> Option<String> {
+    if rows.iter().any(|m| m.id == requested) {
+        return None;
+    }
+    let family = FAMILY.captures(requested).and_then(|c| c.get(1)).map(|f| f.to_lowercase());
+    let newest = |keep: &dyn Fn(&AnthropicModel) -> bool| {
+        rows.iter().filter(|m| !m.id.is_empty() && keep(m)).fold(None::<&AnthropicModel>, |best, m| match best {
+            Some(b) if compare_version(&m.id, &b.id) != Ordering::Greater => Some(b),
+            _ => Some(m),
+        })
+    };
+    let best = match &family {
+        Some(family) => newest(&|m| &m.family == family),
+        None => newest(&|m| m.family == "opus" || m.family == "sonnet"),
+    };
+    if let Some(best) = best.filter(|b| b.id != requested) {
+        return Some(best.id.clone());
+    }
+    if family.as_deref() == Some("opus") {
+        return newest(&|m| m.family == "opus" || m.family == "sonnet").filter(|b| b.id != requested).map(|b| b.id.clone());
+    }
+    None
+}
+
 /// Marks the highest-versioned model of each family `latest`; only listed
 /// versioned aliases compete, and the first of equals wins.
 fn mark_latest(models: &mut [AnthropicModel]) {

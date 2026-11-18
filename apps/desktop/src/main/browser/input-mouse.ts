@@ -5,7 +5,13 @@
  */
 import type { WebContents } from 'electron';
 
-import { type BrowserMouseButton, cssPoint, type Point, type SendBrowserInput } from './input-primitives';
+import {
+  type BrowserInputOutcome,
+  type BrowserMouseButton,
+  cssPoint,
+  type Point,
+  type SendBrowserInput,
+} from './input-primitives';
 import { measureBrowserMouseEvent } from './timing';
 
 export function createMouseInput(send: SendBrowserInput) {
@@ -26,12 +32,17 @@ export function createMouseInput(send: SendBrowserInput) {
       )) === 'dialog'
     )
       return;
-    if (
-      (await measureBrowserMouseEvent('mousePressed', () =>
+    let pressed: BrowserInputOutcome;
+    try {
+      pressed = await measureBrowserMouseEvent('mousePressed', () =>
         send(guest, 'Input.dispatchMouseEvent', { ...base, type: 'mousePressed' }, signal)
-      )) === 'dialog'
-    )
-      return;
+      );
+    } catch (error) {
+      // The press may have been handed over before it failed: its release is still sent (the sender decides whether it may).
+      await send(guest, 'Input.dispatchMouseEvent', { ...base, type: 'mouseReleased' }, signal).catch(() => undefined);
+      throw error;
+    }
+    if (pressed === 'dialog') return;
     await measureBrowserMouseEvent('mouseReleased', () =>
       send(guest, 'Input.dispatchMouseEvent', { ...base, type: 'mouseReleased' }, signal)
     );

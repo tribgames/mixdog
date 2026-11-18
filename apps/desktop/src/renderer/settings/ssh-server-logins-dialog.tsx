@@ -24,7 +24,8 @@ import {
 } from '../connections-core-api';
 import { t } from '../i18n';
 import { ConfirmDialog, ConnDialog } from './connection-dialogs';
-import { isConnectFirstError, sshErrorText } from './ssh-error-text';
+import { followSettingsReadConnection, startSettingsReadRecovery } from './read-recovery';
+import { isConnectFirstError, isUnknownSshLoginFlow, sshErrorText } from './ssh-error-text';
 
 const NO_SERVER_LOGINS: DesktopSshServerLogins = {
   connected: false,
@@ -38,18 +39,27 @@ const REDIRECT_EXAMPLE = 'http://localhost:…/callback?code=…';
  *  them from the attached daemon; null while loading. */
 export function useServerLogins(hostId: string) {
   const [logins, setLogins] = useState<DesktopSshServerLogins | null>(null);
-  const [version, setVersion] = useState(0);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `version` asks for a fresh read.
+  const reread = useRef<(() => void) | null>(null);
   useEffect(() => {
-    let live = true;
-    void Promise.resolve(sshServerLogins(hostId))
-      .then((value) => live && setLogins(value ?? NO_SERVER_LOGINS))
-      .catch(() => live && setLogins(NO_SERVER_LOGINS));
+    const recovery = startSettingsReadRecovery(async (signal) => {
+      try {
+        const value = await sshServerLogins(hostId);
+        if (!signal.aborted && value) setLogins(value);
+      } catch (reason) {
+        if (!signal.aborted && isConnectFirstError(reason)) setLogins(NO_SERVER_LOGINS);
+      }
+    }, 10_000, true, true);
+    const stopLink = followSettingsReadConnection(window.mixdogDesktop, recovery);
+    reread.current = recovery.replace;
+    window.addEventListener('focus', recovery.replace);
     return () => {
-      live = false;
+      reread.current = null;
+      stopLink?.();
+      window.removeEventListener('focus', recovery.replace);
+      recovery.stop();
     };
-  }, [hostId, version]);
-  return { logins, refresh: () => setVersion((current) => current + 1) };
+  }, [hostId]);
+  return { logins, refresh: () => reread.current?.() };
 }
 
 function loginDetail(provider: DesktopSshServerLogin): string {
@@ -240,8 +250,7 @@ export function SshServerLoginsDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [pasteError, setPasteError] = useState('');
-  const flowRef = useRef(flow);
-  flowRef.current = flow;
+  const flowRef = useRef<DesktopSshServerLoginFlow | null>(null);
   const mounted = useRef(true);
 
   const cancelFlow = (flowId: string): void => {
@@ -273,11 +282,12 @@ export function SshServerLoginsDialog({
       refresh();
       return;
     }
-    setError(sshErrorText(reason));
+    setError(sshErrorText(reason, host.name));
   };
 
   /** A status answer: done refreshes the list, a failure says why. */
   const finish = (next: DesktopSshServerLoginFlow): void => {
+    flowRef.current = null;
     setFlow(null);
     setPasteError('');
     if (next.state === 'complete') refresh();
@@ -288,7 +298,9 @@ export function SshServerLoginsDialog({
   const settle = (next: DesktopSshServerLoginFlow): void => {
     if (!mounted.current || flowRef.current?.flowId !== next.flowId) return;
     if (next.state === 'pending') {
-      setFlow((current) => (current?.flowId === next.flowId ? { ...current, forwarded: next.forwarded } : current));
+      const pending = { ...flowRef.current, forwarded: next.forwarded };
+      flowRef.current = pending;
+      setFlow(pending);
       return;
     }
     finish(next);
@@ -299,33 +311,44 @@ export function SshServerLoginsDialog({
   useEffect(() => {
     if (!pendingId) return undefined;
     let live = true;
-    // The server pushes the login's progress (`login:<flowId>`, desktop-services.md §5.4); a read happens only
-    // when the window returns from the browser sign-in, which is when a server without a push link can have
-    // finished it. No timer.
+    let pushed = 0;
     const stopPush = subscribeSshServerLoginUpdated((update) => {
-      if (live && update.id === host.id) settle(update.flow);
+      if (live && update.id === host.id && update.flow.flowId === pendingId) {
+        pushed += 1;
+        settle(update.flow);
+      }
     });
-    const read = (): void => {
-      void Promise.resolve(sshServerLoginStatus(host.id, pendingId))
-        .then((next) => {
-          if (!live || !next) return;
-          settle(next);
-        })
-        .catch((reason: unknown) => {
-          if (!live) return;
-          // A login whose status cannot be read is over here: main closed its
-          // forward, and the server is asked to drop it.
+    const recovery = startSettingsReadRecovery(async (signal) => {
+      const seen = pushed;
+      try {
+        const next = await sshServerLoginStatus(host.id, pendingId);
+        // A pending push can supersede another pending view, but not a
+        // terminal result for the same operation.
+        if (live && !signal.aborted && next?.flowId === pendingId && (next.state !== 'pending' || seen === pushed)) settle(next);
+      } catch (reason) {
+        if (!live || signal.aborted || flowRef.current?.flowId !== pendingId) return;
+        if (isConnectFirstError(reason)) {
           cancelPending();
           setFlow(null);
           setPasteError('');
           report(reason);
-        });
-    };
-    window.addEventListener('focus', read);
+        } else if (isUnknownSshLoginFlow(reason)) {
+          // The server no longer owns this flow. There is nothing to cancel.
+          flowRef.current = null;
+          setFlow(null);
+          setPasteError('');
+          report(reason);
+        }
+      }
+    }, 3_000, true, true);
+    const stopLink = followSettingsReadConnection(window.mixdogDesktop, recovery);
+    window.addEventListener('focus', recovery.replace);
     return () => {
       live = false;
       stopPush?.();
-      window.removeEventListener('focus', read);
+      stopLink?.();
+      recovery.stop();
+      window.removeEventListener('focus', recovery.replace);
     };
   }, [host.id, pendingId]);
 
@@ -360,7 +383,10 @@ export function SshServerLoginsDialog({
           return;
         }
         setFlowName(provider.name);
-        if (started.state === 'pending') setFlow(started);
+        if (started.state === 'pending') {
+          flowRef.current = started;
+          setFlow(started);
+        }
         else finish(started);
       })
       .catch(report)
@@ -373,12 +399,12 @@ export function SshServerLoginsDialog({
     setPasteError('');
     void Promise.resolve(sshServerLoginComplete(host.id, pending.flowId, address))
       .then((next) => {
-        if (!next) return;
+        if (next?.flowId !== pending.flowId || !mounted.current || flowRef.current?.flowId !== pending.flowId) return;
         form.reset();
         settle(next);
       })
       .catch((reason: unknown) => {
-        if (mounted.current && flowRef.current?.flowId === pending.flowId) setPasteError(sshErrorText(reason));
+        if (mounted.current && flowRef.current?.flowId === pending.flowId) setPasteError(sshErrorText(reason, host.name));
       });
   };
 

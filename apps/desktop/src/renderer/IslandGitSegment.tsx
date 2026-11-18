@@ -15,7 +15,6 @@ import { type IslandGitAction, useIslandGitRequest } from './island-git-request'
 import { MxIcon } from './MxIcon';
 import { useMobileBack } from './mobile-back';
 import { requestOpenDockTab } from './open-dock-tab-event';
-import { useSessionChanges } from './session-changes-store';
 import { readCachedDockGitState, requestDockGitState } from './utility-dock-git-state';
 
 /** The checkout's status (branch, commits ahead of upstream), re-read on Git
@@ -46,12 +45,11 @@ const GIT_ROWS: { action: IslandGitAction; label: () => string; icon: typeof Git
 ];
 
 export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: string }) {
-  const git = useIslandGitRequest({ sessionId, cwd });
-  // The files segment's own count (its Changes source, the same shared read).
-  const changes = useSessionChanges({ cwd, sessionId, active: true });
-  const files = changes.summary.files.size;
-  const status = useIslandGitStatus(git.ready ? cwd : '');
+  const { changes, ...git } = useIslandGitRequest({ sessionId, cwd });
+  const files = changes.summary.files.size + changes.untrackedOmitted;
   const [open, setOpen] = useComposerIslandTab('git');
+  // A changed file already decides visibility. Only the open tab needs the branch then.
+  const status = useIslandGitStatus(git.ready && (open || !files) ? cwd : '');
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLElement>(null);
   const panelId = useId();
@@ -106,7 +104,7 @@ export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: s
     event.preventDefault();
     items[(index + step + items.length) % items.length]?.focus();
   };
-  const meta = [status?.branch, t('Files {{count}}', { count: files + changes.untrackedOmitted })]
+  const meta = [status?.branch, t('Files {{count}}', { count: files })]
     .filter(Boolean)
     .join(' · ');
 

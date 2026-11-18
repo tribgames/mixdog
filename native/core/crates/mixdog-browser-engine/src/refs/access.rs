@@ -78,8 +78,6 @@ impl fmt::Display for RefError {
     }
 }
 
-impl std::error::Error for RefError {}
-
 impl From<HostCallError> for RefError {
     fn from(error: HostCallError) -> Self {
         Self::Host(error)
@@ -292,3 +290,6 @@ mod tests {
         );
     }
 }
+
+
+impl std::error::Error for RefError {}

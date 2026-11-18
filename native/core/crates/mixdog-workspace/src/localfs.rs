@@ -66,6 +66,7 @@ use mixdog_core_api::domain::fs::WalkRequest;
 use mixdog_core_api::domain::fs::WritePrecondition;
 use mixdog_core_api::domain::fs::WriteRequest;
 use crate::ident::StatVersion;
+use crate::ident::{handle_stat_with_version, regular_leaf, stat_leaf_with_version};
 use crate::ident::names_equal;
 use crate::ident::stat_version;
 use crate::ident::stat_with_version;
@@ -247,25 +248,6 @@ fn entry_kind(file_type: fs::FileType) -> EntryKind {
     }
 }
 
-/// `fs.stat` of `path` (links followed). The change time, inode and device are `fileVersion`'s own
-/// reading (`stat_version`), so the two never disagree.
-#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
-fn stat_path(path: &Path) -> Result<FileStat, FsError> {
-    let (meta, version) = stat_with_version(path).map_err(|e| io_error(&e, path))?;
-    let ns = version.ctime_ns;
-    let magnitude = std::time::Duration::from_nanos(u64::try_from(ns.unsigned_abs()).unwrap_or(u64::MAX));
-    let ctime = if ns >= 0 { std::time::UNIX_EPOCH.checked_add(magnitude) } else { std::time::UNIX_EPOCH.checked_sub(magnitude) };
-    Ok(FileStat {
-        kind: entry_kind(meta.file_type()),
-        len: meta.len(),
-        modified: meta.modified().ok(),
-        ctime,
-        inode: version.ino,
-        device: version.dev,
-        readonly: meta.permissions().readonly(),
-    })
-}
-
 /// Runs `job` on `lane`; dropping the future cancels a job that has not started.
 #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
 async fn on<L, R, F>(lane: L, job: F) -> Result<R, FsError>
@@ -287,6 +269,8 @@ enum Expect {
     Absent,
     /// The target must still be this version (mtime, ctime, size, inode, device: Node's `fileVersion`).
     Version(StatVersion),
+    /// Keep the verified original open until the last name/version check.
+    EditVersion { version: StatVersion, original: File },
 }
 
 #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
@@ -305,9 +289,66 @@ fn precondition_failed(path: &Path) -> FsError {
     }
 }
 
+fn changed_edit(path: &Path) -> FsError {
+    plain(FsErrorKind::PreconditionFailed { actual: None }, path)
+}
+
+fn checked_name(target: &Path, version: StatVersion) -> bool {
+    target.parent().is_some_and(|parent| canonical(parent).is_ok_and(|real| names_equal(real.as_os_str(), parent.as_os_str())))
+        && stat_leaf_with_version(target).is_ok_and(|(meta, seen)| regular_leaf(&meta) && seen == version)
+}
+
+fn checked_handle(target: &Path, file: &File, expected: StatVersion) -> bool {
+    // Only supported hosts can prove the location of the held handle.
+    crate::ident::handle_path(file).is_ok_and(|path| names_equal(path.as_os_str(), target.as_os_str()))
+        && handle_stat_with_version(file).is_ok_and(|(meta, seen)| regular_leaf(&meta) && seen == expected)
+        && checked_name(target, expected)
+}
+
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+fn evaluate_edit(target: &Path, stat: &FileStat, expected: &[u8]) -> Result<Expect, FsError> {
+    let (meta, version) = stat_leaf_with_version(target).map_err(|e| {
+        if e.kind() == io::ErrorKind::NotFound { changed_edit(target) } else { io_error(&e, target) }
+    })?;
+    if !regular_leaf(&meta) || stat_from_version(&meta, &version) != *stat || !checked_name(target, version) {
+        return Err(changed_edit(target));
+    }
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let mut original = options.open(target).map_err(|e| {
+        if checked_name(target, version) { io_error(&e, target) } else { changed_edit(target) }
+    })?;
+    if !checked_handle(target, &original, version) {
+        return Err(changed_edit(target));
+    }
+    let mut actual = Vec::new();
+    (&mut original).take(version.size.saturating_add(1)).read_to_end(&mut actual).map_err(|e| io_error(&e, target))?;
+    if !checked_handle(target, &original, version) {
+        return Err(changed_edit(target));
+    }
+    if actual.as_slice() != expected {
+        return Err(plain(FsErrorKind::PreconditionFailed { actual: Some(actual) }, target));
+    }
+    Ok(Expect::EditVersion { version, original })
+}
+
 /// Checks the caller's compare-and-set condition and returns what must still hold at the rename.
 #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
 fn evaluate(target: &Path, precondition: &WritePrecondition) -> Result<Expect, FsError> {
+    if let WritePrecondition::FileEquals { stat, bytes } = precondition {
+        return evaluate_edit(target, stat, bytes);
+    }
     let existing = match fs::metadata(target) {
         Ok(meta) => Some(meta),
         Err(e) if e.kind() == io::ErrorKind::NotFound => None,
@@ -325,10 +366,15 @@ fn evaluate(target: &Path, precondition: &WritePrecondition) -> Result<Expect, F
         (WritePrecondition::Unconditional, _) => Ok(Expect::Nothing),
         (WritePrecondition::Absent, None) => Ok(Expect::Absent),
         (WritePrecondition::Absent, Some(_)) => Err(precondition_failed(target)),
-        (WritePrecondition::ContentEquals(_), None) => Err(plain(FsErrorKind::PreconditionFailed { actual: None }, target)),
+        (WritePrecondition::ContentEquals(_), None) => {
+            Err(plain(FsErrorKind::PreconditionFailed { actual: None }, target))
+        }
         (WritePrecondition::ContentEquals(expected), Some(_)) => {
             // Version first, content second: a change in between fails the check at the rename.
-            let version = stat_version(target).map_err(|e| io_error(&e, target))?;
+            let (meta, version) = stat_with_version(target).map_err(|e| io_error(&e, target))?;
+            if !meta.is_file() {
+                return Err(plain(FsErrorKind::PreconditionFailed { actual: None }, target));
+            }
             let actual = fs::read(target).map_err(|e| io_error(&e, target))?;
             if &actual == expected {
                 Ok(Expect::Version(version))
@@ -336,12 +382,8 @@ fn evaluate(target: &Path, precondition: &WritePrecondition) -> Result<Expect, F
                 Err(plain(FsErrorKind::PreconditionFailed { actual: Some(actual) }, target))
             }
         }
+        (WritePrecondition::FileEquals { .. }, _) => unreachable!("checked on the opened file above"),
     }
-}
-
-/// Node: `atomicWriteShouldFsync`; `MIXDOG_ATOMIC_FSYNC=0|false|no|off` opts out.
-fn fsync_wanted() -> bool {
-    !matches!(std::env::var("MIXDOG_ATOMIC_FSYNC").map(|v| v.to_lowercase()).as_deref(), Ok("0" | "false" | "no" | "off"))
 }
 
 /// Filesystems that refuse fsync answer with one of these; durability is best-effort there.
@@ -383,90 +425,6 @@ fn cleanup_empty_placeholder(target: &Path) {
     if fs::metadata(target).is_ok_and(|m| m.len() == 0) {
         let _ = fs::remove_file(target);
     }
-}
-
-/// One single-file write at its resolved path.
-#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
-fn write_resolved(locks: &Arc<PathLocks>, resolved: &Resolved, request: &WriteRequest) -> Result<FileStat, FsError> {
-    let _held = locks.acquire([resolved.key.clone()]);
-    let target = resolved.path.as_path();
-    let expect = evaluate(target, &request.precondition)?;
-    atomic_write(target, &request.content, &expect)?;
-    stat_path(target)
-}
-
-/// Node: `atomicWrite`. The caller holds the write lock of `target`.
-#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
-fn atomic_write(target: &Path, content: &[u8], expect: &Expect) -> Result<(), FsError> {
-    let existing = fs::metadata(target).ok();
-    let tmp = temp_name(target);
-    let fsync = fsync_wanted();
-    let written = (|| -> Result<(), (FsStep, io::Error)> {
-        let open_step = || FsStep::Open { path: AbsPath::new(&tmp).expect("a resolved target is absolute") };
-        let mut file = create_temp(&tmp, existing.as_ref()).map_err(|e| (open_step(), e))?;
-        let result = file
-            .write_all(content)
-            .map_err(|e| (FsStep::Write, e))
-            .and_then(|()| if fsync { sync(&file).map_err(|e| (FsStep::Fsync, e)) } else { Ok(()) });
-        drop(file);
-        if result.is_err() {
-            let _ = fs::remove_file(&tmp);
-        }
-        result
-    })();
-    written.map_err(|(step, e)| io_error(&e, target).at(step))?;
-    #[cfg(windows)]
-    if let Some(meta) = &existing {
-        // The target's attributes (hidden, system, read-only) go to the temp file, as the patch
-        // engine's `atomic_write_replace` keeps them; a read-only target then fails the rename
-        // below exactly as it does for Node.
-        let _ = fs::set_permissions(&tmp, meta.permissions());
-    }
-    if matches!(expect, Expect::Absent) {
-        // assertExclusiveCreate: the placeholder claims the name.
-        if let Err(e) = OpenOptions::new().write(true).create_new(true).open(target) {
-            let _ = fs::remove_file(&tmp);
-            return Err(if e.kind() == io::ErrorKind::AlreadyExists { precondition_failed(target) } else { io_error(&e, target) });
-        }
-    }
-    let attempts = if cfg!(windows) { RENAME_BACKOFFS_MS.len() + 1 } else { 1 };
-    // The final attempt has no backoff; Unix takes only that first, non-retried attempt.
-    for (attempt, backoff) in RENAME_BACKOFFS_MS.iter().copied().map(Some).chain(std::iter::once(None)).take(attempts).enumerate() {
-        if let Expect::Version(expected) = expect {
-            // assertTargetUnchanged (TOCTOU).
-            let unchanged = stat_version(target).is_ok_and(|v| v == *expected);
-            if !unchanged {
-                let _ = fs::remove_file(&tmp);
-                return Err(precondition_failed(target));
-            }
-        }
-        match fs::rename(&tmp, target) {
-            Ok(()) => {
-                if fsync {
-                    sync_directory(target);
-                }
-                return Ok(());
-            }
-            Err(e) => {
-                let transient = cfg!(windows) && (e.kind() == io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(SHARING_VIOLATION));
-                if transient && attempt + 1 < attempts {
-                    let jitter = u64::from(uuid::Uuid::new_v4().as_bytes()[0]) % 40;
-                    std::thread::sleep(Duration::from_millis(backoff.expect("a retried attempt has a backoff") + jitter));
-                    continue;
-                }
-                let _ = fs::remove_file(&tmp);
-                if matches!(expect, Expect::Absent) {
-                    cleanup_empty_placeholder(target);
-                }
-                let step = FsStep::Rename {
-                    from: AbsPath::new(&tmp).expect("a resolved target is absolute"),
-                    to: AbsPath::new(target).expect("a resolved target is absolute"),
-                };
-                return Err(io_error(&e, target).at(step));
-            }
-        }
-    }
-    unreachable!("the last attempt returns")
 }
 
 /// Makes the rename itself durable across power loss; unsupported on Windows (Node: best effort).
@@ -566,6 +524,3105 @@ fn remove_any(path: &Path) -> io::Result<()> {
     }
 }
 
+/// A file opened for its search, as the search server opens it (`File::open`, serve_search/matching.rs:228). On Unix a
+/// FIFO, a socket or a terminal is opened non-blocking and each of its reads waits with `poll` beside the reading
+/// thread's cancel ([`unix_io`], [`cancel_io::current`]), so a cancel ends a read no writer would ever answer; any other
+/// file reads as `std` reads it.
+fn open_to_search(path: &Path) -> io::Result<Box<dyn Read + Send>> {
+    #[cfg(unix)]
+    return Ok(Box::new(unix_io::open(path, cancel_io::current())?));
+    #[cfg(not(unix))]
+    Ok(Box::new(File::open(path)?))
+}
+
+/// Node's name for a content search's request (`requestKind`, native-search-client.mjs:57-62), which a refusal for a
+/// volume of given-up reads names ([`FsErrorKind::CancelStalled`]).
+const CONTENT: &str = "content";
+
+/// The volume a path lies on as far as its text tells, never waiting on the volume: on Windows its drive, UNC share or
+/// device namespace (the path's prefix), on Unix the device of the mount it lies under in the mount table
+/// ([`unix_io::volume_of`], the path taken as it is written). A search is admitted by this until its producer has told
+/// its root's volume by the filesystem's identity ([`known_volume`], [`Volumes::start`]).
+fn volume_of(path: &Path) -> String {
+    #[cfg(windows)]
+    {
+        use std::path::Component;
+        use std::path::Prefix;
+        let Some(Component::Prefix(prefix)) = path.components().next() else { return String::new() };
+        match prefix.kind() {
+            Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) => format!("{}:", char::from(drive).to_ascii_uppercase()),
+            Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => {
+                format!(r"\\{}\{}", server.to_string_lossy(), share.to_string_lossy()).to_lowercase()
+            }
+            Prefix::DeviceNS(device) => format!(r"\\.\{}", device.to_string_lossy()).to_lowercase(),
+            Prefix::Verbatim(name) => format!(r"\\?\{}", name.to_string_lossy()).to_lowercase(),
+        }
+    }
+    #[cfg(unix)]
+    return unix_io::volume_of(path);
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = path;
+        String::new()
+    }
+}
+
+/// The volume each searched root was found on by the filesystem's identity, when, and whether that identity is fixed by
+/// the root's text ([`Volumes::start`]): a later search of the root is admitted by it before its producer reads
+/// ([`Stuck::admission`]), and one within [`KNOWN_FRESH`] of the finding takes it as its own without asking the
+/// filesystem again (about a millisecond each, which a burst of thousands of searches of one root would spend over and
+/// over). At most [`KNOWN_ROOTS`] roots; past that it starts again.
+static KNOWN: LazyLock<Mutex<std::collections::HashMap<PathBuf, Known>>> = LazyLock::new(Default::default);
+const KNOWN_ROOTS: usize = 4_096;
+const KNOWN_FRESH: Duration = Duration::from_secs(5);
+
+/// A root's volume as its last search found it ([`KNOWN`]). `fixed`: no junction, mounted folder, link, `subst` or
+/// mapped drive lies between the root's text and its volume, so the volume changes only with the text (or a drive
+/// letter's reassignment; on Unix a mount made or removed over the path, which the kernel's table tells without waiting,
+/// [`Stuck::admission`]).
+struct Known {
+    volume: String,
+    at: Instant,
+    fixed: bool,
+}
+
+/// The volume `root` is admitted by: the one its last search found it on, else the one its text tells ([`volume_of`]).
+fn known_volume(root: &Path) -> String {
+    locked(&KNOWN).get(root).map_or_else(|| volume_of(root), |known| known.volume.clone())
+}
+
+/// The volume a search of `root` found within [`KNOWN_FRESH`].
+#[cfg_attr(not(windows), allow(dead_code))]
+fn fresh_volume(root: &Path) -> Option<String> {
+    locked(&KNOWN).get(root).filter(|known| known.at.elapsed() < KNOWN_FRESH).map(|known| known.volume.clone())
+}
+
+fn remember_volume(root: &Path, (volume, fixed): (&str, bool)) {
+    let mut known = locked(&KNOWN);
+    if known.len() >= KNOWN_ROOTS && !known.contains_key(root) {
+        known.clear();
+    }
+    known.insert(root.to_path_buf(), Known { volume: volume.to_owned(), at: Instant::now(), fixed });
+}
+
+/// The key a producer reads on while it tells its root's volume ([`Volumes::start`], [`Ticket::reading`]): that call
+/// reads on volumes not known until it returns (a dead one holds it), so a stall in it is charged to no volume but to
+/// the root's own telling, which only searches of that same root are admitted by: it can refuse no other root's
+/// search, so no healthy volume's. A root whose telling holds [`SchedulerConfig::stuck_per_volume`] given-up threads is
+/// refused at once until they return, as no search of it gets past that call.
+fn telling(root: &Path) -> String {
+    format!("telling {}", root.to_string_lossy())
+}
+
+/// `root`'s volume by the filesystem's identity and whether it is fixed by the text ([`Known`]): [`volume_id`] on
+/// Windows; on Unix the device of the mount its canonical path lies under ([`unix_io::tell`]).
+#[cfg_attr(not(feature = "replay-controls"), allow(dead_code))]
+fn root_volume_id(root: &Path) -> Option<(String, bool)> {
+    #[cfg(windows)]
+    return volume_id(root);
+    #[cfg(unix)]
+    return unix_io::tell(root, unix_io::mount_table()).ok().map(|told| (told.volume, told.fixed)).filter(|(v, _)| !v.is_empty());
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = root;
+        None
+    }
+}
+
+/// The volume `path` lies on by the filesystem's own identity, on Windows: the volume GUID of the volume mount point
+/// `GetVolumePathNameW` finds for it, which follows junctions and mounted folders (`C:\x\j\a`, `j` a junction to a
+/// folder of D:, is on D:'s volume); a network share by its `\\server\share` (a mapped drive by the share it maps, a
+/// `subst` drive by the folder it stands for). `None` when it cannot be told (a path no volume answers for). It reads
+/// on the volumes the path passes through, so only a producer calls it, as its first call ([`Volumes::start`]). With
+/// it, whether the volume is fixed by the path's text ([`Known`]): its volume mount point is the root of the drive or
+/// share the text names, found without a `subst` or mapped drive's step.
+#[cfg(windows)]
+fn volume_id(path: &Path) -> Option<(String, bool)> {
+    use std::os::windows::ffi::OsStrExt as _;
+    use windows_sys::Win32::Storage::FileSystem::GetVolumeNameForVolumeMountPointW;
+    use windows_sys::Win32::Storage::FileSystem::GetVolumePathNameW;
+    use windows_sys::Win32::Storage::FileSystem::QueryDosDeviceW;
+    let wide = |s: &std::ffi::OsStr| s.encode_wide().chain(Some(0)).collect::<Vec<u16>>();
+    let text = |buf: &[u16]| String::from_utf16_lossy(&buf[..buf.iter().position(|&c| c == 0).unwrap_or(buf.len())]);
+    let mut resolved = path.to_path_buf();
+    // A `subst` drive stands for a folder, which may be on another such drive: a few steps at most.
+    for step in 0..4 {
+        let name = wide(resolved.as_os_str());
+        let mut point = vec![0u16; 32_768];
+        // SAFETY: `name` is NUL-terminated and `point` holds the length given.
+        if unsafe { GetVolumePathNameW(name.as_ptr(), point.as_mut_ptr(), point.len() as u32) } == 0 {
+            return None;
+        }
+        let point = text(&point);
+        let fixed = step == 0 && own_root(path, &point);
+        let mut guid = [0u16; 64];
+        // SAFETY: the mount point is NUL-terminated and `guid` holds the length given.
+        if unsafe { GetVolumeNameForVolumeMountPointW(wide(point.as_ref()).as_ptr(), guid.as_mut_ptr(), guid.len() as u32) } != 0 {
+            return Some((text(&guid).to_ascii_lowercase(), fixed));
+        }
+        let bare = point.strip_prefix(r"\\?\").unwrap_or(&point);
+        let Some(drive) = bare.get(..2).filter(|d| d.ends_with(':') && d.as_bytes()[0].is_ascii_alphabetic()) else {
+            return Some((share_key(&point), fixed));
+        };
+        let mut target = vec![0u16; 32_768];
+        // SAFETY: the drive name is NUL-terminated and `target` holds the length given.
+        if unsafe { QueryDosDeviceW(wide(drive.as_ref()).as_ptr(), target.as_mut_ptr(), target.len() as u32) } == 0 {
+            return Some((drive.to_ascii_lowercase(), false));
+        }
+        let target = text(&target);
+        if let Some(share) = redirected_share(&target) {
+            return Some((share, false));
+        }
+        let Some(folder) = target.strip_prefix(r"\??\") else { return Some((target.to_ascii_lowercase(), false)) };
+        let rest: PathBuf = resolved.components().filter(|c| matches!(c, std::path::Component::Normal(_))).collect();
+        resolved = PathBuf::from(folder).join(rest);
+    }
+    None
+}
+
+/// Whether `point`, the volume mount point `GetVolumePathNameW` found for `path`, is the root of the drive or share
+/// `path`'s text names ([`volume_of`]): `C:\` for `C:\x`, `\\server\share\` for `\\server\share\x`.
+#[cfg(windows)]
+fn own_root(path: &Path, point: &str) -> bool {
+    let point = point.strip_prefix(r"\\?\UNC\").map_or_else(|| point.strip_prefix(r"\\?\").unwrap_or(point).to_owned(), |rest| format!(r"\\{rest}"));
+    point.trim_end_matches('\\').eq_ignore_ascii_case(&volume_of(path))
+}
+
+/// A network volume mount point as a key: `\\?\UNC\server\share\` and `\\server\share\` as `\\server\share\`,
+/// lowercased.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn share_key(point: &str) -> String {
+    let point = point.strip_prefix(r"\\?\UNC\").map_or_else(|| point.to_owned(), |rest| format!(r"\\{rest}"));
+    let mut key = point.to_lowercase();
+    if !key.ends_with('\\') {
+        key.push('\\');
+    }
+    key
+}
+
+/// The share a mapped drive's device target names (`QueryDosDeviceW`): `\Device\LanmanRedirector\;Z:0000…\srv\share`
+/// or `\Device\Mup\;LanmanRedirector\;Z:0000…\srv\share\sub` is `\\srv\share\` ([`share_key`]); `None` for a target
+/// that is not a redirected drive.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn redirected_share(target: &str) -> Option<String> {
+    let parts: Vec<&str> = target.split('\\').collect();
+    let drive = parts.iter().rposition(|part| part.starts_with(';') && part.contains(':'))?;
+    let (server, share) = (parts.get(drive + 1)?, parts.get(drive + 2)?);
+    (!server.is_empty() && !share.is_empty()).then(|| share_key(&format!(r"\\{server}\{share}")))
+}
+
+/// The matcher Node's resident search server compiles (serve_search/matching.rs `CompiledMatcher`).
+enum Compiled {
+    Rust(grep::regex::RegexMatcher),
+    Pcre2(grep::pcre2::RegexMatcher),
+}
+
+/// Node's server's `build_matcher` (serve_search/matching.rs:11-40): PCRE2 when the request asks for it, else the Rust
+/// engine on `\n`-terminated lines; a multi-line search drops the terminator and lets `.` match a line break
+/// (`--multiline-dotall`). The error is the parser's own text.
+fn compile(request: &SearchRequest) -> Result<Compiled, String> {
+    if request.pcre2 {
+        return grep::pcre2::RegexMatcherBuilder::new()
+            .caseless(!request.case_sensitive)
+            .fixed_strings(!request.regex)
+            .multi_line(true)
+            .dotall(request.multiline)
+            .utf(true)
+            .ucp(true)
+            .jit_if_available(true)
+            .build(&request.pattern)
+            .map(Compiled::Pcre2)
+            .map_err(|error| error.to_string());
+    }
+    let mut builder = grep::regex::RegexMatcherBuilder::new();
+    builder.case_insensitive(!request.case_sensitive).fixed_strings(!request.regex).multi_line(true).dot_matches_new_line(request.multiline);
+    if !request.multiline {
+        builder.line_terminator(Some(b'\n'));
+    }
+    builder.build(&request.pattern).map(Compiled::Rust).map_err(|error| error.to_string())
+}
+
+/// The request's globs, then the resident search server's implicit `.git` exclusions
+/// (`serve_search/keys.rs`, `prune_globs`): kept unless the root is itself inside a `.git` directory.
+fn overrides_for(root: &Path, mut globs: Vec<String>) -> Result<ignore::overrides::Override, ignore::Error> {
+    if !root.components().any(|c| c.as_os_str() == ".git") {
+        globs.push("!**/.git".to_owned());
+        globs.push("!**/.git/**".to_owned());
+    }
+    let mut overrides = OverrideBuilder::new(root);
+    for glob in &globs {
+        overrides.add(glob)?;
+    }
+    overrides.build()
+}
+
+/// The include globs as one matcher (`None`: no include, every file stays), in the override's glob syntax.
+fn include_matcher(root: &Path, globs: &[String]) -> Result<Option<ignore::gitignore::Gitignore>, ignore::Error> {
+    if globs.is_empty() {
+        return Ok(None);
+    }
+    let mut matcher = ignore::gitignore::GitignoreBuilder::new(root);
+    for glob in globs {
+        matcher.add_line(None, glob)?;
+    }
+    matcher.build().map(Some)
+}
+
+fn invalid_pattern(error: &ignore::Error, root: &Path) -> FsError {
+    plain(FsErrorKind::InvalidPattern { message: error.to_string() }, root)
+}
+
+/// Node: `apply_ignore_rules` (`--no-ignore` turns off all four sources; `--no-require-git` honours them outside a
+/// repository).
+fn ignore_rules(builder: &mut WalkBuilder, respect_ignore: bool, require_git: bool) {
+    if !respect_ignore {
+        builder.ignore(false).git_ignore(false).git_global(false).git_exclude(false);
+    } else if !require_git {
+        builder.require_git(false);
+    }
+}
+
+/// The search server's `max_columns` (serve_search/matching.rs:276-277, `.max_columns(500)` with
+/// `.max_columns_preview(true)`).
+const MAX_COLUMNS: u64 = 500;
+
+/// What the printer writes, shared with the sink that reads each match's line back.
+#[derive(Clone, Default)]
+struct Printed(Rc<RefCell<Vec<u8>>>);
+
+impl Write for Printed {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.borrow_mut().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The text of each line the printer wrote for a match (`N:` and the line), read as Node's server reads its printer's
+/// output (`output_lines`, matching.rs:180-186: decoded lossily, split with `str::lines`) and its client reads a line
+/// (the text after the line number's `:`).
+fn printed_lines(bytes: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(bytes).lines().map(|line| line.split_once(':').map_or(line, |(_, text)| text).to_owned()).collect()
+}
+
+/// What a match adds to its file's count, as grep-printer's summary printer counts it for Node's server's `--count`
+/// (`Summary::matched`): 1 for a line searched line by line; in a multi-line search each match its lines hold, the regex
+/// seeing at most 128 bytes past them (`find_iter_at_in_context`, `MAX_LOOK_AHEAD`).
+fn match_count<M: Matcher>(searcher: &Searcher, matcher: &M, found: &SinkMatch<'_>) -> io::Result<u64> {
+    if !searcher.multi_line_with_matcher(matcher) {
+        return Ok(1);
+    }
+    let range = found.bytes_range_in_buffer();
+    let buffer = found.buffer();
+    let mut count = 0;
+    matcher
+        .find_iter_at(&buffer[..buffer.len().min(range.end + 128)], range.start, |m| {
+            if m.start() >= range.end {
+                return false;
+            }
+            count += 1;
+            true
+        })
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    Ok(count)
+}
+
+/// One item per printed line, printed by the printer Node's search server prints with: grep-printer's standard printer
+/// built as serve_search builds it (matching.rs:271-278: no heading, no path, `max_columns(500)` with preview, no
+/// colour), fed by the same searcher, so a long line's trigger and preview are the crate's own; a multi-line match is a
+/// line each. The column is the first match's byte start (1 on a match's later lines). Stops the file when the request's
+/// match budget is spent or the stream is closed.
+struct Collect<'a, P, M> {
+    /// The printer's sink, and what it writes.
+    printer: P,
+    printed: Printed,
+    matcher: &'a M,
+    path: &'a AbsPath,
+    out: &'a Out<SearchMatch>,
+    left: &'a mut Option<usize>,
+    /// [`SearchRequest::first_per_file`].
+    first_per_file: bool,
+    /// Matches queued from this file.
+    sent: usize,
+    /// The stream was closed under the sink.
+    closed: bool,
+    #[cfg(feature = "count-jobs")]
+    root: &'a Path,
+}
+
+impl<P: Sink<Error = io::Error>, M: Matcher> Sink for Collect<'_, P, M> {
+    type Error = io::Error;
+
+    fn begin(&mut self, searcher: &Searcher) -> Result<bool, io::Error> {
+        self.printer.begin(searcher)
+    }
+
+    fn binary_data(&mut self, searcher: &Searcher, binary_byte_offset: u64) -> Result<bool, io::Error> {
+        self.printer.binary_data(searcher, binary_byte_offset)
+    }
+
+    fn finish(&mut self, searcher: &Searcher, finish: &SinkFinish) -> Result<(), io::Error> {
+        self.printer.finish(searcher, finish)
+    }
+
+    fn matched(&mut self, searcher: &Searcher, found: &SinkMatch<'_>) -> Result<bool, io::Error> {
+        if *self.left == Some(0) {
+            return Ok(false);
+        }
+        self.printer.matched(searcher, found)?;
+        let printed = printed_lines(&self.printed.0.take());
+        let mut column = self.matcher.find(found.bytes()).ok().flatten().map_or(0, |m| m.start()) as u64 + 1;
+        let mut count = match_count(searcher, self.matcher, found)?;
+        for (line, text) in (found.line_number().unwrap_or(0)..).zip(printed) {
+            if !self.out.send(Ok(SearchMatch { path: self.path.clone(), line, column, text, count })) {
+                self.closed = true;
+                return Ok(false);
+            }
+            (column, count) = (1, 0);
+            self.sent += 1;
+            #[cfg(feature = "count-jobs")]
+            probe::found(self.root);
+            if let Some(left) = self.left.as_mut() {
+                *left -= 1;
+            }
+            if *self.left == Some(0) {
+                break;
+            }
+        }
+        Ok(*self.left != Some(0) && !self.first_per_file)
+    }
+}
+
+/// Items a stream holds ahead of its consumer, the capacity of its queue; the producer waits while it is full.
+pub const QUEUE: usize = 256;
+
+/// The bytes of items a stream holds ahead of its consumer ([`Weigh`]: a match's text and path, an entry's path): the
+/// producer waits to queue an item that would take the queue past this. An item larger than this alone waits for an
+/// empty queue, so the queue holds at most `QUEUE_BYTES`, or one item when one is larger; a long line's preview (its
+/// first 500 grapheme clusters, as the printer writes it) is kept whole, as Node's server prints it.
+///
+/// What one search holds is bounded by the searcher's heap limit ([`search_heap_bytes`], 32 MiB): a line longer than
+/// its buffer can take fails the file's search, as in Node's server (a 100 MB line is such a line: the file answers a
+/// read failure, and its buffer stopped growing at the limit). A match's preview is part of its line, so it is at most
+/// that too; the producer holds the buffer, the printer's copy of the line it prints and the item it builds from it,
+/// beside a queue of `QUEUE_BYTES` or that one item.
+pub const QUEUE_BYTES: usize = 1 << 20;
+
+/// What a queued item weighs against [`QUEUE_BYTES`].
+trait Weigh {
+    fn weight(&self) -> usize;
+}
+
+impl Weigh for SearchMatch {
+    fn weight(&self) -> usize {
+        self.text.len() + self.path.as_path().as_os_str().len()
+    }
+}
+
+impl Weigh for DirEntry {
+    fn weight(&self) -> usize {
+        self.path.as_path().as_os_str().len()
+    }
+}
+
+impl<T: Weigh> Weigh for Result<T, FsError> {
+    fn weight(&self) -> usize {
+        match self {
+            Ok(item) => item.weight(),
+            Err(error) => error.path.as_ref().map_or(0, |p| p.as_path().as_os_str().len()),
+        }
+    }
+}
+
+/// How long a producer its stream let go of may take to end before it is given up ([`Producers::give_up`]): Node's
+/// `CANCEL_GRACE_MS` (native-search-client.mjs:28), after which its client ends the search server whose search did not
+/// stop (`armNativeCancellationWatchdog`, :501-520); `MIXDOG_SEARCH_CANCEL_GRACE_MS` replaces it as there
+/// ([`cancel_grace`]).
+const CLOSE_GRACE: Duration = Duration::from_secs(1);
+
+/// The bytes one read of a searched file asks for: the stop and the deadline are checked before each, as Node's search
+/// server checks them before each read of its 64 KiB chunks (`serve_search/matching.rs`, `CancellableReader`).
+const READ_CHUNK: usize = 64 * 1024;
+
+/// The walks Node does not send to its search server (`WalkRequest::server` `None`: the listing, read's same-name scan)
+/// that run at once, process-wide; the rest wait for one to end. Node runs those in its own process, unbounded; this
+/// bounds the threads they take.
+pub const MAX_LOCAL_PRODUCERS: usize = 64;
+
+/// The given-up producer threads one volume may hold ([`Producers::give_up`]). Once a volume holds this many, a stream
+/// that would read on it is answered with Node's answer to a request whose server was ended for a cancel that did not
+/// take ([`FsErrorKind::CancelStalled`]): at once when made or admitted, starting no thread, when its root's volume is
+/// fixed by its text, else by its producer once it told that volume afresh ([`Stuck::admission`]), or by its producer
+/// before a call that would read on it. Node gives that answer too, after its client ended the stuck server
+/// (native-search-client.mjs:501-520); here it comes sooner, without the wait. The count falls as the stuck reads
+/// return. The searches already reading on the volume when it reached this many may still be given up: the threads one
+/// volume holds never pass [`SchedulerConfig::max_stranded_per_volume`].
+pub const MAX_STUCK_PER_VOLUME: usize = 8;
+
+/// The given-up producer threads the process may hold over every volume: three volumes' worth. Once it holds this many,
+/// a stream is refused with the same answer whatever volume it would read on, one with fewer than
+/// [`MAX_STUCK_PER_VOLUME`] included (a volume at its own bound refuses it anyway), at the same points; the count falls
+/// as the stuck reads return. The threads the process holds never pass [`SchedulerConfig::max_stranded_total`]
+/// (23 + 8 + 1 + 64 = 96 with the defaults). At 24 stranded threads every search is refused: this protects the process,
+/// and Node's server would be dead in that state.
+pub const MAX_STUCK_TOTAL: usize = 3 * MAX_STUCK_PER_VOLUME;
+
+/// A producer's state, changed only under [`Producers`]' lock, so each start, release, give-up and end is counted once.
+const WAITING: u8 = 0;
+const RUNNING: u8 = 1;
+const RELEASED: u8 = 2;
+const ENDED: u8 = 3;
+const STALLED: u8 = 4;
+
+/// What a stream stands for: the search-server request class it is admitted as (`None`: a walk Node does not send to
+/// its server, [`SchedulerConfig::local`]), its root and the volume it is admitted by ([`known_volume`]), and Node's
+/// name for its request's kind (`requestKind`, native-search-client.mjs:57-62: `content`, `file inventory`, `fuzzy`).
+struct Origin {
+    server: Option<SearchClass>,
+    root: PathBuf,
+    volume: String,
+    search: &'static str,
+}
+
+impl Origin {
+    fn new(server: Option<SearchClass>, root: &Path, search: &'static str) -> Self {
+        Self { server, root: root.to_path_buf(), volume: known_volume(root), search }
+    }
+}
+
+/// One volume's given-up producer threads: each holds a clone of `marks` until it ends ([`Ticket::stuck`]), so their
+/// number is the clones alive besides this one. `last`: Node's name for the request of the latest one given up, which
+/// the volume's refusals name, as Node's names the request whose cancel stalled.
+struct Volume {
+    marks: Arc<()>,
+    last: &'static str,
+}
+
+impl Volume {
+    fn stuck(&self) -> usize {
+        Arc::strong_count(&self.marks) - 1
+    }
+}
+
+/// `mutex`'s value, a poisoned lock taken as it is.
+fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn class_index(class: SearchClass) -> usize {
+    match class {
+        SearchClass::Interactive => 0,
+        SearchClass::Fuzzy => 1,
+        SearchClass::Bulk => 2,
+    }
+}
+
+/// When a search's deadline passes.
+#[derive(Clone, Copy, Default)]
+struct Deadline {
+    /// The soft deadline ([`SearchRequest::deadline`]).
+    at: Option<Instant>,
+    /// A replay's scripted deadline ([`deadline_script`]): it passes once this many files with matches were searched,
+    /// or when the search ends, whichever comes first.
+    #[cfg(feature = "replay-controls")]
+    after_files: Option<usize>,
+}
+
+/// What a stream and its producer thread share.
+struct Control {
+    /// Set by `close` and by dropping the stream ([`Control::halt`]): the producer ends at its next check.
+    stop: AtomicBool,
+    /// The bytes of the items in the queue ([`QUEUE_BYTES`]).
+    queued: Mutex<usize>,
+    /// Notified when the queue's bytes go down and when the stream stops.
+    room: Condvar,
+    deadline: Deadline,
+    /// Files searched that had matches (for [`Deadline::after_files`]).
+    #[cfg(feature = "replay-controls")]
+    files_with_lines: AtomicUsize,
+    /// The producer is inside one file's search. A deadline that passes now is reported by the file's next read; a read
+    /// that never returns leaves the stream unanswered, as Node's server, stuck in a file, never answers.
+    in_file: AtomicBool,
+    /// A text search's link to the thread making its blocking calls ([`IoLink`]), woken by [`Control::halt`].
+    link: OnceLock<Arc<IoLink>>,
+}
+
+impl Control {
+    fn new(deadline: Deadline) -> Self {
+        Self {
+            stop: AtomicBool::new(false),
+            queued: Mutex::new(0),
+            room: Condvar::new(),
+            deadline,
+            #[cfg(feature = "replay-controls")]
+            files_with_lines: AtomicUsize::new(0),
+            in_file: AtomicBool::new(false),
+            link: OnceLock::new(),
+        }
+    }
+
+    fn stopped(&self) -> bool {
+        self.stop.load(Ordering::SeqCst)
+    }
+
+    /// Stops the producer, waking it if it waits for room in the queue or for a blocking call's answer.
+    fn halt(&self) {
+        self.stop.store(true, Ordering::SeqCst);
+        {
+            let _queued = locked(&self.queued);
+            self.room.notify_all();
+        }
+        if let Some(link) = self.link.get() {
+            link.wake();
+        }
+    }
+
+    /// Takes `weight` bytes of the queue, waiting while they would take it past [`QUEUE_BYTES`] (an item larger than
+    /// that waits for an empty queue); `false` once the stream is stopped.
+    fn reserve(&self, weight: usize) -> bool {
+        let mut queued = self.queued.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if self.stopped() {
+                return false;
+            }
+            if *queued == 0 || *queued + weight <= QUEUE_BYTES {
+                *queued += weight;
+                return true;
+            }
+            queued = self.room.wait(queued).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
+    /// The consumer took an item of `weight` bytes off the queue.
+    fn taken(&self, weight: usize) {
+        let mut queued = self.queued.lock().unwrap_or_else(PoisonError::into_inner);
+        // A stream that is one error ([`one_item`]) queued it without reserving it.
+        *queued = queued.saturating_sub(weight);
+        self.room.notify_all();
+    }
+
+    fn expired(&self) -> bool {
+        #[cfg(feature = "replay-controls")]
+        if self.deadline.after_files.is_some_and(|n| self.files_with_lines.load(Ordering::SeqCst) >= n) {
+            return true;
+        }
+        self.deadline.at.is_some_and(|at| Instant::now() >= at)
+    }
+
+    /// The check after the search's last file (Node's `handle_content_search` checks its deadline once more).
+    fn expired_at_end(&self) -> bool {
+        #[cfg(feature = "replay-controls")]
+        if self.deadline.after_files.is_some() {
+            return true;
+        }
+        self.expired()
+    }
+
+    /// A searched file had matches.
+    fn file_with_lines(&self) {
+        #[cfg(feature = "replay-controls")]
+        self.files_with_lines.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// The producer's end of a stream.
+struct Out<T> {
+    tx: mpsc::Sender<Result<T, FsError>>,
+    ctl: Arc<Control>,
+}
+
+impl<T> Clone for Out<T> {
+    fn clone(&self) -> Self {
+        Self { tx: self.tx.clone(), ctl: self.ctl.clone() }
+    }
+}
+
+impl<T: Weigh> Out<T> {
+    /// Queues `item`, waiting while the queue is full, in items or in bytes; `false` once the stream is stopped or gone.
+    fn send(&self, item: Result<T, FsError>) -> bool {
+        self.ctl.reserve(item.weight()) && !self.ctl.stopped() && self.tx.blocking_send(item).is_ok()
+    }
+}
+
+fn timed_out(path: Option<AbsPath>) -> FsError {
+    FsError::new(FsErrorKind::TimedOut, path)
+}
+
+/// The search's walk, one entry at a time: a file to search, another entry (`None`), or a walk error.
+type Listing = Box<dyn Iterator<Item = Result<Option<PathBuf>, FsError>> + Send>;
+/// Opens a file for its search.
+type Opener = Box<dyn Fn(&Path) -> io::Result<Box<dyn Read + Send>> + Send>;
+
+/// What a text search asks of the thread making its blocking calls ([`serve`]).
+enum Ask {
+    /// The walk's next entry.
+    Next,
+    /// Open this file (the previous one is closed).
+    Open(PathBuf),
+    /// Read at most this many bytes of the open file.
+    Read(usize),
+}
+
+/// That thread's answer; a read's bytes are in [`IoState::bytes`].
+enum Answer {
+    Next(Option<Result<Option<PathBuf>, FsError>>),
+    Open(io::Result<()>),
+    Read(io::Result<usize>),
+}
+
+#[derive(Default)]
+struct IoState {
+    asked: Option<Ask>,
+    answer: Option<Answer>,
+    /// The bytes of the last read, handed over.
+    bytes: Vec<u8>,
+    /// The scan has ended: the serving thread ends at its next turn, and drops a late answer.
+    done: bool,
+}
+
+/// The link between a text search's scan and the thread making its blocking calls: the walk's directory reads, the
+/// opens and the reads of the files. The scan holds the matcher, the searcher with its buffers (up to the heap limit),
+/// the printer and the queue; it never makes a call that can block, so a stopped stream's scan ends at once and frees
+/// all of that. The serving thread is the one a cancel reaches ([`cancel_io`]) and the one given up when its call does
+/// not return ([`Producers::give_up`]); what it holds then is fixed: the walk's position (its open directories and the
+/// ignore rules of the folders it is in), the open file, one buffer of [`READ_CHUNK`] bytes, its own [`Hold`] and this
+/// link, whose buffer the scan's end frees.
+#[derive(Default)]
+struct IoLink {
+    state: Mutex<IoState>,
+    changed: Condvar,
+}
+
+impl IoLink {
+    /// Asks the serving thread and waits for its answer, with the state still locked so a read's bytes can be taken;
+    /// `None` once the stream is stopped (the serving thread may still be in its call).
+    fn ask(&self, ctl: &Control, ask: Ask) -> Option<(Answer, MutexGuard<'_, IoState>)> {
+        let mut state = locked(&self.state);
+        state.asked = Some(ask);
+        self.changed.notify_all();
+        loop {
+            if let Some(answer) = state.answer.take() {
+                return Some((answer, state));
+            }
+            if ctl.stopped() {
+                return None;
+            }
+            state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
+    /// The serving thread's next ask; `None` once the scan has ended.
+    fn next_ask(&self) -> Option<Ask> {
+        let mut state = locked(&self.state);
+        loop {
+            if state.done {
+                return None;
+            }
+            if let Some(ask) = state.asked.take() {
+                return Some(ask);
+            }
+            state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
+    /// Hands `answer`, and a read's `bytes`, to the scan; `false` once the scan has ended.
+    fn answer(&self, answer: Answer, bytes: &[u8]) -> bool {
+        let mut state = locked(&self.state);
+        if state.done {
+            return false;
+        }
+        state.bytes.clear();
+        state.bytes.extend_from_slice(bytes);
+        state.answer = Some(answer);
+        self.changed.notify_all();
+        true
+    }
+
+    /// The scan has ended, done or stopped: its buffer is freed, and the serving thread ends at its next turn.
+    fn finish(&self) {
+        let mut state = locked(&self.state);
+        state.done = true;
+        state.bytes = Vec::new();
+        state.asked = None;
+        state.answer = None;
+        self.changed.notify_all();
+    }
+
+    /// Wakes a scan waiting for an answer: its stream stopped.
+    fn wake(&self) {
+        let _state = locked(&self.state);
+        self.changed.notify_all();
+    }
+}
+
+/// The volume a call on `path` reads on, as a stall in it is charged ([`Volumes::name`]): with the mount points below
+/// the root (`mounts`, as the walk names them, each with the volume below it), the volume of the deepest one `path`
+/// lies at or under, else the root's (`root_volume`). With no mount table (`None`: it could not be read), which entries
+/// are mount points is unknown, not "none": any entry may be a dead mount, so the call is charged to `path` itself,
+/// which only calls on that same path are refused by; it can refuse no other path's call, so no healthy volume's.
+fn charged(mounts: Option<&[(PathBuf, String)]>, root_volume: &str, path: &Path) -> String {
+    match mounts {
+        Some(mounts) => mounts
+            .iter()
+            .filter(|(point, _)| path.starts_with(point))
+            .max_by_key(|(point, _)| point.components().count())
+            .map_or_else(|| root_volume.to_owned(), |(_, volume)| volume.clone()),
+        None => format!("unknown mount {}", path.to_string_lossy()),
+    }
+}
+
+/// The mount points a walk may read on below its root, each with its volume, `None` when the table cannot be read
+/// ([`charged`]): Unix, the kernel's table ([`unix_io::mount_table`]); elsewhere none, as a walk follows no junction,
+/// mounted folder or link (Node's walk does not either).
+type MountTable = Box<dyn Fn() -> Option<Vec<(PathBuf, String)>> + Send>;
+
+fn mount_table() -> MountTable {
+    #[cfg(unix)]
+    return Box::new(unix_io::mount_table);
+    #[cfg(not(unix))]
+    Box::new(|| Some(Vec::new()))
+}
+
+/// A searched file as the scan reads it: through the serving thread, at most [`READ_CHUNK`] bytes at a time, each read
+/// after a check of the stop and the deadline.
+struct Linked<'a> {
+    link: &'a IoLink,
+    ctl: &'a Control,
+}
+
+/// A text search's scan ([`Searching`]), on a thread of its own. Its end, however it ends, ends the serving thread's
+/// wait ([`IoLink::finish`]).
+struct Scan {
+    searcher: Searcher,
+    left: Option<usize>,
+    first_per_file: bool,
+    link: Arc<IoLink>,
+    #[cfg(feature = "count-jobs")]
+    root: PathBuf,
+    #[cfg(feature = "count-jobs")]
+    _live: probe::Live,
+}
+
+impl Drop for Scan {
+    fn drop(&mut self) {
+        self.link.finish();
+    }
+}
+
+/// A producer that has not started, with its end of the queue and the end `close` waits for.
+struct Waiting<T> {
+    producer: Box<dyn Produce<T>>,
+    out: Out<T>,
+    done: oneshot::Sender<()>,
+}
+
+/// A queue holding one item.
+fn one_item<T>(item: Result<T, FsError>) -> mpsc::Receiver<Result<T, FsError>> {
+    let (tx, rx) = mpsc::channel(1);
+    let _ = tx.try_send(item);
+    rx
+}
+
+/// The blocking OS call of an abandoned producer thread, cancelled until the thread ends ([`Producers::release`]).
+///
+/// A producer checks its stop between entries, before each read and at each item it queues; what it cannot check is a
+/// blocking OS call in progress: a directory read, an open or a read on a dead network share, a pipe (for a text search
+/// these are all on the stream's thread, [`IoLink`]). Node's client ends such a search by ending its whole search server
+/// CANCEL_GRACE_MS after its cancel (native-search-client.mjs:501), which ends the stuck threads with their process. A
+/// thread cannot be ended from outside its process, so its call is cancelled where the OS can cancel one thread's call:
+/// on Windows `CancelSynchronousIo` on the thread's handle (the call fails with ERROR_OPERATION_ABORTED); on Unix, with
+/// no signal, a read of a FIFO, a socket or a terminal, which waits with `poll` beside the thread's [`Interrupt`] (a pipe
+/// this writes to: [`unix_io`]). The producer then finds its stop set and ends, which frees its slot.
+///
+/// A cancel that reaches a Windows thread before it enters its call is lost (`CancelSynchronousIo` cancels only an
+/// operation in progress), so it is repeated: at once, then after 1 ms and at doubling intervals up to 1 s, until the
+/// thread ends or the cancel grace has passed (on Unix the interrupt stays fired, so a repeat changes nothing). A thread
+/// still running then is given up ([`Producers::give_up`]): its slot is free, nothing cancels it any more, and it ends by
+/// itself if its call ever returns. That is what remains uncancellable: on Windows an operation whose driver does not
+/// support cancellation (`CancelSynchronousIo` then returns ERROR_NOT_FOUND, or the operation completes normally), on
+/// Unix a directory read and any read of a regular file or block device (a file on an NFS share mounted `hard` whose
+/// server is gone, a hung disk: Linux `TASK_UNINTERRUPTIBLE`). Node's client ends its server's process (SIGTERM) and
+/// starts a new one; the stuck thread lingers with its process until that call returns, as a given-up thread lingers here
+/// ([`ProducerCounts::stalled`]), at most [`SchedulerConfig::stuck_per_volume`] per volume.
+mod cancel_io {
+    use std::sync::Arc;
+    use std::sync::Condvar;
+    use std::sync::LazyLock;
+    use std::sync::Mutex;
+    use std::sync::PoisonError;
+    use std::sync::atomic::Ordering;
+    use std::thread::JoinHandle;
+    use std::time::Duration;
+    use std::time::Instant;
+
+    use super::Producers;
+    use super::RELEASED;
+    use super::Ticket;
+
+    const FIRST_RETRY: Duration = Duration::from_millis(1);
+    const LAST_RETRY: Duration = Duration::from_secs(1);
+
+    /// A stream thread's interrupt: on Unix the pipe its pollable reads wait on beside their descriptor, entered as the
+    /// thread's own ([`enter`], [`current`]); on Windows nothing (the thread's handle is cancelled).
+    #[cfg(unix)]
+    pub(super) use super::unix_io::Cancel as Interrupt;
+
+    #[cfg(not(unix))]
+    pub(super) struct Interrupt;
+
+    #[cfg(not(unix))]
+    impl Interrupt {
+        pub(super) fn new() -> std::io::Result<Self> {
+            Ok(Self)
+        }
+    }
+
+    #[cfg(unix)]
+    thread_local! {
+        static CURRENT: std::cell::RefCell<Option<Arc<Interrupt>>> = const { std::cell::RefCell::new(None) };
+    }
+
+    /// Makes `interrupt` the current thread's, for the files it opens to search ([`super::open_to_search`]).
+    pub(super) fn enter(interrupt: Option<Arc<Interrupt>>) {
+        #[cfg(unix)]
+        CURRENT.with(|current| *current.borrow_mut() = interrupt);
+        #[cfg(not(unix))]
+        drop(interrupt);
+    }
+
+    /// The current thread's interrupt.
+    #[cfg(unix)]
+    pub(super) fn current() -> Option<Arc<Interrupt>> {
+        CURRENT.with(|current| current.borrow().clone())
+    }
+
+    #[cfg(windows)]
+    fn cancel(thread: &JoinHandle<()>, _: Option<&Interrupt>) {
+        use std::os::windows::io::AsRawHandle as _;
+        // SAFETY: the handle stays open while `thread` is held. A thread with no synchronous I/O in progress makes the
+        // call fail with ERROR_NOT_FOUND, which changes nothing.
+        unsafe { windows_sys::Win32::System::IO::CancelSynchronousIo(thread.as_raw_handle()) };
+    }
+
+    /// Fires the thread's interrupt: a read waiting with `poll` ends.
+    #[cfg(unix)]
+    fn cancel(_: &JoinHandle<()>, interrupt: Option<&Interrupt>) {
+        if let Some(interrupt) = interrupt {
+            interrupt.fire();
+        }
+    }
+
+    #[cfg(not(any(windows, unix)))]
+    fn cancel(_: &JoinHandle<()>, _: Option<&Interrupt>) {}
+
+
+    struct Abandoned {
+        /// Held, not detached, while it is cancelled: its handle stays valid for `CancelSynchronousIo` until then.
+        thread: JoinHandle<()>,
+        interrupt: Option<Arc<Interrupt>>,
+        ticket: Arc<Ticket>,
+        producers: Arc<Producers>,
+        /// When the cancel grace has passed.
+        give_up_at: Instant,
+    }
+    impl Abandoned {
+        fn running(&self) -> bool {
+            self.ticket.state.load(Ordering::SeqCst) == RELEASED
+        }
+    }
+    struct Canceller {
+        abandoned: Mutex<Vec<Abandoned>>,
+        added: Condvar,
+    }
+    static CANCELLER: LazyLock<Arc<Canceller>> = LazyLock::new(|| {
+        let canceller = Arc::new(Canceller { abandoned: Mutex::new(Vec::new()), added: Condvar::new() });
+        let running = canceller.clone();
+        // Without this thread nothing is cancelled or given up but by `close`: the others end when their calls return.
+        let _ = std::thread::Builder::new().name("mixdog-fs-cancel".into()).spawn(move || running.run());
+        canceller
+    });
+    /// Cancels `thread`'s blocking call now and again until its producer ends, or gives it up once `producers`' cancel
+    /// grace has passed.
+    pub(super) fn until_ended(thread: JoinHandle<()>, interrupt: Option<Arc<Interrupt>>, ticket: Arc<Ticket>, producers: Arc<Producers>) {
+        cancel(&thread, interrupt.as_deref());
+        let give_up_at = Instant::now() + producers.config.grace;
+        let canceller = &*CANCELLER;
+        canceller.abandoned.lock().unwrap_or_else(PoisonError::into_inner).push(Abandoned { thread, interrupt, ticket, producers, give_up_at });
+        canceller.added.notify_one();
+    }
+    impl Canceller {
+        fn run(&self) {
+            let mut abandoned = self.abandoned.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut retry = FIRST_RETRY;
+            loop {
+                let now = Instant::now();
+                for a in abandoned.iter().filter(|a| a.running() && a.give_up_at <= now) {
+                    a.producers.give_up(&a.ticket);
+                }
+                // An ended or given-up thread is let go of: a given-up one is detached and runs on alone.
+                abandoned.retain(Abandoned::running);
+                let Some(next) = abandoned.iter().map(|a| a.give_up_at).min() else {
+                    abandoned = self.added.wait(abandoned).unwrap_or_else(PoisonError::into_inner);
+                    retry = FIRST_RETRY;
+                    continue;
+                };
+                let before = abandoned.len();
+                let wait = retry.min(next.saturating_duration_since(now));
+                abandoned = self.added.wait_timeout(abandoned, wait).unwrap_or_else(PoisonError::into_inner).0;
+                retry = if abandoned.len() > before { FIRST_RETRY } else { (retry * 2).min(LAST_RETRY) };
+                for a in abandoned.iter().filter(|a| a.running()) {
+                    cancel(&a.thread, a.interrupt.as_deref());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+mod unix_io;
+
+mod tree;
+
+/// What a test can observe of the text searches: per search root, the matches produced and the searches whose
+/// producer is still alive.
+#[cfg(feature = "count-jobs")]
+pub mod probe {
+    use std::collections::HashMap;
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+    use std::sync::PoisonError;
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct SearchProbe {
+        pub found: u64,
+        pub live: u64,
+    }
+
+    static ROOTS: Mutex<Option<HashMap<PathBuf, SearchProbe>>> = Mutex::new(None);
+
+    fn with<R>(root: &Path, f: impl FnOnce(&mut SearchProbe) -> R) -> R {
+        let mut roots = ROOTS.lock().unwrap_or_else(PoisonError::into_inner);
+        f(roots.get_or_insert_with(HashMap::new).entry(root.to_path_buf()).or_default())
+    }
+
+    pub fn search(root: &Path) -> SearchProbe {
+        with(root, |p| *p)
+    }
+
+    /// The searches whose producer is alive, over every root under `scope`.
+    pub fn live_under(scope: &Path) -> u64 {
+        let roots = ROOTS.lock().unwrap_or_else(PoisonError::into_inner);
+        roots.as_ref().map_or(0, |roots| roots.iter().filter(|(root, _)| root.starts_with(scope)).map(|(_, p)| p.live).sum())
+    }
+
+    pub(super) fn found(root: &Path) {
+        with(root, |p| p.found += 1);
+    }
+
+    pub(super) struct Live(PathBuf);
+
+    impl Live {
+        pub(super) fn new(root: &Path) -> Self {
+            with(root, |p| p.live += 1);
+            Self(root.to_path_buf())
+        }
+    }
+
+    impl Drop for Live {
+        fn drop(&mut self) {
+            with(&self.0, |p| p.live -= 1);
+            ENDED.notify_waiters();
+        }
+    }
+
+    /// Notified each time a search's scan ends and each time a producer's threads have all ended (a test hook: the
+    /// scheduler is told nothing of a given-up producer's end).
+    static ENDED: std::sync::LazyLock<tokio::sync::Notify> = std::sync::LazyLock::new(tokio::sync::Notify::new);
+
+    /// Notified each time a search's scan ends and each time a producer's threads have all ended.
+    pub fn changed() -> &'static tokio::sync::Notify {
+        &ENDED
+    }
+
+    pub(super) fn ended() {
+        ENDED.notify_waiters();
+    }
+
+    /// The streams with a producer made so far (refused ones included), and the order they answered in, each by its
+    /// number (its place among those made): at its refusal, or when its producer's threads ended, under the scheduler's
+    /// lock, which is when Node's server writes a search's answer (before the next one it dispatches can end).
+    static STREAMS: Mutex<(u64, Vec<u64>)> = Mutex::new((0, Vec::new()));
+
+    /// Notified each time a stream is made.
+    static MADE: std::sync::LazyLock<tokio::sync::Notify> = std::sync::LazyLock::new(tokio::sync::Notify::new);
+
+    /// The streams made so far: the next one made is this number.
+    pub fn streams_made() -> u64 {
+        STREAMS.lock().unwrap_or_else(PoisonError::into_inner).0
+    }
+
+    /// The streams, by number, in the order they answered.
+    pub fn answer_order() -> Vec<u64> {
+        STREAMS.lock().unwrap_or_else(PoisonError::into_inner).1.clone()
+    }
+
+    /// Notified each time a stream is made.
+    pub fn made() -> &'static tokio::sync::Notify {
+        &MADE
+    }
+
+    pub(super) fn stream_made() -> u64 {
+        let number = {
+            let mut streams = STREAMS.lock().unwrap_or_else(PoisonError::into_inner);
+            streams.0 += 1;
+            streams.0 - 1
+        };
+        MADE.notify_waiters();
+        number
+    }
+
+    pub(super) fn answered(number: u64) {
+        STREAMS.lock().unwrap_or_else(PoisonError::into_inner).1.push(number);
+    }
+}
+
+/// Search deadlines a replay scripts instead of a clock, for the searches whose root lies under a scripted scope. The
+/// rest of the deadline's handling is the production one.
+#[cfg(feature = "replay-controls")]
+pub mod deadline_script {
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+    use std::sync::PoisonError;
+
+    /// The scopes [`unstick`] released, and its signal.
+    static UNSTUCK: (Mutex<Vec<PathBuf>>, std::sync::Condvar) = (Mutex::new(Vec::new()), std::sync::Condvar::new());
+
+    /// Ends the held calls of the searches under `scope` ([`Script::Stuck`]), and of every later one under it.
+    pub fn unstick(scope: &Path) {
+        UNSTUCK.0.lock().unwrap_or_else(PoisonError::into_inner).push(scope.to_path_buf());
+        UNSTUCK.1.notify_all();
+    }
+
+    /// A search held in a call that ignores its cancel ([`Script::Stuck`]).
+    pub(super) struct Held {
+        pub(super) root: PathBuf,
+    }
+
+    /// A search that queues nothing and ends when stopped, holding the search it stands for until then.
+    pub(super) struct Silent {
+        pub(super) _search: Box<dyn Send>,
+    }
+
+
+    #[derive(Clone, Copy, Debug)]
+    pub enum Script {
+        /// The soft deadline passes once this many files with matches were searched, or when the search ends (a
+        /// deadline that passed during its last file).
+        AfterFiles(usize),
+        /// The soft deadline never passes: every search of the recording answered before its own, however long the
+        /// replay's machine takes to reach the same point.
+        Unpassed,
+        /// The search never answers: it queues nothing and ends only when stopped (a server stuck past every deadline).
+        Silent,
+        /// Every slot is taken and the queue is full: a walk or search that stands for a search-server request is refused
+        /// ([`super::Producers::enqueue`], [`super::FsErrorKind::Saturated`]).
+        QueueFull,
+        /// The search is held in a call that ignores its cancel (a read on a dead mount) until [`unstick`] releases the
+        /// searches under its scope: it is given up once its stream let go of it and the grace has passed.
+        Stuck,
+    }
+    /// A batch oplock held on a file, as a recorder's `lib/oplock-holder.ps1` holds it: another handle's open of the
+    /// file for its data breaks the oplock and waits, as the break is never acknowledged, until this is dropped.
+    #[cfg(windows)]
+    pub struct OplockHold {
+        file: windows_sys::Win32::Foundation::HANDLE,
+        event: windows_sys::Win32::Foundation::HANDLE,
+        /// The request's OVERLAPPED, written by the system until the request completes.
+        overlapped: Box<windows_sys::Win32::System::IO::OVERLAPPED>,
+    }
+    #[cfg(windows)]
+    impl OplockHold {
+        pub fn new(path: &Path) -> std::io::Result<Self> {
+            use std::os::windows::ffi::OsStrExt as _;
+            use windows_sys::Win32::Foundation::CloseHandle;
+            use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+            use windows_sys::Win32::Storage::FileSystem::CreateFileW;
+            use windows_sys::Win32::System::IO::DeviceIoControl;
+            use windows_sys::Win32::System::Threading::CreateEventW;
+            const GENERIC_READ: u32 = 0x8000_0000;
+            const SHARE_ALL: u32 = 7;
+            const OPEN_EXISTING: u32 = 3;
+            const FILE_FLAG_OVERLAPPED: u32 = 0x4000_0000;
+            const FSCTL_REQUEST_BATCH_OPLOCK: u32 = 0x0009_0008;
+            const ERROR_IO_PENDING: i32 = 997;
+            let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+            // SAFETY: `wide` is a NUL-terminated path; the handle returned is owned here.
+            let file = unsafe {
+                CreateFileW(wide.as_ptr(), GENERIC_READ, SHARE_ALL, std::ptr::null(), OPEN_EXISTING, FILE_FLAG_OVERLAPPED, std::ptr::null_mut())
+            };
+            if file == INVALID_HANDLE_VALUE {
+                return Err(std::io::Error::last_os_error());
+            }
+            // SAFETY: a manual-reset event, unnamed; the handle is owned here.
+            let event = unsafe { CreateEventW(std::ptr::null(), 1, 0, std::ptr::null()) };
+            // SAFETY: OVERLAPPED is plain data; zeroed is its initial state.
+            let mut overlapped: Box<windows_sys::Win32::System::IO::OVERLAPPED> = Box::new(unsafe { std::mem::zeroed() });
+            overlapped.hEvent = event;
+            // SAFETY: `file` is open for overlapped I/O; the OVERLAPPED lives in a box this keeps until the request ends.
+            let done = unsafe {
+                DeviceIoControl(file, FSCTL_REQUEST_BATCH_OPLOCK, std::ptr::null(), 0, std::ptr::null_mut(), 0, std::ptr::null_mut(), &mut *overlapped)
+            };
+            let error = std::io::Error::last_os_error();
+            if done != 0 || error.raw_os_error() != Some(ERROR_IO_PENDING) {
+                // SAFETY: both handles are owned here; a request that is not pending holds no reference to the OVERLAPPED.
+                unsafe {
+                    CloseHandle(file);
+                    CloseHandle(event);
+                }
+                return Err(std::io::Error::other(format!("no batch oplock on {}: {error}", path.display())));
+            }
+            Ok(Self { file, event, overlapped })
+        }
+
+        /// Waits at most `limit` for the oplock's break: another handle's open of the file, now waiting.
+        pub fn wait_broken(&self, limit: std::time::Duration) -> bool {
+            let ms = u32::try_from(limit.as_millis()).unwrap_or(u32::MAX - 1);
+            // SAFETY: `event` is open.
+            unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(self.event, ms) == 0 }
+        }
+    }
+    #[cfg(windows)]
+    impl Drop for OplockHold {
+        fn drop(&mut self) {
+            use windows_sys::Win32::Foundation::CloseHandle;
+            // SAFETY: the handles are owned here. Closing the file ends the request (it completes, setting the event), so
+            // the OVERLAPPED is freed only once the system is done with it; one not done within 10 s is leaked instead.
+            unsafe {
+                CloseHandle(self.file);
+                let ended = windows_sys::Win32::System::Threading::WaitForSingleObject(self.event, 10_000) == 0;
+                CloseHandle(self.event);
+                if !ended {
+                    std::mem::forget(std::mem::replace(&mut self.overlapped, Box::new(std::mem::zeroed())));
+                }
+            }
+        }
+    }
+    impl super::Produce<mixdog_core_api::domain::fs::SearchMatch> for Held {
+        fn run(self: Box<Self>, _out: super::Out<mixdog_core_api::domain::fs::SearchMatch>, hold: super::Hold) {
+            // Its root's volume told as a search tells it, so its give-up charges that volume.
+            let volumes = super::Volumes::shared(&self.root);
+            let mut volumes = super::locked(&volumes);
+            volumes.bind(hold.ticket.clone());
+            let _ = volumes.start();
+            drop(volumes);
+            let mut unstuck = UNSTUCK.0.lock().unwrap_or_else(PoisonError::into_inner);
+            while !unstuck.iter().any(|scope| self.root.starts_with(scope)) {
+                unstuck = UNSTUCK.1.wait(unstuck).unwrap_or_else(PoisonError::into_inner);
+            }
+        }
+    }
+    static SCRIPTS: Mutex<Vec<(PathBuf, Script)>> = Mutex::new(Vec::new());
+    /// Scripts the searches under `scope` (`None` removes the script).
+    pub fn set(scope: &Path, script: Option<Script>) {
+        let mut scripts = SCRIPTS.lock().unwrap_or_else(PoisonError::into_inner);
+        scripts.retain(|(s, _)| s != scope);
+        if let Some(script) = script {
+            scripts.push((scope.to_path_buf(), script));
+        }
+    }
+    pub(super) fn for_root(root: &Path) -> Option<Script> {
+        let scripts = SCRIPTS.lock().unwrap_or_else(PoisonError::into_inner);
+        scripts.iter().find(|(scope, _)| root.starts_with(scope)).map(|(_, script)| *script)
+    }
+    pub(super) fn queue_full(root: &Path) -> bool {
+        matches!(for_root(root), Some(Script::QueueFull))
+    }
+    impl super::Produce<mixdog_core_api::domain::fs::SearchMatch> for Silent {
+        fn run(self: Box<Self>, out: super::Out<mixdog_core_api::domain::fs::SearchMatch>, _hold: super::Hold) {
+            while !out.ctl.stopped() {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            // The search it stands for ends before the hold `close` waits for (parameters drop in reverse order, the
+            // hold first).
+            drop(self);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mixdog_core_api::domain::conformance::FsLanes;
+    use mixdog_core_api::domain::conformance::check_file_service;
+
+    use super::*;
+
+    /// grep-printer 0.2.2's mark after a long line's preview when no match is coloured (standard.rs:1373-1374).
+    const LONG_LINE_MARK: &str = " [... omitted end of long line]";
+
+    fn root() -> (tempfile::TempDir, AbsPath) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = AbsPath::new(crate::pathguard::canonical(dir.path()).unwrap()).unwrap();
+        (dir, root)
+    }
+
+    fn put(path: &AbsPath, content: &[u8], precondition: WritePrecondition) -> WriteRequest {
+        WriteRequest { path: path.clone(), content: content.to_vec(), precondition }
+    }
+
+    fn tmp_suffix_is_eight_hex(tmp_name: &str, target_name: &str) -> bool {
+        tmp_name
+            .strip_prefix(target_name)
+            .and_then(|rest| rest.strip_prefix(".mixdog-tmp-"))
+            .is_some_and(|id| id.len() == 8 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+    }
+
+    /// A directory link (symlink on Unix, junction on Windows, which needs no privilege).
+    fn make_dir_link(link: &Path, target: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).unwrap();
+        #[cfg(windows)]
+        {
+            let status = std::process::Command::new("cmd").arg("/C").arg("mklink").arg("/J").arg(link).arg(target).output().unwrap();
+            assert!(status.status.success(), "{}", String::from_utf8_lossy(&status.stdout));
+        }
+    }
+
+    fn remove_dir_link(link: &Path) {
+        fs::remove_dir(link).unwrap();
+    }
+
+    #[test]
+    fn a_missing_intermediate_directory_under_an_alias_has_the_canonical_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical(dir.path()).unwrap();
+        let real = root.join("Real");
+        fs::create_dir(real.as_path()).unwrap();
+        let link = root.join("link");
+        make_dir_link(link.as_path(), real.as_path());
+        let canonical_spelling = resolve_write(&real.join("new1").join("new2").join("f.txt")).unwrap();
+        let aliased = resolve_write(&link.join("new1").join("new2").join("f.txt")).unwrap();
+        assert!(aliased.key.same(&canonical_spelling.key));
+        assert_eq!(aliased.path, canonical_spelling.path);
+        if cfg!(windows) {
+            // A case alias of the existing ancestor resolves to its stored case.
+            let cased = resolve_write(&root.join("REAL").join("new1").join("new2").join("f.txt")).unwrap();
+            assert_eq!(cased.path, canonical_spelling.path);
+        }
+    }
+
+    #[test]
+    fn names_that_differ_only_in_case_are_one_key_when_the_directory_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical(dir.path()).unwrap();
+        let (lower, upper) = (resolve_write(&root.join("foo.txt")).unwrap(), resolve_write(&root.join("FOO.TXT")).unwrap());
+        let insensitive = cfg!(windows);
+        assert_eq!(lower.key.same(&upper.key), insensitive);
+        // The key does not change once the file exists (and is found under the other spelling).
+        fs::write(root.join("foo.txt"), b"x").unwrap();
+        let created = resolve_write(&root.join("FOO.TXT")).unwrap();
+        assert_eq!(created.key.same(&lower.key), insensitive);
+        assert!(resolve_write(&root.join("foo.txt")).unwrap().key.same(&lower.key));
+    }
+
+    fn needle_request(root: &AbsPath, deadline: Option<Instant>) -> SearchRequest {
+        SearchRequest {
+            root: root.clone(),
+            pattern: "needle".into(),
+            regex: false,
+            case_sensitive: true,
+            include_globs: Vec::new(),
+            exclude_globs: Vec::new(),
+            include_hidden: true,
+            respect_ignore: false,
+            multiline: false,
+            pcre2: false,
+            binary_as_text: false,
+            limit: None,
+            first_per_file: false,
+            deadline,
+            class: SearchClass::Interactive,
+        }
+    }
+
+    /// `lines` lines of `b'x'`, 1 KiB each, read through a counter: a file of any size with no match.
+    struct Generated {
+        left: u64,
+        at: u64,
+        read: Arc<AtomicU64>,
+    }
+
+    impl Read for Generated {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let n = buf.len().min(usize::try_from(self.left).unwrap_or(usize::MAX));
+            for (i, b) in buf[..n].iter_mut().enumerate() {
+                *b = if (self.at + i as u64) % 1024 == 1023 { b'\n' } else { b'x' };
+            }
+            self.at += n as u64;
+            self.left -= n as u64;
+            self.read.fetch_add(n as u64, Ordering::SeqCst);
+            Ok(n)
+        }
+    }
+
+    const GIB: u64 = 1 << 30;
+
+    /// One file of 1 GiB with no match, through the search's file seam.
+    fn one_gib_file(root: &AbsPath) -> (Listing, Opener, Arc<AtomicU64>) {
+        let read = Arc::new(AtomicU64::new(0));
+        let listing: Listing = Box::new(std::iter::once(Ok(Some(root.join("big.txt").as_path().to_path_buf()))));
+        let counter = read.clone();
+        let open: Opener = Box::new(move |_| Ok(Box::new(Generated { left: GIB, at: 0, read: counter.clone() }) as Box<dyn Read + Send>));
+        (listing, open, read)
+    }
+
+    /// A walk whose directory read never returns until the sender is dropped; the receiver ends once the producer is
+    /// in that read.
+    fn hung_listing() -> (Listing, std::sync::mpsc::Sender<()>, oneshot::Receiver<()>) {
+        let (listing, release, in_read, _) = hung_listing_gone();
+        (listing, release, in_read)
+    }
+
+    /// [`hung_listing`], and a receiver that ends once the listing is dropped: the thread that held it has ended (its
+    /// share of the slot, which it lets go of first, included).
+    fn hung_listing_gone() -> (Listing, std::sync::mpsc::Sender<()>, oneshot::Receiver<()>, oneshot::Receiver<()>) {
+        let (release, hung) = std::sync::mpsc::channel::<()>();
+        let (entered, in_read) = oneshot::channel::<()>();
+        let (ended, gone) = oneshot::channel::<()>();
+        let state = Mutex::new((hung, Some(entered), ended));
+        let listing: Listing = Box::new(std::iter::from_fn(move || {
+            let mut state = state.lock().unwrap();
+            state.1.take();
+            let _ = state.0.recv();
+            None
+        }));
+        (listing, release, in_read, gone)
+    }
+
+    /// A root on another volume than the temp folder's: only its volume is read ([`volume_of`]); the listings given name
+    /// the files.
+    fn other_volume() -> AbsPath {
+        #[cfg(windows)]
+        return AbsPath::new(r"\\mixdog-other-volume\share\x").unwrap();
+        #[cfg(target_os = "linux")]
+        return AbsPath::new("/proc/self").unwrap();
+        #[cfg(target_os = "macos")]
+        return AbsPath::new("/dev").unwrap();
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+        AbsPath::new("/").unwrap()
+    }
+
+    /// A listing of `file` alone, read with `File::open`.
+    fn one_file(file: &Path) -> (Listing, Opener) {
+        let listing: Listing = Box::new(std::iter::once(Ok(Some(file.to_path_buf()))));
+        let open: Opener = Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>));
+        (listing, open)
+    }
+
+    fn no_files() -> Opener {
+        Box::new(|_| unreachable!("no file is listed"))
+    }
+
+    const NODE_QUEUE: usize = 2_048;
+
+    /// What the stuck listings of a test count: the reads entered and not returned, and the producers that started (a
+    /// listing dropped on a stream's thread: a search refused before it started drops its listing with its stream).
+    #[derive(Default)]
+    struct StuckReads {
+        in_read: std::sync::atomic::AtomicUsize,
+        started: std::sync::atomic::AtomicUsize,
+    }
+
+    /// A producer that reads on the volume keyed `volume` ([`Ticket::read_on`]): refused, it answers the refusal; else,
+    /// with `held`, it tells it entered its read and holds it until the sender is dropped, or it ends with no item.
+    struct OnVolume {
+        volume: &'static str,
+        held: Option<(std::sync::mpsc::Receiver<()>, oneshot::Sender<()>)>,
+    }
+
+    /// A second fixed volume besides the temp folder's, where a folder can be made: its new folder, removed when dropped.
+    #[cfg(windows)]
+    fn folder_on_another_volume(than: &Path) -> Option<tempfile::TempDir> {
+        use std::os::windows::ffi::OsStrExt as _;
+        const DRIVE_FIXED: u32 = 3;
+        let (ours, _) = volume_id(than)?;
+        (b'A'..=b'Z').map(|letter| PathBuf::from(format!("{}:\\", char::from(letter)))).find_map(|drive| {
+            let wide: Vec<u16> = drive.as_os_str().encode_wide().chain(Some(0)).collect();
+            // SAFETY: a NUL-terminated drive root.
+            let fixed = unsafe { windows_sys::Win32::Storage::FileSystem::GetDriveTypeW(wide.as_ptr()) } == DRIVE_FIXED;
+            (fixed && volume_id(&drive).is_some_and(|(id, _)| id != ours)).then(|| tempfile::tempdir_in(&drive).ok()).flatten()
+        })
+    }
+
+    /// A call is charged to the volume below the deepest mount point its path lies at or under, the root's under none
+    /// (by whole components: `/r/mm` is not under `/r/m`); with no mount table, to its path itself, so a stall there
+    /// refuses only calls on that same path, never the root's volume.
+    #[test]
+    fn a_call_is_charged_to_the_volume_of_the_path_it_reads() {
+        let mounts = vec![(PathBuf::from("/r/m"), "m".to_owned()), (PathBuf::from("/r/m/n"), "n".to_owned())];
+        let known = |path: &str| charged(Some(&mounts), "root", Path::new(path));
+        assert_eq!([known("/r"), known("/r/a.txt"), known("/r/mm")], ["root", "root", "root"]);
+        assert_eq!([known("/r/m"), known("/r/m/x"), known("/r/m/n"), known("/r/m/n/y")], ["m", "m", "n", "n"]);
+        let unknown = |path: &str| charged(None, "root", Path::new(path));
+        assert_eq!(unknown("/r/dead"), unknown("/r/dead"));
+        assert!(unknown("/r/dead") != unknown("/r/a.txt") && unknown("/r/dead") != unknown("/r") && unknown("/r") != "root");
+    }
+
+    /// The real filesystem through the walk's own calls ([`tree::Dirs`]), except that a call on a gated path or under it
+    /// (the root's type, a listing, a type) is counted and held until the test lets go, as on a dead mount; the entries
+    /// at `untyped` are listed without their type, as a listing that gives none lists them (a Unix filesystem without
+    /// `d_type`).
+    struct Gated {
+        gated: Vec<PathBuf>,
+        untyped: Vec<PathBuf>,
+        calls: Arc<AtomicUsize>,
+        release: Arc<(Mutex<bool>, std::sync::Condvar)>,
+    }
+
+    impl Gated {
+        fn hold(&self, path: &Path) {
+            if self.gated.iter().any(|gated| path.starts_with(gated)) {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                let (released, changed) = &*self.release;
+                let mut released = released.lock().unwrap();
+                while !*released {
+                    released = changed.wait(released).unwrap();
+                }
+            }
+        }
+    }
+
+    impl tree::Dirs for Gated {
+        fn root(&mut self, root: &tree::Asked<'_>) -> io::Result<(EntryKind, bool)> {
+            self.hold(root.path());
+            tree::Dirs::root(&mut tree::RealDirs, root)
+        }
+
+        fn list(&mut self, dir: &tree::Asked<'_>) -> io::Result<Vec<io::Result<tree::Listed>>> {
+            self.hold(dir.path());
+            let listed = tree::Dirs::list(&mut tree::RealDirs, dir)?;
+            let untyped = |listed: tree::Listed| if self.untyped.iter().any(|path| path == listed.path()) { listed.untyped() } else { listed };
+            Ok(listed.into_iter().map(|entry| entry.map(untyped)).collect())
+        }
+
+        fn kind(&mut self, entry: &tree::Asked<'_>) -> io::Result<EntryKind> {
+            self.hold(entry.path());
+            tree::Dirs::kind(&mut tree::RealDirs, entry)
+        }
+    }
+
+    fn listing_request(root: &AbsPath, prune: Vec<AbsPath>) -> WalkRequest {
+        WalkRequest { root: root.clone(), recursive: true, include_hidden: false, respect_ignore: true, require_git: true, include_dirs: true, prune, descent: Default::default(), server: None }
+    }
+
+    /// Counts the folders a walk reads.
+    struct Reads(Arc<AtomicUsize>);
+
+    impl tree::Dirs for Reads {
+        fn root(&mut self, root: &tree::Asked<'_>) -> io::Result<(EntryKind, bool)> {
+            tree::Dirs::root(&mut tree::RealDirs, root)
+        }
+
+        fn list(&mut self, dir: &tree::Asked<'_>) -> io::Result<Vec<io::Result<tree::Listed>>> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            tree::Dirs::list(&mut tree::RealDirs, dir)
+        }
+
+        fn kind(&mut self, entry: &tree::Asked<'_>) -> io::Result<EntryKind> {
+            tree::Dirs::kind(&mut tree::RealDirs, entry)
+        }
+    }
+
+    /// A mapped drive's device target names its share; a network mount point is keyed as `\\server\share\`.
+    #[test]
+    fn a_mapped_drive_is_keyed_by_the_share_it_maps() {
+        assert_eq!(redirected_share(r"\Device\LanmanRedirector\;Z:0000000000012345\Srv\Share").as_deref(), Some(r"\\srv\share\"));
+        assert_eq!(redirected_share(r"\Device\Mup\;LanmanRedirector\;Z:00000000000a1b2c\srv\share\sub").as_deref(), Some(r"\\srv\share\"));
+        assert_eq!(redirected_share(r"\Device\HarddiskVolume3"), None);
+        assert_eq!(share_key(r"\\?\UNC\Srv\Share\"), r"\\srv\share\");
+        assert_eq!(share_key(r"\\srv\share"), r"\\srv\share\");
+    }
+
+    /// A stream that never polls next, for the burst below: whether it was refused (its one item, at once) or holds or
+    /// waits for a slot (nothing yet).
+    fn refused(stream: &mut Box<dyn EventSource<Result<SearchMatch, FsError>>>) -> bool {
+        let next = stream.next();
+        let mut next = std::pin::pin!(next);
+        match next.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop())) {
+            std::task::Poll::Ready(Some(Err(FsError { kind: FsErrorKind::Saturated, .. }))) => true,
+            std::task::Poll::Pending => false,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    /// A pipe's reading end that reports its first read as it starts, past the search's last check of its stop.
+    #[cfg(windows)]
+    struct Reading {
+        pipe: io::PipeReader,
+        started: Option<oneshot::Sender<()>>,
+    }
+
+    #[cfg(windows)]
+    impl Read for Reading {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if let Some(started) = self.started.take() {
+                let _ = started.send(());
+            }
+            self.pipe.read(buf)
+        }
+    }
+
+    /// A file whose read blocks until its cancel, listed alone, the receiver ending once its producer is at its read; and
+    /// what keeps it blocked (dropped last). On Windows a pipe whose writer never writes (an anonymous pipe is a named
+    /// pipe; `CancelSynchronousIo` ends its read); on Unix a FIFO no one opens to write, opened as a search opens it
+    /// ([`open_to_search`]: its read waits with `poll` beside the thread's interrupt, which the cancel fires).
+    fn blocked_read(root: &AbsPath) -> (Listing, Opener, oneshot::Receiver<()>, Box<dyn Send>) {
+        let (started, in_read) = oneshot::channel::<()>();
+        #[cfg(windows)]
+        {
+            let (reader, writer) = io::pipe().unwrap();
+            let pipe = Mutex::new(Some(Reading { pipe: reader, started: Some(started) }));
+            let listing: Listing = Box::new(std::iter::once(Ok(Some(root.join("pipe").as_path().to_path_buf()))));
+            let open: Opener = Box::new(move |_| Ok(Box::new(pipe.lock().unwrap().take().unwrap()) as Box<dyn Read + Send>));
+            (listing, open, in_read, Box::new(writer))
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt as _;
+            let fifo = root.join("fifo").as_path().to_path_buf();
+            let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+            // SAFETY: a NUL-terminated path.
+            assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0, "{}", io::Error::last_os_error());
+            let started = Mutex::new(Some(started));
+            let listing: Listing = Box::new(std::iter::once(Ok(Some(fifo))));
+            let open: Opener = Box::new(move |path| {
+                let opened = open_to_search(path);
+                if let Some(started) = started.lock().unwrap().take() {
+                    let _ = started.send(());
+                }
+                opened
+            });
+            (listing, open, in_read, Box::new(()))
+        }
+    }
+
+
+    fn lanes() -> FsLanes {
+        let tokens = mixdog_rt::testing::tokens();
+        FsLanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io }
+    }
+    #[tokio::test]
+    async fn passes_the_shared_file_service_conformance() {
+        let (_dir, root) = root();
+        check_file_service(&LocalFileService::new(), lanes(), root).await;
+    }
+    #[tokio::test]
+    async fn concurrent_compare_and_set_has_one_winner() {
+        let (_dir, root) = root();
+        let fs = std::sync::Arc::new(LocalFileService::new());
+        let file = root.join("f.txt");
+        let l = lanes();
+        let seed = |content: &[u8], precondition| WriteRequest { path: file.clone(), content: content.to_vec(), precondition };
+        fs.write(l.durability, seed(b"base", WritePrecondition::Absent)).await.unwrap();
+        let mut tasks = Vec::new();
+        for i in 0..8u8 {
+            let (fs, file) = (fs.clone(), file.clone());
+            tasks.push(tokio::spawn(async move {
+                let request = WriteRequest { path: file, content: vec![b'a' + i], precondition: WritePrecondition::ContentEquals(b"base".to_vec()) };
+                fs.write(l.durability, request).await
+            }));
+        }
+        let mut winners = 0;
+        for task in tasks {
+            match task.await.unwrap() {
+                Ok(_) => winners += 1,
+                Err(e) => assert!(matches!(e.kind, FsErrorKind::PreconditionFailed { .. })),
+            }
+        }
+        assert_eq!(winners, 1);
+    }
+    #[tokio::test]
+    async fn batch_rolls_back_and_leaves_no_temp_files() {
+        let (_dir, root) = root();
+        let fs = LocalFileService::new();
+        let l = lanes();
+        let (a, b) = (root.join("a.txt"), root.join("sub"));
+        fs.write(l.durability, WriteRequest { path: a.clone(), content: b"old".to_vec(), precondition: WritePrecondition::Unconditional }).await.unwrap();
+        // The second target is a directory: its write fails after the first file was replaced.
+        std::fs::create_dir(b.as_path()).unwrap();
+        let err = fs
+            .write_batch(
+                l.durability,
+                vec![
+                    WriteRequest { path: a.clone(), content: b"new".to_vec(), precondition: WritePrecondition::Unconditional },
+                    WriteRequest { path: b.clone(), content: b"x".to_vec(), precondition: WritePrecondition::Unconditional },
+                ],
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind, FsErrorKind::IsADirectory);
+        assert_eq!(std::fs::read(a.as_path()).unwrap(), b"old");
+        let names: Vec<_> = std::fs::read_dir(root.as_path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert!(names.iter().all(|n| !n.contains("mixdog-tmp")), "{names:?}");
+    }
+    #[tokio::test]
+    async fn stat_reports_nodes_ctime_inode_and_device() {
+        let (_dir, root) = root();
+        let file = root.join("f.txt");
+        fs::write(file.as_path(), b"one").unwrap();
+        let service = LocalFileService::new();
+        let stat = service.stat(lanes().interactive, file.clone()).await.unwrap();
+        let ctime_ns = stat.ctime.unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as i128;
+        let version = stat_version(file.as_path()).unwrap();
+        assert_eq!((ctime_ns, stat.inode, stat.device), (version.ctime_ns, version.ino, version.dev));
+        assert!(stat.inode != 0);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let meta = fs::metadata(file.as_path()).unwrap();
+            assert_eq!((stat.inode, stat.device), (u128::from(meta.ino()), meta.dev()));
+            assert_eq!(ctime_ns, i128::from(meta.ctime()) * 1_000_000_000 + i128::from(meta.ctime_nsec()));
+        }
+        // Another file is another inode on the same device; a rewrite moves the change time on.
+        let other = root.join("g.txt");
+        fs::write(other.as_path(), b"x").unwrap();
+        let second = service.stat(lanes().interactive, other).await.unwrap();
+        assert_eq!((second.device, second.inode == stat.inode), (stat.device, false));
+        std::thread::sleep(Duration::from_millis(50));
+        fs::write(file.as_path(), b"two").unwrap();
+        let after = service.stat(lanes().interactive, file).await.unwrap();
+        assert!(after.ctime > stat.ctime);
+        assert_eq!((after.inode, after.device), (stat.inode, stat.device));
+    }
+    #[test]
+    fn a_temp_file_that_cannot_be_created_names_the_open_step_with_the_temp_path() {
+        let dir = tempfile::tempdir().unwrap();
+        // The temp name is the target's plus 20 characters: past the 255-character name limit.
+        let name = "n".repeat(250);
+        let target = dir.path().join(&name);
+        let error = atomic_write(&target, b"x", &Expect::Nothing).unwrap_err();
+        let Some(FsStep::Open { path }) = &error.step else { panic!("{error:?}") };
+        let tmp_name = path.as_path().file_name().unwrap().to_string_lossy().into_owned();
+        assert!(tmp_suffix_is_eight_hex(&tmp_name, &name), "{tmp_name}");
+        assert!(!target.exists());
+    }
+    #[test]
+    fn a_blocked_rename_names_the_rename_step_and_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        // A non-empty directory cannot be replaced by a file.
+        let target = dir.path().join("occupied");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("inner"), b"x").unwrap();
+        let error = atomic_write(&target, b"x", &Expect::Nothing).unwrap_err();
+        let Some(FsStep::Rename { from, to }) = &error.step else { panic!("{error:?}") };
+        assert_eq!(to.as_path(), target);
+        assert!(tmp_suffix_is_eight_hex(&from.as_path().file_name().unwrap().to_string_lossy(), "occupied"));
+        assert!(!from.as_path().exists(), "the temp file is removed");
+    }
+    /// A replaced file keeps its Hidden and System attributes, as the patch engine's writes keep them.
+    #[cfg(windows)]
+    #[test]
+    fn a_replaced_file_keeps_its_hidden_and_system_attributes() {
+        use std::os::windows::ffi::OsStrExt;
+        use std::os::windows::fs::MetadataExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_HIDDEN;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_SYSTEM;
+        use windows_sys::Win32::Storage::FileSystem::SetFileAttributesW;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("desktop.ini");
+        fs::write(&target, b"old").unwrap();
+        let marks = FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM;
+        let wide: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+        // SAFETY: `wide` is a NUL-terminated path that outlives the call.
+        assert_ne!(unsafe { SetFileAttributesW(wide.as_ptr(), marks) }, 0);
+        let locks = Arc::new(PathLocks::default());
+        let request = WriteRequest { path: AbsPath::new(&target).unwrap(), content: b"new".to_vec(), precondition: WritePrecondition::Unconditional };
+        write_resolved(&locks, &resolve_write(&target).unwrap(), &request).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"new");
+        assert_eq!(fs::metadata(&target).unwrap().file_attributes() & marks, marks);
+    }
+    #[test]
+    fn a_successful_write_and_other_failures_carry_no_step() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("f.txt");
+        atomic_write(&target, b"x", &Expect::Nothing).unwrap();
+        assert!(plain(FsErrorKind::NotFound, &target).step.is_none());
+    }
+    #[test]
+    fn version_catches_a_same_size_same_mtime_replacement() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("f.txt");
+        fs::write(&target, b"one").unwrap();
+        let before = stat_version(&target).unwrap();
+        // A different file of the same size, given the same mtime, moved over the target: only the
+        // inode and the change time tell the two apart (length and mtime alone cannot).
+        let other = dir.path().join("other.txt");
+        fs::write(&other, b"two").unwrap();
+        OpenOptions::new().write(true).open(&other).unwrap().set_modified(fs::metadata(&target).unwrap().modified().unwrap()).unwrap();
+        fs::rename(&other, &target).unwrap();
+        let after = stat_version(&target).unwrap();
+        assert_eq!((after.size, after.mtime_ns), (before.size, before.mtime_ns));
+        assert_ne!(after, before);
+        let err = atomic_write(&target, b"new", &Expect::Version(before)).unwrap_err();
+        assert!(matches!(err.kind, FsErrorKind::PreconditionFailed { actual: Some(ref a) } if a == b"two"), "{err:?}");
+        assert_eq!(fs::read(&target).unwrap(), b"two");
+        atomic_write(&target, b"new", &Expect::Version(after)).unwrap();
+    }
+
+    #[test]
+    fn checked_write_refuses_a_different_file_with_the_same_bytes_including_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("target.txt");
+        let next = dir.path().join("replacement.txt");
+        for bytes in [b"same".as_slice(), b"".as_slice()] {
+            fs::write(&path, bytes).unwrap();
+            let stat = stat_path(&path).unwrap();
+            fs::write(&next, bytes).unwrap();
+            fs::rename(&next, &path).unwrap();
+            let request = WriteRequest {
+                path: AbsPath::new(&path).unwrap(),
+                content: b"must not be written".to_vec(),
+                precondition: WritePrecondition::FileEquals { stat, bytes: bytes.to_vec() },
+            };
+            let error = write_resolved(&Arc::new(PathLocks::default()), &resolve_write(&path).unwrap(), &request).unwrap_err();
+            assert!(matches!(error.kind, FsErrorKind::PreconditionFailed { .. }), "{error:?}");
+            assert_eq!(fs::read(&path).unwrap().as_slice(), bytes);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_checked_replacement_does_not_replace_a_leaf_that_became_a_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let given = dir.path().join("target.txt");
+        fs::write(&given, b"").unwrap();
+        let path = canonical(&given).unwrap();
+        let stat = stat_path(&path).unwrap();
+        let expect = evaluate(&path, &WritePrecondition::FileEquals { stat, bytes: Vec::new() }).unwrap();
+        let original = path.with_file_name("original.txt");
+        fs::rename(&path, &original).unwrap();
+        std::os::unix::fs::symlink(&original, &path).unwrap();
+        let error = atomic_write(&path, b"must not be written", &expect).unwrap_err();
+        assert!(matches!(error.kind, FsErrorKind::PreconditionFailed { actual: None }), "{error:?}");
+        assert!(fs::symlink_metadata(path).unwrap().file_type().is_symlink());
+        assert!(fs::read(original).unwrap().is_empty());
+    }
+    #[tokio::test]
+    async fn two_spellings_of_one_file_have_one_winner() {
+        let (_dir, root) = root();
+        let fs = Arc::new(LocalFileService::new());
+        let l = lanes();
+        std::fs::create_dir(root.join("sub").as_path()).unwrap();
+        let plain = root.join("f.txt");
+        let dotted = AbsPath::new(root.as_path().join("sub").join("..").join("f.txt")).unwrap();
+        assert!(resolve_write(plain.as_path()).unwrap().key.same(&resolve_write(dotted.as_path()).unwrap().key));
+        fs.write(l.durability, put(&plain, b"base", WritePrecondition::Absent)).await.unwrap();
+        #[cfg(unix)]
+        let mut spellings = vec![plain.clone(), dotted.clone()];
+        #[cfg(not(unix))]
+        let spellings = vec![plain.clone(), dotted.clone()];
+        #[cfg(unix)]
+        {
+            let alias = root.join("alias");
+            std::os::unix::fs::symlink(root.as_path(), alias.as_path()).unwrap();
+            spellings.push(AbsPath::new(alias.as_path().join("f.txt")).unwrap());
+        }
+        let mut tasks = Vec::new();
+        for i in 0..12u8 {
+            let (fs, file) = (fs.clone(), spellings[usize::from(i) % spellings.len()].clone());
+            tasks.push(tokio::spawn(async move { fs.write(l.durability, put(&file, &[b'a' + i], WritePrecondition::ContentEquals(b"base".to_vec()))).await }));
+        }
+        let mut winners = 0;
+        for task in tasks {
+            match task.await.unwrap() {
+                Ok(_) => winners += 1,
+                Err(e) => assert!(matches!(e.kind, FsErrorKind::PreconditionFailed { .. }), "{e:?}"),
+            }
+        }
+        assert_eq!(winners, 1);
+    }
+    #[tokio::test]
+    async fn a_parent_link_retargeted_after_resolving_cannot_redirect_the_write() {
+        let (_dir, root) = root();
+        let (a, b) = (root.join("a"), root.join("b"));
+        fs::create_dir(a.as_path()).unwrap();
+        fs::create_dir(b.as_path()).unwrap();
+        let link = root.join("link");
+        make_dir_link(link.as_path(), a.as_path());
+        let request = put(&AbsPath::new(link.as_path().join("f.txt")).unwrap(), b"payload", WritePrecondition::Absent);
+        let resolved = resolve_write(request.path.as_path()).unwrap();
+        // The link now points at B, as an attacker (or a racing process) would leave it.
+        remove_dir_link(link.as_path());
+        make_dir_link(link.as_path(), b.as_path());
+        let locks = Arc::new(PathLocks::default());
+        write_resolved(&locks, &resolved, &request).unwrap();
+        assert_eq!(fs::read(a.join("f.txt").as_path()).unwrap(), b"payload", "the write must land where the path resolved");
+        assert!(!b.join("f.txt").as_path().exists(), "the retargeted link redirected the write");
+        assert!(fs::read_dir(b.as_path()).unwrap().next().is_none());
+    }
+    #[tokio::test]
+    async fn case_variants_of_a_new_file_have_one_winner_in_an_insensitive_directory() {
+        let (_dir, root) = root();
+        if !cfg!(windows) {
+            return;
+        }
+        let fs = Arc::new(LocalFileService::new());
+        let l = lanes();
+        let mut tasks = Vec::new();
+        for i in 0..12u8 {
+            let name = if i % 2 == 0 { "new.txt" } else { "NEW.TXT" };
+            let (fs, file) = (fs.clone(), root.join(name));
+            tasks.push(tokio::spawn(async move { fs.write(l.durability, put(&file, &[b'a' + i], WritePrecondition::Absent)).await }));
+        }
+        let mut winners = 0;
+        for task in tasks {
+            match task.await.unwrap() {
+                Ok(_) => winners += 1,
+                Err(e) => assert!(matches!(e.kind, FsErrorKind::PreconditionFailed { .. }), "{e:?}"),
+            }
+        }
+        assert_eq!(winners, 1);
+    }
+    #[tokio::test]
+    async fn a_held_file_does_not_stall_other_files_and_the_lock_map_empties() {
+        let (_dir, root) = root();
+        let fs = LocalFileService::new();
+        let l = lanes();
+        let busy = root.join("busy.txt");
+        let held = fs.locks.acquire([resolve_write(busy.as_path()).unwrap().key]);
+        for i in 0..80 {
+            let file = root.join(&format!("other{i}.txt"));
+            mixdog_rt::time::timeout(Duration::from_secs(5), fs.write(l.durability, put(&file, b"x", WritePrecondition::Unconditional)))
+                .await
+                .expect("a write to another file waited on the held one")
+                .unwrap();
+        }
+        assert_eq!(fs.locks.len(), 1, "only the held file keeps a lock");
+        let waiting = {
+            let locks = fs.locks.clone();
+            let key = resolve_write(busy.as_path()).unwrap().key;
+            tokio::task::spawn_blocking(move || drop(locks.acquire([key])))
+        };
+        mixdog_rt::time::sleep(Duration::from_millis(150)).await;
+        assert!(!waiting.is_finished(), "the same file must wait");
+        drop(held);
+        waiting.await.unwrap();
+        assert_eq!(fs.locks.len(), 0);
+    }
+    #[tokio::test]
+    async fn an_unparseable_pattern_is_reported_with_the_parser_text() {
+        let (_dir, root) = root();
+        let fs = LocalFileService::new();
+        let request = SearchRequest {
+            root: root.clone(),
+            pattern: "(".into(),
+            regex: true,
+            case_sensitive: true,
+            include_globs: Vec::new(),
+            exclude_globs: Vec::new(),
+            include_hidden: true,
+            respect_ignore: true,
+            multiline: false,
+            pcre2: false,
+            binary_as_text: false,
+            limit: None,
+            first_per_file: false,
+            deadline: None,
+            class: SearchClass::Interactive,
+        };
+        let mut stream = fs.search_text(lanes().maintenance, request);
+        let err = stream.next().await.unwrap().unwrap_err();
+        let FsErrorKind::InvalidPattern { message } = err.kind else { panic!("{err:?}") };
+        assert!(message.starts_with("regex parse error:") && message.contains("unclosed group"), "{message}");
+        assert!(stream.next().await.is_none());
+    }
+    #[tokio::test]
+    async fn the_git_directory_is_pruned_unless_the_root_is_inside_it() {
+        let (_dir, root) = root();
+        let fs = LocalFileService::new();
+        let l = lanes();
+        std::fs::create_dir_all(root.join(".git/refs").as_path()).unwrap();
+        std::fs::write(root.join(".git/config").as_path(), "needle\n").unwrap();
+        std::fs::write(root.join("a.txt").as_path(), "needle\n").unwrap();
+        let search = |root: AbsPath| {
+            let request = SearchRequest {
+                root,
+                pattern: "needle".into(),
+                regex: false,
+                case_sensitive: true,
+                include_globs: Vec::new(),
+                exclude_globs: Vec::new(),
+                include_hidden: true,
+                respect_ignore: false,
+                multiline: false,
+                pcre2: false,
+                binary_as_text: false,
+                limit: None,
+                first_per_file: false,
+                deadline: None,
+                class: SearchClass::Interactive,
+            };
+            let mut s = fs.search_text(l.maintenance, request);
+            async move {
+                let mut out = Vec::new();
+                while let Some(m) = s.next().await {
+                    out.push(m.unwrap().path.as_path().file_name().unwrap().to_string_lossy().into_owned());
+                }
+                out
+            }
+        };
+        assert_eq!(search(root.clone()).await, vec!["a.txt"]);
+        assert_eq!(search(root.join(".git")).await, vec!["config"]);
+        let mut walk = fs.walk(l.maintenance, WalkRequest { root: root.clone(), recursive: true, include_dirs: true, include_hidden: true, respect_ignore: false, require_git: true, prune: Vec::new(), descent: Default::default(), server: None });
+        let mut names = Vec::new();
+        while let Some(e) = walk.next().await {
+            names.push(e.unwrap().path.as_path().file_name().unwrap().to_string_lossy().into_owned());
+        }
+        assert_eq!(names, vec!["a.txt"]);
+    }
+    #[tokio::test]
+    async fn only_the_line_terminator_is_removed_from_a_match() {
+        let (_dir, root) = root();
+        let fs = LocalFileService::new();
+        std::fs::write(root.join("f.txt").as_path(), b"needle\r\r\nneedle\r\nneedle\r").unwrap();
+        let request = SearchRequest {
+            root: root.clone(),
+            pattern: "needle".into(),
+            regex: false,
+            case_sensitive: true,
+            include_globs: Vec::new(),
+            exclude_globs: Vec::new(),
+            include_hidden: true,
+            respect_ignore: true,
+            multiline: false,
+            pcre2: false,
+            binary_as_text: false,
+            limit: None,
+            first_per_file: false,
+            deadline: None,
+            class: SearchClass::Interactive,
+        };
+        let mut s = fs.search_text(lanes().maintenance, request);
+        let mut texts = Vec::new();
+        while let Some(m) = s.next().await {
+            texts.push(m.unwrap().text);
+        }
+        // The last line has no terminator: the printer adds one, and `str::lines` drops the `\r` before it.
+        assert_eq!(texts, vec!["needle\r", "needle", "needle"]);
+    }
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn writes_through_a_leaf_symlink() {
+        let (_dir, root) = root();
+        let fs = LocalFileService::new();
+        let (real, link) = (root.join("real.txt"), root.join("link.txt"));
+        std::fs::write(real.as_path(), b"one").unwrap();
+        std::os::unix::fs::symlink(real.as_path(), link.as_path()).unwrap();
+        fs.write(lanes().durability, WriteRequest { path: link.clone(), content: b"two".to_vec(), precondition: WritePrecondition::Unconditional }).await.unwrap();
+        assert!(std::fs::symlink_metadata(link.as_path()).unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read(real.as_path()).unwrap(), b"two");
+    }
+    #[tokio::test]
+    async fn search_honours_ignore_files_globs_and_binary_files() {
+        let (_dir, root) = root();
+        let fs = LocalFileService::new();
+        let l = lanes();
+        std::fs::create_dir_all(root.join("src").as_path()).unwrap();
+        std::fs::create_dir_all(root.join("skip").as_path()).unwrap();
+        std::fs::create_dir_all(root.join(".git").as_path()).unwrap();
+        std::fs::write(root.join(".gitignore").as_path(), "skip/\n").unwrap();
+        std::fs::write(root.join("src/a.rs").as_path(), "let Needle = 1;\nneedle\r\n").unwrap();
+        std::fs::write(root.join("src/b.txt").as_path(), "needle\n").unwrap();
+        std::fs::write(root.join("skip/c.rs").as_path(), "needle\n").unwrap();
+        std::fs::write(root.join("bin.rs").as_path(), b"needle\n\x00needle\n").unwrap();
+        let run = |request: SearchRequest| {
+            let mut s = fs.search_text(l.maintenance, request);
+            async move {
+                let mut out = Vec::new();
+                while let Some(m) = s.next().await {
+                    let m = m.unwrap();
+                    out.push((m.path.as_path().file_name().unwrap().to_string_lossy().into_owned(), m.line, m.column, m.text));
+                }
+                out
+            }
+        };
+        let base = SearchRequest {
+            root: root.clone(),
+            pattern: "needle".into(),
+            regex: true,
+            case_sensitive: false,
+            include_globs: vec!["*.rs".into()],
+            exclude_globs: Vec::new(),
+            include_hidden: true,
+            respect_ignore: true,
+            multiline: false,
+            pcre2: false,
+            binary_as_text: false,
+            limit: None,
+            first_per_file: false,
+            deadline: None,
+            class: SearchClass::Interactive,
+        };
+        let found = run(base.clone()).await;
+        // ripgrep quits a file at its first NUL, so bin.rs reports nothing; skip/ is gitignored.
+        assert_eq!(found, vec![("a.rs".into(), 1, 5, "let Needle = 1;".into()), ("a.rs".into(), 2, 1, "needle".into())]);
+        let all = run(SearchRequest { respect_ignore: false, ..base }).await;
+        assert!(all.iter().any(|m| m.0 == "c.rs") && all.iter().all(|m| m.0 != "bin.rs"));
+    }
+    /// Node's server's `-U --multiline-dotall`, `-P` and `--text`: a match spanning lines is a line each, its first line
+    /// counting the match; a lookahead compiles with PCRE2; a file holding a NUL is searched only as text.
+    #[tokio::test]
+    async fn search_spans_lines_takes_pcre2_and_reads_binary_files_as_text() {
+        let (_dir, root) = root();
+        let fs = LocalFileService::new();
+        let l = lanes();
+        std::fs::write(root.join("a.txt").as_path(), "a1\nb1\nmid\na1\nb1\n").unwrap();
+        std::fs::write(root.join("bin.dat").as_path(), b"\x00\x01 needle in\n").unwrap();
+        let run = |request: SearchRequest| {
+            let mut s = fs.search_text(l.maintenance, request);
+            async move {
+                let mut out = Vec::new();
+                while let Some(m) = s.next().await {
+                    let m = m.unwrap();
+                    out.push((m.path.as_path().file_name().unwrap().to_string_lossy().into_owned(), m.line, m.text, m.count));
+                }
+                out
+            }
+        };
+        let base = SearchRequest { regex: true, ..needle_request(&root, None) };
+        let spanning = run(SearchRequest { pattern: r"a1\nb1".into(), multiline: true, ..base.clone() }).await;
+        assert_eq!(
+            spanning,
+            vec![("a.txt".into(), 1, "a1".into(), 1), ("a.txt".into(), 2, "b1".into(), 0), ("a.txt".into(), 4, "a1".into(), 1), ("a.txt".into(), 5, "b1".into(), 0)]
+        );
+        let lookahead = SearchRequest { pattern: "needle(?= in)".into(), pcre2: true, ..base };
+        assert_eq!(run(SearchRequest { binary_as_text: true, ..lookahead.clone() }).await, vec![("bin.dat".into(), 1, "\u{0}\u{1} needle in".into(), 1)]);
+        assert!(run(lookahead).await.is_empty());
+    }
+    /// Waits until `f` holds, at most 10 s.
+    async fn eventually(mut f: impl FnMut() -> bool) -> bool {
+        let until = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < until {
+            if f() {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        f()
+    }
+    /// The memory a search holds ahead of its consumer is its queue: at most [`QUEUE_BYTES`] (1,048,576) bytes of
+    /// matches' text and paths, or one match when one is larger, however long its line: a long line's preview is kept
+    /// whole. A consumer that stops reading without dropping the stream holds the producer there.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_consumer_that_stops_reading_holds_the_producer_at_its_queue_bytes() {
+        let (_dir, root) = root();
+        // 300 matching lines of 80,208 bytes each: 207 grapheme clusters (200 of a letter and 200 combining marks), so
+        // the whole line is its preview.
+        let line = format!("needle {}\n", format!("e{}", "\u{301}".repeat(200)).repeat(200));
+        std::fs::write(root.join("a.txt").as_path(), line.repeat(300)).unwrap();
+        let fs = LocalFileService::new();
+        let mut stream = fs.search_text(lanes().maintenance, needle_request(&root, None));
+        let first = stream.next().await.unwrap().unwrap();
+        assert_eq!(first.text, format!("{}{LONG_LINE_MARK}", &line[..line.len() - 1]), "the preview is not cut short");
+        let fits = QUEUE_BYTES / first.weight();
+        let found = || probe::search(root.as_path()).found;
+        assert!(eventually(|| found() == fits as u64 + 1).await, "found {}", found());
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(found(), fits as u64 + 1, "the producer waits while the queue's bytes are taken");
+        let mut queued_bytes = 0;
+        for _ in 0..fits {
+            let item = stream.next().await.unwrap().unwrap();
+            assert_eq!(item.text, first.text);
+            queued_bytes += item.weight();
+        }
+        assert!(queued_bytes <= QUEUE_BYTES, "{queued_bytes}");
+        let started = Instant::now();
+        stream.close().await;
+        assert!(started.elapsed() < CLOSE_GRACE, "{:?} found {}", started.elapsed(), found());
+        assert_eq!(probe::search(root.as_path()).live, 0, "close returns once the producer has ended");
+
+        // A preview larger than the whole queue's bytes (1,200,008 bytes in 8 clusters) is queued whole, alone.
+        let (_other, root) = self::root();
+        let line = format!("needle {}", format!("e{}", "\u{301}".repeat(600_000)));
+        assert!(line.len() > QUEUE_BYTES);
+        std::fs::write(root.join("b.txt").as_path(), format!("{line}\n{line}\n")).unwrap();
+        let mut stream = fs.search_text(lanes().maintenance, needle_request(&root, None));
+        for _ in 0..2 {
+            let item = within("a match larger than the queue", stream.next()).await.unwrap().unwrap();
+            assert_eq!(item.text, format!("{line}{LONG_LINE_MARK}"));
+        }
+        assert!(within("the search's end", stream.next()).await.is_none());
+        stream.close().await;
+    }
+    /// A file of 1 GiB with no match is read in checked chunks: a stop or a deadline that arrives mid-file ends the
+    /// search at the next chunk.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stop_or_a_deadline_mid_file_ends_the_search_of_a_huge_file() {
+        let (_dir, root) = root();
+        let (listing, open, read) = one_gib_file(&root);
+        let mut stream = search_over(&PRODUCERS, &needle_request(&root, None), listing, open);
+        assert!(eventually(|| read.load(Ordering::SeqCst) >= 16 << 20).await);
+        let started = Instant::now();
+        stream.close().await;
+        assert!(started.elapsed() < CLOSE_GRACE, "the stop is seen at the next read");
+        let at_close = read.load(Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(read.load(Ordering::SeqCst), at_close, "nothing is read after close returns");
+        assert!(at_close < GIB);
+        assert_eq!(probe::search(root.as_path()).live, 0);
+
+        let (listing, open, read) = one_gib_file(&root);
+        let mut stream = search_over(&PRODUCERS, &needle_request(&root, Some(Instant::now() + Duration::from_millis(100))), listing, open);
+        let err = stream.next().await.unwrap().unwrap_err();
+        assert!(matches!(err.kind, FsErrorKind::TimedOut), "{err:?}");
+        assert_eq!(err.path.map(|p| p.as_path().to_path_buf()), Some(root.join("big.txt").as_path().to_path_buf()), "the cut file is named");
+        assert!(stream.next().await.is_none());
+        stream.close().await;
+        assert!(read.load(Ordering::SeqCst) < GIB);
+        assert_eq!(probe::search(root.as_path()).live, 0);
+
+        // Dropping the stream stops the producer without waiting for it: it ends at its next read.
+        let (listing, open, read) = one_gib_file(&root);
+        let stream = search_over(&PRODUCERS, &needle_request(&root, None), listing, open);
+        assert!(eventually(|| read.load(Ordering::SeqCst) >= 16 << 20).await);
+        drop(stream);
+        assert!(eventually(|| probe::search(root.as_path()).live == 0).await);
+        assert!(read.load(Ordering::SeqCst) < GIB);
+    }
+    /// Waits until `test` holds of `producers`' counts, at most 10 s.
+    async fn until(producers: &Producers, what: &str, test: impl Fn(ProducerCounts) -> bool) {
+        let wait = async {
+            loop {
+                let changed = producers.changed.notified();
+                let mut changed = std::pin::pin!(changed);
+                changed.as_mut().enable();
+                if test(producers.counts()) {
+                    return;
+                }
+                changed.await;
+            }
+        };
+        if tokio::time::timeout(Duration::from_secs(10), wait).await.is_err() {
+            panic!("{what} within 10 s: {:?}", producers.counts());
+        }
+    }
+    /// `wait`'s outcome, at most 10 s.
+    async fn within<T>(what: &str, wait: impl Future<Output = T>) -> T {
+        tokio::time::timeout(Duration::from_secs(10), wait).await.unwrap_or_else(|_| panic!("{what} within 10 s"))
+    }
+    /// Node's scheduler with `total` searches at once and no interactive reserve, `queue` waiting places, its other
+    /// defaults (the bulk limit 2 within `total`, the priority reserve of `queue`, the AIMD target and step), and a
+    /// cancel grace of `grace`.
+    fn scheduler(total: usize, queue: usize, grace: Duration) -> SchedulerConfig {
+        SchedulerConfig {
+            total,
+            interactive_reserve: 0,
+            bulk: 2.min(total),
+            queue,
+            priority_reserve: if queue <= 1 { 0 } else { queue.div_ceil(8).clamp(1, 64).min(queue - 1) },
+            aimd_target: Duration::from_millis(250),
+            aimd_increase_every: 8,
+            grace,
+            local: MAX_LOCAL_PRODUCERS,
+            stuck_per_volume: MAX_STUCK_PER_VOLUME,
+            stuck_total: MAX_STUCK_TOTAL,
+        }
+    }
+    /// A directory read that never returns: the deadline answers at once, and `close` waits its grace, then gives the
+    /// thread up: its slot is free, and it is counted as stalled until its read returns.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_directory_read_that_never_returns_is_given_up_after_the_grace() {
+        let (_dir, root) = root();
+        let producers = Arc::new(Producers::new(scheduler(16, NODE_QUEUE, CLOSE_GRACE)));
+        let (listing, release, _) = hung_listing();
+        let started = Instant::now();
+        let mut stream = search_over(&producers, &needle_request(&root, Some(started + Duration::from_millis(100))), listing, no_files());
+        let err = stream.next().await.unwrap().unwrap_err();
+        assert!(matches!(err.kind, FsErrorKind::TimedOut) && err.path.is_none(), "{err:?}");
+        assert!(started.elapsed() < Duration::from_secs(1), "the deadline does not wait for the walk");
+        let closing = Instant::now();
+        stream.close().await;
+        assert!(closing.elapsed() >= CLOSE_GRACE && closing.elapsed() < CLOSE_GRACE * 3, "{:?}", closing.elapsed());
+        assert_eq!(producers.counts(), ProducerCounts { stalled: 1, ..Default::default() }, "given up, still in its read, no slot");
+        drop(release);
+        settled(&producers, "the given-up thread ends once its read returns", ProducerCounts::default()).await;
+    }
+    /// A producer held in a read that never returns is counted as abandoned however its stream lets go of it: a `close`
+    /// that waits out its grace (given up then), a `close` its caller drops before the grace (its deadline or
+    /// cancellation), and a dropped stream; the canceller gives these two up once the grace has passed. Each given-up
+    /// thread is counted as stalled until its read returns.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_producer_its_stream_lets_go_of_is_counted_until_it_ends_or_is_given_up() {
+        let (_dir, root) = root();
+        let producers = Arc::new(Producers::new(scheduler(16, NODE_QUEUE, CLOSE_GRACE)));
+        let mut released = Vec::new();
+        let mut search = async || {
+            let (listing, release, in_read) = hung_listing();
+            released.push(release);
+            let stream = search_over(&producers, &needle_request(&root, None), listing, no_files());
+            let _ = within("the producer in its read", in_read).await;
+            stream
+        };
+        let mut closed = search().await;
+        closed.close().await;
+        assert_eq!(producers.counts(), ProducerCounts { stalled: 1, ..Default::default() }, "a close that waited out its grace");
+        let mut cut = search().await;
+        {
+            let close = cut.close();
+            let mut close = std::pin::pin!(close);
+            let polled = close.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
+            assert!(polled.is_pending(), "the close waits for its producer");
+        }
+        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 1, waiting: 0, stalled: 1 }, "a close its caller dropped");
+        drop(search().await);
+        assert_eq!(producers.counts(), ProducerCounts { live: 2, abandoned: 2, waiting: 0, stalled: 1 }, "a dropped stream");
+        until(&producers, "the canceller gives both up after the grace", |c| c == ProducerCounts { stalled: 3, ..Default::default() }).await;
+        drop(released);
+        settled(&producers, "every producer ends once its read returns", ProducerCounts::default()).await;
+        drop((closed, cut));
+    }
+    /// Waits until `producers`' counts are `want`, at most 10 s, woken at each change of the counts and at each end a
+    /// test can see ([`probe::changed`]): a given-up producer's end changes no count the scheduler keeps and is reported
+    /// to no one, so it is seen there.
+    async fn settled(producers: &Producers, what: &str, want: ProducerCounts) {
+        let wait = async {
+            loop {
+                let ended = probe::changed().notified();
+                let mut ended = std::pin::pin!(ended);
+                ended.as_mut().enable();
+                let changed = producers.changed.notified();
+                let mut changed = std::pin::pin!(changed);
+                changed.as_mut().enable();
+                if producers.counts() == want {
+                    return;
+                }
+                tokio::select! {
+                    () = ended => {}
+                    () = changed => {}
+                }
+            }
+        };
+        if tokio::time::timeout(Duration::from_secs(10), wait).await.is_err() {
+            panic!("{what} within 10 s: {:?}", producers.counts());
+        }
+    }
+    /// Waits until the searches of `root` whose scan is alive are `live`, at most 10 s.
+    async fn until_live(root: &AbsPath, live: u64) {
+        let wait = async {
+            loop {
+                let changed = probe::changed().notified();
+                let mut changed = std::pin::pin!(changed);
+                changed.as_mut().enable();
+                if probe::search(root.as_path()).live == live {
+                    return;
+                }
+                changed.await;
+            }
+        };
+        within("the scans' end", wait).await;
+    }
+    /// Ten thousand searches in a row on one volume, each held in a read that ignores its cancel. The first 8 are given
+    /// up once the grace has passed (none here) and stay; every later one is refused at once, starting no thread, with
+    /// Node's answer to a request whose server was ended for a stalled cancel: the process holds 8 given-up threads, and
+    /// of each only the thread in the read, which holds a fixed set of bytes (the walk's position, the open file, one
+    /// buffer of READ_CHUNK and its slot's hold), as their scans ended and with them the matcher, the searcher's buffers
+    /// and the queue. A search on another volume answers meanwhile. When one read returns, its thread ends touching no
+    /// counter of the scheduler and notifying no one, its volume's mark goes, and the volume takes a search again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn ten_thousand_reads_that_ignore_the_cancel_hold_eight_threads_and_spare_other_volumes() {
+        let (_dir, root) = root();
+        let file = root.join("a.txt").as_path().to_path_buf();
+        std::fs::write(&file, "needle\n").unwrap();
+        let producers = Arc::new(Producers::new(scheduler(1, NODE_QUEUE, Duration::ZERO)));
+        let mut held = Vec::new();
+        let mut refusals = 0;
+        for n in 0..10_000 {
+            let (listing, release, in_read, gone) = hung_listing_gone();
+            let mut stream = search_over(&producers, &needle_request(&root, None), listing, no_files());
+            if n < MAX_STUCK_PER_VOLUME {
+                let _ = within("a stuck search in its read", in_read).await;
+                stream.close().await;
+                held.push((release, gone));
+            } else {
+                let refusal = within("a refusal", stream.next()).await;
+                let stalled = FsErrorKind::CancelStalled { search: CONTENT.to_owned(), grace_ms: 0 };
+                assert!(matches!(&refusal, Some(Err(FsError { kind, path: None, .. })) if *kind == stalled), "{refusal:?}");
+                assert!(within("the refused stream's end", stream.next()).await.is_none());
+                refusals += 1;
+            }
+            assert!(producers.counts().stalled <= MAX_STUCK_PER_VOLUME);
+        }
+        assert_eq!(refusals, 10_000 - MAX_STUCK_PER_VOLUME);
+        assert_eq!(producers.counts(), ProducerCounts { stalled: MAX_STUCK_PER_VOLUME, ..Default::default() });
+        until_live(&root, 0).await;
+        // Another volume answers.
+        let (listing, open) = one_file(&file);
+        let mut other = search_over(&producers, &needle_request(&other_volume(), None), listing, open);
+        let hit = within("the other volume's match", other.next()).await.unwrap().unwrap();
+        assert_eq!((hit.path.as_path(), hit.line), (file.as_path(), 1));
+        assert!(within("the other volume's end", other.next()).await.is_none());
+        other.close().await;
+        // A late return.
+        let before = producers.counts();
+        let changed = producers.changed.notified();
+        let mut changed = std::pin::pin!(changed);
+        changed.as_mut().enable();
+        let (release, gone) = held.pop().unwrap();
+        drop(release);
+        let _ = within("the released thread's end", gone).await;
+        // Its volume's mark went with it, and no count the scheduler keeps moved.
+        settled(&producers, "the released thread's mark", ProducerCounts { stalled: MAX_STUCK_PER_VOLUME - 1, ..before }).await;
+        let polled = changed.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
+        assert!(polled.is_pending(), "a given-up thread's end notifies the scheduler's waiters of nothing");
+        let (listing, open) = one_file(&file);
+        let mut again = search_over(&producers, &needle_request(&root, None), listing, open);
+        assert!(within("the volume's search again", again.next()).await.unwrap().is_ok());
+        again.close().await;
+        drop(held);
+        settled(&producers, "every given-up thread's end", ProducerCounts::default()).await;
+    }
+    /// A walk whose first step never returns until the sender is dropped, counted in `reads`; the receiver ends once the
+    /// producer is in that step.
+    fn stuck_listing(reads: &Arc<StuckReads>) -> (Listing, std::sync::mpsc::Sender<()>, oneshot::Receiver<()>) {
+        struct Stuck {
+            reads: Arc<StuckReads>,
+            hung: Mutex<(std::sync::mpsc::Receiver<()>, Option<oneshot::Sender<()>>)>,
+        }
+        impl Iterator for Stuck {
+            type Item = Result<Option<PathBuf>, FsError>;
+            fn next(&mut self) -> Option<Self::Item> {
+                let hung = self.hung.get_mut().unwrap();
+                self.reads.in_read.fetch_add(1, Ordering::SeqCst);
+                if let Some(entered) = hung.1.take() {
+                    let _ = entered.send(());
+                }
+                let _ = hung.0.recv();
+                self.reads.in_read.fetch_sub(1, Ordering::SeqCst);
+                None
+            }
+        }
+        impl Drop for Stuck {
+            fn drop(&mut self) {
+                if std::thread::current().name() == Some("mixdog-fs-stream") {
+                    self.reads.started.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        }
+        let (release, hung) = std::sync::mpsc::channel::<()>();
+        let (entered, in_read) = oneshot::channel::<()>();
+        (Box::new(Stuck { reads: reads.clone(), hung: Mutex::new((hung, Some(entered))) }), release, in_read)
+    }
+    /// Answers each of `streams` as a caller with a deadline does: its first item, or, once its producer is stuck in its
+    /// read, nothing; then closes it (a stuck one is given up after the grace). How many were refused with Node's stalled
+    /// answer, the others having been stuck.
+    async fn answer_or_give_up(streams: Vec<(Box<dyn EventSource<Result<SearchMatch, FsError>>>, oneshot::Receiver<()>)>) -> usize {
+        let mut searches = tokio::task::JoinSet::new();
+        for (mut stream, mut in_read) in streams {
+            searches.spawn(async move {
+                // A producer refused before its read drops the listing, and with it the read's signal, unsent.
+                let first = tokio::select! {
+                    item = stream.next() => Some(item),
+                    entered = &mut in_read => match entered {
+                        Ok(()) => None,
+                        Err(_) => Some(stream.next().await),
+                    },
+                };
+                stream.close().await;
+                match first {
+                    None => false,
+                    Some(Some(Err(FsError { kind: FsErrorKind::CancelStalled { .. }, path: None, .. }))) => true,
+                    other => panic!("{other:?}"),
+                }
+            });
+        }
+        let all = async {
+            let mut refused = 0;
+            while let Some(answered) = searches.join_next().await {
+                refused += usize::from(answered.unwrap());
+            }
+            refused
+        };
+        tokio::time::timeout(Duration::from_secs(60), all).await.expect("every search answered or given up within 60 s")
+    }
+    /// Ten thousand searches queued at once on one volume, each held, once it runs, in a read that never returns, and
+    /// given up once its caller lets go of it. As each running one is given up the next queued one is admitted, until
+    /// the volume holds MAX_STUCK_PER_VOLUME given-up threads; from then each queued one is answered at its admission with
+    /// Node's stalled answer and starts no thread (one admitted just before is answered so by its producer, before its
+    /// read). The threads left stranded, counted as the scheduler counts them and as reads entered and not returned:
+    /// those that were reading on the volume when it reached its bound, at most MAX_STUCK_PER_VOLUME - 1 + the 2 that run
+    /// at once, within `max_stranded_per_volume`; at most those 2 other producers started.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ten_thousand_searches_queued_on_a_volume_whose_reads_never_return_strand_at_most_the_stated_bound() {
+        const SEARCHES: usize = 10_000;
+        const AT_ONCE: usize = 2;
+        let (_dir, root) = root();
+        let config = scheduler(AT_ONCE, SEARCHES, Duration::from_millis(10));
+        let producers = Arc::new(Producers::new(config));
+        let reads = Arc::new(StuckReads::default());
+        let mut releases = Vec::new();
+        let streams: Vec<_> = (0..SEARCHES)
+            .map(|_| {
+                let (listing, release, in_read) = stuck_listing(&reads);
+                releases.push(release);
+                (search_over(&producers, &needle_request(&root, None), listing, no_files()), in_read)
+            })
+            .collect();
+        assert_eq!(producers.counts(), ProducerCounts { live: AT_ONCE, waiting: SEARCHES - AT_ONCE, ..Default::default() }, "all queued");
+        let refused = answer_or_give_up(streams).await;
+        let stranded = producers.counts().stalled;
+        assert_eq!(producers.counts(), ProducerCounts { stalled: stranded, ..Default::default() });
+        assert_eq!(reads.in_read.load(Ordering::SeqCst), stranded, "each given-up thread is in its read");
+        assert!((MAX_STUCK_PER_VOLUME..=MAX_STUCK_PER_VOLUME - 1 + AT_ONCE).contains(&stranded), "{stranded} stranded");
+        assert!(stranded <= config.max_stranded_per_volume());
+        assert_eq!(refused, SEARCHES - stranded);
+        drop(releases);
+        settled(&producers, "every stranded thread ends once its read returns", ProducerCounts::default()).await;
+        assert!(eventually(|| reads.started.load(Ordering::SeqCst) >= stranded).await);
+        let started = reads.started.load(Ordering::SeqCst);
+        assert!(started - stranded <= AT_ONCE, "{started} started: a refused search starts no thread unless admitted before the bound");
+    }
+    /// Nine searches running on one volume whose reads all stall at once (a volume that dies under them), a thousand
+    /// queued behind them: the nine are all given up, past the 8 a volume may otherwise gain, as they were reading on it
+    /// before it reached its bound; each queued one admitted before it reached the bound runs, stalls and is given up
+    /// too, and every later one is answered at its admission and starts no thread (or, admitted just before the bound,
+    /// by its producer before its read). The total stays within
+    /// MAX_STUCK_PER_VOLUME - 1 + 9 (the searches that run at once), within `max_stranded_per_volume`, and a search made
+    /// after is refused at once.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn nine_running_searches_that_stall_at_once_strand_at_most_the_stated_bound() {
+        const AT_ONCE: usize = 9;
+        const QUEUED: usize = 1_000;
+        let (_dir, root) = root();
+        let config = scheduler(AT_ONCE, NODE_QUEUE, Duration::ZERO);
+        let producers = Arc::new(Producers::new(config));
+        let reads = Arc::new(StuckReads::default());
+        let mut releases = Vec::new();
+        let mut search = || {
+            let (listing, release, in_read) = stuck_listing(&reads);
+            releases.push(release);
+            (search_over(&producers, &needle_request(&root, None), listing, no_files()), in_read)
+        };
+        let mut running = Vec::new();
+        for _ in 0..AT_ONCE {
+            let (stream, in_read) = search();
+            within("a running search in its read", in_read).await.unwrap();
+            running.push(stream);
+        }
+        let queued: Vec<_> = (0..QUEUED).map(|_| search()).collect();
+        assert_eq!(producers.counts(), ProducerCounts { live: AT_ONCE, waiting: QUEUED, ..Default::default() });
+        // Their callers let go of all nine at once; the canceller gives them up together.
+        drop(running);
+        let refused = answer_or_give_up(queued).await;
+        until(&producers, "the nine given up", |c| c.live == 0).await;
+        let stranded = producers.counts().stalled;
+        assert_eq!(producers.counts(), ProducerCounts { stalled: stranded, ..Default::default() });
+        assert_eq!(reads.in_read.load(Ordering::SeqCst), stranded, "each given-up thread is in its read");
+        assert!((AT_ONCE..=MAX_STUCK_PER_VOLUME - 1 + AT_ONCE).contains(&stranded), "{stranded} stranded");
+        assert!(stranded <= config.max_stranded_per_volume());
+        assert_eq!(refused, QUEUED - (stranded - AT_ONCE));
+        let (listing, release, _) = stuck_listing(&reads);
+        let mut after = search_over(&producers, &needle_request(&root, None), listing, no_files());
+        assert!(matches!(within("a search made after", after.next()).await, Some(Err(FsError { kind: FsErrorKind::CancelStalled { .. }, .. }))));
+        drop((after, release, releases));
+        settled(&producers, "every stranded thread ends once its read returns", ProducerCounts::default()).await;
+        assert!(eventually(|| reads.started.load(Ordering::SeqCst) >= stranded).await);
+        let started = reads.started.load(Ordering::SeqCst);
+        assert!(started - stranded <= AT_ONCE, "{started} started: a refused search starts no thread unless admitted before the bound");
+    }
+    impl Produce<SearchMatch> for OnVolume {
+        fn run(self: Box<Self>, out: Out<SearchMatch>, hold: Hold) {
+            if let Err(Some(refusal)) = hold.ticket.read_on(self.volume) {
+                out.send(Err(FsError::new(refusal, None)));
+                return;
+            }
+            if let Some((release, entered)) = self.held {
+                let _ = entered.send(());
+                let _ = release.recv();
+            }
+        }
+    }
+    /// Three volumes whose reads stall: two hold MAX_STUCK_PER_VOLUME given-up threads and the third one fewer, so the
+    /// process holds MAX_STUCK_TOTAL - 1: a search on a fourth volume and on the third are served, one on a volume at its
+    /// bound refused. The third's next stall reaches MAX_STUCK_TOTAL: then a search on any volume is refused, the fourth
+    /// (none given up) and the third (fewer than its bound) included, within `max_stranded_total`; once one stuck read
+    /// returns, both are served again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn three_stalled_volumes_reach_the_process_wide_bound_and_refuse_every_volume() {
+        let (_dir, root) = root();
+        let config = scheduler(16, NODE_QUEUE, Duration::ZERO);
+        let producers = Arc::new(Producers::new(config));
+        let make = |volume: &'static str, held| {
+            let origin = Origin::new(Some(SearchClass::Interactive), root.as_path(), CONTENT);
+            streamed(&producers, Box::new(OnVolume { volume, held }), Deadline::default(), origin, false)
+        };
+        let mut releases = Vec::new();
+        let mut stall = async |volume: &'static str| {
+            let (release, hung) = std::sync::mpsc::channel::<()>();
+            let (entered, in_read) = oneshot::channel::<()>();
+            let mut stream = make(volume, Some((hung, entered)));
+            within("a stalled read", in_read).await.unwrap();
+            stream.close().await;
+            releases.push((volume, release));
+        };
+        for (volume, stalls) in [("a", MAX_STUCK_PER_VOLUME), ("b", MAX_STUCK_PER_VOLUME), ("c", MAX_STUCK_PER_VOLUME - 1)] {
+            for _ in 0..stalls {
+                stall(volume).await;
+            }
+        }
+        assert_eq!(MAX_STUCK_TOTAL, 3 * MAX_STUCK_PER_VOLUME);
+        assert_eq!(producers.counts(), ProducerCounts { stalled: MAX_STUCK_TOTAL - 1, ..Default::default() });
+        let refused = async |volume: &'static str| {
+            let mut stream = make(volume, None);
+            let first = within("the search's answer", stream.next()).await;
+            stream.close().await;
+            match first {
+                None => false,
+                Some(Err(FsError { kind: FsErrorKind::CancelStalled { .. }, path: None, .. })) => true,
+                other => panic!("{other:?}"),
+            }
+        };
+        assert!(!refused("d").await, "a fourth volume under the process-wide bound");
+        assert!(!refused("c").await, "the third, under its bound");
+        assert!(refused("a").await, "a volume at its bound");
+        stall("c").await;
+        assert_eq!(producers.counts().stalled, MAX_STUCK_TOTAL);
+        assert!(MAX_STUCK_TOTAL <= config.max_stranded_total());
+        assert!(refused("d").await, "a fourth volume at the process-wide bound");
+        assert!(refused("c").await, "the third at the process-wide bound");
+        let at = releases.iter().position(|(volume, _)| *volume == "b").unwrap();
+        drop(releases.remove(at));
+        settled(&producers, "one stuck read returns", ProducerCounts { stalled: MAX_STUCK_TOTAL - 1, ..Default::default() }).await;
+        assert!(!refused("d").await, "the fourth again");
+        assert!(!refused("b").await, "the volume whose read returned");
+        drop(releases);
+        settled(&producers, "every given-up thread ends", ProducerCounts::default()).await;
+    }
+    /// Reads that stall under a junction to a folder of another volume are that volume's: once it holds
+    /// MAX_STUCK_PER_VOLUME given-up threads, a search rooted at the junction's target folder (on that volume) and a search
+    /// through the junction are refused with Node's stalled answer, while a search of the folder holding the junction,
+    /// on the temp folder's volume, answers. Once the junction is retargeted to a folder of the temp folder's volume, the
+    /// next search through it is served: its refusal was by the volume it leads to now, told afresh. Skipped (it says so)
+    /// on a machine with one fixed volume.
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn reads_stalled_under_a_junction_are_charged_to_the_volume_it_leads_to() {
+        let (_dir, root) = root();
+        let Some(other) = folder_on_another_volume(root.as_path()) else {
+            eprintln!("skipped: no second fixed volume");
+            return;
+        };
+        let target = AbsPath::new(crate::pathguard::canonical(other.path()).unwrap()).unwrap();
+        let junction = root.join("j");
+        let made = std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(junction.as_path()).arg(target.as_path()).output().unwrap();
+        assert!(made.status.success(), "{made:?}");
+        let parent_file = root.join("a.txt").as_path().to_path_buf();
+        let target_file = target.join("b.txt").as_path().to_path_buf();
+        std::fs::write(&parent_file, "needle\n").unwrap();
+        std::fs::write(&target_file, "needle\n").unwrap();
+        let producers = Arc::new(Producers::new(scheduler(16, NODE_QUEUE, Duration::ZERO)));
+        let reads = Arc::new(StuckReads::default());
+        let mut releases = Vec::new();
+        for _ in 0..MAX_STUCK_PER_VOLUME {
+            let (listing, release, in_read) = stuck_listing(&reads);
+            releases.push(release);
+            let mut stream = search_over(&producers, &needle_request(&junction, None), listing, no_files());
+            within("a search through the junction in its read", in_read).await.unwrap();
+            stream.close().await;
+        }
+        assert_eq!(producers.counts(), ProducerCounts { stalled: MAX_STUCK_PER_VOLUME, ..Default::default() });
+        let first = |root: &AbsPath, file: &Path| {
+            let (listing, open) = one_file(file);
+            search_over(&producers, &needle_request(root, None), listing, open)
+        };
+        let mut parent = first(&root, parent_file.as_path());
+        let hit = within("the parent's match", parent.next()).await.unwrap().unwrap();
+        assert_eq!(hit.path.as_path(), parent_file.as_path());
+        parent.close().await;
+        for (root, file) in [(&target, &target_file), (&junction, &target_file)] {
+            let mut refused = first(root, file.as_path());
+            let answer = within("a search on the junction's volume", refused.next()).await;
+            assert!(matches!(&answer, Some(Err(FsError { kind: FsErrorKind::CancelStalled { .. }, path: None, .. }))), "{root:?}: {answer:?}");
+            refused.close().await;
+        }
+        let healthy = root.join("healthy");
+        std::fs::create_dir(healthy.as_path()).unwrap();
+        std::fs::write(healthy.join("b.txt").as_path(), "needle\n").unwrap();
+        std::fs::remove_dir(junction.as_path()).unwrap();
+        let made = std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(junction.as_path()).arg(healthy.as_path()).output().unwrap();
+        assert!(made.status.success(), "{made:?}");
+        let through = junction.join("b.txt").as_path().to_path_buf();
+        let mut served = first(&junction, through.as_path());
+        let hit = within("the retargeted junction's match", served.next()).await;
+        assert!(matches!(&hit, Some(Ok(m)) if m.path.as_path() == through.as_path()), "{hit:?}");
+        served.close().await;
+        drop(releases);
+        settled(&producers, "every given-up thread ends", ProducerCounts::default()).await;
+        std::fs::remove_dir(junction.as_path()).unwrap();
+    }
+    /// A file that tells whether anything opened it: on Windows under a batch oplock, which an open breaks (the open then
+    /// waits until the oplock is let go of); on Unix a FIFO with no writer, whose open for reading waits for one, which a
+    /// writer's non-blocking open then finds.
+    struct Tripwire {
+        #[cfg(unix)]
+        path: PathBuf,
+        #[cfg(windows)]
+        hold: deadline_script::OplockHold,
+    }
+    impl Tripwire {
+        fn new(path: PathBuf) -> Self {
+            #[cfg(windows)]
+            let tripwire = {
+                std::fs::write(&path, "").unwrap();
+                Self { hold: deadline_script::OplockHold::new(&path).unwrap() }
+            };
+            #[cfg(unix)]
+            let tripwire = {
+                let name = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+                // SAFETY: a NUL-terminated path.
+                assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0, "{}", io::Error::last_os_error());
+                Self { path }
+            };
+            tripwire
+        }
+
+        fn opened(&self) -> bool {
+            #[cfg(windows)]
+            return self.hold.wait_broken(Duration::ZERO);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt as _;
+                std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(&self.path).is_ok()
+            }
+        }
+    }
+    /// A deep list's walk stops at its depth and at the folders it leaves unread: the folders read are the root and the
+    /// one folder of depth 1, whatever lies in the noise folder, the dotted folder and below depth 2.
+    #[test]
+    fn a_depth_bounded_walk_reads_no_folder_it_cannot_list_from() {
+        let (_dir, root) = root();
+        let chain = |top: &str| root.join(top).as_path().join("a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p");
+        for dir in [chain("node_modules"), chain(".hidden"), chain("src/too/deep"), root.join("src/ok").as_path().to_path_buf()] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        let reads = Arc::new(AtomicUsize::new(0));
+        let descent = mixdog_core_api::domain::fs::Descent { max_depth: Some(2), bare: vec!["node_modules".into()], bare_dotted: true, guard: None };
+        let request = WalkRequest { descent, ..listing_request(&root, Vec::new()) };
+        let request = WalkRequest { include_hidden: true, respect_ignore: false, ..request };
+        let listed: Vec<PathBuf> = walking(&request, Box::new(Reads(reads.clone()))).unwrap().walk.map(|e| e.unwrap().path).collect();
+        let rel: Vec<String> = listed.iter().map(|p| p.strip_prefix(root.as_path()).unwrap().to_string_lossy().replace('\\', "/")).collect();
+        assert_eq!(rel, ["", ".hidden", "node_modules", "src", "src/ok", "src/too"]);
+        // root, then `src` (`.hidden` and `node_modules` are bare, `src/ok` and `src/too` lie at the depth).
+        assert_eq!(reads.load(Ordering::SeqCst), 2);
+    }
+    /// A name rule's walk reads no folder the rule fails (one inside a noise folder, or a dotted one, that the name does not
+    /// match), where the same walk without the rule reads them all; a rule that does not compile is the walk's error.
+    #[test]
+    fn a_guarded_walk_reads_no_folder_the_name_rule_fails_and_a_bad_rule_is_an_error() {
+        let (_dir, root) = root();
+        for dir in ["node_modules/pkg/deep", "node_modules/foo/inner", ".dot/sub", "src/foo/in", "src/other"] {
+            std::fs::create_dir_all(root.join(dir).as_path()).unwrap();
+        }
+        let rule = mixdog_core_api::domain::fs::NameGuard { fragment: Some("foo".into()), noise: vec!["node_modules".into()], dotted: true, ..Default::default() };
+        let count = |guard: Option<mixdog_core_api::domain::fs::NameGuard>| {
+            let reads = Arc::new(AtomicUsize::new(0));
+            let descent = mixdog_core_api::domain::fs::Descent { guard, ..Default::default() };
+            let request = WalkRequest { descent, include_hidden: true, respect_ignore: false, ..listing_request(&root, Vec::new()) };
+            walking(&request, Box::new(Reads(reads.clone()))).unwrap().walk.for_each(|e| drop(e.unwrap()));
+            reads.load(Ordering::SeqCst)
+        };
+        // All twelve folders, the root included.
+        assert_eq!(count(None), 12);
+        // `node_modules/pkg`, `node_modules/foo/inner` (inside noise, no match) and `.dot` fail and stay unread.
+        assert_eq!(count(Some(rule)), 7);
+        let bad = mixdog_core_api::domain::fs::NameGuard { whole: Some("(".into()), ..Default::default() };
+        let request = WalkRequest { descent: mixdog_core_api::domain::fs::Descent { guard: Some(bad), ..Default::default() }, ..listing_request(&root, Vec::new()) };
+        assert!(matches!(walking(&request, Box::new(tree::RealDirs)), Err(e) if matches!(e.kind, FsErrorKind::InvalidPattern { .. })));
+    }
+    /// A walk that requires no repository honours a `.gitignore` outside one (Node's fuzzy inventory, `--no-require-git`).
+    #[test]
+    fn a_walk_that_requires_no_repository_honours_a_gitignore_outside_one() {
+        let (_dir, root) = root();
+        std::fs::write(root.join(".gitignore").as_path(), "*.log\n").unwrap();
+        std::fs::write(root.join("a.txt").as_path(), "").unwrap();
+        std::fs::write(root.join("b.log").as_path(), "").unwrap();
+        let request = WalkRequest { include_hidden: true, require_git: false, ..listing_request(&root, Vec::new()) };
+        let listed: Vec<PathBuf> = walking(&request, Box::new(tree::RealDirs)).unwrap().walk.map(|e| e.unwrap().path).collect();
+        let rel: Vec<String> = listed.iter().map(|p| p.strip_prefix(root.as_path()).unwrap().to_string_lossy().replace('\\', "/")).collect();
+        assert_eq!(rel, ["", ".gitignore", "a.txt"]);
+    }
+    /// A root whose excluded children, directly beneath it, are folders on a dead mount: every call of the walk on one of
+    /// them, or on anything under it, never returns ([`Gated`]). `z` is excluded by the search's glob (the listing's
+    /// prune), `.h` as hidden, `q` by an `.ignore` line, and `dead` by an `.ignore` line for folders only (`dead/`)
+    /// while its listing gives no type: the mount table names it a mount point, so it is a folder, told without a call.
+    /// The text search and the file listing each finish with the rest of the tree, and nothing was called on, or opened
+    /// under, an excluded child (counted: none).
+    ///
+    /// [`Gated`] sees every call the walk makes on an entry ([`tree::gate::probe`]). It does not see the root's telling
+    /// ([`Volumes::start`]) nor ignore's own calls as it loads the rules ([`tree`]); of those, the ones that could reach
+    /// an excluded child are the loading of its ignore files, were it ever taken for a folder the walk is in: each holds
+    /// an `.ignore` that tells whether anything opened it ([`Tripwire`]), checked too.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn excluded_children_are_never_listed_typed_or_opened() {
+        let (_dir, root) = root();
+        let files = [("a.txt", "needle\n"), ("b/c.txt", "needle\n"), ("z/d.txt", "needle\n"), (".h/e.txt", "needle\n"), ("q/f.txt", "needle\n"), ("dead/g.txt", "needle\n"), (".ignore", "q\ndead/\n")];
+        for (path, text) in files {
+            let path = root.join(path).as_path().to_path_buf();
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, text).unwrap();
+        }
+        let gated: Vec<PathBuf> = ["z", ".h", "q", "dead"].iter().map(|name| root.join(name).as_path().to_path_buf()).collect();
+        let tripwires: Vec<Tripwire> = gated.iter().map(|child| Tripwire::new(child.join(".ignore"))).collect();
+        let dead = root.join("dead").as_path().to_path_buf();
+        // The mount table names `dead` a mount point (on Unix by its canonical path, as the kernel's table does).
+        #[cfg(unix)]
+        let point = std::fs::canonicalize(&dead).unwrap();
+        #[cfg(not(unix))]
+        let point = dead.clone();
+        let table = || -> MountTable {
+            let point = point.clone();
+            Box::new(move || Some(vec![(point.clone(), "dead".to_owned())]))
+        };
+        let calls = Arc::new(AtomicUsize::new(0));
+        let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let gate = || Box::new(Gated { gated: gated.clone(), untyped: vec![dead.clone()], calls: calls.clone(), release: release.clone() });
+        let producers = Arc::new(Producers::new(scheduler(4, NODE_QUEUE, CLOSE_GRACE)));
+
+        let request = SearchRequest { exclude_globs: vec!["z".into()], include_hidden: false, respect_ignore: true, ..needle_request(&root, None) };
+        let opened = Arc::new(AtomicUsize::new(0));
+        let (counted, excluded) = (opened.clone(), gated.clone());
+        let open: Opener = Box::new(move |path| {
+            if excluded.iter().any(|gated| path.starts_with(gated)) {
+                counted.fetch_add(1, Ordering::SeqCst);
+            }
+            Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>)
+        });
+        let walked = text_listing(&request, gate()).unwrap();
+        locked(&walked.volumes).table = table();
+        let mut search = search_with(&producers, &request, walked, open);
+        let mut found = Vec::new();
+        while let Some(hit) = within("the search's matches", search.next()).await {
+            found.push(hit.unwrap().path);
+        }
+        search.close().await;
+        let expected: Vec<PathBuf> = ["a.txt", "b/c.txt"].iter().map(|p| root.join(p).as_path().to_path_buf()).collect();
+        assert_eq!(found.iter().map(|p| p.as_path().to_path_buf()).collect::<Vec<_>>(), expected);
+
+        let prune = vec![root.join("z")];
+        let origin = Origin::new(None, root.as_path(), "file inventory");
+        let walk = walking(&listing_request(&root, prune), gate()).unwrap();
+        locked(&walk.volumes).table = table();
+        let mut walk = streamed(&producers, Box::new(walk), Deadline::default(), origin, false);
+        let mut listed = Vec::new();
+        while let Some(entry) = within("the listing's entries", walk.next()).await {
+            listed.push(entry.unwrap().path.as_path().to_path_buf());
+        }
+        walk.close().await;
+        let expected: Vec<PathBuf> = ["a.txt", "b", "b/c.txt"].iter().map(|p| root.join(p).as_path().to_path_buf()).collect();
+        assert_eq!(listed, expected);
+
+        assert_eq!((calls.load(Ordering::SeqCst), opened.load(Ordering::SeqCst)), (0, 0), "a call on an excluded child");
+        assert!(tripwires.iter().all(|tripwire| !tripwire.opened()), "an ignore file of an excluded child was opened");
+        *release.0.lock().unwrap() = true;
+        release.1.notify_all();
+        settled(&producers, "every producer ends", ProducerCounts::default()).await;
+    }
+    /// With no mount table (it could not be read), any entry may be a mount point the walk does not know of. A root's
+    /// `dead`, excluded by an `.ignore` line for folders only (`dead/`) and listed without its type, must be asked its
+    /// type to be judged, and that call never returns ([`Gated`]): it is made on the bounded probe, charged to `dead`
+    /// alone. Once MAX_STUCK_PER_VOLUME searches are given up in it, the root's next search answers its other file and
+    /// then, at `dead`, Node's stalled answer, with no call made on `dead`; a search of another folder of the same
+    /// volume answers in full. Once the calls return, every given-up thread ends.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn with_no_mount_table_a_stall_judging_an_entry_is_charged_to_that_entry() {
+        let (_other_dir, other) = root();
+        let (_dir, root) = root();
+        std::fs::write(root.join("a.txt").as_path(), "needle\n").unwrap();
+        std::fs::write(root.join(".ignore").as_path(), "dead/\n").unwrap();
+        std::fs::create_dir(root.join("dead").as_path()).unwrap();
+        std::fs::write(other.join("b.txt").as_path(), "needle\n").unwrap();
+        let dead = root.join("dead").as_path().to_path_buf();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let producers = Arc::new(Producers::new(scheduler(16, NODE_QUEUE, Duration::ZERO)));
+        let request = |root: &AbsPath| SearchRequest { include_hidden: false, respect_ignore: true, ..needle_request(root, None) };
+        let search = |root: &AbsPath| {
+            let dirs = Box::new(Gated { gated: vec![dead.clone()], untyped: vec![dead.clone()], calls: calls.clone(), release: release.clone() });
+            let walked = text_listing(&request(root), dirs).unwrap();
+            locked(&walked.volumes).table = Box::new(|| None);
+            search_with(&producers, &request(root), walked, Box::new(open_to_search))
+        };
+        let answers = async |stream: &mut Box<dyn EventSource<Result<SearchMatch, FsError>>>| {
+            let mut answers = Vec::new();
+            while let Some(answer) = within("the search's answers", stream.next()).await {
+                answers.push(answer.map(|hit| hit.path.as_path().to_path_buf()).map_err(|error| error.kind));
+            }
+            stream.close().await;
+            answers
+        };
+        for stalled in 1..=MAX_STUCK_PER_VOLUME {
+            let mut stream = search(&root);
+            assert!(eventually(|| calls.load(Ordering::SeqCst) >= stalled).await, "search {stalled} in its call on dead");
+            stream.close().await;
+        }
+        assert_eq!(producers.counts(), ProducerCounts { stalled: MAX_STUCK_PER_VOLUME, ..Default::default() });
+        let found = answers(&mut search(&root)).await;
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(found[0], Ok(root.join("a.txt").as_path().to_path_buf()));
+        assert!(matches!(found[1], Err(FsErrorKind::CancelStalled { .. })), "{found:?}");
+        assert_eq!(calls.load(Ordering::SeqCst), MAX_STUCK_PER_VOLUME, "the refused search made no call on dead");
+        assert_eq!(answers(&mut search(&other)).await, [Ok(other.join("b.txt").as_path().to_path_buf())]);
+        *release.0.lock().unwrap() = true;
+        release.1.notify_all();
+        settled(&producers, "every given-up thread ends", ProducerCounts::default()).await;
+    }
+    /// A burst of searches that never end, each class alone, against Node's scheduler with 2 searches at once, an
+    /// interactive reserve of 1, a bulk limit of 2, and 4 waiting places (a priority reserve of 1): as the server's
+    /// dispatcher admits them when it keeps up, 3 interactive ones run (2 and the reserve), 4 wait and the 8th is
+    /// refused; 2 fuzzy ones run, 4 wait, the 7th is refused; 2 bulk ones run, 3 wait (4 less the reserve), the 6th is
+    /// refused.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_burst_is_refused_at_the_search_nodes_scheduler_refuses() {
+        let (_dir, root) = root();
+        let config = SchedulerConfig { interactive_reserve: 1, ..scheduler(2, 4, Duration::ZERO) };
+        assert_eq!((config.bulk, config.priority_reserve), (2, 1));
+        for (class, running, refused_at) in [(SearchClass::Interactive, 3, 8), (SearchClass::Fuzzy, 2, 7), (SearchClass::Bulk, 2, 6)] {
+            let producers = Arc::new(Producers::new(config));
+            let mut held = Vec::new();
+            let mut first_refused = None;
+            for n in 1..=10 {
+                let (listing, release, _) = hung_listing();
+                let mut stream = search_over(&producers, &SearchRequest { class, ..needle_request(&root, None) }, listing, no_files());
+                if refused(&mut stream) && first_refused.is_none() {
+                    first_refused = Some(n);
+                    assert_eq!(producers.counts(), ProducerCounts { live: running, waiting: refused_at - 1 - running, ..Default::default() }, "{class:?}");
+                }
+                held.push((stream, release));
+            }
+            assert_eq!(first_refused, Some(refused_at), "{class:?}");
+            drop(held);
+            settled(&producers, "the burst's producers end", ProducerCounts::default()).await;
+        }
+    }
+    /// A producer held in a real blocking read (a pipe whose writer never writes, [`blocked_read`]) is cancelled once its
+    /// stream lets go of it: the read fails, the thread ends and frees its slot, and the next search, which had no slot,
+    /// runs. On Unix this is the FIFO's `poll` ended by the thread's interrupt, no signal.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_producer_in_a_blocked_pipe_read_is_cancelled_and_its_slot_serves_the_next_search() {
+        let (_dir, root) = root();
+        let file = root.join("a.txt").as_path().to_path_buf();
+        std::fs::write(&file, "needle\n").unwrap();
+        let producers = Arc::new(Producers::new(scheduler(1, NODE_QUEUE, CLOSE_GRACE)));
+        let (listing, open, in_read, writer) = blocked_read(&root);
+        let mut blocked = search_over(&producers, &needle_request(&root, None), listing, open);
+        within("the producer in its pipe read", in_read).await.unwrap();
+        let listing: Listing = Box::new(std::iter::once(Ok(Some(file.clone()))));
+        let open: Opener = Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>));
+        let mut next = search_over(&producers, &needle_request(&root, None), listing, open);
+        assert_eq!(producers.counts(), ProducerCounts { live: 1, waiting: 1, ..Default::default() }, "the next search has no slot");
+        blocked.close().await;
+        // Cancelled within the grace: it ended, nothing was given up, and its slot went to the waiting search.
+        until(&producers, "the producer in its pipe read is cancelled and ends", |c| c == ProducerCounts { live: 1, ..Default::default() }).await;
+        let hit = within("the next search's match", next.next()).await.unwrap().unwrap();
+        assert_eq!((hit.path.as_path(), hit.line), (file.as_path(), 1));
+        assert!(within("the next search's end", next.next()).await.is_none());
+        next.close().await;
+        drop(writer);
+    }
+    /// Past the slots, searches wait while fewer than the queue's capacity wait; the next is refused as Node's server
+    /// refuses it, a bulk one already at the capacity less its reserve (9 less 2), and a walk Node does not queue runs on
+    /// its own slots. Once the slot frees, the waiting searches run and the queue takes searches again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_search_past_the_queue_capacity_is_refused_as_saturated_and_the_queue_recovers() {
+        const QUEUE: usize = 9;
+        let (_dir, root) = root();
+        let file = root.join("a.txt").as_path().to_path_buf();
+        std::fs::write(&file, "needle\n").unwrap();
+        let producers = Arc::new(Producers::new(scheduler(1, QUEUE, CLOSE_GRACE)));
+        let (listing, open, in_read, writer) = blocked_read(&root);
+        let mut blocked = search_over(&producers, &needle_request(&root, None), listing, open);
+        within("the producer in its pipe read", in_read).await.unwrap();
+        let one_file = |class| {
+            let listing: Listing = Box::new(std::iter::once(Ok(Some(file.clone()))));
+            let open: Opener = Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>));
+            search_over(&producers, &SearchRequest { class, ..needle_request(&root, None) }, listing, open)
+        };
+        let saturated = |item: Option<Result<SearchMatch, FsError>>| matches!(item, Some(Err(FsError { kind: FsErrorKind::Saturated, .. })));
+        let mut waiting: Vec<_> = (0..7).map(|_| one_file(SearchClass::Interactive)).collect();
+        assert!(saturated(within("a bulk search past 7 waiting", one_file(SearchClass::Bulk).next()).await));
+        waiting.extend((0..2).map(|_| one_file(SearchClass::Fuzzy)));
+        assert_eq!(producers.counts(), ProducerCounts { live: 1, waiting: QUEUE, ..Default::default() });
+        assert!(saturated(within("a search past 9 waiting", one_file(SearchClass::Interactive).next()).await));
+        assert!(saturated(within("a fuzzy search past 9 waiting", one_file(SearchClass::Fuzzy).next()).await));
+        let walking = walking(&listing_request(&root, Vec::new()), Box::new(tree::RealDirs)).unwrap();
+        let origin = Origin::new(None, root.as_path(), "file inventory");
+        let mut walk = streamed(&producers, Box::new(walking), Deadline::default(), origin, false);
+        assert_eq!(producers.counts().waiting, QUEUE, "a walk Node does not queue runs at once");
+        let mut walked = Vec::new();
+        while let Some(entry) = within("the walk's entries", walk.next()).await {
+            walked.push(entry.unwrap().path);
+        }
+        assert!(walked.iter().any(|p| p.as_path() == file.as_path()), "{walked:?}");
+        walk.close().await;
+        blocked.close().await;
+        until(&producers, "the slot goes to the first waiting search", |c| c == ProducerCounts { live: 1, waiting: QUEUE - 1, ..Default::default() }).await;
+        for stream in &mut waiting {
+            let hit = within("a waiting search's match", stream.next()).await.unwrap().unwrap();
+            assert_eq!((hit.path.as_path(), hit.line), (file.as_path(), 1));
+            assert!(within("a waiting search's end", stream.next()).await.is_none());
+            stream.close().await;
+        }
+        let mut again = one_file(SearchClass::Bulk);
+        assert!(within("the queue takes searches again", again.next()).await.unwrap().is_ok());
+        again.close().await;
+        until(&producers, "every producer ends", |c| c == ProducerCounts::default()).await;
+        drop(writer);
+    }
+    /// The native traversal over a real directory of 2,000 files: every file, in path order.
+    #[tokio::test]
+    async fn a_walk_lists_a_directory_of_two_thousand_files_in_path_order() {
+        let (_dir, root) = root();
+        let dir = root.join("many");
+        std::fs::create_dir(dir.as_path()).unwrap();
+        for i in 0..2_000 {
+            std::fs::File::create(dir.as_path().join(format!("{i:04}.txt"))).unwrap();
+        }
+        let fs = LocalFileService::new();
+        let request = WalkRequest { root: root.clone(), recursive: true, include_dirs: false, include_hidden: true, respect_ignore: false, require_git: true, prune: Vec::new(), descent: Default::default(), server: None };
+        let mut walk = fs.walk(lanes().maintenance, request);
+        let mut names = Vec::new();
+        while let Some(entry) = walk.next().await {
+            names.push(entry.unwrap().path.as_path().file_name().unwrap().to_string_lossy().into_owned());
+        }
+        walk.close().await;
+        let expected: Vec<String> = (0..2_000).map(|i| format!("{i:04}.txt")).collect();
+        assert_eq!(names, expected);
+    }
+}
+
+
+/// `fs.stat` of `path` (links followed). The change time, inode and device are `fileVersion`'s own
+/// reading (`stat_version`), so the two never disagree.
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+fn stat_path(path: &Path) -> Result<FileStat, FsError> {
+    let (meta, version) = stat_with_version(path).map_err(|e| io_error(&e, path))?;
+    Ok(stat_from_version(&meta, &version))
+}
+
+fn stat_from_version(meta: &fs::Metadata, version: &StatVersion) -> FileStat {
+    let ns = version.ctime_ns;
+    let magnitude = std::time::Duration::from_nanos(u64::try_from(ns.unsigned_abs()).unwrap_or(u64::MAX));
+    let ctime = if ns >= 0 { std::time::UNIX_EPOCH.checked_add(magnitude) } else { std::time::UNIX_EPOCH.checked_sub(magnitude) };
+    FileStat {
+        kind: entry_kind(meta.file_type()),
+        len: meta.len(),
+        modified: meta.modified().ok(),
+        ctime,
+        inode: version.ino,
+        device: version.dev,
+        readonly: meta.permissions().readonly(),
+    }
+}
+/// Node: `atomicWriteShouldFsync`; `MIXDOG_ATOMIC_FSYNC=0|false|no|off` opts out.
+fn fsync_wanted() -> bool {
+    !matches!(std::env::var("MIXDOG_ATOMIC_FSYNC").map(|v| v.to_lowercase()).as_deref(), Ok("0" | "false" | "no" | "off"))
+}
+/// One single-file write at its resolved path.
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+fn write_resolved(locks: &Arc<PathLocks>, resolved: &Resolved, request: &WriteRequest) -> Result<FileStat, FsError> {
+    let _held = locks.acquire([resolved.key.clone()]);
+    let target = resolved.path.as_path();
+    let expect = evaluate(target, &request.precondition)?;
+    atomic_write(target, &request.content, &expect)?;
+    stat_path(target)
+}
+/// Node: `atomicWrite`. The caller holds the write lock of `target`.
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+fn atomic_write(target: &Path, content: &[u8], expect: &Expect) -> Result<(), FsError> {
+    let existing = match expect {
+        Expect::EditVersion { version, original } => {
+            if !checked_handle(target, original, *version) {
+                return Err(changed_edit(target));
+            }
+            Some(original.metadata().map_err(|e| io_error(&e, target))?)
+        }
+        _ => fs::metadata(target).ok(),
+    };
+    let tmp = temp_name(target);
+    let fsync = fsync_wanted();
+    let written = (|| -> Result<(), (FsStep, io::Error)> {
+        let open_step = || FsStep::Open { path: AbsPath::new(&tmp).expect("a resolved target is absolute") };
+        let mut file = create_temp(&tmp, existing.as_ref()).map_err(|e| (open_step(), e))?;
+        let result = file
+            .write_all(content)
+            .map_err(|e| (FsStep::Write, e))
+            .and_then(|()| if fsync { sync(&file).map_err(|e| (FsStep::Fsync, e)) } else { Ok(()) });
+        drop(file);
+        if result.is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
+        result
+    })();
+    written.map_err(|(step, e)| io_error(&e, target).at(step))?;
+    #[cfg(windows)]
+    if let Some(meta) = &existing {
+        // The target's attributes (hidden, system, read-only) go to the temp file, as the patch
+        // engine's `atomic_write_replace` keeps them; a read-only target then fails the rename
+        // below exactly as it does for Node.
+        let _ = fs::set_permissions(&tmp, meta.permissions());
+    }
+    if matches!(expect, Expect::Absent) {
+        // assertExclusiveCreate: the placeholder claims the name.
+        if let Err(e) = OpenOptions::new().write(true).create_new(true).open(target) {
+            let _ = fs::remove_file(&tmp);
+            return Err(if e.kind() == io::ErrorKind::AlreadyExists { precondition_failed(target) } else { io_error(&e, target) });
+        }
+    }
+    let attempts = if cfg!(windows) { RENAME_BACKOFFS_MS.len() + 1 } else { 1 };
+    // The final attempt has no backoff; Unix takes only that first, non-retried attempt.
+    for (attempt, backoff) in RENAME_BACKOFFS_MS.iter().copied().map(Some).chain(std::iter::once(None)).take(attempts).enumerate() {
+        // The lock serializes our own writes. This last check and the OS rename are
+        // separate operations; portable rename has no compare-by-file-identity form.
+        let conflict = match expect {
+            Expect::EditVersion { version, original } if !checked_handle(target, original, *version) => Some(changed_edit(target)),
+            Expect::Version(version) if !stat_version(target).is_ok_and(|seen| seen == *version) => Some(precondition_failed(target)),
+            _ => None,
+        };
+        if let Some(conflict) = conflict {
+            let _ = fs::remove_file(&tmp);
+            return Err(conflict);
+        }
+        match fs::rename(&tmp, target) {
+            Ok(()) => {
+                if fsync {
+                    sync_directory(target);
+                }
+                return Ok(());
+            }
+            Err(e) => {
+                let transient = cfg!(windows) && (e.kind() == io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(SHARING_VIOLATION));
+                if transient && attempt + 1 < attempts {
+                    let jitter = u64::from(uuid::Uuid::new_v4().as_bytes()[0]) % 40;
+                    std::thread::sleep(Duration::from_millis(backoff.expect("a retried attempt has a backoff") + jitter));
+                    continue;
+                }
+                let _ = fs::remove_file(&tmp);
+                if matches!(expect, Expect::Absent) {
+                    cleanup_empty_placeholder(target);
+                }
+                let step = FsStep::Rename {
+                    from: AbsPath::new(&tmp).expect("a resolved target is absolute"),
+                    to: AbsPath::new(target).expect("a resolved target is absolute"),
+                };
+                return Err(io_error(&e, target).at(step));
+            }
+        }
+    }
+    unreachable!("the last attempt returns")
+}
 #[async_trait]
 impl FileService for LocalFileService {
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
@@ -762,7 +3819,6 @@ impl FileService for LocalFileService {
         search_with(&PRODUCERS, &request, walked, Box::new(open_to_search))
     }
 }
-
 /// A walk request's walk, its entries listed through `dirs` ([`tree`]).
 #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
 fn walking(request: &WalkRequest, dirs: Box<dyn tree::Dirs>) -> Result<Walking, FsError> {
@@ -774,19 +3830,23 @@ fn walking(request: &WalkRequest, dirs: Box<dyn tree::Dirs>) -> Result<Walking, 
     let rules = tree::Rules::new(root, &mut builder, !request.include_hidden, prune);
     let max_depth = request.descent.max_depth.or((!request.recursive).then_some(1));
     let volumes = Volumes::shared(root);
-    let walk = tree::Tree::new(root, rules, max_depth, dirs, volumes.clone()).bare(request.descent.bare.clone(), request.descent.bare_dotted);
+    let walk = tree::Tree::new(root, rules, max_depth, dirs, volumes.clone())
+        .bare(request.descent.bare.clone(), request.descent.bare_dotted)
+        .guard(request.descent.guard.as_ref())
+        .map_err(|error| plain(FsErrorKind::InvalidPattern { message: error.to_string() }, root))?;
     Ok(Walking { walk, volumes, root: root.to_path_buf(), include_dirs: request.include_dirs })
 }
-
 /// A text search's walk, its entries listed through `dirs` ([`tree`]): siblings in name order, depth first, so the
 /// files come in `PathBuf` order, the order Node's server answers in, each searched as the walk reaches it.
 #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
 fn text_listing(request: &SearchRequest, dirs: Box<dyn tree::Dirs>) -> Result<Walked, FsError> {
     let root = request.root.as_path();
-    // ripgrep's rule: later globs win, so the excludes follow the includes.
-    let globs = request.include_globs.iter().cloned().chain(request.exclude_globs.iter().map(|g| format!("!{g}"))).collect();
+    // The excludes are overrides; the includes only choose among the files the ignore rules let through. A whitelist
+    // override would list a gitignored file its glob names, which the ignore rules exist to hide.
+    let globs = request.exclude_globs.iter().map(|g| format!("!{g}")).collect();
     let mut builder = WalkBuilder::new(root);
     builder.overrides(overrides_for(root, globs).map_err(|error| invalid_pattern(&error, root))?);
+    let includes = include_matcher(root, &request.include_globs).map_err(|error| invalid_pattern(&error, root))?;
     // Node's grep leaves `--no-require-git` off: a `.gitignore` outside a repository is not read.
     ignore_rules(&mut builder, request.respect_ignore, true);
     let rules = tree::Rules::new(root, &mut builder, !request.include_hidden, Vec::new());
@@ -794,7 +3854,7 @@ fn text_listing(request: &SearchRequest, dirs: Box<dyn tree::Dirs>) -> Result<Wa
     let volumes = Volumes::shared(root);
     // A refused call is the search's answer; a call after the producer was given up ends the walk.
     let listing: Listing = Box::new(tree::Tree::new(root, rules, None, dirs, volumes.clone()).map_while(move |item| match item {
-        Ok(entry) => Some(Ok((entry.kind == EntryKind::File).then_some(entry.path))),
+        Ok(entry) => Some(Ok((entry.kind == EntryKind::File && includes.as_ref().is_none_or(|g| g.matched(&entry.path, false).is_ignore())).then_some(entry.path))),
         Err(error) => match halt_of(&error) {
             Some(Halt::Refused(refusal)) => Some(Err(FsError::new(refusal.clone(), None))),
             Some(_) => None,
@@ -803,200 +3863,11 @@ fn text_listing(request: &SearchRequest, dirs: Box<dyn tree::Dirs>) -> Result<Wa
     }));
     Ok(Walked { listing, volumes })
 }
-
 /// A text search's walk ([`text_listing`]) and the volumes it names its calls on ([`Volumes`]).
 struct Walked {
     listing: Listing,
     volumes: SharedVolumes,
 }
-
-/// A file opened for its search, as the search server opens it (`File::open`, serve_search/matching.rs:228). On Unix a
-/// FIFO, a socket or a terminal is opened non-blocking and each of its reads waits with `poll` beside the reading
-/// thread's cancel ([`unix_io`], [`cancel_io::current`]), so a cancel ends a read no writer would ever answer; any other
-/// file reads as `std` reads it.
-fn open_to_search(path: &Path) -> io::Result<Box<dyn Read + Send>> {
-    #[cfg(unix)]
-    return Ok(Box::new(unix_io::open(path, cancel_io::current())?));
-    #[cfg(not(unix))]
-    Ok(Box::new(File::open(path)?))
-}
-
-/// Node's name for a content search's request (`requestKind`, native-search-client.mjs:57-62), which a refusal for a
-/// volume of given-up reads names ([`FsErrorKind::CancelStalled`]).
-const CONTENT: &str = "content";
-
-/// The volume a path lies on as far as its text tells, never waiting on the volume: on Windows its drive, UNC share or
-/// device namespace (the path's prefix), on Unix the device of the mount it lies under in the mount table
-/// ([`unix_io::volume_of`], the path taken as it is written). A search is admitted by this until its producer has told
-/// its root's volume by the filesystem's identity ([`known_volume`], [`Volumes::start`]).
-fn volume_of(path: &Path) -> String {
-    #[cfg(windows)]
-    {
-        use std::path::Component;
-        use std::path::Prefix;
-        let Some(Component::Prefix(prefix)) = path.components().next() else { return String::new() };
-        match prefix.kind() {
-            Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) => format!("{}:", char::from(drive).to_ascii_uppercase()),
-            Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => {
-                format!(r"\\{}\{}", server.to_string_lossy(), share.to_string_lossy()).to_lowercase()
-            }
-            Prefix::DeviceNS(device) => format!(r"\\.\{}", device.to_string_lossy()).to_lowercase(),
-            Prefix::Verbatim(name) => format!(r"\\?\{}", name.to_string_lossy()).to_lowercase(),
-        }
-    }
-    #[cfg(unix)]
-    return unix_io::volume_of(path);
-    #[cfg(not(any(windows, unix)))]
-    {
-        let _ = path;
-        String::new()
-    }
-}
-
-/// The volume each searched root was found on by the filesystem's identity, when, and whether that identity is fixed by
-/// the root's text ([`Volumes::start`]): a later search of the root is admitted by it before its producer reads
-/// ([`Stuck::admission`]), and one within [`KNOWN_FRESH`] of the finding takes it as its own without asking the
-/// filesystem again (about a millisecond each, which a burst of thousands of searches of one root would spend over and
-/// over). At most [`KNOWN_ROOTS`] roots; past that it starts again.
-static KNOWN: LazyLock<Mutex<std::collections::HashMap<PathBuf, Known>>> = LazyLock::new(Default::default);
-const KNOWN_ROOTS: usize = 4_096;
-const KNOWN_FRESH: Duration = Duration::from_secs(5);
-
-/// A root's volume as its last search found it ([`KNOWN`]). `fixed`: no junction, mounted folder, link, `subst` or
-/// mapped drive lies between the root's text and its volume, so the volume changes only with the text (or a drive
-/// letter's reassignment; on Unix a mount made or removed over the path, which the kernel's table tells without waiting,
-/// [`Stuck::admission`]).
-struct Known {
-    volume: String,
-    at: Instant,
-    fixed: bool,
-}
-
-/// The volume `root` is admitted by: the one its last search found it on, else the one its text tells ([`volume_of`]).
-fn known_volume(root: &Path) -> String {
-    locked(&KNOWN).get(root).map_or_else(|| volume_of(root), |known| known.volume.clone())
-}
-
-/// The volume a search of `root` found within [`KNOWN_FRESH`].
-#[cfg_attr(not(windows), allow(dead_code))]
-fn fresh_volume(root: &Path) -> Option<String> {
-    locked(&KNOWN).get(root).filter(|known| known.at.elapsed() < KNOWN_FRESH).map(|known| known.volume.clone())
-}
-
-fn remember_volume(root: &Path, (volume, fixed): (&str, bool)) {
-    let mut known = locked(&KNOWN);
-    if known.len() >= KNOWN_ROOTS && !known.contains_key(root) {
-        known.clear();
-    }
-    known.insert(root.to_path_buf(), Known { volume: volume.to_owned(), at: Instant::now(), fixed });
-}
-
-/// The key a producer reads on while it tells its root's volume ([`Volumes::start`], [`Ticket::reading`]): that call
-/// reads on volumes not known until it returns (a dead one holds it), so a stall in it is charged to no volume but to
-/// the root's own telling, which only searches of that same root are admitted by: it can refuse no other root's
-/// search, so no healthy volume's. A root whose telling holds [`SchedulerConfig::stuck_per_volume`] given-up threads is
-/// refused at once until they return, as no search of it gets past that call.
-fn telling(root: &Path) -> String {
-    format!("telling {}", root.to_string_lossy())
-}
-
-/// `root`'s volume by the filesystem's identity and whether it is fixed by the text ([`Known`]): [`volume_id`] on
-/// Windows; on Unix the device of the mount its canonical path lies under ([`unix_io::tell`]).
-#[cfg_attr(not(feature = "replay-controls"), allow(dead_code))]
-fn root_volume_id(root: &Path) -> Option<(String, bool)> {
-    #[cfg(windows)]
-    return volume_id(root);
-    #[cfg(unix)]
-    return unix_io::tell(root, unix_io::mount_table()).ok().map(|told| (told.volume, told.fixed)).filter(|(v, _)| !v.is_empty());
-    #[cfg(not(any(windows, unix)))]
-    {
-        let _ = root;
-        None
-    }
-}
-
-/// The volume `path` lies on by the filesystem's own identity, on Windows: the volume GUID of the volume mount point
-/// `GetVolumePathNameW` finds for it, which follows junctions and mounted folders (`C:\x\j\a`, `j` a junction to a
-/// folder of D:, is on D:'s volume); a network share by its `\\server\share` (a mapped drive by the share it maps, a
-/// `subst` drive by the folder it stands for). `None` when it cannot be told (a path no volume answers for). It reads
-/// on the volumes the path passes through, so only a producer calls it, as its first call ([`Volumes::start`]). With
-/// it, whether the volume is fixed by the path's text ([`Known`]): its volume mount point is the root of the drive or
-/// share the text names, found without a `subst` or mapped drive's step.
-#[cfg(windows)]
-fn volume_id(path: &Path) -> Option<(String, bool)> {
-    use std::os::windows::ffi::OsStrExt as _;
-    use windows_sys::Win32::Storage::FileSystem::GetVolumeNameForVolumeMountPointW;
-    use windows_sys::Win32::Storage::FileSystem::GetVolumePathNameW;
-    use windows_sys::Win32::Storage::FileSystem::QueryDosDeviceW;
-    let wide = |s: &std::ffi::OsStr| s.encode_wide().chain(Some(0)).collect::<Vec<u16>>();
-    let text = |buf: &[u16]| String::from_utf16_lossy(&buf[..buf.iter().position(|&c| c == 0).unwrap_or(buf.len())]);
-    let mut resolved = path.to_path_buf();
-    // A `subst` drive stands for a folder, which may be on another such drive: a few steps at most.
-    for step in 0..4 {
-        let name = wide(resolved.as_os_str());
-        let mut point = vec![0u16; 32_768];
-        // SAFETY: `name` is NUL-terminated and `point` holds the length given.
-        if unsafe { GetVolumePathNameW(name.as_ptr(), point.as_mut_ptr(), point.len() as u32) } == 0 {
-            return None;
-        }
-        let point = text(&point);
-        let fixed = step == 0 && own_root(path, &point);
-        let mut guid = [0u16; 64];
-        // SAFETY: the mount point is NUL-terminated and `guid` holds the length given.
-        if unsafe { GetVolumeNameForVolumeMountPointW(wide(point.as_ref()).as_ptr(), guid.as_mut_ptr(), guid.len() as u32) } != 0 {
-            return Some((text(&guid).to_ascii_lowercase(), fixed));
-        }
-        let bare = point.strip_prefix(r"\\?\").unwrap_or(&point);
-        let Some(drive) = bare.get(..2).filter(|d| d.ends_with(':') && d.as_bytes()[0].is_ascii_alphabetic()) else {
-            return Some((share_key(&point), fixed));
-        };
-        let mut target = vec![0u16; 32_768];
-        // SAFETY: the drive name is NUL-terminated and `target` holds the length given.
-        if unsafe { QueryDosDeviceW(wide(drive.as_ref()).as_ptr(), target.as_mut_ptr(), target.len() as u32) } == 0 {
-            return Some((drive.to_ascii_lowercase(), false));
-        }
-        let target = text(&target);
-        if let Some(share) = redirected_share(&target) {
-            return Some((share, false));
-        }
-        let Some(folder) = target.strip_prefix(r"\??\") else { return Some((target.to_ascii_lowercase(), false)) };
-        let rest: PathBuf = resolved.components().filter(|c| matches!(c, std::path::Component::Normal(_))).collect();
-        resolved = PathBuf::from(folder).join(rest);
-    }
-    None
-}
-
-/// Whether `point`, the volume mount point `GetVolumePathNameW` found for `path`, is the root of the drive or share
-/// `path`'s text names ([`volume_of`]): `C:\` for `C:\x`, `\\server\share\` for `\\server\share\x`.
-#[cfg(windows)]
-fn own_root(path: &Path, point: &str) -> bool {
-    let point = point.strip_prefix(r"\\?\UNC\").map_or_else(|| point.strip_prefix(r"\\?\").unwrap_or(point).to_owned(), |rest| format!(r"\\{rest}"));
-    point.trim_end_matches('\\').eq_ignore_ascii_case(&volume_of(path))
-}
-
-/// A network volume mount point as a key: `\\?\UNC\server\share\` and `\\server\share\` as `\\server\share\`,
-/// lowercased.
-#[cfg_attr(not(windows), allow(dead_code))]
-fn share_key(point: &str) -> String {
-    let point = point.strip_prefix(r"\\?\UNC\").map_or_else(|| point.to_owned(), |rest| format!(r"\\{rest}"));
-    let mut key = point.to_lowercase();
-    if !key.ends_with('\\') {
-        key.push('\\');
-    }
-    key
-}
-
-/// The share a mapped drive's device target names (`QueryDosDeviceW`): `\Device\LanmanRedirector\;Z:0000…\srv\share`
-/// or `\Device\Mup\;LanmanRedirector\;Z:0000…\srv\share\sub` is `\\srv\share\` ([`share_key`]); `None` for a target
-/// that is not a redirected drive.
-#[cfg_attr(not(windows), allow(dead_code))]
-fn redirected_share(target: &str) -> Option<String> {
-    let parts: Vec<&str> = target.split('\\').collect();
-    let drive = parts.iter().rposition(|part| part.starts_with(';') && part.contains(':'))?;
-    let (server, share) = (parts.get(drive + 1)?, parts.get(drive + 2)?);
-    (!server.is_empty() && !share.is_empty()).then(|| share_key(&format!(r"\\{server}\{share}")))
-}
-
 /// `request`'s search of the files `listing` names, each read through `open`, its producer counted in `producers`.
 #[cfg_attr(not(test), allow(dead_code))]
 fn search_over(
@@ -1007,7 +3878,6 @@ fn search_over(
 ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
     search_with(producers, request, Walked { listing, volumes: Volumes::shared(request.root.as_path()) }, open)
 }
-
 /// [`search_over`] of a walk that names the volumes of its calls ([`Walked`], [`Volumes`]).
 fn search_with(
     producers: &Arc<Producers>,
@@ -1068,243 +3938,12 @@ fn search_with(
     let deadline = Deadline { at: request.deadline };
     streamed(producers, Box::new(searching), deadline, origin(), false)
 }
-
-/// The matcher Node's resident search server compiles (serve_search/matching.rs `CompiledMatcher`).
-enum Compiled {
-    Rust(grep::regex::RegexMatcher),
-    Pcre2(grep::pcre2::RegexMatcher),
-}
-
-/// Node's server's `build_matcher` (serve_search/matching.rs:11-40): PCRE2 when the request asks for it, else the Rust
-/// engine on `\n`-terminated lines; a multi-line search drops the terminator and lets `.` match a line break
-/// (`--multiline-dotall`). The error is the parser's own text.
-fn compile(request: &SearchRequest) -> Result<Compiled, String> {
-    if request.pcre2 {
-        return grep::pcre2::RegexMatcherBuilder::new()
-            .caseless(!request.case_sensitive)
-            .fixed_strings(!request.regex)
-            .multi_line(true)
-            .dotall(request.multiline)
-            .utf(true)
-            .ucp(true)
-            .jit_if_available(true)
-            .build(&request.pattern)
-            .map(Compiled::Pcre2)
-            .map_err(|error| error.to_string());
-    }
-    let mut builder = grep::regex::RegexMatcherBuilder::new();
-    builder.case_insensitive(!request.case_sensitive).fixed_strings(!request.regex).multi_line(true).dot_matches_new_line(request.multiline);
-    if !request.multiline {
-        builder.line_terminator(Some(b'\n'));
-    }
-    builder.build(&request.pattern).map(Compiled::Rust).map_err(|error| error.to_string())
-}
-
-/// The request's globs, then the resident search server's implicit `.git` exclusions
-/// (`serve_search/keys.rs`, `prune_globs`): kept unless the root is itself inside a `.git` directory.
-fn overrides_for(root: &Path, mut globs: Vec<String>) -> Result<ignore::overrides::Override, ignore::Error> {
-    if !root.components().any(|c| c.as_os_str() == ".git") {
-        globs.push("!**/.git".to_owned());
-        globs.push("!**/.git/**".to_owned());
-    }
-    let mut overrides = OverrideBuilder::new(root);
-    for glob in &globs {
-        overrides.add(glob)?;
-    }
-    overrides.build()
-}
-
-fn invalid_pattern(error: &ignore::Error, root: &Path) -> FsError {
-    plain(FsErrorKind::InvalidPattern { message: error.to_string() }, root)
-}
-
-/// Node: `apply_ignore_rules` (`--no-ignore` turns off all four sources; `--no-require-git` honours them outside a
-/// repository).
-fn ignore_rules(builder: &mut WalkBuilder, respect_ignore: bool, require_git: bool) {
-    if !respect_ignore {
-        builder.ignore(false).git_ignore(false).git_global(false).git_exclude(false);
-    } else if !require_git {
-        builder.require_git(false);
-    }
-}
-
-/// The search server's `max_columns` (serve_search/matching.rs:276-277, `.max_columns(500)` with
-/// `.max_columns_preview(true)`).
-const MAX_COLUMNS: u64 = 500;
-
 /// serve_search/config.rs `search_heap_bytes()` (:82-89, `MIXDOG_SEARCH_HEAP_BYTES`, default 32 MiB, within
 /// 1 MiB..=128 MiB): the heap a file's search may take for its line buffer (matching.rs:171). A line the buffer cannot
 /// hold within it fails the file's search, so it also bounds what one line of a search holds in memory.
 fn search_heap_bytes() -> usize {
     bounded_env("MIXDOG_SEARCH_HEAP_BYTES", 32 << 20, 1 << 20, 128 << 20)
 }
-
-/// What the printer writes, shared with the sink that reads each match's line back.
-#[derive(Clone, Default)]
-struct Printed(Rc<RefCell<Vec<u8>>>);
-
-impl Write for Printed {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.borrow_mut().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-/// The text of each line the printer wrote for a match (`N:` and the line), read as Node's server reads its printer's
-/// output (`output_lines`, matching.rs:180-186: decoded lossily, split with `str::lines`) and its client reads a line
-/// (the text after the line number's `:`).
-fn printed_lines(bytes: &[u8]) -> Vec<String> {
-    String::from_utf8_lossy(bytes).lines().map(|line| line.split_once(':').map_or(line, |(_, text)| text).to_owned()).collect()
-}
-
-/// What a match adds to its file's count, as grep-printer's summary printer counts it for Node's server's `--count`
-/// (`Summary::matched`): 1 for a line searched line by line; in a multi-line search each match its lines hold, the regex
-/// seeing at most 128 bytes past them (`find_iter_at_in_context`, `MAX_LOOK_AHEAD`).
-fn match_count<M: Matcher>(searcher: &Searcher, matcher: &M, found: &SinkMatch<'_>) -> io::Result<u64> {
-    if !searcher.multi_line_with_matcher(matcher) {
-        return Ok(1);
-    }
-    let range = found.bytes_range_in_buffer();
-    let buffer = found.buffer();
-    let mut count = 0;
-    matcher
-        .find_iter_at(&buffer[..buffer.len().min(range.end + 128)], range.start, |m| {
-            if m.start() >= range.end {
-                return false;
-            }
-            count += 1;
-            true
-        })
-        .map_err(|error| io::Error::other(error.to_string()))?;
-    Ok(count)
-}
-
-/// One item per printed line, printed by the printer Node's search server prints with: grep-printer's standard printer
-/// built as serve_search builds it (matching.rs:271-278: no heading, no path, `max_columns(500)` with preview, no
-/// colour), fed by the same searcher, so a long line's trigger and preview are the crate's own; a multi-line match is a
-/// line each. The column is the first match's byte start (1 on a match's later lines). Stops the file when the request's
-/// match budget is spent or the stream is closed.
-struct Collect<'a, P, M> {
-    /// The printer's sink, and what it writes.
-    printer: P,
-    printed: Printed,
-    matcher: &'a M,
-    path: &'a AbsPath,
-    out: &'a Out<SearchMatch>,
-    left: &'a mut Option<usize>,
-    /// [`SearchRequest::first_per_file`].
-    first_per_file: bool,
-    /// Matches queued from this file.
-    sent: usize,
-    /// The stream was closed under the sink.
-    closed: bool,
-    #[cfg(feature = "count-jobs")]
-    root: &'a Path,
-}
-
-impl<P: Sink<Error = io::Error>, M: Matcher> Sink for Collect<'_, P, M> {
-    type Error = io::Error;
-
-    fn begin(&mut self, searcher: &Searcher) -> Result<bool, io::Error> {
-        self.printer.begin(searcher)
-    }
-
-    fn binary_data(&mut self, searcher: &Searcher, binary_byte_offset: u64) -> Result<bool, io::Error> {
-        self.printer.binary_data(searcher, binary_byte_offset)
-    }
-
-    fn finish(&mut self, searcher: &Searcher, finish: &SinkFinish) -> Result<(), io::Error> {
-        self.printer.finish(searcher, finish)
-    }
-
-    fn matched(&mut self, searcher: &Searcher, found: &SinkMatch<'_>) -> Result<bool, io::Error> {
-        if *self.left == Some(0) {
-            return Ok(false);
-        }
-        self.printer.matched(searcher, found)?;
-        let printed = printed_lines(&self.printed.0.take());
-        let mut column = self.matcher.find(found.bytes()).ok().flatten().map_or(0, |m| m.start()) as u64 + 1;
-        let mut count = match_count(searcher, self.matcher, found)?;
-        for (line, text) in (found.line_number().unwrap_or(0)..).zip(printed) {
-            if !self.out.send(Ok(SearchMatch { path: self.path.clone(), line, column, text, count })) {
-                self.closed = true;
-                return Ok(false);
-            }
-            (column, count) = (1, 0);
-            self.sent += 1;
-            #[cfg(feature = "count-jobs")]
-            probe::found(self.root);
-            if let Some(left) = self.left.as_mut() {
-                *left -= 1;
-            }
-            if *self.left == Some(0) {
-                break;
-            }
-        }
-        Ok(*self.left != Some(0) && !self.first_per_file)
-    }
-}
-
-/// Items a stream holds ahead of its consumer, the capacity of its queue; the producer waits while it is full.
-pub const QUEUE: usize = 256;
-
-/// The bytes of items a stream holds ahead of its consumer ([`Weigh`]: a match's text and path, an entry's path): the
-/// producer waits to queue an item that would take the queue past this. An item larger than this alone waits for an
-/// empty queue, so the queue holds at most `QUEUE_BYTES`, or one item when one is larger; a long line's preview (its
-/// first 500 grapheme clusters, as the printer writes it) is kept whole, as Node's server prints it.
-///
-/// What one search holds is bounded by the searcher's heap limit ([`search_heap_bytes`], 32 MiB): a line longer than
-/// its buffer can take fails the file's search, as in Node's server (a 100 MB line is such a line: the file answers a
-/// read failure, and its buffer stopped growing at the limit). A match's preview is part of its line, so it is at most
-/// that too; the producer holds the buffer, the printer's copy of the line it prints and the item it builds from it,
-/// beside a queue of `QUEUE_BYTES` or that one item.
-pub const QUEUE_BYTES: usize = 1 << 20;
-
-/// What a queued item weighs against [`QUEUE_BYTES`].
-trait Weigh {
-    fn weight(&self) -> usize;
-}
-
-impl Weigh for SearchMatch {
-    fn weight(&self) -> usize {
-        self.text.len() + self.path.as_path().as_os_str().len()
-    }
-}
-
-impl Weigh for DirEntry {
-    fn weight(&self) -> usize {
-        self.path.as_path().as_os_str().len()
-    }
-}
-
-impl<T: Weigh> Weigh for Result<T, FsError> {
-    fn weight(&self) -> usize {
-        match self {
-            Ok(item) => item.weight(),
-            Err(error) => error.path.as_ref().map_or(0, |p| p.as_path().as_os_str().len()),
-        }
-    }
-}
-
-/// How long a producer its stream let go of may take to end before it is given up ([`Producers::give_up`]): Node's
-/// `CANCEL_GRACE_MS` (native-search-client.mjs:28), after which its client ends the search server whose search did not
-/// stop (`armNativeCancellationWatchdog`, :501-520); `MIXDOG_SEARCH_CANCEL_GRACE_MS` replaces it as there
-/// ([`cancel_grace`]).
-const CLOSE_GRACE: Duration = Duration::from_secs(1);
-
-/// The bytes one read of a searched file asks for: the stop and the deadline are checked before each, as Node's search
-/// server checks them before each read of its 64 KiB chunks (`serve_search/matching.rs`, `CancellableReader`).
-const READ_CHUNK: usize = 64 * 1024;
-
-/// The walks Node does not send to its search server (`WalkRequest::server` `None`: the listing, read's same-name scan)
-/// that run at once, process-wide; the rest wait for one to end. Node runs those in its own process, unbounded; this
-/// bounds the threads they take.
-pub const MAX_LOCAL_PRODUCERS: usize = 64;
-
 /// Node's search server's scheduler (b6f10295a `native/mixdog-graph/src/serve_search/scheduler.rs:197-232`), each limit
 /// read from the environment variable it reads there, with its default and bounds (`config.rs`), and its client's
 /// cancel grace. The streams that stand for a search-server request ([`SearchClass`]) are admitted by these, as the
@@ -1337,25 +3976,6 @@ pub struct SchedulerConfig {
     /// [`MAX_STUCK_TOTAL`].
     pub stuck_total: usize,
 }
-
-/// The given-up producer threads one volume may hold ([`Producers::give_up`]). Once a volume holds this many, a stream
-/// that would read on it is answered with Node's answer to a request whose server was ended for a cancel that did not
-/// take ([`FsErrorKind::CancelStalled`]): at once when made or admitted, starting no thread, when its root's volume is
-/// fixed by its text, else by its producer once it told that volume afresh ([`Stuck::admission`]), or by its producer
-/// before a call that would read on it. Node gives that answer too, after its client ended the stuck server
-/// (native-search-client.mjs:501-520); here it comes sooner, without the wait. The count falls as the stuck reads
-/// return. The searches already reading on the volume when it reached this many may still be given up: the threads one
-/// volume holds never pass [`SchedulerConfig::max_stranded_per_volume`].
-pub const MAX_STUCK_PER_VOLUME: usize = 8;
-
-/// The given-up producer threads the process may hold over every volume: three volumes' worth. Once it holds this many,
-/// a stream is refused with the same answer whatever volume it would read on, one with fewer than
-/// [`MAX_STUCK_PER_VOLUME`] included (a volume at its own bound refuses it anyway), at the same points; the count falls
-/// as the stuck reads return. The threads the process holds never pass [`SchedulerConfig::max_stranded_total`]
-/// (23 + 8 + 1 + 64 = 96 with the defaults). At 24 stranded threads every search is refused: this protects the process,
-/// and Node's server would be dead in that state.
-pub const MAX_STUCK_TOTAL: usize = 3 * MAX_STUCK_PER_VOLUME;
-
 impl SchedulerConfig {
     fn from_env() -> Self {
         let available = std::thread::available_parallelism().map_or(2, |n| n.get());
@@ -1401,20 +4021,16 @@ impl SchedulerConfig {
         if class == SearchClass::Bulk { self.queue.saturating_sub(self.priority_reserve).max(1) } else { self.queue }
     }
 }
-
 /// serve_search/config.rs `bounded_env_usize` (:39-45) and `positive_env_usize` (:49-54).
 fn env_usize(name: &str) -> Option<usize> {
     std::env::var(name).ok().and_then(|raw| raw.parse::<usize>().ok())
 }
-
 fn bounded_env(name: &str, default: usize, min: usize, max: usize) -> usize {
     env_usize(name).unwrap_or(default).clamp(min, max)
 }
-
 fn positive_env(name: &str) -> Option<usize> {
     env_usize(name).filter(|n| *n > 0)
 }
-
 /// `cancelGraceMs()` (native-search-client.mjs:489-493): `MIXDOG_SEARCH_CANCEL_GRACE_MS` when it is a number above 0
 /// (whole milliseconds, at least 1), else [`CLOSE_GRACE`].
 fn cancel_grace() -> Duration {
@@ -1424,15 +4040,12 @@ fn cancel_grace() -> Duration {
         .filter(|ms| ms.is_finite() && *ms > 0.0)
         .map_or(CLOSE_GRACE, |ms| Duration::from_millis(ms.floor().max(1.0) as u64))
 }
-
 /// Every stream's producer threads, process-wide, as one Node process has one search server.
 static PRODUCERS: LazyLock<Arc<Producers>> = LazyLock::new(|| Arc::new(Producers::new(SchedulerConfig::from_env())));
-
 /// The stream producer threads alive now, process-wide ([`Producers`]).
 pub fn producer_counts() -> ProducerCounts {
     PRODUCERS.counts()
 }
-
 /// What [`Producers`] counts.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ProducerCounts {
@@ -1450,14 +4063,6 @@ pub struct ProducerCounts {
     /// mark of its volume ([`Ticket::stuck`]) until it ends, and these are the marks alive.
     pub stalled: usize,
 }
-
-/// A producer's state, changed only under [`Producers`]' lock, so each start, release, give-up and end is counted once.
-const WAITING: u8 = 0;
-const RUNNING: u8 = 1;
-const RELEASED: u8 = 2;
-const ENDED: u8 = 3;
-const STALLED: u8 = 4;
-
 /// A stream's place in its [`Producers`]: its state ([`WAITING`] to [`ENDED`]), the server class whose slot it takes
 /// (`None`: a walk Node does not send to its server), and when it was queued and started, the samples the bulk window
 /// moves by (scheduler.rs `execute_scheduled_search`, :447-489).
@@ -1492,7 +4097,6 @@ struct Ticket {
     #[cfg(feature = "count-jobs")]
     seq: u64,
 }
-
 impl Ticket {
     /// The ticket of a stream with a producer, reported to `owner`.
     fn new(origin: Origin, owner: &Arc<Producers>) -> Arc<Self> {
@@ -1544,42 +4148,6 @@ impl Ticket {
         })
     }
 }
-
-/// What a stream stands for: the search-server request class it is admitted as (`None`: a walk Node does not send to
-/// its server, [`SchedulerConfig::local`]), its root and the volume it is admitted by ([`known_volume`]), and Node's
-/// name for its request's kind (`requestKind`, native-search-client.mjs:57-62: `content`, `file inventory`, `fuzzy`).
-struct Origin {
-    server: Option<SearchClass>,
-    root: PathBuf,
-    volume: String,
-    search: &'static str,
-}
-
-impl Origin {
-    fn new(server: Option<SearchClass>, root: &Path, search: &'static str) -> Self {
-        Self { server, root: root.to_path_buf(), volume: known_volume(root), search }
-    }
-}
-
-/// One volume's given-up producer threads: each holds a clone of `marks` until it ends ([`Ticket::stuck`]), so their
-/// number is the clones alive besides this one. `last`: Node's name for the request of the latest one given up, which
-/// the volume's refusals name, as Node's names the request whose cancel stalled.
-struct Volume {
-    marks: Arc<()>,
-    last: &'static str,
-}
-
-impl Volume {
-    fn stuck(&self) -> usize {
-        Arc::strong_count(&self.marks) - 1
-    }
-}
-
-/// `mutex`'s value, a poisoned lock taken as it is.
-fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
 /// The scheduler's state (scheduler.rs `SchedulerState`, :58-74): the waiting streams of each class in arrival order,
 /// the running ones of each class (interactive, fuzzy, bulk) and the bulk window, beside the walks Node does not queue.
 struct Sched {
@@ -1597,7 +4165,6 @@ struct Sched {
     /// Node's name for the request of the latest producer given up, which a refusal for the process-wide bound names.
     last: &'static str,
 }
-
 impl Sched {
     /// `queue_depth()` (scheduler.rs:93-100): the searches waiting across the three classes.
     fn queue_depth(&self) -> usize {
@@ -1613,15 +4180,6 @@ impl Sched {
         }
     }
 }
-
-fn class_index(class: SearchClass) -> usize {
-    match class {
-        SearchClass::Interactive => 0,
-        SearchClass::Fuzzy => 1,
-        SearchClass::Bulk => 2,
-    }
-}
-
 /// What a refusal reads of the given-up threads, under the scheduler's lock.
 #[derive(Clone, Copy)]
 struct Stuck<'a> {
@@ -1629,7 +4187,6 @@ struct Stuck<'a> {
     volumes: &'a std::collections::HashMap<String, Volume>,
     last: &'static str,
 }
-
 impl Stuck<'_> {
     /// Node's answer naming the request `last` and the cancel grace.
     fn answer(&self, last: &'static str) -> FsErrorKind {
@@ -1675,7 +4232,6 @@ impl Stuck<'_> {
         Err(refusal)
     }
 }
-
 /// Moves waiting streams of one queue to running while the queue's own count stays under `limit` and the total under
 /// `ceiling` (scheduler.rs `admit_class`, :360-377). One refused ([`Stuck::admission`]) is answered instead, its refusal
 /// its one item, and takes no slot; one admitted reads on its root's telling ([`Ticket::reading`], [`telling`]).
@@ -1710,7 +4266,6 @@ fn admit(
         ticket.admitted.notify_one();
     }
 }
-
 /// The producer threads of a set of streams, admitted as Node's search server admits its searches ([`SchedulerConfig`]).
 /// A stream's state moves through [`WAITING`] (queued), [`RUNNING`] (a slot is its), [`RELEASED`] (its stream let go of
 /// it while it ran: abandoned until it ends), [`STALLED`] (given up: its slot back, its thread running on) and [`ENDED`];
@@ -1722,7 +4277,6 @@ pub struct Producers {
     /// Notified on every change of the counts.
     changed: Notify,
 }
-
 impl Producers {
     fn new(config: SchedulerConfig) -> Self {
         Self {
@@ -1938,7 +4492,6 @@ impl Producers {
         }
     }
 }
-
 /// A started producer's hold on its slot, shared by its threads ([`Hold`]) and let go of when the last of them ends,
 /// however it ends: then, in this order, the end is reported to the scheduler unless the producer was given up (the
 /// scheduler is the ticket's until then, [`Producers::give_up`]), a given-up thread's volume mark is dropped, and the end
@@ -1947,10 +4500,8 @@ struct Started {
     ticket: Arc<Ticket>,
     _done: oneshot::Sender<()>,
 }
-
 /// A producer thread's share of its [`Started`].
 type Hold = Arc<Started>;
-
 impl Drop for Started {
     fn drop(&mut self) {
         // A given-up thread that returns late comes here and to [`IoLink::answer`], taking the ticket's and the link's
@@ -1967,145 +4518,12 @@ impl Drop for Started {
         probe::ended();
     }
 }
-
-/// When a search's deadline passes.
-#[derive(Clone, Copy, Default)]
-struct Deadline {
-    /// The soft deadline ([`SearchRequest::deadline`]).
-    at: Option<Instant>,
-    /// A replay's scripted deadline ([`deadline_script`]): it passes once this many files with matches were searched,
-    /// or when the search ends, whichever comes first.
-    #[cfg(feature = "replay-controls")]
-    after_files: Option<usize>,
-}
-
-/// What a stream and its producer thread share.
-struct Control {
-    /// Set by `close` and by dropping the stream ([`Control::halt`]): the producer ends at its next check.
-    stop: AtomicBool,
-    /// The bytes of the items in the queue ([`QUEUE_BYTES`]).
-    queued: Mutex<usize>,
-    /// Notified when the queue's bytes go down and when the stream stops.
-    room: Condvar,
-    deadline: Deadline,
-    /// Files searched that had matches (for [`Deadline::after_files`]).
-    #[cfg(feature = "replay-controls")]
-    files_with_lines: AtomicUsize,
-    /// The producer is inside one file's search. A deadline that passes now is reported by the file's next read; a read
-    /// that never returns leaves the stream unanswered, as Node's server, stuck in a file, never answers.
-    in_file: AtomicBool,
-    /// A text search's link to the thread making its blocking calls ([`IoLink`]), woken by [`Control::halt`].
-    link: OnceLock<Arc<IoLink>>,
-}
-
-impl Control {
-    fn new(deadline: Deadline) -> Self {
-        Self {
-            stop: AtomicBool::new(false),
-            queued: Mutex::new(0),
-            room: Condvar::new(),
-            deadline,
-            #[cfg(feature = "replay-controls")]
-            files_with_lines: AtomicUsize::new(0),
-            in_file: AtomicBool::new(false),
-            link: OnceLock::new(),
-        }
-    }
-
-    fn stopped(&self) -> bool {
-        self.stop.load(Ordering::SeqCst)
-    }
-
-    /// Stops the producer, waking it if it waits for room in the queue or for a blocking call's answer.
-    fn halt(&self) {
-        self.stop.store(true, Ordering::SeqCst);
-        {
-            let _queued = locked(&self.queued);
-            self.room.notify_all();
-        }
-        if let Some(link) = self.link.get() {
-            link.wake();
-        }
-    }
-
-    /// Takes `weight` bytes of the queue, waiting while they would take it past [`QUEUE_BYTES`] (an item larger than
-    /// that waits for an empty queue); `false` once the stream is stopped.
-    fn reserve(&self, weight: usize) -> bool {
-        let mut queued = self.queued.lock().unwrap_or_else(PoisonError::into_inner);
-        loop {
-            if self.stopped() {
-                return false;
-            }
-            if *queued == 0 || *queued + weight <= QUEUE_BYTES {
-                *queued += weight;
-                return true;
-            }
-            queued = self.room.wait(queued).unwrap_or_else(PoisonError::into_inner);
-        }
-    }
-
-    /// The consumer took an item of `weight` bytes off the queue.
-    fn taken(&self, weight: usize) {
-        let mut queued = self.queued.lock().unwrap_or_else(PoisonError::into_inner);
-        // A stream that is one error ([`one_item`]) queued it without reserving it.
-        *queued = queued.saturating_sub(weight);
-        self.room.notify_all();
-    }
-
-    fn expired(&self) -> bool {
-        #[cfg(feature = "replay-controls")]
-        if self.deadline.after_files.is_some_and(|n| self.files_with_lines.load(Ordering::SeqCst) >= n) {
-            return true;
-        }
-        self.deadline.at.is_some_and(|at| Instant::now() >= at)
-    }
-
-    /// The check after the search's last file (Node's `handle_content_search` checks its deadline once more).
-    fn expired_at_end(&self) -> bool {
-        #[cfg(feature = "replay-controls")]
-        if self.deadline.after_files.is_some() {
-            return true;
-        }
-        self.expired()
-    }
-
-    /// A searched file had matches.
-    fn file_with_lines(&self) {
-        #[cfg(feature = "replay-controls")]
-        self.files_with_lines.fetch_add(1, Ordering::SeqCst);
-    }
-}
-
-/// The producer's end of a stream.
-struct Out<T> {
-    tx: mpsc::Sender<Result<T, FsError>>,
-    ctl: Arc<Control>,
-}
-
-impl<T> Clone for Out<T> {
-    fn clone(&self) -> Self {
-        Self { tx: self.tx.clone(), ctl: self.ctl.clone() }
-    }
-}
-
-impl<T: Weigh> Out<T> {
-    /// Queues `item`, waiting while the queue is full, in items or in bytes; `false` once the stream is stopped or gone.
-    fn send(&self, item: Result<T, FsError>) -> bool {
-        self.ctl.reserve(item.weight()) && !self.ctl.stopped() && self.tx.blocking_send(item).is_ok()
-    }
-}
-
-fn timed_out(path: Option<AbsPath>) -> FsError {
-    FsError::new(FsErrorKind::TimedOut, path)
-}
-
 /// A stream's producer: runs on a thread of its own, the stream's thread, until it is done or stopped.
 trait Produce<T>: Send {
     /// Sends every item through `out`; returns once done, once `out` refuses an item, or at a check that finds the
     /// stream stopped. `hold` is the producer's slot: a thread the producer starts holds a clone of it.
     fn run(self: Box<Self>, out: Out<T>, hold: Hold);
 }
-
 struct Walking {
     walk: tree::Tree,
     /// The volumes its producer reads on, shared with its walk ([`Volumes`]).
@@ -2113,7 +4531,6 @@ struct Walking {
     root: PathBuf,
     include_dirs: bool,
 }
-
 impl Produce<DirEntry> for Walking {
     fn run(self: Box<Self>, out: Out<DirEntry>, hold: Hold) {
         let out = &out;
@@ -2157,12 +4574,6 @@ impl Produce<DirEntry> for Walking {
         }
     }
 }
-
-/// The search's walk, one entry at a time: a file to search, another entry (`None`), or a walk error.
-type Listing = Box<dyn Iterator<Item = Result<Option<PathBuf>, FsError>> + Send>;
-/// Opens a file for its search.
-type Opener = Box<dyn Fn(&Path) -> io::Result<Box<dyn Read + Send>> + Send>;
-
 /// Why a searched file's read stopped short.
 #[derive(Debug)]
 enum Halt {
@@ -2171,7 +4582,6 @@ enum Halt {
     /// The file lies on a volume holding as many given-up threads as one may ([`Volumes`]): the search's answer.
     Refused(FsErrorKind),
 }
-
 impl std::fmt::Display for Halt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
@@ -2181,143 +4591,10 @@ impl std::fmt::Display for Halt {
         })
     }
 }
-
 impl std::error::Error for Halt {}
-
 fn halt_of(error: &io::Error) -> Option<&Halt> {
     error.get_ref()?.downcast_ref::<Halt>()
 }
-
-/// What a text search asks of the thread making its blocking calls ([`serve`]).
-enum Ask {
-    /// The walk's next entry.
-    Next,
-    /// Open this file (the previous one is closed).
-    Open(PathBuf),
-    /// Read at most this many bytes of the open file.
-    Read(usize),
-}
-
-/// That thread's answer; a read's bytes are in [`IoState::bytes`].
-enum Answer {
-    Next(Option<Result<Option<PathBuf>, FsError>>),
-    Open(io::Result<()>),
-    Read(io::Result<usize>),
-}
-
-#[derive(Default)]
-struct IoState {
-    asked: Option<Ask>,
-    answer: Option<Answer>,
-    /// The bytes of the last read, handed over.
-    bytes: Vec<u8>,
-    /// The scan has ended: the serving thread ends at its next turn, and drops a late answer.
-    done: bool,
-}
-
-/// The link between a text search's scan and the thread making its blocking calls: the walk's directory reads, the
-/// opens and the reads of the files. The scan holds the matcher, the searcher with its buffers (up to the heap limit),
-/// the printer and the queue; it never makes a call that can block, so a stopped stream's scan ends at once and frees
-/// all of that. The serving thread is the one a cancel reaches ([`cancel_io`]) and the one given up when its call does
-/// not return ([`Producers::give_up`]); what it holds then is fixed: the walk's position (its open directories and the
-/// ignore rules of the folders it is in), the open file, one buffer of [`READ_CHUNK`] bytes, its own [`Hold`] and this
-/// link, whose buffer the scan's end frees.
-#[derive(Default)]
-struct IoLink {
-    state: Mutex<IoState>,
-    changed: Condvar,
-}
-
-impl IoLink {
-    /// Asks the serving thread and waits for its answer, with the state still locked so a read's bytes can be taken;
-    /// `None` once the stream is stopped (the serving thread may still be in its call).
-    fn ask(&self, ctl: &Control, ask: Ask) -> Option<(Answer, MutexGuard<'_, IoState>)> {
-        let mut state = locked(&self.state);
-        state.asked = Some(ask);
-        self.changed.notify_all();
-        loop {
-            if let Some(answer) = state.answer.take() {
-                return Some((answer, state));
-            }
-            if ctl.stopped() {
-                return None;
-            }
-            state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
-        }
-    }
-
-    /// The serving thread's next ask; `None` once the scan has ended.
-    fn next_ask(&self) -> Option<Ask> {
-        let mut state = locked(&self.state);
-        loop {
-            if state.done {
-                return None;
-            }
-            if let Some(ask) = state.asked.take() {
-                return Some(ask);
-            }
-            state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
-        }
-    }
-
-    /// Hands `answer`, and a read's `bytes`, to the scan; `false` once the scan has ended.
-    fn answer(&self, answer: Answer, bytes: &[u8]) -> bool {
-        let mut state = locked(&self.state);
-        if state.done {
-            return false;
-        }
-        state.bytes.clear();
-        state.bytes.extend_from_slice(bytes);
-        state.answer = Some(answer);
-        self.changed.notify_all();
-        true
-    }
-
-    /// The scan has ended, done or stopped: its buffer is freed, and the serving thread ends at its next turn.
-    fn finish(&self) {
-        let mut state = locked(&self.state);
-        state.done = true;
-        state.bytes = Vec::new();
-        state.asked = None;
-        state.answer = None;
-        self.changed.notify_all();
-    }
-
-    /// Wakes a scan waiting for an answer: its stream stopped.
-    fn wake(&self) {
-        let _state = locked(&self.state);
-        self.changed.notify_all();
-    }
-}
-
-/// The volume a call on `path` reads on, as a stall in it is charged ([`Volumes::name`]): with the mount points below
-/// the root (`mounts`, as the walk names them, each with the volume below it), the volume of the deepest one `path`
-/// lies at or under, else the root's (`root_volume`). With no mount table (`None`: it could not be read), which entries
-/// are mount points is unknown, not "none": any entry may be a dead mount, so the call is charged to `path` itself,
-/// which only calls on that same path are refused by; it can refuse no other path's call, so no healthy volume's.
-fn charged(mounts: Option<&[(PathBuf, String)]>, root_volume: &str, path: &Path) -> String {
-    match mounts {
-        Some(mounts) => mounts
-            .iter()
-            .filter(|(point, _)| path.starts_with(point))
-            .max_by_key(|(point, _)| point.components().count())
-            .map_or_else(|| root_volume.to_owned(), |(_, volume)| volume.clone()),
-        None => format!("unknown mount {}", path.to_string_lossy()),
-    }
-}
-
-/// The mount points a walk may read on below its root, each with its volume, `None` when the table cannot be read
-/// ([`charged`]): Unix, the kernel's table ([`unix_io::mount_table`]); elsewhere none, as a walk follows no junction,
-/// mounted folder or link (Node's walk does not either).
-type MountTable = Box<dyn Fn() -> Option<Vec<(PathBuf, String)>> + Send>;
-
-fn mount_table() -> MountTable {
-    #[cfg(unix)]
-    return Box::new(unix_io::mount_table);
-    #[cfg(not(unix))]
-    Box::new(|| Some(Vec::new()))
-}
-
 /// The volumes a producer reads on, for [`SchedulerConfig::stuck_per_volume`]: a give-up charges the volume of the
 /// call it was in, told by the filesystem's identity ([`Producers::give_up`], [`Ticket::reading`]). Before each call
 /// the walk makes on an entry ([`tree::gate::probe`]) and each open of a file, the producer names the volume the call
@@ -2341,9 +4618,7 @@ struct Volumes {
     /// The volume named last.
     named: String,
 }
-
 type SharedVolumes = Arc<Mutex<Volumes>>;
-
 impl Volumes {
     fn shared(root: &Path) -> SharedVolumes {
         Arc::new(Mutex::new(Self {
@@ -2415,7 +4690,6 @@ impl Volumes {
         self.mounts.as_ref().is_some_and(|mounts| mounts.iter().any(|(point, _)| point == path))
     }
 }
-
 /// The serving thread of a text search ([`IoLink`]): makes the calls its scan asks for until the scan ends, reading at
 /// most [`READ_CHUNK`] bytes at a time into a buffer of its own, each call after naming the volume it reads on
 /// ([`Volumes`]). It lets go of its [`Hold`] before the rest of what it holds.
@@ -2462,14 +4736,6 @@ fn serve(link: &IoLink, mut listing: Listing, open: Opener, hold: Hold, volumes:
     drop(open);
     drop(listing);
 }
-
-/// A searched file as the scan reads it: through the serving thread, at most [`READ_CHUNK`] bytes at a time, each read
-/// after a check of the stop and the deadline.
-struct Linked<'a> {
-    link: &'a IoLink,
-    ctl: &'a Control,
-}
-
 impl Read for Linked<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if self.ctl.stopped() {
@@ -2488,7 +4754,6 @@ impl Read for Linked<'_> {
         Ok(read)
     }
 }
-
 /// The text search, each file searched as the walk reaches it, in `PathBuf` order (the walk sorts siblings): Node's
 /// server answers in that order (`serve_search/search.rs`, `scan_operand`). Nothing of the tree is held beyond the
 /// walker's own state and one file's search; Node's server, which scans while its walk publishes, also holds the whole
@@ -2510,7 +4775,6 @@ struct Searching {
     #[cfg(feature = "count-jobs")]
     _live: probe::Live,
 }
-
 impl Produce<SearchMatch> for Searching {
     fn run(self: Box<Self>, out: Out<SearchMatch>, hold: Hold) {
         let Searching {
@@ -2562,26 +4826,6 @@ impl Produce<SearchMatch> for Searching {
         }
     }
 }
-
-/// A text search's scan ([`Searching`]), on a thread of its own. Its end, however it ends, ends the serving thread's
-/// wait ([`IoLink::finish`]).
-struct Scan {
-    searcher: Searcher,
-    left: Option<usize>,
-    first_per_file: bool,
-    link: Arc<IoLink>,
-    #[cfg(feature = "count-jobs")]
-    root: PathBuf,
-    #[cfg(feature = "count-jobs")]
-    _live: probe::Live,
-}
-
-impl Drop for Scan {
-    fn drop(&mut self) {
-        self.link.finish();
-    }
-}
-
 impl Scan {
     fn run<M: Matcher>(&mut self, matcher: &M, out: &Out<SearchMatch>) {
         let ctl = &*out.ctl;
@@ -2688,7 +4932,6 @@ impl Scan {
         }
     }
 }
-
 /// A stream fed by a producer thread through a queue of [`QUEUE`] items and [`QUEUE_BYTES`]: the producer runs ahead of
 /// the consumer by at most that much and waits while the queue is full.
 ///
@@ -2727,21 +4970,6 @@ struct Streamed<T> {
     thread: Option<std::thread::JoinHandle<()>>,
     interrupt: Option<Arc<cancel_io::Interrupt>>,
 }
-
-/// A producer that has not started, with its end of the queue and the end `close` waits for.
-struct Waiting<T> {
-    producer: Box<dyn Produce<T>>,
-    out: Out<T>,
-    done: oneshot::Sender<()>,
-}
-
-/// A queue holding one item.
-fn one_item<T>(item: Result<T, FsError>) -> mpsc::Receiver<Result<T, FsError>> {
-    let (tx, rx) = mpsc::channel(1);
-    let _ = tx.try_send(item);
-    rx
-}
-
 /// A stream that is one error: no producer.
 fn failed<T: Weigh + Send + 'static>(error: FsError) -> Box<dyn EventSource<Result<T, FsError>>> {
     Box::new(Streamed {
@@ -2756,7 +4984,6 @@ fn failed<T: Weigh + Send + 'static>(error: FsError) -> Box<dyn EventSource<Resu
         interrupt: None,
     })
 }
-
 /// A stream of `producer`'s items: its producer starts at once if a slot is free, waits for one otherwise, or is refused
 /// ([`Producers::enqueue`]): standing for a search-server request when the queue is full, or on a volume holding as
 /// many given-up threads as one may.
@@ -2792,7 +5019,6 @@ fn streamed<T: Weigh + Send + 'static>(
     }
     Box::new(stream)
 }
-
 impl<T: Weigh + Send + 'static> Streamed<T> {
     /// Starts the waiting producer once its [`Producers`] gave it a slot; `false` while it still waits.
     fn try_start(&mut self) -> bool {
@@ -2853,7 +5079,6 @@ impl<T: Weigh + Send + 'static> Streamed<T> {
         }
     }
 }
-
 #[async_trait]
 impl<T: Weigh + Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> {
     async fn next(&mut self) -> Option<Result<T, FsError>> {
@@ -2902,2182 +5127,9 @@ impl<T: Weigh + Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> 
         }
     }
 }
-
 impl<T> Drop for Streamed<T> {
     fn drop(&mut self) {
         self.ctl.halt();
         self.producers.release(&self.ticket, self.thread.take(), self.interrupt.take());
-    }
-}
-
-/// The blocking OS call of an abandoned producer thread, cancelled until the thread ends ([`Producers::release`]).
-///
-/// A producer checks its stop between entries, before each read and at each item it queues; what it cannot check is a
-/// blocking OS call in progress: a directory read, an open or a read on a dead network share, a pipe (for a text search
-/// these are all on the stream's thread, [`IoLink`]). Node's client ends such a search by ending its whole search server
-/// CANCEL_GRACE_MS after its cancel (native-search-client.mjs:501), which ends the stuck threads with their process. A
-/// thread cannot be ended from outside its process, so its call is cancelled where the OS can cancel one thread's call:
-/// on Windows `CancelSynchronousIo` on the thread's handle (the call fails with ERROR_OPERATION_ABORTED); on Unix, with
-/// no signal, a read of a FIFO, a socket or a terminal, which waits with `poll` beside the thread's [`Interrupt`] (a pipe
-/// this writes to: [`unix_io`]). The producer then finds its stop set and ends, which frees its slot.
-///
-/// A cancel that reaches a Windows thread before it enters its call is lost (`CancelSynchronousIo` cancels only an
-/// operation in progress), so it is repeated: at once, then after 1 ms and at doubling intervals up to 1 s, until the
-/// thread ends or the cancel grace has passed (on Unix the interrupt stays fired, so a repeat changes nothing). A thread
-/// still running then is given up ([`Producers::give_up`]): its slot is free, nothing cancels it any more, and it ends by
-/// itself if its call ever returns. That is what remains uncancellable: on Windows an operation whose driver does not
-/// support cancellation (`CancelSynchronousIo` then returns ERROR_NOT_FOUND, or the operation completes normally), on
-/// Unix a directory read and any read of a regular file or block device (a file on an NFS share mounted `hard` whose
-/// server is gone, a hung disk: Linux `TASK_UNINTERRUPTIBLE`). Node's client ends its server's process (SIGTERM) and
-/// starts a new one; the stuck thread lingers with its process until that call returns, as a given-up thread lingers here
-/// ([`ProducerCounts::stalled`]), at most [`SchedulerConfig::stuck_per_volume`] per volume.
-mod cancel_io {
-    use std::sync::Arc;
-    use std::sync::Condvar;
-    use std::sync::LazyLock;
-    use std::sync::Mutex;
-    use std::sync::PoisonError;
-    use std::sync::atomic::Ordering;
-    use std::thread::JoinHandle;
-    use std::time::Duration;
-    use std::time::Instant;
-
-    use super::Producers;
-    use super::RELEASED;
-    use super::Ticket;
-
-    const FIRST_RETRY: Duration = Duration::from_millis(1);
-    const LAST_RETRY: Duration = Duration::from_secs(1);
-
-    /// A stream thread's interrupt: on Unix the pipe its pollable reads wait on beside their descriptor, entered as the
-    /// thread's own ([`enter`], [`current`]); on Windows nothing (the thread's handle is cancelled).
-    #[cfg(unix)]
-    pub(super) use super::unix_io::Cancel as Interrupt;
-
-    #[cfg(not(unix))]
-    pub(super) struct Interrupt;
-
-    #[cfg(not(unix))]
-    impl Interrupt {
-        pub(super) fn new() -> std::io::Result<Self> {
-            Ok(Self)
-        }
-    }
-
-    #[cfg(unix)]
-    thread_local! {
-        static CURRENT: std::cell::RefCell<Option<Arc<Interrupt>>> = const { std::cell::RefCell::new(None) };
-    }
-
-    /// Makes `interrupt` the current thread's, for the files it opens to search ([`super::open_to_search`]).
-    pub(super) fn enter(interrupt: Option<Arc<Interrupt>>) {
-        #[cfg(unix)]
-        CURRENT.with(|current| *current.borrow_mut() = interrupt);
-        #[cfg(not(unix))]
-        drop(interrupt);
-    }
-
-    /// The current thread's interrupt.
-    #[cfg(unix)]
-    pub(super) fn current() -> Option<Arc<Interrupt>> {
-        CURRENT.with(|current| current.borrow().clone())
-    }
-
-    struct Abandoned {
-        /// Held, not detached, while it is cancelled: its handle stays valid for `CancelSynchronousIo` until then.
-        thread: JoinHandle<()>,
-        interrupt: Option<Arc<Interrupt>>,
-        ticket: Arc<Ticket>,
-        producers: Arc<Producers>,
-        /// When the cancel grace has passed.
-        give_up_at: Instant,
-    }
-
-    impl Abandoned {
-        fn running(&self) -> bool {
-            self.ticket.state.load(Ordering::SeqCst) == RELEASED
-        }
-    }
-
-    struct Canceller {
-        abandoned: Mutex<Vec<Abandoned>>,
-        added: Condvar,
-    }
-
-    static CANCELLER: LazyLock<Arc<Canceller>> = LazyLock::new(|| {
-        let canceller = Arc::new(Canceller { abandoned: Mutex::new(Vec::new()), added: Condvar::new() });
-        let running = canceller.clone();
-        // Without this thread nothing is cancelled or given up but by `close`: the others end when their calls return.
-        let _ = std::thread::Builder::new().name("mixdog-fs-cancel".into()).spawn(move || running.run());
-        canceller
-    });
-
-    /// Cancels `thread`'s blocking call now and again until its producer ends, or gives it up once `producers`' cancel
-    /// grace has passed.
-    pub(super) fn until_ended(thread: JoinHandle<()>, interrupt: Option<Arc<Interrupt>>, ticket: Arc<Ticket>, producers: Arc<Producers>) {
-        cancel(&thread, interrupt.as_deref());
-        let give_up_at = Instant::now() + producers.config.grace;
-        let canceller = &*CANCELLER;
-        canceller.abandoned.lock().unwrap_or_else(PoisonError::into_inner).push(Abandoned { thread, interrupt, ticket, producers, give_up_at });
-        canceller.added.notify_one();
-    }
-
-    impl Canceller {
-        fn run(&self) {
-            let mut abandoned = self.abandoned.lock().unwrap_or_else(PoisonError::into_inner);
-            let mut retry = FIRST_RETRY;
-            loop {
-                let now = Instant::now();
-                for a in abandoned.iter().filter(|a| a.running() && a.give_up_at <= now) {
-                    a.producers.give_up(&a.ticket);
-                }
-                // An ended or given-up thread is let go of: a given-up one is detached and runs on alone.
-                abandoned.retain(Abandoned::running);
-                let Some(next) = abandoned.iter().map(|a| a.give_up_at).min() else {
-                    abandoned = self.added.wait(abandoned).unwrap_or_else(PoisonError::into_inner);
-                    retry = FIRST_RETRY;
-                    continue;
-                };
-                let before = abandoned.len();
-                let wait = retry.min(next.saturating_duration_since(now));
-                abandoned = self.added.wait_timeout(abandoned, wait).unwrap_or_else(PoisonError::into_inner).0;
-                retry = if abandoned.len() > before { FIRST_RETRY } else { (retry * 2).min(LAST_RETRY) };
-                for a in abandoned.iter().filter(|a| a.running()) {
-                    cancel(&a.thread, a.interrupt.as_deref());
-                }
-            }
-        }
-    }
-
-    #[cfg(windows)]
-    fn cancel(thread: &JoinHandle<()>, _: Option<&Interrupt>) {
-        use std::os::windows::io::AsRawHandle as _;
-        // SAFETY: the handle stays open while `thread` is held. A thread with no synchronous I/O in progress makes the
-        // call fail with ERROR_NOT_FOUND, which changes nothing.
-        unsafe { windows_sys::Win32::System::IO::CancelSynchronousIo(thread.as_raw_handle()) };
-    }
-
-    /// Fires the thread's interrupt: a read waiting with `poll` ends.
-    #[cfg(unix)]
-    fn cancel(_: &JoinHandle<()>, interrupt: Option<&Interrupt>) {
-        if let Some(interrupt) = interrupt {
-            interrupt.fire();
-        }
-    }
-
-    #[cfg(not(any(windows, unix)))]
-    fn cancel(_: &JoinHandle<()>, _: Option<&Interrupt>) {}
-}
-
-#[cfg(unix)]
-mod unix_io;
-
-mod tree;
-
-/// What a test can observe of the text searches: per search root, the matches produced and the searches whose
-/// producer is still alive.
-#[cfg(feature = "count-jobs")]
-pub mod probe {
-    use std::collections::HashMap;
-    use std::path::Path;
-    use std::path::PathBuf;
-    use std::sync::Mutex;
-    use std::sync::PoisonError;
-
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-    pub struct SearchProbe {
-        pub found: u64,
-        pub live: u64,
-    }
-
-    static ROOTS: Mutex<Option<HashMap<PathBuf, SearchProbe>>> = Mutex::new(None);
-
-    fn with<R>(root: &Path, f: impl FnOnce(&mut SearchProbe) -> R) -> R {
-        let mut roots = ROOTS.lock().unwrap_or_else(PoisonError::into_inner);
-        f(roots.get_or_insert_with(HashMap::new).entry(root.to_path_buf()).or_default())
-    }
-
-    pub fn search(root: &Path) -> SearchProbe {
-        with(root, |p| *p)
-    }
-
-    /// The searches whose producer is alive, over every root under `scope`.
-    pub fn live_under(scope: &Path) -> u64 {
-        let roots = ROOTS.lock().unwrap_or_else(PoisonError::into_inner);
-        roots.as_ref().map_or(0, |roots| roots.iter().filter(|(root, _)| root.starts_with(scope)).map(|(_, p)| p.live).sum())
-    }
-
-    pub(super) fn found(root: &Path) {
-        with(root, |p| p.found += 1);
-    }
-
-    pub(super) struct Live(PathBuf);
-
-    impl Live {
-        pub(super) fn new(root: &Path) -> Self {
-            with(root, |p| p.live += 1);
-            Self(root.to_path_buf())
-        }
-    }
-
-    impl Drop for Live {
-        fn drop(&mut self) {
-            with(&self.0, |p| p.live -= 1);
-            ENDED.notify_waiters();
-        }
-    }
-
-    /// Notified each time a search's scan ends and each time a producer's threads have all ended (a test hook: the
-    /// scheduler is told nothing of a given-up producer's end).
-    static ENDED: std::sync::LazyLock<tokio::sync::Notify> = std::sync::LazyLock::new(tokio::sync::Notify::new);
-
-    /// Notified each time a search's scan ends and each time a producer's threads have all ended.
-    pub fn changed() -> &'static tokio::sync::Notify {
-        &ENDED
-    }
-
-    pub(super) fn ended() {
-        ENDED.notify_waiters();
-    }
-
-    /// The streams with a producer made so far (refused ones included), and the order they answered in, each by its
-    /// number (its place among those made): at its refusal, or when its producer's threads ended, under the scheduler's
-    /// lock, which is when Node's server writes a search's answer (before the next one it dispatches can end).
-    static STREAMS: Mutex<(u64, Vec<u64>)> = Mutex::new((0, Vec::new()));
-
-    /// Notified each time a stream is made.
-    static MADE: std::sync::LazyLock<tokio::sync::Notify> = std::sync::LazyLock::new(tokio::sync::Notify::new);
-
-    /// The streams made so far: the next one made is this number.
-    pub fn streams_made() -> u64 {
-        STREAMS.lock().unwrap_or_else(PoisonError::into_inner).0
-    }
-
-    /// The streams, by number, in the order they answered.
-    pub fn answer_order() -> Vec<u64> {
-        STREAMS.lock().unwrap_or_else(PoisonError::into_inner).1.clone()
-    }
-
-    /// Notified each time a stream is made.
-    pub fn made() -> &'static tokio::sync::Notify {
-        &MADE
-    }
-
-    pub(super) fn stream_made() -> u64 {
-        let number = {
-            let mut streams = STREAMS.lock().unwrap_or_else(PoisonError::into_inner);
-            streams.0 += 1;
-            streams.0 - 1
-        };
-        MADE.notify_waiters();
-        number
-    }
-
-    pub(super) fn answered(number: u64) {
-        STREAMS.lock().unwrap_or_else(PoisonError::into_inner).1.push(number);
-    }
-}
-
-/// Search deadlines a replay scripts instead of a clock, for the searches whose root lies under a scripted scope. The
-/// rest of the deadline's handling is the production one.
-#[cfg(feature = "replay-controls")]
-pub mod deadline_script {
-    use std::path::Path;
-    use std::path::PathBuf;
-    use std::sync::Mutex;
-    use std::sync::PoisonError;
-
-    #[derive(Clone, Copy, Debug)]
-    pub enum Script {
-        /// The soft deadline passes once this many files with matches were searched, or when the search ends (a
-        /// deadline that passed during its last file).
-        AfterFiles(usize),
-        /// The soft deadline never passes: every search of the recording answered before its own, however long the
-        /// replay's machine takes to reach the same point.
-        Unpassed,
-        /// The search never answers: it queues nothing and ends only when stopped (a server stuck past every deadline).
-        Silent,
-        /// Every slot is taken and the queue is full: a walk or search that stands for a search-server request is refused
-        /// ([`super::Producers::enqueue`], [`super::FsErrorKind::Saturated`]).
-        QueueFull,
-        /// The search is held in a call that ignores its cancel (a read on a dead mount) until [`unstick`] releases the
-        /// searches under its scope: it is given up once its stream let go of it and the grace has passed.
-        Stuck,
-    }
-
-    /// The scopes [`unstick`] released, and its signal.
-    static UNSTUCK: (Mutex<Vec<PathBuf>>, std::sync::Condvar) = (Mutex::new(Vec::new()), std::sync::Condvar::new());
-
-    /// Ends the held calls of the searches under `scope` ([`Script::Stuck`]), and of every later one under it.
-    pub fn unstick(scope: &Path) {
-        UNSTUCK.0.lock().unwrap_or_else(PoisonError::into_inner).push(scope.to_path_buf());
-        UNSTUCK.1.notify_all();
-    }
-
-    /// A batch oplock held on a file, as a recorder's `lib/oplock-holder.ps1` holds it: another handle's open of the
-    /// file for its data breaks the oplock and waits, as the break is never acknowledged, until this is dropped.
-    #[cfg(windows)]
-    pub struct OplockHold {
-        file: windows_sys::Win32::Foundation::HANDLE,
-        event: windows_sys::Win32::Foundation::HANDLE,
-        /// The request's OVERLAPPED, written by the system until the request completes.
-        overlapped: Box<windows_sys::Win32::System::IO::OVERLAPPED>,
-    }
-
-    #[cfg(windows)]
-    impl OplockHold {
-        pub fn new(path: &Path) -> std::io::Result<Self> {
-            use std::os::windows::ffi::OsStrExt as _;
-            use windows_sys::Win32::Foundation::CloseHandle;
-            use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
-            use windows_sys::Win32::Storage::FileSystem::CreateFileW;
-            use windows_sys::Win32::System::IO::DeviceIoControl;
-            use windows_sys::Win32::System::Threading::CreateEventW;
-            const GENERIC_READ: u32 = 0x8000_0000;
-            const SHARE_ALL: u32 = 7;
-            const OPEN_EXISTING: u32 = 3;
-            const FILE_FLAG_OVERLAPPED: u32 = 0x4000_0000;
-            const FSCTL_REQUEST_BATCH_OPLOCK: u32 = 0x0009_0008;
-            const ERROR_IO_PENDING: i32 = 997;
-            let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
-            // SAFETY: `wide` is a NUL-terminated path; the handle returned is owned here.
-            let file = unsafe {
-                CreateFileW(wide.as_ptr(), GENERIC_READ, SHARE_ALL, std::ptr::null(), OPEN_EXISTING, FILE_FLAG_OVERLAPPED, std::ptr::null_mut())
-            };
-            if file == INVALID_HANDLE_VALUE {
-                return Err(std::io::Error::last_os_error());
-            }
-            // SAFETY: a manual-reset event, unnamed; the handle is owned here.
-            let event = unsafe { CreateEventW(std::ptr::null(), 1, 0, std::ptr::null()) };
-            // SAFETY: OVERLAPPED is plain data; zeroed is its initial state.
-            let mut overlapped: Box<windows_sys::Win32::System::IO::OVERLAPPED> = Box::new(unsafe { std::mem::zeroed() });
-            overlapped.hEvent = event;
-            // SAFETY: `file` is open for overlapped I/O; the OVERLAPPED lives in a box this keeps until the request ends.
-            let done = unsafe {
-                DeviceIoControl(file, FSCTL_REQUEST_BATCH_OPLOCK, std::ptr::null(), 0, std::ptr::null_mut(), 0, std::ptr::null_mut(), &mut *overlapped)
-            };
-            let error = std::io::Error::last_os_error();
-            if done != 0 || error.raw_os_error() != Some(ERROR_IO_PENDING) {
-                // SAFETY: both handles are owned here; a request that is not pending holds no reference to the OVERLAPPED.
-                unsafe {
-                    CloseHandle(file);
-                    CloseHandle(event);
-                }
-                return Err(std::io::Error::other(format!("no batch oplock on {}: {error}", path.display())));
-            }
-            Ok(Self { file, event, overlapped })
-        }
-
-        /// Waits at most `limit` for the oplock's break: another handle's open of the file, now waiting.
-        pub fn wait_broken(&self, limit: std::time::Duration) -> bool {
-            let ms = u32::try_from(limit.as_millis()).unwrap_or(u32::MAX - 1);
-            // SAFETY: `event` is open.
-            unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(self.event, ms) == 0 }
-        }
-    }
-
-    #[cfg(windows)]
-    impl Drop for OplockHold {
-        fn drop(&mut self) {
-            use windows_sys::Win32::Foundation::CloseHandle;
-            // SAFETY: the handles are owned here. Closing the file ends the request (it completes, setting the event), so
-            // the OVERLAPPED is freed only once the system is done with it; one not done within 10 s is leaked instead.
-            unsafe {
-                CloseHandle(self.file);
-                let ended = windows_sys::Win32::System::Threading::WaitForSingleObject(self.event, 10_000) == 0;
-                CloseHandle(self.event);
-                if !ended {
-                    std::mem::forget(std::mem::replace(&mut self.overlapped, Box::new(std::mem::zeroed())));
-                }
-            }
-        }
-    }
-
-    /// A search held in a call that ignores its cancel ([`Script::Stuck`]).
-    pub(super) struct Held {
-        pub(super) root: PathBuf,
-    }
-
-    impl super::Produce<mixdog_core_api::domain::fs::SearchMatch> for Held {
-        fn run(self: Box<Self>, _out: super::Out<mixdog_core_api::domain::fs::SearchMatch>, hold: super::Hold) {
-            // Its root's volume told as a search tells it, so its give-up charges that volume.
-            let volumes = super::Volumes::shared(&self.root);
-            let mut volumes = super::locked(&volumes);
-            volumes.bind(hold.ticket.clone());
-            let _ = volumes.start();
-            drop(volumes);
-            let mut unstuck = UNSTUCK.0.lock().unwrap_or_else(PoisonError::into_inner);
-            while !unstuck.iter().any(|scope| self.root.starts_with(scope)) {
-                unstuck = UNSTUCK.1.wait(unstuck).unwrap_or_else(PoisonError::into_inner);
-            }
-        }
-    }
-
-    static SCRIPTS: Mutex<Vec<(PathBuf, Script)>> = Mutex::new(Vec::new());
-
-    /// Scripts the searches under `scope` (`None` removes the script).
-    pub fn set(scope: &Path, script: Option<Script>) {
-        let mut scripts = SCRIPTS.lock().unwrap_or_else(PoisonError::into_inner);
-        scripts.retain(|(s, _)| s != scope);
-        if let Some(script) = script {
-            scripts.push((scope.to_path_buf(), script));
-        }
-    }
-
-    pub(super) fn for_root(root: &Path) -> Option<Script> {
-        let scripts = SCRIPTS.lock().unwrap_or_else(PoisonError::into_inner);
-        scripts.iter().find(|(scope, _)| root.starts_with(scope)).map(|(_, script)| *script)
-    }
-
-    pub(super) fn queue_full(root: &Path) -> bool {
-        matches!(for_root(root), Some(Script::QueueFull))
-    }
-
-    /// A search that queues nothing and ends when stopped, holding the search it stands for until then.
-    pub(super) struct Silent {
-        pub(super) _search: Box<dyn Send>,
-    }
-
-    impl super::Produce<mixdog_core_api::domain::fs::SearchMatch> for Silent {
-        fn run(self: Box<Self>, out: super::Out<mixdog_core_api::domain::fs::SearchMatch>, _hold: super::Hold) {
-            while !out.ctl.stopped() {
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
-            // The search it stands for ends before the hold `close` waits for (parameters drop in reverse order, the
-            // hold first).
-            drop(self);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use mixdog_core_api::domain::conformance::FsLanes;
-    use mixdog_core_api::domain::conformance::check_file_service;
-
-    use super::*;
-
-    /// grep-printer 0.2.2's mark after a long line's preview when no match is coloured (standard.rs:1373-1374).
-    const LONG_LINE_MARK: &str = " [... omitted end of long line]";
-
-    fn lanes() -> FsLanes {
-        let tokens = mixdog_rt::testing::tokens();
-        FsLanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io }
-    }
-
-    fn root() -> (tempfile::TempDir, AbsPath) {
-        let dir = tempfile::tempdir().unwrap();
-        let root = AbsPath::new(crate::pathguard::canonical(dir.path()).unwrap()).unwrap();
-        (dir, root)
-    }
-
-    #[tokio::test]
-    async fn passes_the_shared_file_service_conformance() {
-        let (_dir, root) = root();
-        check_file_service(&LocalFileService::new(), lanes(), root).await;
-    }
-
-    #[tokio::test]
-    async fn concurrent_compare_and_set_has_one_winner() {
-        let (_dir, root) = root();
-        let fs = std::sync::Arc::new(LocalFileService::new());
-        let file = root.join("f.txt");
-        let l = lanes();
-        let seed = |content: &[u8], precondition| WriteRequest { path: file.clone(), content: content.to_vec(), precondition };
-        fs.write(l.durability, seed(b"base", WritePrecondition::Absent)).await.unwrap();
-        let mut tasks = Vec::new();
-        for i in 0..8u8 {
-            let (fs, file) = (fs.clone(), file.clone());
-            tasks.push(tokio::spawn(async move {
-                let request = WriteRequest { path: file, content: vec![b'a' + i], precondition: WritePrecondition::ContentEquals(b"base".to_vec()) };
-                fs.write(l.durability, request).await
-            }));
-        }
-        let mut winners = 0;
-        for task in tasks {
-            match task.await.unwrap() {
-                Ok(_) => winners += 1,
-                Err(e) => assert!(matches!(e.kind, FsErrorKind::PreconditionFailed { .. })),
-            }
-        }
-        assert_eq!(winners, 1);
-    }
-
-    #[tokio::test]
-    async fn batch_rolls_back_and_leaves_no_temp_files() {
-        let (_dir, root) = root();
-        let fs = LocalFileService::new();
-        let l = lanes();
-        let (a, b) = (root.join("a.txt"), root.join("sub"));
-        fs.write(l.durability, WriteRequest { path: a.clone(), content: b"old".to_vec(), precondition: WritePrecondition::Unconditional }).await.unwrap();
-        // The second target is a directory: its write fails after the first file was replaced.
-        std::fs::create_dir(b.as_path()).unwrap();
-        let err = fs
-            .write_batch(
-                l.durability,
-                vec![
-                    WriteRequest { path: a.clone(), content: b"new".to_vec(), precondition: WritePrecondition::Unconditional },
-                    WriteRequest { path: b.clone(), content: b"x".to_vec(), precondition: WritePrecondition::Unconditional },
-                ],
-            )
-            .await
-            .unwrap_err();
-        assert_eq!(err.kind, FsErrorKind::IsADirectory);
-        assert_eq!(std::fs::read(a.as_path()).unwrap(), b"old");
-        let names: Vec<_> = std::fs::read_dir(root.as_path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
-        assert!(names.iter().all(|n| !n.contains("mixdog-tmp")), "{names:?}");
-    }
-
-    fn put(path: &AbsPath, content: &[u8], precondition: WritePrecondition) -> WriteRequest {
-        WriteRequest { path: path.clone(), content: content.to_vec(), precondition }
-    }
-
-    #[tokio::test]
-    async fn stat_reports_nodes_ctime_inode_and_device() {
-        let (_dir, root) = root();
-        let file = root.join("f.txt");
-        fs::write(file.as_path(), b"one").unwrap();
-        let service = LocalFileService::new();
-        let stat = service.stat(lanes().interactive, file.clone()).await.unwrap();
-        let ctime_ns = stat.ctime.unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as i128;
-        let version = stat_version(file.as_path()).unwrap();
-        assert_eq!((ctime_ns, stat.inode, stat.device), (version.ctime_ns, version.ino, version.dev));
-        assert!(stat.inode != 0);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            let meta = fs::metadata(file.as_path()).unwrap();
-            assert_eq!((stat.inode, stat.device), (u128::from(meta.ino()), meta.dev()));
-            assert_eq!(ctime_ns, i128::from(meta.ctime()) * 1_000_000_000 + i128::from(meta.ctime_nsec()));
-        }
-        // Another file is another inode on the same device; a rewrite moves the change time on.
-        let other = root.join("g.txt");
-        fs::write(other.as_path(), b"x").unwrap();
-        let second = service.stat(lanes().interactive, other).await.unwrap();
-        assert_eq!((second.device, second.inode == stat.inode), (stat.device, false));
-        std::thread::sleep(Duration::from_millis(50));
-        fs::write(file.as_path(), b"two").unwrap();
-        let after = service.stat(lanes().interactive, file).await.unwrap();
-        assert!(after.ctime > stat.ctime);
-        assert_eq!((after.inode, after.device), (stat.inode, stat.device));
-    }
-
-    fn tmp_suffix_is_eight_hex(tmp_name: &str, target_name: &str) -> bool {
-        tmp_name
-            .strip_prefix(target_name)
-            .and_then(|rest| rest.strip_prefix(".mixdog-tmp-"))
-            .is_some_and(|id| id.len() == 8 && id.bytes().all(|b| b.is_ascii_hexdigit()))
-    }
-
-    #[test]
-    fn a_temp_file_that_cannot_be_created_names_the_open_step_with_the_temp_path() {
-        let dir = tempfile::tempdir().unwrap();
-        // The temp name is the target's plus 20 characters: past the 255-character name limit.
-        let name = "n".repeat(250);
-        let target = dir.path().join(&name);
-        let error = atomic_write(&target, b"x", &Expect::Nothing).unwrap_err();
-        let Some(FsStep::Open { path }) = &error.step else { panic!("{error:?}") };
-        let tmp_name = path.as_path().file_name().unwrap().to_string_lossy().into_owned();
-        assert!(tmp_suffix_is_eight_hex(&tmp_name, &name), "{tmp_name}");
-        assert!(!target.exists());
-    }
-
-    #[test]
-    fn a_blocked_rename_names_the_rename_step_and_leaves_no_temp_file() {
-        let dir = tempfile::tempdir().unwrap();
-        // A non-empty directory cannot be replaced by a file.
-        let target = dir.path().join("occupied");
-        fs::create_dir(&target).unwrap();
-        fs::write(target.join("inner"), b"x").unwrap();
-        let error = atomic_write(&target, b"x", &Expect::Nothing).unwrap_err();
-        let Some(FsStep::Rename { from, to }) = &error.step else { panic!("{error:?}") };
-        assert_eq!(to.as_path(), target);
-        assert!(tmp_suffix_is_eight_hex(&from.as_path().file_name().unwrap().to_string_lossy(), "occupied"));
-        assert!(!from.as_path().exists(), "the temp file is removed");
-    }
-
-    /// A replaced file keeps its Hidden and System attributes, as the patch engine's writes keep them.
-    #[cfg(windows)]
-    #[test]
-    fn a_replaced_file_keeps_its_hidden_and_system_attributes() {
-        use std::os::windows::ffi::OsStrExt;
-        use std::os::windows::fs::MetadataExt;
-        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_HIDDEN;
-        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_SYSTEM;
-        use windows_sys::Win32::Storage::FileSystem::SetFileAttributesW;
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("desktop.ini");
-        fs::write(&target, b"old").unwrap();
-        let marks = FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM;
-        let wide: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
-        // SAFETY: `wide` is a NUL-terminated path that outlives the call.
-        assert_ne!(unsafe { SetFileAttributesW(wide.as_ptr(), marks) }, 0);
-        let locks = Arc::new(PathLocks::default());
-        let request = WriteRequest { path: AbsPath::new(&target).unwrap(), content: b"new".to_vec(), precondition: WritePrecondition::Unconditional };
-        write_resolved(&locks, &resolve_write(&target).unwrap(), &request).unwrap();
-        assert_eq!(fs::read(&target).unwrap(), b"new");
-        assert_eq!(fs::metadata(&target).unwrap().file_attributes() & marks, marks);
-    }
-
-    #[test]
-    fn a_successful_write_and_other_failures_carry_no_step() {
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("f.txt");
-        atomic_write(&target, b"x", &Expect::Nothing).unwrap();
-        assert!(plain(FsErrorKind::NotFound, &target).step.is_none());
-    }
-
-    #[test]
-    fn version_catches_a_same_size_same_mtime_replacement() {
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("f.txt");
-        fs::write(&target, b"one").unwrap();
-        let before = stat_version(&target).unwrap();
-        // A different file of the same size, given the same mtime, moved over the target: only the
-        // inode and the change time tell the two apart (length and mtime alone cannot).
-        let other = dir.path().join("other.txt");
-        fs::write(&other, b"two").unwrap();
-        OpenOptions::new().write(true).open(&other).unwrap().set_modified(fs::metadata(&target).unwrap().modified().unwrap()).unwrap();
-        fs::rename(&other, &target).unwrap();
-        let after = stat_version(&target).unwrap();
-        assert_eq!((after.size, after.mtime_ns), (before.size, before.mtime_ns));
-        assert_ne!(after, before);
-        let err = atomic_write(&target, b"new", &Expect::Version(before)).unwrap_err();
-        assert!(matches!(err.kind, FsErrorKind::PreconditionFailed { actual: Some(ref a) } if a == b"two"), "{err:?}");
-        assert_eq!(fs::read(&target).unwrap(), b"two");
-        atomic_write(&target, b"new", &Expect::Version(after)).unwrap();
-    }
-
-    #[tokio::test]
-    async fn two_spellings_of_one_file_have_one_winner() {
-        let (_dir, root) = root();
-        let fs = Arc::new(LocalFileService::new());
-        let l = lanes();
-        std::fs::create_dir(root.join("sub").as_path()).unwrap();
-        let plain = root.join("f.txt");
-        let dotted = AbsPath::new(root.as_path().join("sub").join("..").join("f.txt")).unwrap();
-        assert!(resolve_write(plain.as_path()).unwrap().key.same(&resolve_write(dotted.as_path()).unwrap().key));
-        fs.write(l.durability, put(&plain, b"base", WritePrecondition::Absent)).await.unwrap();
-        #[cfg(unix)]
-        let mut spellings = vec![plain.clone(), dotted.clone()];
-        #[cfg(not(unix))]
-        let spellings = vec![plain.clone(), dotted.clone()];
-        #[cfg(unix)]
-        {
-            let alias = root.join("alias");
-            std::os::unix::fs::symlink(root.as_path(), alias.as_path()).unwrap();
-            spellings.push(AbsPath::new(alias.as_path().join("f.txt")).unwrap());
-        }
-        let mut tasks = Vec::new();
-        for i in 0..12u8 {
-            let (fs, file) = (fs.clone(), spellings[usize::from(i) % spellings.len()].clone());
-            tasks.push(tokio::spawn(async move { fs.write(l.durability, put(&file, &[b'a' + i], WritePrecondition::ContentEquals(b"base".to_vec()))).await }));
-        }
-        let mut winners = 0;
-        for task in tasks {
-            match task.await.unwrap() {
-                Ok(_) => winners += 1,
-                Err(e) => assert!(matches!(e.kind, FsErrorKind::PreconditionFailed { .. }), "{e:?}"),
-            }
-        }
-        assert_eq!(winners, 1);
-    }
-
-    /// A directory link (symlink on Unix, junction on Windows, which needs no privilege).
-    fn make_dir_link(link: &Path, target: &Path) {
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(target, link).unwrap();
-        #[cfg(windows)]
-        {
-            let status = std::process::Command::new("cmd").arg("/C").arg("mklink").arg("/J").arg(link).arg(target).output().unwrap();
-            assert!(status.status.success(), "{}", String::from_utf8_lossy(&status.stdout));
-        }
-    }
-
-    fn remove_dir_link(link: &Path) {
-        fs::remove_dir(link).unwrap();
-    }
-
-    #[tokio::test]
-    async fn a_parent_link_retargeted_after_resolving_cannot_redirect_the_write() {
-        let (_dir, root) = root();
-        let (a, b) = (root.join("a"), root.join("b"));
-        fs::create_dir(a.as_path()).unwrap();
-        fs::create_dir(b.as_path()).unwrap();
-        let link = root.join("link");
-        make_dir_link(link.as_path(), a.as_path());
-        let request = put(&AbsPath::new(link.as_path().join("f.txt")).unwrap(), b"payload", WritePrecondition::Absent);
-        let resolved = resolve_write(request.path.as_path()).unwrap();
-        // The link now points at B, as an attacker (or a racing process) would leave it.
-        remove_dir_link(link.as_path());
-        make_dir_link(link.as_path(), b.as_path());
-        let locks = Arc::new(PathLocks::default());
-        write_resolved(&locks, &resolved, &request).unwrap();
-        assert_eq!(fs::read(a.join("f.txt").as_path()).unwrap(), b"payload", "the write must land where the path resolved");
-        assert!(!b.join("f.txt").as_path().exists(), "the retargeted link redirected the write");
-        assert!(fs::read_dir(b.as_path()).unwrap().next().is_none());
-    }
-
-    #[test]
-    fn a_missing_intermediate_directory_under_an_alias_has_the_canonical_key() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = canonical(dir.path()).unwrap();
-        let real = root.join("Real");
-        fs::create_dir(real.as_path()).unwrap();
-        let link = root.join("link");
-        make_dir_link(link.as_path(), real.as_path());
-        let canonical_spelling = resolve_write(&real.join("new1").join("new2").join("f.txt")).unwrap();
-        let aliased = resolve_write(&link.join("new1").join("new2").join("f.txt")).unwrap();
-        assert!(aliased.key.same(&canonical_spelling.key));
-        assert_eq!(aliased.path, canonical_spelling.path);
-        if cfg!(windows) {
-            // A case alias of the existing ancestor resolves to its stored case.
-            let cased = resolve_write(&root.join("REAL").join("new1").join("new2").join("f.txt")).unwrap();
-            assert_eq!(cased.path, canonical_spelling.path);
-        }
-    }
-
-    #[test]
-    fn names_that_differ_only_in_case_are_one_key_when_the_directory_says_so() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = canonical(dir.path()).unwrap();
-        let (lower, upper) = (resolve_write(&root.join("foo.txt")).unwrap(), resolve_write(&root.join("FOO.TXT")).unwrap());
-        let insensitive = cfg!(windows);
-        assert_eq!(lower.key.same(&upper.key), insensitive);
-        // The key does not change once the file exists (and is found under the other spelling).
-        fs::write(root.join("foo.txt"), b"x").unwrap();
-        let created = resolve_write(&root.join("FOO.TXT")).unwrap();
-        assert_eq!(created.key.same(&lower.key), insensitive);
-        assert!(resolve_write(&root.join("foo.txt")).unwrap().key.same(&lower.key));
-    }
-
-    #[tokio::test]
-    async fn case_variants_of_a_new_file_have_one_winner_in_an_insensitive_directory() {
-        let (_dir, root) = root();
-        if !cfg!(windows) {
-            return;
-        }
-        let fs = Arc::new(LocalFileService::new());
-        let l = lanes();
-        let mut tasks = Vec::new();
-        for i in 0..12u8 {
-            let name = if i % 2 == 0 { "new.txt" } else { "NEW.TXT" };
-            let (fs, file) = (fs.clone(), root.join(name));
-            tasks.push(tokio::spawn(async move { fs.write(l.durability, put(&file, &[b'a' + i], WritePrecondition::Absent)).await }));
-        }
-        let mut winners = 0;
-        for task in tasks {
-            match task.await.unwrap() {
-                Ok(_) => winners += 1,
-                Err(e) => assert!(matches!(e.kind, FsErrorKind::PreconditionFailed { .. }), "{e:?}"),
-            }
-        }
-        assert_eq!(winners, 1);
-    }
-
-    #[tokio::test]
-    async fn a_held_file_does_not_stall_other_files_and_the_lock_map_empties() {
-        let (_dir, root) = root();
-        let fs = LocalFileService::new();
-        let l = lanes();
-        let busy = root.join("busy.txt");
-        let held = fs.locks.acquire([resolve_write(busy.as_path()).unwrap().key]);
-        for i in 0..80 {
-            let file = root.join(&format!("other{i}.txt"));
-            mixdog_rt::time::timeout(Duration::from_secs(5), fs.write(l.durability, put(&file, b"x", WritePrecondition::Unconditional)))
-                .await
-                .expect("a write to another file waited on the held one")
-                .unwrap();
-        }
-        assert_eq!(fs.locks.len(), 1, "only the held file keeps a lock");
-        let waiting = {
-            let locks = fs.locks.clone();
-            let key = resolve_write(busy.as_path()).unwrap().key;
-            tokio::task::spawn_blocking(move || drop(locks.acquire([key])))
-        };
-        mixdog_rt::time::sleep(Duration::from_millis(150)).await;
-        assert!(!waiting.is_finished(), "the same file must wait");
-        drop(held);
-        waiting.await.unwrap();
-        assert_eq!(fs.locks.len(), 0);
-    }
-
-    #[tokio::test]
-    async fn an_unparseable_pattern_is_reported_with_the_parser_text() {
-        let (_dir, root) = root();
-        let fs = LocalFileService::new();
-        let request = SearchRequest {
-            root: root.clone(),
-            pattern: "(".into(),
-            regex: true,
-            case_sensitive: true,
-            include_globs: Vec::new(),
-            exclude_globs: Vec::new(),
-            include_hidden: true,
-            respect_ignore: true,
-            multiline: false,
-            pcre2: false,
-            binary_as_text: false,
-            limit: None,
-            first_per_file: false,
-            deadline: None,
-            class: SearchClass::Interactive,
-        };
-        let mut stream = fs.search_text(lanes().maintenance, request);
-        let err = stream.next().await.unwrap().unwrap_err();
-        let FsErrorKind::InvalidPattern { message } = err.kind else { panic!("{err:?}") };
-        assert!(message.starts_with("regex parse error:") && message.contains("unclosed group"), "{message}");
-        assert!(stream.next().await.is_none());
-    }
-
-    #[tokio::test]
-    async fn the_git_directory_is_pruned_unless_the_root_is_inside_it() {
-        let (_dir, root) = root();
-        let fs = LocalFileService::new();
-        let l = lanes();
-        std::fs::create_dir_all(root.join(".git/refs").as_path()).unwrap();
-        std::fs::write(root.join(".git/config").as_path(), "needle\n").unwrap();
-        std::fs::write(root.join("a.txt").as_path(), "needle\n").unwrap();
-        let search = |root: AbsPath| {
-            let request = SearchRequest {
-                root,
-                pattern: "needle".into(),
-                regex: false,
-                case_sensitive: true,
-                include_globs: Vec::new(),
-                exclude_globs: Vec::new(),
-                include_hidden: true,
-                respect_ignore: false,
-                multiline: false,
-                pcre2: false,
-                binary_as_text: false,
-                limit: None,
-                first_per_file: false,
-                deadline: None,
-                class: SearchClass::Interactive,
-            };
-            let mut s = fs.search_text(l.maintenance, request);
-            async move {
-                let mut out = Vec::new();
-                while let Some(m) = s.next().await {
-                    out.push(m.unwrap().path.as_path().file_name().unwrap().to_string_lossy().into_owned());
-                }
-                out
-            }
-        };
-        assert_eq!(search(root.clone()).await, vec!["a.txt"]);
-        assert_eq!(search(root.join(".git")).await, vec!["config"]);
-        let mut walk = fs.walk(l.maintenance, WalkRequest { root: root.clone(), recursive: true, include_dirs: true, include_hidden: true, respect_ignore: false, require_git: true, prune: Vec::new(), descent: Default::default(), server: None });
-        let mut names = Vec::new();
-        while let Some(e) = walk.next().await {
-            names.push(e.unwrap().path.as_path().file_name().unwrap().to_string_lossy().into_owned());
-        }
-        assert_eq!(names, vec!["a.txt"]);
-    }
-
-    #[tokio::test]
-    async fn only_the_line_terminator_is_removed_from_a_match() {
-        let (_dir, root) = root();
-        let fs = LocalFileService::new();
-        std::fs::write(root.join("f.txt").as_path(), b"needle\r\r\nneedle\r\nneedle\r").unwrap();
-        let request = SearchRequest {
-            root: root.clone(),
-            pattern: "needle".into(),
-            regex: false,
-            case_sensitive: true,
-            include_globs: Vec::new(),
-            exclude_globs: Vec::new(),
-            include_hidden: true,
-            respect_ignore: true,
-            multiline: false,
-            pcre2: false,
-            binary_as_text: false,
-            limit: None,
-            first_per_file: false,
-            deadline: None,
-            class: SearchClass::Interactive,
-        };
-        let mut s = fs.search_text(lanes().maintenance, request);
-        let mut texts = Vec::new();
-        while let Some(m) = s.next().await {
-            texts.push(m.unwrap().text);
-        }
-        // The last line has no terminator: the printer adds one, and `str::lines` drops the `\r` before it.
-        assert_eq!(texts, vec!["needle\r", "needle", "needle"]);
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn writes_through_a_leaf_symlink() {
-        let (_dir, root) = root();
-        let fs = LocalFileService::new();
-        let (real, link) = (root.join("real.txt"), root.join("link.txt"));
-        std::fs::write(real.as_path(), b"one").unwrap();
-        std::os::unix::fs::symlink(real.as_path(), link.as_path()).unwrap();
-        fs.write(lanes().durability, WriteRequest { path: link.clone(), content: b"two".to_vec(), precondition: WritePrecondition::Unconditional }).await.unwrap();
-        assert!(std::fs::symlink_metadata(link.as_path()).unwrap().file_type().is_symlink());
-        assert_eq!(std::fs::read(real.as_path()).unwrap(), b"two");
-    }
-
-    #[tokio::test]
-    async fn search_honours_ignore_files_globs_and_binary_files() {
-        let (_dir, root) = root();
-        let fs = LocalFileService::new();
-        let l = lanes();
-        std::fs::create_dir_all(root.join("src").as_path()).unwrap();
-        std::fs::create_dir_all(root.join("skip").as_path()).unwrap();
-        std::fs::create_dir_all(root.join(".git").as_path()).unwrap();
-        std::fs::write(root.join(".gitignore").as_path(), "skip/\n").unwrap();
-        std::fs::write(root.join("src/a.rs").as_path(), "let Needle = 1;\nneedle\r\n").unwrap();
-        std::fs::write(root.join("src/b.txt").as_path(), "needle\n").unwrap();
-        std::fs::write(root.join("skip/c.rs").as_path(), "needle\n").unwrap();
-        std::fs::write(root.join("bin.rs").as_path(), b"needle\n\x00needle\n").unwrap();
-        let run = |request: SearchRequest| {
-            let mut s = fs.search_text(l.maintenance, request);
-            async move {
-                let mut out = Vec::new();
-                while let Some(m) = s.next().await {
-                    let m = m.unwrap();
-                    out.push((m.path.as_path().file_name().unwrap().to_string_lossy().into_owned(), m.line, m.column, m.text));
-                }
-                out
-            }
-        };
-        let base = SearchRequest {
-            root: root.clone(),
-            pattern: "needle".into(),
-            regex: true,
-            case_sensitive: false,
-            include_globs: vec!["*.rs".into()],
-            exclude_globs: Vec::new(),
-            include_hidden: true,
-            respect_ignore: true,
-            multiline: false,
-            pcre2: false,
-            binary_as_text: false,
-            limit: None,
-            first_per_file: false,
-            deadline: None,
-            class: SearchClass::Interactive,
-        };
-        let found = run(base.clone()).await;
-        // ripgrep quits a file at its first NUL, so bin.rs reports nothing; skip/ is gitignored.
-        assert_eq!(found, vec![("a.rs".into(), 1, 5, "let Needle = 1;".into()), ("a.rs".into(), 2, 1, "needle".into())]);
-        let all = run(SearchRequest { respect_ignore: false, ..base }).await;
-        assert!(all.iter().any(|m| m.0 == "c.rs") && all.iter().all(|m| m.0 != "bin.rs"));
-    }
-
-    /// Node's server's `-U --multiline-dotall`, `-P` and `--text`: a match spanning lines is a line each, its first line
-    /// counting the match; a lookahead compiles with PCRE2; a file holding a NUL is searched only as text.
-    #[tokio::test]
-    async fn search_spans_lines_takes_pcre2_and_reads_binary_files_as_text() {
-        let (_dir, root) = root();
-        let fs = LocalFileService::new();
-        let l = lanes();
-        std::fs::write(root.join("a.txt").as_path(), "a1\nb1\nmid\na1\nb1\n").unwrap();
-        std::fs::write(root.join("bin.dat").as_path(), b"\x00\x01 needle in\n").unwrap();
-        let run = |request: SearchRequest| {
-            let mut s = fs.search_text(l.maintenance, request);
-            async move {
-                let mut out = Vec::new();
-                while let Some(m) = s.next().await {
-                    let m = m.unwrap();
-                    out.push((m.path.as_path().file_name().unwrap().to_string_lossy().into_owned(), m.line, m.text, m.count));
-                }
-                out
-            }
-        };
-        let base = SearchRequest { regex: true, ..needle_request(&root, None) };
-        let spanning = run(SearchRequest { pattern: r"a1\nb1".into(), multiline: true, ..base.clone() }).await;
-        assert_eq!(
-            spanning,
-            vec![("a.txt".into(), 1, "a1".into(), 1), ("a.txt".into(), 2, "b1".into(), 0), ("a.txt".into(), 4, "a1".into(), 1), ("a.txt".into(), 5, "b1".into(), 0)]
-        );
-        let lookahead = SearchRequest { pattern: "needle(?= in)".into(), pcre2: true, ..base };
-        assert_eq!(run(SearchRequest { binary_as_text: true, ..lookahead.clone() }).await, vec![("bin.dat".into(), 1, "\u{0}\u{1} needle in".into(), 1)]);
-        assert!(run(lookahead).await.is_empty());
-    }
-
-    fn needle_request(root: &AbsPath, deadline: Option<Instant>) -> SearchRequest {
-        SearchRequest {
-            root: root.clone(),
-            pattern: "needle".into(),
-            regex: false,
-            case_sensitive: true,
-            include_globs: Vec::new(),
-            exclude_globs: Vec::new(),
-            include_hidden: true,
-            respect_ignore: false,
-            multiline: false,
-            pcre2: false,
-            binary_as_text: false,
-            limit: None,
-            first_per_file: false,
-            deadline,
-            class: SearchClass::Interactive,
-        }
-    }
-
-    /// Waits until `f` holds, at most 10 s.
-    async fn eventually(mut f: impl FnMut() -> bool) -> bool {
-        let until = Instant::now() + Duration::from_secs(10);
-        while Instant::now() < until {
-            if f() {
-                return true;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        f()
-    }
-
-    /// `lines` lines of `b'x'`, 1 KiB each, read through a counter: a file of any size with no match.
-    struct Generated {
-        left: u64,
-        at: u64,
-        read: Arc<AtomicU64>,
-    }
-
-    impl Read for Generated {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            let n = buf.len().min(usize::try_from(self.left).unwrap_or(usize::MAX));
-            for (i, b) in buf[..n].iter_mut().enumerate() {
-                *b = if (self.at + i as u64) % 1024 == 1023 { b'\n' } else { b'x' };
-            }
-            self.at += n as u64;
-            self.left -= n as u64;
-            self.read.fetch_add(n as u64, Ordering::SeqCst);
-            Ok(n)
-        }
-    }
-
-    const GIB: u64 = 1 << 30;
-
-    /// One file of 1 GiB with no match, through the search's file seam.
-    fn one_gib_file(root: &AbsPath) -> (Listing, Opener, Arc<AtomicU64>) {
-        let read = Arc::new(AtomicU64::new(0));
-        let listing: Listing = Box::new(std::iter::once(Ok(Some(root.join("big.txt").as_path().to_path_buf()))));
-        let counter = read.clone();
-        let open: Opener = Box::new(move |_| Ok(Box::new(Generated { left: GIB, at: 0, read: counter.clone() }) as Box<dyn Read + Send>));
-        (listing, open, read)
-    }
-
-    /// The memory a search holds ahead of its consumer is its queue: at most [`QUEUE_BYTES`] (1,048,576) bytes of
-    /// matches' text and paths, or one match when one is larger, however long its line: a long line's preview is kept
-    /// whole. A consumer that stops reading without dropping the stream holds the producer there.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_consumer_that_stops_reading_holds_the_producer_at_its_queue_bytes() {
-        let (_dir, root) = root();
-        // 300 matching lines of 80,208 bytes each: 207 grapheme clusters (200 of a letter and 200 combining marks), so
-        // the whole line is its preview.
-        let line = format!("needle {}\n", format!("e{}", "\u{301}".repeat(200)).repeat(200));
-        std::fs::write(root.join("a.txt").as_path(), line.repeat(300)).unwrap();
-        let fs = LocalFileService::new();
-        let mut stream = fs.search_text(lanes().maintenance, needle_request(&root, None));
-        let first = stream.next().await.unwrap().unwrap();
-        assert_eq!(first.text, format!("{}{LONG_LINE_MARK}", &line[..line.len() - 1]), "the preview is not cut short");
-        let fits = QUEUE_BYTES / first.weight();
-        let found = || probe::search(root.as_path()).found;
-        assert!(eventually(|| found() == fits as u64 + 1).await, "found {}", found());
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(found(), fits as u64 + 1, "the producer waits while the queue's bytes are taken");
-        let mut queued_bytes = 0;
-        for _ in 0..fits {
-            let item = stream.next().await.unwrap().unwrap();
-            assert_eq!(item.text, first.text);
-            queued_bytes += item.weight();
-        }
-        assert!(queued_bytes <= QUEUE_BYTES, "{queued_bytes}");
-        let started = Instant::now();
-        stream.close().await;
-        assert!(started.elapsed() < CLOSE_GRACE, "{:?} found {}", started.elapsed(), found());
-        assert_eq!(probe::search(root.as_path()).live, 0, "close returns once the producer has ended");
-
-        // A preview larger than the whole queue's bytes (1,200,008 bytes in 8 clusters) is queued whole, alone.
-        let (_other, root) = self::root();
-        let line = format!("needle {}", format!("e{}", "\u{301}".repeat(600_000)));
-        assert!(line.len() > QUEUE_BYTES);
-        std::fs::write(root.join("b.txt").as_path(), format!("{line}\n{line}\n")).unwrap();
-        let mut stream = fs.search_text(lanes().maintenance, needle_request(&root, None));
-        for _ in 0..2 {
-            let item = within("a match larger than the queue", stream.next()).await.unwrap().unwrap();
-            assert_eq!(item.text, format!("{line}{LONG_LINE_MARK}"));
-        }
-        assert!(within("the search's end", stream.next()).await.is_none());
-        stream.close().await;
-    }
-
-    /// A file of 1 GiB with no match is read in checked chunks: a stop or a deadline that arrives mid-file ends the
-    /// search at the next chunk.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_stop_or_a_deadline_mid_file_ends_the_search_of_a_huge_file() {
-        let (_dir, root) = root();
-        let (listing, open, read) = one_gib_file(&root);
-        let mut stream = search_over(&PRODUCERS, &needle_request(&root, None), listing, open);
-        assert!(eventually(|| read.load(Ordering::SeqCst) >= 16 << 20).await);
-        let started = Instant::now();
-        stream.close().await;
-        assert!(started.elapsed() < CLOSE_GRACE, "the stop is seen at the next read");
-        let at_close = read.load(Ordering::SeqCst);
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(read.load(Ordering::SeqCst), at_close, "nothing is read after close returns");
-        assert!(at_close < GIB);
-        assert_eq!(probe::search(root.as_path()).live, 0);
-
-        let (listing, open, read) = one_gib_file(&root);
-        let mut stream = search_over(&PRODUCERS, &needle_request(&root, Some(Instant::now() + Duration::from_millis(100))), listing, open);
-        let err = stream.next().await.unwrap().unwrap_err();
-        assert!(matches!(err.kind, FsErrorKind::TimedOut), "{err:?}");
-        assert_eq!(err.path.map(|p| p.as_path().to_path_buf()), Some(root.join("big.txt").as_path().to_path_buf()), "the cut file is named");
-        assert!(stream.next().await.is_none());
-        stream.close().await;
-        assert!(read.load(Ordering::SeqCst) < GIB);
-        assert_eq!(probe::search(root.as_path()).live, 0);
-
-        // Dropping the stream stops the producer without waiting for it: it ends at its next read.
-        let (listing, open, read) = one_gib_file(&root);
-        let stream = search_over(&PRODUCERS, &needle_request(&root, None), listing, open);
-        assert!(eventually(|| read.load(Ordering::SeqCst) >= 16 << 20).await);
-        drop(stream);
-        assert!(eventually(|| probe::search(root.as_path()).live == 0).await);
-        assert!(read.load(Ordering::SeqCst) < GIB);
-    }
-
-    /// Waits until `test` holds of `producers`' counts, at most 10 s.
-    async fn until(producers: &Producers, what: &str, test: impl Fn(ProducerCounts) -> bool) {
-        let wait = async {
-            loop {
-                let changed = producers.changed.notified();
-                let mut changed = std::pin::pin!(changed);
-                changed.as_mut().enable();
-                if test(producers.counts()) {
-                    return;
-                }
-                changed.await;
-            }
-        };
-        if tokio::time::timeout(Duration::from_secs(10), wait).await.is_err() {
-            panic!("{what} within 10 s: {:?}", producers.counts());
-        }
-    }
-
-    /// A walk whose directory read never returns until the sender is dropped; the receiver ends once the producer is
-    /// in that read.
-    fn hung_listing() -> (Listing, std::sync::mpsc::Sender<()>, oneshot::Receiver<()>) {
-        let (listing, release, in_read, _) = hung_listing_gone();
-        (listing, release, in_read)
-    }
-
-    /// [`hung_listing`], and a receiver that ends once the listing is dropped: the thread that held it has ended (its
-    /// share of the slot, which it lets go of first, included).
-    fn hung_listing_gone() -> (Listing, std::sync::mpsc::Sender<()>, oneshot::Receiver<()>, oneshot::Receiver<()>) {
-        let (release, hung) = std::sync::mpsc::channel::<()>();
-        let (entered, in_read) = oneshot::channel::<()>();
-        let (ended, gone) = oneshot::channel::<()>();
-        let state = Mutex::new((hung, Some(entered), ended));
-        let listing: Listing = Box::new(std::iter::from_fn(move || {
-            let mut state = state.lock().unwrap();
-            state.1.take();
-            let _ = state.0.recv();
-            None
-        }));
-        (listing, release, in_read, gone)
-    }
-
-    /// A root on another volume than the temp folder's: only its volume is read ([`volume_of`]); the listings given name
-    /// the files.
-    fn other_volume() -> AbsPath {
-        #[cfg(windows)]
-        return AbsPath::new(r"\\mixdog-other-volume\share\x").unwrap();
-        #[cfg(target_os = "linux")]
-        return AbsPath::new("/proc/self").unwrap();
-        #[cfg(target_os = "macos")]
-        return AbsPath::new("/dev").unwrap();
-        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-        AbsPath::new("/").unwrap()
-    }
-
-    /// A listing of `file` alone, read with `File::open`.
-    fn one_file(file: &Path) -> (Listing, Opener) {
-        let listing: Listing = Box::new(std::iter::once(Ok(Some(file.to_path_buf()))));
-        let open: Opener = Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>));
-        (listing, open)
-    }
-
-    /// `wait`'s outcome, at most 10 s.
-    async fn within<T>(what: &str, wait: impl Future<Output = T>) -> T {
-        tokio::time::timeout(Duration::from_secs(10), wait).await.unwrap_or_else(|_| panic!("{what} within 10 s"))
-    }
-
-    fn no_files() -> Opener {
-        Box::new(|_| unreachable!("no file is listed"))
-    }
-
-    /// Node's scheduler with `total` searches at once and no interactive reserve, `queue` waiting places, its other
-    /// defaults (the bulk limit 2 within `total`, the priority reserve of `queue`, the AIMD target and step), and a
-    /// cancel grace of `grace`.
-    fn scheduler(total: usize, queue: usize, grace: Duration) -> SchedulerConfig {
-        SchedulerConfig {
-            total,
-            interactive_reserve: 0,
-            bulk: 2.min(total),
-            queue,
-            priority_reserve: if queue <= 1 { 0 } else { queue.div_ceil(8).clamp(1, 64).min(queue - 1) },
-            aimd_target: Duration::from_millis(250),
-            aimd_increase_every: 8,
-            grace,
-            local: MAX_LOCAL_PRODUCERS,
-            stuck_per_volume: MAX_STUCK_PER_VOLUME,
-            stuck_total: MAX_STUCK_TOTAL,
-        }
-    }
-
-    const NODE_QUEUE: usize = 2_048;
-
-    /// A directory read that never returns: the deadline answers at once, and `close` waits its grace, then gives the
-    /// thread up: its slot is free, and it is counted as stalled until its read returns.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_directory_read_that_never_returns_is_given_up_after_the_grace() {
-        let (_dir, root) = root();
-        let producers = Arc::new(Producers::new(scheduler(16, NODE_QUEUE, CLOSE_GRACE)));
-        let (listing, release, _) = hung_listing();
-        let started = Instant::now();
-        let mut stream = search_over(&producers, &needle_request(&root, Some(started + Duration::from_millis(100))), listing, no_files());
-        let err = stream.next().await.unwrap().unwrap_err();
-        assert!(matches!(err.kind, FsErrorKind::TimedOut) && err.path.is_none(), "{err:?}");
-        assert!(started.elapsed() < Duration::from_secs(1), "the deadline does not wait for the walk");
-        let closing = Instant::now();
-        stream.close().await;
-        assert!(closing.elapsed() >= CLOSE_GRACE && closing.elapsed() < CLOSE_GRACE * 3, "{:?}", closing.elapsed());
-        assert_eq!(producers.counts(), ProducerCounts { stalled: 1, ..Default::default() }, "given up, still in its read, no slot");
-        drop(release);
-        settled(&producers, "the given-up thread ends once its read returns", ProducerCounts::default()).await;
-    }
-
-    /// A producer held in a read that never returns is counted as abandoned however its stream lets go of it: a `close`
-    /// that waits out its grace (given up then), a `close` its caller drops before the grace (its deadline or
-    /// cancellation), and a dropped stream; the canceller gives these two up once the grace has passed. Each given-up
-    /// thread is counted as stalled until its read returns.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_producer_its_stream_lets_go_of_is_counted_until_it_ends_or_is_given_up() {
-        let (_dir, root) = root();
-        let producers = Arc::new(Producers::new(scheduler(16, NODE_QUEUE, CLOSE_GRACE)));
-        let mut released = Vec::new();
-        let mut search = async || {
-            let (listing, release, in_read) = hung_listing();
-            released.push(release);
-            let stream = search_over(&producers, &needle_request(&root, None), listing, no_files());
-            let _ = within("the producer in its read", in_read).await;
-            stream
-        };
-        let mut closed = search().await;
-        closed.close().await;
-        assert_eq!(producers.counts(), ProducerCounts { stalled: 1, ..Default::default() }, "a close that waited out its grace");
-        let mut cut = search().await;
-        {
-            let close = cut.close();
-            let mut close = std::pin::pin!(close);
-            let polled = close.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
-            assert!(polled.is_pending(), "the close waits for its producer");
-        }
-        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 1, waiting: 0, stalled: 1 }, "a close its caller dropped");
-        drop(search().await);
-        assert_eq!(producers.counts(), ProducerCounts { live: 2, abandoned: 2, waiting: 0, stalled: 1 }, "a dropped stream");
-        until(&producers, "the canceller gives both up after the grace", |c| c == ProducerCounts { stalled: 3, ..Default::default() }).await;
-        drop(released);
-        settled(&producers, "every producer ends once its read returns", ProducerCounts::default()).await;
-        drop((closed, cut));
-    }
-
-    /// Waits until `producers`' counts are `want`, at most 10 s, woken at each change of the counts and at each end a
-    /// test can see ([`probe::changed`]): a given-up producer's end changes no count the scheduler keeps and is reported
-    /// to no one, so it is seen there.
-    async fn settled(producers: &Producers, what: &str, want: ProducerCounts) {
-        let wait = async {
-            loop {
-                let ended = probe::changed().notified();
-                let mut ended = std::pin::pin!(ended);
-                ended.as_mut().enable();
-                let changed = producers.changed.notified();
-                let mut changed = std::pin::pin!(changed);
-                changed.as_mut().enable();
-                if producers.counts() == want {
-                    return;
-                }
-                tokio::select! {
-                    () = ended => {}
-                    () = changed => {}
-                }
-            }
-        };
-        if tokio::time::timeout(Duration::from_secs(10), wait).await.is_err() {
-            panic!("{what} within 10 s: {:?}", producers.counts());
-        }
-    }
-
-    /// Waits until the searches of `root` whose scan is alive are `live`, at most 10 s.
-    async fn until_live(root: &AbsPath, live: u64) {
-        let wait = async {
-            loop {
-                let changed = probe::changed().notified();
-                let mut changed = std::pin::pin!(changed);
-                changed.as_mut().enable();
-                if probe::search(root.as_path()).live == live {
-                    return;
-                }
-                changed.await;
-            }
-        };
-        within("the scans' end", wait).await;
-    }
-
-    /// Ten thousand searches in a row on one volume, each held in a read that ignores its cancel. The first 8 are given
-    /// up once the grace has passed (none here) and stay; every later one is refused at once, starting no thread, with
-    /// Node's answer to a request whose server was ended for a stalled cancel: the process holds 8 given-up threads, and
-    /// of each only the thread in the read, which holds a fixed set of bytes (the walk's position, the open file, one
-    /// buffer of READ_CHUNK and its slot's hold), as their scans ended and with them the matcher, the searcher's buffers
-    /// and the queue. A search on another volume answers meanwhile. When one read returns, its thread ends touching no
-    /// counter of the scheduler and notifying no one, its volume's mark goes, and the volume takes a search again.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn ten_thousand_reads_that_ignore_the_cancel_hold_eight_threads_and_spare_other_volumes() {
-        let (_dir, root) = root();
-        let file = root.join("a.txt").as_path().to_path_buf();
-        std::fs::write(&file, "needle\n").unwrap();
-        let producers = Arc::new(Producers::new(scheduler(1, NODE_QUEUE, Duration::ZERO)));
-        let mut held = Vec::new();
-        let mut refusals = 0;
-        for n in 0..10_000 {
-            let (listing, release, in_read, gone) = hung_listing_gone();
-            let mut stream = search_over(&producers, &needle_request(&root, None), listing, no_files());
-            if n < MAX_STUCK_PER_VOLUME {
-                let _ = within("a stuck search in its read", in_read).await;
-                stream.close().await;
-                held.push((release, gone));
-            } else {
-                let refusal = within("a refusal", stream.next()).await;
-                let stalled = FsErrorKind::CancelStalled { search: CONTENT.to_owned(), grace_ms: 0 };
-                assert!(matches!(&refusal, Some(Err(FsError { kind, path: None, .. })) if *kind == stalled), "{refusal:?}");
-                assert!(within("the refused stream's end", stream.next()).await.is_none());
-                refusals += 1;
-            }
-            assert!(producers.counts().stalled <= MAX_STUCK_PER_VOLUME);
-        }
-        assert_eq!(refusals, 10_000 - MAX_STUCK_PER_VOLUME);
-        assert_eq!(producers.counts(), ProducerCounts { stalled: MAX_STUCK_PER_VOLUME, ..Default::default() });
-        until_live(&root, 0).await;
-        // Another volume answers.
-        let (listing, open) = one_file(&file);
-        let mut other = search_over(&producers, &needle_request(&other_volume(), None), listing, open);
-        let hit = within("the other volume's match", other.next()).await.unwrap().unwrap();
-        assert_eq!((hit.path.as_path(), hit.line), (file.as_path(), 1));
-        assert!(within("the other volume's end", other.next()).await.is_none());
-        other.close().await;
-        // A late return.
-        let before = producers.counts();
-        let changed = producers.changed.notified();
-        let mut changed = std::pin::pin!(changed);
-        changed.as_mut().enable();
-        let (release, gone) = held.pop().unwrap();
-        drop(release);
-        let _ = within("the released thread's end", gone).await;
-        // Its volume's mark went with it, and no count the scheduler keeps moved.
-        settled(&producers, "the released thread's mark", ProducerCounts { stalled: MAX_STUCK_PER_VOLUME - 1, ..before }).await;
-        let polled = changed.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
-        assert!(polled.is_pending(), "a given-up thread's end notifies the scheduler's waiters of nothing");
-        let (listing, open) = one_file(&file);
-        let mut again = search_over(&producers, &needle_request(&root, None), listing, open);
-        assert!(within("the volume's search again", again.next()).await.unwrap().is_ok());
-        again.close().await;
-        drop(held);
-        settled(&producers, "every given-up thread's end", ProducerCounts::default()).await;
-    }
-
-    /// What the stuck listings of a test count: the reads entered and not returned, and the producers that started (a
-    /// listing dropped on a stream's thread: a search refused before it started drops its listing with its stream).
-    #[derive(Default)]
-    struct StuckReads {
-        in_read: std::sync::atomic::AtomicUsize,
-        started: std::sync::atomic::AtomicUsize,
-    }
-
-    /// A walk whose first step never returns until the sender is dropped, counted in `reads`; the receiver ends once the
-    /// producer is in that step.
-    fn stuck_listing(reads: &Arc<StuckReads>) -> (Listing, std::sync::mpsc::Sender<()>, oneshot::Receiver<()>) {
-        struct Stuck {
-            reads: Arc<StuckReads>,
-            hung: Mutex<(std::sync::mpsc::Receiver<()>, Option<oneshot::Sender<()>>)>,
-        }
-        impl Iterator for Stuck {
-            type Item = Result<Option<PathBuf>, FsError>;
-            fn next(&mut self) -> Option<Self::Item> {
-                let hung = self.hung.get_mut().unwrap();
-                self.reads.in_read.fetch_add(1, Ordering::SeqCst);
-                if let Some(entered) = hung.1.take() {
-                    let _ = entered.send(());
-                }
-                let _ = hung.0.recv();
-                self.reads.in_read.fetch_sub(1, Ordering::SeqCst);
-                None
-            }
-        }
-        impl Drop for Stuck {
-            fn drop(&mut self) {
-                if std::thread::current().name() == Some("mixdog-fs-stream") {
-                    self.reads.started.fetch_add(1, Ordering::SeqCst);
-                }
-            }
-        }
-        let (release, hung) = std::sync::mpsc::channel::<()>();
-        let (entered, in_read) = oneshot::channel::<()>();
-        (Box::new(Stuck { reads: reads.clone(), hung: Mutex::new((hung, Some(entered))) }), release, in_read)
-    }
-
-    /// Answers each of `streams` as a caller with a deadline does: its first item, or, once its producer is stuck in its
-    /// read, nothing; then closes it (a stuck one is given up after the grace). How many were refused with Node's stalled
-    /// answer, the others having been stuck.
-    async fn answer_or_give_up(streams: Vec<(Box<dyn EventSource<Result<SearchMatch, FsError>>>, oneshot::Receiver<()>)>) -> usize {
-        let mut searches = tokio::task::JoinSet::new();
-        for (mut stream, mut in_read) in streams {
-            searches.spawn(async move {
-                // A producer refused before its read drops the listing, and with it the read's signal, unsent.
-                let first = tokio::select! {
-                    item = stream.next() => Some(item),
-                    entered = &mut in_read => match entered {
-                        Ok(()) => None,
-                        Err(_) => Some(stream.next().await),
-                    },
-                };
-                stream.close().await;
-                match first {
-                    None => false,
-                    Some(Some(Err(FsError { kind: FsErrorKind::CancelStalled { .. }, path: None, .. }))) => true,
-                    other => panic!("{other:?}"),
-                }
-            });
-        }
-        let all = async {
-            let mut refused = 0;
-            while let Some(answered) = searches.join_next().await {
-                refused += usize::from(answered.unwrap());
-            }
-            refused
-        };
-        tokio::time::timeout(Duration::from_secs(60), all).await.expect("every search answered or given up within 60 s")
-    }
-
-    /// Ten thousand searches queued at once on one volume, each held, once it runs, in a read that never returns, and
-    /// given up once its caller lets go of it. As each running one is given up the next queued one is admitted, until
-    /// the volume holds MAX_STUCK_PER_VOLUME given-up threads; from then each queued one is answered at its admission with
-    /// Node's stalled answer and starts no thread (one admitted just before is answered so by its producer, before its
-    /// read). The threads left stranded, counted as the scheduler counts them and as reads entered and not returned:
-    /// those that were reading on the volume when it reached its bound, at most MAX_STUCK_PER_VOLUME - 1 + the 2 that run
-    /// at once, within `max_stranded_per_volume`; at most those 2 other producers started.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn ten_thousand_searches_queued_on_a_volume_whose_reads_never_return_strand_at_most_the_stated_bound() {
-        const SEARCHES: usize = 10_000;
-        const AT_ONCE: usize = 2;
-        let (_dir, root) = root();
-        let config = scheduler(AT_ONCE, SEARCHES, Duration::from_millis(10));
-        let producers = Arc::new(Producers::new(config));
-        let reads = Arc::new(StuckReads::default());
-        let mut releases = Vec::new();
-        let streams: Vec<_> = (0..SEARCHES)
-            .map(|_| {
-                let (listing, release, in_read) = stuck_listing(&reads);
-                releases.push(release);
-                (search_over(&producers, &needle_request(&root, None), listing, no_files()), in_read)
-            })
-            .collect();
-        assert_eq!(producers.counts(), ProducerCounts { live: AT_ONCE, waiting: SEARCHES - AT_ONCE, ..Default::default() }, "all queued");
-        let refused = answer_or_give_up(streams).await;
-        let stranded = producers.counts().stalled;
-        assert_eq!(producers.counts(), ProducerCounts { stalled: stranded, ..Default::default() });
-        assert_eq!(reads.in_read.load(Ordering::SeqCst), stranded, "each given-up thread is in its read");
-        assert!((MAX_STUCK_PER_VOLUME..=MAX_STUCK_PER_VOLUME - 1 + AT_ONCE).contains(&stranded), "{stranded} stranded");
-        assert!(stranded <= config.max_stranded_per_volume());
-        assert_eq!(refused, SEARCHES - stranded);
-        drop(releases);
-        settled(&producers, "every stranded thread ends once its read returns", ProducerCounts::default()).await;
-        assert!(eventually(|| reads.started.load(Ordering::SeqCst) >= stranded).await);
-        let started = reads.started.load(Ordering::SeqCst);
-        assert!(started - stranded <= AT_ONCE, "{started} started: a refused search starts no thread unless admitted before the bound");
-    }
-
-    /// Nine searches running on one volume whose reads all stall at once (a volume that dies under them), a thousand
-    /// queued behind them: the nine are all given up, past the 8 a volume may otherwise gain, as they were reading on it
-    /// before it reached its bound; each queued one admitted before it reached the bound runs, stalls and is given up
-    /// too, and every later one is answered at its admission and starts no thread (or, admitted just before the bound,
-    /// by its producer before its read). The total stays within
-    /// MAX_STUCK_PER_VOLUME - 1 + 9 (the searches that run at once), within `max_stranded_per_volume`, and a search made
-    /// after is refused at once.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn nine_running_searches_that_stall_at_once_strand_at_most_the_stated_bound() {
-        const AT_ONCE: usize = 9;
-        const QUEUED: usize = 1_000;
-        let (_dir, root) = root();
-        let config = scheduler(AT_ONCE, NODE_QUEUE, Duration::ZERO);
-        let producers = Arc::new(Producers::new(config));
-        let reads = Arc::new(StuckReads::default());
-        let mut releases = Vec::new();
-        let mut search = || {
-            let (listing, release, in_read) = stuck_listing(&reads);
-            releases.push(release);
-            (search_over(&producers, &needle_request(&root, None), listing, no_files()), in_read)
-        };
-        let mut running = Vec::new();
-        for _ in 0..AT_ONCE {
-            let (stream, in_read) = search();
-            within("a running search in its read", in_read).await.unwrap();
-            running.push(stream);
-        }
-        let queued: Vec<_> = (0..QUEUED).map(|_| search()).collect();
-        assert_eq!(producers.counts(), ProducerCounts { live: AT_ONCE, waiting: QUEUED, ..Default::default() });
-        // Their callers let go of all nine at once; the canceller gives them up together.
-        drop(running);
-        let refused = answer_or_give_up(queued).await;
-        until(&producers, "the nine given up", |c| c.live == 0).await;
-        let stranded = producers.counts().stalled;
-        assert_eq!(producers.counts(), ProducerCounts { stalled: stranded, ..Default::default() });
-        assert_eq!(reads.in_read.load(Ordering::SeqCst), stranded, "each given-up thread is in its read");
-        assert!((AT_ONCE..=MAX_STUCK_PER_VOLUME - 1 + AT_ONCE).contains(&stranded), "{stranded} stranded");
-        assert!(stranded <= config.max_stranded_per_volume());
-        assert_eq!(refused, QUEUED - (stranded - AT_ONCE));
-        let (listing, release, _) = stuck_listing(&reads);
-        let mut after = search_over(&producers, &needle_request(&root, None), listing, no_files());
-        assert!(matches!(within("a search made after", after.next()).await, Some(Err(FsError { kind: FsErrorKind::CancelStalled { .. }, .. }))));
-        drop((after, release, releases));
-        settled(&producers, "every stranded thread ends once its read returns", ProducerCounts::default()).await;
-        assert!(eventually(|| reads.started.load(Ordering::SeqCst) >= stranded).await);
-        let started = reads.started.load(Ordering::SeqCst);
-        assert!(started - stranded <= AT_ONCE, "{started} started: a refused search starts no thread unless admitted before the bound");
-    }
-
-    /// A producer that reads on the volume keyed `volume` ([`Ticket::read_on`]): refused, it answers the refusal; else,
-    /// with `held`, it tells it entered its read and holds it until the sender is dropped, or it ends with no item.
-    struct OnVolume {
-        volume: &'static str,
-        held: Option<(std::sync::mpsc::Receiver<()>, oneshot::Sender<()>)>,
-    }
-
-    impl Produce<SearchMatch> for OnVolume {
-        fn run(self: Box<Self>, out: Out<SearchMatch>, hold: Hold) {
-            if let Err(Some(refusal)) = hold.ticket.read_on(self.volume) {
-                out.send(Err(FsError::new(refusal, None)));
-                return;
-            }
-            if let Some((release, entered)) = self.held {
-                let _ = entered.send(());
-                let _ = release.recv();
-            }
-        }
-    }
-
-    /// Three volumes whose reads stall: two hold MAX_STUCK_PER_VOLUME given-up threads and the third one fewer, so the
-    /// process holds MAX_STUCK_TOTAL - 1: a search on a fourth volume and on the third are served, one on a volume at its
-    /// bound refused. The third's next stall reaches MAX_STUCK_TOTAL: then a search on any volume is refused, the fourth
-    /// (none given up) and the third (fewer than its bound) included, within `max_stranded_total`; once one stuck read
-    /// returns, both are served again.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn three_stalled_volumes_reach_the_process_wide_bound_and_refuse_every_volume() {
-        let (_dir, root) = root();
-        let config = scheduler(16, NODE_QUEUE, Duration::ZERO);
-        let producers = Arc::new(Producers::new(config));
-        let make = |volume: &'static str, held| {
-            let origin = Origin::new(Some(SearchClass::Interactive), root.as_path(), CONTENT);
-            streamed(&producers, Box::new(OnVolume { volume, held }), Deadline::default(), origin, false)
-        };
-        let mut releases = Vec::new();
-        let mut stall = async |volume: &'static str| {
-            let (release, hung) = std::sync::mpsc::channel::<()>();
-            let (entered, in_read) = oneshot::channel::<()>();
-            let mut stream = make(volume, Some((hung, entered)));
-            within("a stalled read", in_read).await.unwrap();
-            stream.close().await;
-            releases.push((volume, release));
-        };
-        for (volume, stalls) in [("a", MAX_STUCK_PER_VOLUME), ("b", MAX_STUCK_PER_VOLUME), ("c", MAX_STUCK_PER_VOLUME - 1)] {
-            for _ in 0..stalls {
-                stall(volume).await;
-            }
-        }
-        assert_eq!(MAX_STUCK_TOTAL, 3 * MAX_STUCK_PER_VOLUME);
-        assert_eq!(producers.counts(), ProducerCounts { stalled: MAX_STUCK_TOTAL - 1, ..Default::default() });
-        let refused = async |volume: &'static str| {
-            let mut stream = make(volume, None);
-            let first = within("the search's answer", stream.next()).await;
-            stream.close().await;
-            match first {
-                None => false,
-                Some(Err(FsError { kind: FsErrorKind::CancelStalled { .. }, path: None, .. })) => true,
-                other => panic!("{other:?}"),
-            }
-        };
-        assert!(!refused("d").await, "a fourth volume under the process-wide bound");
-        assert!(!refused("c").await, "the third, under its bound");
-        assert!(refused("a").await, "a volume at its bound");
-        stall("c").await;
-        assert_eq!(producers.counts().stalled, MAX_STUCK_TOTAL);
-        assert!(MAX_STUCK_TOTAL <= config.max_stranded_total());
-        assert!(refused("d").await, "a fourth volume at the process-wide bound");
-        assert!(refused("c").await, "the third at the process-wide bound");
-        let at = releases.iter().position(|(volume, _)| *volume == "b").unwrap();
-        drop(releases.remove(at));
-        settled(&producers, "one stuck read returns", ProducerCounts { stalled: MAX_STUCK_TOTAL - 1, ..Default::default() }).await;
-        assert!(!refused("d").await, "the fourth again");
-        assert!(!refused("b").await, "the volume whose read returned");
-        drop(releases);
-        settled(&producers, "every given-up thread ends", ProducerCounts::default()).await;
-    }
-
-    /// A second fixed volume besides the temp folder's, where a folder can be made: its new folder, removed when dropped.
-    #[cfg(windows)]
-    fn folder_on_another_volume(than: &Path) -> Option<tempfile::TempDir> {
-        use std::os::windows::ffi::OsStrExt as _;
-        const DRIVE_FIXED: u32 = 3;
-        let (ours, _) = volume_id(than)?;
-        (b'A'..=b'Z').map(|letter| PathBuf::from(format!("{}:\\", char::from(letter)))).find_map(|drive| {
-            let wide: Vec<u16> = drive.as_os_str().encode_wide().chain(Some(0)).collect();
-            // SAFETY: a NUL-terminated drive root.
-            let fixed = unsafe { windows_sys::Win32::Storage::FileSystem::GetDriveTypeW(wide.as_ptr()) } == DRIVE_FIXED;
-            (fixed && volume_id(&drive).is_some_and(|(id, _)| id != ours)).then(|| tempfile::tempdir_in(&drive).ok()).flatten()
-        })
-    }
-
-    /// Reads that stall under a junction to a folder of another volume are that volume's: once it holds
-    /// MAX_STUCK_PER_VOLUME given-up threads, a search rooted at the junction's target folder (on that volume) and a search
-    /// through the junction are refused with Node's stalled answer, while a search of the folder holding the junction,
-    /// on the temp folder's volume, answers. Once the junction is retargeted to a folder of the temp folder's volume, the
-    /// next search through it is served: its refusal was by the volume it leads to now, told afresh. Skipped (it says so)
-    /// on a machine with one fixed volume.
-    #[cfg(windows)]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn reads_stalled_under_a_junction_are_charged_to_the_volume_it_leads_to() {
-        let (_dir, root) = root();
-        let Some(other) = folder_on_another_volume(root.as_path()) else {
-            eprintln!("skipped: no second fixed volume");
-            return;
-        };
-        let target = AbsPath::new(crate::pathguard::canonical(other.path()).unwrap()).unwrap();
-        let junction = root.join("j");
-        let made = std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(junction.as_path()).arg(target.as_path()).output().unwrap();
-        assert!(made.status.success(), "{made:?}");
-        let parent_file = root.join("a.txt").as_path().to_path_buf();
-        let target_file = target.join("b.txt").as_path().to_path_buf();
-        std::fs::write(&parent_file, "needle\n").unwrap();
-        std::fs::write(&target_file, "needle\n").unwrap();
-        let producers = Arc::new(Producers::new(scheduler(16, NODE_QUEUE, Duration::ZERO)));
-        let reads = Arc::new(StuckReads::default());
-        let mut releases = Vec::new();
-        for _ in 0..MAX_STUCK_PER_VOLUME {
-            let (listing, release, in_read) = stuck_listing(&reads);
-            releases.push(release);
-            let mut stream = search_over(&producers, &needle_request(&junction, None), listing, no_files());
-            within("a search through the junction in its read", in_read).await.unwrap();
-            stream.close().await;
-        }
-        assert_eq!(producers.counts(), ProducerCounts { stalled: MAX_STUCK_PER_VOLUME, ..Default::default() });
-        let first = |root: &AbsPath, file: &Path| {
-            let (listing, open) = one_file(file);
-            search_over(&producers, &needle_request(root, None), listing, open)
-        };
-        let mut parent = first(&root, parent_file.as_path());
-        let hit = within("the parent's match", parent.next()).await.unwrap().unwrap();
-        assert_eq!(hit.path.as_path(), parent_file.as_path());
-        parent.close().await;
-        for (root, file) in [(&target, &target_file), (&junction, &target_file)] {
-            let mut refused = first(root, file.as_path());
-            let answer = within("a search on the junction's volume", refused.next()).await;
-            assert!(matches!(&answer, Some(Err(FsError { kind: FsErrorKind::CancelStalled { .. }, path: None, .. }))), "{root:?}: {answer:?}");
-            refused.close().await;
-        }
-        let healthy = root.join("healthy");
-        std::fs::create_dir(healthy.as_path()).unwrap();
-        std::fs::write(healthy.join("b.txt").as_path(), "needle\n").unwrap();
-        std::fs::remove_dir(junction.as_path()).unwrap();
-        let made = std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(junction.as_path()).arg(healthy.as_path()).output().unwrap();
-        assert!(made.status.success(), "{made:?}");
-        let through = junction.join("b.txt").as_path().to_path_buf();
-        let mut served = first(&junction, through.as_path());
-        let hit = within("the retargeted junction's match", served.next()).await;
-        assert!(matches!(&hit, Some(Ok(m)) if m.path.as_path() == through.as_path()), "{hit:?}");
-        served.close().await;
-        drop(releases);
-        settled(&producers, "every given-up thread ends", ProducerCounts::default()).await;
-        std::fs::remove_dir(junction.as_path()).unwrap();
-    }
-
-    /// A call is charged to the volume below the deepest mount point its path lies at or under, the root's under none
-    /// (by whole components: `/r/mm` is not under `/r/m`); with no mount table, to its path itself, so a stall there
-    /// refuses only calls on that same path, never the root's volume.
-    #[test]
-    fn a_call_is_charged_to_the_volume_of_the_path_it_reads() {
-        let mounts = vec![(PathBuf::from("/r/m"), "m".to_owned()), (PathBuf::from("/r/m/n"), "n".to_owned())];
-        let known = |path: &str| charged(Some(&mounts), "root", Path::new(path));
-        assert_eq!([known("/r"), known("/r/a.txt"), known("/r/mm")], ["root", "root", "root"]);
-        assert_eq!([known("/r/m"), known("/r/m/x"), known("/r/m/n"), known("/r/m/n/y")], ["m", "m", "n", "n"]);
-        let unknown = |path: &str| charged(None, "root", Path::new(path));
-        assert_eq!(unknown("/r/dead"), unknown("/r/dead"));
-        assert!(unknown("/r/dead") != unknown("/r/a.txt") && unknown("/r/dead") != unknown("/r") && unknown("/r") != "root");
-    }
-
-    /// The real filesystem through the walk's own calls ([`tree::Dirs`]), except that a call on a gated path or under it
-    /// (the root's type, a listing, a type) is counted and held until the test lets go, as on a dead mount; the entries
-    /// at `untyped` are listed without their type, as a listing that gives none lists them (a Unix filesystem without
-    /// `d_type`).
-    struct Gated {
-        gated: Vec<PathBuf>,
-        untyped: Vec<PathBuf>,
-        calls: Arc<AtomicUsize>,
-        release: Arc<(Mutex<bool>, std::sync::Condvar)>,
-    }
-
-    impl Gated {
-        fn hold(&self, path: &Path) {
-            if self.gated.iter().any(|gated| path.starts_with(gated)) {
-                self.calls.fetch_add(1, Ordering::SeqCst);
-                let (released, changed) = &*self.release;
-                let mut released = released.lock().unwrap();
-                while !*released {
-                    released = changed.wait(released).unwrap();
-                }
-            }
-        }
-    }
-
-    impl tree::Dirs for Gated {
-        fn root(&mut self, root: &tree::Asked<'_>) -> io::Result<(EntryKind, bool)> {
-            self.hold(root.path());
-            tree::Dirs::root(&mut tree::RealDirs, root)
-        }
-
-        fn list(&mut self, dir: &tree::Asked<'_>) -> io::Result<Vec<io::Result<tree::Listed>>> {
-            self.hold(dir.path());
-            let listed = tree::Dirs::list(&mut tree::RealDirs, dir)?;
-            let untyped = |listed: tree::Listed| if self.untyped.iter().any(|path| path == listed.path()) { listed.untyped() } else { listed };
-            Ok(listed.into_iter().map(|entry| entry.map(untyped)).collect())
-        }
-
-        fn kind(&mut self, entry: &tree::Asked<'_>) -> io::Result<EntryKind> {
-            self.hold(entry.path());
-            tree::Dirs::kind(&mut tree::RealDirs, entry)
-        }
-    }
-
-    /// A file that tells whether anything opened it: on Windows under a batch oplock, which an open breaks (the open then
-    /// waits until the oplock is let go of); on Unix a FIFO with no writer, whose open for reading waits for one, which a
-    /// writer's non-blocking open then finds.
-    struct Tripwire {
-        #[cfg(unix)]
-        path: PathBuf,
-        #[cfg(windows)]
-        hold: deadline_script::OplockHold,
-    }
-
-    impl Tripwire {
-        fn new(path: PathBuf) -> Self {
-            #[cfg(windows)]
-            let tripwire = {
-                std::fs::write(&path, "").unwrap();
-                Self { hold: deadline_script::OplockHold::new(&path).unwrap() }
-            };
-            #[cfg(unix)]
-            let tripwire = {
-                let name = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
-                // SAFETY: a NUL-terminated path.
-                assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0, "{}", io::Error::last_os_error());
-                Self { path }
-            };
-            tripwire
-        }
-
-        fn opened(&self) -> bool {
-            #[cfg(windows)]
-            return self.hold.wait_broken(Duration::ZERO);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt as _;
-                std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(&self.path).is_ok()
-            }
-        }
-    }
-
-    fn listing_request(root: &AbsPath, prune: Vec<AbsPath>) -> WalkRequest {
-        WalkRequest { root: root.clone(), recursive: true, include_hidden: false, respect_ignore: true, require_git: true, include_dirs: true, prune, descent: Default::default(), server: None }
-    }
-
-    /// Counts the folders a walk reads.
-    struct Reads(Arc<AtomicUsize>);
-
-    impl tree::Dirs for Reads {
-        fn root(&mut self, root: &tree::Asked<'_>) -> io::Result<(EntryKind, bool)> {
-            tree::Dirs::root(&mut tree::RealDirs, root)
-        }
-
-        fn list(&mut self, dir: &tree::Asked<'_>) -> io::Result<Vec<io::Result<tree::Listed>>> {
-            self.0.fetch_add(1, Ordering::SeqCst);
-            tree::Dirs::list(&mut tree::RealDirs, dir)
-        }
-
-        fn kind(&mut self, entry: &tree::Asked<'_>) -> io::Result<EntryKind> {
-            tree::Dirs::kind(&mut tree::RealDirs, entry)
-        }
-    }
-
-    /// A deep list's walk stops at its depth and at the folders it leaves unread: the folders read are the root and the
-    /// one folder of depth 1, whatever lies in the noise folder, the dotted folder and below depth 2.
-    #[test]
-    fn a_depth_bounded_walk_reads_no_folder_it_cannot_list_from() {
-        let (_dir, root) = root();
-        let chain = |top: &str| root.join(top).as_path().join("a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p");
-        for dir in [chain("node_modules"), chain(".hidden"), chain("src/too/deep"), root.join("src/ok").as_path().to_path_buf()] {
-            std::fs::create_dir_all(dir).unwrap();
-        }
-        let reads = Arc::new(AtomicUsize::new(0));
-        let descent = mixdog_core_api::domain::fs::Descent { max_depth: Some(2), bare: vec!["node_modules".into()], bare_dotted: true };
-        let request = WalkRequest { descent, ..listing_request(&root, Vec::new()) };
-        let request = WalkRequest { include_hidden: true, respect_ignore: false, ..request };
-        let listed: Vec<PathBuf> = walking(&request, Box::new(Reads(reads.clone()))).unwrap().walk.map(|e| e.unwrap().path).collect();
-        let rel: Vec<String> = listed.iter().map(|p| p.strip_prefix(root.as_path()).unwrap().to_string_lossy().replace('\\', "/")).collect();
-        assert_eq!(rel, ["", ".hidden", "node_modules", "src", "src/ok", "src/too"]);
-        // root, then `src` (`.hidden` and `node_modules` are bare, `src/ok` and `src/too` lie at the depth).
-        assert_eq!(reads.load(Ordering::SeqCst), 2);
-    }
-
-    /// A walk that requires no repository honours a `.gitignore` outside one (Node's fuzzy inventory, `--no-require-git`).
-    #[test]
-    fn a_walk_that_requires_no_repository_honours_a_gitignore_outside_one() {
-        let (_dir, root) = root();
-        std::fs::write(root.join(".gitignore").as_path(), "*.log\n").unwrap();
-        std::fs::write(root.join("a.txt").as_path(), "").unwrap();
-        std::fs::write(root.join("b.log").as_path(), "").unwrap();
-        let request = WalkRequest { include_hidden: true, require_git: false, ..listing_request(&root, Vec::new()) };
-        let listed: Vec<PathBuf> = walking(&request, Box::new(tree::RealDirs)).unwrap().walk.map(|e| e.unwrap().path).collect();
-        let rel: Vec<String> = listed.iter().map(|p| p.strip_prefix(root.as_path()).unwrap().to_string_lossy().replace('\\', "/")).collect();
-        assert_eq!(rel, ["", ".gitignore", "a.txt"]);
-    }
-
-    /// A root whose excluded children, directly beneath it, are folders on a dead mount: every call of the walk on one of
-    /// them, or on anything under it, never returns ([`Gated`]). `z` is excluded by the search's glob (the listing's
-    /// prune), `.h` as hidden, `q` by an `.ignore` line, and `dead` by an `.ignore` line for folders only (`dead/`)
-    /// while its listing gives no type: the mount table names it a mount point, so it is a folder, told without a call.
-    /// The text search and the file listing each finish with the rest of the tree, and nothing was called on, or opened
-    /// under, an excluded child (counted: none).
-    ///
-    /// [`Gated`] sees every call the walk makes on an entry ([`tree::gate::probe`]). It does not see the root's telling
-    /// ([`Volumes::start`]) nor ignore's own calls as it loads the rules ([`tree`]); of those, the ones that could reach
-    /// an excluded child are the loading of its ignore files, were it ever taken for a folder the walk is in: each holds
-    /// an `.ignore` that tells whether anything opened it ([`Tripwire`]), checked too.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn excluded_children_are_never_listed_typed_or_opened() {
-        let (_dir, root) = root();
-        let files = [("a.txt", "needle\n"), ("b/c.txt", "needle\n"), ("z/d.txt", "needle\n"), (".h/e.txt", "needle\n"), ("q/f.txt", "needle\n"), ("dead/g.txt", "needle\n"), (".ignore", "q\ndead/\n")];
-        for (path, text) in files {
-            let path = root.join(path).as_path().to_path_buf();
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(&path, text).unwrap();
-        }
-        let gated: Vec<PathBuf> = ["z", ".h", "q", "dead"].iter().map(|name| root.join(name).as_path().to_path_buf()).collect();
-        let tripwires: Vec<Tripwire> = gated.iter().map(|child| Tripwire::new(child.join(".ignore"))).collect();
-        let dead = root.join("dead").as_path().to_path_buf();
-        // The mount table names `dead` a mount point (on Unix by its canonical path, as the kernel's table does).
-        #[cfg(unix)]
-        let point = std::fs::canonicalize(&dead).unwrap();
-        #[cfg(not(unix))]
-        let point = dead.clone();
-        let table = || -> MountTable {
-            let point = point.clone();
-            Box::new(move || Some(vec![(point.clone(), "dead".to_owned())]))
-        };
-        let calls = Arc::new(AtomicUsize::new(0));
-        let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
-        let gate = || Box::new(Gated { gated: gated.clone(), untyped: vec![dead.clone()], calls: calls.clone(), release: release.clone() });
-        let producers = Arc::new(Producers::new(scheduler(4, NODE_QUEUE, CLOSE_GRACE)));
-
-        let request = SearchRequest { exclude_globs: vec!["z".into()], include_hidden: false, respect_ignore: true, ..needle_request(&root, None) };
-        let opened = Arc::new(AtomicUsize::new(0));
-        let (counted, excluded) = (opened.clone(), gated.clone());
-        let open: Opener = Box::new(move |path| {
-            if excluded.iter().any(|gated| path.starts_with(gated)) {
-                counted.fetch_add(1, Ordering::SeqCst);
-            }
-            Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>)
-        });
-        let walked = text_listing(&request, gate()).unwrap();
-        locked(&walked.volumes).table = table();
-        let mut search = search_with(&producers, &request, walked, open);
-        let mut found = Vec::new();
-        while let Some(hit) = within("the search's matches", search.next()).await {
-            found.push(hit.unwrap().path);
-        }
-        search.close().await;
-        let expected: Vec<PathBuf> = ["a.txt", "b/c.txt"].iter().map(|p| root.join(p).as_path().to_path_buf()).collect();
-        assert_eq!(found.iter().map(|p| p.as_path().to_path_buf()).collect::<Vec<_>>(), expected);
-
-        let prune = vec![root.join("z")];
-        let origin = Origin::new(None, root.as_path(), "file inventory");
-        let walk = walking(&listing_request(&root, prune), gate()).unwrap();
-        locked(&walk.volumes).table = table();
-        let mut walk = streamed(&producers, Box::new(walk), Deadline::default(), origin, false);
-        let mut listed = Vec::new();
-        while let Some(entry) = within("the listing's entries", walk.next()).await {
-            listed.push(entry.unwrap().path.as_path().to_path_buf());
-        }
-        walk.close().await;
-        let expected: Vec<PathBuf> = ["a.txt", "b", "b/c.txt"].iter().map(|p| root.join(p).as_path().to_path_buf()).collect();
-        assert_eq!(listed, expected);
-
-        assert_eq!((calls.load(Ordering::SeqCst), opened.load(Ordering::SeqCst)), (0, 0), "a call on an excluded child");
-        assert!(tripwires.iter().all(|tripwire| !tripwire.opened()), "an ignore file of an excluded child was opened");
-        *release.0.lock().unwrap() = true;
-        release.1.notify_all();
-        settled(&producers, "every producer ends", ProducerCounts::default()).await;
-    }
-
-    /// With no mount table (it could not be read), any entry may be a mount point the walk does not know of. A root's
-    /// `dead`, excluded by an `.ignore` line for folders only (`dead/`) and listed without its type, must be asked its
-    /// type to be judged, and that call never returns ([`Gated`]): it is made on the bounded probe, charged to `dead`
-    /// alone. Once MAX_STUCK_PER_VOLUME searches are given up in it, the root's next search answers its other file and
-    /// then, at `dead`, Node's stalled answer, with no call made on `dead`; a search of another folder of the same
-    /// volume answers in full. Once the calls return, every given-up thread ends.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn with_no_mount_table_a_stall_judging_an_entry_is_charged_to_that_entry() {
-        let (_other_dir, other) = root();
-        let (_dir, root) = root();
-        std::fs::write(root.join("a.txt").as_path(), "needle\n").unwrap();
-        std::fs::write(root.join(".ignore").as_path(), "dead/\n").unwrap();
-        std::fs::create_dir(root.join("dead").as_path()).unwrap();
-        std::fs::write(other.join("b.txt").as_path(), "needle\n").unwrap();
-        let dead = root.join("dead").as_path().to_path_buf();
-        let calls = Arc::new(AtomicUsize::new(0));
-        let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
-        let producers = Arc::new(Producers::new(scheduler(16, NODE_QUEUE, Duration::ZERO)));
-        let request = |root: &AbsPath| SearchRequest { include_hidden: false, respect_ignore: true, ..needle_request(root, None) };
-        let search = |root: &AbsPath| {
-            let dirs = Box::new(Gated { gated: vec![dead.clone()], untyped: vec![dead.clone()], calls: calls.clone(), release: release.clone() });
-            let walked = text_listing(&request(root), dirs).unwrap();
-            locked(&walked.volumes).table = Box::new(|| None);
-            search_with(&producers, &request(root), walked, Box::new(open_to_search))
-        };
-        let answers = async |stream: &mut Box<dyn EventSource<Result<SearchMatch, FsError>>>| {
-            let mut answers = Vec::new();
-            while let Some(answer) = within("the search's answers", stream.next()).await {
-                answers.push(answer.map(|hit| hit.path.as_path().to_path_buf()).map_err(|error| error.kind));
-            }
-            stream.close().await;
-            answers
-        };
-        for stalled in 1..=MAX_STUCK_PER_VOLUME {
-            let mut stream = search(&root);
-            assert!(eventually(|| calls.load(Ordering::SeqCst) >= stalled).await, "search {stalled} in its call on dead");
-            stream.close().await;
-        }
-        assert_eq!(producers.counts(), ProducerCounts { stalled: MAX_STUCK_PER_VOLUME, ..Default::default() });
-        let found = answers(&mut search(&root)).await;
-        assert_eq!(found.len(), 2, "{found:?}");
-        assert_eq!(found[0], Ok(root.join("a.txt").as_path().to_path_buf()));
-        assert!(matches!(found[1], Err(FsErrorKind::CancelStalled { .. })), "{found:?}");
-        assert_eq!(calls.load(Ordering::SeqCst), MAX_STUCK_PER_VOLUME, "the refused search made no call on dead");
-        assert_eq!(answers(&mut search(&other)).await, [Ok(other.join("b.txt").as_path().to_path_buf())]);
-        *release.0.lock().unwrap() = true;
-        release.1.notify_all();
-        settled(&producers, "every given-up thread ends", ProducerCounts::default()).await;
-    }
-
-    /// A mapped drive's device target names its share; a network mount point is keyed as `\\server\share\`.
-    #[test]
-    fn a_mapped_drive_is_keyed_by_the_share_it_maps() {
-        assert_eq!(redirected_share(r"\Device\LanmanRedirector\;Z:0000000000012345\Srv\Share").as_deref(), Some(r"\\srv\share\"));
-        assert_eq!(redirected_share(r"\Device\Mup\;LanmanRedirector\;Z:00000000000a1b2c\srv\share\sub").as_deref(), Some(r"\\srv\share\"));
-        assert_eq!(redirected_share(r"\Device\HarddiskVolume3"), None);
-        assert_eq!(share_key(r"\\?\UNC\Srv\Share\"), r"\\srv\share\");
-        assert_eq!(share_key(r"\\srv\share"), r"\\srv\share\");
-    }
-
-    /// A stream that never polls next, for the burst below: whether it was refused (its one item, at once) or holds or
-    /// waits for a slot (nothing yet).
-    fn refused(stream: &mut Box<dyn EventSource<Result<SearchMatch, FsError>>>) -> bool {
-        let next = stream.next();
-        let mut next = std::pin::pin!(next);
-        match next.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop())) {
-            std::task::Poll::Ready(Some(Err(FsError { kind: FsErrorKind::Saturated, .. }))) => true,
-            std::task::Poll::Pending => false,
-            other => panic!("unexpected {other:?}"),
-        }
-    }
-
-    /// A burst of searches that never end, each class alone, against Node's scheduler with 2 searches at once, an
-    /// interactive reserve of 1, a bulk limit of 2, and 4 waiting places (a priority reserve of 1): as the server's
-    /// dispatcher admits them when it keeps up, 3 interactive ones run (2 and the reserve), 4 wait and the 8th is
-    /// refused; 2 fuzzy ones run, 4 wait, the 7th is refused; 2 bulk ones run, 3 wait (4 less the reserve), the 6th is
-    /// refused.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_burst_is_refused_at_the_search_nodes_scheduler_refuses() {
-        let (_dir, root) = root();
-        let config = SchedulerConfig { interactive_reserve: 1, ..scheduler(2, 4, Duration::ZERO) };
-        assert_eq!((config.bulk, config.priority_reserve), (2, 1));
-        for (class, running, refused_at) in [(SearchClass::Interactive, 3, 8), (SearchClass::Fuzzy, 2, 7), (SearchClass::Bulk, 2, 6)] {
-            let producers = Arc::new(Producers::new(config));
-            let mut held = Vec::new();
-            let mut first_refused = None;
-            for n in 1..=10 {
-                let (listing, release, _) = hung_listing();
-                let mut stream = search_over(&producers, &SearchRequest { class, ..needle_request(&root, None) }, listing, no_files());
-                if refused(&mut stream) && first_refused.is_none() {
-                    first_refused = Some(n);
-                    assert_eq!(producers.counts(), ProducerCounts { live: running, waiting: refused_at - 1 - running, ..Default::default() }, "{class:?}");
-                }
-                held.push((stream, release));
-            }
-            assert_eq!(first_refused, Some(refused_at), "{class:?}");
-            drop(held);
-            settled(&producers, "the burst's producers end", ProducerCounts::default()).await;
-        }
-    }
-
-    /// A pipe's reading end that reports its first read as it starts, past the search's last check of its stop.
-    #[cfg(windows)]
-    struct Reading {
-        pipe: io::PipeReader,
-        started: Option<oneshot::Sender<()>>,
-    }
-
-    #[cfg(windows)]
-    impl Read for Reading {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            if let Some(started) = self.started.take() {
-                let _ = started.send(());
-            }
-            self.pipe.read(buf)
-        }
-    }
-
-    /// A file whose read blocks until its cancel, listed alone, the receiver ending once its producer is at its read; and
-    /// what keeps it blocked (dropped last). On Windows a pipe whose writer never writes (an anonymous pipe is a named
-    /// pipe; `CancelSynchronousIo` ends its read); on Unix a FIFO no one opens to write, opened as a search opens it
-    /// ([`open_to_search`]: its read waits with `poll` beside the thread's interrupt, which the cancel fires).
-    fn blocked_read(root: &AbsPath) -> (Listing, Opener, oneshot::Receiver<()>, Box<dyn Send>) {
-        let (started, in_read) = oneshot::channel::<()>();
-        #[cfg(windows)]
-        {
-            let (reader, writer) = io::pipe().unwrap();
-            let pipe = Mutex::new(Some(Reading { pipe: reader, started: Some(started) }));
-            let listing: Listing = Box::new(std::iter::once(Ok(Some(root.join("pipe").as_path().to_path_buf()))));
-            let open: Opener = Box::new(move |_| Ok(Box::new(pipe.lock().unwrap().take().unwrap()) as Box<dyn Read + Send>));
-            (listing, open, in_read, Box::new(writer))
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::ffi::OsStrExt as _;
-            let fifo = root.join("fifo").as_path().to_path_buf();
-            let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
-            // SAFETY: a NUL-terminated path.
-            assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0, "{}", io::Error::last_os_error());
-            let started = Mutex::new(Some(started));
-            let listing: Listing = Box::new(std::iter::once(Ok(Some(fifo))));
-            let open: Opener = Box::new(move |path| {
-                let opened = open_to_search(path);
-                if let Some(started) = started.lock().unwrap().take() {
-                    let _ = started.send(());
-                }
-                opened
-            });
-            (listing, open, in_read, Box::new(()))
-        }
-    }
-
-    /// A producer held in a real blocking read (a pipe whose writer never writes, [`blocked_read`]) is cancelled once its
-    /// stream lets go of it: the read fails, the thread ends and frees its slot, and the next search, which had no slot,
-    /// runs. On Unix this is the FIFO's `poll` ended by the thread's interrupt, no signal.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_producer_in_a_blocked_pipe_read_is_cancelled_and_its_slot_serves_the_next_search() {
-        let (_dir, root) = root();
-        let file = root.join("a.txt").as_path().to_path_buf();
-        std::fs::write(&file, "needle\n").unwrap();
-        let producers = Arc::new(Producers::new(scheduler(1, NODE_QUEUE, CLOSE_GRACE)));
-        let (listing, open, in_read, writer) = blocked_read(&root);
-        let mut blocked = search_over(&producers, &needle_request(&root, None), listing, open);
-        within("the producer in its pipe read", in_read).await.unwrap();
-        let listing: Listing = Box::new(std::iter::once(Ok(Some(file.clone()))));
-        let open: Opener = Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>));
-        let mut next = search_over(&producers, &needle_request(&root, None), listing, open);
-        assert_eq!(producers.counts(), ProducerCounts { live: 1, waiting: 1, ..Default::default() }, "the next search has no slot");
-        blocked.close().await;
-        // Cancelled within the grace: it ended, nothing was given up, and its slot went to the waiting search.
-        until(&producers, "the producer in its pipe read is cancelled and ends", |c| c == ProducerCounts { live: 1, ..Default::default() }).await;
-        let hit = within("the next search's match", next.next()).await.unwrap().unwrap();
-        assert_eq!((hit.path.as_path(), hit.line), (file.as_path(), 1));
-        assert!(within("the next search's end", next.next()).await.is_none());
-        next.close().await;
-        drop(writer);
-    }
-
-    /// Past the slots, searches wait while fewer than the queue's capacity wait; the next is refused as Node's server
-    /// refuses it, a bulk one already at the capacity less its reserve (9 less 2), and a walk Node does not queue runs on
-    /// its own slots. Once the slot frees, the waiting searches run and the queue takes searches again.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_search_past_the_queue_capacity_is_refused_as_saturated_and_the_queue_recovers() {
-        const QUEUE: usize = 9;
-        let (_dir, root) = root();
-        let file = root.join("a.txt").as_path().to_path_buf();
-        std::fs::write(&file, "needle\n").unwrap();
-        let producers = Arc::new(Producers::new(scheduler(1, QUEUE, CLOSE_GRACE)));
-        let (listing, open, in_read, writer) = blocked_read(&root);
-        let mut blocked = search_over(&producers, &needle_request(&root, None), listing, open);
-        within("the producer in its pipe read", in_read).await.unwrap();
-        let one_file = |class| {
-            let listing: Listing = Box::new(std::iter::once(Ok(Some(file.clone()))));
-            let open: Opener = Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>));
-            search_over(&producers, &SearchRequest { class, ..needle_request(&root, None) }, listing, open)
-        };
-        let saturated = |item: Option<Result<SearchMatch, FsError>>| matches!(item, Some(Err(FsError { kind: FsErrorKind::Saturated, .. })));
-        let mut waiting: Vec<_> = (0..7).map(|_| one_file(SearchClass::Interactive)).collect();
-        assert!(saturated(within("a bulk search past 7 waiting", one_file(SearchClass::Bulk).next()).await));
-        waiting.extend((0..2).map(|_| one_file(SearchClass::Fuzzy)));
-        assert_eq!(producers.counts(), ProducerCounts { live: 1, waiting: QUEUE, ..Default::default() });
-        assert!(saturated(within("a search past 9 waiting", one_file(SearchClass::Interactive).next()).await));
-        assert!(saturated(within("a fuzzy search past 9 waiting", one_file(SearchClass::Fuzzy).next()).await));
-        let walking = walking(&listing_request(&root, Vec::new()), Box::new(tree::RealDirs)).unwrap();
-        let origin = Origin::new(None, root.as_path(), "file inventory");
-        let mut walk = streamed(&producers, Box::new(walking), Deadline::default(), origin, false);
-        assert_eq!(producers.counts().waiting, QUEUE, "a walk Node does not queue runs at once");
-        let mut walked = Vec::new();
-        while let Some(entry) = within("the walk's entries", walk.next()).await {
-            walked.push(entry.unwrap().path);
-        }
-        assert!(walked.iter().any(|p| p.as_path() == file.as_path()), "{walked:?}");
-        walk.close().await;
-        blocked.close().await;
-        until(&producers, "the slot goes to the first waiting search", |c| c == ProducerCounts { live: 1, waiting: QUEUE - 1, ..Default::default() }).await;
-        for stream in &mut waiting {
-            let hit = within("a waiting search's match", stream.next()).await.unwrap().unwrap();
-            assert_eq!((hit.path.as_path(), hit.line), (file.as_path(), 1));
-            assert!(within("a waiting search's end", stream.next()).await.is_none());
-            stream.close().await;
-        }
-        let mut again = one_file(SearchClass::Bulk);
-        assert!(within("the queue takes searches again", again.next()).await.unwrap().is_ok());
-        again.close().await;
-        until(&producers, "every producer ends", |c| c == ProducerCounts::default()).await;
-        drop(writer);
-    }
-
-    /// The native traversal over a real directory of 2,000 files: every file, in path order.
-    #[tokio::test]
-    async fn a_walk_lists_a_directory_of_two_thousand_files_in_path_order() {
-        let (_dir, root) = root();
-        let dir = root.join("many");
-        std::fs::create_dir(dir.as_path()).unwrap();
-        for i in 0..2_000 {
-            std::fs::File::create(dir.as_path().join(format!("{i:04}.txt"))).unwrap();
-        }
-        let fs = LocalFileService::new();
-        let request = WalkRequest { root: root.clone(), recursive: true, include_dirs: false, include_hidden: true, respect_ignore: false, require_git: true, prune: Vec::new(), descent: Default::default(), server: None };
-        let mut walk = fs.walk(lanes().maintenance, request);
-        let mut names = Vec::new();
-        while let Some(entry) = walk.next().await {
-            names.push(entry.unwrap().path.as_path().file_name().unwrap().to_string_lossy().into_owned());
-        }
-        walk.close().await;
-        let expected: Vec<String> = (0..2_000).map(|i| format!("{i:04}.txt")).collect();
-        assert_eq!(names, expected);
     }
 }

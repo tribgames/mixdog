@@ -71,8 +71,6 @@ impl fmt::Display for ConsoleLevelError {
     }
 }
 
-impl std::error::Error for ConsoleLevelError {}
-
 /// An error the page itself is answerable for.
 fn is_page_error(entry: &ConsoleEntry) -> bool {
     entry.level == ConsoleLevel::Error && !entry.internal
@@ -351,3 +349,6 @@ mod tests {
         assert_eq!(ledger.since_last_report(1), ["again"]);
     }
 }
+
+
+impl std::error::Error for ConsoleLevelError {}

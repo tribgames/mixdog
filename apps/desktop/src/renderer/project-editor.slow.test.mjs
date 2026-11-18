@@ -67,6 +67,9 @@ test('project memory opens from one catalog, survives tabs and refreshes all sco
                 return new Promise((resolve, reject) => { requests.push({ resolve, reject }); });
               }
               writes.push(input);
+              if (input.op === 'edit' && input.target_project_id === 'alpha-scope') {
+                return Promise.resolve('core edit failed: Destination memory scope changed. Refresh the instructions and try again.');
+              }
               return Promise.resolve('core saved');
             }}
           /></div>
@@ -288,13 +291,22 @@ test('project memory opens from one catalog, survives tabs and refreshes all sco
   assert.deepEqual(
     await page.evaluate(() => ({
       op: window.fixture.writes[0].op,
-      from: window.fixture.writes[0].cwd,
+      from: window.fixture.writes[0].project_id,
       to: window.fixture.writes[0].target_project_id,
+      folder: window.fixture.writes[0].destination_cwd ?? null,
       verbatim: window.fixture.writes[0].verbatim,
       revision: window.fixture.writes[0].index_revision,
       summary: window.fixture.writes[0].summary,
     })),
-    { op: 'edit', from: 'a', to: 'common', verbatim: true, revision: 'alpha-v1', summary: 'Alpha memory edited' }
+    {
+      op: 'edit',
+      from: 'alpha-scope',
+      to: 'common',
+      folder: null,
+      verbatim: true,
+      revision: 'alpha-v1',
+      summary: 'Alpha memory edited',
+    }
   );
   await page.waitForFunction(() => window.fixture.reads.length === 3);
   const moved = { id: 1, summary: 'Alpha memory edited', project_id: null, index_revision: 'common-v2' };
@@ -331,7 +343,8 @@ test('project memory opens from one catalog, survives tabs and refreshes all sco
     op: 'add',
     summary: 'New Beta rule',
     verbatim: true,
-    cwd: 'b',
+    project_id: 'beta-scope',
+    destination_cwd: 'b',
   });
   await settle(4, [
     { ...beta, index_revision: 'beta-v2' },
@@ -340,6 +353,19 @@ test('project memory opens from one catalog, survives tabs and refreshes all sco
   await page.waitForSelector('.projects-memory-add-row', { hidden: true });
   await close();
   await open('Beta');
+  assert.deepEqual(await page.$$eval('.core-memory-edit textarea', (els) => els.map((el) => el.value)), [
+    'Beta memory',
+    'New Beta rule',
+  ]);
+  await page.select('.core-memory-edit select', 'a');
+  await page.click('.core-memory-edit .core-memory-actions button');
+  await page.waitForFunction(() =>
+    document.querySelector('.projects-edit-dialog')?.textContent.includes('Destination memory scope changed')
+  );
+  assert.deepEqual(await page.evaluate(() => {
+    const { target_project_id, destination_cwd, index_revision } = window.fixture.writes[3];
+    return { target_project_id, destination_cwd, index_revision };
+  }), { target_project_id: 'alpha-scope', destination_cwd: 'a', index_revision: 'beta-v2' });
   assert.deepEqual(await page.$$eval('.core-memory-edit textarea', (els) => els.map((el) => el.value)), [
     'Beta memory',
     'New Beta rule',

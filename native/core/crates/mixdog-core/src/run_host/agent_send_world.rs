@@ -420,13 +420,6 @@ mod tests {
 
     use super::*;
 
-    const GOLDEN: &str = include_str!("../../../../fixtures/agent-send/golden.json");
-
-    fn golden(case: &str) -> String {
-        let value: Value = serde_json::from_str(GOLDEN).unwrap();
-        value["cases"][case]["error"].as_str().unwrap().to_owned()
-    }
-
     fn row(value: Value) -> Row {
         value.as_object().unwrap().clone()
     }
@@ -638,22 +631,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_refusals_are_the_agent_trees_messages() {
-        let live = Live { work: vec!["sess_c".into()], ..Live::default() };
-        let refused = rig(vec![child("sess_c")], live, false, vec![]);
-        let session = json!({ "id": "sess_c" });
-        assert_eq!(refused.world.enqueue_turn(&session, "again", &[], None).await.unwrap_err(), golden("enqueueRefused"));
-        let closed = row(json!({ "id": "sess_x", "parentSessionId": "sess_parent", "owner": "agent", "closed": true }));
-        let rig = rig(vec![closed], Live::default(), true, vec![]);
-        for (id, case) in [("sess_x", "closed"), ("sess_unknown", "unknown")] {
-            let session = json!({ "id": id });
-            assert_eq!(rig.world.enqueue_turn(&session, "x", &[], None).await.unwrap_err(), golden(if case == "closed" { "enqueueClosed" } else { "enqueueUnknown" }));
-            let route = json!({ "provider": "p", "model": "m" });
-            assert_eq!(rig.world.set_route(&session, &route).await.unwrap_err(), golden(if case == "closed" { "setRouteClosed" } else { "setRouteUnknown" }));
-        }
-    }
-
-    #[tokio::test]
     async fn forwarded_files_are_sized_by_their_stored_file_and_ride_with_the_context() {
         let live = Live { work: vec!["sess_c".into()], ..Live::default() };
         let rig = rig(vec![child("sess_c")], live, true, vec![]);
@@ -764,5 +741,30 @@ mod tests {
         assert_eq!(written[0].0, "sess_c");
         assert_eq!(written[0].1.get("run"), Some(&Value::Null));
         assert_eq!(written[0].2, Some(3.0), "the save is issued for the generation of the record it was computed from (`delegation.mjs:227`)");
+    }
+
+
+    #[cfg(node_twin)]
+    const GOLDEN: &str = include_str!("../../../../fixtures/agent-send/golden.json");
+    #[cfg(node_twin)]
+    fn golden(case: &str) -> String {
+        let value: Value = serde_json::from_str(GOLDEN).unwrap();
+        value["cases"][case]["error"].as_str().unwrap().to_owned()
+    }
+    #[tokio::test]
+    #[cfg(node_twin)]
+    async fn the_refusals_are_the_agent_trees_messages() {
+        let live = Live { work: vec!["sess_c".into()], ..Live::default() };
+        let refused = rig(vec![child("sess_c")], live, false, vec![]);
+        let session = json!({ "id": "sess_c" });
+        assert_eq!(refused.world.enqueue_turn(&session, "again", &[], None).await.unwrap_err(), golden("enqueueRefused"));
+        let closed = row(json!({ "id": "sess_x", "parentSessionId": "sess_parent", "owner": "agent", "closed": true }));
+        let rig = rig(vec![closed], Live::default(), true, vec![]);
+        for (id, case) in [("sess_x", "closed"), ("sess_unknown", "unknown")] {
+            let session = json!({ "id": id });
+            assert_eq!(rig.world.enqueue_turn(&session, "x", &[], None).await.unwrap_err(), golden(if case == "closed" { "enqueueClosed" } else { "enqueueUnknown" }));
+            let route = json!({ "provider": "p", "model": "m" });
+            assert_eq!(rig.world.set_route(&session, &route).await.unwrap_err(), golden(if case == "closed" { "setRouteClosed" } else { "setRouteUnknown" }));
+        }
     }
 }

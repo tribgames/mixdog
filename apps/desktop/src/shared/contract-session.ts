@@ -109,7 +109,9 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   model: string | null;
   effort?: string | null;
   fast?: boolean | null;
-  /** Per-route Auto reasoning; absent means on, only `false` turns it off. */
+  /** These route fields describe a request of the current turn, not its saved configuration. */
+  routeObserved?: boolean;
+  /** Per-route Auto reasoning; for an observed request, only present if its configuration is known. */
   autoEffort?: boolean | null;
   status: string;
   stage: string;
@@ -337,7 +339,15 @@ export type DesktopSessionStateUpdate = {
    *  it repainted a live task as an empty New Task
    *  (user: 진행중인 TASK창이 갑자기 NEWTASK처럼 아예 비어버린다). */
   laneEnd?: DesktopSessionLaneEnd;
+  /** The session feed position the published state is current at: what the lane has folded, every notification counted (those
+   *  that schedule no frame too). A live publication of a followed thread carries it, so a call's preview ends exactly when
+   *  the state its mutation produced is shown. */
+  streamPosition?: DesktopStreamPosition;
 };
+
+/** A position in one session's ordered feed (the protocol client's `StreamPosition`): its subscription epoch, that epoch's
+ *  order among the epochs this window received, and the notification seq within it. */
+export type DesktopStreamPosition = { readonly epoch: string; readonly seq: number; readonly order: number };
 
 /** A historical-position read: the rows directly older than row `before`, or
  *  newer than row `after`, at most `limit` (DESKTOP_TRANSCRIPT_HISTORY_PAGE_ITEMS)
@@ -347,8 +357,7 @@ export interface DesktopTranscriptHistoryRequest {
   after?: string;
   limit: number;
   byteBudget?: number;
-  /** The boundary row's position, as an earlier answer named it
-   *  (`positions`): a spilled or archived row is then read where it is. */
+  /** The boundary row's position as an earlier answer named it (`positions` or `positionEdges`). */
   position?: string;
 }
 
@@ -360,12 +369,19 @@ export interface DesktopTranscriptHistoryPage {
   hasNewer: boolean;
   /** Per row (aligned with `items`): its position, or null when it needs none. */
   positions?: (string | null)[];
+  /** Both ends of a grouped row, independent of the direction that fetched it. */
+  positionEdges?: ({ before?: string; after?: string } | null)[];
   reset?: boolean;
   unsupported?: boolean;
 }
 
 /** The most rows one historical-position read carries. */
 export const DESKTOP_TRANSCRIPT_HISTORY_PAGE_ITEMS = 512;
+
+export const CORE_TRANSCRIPT_HISTORY_POSITION = /^h1:\d{1,10}:[^\r\n]{1,512}$/;
+export const validTranscriptHistoryPosition = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  (/^(?:s:\d{1,15}:\d{1,15}|a:\d{1,15}:\d{1,15}:\d{1,15})$/.test(value) || CORE_TRANSCRIPT_HISTORY_POSITION.test(value));
 
 export type DesktopSessionFrameSource = 'live' | 'replay';
 export type DesktopSessionLaneEnd = 'gone' | 'unloaded' | 'disconnected';

@@ -24,7 +24,7 @@ import { settleFrames } from '../probe-settle';
 const root = createRoot(document.getElementById('root')!);
 const noop = () => {};
 const asyncNoop = async () => {};
-const projectPath = 'C:\\Project\\mixdog';
+const projectPath = 'C:\\Project\\sample';
 const projects = [
   { path: projectPath, name: 'mixdog', alias: null },
   { path: 'C:\\Project\\long-project-name', name: 'long-project-name', alias: '긴 프로젝트 이름과 레이아웃 검증' },

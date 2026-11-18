@@ -395,6 +395,66 @@ pub struct HostComputerPermissionsResult {
     pub linux: Option<JsonValue>,
 }
 
+/// Params of `host/computer/revokeScopes` (core -> host): automation scopes Computer Use switched off has revoked. Every other
+/// `host/computer/*` request of a session names its scope as `automationScope` (a whole number); the desktop keeps a revocable
+/// context per scope and connection, commits its effects under it, and answers this once its contexts of `scopes` refuse every
+/// effect. A revoked scope never holds again; one first named here is born revoked.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostComputerRevokeScopesParams {
+    pub scopes: Vec<u64>,
+}
+
+/// Result of `host/computer/revokeScopes`: how many scopes it revoked, and the desktop's report of each. An answer without `reports`
+/// (an older desktop) states no scope's closure: the core reads it as unconfirmed.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostComputerRevokeScopesResult {
+    pub revoked: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reports: Option<Vec<HostComputerScopeReport>>,
+}
+
+/// The desktop's acknowledgement of one revoked scope (the same shape as the native helper's report line).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+pub struct HostComputerScopeReport {
+    pub scope: u64,
+    /// The scope's report revision at the desktop: 1 for its first revocation's report, one more at each change after it. The
+    /// core applies a report only when its revision is newer than the one it holds (absent from an older desktop: 0).
+    #[serde(default)]
+    pub revision: u64,
+    /// Whether the desktop's context of the scope refuses every effect from now on.
+    pub admission: HostComputerScopeAdmission,
+    /// Calls handed over under the scope and unfinished at its first closure: a diagnostic, not a promise.
+    pub unfinished_at_closure: u64,
+    /// Those still unfinished at this answer.
+    pub unfinished: u64,
+    pub cleanup: HostComputerScopeCleanup,
+    /// Executors below the desktop whose closure is not known yet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unknown_executors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum HostComputerScopeAdmission {
+    Closed,
+    Unconfirmed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum HostComputerScopeCleanup {
+    Pending,
+    Complete,
+    Unconfirmed,
+}
+
 /// Params of `host/computer/command` (core -> host, dual path only): a whole bridge command, as
 /// `computer-bridge/client.mjs` posts it. Answered only while the desktop runs the legacy Windows PowerShell host.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -420,6 +480,15 @@ pub struct HostComputerCommandResult {
     pub is_error: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+/// Params of `host/computer/scopeReport` (desktop -> core notification): a revoked scope's report changed after the answer to
+/// `host/computer/revokeScopes` (its snapshot): an ordinary release or a compensation returned, an executor ended.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostComputerScopeReportParams {
+    pub report: HostComputerScopeReport,
 }
 
 /// Params of `computer/pointerReleased` (desktop -> core notification): the user moved the real pointer over an agent
@@ -517,6 +586,20 @@ mod tests {
 
     fn control(value: serde_json::Value) -> ComputerUserControlParams {
         serde_json::from_value(value).expect("params")
+    }
+
+    #[test]
+    fn an_older_revoke_answer_decodes_without_reports_and_a_new_one_with_them() {
+        let old: HostComputerRevokeScopesResult = serde_json::from_value(json!({ "revoked": 2 })).expect("old answer");
+        assert_eq!(old.reports, None);
+        let new: HostComputerRevokeScopesResult = serde_json::from_value(json!({
+            "revoked": 1,
+            "reports": [{ "scope": 7, "admission": "closed", "unfinished_at_closure": 1, "unfinished": 0, "cleanup": "complete" }],
+        }))
+        .expect("new answer");
+        let report = &new.reports.as_deref().expect("reports")[0];
+        assert_eq!((report.scope, report.admission, report.cleanup), (7, HostComputerScopeAdmission::Closed, HostComputerScopeCleanup::Complete));
+        assert!(report.unknown_executors.is_empty());
     }
 
     #[test]

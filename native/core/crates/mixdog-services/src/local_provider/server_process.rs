@@ -216,6 +216,9 @@ impl ServerProcess {
     }
 
     async fn start(&self, spec: StartSpec, cancel: CancellationToken) -> Result<Value, String> {
+        if cancel.is_cancelled() {
+            return Err("aborted".into());
+        }
         let current = self.owner.lock().unwrap().current.clone();
         if let Some(c) = &current
             && c.key == spec.key && c.inner.lock().unwrap().ready && !c.has_exited() {
@@ -237,6 +240,9 @@ impl ServerProcess {
             return Err("aborted".into());
         }
         let port = self.health.free_port().await?;
+        if cancel.is_cancelled() {
+            return Err("aborted".into());
+        }
         let api_key: String = (0..2).map(|_| uuid::Uuid::new_v4().simple().to_string()).collect();
         let args = (spec.args)(port, &api_key);
         let log_sink: Arc<Mutex<String>> = Arc::default();
@@ -377,7 +383,7 @@ impl ServerProcess {
     }
 
     /// Starts (or reuses) the server for `spec`; `{baseURL, apiKey}` once it is ready.
-    pub async fn ensure(&self, spec: StartSpec, cancel: Option<CancellationToken>) -> Result<Value, String> {
+    pub async fn ensure(self: &Arc<Self>, spec: StartSpec, cancel: Option<CancellationToken>) -> Result<Value, String> {
         let token = cancel.unwrap_or_default().child_token();
         if token.is_cancelled() {
             return Err("aborted".into());
@@ -389,18 +395,26 @@ impl ServerProcess {
             pending.1.push((ticket, token.clone()));
             ticket
         };
-        let result = {
+        // The attempt's caller can drop this future. Signal cancellation, but let the
+        // worker retain the serial lane until it has stopped and reaped any starting child.
+        let leaving = token.clone().drop_guard();
+        let server = self.clone();
+        let result = tokio::spawn(async move {
             let lane = tokio::select! {
-                lane = self.serial.acquire() => Some(lane),
+                biased;
                 _ = token.cancelled() => None,
+                lane = server.serial.acquire() => Some(lane),
             };
-            match lane {
-                None => Err("aborted".into()),
-                Some(_lane) => self.start(spec, token.clone()).await,
-            }
-        };
-        self.pending.lock().unwrap().1.retain(|(id, _)| *id != ticket);
-        result
+            let result = if lane.is_some() {
+                server.start(spec, token).await
+            } else {
+                Err("aborted".into())
+            };
+            server.pending.lock().unwrap().1.retain(|(id, _)| *id != ticket);
+            result
+        }).await;
+        leaving.disarm();
+        result.map_err(|e| format!("[local-provider] startup task failed: {e}"))?
     }
 
     /// Cancels loading work first (never queued behind it), then stops the child.
@@ -499,12 +513,11 @@ impl Launcher for SystemLauncher {
             owner: ProcessOwner::Internal,
             time_limit: None,
         };
-        let spawned = self.0.spawn(request).await.map_err(|e| match e {
+        let (spawned, mut events) = self.0.spawn_subscribed(request).await.map_err(|e| match e {
             ProcessError::ProgramNotFound { .. } => format!("{program}: program not found"),
             ProcessError::PermissionDenied => format!("{program}: permission denied"),
             other => format!("{program}: could not start ({other:?})"),
         })?;
-        let mut events = self.0.subscribe(&handle, Some(0)).map_err(|e| format!("{program}: {e:?}"))?;
         let (tx, rx) = tokio::sync::watch::channel(None);
         tokio::spawn(async move {
             while let Some(event) = events.next().await {
@@ -657,15 +670,15 @@ mod tests {
         }
     }
 
-    fn server(healthy: bool) -> (ServerProcess, Arc<FakeLauncher>, Arc<FakeHealth>) {
+    fn server(healthy: bool) -> (Arc<ServerProcess>, Arc<FakeLauncher>, Arc<FakeHealth>) {
         server_stopping_after(healthy, Duration::from_secs(1))
     }
 
-    fn server_stopping_after(healthy: bool, stop_timeout: Duration) -> (ServerProcess, Arc<FakeLauncher>, Arc<FakeHealth>) {
+    fn server_stopping_after(healthy: bool, stop_timeout: Duration) -> (Arc<ServerProcess>, Arc<FakeLauncher>, Arc<FakeHealth>) {
         let launcher = Arc::new(FakeLauncher::default());
         let health = Arc::new(FakeHealth(AtomicBool::new(healthy)));
         let timing = Timing { start_timeout: Duration::from_secs(5), stop_timeout, poll: Duration::from_millis(10) };
-        (ServerProcess::new(launcher.clone(), health.clone(), timing, Arc::new(|_| {})), launcher, health)
+        (Arc::new(ServerProcess::new(launcher.clone(), health.clone(), timing, Arc::new(|_| {}))), launcher, health)
     }
 
     #[tokio::test(start_paused = true)]
@@ -743,49 +756,9 @@ mod tests {
         assert_eq!(error, "[local-provider] llama-server did not exit after termination");
     }
 
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/local-server-stop/golden.json")).expect("golden.json")
-    }
-
-    /// Node's real owner stopping a child that ignores its stops (`record-local-server-stop.mjs`,
-    /// fake clock): which stop went out when (SIGTERM, then SIGKILL), and what `stop()` answered
-    /// and when. The recording is of Node's calls, which do not depend on the platform; what the OS
-    /// does with them does (Windows: both are the job's forced kill).
-    async fn stop_as_recorded(ignored_stops: usize, recorded: &Value) -> Result<(), String> {
-        let golden = golden();
-        let (s, launcher, _) = server_stopping_after(true, Duration::from_millis(golden["stopTimeoutMs"].as_u64().unwrap()));
-        launcher.ignore_kills.store(ignored_stops, Ordering::SeqCst);
-        s.ensure(spec("k", Arc::new(AtomicUsize::new(0))), None).await.unwrap();
-        let process = launcher.last.lock().unwrap().clone().unwrap();
-        let began = tokio::time::Instant::now();
-        let outcome = s.stop().await;
-        let took = began.elapsed().as_millis();
-        let stops: Vec<(String, u128)> = process.kills.lock().unwrap().iter().map(|(at, signal)| ((*signal).to_owned(), (*at - began).as_millis())).collect();
-        let node: Vec<(String, u128)> =
-            recorded["kills"].as_array().unwrap().iter().map(|k| (k["signal"].as_str().unwrap().to_owned(), u128::from(k["atMs"].as_u64().unwrap()))).collect();
-        assert_eq!(stops, node, "which stop went out when");
-        assert_eq!(took, u128::from(recorded["outcome"]["atMs"].as_u64().unwrap()), "when stop() answered");
-        outcome
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_child_that_ignores_the_gentle_stop_is_killed_as_nodes_stop_does() {
-        let golden = golden();
-        let outcome = stop_as_recorded(1, &golden["stubbornTerm"]).await;
-        assert_eq!(outcome.is_ok(), golden["stubbornTerm"]["outcome"]["resolved"].as_bool().unwrap());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_child_that_ignores_both_stops_fails_the_stop_with_nodes_text_after_two_waits() {
-        let golden = golden();
-        let outcome = stop_as_recorded(usize::MAX, &golden["stubbornBoth"]).await;
-        assert_eq!(outcome.unwrap_err(), golden["stubbornBoth"]["outcome"]["message"].as_str().unwrap());
-    }
-
     #[tokio::test(start_paused = true)]
     async fn stop_cancels_a_pending_start_and_a_cancelled_caller_never_launches() {
         let (s, launcher, _) = server(false);
-        let s = Arc::new(s);
         let pending = {
             let s = s.clone();
             tokio::spawn(async move { s.ensure(spec("k", Arc::new(AtomicUsize::new(0))), None).await })
@@ -798,5 +771,89 @@ mod tests {
         let before = launcher.launched.load(Ordering::SeqCst);
         assert!(s.ensure(spec("k", Arc::new(AtomicUsize::new(0))), Some(token)).await.is_err());
         assert_eq!(launcher.launched.load(Ordering::SeqCst), before);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dropping_a_cold_start_stops_the_child_before_the_next_queued_request() {
+        struct Unloader(Arc<ServerProcess>);
+        #[async_trait]
+        impl super::super::request_queue::Unload for Unloader {
+            async fn unload(&self) -> Result<(), String> {
+                self.0.stop().await
+            }
+        }
+
+        let (server, launcher, _) = server(true);
+        let queue = super::super::request_queue::RequestQueue::new(Arc::new(Unloader(server.clone())), 0, None);
+        let started = Arc::new(tokio::sync::Notify::new());
+        let mut cold = spec("first", Arc::new(AtomicUsize::new(0)));
+        cold.on_ready = Box::new({
+            let started = started.clone();
+            move |_, cancel| Box::pin(async move {
+                started.notify_one();
+                cancel.cancelled().await;
+            })
+        });
+        let cancel = CancellationToken::new();
+        let first = tokio::spawn({
+            let (queue, server, cancel) = (queue.clone(), server.clone(), cancel.clone());
+            async move {
+                queue.run(None, move |queue_cancel| async move {
+                    tokio::select! {
+                        _ = cancel.cancelled() => None,
+                        result = server.ensure(cold, Some(queue_cancel)) => Some(result),
+                    }
+                }).await.unwrap()
+            }
+        });
+        started.notified().await;
+        let child = launcher.last.lock().unwrap().clone().unwrap();
+        cancel.cancel();
+        assert!(first.await.unwrap().is_none());
+        mixdog_rt::time::timeout(Duration::from_secs(20), child.wait()).await
+            .expect("cancellation reaps the child without another request");
+        queue.run(None, |cancel| async {
+            server.ensure(spec("first", Arc::new(AtomicUsize::new(0))), Some(cancel)).await.unwrap();
+        }).await.unwrap();
+        assert_eq!(launcher.launched.load(Ordering::SeqCst), 2);
+        assert!(child.killed.load(Ordering::SeqCst));
+        assert_eq!(server.status()["lastExit"]["expected"], true);
+        assert_eq!(queue.status()["activeRequests"], 0);
+        assert_eq!(queue.status()["queuedRequests"], 0);
+        assert!(server.pending.lock().unwrap().1.is_empty());
+        server.stop().await.unwrap();
+    }
+
+    /// Stops a server whose child ignores its first `ignored_stops` stops (stop timeout 1 s): which
+    /// stop went out at what time (ms after the call), when `stop()` answered, and what it answered.
+    async fn stop_ignoring(ignored_stops: usize) -> (Vec<(String, u128)>, u128, Result<(), String>) {
+        let (s, launcher, _) = server_stopping_after(true, Duration::from_secs(1));
+        launcher.ignore_kills.store(ignored_stops, Ordering::SeqCst);
+        s.ensure(spec("k", Arc::new(AtomicUsize::new(0))), None).await.unwrap();
+        let process = launcher.last.lock().unwrap().clone().unwrap();
+        let began = tokio::time::Instant::now();
+        let outcome = s.stop().await;
+        let took = began.elapsed().as_millis();
+        let stops = process.kills.lock().unwrap().iter().map(|(at, signal)| ((*signal).to_owned(), (*at - began).as_millis())).collect();
+        (stops, took, outcome)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_child_that_exits_on_the_gentle_stop_is_not_killed() {
+        let (stops, took, outcome) = stop_ignoring(0).await;
+        assert_eq!((stops, took, outcome), (vec![("SIGTERM".to_owned(), 0)], 0, Ok(())));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_child_that_ignores_the_gentle_stop_is_killed_after_one_stop_timeout() {
+        let (stops, took, outcome) = stop_ignoring(1).await;
+        assert_eq!((stops, took, outcome), (vec![("SIGTERM".to_owned(), 0), ("SIGKILL".to_owned(), 1000)], 1000, Ok(())));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_child_that_ignores_both_stops_fails_the_stop_after_two_waits() {
+        let (stops, took, outcome) = stop_ignoring(usize::MAX).await;
+        assert_eq!(stops, vec![("SIGTERM".to_owned(), 0), ("SIGKILL".to_owned(), 1000)]);
+        assert_eq!((took, outcome.unwrap_err()), (2000, "[local-provider] llama-server did not exit after termination".to_owned()));
     }
 }

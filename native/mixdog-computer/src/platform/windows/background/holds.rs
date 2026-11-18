@@ -6,6 +6,7 @@ use super::super::ledger::{self, WS_EX_NOACTIVATE};
 use super::super::native;
 use super::WinBackground;
 use crate::platform::Wid;
+use crate::port::windows::WinPort;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
@@ -23,14 +24,17 @@ trait Styles {
     fn foreground(&self) -> Wid;
     fn is_window(&self, root: Wid) -> bool;
     fn ex_style(&self, root: Wid) -> i32;
-    fn set_ex_style(&self, root: Wid, style: i32);
+    /// Puts the bit on through the port: whether it is set; refused once the scope is revoked.
+    fn add_bit(&self, root: Wid) -> Result<bool, String>;
+    /// Clears the bit this executor put on: whether it is clear.
+    fn clear_bit(&self, root: Wid) -> bool;
     /// Records the bit going on or off in the ledger; false when it cannot be.
     fn record(&self, added: bool, root: Wid) -> bool;
 }
 
-struct Live;
+struct Live<'a>(&'a WinPort);
 
-impl Styles for Live {
+impl Styles for Live<'_> {
     fn foreground(&self) -> Wid {
         native::foreground()
     }
@@ -40,8 +44,11 @@ impl Styles for Live {
     fn ex_style(&self, root: Wid) -> i32 {
         ledger::ex_style(root)
     }
-    fn set_ex_style(&self, root: Wid, style: i32) {
-        ledger::set_ex_style(root, style);
+    fn add_bit(&self, root: Wid) -> Result<bool, String> {
+        self.0.hold_no_activate(root)
+    }
+    fn clear_bit(&self, root: Wid) -> bool {
+        self.0.release_no_activate(root)
     }
     fn record(&self, added: bool, root: Wid) -> bool {
         ledger::record(added, root)
@@ -69,10 +76,17 @@ fn hold(holders: &mut BTreeMap<Wid, usize>, styles: &dyn Styles, root: Wid) -> (
     if !styles.record(true, root) {
         return (0, true);
     }
-    styles.set_ex_style(root, styles.ex_style(root) | WS_EX_NOACTIVATE);
-    if styles.ex_style(root) & WS_EX_NOACTIVATE == 0 {
-        styles.record(false, root);
-        return (0, true);
+    match styles.add_bit(root) {
+        Ok(true) => {}
+        Ok(false) => {
+            styles.record(false, root);
+            return (0, true);
+        }
+        // Revoked: no hold is taken, and the delivery it was for is refused at its own submission.
+        Err(_) => {
+            styles.record(false, root);
+            return (0, false);
+        }
     }
     holders.insert(root, 1);
     (root, false)
@@ -98,8 +112,7 @@ fn release(
         styles.record(false, root);
         return Ok(());
     }
-    styles.set_ex_style(root, styles.ex_style(root) & !WS_EX_NOACTIVATE);
-    if styles.ex_style(root) & WS_EX_NOACTIVATE != 0 {
+    if !styles.clear_bit(root) {
         *count = 0;
         return Err(
             "input_cleanup_unconfirmed: the background target could not be made activatable again"
@@ -126,7 +139,7 @@ fn inactive_root(handle: Wid) -> Wid {
 /// accessibility call still lands. Returns the root to release, or 0 when
 /// there is nothing to release (already foreground or non-activatable, or the
 /// window refused the style or the ledger could not record it).
-pub fn hold_inactive(handle: Wid) -> Wid {
+pub fn hold_inactive(port: &WinPort, handle: Wid) -> Wid {
     let root = inactive_root(handle);
     if root == 0 {
         return 0;
@@ -134,7 +147,7 @@ pub fn hold_inactive(handle: Wid) -> Wid {
     let mut holders = HOLDERS
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let (held, unprotected) = hold(&mut holders, &Live, root);
+    let (held, unprotected) = hold(&mut holders, &Live(port), root);
     if unprotected {
         UNPROTECTED.store(true, Ordering::SeqCst);
     }
@@ -142,14 +155,14 @@ pub fn hold_inactive(handle: Wid) -> Wid {
 }
 
 /// Ends one hold; the last holder clears the bit and reads it back.
-pub fn release_inactive(root: Wid) -> Result<(), String> {
+pub fn release_inactive(port: &WinPort, root: Wid) -> Result<(), String> {
     if root == 0 {
         return Ok(());
     }
     let mut holders = HOLDERS
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    release(&mut holders, &Live, root)
+    release(&mut holders, &Live(port), root)
 }
 
 /// Whether a hold this request asked for went unledgered or was refused;
@@ -246,9 +259,9 @@ impl WinBackground {
         deliver: impl FnOnce() -> Result<T, String>,
     ) -> Result<T, String> {
         if is_scoped(&scopes(), inactive_root(top)) {
-            let held = hold_inactive(top);
+            let held = hold_inactive(&self.port, top);
             let outcome = deliver();
-            let released = release_inactive(held);
+            let released = release_inactive(&self.port, held);
             // The release in C#'s finally throws over the delivery's error: a
             // bit left set (input_cleanup_unconfirmed) is never hidden.
             released?;
@@ -283,9 +296,9 @@ impl WinBackground {
                 guard.begin_expected(&self.shared, &scope.generation, scope.input_before)?;
                 let allowed = guard.assert_continue(&self.shared);
                 if allowed.is_ok() {
-                    // One activation try per attempt: a focus that retried would
-                    // relax the foreground lock with no input check in between.
-                    native::try_focus_attached(before);
+                    // One activation try per attempt, through the port (refused once the scope is revoked): a focus
+                    // that retried would relax the foreground lock with no input check in between.
+                    self.port.focus_try(before);
                 }
                 guard.end();
                 allowed
@@ -306,7 +319,7 @@ impl WinBackground {
             input_before: observed.sequence,
             generation: observed.generation,
             ready: observed.ready,
-            held: hold_inactive(top),
+            held: hold_inactive(&self.port, top),
         };
         scopes().push(scope);
         Ok(())
@@ -321,7 +334,7 @@ impl WinBackground {
         };
         std::thread::sleep(Duration::from_millis(SETTLE_MS));
         let recovered = self.recover_foreground(&scope);
-        let released = release_inactive(scope.held);
+        let released = release_inactive(&self.port, scope.held);
         released?;
         recovered
     }
@@ -331,12 +344,12 @@ impl WinBackground {
     /// there is nothing to release. The hold counts beside the press call's own
     /// scope, so the call's end never clears the bit.
     pub(super) fn hold_past_call(&self, window: Wid) -> Result<Wid, String> {
-        Ok(hold_inactive(window))
+        Ok(hold_inactive(&self.port, window))
     }
 
     /// Ends a hold `hold_past_call` took (ReleaseInactive).
     pub(super) fn release_past_call(&self, root: Wid) -> Result<(), String> {
-        release_inactive(root)
+        release_inactive(&self.port, root)
     }
 }
 
@@ -380,10 +393,15 @@ mod tests {
         fn ex_style(&self, _: Wid) -> i32 {
             self.style.get()
         }
-        fn set_ex_style(&self, _: Wid, style: i32) {
-            if !self.refuses || style & WS_EX_NOACTIVATE == 0 {
-                self.style.set(style);
+        fn add_bit(&self, _: Wid) -> Result<bool, String> {
+            if !self.refuses {
+                self.style.set(self.style.get() | WS_EX_NOACTIVATE);
             }
+            Ok(self.bit())
+        }
+        fn clear_bit(&self, _: Wid) -> bool {
+            self.style.set(self.style.get() & !WS_EX_NOACTIVATE);
+            !self.bit()
         }
         fn record(&self, added: bool, root: Wid) -> bool {
             if self.ledgered {
@@ -471,7 +489,12 @@ mod tests {
             fn ex_style(&self, root: Wid) -> i32 {
                 self.0.ex_style(root)
             }
-            fn set_ex_style(&self, _: Wid, _: i32) {}
+            fn add_bit(&self, root: Wid) -> Result<bool, String> {
+                self.0.add_bit(root)
+            }
+            fn clear_bit(&self, _: Wid) -> bool {
+                false
+            }
             fn record(&self, added: bool, root: Wid) -> bool {
                 self.0.record(added, root)
             }

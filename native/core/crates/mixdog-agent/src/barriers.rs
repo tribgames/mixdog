@@ -47,11 +47,14 @@ pub(crate) fn is_mutation(name: &str, args: &JsonValue) -> bool {
     matches!(bare(name).to_lowercase().as_str(), "apply_patch" | "edit") || is_git_mutation(name, args)
 }
 
-/// The file an edit targets, resolved and case-folded (`_editPathKey`); `None` when the call does not say.
-pub(crate) fn edit_path_key(args: &JsonValue, cwd: &Path) -> Option<String> {
-    let raw = args.get("file_path").or_else(|| args.get("path")).or_else(|| args.get("file"))?.as_str()?;
-    let text = mixdog_js::js_trim(raw);
-    (!text.is_empty()).then(|| crate::tools::resolve_lexically(text, cwd).replace('\\', "/").to_lowercase())
+/// Shell invalidates result reuse, but a failed shell must not become a
+/// failed-patch dependency for other mutating calls.
+pub(crate) fn invalidates_reuse(name: &str, args: &JsonValue) -> bool {
+    is_shell(name) || is_mutation(name, args) || bare(name) == "write"
+}
+
+pub(crate) fn uses_result_cache(name: &str) -> bool {
+    matches!(bare(name), "read" | "grep" | "glob" | "list" | "code_graph")
 }
 
 struct Started {
@@ -59,6 +62,7 @@ struct Started {
     /// `Some(key)` for an edit: its file, or `None` when it names none.
     edit: Option<Option<String>>,
     mutation: bool,
+    invalidates_reuse: bool,
     git_mutation: bool,
     done: watch::Receiver<bool>,
     failed: Arc<AtomicBool>,
@@ -239,7 +243,47 @@ pub(crate) struct Barriers {
     pub(crate) locks: EditLocks,
 }
 
+#[cfg(test)]
+mod tests {
+    use futures::FutureExt;
+
+    use super::*;
+
+    /// The holder of a file's lock gives it up when its task is cancelled or panics.
+    #[tokio::test]
+    async fn a_cancelled_or_panicking_holder_releases_the_file() {
+        let locks = EditLocks::default();
+        let (mut first, mut second, mut third) = locks.with(|st| (st.take("k"), st.take("k"), st.take("k")));
+        first.ready().now_or_never().expect("the first place is free");
+        assert!(second.ready().now_or_never().is_none(), "the second place waits while the first is held");
+        let cancelled = tokio::spawn(async move {
+            let _held = first;
+            std::future::pending::<()>().await;
+        });
+        cancelled.abort();
+        assert!(cancelled.await.unwrap_err().is_cancelled());
+        second.ready().now_or_never().expect("a cancelled holder released the file");
+        assert!(third.ready().now_or_never().is_none());
+        let panicked = tokio::spawn(async move {
+            let _held = second;
+            panic!("the holder panics");
+        });
+        assert!(panicked.await.unwrap_err().is_panic());
+        third.ready().now_or_never().expect("a panicking holder released the file");
+    }
+}
+
+/// The file an edit targets, resolved and case-folded (`_editPathKey`); `None` when the call does not say.
+pub(crate) fn edit_path_key(args: &JsonValue, cwd: &Path) -> Option<String> {
+    let raw = args.get("file_path").or_else(|| args.get("path")).or_else(|| args.get("file"))?.as_str()?;
+    let text = mixdog_js::js_trim(raw);
+    (!text.is_empty()).then(|| crate::tools::resolve_lexically(text, cwd).replace('\\', "/").to_lowercase())
+}
 impl Barriers {
+    pub(crate) fn has_reuse_invalidator(&self) -> bool {
+        self.started.iter().any(|call| call.invalidates_reuse)
+    }
+
     pub(crate) fn preceding_for(&self, name: &str, args: &JsonValue, cwd: &Path) -> Preceding {
         let git_mutation = is_git_mutation(name, args);
         let mutation = is_mutation(name, args);
@@ -272,6 +316,7 @@ impl Barriers {
             id: id.to_owned(),
             edit: is_edit(name).then(|| edit_path_key(args, cwd)),
             mutation: is_mutation(name, args),
+            invalidates_reuse: invalidates_reuse(name, args),
             git_mutation: is_git_mutation(name, args),
             done,
             failed,
@@ -281,35 +326,5 @@ impl Barriers {
     pub(crate) fn clear(&mut self) {
         self.started.clear();
         self.locks = EditLocks::default();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use futures::FutureExt;
-
-    use super::*;
-
-    /// The holder of a file's lock gives it up when its task is cancelled or panics.
-    #[tokio::test]
-    async fn a_cancelled_or_panicking_holder_releases_the_file() {
-        let locks = EditLocks::default();
-        let (mut first, mut second, mut third) = locks.with(|st| (st.take("k"), st.take("k"), st.take("k")));
-        first.ready().now_or_never().expect("the first place is free");
-        assert!(second.ready().now_or_never().is_none(), "the second place waits while the first is held");
-        let cancelled = tokio::spawn(async move {
-            let _held = first;
-            std::future::pending::<()>().await;
-        });
-        cancelled.abort();
-        assert!(cancelled.await.unwrap_err().is_cancelled());
-        second.ready().now_or_never().expect("a cancelled holder released the file");
-        assert!(third.ready().now_or_never().is_none());
-        let panicked = tokio::spawn(async move {
-            let _held = second;
-            panic!("the holder panics");
-        });
-        assert!(panicked.await.unwrap_err().is_panic());
-        third.ready().now_or_never().expect("a panicking holder released the file");
     }
 }

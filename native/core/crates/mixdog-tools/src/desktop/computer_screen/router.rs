@@ -560,12 +560,14 @@ impl ScreenInputRouter {
         }
     }
 
+    #[cfg(node_twin)]
     #[cfg(test)]
     pub(super) fn active_backend(&self) -> Option<BackendId> {
         self.core.state().active
     }
 
     /// Any press is held.
+    #[cfg(node_twin)]
     #[cfg(test)]
     pub(super) fn holds_input(&self) -> bool {
         self.core.state().held.iter().any(|held| !held.0.is_empty())

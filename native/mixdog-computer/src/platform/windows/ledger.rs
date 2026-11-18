@@ -8,8 +8,8 @@ use crate::platform::Wid;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, IsWindowEnabled};
-use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongW, SetWindowLongW, GWL_EXSTYLE};
+use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
+use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongW, GWL_EXSTYLE};
 
 pub(super) const WS_EX_NOACTIVATE: i32 = 0x0800_0000;
 
@@ -18,20 +18,10 @@ pub(super) fn ex_style(root: Wid) -> i32 {
     unsafe { GetWindowLongW(hwnd(root), GWL_EXSTYLE) }
 }
 
-pub(super) fn set_ex_style(root: Wid, style: i32) {
-    // SAFETY: plain value arguments.
-    unsafe { SetWindowLongW(hwnd(root), GWL_EXSTYLE, style) };
-}
-
 /// Whether the window accepts input (false for a gone window too).
 pub(super) fn is_enabled(root: Wid) -> bool {
     // SAFETY: plain value argument.
     unsafe { IsWindowEnabled(hwnd(root)) }.as_bool()
-}
-
-pub(super) fn set_enabled(root: Wid, enabled: bool) {
-    // SAFETY: plain value arguments.
-    let _ = unsafe { EnableWindow(hwnd(root), enabled) };
 }
 
 /// The ledger's event kinds: the no-activate bit added or cleared, the
@@ -119,9 +109,11 @@ trait Roots {
     fn pid(&self, root: Wid) -> u32;
     fn class(&self, root: Wid) -> String;
     fn ex_style(&self, root: Wid) -> i32;
-    fn set_ex_style(&self, root: Wid, style: i32);
+    /// Only ever clears the bit: a replay puts back, it never holds.
+    fn clear_no_activate(&self, root: Wid);
     fn is_enabled(&self, root: Wid) -> bool;
-    fn set_enabled(&self, root: Wid, enabled: bool);
+    /// Only ever enables: a replay never disables a window.
+    fn enable(&self, root: Wid);
 }
 
 struct Live;
@@ -139,14 +131,14 @@ impl Roots for Live {
     fn ex_style(&self, root: Wid) -> i32 {
         ex_style(root)
     }
-    fn set_ex_style(&self, root: Wid, style: i32) {
-        set_ex_style(root, style);
+    fn clear_no_activate(&self, root: Wid) {
+        crate::port::windows::restore_recorded::clear_no_activate(root);
     }
     fn is_enabled(&self, root: Wid) -> bool {
         is_enabled(root)
     }
-    fn set_enabled(&self, root: Wid, enabled: bool) {
-        set_enabled(root, enabled);
+    fn enable(&self, root: Wid) {
+        crate::port::windows::restore_recorded::enable(root);
     }
 }
 
@@ -162,7 +154,7 @@ fn clear_recorded(text: &str, roots: &dyn Roots) -> bool {
             continue;
         }
         if !roots.is_enabled(root) {
-            roots.set_enabled(root, true);
+            roots.enable(root);
             if !roots.is_enabled(root) {
                 clean = false;
             }
@@ -173,11 +165,10 @@ fn clear_recorded(text: &str, roots: &dyn Roots) -> bool {
         if owner == 0 || owner.to_string() != pid || field(&roots.class(root)) != class {
             continue;
         }
-        let style = roots.ex_style(root);
-        if style & WS_EX_NOACTIVATE == 0 {
+        if roots.ex_style(root) & WS_EX_NOACTIVATE == 0 {
             continue;
         }
-        roots.set_ex_style(root, style & !WS_EX_NOACTIVATE);
+        roots.clear_no_activate(root);
         if roots.ex_style(root) & WS_EX_NOACTIVATE != 0 {
             clean = false;
         }
@@ -298,19 +289,19 @@ mod tests {
         fn ex_style(&self, root: Wid) -> i32 {
             self.windows.borrow().get(&root).map_or(0, |window| window.2)
         }
-        fn set_ex_style(&self, root: Wid, style: i32) {
+        fn clear_no_activate(&self, root: Wid) {
             if self.stuck.contains(&root) {
                 return;
             }
             if let Some(window) = self.windows.borrow_mut().get_mut(&root) {
-                window.2 = style;
+                window.2 &= !WS_EX_NOACTIVATE;
             }
         }
         fn is_enabled(&self, root: Wid) -> bool {
             !self.disabled.borrow().contains(&root)
         }
-        fn set_enabled(&self, root: Wid, enabled: bool) {
-            if enabled && !self.stuck.contains(&root) {
+        fn enable(&self, root: Wid) {
+            if !self.stuck.contains(&root) {
                 self.disabled.borrow_mut().retain(|r| *r != root);
             }
         }

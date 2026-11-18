@@ -41,6 +41,16 @@ const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve
 
 test('a document card shows the drawn sheet while converting, then the first page with its page count and size', async () => {
   let release;
+  const { createObjectURL, revokeObjectURL } = URL;
+  const created = [];
+  const revoked = [];
+  URL.createObjectURL = (blob) => {
+    assert.equal(blob.type, 'image/png');
+    const url = `blob:test/page-${created.length}`;
+    created.push(url);
+    return url;
+  };
+  URL.revokeObjectURL = (url) => revoked.push(url);
   const requests = [];
   const { dom, root, restore } = mount({
     statProjectFile: async () => ({ mtimeMs: 1, size: 1_468_006 }),
@@ -78,15 +88,19 @@ test('a document card shows the drawn sheet while converting, then the first pag
     await act(async () => release());
     await settle();
     assert.equal(card.querySelector('.transcript-artifact-thumb svg'), null);
-    assert.equal(
-      card.querySelector('.transcript-artifact-thumb img.file-page').getAttribute('src'),
-      'data:image/png;base64,AAAA'
-    );
+    // The page is an object URL over its bytes, not a base64 data URL in state.
+    assert.deepEqual(created, ['blob:test/page-0']);
+    assert.equal(card.querySelector('.transcript-artifact-thumb img.file-page').getAttribute('src'), created[0]);
     assert.equal(card.querySelector('.file-type-word.file-tone-pdf').textContent, 'PDF');
     assert.equal(card.querySelector('small > span:last-child').textContent, '12 pages · 1.4 MB');
     assert.equal(card.querySelector('.transcript-artifact-open').getAttribute('aria-hidden'), 'true');
+    assert.deepEqual(revoked, []);
+    await act(async () => root.unmount());
+    assert.deepEqual(revoked, created, 'the page URL is revoked when the card goes');
   } finally {
     await act(async () => root.unmount());
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
     restore();
   }
 });
@@ -119,9 +133,9 @@ test('a document card whose preview fails keeps the drawn sheet; a CSV draws a t
     );
     await settle();
     const [deck, orders] = dom.window.document.querySelectorAll('.transcript-artifact-file');
-    assert.ok(deck.querySelector('.transcript-artifact-thumb.wide svg.file-sheet.file-tone-pptx'));
+    assert.ok(deck.querySelector('.transcript-artifact-thumb svg.file-sheet.file-tone-pptx'));
     assert.equal(deck.querySelector('small > span:last-child').textContent, '2 KB');
-    assert.ok(orders.querySelector('.transcript-artifact-thumb.wide .file-table'));
+    assert.ok(orders.querySelector('.transcript-artifact-thumb .file-table'));
     assert.equal(orders.querySelectorAll('.file-table-cell').length, 9);
     assert.equal(orders.querySelectorAll('.file-table-cell.head').length, 3);
     assert.equal(orders.querySelector('.file-type-word.file-tone-xlsx').textContent, 'CSV');

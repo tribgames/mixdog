@@ -7,8 +7,10 @@ use super::{role_of, text};
 use crate::a11y::{format_value, Element};
 use crate::obj;
 use crate::platform::Wid;
+use crate::port::windows::{WinPort, A11y};
 use crate::protocol::Obj;
 use serde_json::json;
+use std::sync::Arc;
 use windows::core::{BSTR, Interface};
 use windows::Win32::System::Ole::{SafeArrayAccessData, SafeArrayGetLBound, SafeArrayGetUBound, SafeArrayUnaccessData};
 use windows::Win32::UI::Accessibility::*;
@@ -98,6 +100,8 @@ pub struct UiaElement {
     pub(super) automation: IUIAutomation,
     pub(super) element: IUIAutomationElement,
     pub(super) window: Wid,
+    /// The executor's port: every action on the element is one submission through it.
+    pub(super) port: Arc<WinPort>,
 }
 
 impl UiaElement {
@@ -106,17 +110,16 @@ impl UiaElement {
         unsafe { self.element.GetCurrentPatternAs::<T>(id) }.ok()
     }
 
-    /// Runs one semantic action with the window held non-activatable: XAML and
+    /// Runs one semantic action through the port with the window held non-activatable: XAML and
     /// Chromium hosts raise themselves while handling an accessibility call.
     /// Inside the activation guard the root is already held, so this hold only
     /// counts against it and the guard's release is the one that clears the bit.
-    pub(super) fn held<T>(&self, action: impl FnOnce() -> windows::core::Result<T>) -> Result<T, String> {
-        let held = hold_inactive(self.window);
-        let outcome = action().map_err(|error| error.message());
-        let released = release_inactive(held);
-        let value = outcome?;
-        released?;
-        Ok(value)
+    pub(super) fn held(&self, action: A11y<'_>) -> Result<(), String> {
+        let held = hold_inactive(&self.port, self.window);
+        let outcome = self.port.accessibility(self.window, action);
+        let released = release_inactive(&self.port, held);
+        outcome?;
+        released
     }
 }
 
@@ -145,10 +148,10 @@ impl Element for UiaElement {
     }
     fn press(&self) -> Result<(), String> {
         if let Some(toggle) = self.pattern::<IUIAutomationTogglePattern>(UIA_TogglePatternId) {
-            return self.held(|| unsafe { toggle.Toggle() });
+            return self.held(A11y::Toggle(&toggle));
         }
         if let Some(invoke) = self.pattern::<IUIAutomationInvokePattern>(UIA_InvokePatternId) {
-            return self.held(|| unsafe { invoke.Invoke() });
+            return self.held(A11y::Invoke(&invoke));
         }
         Err("element exposes no invoke action".into())
     }
@@ -171,13 +174,7 @@ impl Element for UiaElement {
         let pattern = self
             .pattern::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId)
             .ok_or("element cannot expand or collapse")?;
-        self.held(|| unsafe {
-            if expanded {
-                pattern.Expand()
-            } else {
-                pattern.Collapse()
-            }
-        })
+        self.held(if expanded { A11y::Expand(&pattern) } else { A11y::Collapse(&pattern) })
     }
     fn value(&self) -> Option<String> {
         let pattern = self.pattern::<IUIAutomationValuePattern>(UIA_ValuePatternId)?;
@@ -203,7 +200,7 @@ impl Element for UiaElement {
             .pattern::<IUIAutomationValuePattern>(UIA_ValuePatternId)
             .ok_or("element exposes no value")?;
         let value = BSTR::from(value);
-        self.held(|| unsafe { pattern.SetValue(&value) })
+        self.held(A11y::SetValue(&pattern, &value))
     }
     fn can_select(&self) -> bool {
         self.pattern::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
@@ -213,7 +210,7 @@ impl Element for UiaElement {
         let pattern = self
             .pattern::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
             .ok_or("element is not selectable")?;
-        self.held(|| unsafe { pattern.Select() })
+        self.held(A11y::Select(&pattern))
     }
     fn scroll(&self, horizontal: bool, increments: i32) -> Result<Option<(String, String)>, String> {
         let Some(pattern) = self.pattern::<IUIAutomationScrollPattern>(UIA_ScrollPatternId) else {
@@ -245,14 +242,7 @@ impl Element for UiaElement {
             ScrollAmount_SmallIncrement
         };
         for _ in 0..increments.unsigned_abs() {
-            let none = ScrollAmount_NoAmount;
-            self.held(|| unsafe {
-                if horizontal {
-                    pattern.Scroll(amount, none)
-                } else {
-                    pattern.Scroll(none, amount)
-                }
-            })?;
+            self.held(A11y::Scroll(&pattern, horizontal, amount))?;
         }
         let after = read();
         Ok(Some((format!("{before:.3}"), format!("{after:.3}"))))

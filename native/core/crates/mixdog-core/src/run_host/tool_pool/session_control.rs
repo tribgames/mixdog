@@ -533,7 +533,7 @@ fn is_low(unit: Option<&u16>) -> bool {
 }
 
 /// `conversationItem(item, offset, textOffset)`.
-fn conversation_item(item: &Value, offset: usize, text_offset: usize) -> Result<Value, String> {
+fn conversation_item(item: &Value, offset: usize, text_offset: usize, text_limit: usize) -> Result<Value, String> {
     let get = |key: &str| item.get(key).filter(|v| !v.is_null());
     let mut row = Row::new();
     row.insert("kind".into(), item.get("kind").cloned().unwrap_or(Value::Null));
@@ -571,7 +571,7 @@ fn conversation_item(item: &Value, offset: usize, text_offset: usize) -> Result<
         if text_offset > 0 && is_low(units.get(text_offset)) && is_high(units.get(text_offset - 1)) {
             return Err("session: text_offset splits a surrogate pair".into());
         }
-        let mut end = units.len().min(text_offset + MESSAGE_TEXT_LIMIT);
+        let mut end = units.len().min(text_offset + text_limit);
         if end < units.len() && end > 0 && is_high(units.get(end - 1)) {
             end -= 1;
         }
@@ -594,14 +594,9 @@ fn conversation_item(item: &Value, offset: usize, text_offset: usize) -> Result<
 }
 
 /// The `read` answer (`readTranscriptRange` over the session's rows, then `sessionReadOutput`):
-/// `rows` are the newest rows the session holds, oldest first, as Node transcript rows;
-/// `has_older` whether older rows than those exist.
-pub fn read(session_id: &str, rows: &[Value], has_older: bool, target: &Target, item_id: Option<&Value>) -> Result<Value, String> {
-    let end = rows.len().saturating_sub(target.offset);
-    let start = end.saturating_sub(target.limit);
-    let source = &rows[start..end];
-    let has_older = start > 0 || has_older;
-    let byte_limit = if target.offset == 0 && target.text_offset == 0 { TAIL_BYTES } else { PAGE_BYTES };
+/// `source` is the requested transcript window, oldest first.
+pub fn read(session_id: &str, source: &[Value], has_older: bool, target: &Target, item_id: Option<&Value>) -> Result<Value, String> {
+    let byte_limit = if target.offset == 0 && item_id.is_none() { TAIL_BYTES } else { PAGE_BYTES };
     if let Some(item_id) = item_id
         && (source.len() != 1 || source[0].get("id") != Some(item_id))
     {
@@ -610,18 +605,39 @@ pub fn read(session_id: &str, rows: &[Value], has_older: bool, target: &Target, 
     let mut items = source
         .iter()
         .enumerate()
-        .map(|(index, item)| conversation_item(item, target.offset + source.len() - index - 1, target.text_offset))
+        .map(|(index, item)| conversation_item(item, target.offset + source.len() - index - 1, target.text_offset, MESSAGE_TEXT_LIMIT))
         .collect::<Result<std::collections::VecDeque<Value>, String>>()?;
     loop {
         let next = (has_older || items.len() < source.len()).then(|| target.offset + items.len());
-        let result = json!({ "sessionId": session_id, "offset": target.offset, "items": items, "nextOffset": next });
+        let page = |items: &std::collections::VecDeque<Value>| {
+            json!({ "sessionId": session_id, "offset": target.offset, "items": items, "nextOffset": next })
+        };
+        let result = page(&items);
         if output_bytes(&result) <= byte_limit {
             return Ok(result);
         }
-        if items.len() <= 1 {
-            return Err("session: one transcript item exceeds the output budget".into());
+        if items.len() > 1 {
+            items.pop_front();
+        } else if let Some(item) = source.last() {
+            // JSON escapes can make one text chunk too large. Find the largest prefix
+            // that fits, retaining the item's UTF-16 continuation instead of dropping it.
+            let (mut low, mut high) = (2, MESSAGE_TEXT_LIMIT);
+            let mut fitted = None;
+            while low < high {
+                let limit = low + (high - low) / 2;
+                items[0] = conversation_item(item, target.offset, target.text_offset, limit)?;
+                let candidate = page(&items);
+                if output_bytes(&candidate) <= byte_limit {
+                    fitted = Some(candidate);
+                    low = limit + 1;
+                } else {
+                    high = limit;
+                }
+            }
+            return fitted.ok_or_else(|| "session: one transcript item's metadata exceeds the output budget".into());
+        } else {
+            return Err("session: one transcript item's metadata exceeds the output budget".into());
         }
-        items.pop_front();
     }
 }
 

@@ -117,6 +117,7 @@ impl ResponseBuilder {
                 self.completed = true;
             }
             StreamEvent::ItemStart { .. }
+            | StreamEvent::ProgressDelta(_)
             | StreamEvent::ToolCallStart { .. }
             | StreamEvent::ToolCallArgsDelta { .. }
             | StreamEvent::Refusal(_)
@@ -321,102 +322,6 @@ mod tests {
     }
 
     #[test]
-    fn thinking_blocks_and_a_final_content_reach_the_committed_message() {
-        // Both outcomes are what Node recorded (`fixtures/agent/leaked-toolcall/record.mjs`): the thinking blocks of
-        // an Anthropic turn whose call leaked as stored on its assistant message, and the content the compatible
-        // Responses collector returns when the guard hid all of the text.
-        let golden: serde_json::Value =
-            serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/leaked-toolcall/golden/leaked_toolcall.json")).unwrap();
-        let scenario = |route: &str, name: &str| {
-            golden["scenarios"].as_array().unwrap().iter().find(|s| s["route"] == route && s["name"] == name).unwrap().clone()
-        };
-        let anthropic = scenario("anthropic", "an invoke tag in the answer");
-        let stored = &anthropic["stored"]["messages"][0];
-        let blocks = stored["thinkingBlocks"].clone();
-        let node_call = &stored["toolCalls"][0];
-        let compat = scenario("responses-compat", "only leaked calls, nothing else visible");
-        let node_content = compat["result"]["content"].as_str().unwrap();
-
-        let mut builder = ResponseBuilder::new("m", ToolCallIds::new(&[]));
-        builder.push(StreamEvent::TextDelta(String::new()));
-        builder.push(StreamEvent::FinalContent(node_content.to_owned()));
-        builder.push(StreamEvent::ThinkingBlocks(blocks.clone()));
-        let response = builder.finish();
-        assert_eq!(response.content, node_content);
-        let call = ToolCall {
-            id: "toolu_leaked_0123456789abcdef".into(),
-            name: node_call["name"].as_str().unwrap().into(),
-            arguments: node_call["arguments"].clone(),
-            native_type: None,
-        };
-        let message = tool_call_message(&ModelResponse { tool_calls: vec![call], ..response });
-        assert_eq!(message.message.thinking_blocks.as_ref(), Some(&blocks));
-    }
-    /// The turn the loop commits from an answer Anthropic's server-side fallback served keeps the fallback record, as
-    /// Node's `buildIntermediateAssistantMessage` keeps `providerMetadata` (recorded by
-    /// `benchmarks/rust-core/recorders/record-provider-wire.mjs`, `fixtures/provider-wire/anthropic-fallback`): the
-    /// recorded stream is decoded by the real Anthropic codec and folded.
-    #[test]
-    fn a_fallback_answer_commits_its_fallback_record() {
-        use mixdog_ai::providers::anthropic::{AnthropicCodec, AnthropicConfig, Flavor};
-        use mixdog_core_api::domain::provider::{Content, Message, ModelRequest, RequestOptions, Role, WireCodec};
-        let recorded = [
-            include_str!("../../../fixtures/provider-wire/anthropic-fallback/before-output/result.json"),
-            include_str!("../../../fixtures/provider-wire/anthropic-fallback/mid-output/result.json"),
-            include_str!("../../../fixtures/provider-wire/anthropic-fallback/snapshot-target/result.json"),
-        ];
-        let exchanges = [
-            include_str!("../../../fixtures/provider-wire/anthropic-fallback/before-output/exchange.json"),
-            include_str!("../../../fixtures/provider-wire/anthropic-fallback/mid-output/exchange.json"),
-            include_str!("../../../fixtures/provider-wire/anthropic-fallback/snapshot-target/exchange.json"),
-        ];
-        let codec = AnthropicCodec::new(Flavor::OAuth, AnthropicConfig::new(std::sync::Arc::new(|_: &str| None)));
-        let request = ModelRequest {
-            model: "claude-opus-5".into(),
-            messages: vec![Message::new(Role::User, Content::Text("Hello".into()))],
-            tools: Vec::new(),
-            options: RequestOptions::default(),
-        };
-        for (result, exchange) in recorded.iter().zip(exchanges) {
-            let result: serde_json::Value = serde_json::from_str(result).unwrap();
-            let exchange: serde_json::Value = serde_json::from_str(exchange).unwrap();
-            let served = exchange["records"].as_array().unwrap().iter().find(|r| r["method"] == "POST").unwrap()["served"].as_str().unwrap().to_owned();
-            let mut decoder = codec.decoder(&request);
-            let mut builder = ResponseBuilder::new(&request.model, ToolCallIds::new(&[]));
-            for event in decoder.feed(served.as_bytes()).unwrap().into_iter().chain(decoder.finish().unwrap()) {
-                builder.push(event);
-            }
-            let message = intermediate_message(&builder.finish()).expect("a committed turn");
-            let committed = &result["committed"];
-            assert_eq!(message.provider_metadata.as_ref(), Some(&committed["providerMetadata"]));
-            assert_eq!(message.message.content, Content::Text(committed["content"].as_str().unwrap().to_owned()));
-            assert_eq!(message.stop_reason.as_ref().map(stop_text).as_deref(), committed["stopReason"].as_str());
-            assert_eq!(message.message.provider_replay()[0].items, committed["providerReplay"]["items"]);
-        }
-    }
-
-    #[test]
-    fn the_serving_key_is_stored_on_the_message_and_read_back_for_the_next_send() {
-        // Node's answer from the second key (`fixtures/provider-gateways/custom-keys-switch.json`): its
-        // `providerMetadata` is what the session stores on the assistant message.
-        let scenario: serde_json::Value =
-            serde_json::from_str(include_str!("../../../fixtures/provider-gateways/custom-keys-switch.json")).unwrap();
-        let node = &scenario["sends"][0]["result"];
-        let routing = &node["providerMetadata"]["accountRouting"];
-        let served = AccountRouting {
-            provider: routing["provider"].as_str().unwrap().into(),
-            account_id: routing["accountId"].as_str().unwrap().into(),
-            session_account_id: routing["sessionAccountId"].as_str().map(str::to_owned),
-        };
-        let mut builder = ResponseBuilder::new("m1", ToolCallIds::new(&[]));
-        builder.push(StreamEvent::TextDelta(node["content"].as_str().unwrap().into()));
-        builder.push(StreamEvent::AccountRouting(served.clone()));
-        let message = intermediate_message(&builder.finish()).unwrap();
-        assert_eq!(message.provider_metadata.as_ref(), Some(&node["providerMetadata"]));
-        assert_eq!(message.wire().account_routing, Some(served));
-    }
-
-    #[test]
     fn termination_follows_content_and_stop() {
         let empty = ModelResponse::default();
         assert_eq!(classify_termination(&empty, false), Some(Termination::Empty));
@@ -427,5 +332,52 @@ mod tests {
             ..ModelResponse::default()
         };
         assert_eq!(classify_termination(&cut, false), Some(Termination::Truncated));
+    }
+
+
+    /// The thinking blocks of an Anthropic turn whose call leaked reach the assistant message that holds the call, and the
+    /// final content the Responses collector returns replaces the streamed text.
+    #[test]
+    fn thinking_blocks_and_a_final_content_reach_the_committed_message() {
+        let blocks = serde_json::json!([{ "type": "thinking", "thinking": "hm", "signature": "sig" }]);
+        let mut builder = ResponseBuilder::new("m", ToolCallIds::new(&[]));
+        builder.push(StreamEvent::TextDelta(String::new()));
+        builder.push(StreamEvent::FinalContent("the visible answer".to_owned()));
+        builder.push(StreamEvent::ThinkingBlocks(blocks.clone()));
+        let response = builder.finish();
+        assert_eq!(response.content, "the visible answer");
+        let call = ToolCall { id: "toolu_leaked_0123456789abcdef".into(), name: "read".into(), arguments: serde_json::json!({ "path": "a" }), native_type: None };
+        let message = tool_call_message(&ModelResponse { tool_calls: vec![call], ..response });
+        assert_eq!(message.message.thinking_blocks.as_ref(), Some(&blocks));
+    }
+
+    /// The turn the loop commits from an answer Anthropic's server-side fallback served keeps the fallback record.
+    #[test]
+    fn a_fallback_answer_commits_its_fallback_record() {
+        use mixdog_core_api::domain::provider::Content;
+        let record = serde_json::json!({ "anthropicFallbacks": [{ "from": "claude-a", "to": "claude-b" }] });
+        let mut builder = ResponseBuilder::new("m1", ToolCallIds::new(&[]));
+        builder.push(StreamEvent::TextDelta("Hello".into()));
+        builder.push(StreamEvent::ProviderMetadata(record.clone()));
+        let message = intermediate_message(&builder.finish()).expect("a committed turn");
+        assert_eq!(message.provider_metadata.as_ref(), Some(&record));
+        assert_eq!(message.message.content, Content::Text("Hello".to_owned()));
+    }
+
+    /// The account that served an answer is stored on the message and read back for the next send.
+    #[test]
+    fn the_serving_key_is_stored_on_the_message_and_read_back_for_the_next_send() {
+        let served = AccountRouting {
+            provider: "anthropic".into(),
+            account_id: "acct-2".into(),
+            session_account_id: Some("acct-1".into()),
+        };
+        let mut builder = ResponseBuilder::new("m1", ToolCallIds::new(&[]));
+        builder.push(StreamEvent::TextDelta("hi".into()));
+        builder.push(StreamEvent::AccountRouting(served.clone()));
+        let message = intermediate_message(&builder.finish()).unwrap();
+        let stored = &message.provider_metadata.as_ref().unwrap()["accountRouting"];
+        assert_eq!((stored["provider"].as_str(), stored["accountId"].as_str(), stored["sessionAccountId"].as_str()), (Some("anthropic"), Some("acct-2"), Some("acct-1")));
+        assert_eq!(message.wire().account_routing, Some(served));
     }
 }

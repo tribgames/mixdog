@@ -75,6 +75,15 @@ pub fn build_with(
     request: &ModelRequest,
     effort: Option<&EffortProjection>,
 ) -> BuiltBody {
+    build_with_tool_outputs(config, request, effort, false)
+}
+
+pub(super) fn build_with_tool_outputs(
+    config: &OpenAiConfig,
+    request: &ModelRequest,
+    effort: Option<&EffortProjection>,
+    keep_full_tool_outputs: bool,
+) -> BuiltBody {
     let route = config.route();
     let facts = config.facts.facts(&request.model);
     let caps = Capabilities::resolve(route, &facts);
@@ -118,7 +127,7 @@ pub fn build_with(
         prompt_cache_key: true,
         text_verbosity: caps.verbosity.then(|| DEFAULT_VERBOSITY.to_owned()),
         access_programs: facts.access_programs.clone().filter(|_| codex),
-        max_output_tokens: !codex || config.send_max_output_tokens,
+        max_output_tokens: !codex || config.context.flag("MIXDOG_OPENAI_OAUTH_SEND_MAX_OUTPUT_TOKENS"),
         cache_lifetime: if route == Route::ApiKey && config.store {
             facts.prompt_cache
         } else {
@@ -142,12 +151,12 @@ pub fn build_with(
     let derive = |prefix: &cache_key::Prefix<'_>| {
         let var = |name: &str| config.context.var(name);
         if codex {
-            cache_key::codex_prompt_cache_key(&request.options, &var, prefix)
+            cache_key::codex_key(&request.options, &var, prefix, &config.cache_lanes)
         } else {
-            cache_key::public_prompt_cache_key(&request.options, &var, prefix)
+            cache_key::public_key(&request.options, &var, prefix, &config.cache_lanes)
         }
     };
-    let built = build_body(&profile, &BuildInputs { effort, prompt_cache_key: Some(&derive as &dyn for<'a, 'b> Fn(&'a cache_key::Prefix<'b>) -> String), ..BuildInputs::new(request) });
+    let built = build_body(&profile, &BuildInputs { effort, keep_full_tool_outputs, prompt_cache_key: Some(&derive as &dyn for<'a, 'b> Fn(&'a cache_key::Prefix<'b>) -> String), ..BuildInputs::new(request) });
     for excluded in built.excluded {
         report_exclusion(&request.options, excluded);
     }

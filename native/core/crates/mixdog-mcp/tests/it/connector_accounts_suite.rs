@@ -1,5 +1,5 @@
-//! The connector account choice replayed against what today's Node product answered
-//! (`tests/golden/accounts.mjs` → `accounts.json`).
+//! The connector account choice: which account a call uses, what is remembered per conversation, and how a group of accounts
+//! publishes one toolset and routes each call.
 #![allow(clippy::disallowed_methods, reason = "test fixtures write and inspect directories directly")]
 
 use std::sync::Arc;
@@ -13,96 +13,9 @@ use mixdog_mcp::connector_accounts::ConnectorAccounts;
 use mixdog_mcp::connector_accounts::split_mcp_tool_name;
 use serde_json::Value;
 
-fn golden() -> Value {
-    serde_json::from_str(include_str!("../golden/accounts.json")).unwrap()
-}
-
+#[cfg(node_twin)]
 fn strings(value: &Value) -> Vec<String> {
     value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect()
-}
-
-#[test]
-fn tool_names_split_as_node_splits_them() {
-    for case in golden()["names"].as_array().unwrap() {
-        let name = case["name"].as_str().unwrap();
-        let expected = strings(&case["parts"]);
-        let got = split_mcp_tool_name(name).map(|(server, tool)| vec![server, tool]).unwrap_or_default();
-        assert_eq!(got, expected, "{name:?}");
-    }
-}
-
-#[tokio::test]
-async fn the_account_choice_matches_node_in_every_recorded_scenario() {
-    let tokens = mixdog_rt::testing::tokens();
-    for scenario in golden()["scenarios"].as_array().unwrap() {
-        let label = scenario["name"].as_str().unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let health = Arc::new(AccountHealth::default());
-        let seeds = scenario["accounts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|a| AccountSeed {
-                name: a["name"].as_str().unwrap().to_owned(),
-                id: a["id"].as_str().unwrap().to_owned(),
-                email: a["email"].as_str().unwrap().to_owned(),
-            })
-            .collect();
-        let accounts = ConnectorAccounts::new(
-            scenario["connector"].as_str().unwrap(),
-            seeds,
-            Arc::clone(&health),
-            dir.path().to_path_buf(),
-            tokens.maintenance_io,
-        )
-        .unwrap();
-        for (at, step) in scenario["steps"].as_array().unwrap().iter().enumerate() {
-            let here = format!("{label} / step {at}");
-            match step["op"].as_str().unwrap() {
-                "init" => {
-                    for a in scenario["accounts"].as_array().unwrap() {
-                        let name = a["name"].as_str().unwrap();
-                        if a["authRequired"].as_bool().unwrap() {
-                            accounts.record(name, &AccountReport { error: "needs sign-in".to_owned(), auth_required: true, ..AccountReport::default() });
-                        } else {
-                            accounts.note_tools(name, strings(&a["tools"]));
-                            accounts.record(name, &AccountReport::default());
-                        }
-                    }
-                    accounts.set_listed(strings(&step["listed"]));
-                }
-                "state" | "backup" => {
-                    let file = match step["file"].as_str().unwrap() {
-                        "in-use" => "connector-accounts-in-use.json",
-                        _ => "connector-accounts-by-conversation.json",
-                    };
-                    let suffix = if step["op"] == "backup" { ".bak" } else { "" };
-                    std::fs::write(dir.path().join(format!("{file}{suffix}")), step["raw"].as_str().unwrap()).unwrap();
-                }
-                "choose" => {
-                    let wanted = step.get("wanted").and_then(Value::as_str);
-                    let call = ChooseCall { tool: step["tool"].as_str().unwrap(), wanted, conversation: step["conversation"].as_str().unwrap() };
-                    let got = accounts.choose(&call).await;
-                    match (&got, &step["expect"]) {
-                        (Ok(chosen), expect) if expect.get("ok").is_some() => {
-                            assert_eq!(chosen.name, expect["ok"]["name"].as_str().unwrap(), "{here}");
-                            assert_eq!(chosen.label, expect["ok"]["label"].as_str().unwrap(), "{here}");
-                        }
-                        (Err(AccountError::Refused(message)), expect) if expect.get("error").is_some() => {
-                            assert_eq!(message, expect["error"].as_str().unwrap(), "{here}");
-                        }
-                        other => panic!("{here}: got {other:?}, Node answered {}", step["expect"]),
-                    }
-                }
-                other => panic!("unknown op {other}"),
-            }
-        }
-        let quarantined = std::fs::read_dir(dir.path())
-            .unwrap()
-            .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains(".corrupt-"))
-            .count();
-        assert_eq!(quarantined as u64, scenario["leftover"].as_u64().unwrap(), "{label}: damaged files moved aside");
-    }
 }
 
 #[tokio::test]
@@ -115,6 +28,23 @@ async fn a_state_file_that_cannot_be_read_is_an_error_not_an_empty_choice() {
     let accounts = ConnectorAccounts::new("linear", seeds, Arc::new(AccountHealth::default()), dir.path().to_path_buf(), tokens.maintenance_io).unwrap();
     let got = accounts.choose(&ChooseCall { tool: "search", wanted: None, conversation: "" }).await;
     assert!(matches!(got, Err(AccountError::State(_))), "{got:?}");
+}
+
+#[tokio::test]
+async fn a_retired_servers_late_report_does_not_overwrite_its_replacements_health() {
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let health = Arc::new(AccountHealth::default());
+    let seed = || vec![AccountSeed { name: "gmail".to_owned(), id: "i".to_owned(), email: "a@example.com".to_owned() }];
+    let old = ConnectorAccounts::new("gmail", seed(), Arc::clone(&health), dir.path().to_path_buf(), tokens.maintenance_io).unwrap();
+    // The reviewed interleaving: the old server reports, a replacement takes the names and reports healthy, then the old server's
+    // late report lands. Health belongs to the newest generation, so it does not.
+    old.record("gmail", &AccountReport { error: "before".to_owned(), ..AccountReport::default() });
+    let new = ConnectorAccounts::new("gmail", seed(), Arc::clone(&health), dir.path().to_path_buf(), tokens.maintenance_io).unwrap();
+    assert!(health.get("gmail").is_none(), "the replacement starts from none of the old server's records");
+    new.record("gmail", &AccountReport::default());
+    old.record("gmail", &AccountReport { error: "closed".to_owned(), ..AccountReport::default() });
+    assert_eq!(health.get("gmail").unwrap().error, "");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -323,4 +253,146 @@ async fn an_approved_account_replaced_under_the_same_name_cannot_receive_the_sen
     assert_eq!(unbound["isError"], true);
     assert!(unbound["content"][0]["text"].as_str().unwrap().contains("requires a bound account identity"));
     assert_eq!(calls["content"][0]["text"], "0");
+}
+
+
+fn seeds(names: &[&str]) -> Vec<AccountSeed> {
+    names.iter().map(|name| AccountSeed { name: (*name).to_owned(), id: format!("id-{name}"), email: format!("{name}@example.com") }).collect()
+}
+
+fn accounts_of(dir: &std::path::Path, names: &[&str]) -> Arc<ConnectorAccounts> {
+    let tokens = mixdog_rt::testing::tokens();
+    ConnectorAccounts::new("gmail", seeds(names), Arc::new(AccountHealth::default()), dir.to_path_buf(), tokens.maintenance_io).unwrap()
+}
+
+#[test]
+fn a_connector_tool_name_splits_into_its_server_and_its_tool() {
+    assert_eq!(split_mcp_tool_name("mcp__gmail__search_emails"), Some(("gmail".to_owned(), "search_emails".to_owned())));
+    assert_eq!(split_mcp_tool_name("search_emails"), None);
+    assert_eq!(split_mcp_tool_name(""), None);
+}
+
+#[tokio::test]
+async fn a_named_account_is_the_one_chosen() {
+    let dir = tempfile::tempdir().unwrap();
+    let accounts = accounts_of(dir.path(), &["gmail", "gmail-2"]);
+    let chosen = accounts.choose(&ChooseCall { tool: "search", wanted: Some("gmail-2"), conversation: "c1" }).await.unwrap();
+    assert_eq!(chosen.name, "gmail-2");
+    assert_eq!(chosen.id, "id-gmail-2");
+    assert_eq!(chosen.label, "gmail-2@example.com");
+}
+
+// connector_accounts.rs module doc (1.4.5 connector-accounts-mcp.mjs): the account named, else the one last used in the
+// conversation, else the connector's last-used account, else the topmost one.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_account_last_used_in_a_conversation_is_chosen_when_none_is_named() {
+    let dir = tempfile::tempdir().unwrap();
+    let accounts = accounts_of(dir.path(), &["gmail", "gmail-2", "gmail-3"]);
+    let ask = |conversation| ChooseCall { tool: "search", wanted: None, conversation };
+    assert_eq!(accounts.choose(&ask("c1")).await.unwrap().name, "gmail", "nothing remembered: the topmost");
+    accounts.remember("gmail-3", "c1").await.unwrap();
+    assert_eq!(accounts.choose(&ask("c1")).await.unwrap().name, "gmail-3", "the conversation's own account");
+    accounts.remember("gmail-2", "c2").await.unwrap();
+    assert_eq!(accounts.choose(&ask("c1")).await.unwrap().name, "gmail-3", "c2's choice does not change c1's");
+    assert_eq!(accounts.choose(&ask("c2")).await.unwrap().name, "gmail-2");
+    assert_eq!(accounts.choose(&ask("c3")).await.unwrap().name, "gmail-2", "a new conversation takes the connector's last-used account");
+    let named = ChooseCall { tool: "search", wanted: Some("gmail"), conversation: "c1" };
+    assert_eq!(accounts.choose(&named).await.unwrap().name, "gmail", "a named account wins over the remembered one");
+}
+
+#[tokio::test]
+async fn an_account_nobody_configured_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let accounts = accounts_of(dir.path(), &["gmail"]);
+    let got = accounts.choose(&ChooseCall { tool: "search", wanted: Some("nobody"), conversation: "c1" }).await;
+    assert!(matches!(got, Err(AccountError::Refused(_))), "{got:?}");
+}
+
+#[cfg(node_twin)]
+fn golden() -> Value {
+    serde_json::from_str(include_str!("../golden/accounts.json")).unwrap()
+}
+#[cfg(node_twin)]
+#[test]
+fn tool_names_split_as_node_splits_them() {
+    for case in golden()["names"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let expected = strings(&case["parts"]);
+        let got = split_mcp_tool_name(name).map(|(server, tool)| vec![server, tool]).unwrap_or_default();
+        assert_eq!(got, expected, "{name:?}");
+    }
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn the_account_choice_matches_node_in_every_recorded_scenario() {
+    let tokens = mixdog_rt::testing::tokens();
+    for scenario in golden()["scenarios"].as_array().unwrap() {
+        let label = scenario["name"].as_str().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let health = Arc::new(AccountHealth::default());
+        let seeds = scenario["accounts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| AccountSeed {
+                name: a["name"].as_str().unwrap().to_owned(),
+                id: a["id"].as_str().unwrap().to_owned(),
+                email: a["email"].as_str().unwrap().to_owned(),
+            })
+            .collect();
+        let accounts = ConnectorAccounts::new(
+            scenario["connector"].as_str().unwrap(),
+            seeds,
+            Arc::clone(&health),
+            dir.path().to_path_buf(),
+            tokens.maintenance_io,
+        )
+        .unwrap();
+        for (at, step) in scenario["steps"].as_array().unwrap().iter().enumerate() {
+            let here = format!("{label} / step {at}");
+            match step["op"].as_str().unwrap() {
+                "init" => {
+                    for a in scenario["accounts"].as_array().unwrap() {
+                        let name = a["name"].as_str().unwrap();
+                        if a["authRequired"].as_bool().unwrap() {
+                            accounts.record(name, &AccountReport { error: "needs sign-in".to_owned(), auth_required: true, ..AccountReport::default() });
+                        } else {
+                            accounts.note_tools(name, strings(&a["tools"]));
+                            accounts.record(name, &AccountReport::default());
+                        }
+                    }
+                    accounts.set_listed(strings(&step["listed"]));
+                }
+                "state" | "backup" => {
+                    let file = match step["file"].as_str().unwrap() {
+                        "in-use" => "connector-accounts-in-use.json",
+                        _ => "connector-accounts-by-conversation.json",
+                    };
+                    let suffix = if step["op"] == "backup" { ".bak" } else { "" };
+                    std::fs::write(dir.path().join(format!("{file}{suffix}")), step["raw"].as_str().unwrap()).unwrap();
+                }
+                "choose" => {
+                    let wanted = step.get("wanted").and_then(Value::as_str);
+                    let call = ChooseCall { tool: step["tool"].as_str().unwrap(), wanted, conversation: step["conversation"].as_str().unwrap() };
+                    let got = accounts.choose(&call).await;
+                    match (&got, &step["expect"]) {
+                        (Ok(chosen), expect) if expect.get("ok").is_some() => {
+                            assert_eq!(chosen.name, expect["ok"]["name"].as_str().unwrap(), "{here}");
+                            assert_eq!(chosen.label, expect["ok"]["label"].as_str().unwrap(), "{here}");
+                        }
+                        (Err(AccountError::Refused(message)), expect) if expect.get("error").is_some() => {
+                            assert_eq!(message, expect["error"].as_str().unwrap(), "{here}");
+                        }
+                        other => panic!("{here}: got {other:?}, Node answered {}", step["expect"]),
+                    }
+                }
+                other => panic!("unknown op {other}"),
+            }
+        }
+        let quarantined = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains(".corrupt-"))
+            .count();
+        assert_eq!(quarantined as u64, scenario["leftover"].as_u64().unwrap(), "{label}: damaged files moved aside");
+    }
 }

@@ -189,6 +189,7 @@ impl EffortDecisionLog {
     /// With a smaller segment than Node's 4 MiB.
     #[cfg(any(test, feature = "test-support"))]
     #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the code around it is the same as in a test build"))]
+    #[cfg(node_twin)]
     fn with_segment_bytes(mut self, segment_bytes: u64) -> Self {
         self.segment_bytes = segment_bytes;
         self
@@ -197,6 +198,7 @@ impl EffortDecisionLog {
     /// Returns once every append recorded so far, and every rotation one started, has finished.
     #[cfg(any(test, feature = "test-support"))]
     #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the code around it is the same as in a test build"))]
+    #[cfg(node_twin)]
     async fn appended(&self) {
         let mut running = self.pending.subscribe();
         mixdog_core_session::session::testing::awaiting(|| "every effort-decision append and rotation to finish".to_owned(), async move {
@@ -355,6 +357,30 @@ impl TurnAutoEffort {
         Self { auto, judge, ladders, configuration, diagnostics, now, warned: Mutex::new(HashSet::new()) }
     }
 
+    /// Only a real, unsent turn asks the judge. Observe mode and any skipped
+    /// judgment leave both the request's saved effort and its history seed alone.
+    pub(super) async fn first_request_effort(
+        &self,
+        session_id: &str,
+        header: &Header,
+        messages: &[Value],
+        prompt: &str,
+        injected: bool,
+        cancel: &CancellationToken,
+    ) -> Option<&'static str> {
+        let content_text = |content: &Value| {
+            mixdog_core_session::session::idle_auto_clear::prompt_content_text(content, &|_| None)
+        };
+        let input = TurnAutoEffortInput { session_id, header, messages, prompt, injected, content_text: &content_text };
+        tokio::select! {
+            biased;
+            () = cancel.cancelled() => None,
+            decision = self.resolve(&input) => decision
+                .filter(|decision| decision.applied && self.auto.mode() == "on")
+                .map(|decision| decision.effort),
+        }
+    }
+
     /// `warnEmptyAutoEffortLadder(provider, model, base)`.
     fn warn_empty_ladder(&self, provider: &str, model: &str, base: &str) {
         if base == "max" || base == "ultra" {
@@ -371,7 +397,7 @@ impl TurnAutoEffort {
     /// (or the judge cannot answer in time, and the route's own effort stands).
     pub async fn resolve(&self, turn: &TurnAutoEffortInput<'_>) -> Option<AutoEffortDecision> {
         let mode = self.auto.mode();
-        if mode == "off" || turn.injected || turn.header.get("autoEffort") == Some(&Value::Bool(false)) {
+        if mode == "off" || turn.injected || !mixdog_ai::effort::route_auto_effort_on(turn.header.get("autoEffort")) {
             return None;
         }
         let request = js_trim(turn.prompt);
@@ -445,5 +471,9 @@ impl TurnAutoEffort {
 
 mod decision_log;
 
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod tests;

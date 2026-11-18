@@ -21,7 +21,7 @@ pub(crate) enum Root {
     #[cfg(unix)]
     Child(Child),
     #[cfg(windows)]
-    Win(crate::winspawn::WinProcess),
+    Win(std::sync::Arc<crate::winspawn::WinProcess>),
 }
 
 impl Root {
@@ -41,6 +41,49 @@ impl Root {
             #[cfg(windows)]
             Root::Win(process) => process.wait().map(exit_status),
         }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn win_process(&self) -> std::sync::Arc<crate::winspawn::WinProcess> {
+        match self {
+            Root::Win(process) => process.clone(),
+        }
+    }
+
+    /// Caller holds the lifecycle lock and still owns the unreaped PID.
+    #[cfg(unix)]
+    pub(crate) fn is_running_unreaped(pid: u32) -> bool {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        unsafe {
+            let mut info: libc::siginfo_t = std::mem::zeroed();
+            let queried = libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOHANG | libc::WNOWAIT) == 0;
+            #[cfg(target_os = "linux")]
+            let observed = info.si_pid();
+            #[cfg(target_os = "macos")]
+            let observed = info.si_pid;
+            queried && observed == 0
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        {
+            let _ = pid;
+            false
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn wait_without_reaping(&self) -> bool {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        loop {
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            if unsafe { libc::waitid(libc::P_PID, self.pid() as libc::id_t, &mut info, libc::WEXITED | libc::WNOWAIT) } == 0 {
+                return true;
+            }
+            if io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+                return false;
+            }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        false
     }
 }
 
@@ -188,7 +231,7 @@ mod windows {
                 created,
             )?;
             Ok(PtyParts {
-                root: Root::Win(process),
+                root: Root::Win(std::sync::Arc::new(process)),
                 pty,
                 reader: Box::new(reader),
                 writer: Box::new(writer),

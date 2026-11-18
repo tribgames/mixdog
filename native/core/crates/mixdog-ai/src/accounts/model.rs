@@ -16,6 +16,13 @@ fn opt_ms<'de, D: Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
     Ok(Option::<f64>::deserialize(d)?.map(|v| v as i64))
 }
 
+/// The `Window::extra` key holding what the provider states is left of the window.
+pub const REMAINING: &str = "remaining";
+
+/// The `Window::extra` key holding the stamp of the sign-in whose request measured the window, so a later reading of
+/// that same sign-in can retire it and a reading of another cannot.
+pub const CREDENTIAL: &str = "credential";
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Window {
@@ -33,6 +40,10 @@ pub struct Window {
     pub except: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<String>,
+    /// `Some(false)`: a full meter is only a usage counter (the scope still says which models it
+    /// covers), so it refuses nothing. Absent: a full meter refuses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding: Option<bool>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }

@@ -26,21 +26,6 @@ fn step() -> StepInput {
     StepInput { request: "fix the failing build".into(), step: 1, plan: String::new(), calls: Vec::new() }
 }
 
-/// Waits for `done`, re-checked after every tick. A condition that never comes
-/// fails the test instead of hanging it.
-async fn until(tick: &StateTick, mut done: impl FnMut() -> bool) {
-    let mut changes = tick.subscribe();
-    let waited = async {
-        while !done() {
-            changes.changed().await.expect("tick lives");
-        }
-    };
-    mixdog_rt::time::timeout(UNTIL_LIMIT, waited).await.expect("the awaited state did not come before the limit (the product published no tick that made it true)");
-}
-
-/// How long [`until`] waits: longer than the slowest step it covers (a real model's download and load on a loaded machine).
-const UNTIL_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
-
 /// Lets queued background work run so a trigger that must NOT fire has had its chance.
 async fn settle() {
     for _ in 0..200 {
@@ -68,15 +53,90 @@ impl Files {
     }
 }
 
+fn runtime(server: &Server, cache: &Path, flags: RuntimeFlags, tick: &StateTick) -> (Arc<MemoryRuntime>, Arc<EmbeddingProvider>) {
+    runtime_over(server, cache, flags, tick, PathBuf::from("unused"))
+}
+
+fn runtime_over(
+    server: &Server,
+    cache: &Path,
+    flags: RuntimeFlags,
+    tick: &StateTick,
+    ort_library: PathBuf,
+) -> (Arc<MemoryRuntime>, Arc<EmbeddingProvider>) {
+    let embedder = Arc::new(EmbeddingProvider::with_tick(embed_config_with(cache, ort_library), tick.clone()).with_hub(server.base.clone()));
+    (MemoryRuntime::new(embedder.clone(), flags, None), embedder)
+}
+
+fn fetches(server: &Server) -> usize {
+    server.hits(&format!("/{DEFAULT_MODEL_ID}/resolve/main/tokenizer.json"))
+}
+
+#[test]
+fn the_gates_follow_node_for_every_flag_combination() {
+    let default = RuntimeFlags::default();
+    assert!(!default.secondary && default.eager_warmup);
+    for secondary in [false, true] {
+        for eager_warmup in [false, true] {
+            let flags = RuntimeFlags { secondary, eager_warmup };
+            assert_eq!(flags.warmup_can_start(), onnx_runtime_supported() && eager_warmup && !secondary, "{flags:?}");
+            assert_eq!(flags.on_demand_can_start(), onnx_runtime_supported() && !secondary, "{flags:?}");
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_secondary_process_never_fetches_or_loads() {
+    let server = Server::start(Vec::new()).await;
+    let cache = tempfile::tempdir().expect("cache");
+    let tick = StateTick::default();
+    let (runtime, embedder) = runtime(&server, cache.path(), RuntimeFlags { secondary: true, eager_warmup: true }, &tick);
+
+    runtime.cold_warmup().await.expect("a skipped warmup is not an error");
+    runtime.prewarm_recall();
+    settle().await;
+    let reply = runtime.embedding_warmup(&CancellationToken::new()).await.expect("answers");
+    assert_eq!(reply, WarmupReply::Skipped("secondary mode"));
+    assert_eq!(reply.to_json(), serde_json::json!({ "ok": true, "skipped": "secondary mode" }));
+    assert_eq!(fetches(&server), 0);
+    assert!(!embedder.is_installed().await.expect("reads") && !embedder.is_ready());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_download_fails_the_awaited_paths_and_leaves_recall_on_its_text_lanes() {
+    let server = Server::start(Vec::new()).await;
+    let cache = tempfile::tempdir().expect("cache");
+    let tick = StateTick::default();
+    let (runtime, embedder) = runtime(&server, cache.path(), RuntimeFlags::default(), &tick);
+
+    assert!(runtime.cold_warmup().await.is_err());
+    assert!(runtime.embedding_warmup(&CancellationToken::new()).await.is_err());
+    runtime.prewarm_recall();
+    settle().await;
+    assert!(!embedder.is_ready());
+    assert_eq!(crate::memory::recall::readiness::RecallEmbedder::new(embedder, false).query_vector("anything", &tokio_util::sync::CancellationToken::new()).await.expect("not aborted"), None);
+}
+
+/// Waits for `done`, re-checked after every tick. A condition that never comes
+/// fails the test instead of hanging it.
+async fn until(tick: &StateTick, mut done: impl FnMut() -> bool) {
+    let mut changes = tick.subscribe();
+    let waited = async {
+        while !done() {
+            changes.changed().await.expect("tick lives");
+        }
+    };
+    mixdog_rt::time::timeout(UNTIL_LIMIT, waited).await.expect("the awaited state did not come before the limit (the product published no tick that made it true)");
+}
+/// How long [`until`] waits: longer than the slowest step it covers (a real model's download and load on a loaded machine).
+const UNTIL_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
 /// A judge over a runtime library that does not exist, so every load fails.
 fn judge(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: bool) -> Arc<EffortJudgeModel> {
     judge_over(dir, manifest, tick, explicit, PathBuf::from("unused"))
 }
-
 fn judge_over(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: bool, ort_library: PathBuf) -> Arc<EffortJudgeModel> {
     judge_hosted(dir, manifest, tick, explicit, ort_library, false)
 }
-
 /// `real_host`: the model loads in the real host process (the test binary is not `mixdogd`, which the product starts).
 fn judge_hosted(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: bool, ort_library: PathBuf, real_host: bool) -> Arc<EffortJudgeModel> {
     let mut model = config(dir);
@@ -86,7 +146,6 @@ fn judge_hosted(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: boo
     EffortJudgeModel::with_options(model, crate::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens()), JudgeOptions { tick: tick.clone(), manifest: Some(manifest.clone()), host, ..JudgeOptions::default() })
         .expect("judge")
 }
-
 #[tokio::test(flavor = "multi_thread")]
 async fn the_first_judged_step_refreshes_a_model_that_is_not_the_current_release_once() {
     let files = Files::new();
@@ -108,7 +167,6 @@ async fn the_first_judged_step_refreshes_a_model_that_is_not_the_current_release
     settle().await;
     assert_eq!(server.hits("/model.onnx"), 1);
 }
-
 #[tokio::test(flavor = "multi_thread")]
 async fn no_refresh_for_an_explicit_dir_or_an_install_that_is_already_current() {
     let files = Files::new();
@@ -130,7 +188,6 @@ async fn no_refresh_for_an_explicit_dir_or_an_install_that_is_already_current() 
     settle().await;
     assert_eq!((server.hits("/model.onnx"), server.hits("/tokenizer.json")), (1, 1), "a current install fetches nothing");
 }
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_load_failure_repairs_only_damaged_files_and_only_once_until_files_are_replaced() {
     let files = Files::new();
@@ -179,7 +236,6 @@ async fn a_load_failure_repairs_only_damaged_files_and_only_once_until_files_are
     assert!(matches!(damaged.probs(step()).await, Err(JudgeError::Load(_))));
     until(&tick, || server.hits("/model.onnx") == 3 && restored() && !damaged.is_installing()).await;
 }
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_judgment_is_refused_while_installing_when_not_installed_and_after_a_load_failure() {
     let files = Files::new();
@@ -218,7 +274,6 @@ async fn a_judgment_is_refused_while_installing_when_not_installed_and_after_a_l
     assert!(matches!(broken.probs(step()).await, Err(JudgeError::Load(_))), "a remembered failure is not retried");
     assert!(!broken.status().ready);
 }
-
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: loads the real judge; needs MIXDOG_EFFORT_JUDGE_DIR and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]
 async fn the_first_step_loads_the_real_model_and_shutdown_unloads_it() {
@@ -237,7 +292,6 @@ async fn the_first_step_loads_the_real_model_and_shutdown_unloads_it() {
     assert!(model.is_ready());
     assert_eq!(server.hits("/model.onnx"), 0);
 }
-
 async fn e5_server() -> Server {
     let source = PathBuf::from(std::env::var_os("MIXDOG_MEMORY_MODELS").expect("MIXDOG_MEMORY_MODELS"))
         .join("Xenova")
@@ -250,73 +304,6 @@ async fn e5_server() -> Server {
     ])
     .await
 }
-
-fn runtime(server: &Server, cache: &Path, flags: RuntimeFlags, tick: &StateTick) -> (Arc<MemoryRuntime>, Arc<EmbeddingProvider>) {
-    runtime_over(server, cache, flags, tick, PathBuf::from("unused"))
-}
-
-fn runtime_over(
-    server: &Server,
-    cache: &Path,
-    flags: RuntimeFlags,
-    tick: &StateTick,
-    ort_library: PathBuf,
-) -> (Arc<MemoryRuntime>, Arc<EmbeddingProvider>) {
-    let embedder = Arc::new(EmbeddingProvider::with_tick(embed_config_with(cache, ort_library), tick.clone()).with_hub(server.base.clone()));
-    (MemoryRuntime::new(embedder.clone(), flags, None), embedder)
-}
-
-fn fetches(server: &Server) -> usize {
-    server.hits(&format!("/{DEFAULT_MODEL_ID}/resolve/main/tokenizer.json"))
-}
-
-/// Node's real `ensureStandaloneEnvironment` run over each starting `MIXDOG_EMBED_WARMUP`, then the real `embeddingWarmupCanStart` /
-/// `embeddingOnDemandCanStart` (`fixtures/standalone-defaults`, `record-standalone-defaults.mjs`).
-#[test]
-fn a_standalone_start_gates_the_warmup_as_nodes_does() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/standalone-defaults/twin.json");
-    let twin: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let states = twin["warmup"].as_array().unwrap();
-    assert_eq!(states.len(), 14);
-    for state in states {
-        let value = state["embedWarmup"].as_str().map(str::to_owned);
-        let flags = RuntimeFlags::from_env(&|name| (name == "MIXDOG_EMBED_WARMUP").then(|| value.clone()).flatten());
-        assert_eq!(onnx_runtime_supported(), state["onnxRuntimeSupported"], "{value:?}");
-        assert_eq!(flags.warmup_can_start(), state["warmupCanStart"], "{value:?}");
-        assert_eq!(flags.on_demand_can_start(), state["onDemandCanStart"], "{value:?}");
-    }
-}
-
-#[test]
-fn the_gates_follow_node_for_every_flag_combination() {
-    let default = RuntimeFlags::default();
-    assert!(!default.secondary && default.eager_warmup);
-    for secondary in [false, true] {
-        for eager_warmup in [false, true] {
-            let flags = RuntimeFlags { secondary, eager_warmup };
-            assert_eq!(flags.warmup_can_start(), onnx_runtime_supported() && eager_warmup && !secondary, "{flags:?}");
-            assert_eq!(flags.on_demand_can_start(), onnx_runtime_supported() && !secondary, "{flags:?}");
-        }
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_secondary_process_never_fetches_or_loads() {
-    let server = Server::start(Vec::new()).await;
-    let cache = tempfile::tempdir().expect("cache");
-    let tick = StateTick::default();
-    let (runtime, embedder) = runtime(&server, cache.path(), RuntimeFlags { secondary: true, eager_warmup: true }, &tick);
-
-    runtime.cold_warmup().await.expect("a skipped warmup is not an error");
-    runtime.prewarm_recall();
-    settle().await;
-    let reply = runtime.embedding_warmup(&CancellationToken::new()).await.expect("answers");
-    assert_eq!(reply, WarmupReply::Skipped("secondary mode"));
-    assert_eq!(reply.to_json(), serde_json::json!({ "ok": true, "skipped": "secondary mode" }));
-    assert_eq!(fetches(&server), 0);
-    assert!(!embedder.is_installed().await.expect("reads") && !embedder.is_ready());
-}
-
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: real inference needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
 async fn without_eager_warmup_only_the_explicit_install_route_loads_the_model() {
@@ -338,7 +325,6 @@ async fn without_eager_warmup_only_the_explicit_install_route_loads_the_model() 
     assert_eq!(fetches(&server), 1);
     assert!(embedder.is_ready());
 }
-
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: real inference needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
 async fn a_session_start_prewarm_installs_and_loads_in_the_background_and_repeats_are_free() {
@@ -357,17 +343,21 @@ async fn a_session_start_prewarm_installs_and_loads_in_the_background_and_repeat
     assert_eq!(fetches(&server), 1);
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn a_failed_download_fails_the_awaited_paths_and_leaves_recall_on_its_text_lanes() {
-    let server = Server::start(Vec::new()).await;
-    let cache = tempfile::tempdir().expect("cache");
-    let tick = StateTick::default();
-    let (runtime, embedder) = runtime(&server, cache.path(), RuntimeFlags::default(), &tick);
 
-    assert!(runtime.cold_warmup().await.is_err());
-    assert!(runtime.embedding_warmup(&CancellationToken::new()).await.is_err());
-    runtime.prewarm_recall();
-    settle().await;
-    assert!(!embedder.is_ready());
-    assert_eq!(crate::memory::recall::readiness::RecallEmbedder::new(embedder, false).query_vector("anything", &tokio_util::sync::CancellationToken::new()).await.expect("not aborted"), None);
+/// Node's real `ensureStandaloneEnvironment` run over each starting `MIXDOG_EMBED_WARMUP`, then the real `embeddingWarmupCanStart` /
+/// `embeddingOnDemandCanStart` (`fixtures/standalone-defaults`, `record-standalone-defaults.mjs`).
+#[cfg(node_twin)]
+#[test]
+fn a_standalone_start_gates_the_warmup_as_nodes_does() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/standalone-defaults/twin.json");
+    let twin: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let states = twin["warmup"].as_array().unwrap();
+    assert_eq!(states.len(), 14);
+    for state in states {
+        let value = state["embedWarmup"].as_str().map(str::to_owned);
+        let flags = RuntimeFlags::from_env(&|name| (name == "MIXDOG_EMBED_WARMUP").then(|| value.clone()).flatten());
+        assert_eq!(onnx_runtime_supported(), state["onnxRuntimeSupported"], "{value:?}");
+        assert_eq!(flags.warmup_can_start(), state["warmupCanStart"], "{value:?}");
+        assert_eq!(flags.on_demand_can_start(), state["onDemandCanStart"], "{value:?}");
+    }
 }

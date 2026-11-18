@@ -172,6 +172,13 @@ impl ModelFactsSource for CatalogOpenAiFacts {
             access_programs: None,
         }
     }
+
+    fn refresh<'a>(&'a self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            // The refresh the Anthropic replay asks too (`ListingLookup::refresh_roster`, bound in `builder_env_shared`).
+            self.catalog.listing_lookup().refresh_roster("openai-oauth").await;
+        })
+    }
 }
 
 /// The single constructor: every input of `DefaultProviderBuilder` from the process services.
@@ -197,6 +204,17 @@ pub fn builder_env_shared(p: &ProcessServices) -> (BuilderEnv, BuilderShared) {
     let identity = client_identity(&p.env, &p.host, &p.installation_id, &versions);
     let (config, env) = (p.config.clone(), p.env.clone());
     let shared = BuilderShared { http: link.clone(), versions: versions.clone(), identity: identity.clone() };
+    // The refresh an adapter asks after an unknown-model refusal (`_refreshModelCache`), the same for OpenAI's Codex route and
+    // Anthropic's subscription route: the catalog's forced, provider-scoped listing, which rewrites that provider's roster file.
+    let refreshing = Arc::downgrade(&p.catalog);
+    p.listing.bind_roster_refresh(Arc::new(move |provider| {
+        let catalog = refreshing.upgrade();
+        Box::pin(async move {
+            if let Some(catalog) = catalog {
+                catalog.refresh_matching(&provider).await;
+            }
+        })
+    }));
     let built = BuilderEnv {
         http: link.clone(),
         // A request stream needs an `http2_only` link (the Node-equal client refuses it): Cursor's Connect run.

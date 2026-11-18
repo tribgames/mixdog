@@ -43,7 +43,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-function context({ run, snapshot = null, voice = {}, api = {}, toolModules = {} }) {
+function context({ run, snapshot = null, voice = {}, api = {}, toolModules = {}, feed = true, writable = true }) {
   const heldModules = {
     webSearch: { enabled: true },
     memory: { enabled: true, installed: true },
@@ -52,9 +52,32 @@ function context({ run, snapshot = null, voice = {}, api = {}, toolModules = {} 
     tidy: { enabled: true, installed: true },
     ...toolModules,
   };
-  modules.publish(heldModules);
+  const voiceStatus = {
+    enabled: false,
+    installed: false,
+    busy: false,
+    components: { whisper: false, model: false, ffmpeg: false },
+    ...voice,
+  };
+  const reads = new Map([
+    ['getToolModuleSettings', heldModules],
+    ['getVoiceStatus', voiceStatus],
+    ['getTidyEngineStatus', { toolsDir: '/tools', core: [], engines: [], installing: null }],
+    ['getTidyInstallStatus', null],
+  ]);
+  const read = (capability) => reads.has(capability)
+    ? { ok: true, value: reads.get(capability) }
+    : { ok: false, error: `Unsupported fixture read: ${capability}` };
+  modules.publish(feed ? heldModules : {});
   return {
     api: {
+      readCapabilities: async (requests) => requests.map(({ capability }) => read(capability)),
+      ...(writable && {
+        invokeCapability: async ({ capability, args }) => {
+          if (reads.has(capability)) return { value: reads.get(capability) };
+          throw new Error(`Use the panel command lane for ${capability} (${args?.length ?? 0} arguments).`);
+        },
+      }),
       readSettings: async () => ({
         autoClear: true,
         autoCompact: true,
@@ -74,13 +97,7 @@ function context({ run, snapshot = null, voice = {}, api = {}, toolModules = {} 
       toolModules: heldModules,
       recap: { enabled: true },
       theme: 'basic',
-      voice: {
-        enabled: false,
-        installed: false,
-        busy: false,
-        components: { whisper: false, model: false, ffmpeg: false },
-        ...voice,
-      },
+      voice: voiceStatus,
     },
     snapshot,
     pending: '',
@@ -851,10 +868,10 @@ test('Visualize is a default-on, toggle-only built-in', async () => {
   document.body.append(host);
   const root = createRoot(host);
   const calls = [];
-  let visualize = {};
+  let visualize = { enabled: true, installed: true };
   const run = async (capability, args) => {
     calls.push([capability, args]);
-    visualize = { enabled: args[1] };
+    visualize = { ...visualize, enabled: args[1] };
     return { visualize };
   };
   const render = () =>
@@ -868,7 +885,7 @@ test('Visualize is a default-on, toggle-only built-in', async () => {
     });
 
   try {
-    // No runtime entry yet: the feature reads as on, with no Install step.
+    // The host reports the bundled feature as on, with no Install step.
     await render();
     const row = document.querySelector('button[data-built-in-feature="visualize"]');
     assert.ok(row);
@@ -886,6 +903,98 @@ test('Visualize is a default-on, toggle-only built-in', async () => {
       ['setBuiltinToolEnabled', ['visualize', false]],
       ['setBuiltinToolEnabled', ['visualize', true]],
     ]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test('the same requested status supports a host without pushes, but not a host without writes', async () => {
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const calls = [];
+  const run = async (capability, args) => {
+    calls.push([capability, args]);
+    return { memory: { enabled: args[0], installed: true } };
+  };
+  const render = (writable) => act(async () => {
+    root.render(React.createElement(CategoryPanel, {
+      category: 'builtins',
+      context: context({ run, feed: false, writable }),
+    }));
+  });
+  try {
+    await render(true);
+    await openFeature('memory');
+    const on = labelled('memory', 'input', 'Memory');
+    assert.ok(on?.checked);
+    await act(async () => on.click());
+    assert.equal(labelled('memory', 'input', 'Memory')?.checked, false);
+    await render(false);
+    assert.match(document.querySelector('[data-feature-id="memory"]').textContent, /Unavailable/);
+    assert.equal(labelled('memory', 'input', 'Memory'), null);
+    assert.deepEqual(calls, [['setMemoryToolsEnabled', [false]]]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test('Tidy keeps the feature switch while partial engine replies suppress unsafe install actions', async () => {
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const reads = [];
+  const catalog = {
+    toolsDir: '/tools',
+    core: ['ruff'],
+    engines: [{
+      id: 'ruff', title: 'ruff', languages: ['Python'], kind: ['linter'], version: '',
+      source: 'missing', managed: true, core: true, toolchain: false, installable: true,
+    }],
+  };
+  let engineStatus = { ...catalog, installing: null };
+  const tidyDetail = () => document.querySelector('[data-feature-id="tidy"]');
+  const refreshOnOpen = async (next) => {
+    await act(async () => labelled('tidy', 'button', 'Close').click());
+    engineStatus = next;
+    await openFeature('tidy');
+  };
+  try {
+    await act(async () => {
+      root.render(React.createElement(CategoryPanel, {
+        category: 'builtins',
+        context: context({
+          feed: false,
+          run: async (capability) => assert.fail(`Status read went through the command lane: ${capability}`),
+          api: {
+            readCapabilities: undefined,
+            invokeCapability: async ({ capability }) => {
+              reads.push(capability);
+              assert.equal(capability, 'getTidyEngineStatus');
+              return { value: engineStatus };
+            },
+          },
+        }),
+      }));
+    });
+    await openFeature('tidy');
+    assert.ok(reads.includes('getTidyEngineStatus'));
+    assert.ok(labelled('tidy', 'button', 'Install ruff'));
+
+    await refreshOnOpen({ ...catalog, installing: { active: true } });
+    assert.ok(tidyDetail().querySelector('[data-tidy-engine="ruff"]'));
+    assert.equal(labelled('tidy', 'button', 'Install ruff'), null);
+    assert.ok(labelled('tidy', 'input', 'Code Tidy')?.checked);
+
+    await refreshOnOpen({ ...catalog, installing: { active: false } });
+    assert.ok(labelled('tidy', 'button', 'Install ruff'));
+
+    await refreshOnOpen({ toolsDir: '/tools', core: [] });
+    assert.match(tidyDetail().textContent, /engine status is unavailable/);
+    assert.equal(labelled('tidy', 'button', 'Install ruff'), null);
+    assert.ok(labelled('tidy', 'input', 'Code Tidy')?.checked);
   } finally {
     await act(async () => root.unmount());
     host.remove();

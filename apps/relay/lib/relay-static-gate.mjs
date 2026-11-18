@@ -3,9 +3,6 @@
 // served without the pairing gate because browsers fetch them without
 // credentials; a 401 would silently downgrade "install app" to an icon-less
 // shortcut. These assets carry no user data.
-import { realpathSync } from 'node:fs';
-import { join } from 'node:path';
-
 import {
   deviceCookieHeaders,
   mergeCookieHeaders,
@@ -28,6 +25,8 @@ export const PUBLIC_APP_ASSETS = new Set([
   '/mixdog-192.png',
   '/mixdog-512.png',
 ]);
+
+const WORKER_SCRIPTS = new Set(['/sw.js', '/sw-shell.js', '/sw-media.js', '/ui-language.js']);
 
 /** `/d/<deviceId>/...` — the install/approval entry for one desktop. The id
  *  is a routing label, never a credential: it opens the shell that asks for
@@ -121,10 +120,9 @@ function rendererRoot(renderer, store, deviceId) {
   return renderer.dirFor(deviceId ? store.deviceVersion(deviceId) : undefined);
 }
 
-// The phone app cannot use the legacy renderer (it predates the app): for the
-// top-level document of a legacy-served PC it gets the update page instead.
-// Assets, browsers and home-screen web apps keep the legacy renderer.
-function serveUpdatePcPage(renderer, store, rendererDir, { route, releaseDevice }, request, response) {
+// For a top-level native navigation, the catalog can identify older PCs
+// that should update. This never changes the renderer chosen for assets.
+function serveUpdatePcPage(renderer, store, { route, releaseDevice }, request, response) {
   if (typeof renderer === 'string' || route.redirect || !isNativeAppRequest(request)) return false;
   // Fetch Metadata, when sent, must say top-level document: a fetch(), iframe
   // or worker request is not a page the phone is showing. A WebView navigation
@@ -134,11 +132,6 @@ function serveUpdatePcPage(renderer, store, rendererDir, { route, releaseDevice 
   const report = store.deviceVersion(releaseDevice);
   const legacy = renderer.legacyFor(report);
   if (!legacy) return false;
-  // The document is whatever the static resolver answers with the index file:
-  // `/`, `/index.html` and the extension-less deep links of the SPA fallback.
-  // Real assets and misses resolve to something else and stay untouched.
-  const resolved = resolveStaticTarget(rendererDir, route.rest);
-  if (resolved.status !== 200 || resolved.target !== realpathSync(join(rendererDir, 'index.html'))) return false;
   sendUpdatePcPage(request, response, { current: report.appVersion, min: legacy.minVersion });
   return true;
 }
@@ -167,13 +160,41 @@ export function serveStatic(renderer, store, unauthorizedLimiter, request, respo
     rejectUnauthorizedText(unauthorizedLimiter, request, response);
     return;
   }
-  const rendererDir = rendererRoot(renderer, store, access.releaseDevice);
-  if (!rendererDir) {
+  const selected = rendererRoot(renderer, store, access.releaseDevice);
+  const rendererDir = selected ?? renderer.rendererDir;
+  if (selected !== null && !rendererDir) {
     endText(response, 404, 'Mixdog relay: no RENDERER_DIR configured; this relay only forwards WebSocket traffic.');
     return;
   }
+  const rest = access.route?.rest ?? pathname;
+  if (access.route?.redirect) {
+    serveDeviceRoute(rendererDir, access.route, request, response);
+    return;
+  }
+  const unmatched = selected === null;
+  const classify = unmatched || (access.route && isNativeAppRequest(request));
+  const resolved = classify && rendererDir ? resolveStaticTarget(rendererDir, rest) : { status: 404 };
+  const document = classify && (rest === '/' || rest === '/index.html' || (resolved.status === 200 &&
+    resolved.target === resolveStaticTarget(rendererDir, '/index.html').target));
+  if (document && access.route && serveUpdatePcPage(renderer, store, access, request, response)) return;
+  if (selected === null && document) {
+    // An OK, no-store document evicts the stale shell in already shipped workers.
+    response.writeHead(200, {
+      'Cache-Control': 'no-store',
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+      'X-Content-Type-Options': 'nosniff',
+    }).end(request.method === 'HEAD' ? undefined :
+      '<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Web client unavailable</title>' +
+      '<h1>Web client unavailable</h1><p>The web client for this PC version is unavailable.</p>' +
+      '<button type="button" onclick="location.reload()">Reload page</button>');
+    return;
+  }
+  if (!rendererDir || (selected === null && !PUBLIC_APP_ASSETS.has(pathname) && !WORKER_SCRIPTS.has(pathname))) {
+    response.writeHead(resolved.status === 403 ? 403 : 404, { 'Cache-Control': 'no-store' }).end();
+    return;
+  }
   if (access.route) {
-    if (serveUpdatePcPage(renderer, store, rendererDir, access, request, response)) return;
     serveDeviceRoute(rendererDir, access.route, request, response);
     return;
   }

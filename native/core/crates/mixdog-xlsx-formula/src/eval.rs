@@ -617,6 +617,7 @@ impl Evaluator<'_> {
             )));
         }
         if !ERROR_TOLERANT.contains(&name)
+            && !crate::functions::orders_its_own_errors(name)
             && let Some(failed) = args.iter().find(|value| value.is_formula_error()) {
                 return Ok(failed.clone());
             }

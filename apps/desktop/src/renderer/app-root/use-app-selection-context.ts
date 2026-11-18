@@ -6,7 +6,7 @@ import { useWorkbenchWorkspace } from '../workbench-workspace';
 import { useAppSessionTitle } from '../app-shell-session-title';
 import { useAppToolProject } from '../app-shell-tool-project';
 import { useLaunchTabMeasurements } from '../use-app-boot';
-import { applySessionLaneResult } from './use-app-task-lifecycle';
+import { seedCreatedSessionLane } from './use-app-task-lifecycle';
 import { useTranscriptRendererReadiness } from './use-transcript-renderer-readiness';
 import { useUnreadViewedSession } from './use-unread-viewed-session';
 import type { AppWorkspaceShell } from './use-app-workspace-shell';
@@ -65,7 +65,7 @@ export function useAppSelectionContext(
     activateSelection,
     promoteSelectionInLeaf: paneWorkspace.promoteInLeaf,
     registerWorkspaceSelection,
-    applySessionLaneResult,
+    seedCreatedSessionLane,
   });
   const navigationSelection: NavigationSelection = selection;
   // Viewing a session consumes its unread dot.

@@ -31,10 +31,17 @@ use super::turn_settings::TurnSettings;
 #[async_trait]
 pub trait PendingRoute: Send + Sync + 'static {
     async fn apply(&self, thread: &ThreadId) -> Result<(), String>;
+    async fn apply_admitted(&self, thread: &ThreadId, _pick: Option<&serde_json::Value>) -> Result<(), String> {
+        self.apply(thread).await
+    }
 }
 
 #[async_trait]
 impl PendingRoute for SessionRoutes {
+    async fn apply_admitted(&self, thread: &ThreadId, pick: Option<&serde_json::Value>) -> Result<(), String> {
+        SessionRoutes::apply_admitted(self, thread, pick).await.map_err(port)
+    }
+
     async fn apply(&self, thread: &ThreadId) -> Result<(), String> {
         // The recorded boundary is the TUI's `onModelSwitch` notice; the conversation carries it already.
         self.apply_pending(thread).await.map(|_| ()).map_err(port)
@@ -54,6 +61,13 @@ impl LatePendingRoute {
 
 #[async_trait]
 impl PendingRoute for LatePendingRoute {
+    async fn apply_admitted(&self, thread: &ThreadId, pick: Option<&serde_json::Value>) -> Result<(), String> {
+        match self.0.get() {
+            Some(route) => route.apply_admitted(thread, pick).await,
+            None => Err("the pending route is not bound yet".to_owned()),
+        }
+    }
+
     async fn apply(&self, thread: &ThreadId) -> Result<(), String> {
         match self.0.get() {
             Some(route) => route.apply(thread).await,
@@ -137,49 +151,12 @@ pub trait PendingSwitches: Send + Sync + 'static {
     async fn apply(&self, thread: &ThreadId) -> Result<(), String>;
 }
 
-#[async_trait]
-impl PendingSwitches for mixdog_core_session::session::thread_switches::SessionSwitchAdapter {
-    /// What the switches answer (`onSessionSwitches`) has no reader on a turn start here; a refusal is the turn's.
-    async fn apply(&self, thread: &ThreadId) -> Result<(), String> {
-        self.apply_pending_switches(thread).await.map(|_| ())
-    }
-}
-
 /// What a turn start does to the thread before its request is built, in Node's order (`prepareSession`):
 /// the held route pick takes effect, the held workflow and mode choices apply, then the settings follow the live ones.
 pub struct TurnStart {
     pub route: Arc<dyn PendingRoute>,
     pub switches: Arc<dyn PendingSwitches>,
     pub settings: Arc<dyn TurnSettings>,
-}
-
-#[async_trait]
-impl TurnSettings for TurnStart {
-    async fn reconcile(&self, thread: &ThreadId, conversation: bool) -> Result<Header, String> {
-        self.route.apply(thread).await?;
-        self.switches.apply(thread).await?;
-        self.settings.reconcile(thread, conversation).await
-    }
-
-    async fn refresh_mcp(&self, thread: &ThreadId) -> Result<(), String> {
-        self.settings.refresh_mcp(thread).await
-    }
-
-    async fn await_initial_mcp(&self, thread: &ThreadId) {
-        self.settings.await_initial_mcp(thread).await;
-    }
-
-    async fn migrate_exposure(&self, thread: &ThreadId, rows: &[serde_json::Value]) -> Result<Option<Header>, String> {
-        self.settings.migrate_exposure(thread, rows).await
-    }
-
-    async fn current_agents(&self, thread: &ThreadId, header: &Header) -> Result<Option<Vec<super::turn_reminders::AgentEntry>>, String> {
-        self.settings.current_agents(thread, header).await
-    }
-
-    async fn orchestration_instructions(&self, mode: &str) -> Result<String, String> {
-        self.settings.orchestration_instructions(mode).await
-    }
 }
 
 #[cfg(test)]
@@ -230,6 +207,26 @@ mod tests {
         assert_eq!(*order.lock().unwrap(), ["route"]);
     }
 
+    /// A cell left unbound refuses with a text and is named by the startup check; it binds once.
+    #[tokio::test]
+    async fn an_unbound_cell_refuses_and_a_bound_one_answers() {
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let thread = ThreadId::from("t1");
+        let cell = LatePendingRoute::default();
+        assert!(!cell.is_bound());
+        assert!(cell.apply(&thread).await.is_err());
+        assert!(cell.bind(Arc::new(Steps(order.clone(), Ok(())))).is_ok());
+        assert!(cell.is_bound());
+        cell.apply(&thread).await.expect("applied");
+        assert_eq!(*order.lock().unwrap(), ["route"]);
+        assert!(cell.bind(Arc::new(Steps(order, Ok(())))).is_err(), "a second bind is refused");
+        let start = LateNewRoute::default();
+        assert!(!start.is_bound());
+        assert!(start.seat(&thread).await.is_err());
+        assert!(start.adopt(&thread, None).await.is_err());
+    }
+
+
     /// The turn's reminders read through the turn start: the agents a Lead may delegate to now (`currentAgents()`) and the
     /// text a carried orchestration mode notice ends with (`orchestrationInstructions(mode)`) are its settings host's.
     #[tokio::test]
@@ -257,23 +254,47 @@ mod tests {
         let agents = start.current_agents(&thread, &Header::new()).await.expect("the agents").expect("a Lead's agents");
         assert_eq!(agents.iter().map(|agent| agent.id.as_str()).collect::<Vec<_>>(), ["worker"]);
     }
+}
 
-    /// A cell left unbound refuses with a text and is named by the startup check; it binds once.
-    #[tokio::test]
-    async fn an_unbound_cell_refuses_and_a_bound_one_answers() {
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let thread = ThreadId::from("t1");
-        let cell = LatePendingRoute::default();
-        assert!(!cell.is_bound());
-        assert!(cell.apply(&thread).await.is_err());
-        assert!(cell.bind(Arc::new(Steps(order.clone(), Ok(())))).is_ok());
-        assert!(cell.is_bound());
-        cell.apply(&thread).await.expect("applied");
-        assert_eq!(*order.lock().unwrap(), ["route"]);
-        assert!(cell.bind(Arc::new(Steps(order, Ok(())))).is_err(), "a second bind is refused");
-        let start = LateNewRoute::default();
-        assert!(!start.is_bound());
-        assert!(start.seat(&thread).await.is_err());
-        assert!(start.adopt(&thread, None).await.is_err());
+
+#[async_trait]
+impl TurnSettings for TurnStart {
+    async fn reconcile_admitted(&self, thread: &ThreadId, conversation: bool, pick: Option<&serde_json::Value>) -> Result<Header, String> {
+        self.route.apply_admitted(thread, pick).await?;
+        self.switches.apply(thread).await?;
+        self.settings.reconcile(thread, conversation).await
+    }
+
+    async fn reconcile(&self, thread: &ThreadId, conversation: bool) -> Result<Header, String> {
+        self.route.apply(thread).await?;
+        self.switches.apply(thread).await?;
+        self.settings.reconcile(thread, conversation).await
+    }
+
+    async fn refresh_mcp(&self, thread: &ThreadId) -> Result<(), String> {
+        self.settings.refresh_mcp(thread).await
+    }
+
+    async fn await_initial_mcp(&self, thread: &ThreadId) {
+        self.settings.await_initial_mcp(thread).await;
+    }
+
+    async fn migrate_exposure(&self, thread: &ThreadId, rows: &[serde_json::Value]) -> Result<Option<Header>, String> {
+        self.settings.migrate_exposure(thread, rows).await
+    }
+
+    async fn current_agents(&self, thread: &ThreadId, header: &Header) -> Result<Option<Vec<super::turn_reminders::AgentEntry>>, String> {
+        self.settings.current_agents(thread, header).await
+    }
+
+    async fn orchestration_instructions(&self, mode: &str) -> Result<String, String> {
+        self.settings.orchestration_instructions(mode).await
+    }
+}
+#[async_trait]
+impl PendingSwitches for mixdog_core_session::session::thread_switches::SessionSwitchAdapter {
+    /// What the switches answer (`onSessionSwitches`) has no reader on a turn start here; a refusal is the turn's.
+    async fn apply(&self, thread: &ThreadId) -> Result<(), String> {
+        self.apply_pending_switches(thread).await.map(|_| ())
     }
 }

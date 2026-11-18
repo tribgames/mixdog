@@ -777,8 +777,12 @@ export function WorkspaceTabStrip({
               beside it; the codicon + read as a foreign mark (user: + 버튼이
               이질감이 있네). */}
         {/* 15px → a ~8.8px cross on the strip's 1.5px line: at 18px the +
-              out-sized the 14px tab labels (user: +가 너무 크다). */}
-        <Plus size={15} aria-hidden="true" />
+              out-sized the 14px tab labels (user: +가 너무 크다). The mark is
+              the dock toggles' own 28px plate (22-markdown.css), centred in
+              this full-height hit slot. */}
+        <span className="workspace-tab-new-mark">
+          <Plus size={15} aria-hidden="true" />
+        </span>
       </button>
       {tabMenu &&
         workspaceTabContextMenu({

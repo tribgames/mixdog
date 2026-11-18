@@ -8,33 +8,56 @@
 //! accounts it, over the hub's clock: every request, the whole result (`generationMs` included), the callbacks in order
 //! and the ledger rows are compared with Node's.
 
+#[cfg(node_twin)]
 use std::sync::Arc;
 
+#[cfg(node_twin)]
 use async_trait::async_trait;
+#[cfg(node_twin)]
 use serde_json::Value;
 
+#[cfg(node_twin)]
 use super::hosted_wire_tests::inputs;
+#[cfg(node_twin)]
 use super::wire_fixtures::Hub;
+#[cfg(node_twin)]
 use super::wire_fixtures::assert_same_events;
+#[cfg(node_twin)]
 use super::wire_fixtures::assert_same_requests;
+#[cfg(node_twin)]
 use super::wire_fixtures::assert_same_result;
+#[cfg(node_twin)]
 use super::wire_fixtures::built;
+#[cfg(node_twin)]
 use super::wire_fixtures::core_result_at;
+#[cfg(node_twin)]
 use super::wire_fixtures::load;
+#[cfg(node_twin)]
 use super::wire_fixtures::node_result;
+#[cfg(node_twin)]
 use super::wire_fixtures::request_of;
+#[cfg(node_twin)]
 use super::wire_fixtures::scenarios;
+#[cfg(node_twin)]
 use super::wire_fixtures::timed_attempt;
+#[cfg(node_twin)]
 use crate::providers::google::wire_tests::Rows;
+#[cfg(node_twin)]
 use crate::providers::google::wire_tests::empty_pricing;
+#[cfg(node_twin)]
 use crate::registry::accounted::AccountOf;
+#[cfg(node_twin)]
 use crate::registry::accounted::AccountedAdapter;
+#[cfg(node_twin)]
 use crate::registry::accounted::AccountingDeps;
+#[cfg(node_twin)]
 use crate::registry::accounting::UsageSink;
 
+#[cfg(node_twin)]
 /// The recorder's account roster: the default account.
 struct DefaultAccount;
 
+#[cfg(node_twin)]
 #[async_trait]
 impl AccountOf for DefaultAccount {
     async fn of(&self, _: &str) -> Result<String, String> {
@@ -42,6 +65,7 @@ impl AccountOf for DefaultAccount {
     }
 }
 
+#[cfg(node_twin)]
 #[test]
 fn the_generation_window_and_first_output_time_are_measured_as_node_measures_them() {
     // The recorder ran with TZ=Asia/Seoul: a row's day is that local day.
@@ -50,6 +74,7 @@ fn the_generation_window_and_first_output_time_are_measured_as_node_measures_the
     });
 }
 
+#[cfg(node_twin)]
 async fn replay_timing() {
     let names = scenarios("generation-timing");
     assert_eq!(names, ["anthropic-oauth", "deepseek", "openai"]);

@@ -37,6 +37,7 @@ use crate::oauth::Probe;
 use crate::oauth::RefreshFailure;
 use crate::oauth::Refusal;
 use crate::oauth::classify_refresh_failure;
+use crate::oauth::is_definitive_oauth_failure;
 use crate::oauth::http;
 use crate::oauth::pages;
 use crate::oauth::scrub::oauth_body_summary;
@@ -61,7 +62,7 @@ pub const REFRESH_SKEW_MS: u64 = 5 * 60_000;
 /// `claudeAiOauth` of `anthropic-oauth-credentials.json`; unknown fields are
 /// kept so a rewrite never drops them.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", from = "StoredOAuthDocument")]
 pub struct StoredOAuth {
     pub access_token: String,
     pub refresh_token: String,
@@ -78,6 +79,43 @@ pub struct StoredOAuth {
     pub identity: Option<Value>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+/// The stored document as it reads: both spellings of the expiry, which `StoredOAuth` folds into one the way Node reads
+/// them (`oauth.expiresAt ?? oauth.expires_at`) and writes in Node's (`expiresAt`).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredOAuthDocument {
+    access_token: String,
+    refresh_token: String,
+    #[serde(default)]
+    expires_at: Option<Value>,
+    #[serde(default)]
+    scopes: Vec<String>,
+    #[serde(default)]
+    reauth_required: Option<bool>,
+    #[serde(default)]
+    subscription_type: Option<String>,
+    #[serde(default)]
+    identity: Option<Value>,
+    #[serde(flatten)]
+    extra: Map<String, Value>,
+}
+
+impl From<StoredOAuthDocument> for StoredOAuth {
+    fn from(mut document: StoredOAuthDocument) -> Self {
+        let alternate = document.extra.shift_remove("expires_at");
+        Self {
+            access_token: document.access_token,
+            refresh_token: document.refresh_token,
+            expires_at: crate::accounts::validity::stated_expiry(document.expires_at, alternate),
+            scopes: document.scopes,
+            reauth_required: document.reauth_required,
+            subscription_type: document.subscription_type,
+            identity: document.identity,
+            extra: document.extra,
+        }
+    }
 }
 
 impl StoredOAuth {
@@ -142,8 +180,10 @@ fn file_error(cause: &dyn std::fmt::Display) -> ProviderError {
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 async fn load_stored(file: &CredentialFile) -> Result<Option<StoredOAuth>, ProviderError> {
     match file.load::<Document>().await {
-        Probe::Present(document) => {
+        Probe::Present(mut document) => {
             file.keep(&[&document.oauth.access_token, &document.oauth.refresh_token]);
+            // `_normalizeExpiresAt(oauth.expiresAt ?? oauth.expires_at) || expiryFromAccessToken(oauth.accessToken)`.
+            document.oauth.expires_at = crate::accounts::validity::expiry_or_claim(document.oauth.expires_at, &document.oauth.access_token);
             Ok(Some(document.oauth))
         }
         Probe::Absent => Ok(None),
@@ -211,7 +251,7 @@ fn token_request(url: &str, body: Value, cli_version: &str) -> WireRequest {
             // `tokenEndpointHeaders` (anthropic-oauth-credentials.mjs:272) spells it as written here.
             ("Content-Type".to_owned(), "application/json".to_owned()),
             ("anthropic-dangerous-direct-browser-access".to_owned(), "true".to_owned()),
-            ("user-agent".to_owned(), format!("claude-cli/{cli_version} (external, sdk-cli)")),
+            ("user-agent".to_owned(), super::client_version::user_agent(cli_version)),
         ],
         body: serde_json::to_vec(&body).unwrap_or_default(),
     }
@@ -266,8 +306,8 @@ pub fn authorize_url(redirect_uri: &str, challenge: &str, state: &str) -> String
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant, reason = "Forward canonical ProviderError from the token endpoint without a second allocation for this private classifier")]
 enum TokenFailure {
-    /// The grant is dead: the user must sign in again.
-    Dead,
+    /// The grant is dead: the user must sign in again. Carries the message the sign-in prompt shows.
+    Dead(String),
     /// Try again later, or a rejection that states no reason.
     Failed(ProviderError),
 }
@@ -380,15 +420,46 @@ pub fn apply_token_response(
     })
 }
 
+const SIGN_IN_EXPIRED_PREFIX: &str = "Anthropic sign-in expired. Sign in again from Providers.";
+
+/// `_tokenEndpointError`: `<operation> <status>: <redacted body>.` plus the hint a 403 carries.
+fn endpoint_message(operation: &str, status: u16, body: &[u8], secrets: &[&str], cli_version: &str) -> String {
+    let summary = oauth_body_summary(&String::from_utf8_lossy(body), secrets);
+    let detail = if summary.is_empty() { String::new() } else { format!(": {summary}") };
+    let compatibility = if status == 403 {
+        format!(
+            " Anthropic returned HTTP 403 for a request sent as claude-cli/{cli_version}. Possible causes include OAuth client compatibility, account or scope policy, an intercepting proxy/VPN/WAF, or regional endpoint restrictions. Verify the account has Claude Code access and the required scopes; update Mixdog or set MIXDOG_CLI_VERSION to the installed official Claude Code version; then retry sign-in via /providers without an intercepting network layer if applicable."
+        )
+    } else {
+        String::new()
+    };
+    format!("{operation} {status}{detail}.{compatibility}")
+}
+
+/// The login's reading of a refused code exchange: only a coded dead grant is a denial.
 fn token_failure(status: u16, body: &[u8]) -> TokenFailure {
     let kind = match classify_refresh_failure(Some(status), body) {
-        RefreshFailure::Definitive => return TokenFailure::Dead,
+        RefreshFailure::Definitive => return TokenFailure::Dead(String::new()),
         RefreshFailure::Transient => ErrorKind::Transient,
         RefreshFailure::Unknown => ErrorKind::Auth,
     };
     let mut err = ProviderError::new(kind, DeliveryState::Accepted);
     err.status = Some(status);
     err.message = format!("Anthropic OAuth token endpoint {status}");
+    TokenFailure::Failed(err)
+}
+
+/// A refused refresh (`_refreshOAuthCredentialsUnlocked`): a dead grant by `isDefinitiveOAuthFailure` carries the
+/// sign-in prompt; any other answer states its status and redacted body.
+fn refresh_failure(status: u16, body: &[u8], previous: &StoredOAuth, cli_version: &str) -> TokenFailure {
+    let message = endpoint_message("token refresh", status, body, &[previous.refresh_token.as_str(), previous.access_token.as_str()], cli_version);
+    if is_definitive_oauth_failure(&String::from_utf8_lossy(body), status) {
+        return TokenFailure::Dead(format!("{SIGN_IN_EXPIRED_PREFIX} {message}"));
+    }
+    let kind = if matches!(status, 403 | 429 | 500..) { ErrorKind::Transient } else { ErrorKind::Auth };
+    let mut err = ProviderError::new(kind, DeliveryState::Accepted);
+    err.status = Some(status);
+    err.message = message;
     TokenFailure::Failed(err)
 }
 
@@ -401,6 +472,7 @@ async fn token_call(
     previous: &StoredOAuth,
     now: u64,
     flow: TokenFlow,
+    cli_version: &str,
 ) -> Result<StoredOAuth, TokenFailure> {
     // The refresh is a bare `setTimeout` abort (`anthropic-oauth-credentials.mjs:313`), the code exchange an
     // `AbortSignal.timeout` (`:609`).
@@ -418,7 +490,10 @@ async fn token_call(
     let reply = response.read_all().await.map_err(TokenFailure::Failed)?;
     let status = reply.status.unwrap_or(0);
     if !(200..300).contains(&status) {
-        return Err(token_failure(status, &reply.body));
+        return Err(match flow {
+            TokenFlow::Refresh => refresh_failure(status, &reply.body, previous, cli_version),
+            TokenFlow::Login => token_failure(status, &reply.body),
+        });
     }
     let parsed: Value = serde_json::from_slice(&reply.body).unwrap_or(Value::Null);
     apply_token_response(previous, &parsed, now, flow).map_err(TokenFailure::Failed)
@@ -434,7 +509,7 @@ struct RefreshParts {
     file: CredentialFile,
     http: Arc<dyn HttpSend>,
     token_url: String,
-    cli_version: String,
+    cli_version: Option<Arc<super::ClaudeClientVersion>>,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 
@@ -450,9 +525,13 @@ impl RefreshParts {
     /// `lease_ms`: refresh unless the token outlasts that window (`preflightAnthropicOAuthCredentials`), instead
     /// of the usual skew.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn refresh(self, rejected: Option<String>, lease_ms: Option<u64>) -> Result<String, ProviderError> {
-        // Reload first: another process may already have rotated the pair.
+    async fn refresh(self, held: StoredOAuth, rejected: Option<String>, lease_ms: Option<u64>) -> Result<String, ProviderError> {
+        // Reload first: another process may already have rotated the pair. The flight refreshes only the credential its
+        // callers hold (`held`); one stored meanwhile is not this flight's to refresh.
         let stored = self.stored().await?;
+        if stored.refresh_token != held.refresh_token {
+            return Ok(stored.access_token);
+        }
         let now = (self.clock)();
         let current = match (&rejected, lease_ms) {
             (Some(token), _) => stored.access_token != *token,
@@ -465,8 +544,9 @@ impl RefreshParts {
         if stored.refresh_token.is_empty() {
             return Err(auth_error("Anthropic OAuth refresh token is unavailable", true));
         }
-        let request = refresh_request(&self.token_url, &stored.refresh_token, &self.cli_version);
-        match token_call(self.http.as_ref(), request, &stored, now, TokenFlow::Refresh).await {
+        let version = token_version(self.cli_version.as_deref()).await;
+        let request = refresh_request(&self.token_url, &stored.refresh_token, &version);
+        match token_call(self.http.as_ref(), request, &stored, now, TokenFlow::Refresh, &version).await {
             Ok(next) => {
                 let access = next.access_token.clone();
                 if !publish(&self.file, &TokenPair::from(&stored), &next).await? {
@@ -475,14 +555,14 @@ impl RefreshParts {
                 }
                 Ok(access)
             }
-            Err(TokenFailure::Dead) => {
+            Err(TokenFailure::Dead(message)) => {
                 // A rotation by another process may have replaced the pair.
                 let latest = self.stored().await?;
                 if latest.refresh_token != stored.refresh_token {
                     return Ok(latest.access_token);
                 }
                 mark_reauth_required(&self.file, &stored).await?;
-                Err(auth_error("Anthropic sign-in expired; sign in again", true))
+                Err(auth_error(&message, true))
             }
             Err(TokenFailure::Failed(err)) => Err(err),
         }
@@ -502,7 +582,7 @@ impl OAuthSession {
                 file,
                 http,
                 token_url: TOKEN_URL.to_owned(),
-                cli_version: DEFAULT_CLI_VERSION.to_owned(),
+                cli_version: None,
                 clock: Arc::new(now_ms),
             },
         }
@@ -519,8 +599,17 @@ impl OAuthSession {
     }
 
     pub fn with_cli_version(mut self, version: impl Into<String>) -> Self {
-        self.parts.cli_version = version.into();
+        self.parts.cli_version = Some(Arc::new(super::ClaudeClientVersion::fixed(&version.into())));
         self
+    }
+
+    pub fn with_cli_version_source(mut self, version: Arc<super::ClaudeClientVersion>) -> Self {
+        self.parts.cli_version = Some(version);
+        self
+    }
+
+    pub(super) fn cli_version_source(&self) -> Option<Arc<super::ClaudeClientVersion>> {
+        self.parts.cli_version.clone()
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
@@ -560,10 +649,13 @@ impl OAuthSession {
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn refresh_for(&self, rejected: Option<String>, lease_ms: Option<u64>) -> Result<String, ProviderError> {
+        // When the file holds another login by the time this settles, the caller gets that login's token: the roster row is
+        // the identity, as in Node 1.4.5, so this is the rule and not a leak.
+        let held = self.parts.stored().await?;
         let parts = self.parts.clone();
         self.parts
             .file
-            .refresh_once(async move { parts.refresh(rejected, lease_ms).await })
+            .refresh_once(&held.refresh_token.clone(), async move { parts.refresh(held, rejected, lease_ms).await })
             .await
             .unwrap_or_else(|expired| Err(deadline_error(expired, DeliveryState::Ambiguous, Surface::Socket)))
     }
@@ -602,7 +694,7 @@ pub struct AnthropicLogin {
     file: CredentialFile,
     http: Arc<dyn HttpSend>,
     token_url: String,
-    cli_version: String,
+    cli_version: Option<Arc<super::ClaudeClientVersion>>,
     /// The state of the authorize URL last built; the token request repeats it.
     state: Mutex<String>,
 }
@@ -613,7 +705,7 @@ impl AnthropicLogin {
             file,
             http,
             token_url: TOKEN_URL.to_owned(),
-            cli_version: DEFAULT_CLI_VERSION.to_owned(),
+            cli_version: None,
             state: Mutex::new(String::new()),
         }
     }
@@ -622,6 +714,17 @@ impl AnthropicLogin {
         self.token_url = url.into();
         self
     }
+
+    pub fn with_cli_version_source(mut self, version: Arc<super::ClaudeClientVersion>) -> Self {
+        self.cli_version = Some(version);
+        self
+    }
+}
+
+async fn token_version(source: Option<&super::ClaudeClientVersion>) -> String {
+    let Some(source) = source else { return DEFAULT_CLI_VERSION.to_owned() };
+    source.warm().await;
+    source.current()
 }
 
 const OPERATION: &str = "[anthropic-oauth] token exchange";
@@ -634,6 +737,7 @@ impl AnthropicLogin {
         request: WireRequest,
         base: &StoredOAuth,
         secrets: &[&str],
+        version: &str,
     ) -> Result<StoredOAuth, Refusal> {
         let failed = |message: String| LoginFailure::Failed { code: "token_exchange_failed".into(), message };
         let unanswered = |error: ProviderError| {
@@ -646,21 +750,12 @@ impl AnthropicLogin {
         let reply = response.read_all().await.map_err(unanswered)?;
         let status = reply.status.unwrap_or(0);
         if !(200..300).contains(&status) {
-            let summary = oauth_body_summary(&String::from_utf8_lossy(&reply.body), secrets);
-            let body = if summary.is_empty() { String::new() } else { format!(": {summary}") };
-            let compatibility = if status == 403 {
-                format!(
-                    " Anthropic returned HTTP 403 for a request sent as claude-cli/{}. Possible causes include OAuth client compatibility, account or scope policy, an intercepting proxy/VPN/WAF, or regional endpoint restrictions. Verify the account has Claude Code access and the required scopes; update Mixdog or set MIXDOG_CLI_VERSION to the installed official Claude Code version; then retry sign-in via /providers without an intercepting network layer if applicable.",
-                    self.cli_version
-                )
-            } else {
-                String::new()
-            };
             let failure = match token_failure(status, &reply.body) {
-                TokenFailure::Dead => LoginFailure::Denied,
+                TokenFailure::Dead(_) => LoginFailure::Denied,
                 TokenFailure::Failed(err) => failed(err.message),
             };
-            return Err(Refusal { failure, detail: Some(format!("{OPERATION} {status}{body}.{compatibility}")) });
+            let detail = endpoint_message(OPERATION, status, &reply.body, secrets, version);
+            return Err(Refusal { failure, detail: Some(detail) });
         }
         // `oauthResponseJson`: a body that does not parse is named by its status only.
         let Ok(parsed) = serde_json::from_slice::<Value>(&reply.body) else {
@@ -715,7 +810,8 @@ impl PkceProvider for AnthropicLogin {
             .into());
         }
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner).clone();
-        let request = exchange_request(&self.token_url, code, redirect_uri, verifier, &state, &self.cli_version);
+        let version = token_version(self.cli_version.as_deref()).await;
+        let request = exchange_request(&self.token_url, code, redirect_uri, verifier, &state, &version);
         // A fresh sign-in replaces the tokens and the account but keeps the
         // plan and any unknown fields of the stored credential.
         let existing = load_stored(&self.file).await.map_err(|e| LoginFailure::Failed {
@@ -723,7 +819,7 @@ impl PkceProvider for AnthropicLogin {
             message: e.message,
         })?;
         let base = existing.unwrap_or_else(blank_credential);
-        let credential = self.token_exchange(request, &base, &[code, verifier, &state]).await?;
+        let credential = self.token_exchange(request, &base, &[code, verifier, &state], &version).await?;
         self.file.keep(&[&credential.access_token, &credential.refresh_token]);
         self.file
             .save(&Document { oauth: credential })
@@ -749,12 +845,13 @@ mod site_tests {
     async fn a_refresh_that_outlives_its_timer_reads_as_nodes() {
         let transport = TimingOut::new();
         let request = refresh_request("https://x.test/token", "r", "1.0.0");
-        let Err(TokenFailure::Failed(error)) = token_call(transport.as_ref(), request, &blank_credential(), 0, TokenFlow::Refresh).await else {
+        let Err(TokenFailure::Failed(error)) = token_call(transport.as_ref(), request, &blank_credential(), 0, TokenFlow::Refresh, "1.0.0").await else {
             panic!("the token endpoint never answers");
         };
         assert_transport("anthropicRefresh", &transport);
         assert_thrown("anthropicRefresh", &error.message);
     }
+
 
     /// The authorization-code exchange is an `AbortSignal.timeout` fetch whose failure Node words itself
     /// (`oauthRequestError`, `sites.anthropicCodeExchange`).
@@ -773,3 +870,24 @@ mod site_tests {
     }
 }
 
+
+#[cfg(test)]
+mod expiry_tests {
+    use super::*;
+
+    /// `_normalizeExpiresAt(oauth.expiresAt ?? oauth.expires_at)`: the snake spelling, seconds and date strings read.
+    #[test]
+    fn a_stored_expiry_in_another_spelling_or_unit_reads_as_node_reads_it() {
+        let read = |expiry: &str| -> StoredOAuth {
+            serde_json::from_str(&format!(r#"{{"accessToken":"a","refreshToken":"r",{expiry}}}"#)).expect("a credential")
+        };
+        assert_eq!(read(r#""expires_at":1893456000"#).expires_at, 1_893_456_000_000);
+        assert_eq!(read(r#""expiresAt":"2030-01-01T00:00:00Z""#).expires_at, 1_893_456_000_000);
+        // Both spellings at once (an imported file a refresh then wrote into): Node's `expiresAt` wins, nothing is
+        // rejected, and the stale snake key does not travel on.
+        let both = read(r#""expiresAt":1893456000000,"expires_at":1"#);
+        assert_eq!(both.expires_at, 1_893_456_000_000);
+        assert!(both.extra.get("expires_at").is_none());
+        assert_eq!(read(r#""expiresAt":null,"expires_at":1893456000"#).expires_at, 1_893_456_000_000);
+    }
+}

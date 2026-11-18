@@ -117,6 +117,70 @@ fn parse_registry(value: &Value) -> Result<Vec<Value>, RegistryError> {
     Ok(models.clone())
 }
 
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    pub(crate) fn model(n: u8, context: i64) -> Value {
+        let id = format!("hf-{:024x}", n);
+        let (repo, revision, file) = ("owner/name", "a".repeat(40), "dir/m q.gguf");
+        json!({
+            "id": id, "filename": format!("{id}.gguf"), "remoteFilename": file, "repository": repo, "revision": revision,
+            "url": hugging_face_file_url(repo, &revision, file), "size": 100, "sha256": "b".repeat(64),
+            "contextWindow": context, "estimatedVramBytes": 200, "minimumVramBytes": 200,
+        })
+    }
+
+    #[test]
+    fn repository_ids_and_urls_follow_the_pinned_rules() {
+        assert!(is_repository_id("owner/na-me_1.x"));
+        assert!(!is_repository_id("owner") && !is_repository_id("a/b/c") && !is_repository_id("a/ b"));
+        assert_eq!(hugging_face_file_url("o/n", "rev", "d/a b.gguf"), "https://huggingface.co/o/n/resolve/rev/d/a%20b.gguf");
+    }
+
+
+    pub(crate) fn lane() -> DurabilityIo {
+        mixdog_rt::testing::tokens().durability_io
+    }
+    #[tokio::test]
+    async fn registration_validates_dedupes_and_forgets() {
+        let dir = tempfile::tempdir().unwrap();
+        let reg = RegisteredModels::new(dir.path(), lane());
+        assert!(reg.list().is_empty());
+        reg.register(&model(1, 16384)).await.unwrap();
+        reg.register(&model(1, 16384)).await.unwrap();
+        assert!(matches!(reg.register(&model(1, 32768)).await, Err(RegistryError::ContextConflict)));
+        reg.register(&model(2, 16384)).await.unwrap();
+        assert_eq!(reg.list().len(), 2);
+        let mut bad = model(3, 16384);
+        bad["url"] = json!("https://evil/x");
+        assert!(matches!(reg.register(&bad).await, Err(RegistryError::UrlMismatch)));
+        let mut traversal = model(3, 16384);
+        traversal["remoteFilename"] = json!("../x.gguf");
+        assert!(matches!(reg.register(&traversal).await, Err(RegistryError::InvalidModel)));
+        reg.forget("hf-000000000000000000000001").await.unwrap();
+        assert_eq!(reg.list().len(), 1);
+        // A second registry over the same data directory sees what the first wrote.
+        assert_eq!(RegisteredModels::new(dir.path(), lane()).list().len(), 1);
+    }
+    #[tokio::test]
+    async fn a_damaged_index_is_recovered_and_a_newer_one_is_never_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let reg = RegisteredModels::new(dir.path(), lane());
+        reg.register(&model(1, 16384)).await.unwrap();
+        reg.register(&model(2, 16384)).await.unwrap();
+        std::fs::write(&reg.path, b"\0\0").unwrap();
+        reg.reload().await;
+        assert_eq!(reg.list().len(), 1, "the backup is restored");
+        std::fs::write(&reg.path, br#"{"schema":2,"models":[]}"#).unwrap();
+        reg.reload().await;
+        assert!(reg.list().is_empty());
+        assert!(matches!(reg.register(&model(3, 16384)).await, Err(RegistryError::NewerSchema(2))));
+        assert!(std::fs::read_to_string(&reg.path).unwrap().contains("\"schema\":2"));
+    }
+}
+
+
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn read_blocking(path: &Path) -> Result<Vec<Value>, RegistryError> {
     if !path.exists() {
@@ -132,7 +196,6 @@ fn read_blocking(path: &Path) -> Result<Vec<Value>, RegistryError> {
         None => Vec::new(),
     })
 }
-
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn write_blocking(path: &Path, models: &[Value]) -> Result<(), RegistryError> {
     // A newer build's index makes the write refuse instead of replacing it.
@@ -143,7 +206,6 @@ fn write_blocking(path: &Path, models: &[Value]) -> Result<(), RegistryError> {
     let bytes = serde_json::to_vec(&json!({"schema": 1, "models": models})).map_err(|e| RegistryError::Io(e.to_string()))?;
     write_atomic(path, &bytes, true).map_err(|e| RegistryError::Io(e.to_string()))
 }
-
 fn register_blocking(path: &Path, entry: &Value) -> Result<(Value, Vec<Value>), RegistryError> {
     let mut models = read_blocking(path)?;
     let id = entry.get("id");
@@ -160,7 +222,6 @@ fn register_blocking(path: &Path, entry: &Value) -> Result<(Value, Vec<Value>), 
     write_blocking(path, &models)?;
     Ok((entry.clone(), models))
 }
-
 fn forget_blocking(path: &Path, model_id: &str) -> Result<Vec<Value>, RegistryError> {
     let models = read_blocking(path)?;
     if !models.iter().any(|m| m.get("id").and_then(Value::as_str) == Some(model_id)) {
@@ -170,7 +231,6 @@ fn forget_blocking(path: &Path, model_id: &str) -> Result<Vec<Value>, RegistryEr
     write_blocking(path, &kept)?;
     Ok(kept)
 }
-
 /// The registry. `list` answers from memory (loaded when the registry is built and replaced by
 /// every write of this process); reads and writes of the index file run on the durability lane.
 pub struct RegisteredModels {
@@ -180,7 +240,6 @@ pub struct RegisteredModels {
     /// One writer at a time: a write is a read-modify-write of the file.
     writes: tokio::sync::Semaphore,
 }
-
 impl RegisteredModels {
     /// Loads the index once, at construction (boot), before any async work depends on it.
     pub fn new(data_dir: &Path, lane: DurabilityIo) -> Self {
@@ -218,69 +277,5 @@ impl RegisteredModels {
         let models = probe(self.lane, move || forget_blocking(&path, &id)).await.map_err(|e| RegistryError::Io(e.to_string()))??;
         *self.models.lock().unwrap() = models;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
-
-    pub(crate) fn model(n: u8, context: i64) -> Value {
-        let id = format!("hf-{:024x}", n);
-        let (repo, revision, file) = ("owner/name", "a".repeat(40), "dir/m q.gguf");
-        json!({
-            "id": id, "filename": format!("{id}.gguf"), "remoteFilename": file, "repository": repo, "revision": revision,
-            "url": hugging_face_file_url(repo, &revision, file), "size": 100, "sha256": "b".repeat(64),
-            "contextWindow": context, "estimatedVramBytes": 200, "minimumVramBytes": 200,
-        })
-    }
-
-    #[test]
-    fn repository_ids_and_urls_follow_the_pinned_rules() {
-        assert!(is_repository_id("owner/na-me_1.x"));
-        assert!(!is_repository_id("owner") && !is_repository_id("a/b/c") && !is_repository_id("a/ b"));
-        assert_eq!(hugging_face_file_url("o/n", "rev", "d/a b.gguf"), "https://huggingface.co/o/n/resolve/rev/d/a%20b.gguf");
-    }
-
-    pub(crate) fn lane() -> DurabilityIo {
-        mixdog_rt::testing::tokens().durability_io
-    }
-
-    #[tokio::test]
-    async fn registration_validates_dedupes_and_forgets() {
-        let dir = tempfile::tempdir().unwrap();
-        let reg = RegisteredModels::new(dir.path(), lane());
-        assert!(reg.list().is_empty());
-        reg.register(&model(1, 16384)).await.unwrap();
-        reg.register(&model(1, 16384)).await.unwrap();
-        assert!(matches!(reg.register(&model(1, 32768)).await, Err(RegistryError::ContextConflict)));
-        reg.register(&model(2, 16384)).await.unwrap();
-        assert_eq!(reg.list().len(), 2);
-        let mut bad = model(3, 16384);
-        bad["url"] = json!("https://evil/x");
-        assert!(matches!(reg.register(&bad).await, Err(RegistryError::UrlMismatch)));
-        let mut traversal = model(3, 16384);
-        traversal["remoteFilename"] = json!("../x.gguf");
-        assert!(matches!(reg.register(&traversal).await, Err(RegistryError::InvalidModel)));
-        reg.forget("hf-000000000000000000000001").await.unwrap();
-        assert_eq!(reg.list().len(), 1);
-        // A second registry over the same data directory sees what the first wrote.
-        assert_eq!(RegisteredModels::new(dir.path(), lane()).list().len(), 1);
-    }
-
-    #[tokio::test]
-    async fn a_damaged_index_is_recovered_and_a_newer_one_is_never_overwritten() {
-        let dir = tempfile::tempdir().unwrap();
-        let reg = RegisteredModels::new(dir.path(), lane());
-        reg.register(&model(1, 16384)).await.unwrap();
-        reg.register(&model(2, 16384)).await.unwrap();
-        std::fs::write(&reg.path, b"\0\0").unwrap();
-        reg.reload().await;
-        assert_eq!(reg.list().len(), 1, "the backup is restored");
-        std::fs::write(&reg.path, br#"{"schema":2,"models":[]}"#).unwrap();
-        reg.reload().await;
-        assert!(reg.list().is_empty());
-        assert!(matches!(reg.register(&model(3, 16384)).await, Err(RegistryError::NewerSchema(2))));
-        assert!(std::fs::read_to_string(&reg.path).unwrap().contains("\"schema\":2"));
     }
 }

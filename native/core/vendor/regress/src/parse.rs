@@ -71,8 +71,10 @@ impl ClassSet {
         }
     }
 
-    fn node(self, icase: bool, negate_set: bool) -> ir::Node {
-        let codepoints = if icase {
+    fn node(self, icase: bool, unicode: bool, negate_set: bool) -> ir::Node {
+        let codepoints = if icase && !unicode {
+            unicode::add_icase_code_points_canonicalized(self.codepoints)
+        } else if icase {
             unicode::add_icase_code_points(self.codepoints)
         } else {
             self.codepoints
@@ -427,7 +429,7 @@ where
     /// Fold a character if icase.
     fn fold_if_icase(&self, c: u32) -> u32 {
         if self.flags.icase {
-            unicode::fold_code_point(c, self.flags.unicode)
+            unicode::fold_code_point(c, self.flags.unicode_mode())
         } else {
             c
         }
@@ -643,7 +645,7 @@ where
                     let negate_set = self.try_consume('^');
                     result.push(
                         self.consume_class_set_expression(negate_set)?
-                            .node(self.flags.icase, negate_set),
+                            .node(self.flags.icase, self.flags.unicode_mode(), negate_set),
                     );
                 }
 
@@ -812,8 +814,10 @@ where
                 }
                 Some(']') => {
                     self.consume(']');
-                    if self.flags.icase {
+                    if self.flags.icase && self.flags.unicode_mode() {
                         result.cps = unicode::add_icase_code_points(result.cps);
+                    } else if self.flags.icase {
+                        result.cps = unicode::add_icase_code_points_canonicalized(result.cps);
                     }
                     return Ok(ir::Node::Bracket(result));
                 }

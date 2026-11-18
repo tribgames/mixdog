@@ -347,7 +347,7 @@ test('a reversal during the hold flips inert at the end of the following slide',
   await drag(page, 4, 280);
   await page.waitForFunction(() => log.includes('end'), { timeout: 1500 });
   await page.evaluate(() => apply(false));
-  await page.evaluate(() => sleep(1000));
+  await page.waitForFunction(() => log.includes('inert'), { timeout: 5000 });
   const { log, flips } = await record(page);
   assert.deepEqual(log.slice(0, 2), ['run', 'end'], 'the open glide');
   assert.ok(log.indexOf('run', 2) > 0, 'the reversal slid the sheet closed');
@@ -362,7 +362,7 @@ test('a reversal while the open glide still runs ends inert, never flipping insi
   await drag(page, 4, 280);
   await page.waitForFunction(() => log.includes('run'), { timeout: 1500 });
   await page.evaluate(() => apply(false));
-  await page.evaluate(() => sleep(1200));
+  await page.waitForFunction(() => log.includes('inert'), { timeout: 5000 });
   const { log, flips } = await record(page);
   assertNoFlipWhileSliding(log, flips);
   assert.equal(log.at(-1), 'inert');

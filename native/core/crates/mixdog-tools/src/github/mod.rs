@@ -7,6 +7,7 @@
 mod reduce;
 pub use reduce::positive_env_int;
 
+#[cfg(node_twin)]
 #[cfg(test)]
 mod k1_replay;
 
@@ -32,11 +33,6 @@ use crate::orch::util::spec_from_def;
 const SPEC: &str = include_str!("specs/github.json");
 const NO_ARCHIVE: &str = "unavailable (no session archive)";
 
-/// `githubRequestMutates`: whether a `github` request may change something; an unknown action counts as a change.
-pub fn github_call_mutates(args: &JsonValue) -> bool {
-    args.get("action").and_then(JsonValue::as_str).and_then(contract::definition).is_none_or(|def| def.write)
-}
-
 pub struct GithubTool {
     spec: ToolSpec,
     client: Arc<GhClient>,
@@ -44,6 +40,43 @@ pub struct GithubTool {
     data_dir: Option<PathBuf>,
 }
 
+#[async_trait]
+impl Tool for GithubTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    /// `GITHUB_OUTBOUND` (`human-gate/outbound-policy.mjs`): a comment or a review posts outside Mixdog.
+    fn outbound_kind(&self, args: &JsonValue) -> Option<ActionKind> {
+        match args.get("action").and_then(JsonValue::as_str)? {
+            "issue.comment" | "pr.comment" => Some(ActionKind::Comment),
+            "pr.review" => Some(ActionKind::Review),
+            _ => None,
+        }
+    }
+
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        match self.text(ctx, &args).await {
+            Ok(text) => Ok(text_output(text)),
+            Err(failure @ (ScmFailure::Cancelled | ScmFailure::GithubCancelledBeforeDispatch | ScmFailure::GithubWriteCancelledAfterDispatch)) => {
+                let mut error = ToolError::new(ToolErrorCode::Cancelled, format!("Error: {failure}"));
+                error.outcome_unknown = matches!(failure, ScmFailure::GithubWriteCancelledAfterDispatch);
+                Err(error)
+            }
+            // `executeGithubTool` answers every failure as `Error: <message>`.
+            Err(failure) => {
+                let text = format!("Error: {failure}");
+                Err(ToolError::new(ToolErrorCode::Failed { reason: text.clone() }, text))
+            }
+        }
+    }
+}
+
+
+/// `githubRequestMutates`: whether a `github` request may change something; an unknown action counts as a change.
+pub fn github_call_mutates(args: &JsonValue) -> bool {
+    args.get("action").and_then(JsonValue::as_str).and_then(contract::definition).is_none_or(|def| def.write)
+}
 impl GithubTool {
     pub fn new(client: Arc<GhClient>, data_dir: Option<PathBuf>) -> Self {
         Self { spec: spec_from_def(SPEC, false, &[]), client, data_dir }
@@ -93,32 +126,5 @@ impl GithubTool {
         crate::exec::archive::persist(ctx.io.durability, &ctx.cancel, data_dir, ctx.thread_id.as_str(), "github-raw", content)
             .await
             .map(|stored| stored.path)
-    }
-}
-
-#[async_trait]
-impl Tool for GithubTool {
-    fn spec(&self) -> &ToolSpec {
-        &self.spec
-    }
-
-    /// `GITHUB_OUTBOUND` (`human-gate/outbound-policy.mjs`): a comment or a review posts outside Mixdog.
-    fn outbound_kind(&self, args: &JsonValue) -> Option<ActionKind> {
-        match args.get("action").and_then(JsonValue::as_str)? {
-            "issue.comment" | "pr.comment" => Some(ActionKind::Comment),
-            "pr.review" => Some(ActionKind::Review),
-            _ => None,
-        }
-    }
-
-    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        match self.text(ctx, &args).await {
-            Ok(text) => Ok(text_output(text)),
-            // `executeGithubTool` answers every failure as `Error: <message>`.
-            Err(failure) => {
-                let text = format!("Error: {failure}");
-                Err(ToolError::new(ToolErrorCode::Failed { reason: text.clone() }, text))
-            }
-        }
     }
 }

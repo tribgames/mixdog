@@ -5,6 +5,7 @@
 )]
 
 use std::cell::RefCell;
+#[cfg(node_twin)]
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -84,23 +85,6 @@ const ALL_STEPS: [Step; 6] = [
 
 const CONFLICT: [Step; 4] = [Step::Judged, Step::Linking, Step::Held, Step::Conflict];
 
-fn fixture(name: &str) -> Vec<u8> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/lifecycle/barrier")
-        .join(name);
-    std::fs::read(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
-}
-
-#[test]
-fn barrier_and_record_bytes_match_the_tag_tested_fixture() {
-    assert_eq!(barrier_bytes("fixture-instance"), fixture(CLAIM_LOCK_FILE));
-    assert_eq!(record().to_bytes(), fixture(RECORD_FILE));
-    assert_eq!(
-        ClaimLock::parse(fixture(CLAIM_LOCK_FILE)),
-        ClaimLock::Barrier
-    );
-}
-
 #[test]
 fn claim_lock_reads_like_read_lock_owner() {
     let owner = |text: &str| match ClaimLock::parse(text.as_bytes().to_vec()) {
@@ -136,95 +120,6 @@ fn fresh_data_dir_gets_barrier_and_record() {
     assert_eq!(own.revalidate(), Ok(()));
 }
 
-/// A handle without delete sharing on `B` (an antivirus or indexer scan)
-/// refuses the barrier's rename-replace for moments; the install waits it out.
-#[cfg(windows)]
-#[test]
-fn a_transient_sharing_violation_on_the_target_is_retried() {
-    use std::cell::Cell;
-    use std::os::windows::fs::OpenOptionsExt;
-    use std::time::Duration;
-    use std::time::Instant;
-
-    use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
-    use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE;
-
-    const HOLD: Duration = Duration::from_millis(300);
-    let temp = TempData::new();
-    let (own, mut gate) = temp.gate(Box::new(FakeTable::default()));
-    let path = temp.data().join(CLAIM_LOCK_FILE);
-    let opened = Rc::new(Cell::new(None::<Instant>));
-    let waited = Rc::new(Cell::new(None::<Duration>));
-    let (opened_at, waited_for) = (opened.clone(), waited.clone());
-    let (result, steps) = steps_with(&mut gate, move |step| match step {
-        // B holds the core's content; the barrier replaces it next.
-        Step::RecordWritten => {
-            let scan = std::fs::OpenOptions::new()
-                .read(true)
-                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
-                .open(&path)
-                .expect("scan handle");
-            opened_at.set(Some(Instant::now()));
-            std::thread::spawn(move || {
-                std::thread::sleep(HOLD);
-                drop(scan);
-            });
-        }
-        Step::BarrierInstalled => {
-            waited_for.set(opened_at.get().map(|at| at.elapsed()));
-        }
-        _ => {}
-    });
-    assert!(matches!(result, GateStep::Clear));
-    assert_eq!(steps, ALL_STEPS);
-    let waited = waited.get().expect("the scan ran before the barrier");
-    assert!(waited >= HOLD, "renamed after {waited:?}, under the scan");
-    assert_eq!(
-        temp.file(CLAIM_LOCK_FILE).unwrap(),
-        barrier_bytes(own.instance_id())
-    );
-    assert!(temp.file(BARRIER_STAGING_FILE).is_none());
-    assert_eq!(own.revalidate(), Ok(()));
-}
-
-/// The same scan on a dead holder's `B` while the core reclaims it under the
-/// guard (what a core killed after taking `B` leaves the next boot).
-#[cfg(windows)]
-#[test]
-fn a_transient_sharing_violation_on_a_dead_holders_b_is_retried() {
-    use std::os::windows::fs::OpenOptionsExt;
-    use std::time::Duration;
-
-    use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
-    use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE;
-
-    let temp = TempData::new();
-    temp.write(CLAIM_LOCK_FILE, b"99991 1700000000000 0123456789abcdef\n");
-    let (own, mut gate) = temp.gate(Box::new(FakeTable::default()));
-    let path = temp.data().join(CLAIM_LOCK_FILE);
-    let mut scanned = false;
-    let (result, steps) = steps_with(&mut gate, move |step| {
-        if step == Step::Held && !scanned {
-            scanned = true;
-            let scan = std::fs::OpenOptions::new()
-                .read(true)
-                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
-                .open(&path)
-                .expect("scan handle");
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(300));
-                drop(scan);
-            });
-        }
-    });
-    assert!(matches!(result, GateStep::Clear), "{result:?}");
-    assert_eq!(steps, ALL_STEPS);
-    assert_eq!(
-        temp.file(CLAIM_LOCK_FILE).unwrap(),
-        barrier_bytes(own.instance_id())
-    );
-}
-
 #[test]
 fn installed_barrier_is_kept_and_the_record_never_rewritten() {
     let temp = TempData::new();
@@ -248,6 +143,21 @@ fn installed_barrier_is_kept_and_the_record_never_rewritten() {
 }
 
 #[test]
+fn publishing_the_barrier_record_has_already_preserved_the_displaced_owner() {
+    let temp = TempData::new();
+    let prior = br#"{"pid":99991}"#;
+    temp.write(RECORD_FILE, prior);
+    let (_own, mut gate) = temp.gate(Box::new(FakeTable::default()));
+    let path = temp.data().join(PRIOR_RECORD_FILE);
+    let (result, _) = steps_with(&mut gate, move |step| {
+        if step == Step::RecordWritten {
+            assert_eq!(std::fs::read(&path).unwrap(), prior);
+        }
+    });
+    assert!(matches!(result, GateStep::Clear));
+}
+
+#[test]
 fn dead_holder_is_reclaimed_under_the_guard() {
     let temp = TempData::new();
     temp.write(CLAIM_LOCK_FILE, b"99991 1700000000000 0123456789abcdef\n");
@@ -263,57 +173,6 @@ fn dead_holder_is_reclaimed_under_the_guard() {
         temp.file(RECLAIM_GUARD_FILE).is_none(),
         "the guard is released"
     );
-}
-
-/// A dead holder's `B`: a fixed pid could name an unrelated live process
-/// (these tests read the real process table), so it names a reaped child.
-fn dead_claim_lock() -> Vec<u8> {
-    let mut child = std::process::Command::new(std::env::current_exe().expect("test exe"))
-        .args(["--exact", "none", "--list"])
-        .stdout(std::process::Stdio::null())
-        .spawn()
-        .expect("spawn");
-    let pid = child.id();
-    child.wait().expect("wait");
-    format!("{pid} 1700000000000 0123456789abcdef\n").into_bytes()
-}
-
-#[test]
-fn dead_reclaim_guard_is_revoked_and_live_one_waited_for() {
-    let temp = TempData::new();
-    temp.write(CLAIM_LOCK_FILE, &dead_claim_lock());
-    // The gate watches a live holder's real OS exit, so it must be a real process.
-    let (child, _) = idle_child_process(false);
-    temp.write(
-        RECLAIM_GUARD_FILE,
-        format!("{} 1700000000000 fedcba9876543210\n", child.pid()).as_bytes(),
-    );
-    let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
-    let (result, steps) = steps_of(&mut gate);
-    let GateStep::Blocked(blocked) = result else {
-        panic!("expected blocked")
-    };
-    assert_eq!(
-        (blocked.kind, blocked.process.identity.pid),
-        (BlockedKind::WaitClaim, child.pid())
-    );
-    assert_eq!(steps, [Step::Judged, Step::Linking]);
-    assert!(
-        temp.file(RECLAIM_GUARD_FILE).is_some(),
-        "a live guard is never revoked"
-    );
-    drop(gate);
-
-    let temp = TempData::new();
-    temp.write(CLAIM_LOCK_FILE, b"99991 1700000000000 0123456789abcdef\n");
-    temp.write(
-        RECLAIM_GUARD_FILE,
-        b"99992 1700000000000 fedcba9876543210\n",
-    );
-    let (_own, mut gate) = temp.gate(Box::new(FakeTable::default()));
-    let (result, _) = steps_of(&mut gate);
-    assert!(matches!(result, GateStep::Clear));
-    assert!(temp.file(RECLAIM_GUARD_FILE).is_none());
 }
 
 #[test]
@@ -406,25 +265,6 @@ fn a_claim_in_the_gap_gives_the_claim_lock_back_at_once() {
 }
 
 #[test]
-fn a_claim_in_the_gap_before_a_reclaim_keeps_the_dead_holder_and_frees_the_guard() {
-    let (child, port) = idle_child_process(true);
-    let temp = TempData::new();
-    let dead = dead_claim_lock();
-    temp.write(CLAIM_LOCK_FILE, &dead);
-    let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
-    let (result, steps) = change_record_at(
-        &temp,
-        &mut gate,
-        Step::Linking,
-        Some(live_record(&child, port)),
-    );
-    assert!(matches!(result, GateStep::Blocked(ref b) if b.kind == BlockedKind::WaitExit));
-    assert_eq!(steps, CONFLICT);
-    assert_eq!(temp.file(CLAIM_LOCK_FILE).unwrap(), dead);
-    assert!(temp.file(RECLAIM_GUARD_FILE).is_none());
-}
-
-#[test]
 fn a_claim_before_the_pre_link_read_never_takes_the_claim_lock() {
     let (child, port) = idle_child_process(true);
     let temp = TempData::new();
@@ -474,4 +314,190 @@ fn legacy_lock_directories() {
     std::fs::create_dir_all(temp.data().join(CLAIM_LOCK_FILE).join("inner")).unwrap();
     let (_own, mut gate) = temp.gate(Box::new(FakeTable::default()));
     assert!(matches!(gate.step(), Err(GateError::ClaimLockUnusable)));
+}
+
+/// A handle without delete sharing on `B` (an antivirus or indexer scan)
+/// refuses the barrier's rename-replace for moments; the install waits it out.
+#[cfg(windows)]
+#[test]
+fn a_transient_sharing_violation_on_the_target_is_retried() {
+    use std::cell::Cell;
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::time::Duration;
+    use std::time::Instant;
+
+    use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+    use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE;
+
+    const HOLD: Duration = Duration::from_millis(300);
+    let temp = TempData::new();
+    let (own, mut gate) = temp.gate(Box::new(FakeTable::default()));
+    let path = temp.data().join(CLAIM_LOCK_FILE);
+    let opened = Rc::new(Cell::new(None::<Instant>));
+    let waited = Rc::new(Cell::new(None::<Duration>));
+    let (opened_at, waited_for) = (opened.clone(), waited.clone());
+    let (result, steps) = steps_with(&mut gate, move |step| match step {
+        // B holds the core's content; the barrier replaces it next.
+        Step::RecordWritten => {
+            let scan = std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+                .open(&path)
+                .expect("scan handle");
+            opened_at.set(Some(Instant::now()));
+            std::thread::spawn(move || {
+                std::thread::sleep(HOLD);
+                drop(scan);
+            });
+        }
+        Step::BarrierInstalled => {
+            waited_for.set(opened_at.get().map(|at| at.elapsed()));
+        }
+        _ => {}
+    });
+    assert!(matches!(result, GateStep::Clear));
+    assert_eq!(steps, ALL_STEPS);
+    let waited = waited.get().expect("the scan ran before the barrier");
+    assert!(waited >= HOLD, "renamed after {waited:?}, under the scan");
+    assert_eq!(
+        temp.file(CLAIM_LOCK_FILE).unwrap(),
+        barrier_bytes(own.instance_id())
+    );
+    assert!(temp.file(BARRIER_STAGING_FILE).is_none());
+    assert_eq!(own.revalidate(), Ok(()));
+}
+/// The same scan on a dead holder's `B` while the core reclaims it under the
+/// guard (what a core killed after taking `B` leaves the next boot).
+#[cfg(windows)]
+#[test]
+fn a_transient_sharing_violation_on_a_dead_holders_b_is_retried() {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::time::Duration;
+
+    use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+    use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE;
+
+    let temp = TempData::new();
+    temp.write(CLAIM_LOCK_FILE, b"99991 1700000000000 0123456789abcdef\n");
+    let (own, mut gate) = temp.gate(Box::new(FakeTable::default()));
+    let path = temp.data().join(CLAIM_LOCK_FILE);
+    let mut scanned = false;
+    let (result, steps) = steps_with(&mut gate, move |step| {
+        if step == Step::Held && !scanned {
+            scanned = true;
+            let scan = std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+                .open(&path)
+                .expect("scan handle");
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(300));
+                drop(scan);
+            });
+        }
+    });
+    assert!(matches!(result, GateStep::Clear), "{result:?}");
+    assert_eq!(steps, ALL_STEPS);
+    assert_eq!(
+        temp.file(CLAIM_LOCK_FILE).unwrap(),
+        barrier_bytes(own.instance_id())
+    );
+}
+/// A dead holder's `B`: a fixed pid could name an unrelated live process
+/// (these tests read the real process table), so it names a reaped child.
+fn dead_claim_lock() -> Vec<u8> {
+    let mut child = std::process::Command::new(std::env::current_exe().expect("test exe"))
+        .args(["--exact", "none", "--list"])
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn");
+    let pid = child.id();
+    child.wait().expect("wait");
+    format!("{pid} 1700000000000 0123456789abcdef\n").into_bytes()
+}
+#[test]
+fn dead_reclaim_guard_is_revoked_and_live_one_waited_for() {
+    let temp = TempData::new();
+    temp.write(CLAIM_LOCK_FILE, &dead_claim_lock());
+    // The gate watches a live holder's real OS exit, so it must be a real process.
+    let (child, _) = idle_child_process(false);
+    temp.write(
+        RECLAIM_GUARD_FILE,
+        format!("{} 1700000000000 fedcba9876543210\n", child.pid()).as_bytes(),
+    );
+    let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
+    let (result, steps) = steps_of(&mut gate);
+    let GateStep::Blocked(blocked) = result else {
+        panic!("expected blocked")
+    };
+    assert_eq!(
+        (blocked.kind, blocked.process.identity.pid),
+        (BlockedKind::WaitClaim, child.pid())
+    );
+    assert_eq!(steps, [Step::Judged, Step::Linking]);
+    assert!(
+        temp.file(RECLAIM_GUARD_FILE).is_some(),
+        "a live guard is never revoked"
+    );
+    drop(gate);
+
+    let temp = TempData::new();
+    temp.write(CLAIM_LOCK_FILE, b"99991 1700000000000 0123456789abcdef\n");
+    temp.write(
+        RECLAIM_GUARD_FILE,
+        b"99992 1700000000000 fedcba9876543210\n",
+    );
+    let (_own, mut gate) = temp.gate(Box::new(FakeTable::default()));
+    let (result, _) = steps_of(&mut gate);
+    assert!(matches!(result, GateStep::Clear));
+    assert!(temp.file(RECLAIM_GUARD_FILE).is_none());
+}
+#[test]
+fn a_claim_in_the_gap_before_a_reclaim_keeps_the_dead_holder_and_frees_the_guard() {
+    let (child, port) = idle_child_process(true);
+    let temp = TempData::new();
+    let dead = dead_claim_lock();
+    temp.write(CLAIM_LOCK_FILE, &dead);
+    let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
+    let (result, steps) = change_record_at(
+        &temp,
+        &mut gate,
+        Step::Linking,
+        Some(live_record(&child, port)),
+    );
+    assert!(matches!(result, GateStep::Blocked(ref b) if b.kind == BlockedKind::WaitExit));
+    assert_eq!(steps, CONFLICT);
+    assert_eq!(temp.file(CLAIM_LOCK_FILE).unwrap(), dead);
+    assert!(temp.file(RECLAIM_GUARD_FILE).is_none());
+}
+
+
+#[cfg(node_twin)]
+fn fixture(name: &str) -> Vec<u8> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/lifecycle/barrier")
+        .join(name);
+    std::fs::read(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
+#[cfg(node_twin)]
+#[test]
+fn barrier_and_record_bytes_match_the_tag_tested_fixture() {
+    assert_eq!(barrier_bytes("fixture-instance"), fixture(CLAIM_LOCK_FILE));
+    assert_eq!(record().to_bytes(), fixture(RECORD_FILE));
+    assert_eq!(
+        ClaimLock::parse(fixture(CLAIM_LOCK_FILE)),
+        ClaimLock::Barrier
+    );
+}
+
+/// What a 1.4.5 daemon start reads in the data dir of a 1.5.0 core: the claim lock is a barrier line no 1.4.5 reader takes for a live
+/// owner, and `daemon-owner.json` carries the update text where 1.4.5 prints the owner's pid.
+#[test]
+fn the_barrier_and_the_owner_record_are_the_bytes_an_old_daemon_reads_as_update_mixdog() {
+    assert_eq!(barrier_bytes("fixture-instance"), b"4294967296 0 mixdog-barrier-v1:fixture-instance\n".to_vec());
+    assert_eq!(
+        record().to_bytes(),
+        b"{\"kind\":\"mixdog-daemon\",\"pid\":\"Update Mixdog to continue\",\"protocol\":2,\"version\":\"1.4.6\"}\n".to_vec()
+    );
+    assert_eq!(ClaimLock::parse(barrier_bytes("fixture-instance")), ClaimLock::Barrier);
 }

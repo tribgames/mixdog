@@ -144,50 +144,6 @@ impl Kind {
     }
 }
 
-fn copy_input<P: WriteProof>(proof: &P, input: &str, directory: &str, path: &str, name: &str, kind: Kind, files: &mut Vec<CopiedFile>) -> Result<String, String> {
-    let source = nodepath::resolve_host(&[&dirname(input), path]);
-    let extension = js_to_lowercase(&extname(&source));
-    let allowed: &[&str] = if kind == Kind::Source { &[".md", ".txt"] } else { &[".png", ".jpg", ".jpeg", ".webp"] };
-    if !allowed.contains(&extension.as_str()) {
-        return Err(format!("unsupported {} extension: {extension}", kind.name()));
-    }
-    let info = mixdog_fsio::metadata(proof, &source).map_err(|error| fs_message(&error, "stat", Path::new(&source)))?;
-    let bound = if kind == Kind::Source { MAX_TEXT_BYTES } else { MAX_IMAGE_BYTES };
-    if !info.is_file() || info.len() > bound {
-        return Err(format!("{} exceeds file bounds", kind.name()));
-    }
-    let target = join(directory, &format!("{name}{extension}"));
-    let bytes = mixdog_fsio::read(proof, &source).map_err(|error| fs_message(&error, "open", Path::new(&source)))?;
-    let mut file = File::create_new(proof, &target).map_err(|error| fs_message(&error, "open", Path::new(&target)))?;
-    file.write_all(&bytes).map_err(|error| fs_message(&error, "write", Path::new(&target)))?;
-    files.push(CopiedFile { file: target.clone(), sha256: sha256_hex(&bytes), bytes: bytes.len() });
-    Ok(target)
-}
-
-/// `preparePacket`: reads and validates the packet file and copies its sources and page images into `directory`.
-pub fn prepare_packet<P: WriteProof>(proof: &P, input_path: &str, directory: &str, cwd: &str) -> Result<(Packet, Vec<CopiedFile>), String> {
-    let input = nodepath::resolve_host(&[cwd, input_path]);
-    let raw = mixdog_fsio::read(proof, &input).map_err(|error| fs_message(&error, "open", Path::new(&input)))?;
-    let raw = String::from_utf8_lossy(&raw);
-    let parsed = json_parse(&raw).map_err(|error| v8_json_parse_error(&raw).unwrap_or_else(|| error.to_string()))?;
-    let mut packet = validate_packet(&parsed)?;
-    let mut files = Vec::new();
-    let mut sources = Vec::new();
-    for (index, path) in packet.sources.iter().enumerate() {
-        sources.push(copy_input(proof, &input, directory, path, &format!("source-{}", index + 1), Kind::Source, &mut files)?);
-    }
-    packet.sources = sources;
-    for (index, (_, pages)) in packet.candidates.iter_mut().enumerate() {
-        let mut copied = Vec::new();
-        for (page, path) in pages.iter().enumerate() {
-            let name = format!("candidate-{}-page-{}", index + 1, page + 1);
-            copied.push(copy_input(proof, &input, directory, path, &name, Kind::Image, &mut files)?);
-        }
-        *pages = copied;
-    }
-    Ok((packet, files))
-}
-
 /// The prompt the reviewer is given.
 pub fn review_prompt(packet: &Packet) -> String {
     const TEMPLATE: &str = r#"You are reviewing presentation artifacts, not making or editing them. Use read-only inspection.
@@ -331,150 +287,6 @@ pub struct ReviewRequest<'a> {
     pub effort: Option<&'a str>,
 }
 
-/// A name `mkdtemp` would make: the prefix and six random characters.
-fn random_suffix() -> String {
-    const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_nanos());
-    hasher.write_u128(nanos);
-    hasher.write_u32(std::process::id());
-    let mut bits = hasher.finish();
-    let mut name = String::new();
-    for _ in 0..6 {
-        name.push(char::from(ALPHABET[(bits % ALPHABET.len() as u64) as usize]));
-        bits /= ALPHABET.len() as u64;
-    }
-    name
-}
-
-fn make_temp_dir<P: WriteProof>(proof: &P, prefix: &str) -> Result<String, String> {
-    let mut last = String::new();
-    for _ in 0..16 {
-        let path = format!("{prefix}{}", random_suffix());
-        match mixdog_fsio::create_dir(proof, &path) {
-            Ok(()) => return Ok(path),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => last = fs_message(&error, "mkdtemp", Path::new(&format!("{prefix}XXXXXX"))),
-            Err(error) => return Err(fs_message(&error, "mkdtemp", Path::new(&format!("{prefix}XXXXXX")))),
-        }
-    }
-    Err(last)
-}
-
-/// `runReview`. `Err` is a failure thrown before or while the report was written; a review that fails is an `Ok`
-/// with `ok` false and its reason, as it is in the report.
-pub fn run_review<P: WriteProof>(proof: &P, request: ReviewRequest<'_>, host: &OfficeHost<'_>, outcome: &mut Outcome) -> Result<Reviewed, String> {
-    let provider = request.provider.unwrap_or_default();
-    let model = request.model.unwrap_or_default();
-    if js_trim(provider).is_empty() || js_trim(model).is_empty() {
-        return Err("explicit --provider and --model are required".to_owned());
-    }
-    let effort = request.effort.unwrap_or("high");
-    let cwd = host.cwd.to_string_lossy().into_owned();
-    let target = nodepath::resolve_host(&[&cwd, request.output]);
-    mixdog_fsio::create_dir_all(proof, dirname(&target)).map_err(|error| fs_message(&error, "mkdir", Path::new(&dirname(&target))))?;
-    let directory = make_temp_dir(proof, &join(&dirname(&target), "review-input-"))?;
-    let discard = |message: String| {
-        let _ = mixdog_fsio::remove_dir_all(proof, &directory);
-        message
-    };
-    let (packet, files) = prepare_packet(proof, request.input, &directory, &cwd).map_err(discard)?;
-    let mut report_file = File::create_new(proof, &target).map_err(|error| discard(fs_message(&error, "open", Path::new(&target))))?;
-
-    let mut result = Map::new();
-    result.insert("ok".to_owned(), json!(false));
-    result.insert("route".to_owned(), json!({ "provider": provider, "model": model, "effort": effort }));
-    result.insert("isolation".to_owned(), json!("pristine-readonly"));
-    result.insert(
-        "inputs".to_owned(),
-        Value::Array(files.iter().map(|file| json!({ "file": file.file, "sha256": file.sha256, "bytes": file.bytes })).collect()),
-    );
-    let mut errors: Vec<Value> = Vec::new();
-    let executed = host.exec.run(&ExecOptions {
-        message: review_prompt(&packet),
-        provider: provider.to_owned(),
-        model: model.to_owned(),
-        effort: Some(effort.to_owned()),
-        cwd: Some(directory.clone().into()),
-        web_search: false,
-        usage_log_path: Some(format!("{target}.usage.json")),
-        tool_mode: ToolMode::Readonly,
-        env: Vec::new(),
-    });
-    if !executed.stderr.is_empty() {
-        errors.push(json!(executed.stderr));
-        outcome.stderr.push_str(&executed.stderr);
-    }
-    result.insert("errors".to_owned(), Value::Array(errors));
-    let mut reviewed = Reviewed { ok: false, error: None, selection: None };
-    let verdict = if executed.code == 0 { validate_review(&executed.stdout, &packet) } else { Err(format!("review execution failed ({})", executed.code)) };
-    match verdict {
-        Ok(review) => {
-            reviewed.selection = get(&review, "selection").cloned();
-            reviewed.ok = true;
-            result.insert("review".to_owned(), review);
-            result.insert("ok".to_owned(), json!(true));
-        }
-        Err(message) => {
-            result.insert("error".to_owned(), json!(message));
-            reviewed.error = Some(message);
-        }
-    }
-    result.insert("raw".to_owned(), json!(executed.stdout));
-    let body = json_stringify_indent(&Value::Object(result), 2);
-    report_file.write_all(body.as_bytes()).map_err(|error| fs_message(&error, "write", Path::new(&target)))?;
-    Ok(reviewed)
-}
-
-/// `review-deck.mjs packet.json --provider P --model M --output new-report.json [--effort E]`.
-pub fn run_review_deck<P: WriteProof>(proof: &P, args: &[String], host: &OfficeHost<'_>) -> Outcome {
-    let mut outcome = Outcome::default();
-    let options = [OptionSpec::string("provider"), OptionSpec::string("model"), OptionSpec::string("effort"), OptionSpec::string("output")];
-    let parsed = match parse_args(args, &ParseConfig { options: &options, allow_positionals: true }) {
-        Ok(parsed) => parsed,
-        Err(error) => {
-            outcome.eprint(&error.message);
-            outcome.code = 1;
-            return outcome;
-        }
-    };
-    let output = parsed.text("output").filter(|output| !output.is_empty());
-    let (true, Some(output)) = (parsed.positionals.len() == 1, output) else {
-        outcome.eprint(USAGE);
-        outcome.code = 1;
-        return outcome;
-    };
-    let request = ReviewRequest {
-        input: &parsed.positionals[0],
-        output,
-        provider: parsed.text("provider"),
-        model: parsed.text("model"),
-        effort: parsed.text("effort"),
-    };
-    match run_review(proof, request, host, &mut outcome) {
-        Ok(reviewed) => {
-            let cwd = host.cwd.to_string_lossy();
-            let mut line = Map::new();
-            line.insert("ok".to_owned(), json!(reviewed.ok));
-            line.insert("output".to_owned(), json!(nodepath::resolve_host(&[&cwd, output])));
-            if let Some(error) = &reviewed.error {
-                line.insert("error".to_owned(), json!(error));
-            }
-            if let Some(selection) = &reviewed.selection {
-                line.insert("selection".to_owned(), selection.clone());
-            }
-            outcome.print(&json_stringify(&Value::Object(line)));
-            if !reviewed.ok {
-                outcome.code = 1;
-            }
-        }
-        Err(message) => {
-            outcome.eprint(&message);
-            outcome.code = 1;
-        }
-    }
-    outcome
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -591,6 +403,7 @@ mod tests {
         assert!(validate_review("not json", &packet).is_err());
     }
 
+
     #[test]
     fn a_review_run_writes_the_report_and_names_the_route_and_the_read_only_mode() {
         let root = folder();
@@ -616,7 +429,6 @@ mod tests {
         assert!(calls[0].message.contains("\"task\": \"t\""));
         assert_eq!(review_dirs(&root.path().join("out")).len(), 1);
     }
-
     #[test]
     fn a_failed_or_malformed_review_is_in_the_report_and_exits_one() {
         let root = folder();
@@ -630,7 +442,6 @@ mod tests {
         assert_eq!((report["ok"].clone(), report["raw"].clone()), (json!(false), json!("partial")));
         assert!(report.get("review").is_none());
     }
-
     #[test]
     fn the_work_folder_is_removed_when_the_output_already_exists() {
         let root = folder();
@@ -644,7 +455,6 @@ mod tests {
         assert!(exec.calls.lock().expect("calls").is_empty());
         assert_eq!(mixdog_testkit::read(root.path().join("out.json")), b"existing");
     }
-
     #[test]
     fn a_missing_route_or_bad_usage_is_refused_before_anything_is_written() {
         let root = folder();
@@ -656,7 +466,6 @@ mod tests {
         assert_eq!((usage.code, usage.stderr), (1, format!("{USAGE}\n")));
         assert!(!mixdog_testkit::exists(root.path().join("r.json")));
     }
-
     #[test]
     fn an_input_of_another_kind_or_beyond_its_bound_is_refused() {
         let root = folder();
@@ -674,4 +483,188 @@ mod tests {
         let error = prepare_packet(&Unlaned, "in.json", &directory.to_string_lossy(), &cwd).expect_err("too big");
         assert_eq!(error, "source exceeds file bounds");
     }
+}
+
+
+fn copy_input<P: WriteProof>(proof: &P, input: &str, directory: &str, path: &str, name: &str, kind: Kind, files: &mut Vec<CopiedFile>) -> Result<String, String> {
+    let source = nodepath::resolve_host(&[&dirname(input), path]);
+    let extension = js_to_lowercase(&extname(&source));
+    let allowed: &[&str] = if kind == Kind::Source { &[".md", ".txt"] } else { &[".png", ".jpg", ".jpeg", ".webp"] };
+    if !allowed.contains(&extension.as_str()) {
+        return Err(format!("unsupported {} extension: {extension}", kind.name()));
+    }
+    let info = mixdog_fsio::metadata(proof, &source).map_err(|error| fs_message(&error, "stat", Path::new(&source)))?;
+    let bound = if kind == Kind::Source { MAX_TEXT_BYTES } else { MAX_IMAGE_BYTES };
+    if !info.is_file() || info.len() > bound {
+        return Err(format!("{} exceeds file bounds", kind.name()));
+    }
+    let target = join(directory, &format!("{name}{extension}"));
+    let bytes = mixdog_fsio::read(proof, &source).map_err(|error| fs_message(&error, "open", Path::new(&source)))?;
+    let mut file = File::create_new(proof, &target).map_err(|error| fs_message(&error, "open", Path::new(&target)))?;
+    file.write_all(&bytes).map_err(|error| fs_message(&error, "write", Path::new(&target)))?;
+    files.push(CopiedFile { file: target.clone(), sha256: sha256_hex(&bytes), bytes: bytes.len() });
+    Ok(target)
+}
+/// `preparePacket`: reads and validates the packet file and copies its sources and page images into `directory`.
+pub fn prepare_packet<P: WriteProof>(proof: &P, input_path: &str, directory: &str, cwd: &str) -> Result<(Packet, Vec<CopiedFile>), String> {
+    let input = nodepath::resolve_host(&[cwd, input_path]);
+    let raw = mixdog_fsio::read(proof, &input).map_err(|error| fs_message(&error, "open", Path::new(&input)))?;
+    let raw = String::from_utf8_lossy(&raw);
+    let parsed = json_parse(&raw).map_err(|error| v8_json_parse_error(&raw).unwrap_or_else(|| error.to_string()))?;
+    let mut packet = validate_packet(&parsed)?;
+    let mut files = Vec::new();
+    let mut sources = Vec::new();
+    for (index, path) in packet.sources.iter().enumerate() {
+        sources.push(copy_input(proof, &input, directory, path, &format!("source-{}", index + 1), Kind::Source, &mut files)?);
+    }
+    packet.sources = sources;
+    for (index, (_, pages)) in packet.candidates.iter_mut().enumerate() {
+        let mut copied = Vec::new();
+        for (page, path) in pages.iter().enumerate() {
+            let name = format!("candidate-{}-page-{}", index + 1, page + 1);
+            copied.push(copy_input(proof, &input, directory, path, &name, Kind::Image, &mut files)?);
+        }
+        *pages = copied;
+    }
+    Ok((packet, files))
+}
+/// A name `mkdtemp` would make: the prefix and six random characters.
+fn random_suffix() -> String {
+    const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_nanos());
+    hasher.write_u128(nanos);
+    hasher.write_u32(std::process::id());
+    let mut bits = hasher.finish();
+    let mut name = String::new();
+    for _ in 0..6 {
+        name.push(char::from(ALPHABET[(bits % ALPHABET.len() as u64) as usize]));
+        bits /= ALPHABET.len() as u64;
+    }
+    name
+}
+fn make_temp_dir<P: WriteProof>(proof: &P, prefix: &str) -> Result<String, String> {
+    let mut last = String::new();
+    for _ in 0..16 {
+        let path = format!("{prefix}{}", random_suffix());
+        match mixdog_fsio::create_dir(proof, &path) {
+            Ok(()) => return Ok(path),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => last = fs_message(&error, "mkdtemp", Path::new(&format!("{prefix}XXXXXX"))),
+            Err(error) => return Err(fs_message(&error, "mkdtemp", Path::new(&format!("{prefix}XXXXXX")))),
+        }
+    }
+    Err(last)
+}
+/// `runReview`. `Err` is a failure thrown before or while the report was written; a review that fails is an `Ok`
+/// with `ok` false and its reason, as it is in the report.
+pub fn run_review<P: WriteProof>(proof: &P, request: ReviewRequest<'_>, host: &OfficeHost<'_>, outcome: &mut Outcome) -> Result<Reviewed, String> {
+    let provider = request.provider.unwrap_or_default();
+    let model = request.model.unwrap_or_default();
+    if js_trim(provider).is_empty() || js_trim(model).is_empty() {
+        return Err("explicit --provider and --model are required".to_owned());
+    }
+    let effort = request.effort.unwrap_or("high");
+    let cwd = host.cwd.to_string_lossy().into_owned();
+    let target = nodepath::resolve_host(&[&cwd, request.output]);
+    mixdog_fsio::create_dir_all(proof, dirname(&target)).map_err(|error| fs_message(&error, "mkdir", Path::new(&dirname(&target))))?;
+    let directory = make_temp_dir(proof, &join(&dirname(&target), "review-input-"))?;
+    let discard = |message: String| {
+        let _ = mixdog_fsio::remove_dir_all(proof, &directory);
+        message
+    };
+    let (packet, files) = prepare_packet(proof, request.input, &directory, &cwd).map_err(discard)?;
+    let mut report_file = File::create_new(proof, &target).map_err(|error| discard(fs_message(&error, "open", Path::new(&target))))?;
+
+    let mut result = Map::new();
+    result.insert("ok".to_owned(), json!(false));
+    result.insert("route".to_owned(), json!({ "provider": provider, "model": model, "effort": effort }));
+    result.insert("isolation".to_owned(), json!("pristine-readonly"));
+    result.insert(
+        "inputs".to_owned(),
+        Value::Array(files.iter().map(|file| json!({ "file": file.file, "sha256": file.sha256, "bytes": file.bytes })).collect()),
+    );
+    let mut errors: Vec<Value> = Vec::new();
+    let executed = host.exec.run(&ExecOptions {
+        message: review_prompt(&packet),
+        provider: provider.to_owned(),
+        model: model.to_owned(),
+        effort: Some(effort.to_owned()),
+        cwd: Some(directory.clone().into()),
+        web_search: false,
+        usage_log_path: Some(format!("{target}.usage.json")),
+        tool_mode: ToolMode::Readonly,
+        env: Vec::new(),
+    });
+    if !executed.stderr.is_empty() {
+        errors.push(json!(executed.stderr));
+        outcome.stderr.push_str(&executed.stderr);
+    }
+    result.insert("errors".to_owned(), Value::Array(errors));
+    let mut reviewed = Reviewed { ok: false, error: None, selection: None };
+    let verdict = if executed.code == 0 { validate_review(&executed.stdout, &packet) } else { Err(format!("review execution failed ({})", executed.code)) };
+    match verdict {
+        Ok(review) => {
+            reviewed.selection = get(&review, "selection").cloned();
+            reviewed.ok = true;
+            result.insert("review".to_owned(), review);
+            result.insert("ok".to_owned(), json!(true));
+        }
+        Err(message) => {
+            result.insert("error".to_owned(), json!(message));
+            reviewed.error = Some(message);
+        }
+    }
+    result.insert("raw".to_owned(), json!(executed.stdout));
+    let body = json_stringify_indent(&Value::Object(result), 2);
+    report_file.write_all(body.as_bytes()).map_err(|error| fs_message(&error, "write", Path::new(&target)))?;
+    Ok(reviewed)
+}
+/// `review-deck.mjs packet.json --provider P --model M --output new-report.json [--effort E]`.
+pub fn run_review_deck<P: WriteProof>(proof: &P, args: &[String], host: &OfficeHost<'_>) -> Outcome {
+    let mut outcome = Outcome::default();
+    let options = [OptionSpec::string("provider"), OptionSpec::string("model"), OptionSpec::string("effort"), OptionSpec::string("output")];
+    let parsed = match parse_args(args, &ParseConfig { options: &options, allow_positionals: true }) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            outcome.eprint(&error.message);
+            outcome.code = 1;
+            return outcome;
+        }
+    };
+    let output = parsed.text("output").filter(|output| !output.is_empty());
+    let (true, Some(output)) = (parsed.positionals.len() == 1, output) else {
+        outcome.eprint(USAGE);
+        outcome.code = 1;
+        return outcome;
+    };
+    let request = ReviewRequest {
+        input: &parsed.positionals[0],
+        output,
+        provider: parsed.text("provider"),
+        model: parsed.text("model"),
+        effort: parsed.text("effort"),
+    };
+    match run_review(proof, request, host, &mut outcome) {
+        Ok(reviewed) => {
+            let cwd = host.cwd.to_string_lossy();
+            let mut line = Map::new();
+            line.insert("ok".to_owned(), json!(reviewed.ok));
+            line.insert("output".to_owned(), json!(nodepath::resolve_host(&[&cwd, output])));
+            if let Some(error) = &reviewed.error {
+                line.insert("error".to_owned(), json!(error));
+            }
+            if let Some(selection) = &reviewed.selection {
+                line.insert("selection".to_owned(), selection.clone());
+            }
+            outcome.print(&json_stringify(&Value::Object(line)));
+            if !reviewed.ok {
+                outcome.code = 1;
+            }
+        }
+        Err(message) => {
+            outcome.eprint(&message);
+            outcome.code = 1;
+        }
+    }
+    outcome
 }

@@ -49,17 +49,6 @@ use crate::verdict::Blocked;
 use crate::verdict::BlockedKind;
 use crate::verdict::Interrupt;
 
-/// What `boot` hands to composition and serving.
-pub struct Begun {
-    /// The proof of steps 1 to 5; its lock is the core's ownership.
-    pub started: Started,
-    pub booting: Booting,
-    /// The one stop watcher, live from the start of boot to the end of `serve`.
-    pub watch: StopWatch,
-    /// The sessions of the earlier version still to convert, once the core serves; `None` when the migration is complete.
-    pub behind: Option<Behind>,
-}
-
 /// The index projector of the migration: the store's `project_index`, which builds each catalog row with the store's one row builder (the same one as its live upsert).
 /// `mixdogd migrate` runs the same one.
 pub struct StoreProjector;
@@ -98,21 +87,14 @@ impl Publish for LifecyclePublish {
 fn lifecycle_blocked(blocked: &Blocked) -> crate::lifecycle::Blocked {
     let identity = &blocked.process.identity;
     match blocked.kind {
-        BlockedKind::WaitExit | BlockedKind::WaitClaim => crate::lifecycle::Blocked::WaitExit { pid: identity.pid },
-        BlockedKind::Undecidable => crate::lifecycle::Blocked::Undecidable {
+        BlockedKind::WaitExit | BlockedKind::WaitClaim if !blocked.releasable => crate::lifecycle::Blocked::WaitExit { pid: identity.pid },
+        BlockedKind::WaitExit | BlockedKind::WaitClaim | BlockedKind::Undecidable => crate::lifecycle::Blocked::Undecidable {
             pid: identity.pid,
             image: blocked.process.image.as_ref().map(|image| image.to_string_lossy().into_owned()).unwrap_or_default(),
             command_line: blocked.process.command_line.clone().unwrap_or_default(),
             start_time: identity.start_ms.to_string(),
         },
     }
-}
-
-/// The roots the serving core migrates. It names no desktop profile of its own: the launcher's `MIXDOG_DESKTOP_USER_DATA` in `env` is the only way one is migrated (D-profile-1).
-fn migration_roots(data_dir: &Path, env: &dyn Fn(&str) -> Option<std::ffi::OsString>, home: Option<std::path::PathBuf>) -> Result<MigrationRoots, String> {
-    let args = MigrateArgs { data_dir: Some(data_dir.to_path_buf()), home: None, desktop_profile: None };
-    mixdog_migrate::run::cli::resolve_roots(&args, env, home)
-        .ok_or_else(|| "no home directory for the migration roots (set MIXDOG_HOME or HOME)".to_owned())
 }
 
 /// The index of the serving core as the migration reaches it: bound once the core is composed, which is before any session converts.
@@ -142,6 +124,7 @@ impl ServingIndex for ServingProjector {
 /// listed as soon as it is verified. Nobody waits for it: a person's first start after the update opens on the settings, the projects and the stores alone.
 pub struct Behind {
     back: Back,
+    pub(crate) legacy_homes: Arc<crate::compose::LegacyHomes>,
     /// The migration's own extension host (its office extractor reads through it), closed when the conversion ends.
     pool: Arc<ExtHostPool>,
     runtime: tokio::runtime::Handle,
@@ -183,9 +166,133 @@ pub async fn withdraw_pending(index: &mixdog_store::sqlite::SqliteStore, data: &
     Ok(left.len())
 }
 
+/// Node's first read of a config that does not parse keeps it aside and restores the newest backup (`readAll`): the migration then reads a
+/// config that parses, or none, and a damaged file never stops the start. `mixdogd migrate` runs it too, before its own run. Not from an async context.
+pub fn recover_malformed_config(data_dir: &Path, tokens: &LaneTokens, runtime: &tokio::runtime::Handle) -> Result<(), String> {
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    runtime
+        .block_on(Config::recover_malformed(crate::compose_flip::config_file(data_dir), lanes))
+        .map_err(|error| format!("recovering {}: {error}", mixdog_core_config::user_data::CONFIG_FILE))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsString;
+
+    use mixdog_core_api::domain::ext::DocumentText;
+    use mixdog_core_api::domain::ext::ExtError;
+    use mixdog_core_api::domain::ext::PdfIntake;
+    use mixdog_migrate::durable;
+    use mixdog_protocol::ThreadId;
+    use tempfile::TempDir;
+
+    use super::*;
+
+    const DEVICE: &[u8] = br#"{"deviceId":"d","deviceSecret":"s"}"#;
+
+    /// The migration reads no document here: the data dir holds no session.
+    struct NoDocuments;
+
+    #[async_trait::async_trait]
+    impl DocumentText for NoDocuments {
+        async fn office_text(&self, _: &ThreadId, filename: &str, _: &str) -> Result<Option<String>, ExtError> {
+            unreachable!("no session signs an office document ({filename})")
+        }
+        async fn pdf_text(&self, _: &ThreadId, _: &str) -> Result<String, ExtError> {
+            unreachable!("the migration extracts no PDF text")
+        }
+        async fn pdf_counts(&self, _: &ThreadId, _: &str) -> Result<PdfIntake, ExtError> {
+            unreachable!("the migration counts no PDF")
+        }
+    }
+
+    /// One isolated run: its own `APPDATA`/home/data dir, and a desktop profile holding a relay pairing under `APPDATA`.
+    struct Isolated {
+        root: TempDir,
+    }
+
+    #[test]
+    fn the_serving_core_leaves_the_app_data_profile_untouched() {
+        let run = Isolated::new();
+        let before = durable::walk_files(&run.app_data_profile()).unwrap();
+        run.migrate(&[]);
+        assert_eq!(durable::walk_files(&run.app_data_profile()).unwrap(), before);
+        assert_eq!(durable::read_optional(&run.app_data_profile().join("relay-device.json")).unwrap().as_deref(), Some(DEVICE));
+        assert_eq!(durable::read_optional(&run.data().join("remote").join("device.json")).unwrap(), None, "nothing was migrated from the profile");
+    }
+
+    #[test]
+    fn the_profile_the_launcher_names_migrates() {
+        let run = Isolated::new();
+        run.migrate(&[("MIXDOG_DESKTOP_USER_DATA", run.app_data_profile())]);
+        assert_eq!(durable::read_optional(&run.data().join("remote").join("device.json")).unwrap().as_deref(), Some(DEVICE));
+        assert_eq!(durable::read_optional(&run.app_data_profile().join("relay-device.json")).unwrap(), None, "the source is moved");
+    }
+
+
+    impl Isolated {
+        fn new() -> Self {
+            let run = Self { root: TempDir::new().unwrap() };
+            durable::publish_file(&run.app_data_profile().join("relay-device.json"), DEVICE).unwrap();
+            run
+        }
+
+        fn app_data(&self) -> std::path::PathBuf {
+            self.root.path().join("appdata")
+        }
+
+        fn app_data_profile(&self) -> std::path::PathBuf {
+            self.app_data().join("mixdog-desktop")
+        }
+
+        fn data(&self) -> std::path::PathBuf {
+            self.root.path().join("data")
+        }
+
+        /// Boots the migration the way `migrate_data` does, over an environment of this run alone plus `extra`.
+        fn migrate(&self, extra: &[(&str, std::path::PathBuf)]) {
+            let home = self.root.path().join("home");
+            let mut vars: Vec<(String, OsString)> = [
+                ("APPDATA", self.app_data()),
+                ("LOCALAPPDATA", self.root.path().join("local")),
+                ("HOME", home.clone()),
+                ("USERPROFILE", home.clone()),
+                ("XDG_CONFIG_HOME", self.app_data()),
+                ("MIXDOG_HOME", home.join(".mixdog")),
+                ("MIXDOG_CONFIG_DIR", self.root.path().join("config")),
+                ("MIXDOG_RUNTIME_ROOT", self.root.path().join("runtime")),
+            ]
+            .into_iter()
+            .map(|(name, path)| (name.to_owned(), path.into_os_string()))
+            .collect();
+            vars.extend(extra.iter().map(|(name, path)| ((*name).to_owned(), path.clone().into_os_string())));
+            let env = move |name: &str| vars.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone());
+            let roots = migration_roots(&self.data(), &env, Some(home)).unwrap();
+            let runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+            let office = OfficeExtractor { docs: Arc::new(NoDocuments), runtime: runtime.handle().clone() };
+            mixdog_migrate::run::cli::migrate(roots, Arc::new(StoreProjector), office).unwrap();
+        }
+    }
+}
+
+/// What `boot` hands to composition and serving.
+pub struct Begun {
+    /// The proof of steps 1 to 5; its lock is the core's ownership.
+    pub started: Started,
+    pub booting: Booting,
+    /// The one stop watcher, live from the start of boot to the end of `serve`.
+    pub watch: StopWatch,
+    /// The sessions of the earlier version still to convert, once the core serves; `None` when the migration is complete.
+    pub behind: Option<Behind>,
+}
+/// The roots the serving core migrates. It names no desktop profile of its own: the launcher's `MIXDOG_DESKTOP_USER_DATA` in `env` is the only way one is migrated (D-profile-1).
+fn migration_roots(data_dir: &Path, env: &dyn Fn(&str) -> Option<std::ffi::OsString>, home: Option<std::path::PathBuf>) -> Result<MigrationRoots, String> {
+    let args = MigrateArgs { data_dir: Some(data_dir.to_path_buf()), home: None, desktop_profile: None };
+    mixdog_migrate::run::cli::resolve_roots(&args, env, home)
+        .ok_or_else(|| "no home directory for the migration roots (set MIXDOG_HOME or HOME)".to_owned())
+}
 /// The sessions still to convert, as the directory asks for one that is opened.
 struct Converting(Arc<mixdog_migrate::run::Waiting>);
-
 impl mixdog_core_session::session::ArrivingThreads for Converting {
     fn arriving(&self, thread: &mixdog_protocol::ThreadId) -> Option<futures::future::BoxFuture<'static, ()>> {
         let (settled, there) = tokio::sync::oneshot::channel();
@@ -197,7 +304,6 @@ impl mixdog_core_session::session::ArrivingThreads for Converting {
         })
     }
 }
-
 impl Behind {
     /// Lists every session still to convert by the row the earlier version kept of it, so the list is whole before the first client reads it. A session that version listed
     /// no row of appears when it is converted.
@@ -245,7 +351,12 @@ impl Behind {
             match outcome {
                 Ok(_) => {
                     let unlisted = runtime.block_on(withdraw_pending(&index, &data));
-                    report(&format!("migration: complete, {sessions} sessions in {seconds}s (pending rows withdrawn: {unlisted:?})"));
+                    // The steps that run after the migration (what the running database carries over), with what each recorded.
+                    let after = match mixdog_migrate::post_upgrade::read_report(&data) {
+                        Ok(read) => read.steps_line(),
+                        Err(error) => format!("unreadable ({error})"),
+                    };
+                    report(&format!("migration: complete, {sessions} sessions in {seconds}s (pending rows withdrawn: {unlisted:?}; post-upgrade steps: {after})"));
                 }
                 Err(blocked) => report(&format!("migration: ended early after {seconds}s, the next start resumes it: {blocked}")),
             }
@@ -253,16 +364,6 @@ impl Behind {
         Ok(())
     }
 }
-
-/// Node's first read of a config that does not parse keeps it aside and restores the newest backup (`readAll`): the migration then reads a
-/// config that parses, or none, and a damaged file never stops the start. `mixdogd migrate` runs it too, before its own run. Not from an async context.
-pub fn recover_malformed_config(data_dir: &Path, tokens: &LaneTokens, runtime: &tokio::runtime::Handle) -> Result<(), String> {
-    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-    runtime
-        .block_on(Config::recover_malformed(crate::compose_flip::config_file(data_dir), lanes))
-        .map_err(|error| format!("recovering {}: {error}", mixdog_core_config::user_data::CONFIG_FILE))
-}
-
 /// The migration's front on its own thread: its office extractor drives the extension host with the runtime's handle (`block_on`), which a lane job running on a worker may not do.
 /// The host it uses is its own, closed when the migration ends; the core's starts later. `None`: the migration is complete.
 fn migrate_data(data_dir: &Path, host: ExtHostConfig, tokens: LaneTokens, runtime: &tokio::runtime::Handle) -> Result<Option<Behind>, String> {
@@ -296,8 +397,16 @@ fn migrate_data(data_dir: &Path, host: ExtHostConfig, tokens: LaneTokens, runtim
                 };
                 match mixdog_migrate::run::cli::front(roots, projector.clone(), office, options) {
                     Ok(Front::Pending(back)) => {
+                        let homes = back.home_evidence(mixdog_core_session::session::agent_evidence::HomeEvidence::from_history);
+                        let legacy_homes = match homes {
+                            Ok(homes) => Arc::new(homes),
+                            Err(error) => {
+                                runtime.block_on(pool.close());
+                                return Err(error.to_string());
+                            }
+                        };
                         let listed = mixdog_migrate::session::listed::rows(&data);
-                        Ok(Some(Behind { back, pool, runtime: runtime.clone(), projector, stopped, listed, data }))
+                        Ok(Some(Behind { back, legacy_homes, pool, runtime: runtime.clone(), projector, stopped, listed, data }))
                     }
                     Ok(Front::Complete(_)) => {
                         runtime.block_on(pool.close());
@@ -313,7 +422,6 @@ fn migrate_data(data_dir: &Path, host: ExtHostConfig, tokens: LaneTokens, runtim
             .unwrap_or_else(|_| Err("the migration panicked".to_owned()))
     })
 }
-
 /// Runs LR §3 steps 1 to 5 over `data_dir`. A `release{pid}` decision reaches the verdict gate through `Booting::release`; a start the interrupt abandons returns
 /// `StartupError::Interrupted` with `B` untouched.
 pub async fn boot(tokens: &LaneTokens, data_dir: &Path, host: ExtHostConfig, given: StartIn) -> Result<Begun, ServeError> {
@@ -374,103 +482,4 @@ pub async fn boot(tokens: &LaneTokens, data_dir: &Path, host: ExtHostConfig, giv
     let booting = booted.lock().unwrap_or_else(PoisonError::into_inner).take().expect("startup ran init before it returned");
     let behind = behind.lock().unwrap_or_else(PoisonError::into_inner).take();
     Ok(Begun { started, booting, watch, behind })
-}
-
-#[cfg(test)]
-mod tests {
-    use std::ffi::OsString;
-
-    use mixdog_core_api::domain::ext::DocumentText;
-    use mixdog_core_api::domain::ext::ExtError;
-    use mixdog_core_api::domain::ext::PdfIntake;
-    use mixdog_migrate::durable;
-    use mixdog_protocol::ThreadId;
-    use tempfile::TempDir;
-
-    use super::*;
-
-    const DEVICE: &[u8] = br#"{"deviceId":"d","deviceSecret":"s"}"#;
-
-    /// The migration reads no document here: the data dir holds no session.
-    struct NoDocuments;
-
-    #[async_trait::async_trait]
-    impl DocumentText for NoDocuments {
-        async fn office_text(&self, _: &ThreadId, filename: &str, _: &str) -> Result<Option<String>, ExtError> {
-            unreachable!("no session signs an office document ({filename})")
-        }
-        async fn pdf_text(&self, _: &ThreadId, _: &str) -> Result<String, ExtError> {
-            unreachable!("the migration extracts no PDF text")
-        }
-        async fn pdf_counts(&self, _: &ThreadId, _: &str) -> Result<PdfIntake, ExtError> {
-            unreachable!("the migration counts no PDF")
-        }
-    }
-
-    /// One isolated run: its own `APPDATA`/home/data dir, and a desktop profile holding a relay pairing under `APPDATA`.
-    struct Isolated {
-        root: TempDir,
-    }
-
-    impl Isolated {
-        fn new() -> Self {
-            let run = Self { root: TempDir::new().unwrap() };
-            durable::publish_file(&run.app_data_profile().join("relay-device.json"), DEVICE).unwrap();
-            run
-        }
-
-        fn app_data(&self) -> std::path::PathBuf {
-            self.root.path().join("appdata")
-        }
-
-        fn app_data_profile(&self) -> std::path::PathBuf {
-            self.app_data().join("mixdog-desktop")
-        }
-
-        fn data(&self) -> std::path::PathBuf {
-            self.root.path().join("data")
-        }
-
-        /// Boots the migration the way `migrate_data` does, over an environment of this run alone plus `extra`.
-        fn migrate(&self, extra: &[(&str, std::path::PathBuf)]) {
-            let home = self.root.path().join("home");
-            let mut vars: Vec<(String, OsString)> = [
-                ("APPDATA", self.app_data()),
-                ("LOCALAPPDATA", self.root.path().join("local")),
-                ("HOME", home.clone()),
-                ("USERPROFILE", home.clone()),
-                ("XDG_CONFIG_HOME", self.app_data()),
-                ("MIXDOG_HOME", home.join(".mixdog")),
-                ("MIXDOG_CONFIG_DIR", self.root.path().join("config")),
-                ("MIXDOG_RUNTIME_ROOT", self.root.path().join("runtime")),
-            ]
-            .into_iter()
-            .map(|(name, path)| (name.to_owned(), path.into_os_string()))
-            .collect();
-            vars.extend(extra.iter().map(|(name, path)| ((*name).to_owned(), path.clone().into_os_string())));
-            let env = move |name: &str| vars.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone());
-            let roots = migration_roots(&self.data(), &env, Some(home)).unwrap();
-            let runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
-            let office = OfficeExtractor { docs: Arc::new(NoDocuments), runtime: runtime.handle().clone() };
-            mixdog_migrate::run::cli::migrate(roots, Arc::new(StoreProjector), office).unwrap();
-        }
-    }
-
-    #[test]
-    fn the_serving_core_leaves_the_app_data_profile_untouched() {
-        let run = Isolated::new();
-        let before = durable::walk_files(&run.app_data_profile()).unwrap();
-        run.migrate(&[]);
-        assert_eq!(durable::walk_files(&run.app_data_profile()).unwrap(), before);
-        assert_eq!(durable::read_optional(&run.app_data_profile().join("relay-device.json")).unwrap().as_deref(), Some(DEVICE));
-        assert_eq!(durable::read_optional(&run.data().join("remote").join("device.json")).unwrap(), None, "nothing was migrated from the profile");
-    }
-
-    #[test]
-    fn the_profile_the_launcher_names_migrates() {
-        let run = Isolated::new();
-        run.migrate(&[("MIXDOG_DESKTOP_USER_DATA", run.app_data_profile())]);
-        assert_eq!(durable::read_optional(&run.data().join("remote").join("device.json")).unwrap().as_deref(), Some(DEVICE));
-        assert_eq!(durable::read_optional(&run.app_data_profile().join("relay-device.json")).unwrap(), None, "the source is moved");
-    }
 }

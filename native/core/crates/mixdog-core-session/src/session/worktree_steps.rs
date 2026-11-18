@@ -36,7 +36,7 @@ impl Inner {
         let prior_lock = self.gate.workspace_cwd_lock(&[session]);
         let applied = self
             .host
-            .apply(session, WorkspaceChange { cwd: next.cwd.clone(), workspace: next.to_value(), moved, desktop_session: None })
+            .apply(session, WorkspaceChange { cwd: next.cwd.clone(), workspace: next.to_value(), moved: moved.clone(), desktop_session: None })
             .await?;
         journal.push(applied);
         let (gate, id) = (self.gate.clone(), session.to_owned());
@@ -44,6 +44,24 @@ impl Inner {
             gate.set_workspace_cwd_lock(&id, prior_lock.as_deref());
             Ok(())
         }));
+        // `retargetWorkers`: the Lead's workers move with it, so one that is sent a message later works in the new folder.
+        let workers: Vec<String> = self
+            .host
+            .live_sessions()
+            .into_iter()
+            .filter(|c| {
+                !c.id.is_empty()
+                    && c.id != session
+                    && !c.closed
+                    && c.owner.as_deref() == Some("agent")
+                    && (c.owner_session_id.as_deref() == Some(session) || c.parent_session_id.as_deref() == Some(session))
+                    && !c.cwd.as_deref().is_some_and(|cwd| same_path(cwd, &next.cwd))
+            })
+            .map(|c| c.id)
+            .collect();
+        for worker in workers {
+            journal.push(self.host.retarget_worker(&worker, &next.cwd, moved.clone()).await?);
+        }
         self.gate.set_workspace_cwd_lock(session, next.is_bound().then_some(next.cwd.as_str()));
         Ok(json!({ "revision": next.revision, "workspace": next.to_value() }))
     }
@@ -88,6 +106,16 @@ impl Inner {
             }
             None => {
                 let hint = name.or_else(|| options.name_hint.clone()).unwrap_or_default();
+                // A carry clears the project folder: it is held, and every session sharing it
+                // must be quiet (no turn, agents or background shells).
+                let _held = if options.changes.as_deref() == Some("carry") {
+                    let folder = text(&project.top_level);
+                    let held = self.hold_project_folder(Some(session), &folder, true)?;
+                    self.assert_checkout_quiet(session, &folder).await?;
+                    Some(held)
+                } else {
+                    None
+                };
                 let created = self
                     .ops
                     .create_for_session(&project, TxScope { session, tx_id }, &hint, options.changes.as_deref(), options.confirm_large, cancel)
@@ -271,7 +299,11 @@ impl Inner {
         }
         match self.ops.wt.remove(&entry.id, force, Some(session), cancel).await {
             Ok(removed) if removed["removed"] == true => Ok(with_fields(result, vec![("removed", removed)])),
-            Ok(_) => Err(Self::incomplete(journal, &entry, revision, true, Vec::new(), None)),
+            Ok(partly) => {
+                // What the deletion left (`remaining`, `retryable`) is the caller's to retry or report.
+                let remaining = serde_json::from_value(partly["remaining"].clone()).unwrap_or_default();
+                Err(Self::incomplete(journal, &entry, revision, partly["retryable"] != false, remaining, None))
+            }
             Err(ScmFailure::Coded {
                 code: errors::WORKTREE_REMOVAL_INCOMPLETE,
                 detail: Some(detail),

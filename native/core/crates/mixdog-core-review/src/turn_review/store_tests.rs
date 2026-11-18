@@ -20,19 +20,11 @@ fn store_in(data: &Path) -> Store {
     Store::new(disk, data)
 }
 
-fn scenarios() -> Vec<Value> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/turn-change-store/scenarios.json");
-    serde_json::from_slice(&std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))).unwrap()
-}
-
-fn scenario(name: &str) -> Value {
-    scenarios().into_iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("no recorded scenario {name}"))
-}
-
 fn changes_dir(data: &Path) -> PathBuf {
     data.join("turn-snapshots").join("changes")
 }
 
+#[cfg(node_twin)]
 fn zero_stamps(record: &mut Value) {
     for key in ["createdAt", "updatedAt"] {
         if let Some(slot) = record.get_mut(key) {
@@ -41,6 +33,7 @@ fn zero_stamps(record: &mut Value) {
     }
 }
 
+#[cfg(node_twin)]
 /// The file's lines with their timestamps zeroed, in the key order they were written.
 fn lines_of(text: &str) -> Vec<String> {
     text.split('\n')
@@ -56,6 +49,7 @@ fn lines_of(text: &str) -> Vec<String> {
         .collect()
 }
 
+#[cfg(node_twin)]
 fn normalised(records: &[Value]) -> Vec<String> {
     records
         .iter()
@@ -71,6 +65,7 @@ async fn read_back(store: &Store, session: &str) -> Vec<Value> {
     store.load_turn_change_records(session).await.iter().map(|r| Value::Object((**r).clone())).collect()
 }
 
+#[cfg(node_twin)]
 async fn run(store: &Store, session: &str, op: &Value) {
     match op["op"].as_str().unwrap() {
         "upsert" => {
@@ -99,84 +94,6 @@ async fn run(store: &Store, session: &str, op: &Value) {
         }
         other => panic!("unknown op {other}"),
     }
-}
-
-async fn replay(store: &Store, data: &Path, scenario: &Value) {
-    let session = scenario["sessionId"].as_str().unwrap();
-    let hash = scenario["hash"].as_str().unwrap();
-    let (jsonl, legacy) = (changes_dir(data).join(format!("{hash}.jsonl")), changes_dir(data).join(format!("{hash}.json")));
-    let mut previous: Option<String> = None;
-    for (n, step) in scenario["steps"].as_array().unwrap().iter().enumerate() {
-        run(store, session, &step["op"]).await;
-        let text = std::fs::read_to_string(&jsonl).unwrap_or_default();
-        assert_eq!(lines_of(&text), lines_of(step["jsonl"].as_str().unwrap_or("")), "step {n}: the changes file");
-        assert_eq!(legacy.exists(), step["json"].is_string(), "step {n}: the previous format's file");
-        assert_eq!(normalised(&read_back(store, session).await), normalised(step["records"].as_array().unwrap()), "step {n}: the records a read answers");
-        assert_eq!(store.count_turn_change_records(session).await as u64, step["count"].as_u64().unwrap(), "step {n}: the turn count");
-        // The core's own bytes: a later write only adds to what an earlier one left.
-        if let Some(previous) = &previous
-            && text.lines().count() > previous.lines().count()
-        {
-            assert!(text.starts_with(previous.as_str()), "step {n}: a write rewrote the file");
-        }
-        previous = Some(text);
-    }
-}
-
-/// An upsert appends its one line (never rewrites the file), and every line is Node's.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_upsert_appends_a_line_as_node_does() {
-    let data = tempfile::tempdir().unwrap();
-    replay(&store_in(data.path()), data.path(), &scenario("append")).await;
-}
-
-/// A fresh core reads the file a core (or Node) wrote: no cache to lean on.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_new_process_reads_what_the_last_one_wrote() {
-    let scenario = scenario("append");
-    let data = tempfile::tempdir().unwrap();
-    replay(&store_in(data.path()), data.path(), &scenario).await;
-    let last = scenario["steps"].as_array().unwrap().last().unwrap().clone();
-    let fresh = store_in(data.path());
-    assert_eq!(normalised(&read_back(&fresh, scenario["sessionId"].as_str().unwrap()).await), normalised(last["records"].as_array().unwrap()));
-}
-
-/// The previous format's `.json` is read as it is, and the first write migrates it into the `.jsonl` and removes it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_previous_format_file_is_read_and_migrated_as_node_does() {
-    let scenario = scenario("legacy");
-    let data = tempfile::tempdir().unwrap();
-    let hash = scenario["hash"].as_str().unwrap();
-    std::fs::create_dir_all(changes_dir(data.path())).unwrap();
-    std::fs::write(changes_dir(data.path()).join(format!("{hash}.json")), scenario["before"]["json"].as_str().unwrap()).unwrap();
-    let store = store_in(data.path());
-    let session = scenario["sessionId"].as_str().unwrap();
-    assert_eq!(normalised(&read_back(&store, session).await), normalised(scenario["before"]["records"].as_array().unwrap()));
-    assert_eq!(store.count_turn_change_records(session).await as u64, scenario["before"]["count"].as_u64().unwrap());
-    replay(&store, data.path(), &scenario).await;
-}
-
-/// A line that does not parse (damage in the middle, a torn tail) is skipped; every other turn is still read.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_damaged_line_is_skipped() {
-    let scenario = scenario("append");
-    let last = scenario["steps"].as_array().unwrap().last().unwrap();
-    let intact = last["jsonl"].as_str().unwrap();
-    let mut lines: Vec<&str> = intact.split('\n').collect();
-    lines.insert(2, "{\"put\":{\"checkpointId\":\"cp-9\",\"fil");
-    let damaged = format!("{}\n{{\"put\":", lines.join("\n"));
-    let data = tempfile::tempdir().unwrap();
-    let hash = scenario["hash"].as_str().unwrap();
-    std::fs::create_dir_all(changes_dir(data.path())).unwrap();
-    std::fs::write(changes_dir(data.path()).join(format!("{hash}.jsonl")), damaged).unwrap();
-    let store = store_in(data.path());
-    let session = scenario["sessionId"].as_str().unwrap();
-    assert_eq!(normalised(&read_back(&store, session).await), normalised(last["records"].as_array().unwrap()));
-    // The next upsert lands after the damage and is read back with the rest.
-    let more = json!({"checkpointId": "cp-after", "kind": "git", "root": "/work/repo", "files": [{"path": "z.txt"}]});
-    store.upsert_turn_change_record(session, more.as_object().unwrap()).await.unwrap();
-    let ids: Vec<String> = read_back(&store, session).await.iter().map(|r| r["checkpointId"].as_str().unwrap().to_owned()).collect();
-    assert_eq!(ids, ["cp-1", "cp-2", "cp-after"]);
 }
 
 fn big(checkpoint: &str, patch_bytes: usize, tag: &str) -> Value {
@@ -321,8 +238,95 @@ fn upsert_in_another_process(data: &Path, session: &str, checkpoint: &str, wait_
         .unwrap_or_else(|| panic!("the child printed no upsert-result (status {:?}):\n{stdout}\n{}", output.status, String::from_utf8_lossy(&output.stderr)))
 }
 
-/// Two processes write one session's file under its lock and lose no record. This process migrates the previous format's file
-/// and stops inside its write, holding the lock, as a writer slow on its disk does; a real second process that tries the lock
+
+#[cfg(node_twin)]
+fn scenarios() -> Vec<Value> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/turn-change-store/scenarios.json");
+    serde_json::from_slice(&std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))).unwrap()
+}
+#[cfg(node_twin)]
+fn scenario(name: &str) -> Value {
+    scenarios().into_iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("no recorded scenario {name}"))
+}
+#[cfg(node_twin)]
+async fn replay(store: &Store, data: &Path, scenario: &Value) {
+    let session = scenario["sessionId"].as_str().unwrap();
+    let hash = scenario["hash"].as_str().unwrap();
+    let (jsonl, legacy) = (changes_dir(data).join(format!("{hash}.jsonl")), changes_dir(data).join(format!("{hash}.json")));
+    let mut previous: Option<String> = None;
+    for (n, step) in scenario["steps"].as_array().unwrap().iter().enumerate() {
+        run(store, session, &step["op"]).await;
+        let text = std::fs::read_to_string(&jsonl).unwrap_or_default();
+        assert_eq!(lines_of(&text), lines_of(step["jsonl"].as_str().unwrap_or("")), "step {n}: the changes file");
+        assert_eq!(legacy.exists(), step["json"].is_string(), "step {n}: the previous format's file");
+        assert_eq!(normalised(&read_back(store, session).await), normalised(step["records"].as_array().unwrap()), "step {n}: the records a read answers");
+        assert_eq!(store.count_turn_change_records(session).await as u64, step["count"].as_u64().unwrap(), "step {n}: the turn count");
+        // The core's own bytes: a later write only adds to what an earlier one left.
+        if let Some(previous) = &previous
+            && text.lines().count() > previous.lines().count()
+        {
+            assert!(text.starts_with(previous.as_str()), "step {n}: a write rewrote the file");
+        }
+        previous = Some(text);
+    }
+}
+/// An upsert appends its one line (never rewrites the file), and every line is Node's.
+#[cfg(node_twin)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_upsert_appends_a_line_as_node_does() {
+    let data = tempfile::tempdir().unwrap();
+    replay(&store_in(data.path()), data.path(), &scenario("append")).await;
+}
+/// A fresh core reads the file a core (or Node) wrote: no cache to lean on.
+#[cfg(node_twin)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_process_reads_what_the_last_one_wrote() {
+    let scenario = scenario("append");
+    let data = tempfile::tempdir().unwrap();
+    replay(&store_in(data.path()), data.path(), &scenario).await;
+    let last = scenario["steps"].as_array().unwrap().last().unwrap().clone();
+    let fresh = store_in(data.path());
+    assert_eq!(normalised(&read_back(&fresh, scenario["sessionId"].as_str().unwrap()).await), normalised(last["records"].as_array().unwrap()));
+}
+/// The previous format's `.json` is read as it is, and the first write migrates it into the `.jsonl` and removes it.
+#[cfg(node_twin)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_previous_format_file_is_read_and_migrated_as_node_does() {
+    let scenario = scenario("legacy");
+    let data = tempfile::tempdir().unwrap();
+    let hash = scenario["hash"].as_str().unwrap();
+    std::fs::create_dir_all(changes_dir(data.path())).unwrap();
+    std::fs::write(changes_dir(data.path()).join(format!("{hash}.json")), scenario["before"]["json"].as_str().unwrap()).unwrap();
+    let store = store_in(data.path());
+    let session = scenario["sessionId"].as_str().unwrap();
+    assert_eq!(normalised(&read_back(&store, session).await), normalised(scenario["before"]["records"].as_array().unwrap()));
+    assert_eq!(store.count_turn_change_records(session).await as u64, scenario["before"]["count"].as_u64().unwrap());
+    replay(&store, data.path(), &scenario).await;
+}
+/// A line that does not parse (damage in the middle, a torn tail) is skipped; every other turn is still read.
+#[cfg(node_twin)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_damaged_line_is_skipped() {
+    let scenario = scenario("append");
+    let last = scenario["steps"].as_array().unwrap().last().unwrap();
+    let intact = last["jsonl"].as_str().unwrap();
+    let mut lines: Vec<&str> = intact.split('\n').collect();
+    lines.insert(2, "{\"put\":{\"checkpointId\":\"cp-9\",\"fil");
+    let damaged = format!("{}\n{{\"put\":", lines.join("\n"));
+    let data = tempfile::tempdir().unwrap();
+    let hash = scenario["hash"].as_str().unwrap();
+    std::fs::create_dir_all(changes_dir(data.path())).unwrap();
+    std::fs::write(changes_dir(data.path()).join(format!("{hash}.jsonl")), damaged).unwrap();
+    let store = store_in(data.path());
+    let session = scenario["sessionId"].as_str().unwrap();
+    assert_eq!(normalised(&read_back(&store, session).await), normalised(last["records"].as_array().unwrap()));
+    // The next upsert lands after the damage and is read back with the rest.
+    let more = json!({"checkpointId": "cp-after", "kind": "git", "root": "/work/repo", "files": [{"path": "z.txt"}]});
+    store.upsert_turn_change_record(session, more.as_object().unwrap()).await.unwrap();
+    let ids: Vec<String> = read_back(&store, session).await.iter().map(|r| r["checkpointId"].as_str().unwrap().to_owned()).collect();
+    assert_eq!(ids, ["cp-1", "cp-2", "cp-after"]);
+}
+/// Two processes write one session's file under its lock and lose no record. This process stops inside its write, holding the lock, as a writer slow on its disk does; a real second process that tries the lock
 /// then gives up and stores nothing (it would otherwise write at once, and this process's rewrite from what it read before would
 /// take the record away); once this one is done, the same upsert of the second process lands beside the rest.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -330,14 +334,10 @@ async fn two_processes_writing_one_sessions_file_lose_no_record() {
     use std::sync::Mutex;
     use std::sync::mpsc::channel;
 
-    let scenario = scenario("legacy");
-    let (session, hash) = (scenario["sessionId"].as_str().unwrap(), scenario["hash"].as_str().unwrap());
+    let session = "shared";
     let data = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(changes_dir(data.path())).unwrap();
-    let legacy = scenario["before"]["json"].as_str().unwrap();
-    std::fs::write(changes_dir(data.path()).join(format!("{hash}.json")), legacy).unwrap();
-    let old = ids_of(serde_json::from_str::<Value>(legacy).unwrap()["records"].as_array().unwrap());
-    assert!(!old.is_empty());
+    store_in(data.path()).upsert_turn_change_record(session, turn("earlier").as_object().unwrap()).await.unwrap();
+    let old = vec!["earlier".to_owned()];
 
     let (store, disk) = store_with_faults(data.path());
     let (inside, entered) = channel::<()>();
@@ -365,4 +365,65 @@ async fn two_processes_writing_one_sessions_file_lose_no_record() {
     let mut got = ids_of(&read_back(&store_in(data.path()), session).await);
     got.sort();
     assert_eq!(got, want);
+}
+
+fn jsonl_of(data: &Path) -> PathBuf {
+    let name = std::fs::read_dir(changes_dir(data)).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).find(|n| n.ends_with(".jsonl")).unwrap();
+    changes_dir(data).join(name)
+}
+
+/// An upsert appends its one line and never rewrites the file; a fresh store reads what the last one wrote.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_upsert_appends_a_line_and_a_new_store_reads_what_the_last_one_wrote() {
+    let data = tempfile::tempdir().unwrap();
+    let store = store_in(data.path());
+    store.upsert_turn_change_record("s", turn("cp-1").as_object().unwrap()).await.unwrap();
+    let first = std::fs::read_to_string(jsonl_of(data.path())).unwrap();
+    store.upsert_turn_change_record("s", turn("cp-2").as_object().unwrap()).await.unwrap();
+    let second = std::fs::read_to_string(jsonl_of(data.path())).unwrap();
+    assert_eq!(second.lines().count(), 2);
+    assert!(second.starts_with(&first), "the first line is untouched");
+    assert_eq!(store.count_turn_change_records("s").await, 2);
+    assert_eq!(ids_of(&read_back(&store_in(data.path()), "s").await), ["cp-1", "cp-2"]);
+}
+
+/// The previous format's `.json` is read as it is, and the first write moves it into the `.jsonl` and removes it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_previous_format_file_is_read_and_migrated_by_the_first_write() {
+    let data = tempfile::tempdir().unwrap();
+    let probe = tempfile::tempdir().unwrap();
+    let writer = store_in(probe.path());
+    writer.upsert_turn_change_record("s", turn("old-1").as_object().unwrap()).await.unwrap();
+    writer.upsert_turn_change_record("s", turn("old-2").as_object().unwrap()).await.unwrap();
+    let document = writer.changes_document("s").await.unwrap();
+    let hash = jsonl_of(probe.path()).file_stem().unwrap().to_string_lossy().into_owned();
+
+    std::fs::create_dir_all(changes_dir(data.path())).unwrap();
+    let legacy = changes_dir(data.path()).join(format!("{hash}.json"));
+    std::fs::write(&legacy, document).unwrap();
+    let store = store_in(data.path());
+    assert_eq!(ids_of(&read_back(&store, "s").await), ["old-1", "old-2"]);
+    assert_eq!(store.count_turn_change_records("s").await, 2);
+
+    store.upsert_turn_change_record("s", turn("new").as_object().unwrap()).await.unwrap();
+    assert!(!legacy.exists(), "the previous format's file is gone");
+    assert_eq!(ids_of(&read_back(&store_in(data.path()), "s").await), ["old-1", "old-2", "new"]);
+}
+
+/// A line that does not parse (damage in the middle, a torn tail) is skipped; every other turn is still read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_damaged_line_is_skipped_and_the_next_upsert_lands_after_it() {
+    let data = tempfile::tempdir().unwrap();
+    let store = store_in(data.path());
+    store.upsert_turn_change_record("s", turn("cp-1").as_object().unwrap()).await.unwrap();
+    store.upsert_turn_change_record("s", turn("cp-2").as_object().unwrap()).await.unwrap();
+    let file = jsonl_of(data.path());
+    let mut lines: Vec<String> = std::fs::read_to_string(&file).unwrap().lines().map(str::to_owned).collect();
+    lines.insert(1, "{\"put\":{\"checkpointId\":\"cp-9\",\"fil".to_owned());
+    std::fs::write(&file, format!("{}\n{{\"put\":", lines.join("\n"))).unwrap();
+
+    let reader = store_in(data.path());
+    assert_eq!(ids_of(&read_back(&reader, "s").await), ["cp-1", "cp-2"]);
+    reader.upsert_turn_change_record("s", turn("cp-after").as_object().unwrap()).await.unwrap();
+    assert_eq!(ids_of(&read_back(&reader, "s").await), ["cp-1", "cp-2", "cp-after"]);
 }

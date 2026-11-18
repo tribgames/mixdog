@@ -98,10 +98,9 @@ pub enum StartupError {
     Lane,
 }
 
-/// Runs the startup sequence. `init` is LR §3 step 2, awaited right after `L` and before the
-/// verdict: the call site starts the control listener and publishes `booting` in it, so a blocked
-/// verdict can be answered. `migrate` is the migration (`mixdog_migrate::run::cli::migrate` over
-/// the call site's roots); it runs once, after the barrier.
+/// Runs the startup sequence. With `L` held, preserve legacy discovery before
+/// `init` publishes `booting`. The verdict runs after the control listener is
+/// up so it can be answered. The migration runs only after the barrier.
 pub async fn start(
     startup: Startup,
     lanes: Lanes,
@@ -122,18 +121,22 @@ pub async fn start(
                 .map_err(|_| StartupError::Lane)??,
         )
     };
-    init.await.map_err(StartupError::Init)?;
     let Startup { discovery_path, record, interrupt, releases, .. } = startup;
     let mut gate = {
         let ownership = ownership.clone();
         lanes
             .durability
-            .submit(&cancel, move |_| Gate::new(ownership, discovery_path, record))
+            .submit(&cancel, move |lane| {
+                let mut gate = Gate::new(ownership, discovery_path, record)?;
+                gate.preserve_discovery(lane)?;
+                Ok::<_, io::Error>(gate)
+            })
             .map_err(|_| StartupError::Lane)?
             .await
             .map_err(|_| StartupError::Lane)?
             .map_err(GateError::Io)?
     };
+    init.await.map_err(StartupError::Init)?;
     let mut decided = Vec::new();
     loop {
         let (returned, step) = lanes
@@ -178,6 +181,24 @@ pub async fn start(
         .map_err(|_| StartupError::Lane)?
         .map_err(StartupError::Migration)?;
     Ok(Started { ownership })
+}
+
+/// The manual converter has no control listener. It may cross the same
+/// barrier as `serve`, but never waits for or releases a prior owner itself.
+pub fn require_migration_barrier(
+    lane: &mixdog_rt::InLane<DurabilityIo>,
+    ownership: Arc<CoreOwnership>,
+) -> Result<(), String> {
+    let root = crate::discovery::runtime_root().map_err(|error| error.to_string())?;
+    let record = BarrierRecord { version: env!("CARGO_PKG_VERSION").into(), update_text: crate::control::UPDATE_TEXT.into() };
+    let mut gate = Gate::new(ownership, crate::discovery::path(&root), record).map_err(|error| error.to_string())?;
+    match gate.step(lane).map_err(|error| error.to_string())? {
+        GateStep::Clear => Ok(()),
+        GateStep::Blocked(blocked) => Err(format!(
+            "prior owner pid {} blocks migration ({:?}); stop the old daemon or use serve to resolve an ambiguous owner",
+            blocked.process.identity.pid, blocked.kind,
+        )),
+    }
 }
 
 #[cfg(test)]

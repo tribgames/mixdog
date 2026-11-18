@@ -241,6 +241,87 @@ fn script(plans: Arc<Mutex<HashMap<String, TurnPlan>>>, answered: Arc<Mutex<Hash
     })
 }
 
+/// The run host's finalization of a crashed run, as far as these tests read it: its draft's partial reply is the
+/// assistant row it leaves.
+struct DraftedCrash(Arc<super::testing::ScriptRuns>);
+
+impl super::RunFactory for DraftedCrash {
+    fn start(&self, run: super::RunStart) -> std::pin::Pin<Box<dyn Future<Output = RunOutcome> + Send>> {
+        super::RunFactory::start(&*self.0, run)
+    }
+
+    fn crashed(&self, run: super::CrashedRun) -> super::CrashedRows {
+        let rows = Some(run.draft.text)
+            .filter(|text| !text.is_empty())
+            .map(|text| ItemCommit { iid: super::run::new_item_id(), role: Some("assistant".into()), model: true, visible: true, body: json!({ "role": "assistant", "content": text }), prompt: None })
+            .into_iter()
+            .collect();
+        super::CrashedRows { rows, ..Default::default() }
+    }
+}
+
+fn directory(rig: &Rig, threads: &Arc<super::StoreThreads>, marks: &Arc<super::store::SensitiveMarksOf>, clock: &Arc<StepClock>, drafted_crash: bool) -> Arc<SessionDirectory> {
+    let mut deps = rig.deps_parts(threads.clone());
+    deps.clock = clock.clone();
+    deps.sensitive = marks.clone();
+    if drafted_crash {
+        deps.runs = Arc::new(DraftedCrash(rig.runs.clone()));
+    }
+    Arc::new(SessionDirectory::new(Arc::new(deps)))
+}
+
+/// The failure budgets are the process's: one test of this module runs at a time.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn generated_failure_schedules_keep_the_accepted_units_in_order_and_no_marked_value_on_disk() {
+    let _serial = SERIAL.lock().await;
+    install_hooks();
+    let mut failures = Vec::new();
+    for seed in 1..=SEEDS {
+        failures.extend(World::new(seed, false).await.run().await);
+    }
+    assert!(failures.is_empty(), "{} failing sequences:\n{}", failures.len(), failures.join("\n"));
+}
+
+/// A run left open as its session ends (core shutdown while the log refuses every write: Node's exit drain fails and the
+/// process exits), its draft holding in clear a value marked meanwhile (the draft's redaction and removal failed too):
+/// the next open recovers the run from the draft, then removes the draft, and no file under the session's directory,
+/// the log included, holds the value.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_draft_left_by_a_run_open_at_shutdown_is_recovered_then_removed_and_the_marked_value_is_in_no_file() {
+    let _serial = SERIAL.lock().await;
+    install_hooks();
+    let mut world = World::new(0, true).await;
+    world.turn(0, true, 50).await;
+    DRAFT_FAILS.store(50, SeqCst);
+    let fill = json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": world.secret } } });
+    world.rig.sensitive.remember(world.handle.id.as_str(), &[fill]);
+    world.marked = true;
+    // The draft's redaction failed, then its removal: it waits for its next round.
+    crate::eventually_on!(&[&world.handle.cell.stepped, &world.clock.armed], || (world.clock.pending() && DRAFT_FAILS.load(SeqCst) == 48).then_some(())).await;
+    let stops = world.stops();
+    world.directory().shutdown().await;
+    crate::eventually_on!(&[&world.rig.snapshots.1], || (world.stops() > stops).then_some(())).await;
+    assert!(!world.holding().is_empty(), "the session ended with its draft holding the value in clear");
+    let ended = world.records().iter().any(|record| matches!(record, Record::Run(run) if matches!(run.phase, RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted)));
+    assert!(!ended, "the run's end is not on disk");
+
+    LOG_FAILS.store(0, SeqCst);
+    DRAFT_FAILS.store(0, SeqCst);
+    let directory = directory(&world.rig, &world.threads, &world.marks, &world.clock, true);
+    world.directories.push(directory.clone());
+    world.open_again(&directory).await;
+    let recovered = world.records().iter().any(|record| {
+        matches!(record, Record::Item(item) if matches!(&item.body, Slot::Inline(body) if body.get("content").and_then(Value::as_str).is_some_and(|text| text.starts_with("d0 the code is "))))
+    });
+    assert!(recovered, "the run is recovered from its draft");
+    world.check_runs();
+    world.check_secret();
+    assert!(world.failures.is_empty(), "{}", world.failures.join("\n"));
+}
+
+
 impl World {
     async fn new(seed: u64, drafted_crash: bool) -> Self {
         use mixdog_core_api::domain::mock::MockOwnership;
@@ -597,89 +678,8 @@ impl World {
         std::mem::take(&mut self.failures)
     }
 }
-
-/// The run host's finalization of a crashed run, as far as these tests read it: its draft's partial reply is the
-/// assistant row it leaves.
-struct DraftedCrash(Arc<super::testing::ScriptRuns>);
-
-impl super::RunFactory for DraftedCrash {
-    fn start(&self, run: super::RunStart) -> std::pin::Pin<Box<dyn Future<Output = RunOutcome> + Send>> {
-        super::RunFactory::start(&*self.0, run)
-    }
-
-    fn crashed(&self, run: super::CrashedRun) -> super::CrashedRows {
-        let rows = Some(run.draft.text)
-            .filter(|text| !text.is_empty())
-            .map(|text| ItemCommit { iid: super::run::new_item_id(), role: Some("assistant".into()), model: true, visible: true, body: json!({ "role": "assistant", "content": text }), prompt: None })
-            .into_iter()
-            .collect();
-        super::CrashedRows { rows, ..Default::default() }
-    }
-}
-
-fn directory(rig: &Rig, threads: &Arc<super::StoreThreads>, marks: &Arc<super::store::SensitiveMarksOf>, clock: &Arc<StepClock>, drafted_crash: bool) -> Arc<SessionDirectory> {
-    let mut deps = rig.deps_parts(threads.clone());
-    deps.clock = clock.clone();
-    deps.sensitive = marks.clone();
-    if drafted_crash {
-        deps.runs = Arc::new(DraftedCrash(rig.runs.clone()));
-    }
-    Arc::new(SessionDirectory::new(Arc::new(deps)))
-}
-
 /// Node's detaching close over the session directory (no providers, no shells).
 fn close_of(directory: &Arc<SessionDirectory>) -> super::close::SessionClose {
-    let providers = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(super::switch_replay::NoProviders)));
-    super::close::SessionClose::new(directory.clone(), providers, Arc::new(super::switch_replay::NoShells), Arc::new(mixdog_tools::fs::ReadState::new(None)))
-}
-
-/// The failure budgets are the process's: one test of this module runs at a time.
-static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn generated_failure_schedules_keep_the_accepted_units_in_order_and_no_marked_value_on_disk() {
-    let _serial = SERIAL.lock().await;
-    install_hooks();
-    let mut failures = Vec::new();
-    for seed in 1..=SEEDS {
-        failures.extend(World::new(seed, false).await.run().await);
-    }
-    assert!(failures.is_empty(), "{} failing sequences:\n{}", failures.len(), failures.join("\n"));
-}
-
-/// A run left open as its session ends (core shutdown while the log refuses every write: Node's exit drain fails and the
-/// process exits), its draft holding in clear a value marked meanwhile (the draft's redaction and removal failed too):
-/// the next open recovers the run from the draft, then removes the draft, and no file under the session's directory,
-/// the log included, holds the value.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_draft_left_by_a_run_open_at_shutdown_is_recovered_then_removed_and_the_marked_value_is_in_no_file() {
-    let _serial = SERIAL.lock().await;
-    install_hooks();
-    let mut world = World::new(0, true).await;
-    world.turn(0, true, 50).await;
-    DRAFT_FAILS.store(50, SeqCst);
-    let fill = json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": world.secret } } });
-    world.rig.sensitive.remember(world.handle.id.as_str(), &[fill]);
-    world.marked = true;
-    // The draft's redaction failed, then its removal: it waits for its next round.
-    crate::eventually_on!(&[&world.handle.cell.stepped, &world.clock.armed], || (world.clock.pending() && DRAFT_FAILS.load(SeqCst) == 48).then_some(())).await;
-    let stops = world.stops();
-    world.directory().shutdown().await;
-    crate::eventually_on!(&[&world.rig.snapshots.1], || (world.stops() > stops).then_some(())).await;
-    assert!(!world.holding().is_empty(), "the session ended with its draft holding the value in clear");
-    let ended = world.records().iter().any(|record| matches!(record, Record::Run(run) if matches!(run.phase, RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted)));
-    assert!(!ended, "the run's end is not on disk");
-
-    LOG_FAILS.store(0, SeqCst);
-    DRAFT_FAILS.store(0, SeqCst);
-    let directory = directory(&world.rig, &world.threads, &world.marks, &world.clock, true);
-    world.directories.push(directory.clone());
-    world.open_again(&directory).await;
-    let recovered = world.records().iter().any(|record| {
-        matches!(record, Record::Item(item) if matches!(&item.body, Slot::Inline(body) if body.get("content").and_then(Value::as_str).is_some_and(|text| text.starts_with("d0 the code is "))))
-    });
-    assert!(recovered, "the run is recovered from its draft");
-    world.check_runs();
-    world.check_secret();
-    assert!(world.failures.is_empty(), "{}", world.failures.join("\n"));
+    let providers = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(super::testing::NoProviders)));
+    super::close::SessionClose::new(directory.clone(), providers, Arc::new(super::testing::NoShells), Arc::new(mixdog_tools::fs::ReadState::new(None)))
 }

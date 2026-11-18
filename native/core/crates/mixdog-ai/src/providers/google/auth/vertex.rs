@@ -27,7 +27,6 @@ use super::RequestAuth;
 use super::TokenGrant;
 use super::form_body;
 use super::parse_token_grant;
-use super::token_failure;
 use crate::transport::HttpSend;
 
 pub const TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
@@ -80,6 +79,17 @@ pub struct Credential {
     pub quota_project_id: String,
     /// Hash of the credential's non-secret and secret parts; never the secret.
     pub identity: String,
+}
+
+impl Credential {
+    /// `principalOf`: who the credential signs in as, for the messages that say what it lacks.
+    pub fn principal(&self) -> String {
+        match (&self.kind, self.account.is_empty()) {
+            (Kind::Grant(Grant::AuthorizedUser { .. }), true) => "The gcloud account".to_owned(),
+            (Kind::Grant(Grant::AuthorizedUser { .. }), false) => format!("The gcloud account {}", self.account),
+            _ => format!("The service account {}", self.account),
+        }
+    }
 }
 
 fn text(value: &Value, key: &str) -> String {
@@ -277,6 +287,48 @@ pub fn jwt_assertion(client_email: &str, private_key: &str, now_secs: u64) -> Re
     Ok(format!("{input}.{}", URL_SAFE_NO_PAD.encode(signature)))
 }
 
+/// `errorDetail`: the answer's own description, else its error message or code, else the status; 240 characters.
+fn error_detail(body: &[u8], status: u16) -> (String, Value) {
+    let payload: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+    let text = |value: Option<&Value>| value.and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+    let detail = text(payload.get("error_description"))
+        .or_else(|| text(payload.pointer("/error/message")))
+        .or_else(|| text(payload.get("error")))
+        .unwrap_or_else(|| format!("HTTP {status}"));
+    (mixdog_js::slice_utf16(&detail, 240), payload)
+}
+
+/// `authError`: the failure of a token request, carrying the status it was refused with.
+fn refusal(status: u16, message: String) -> ProviderError {
+    let kind = if status >= 500 || status == 429 { ErrorKind::Transient } else { ErrorKind::Auth };
+    let mut err = ProviderError::new(kind, DeliveryState::NotSent);
+    err.status = Some(status);
+    err.code = Some("EVERTEXAUTH".to_owned());
+    err.message = format!("Vertex AI authentication failed: {message}");
+    err
+}
+
+/// A refused grant: a gcloud login whose refresh token Google rejects is told to sign in again.
+fn grant_refusal(status: u16, body: &[u8], authorized_user: bool) -> ProviderError {
+    let (detail, payload) = error_detail(body, status);
+    let message = if authorized_user && payload.get("error").and_then(Value::as_str) == Some("invalid_grant") {
+        format!("the gcloud login has expired or was revoked ({detail}). Run `gcloud auth application-default login` again.")
+    } else {
+        detail
+    };
+    refusal(status, message)
+}
+
+/// A refused impersonation: a 403 names the role the signed-in account lacks.
+fn impersonation_refusal(status: u16, body: &[u8], target: &str) -> ProviderError {
+    let hint = if status == 403 {
+        " The signed-in account needs the Service Account Token Creator role (roles/iam.serviceAccountTokenCreator) on it."
+    } else {
+        ""
+    };
+    refusal(status, format!("impersonating {target} failed ({}).{hint}", error_detail(body, status).0))
+}
+
 struct Minted {
     token: String,
     expires_at_ms: u64,
@@ -290,118 +342,6 @@ pub struct VertexAuth {
     cached: Mutex<Option<Minted>>,
     /// One mint at a time per credential; callers wait for it and reuse it.
     minting: tokio::sync::Semaphore,
-}
-
-impl VertexAuth {
-    pub fn new(http: Arc<dyn HttpSend>, credential: Credential, now_ms: Box<dyn Fn() -> u64 + Send + Sync>) -> Self {
-        Self { http, credential, now_ms, cached: Mutex::new(None), minting: tokio::sync::Semaphore::new(1) }
-    }
-
-    pub fn identity(&self) -> &str {
-        &self.credential.identity
-    }
-
-    fn fresh(&self) -> Option<String> {
-        let cached = self.cached.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        cached
-            .as_ref()
-            .filter(|m| (self.now_ms)() + REFRESH_SKEW_MS < m.expires_at_ms)
-            .map(|m| m.token.clone())
-    }
-
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn post(&self, url: &str, headers: Vec<(String, String)>, body: Vec<u8>, what: &str) -> Result<Vec<u8>, ProviderError> {
-        let response = self
-            .http
-            .send(
-                WireRequest {
-                    transport: TransportKind::Http1,
-                    method: "POST".into(),
-                    url: url.into(),
-                    headers,
-                    body,
-                },
-                VERTEX_TOKEN,
-            )
-            .await
-            .map_err(|mut error| {
-                // `_post`'s catch (`vertex-ai-auth.mjs:570-572`) words what the fetch threw.
-                let cause = if error.message.is_empty() { "token request failed" } else { error.message.as_str() };
-                error.message = format!("Vertex AI authentication failed: {cause}");
-                error.code = Some("EVERTEXAUTH".to_owned());
-                error
-            })?;
-        let status = response.status;
-        let reply = response.read_all().await?;
-        if (200..300).contains(&status) { Ok(reply.body) } else { Err(token_failure(status, &reply.body, what)) }
-    }
-
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn grant_token(&self, grant: &Grant) -> Result<TokenGrant, ProviderError> {
-        // Spelled as Node's fetch call writes it (`vertex-ai-auth`), which the wire keeps.
-        let form_header = vec![("Content-Type".to_owned(), "application/x-www-form-urlencoded".to_owned())];
-        let body = match grant {
-            Grant::AuthorizedUser { client_id, client_secret, refresh_token } => form_body(&[
-                ("grant_type", "refresh_token"),
-                ("client_id", client_id),
-                ("client_secret", client_secret),
-                ("refresh_token", refresh_token),
-            ]),
-            Grant::ServiceAccount { client_email, private_key, .. } => {
-                let assertion = jwt_assertion(client_email, private_key, (self.now_ms)() / 1000)?;
-                form_body(&[("grant_type", JWT_BEARER_GRANT), ("assertion", &assertion)])
-            }
-        };
-        // The login's secrets are credentials before the grant request carries any of them; the grant's token joins them.
-        let secret = match grant {
-            Grant::AuthorizedUser { client_secret, refresh_token, .. } => [client_secret.as_str(), refresh_token.as_str()],
-            Grant::ServiceAccount { private_key, .. } => [private_key.as_str(), ""],
-        };
-        let source = format!("vertex {}", self.credential.identity);
-        crate::oauth::carried::keep(&source, &secret);
-        let reply = self.post(TOKEN_URI, form_header, body, "Vertex AI token request").await?;
-        let token = parse_token_grant(&reply, "Vertex AI token")?;
-        crate::oauth::carried::keep(&source, &[&token.access_token, secret[0], secret[1]]);
-        Ok(token)
-    }
-
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn mint(&self) -> Result<Minted, ProviderError> {
-        let now = (self.now_ms)();
-        match &self.credential.kind {
-            Kind::Grant(grant) => {
-                let token = self.grant_token(grant).await?;
-                Ok(Minted {
-                    expires_at_ms: now + token.expires_in_secs.unwrap_or(3600).max(1) * 1000,
-                    token: token.access_token,
-                })
-            }
-            Kind::Impersonated { target, delegates, source } => {
-                let source_token = self.grant_token(source).await?;
-                let url = format!("{IAM_CREDENTIALS}/projects/-/serviceAccounts/{target}:generateAccessToken");
-                let headers = vec![
-                    ("Content-Type".to_owned(), "application/json".to_owned()),
-                    ("Authorization".to_owned(), format!("Bearer {}", source_token.access_token)),
-                ];
-                let body = json!({ "delegates": delegates, "scope": [SCOPE], "lifetime": "3600s" }).to_string();
-                let reply = self.post(&url, headers, body.into_bytes(), "Vertex AI impersonation").await?;
-                let value: Value = serde_json::from_slice(&reply).unwrap_or(Value::Null);
-                let token = value
-                    .get("accessToken")
-                    .and_then(Value::as_str)
-                    .filter(|t| !t.is_empty())
-                    .ok_or_else(|| invalid("Vertex AI impersonation response is missing accessToken"))?;
-                let expires_at_ms = value
-                    .get("expireTime")
-                    .and_then(Value::as_str)
-                    .map(mixdog_js::time::date_parse)
-                    .filter(|ms| ms.is_finite())
-                    .map(|ms| ms.max(0.0) as u64)
-                    .unwrap_or(now + 3_600_000);
-                Ok(Minted { token: token.to_owned(), expires_at_ms })
-            }
-        }
-    }
 }
 
 #[async_trait]
@@ -457,5 +397,125 @@ mod site_tests {
         let error = VertexAuth::new(transport.clone(), credential, Box::new(|| 0)).authorize().await.expect_err("never answers");
         assert_dispatcher("vertexToken", &transport);
         assert_thrown("vertexToken", &error.message);
+    }
+}
+
+
+impl VertexAuth {
+    pub fn new(http: Arc<dyn HttpSend>, credential: Credential, now_ms: Box<dyn Fn() -> u64 + Send + Sync>) -> Self {
+        Self { http, credential, now_ms, cached: Mutex::new(None), minting: tokio::sync::Semaphore::new(1) }
+    }
+
+    pub fn identity(&self) -> &str {
+        &self.credential.identity
+    }
+
+    fn fresh(&self) -> Option<String> {
+        let cached = self.cached.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        cached
+            .as_ref()
+            .filter(|m| (self.now_ms)() + REFRESH_SKEW_MS < m.expires_at_ms)
+            .map(|m| m.token.clone())
+    }
+
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn post(
+        &self,
+        url: &str,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+        refusal: impl Fn(u16, &[u8]) -> ProviderError,
+    ) -> Result<Vec<u8>, ProviderError> {
+        let response = self
+            .http
+            .send(
+                WireRequest {
+                    transport: TransportKind::Http1,
+                    method: "POST".into(),
+                    url: url.into(),
+                    headers,
+                    body,
+                },
+                VERTEX_TOKEN,
+            )
+            .await
+            .map_err(|mut error| {
+                // `_post`'s catch (`vertex-ai-auth.mjs:570-572`) words what the fetch threw.
+                let cause = if error.message.is_empty() { "token request failed" } else { error.message.as_str() };
+                error.message = format!("Vertex AI authentication failed: {cause}");
+                error.code = Some("EVERTEXAUTH".to_owned());
+                error
+            })?;
+        let status = response.status;
+        let reply = response.read_all().await?;
+        if (200..300).contains(&status) { Ok(reply.body) } else { Err(refusal(status, &reply.body)) }
+    }
+
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn grant_token(&self, grant: &Grant) -> Result<TokenGrant, ProviderError> {
+        // Spelled as Node's fetch call writes it (`vertex-ai-auth`), which the wire keeps.
+        let form_header = vec![("Content-Type".to_owned(), "application/x-www-form-urlencoded".to_owned())];
+        let body = match grant {
+            Grant::AuthorizedUser { client_id, client_secret, refresh_token } => form_body(&[
+                ("grant_type", "refresh_token"),
+                ("client_id", client_id),
+                ("client_secret", client_secret),
+                ("refresh_token", refresh_token),
+            ]),
+            Grant::ServiceAccount { client_email, private_key, .. } => {
+                let assertion = jwt_assertion(client_email, private_key, (self.now_ms)() / 1000)?;
+                form_body(&[("grant_type", JWT_BEARER_GRANT), ("assertion", &assertion)])
+            }
+        };
+        // The login's secrets are credentials before the grant request carries any of them; the grant's token joins them.
+        let secret = match grant {
+            Grant::AuthorizedUser { client_secret, refresh_token, .. } => [client_secret.as_str(), refresh_token.as_str()],
+            Grant::ServiceAccount { private_key, .. } => [private_key.as_str(), ""],
+        };
+        let source = format!("vertex {}", self.credential.identity);
+        crate::oauth::carried::keep(&source, &secret);
+        let authorized_user = matches!(grant, Grant::AuthorizedUser { .. });
+        let reply = self.post(TOKEN_URI, form_header, body, |status, body| grant_refusal(status, body, authorized_user)).await?;
+        let token = parse_token_grant(&reply, "Vertex AI token")?;
+        crate::oauth::carried::keep(&source, &[&token.access_token, secret[0], secret[1]]);
+        Ok(token)
+    }
+
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn mint(&self) -> Result<Minted, ProviderError> {
+        let now = (self.now_ms)();
+        match &self.credential.kind {
+            Kind::Grant(grant) => {
+                let token = self.grant_token(grant).await?;
+                Ok(Minted {
+                    expires_at_ms: now + token.expires_in_secs.unwrap_or(3600).max(1) * 1000,
+                    token: token.access_token,
+                })
+            }
+            Kind::Impersonated { target, delegates, source } => {
+                let source_token = self.grant_token(source).await?;
+                let url = format!("{IAM_CREDENTIALS}/projects/-/serviceAccounts/{target}:generateAccessToken");
+                let headers = vec![
+                    ("Content-Type".to_owned(), "application/json".to_owned()),
+                    ("Authorization".to_owned(), format!("Bearer {}", source_token.access_token)),
+                ];
+                let body = json!({ "delegates": delegates, "scope": [SCOPE], "lifetime": "3600s" }).to_string();
+                let reply = self.post(&url, headers, body.into_bytes(), |status, body| impersonation_refusal(status, body, target)).await?;
+                let value: Value = serde_json::from_slice(&reply).unwrap_or(Value::Null);
+                let token = value
+                    .get("accessToken")
+                    .and_then(Value::as_str)
+                    .filter(|t| !t.is_empty())
+                    .ok_or_else(|| invalid("Vertex AI impersonation response is missing accessToken"))?;
+                let expires_at_ms = value
+                    .get("expireTime")
+                    .and_then(Value::as_str)
+                    .map(mixdog_js::time::date_parse)
+                    .filter(|ms| ms.is_finite())
+                    .map(|ms| ms.max(0.0) as u64)
+                    .unwrap_or(now + 3_600_000);
+                Ok(Minted { token: token.to_owned(), expires_at_ms })
+            }
+        }
     }
 }

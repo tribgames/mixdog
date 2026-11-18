@@ -1832,3 +1832,113 @@ test('a group header keeps the present form while any call runs and reads past t
     dom.close();
   }
 });
+
+test('a restored turn that took three queued completions summarizes three of them, not one agent response', async () => {
+  const { rowsOf, mergeToolRows } = await import('../../../../packages/protocol-client/src/rows.ts');
+  const { desktopToolActivitySummary } = await import('./transcript-tool-core.ts');
+  const envelope = (id, status, summary, result = '') =>
+    ['<task-notification>', `<task-id>${id}</task-id>`, `<status>${status}</status>`, `<summary>${summary}</summary>`, ...(result ? ['<result>', result, '</result>'] : []), '</task-notification>'].join('\n');
+  const item = (envelopes) => ({
+    type: 'userMessage',
+    id: 'u1',
+    content: [{ type: 'text', text: envelopes.join('\n') }],
+    details: { source: 'task-notification', consumedExecutionIds: envelopes.map((_, at) => `t${at}`) },
+    meta: { at: 5, ext: { execution: { id: 't0', surface: 'agent', status: 'completed' } } },
+  });
+  const ok = envelope('t0', 'completed', 'Agent "rev" completed', 'all done');
+  const bad = envelope('t1', 'failed', 'Agent "fix" failed: boom');
+  const shell = envelope('t2', 'completed', 'Shell task completed (exit 0): npm test');
+  assert.equal(desktopToolActivitySummary(mergeToolRows(rowsOf(item([ok, bad, shell]))), true), 'Agent response, Agent failures, Ran 1 command');
+  // Two responses of one kind are counted as two, as the live card's aggregate counts them.
+  const second = envelope('t1', 'completed', 'Agent "doc" completed', 'also done');
+  assert.equal(desktopToolActivitySummary(mergeToolRows(rowsOf(item([ok, second]))), true), 'Agent responses ×2');
+});
+
+test('a restored turn whose core row carries its completions is cut by them even when a result quotes the next task\'s envelope', async () => {
+  const { rowsOf, mergeToolRows } = await import('../../../../packages/protocol-client/src/rows.ts');
+  const { desktopToolActivitySummary } = await import('./transcript-tool-core.ts');
+  const envelope = (id, status, summary, result = '') =>
+    ['<task-notification>', `<task-id>${id}</task-id>`, `<status>${status}</status>`, `<summary>${summary}</summary>`, ...(result ? ['<result>', result, '</result>'] : []), '</task-notification>'].join('\n');
+  const bad = envelope('t1', 'failed', 'Agent "fix" failed: boom');
+  // The first result quotes the envelope of the very next completion: the text alone cannot tell it from the real one.
+  const ok = envelope('t0', 'completed', 'Agent "rev" completed', `see\n${bad}`);
+  const shell = envelope('t2', 'completed', 'Shell task completed (exit 0): npm test');
+  const envelopes = [ok, bad, shell];
+  const content = envelopes.join('\n');
+  const surfaces = ['agent', 'agent', 'shell'];
+  const statuses = ['completed', 'failed', 'completed'];
+  let at = 0;
+  const completions = envelopes.map((text, index) => {
+    const entry = { executionId: `t${index}`, surface: surfaces[index], status: statuses[index], start: at, end: at + text.length };
+    at = entry.end + 1;
+    return entry;
+  });
+  const item = (details) => ({
+    type: 'userMessage',
+    id: 'u1',
+    content: [{ type: 'text', text: content }],
+    details: { source: 'task-notification', ...details },
+    meta: { at: 5, ext: { execution: { id: 't0', surface: 'agent', status: 'completed' } } },
+  });
+  const rows = rowsOf(item({ consumedExecutionIds: ['t0', 't1', 't2'], completions }));
+  assert.equal(rows.length, 3, 'one card per completion');
+  assert.equal(desktopToolActivitySummary(mergeToolRows(rows), true), 'Agent response, Agent failures, Ran 1 command');
+  // The same row without the data is cut at the quoted envelope: the first card ends early and the quoted one stands as t1's.
+  const old = rowsOf(item({ consumedExecutionIds: ['t0', 't1', 't2'] }));
+  assert.notDeepEqual(old, rows);
+});
+
+test('an agent response card the core extended with later responses counts every response in the summary', async () => {
+  const { rowsOf, mergeToolRows } = await import('../../../../packages/protocol-client/src/rows.ts');
+  const { desktopToolActivitySummary } = await import('./transcript-tool-core.ts');
+  const card = {
+    type: 'toolCall',
+    id: 'c1',
+    name: 'agent',
+    input: { type: 'result', status: 'completed', task_id: 't1', surface: 'agent' },
+    meta: { at: 5, status: 'completed' },
+    run: { result: '1. agent\none\n\n2. agent\ntwo\n\n3. agent\nthree', count: 3, completedCount: 3 },
+  };
+  const shell = { ...card, id: 'c2', name: 'shell', input: { command: 'npm test' }, run: { result: 'ok' } };
+  assert.equal(desktopToolActivitySummary(mergeToolRows(rowsOf(card)), true), 'Agent responses ×3');
+  assert.equal(desktopToolActivitySummary(mergeToolRows([...rowsOf(card), ...rowsOf(shell)]), true), 'Agent responses ×3, Ran 1 command');
+});
+
+test('the card append_to_tail writes after a third response counts three in the summary', async () => {
+  const { rowsOf, mergeToolRows } = await import('../../../../packages/protocol-client/src/rows.ts');
+  const { desktopToolActivitySummary } = await import('./transcript-tool-core.ts');
+  // transcript_response.rs append_to_tail: the first response's card, patched with args, the last result, the numbered raw text of
+  // every entry, count/completedCount = entries, and the agentResponse* fields (typed ones on the run, the rest on meta.ext).
+  const entries = ['t1', 't2', 't3'].map((key, at) => ({ key, raw: `body ${at + 1}`, result: `body ${at + 1}`, hasBody: true, isError: false }));
+  const card = {
+    type: 'toolCall',
+    id: 'r1',
+    name: 'agent',
+    input: { type: 'result', status: 'completed', task_id: 't3', surface: 'agent' },
+    meta: {
+      at: 9,
+      status: 'completed',
+      ext: {
+        agentDirection: 'inbound',
+        agentResponseKey: 't1',
+        agentResponseKeys: ['t1', 't2', 't3'],
+        agentResponseHasBody: true,
+        agentResponseAggregate: true,
+        agentResponseEntries: entries,
+      },
+    },
+    run: {
+      result: 'body 3',
+      rawResult: entries.map((entry, at) => `${at + 1}. agent\n${entry.raw}`).join('\n\n'),
+      isError: false,
+      startedAt: 1,
+      completedAt: 9,
+      count: 3,
+      completedCount: 3,
+    },
+  };
+  const rows = rowsOf(card);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].count, 3);
+  assert.equal(desktopToolActivitySummary(mergeToolRows(rows), true), 'Agent responses ×3');
+});

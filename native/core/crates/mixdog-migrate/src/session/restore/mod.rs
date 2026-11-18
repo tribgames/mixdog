@@ -52,7 +52,7 @@ pub fn convert<'r>(rows: impl IntoIterator<Item = &'r mut Row>, blobs: &dyn Blob
     }
 }
 
-/// The migration's attachment store (`<D>/prompt-attachments/sha256/<ab>/<hex>`).
+/// The migration's attachment store (`<D>/blobs/sha256/<ab>/<hex>`, [`ItemContext::blob_path`]).
 pub struct StoreBlobs<'a, 'b>(pub &'a ItemContext<'b>);
 
 impl Blobs for StoreBlobs<'_, '_> {

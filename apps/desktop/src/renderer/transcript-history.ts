@@ -1,4 +1,6 @@
 import type { DesktopTranscriptHistoryPage, DesktopTranscriptHistoryRequest } from '../shared/contract';
+import { historyPositionOf, setHistoryPositions } from '../../../../packages/protocol-client/src/rows.ts';
+import { CORE_TRANSCRIPT_HISTORY_POSITION } from '../shared/contract-session';
 import { joinTranscriptWindows } from './transcript-alignment';
 
 export const TRANSCRIPT_HISTORY_PAGE_ITEMS = 512;
@@ -145,7 +147,7 @@ export class TranscriptHistoryPager<T extends HistoryItem> {
   private readonly positions = new WeakMap<object, string>();
 
   private request(row: T, older: boolean): DesktopTranscriptHistoryRequest {
-    const position = row && typeof row === 'object' ? this.positions.get(row) : undefined;
+    const position = historyPositionOf(row, older ? 'before' : 'after') ?? this.positions.get(row);
     return {
       ...(older ? { before: String(row.id) } : { after: String(row.id) }),
       limit: TRANSCRIPT_HISTORY_PAGE_ITEMS,
@@ -156,9 +158,12 @@ export class TranscriptHistoryPager<T extends HistoryItem> {
 
   private remember(page: DesktopTranscriptHistoryPage): readonly T[] {
     const rows = page.items as unknown as readonly T[];
-    page.positions?.forEach((position, index) => {
-      const row = rows[index];
-      if (position && row && typeof row === 'object') this.positions.set(row, position);
+    rows.forEach((row, index) => {
+      const edges = page.positionEdges?.[index];
+      const position = page.positions?.[index];
+      if (edges) setHistoryPositions(row, edges.before, edges.after);
+      else if (position && CORE_TRANSCRIPT_HISTORY_POSITION.test(position)) setHistoryPositions(row, position, position);
+      else if (position) this.positions.set(row, position);
     });
     return rows;
   }
@@ -207,7 +212,9 @@ export class TranscriptHistoryPager<T extends HistoryItem> {
     // The held rows lost their first while the page was on its way: the page no longer fits, and the window the request was made for
     // is read again from the live tail. Rows that landed after the newest leave the page's boundary in place: it goes on top of the
     // rows on screen as they are, as Node's pager placed it (re-reading the window replaced every row the reader was looking at).
-    if (current.items[0]?.id !== boundary) {
+    const position = historyPositionOf(row) ?? this.positions.get(row);
+    const first = current.items[0];
+    if (first?.id !== boundary || (position !== undefined && position !== (historyPositionOf(first) ?? this.positions.get(first)))) {
       this.movedFrom = base.items.length;
       this.toLive();
       return 'moved';

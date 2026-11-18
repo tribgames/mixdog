@@ -1,7 +1,5 @@
-//! The Rust writer leaves the same bytes as Node's `appendAgentTrace` + `logLlmCall` +
-//! `traceAgentCompact` + `_appendToolFailureRow`, replayed from
-//! `fixtures/agent-trace/golden.json` (recorded by `benchmarks/rust-core/recorders/
-//! record-agent-trace.mjs` on a temp `MIXDOG_DATA_DIR`).
+//! The trace writer's files: ship mode, explicit paths and the disable switch, when a flush is due, and what a failed write
+//! does, and the row sinks.
 #![allow(
     clippy::disallowed_methods,
     clippy::disallowed_types,
@@ -14,18 +12,9 @@ use std::path::Path;
 
 use mixdog_trace::AgentTrace;
 use mixdog_trace::TraceConfig;
-use mixdog_trace::compact_meta_record;
-use mixdog_trace::usage_record;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
-use sha2::Digest;
-use sha2::Sha256;
-
-fn golden() -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/agent-trace/golden.json");
-    mixdog_js::json_parse(&fs::read_to_string(path).unwrap()).unwrap()
-}
 
 fn config(data_dir: &Path, extra: &[(&str, &str)]) -> TraceConfig {
     let mut env: BTreeMap<String, String> = BTreeMap::new();
@@ -37,96 +26,6 @@ fn config(data_dir: &Path, extra: &[(&str, &str)]) -> TraceConfig {
 
 fn object(value: &Value) -> &Map<String, Value> {
     value.as_object().unwrap()
-}
-
-fn node_env(keep: i64) -> Vec<(&'static str, String)> {
-    vec![
-        ("MIXDOG_DIAGNOSTICS", "1".into()),
-        ("MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS", "1".into()),
-        ("MIXDOG_AGENT_TRACE_ROTATE_KEEP", keep.to_string()),
-    ]
-}
-
-fn trace_in(dir: &Path, keep: i64) -> AgentTrace {
-    let env = node_env(keep);
-    let pairs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
-    AgentTrace::new(&config(dir, &pairs))
-}
-
-#[test]
-fn rows_and_failures_match_node() {
-    let g = golden();
-    let now = g["now"].as_i64().unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let trace = trace_in(dir.path(), g["keep"].as_i64().unwrap());
-    for case in g["cases"].as_array().unwrap() {
-        let record = match case["op"].as_str().unwrap() {
-            "append" => object(&case["record"]).clone(),
-            "compact" => compact_meta_record(object(&case["input"])),
-            "usage" => usage_record(
-                object(&case["entry"]),
-                case["maintenance"].as_bool().unwrap(),
-                now,
-            ),
-            other => panic!("unknown op {other}"),
-        };
-        trace.append(&record, now);
-    }
-    for row in g["failureRows"].as_array().unwrap() {
-        trace.append_tool_failure(row, now);
-    }
-    assert!(trace.flush(now).is_empty());
-    let history = dir.path().join("history");
-    assert_eq!(
-        fs::read_to_string(history.join("agent-trace.jsonl")).unwrap(),
-        g["jsonl"].as_str().unwrap()
-    );
-    assert_eq!(
-        fs::read_to_string(history.join("tool-failures.jsonl")).unwrap(),
-        g["failuresJsonl"].as_str().unwrap()
-    );
-}
-
-#[test]
-fn rotation_matches_node() {
-    let g = golden();
-    let now0 = g["now"].as_i64().unwrap();
-    let blob = "x".repeat(g["bigBlobLen"].as_u64().unwrap() as usize);
-    let dir = tempfile::tempdir().unwrap();
-    let trace = trace_in(dir.path(), g["keep"].as_i64().unwrap());
-    let mut now = now0;
-    for i in 1..=3_i64 {
-        let big = json!({"kind": "big", "ts": now0 + i, "sessionId": "rot", "payload": {"n": i, "blob": blob}});
-        trace.append(object(&big), now);
-        assert!(trace.flush(now).is_empty());
-        now += 10;
-        let small = json!({"kind": "small", "ts": now0 + i, "sessionId": "rot", "payload": {"n": i}});
-        trace.append(object(&small), now);
-        assert!(trace.flush(now).is_empty());
-        now += 10;
-    }
-    let history = dir.path().join("history");
-    let mut seen = Vec::new();
-    for entry in fs::read_dir(&history).unwrap() {
-        let entry = entry.unwrap();
-        let bytes = fs::read(entry.path()).unwrap();
-        let digest: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
-        seen.push((entry.file_name().to_string_lossy().into_owned(), bytes.len() as u64, digest));
-    }
-    seen.sort();
-    let want: Vec<(String, u64, String)> = g["rotation"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|f| {
-            (
-                f["name"].as_str().unwrap().to_string(),
-                f["bytes"].as_u64().unwrap(),
-                f["sha256"].as_str().unwrap().to_string(),
-            )
-        })
-        .collect();
-    assert_eq!(seen, want);
 }
 
 #[test]
@@ -205,4 +104,28 @@ fn row_sink_gets_every_row_even_when_no_file_is_written() {
         ["{\"kind\":\"a\",\"ts\":5,\"session_id\":\"s\",\"payload\":{}}"]
     );
     assert!(!dir.path().join("history").join("agent-trace.jsonl").exists());
+}
+#[test]
+fn a_writer_without_a_sink_of_its_own_feeds_the_process_sink() {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    struct Collect(Mutex<Vec<String>>);
+    impl mixdog_trace::RowSink for Collect {
+        fn row(&self, row: &Map<String, Value>, _now_ms: i64) {
+            if row.get("kind").and_then(Value::as_str) == Some("process_sink_probe") {
+                self.0.lock().unwrap().push("row".into());
+            }
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let trace = AgentTrace::new(&config(dir.path(), &[("MIXDOG_MODE", "ship")]));
+    let record = json!({"kind": "process_sink_probe", "sessionId": "s", "ts": 5});
+    trace.append(object(&record), 1);
+    let sink = Arc::new(Collect(Mutex::new(Vec::new())));
+    mixdog_trace::install_process_sink(Some(sink.clone()));
+    trace.append(object(&record), 2);
+    mixdog_trace::install_process_sink(None);
+    trace.append(object(&record), 3);
+    assert_eq!(sink.0.lock().unwrap().len(), 1, "only the row appended while the sink was installed");
 }

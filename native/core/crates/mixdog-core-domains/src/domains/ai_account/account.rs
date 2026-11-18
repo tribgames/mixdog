@@ -266,7 +266,7 @@ impl AccountService {
         history
     }
 
-    async fn dispatch(&self, method: &str, params: &Value, body_lone_units: usize) -> Result<Value, CoreError> {
+    async fn dispatch(&self, method: &str, params: &Value, body_lone_units: usize, local: bool) -> Result<Value, CoreError> {
         let admin = &self.admin;
         let provider = str_param(params, "providerId");
         let ok = Value::Bool(true);
@@ -281,16 +281,19 @@ impl AccountService {
             }
             "account/getQuotaHistory" => self.get_quota_history(options_of(params)).await?,
             "account/authenticateProvider" => {
-                admin.authenticate_provider(provider, str_param(params, "secret")).await.map_err(into)?;
+                admin.authenticate_provider(provider, str_param(params, "secret"), local).await.map_err(into)?;
                 ok
             }
             "account/loginOAuthProvider" => {
-                admin.login_oauth_provider(provider).await.map_err(into)?;
+                admin.login_oauth_provider(provider, local).await.map_err(into)?;
                 ok
             }
             "account/beginOAuthProviderLogin" => {
+                if let Some(prior) = self.flows.supersede(provider) {
+                    prior.released().await;
+                }
                 let (session, settle) =
-                    admin.begin_oauth_provider_login(provider, &options_of(params)).await.map_err(into)?;
+                    admin.begin_oauth_provider_login(provider, &options_of(params), local).await.map_err(into)?;
                 self.flows.register(provider, session, settle).map_err(into)?
             }
             "account/completeOAuthProviderLogin" => self
@@ -375,6 +378,7 @@ fn external_effect(method: &str, params: &Value) -> Option<(&'static str, String
 impl DomainService for AccountService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let method = req.method.as_str();
+        let local = req.ctx.origin == mixdog_protocol::Origin::Local;
         // The lone surrogates a custom provider's `requestBody` held (only its top-level values are free text): its size limit
         // counts each as Node's `JSON.stringify` writes it.
         let body_lone_units = req
@@ -385,7 +389,7 @@ impl DomainService for AccountService {
             .count();
         match method {
             "account/getOAuthProviderLoginStatus" | "account/listWebSearchModels" | "account/getQuotaHistory" => {
-                Ok(Reply::Value(self.dispatch(method, &req.params, body_lone_units).await?))
+                Ok(Reply::Value(self.dispatch(method, &req.params, body_lone_units, local).await?))
             }
             m if m.starts_with("account/") => {
                 let external = external_effect(method, &req.params);
@@ -394,7 +398,7 @@ impl DomainService for AccountService {
                     .run(
                         &req,
                         external,
-                        || async { self.dispatch(method, &req.params, body_lone_units).await },
+                        || async { self.dispatch(method, &req.params, body_lone_units, local).await },
                         || async { Ok(Value::Null) },
                     )
                     .await?;

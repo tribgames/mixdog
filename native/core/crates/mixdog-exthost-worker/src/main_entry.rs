@@ -38,11 +38,29 @@ pub fn native_methods_with(extensions: &[Extension]) -> Vec<String> {
     assemble(extensions).methods().into_iter().map(str::to_owned).collect()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_names_come_from_the_registry_and_an_extension_adds_to_them() {
+        assert_eq!(
+            native_methods(),
+            vec!["document.installLibreOffice", "document.libreOfficeStatus", "document.preview", "document.previewPages", "image.jpeg", "image.probe", "image.resize", "image.still", "image.validate", "media.legacyOffice", "media.officeText", "media.pdfCounts", "media.pdfText", "office.run", "office.sweepJournals", "ooxml.text", "pdf.inspect", "pdf.ocr", "pdf.render"]
+        );
+        let extra: Extension =
+            |registry| registry.register("zzz.extra", |_| async { Ok(crate::Outcome::value(serde_json::Value::Null)) });
+        let all = native_methods_with(&[extra]);
+        assert_eq!(all.len(), native_methods().len() + 1);
+        assert_eq!(all.last().map(String::as_str), Some("zzz.extra"));
+    }
+}
+
+
 /// Runs a worker with the document methods until the pool says bye or closes the pipe.
 pub fn ext_worker_main() -> ExitCode {
     ext_worker_main_with(&[])
 }
-
 /// [`ext_worker_main`] with the registrations of other crates added.
 pub fn ext_worker_main_with(extensions: &[Extension]) -> ExitCode {
     let (input, output) = match crate::run::stdio() {
@@ -63,22 +81,4 @@ pub fn ext_worker_main_with(extensions: &[Extension]) -> ExitCode {
     // The blocked read of standard input and a handler that never returns must not hold the process.
     runtime.shutdown_background();
     code
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_names_come_from_the_registry_and_an_extension_adds_to_them() {
-        assert_eq!(
-            native_methods(),
-            vec!["document.installLibreOffice", "document.libreOfficeStatus", "document.preview", "document.previewPages", "image.jpeg", "image.probe", "image.resize", "image.still", "image.validate", "media.officeText", "media.pdfCounts", "media.pdfText", "office.run", "office.sweepJournals", "ooxml.text", "pdf.inspect", "pdf.ocr", "pdf.render"]
-        );
-        let extra: Extension =
-            |registry| registry.register("zzz.extra", |_| async { Ok(crate::Outcome::value(serde_json::Value::Null)) });
-        let all = native_methods_with(&[extra]);
-        assert_eq!(all.len(), native_methods().len() + 1);
-        assert_eq!(all.last().map(String::as_str), Some("zzz.extra"));
-    }
 }

@@ -1,3 +1,0 @@
-# DESKTOP-WIRE-G5: reduced by the wire audit (t19). Applied since: registerRefMint / the engine registration (host/browser-engine/index.ts), attributes/limit of extract, the capture window (x-capture-core-client), the renderer ssh tests (g55-fu-renderer), the claim resources, blobChunkBytes. Still open:
-
-- apps/desktop/src/main/ipc-state-bridge.ts reduction (the plan's text: updater, notices, conversation import progress, resume): not done. Its state, session, agent-pool and core-event pushes are the old IPC lane's; their tests (ipc-state-bridge-late-read, -resync, -notices) pin them and nothing in the renderer listens to those pushes any more. Goes with the s2a-del-* deletion tasks (the owner's direction keeps the old lane's code until its deletion tasks).

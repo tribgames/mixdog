@@ -185,6 +185,7 @@ pub fn snapshot(payload: &Value, stored_email: &str, stored_account: &str, fetch
     Some(Value::Object(out))
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "usage_muse_code_tests.rs"]
 mod tests;

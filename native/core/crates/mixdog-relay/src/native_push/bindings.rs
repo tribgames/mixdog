@@ -4,8 +4,7 @@
 //! OWN paired clients and checked against the device store on every send. A desktop sends only through an association it
 //! holds, and unbind and revoke only ever remove that desktop's associations.
 //!
-//! The table is `Map<token, Map<'deviceId\nclientId', association>>`. A single-association entry (`Map<token,
-//! association>`) is still read: it is upgraded in place the first time its token is touched.
+//! The table is `Map<token, Map<'deviceId\nclientId', association>>`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -58,8 +57,6 @@ struct Association {
 }
 
 enum Entry {
-    /// The single-association shape.
-    Single(Association),
     Many(HashMap<String, Association>),
 }
 
@@ -69,20 +66,10 @@ fn association_key(device_id: &str, client_id: &str) -> String {
     format!("{device_id}\n{client_id}")
 }
 
-/// The associations held for one token, upgrading a single-association entry.
+/// The associations held for one token.
 fn associations_of(entry: &mut Entry) -> &mut HashMap<String, Association> {
-    if let Entry::Single(single) = entry {
-        let single = Association {
-            device_id: std::mem::take(&mut single.device_id),
-            client_id: std::mem::take(&mut single.client_id),
-            platform: std::mem::take(&mut single.platform),
-        };
-        *entry = Entry::Many(HashMap::from([(association_key(&single.device_id, &single.client_id), single)]));
-    }
-    match entry {
-        Entry::Many(map) => map,
-        Entry::Single(_) => unreachable!("a single association was upgraded above"),
-    }
+    let Entry::Many(map) = entry;
+    map
 }
 
 /// Removes the associations of `device_id` (optionally one client, optionally one token) and forgets tokens nobody is
@@ -281,14 +268,7 @@ impl NativePushService {
         })
     }
 
-    /// Holds a single-association entry, the shape an older relay kept: the way a test seeds the upgrade-on-use path.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn hold_single_association(&self, token: &str, device_id: &str, client_id: &str, platform: &str) {
-        let association = Association { device_id: device_id.to_owned(), client_id: client_id.to_owned(), platform: platform.to_owned() };
-        self.table().insert(token.to_owned(), Entry::Single(association));
-    }
-
-    /// How many desktops hold an association for the token (upgrading a single-association entry).
+    /// How many desktops hold an association for the token .
     #[cfg(any(test, feature = "test-support"))]
     pub fn association_count(&self, token: &str) -> Option<usize> {
         self.table().get_mut(token).map(|entry| associations_of(entry).len())

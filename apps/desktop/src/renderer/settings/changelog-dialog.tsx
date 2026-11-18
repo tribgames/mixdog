@@ -85,7 +85,7 @@ export default function ChangelogDialog({ onClose }: { onClose(): void }) {
                     <span>{release.version}</span>
                     {release.date && <span className="settings-changelog-date">{release.date}</span>}
                     {release.version === `v${appVersion}` && (
-                      <span className="settings-changelog-current">{t('Current version')}</span>
+                      <span className="settings-changelog-current">{t('This interface version')}</span>
                     )}
                   </button>
                 </h4>

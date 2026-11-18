@@ -1,7 +1,6 @@
 ## Phase C: negative-path tests against the released runtime tarballs.
-## Runs after Deploy's runtime job (workflow_call), after a manually dispatched
-## Build Runtime succeeds (workflow_run), OR on demand. Validates fetcher behavior
-## under corrupt/missing/stale conditions on each OS.
+## On-demand checks of public releases. Build Runtime runs the same smoke
+## scripts on staged bytes before it publishes.
 
 name: Smoke Runtime (negative paths)
 
@@ -27,8 +26,6 @@ on:
         required: false
         type: string
         default: ""
-  # A manually dispatched Build Runtime. A Build Runtime called by Deploy is part
-  # of Deploy's run and raises no workflow_run event: Deploy calls this workflow.
   workflow_run:
     workflows: ["Build Runtime"]
     types: [completed]

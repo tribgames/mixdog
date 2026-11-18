@@ -6,6 +6,8 @@ import { contained } from '../link-log.mjs';
 
 const DEFAULT_READY_TIMEOUT_MS = 15_000;
 const POLL_MS = 50;
+/** The states of a running core that end by themselves (lifecycle spec §5.4). */
+const SELF_ENDING_STATES = new Set(['booting', 'migrating', 'draining']);
 
 /**
  * Starts `mixdogd serve` detached from this process, so closing the terminal never stops running work. A launcher
@@ -21,12 +23,15 @@ export function launchCore({
   log = () => {},
   beginCapture = beginDaemonSpawnCapture,
   detached = true,
+  desktopConfirmationPipe = false,
 } = {}) {
   return new Promise((resolve, reject) => {
     const capture = beginCapture({ launcher: 'core', log });
     let child;
     try {
-      child = spawnImpl(bin, ['serve'], { detached, stdio: ['ignore', 'ignore', capture.stderrStdio], windowsHide: true, env });
+      const args = desktopConfirmationPipe ? ['serve', '--desktop-confirmation-pipe'] : ['serve'];
+      const pipe = desktopConfirmationPipe ? 'pipe' : 'ignore';
+      child = spawnImpl(bin, args, { detached, stdio: [pipe, pipe, capture.stderrStdio], windowsHide: true, env });
     } catch (error) {
       capture.noteSpawnError(error);
       reject(new Error(`cannot start ${bin}: ${error.message}`));
@@ -66,14 +71,27 @@ function endedBeforeServing(capture, last) {
   const record = capture?.snapshot?.();
   if (!record?.exitedAt) return null;
   if (record.exitCode === 0 && !record.exitSignal) return null;
-  if (last && last.pid !== record.pid) return null;
+  if (last && last.state !== 'legacy' && last.pid !== record.pid) return null;
   const summary = capture.summary?.() ?? {};
   const reason = summary.exitReason || (record.exitSignal ? `killed by ${record.exitSignal}` : `exited with code ${record.exitCode ?? '?'}`);
   const said = summary.stderrErrorLine || summary.stderrLastLine;
   return Object.assign(new Error(`core is not ready: the core ended before serving (${reason})${said ? `: ${said}` : ''}`), {
     coreDiscovery: last ?? null,
-    coreExit: { code: record.exitCode ?? null, signal: record.exitSignal ?? null, stderrPath: summary.stderrPath ?? null },
+    coreExit: {
+      code: record.exitCode ?? null,
+      signal: record.exitSignal ?? null,
+      // The recorded reason (a field of the record, not a quote of stderr): what the exit is told apart by.
+      reason: summary.exitReason ?? null,
+      stderrPath: summary.stderrPath ?? null,
+    },
   });
+}
+
+/** Whether the core `last` names says it is in a state that ends by itself and answers its control listener unstalled. */
+async function atWork(last, ping) {
+  if (!last || !SELF_ENDING_STATES.has(last.state) || !last.controlPort || !last.token) return false;
+  const { answered, stalledMs } = await ping(last);
+  return answered && stalledMs === 0;
 }
 
 /** Whether the process `pid` still runs (a process this user may not signal runs too). */
@@ -93,6 +111,12 @@ export function processRuns(pid) {
  *
  * A discovery file outlives a process that was killed (and the 1.4.5 daemon wrote the same file): one that names a
  * process no longer running names no core, so a core is started as when there is no file. Waiting for it never ends.
+ *
+ * `readyTimeoutMs` is how long a core may go without being known to be at work. When it has passed, a running core
+ * that says it is `booting`, `migrating` or `draining` is asked over its control listener: one that answers with a
+ * runtime that is not stalled is at work (a first start builds the session index from every log, a migration converts
+ * the data) and is waited for that long again; its end is its own to report (`serving`, `blocked`, or its exit). A
+ * process that holds the data directory and answers nothing is not waited for further.
  */
 export async function ensureCore({
   readDiscovery,
@@ -102,34 +126,60 @@ export async function ensureCore({
   now = Date.now,
   log = () => {},
   runs = processRuns,
+  ping = pingCore,
+  onProgress = () => {},
 } = {}) {
-  const deadline = now() + Math.max(1, readyTimeoutMs);
+  let deadline = now() + Math.max(1, readyTimeoutMs);
   let launched = false;
   let capture = null;
   let last = null;
-  while (now() < deadline) {
-    try {
-      last = await readDiscovery();
-    } catch (error) {
-      if (error?.name !== 'CoreDiscoveryError' || error.code !== 'absent') throw error;
-      last = null;
+  // What the core says its index rebuild has come to (`{done, total}` sessions), told when it changes; null when none runs.
+  const tell = contained(onProgress);
+  // `boot` names the core process the counts are of: the counts of one boot only grow, and a new boot starts again.
+  let told = null;
+  let toldBoot = null;
+  const report = (progress, boot = null) => {
+    const of = progress ? boot : null;
+    if (progress?.done === told?.done && progress?.total === told?.total && of === toldBoot) return;
+    told = progress;
+    toldBoot = of;
+    tell(progress, of);
+  };
+  // A report belongs to this call: however it ends (serving, a refusal, a read that fails, the deadline) the last one is withdrawn.
+  try {
+    for (;;) {
+      if (now() >= deadline) {
+        if (!(await atWork(last, ping))) break;
+        deadline = now() + Math.max(1, readyTimeoutMs);
+      }
+      try {
+        last = await readDiscovery();
+      } catch (error) {
+        if (error?.name !== 'CoreDiscoveryError' || error.code !== 'absent') throw error;
+        last = null;
+      }
+      if (last && Number.isInteger(last.pid) && !runs(last.pid)) last = null;
+      report(last?.rebuild ?? null, last?.pid ?? null);
+      if (last?.state === 'serving' && last.rpcPort) {
+        capture?.noteReady?.();
+        return last;
+      }
+      if (last?.state === 'blocked') throw notReadyError(last, { launched });
+      const ended = endedBeforeServing(capture, last);
+      if (ended) throw ended;
+      // A legacy endpoint cannot serve this client. Start the Rust contender so
+      // its ownership gate can judge the old process; the launcher never stops it.
+      if ((!last || last.state === 'legacy') && !launched) {
+        launched = true;
+        log('starting core');
+        capture = await launch({ log });
+      }
+      await sleep(Math.min(POLL_MS, Math.max(1, deadline - now())));
     }
-    if (last && Number.isInteger(last.pid) && !runs(last.pid)) last = null;
-    if (last?.state === 'serving' && last.rpcPort) {
-      capture?.noteReady?.();
-      return last;
-    }
-    if (last?.state === 'blocked') throw notReadyError(last, { launched });
-    const ended = endedBeforeServing(capture, last);
-    if (ended) throw ended;
-    if (!last && !launched) {
-      launched = true;
-      log('starting core');
-      capture = await launch({ log });
-    }
-    await sleep(Math.min(POLL_MS, Math.max(1, deadline - now())));
+    throw notReadyError(last, { launched });
+  } finally {
+    report(null);
   }
-  throw notReadyError(last, { launched });
 }
 
 /** How often the launcher asks its core whether it still answers. */

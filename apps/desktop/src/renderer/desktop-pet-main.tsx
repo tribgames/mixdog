@@ -17,8 +17,8 @@ import {
 } from '../shared/desktop-pet';
 import { AgentImageAvatar } from './agent-avatar';
 import { RoomAvatar, RoomMemberFace, type RoomMemberLabel } from './agent-room-parts';
-import { applyPetTheme, PetMenu, petArea } from './desktop-pet-menu';
-import { initUiLanguage } from './i18n';
+import { applyPetTheme, PetMenu, petArea, petMenuSide } from './desktop-pet-menu';
+import { initUiLanguage, t } from './i18n';
 import { CompanionPet, focusPet, setPetKeyboardUse, trackPetKeyboardUse } from './skin-companion-pet';
 import type { CompanionBubble } from './skin-companion-model';
 
@@ -339,6 +339,16 @@ function PetApp() {
         onCopy={(key) => pet.copy(key)}
         bubbleSpan={view?.bubbleSpan}
       />
+      {view?.saveFailed && !menuOpen && (
+        <div
+          className="mx-menu desktop-pet-menu"
+          data-side={petMenuSide(200, view.screenRight ?? shape.window.width, shape.sprite)}
+          data-pet-hit=""
+          role="alert"
+        >
+          {t('Could not save overlay settings. Try again.')}
+        </div>
+      )}
       {menuOpen && (
         <PetMenu
           state={{

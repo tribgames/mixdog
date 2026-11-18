@@ -29,14 +29,14 @@ use crate::fsops::mime_type;
 use crate::ident::FileVersion;
 use crate::ident::file_version;
 use crate::inplace::open_authorized_ro;
+use crate::lease_end::EndOnDrop;
+use crate::lease_end::run_deadlines;
 use crate::pathguard::absolute_local_path;
 use crate::pathguard::canonical;
 use crate::pathguard::comparable;
 use crate::pathguard::project_entry_path;
 
 pub const RANGE_MAX_BYTES: u64 = 4 * 1024 * 1024;
-/// Raw bytes of one upload chunk at most (`SERVER_UPLOAD_CHUNK_BYTES`).
-pub const UPLOAD_CHUNK_BYTES: u64 = 2 * 1024 * 1024;
 /// Largest upload (`SERVER_UPLOAD_MAX_BYTES`).
 pub const UPLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;
 pub const ZIP_MAX_BYTES: u64 = 64 * 1024 * 1024;
@@ -59,20 +59,22 @@ pub fn version_string(version: &FileVersion) -> String {
     URL_SAFE_NO_PAD.encode(Sha256::digest(text.as_bytes()))
 }
 
-/// An unredeemed download authorization (Node's `Grant`, `file-downloads.ts`): the file opened once at authorize time and what the
+/// An unredeemed download authorization: the file opened once at authorize time and what the
 /// phone was told of it.
 struct Grant {
     owner: String,
-    /// The conversation the request named (Node's `Grant.sessionId`): its deletion ends the grant.
+    /// The conversation the request named: its deletion ends the grant.
     session: String,
     file: File,
-    /// Where the file was authorized (Node's `OpenedFile.location`): the real path the handle was proved to be the file at.
+    /// Where the file was authorized: the real path the handle was proved to be the file at.
     location: PathBuf,
     size: u64,
     version: String,
     name: String,
     mime: String,
     expires_at: i64,
+    // Dropped after the file, or moved into the redeemed transfer.
+    cleanup: Option<Cleanup>,
 }
 
 /// A file the service staged for a phone's download (a folder's zip, an attachment's bytes): Node's `ExportRecord` made by
@@ -82,10 +84,10 @@ struct Grant {
 struct Staged {
     owner: String,
     session: String,
-    /// The staged file's path, its real one once opened: a grant or transfer reading it was opened there (Node's `readsRecord`).
+    /// The staged file's path, its real one once opened: a grant or transfer reading it was opened there.
     location: PathBuf,
     expires_at: i64,
-    /// Its payload is still being written and opened (Node's `staging`): never dropped to make room or by the sweep, but a revocation
+    /// Its payload is still being written and opened: never dropped to make room or by the sweep, but a revocation
     /// removes it as any other.
     staging: bool,
     /// Held for its drop: the folder goes with the record.
@@ -97,7 +99,7 @@ pub const STAGED_TTL_MS: i64 = 10 * 60_000;
 /// Staged downloads one device holds; room is made by dropping its oldest that no transfer reads (`MAX_EXPORTS_PER_DEVICE`).
 const MAX_STAGED_PER_DEVICE: usize = 8;
 
-/// Whether the staged download is still being staged or a grant or a phone transfer reads its file (Node's `exportHeld`).
+/// Whether the staged download is still being staged or a grant or a phone transfer reads its file.
 fn staged_held(grants: &[(String, Grant)], reads: &HashMap<String, Read>, staged: &Staged) -> bool {
     staged.staging || grants.iter().any(|(_, grant)| grant.location == staged.location) || leased(reads, &staged.location)
 }
@@ -107,7 +109,7 @@ fn leased(reads: &HashMap<String, Read>, location: &Path) -> bool {
     reads.values().any(|read| read.lease.is_some() && read.location.as_deref() == Some(location))
 }
 
-/// The times a phone's transfer ends at (Node's `Lease`): after the idle time without a read, and after the absolute lifetime.
+/// The times a phone's transfer ends at: after the idle time without a read, and after the absolute lifetime.
 #[derive(Clone, Copy)]
 struct LeaseTimes {
     expires_at: i64,
@@ -134,17 +136,17 @@ fn download(code: &'static str, message: &str) -> WsError {
     WsError::new(Reason::Download(code), message)
 }
 
-/// Node's `FileDownloadError('changed')`: what a phone is told when the file is no longer the version it was offered.
+/// What a phone is told when the file is no longer the version it was offered.
 fn download_changed() -> WsError {
     download("file-download:changed", "The file changed on the host.")
 }
 
-/// Node's `FileDownloadError('unavailable')`: the conversation a download names has left the host's catalog.
+/// The conversation a download names has left the host's catalog.
 pub fn unavailable() -> WsError {
     download("file-download:unavailable", "This conversation is not available.")
 }
 
-/// What `authorize` tells the phone (Node's `FileDownloadGrant`).
+/// What `authorize` tells the phone.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Authorized {
@@ -154,7 +156,7 @@ pub struct Authorized {
     pub mime: String,
     pub version: String,
     pub expires_at: i64,
-    /// A folder's zip only: what it left out (Node's `FolderLeftOut`).
+    /// A folder's zip only: what it left out.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub left_out: Option<LeftOut>,
 }
@@ -174,7 +176,7 @@ pub struct LeaseMedia {
     pub expires_at: i64,
 }
 
-/// What `begin` tells the phone (Node's `FileDownloadTransfer`).
+/// What `begin` tells the phone.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Leased {
@@ -188,7 +190,20 @@ pub struct Leased {
     pub media: LeaseMedia,
 }
 
-/// What `finish` tells the phone (Node's `FileDownloadFinished`).
+/// A phone's download lease as the media lane reads it (Node's `resolveMedia` target): who it belongs to and what it holds.
+#[derive(Debug, Clone)]
+pub struct MediaLease {
+    owner: String,
+    transfer_id: String,
+    pub size: u64,
+    pub mime: String,
+    pub version: String,
+    /// The terminal event of this transfer: published when it leaves the table by any way (unpair, finish, the sweep, a changed file,
+    /// a conversation's deletion) and at its deadline, so a wait made under the lease is released by it.
+    pub ended: tokio_util::sync::CancellationToken,
+}
+
+/// What `finish` tells the phone.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Finished {
@@ -199,13 +214,13 @@ pub struct Finished {
 
 /// Revocation generations: each only grows, so a changed value says something revoked the owner, the conversation or everything
 /// meanwhile. The lock on them is the one gate every revoke and every consume-and-publish step passes (order: generations, grants,
-/// reads), so a revoke runs wholly before or wholly after each such step, as Node's synchronous steps do.
+/// reads), so a revoke runs wholly before or wholly after each such step, as synchronous steps do.
 #[derive(Default)]
 struct Generations {
     all: u64,
     owners: HashMap<String, u64>,
     sessions: HashMap<String, u64>,
-    /// The conversations the host's catalog has dropped (Node's `sessionRemoved`): a call that finds its conversation here is
+    /// The conversations the host's catalog has dropped: a call that finds its conversation here is
     /// `unavailable`, ahead of any other revocation.
     removed: HashSet<String>,
 }
@@ -288,7 +303,13 @@ struct Read {
     location: Option<PathBuf>,
     size: u64,
     version: String,
+    /// The type the phone was told (a phone's transfer: the grant's).
+    mime: String,
+    /// The id the relay media lane names this transfer's file by (a phone's transfer; see [`LeaseMedia`]).
+    media_id: Option<String>,
     lease: Option<LeaseTimes>,
+    /// This transfer's terminal event, published when the entry leaves the table by any way, and by the lease scheduler at its deadline.
+    ends: EndOnDrop,
     // Declared after `file`, so the handle is closed before the removal (Windows cannot remove a
     // folder that holds an open file).
     _cleanup: Option<Cleanup>,
@@ -312,7 +333,7 @@ impl Drop for Cleanup {
 impl Cleanup {
     fn remove(&self) {
         if self.0.is_dir() {
-            // Node's `rm(dir, { recursive, force, maxRetries: 5 })`: a handle still closing on
+            // A handle still closing on
             // Windows is retried, each wait `retryDelay` (100 ms) longer than the one before.
             for attempt in 0..=5u64 {
                 if std::fs::remove_dir_all(&self.0).is_ok() || !self.0.exists() {
@@ -337,7 +358,7 @@ struct Upload {
     written: u64,
     /// A staged upload: the name is made unique at commit (name (2).ext) instead of refused.
     unique: bool,
-    /// A chunk is being written (Node's `upload.writing`): a second one is refused, not queued.
+    /// A chunk is being written: a second one is refused, not queued.
     writing: bool,
     /// When the upload was last fed (begun, or a chunk written): the idle sweep's reference.
     fed: Instant,
@@ -505,6 +526,8 @@ pub struct Transfers {
     /// How many conversations carry a removed mark (`Generations::removed`), so a relist with none pays no lock.
     removed_marks: std::sync::atomic::AtomicUsize,
     sweeper: Sweeper,
+    /// Woken when a phone's transfer is leased, so the lease scheduler ([`Self::run_lease_ends`]) looks at the earliest deadline again.
+    lease_changed: tokio::sync::Notify,
     /// Test seam: called with the name of a point in `authorize`, `begin_grant` or a lease read, where a revoke may run meanwhile.
     #[cfg(test)]
     pause: Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>>,
@@ -542,6 +565,7 @@ impl Transfers {
             generations: Mutex::default(),
             removed_marks: std::sync::atomic::AtomicUsize::new(0),
             sweeper: Sweeper::default(),
+            lease_changed: tokio::sync::Notify::new(),
             #[cfg(test)]
             pause: Mutex::default(),
             writes: Mutex::default(),
@@ -627,7 +651,7 @@ impl Transfers {
         self.arm_sweeper();
     }
 
-    /// Node's `stageTemporaryDownload`: bytes the host built (a folder's zip, an attachment) staged for `owner`'s download in a private
+    /// Bytes the host built (a folder's zip, an attachment) staged for `owner`'s download in a private
     /// folder of their own, the record added before the payload is written, then opened as the download. A revocation meanwhile removes
     /// the record and its folder, and the write or open then fails the call as Node's does; any failure drops the record (`dropExport`),
     /// and the record leaves its `staging` state whatever the outcome.
@@ -709,7 +733,7 @@ impl Transfers {
         }
     }
 
-    /// Node's `stopSweeperWhenIdle`: the look at what is held and the stop are one step for an authorize or a begin, which publishes and
+    /// The look at what is held and the stop are one step for an authorize or a begin, which publishes and
     /// then arms under the same lock (`arm_sweeper`), so a grant published meanwhile is either seen here or arms after the stop.
     fn stop_sweeper_when_idle(&self) {
         self.point("idle.enter");
@@ -763,6 +787,37 @@ impl Transfers {
         }
     }
 
+    /// The lease scheduler: one task for the table, not one timer per stream. A phone's transfer ends at the earlier of its two
+    /// deadlines, the fixed thirty minutes and the idle time a read renews; the scheduler publishes that end (the transfer's terminal
+    /// event) at the deadline, so a stream parked under it is released without waiting for the sweeper's tick, which stays the
+    /// table's own cleanup. A read moves the deadline but does not wake the scheduler: its timer fires at the old one, finds the
+    /// current deadline later under the table's lock, and sleeps on. Run it once on the daemon's runtime.
+    pub async fn run_lease_ends(&self, timer: &dyn IdleTimer) {
+        run_deadlines(&self.lease_changed, |ms| timer.sleep_until(self.clock.now() + std::time::Duration::from_millis(ms)), || self.end_due_leases()).await;
+    }
+
+    /// Publishes the end of every phone transfer whose deadline has come (the time sampled after the table's lock is taken) and
+    /// answers the delay to the earliest deadline left among the transfers not yet ended.
+    fn end_due_leases(&self) -> Option<u64> {
+        let reads = self.reads.lock().expect("transfer reads");
+        let now = self.now_ms();
+        let mut next: Option<u64> = None;
+        for read in reads.values() {
+            let Some(times) = read.lease else { continue };
+            if read.ends.is_ended() {
+                continue;
+            }
+            let deadline = times.expires_at.min(times.idle_until);
+            if deadline <= now {
+                read.ends.end();
+            } else {
+                let after = (deadline - now) as u64;
+                next = Some(next.map_or(after, |earliest| earliest.min(after)));
+            }
+        }
+        next
+    }
+
     /// Unpair: everything `owner` holds ends now, and a call of it that is in flight finds it revoked.
     pub fn revoke_owner(&self, owner: &str) {
         let _reporting = Reporting(self);
@@ -772,7 +827,7 @@ impl Transfers {
         self.stop_sweeper_when_idle();
     }
 
-    /// The catalog dropped the conversation (Node's `retainSessions`): every grant and phone transfer on it ends now, in the same step
+    /// The catalog dropped the conversation: every grant and phone transfer on it ends now, in the same step
     /// the catalog change is published, and a call on it that is in flight finds it removed.
     pub fn remove_session(&self, session: &str) {
         let _reporting = Reporting(self);
@@ -832,13 +887,35 @@ impl Transfers {
     /// Opens the download a phone asked for as a grant: the file stays open, so what was authorized is what is read. `mark` is
     /// [`Self::mark`] taken before the file work.
     pub fn authorize(&self, owner: &str, session: &str, mark: u64, opened: DownloadFile) -> WsResult<Authorized> {
+        self.authorize_with_cleanup(owner, session, mark, opened, None)
+    }
+
+    /// Grant a host-rendered file without copying it or publishing a separate connection-owned read.
+    pub(crate) fn authorize_source(&self, owner: &str, session: &str, mark: u64, source: SourceFile) -> WsResult<Authorized> {
+        let cleanup = source.cleanup.map(Cleanup);
+        let file = source.file;
+        let location = crate::ident::handle_path(&file)?;
+        if cleanup.as_ref().is_none_or(|folder| {
+            location.parent().is_none_or(|parent| comparable(parent) != comparable(&folder.0))
+        }) {
+            return Err(download_changed());
+        }
+        prove_opened(&file, &location)?;
+        self.authorize_with_cleanup(owner, session, mark, DownloadFile { file, location, name: source.name, mime_type: source.mime_type }, cleanup)
+    }
+
+    fn authorize_with_cleanup(&self, owner: &str, session: &str, mark: u64, opened: DownloadFile, cleanup: Option<Cleanup>) -> WsResult<Authorized> {
         let _reporting = Reporting(self);
         self.sweep_downloads();
         // A staged download's record was added by [`Self::stage`] before the marks are checked: a revoked authorize leaves it to its time.
         let DownloadFile { file, location, name, mime_type } = opened;
-        let size = file.metadata()?.len();
         self.point("authorize.opened");
-        let version = version_string(&file_version(&file)?);
+        let metadata = file_version(&file)?;
+        let size = metadata.size;
+        if size > DOWNLOAD_MAX_BYTES {
+            return Err(download("file-download:too-large", "Files larger than 256 MB cannot be downloaded."));
+        }
+        let version = version_string(&metadata);
         let name = sanitized_file_name(&name);
         let grant_id = new_id();
         // Checking the marks and publishing the grant are one step for a revoke (Node's `stillAuthorized` and `addGrant`, synchronous).
@@ -863,6 +940,7 @@ impl Transfers {
                     name: name.clone(),
                     mime: mime_type.clone(),
                     expires_at,
+                    cleanup,
                 },
             ));
         }
@@ -876,7 +954,7 @@ impl Transfers {
         self.generation(owner, session)
     }
 
-    /// Consumes the grant (once) into one transfer (Node's `begin`).
+    /// Consumes the grant (once) into one transfer.
     pub fn begin_grant(&self, owner: &str, grant_id: &str) -> WsResult<Leased> {
         let _reporting = Reporting(self);
         self.sweep_downloads();
@@ -903,15 +981,18 @@ impl Transfers {
         let at = self.now_ms();
         let times = LeaseTimes { expires_at: at + LEASE_MAX_MS, idle_until: at + LEASE_IDLE_MS };
         let transfer_id = new_id();
-        let Grant { file, location, session, size, version, name, mime, .. } = grant;
+        // The id the media lane serves this transfer's file by: Node's lease id, which is what `resolveMedia` found the lease with.
+        let media_id = new_id();
+        let Grant { file, location, session, size, version, name, mime, cleanup, .. } = grant;
         reads.insert(
             transfer_id.clone(),
-            Read { owner: owner.to_owned(), session, file, location: Some(location), size, version: version.clone(), lease: Some(times), _cleanup: None, opened: Instant::now() },
+            Read { owner: owner.to_owned(), session, file, location: Some(location), size, version: version.clone(), mime: mime.clone(), media_id: Some(media_id.clone()), lease: Some(times), ends: EndOnDrop::new(), _cleanup: cleanup, opened: Instant::now() },
         );
         drop(reads);
         drop(gate);
         self.point("begin.published");
         self.arm_sweeper();
+        self.lease_changed.notify_one();
         Ok(Leased {
             transfer_id,
             name,
@@ -920,7 +1001,7 @@ impl Transfers {
             version,
             expires_at: times.expires_at,
             range_max_bytes: RANGE_MAX_BYTES,
-            media: LeaseMedia { asset_id: new_id(), variant: "download", expires_at: times.expires_at },
+            media: LeaseMedia { asset_id: media_id, variant: "download", expires_at: times.expires_at },
         })
     }
 
@@ -1003,7 +1084,7 @@ impl Transfers {
         let name = sanitized_file_name(&name);
         reads.insert(
             id.clone(),
-            Read { owner: owner.to_owned(), session: String::new(), file, location: None, size, version: version.clone(), lease: None, _cleanup: cleanup.map(Cleanup), opened: Instant::now() },
+            Read { owner: owner.to_owned(), session: String::new(), file, location: None, size, version: version.clone(), mime: mime.to_owned(), media_id: None, lease: None, ends: EndOnDrop::new(), _cleanup: cleanup.map(Cleanup), opened: Instant::now() },
         );
         Ok(Opened { transfer_id: id, size, mime_type: mime.to_owned(), name, version, range_max_bytes: RANGE_MAX_BYTES })
     }
@@ -1077,10 +1158,56 @@ impl Transfers {
     /// when its file changed, and its idle time starts over with each read.
     pub fn read_range(&self, owners: &[&str], id: &str, offset: u64, length: u64, expected: Option<&str>) -> WsResult<Range> {
         let _reporting = Reporting(self);
+        let (data, length, version, size) = self.read_window(owners, id, offset, length, expected)?;
+        let range = Range { transfer_id: id.to_owned(), offset, length, eof: offset + length >= size, version, data: STANDARD.encode(&data) };
+        self.point("read.checked");
+        Ok(range)
+    }
+
+    /// What a phone's download lease offers the media lane under `media_id` for `device` (the relay credential, else
+    /// `connection:<id>`, as the lane names its requester): the transfer, its size, type and version. Nothing for an id that is no
+    /// lease of this device, or one that ended.
+    pub fn media_lease(&self, device: &str, media_id: &str) -> Option<MediaLease> {
+        self.sweep_downloads();
+        let owner = if device.starts_with("connection:") { device.to_owned() } else { format!("device:{device}") };
+        let reads = self.reads.lock().expect("transfer reads");
+        reads
+            .iter()
+            .find(|(_, r)| r.owner == owner && r.lease.is_some() && r.media_id.as_deref() == Some(media_id))
+            .map(|(id, r)| MediaLease { owner: owner.clone(), transfer_id: id.clone(), size: r.size, mime: r.mime.clone(), version: r.version.clone(), ended: r.ends.token() })
+    }
+
+    /// Runs `write` in one step with the test that `lease` is still held: the transfer is in the table for the device it was leased
+    /// to and inside its idle time and its thirty minutes. Nothing is read and the idle time is not renewed (a delivery is not
+    /// activity of the phone); an unpair, a finish, the sweep and the end of the lease take the same table lock, so each is ordered
+    /// before the test (refused) or after the write (allowed). `write` must not wait.
+    pub fn media_commit(&self, lease: &MediaLease, write: &mut dyn FnMut()) -> bool {
+        let reads = self.reads.lock().expect("transfer reads");
+        // Sampled after the lock is taken: a delivery that waited for it across a deadline is judged at the time it holds it.
+        let now = self.now_ms();
+        let held = reads
+            .get(&lease.transfer_id)
+            .is_some_and(|read| read.owner == lease.owner && !read.ends.is_ended() && read.lease.is_some_and(|times| times.expires_at > now && times.idle_until > now));
+        if held {
+            write();
+        }
+        held
+    }
+
+    /// Up to `length` bytes of a phone's download lease from `offset`, for the media lane: the same read, checks and idle renewal as
+    /// [`Self::read_range`], as bytes.
+    pub fn read_media(&self, lease: &MediaLease, offset: u64, length: u64) -> WsResult<Vec<u8>> {
+        let _reporting = Reporting(self);
+        self.read_window(&[lease.owner.as_str()], &lease.transfer_id, offset, length, Some(&lease.version)).map(|(data, ..)| data)
+    }
+
+    /// The bytes, their count, the version and the size of one window of a transfer.
+    fn read_window(&self, owners: &[&str], id: &str, offset: u64, length: u64, expected: Option<&str>) -> WsResult<(Vec<u8>, u64, String, u64)> {
         self.sweep_downloads();
         let (file, location, size, version) = {
             let reads = self.reads.lock().expect("transfer reads");
-            let read = reads.get(id).filter(|r| owners.contains(&r.owner.as_str())).ok_or_else(WsError::expired)?;
+            // An ended lease (its deadline published by the scheduler before the sweep removed it) is terminal: it serves nothing.
+            let read = reads.get(id).filter(|r| owners.contains(&r.owner.as_str()) && !r.ends.is_ended()).ok_or_else(WsError::expired)?;
             (read.file.try_clone()?, read.location.clone(), read.size, read.version.clone())
         };
         if expected.is_some_and(|expected| expected != version) {
@@ -1117,18 +1244,17 @@ impl Transfers {
             }
             filled += n;
         }
-        let data = STANDARD.encode(&data);
         // Revoked while reading: nothing more leaves the transfer. This look is the last step before the answer is built.
         {
             let mut reads = self.reads.lock().expect("transfer reads");
-            let read = reads.get_mut(id).filter(|r| owners.contains(&r.owner.as_str())).ok_or_else(WsError::expired)?;
+            // One state, read under this lock, decides both the renewal and the permission: a read under way when the lease's end was
+            // published (its deadline came while it read) renews nothing and delivers nothing; the end is terminal.
+            let read = reads.get_mut(id).filter(|r| owners.contains(&r.owner.as_str()) && !r.ends.is_ended()).ok_or_else(WsError::expired)?;
             if let Some(lease) = read.lease.as_mut() {
                 lease.idle_until = self.now_ms() + LEASE_IDLE_MS;
             }
         }
-        let range = Range { transfer_id: id.to_owned(), offset, length, eof: offset + length >= size, version, data };
-        self.point("read.checked");
-        Ok(range)
+        Ok((data, length, version, size))
     }
 
     /// Ends a transfer, or an unredeemed grant, of `owner`; whether anything was released.
@@ -1189,7 +1315,7 @@ impl Transfers {
 
     /// `serverUploadChunk(id, offset, data)`, check for check as Node orders them: the upload
     /// must exist, the offset must be an integer within the declared size, the data canonical
-    /// base64 of 1..=[`UPLOAD_CHUNK_BYTES`] bytes. A chunk the upload already holds as its last
+    /// base64 of at least one byte. A chunk the upload already holds as its last
     /// one is acknowledged, not rewritten; one that does not start at the received bytes is out
     /// of order; one that arrives while another is being written is refused; one that would pass
     /// the declared size discards the upload. Answers the bytes received.
@@ -1365,7 +1491,7 @@ pub(crate) fn required_session_id(value: Option<&serde_json::Value>) -> WsResult
     Ok(id.to_owned())
 }
 
-/// Node's `requiredFileDownloadId`: a lower-case hexadecimal UUID, as written (not trimmed).
+/// A lower-case hexadecimal UUID, as written (not trimmed).
 pub(crate) fn required_download_id(value: Option<&serde_json::Value>, name: &str) -> WsResult<String> {
     let valid = |id: &str| {
         let groups: Vec<&str> = id.split('-').collect();
@@ -1380,12 +1506,13 @@ pub(crate) enum DownloadRequest {
     Project(String),
     Session(String),
     Media(String),
-    /// Node's `link`: the `href` of a link the conversation shows (its `itemId` is checked and not used, as Node's).
+    /// The `href` of a link the conversation shows (its `itemId` is checked and not used, as Node's).
     Link(String),
-    /// Node's `attachment`: an attachment id the conversation's transcript names.
+    /// An attachment id the conversation's transcript names.
     Attachment(String),
-    /// Node's `folder`: a folder the conversation names, zipped.
+    /// A folder the conversation names, zipped.
     Folder(String),
+    Export(serde_json::Map<String, serde_json::Value>),
 }
 
 impl DownloadRequest {
@@ -1400,6 +1527,8 @@ impl DownloadRequest {
             }
             Some("sessionFile") => Ok(Self::Session(required_text(source.get("path"), "path", 4_096)?)),
             Some("folder") => Ok(Self::Folder(required_text(source.get("path"), "path", 4_096)?)),
+            Some("export") => source.get("input").and_then(serde_json::Value::as_object).cloned().map(Self::Export)
+                .ok_or_else(|| WsError::invalid("download source is invalid.")),
             Some("mediaAsset") => {
                 let asset = required_text(source.get("assetId"), "asset id", 128)?;
                 // `MEDIA_ASSET_ID`: `[A-Za-z0-9_-]{1,128}`.
@@ -1524,7 +1653,7 @@ fn verify_location(file: &File, location: &Path) -> WsResult<()> {
     }
 }
 
-/// Node's `verifyUnchanged`: the open file is still the version authorized (identity, size, modification time) and still lives where it
+/// The open file is still the version authorized (identity, size, modification time) and still lives where it
 /// was authorized.
 fn verify_unchanged(file: &File, version: &str, location: &Path) -> WsResult<()> {
     if version_string(&file_version(file)?) != version {
@@ -1547,9 +1676,9 @@ fn open_read_only(path: &Path) -> std::io::Result<File> {
     }
 }
 
-/// Node's `openRegularFile`: a regular file by its real path, never a network path, a folder or a device, and proved from the open handle
+/// A regular file by its real path, never a network path, a folder or a device, and proved from the open handle
 /// to be the file at that path (an ancestor swapped for a link between resolving and opening opens another file and is `changed`).
-/// `between` is called after the path is resolved and before it is opened (Node's `afterResolve`).
+/// `between` is called after the path is resolved and before it is opened.
 fn open_regular(path: &Path, between: &dyn Fn(&str)) -> WsResult<(PathBuf, File)> {
     let missing = |error: std::io::Error| match error.kind() {
         std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory => download("file-download:not-found", "The file no longer exists."),
@@ -1704,7 +1833,7 @@ fn grouped(n: u64) -> String {
     out
 }
 
-/// The file a staged download's bytes are written to, inside its own folder (Node's `join(folder, 'payload')`).
+/// The file a staged download's bytes are written to, inside its own folder.
 pub const STAGED_PAYLOAD: &str = "payload";
 
 /// A private folder for one staged download, as Node's `stageTemporaryDownload` makes it (`mkdtemp(join(tmpdir(), 'mixdog-download-'))`,
@@ -1800,7 +1929,9 @@ fn upload_gone() -> WsError {
 fn decode_chunk(encoded: &str) -> WsResult<Vec<u8>> {
     let invalid = || WsError::invalid("chunk data is invalid.");
     let bytes = STANDARD.decode(encoded).map_err(|_| invalid())?;
-    if bytes.is_empty() || bytes.len() as u64 > UPLOAD_CHUNK_BYTES || STANDARD.encode(&bytes) != encoded {
+    // A chunk's size is bounded by the frame it arrived in (`maxInboundFrameBytes`, refused by the transport); the sender sizes
+    // its chunks by the `maxBlobPutChunkBytes` this core advertises at `initialize`.
+    if bytes.is_empty() || STANDARD.encode(&bytes) != encoded {
         return Err(invalid());
     }
     Ok(bytes)
@@ -1922,45 +2053,6 @@ mod tests {
         assert!(base.path().exists() && opened.size == 3);
     }
 
-    /// Node's `serverUploadChunk` outcomes, recorded by `fixtures/desktop/chunks/record.mjs`.
-    #[test]
-    fn chunk_outcomes_match_the_recorded_node_cases() {
-        let recorded: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../fixtures/desktop/chunks/corpus.json"
-        )))
-        .unwrap();
-        let case = |label: &str| {
-            recorded["cases"].as_array().unwrap().iter().find(|c| c["label"] == label).unwrap_or_else(|| panic!("{label}")).clone()
-        };
-        // The answer must equal the recorded one: bytes received, or the recorded message.
-        let same = |recorded: &serde_json::Value, got: WsResult<u64>| match recorded.get("ok") {
-            Some(ok) => assert_eq!(got.unwrap(), ok["received"].as_u64().unwrap(), "{recorded}"),
-            None => assert_eq!(got.unwrap_err().message, recorded["error"]["message"].as_str().unwrap(), "{recorded}"),
-        };
-        let (_d, root) = project();
-        let t = Transfers::default();
-        let id = t.begin_write("o", &root, "up.txt", 4).unwrap();
-        let small = t.begin_write("o", &root, "small.txt", 2).unwrap();
-        same(&case("first chunk"), t.write_chunk("o", &id, Some(0), "aGk="));
-        same(&case("retry of the last chunk"), t.write_chunk("o", &id, Some(0), "aGk="));
-        same(&case("chunk ahead of the received bytes"), t.write_chunk("o", &id, Some(3), "aGk="));
-        same(&case("data that is not canonical base64"), t.write_chunk("o", &id, Some(2), "!!"));
-        same(&case("empty data"), t.write_chunk("o", &id, Some(2), ""));
-        same(&case("offset past the declared size"), t.write_chunk("o", &id, Some(5), "aGk="));
-        same(&case("offset that is not an integer"), t.write_chunk("o", &id, None, "aGk="));
-        same(&case("unknown upload"), t.write_chunk("o", "nope", Some(0), "aGk="));
-        // Two chunks at one offset at once: the second meets the first mid-write.
-        let both = case("two chunks at the same offset at once");
-        t.writes.lock().unwrap().get_mut(&id).unwrap().writing = true;
-        same(&both["results"][1], t.write_chunk("o", &id, Some(2), "aGk="));
-        t.writes.lock().unwrap().get_mut(&id).unwrap().writing = false;
-        same(&both["results"][0], t.write_chunk("o", &id, Some(2), "aGk="));
-        same(&case("retry after the upload completed"), t.write_chunk("o", &id, Some(2), "aGk="));
-        same(&case("chunk larger than declared"), t.write_chunk("o", &small, Some(0), "YWJj"));
-        same(&case("the upload is gone after that"), t.write_chunk("o", &small, Some(0), "YWI="));
-    }
-
     #[test]
     fn an_upload_nobody_feeds_is_swept_after_the_idle_time() {
         use std::sync::atomic::{AtomicU64, Ordering};
@@ -2003,15 +2095,28 @@ mod tests {
         /// The epoch time at elapsed 0.
         start_ms: i64,
         elapsed_ms: tokio::sync::watch::Sender<u64>,
+        /// The waits begun on this timer, so a test knows a scheduler is asleep before it moves the clock.
+        sleeps: std::sync::atomic::AtomicUsize,
     }
 
     impl Manual {
+        /// Returns once `n` waits have begun in all.
+        pub(super) async fn asleep(&self, n: usize) {
+            for _ in 0..500 {
+                if self.sleeps.load(std::sync::atomic::Ordering::SeqCst) >= n {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+            panic!("the scheduler did not begin wait {n}");
+        }
+
         pub(super) fn new() -> Arc<Self> {
             Self::starting_at(1_000_000)
         }
         /// A clock whose epoch time is `start_ms` plus the time it was moved by.
         pub(super) fn starting_at(start_ms: i64) -> Arc<Self> {
-            Arc::new(Self { base: Instant::now(), start_ms, elapsed_ms: tokio::sync::watch::Sender::new(0) })
+            Arc::new(Self { base: Instant::now(), start_ms, elapsed_ms: tokio::sync::watch::Sender::new(0), sleeps: std::sync::atomic::AtomicUsize::new(0) })
         }
         pub(super) fn advance(&self, ms: u64) {
             self.elapsed_ms.send_modify(|elapsed| *elapsed += ms);
@@ -2020,6 +2125,7 @@ mod tests {
             *self.elapsed_ms.borrow()
         }
         /// The elapsed milliseconds at which `at` falls.
+        #[cfg(node_twin)]
         pub(super) fn ms_of(&self, at: Instant) -> u64 {
             u64::try_from(at.saturating_duration_since(self.base).as_millis()).unwrap_or(u64::MAX)
         }
@@ -2038,6 +2144,7 @@ mod tests {
         fn sleep_until(&self, deadline: Instant) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
             let mut elapsed = self.elapsed_ms.subscribe();
             let base = self.base;
+            self.sleeps.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Box::pin(async move {
                 loop {
                     if base + std::time::Duration::from_millis(*elapsed.borrow_and_update()) >= deadline {
@@ -2097,145 +2204,256 @@ mod tests {
         t.read_range(&[owner], &leased.transfer_id, 0, 4, Some(&leased.version))
     }
 
-    /// What the recording of Node's service holds at the `n`th step with `op` of the scenario `name`.
-    fn recorded(name: &str, op: &str, n: usize) -> serde_json::Value {
-        let recording: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/file-downloads/file-downloads.json")).unwrap();
-        let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name}"));
-        scenario["steps"].as_array().unwrap().iter().filter(|step| step["op"] == op).nth(n).unwrap_or_else(|| panic!("{name} {op} {n}")).clone()
-    }
-
-    /// The frame Node's phone got for the `n`th call of the scenario, and for the call it held (the `answer` step).
-    fn frame_of_call(name: &str, n: usize) -> serde_json::Value {
-        recorded(name, "call", n)["frame"].clone()
-    }
-
-    fn frame_of_held(name: &str) -> serde_json::Value {
-        recorded(name, "answer", 0)["frame"].clone()
-    }
-
-    /// How many files Node's service held open at the `n`th count of the scenario.
-    fn open_in(name: &str, n: usize) -> usize {
-        recorded(name, "handles", n)["open"].as_u64().unwrap() as usize
-    }
-
     /// The refusal is the one Node's phone got: its code and its sentence.
     fn assert_refused_as(refused: WsError, frame: &serde_json::Value) {
         assert_eq!(frame["ok"], false);
         assert_eq!((refused.reason.code(), refused.message.as_str()), (frame["errorCode"].as_str().unwrap(), frame["error"].as_str().unwrap()));
     }
 
-    /// The first window of an unpair against a redeem: the grant is out of the table and the revoke finds nothing to end. The
-    /// marks are read in the one step that consumes the grant, so the revoke is seen when the transfer would be published. The answer
-    /// and the files held are Node's for a begin revoked while its file is checked (`unpair during begin`).
+    /// The media id `begin` tells the phone names the lease on the media lane: the device it was leased to reads it
+    /// by window, another device and an id that is no lease find nothing, and a lease that ended (finished, or its device unpaired) is gone.
     #[test]
-    fn a_revoke_after_the_grant_is_consumed_leaves_no_transfer() {
+    fn the_media_id_of_a_lease_is_read_by_its_device_alone_until_it_ends() {
         let dir = tempfile::tempdir().unwrap();
         let t = Arc::new(Transfers::default());
-        let grant = grant_of(&t, dir.path(), "dev", "s1");
-        at(&t, "begin.taken", |t| t.revoke_owner("dev"));
-        assert_refused_as(t.begin_grant("dev", &grant.grant_id).unwrap_err(), &frame_of_held("unpair during begin"));
-        assert_eq!(t.held_downloads(), open_in("unpair during begin", 0));
+        let leased = t.begin_grant("device:phone-1", &grant_of(&t, dir.path(), "device:phone-1", "s1").grant_id).unwrap();
+        let media = leased.media.asset_id.clone();
+        assert_ne!(media, leased.transfer_id, "the lane never names the transfer itself");
+        let lease = t.media_lease("phone-1", &media).expect("the device's lease");
+        assert_eq!((lease.size, lease.version.as_str()), (16, leased.version.as_str()));
+        assert_eq!(t.read_media(&lease, 4, 4).unwrap(), b"4567");
+        assert!(t.media_lease("phone-2", &media).is_none(), "another device");
+        assert!(t.media_lease("phone-1", "not-a-lease").is_none());
+        assert!(t.media_lease("phone-1", &leased.transfer_id).is_none(), "the transfer id is no media id");
+        // An unpair ends the lease for a read in hand and for a lookup.
+        t.revoke_owner("device:phone-1");
+        assert!(t.read_media(&lease, 0, 4).is_err());
+        assert!(t.media_lease("phone-1", &media).is_none());
+        // A finished transfer ends it too.
+        let again = t.begin_grant("device:phone-2", &grant_of(&t, dir.path(), "device:phone-2", "s1").grant_id).unwrap();
+        assert!(t.media_lease("phone-2", &again.media.asset_id).is_some());
+        t.finish_read("device:phone-2", &again.transfer_id).unwrap();
+        assert!(t.media_lease("phone-2", &again.media.asset_id).is_none());
     }
 
-    /// The second window: the file check is done and the transfer is about to be published.
     #[test]
-    fn a_revoke_after_the_file_check_leaves_no_transfer() {
+    fn rendered_export_stream_ends_with_its_conversation_and_releases_the_render() {
         let dir = tempfile::tempdir().unwrap();
-        let t = Arc::new(Transfers::default());
-        let grant = grant_of(&t, dir.path(), "dev", "s1");
-        at(&t, "begin.verify", |t| t.revoke_owner("dev"));
-        assert_refused_as(t.begin_grant("dev", &grant.grant_id).unwrap_err(), &frame_of_held("unpair during begin"));
-        assert_eq!(t.held_downloads(), open_in("unpair during begin", 0));
+        let folder = canonical(dir.path()).unwrap().join("mixdog-visualize-export-fixture");
+        std::fs::create_dir(&folder).unwrap();
+        let path = folder.join("chart.pdf");
+        std::fs::write(&path, b"exported chart").unwrap();
+        let transfers = Transfers::default();
+        let owner = "device:phone-1";
+        let session = "conversation-1";
+        let grant = transfers.authorize_source(owner, session, transfers.mark(owner, session), SourceFile {
+            file: File::open(&path).unwrap(),
+            name: "chart.pdf".into(),
+            mime_type: "application/pdf".into(),
+            cleanup: Some(folder.clone()),
+        }).unwrap();
+        let opened = transfers.begin_grant(owner, &grant.grant_id).unwrap();
+        let lease = transfers.media_lease("phone-1", &opened.media.asset_id).unwrap();
+        assert_eq!(transfers.read_media(&lease, 0, 8).unwrap(), b"exported");
+
+        transfers.remove_session(session);
+        assert!(lease.ended.is_cancelled());
+        assert!(!transfers.media_commit(&lease, &mut || panic!("an ended stream cannot deliver")));
+        assert!(!folder.exists());
     }
 
-    /// A revoke the moment the transfer is published reaches it: publishing and the check are one step for a revoke. Node's next range
-    /// after an unpair is `unpair during a read`'s last call.
+    /// The permission to deliver is the table's own state, asked at the commit of each delivery: it runs the delivery while the transfer
+    /// is held by its device inside its idle time and its thirty minutes, renews nothing (a delivery is not the phone's activity), and
+    /// refuses, running nothing, after an unpair or a finish; another device's lease is not affected.
     #[test]
-    fn a_revoke_right_after_the_transfer_is_published_ends_it() {
+    fn a_media_commit_asks_the_table_and_renews_nothing() {
         let dir = tempfile::tempdir().unwrap();
-        let t = Arc::new(Transfers::default());
-        let grant = grant_of(&t, dir.path(), "dev", "s1");
-        at(&t, "begin.published", |t| t.revoke_owner("dev"));
-        let leased = t.begin_grant("dev", &grant.grant_id).unwrap();
-        assert_refused_as(range_of(&t, "dev", &leased).unwrap_err(), &frame_of_call("unpair during a read", 2));
-        assert_eq!(t.held_downloads(), open_in("unpair during a read", 0));
+        let manual = Manual::new();
+        let t = Transfers::with_clock(manual.clone(), UPLOAD_IDLE);
+        let mine = t.begin_grant("device:mine", &grant_of(&t, dir.path(), "device:mine", "s1").grant_id).unwrap();
+        let theirs = t.begin_grant("device:theirs", &grant_of(&t, dir.path(), "device:theirs", "s1").grant_id).unwrap();
+        let (mine, theirs) = (t.media_lease("mine", &mine.media.asset_id).unwrap(), t.media_lease("theirs", &theirs.media.asset_id).unwrap());
+        let mut delivered = 0;
+        assert!(t.media_commit(&mine, &mut || delivered += 1));
+        manual.advance(LEASE_IDLE_MS as u64 - 1);
+        assert!(t.media_commit(&mine, &mut || delivered += 1), "still inside the idle time");
+        manual.advance(2);
+        assert!(!t.media_commit(&mine, &mut || delivered += 1), "the commit just before did not renew the idle time");
+        assert_eq!(delivered, 2, "a refused commit runs nothing");
+        // An unpair of one device refuses it and leaves the other's; a finished transfer is refused too.
+        let (other, finished) = (t.begin_grant("device:theirs", &grant_of(&t, dir.path(), "device:theirs", "s1").grant_id).unwrap(), delivered);
+        let other = t.media_lease("theirs", &other.media.asset_id).unwrap();
+        assert!(t.media_commit(&other, &mut || delivered += 1));
+        t.revoke_owner("device:theirs");
+        assert!(!t.media_commit(&other, &mut || delivered += 1) && !t.media_commit(&theirs, &mut || delivered += 1));
+        assert_eq!(delivered, finished + 1);
     }
 
-    /// Whatever the interleaving, a device's reads fail from its unpair on: a read in flight, an authorize in flight, and the other
-    /// device untouched. Each answer and count is Node's for that window (`unpair during a read`, `unpair during authorize`).
+    /// A read already under way when the lease's deadline comes (the end is published while it reads) renews nothing and delivers
+    /// nothing, and the commit check refuses the ended entry whatever its timestamps say: the end is terminal, one state under the
+    /// table's lock decides both. Nothing is left for the scheduler to skip.
     #[test]
-    fn after_an_unpair_no_read_of_the_device_succeeds_whatever_was_in_flight() {
+    fn a_read_in_flight_at_the_deadline_renews_nothing_and_the_ended_lease_stays_ended() {
         let dir = tempfile::tempdir().unwrap();
-        let t = Arc::new(Transfers::default());
-        let grant = grant_of(&t, dir.path(), "dev", "s1");
-        let leased = t.begin_grant("dev", &grant.grant_id).unwrap();
-        at(&t, "read.read", |t| t.revoke_owner("dev"));
-        assert_refused_as(range_of(&t, "dev", &leased).unwrap_err(), &frame_of_held("unpair during a read"));
-        assert_eq!(t.held_downloads(), open_in("unpair during a read", 0));
-        // An authorize that was opening its file when the device was revoked leaves no grant.
-        for point in ["authorize.resolved", "authorize.opened"] {
-            at(&t, point, |t| t.revoke_owner("dev"));
-            let path = dir.path().join("a.bin");
-            let mark = t.mark("dev", "s1");
-            let refused = match open_session_download(&path.to_string_lossy(), "", None, None, &|reached| t.point(reached)) {
-                Ok(opened) => t.authorize("dev", "s1", mark, opened).unwrap_err(),
-                Err(refused) => refused,
-            };
-            // The revoke came after the open for `authorize.opened`, and before the grant is published for both: Node's answer.
-            assert_refused_as(refused, &frame_of_held("unpair during authorize"));
-            t.on_point(None);
-            assert_eq!(t.held_downloads(), open_in("unpair during authorize", 0), "{point}");
-        }
-        // Another device is untouched.
-        let other = grant_of(&t, dir.path(), "other", "s1");
-        let kept = t.begin_grant("other", &other.grant_id).unwrap();
-        t.revoke_owner("dev");
-        assert!(range_of(&t, "other", &kept).is_ok());
-    }
-
-    /// A deletion ends what the conversation held and nothing else, in every window, and the answer is Node's for the window: a begin or an
-    /// authorize that the deletion lands in the middle of is `unavailable` (`session deleted during begin` / `during authorize`), a call
-    /// that finds the grant or the transfer already gone is `expired` (`session deleted before begin`, `between ranges`). A conversation
-    /// that is gone stays gone, so each window has a conversation of its own.
-    #[test]
-    fn a_deleted_conversation_ends_its_grants_and_transfers_in_every_window() {
-        let dir = tempfile::tempdir().unwrap();
-        let t = Arc::new(Transfers::default());
-        let grant = grant_of(&t, dir.path(), "dev", "s1");
-        at(&t, "begin.taken", |t| t.remove_session("s1"));
-        assert_refused_as(t.begin_grant("dev", &grant.grant_id).unwrap_err(), &frame_of_held("session deleted during begin"));
-        let grant = grant_of(&t, dir.path(), "dev", "s3");
-        at(&t, "begin.verify", |t| t.remove_session("s3"));
-        assert_refused_as(t.begin_grant("dev", &grant.grant_id).unwrap_err(), &frame_of_held("session deleted during begin"));
+        let manual = Manual::new();
+        let t = Arc::new(Transfers::with_clock(manual.clone(), UPLOAD_IDLE));
+        let leased = t.begin_grant("device:phone", &grant_of(&t, dir.path(), "device:phone", "s1").grant_id).unwrap();
+        let lease = t.media_lease("phone", &leased.media.asset_id).unwrap();
+        assert!(t.media_commit(&lease, &mut || {}));
+        // The deadline comes, and the scheduler publishes the end, while the read holds its file open.
+        let clock = manual.clone();
+        at(&t, "read.read", move |table| {
+            clock.advance(LEASE_IDLE_MS as u64 + 1);
+            assert_eq!(table.end_due_leases(), None, "the end was published, nothing else is scheduled");
+        });
+        assert!(t.read_media(&lease, 0, 4).is_err(), "the read finishing delivers nothing of an ended lease");
         t.on_point(None);
-        assert_eq!(t.held_downloads(), open_in("session deleted during begin", 0));
-        let unbegun = grant_of(&t, dir.path(), "dev", "s4");
-        let kept = grant_of(&t, dir.path(), "dev", "s2");
-        let live = t.begin_grant("dev", &kept.grant_id).unwrap();
-        assert_eq!(t.held_downloads(), open_in("session deleted before begin", 0));
-        t.remove_session("s4");
-        assert_eq!(t.held_downloads(), open_in("session deleted before begin", 1));
-        assert_refused_as(t.begin_grant("dev", &unbegun.grant_id).unwrap_err(), &frame_of_call("session deleted before begin", 2));
-        assert!(range_of(&t, "dev", &live).is_ok(), "the other conversation's transfer lives");
-        at(&t, "authorize.opened", |t| t.remove_session("s2"));
-        let opened = open_session_download(&dir.path().join("a.bin").to_string_lossy(), "", None, None, &|_| {}).unwrap();
-        let mark = t.mark("dev", "s2");
-        assert_refused_as(t.authorize("dev", "s2", mark, opened).unwrap_err(), &frame_of_held("session deleted during authorize"));
-        t.on_point(None);
-        assert_refused_as(range_of(&t, "dev", &live).unwrap_err(), &frame_of_call("session deleted between ranges", 3));
-        assert_eq!(t.held_downloads(), open_in("session deleted between ranges", 0));
+        assert!(lease.ended.is_cancelled());
+        assert!(!t.media_commit(&lease, &mut || {}), "the commit refuses it: the read renewed nothing");
+        assert!(t.read_media(&lease, 0, 4).is_err(), "and a new read finds it ended");
     }
-    /// A folder `link` that is another folder `target` (a junction on Windows, a symlink elsewhere): an ancestor swapped for a link.
-    pub(super) fn link_folder(target: &Path, link: &Path) {
-        #[cfg(windows)]
-        {
-            // `mklink` refuses a path that mixes separators; a recorded step names its folders with `/`.
-            let backslashed = |path: &Path| path.to_string_lossy().replace('/', "\\");
-            let made = std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(backslashed(link)).arg(backslashed(target)).output().unwrap();
-            assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stdout));
+
+    /// A delivery that waits for the table's lock across the lease's deadline is judged at the time it holds the lock: the time is
+    /// sampled after the lock is taken, so nothing is written on the earlier timestamp.
+    #[test]
+    fn a_media_commit_blocked_on_the_table_lock_across_expiry_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let manual = Manual::new();
+        let t = Arc::new(Transfers::with_clock(manual.clone(), UPLOAD_IDLE));
+        let leased = t.begin_grant("device:phone", &grant_of(&t, dir.path(), "device:phone", "s1").grant_id).unwrap();
+        let lease = t.media_lease("phone", &leased.media.asset_id).unwrap();
+        let held = t.reads.lock().unwrap();
+        let writing = std::thread::spawn({
+            let (t, lease) = (t.clone(), lease.clone());
+            move || {
+                let mut wrote = false;
+                let allowed = t.media_commit(&lease, &mut || wrote = true);
+                (allowed, wrote)
+            }
+        });
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        manual.advance(LEASE_IDLE_MS as u64 + 1);
+        drop(held);
+        assert_eq!(writing.join().unwrap(), (false, false), "judged at the time it held the lock, not the time it began to wait");
+    }
+
+    /// The scheduler publishes a lease's end at its deadline with no stream asking. A read renews the idle deadline, and the timer set
+    /// for the old one fires without ending it and sleeps on; the thirty minutes a transfer lives however active still end it; a
+    /// delivery's check renews nothing.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_scheduler_ends_a_lease_at_its_deadline_a_renewal_survives_a_stale_timer_and_the_maximum_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        let manual = Manual::new();
+        let t = Arc::new(Transfers::with_clock(manual.clone(), UPLOAD_IDLE));
+        let scheduler = tokio::spawn({
+            let (t, timer) = (t.clone(), manual.clone());
+            async move { t.run_lease_ends(&*timer).await }
+        });
+        let ended = |lease: &MediaLease| lease.ended.clone();
+        let within = |token: tokio_util::sync::CancellationToken| async move { tokio::time::timeout(std::time::Duration::from_secs(5), token.cancelled()).await.is_ok() };
+        let still = |token: tokio_util::sync::CancellationToken| async move { tokio::time::timeout(std::time::Duration::from_millis(100), token.cancelled()).await.is_err() };
+        let idle = LEASE_IDLE_MS as u64;
+        // An untouched lease ends at its idle deadline, with no call of any stream.
+        let untouched = t.begin_grant("device:phone", &grant_of(&t, dir.path(), "device:phone", "s1").grant_id).unwrap();
+        let untouched = t.media_lease("phone", &untouched.media.asset_id).unwrap();
+        manual.asleep(1).await;
+        manual.advance(idle - 1);
+        assert!(still(ended(&untouched)).await);
+        manual.advance(1);
+        assert!(within(ended(&untouched)).await, "ended at its idle deadline");
+        // A read just before the deadline renews it; the stale timer fires at the old deadline and finds it moved.
+        let sleeps = || manual.sleeps.load(std::sync::atomic::Ordering::SeqCst);
+        let began = sleeps();
+        let renewed = t.begin_grant("device:phone", &grant_of(&t, dir.path(), "device:phone", "s1").grant_id).unwrap();
+        let renewed = t.media_lease("phone", &renewed.media.asset_id).unwrap();
+        manual.asleep(began + 1).await;
+        manual.advance(idle - 1);
+        assert_eq!(t.read_media(&renewed, 0, 4).unwrap(), b"0123");
+        let before = sleeps();
+        manual.advance(1);
+        manual.asleep(before + 1).await;
+        assert!(still(ended(&renewed)).await, "the stale timer found the deadline moved and ended nothing");
+        // A delivery's check renews nothing: the lease still ends at the deadline the read set (2 * idle - 1 after it began).
+        assert!(t.media_commit(&renewed, &mut || {}));
+        manual.advance(idle - 2);
+        assert!(still(ended(&renewed)).await);
+        manual.advance(1);
+        assert!(within(ended(&renewed)).await, "ended at the deadline the read set");
+        // However active, the thirty minutes end it: a read every minute and a half keeps the idle time away.
+        let began = sleeps();
+        let busy = t.begin_grant("device:phone", &grant_of(&t, dir.path(), "device:phone", "s1").grant_id).unwrap();
+        let busy = t.media_lease("phone", &busy.media.asset_id).unwrap();
+        manual.asleep(began + 1).await;
+        let step = idle - 30_000;
+        let mut left = LEASE_MAX_MS as u64;
+        while left > step {
+            manual.advance(step);
+            left -= step;
+            assert_eq!(t.read_media(&busy, 0, 4).unwrap(), b"0123");
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            assert!(!busy.ended.is_cancelled(), "alive with {left} ms to go");
         }
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(target, link).unwrap();
+        manual.advance(left);
+        assert!(within(ended(&busy)).await, "the maximum lifetime ended it though it was never idle");
+        scheduler.abort();
+    }
+
+    /// Every way a transfer leaves the table publishes its lease's end at once, and a lease that ends leaves the others working.
+    #[test]
+    fn every_way_out_of_the_table_ends_the_lease_event_and_others_keep_working() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Transfers::with_clock(Manual::new(), UPLOAD_IDLE);
+        let begin = |owner: &str, session: &str| {
+            let leased = t.begin_grant(owner, &grant_of(&t, dir.path(), owner, session).grant_id).unwrap();
+            (t.media_lease(owner.trim_start_matches("device:"), &leased.media.asset_id).unwrap(), leased.transfer_id)
+        };
+        let (by_unpair, _) = begin("device:a", "s1");
+        let (by_finish, finish_id) = begin("device:b", "s1");
+        let (by_session, _) = begin("device:c", "s2");
+        let (other, _) = begin("device:d", "s1");
+        t.revoke_owner("device:a");
+        assert!(by_unpair.ended.is_cancelled(), "an unpair");
+        t.end_read(&["device:b"], &finish_id);
+        assert!(by_finish.ended.is_cancelled(), "a finish");
+        t.remove_session("s2");
+        assert!(by_session.ended.is_cancelled(), "a conversation's deletion");
+        assert!(!other.ended.is_cancelled() && t.media_commit(&other, &mut || {}), "another lease keeps working");
+    }
+
+    /// A lease source already open is checked at every read: the idle time, the thirty minutes a transfer lives however active, and an
+    /// unpair end it for a stream in flight, and each read inside the idle time renews it.
+    #[test]
+    fn a_media_source_in_hand_is_checked_at_every_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let manual = Manual::new();
+        let t = Transfers::with_clock(manual.clone(), UPLOAD_IDLE);
+        let leased = t.begin_grant("device:phone", &grant_of(&t, dir.path(), "device:phone", "s1").grant_id).unwrap();
+        let lease = t.media_lease("phone", &leased.media.asset_id).unwrap();
+        // Reads inside the idle time renew it, so a stream that keeps reading outlives the idle time.
+        for _ in 0..3 {
+            manual.advance(LEASE_IDLE_MS as u64 - 1);
+            assert_eq!(t.read_media(&lease, 0, 4).unwrap(), b"0123");
+        }
+        // Idle past the limit: the stream in hand reads no more.
+        manual.advance(LEASE_IDLE_MS as u64);
+        assert!(t.read_media(&lease, 0, 4).is_err(), "idle");
+        // However active, the transfer's own thirty minutes end it.
+        let again = t.begin_grant("device:phone", &grant_of(&t, dir.path(), "device:phone", "s1").grant_id).unwrap();
+        let lease = t.media_lease("phone", &again.media.asset_id).unwrap();
+        let mut left = LEASE_MAX_MS as u64;
+        while left > LEASE_IDLE_MS as u64 / 2 {
+            manual.advance(LEASE_IDLE_MS as u64 / 2);
+            left -= LEASE_IDLE_MS as u64 / 2;
+            assert!(t.read_media(&lease, 0, 4).is_ok());
+        }
+        manual.advance(left);
+        assert!(t.read_media(&lease, 0, 4).is_err(), "past its thirty minutes");
+        // An unpair ends one that is still inside both.
+        let third = t.begin_grant("device:phone", &grant_of(&t, dir.path(), "device:phone", "s1").grant_id).unwrap();
+        let lease = t.media_lease("phone", &third.media.asset_id).unwrap();
+        assert!(t.read_media(&lease, 0, 4).is_ok());
+        t.revoke_owner("device:phone");
+        assert!(t.read_media(&lease, 0, 4).is_err(), "unpaired");
     }
 
     /// Whether `path` is open anywhere in this process: Windows refuses an open that shares with nobody while any handle is open; elsewhere
@@ -2251,91 +2469,6 @@ mod tests {
         std::fs::read_dir("/proc/self/fd").unwrap().count()
     }
 
-    /// A folder above the file replaced by a link after the path was resolved and before it is opened opens another file; the open is
-    /// proved from the handle to be the file at the resolved path, so it is refused as Node refuses it (`changed`) and the handle is
-    /// closed (`ancestor swapped between resolving and opening`).
-    #[test]
-    fn an_ancestor_swapped_for_a_link_between_resolving_and_opening_is_refused_and_leaves_no_handle() {
-        let dir = tempfile::tempdir().unwrap();
-        let base = canonical(dir.path()).unwrap();
-        let (project, outside) = (base.join("project"), base.join("outside"));
-        std::fs::create_dir_all(project.join("sub")).unwrap();
-        std::fs::create_dir_all(&outside).unwrap();
-        std::fs::write(project.join("sub/a.bin"), b"inside bytes").unwrap();
-        std::fs::write(outside.join("a.bin"), b"outside bytes").unwrap();
-        #[cfg(target_os = "linux")]
-        let before = descriptors();
-        let swap = |reached: &str| {
-            if reached == "authorize.resolved" {
-                std::fs::remove_dir_all(project.join("sub")).unwrap();
-                link_folder(&outside, &project.join("sub"));
-            }
-        };
-        let refused = open_project_download(&project, "sub/a.bin", &swap).err().expect("the swapped open is refused");
-        assert_refused_as(refused, &frame_of_held("ancestor swapped between resolving and opening"));
-        #[cfg(windows)]
-        assert!(!held_open(&outside.join("a.bin")), "the handle of the swapped open is closed");
-        #[cfg(target_os = "linux")]
-        assert_eq!(descriptors(), before, "the handle of the swapped open is closed");
-        // The link now stays: a new authorize of the same path is Node's refusal of a path that leaves the project.
-        let again = open_project_download(&project, "sub/a.bin", &|_| {}).err().unwrap();
-        assert_refused_as(again, &frame_of_call("ancestor swapped between resolving and opening", 0));
-    }
-
-    /// A grant's expiry reads the runtime's clock afresh at each use, as Node reads `Date.now`: moving that clock 1 ms short of the grant's life
-    /// leaves it, moving it the whole life ends it (`grant expiry`: the begin at 59 999 ms succeeds, at 60 000 ms it is expired).
-    #[tokio::test(start_paused = true)]
-    async fn a_grant_lives_exactly_as_long_as_the_runtime_clock_says() {
-        let dir = tempfile::tempdir().unwrap();
-        let t = Arc::new(Transfers::with_clock(Arc::new(SystemClock), UPLOAD_IDLE));
-        let first = grant_of(&t, dir.path(), "dev", "s1");
-        tokio::time::advance(std::time::Duration::from_millis(59_999)).await;
-        t.begin_grant("dev", &first.grant_id).expect("one millisecond before the limit");
-        let second = grant_of(&t, dir.path(), "dev", "s1");
-        tokio::time::advance(std::time::Duration::from_millis(60_000)).await;
-        assert_refused_as(t.begin_grant("dev", &second.grant_id).unwrap_err(), &frame_of_call("grant expiry", 3));
-    }
-
-    /// A conversation a later publication lists again under the same id is a member again (Node's catalog is replaced at each publication,
-    /// `sessionRemoved` = seen and not in the latest one, `file-downloads.ts:449-450,468-472`): what was authorized before its removal stays
-    /// ended (`expired`, as Node's `session deleted before begin` begin), a call that marked before the removal is `expired`, no longer
-    /// `unavailable` (the generation moved, as for Node's revoked authorize, `unpair during authorize`), and a fresh authorize works.
-    #[test]
-    fn a_conversation_listed_again_takes_new_downloads_and_keeps_the_old_ones_ended() {
-        let dir = tempfile::tempdir().unwrap();
-        let t = Arc::new(Transfers::default());
-        let before = grant_of(&t, dir.path(), "dev", "s1");
-        let stale = t.mark("dev", "s1");
-        t.remove_session("s1");
-        t.relisted(&["s1"]);
-        assert_refused_as(t.begin_grant("dev", &before.grant_id).unwrap_err(), &frame_of_call("session deleted before begin", 2));
-        let opened = open_session_download(&dir.path().join("a.bin").to_string_lossy(), "", None, None, &|_| {}).unwrap();
-        assert_refused_as(t.authorize("dev", "s1", stale, opened).unwrap_err(), &frame_of_held("unpair during authorize"));
-        let fresh = grant_of(&t, dir.path(), "dev", "s1");
-        assert!(t.begin_grant("dev", &fresh.grant_id).is_ok(), "a fresh authorize of the listed conversation is a transfer");
-    }
-
-    /// A relay close drops the per-conversation bookkeeping as Node's next service starts without it, and still ends what was marked
-    /// before: the removed mark and the counts are gone, and a mark taken before the close is `expired` (`revoke all`), never accepted.
-    #[test]
-    fn a_relay_close_drops_the_removed_marks_and_no_earlier_mark_matches_again() {
-        let dir = tempfile::tempdir().unwrap();
-        let t = Arc::new(Transfers::default());
-        let stale = t.mark("dev", "s2");
-        t.remove_session("s1");
-        t.revoke_owner("dev");
-        t.revoke_all();
-        {
-            let gate = t.generations.lock().unwrap();
-            assert!(gate.removed.is_empty() && gate.owners.is_empty() && gate.sessions.is_empty(), "the bookkeeping is gone");
-        }
-        assert_eq!(t.removed_marks.load(std::sync::atomic::Ordering::SeqCst), 0);
-        std::fs::write(dir.path().join("a.bin"), b"0123").unwrap();
-        let opened = open_session_download(&dir.path().join("a.bin").to_string_lossy(), "", None, None, &|_| {}).unwrap();
-        assert_refused_as(t.authorize("dev", "s2", stale, opened).unwrap_err(), &frame_of_held("unpair during authorize"));
-        assert!(t.begin_grant("dev", &grant_of(&t, dir.path(), "dev", "s1").grant_id).is_ok(), "a conversation removed before the close is no longer marked");
-    }
-
     /// A staged download's folder is private to the user and its payload readable by the user alone (Node's `mkdtemp` 0700 and
     /// `writeFile(..., { mode: 0o600 })`), whatever the umask.
     #[cfg(unix)]
@@ -2348,35 +2481,6 @@ mod tests {
         let (dir, payload) = (mode(&folder), mode(&folder.join(STAGED_PAYLOAD)));
         std::fs::remove_dir_all(&folder).unwrap();
         assert_eq!((dir & 0o077, payload & 0o077), (0, 0), "no access for group or others");
-    }
-
-    /// Node's `relay close during a read`: a range held at the file when the relay closes (every download revoked) answers what Node's phone
-    /// got, the file is let go (nothing holds it: an exclusive open succeeds on Windows, where a held handle refuses one) and can be removed,
-    /// and a later range of the transfer is refused as Node's is.
-    #[test]
-    fn a_read_held_when_the_relay_closes_ends_as_nodes_and_lets_the_file_go() {
-        const NAME: &str = "relay close during a read";
-        let dir = tempfile::tempdir().unwrap();
-        let t = Arc::new(Transfers::default());
-        let grant = grant_of(&t, dir.path(), "dev", "s1");
-        let leased = t.begin_grant("dev", &grant.grant_id).unwrap();
-        let closing = t.clone();
-        t.on_point(Some(Arc::new(move |reached: &str| {
-            if reached == "read.read" {
-                closing.revoke_all();
-            }
-        })));
-        assert_refused_as(range_of(&t, "dev", &leased).unwrap_err(), &frame_of_held(NAME));
-        t.on_point(None);
-        assert_eq!(t.held_downloads(), open_in(NAME, 0));
-        let file = dir.path().join("a.bin");
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::OpenOptionsExt;
-            drop(std::fs::OpenOptions::new().read(true).share_mode(0).open(&file).expect("no handle of the download is left open"));
-        }
-        std::fs::remove_file(&file).unwrap();
-        assert_refused_as(range_of(&t, "dev", &leased).unwrap_err(), &frame_of_call(NAME, 2));
     }
 
     /// The sweeper's stop and an authorize's arm never lose the schedule (Node's `stopSweeperWhenIdle` and `addGrant` + `ensureSweeper` are
@@ -2423,8 +2527,330 @@ mod tests {
         assert!(t.sweeper.anchor.lock().unwrap().is_some(), "a held grant has the sweeper armed");
     }
 
+    /// Node's `createDownloadTables` sweeper on a virtual clock: ticks of 15 s counted from the first thing held, a handle closed at the
+    /// first tick at or after its expiry with no call, and a new count after nothing was held.
+    #[tokio::test]
+    async fn the_sweeper_closes_expired_handles_at_its_ticks_with_no_call() {
+        let manual = Manual::new();
+        let t = Arc::new(Transfers::with_clock(manual.clone(), UPLOAD_IDLE));
+        let sweeping = { let (t, manual) = (t.clone(), manual.clone()); tokio::spawn(async move { t.run_download_sweeper(&*manual).await }) };
+        let dir = tempfile::tempdir().unwrap();
+        grant_of(&t, dir.path(), "dev", "s1");
+        manual.advance(5_000);
+        grant_of(&t, dir.path(), "dev", "s1");
+        let held = || t.grants.lock().unwrap().len();
+        // Ticks at 15, 30, 45, 60 s: the first grant (expires at 60 s) goes at the 60 s tick, the second (65 s) at the 75 s tick.
+        for (to, expected) in [(15_000, 2), (30_000, 2), (45_000, 2), (59_999, 2), (60_000, 1), (74_999, 1), (75_000, 0)] {
+            manual.advance(to - manual.elapsed());
+            if to % 15_000 == 0 {
+                t.sweeper.swept.notified().await;
+            }
+            assert_eq!(held(), expected, "held at {to} ms");
+        }
+        assert!(t.sweeper.anchor.lock().unwrap().is_none(), "the sweeper stops once nothing is held");
+        sweeping.abort();
+    }
+
+    #[test]
+    fn path_outside_is_refused_and_upload_commits_by_rename() {
+        let (_d, root) = project();
+        let t = Transfers::default();
+        let id = t.begin_write("o", &root, "in/up.txt", 5).unwrap();
+        t.write_chunk("o", &id, Some(0), "aGU=").unwrap();
+        // The last chunk again is acknowledged, not rewritten.
+        assert_eq!(t.write_chunk("o", &id, Some(0), "eHg=").unwrap(), 2);
+        t.write_chunk("o", &id, Some(2), "bGxv").unwrap();
+        assert_eq!(t.commit("o", &id).unwrap().0, 5);
+        assert_eq!(std::fs::read(root.join("in/up.txt")).unwrap(), b"hello");
+    }
+
+
+    /// What an upload chunk answers: the bytes received on success (a retry of the last chunk is acknowledged, not rewritten), and the
+    /// refusal for a chunk ahead of the received bytes, bad base64, an empty or out-of-range offset, a chunk met mid-write, one past
+    /// the declared size, and an upload that is gone.
+    #[test]
+    fn chunk_outcomes_are_the_bytes_received_or_the_refusal() {
+        let same = |got: WsResult<u64>, expected: Result<u64, &str>| match expected {
+            Ok(received) => assert_eq!(got.unwrap(), received),
+            Err(message) => assert_eq!(got.unwrap_err().message, message),
+        };
+        let gone = "The upload is gone: it was cancelled or sat idle too long.";
+        let (_d, root) = project();
+        let t = Transfers::default();
+        let id = t.begin_write("o", &root, "up.txt", 4).unwrap();
+        let small = t.begin_write("o", &root, "small.txt", 2).unwrap();
+        same(t.write_chunk("o", &id, Some(0), "aGk="), Ok(2));
+        same(t.write_chunk("o", &id, Some(0), "aGk="), Ok(2));
+        same(t.write_chunk("o", &id, Some(3), "aGk="), Err("The upload chunk is out of order."));
+        same(t.write_chunk("o", &id, Some(2), "!!"), Err("chunk data is invalid."));
+        same(t.write_chunk("o", &id, Some(2), ""), Err("chunk data is invalid."));
+        same(t.write_chunk("o", &id, Some(5), "aGk="), Err("offset is invalid."));
+        same(t.write_chunk("o", &id, None, "aGk="), Err("offset is invalid."));
+        same(t.write_chunk("o", "nope", Some(0), "aGk="), Err(gone));
+        // Two chunks at one offset at once: the second meets the first mid-write.
+        t.writes.lock().unwrap().get_mut(&id).unwrap().writing = true;
+        same(t.write_chunk("o", &id, Some(2), "aGk="), Err("The upload is already writing a chunk."));
+        t.writes.lock().unwrap().get_mut(&id).unwrap().writing = false;
+        same(t.write_chunk("o", &id, Some(2), "aGk="), Ok(4));
+        same(t.write_chunk("o", &id, Some(2), "aGk="), Ok(4));
+        same(t.write_chunk("o", &small, Some(0), "YWJj"), Err("The upload is larger than it declared."));
+        same(t.write_chunk("o", &small, Some(0), "YWI="), Err(gone));
+    }
+    const EXPIRED: (&str, &str) = ("file-download:expired", "This download is no longer available.");
+    const CHANGED: (&str, &str) = ("file-download:changed", "The file changed on the host.");
+    const UNAVAILABLE: (&str, &str) = ("file-download:unavailable", "This conversation is not available.");
+    const OUTSIDE: (&str, &str) = ("file-download:outside-project", "The file is outside the conversation's project.");
+    fn refusal((code, message): (&str, &str)) -> serde_json::Value {
+        serde_json::json!({ "ok": false, "errorCode": code, "error": message })
+    }
+    /// What the phone is told by the `n`th call of the scenario `name`, when it is a refusal (or `ok` for the calls that succeed).
+    fn frame_of_call(name: &str, n: usize) -> serde_json::Value {
+        match (name, n) {
+            ("file moved", 3 | 4) => serde_json::json!({ "ok": true }),
+            ("ancestor swapped between resolving and opening", 0) => refusal(OUTSIDE),
+            ("file moved", 1 | 5 | 9 | 11 | 14) => refusal(CHANGED),
+            ("unpair during a read", 2) | ("session deleted before begin", 2) | ("session deleted between ranges", 3) | ("grant expiry", 3) | ("file moved", 6) | ("relay close during a read", 2) => refusal(EXPIRED),
+            other => panic!("no such call {other:?}"),
+        }
+    }
+    /// What the phone is told by the call that was held while the window was open.
+    fn frame_of_held(name: &str) -> serde_json::Value {
+        refusal(match name {
+            "unpair during begin" | "unpair during a read" | "unpair during authorize" | "relay close during a read" => EXPIRED,
+            "session deleted during begin" | "session deleted during authorize" => UNAVAILABLE,
+            "ancestor swapped between resolving and opening" => CHANGED,
+            other => panic!("no such scenario {other:?}"),
+        })
+    }
+    /// How many files the service holds open at the `n`th count of the scenario: none, but two and then one while a session deleted
+    /// before begin still has its other grants.
+    fn open_in(name: &str, n: usize) -> usize {
+        match (name, n) {
+            ("session deleted before begin", 0) => 2,
+            ("session deleted before begin", 1) => 1,
+            _ => 0,
+        }
+    }
+    /// The first window of an unpair against a redeem: the grant is out of the table and the revoke finds nothing to end. The
+    /// marks are read in the one step that consumes the grant, so the revoke is seen when the transfer would be published. The answer
+    /// and the files held are Node's for a begin revoked while its file is checked (`unpair during begin`).
+    #[test]
+    fn a_revoke_after_the_grant_is_consumed_leaves_no_transfer() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let grant = grant_of(&t, dir.path(), "dev", "s1");
+        at(&t, "begin.taken", |t| t.revoke_owner("dev"));
+        assert_refused_as(t.begin_grant("dev", &grant.grant_id).unwrap_err(), &frame_of_held("unpair during begin"));
+        assert_eq!(t.held_downloads(), open_in("unpair during begin", 0));
+    }
+    /// The second window: the file check is done and the transfer is about to be published.
+    #[test]
+    fn a_revoke_after_the_file_check_leaves_no_transfer() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let grant = grant_of(&t, dir.path(), "dev", "s1");
+        at(&t, "begin.verify", |t| t.revoke_owner("dev"));
+        assert_refused_as(t.begin_grant("dev", &grant.grant_id).unwrap_err(), &frame_of_held("unpair during begin"));
+        assert_eq!(t.held_downloads(), open_in("unpair during begin", 0));
+    }
+    /// A revoke the moment the transfer is published reaches it: publishing and the check are one step for a revoke. Node's next range
+    /// after an unpair is `unpair during a read`'s last call.
+    #[test]
+    fn a_revoke_right_after_the_transfer_is_published_ends_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let grant = grant_of(&t, dir.path(), "dev", "s1");
+        at(&t, "begin.published", |t| t.revoke_owner("dev"));
+        let leased = t.begin_grant("dev", &grant.grant_id).unwrap();
+        assert_refused_as(range_of(&t, "dev", &leased).unwrap_err(), &frame_of_call("unpair during a read", 2));
+        assert_eq!(t.held_downloads(), open_in("unpair during a read", 0));
+    }
+    /// Whatever the interleaving, a device's reads fail from its unpair on: a read in flight, an authorize in flight, and the other
+    /// device untouched. Each answer and count is the one stated for that window.
+    #[test]
+    fn after_an_unpair_no_read_of_the_device_succeeds_whatever_was_in_flight() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let grant = grant_of(&t, dir.path(), "dev", "s1");
+        let leased = t.begin_grant("dev", &grant.grant_id).unwrap();
+        at(&t, "read.read", |t| t.revoke_owner("dev"));
+        assert_refused_as(range_of(&t, "dev", &leased).unwrap_err(), &frame_of_held("unpair during a read"));
+        assert_eq!(t.held_downloads(), open_in("unpair during a read", 0));
+        // An authorize that was opening its file when the device was revoked leaves no grant.
+        for point in ["authorize.resolved", "authorize.opened"] {
+            at(&t, point, |t| t.revoke_owner("dev"));
+            let path = dir.path().join("a.bin");
+            let mark = t.mark("dev", "s1");
+            let refused = match open_session_download(&path.to_string_lossy(), "", None, None, &|reached| t.point(reached)) {
+                Ok(opened) => t.authorize("dev", "s1", mark, opened).unwrap_err(),
+                Err(refused) => refused,
+            };
+            // The revoke came after the open for `authorize.opened`, and before the grant is published for both (`changed`).
+            assert_refused_as(refused, &frame_of_held("unpair during authorize"));
+            t.on_point(None);
+            assert_eq!(t.held_downloads(), open_in("unpair during authorize", 0), "{point}");
+        }
+        // Another device is untouched.
+        let other = grant_of(&t, dir.path(), "other", "s1");
+        let kept = t.begin_grant("other", &other.grant_id).unwrap();
+        t.revoke_owner("dev");
+        assert!(range_of(&t, "other", &kept).is_ok());
+    }
+    /// A deletion ends what the conversation held and nothing else, in every window, and the answer is Node's for the window: a begin or an
+    /// authorize that the deletion lands in the middle of is `unavailable` (`session deleted during begin` / `during authorize`), a call
+    /// that finds the grant or the transfer already gone is `expired` (`session deleted before begin`, `between ranges`). A conversation
+    /// that is gone stays gone, so each window has a conversation of its own.
+    #[test]
+    fn a_deleted_conversation_ends_its_grants_and_transfers_in_every_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let grant = grant_of(&t, dir.path(), "dev", "s1");
+        at(&t, "begin.taken", |t| t.remove_session("s1"));
+        assert_refused_as(t.begin_grant("dev", &grant.grant_id).unwrap_err(), &frame_of_held("session deleted during begin"));
+        let grant = grant_of(&t, dir.path(), "dev", "s3");
+        at(&t, "begin.verify", |t| t.remove_session("s3"));
+        assert_refused_as(t.begin_grant("dev", &grant.grant_id).unwrap_err(), &frame_of_held("session deleted during begin"));
+        t.on_point(None);
+        assert_eq!(t.held_downloads(), open_in("session deleted during begin", 0));
+        let unbegun = grant_of(&t, dir.path(), "dev", "s4");
+        let kept = grant_of(&t, dir.path(), "dev", "s2");
+        let live = t.begin_grant("dev", &kept.grant_id).unwrap();
+        assert_eq!(t.held_downloads(), open_in("session deleted before begin", 0));
+        t.remove_session("s4");
+        assert_eq!(t.held_downloads(), open_in("session deleted before begin", 1));
+        assert_refused_as(t.begin_grant("dev", &unbegun.grant_id).unwrap_err(), &frame_of_call("session deleted before begin", 2));
+        assert!(range_of(&t, "dev", &live).is_ok(), "the other conversation's transfer lives");
+        at(&t, "authorize.opened", |t| t.remove_session("s2"));
+        let opened = open_session_download(&dir.path().join("a.bin").to_string_lossy(), "", None, None, &|_| {}).unwrap();
+        let mark = t.mark("dev", "s2");
+        assert_refused_as(t.authorize("dev", "s2", mark, opened).unwrap_err(), &frame_of_held("session deleted during authorize"));
+        t.on_point(None);
+        assert_refused_as(range_of(&t, "dev", &live).unwrap_err(), &frame_of_call("session deleted between ranges", 3));
+        assert_eq!(t.held_downloads(), open_in("session deleted between ranges", 0));
+    }
+    /// A folder `link` that is another folder `target` (a junction on Windows, a symlink elsewhere): an ancestor swapped for a link.
+    pub(super) fn link_folder(target: &Path, link: &Path) {
+        #[cfg(windows)]
+        {
+            // `mklink` refuses a path that mixes separators; a recorded step names its folders with `/`.
+            let backslashed = |path: &Path| path.to_string_lossy().replace('/', "\\");
+            let made = std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(backslashed(link)).arg(backslashed(target)).output().unwrap();
+            assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stdout));
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).unwrap();
+    }
+    /// A folder above the file replaced by a link after the path was resolved and before it is opened opens another file; the open is
+    /// proved from the handle to be the file at the resolved path, so it is refused (`changed`) and the handle is
+    /// closed (`ancestor swapped between resolving and opening`).
+    #[test]
+    fn an_ancestor_swapped_for_a_link_between_resolving_and_opening_is_refused_and_leaves_no_handle() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = canonical(dir.path()).unwrap();
+        let (project, outside) = (base.join("project"), base.join("outside"));
+        std::fs::create_dir_all(project.join("sub")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(project.join("sub/a.bin"), b"inside bytes").unwrap();
+        std::fs::write(outside.join("a.bin"), b"outside bytes").unwrap();
+        #[cfg(target_os = "linux")]
+        let before = descriptors();
+        let swap = |reached: &str| {
+            if reached == "authorize.resolved" {
+                std::fs::remove_dir_all(project.join("sub")).unwrap();
+                link_folder(&outside, &project.join("sub"));
+            }
+        };
+        let refused = open_project_download(&project, "sub/a.bin", &swap).err().expect("the swapped open is refused");
+        assert_refused_as(refused, &frame_of_held("ancestor swapped between resolving and opening"));
+        #[cfg(windows)]
+        assert!(!held_open(&outside.join("a.bin")), "the handle of the swapped open is closed");
+        #[cfg(target_os = "linux")]
+        assert_eq!(descriptors(), before, "the handle of the swapped open is closed");
+        // The link now stays: a new authorize of the same path is refused as a path that leaves the project.
+        let again = open_project_download(&project, "sub/a.bin", &|_| {}).err().unwrap();
+        assert_refused_as(again, &frame_of_call("ancestor swapped between resolving and opening", 0));
+    }
+    /// A grant's expiry reads the runtime's clock afresh at each use, as a clock read at each use: moving that clock 1 ms short of the grant's life
+    /// leaves it, moving it the whole life ends it (`grant expiry`: the begin at 59 999 ms succeeds, at 60 000 ms it is expired).
+    #[tokio::test(start_paused = true)]
+    async fn a_grant_lives_exactly_as_long_as_the_runtime_clock_says() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::with_clock(Arc::new(SystemClock), UPLOAD_IDLE));
+        let first = grant_of(&t, dir.path(), "dev", "s1");
+        tokio::time::advance(std::time::Duration::from_millis(59_999)).await;
+        t.begin_grant("dev", &first.grant_id).expect("one millisecond before the limit");
+        let second = grant_of(&t, dir.path(), "dev", "s1");
+        tokio::time::advance(std::time::Duration::from_millis(60_000)).await;
+        assert_refused_as(t.begin_grant("dev", &second.grant_id).unwrap_err(), &frame_of_call("grant expiry", 3));
+    }
+    /// A conversation a later publication lists again under the same id is a member again (Node's catalog is replaced at each publication,
+    /// `sessionRemoved` = seen and not in the latest one, `file-downloads.ts:449-450,468-472`): what was authorized before its removal stays
+    /// ended (`expired`, as Node's `session deleted before begin` begin), a call that marked before the removal is `expired`, no longer
+    /// `unavailable` (the generation moved, as for Node's revoked authorize, `unpair during authorize`), and a fresh authorize works.
+    #[test]
+    fn a_conversation_listed_again_takes_new_downloads_and_keeps_the_old_ones_ended() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let before = grant_of(&t, dir.path(), "dev", "s1");
+        let stale = t.mark("dev", "s1");
+        t.remove_session("s1");
+        t.relisted(&["s1"]);
+        assert_refused_as(t.begin_grant("dev", &before.grant_id).unwrap_err(), &frame_of_call("session deleted before begin", 2));
+        let opened = open_session_download(&dir.path().join("a.bin").to_string_lossy(), "", None, None, &|_| {}).unwrap();
+        assert_refused_as(t.authorize("dev", "s1", stale, opened).unwrap_err(), &frame_of_held("unpair during authorize"));
+        let fresh = grant_of(&t, dir.path(), "dev", "s1");
+        assert!(t.begin_grant("dev", &fresh.grant_id).is_ok(), "a fresh authorize of the listed conversation is a transfer");
+    }
+    /// A relay close drops the per-conversation bookkeeping as Node's next service starts without it, and still ends what was marked
+    /// before: the removed mark and the counts are gone, and a mark taken before the close is `expired` (`revoke all`), never accepted.
+    #[test]
+    fn a_relay_close_drops_the_removed_marks_and_no_earlier_mark_matches_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let stale = t.mark("dev", "s2");
+        t.remove_session("s1");
+        t.revoke_owner("dev");
+        t.revoke_all();
+        {
+            let gate = t.generations.lock().unwrap();
+            assert!(gate.removed.is_empty() && gate.owners.is_empty() && gate.sessions.is_empty(), "the bookkeeping is gone");
+        }
+        assert_eq!(t.removed_marks.load(std::sync::atomic::Ordering::SeqCst), 0);
+        std::fs::write(dir.path().join("a.bin"), b"0123").unwrap();
+        let opened = open_session_download(&dir.path().join("a.bin").to_string_lossy(), "", None, None, &|_| {}).unwrap();
+        assert_refused_as(t.authorize("dev", "s2", stale, opened).unwrap_err(), &frame_of_held("unpair during authorize"));
+        assert!(t.begin_grant("dev", &grant_of(&t, dir.path(), "dev", "s1").grant_id).is_ok(), "a conversation removed before the close is no longer marked");
+    }
+    /// A range held at the file when the relay closes (every download revoked) answers what Node's phone
+    /// got, the file is let go (nothing holds it: an exclusive open succeeds on Windows, where a held handle refuses one) and can be removed,
+    /// and a later range of the transfer is refused likewise.
+    #[test]
+    fn a_read_held_when_the_relay_closes_ends_and_lets_the_file_go() {
+        const NAME: &str = "relay close during a read";
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let grant = grant_of(&t, dir.path(), "dev", "s1");
+        let leased = t.begin_grant("dev", &grant.grant_id).unwrap();
+        let closing = t.clone();
+        t.on_point(Some(Arc::new(move |reached: &str| {
+            if reached == "read.read" {
+                closing.revoke_all();
+            }
+        })));
+        assert_refused_as(range_of(&t, "dev", &leased).unwrap_err(), &frame_of_held(NAME));
+        t.on_point(None);
+        assert_eq!(t.held_downloads(), open_in(NAME, 0));
+        let file = dir.path().join("a.bin");
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            drop(std::fs::OpenOptions::new().read(true).share_mode(0).open(&file).expect("no handle of the download is left open"));
+        }
+        std::fs::remove_file(&file).unwrap();
+        assert_refused_as(range_of(&t, "dev", &leased).unwrap_err(), &frame_of_call(NAME, 2));
+    }
     /// A file renamed or removed after it was authorized is not the file that was authorized, though its identity, size and modification
-    /// time are unchanged: begin, a range and finish refuse it as Node does, and the transfer ends; renamed away and back it is the same
+    /// time are unchanged: begin, a range and finish refuse it, and the transfer ends; renamed away and back it is the same
     /// (`file moved`).
     #[test]
     fn a_file_moved_after_it_was_authorized_is_changed_for_begin_range_and_finish() {
@@ -2463,55 +2889,14 @@ mod tests {
         assert_refused_as(range_of(&t, "dev", &leased).unwrap_err(), &moved(14));
         assert_eq!(t.held_downloads(), open_in("file moved", 3));
     }
-
-    /// Node's `createDownloadTables` sweeper on a virtual clock: ticks of 15 s counted from the first thing held, a handle closed at the
-    /// first tick at or after its expiry with no call, and a new count after nothing was held.
-    #[tokio::test]
-    async fn the_sweeper_closes_expired_handles_at_its_ticks_with_no_call() {
-        let manual = Manual::new();
-        let t = Arc::new(Transfers::with_clock(manual.clone(), UPLOAD_IDLE));
-        let sweeping = { let (t, manual) = (t.clone(), manual.clone()); tokio::spawn(async move { t.run_download_sweeper(&*manual).await }) };
-        let dir = tempfile::tempdir().unwrap();
-        grant_of(&t, dir.path(), "dev", "s1");
-        manual.advance(5_000);
-        grant_of(&t, dir.path(), "dev", "s1");
-        let held = || t.grants.lock().unwrap().len();
-        // Ticks at 15, 30, 45, 60 s: the first grant (expires at 60 s) goes at the 60 s tick, the second (65 s) at the 75 s tick.
-        for (to, expected) in [(15_000, 2), (30_000, 2), (45_000, 2), (59_999, 2), (60_000, 1), (74_999, 1), (75_000, 0)] {
-            manual.advance(to - manual.elapsed());
-            if to % 15_000 == 0 {
-                t.sweeper.swept.notified().await;
-            }
-            assert_eq!(held(), expected, "held at {to} ms");
-        }
-        assert!(t.sweeper.anchor.lock().unwrap().is_none(), "the sweeper stops once nothing is held");
-        sweeping.abort();
-    }
-
-
     #[test]
-    fn a_project_path_beyond_the_project_is_nodes_outside_project_refusal() {
-        let corpus: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/desktop/transfer/corpus.json")).unwrap();
-        let recorded = corpus["entries"].as_array().unwrap().iter().find(|entry| entry["op"] == "authorize(outside)").unwrap();
+    fn a_project_path_beyond_the_project_is_refused_as_outside_the_project() {
         let (_d, root) = project();
         let refused = Transfers::default().begin_project_read("o", &root, "../x").err().unwrap();
         assert_eq!(refused.reason, Reason::PermissionDenied);
-        assert_eq!(refused.message, recorded["error"]["message"].as_str().unwrap());
-    }
-
-    #[test]
-    fn path_outside_is_refused_and_upload_commits_by_rename() {
-        let (_d, root) = project();
-        let t = Transfers::default();
-        let id = t.begin_write("o", &root, "in/up.txt", 5).unwrap();
-        t.write_chunk("o", &id, Some(0), "aGU=").unwrap();
-        // The last chunk again is acknowledged, not rewritten.
-        assert_eq!(t.write_chunk("o", &id, Some(0), "eHg=").unwrap(), 2);
-        t.write_chunk("o", &id, Some(2), "bGxv").unwrap();
-        assert_eq!(t.commit("o", &id).unwrap().0, 5);
-        assert_eq!(std::fs::read(root.join("in/up.txt")).unwrap(), b"hello");
+        assert_eq!(refused.message, "The file is outside the conversation's project.");
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, node_twin))]
 mod replay;

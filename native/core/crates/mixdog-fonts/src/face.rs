@@ -40,8 +40,6 @@ impl fmt::Display for FontError {
     }
 }
 
-impl std::error::Error for FontError {}
-
 /// The slant of a face or of a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slant {
@@ -291,6 +289,19 @@ impl Face {
         Ok(faces)
     }
 
+    /// Every face of a file found by a scan: described from `data`, which is not kept. The path is retained so the bytes are
+    /// read the first time a face is used ([`Face::ensure_loaded`]).
+    pub fn scanned_at(path: &Path, data: &[u8]) -> Result<Vec<Self>, FontError> {
+        let count = ttf_parser::fonts_in_collection(data).unwrap_or(1);
+        (0..count)
+            .map(|index| {
+                let mut face = Self::describe(data, index)?;
+                face.path = Some(path.to_path_buf());
+                Ok(face)
+            })
+            .collect()
+    }
+
     /// The first face of the file at `path`.
     pub fn from_file<P: ReadProof>(proof: &P, path: &Path) -> Result<Self, FontError> {
         let bytes = mixdog_fsio::read(proof, path).map_err(|error| FontError::Unreadable(format!("{}: {error}", path.display())))?;
@@ -453,3 +464,6 @@ mod tests {
         assert_eq!(FontError::InvalidText.to_string(), "Convert String to CString failed");
     }
 }
+
+
+impl std::error::Error for FontError {}

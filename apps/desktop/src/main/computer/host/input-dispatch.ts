@@ -10,6 +10,8 @@ import { dispatchElectronText, type DispatchAuthority, type ElectronTextDispatch
 import { powerShellInputRequest, type InputObservation } from './input-dispatch-request';
 import { dispatchElectronInput } from './input-dispatch-electron-input';
 import { canUseAppOwnedInput } from './input-preflight';
+import { rendererScope } from './renderer-scope';
+import { currentEndpoint } from './command-fence';
 import type { ResolvedInputTarget } from './input-resolution';
 import { assertObservationInputAllowed } from './observation-policy';
 import { assertSavedLoginAvailable, fillSavedLogin } from './saved-login';
@@ -128,17 +130,29 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
     };
     const electronTarget = canUseAppOwnedInput(command) ? electronWindowForNativeId(targetWindowId) : null;
     if (electronTarget && !electronTarget.webContents.isDestroyed()) {
+      // The renderer's port admits each event through the command's own endpoint and the run's abort (`rendererScope`); input
+      // outside a command endpoint has no scope to run under and is refused.
+      const endpoint = currentEndpoint();
+      if (!endpoint) throw new Error('computer_scope_unavailable: renderer input runs only under a command endpoint; no input was sent');
+      const { scope, close } = rendererScope(endpoint, action, assertExecutionNotAborted);
       const electronInput = {
         host,
         command,
         target,
         renderer: electronTarget,
         authorizeDispatch,
+        scope,
         // The agent's arrow while the desktop's own host runs Computer Use (s3-21 moved the coordinator out of the Electron dispatchers).
         showCursor: ({ action, ...cursor }: Parameters<NonNullable<ElectronTextDispatch['showCursor']>>[0]) =>
           computerUseCoordinator.showCursor({ ...cursor, action, effect: action, mode: 'background' }),
       };
-      return command.action === 'type' ? dispatchElectronText(electronInput) : dispatchElectronInput(electronInput);
+      try {
+        return await (command.action === 'type'
+          ? dispatchElectronText(electronInput)
+          : dispatchElectronInput(electronInput));
+      } finally {
+        close();
+      }
     }
     const powerShellRequest = {
       ...powerShellInputRequest(command, action, target, sessionIdFor(command), inputObservation),

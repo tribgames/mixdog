@@ -132,6 +132,15 @@ pub fn lead_page_of(rows: Vec<LeadRow>, after: Option<&CatalogCursor>, filter: &
     let more = kept.len() > limit;
     LeadPage { rows: kept.into_iter().take(limit).map(|(_, row)| row).collect(), more }
 }
+/// The archived flag of `id` as the archive authority resolves it: its entry, else the flag the index keeps (its header's).
+fn resolved_archived(archive: Option<&crate::archive_state::ArchiveSnapshot>, id: &str, indexed: bool) -> bool {
+    archive.and_then(|archive| archive.entry(id)).map_or(indexed, |entry| entry.archived_at().is_some())
+}
+
+fn id_of(row: &Map<String, Value>) -> String {
+    row.get("id").and_then(Value::as_str).unwrap_or_default().to_owned()
+}
+
 /// Rows read from the table per round trip while looking for lead-visible ones.
 const SCAN_BATCH: usize = 256;
 
@@ -144,12 +153,14 @@ impl SqliteStore {
     /// session is deleted, unknown or not lead-visible.
     pub async fn lead_row(&self, session: &str) -> Result<Option<LeadRow>, DbError> {
         let session = session.to_owned();
+        let archive = self.archive_snapshot();
         self.read(move |c| {
             let found: Option<(String, bool)> = c
                 .prepare_cached("SELECT summary, archived FROM sessions WHERE id = ?1 AND deleted = 0")?
                 .query_row(params![session], |r| Ok((r.get(0)?, r.get(1)?)))
                 .optional()?;
             let Some((summary, archived)) = found else { return Ok(None) };
+            let archived = resolved_archived(archive.as_deref(), &session, archived);
             let Ok(Value::Object(row)) = serde_json::from_str::<Value>(&summary) else {
                 return Err(DbError::Sqlite(rusqlite::Error::InvalidColumnType(0, "summary".into(), rusqlite::types::Type::Text)));
             };
@@ -158,9 +169,31 @@ impl SqliteStore {
         .await
     }
 
+    /// Every stored session's list row with its resolved archived flag, lead-visible or not, in one read: an agent's
+    /// session carries its own archive mark (a hidden session is archived on that session alone) and no listing shows it.
+    pub async fn marked_rows(&self) -> Result<Vec<LeadRow>, DbError> {
+        let archive = self.archive_snapshot();
+        self.read(move |c| {
+            let mut stmt = c.prepare_cached("SELECT summary, archived FROM sessions WHERE deleted = 0")?;
+            let found: Vec<(String, bool)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
+            found
+                .into_iter()
+                .map(|(summary, archived)| match serde_json::from_str::<Value>(&summary) {
+                    Ok(Value::Object(row)) => {
+                        let archived = resolved_archived(archive.as_deref(), &id_of(&row), archived);
+                        Ok(LeadRow { row, archived })
+                    }
+                    _ => Err(DbError::Sqlite(rusqlite::Error::InvalidColumnType(0, "summary".into(), rusqlite::types::Type::Text))),
+                })
+                .collect()
+        })
+        .await
+    }
+
     /// `limit` lead-visible rows that pass `filter`, after `after` (`listAfter`; from the top when
     /// `None`), and whether more follow.
     pub async fn lead_page(&self, after: Option<CatalogCursor>, filter: LeadFilter, limit: usize) -> Result<LeadPage, DbError> {
+        let archive = self.archive_snapshot();
         self.read(move |c| {
             // One snapshot for every batch of the scan: a session whose activity changes meanwhile is neither missed nor listed twice.
             let snapshot = c.unchecked_transaction()?;
@@ -187,6 +220,8 @@ impl SqliteStore {
                             )));
                         }
                     };
+                    // Resolved before the filter and the page: a commit of the authority the index has not taken yet is listed as committed.
+                    let archived = resolved_archived(archive.as_deref(), &id_of(&row), archived);
                     let listed = LeadRow { row, archived };
                     if is_lead_visible_row(&listed.row) && filter.keeps(&listed) {
                         rows.push(listed);

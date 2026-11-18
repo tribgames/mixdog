@@ -1,5 +1,5 @@
-//! Test support: Node transcript rows (as `fixtures/agent/compact/record.mjs`
-//! writes them) converted into agent messages, and back.
+//! Test support: stored transcript rows (JSON objects with role, content, tool calls and `meta`)
+//! converted into agent messages, and back.
 
 #![allow(dead_code)]
 
@@ -14,20 +14,6 @@ use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_protocol::ProviderId;
 use serde_json::Value;
 
-/// The recorded Node output `fixtures/agent/compact/golden/<name>.json`.
-#[macro_export]
-macro_rules! golden {
-    ($name:literal) => {
-        serde_json::from_str::<serde_json::Value>(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../fixtures/agent/compact/golden/",
-            $name,
-            ".json"
-        )))
-        .expect("golden json")
-    };
-}
-
 /// A session with no sensitive values: redaction changes nothing.
 pub struct NoRedaction;
 impl mixdog_agent::compact::dropped::Redactor for NoRedaction {
@@ -36,17 +22,26 @@ impl mixdog_agent::compact::dropped::Redactor for NoRedaction {
     }
 }
 
-/// A session with no attachments: no blob is ever read.
-pub struct NoBlobs;
-impl mixdog_protocol::message_class::user_text::Blobs for NoBlobs {
-    fn text_within(
-        &self,
-        hex: &str,
-        _: u64,
-    ) -> Result<Option<String>, mixdog_protocol::message_class::user_text::ReadError> {
-        panic!("attachment read {hex} in a golden without attachments")
+/// An environment with no variable set: the policy reads only the session header.
+pub struct NoVars;
+
+impl mixdog_ai::registry::keys::Environment for NoVars {
+    fn var(&self, _: &str) -> Option<String> {
+        None
     }
 }
+
+/// An environment holding exactly the listed variables.
+pub struct MapVars(pub Vec<(&'static str, &'static str)>);
+
+impl mixdog_ai::registry::keys::Environment for MapVars {
+    fn var(&self, name: &str) -> Option<String> {
+        self.0.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned())
+    }
+}
+
+/// A session with no attachments: no blob is ever read.
+pub struct NoBlobs;
 
 #[async_trait::async_trait]
 impl mixdog_agent::compact::blob_reads::BlobReads for NoBlobs {
@@ -57,7 +52,7 @@ impl mixdog_agent::compact::blob_reads::BlobReads for NoBlobs {
 }
 
 pub fn replay_owner() -> ProviderId {
-    ProviderId::from("golden")
+    ProviderId::from("test-provider")
 }
 
 fn source_of(name: &str) -> Option<Source> {
@@ -99,7 +94,7 @@ fn content_of(value: &Value) -> Content {
     }
 }
 
-/// One Node transcript row as an agent message.
+/// One stored transcript row as an agent message.
 pub fn node_message(row: &Value) -> AgentMessage {
     let content = content_of(&row["content"]);
     let mut message = match row["role"].as_str().expect("role") {
@@ -191,8 +186,7 @@ fn content_row(content: &Content) -> Value {
         ),
     }
 }
-
-/// The stored row Node wrote for a message, in its key order. Runtime
+/// The stored row of a message, in its key order. Runtime
 /// reminders put `meta` ahead of `content`.
 pub fn node_row(m: &AgentMessage) -> Value {
     let mut row = serde_json::Map::new();
@@ -241,7 +235,7 @@ impl mixdog_agent::compact::execution_tail::MessageRows for Rows {
     }
 }
 
-/// Content-addressed artifacts as Node's preview computes them; nothing is written.
+/// Content-addressed artifacts as a preview computes them; nothing is written.
 pub struct PreviewArchive {
     pub session: String,
 }
@@ -281,4 +275,30 @@ impl mixdog_agent::compact::fresh::AttachmentSeam for NoAttachments {
     fn attachment_tokens(&self, _: &AgentMessage) -> u64 {
         0
     }
+}
+
+impl mixdog_protocol::message_class::user_text::Blobs for NoBlobs {
+    fn text_within(
+        &self,
+        hex: &str,
+        _: u64,
+    ) -> Result<Option<String>, mixdog_protocol::message_class::user_text::ReadError> {
+        panic!("attachment read {hex} in a transcript without attachments")
+    }
+}
+
+
+#[cfg(node_twin)]
+/// The recorded comparison output `fixtures/agent/compact/golden/<name>.json` (local only).
+#[macro_export]
+macro_rules! golden {
+    ($name:literal) => {
+        serde_json::from_str::<serde_json::Value>(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/agent/compact/golden/",
+            $name,
+            ".json"
+        )))
+        .expect("golden json")
+    };
 }

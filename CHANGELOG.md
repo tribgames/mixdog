@@ -5,41 +5,15 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
-This release adds action approvals, browser site permissions and network proxy settings, switches sessions to an append-only log, and fixes slowdowns when many sessions are open.
+Mixdog 1.5.0 moves to a faster, lighter engine rebuilt in Rust. It was a major undertaking, and we judged that making this switch now was necessary for Mixdog in the long term.
 
-### New features
+With the new engine, overall memory use is greatly reduced and running many sessions and agents in parallel works far better. As a result, the app feels noticeably faster and stays much more stable during everyday work.
 
-- **Action approvals** — Added Allow for this session and, in coding chats, Always allow to approval cards, revocable with "Ask again"; payments and permanent deletes always ask.
-- **Browser site permissions** — Added default permissions and per-site exceptions under Settings › Authentication, with prompts that remember choices for a site, all sites, or until the app quits.
-- **Chrome cookie auto-import** — Added under Settings › Authentication to re-import cookies on app start and Chrome close after one manual import with administrator approval, keeping Browser Use signed in.
-- **Automatic verification codes** — Added automatic filling of one-time sign-in codes from your connected mailbox, plus phone prompts for passwords and codes.
-- **Network proxy** — Added system, custom `http`/`https`/`socks5`, and off proxy modes with bypass rules and connection testing under Settings › System › Network proxy and phone settings, applying changes to the very next request across all providers (#317).
+Because of the scale of this transition, the update took much longer than we planned, and we are genuinely sorry for keeping you waiting. Some errors may still show up right after the switch, and we will respond quickly to fix anything you run into. Thank you very much for waiting patiently for this late release.
 
-### Changes
+After updating to 1.5.0, going back to 1.4.5 keeps attached files, but the conversation list will not come back. If you may want to go back, copy your data folder before updating.
 
-- Changed sessions to save as an append-only log for faster, safer saving on close, converting existing sessions automatically in the background on first launch while keeping the original files and showing conversion status in `/doctor`.
-- Changed browser actions to click through steps directly and try existing sessions or saved logins first, handing off only passwords, cards, codes, or identity checks.
-- Changed the Android app to show a reconnect screen, reconnect automatically when the network returns or the app reopens, and offer "Choose another PC".
-- Changed worktree removal to delete a branch only when Mixdog created it and git considers it merged, keeping its commits recoverable.
-- Changed the support address to support@mixdog.ai and the website link to mixdog.ai.
-
-### Bug fixes
-
-- Fixed the app slowing down or stalling with many open sessions, and sped up opening sessions after launch (#316).
-- Fixed Computer Use clicks missing targets on scaled high-DPI displays, background actions pulling focus and flickering the active window, and your own mouse or keyboard input pausing every agent instead of only the one it interrupted, which now resumes when you're idle or with Resume (#323).
-- Fixed worker and sub-agent status to show the real state from start to finish and count hidden thinking as progress, so working agents are no longer treated as stalled (#319).
-- Fixed reset-ticket details in the usage popup to expand in place so every ticket's expiry stays readable (#324).
-- Fixed the live status line under a running turn overlapping its text in narrow windows during a long wait (#326).
-- Fixed the window frame flickering to its inactive look when focus moves to another window or back on Windows Mica.
-- Fixed a full disk shutting down the background service instead of retrying saves and still delivering shell results.
-- Fixed `/stop` on shell jobs to report jobs that had already finished instead of "Couldn't stop" and free the project folder right away.
-- Fixed the phone app waiting on large content when opening side panels, clipping values in the route editor model menu, disconnecting after a single missed acknowledgement, and getting stuck while starting voice input.
-- Fixed guide tour and welcome cards splitting Korean words across lines, non-git project folders showing an error instead of an empty branch menu, and Gemini rate-limit retries being mistaken for a hang.
-- Fixed HID devices chosen in the built-in browser failing to connect to the site (#313).
-- Fixed the HID device chooser showing stretched flat ovals across the row instead of device names (#314).
-- Fixed the Sessions list showing blank rows when returning from another menu or jumping to the top when growing past 40 rows (#315).
-- Fixed code search on Linux showing stale results for files reached through symbolic links.
-- Fixed the model picker in the agent editor stretching across the entire dialog.
+Going forward, we will work to improve and stabilize Mixdog's features faster. If you run into any issues, please let us know on [GitHub Issues](https://github.com/tribgames/mixdog/issues) or through Settings › About › Give feedback in the app.
 
 ## v1.4.5 - 2026-11-03
 

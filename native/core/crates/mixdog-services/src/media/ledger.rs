@@ -51,6 +51,7 @@ pub async fn record_media_usage(sink: &dyn UsageSink, pricing: &dyn UsagePricing
         facts: Facts {
             input_tokens: Some(count("inputTokens")),
             input_tokens_known: None,
+            output_tokens_known: usage.and_then(|u| u.get("outputTokens")).and_then(Value::as_f64).is_some_and(|n| n.is_finite() && n >= 0.0),
             output_tokens: count("outputTokens"),
             cached_tokens: count("cachedTokens"),
             cache_write_tokens: 0.0,

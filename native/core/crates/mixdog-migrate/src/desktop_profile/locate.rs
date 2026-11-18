@@ -7,12 +7,6 @@ use std::path::PathBuf;
 /// Set by the desktop launcher to the profile it names for the core it starts.
 pub const USER_DATA_ENV: &str = "MIXDOG_DESKTOP_USER_DATA";
 
-/// `<P>`: the launcher's `--desktop-profile` when given, else `MIXDOG_DESKTOP_USER_DATA` when set.
-/// `None` when the launcher names none: the core never guesses a profile (D-profile-1).
-pub fn desktop_profile_dir(launcher_arg: Option<&Path>) -> Option<PathBuf> {
-    desktop_profile_dir_with(launcher_arg, &|name| std::env::var_os(name))
-}
-
 /// `desktop_profile_dir` over an explicit environment.
 pub fn desktop_profile_dir_with(
     launcher_arg: Option<&Path>,
@@ -48,20 +42,6 @@ mod tests {
     }
 
     #[test]
-    fn launcher_argument_wins_over_environment() {
-        let arg = std::env::temp_dir().join("launcher-profile");
-        let env = env_of(&[(USER_DATA_ENV, "ignored")]);
-        assert_eq!(desktop_profile_dir_with(Some(&arg), &env), Some(arg));
-    }
-
-    #[test]
-    fn user_data_variable_names_the_profile() {
-        let dir = std::env::temp_dir().join("isolated-run");
-        let env = env_of(&[(USER_DATA_ENV, dir.to_str().unwrap())]);
-        assert_eq!(desktop_profile_dir_with(None, &env), Some(dir));
-    }
-
-    #[test]
     fn empty_user_data_variable_is_unset() {
         let env = env_of(&[(USER_DATA_ENV, "")]);
         assert_eq!(desktop_profile_dir_with(None, &env), None);
@@ -76,4 +56,25 @@ mod tests {
         ]);
         assert_eq!(desktop_profile_dir_with(None, &env), None);
     }
+
+
+    #[test]
+    fn launcher_argument_wins_over_environment() {
+        let arg = std::env::temp_dir().join("launcher-profile");
+        let env = env_of(&[(USER_DATA_ENV, "ignored")]);
+        assert_eq!(desktop_profile_dir_with(Some(&arg), &env), Some(arg));
+    }
+    #[test]
+    fn user_data_variable_names_the_profile() {
+        let dir = std::env::temp_dir().join("isolated-run");
+        let env = env_of(&[(USER_DATA_ENV, dir.to_str().unwrap())]);
+        assert_eq!(desktop_profile_dir_with(None, &env), Some(dir));
+    }
+}
+
+
+/// `<P>`: the launcher's `--desktop-profile` when given, else `MIXDOG_DESKTOP_USER_DATA` when set.
+/// `None` when the launcher names none: the core never guesses a profile (D-profile-1).
+pub fn desktop_profile_dir(launcher_arg: Option<&Path>) -> Option<PathBuf> {
+    desktop_profile_dir_with(launcher_arg, &|name| std::env::var_os(name))
 }

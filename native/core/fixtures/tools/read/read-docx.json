@@ -1,8 +1,0 @@
-{
-  "input": {
-    "path": "a.docx"
-  },
-  "isError": false,
-  "text": "(no text content in document)",
-  "tool": "read"
-}

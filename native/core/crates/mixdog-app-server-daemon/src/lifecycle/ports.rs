@@ -10,6 +10,10 @@ use super::model::DiscoveryState;
 use super::model::DrainNotice;
 use super::model::Running;
 
+/// The manager's result, published independently of whether the stop step returns.
+/// Empty means that no result has been reported, not that cleanup was verified.
+pub type ManagedDrain = std::sync::OnceLock<mixdog_spawn::ShutdownOutcome>;
+
 /// The running core: feed publication, work cancellation and the ordered release steps
 /// (LR §5.3 steps 1–3 and 6).
 pub trait CorePort: Send + Sync {
@@ -40,7 +44,8 @@ pub trait CorePort: Send + Sync {
     fn close_connections(&self);
     /// `bye`, then wait for the extension host to exit.
     fn close_ext_host(&self);
-    fn close_data_handles(&self);
+    /// Run the core's stop steps and publish the managed child drain before flushing.
+    fn close_data_handles(&self, drain: &ManagedDrain);
     /// Writes out the log lines still queued. Runs once, right before the process ends, on every release path (a stuck step included),
     /// as Node's `process.on('exit', flushDaemonLogsSync)` does. Default: nothing to write.
     fn flush_log(&self) {}
@@ -54,7 +59,7 @@ pub trait Publication: Send + Sync {
     fn withdraw(&self);
 }
 
-/// Process exit with `code` (0, or 2 for Node's fatal boot error). The real implementation never returns.
+/// Process exit with `code`. The real implementation never returns.
 pub trait Exiter: Send + Sync {
     fn exit(&self, code: i32);
 }

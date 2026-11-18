@@ -1,13 +1,20 @@
 // Browser Use ships install-first, so every entry point to it — the rail
 // launcher included — appears only once the feature is installed, matching the
-// session tool surface. The settings panel announces marker changes, so an
-// install lands live without polling.
+// session tool surface. The marker is the core's pushed `config`/`desktop`
+// section, read through the window's section store: a section that has not
+// arrived is UNKNOWN (never "not installed"). A host without the feed can
+// still answer with the same marker over the desktop settings API.
 import { useEffect, useState } from 'react';
+import { desktopSettingsFromConfig } from '../shared/desktop-settings';
 import { isSshConnectionWindow } from './desktop-connection';
+import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
+import { useSection } from './section-store';
+import { readDesktopStatus } from './settings/desktop-status-cache';
+import { useDesktopStatus } from './settings/use-desktop-status';
 
-/** The last resolved marker outlives the renderer: on the phone the settings
- *  read rides the relay, and the first paint drew every Browser Use entry a
- *  beat late (user: 처음에 NEW TASK에 브라우저 아이콘이 안 나왔다 생김). */
+/** The last known marker outlives the renderer, so the first paint of the next
+ *  start already draws every Browser Use entry (user: 처음에 NEW TASK에 브라우저
+ *  아이콘이 안 나왔다 생김). It only stands in while the section is unknown. */
 const BROWSER_FEATURE_INSTALLED_KEY = 'mixdog.desktop.browser-feature-installed.v1';
 
 function readStoredBrowserFeatureInstalled(): boolean | null {
@@ -23,58 +30,37 @@ function readStoredBrowserFeatureInstalled(): boolean | null {
 // A server window has no browser pane: the pane drives this PC's browser.
 const browserPaneUnavailable = isSshConnectionWindow();
 
-let cachedBrowserFeatureInstalled: boolean | null = browserPaneUnavailable
-  ? false
-  : readStoredBrowserFeatureInstalled();
-
-async function readBrowserFeatureInstalled(): Promise<boolean | null> {
-  if (browserPaneUnavailable) return false;
-  try {
-    const settings = await window.mixdogDesktop?.readSettings?.();
-    cachedBrowserFeatureInstalled = settings?.browserInstalled !== false;
+/** `null` while the marker is still unknown: callers hide the entry instead of
+ *  painting one that disappears a frame later. */
+export function useBrowserFeatureInstalled(): boolean | null {
+  const desktop = useSection<unknown>('config', 'desktop');
+  const [lastKnown] = useState(readStoredBrowserFeatureInstalled);
+  // A section the core published as a stub (null) carries no value either.
+  const held =
+    desktop && typeof desktop === 'object' && !Array.isArray(desktop)
+      ? desktopSettingsFromConfig({ desktop }).browserInstalled
+      : null;
+  const api = window.mixdogDesktop;
+  const fallbackNeeded = !browserPaneUnavailable && held === null;
+  const settings = useDesktopStatus(api, 'settings', fallbackNeeded);
+  useEffect(() => {
+    if (!fallbackNeeded) return;
+    const refresh = () => void readDesktopStatus(api, 'settings')?.catch(() => undefined);
+    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, refresh);
+    window.addEventListener('mixdog:built-in-features-changed', refresh);
+    return () => {
+      window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, refresh);
+      window.removeEventListener('mixdog:built-in-features-changed', refresh);
+    };
+  }, [api, fallbackNeeded]);
+  const installed = held ?? settings?.browserInstalled ?? null;
+  useEffect(() => {
+    if (installed === null || browserPaneUnavailable) return;
     try {
-      window.localStorage.setItem(BROWSER_FEATURE_INSTALLED_KEY, String(cachedBrowserFeatureInstalled));
+      window.localStorage.setItem(BROWSER_FEATURE_INSTALLED_KEY, String(installed));
     } catch {
       /* session-only */
     }
-  } catch {
-    // A failed read stays UNKNOWN (or keeps the last known value). Caching
-    // it as false poisoned the whole app run: one boot-time IPC race — the
-    // app and daemon restart together after a deploy — hid every Browser
-    // Use entry point until the next restart (user: 브라우저 유즈 버튼 왜
-    // 사라짐).
-  }
-  return cachedBrowserFeatureInstalled;
-}
-
-/** `null` while the marker is still unknown: callers hide the entry instead of
- *  painting one that disappears a frame later. A read that FAILS leaves the
- *  marker unknown, so this retries with backoff instead of letting one boot
- *  race hide an installed feature until the next restart. */
-export function useBrowserFeatureInstalled(): boolean | null {
-  const [installed, setInstalled] = useState<boolean | null>(() => cachedBrowserFeatureInstalled);
-  useEffect(() => {
-    let live = true;
-    let timer = 0;
-    const refresh = (attempt = 0) => {
-      void readBrowserFeatureInstalled().then((next) => {
-        if (!live) return;
-        setInstalled(next);
-        if (next === null && attempt < 5) {
-          timer = window.setTimeout(() => refresh(attempt + 1), (attempt + 1) * 1000);
-        }
-      });
-    };
-    refresh();
-    // The listener wraps refresh so the Event object can never ride in as
-    // the attempt counter.
-    const onChange = () => refresh();
-    window.addEventListener('mixdog:built-in-features-changed', onChange);
-    return () => {
-      live = false;
-      window.clearTimeout(timer);
-      window.removeEventListener('mixdog:built-in-features-changed', onChange);
-    };
-  }, []);
-  return installed;
+  }, [installed]);
+  return browserPaneUnavailable ? false : (installed ?? lastKnown);
 }

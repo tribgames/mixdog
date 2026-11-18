@@ -66,33 +66,6 @@ fn lexical(path: &Path) -> PathBuf {
     out
 }
 
-fn home_dir() -> Option<PathBuf> {
-    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
-}
-
-fn expand_home(requested: &str) -> PathBuf {
-    let home = home_dir();
-    let rest = requested.strip_prefix("~/").or_else(|| if cfg!(windows) { requested.strip_prefix("~\\") } else { None });
-    match (requested, rest, home) {
-        ("~", _, Some(home)) => home,
-        (_, Some(rest), Some(home)) => home.join(rest),
-        _ => PathBuf::from(requested),
-    }
-}
-
-/// The directory hooks and approvals see for a call: a shell call's own `cwd` argument
-/// resolved against the session directory, the session directory for every other tool.
-pub fn effective_tool_cwd(tool: &str, args: &Value, session_cwd: &Path) -> PathBuf {
-    if tool != "shell" {
-        return session_cwd.to_path_buf();
-    }
-    let Some(requested) = args.get("cwd").and_then(Value::as_str).filter(|r| !js_trim(r).is_empty()) else {
-        return session_cwd.to_path_buf();
-    };
-    let base = if session_cwd.as_os_str().is_empty() { std::env::current_dir().unwrap_or_default() } else { session_cwd.to_path_buf() };
-    lexical(&base.join(expand_home(requested)))
-}
-
 /// The note a blocking `PostToolBatch` hook adds before the next model call (`None`: nothing to
 /// add).
 pub fn batch_reminder(reason: Option<&str>) -> Option<String> {
@@ -118,6 +91,13 @@ mod tests {
     }
 
     #[test]
+    fn the_batch_note_wraps_the_reason() {
+        assert_eq!(batch_reminder(Some(" stop ")).as_deref(), Some("<system-reminder>\nstop\n</system-reminder>"));
+        assert_eq!(batch_reminder(None).as_deref(), Some("<system-reminder>\nPostToolBatch hook blocked continuation\n</system-reminder>"));
+    }
+
+
+    #[test]
     fn only_a_shell_call_changes_the_hook_directory() {
         let session = std::env::temp_dir();
         assert_eq!(effective_tool_cwd("read", &json!({"cwd": "x"}), &session), session);
@@ -127,10 +107,30 @@ mod tests {
         let absolute = session.join("abs");
         assert_eq!(effective_tool_cwd("shell", &json!({"cwd": absolute.to_string_lossy()}), &session), absolute);
     }
+}
 
-    #[test]
-    fn the_batch_note_wraps_the_reason() {
-        assert_eq!(batch_reminder(Some(" stop ")).as_deref(), Some("<system-reminder>\nstop\n</system-reminder>"));
-        assert_eq!(batch_reminder(None).as_deref(), Some("<system-reminder>\nPostToolBatch hook blocked continuation\n</system-reminder>"));
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
+}
+fn expand_home(requested: &str) -> PathBuf {
+    let home = home_dir();
+    let rest = requested.strip_prefix("~/").or_else(|| if cfg!(windows) { requested.strip_prefix("~\\") } else { None });
+    match (requested, rest, home) {
+        ("~", _, Some(home)) => home,
+        (_, Some(rest), Some(home)) => home.join(rest),
+        _ => PathBuf::from(requested),
     }
+}
+/// The directory hooks and approvals see for a call: a shell call's own `cwd` argument
+/// resolved against the session directory, the session directory for every other tool.
+pub fn effective_tool_cwd(tool: &str, args: &Value, session_cwd: &Path) -> PathBuf {
+    if tool != "shell" {
+        return session_cwd.to_path_buf();
+    }
+    let Some(requested) = args.get("cwd").and_then(Value::as_str).filter(|r| !js_trim(r).is_empty()) else {
+        return session_cwd.to_path_buf();
+    };
+    let base = if session_cwd.as_os_str().is_empty() { std::env::current_dir().unwrap_or_default() } else { session_cwd.to_path_buf() };
+    lexical(&base.join(expand_home(requested)))
 }

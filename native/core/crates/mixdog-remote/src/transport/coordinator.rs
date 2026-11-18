@@ -1636,6 +1636,24 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
         }
     }
 
+    /// Withdraws a send that is still queued (a media message whose authority ended before it was committed): nothing of it was
+    /// sealed, so it leaves the queue and settles as dropped (`Ok(None)`), and its ticket is released. Capacity may have returned
+    /// and the message been sealed just before this runs: then it is found settled, nothing happens, and a control message (`end`,
+    /// `error`) goes out; the guarantee is only that no media bytes are committed after the end. A send already settled is
+    /// not found and nothing happens. One that has a record in the stream (or sealed for it) cannot be finished or dropped without a
+    /// hole in the sequence: the session ends instead.
+    pub fn cancel_send(&mut self, ticket: u64) {
+        let Some(at) = self.queue.iter().position(|item| item.ticket == ticket) else { return };
+        let item = &self.queue[at];
+        if item.index == 0 && item.sealed.is_empty() {
+            if let Some(item) = self.queue.remove(at) {
+                self.host.send_settled(item.ticket, Ok(None));
+            }
+        } else {
+            self.fail(EndReason::Revoked);
+        }
+    }
+
     /// The phone's permission to view ended (an unpair): a live-view message at the head whose first record already entered cannot
     /// be finished, and the phone cannot reassemble half of it, so it is abandoned and the session ends (`revoked`). Its unsent
     /// records were sealed on this session's own channel, which ends with it. The gate is asked, so a call while the write is still

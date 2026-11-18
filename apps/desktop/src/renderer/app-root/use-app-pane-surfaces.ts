@@ -5,7 +5,6 @@ import { useAppPersistentPaneSurfaces } from '../use-app-persistent-pane-surface
 import { useAppWorkspaceWarmup } from '../use-app-boot';
 import { usePaneConversationRenderer } from './use-pane-conversation-renderer';
 import { paneSideDockLinkRoutes } from './app-conversation-pane-renderer';
-import { applySessionLaneResult } from './use-app-task-lifecycle';
 import type { AppWorkspaceShell } from './use-app-workspace-shell';
 import type { AppNavigationShell } from './use-app-navigation-shell';
 import type { AppSessionLifecycle } from './use-app-session-lifecycle';
@@ -107,7 +106,6 @@ export function useAppPaneSurfaces(
     paneSubmitFor,
     paneDraftSubmitFor,
     submit,
-    applySessionLaneResult,
     applySnapshot,
     composerFocusRequest,
     openSidebar,

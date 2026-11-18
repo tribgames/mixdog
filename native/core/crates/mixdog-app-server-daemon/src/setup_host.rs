@@ -26,28 +26,6 @@ use mixdog_core_domains::domains::ai_admin::model_warmup::WarmupMarks;
 use mixdog_core_domains::domains::ai_account::setup_cache::SetupHost;
 use mixdog_core_domains::domains::ai_account::collaborators::ProviderSetup;
 use mixdog_rt::TaskClass;
-
-/// The usage dashboards' view of the setup (`SetupSource`): `cachedProviderSetup({ force, quick })` and `displayConfig()` (the live config, as the gatherer reads it).
-pub struct SetupSourceOf {
-    pub setup: Arc<CachedProviderSetup>,
-    pub config: Config,
-    /// The providers of the loaded config (`loadConfig().providers`).
-    pub effective: Arc<mixdog_ai::registry::effective::EffectiveProviders>,
-}
-
-#[async_trait::async_trait]
-impl mixdog_core_domains::domains::ai_account::SetupSource for SetupSourceOf {
-    async fn setup(&self, force: bool, quick: bool) -> Result<serde_json::Value, String> {
-        self.setup.cached(force, quick).await.map_err(|failure| failure.message().to_owned())
-    }
-
-    async fn display_config(&self) -> Result<serde_json::Value, String> {
-        let mut config = self.config.loaded_agent().await.map_err(|error| error.to_string())?;
-        let providers = self.effective.load(&config, true).await?;
-        config.insert("providers".into(), serde_json::Value::Object(providers));
-        Ok(serde_json::Value::Object(config))
-    }
-}
 /// `MIXDOG_PROVIDER_SETUP_WARMUP_DELAY_MS` and its default (`runtime-tunables.mjs:14`).
 pub const WARMUP_DELAY_ENV: &str = "MIXDOG_PROVIDER_SETUP_WARMUP_DELAY_MS";
 const WARMUP_DELAY_DEFAULT_MS: u64 = 300;
@@ -84,62 +62,6 @@ pub struct SetupWarmup {
     closing: Arc<dyn Fn() -> bool + Send + Sync>,
     marks: Arc<dyn WarmupMarks>,
     setup: OnceLock<Arc<dyn ProviderSetup>>,
-}
-
-impl SetupWarmup {
-    pub fn new(delay_ms: u64, closing: Arc<dyn Fn() -> bool + Send + Sync>, marks: Arc<dyn WarmupMarks>) -> Arc<Self> {
-        Arc::new(Self { delay_ms, pending: AtomicBool::new(false), closing, marks, setup: OnceLock::new() })
-    }
-
-    /// Binds the setup the timer warms; a second bind is refused.
-    pub fn bind(&self, setup: Arc<dyn ProviderSetup>) -> Result<(), Arc<dyn ProviderSetup>> {
-        self.setup.set(setup)
-    }
-
-    /// `getProviderSetupWarmupTimer() !== null`.
-    pub fn pending(&self) -> bool {
-        self.pending.load(Ordering::SeqCst)
-    }
-
-    pub fn closing(&self) -> bool {
-        (self.closing)()
-    }
-
-    /// The boot's `scheduleProviderSetupWarmup()` with the default delay.
-    pub fn schedule_default(self: &Arc<Self>) {
-        self.schedule(self.delay_ms);
-    }
-
-    /// `arm('providerSetupWarmupTimer', delayMs, run)`: nothing when already pending or closing; the slot clears when the timer fires, and the
-    /// run happens only while the runtime is open. The result of the warm-up is only a boot-profile mark.
-    pub fn schedule(self: &Arc<Self>, delay_ms: u64) {
-        if self.pending() || self.closing() {
-            return;
-        }
-        if self.pending.swap(true, Ordering::SeqCst) {
-            return;
-        }
-        let delay = Duration::from_millis(delay_ms);
-        self.marks.armed(SLOT, delay);
-        // `setTimeout` counts from the call, not from when the task is first polled.
-        let deadline = tokio::time::Instant::now() + delay;
-        let this = self.clone();
-        mixdog_rt::spawn("provider-setup-warmup", TaskClass::Work, async move {
-            mixdog_rt::time::sleep_until(deadline).await;
-            this.marks.running(SLOT, true);
-            this.pending.store(false, Ordering::SeqCst);
-            if !this.closing()
-                && let Some(setup) = this.setup.get()
-            {
-                // `cachedProviderSetup()`
-                match setup.get(false, false, false, false).await {
-                    Ok(_) => this.marks.profile("provider-setup:warm-ready", None),
-                    Err(failure) => this.marks.profile("provider-setup:warm-failed", Some(serde_json::json!({ "error": failure.message() }))),
-                }
-            }
-            this.marks.running(SLOT, false);
-        });
-    }
 }
 
 /// The model warm's late cell: bound once the model list and the runtime's gates exist; `verify_bound` checks it.
@@ -186,34 +108,6 @@ pub struct DaemonSetupHost {
     pub env: SetupEnvironment,
     pub config: Config,
     pub warmup: Arc<SetupWarmup>,
-}
-
-impl SetupHost for DaemonSetupHost {
-    fn model_proxy_client(&self) -> bool {
-        mixdog_ai::service::admin_models::model_proxy_client_mode(&|name| (self.env)(name))
-    }
-
-    /// `reloadFullConfig()`: the same `Config::reload` the auth-refresh effects run.
-    fn reload_full_config(&self) {
-        let config = self.config.clone();
-        mixdog_rt::spawn("provider-setup-reload", TaskClass::Work, async move {
-            let _ = config.reload().await;
-        });
-    }
-
-    fn warmup_pending(&self) -> bool {
-        self.warmup.pending()
-    }
-
-    /// `scheduleProviderSetupWarmup(0)`.
-    fn schedule_warmup(&self) {
-        // The slot lives behind an `Arc` the caller holds; `schedule` needs it by `Arc`.
-        self.warmup.clone().schedule(0);
-    }
-
-    fn closing(&self) -> bool {
-        self.warmup.closing()
-    }
 }
 
 /// The auth-refresh effects with the provider-setup cache dropped where Node's one `invalidateProviderCaches()` drops it
@@ -283,6 +177,7 @@ mod tests {
         }
     }
 
+
     /// One timer slot: armed once, cleared when it fires, never armed while closing.
     #[tokio::test(start_paused = true)]
     async fn the_slot_is_armed_once_and_cleared_when_it_fires() {
@@ -308,5 +203,109 @@ mod tests {
         closing.store(true, Ordering::SeqCst);
         warmup.schedule(0);
         assert!(!warmup.pending(), "a closing runtime arms nothing");
+    }
+}
+
+
+/// The usage dashboards' view of the setup (`SetupSource`): `cachedProviderSetup({ force, quick })` and `displayConfig()` (the live config, as the gatherer reads it).
+pub struct SetupSourceOf {
+    pub setup: Arc<CachedProviderSetup>,
+    pub config: Config,
+    /// The providers of the loaded config (`loadConfig().providers`).
+    pub effective: Arc<mixdog_ai::registry::effective::EffectiveProviders>,
+}
+#[async_trait::async_trait]
+impl mixdog_core_domains::domains::ai_account::SetupSource for SetupSourceOf {
+    async fn setup(&self, force: bool, quick: bool) -> Result<serde_json::Value, String> {
+        self.setup.cached(force, quick).await.map_err(|failure| failure.message().to_owned())
+    }
+
+    async fn display_config(&self) -> Result<serde_json::Value, String> {
+        let mut config = self.config.loaded_agent().await.map_err(|error| error.to_string())?;
+        let providers = self.effective.load(&config, true).await?;
+        config.insert("providers".into(), serde_json::Value::Object(providers));
+        Ok(serde_json::Value::Object(config))
+    }
+}
+impl SetupWarmup {
+    pub fn new(delay_ms: u64, closing: Arc<dyn Fn() -> bool + Send + Sync>, marks: Arc<dyn WarmupMarks>) -> Arc<Self> {
+        Arc::new(Self { delay_ms, pending: AtomicBool::new(false), closing, marks, setup: OnceLock::new() })
+    }
+
+    /// Binds the setup the timer warms; a second bind is refused.
+    pub fn bind(&self, setup: Arc<dyn ProviderSetup>) -> Result<(), Arc<dyn ProviderSetup>> {
+        self.setup.set(setup)
+    }
+
+    /// `getProviderSetupWarmupTimer() !== null`.
+    pub fn pending(&self) -> bool {
+        self.pending.load(Ordering::SeqCst)
+    }
+
+    pub fn closing(&self) -> bool {
+        (self.closing)()
+    }
+
+    /// The boot's `scheduleProviderSetupWarmup()` with the default delay.
+    pub fn schedule_default(self: &Arc<Self>) {
+        self.schedule(self.delay_ms);
+    }
+
+    /// `arm('providerSetupWarmupTimer', delayMs, run)`: nothing when already pending or closing; the slot clears when the timer fires, and the
+    /// run happens only while the runtime is open. The result of the warm-up is only a boot-profile mark.
+    pub fn schedule(self: &Arc<Self>, delay_ms: u64) {
+        if self.pending() || self.closing() {
+            return;
+        }
+        if self.pending.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let delay = Duration::from_millis(delay_ms);
+        self.marks.armed(SLOT, delay);
+        // `setTimeout` counts from the call, not from when the task is first polled.
+        let deadline = tokio::time::Instant::now() + delay;
+        let this = self.clone();
+        mixdog_rt::spawn("provider-setup-warmup", TaskClass::Work, async move {
+            mixdog_rt::time::sleep_until(deadline).await;
+            this.marks.running(SLOT, true);
+            this.pending.store(false, Ordering::SeqCst);
+            if !this.closing()
+                && let Some(setup) = this.setup.get()
+            {
+                // `cachedProviderSetup()`
+                match setup.get(false, false, false, false).await {
+                    Ok(_) => this.marks.profile("provider-setup:warm-ready", None),
+                    Err(failure) => this.marks.profile("provider-setup:warm-failed", Some(serde_json::json!({ "error": failure.message() }))),
+                }
+            }
+            this.marks.running(SLOT, false);
+        });
+    }
+}
+impl SetupHost for DaemonSetupHost {
+    fn model_proxy_client(&self) -> bool {
+        mixdog_ai::service::admin_models::model_proxy_client_mode(&|name| (self.env)(name))
+    }
+
+    /// `reloadFullConfig()`: the same `Config::reload` the auth-refresh effects run.
+    fn reload_full_config(&self) {
+        let config = self.config.clone();
+        mixdog_rt::spawn("provider-setup-reload", TaskClass::Work, async move {
+            let _ = config.reload().await;
+        });
+    }
+
+    fn warmup_pending(&self) -> bool {
+        self.warmup.pending()
+    }
+
+    /// `scheduleProviderSetupWarmup(0)`.
+    fn schedule_warmup(&self) {
+        // The slot lives behind an `Arc` the caller holds; `schedule` needs it by `Arc`.
+        self.warmup.clone().schedule(0);
+    }
+
+    fn closing(&self) -> bool {
+        self.warmup.closing()
     }
 }

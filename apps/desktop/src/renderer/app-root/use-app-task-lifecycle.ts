@@ -27,15 +27,12 @@ import { recordNavigationVisit, type NavigationHistory } from '../navigation-his
 
 export const LAST_SESSION_KEY = 'mixdog.desktop-last-session.v1';
 
-export function applySessionLaneResult(sessionId: string, next: SessionSnapshot | null): void {
+/** The first state of a session this window's own operation created (a new task's start, a fork), as that operation answered. */
+export function seedCreatedSessionLane(sessionId: string, next: SessionSnapshot | null): void {
   if (!sessionId || !next || typeof next !== 'object') return;
   const returnedSessionId = String((next as Snapshot).sessionId || '');
   if (returnedSessionId && returnedSessionId !== sessionId) return;
-  defaultSessionLaneStore.apply({
-    sessionId,
-    snapshot: next,
-    frameSource: 'live',
-  });
+  defaultSessionLaneStore.seedCreatedSession(sessionId, next);
 }
 
 export interface UseAppTaskLifecycleOptions {
@@ -429,7 +426,7 @@ export function useAppTaskLifecycle({
           refreshSessions,
           readSession: requestSessionRead,
           snapshot: (id) => defaultSessionLaneStore.get(id) as SessionSnapshot,
-          prepare: applySessionLaneResult,
+          prepare: seedCreatedSessionLane,
           replace: (leafId, sel, title, sourceKey, focused) => {
             if (focused) {
               navigationEpoch.current += 1;

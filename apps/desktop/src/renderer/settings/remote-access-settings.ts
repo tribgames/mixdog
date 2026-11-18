@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import type { DesktopApi, DesktopRemoteAccessSettings } from '../../shared/contract';
+import { startSettingsReadRecovery } from './read-recovery';
 
-type RemoteAccessSettingsApi = Partial<Pick<DesktopApi, 'getRemoteAccessSettings' | 'subscribeRemoteAccessSettings'>>;
+type RemoteAccessSettingsApi = Partial<
+  Pick<DesktopApi, 'getRemoteAccessSettings' | 'getRemoteConnectionState' | 'subscribeRemoteAccessSettings'>
+>;
 
 // The last answer per host API: reopening a page paints it at once instead of
 // waiting for the host again.
@@ -26,16 +29,30 @@ export function useRemoteAccessSettings(
     [api]
   );
   useEffect(() => {
-    if (!api?.getRemoteAccessSettings) return undefined;
+    const read = api?.getRemoteAccessSettings;
+    if (!read) return undefined;
     let live = true;
-    void api
-      .getRemoteAccessSettings()
-      .then((next) => live && setSettings(next))
-      .catch(() => undefined)
-      .finally(() => live && setSettled(true));
-    const unsubscribe = api.subscribeRemoteAccessSettings?.((next) => live && setSettings(next));
+    let revision = 0;
+    const reread = async (signal?: AbortSignal) => {
+      const stamp = revision;
+      try {
+        const next = await read();
+        if (live && !signal?.aborted && stamp === revision && next) setSettings(next);
+      } finally {
+        if (live && !signal?.aborted) setSettled(true);
+      }
+    };
+    // The main Connection read already recovers settings on cores with a full state lane.
+    const recovery = api?.getRemoteConnectionState ? undefined : startSettingsReadRecovery(reread, 10_000, true, true);
+    if (!recovery) void reread().catch(() => undefined);
+    const unsubscribe = api?.subscribeRemoteAccessSettings?.((next) => {
+      if (!live || !next) return;
+      revision += 1;
+      setSettings(next);
+    });
     return () => {
       live = false;
+      recovery?.stop();
       unsubscribe?.();
     };
   }, [api, setSettings]);

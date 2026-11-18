@@ -147,15 +147,6 @@ pub(super) fn displays() -> Vec<DisplayInfo> {
     vec![DisplayInfo { id: DisplayId(0), x, y, width, height, scale_percent: 100 }]
 }
 
-/// The pictures of display `display`, at its size, thirty a second, until the source is dropped.
-pub(super) fn source(display: DisplayId) -> Result<Box<dyn MediaFrameSource>, ComputerError> {
-    let shown = displays().into_iter().find(|listed| listed.id == display).ok_or_else(|| ComputerError::InvalidInput { reason: format!("unknown display {}", display.0) })?;
-    let (tx, rx) = async_mpsc::channel(1);
-    let (stop, stopped) = mpsc::channel();
-    std::thread::spawn(move || capture_loop(&shown, &tx, &stopped));
-    Ok(Box::new(MonitorSource { display, rx, _stop: stop }))
-}
-
 /// The GDI objects that read one rectangle of the screen: a screen device context and a memory one over a DIB section the size of the
 /// rectangle, so a picture is one `BitBlt` and one copy. They belong to the desktop their thread was attached to when they were made.
 struct Grabber {
@@ -254,6 +245,57 @@ fn next_frame_due(stopped: &mpsc::Receiver<()>, wait: Duration) -> bool {
     matches!(stopped.recv_timeout(wait), Err(mpsc::RecvTimeoutError::Timeout))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn found(left: i32, top: i32, right: i32, bottom: i32, primary: bool, scale_percent: u32) -> Found {
+        Found { area: RECT { left, top, right, bottom }, primary, scale_percent }
+    }
+
+    #[test]
+    fn the_pause_between_pictures_is_the_time_left_of_the_interval_and_ends_at_once_when_the_source_is_dropped() {
+        let (stop, stopped) = mpsc::channel::<()>();
+        let started = Instant::now();
+        assert!(next_frame_due(&stopped, FRAME_INTERVAL));
+        assert!(started.elapsed() >= FRAME_INTERVAL);
+        // A picture that took the whole interval is followed at once.
+        let started = Instant::now();
+        assert!(next_frame_due(&stopped, Duration::ZERO));
+        assert!(started.elapsed() < FRAME_INTERVAL);
+        drop(stop);
+        let started = Instant::now();
+        assert!(!next_frame_due(&stopped, FRAME_INTERVAL));
+        assert!(started.elapsed() < FRAME_INTERVAL);
+    }
+
+    #[test]
+    fn a_dpi_is_a_scale_in_percent() {
+        assert_eq!([percent_of_dpi(96), percent_of_dpi(120), percent_of_dpi(144), percent_of_dpi(192)], [100, 125, 150, 200]);
+    }
+
+    #[test]
+    fn a_monitor_is_its_rectangle_in_pixels_with_the_scale_it_was_read_at() {
+        let left = display_of(1, &found(-2560, -200, 0, 1240, false, 150)).expect("a display");
+        assert_eq!(left, DisplayInfo { id: DisplayId(1), x: -2560, y: -200, width: 2560, height: 1440, scale_percent: 150 });
+    }
+
+    #[test]
+    fn a_monitor_with_no_area_is_not_a_display() {
+        assert_eq!(display_of(0, &found(0, 0, 0, 1080, true, 100)), None);
+        assert_eq!(display_of(0, &found(10, 10, 5, 20, true, 100)), None);
+    }
+}
+
+
+/// The pictures of display `display`, at its size, thirty a second, until the source is dropped.
+pub(super) fn source(display: DisplayId) -> Result<Box<dyn MediaFrameSource>, ComputerError> {
+    let shown = displays().into_iter().find(|listed| listed.id == display).ok_or_else(|| ComputerError::InvalidInput { reason: format!("unknown display {}", display.0) })?;
+    let (tx, rx) = async_mpsc::channel(1);
+    let (stop, stopped) = mpsc::channel();
+    std::thread::spawn(move || capture_loop(&shown, &tx, &stopped));
+    Ok(Box::new(MonitorSource { display, rx, _stop: stop }))
+}
 /// Captures `area` from the thread attached to the current input desktop until the source is dropped.
 fn capture_loop(area: &DisplayInfo, tx: &async_mpsc::Sender<Result<VideoFrame, MediaError>>, stopped: &mpsc::Receiver<()>) {
     let _physical = PhysicalPixels::enter();
@@ -300,14 +342,12 @@ fn capture_loop(area: &DisplayInfo, tx: &async_mpsc::Sender<Result<VideoFrame, M
         }
     }
 }
-
 struct MonitorSource {
     display: DisplayId,
     rx: async_mpsc::Receiver<Result<VideoFrame, MediaError>>,
     /// Dropped with the source, which wakes the capture thread out of its pause.
     _stop: mpsc::Sender<()>,
 }
-
 #[async_trait]
 impl MediaFrameSource for MonitorSource {
     fn kind(&self) -> FrameSourceKind {
@@ -316,47 +356,5 @@ impl MediaFrameSource for MonitorSource {
 
     async fn next_frame(&mut self) -> Result<Option<VideoFrame>, MediaError> {
         self.rx.recv().await.transpose()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn found(left: i32, top: i32, right: i32, bottom: i32, primary: bool, scale_percent: u32) -> Found {
-        Found { area: RECT { left, top, right, bottom }, primary, scale_percent }
-    }
-
-    #[test]
-    fn the_pause_between_pictures_is_the_time_left_of_the_interval_and_ends_at_once_when_the_source_is_dropped() {
-        let (stop, stopped) = mpsc::channel::<()>();
-        let started = Instant::now();
-        assert!(next_frame_due(&stopped, FRAME_INTERVAL));
-        assert!(started.elapsed() >= FRAME_INTERVAL);
-        // A picture that took the whole interval is followed at once.
-        let started = Instant::now();
-        assert!(next_frame_due(&stopped, Duration::ZERO));
-        assert!(started.elapsed() < FRAME_INTERVAL);
-        drop(stop);
-        let started = Instant::now();
-        assert!(!next_frame_due(&stopped, FRAME_INTERVAL));
-        assert!(started.elapsed() < FRAME_INTERVAL);
-    }
-
-    #[test]
-    fn a_dpi_is_a_scale_in_percent() {
-        assert_eq!([percent_of_dpi(96), percent_of_dpi(120), percent_of_dpi(144), percent_of_dpi(192)], [100, 125, 150, 200]);
-    }
-
-    #[test]
-    fn a_monitor_is_its_rectangle_in_pixels_with_the_scale_it_was_read_at() {
-        let left = display_of(1, &found(-2560, -200, 0, 1240, false, 150)).expect("a display");
-        assert_eq!(left, DisplayInfo { id: DisplayId(1), x: -2560, y: -200, width: 2560, height: 1440, scale_percent: 150 });
-    }
-
-    #[test]
-    fn a_monitor_with_no_area_is_not_a_display() {
-        assert_eq!(display_of(0, &found(0, 0, 0, 1080, true, 100)), None);
-        assert_eq!(display_of(0, &found(10, 10, 5, 20, true, 100)), None);
     }
 }

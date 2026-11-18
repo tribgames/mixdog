@@ -689,7 +689,7 @@ async fn loaded_rig(config: ModelConfig) -> Rig {
     rig
 }
 
-/// The model is unloaded after `KEEP_WARM` (the embedder's six minutes) without a judgment, to the
+/// The model is unloaded after `KEEP_WARM` (the embedder's three minutes) without a judgment, to the
 /// millisecond on the judge's clock.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_model_nobody_judges_with_is_unloaded_after_six_minutes() {
@@ -711,7 +711,7 @@ async fn a_model_nobody_judges_with_is_unloaded_after_six_minutes() {
     assert_eq!(rig.loads(), 2);
 }
 
-/// Every judgment renews the period: the model of a session that judges every five minutes stays.
+/// Every judgment renews the period: the model of a session that judges just inside the period stays.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_judgment_restarts_the_idle_period() {
     let dir = installed();
@@ -724,7 +724,7 @@ async fn a_judgment_restarts_the_idle_period() {
     let again = mixdog_rt::time::timeout(HANG, rig.judge.judge_turn(turn("t2"), PATIENT)).await.expect("a turn");
     assert!(matches!(&again, TurnVerdict::Probs { .. }), "{again:?}");
     rig.clock.advance(KEEP_WARM - MS);
-    assert!(rig.judge.is_ready(), "five minutes fifty-nine seconds after the last judgment");
+    assert!(rig.judge.is_ready(), "one millisecond short of the period after the last judgment");
     rig.clock.advance(MS);
     assert!(!rig.judge.is_ready());
     assert_eq!(rig.loads(), 1);
@@ -744,7 +744,7 @@ async fn a_turns_lease_keeps_the_model_loaded_until_it_ends() {
     rig.judge.hold_warm();
     assert!(rig.judge.is_held_warm());
     rig.clock.advance(three);
-    assert_eq!(rig.threads(), (Some(1), 0), "the period ended at six minutes under the lease");
+    assert_eq!(rig.threads(), (Some(1), 0), "the period ended at its full length under the lease");
     rig.clock.advance(three);
     assert!(!rig.judge.is_held_warm(), "the lease ran out at nine minutes");
     assert!(rig.judge.is_ready());

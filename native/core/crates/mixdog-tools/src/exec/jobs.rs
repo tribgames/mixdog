@@ -12,7 +12,6 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
-use std::sync::OnceLock;
 use std::sync::atomic::AtomicU32;
 use std::time::Duration;
 
@@ -71,6 +70,13 @@ use crate::policy::CommandPolicy;
 /// Bytes kept in memory per stream; older bytes stay only in the spill log, apart from what a read of them needs
 /// (`Stream::keep_dropped`).
 const MEMORY_CAP: usize = 8 * 1024 * 1024;
+/// Bytes past `MEMORY_CAP` a stream lets its buffer's dead front reach before moving the live bytes down, so a stream at
+/// the cap moves `MEMORY_CAP` once per this much output instead of once per chunk.
+const COMPACT_SLACK: usize = MEMORY_CAP / 4;
+/// What a finished background job keeps in memory of each stream: every read of a finished job is its unread range (whose
+/// head the cursor keeps as memory drops it, `Stream::keep_dropped`), at most `FULL_READ_BYTES` read whole, or edges of
+/// `EDGE_READ_BYTES`; the rest is in the stream's log. The margin covers the code-page realignment of a replay's start.
+const FINISHED_KEEP: usize = 2 * FULL_READ_BYTES;
 /// `SHELL_OUTPUT_DISK_CAP` (`shell-exec-output.mjs`): the most a command may write to its two logs together; past it the process is
 /// killed, so a runaway loop cannot fill the disk.
 pub const OUTPUT_DISK_CAP: u64 = 100 * 1024 * 1024;
@@ -91,6 +97,12 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 #[async_trait::async_trait]
 pub trait TaskNotifier: Send + Sync {
     async fn finished(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, notification: String);
+
+    /// [`Self::finished`] for a job the turn at bot-chain `hop` started: the completion returns at that hop
+    /// (`toolCompletionMeta`, `ctx.hop`). A notifier that keeps none ignores it.
+    async fn finished_at_hop(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, notification: String, _hop: u32) {
+        self.finished(owner, surface, task_id, status, notification).await;
+    }
 }
 
 /// Decides, per call, whether an elevated launch (the exec policy's `Ask`) is approved. The
@@ -421,8 +433,10 @@ fn keep_head(head: &mut Vec<u8>, at: u64, from: u64, dropped: &[u8]) {
 
 struct Stream {
     oem: Option<Label>,
+    /// The stream's bytes from `base` are `buf[dead..]`; the front is dropped bytes not yet moved out (`COMPACT_SLACK`).
     buf: Vec<u8>,
-    /// Absolute offset of `buf[0]`.
+    dead: usize,
+    /// Absolute offset of `bytes()[0]`.
     base: u64,
     cursor: Cursor,
     /// Newlines in the bytes before `base`.
@@ -439,6 +453,7 @@ impl Stream {
         Self {
             oem,
             buf: Vec::new(),
+            dead: 0,
             base: 0,
             cursor: Cursor::new(oem),
             dropped_lines: 0,
@@ -447,19 +462,42 @@ impl Stream {
         }
     }
 
+    /// The bytes memory holds, from `base`.
+    fn bytes(&self) -> &[u8] {
+        &self.buf[self.dead..]
+    }
+
     fn end(&self) -> u64 {
-        self.base + self.buf.len() as u64
+        self.base + self.bytes().len() as u64
     }
 
     fn push(&mut self, bytes: &[u8]) {
         self.extend_window(bytes);
         self.buf.extend_from_slice(bytes);
-        if self.buf.len() > MEMORY_CAP {
-            let drop = self.buf.len() - MEMORY_CAP;
+        self.keep_last(MEMORY_CAP, COMPACT_SLACK);
+    }
+
+    /// Drops all but the last `keep` bytes from memory. The dropped bytes stay as a dead front until it passes `slack`,
+    /// then the live bytes move down once, so overflow costs O(chunk) amortized instead of a `MEMORY_CAP` move per chunk.
+    fn keep_last(&mut self, keep: usize, slack: usize) {
+        let live = self.bytes().len();
+        if live > keep {
+            let drop = live - keep;
             self.keep_dropped(drop);
-            self.buf.drain(..drop);
+            self.dead += drop;
             self.base += drop as u64;
         }
+        if self.dead > slack {
+            self.buf.drain(..self.dead);
+            self.dead = 0;
+        }
+    }
+
+    /// A finished job's stream: only what a later read can need stays in memory (`FINISHED_KEEP`), the allocation shrunk.
+    fn trim_finished(&mut self) {
+        self.keep_last(FINISHED_KEEP, 0);
+        self.buf.shrink_to_fit();
+        self.first.shrink_to_fit();
     }
 
     /// Extends the encoding window with `bytes`, about to be appended.
@@ -479,7 +517,7 @@ impl Stream {
     /// Keeps what a read from before `base` needs of the first `len` bytes, about to leave memory: their newlines, the
     /// stream's head and the head of the cursor's unread range.
     fn keep_dropped(&mut self, len: usize) {
-        let (from, dropped) = (self.base, &self.buf[..len]);
+        let (from, dropped) = (self.base, &self.buf[self.dead..self.dead + len]);
         keep_head(&mut self.first, 0, from, dropped);
         let offset = self.cursor.offset;
         if offset < from + len as u64 {
@@ -496,7 +534,7 @@ impl Stream {
     fn slice(&self, from: u64, to: u64) -> &[u8] {
         let from = from.max(self.base);
         let to = to.max(from);
-        &self.buf[(from - self.base) as usize..(to - self.base) as usize]
+        &self.bytes()[(from - self.base) as usize..(to - self.base) as usize]
     }
 
     /// Newlines before `at`, which memory holds.
@@ -553,8 +591,6 @@ struct JobState {
     promoted_ms: Option<u64>,
     /// When the process last wrote to stdout or stderr.
     last_output_ms: Option<u64>,
-    /// The owner's user cycle when the command moved to the background (`stampShellJobCycle`).
-    user_cycle: Option<u64>,
     /// The command wrote past [`OUTPUT_DISK_CAP`] and was killed for it.
     output_capped: bool,
 }
@@ -575,7 +611,6 @@ impl JobState {
             confirmed: false,
             promoted_ms: None,
             last_output_ms: None,
-            user_cycle: None,
             output_capped: false,
         }
     }
@@ -737,7 +772,7 @@ fn decode_visible(cursor: &mut Cursor, bytes: &[u8], flush: bool) -> String {
 }
 
 fn aligned(stream: &Stream, at: u64, label: Option<Label>) -> u64 {
-    aligned_offset(&stream.buf, stream.base, at, label.unwrap_or("utf-8"))
+    aligned_offset(stream.bytes(), stream.base, at, label.unwrap_or("utf-8"))
 }
 
 /// `readRange`: `[start, end)` of `stream`, read with `cursor`. Of a range that starts before memory's `base`, the head
@@ -779,26 +814,6 @@ static ETA: LazyLock<Regex> = LazyLock::new(|| {
         .expect("static pattern")
 });
 
-/// `MIXDOG_SHELL_OUTPUT_SILENCE_WARN_MS` (`resolveTimeoutMs`: a positive number, at least 1 s),
-/// else the agent stall budget `STALL_TIMEOUT_S` (default 600 s).
-pub fn silence_warn_ms() -> f64 {
-    static WARN: LazyLock<f64> = LazyLock::new(|| {
-        let abort_s = std::env::var("STALL_TIMEOUT_S")
-            .ok()
-            .and_then(|raw| super::delivery::parse_int_prefix(&raw))
-            .filter(|n| *n > 0)
-            .unwrap_or(600);
-        let fallback = (abort_s as f64 * 1000.0).max(1_000.0);
-        std::env::var("MIXDOG_SHELL_OUTPUT_SILENCE_WARN_MS")
-            .ok()
-            .filter(|raw| !raw.is_empty())
-            .map(|raw| mixdog_js::string_to_number(&raw))
-            .filter(|n| n.is_finite() && *n > 0.0)
-            .map_or(fallback, |n| n.max(1_000.0))
-    });
-    *WARN
-}
-
 /// `formatDuration(ms, { mostSignificantOnly: true })`.
 pub fn most_significant_duration(ms: u64) -> String {
     if ms < 1_000 {
@@ -836,13 +851,6 @@ pub fn quietest(silences: impl IntoIterator<Item = (String, u64)>, warn_ms: f64)
     worst
 }
 
-/// `describeShellOutputSilence`: the warning for a silence at or past the threshold.
-pub fn describe_silence(silent_ms: u64) -> Option<String> {
-    (silent_ms as f64 >= silence_warn_ms()).then(|| {
-        format!("no output for {} — may be hung; inspect or cancel", most_significant_duration(silent_ms))
-    })
-}
-
 fn progress_digest(growth: &[Range], hung: Option<&str>) -> String {
     let bytes: usize = growth.iter().map(|g| g.bytes).sum();
     let lines: usize = growth.iter().map(|g| g.lines).sum();
@@ -874,6 +882,339 @@ fn progress_digest(growth: &[Range], hung: Option<&str>) -> String {
     format!("[progress] {} — still running, not an error", parts.join(" · "))
 }
 
+/// Node's `TERMINATION_RECHECK_MS` (`lib/shell-descendants.mjs`): the cadence of every termination re-check.
+const TERMINATION_RECHECK: Duration = Duration::from_millis(5_000);
+
+/// The error of a background job a runtime that is gone left running (`reconcileRecoveredShellJobCompletions`).
+const OUTCOME_LOST: &str =
+    "daemon restarted while this shell task was running; its outcome was lost. Re-run the command if the result is still needed.";
+
+/// A job's ownership record, as a runtime that does not hold the job reads it (`readShellJobRecord`).
+pub(crate) struct KeptJob {
+    pub(crate) id: String,
+    record: serde_json::Map<String, serde_json::Value>,
+}
+
+impl KeptJob {
+    fn text(&self, key: &str) -> String {
+        self.record.get(key).and_then(serde_json::Value::as_str).unwrap_or_default().to_owned()
+    }
+
+    fn number(&self, key: &str) -> Option<u64> {
+        self.record.get(key).and_then(serde_json::Value::as_u64)
+    }
+
+    pub(crate) fn command(&self) -> String {
+        self.text("command")
+    }
+
+    /// How the job ended; `None` while the record says it runs.
+    pub(crate) fn end(&self) -> Option<ExitFacts> {
+        ExitFacts::of_record(&self.record)
+    }
+
+    /// A background job's record that says the job runs: neither ended nor marked finished.
+    fn left_running(&self) -> bool {
+        self.background() && self.end().is_none() && self.record.get("state").and_then(serde_json::Value::as_str) == Some("running")
+    }
+
+    fn background(&self) -> bool {
+        self.record.get("background").and_then(serde_json::Value::as_bool) == Some(true)
+    }
+
+    /// The process that wrote the record (`clientHostPid`).
+    fn writer(&self) -> u32 {
+        self.number("clientHostPid").and_then(|pid| u32::try_from(pid).ok()).unwrap_or(0)
+    }
+
+    /// The job's own process (`record.pid`): 0 when the record names none.
+    fn job_pid(&self) -> u32 {
+        self.number("pid").and_then(|pid| u32::try_from(pid).ok()).unwrap_or(0)
+    }
+
+    /// `recoveredTaskMatches` and the terminal record's life (`COMPLETED_SHELL_JOB_TTL_MS`): the record answers for a
+    /// background job of `owner` that ended less than a finished job's retention ago, or that another process left
+    /// running (one this process still writes is a job it runs).
+    fn answers_for(&self, owner: &ThreadId, now_ms: u64) -> bool {
+        let fresh = match self.end() {
+            Some(_) => self.number("finishedAtMs").is_some_and(|at| now_ms.saturating_sub(at) < RETENTION_MS),
+            None => self.writer() != std::process::id(),
+        };
+        self.background() && self.text("ownerSessionId") == owner.as_str() && fresh
+    }
+}
+
+/// The jobs of one runtime.
+pub struct ExecRuntime {
+    pub(crate) config: ExecConfig,
+    pub(crate) snapshots: super::snapshot::Snapshots,
+    /// The skill launchers' directory and contents, made once.
+    pub(crate) launchers: spill::KeptLaunchers,
+    jobs: Mutex<HashMap<String, Arc<Job>>>,
+    /// Owner thread -> the shells a timeout reap stopped, until the owner's handoff reports them
+    /// or its next turn starts (`stoppedJobs`, `turn-reap.mjs`).
+    reaped: Mutex<HashMap<String, Vec<String>>>,
+    /// Whether the expired logs of the spill directory were swept.
+    swept: std::sync::atomic::AtomicBool,
+    /// That sweep while it runs, awaited at shutdown.
+    sweep: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// The hoisted scripts and tee captures a command still uses, removed when it settles or, for
+    /// a tree that never settled, at shutdown (`PENDING_ARTIFACT_PATHS`, `transport-artifacts.mjs`).
+    artifacts: Mutex<Vec<PathBuf>>,
+    pub(crate) standby: Arc<super::standby::Standby>,
+}
+
+impl ExecConfig {
+    /// A copy sharing every handle, for a test that varies one setting.
+    #[cfg(test)]
+    pub(crate) fn clone_for_test(&self) -> Self {
+        self.clone()
+    }
+}
+
+/// Fills the job from the process's events and hands each chunk to the job's log writer; the job
+/// ends (its logs complete) once the writer has written everything it was given.
+async fn collect(
+    job: Arc<Job>,
+    mut source: Box<dyn EventSource<ProcessEvent>>,
+    runtime: Arc<ExecRuntime>,
+    logs: spill::LogWriter,
+    processes: Arc<dyn ProcessManager>,
+) {
+    let mut exit = None;
+    logs.open().await;
+    while let Some(event) = source.next().await {
+        match event {
+            ProcessEvent::Output { stream, bytes, .. } => {
+                let index = usize::from(stream == OutputStream::Stderr);
+                if job.state().take_output(index, &bytes, runtime.now_ms(), OUTPUT_DISK_CAP) {
+                    let _ = processes.kill(&job.handle);
+                }
+                logs.push(index, bytes).await;
+            }
+            ProcessEvent::Exited { exit: exited, .. } => {
+                exit = Some(exited);
+                break;
+            }
+        }
+    }
+    // Bounded: a log whose writes stall past it is given up, and the job's results say from
+    // which byte it lacks output (`Job::log_note`).
+    let _closed = logs.close(spill::LOG_STALL).await;
+    // Nothing writes the logs after this: their ownership record, which also says how the job ended
+    // (`completeShellJobRecord`), lets a sweep take them once they have aged. Bounded like the close: the job's end does not
+    // wait on a record write that stalls.
+    let end = exit.as_ref().map_or_else(|| ExitFacts::failed(None), |e| job.facts_of(&job.state(), e));
+    logs.mark_finished(spill::LOG_STALL, end.record(runtime.now_ms())).await;
+    job.state().exit = exit;
+    let now = runtime.now_ms();
+    let detached = {
+        let mut state = job.state();
+        state.finished = true;
+        state.finished_ms = Some(now);
+        state.detached
+    };
+    // Read once the job is finished, so no detach comes after it: a promotion that landed while the record was written
+    // still counts in a time-limit kill's text (`facts_of`), as the job's later reads show it.
+    let facts = job.exit().map(|e| job.facts_of(&job.state(), &e));
+    let outcome = facts.as_ref().map_or(
+        TaskOutcome { status: SpawnStatus::Failed, exit_code: None },
+        |f| TaskOutcome {
+            status: match f.status {
+                JobStatus::Completed | JobStatus::Running => SpawnStatus::Completed,
+                JobStatus::Failed => SpawnStatus::Failed,
+                JobStatus::Cancelled => SpawnStatus::Cancelled,
+            },
+            exit_code: f.exit_code,
+        },
+    );
+    runtime.finish_row(&job.id, outcome);
+    if detached {
+        // A background task's end is a boundary for the review of its folder (`completeBackgroundTask`).
+        super::settle::note_command_settled(job.review.as_ref(), &job.cwd);
+        let output = job.read_output(ReadOptions { terminal: true, ..ReadOptions::default() });
+        {
+            let mut state = job.state();
+            state.completion_output = Some(output.clone());
+            // The job stays readable for `RETENTION_MS`, its whole output in its logs: memory keeps only the tail a read
+            // of it can need (Codex keeps only a bounded `HeadTailBuffer` of an exec, `core/src/unified_exec/output.rs`).
+            state.stdout.trim_finished();
+            state.stderr.trim_finished();
+        }
+        job.report_finished(runtime.config.notifier.as_deref(), job.status().as_str(), job.notification(&output)).await;
+    }
+    job.settled.send_replace(true);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn task_status_follows_node_and_a_non_zero_exit_stays_completed() {
+        let exit = |status, killed| ProcessExit { status, killed };
+        let f = exit_facts(&exit(ExitStatus::Code(3), None));
+        assert_eq!((f.status, f.exit_code, f.error), (JobStatus::Completed, Some(3), None));
+        let f = exit_facts(&exit(ExitStatus::Signal(9), Some(KillReason::TimeLimit)));
+        assert_eq!((f.status, f.exit_code, f.timed_out), (JobStatus::Failed, Some(124), true));
+        assert_eq!(f.error.as_deref(), Some("timed out before completing (exit 124)"));
+        let f = exit_facts(&exit(ExitStatus::Signal(9), Some(KillReason::Requested)));
+        assert_eq!((f.status, f.exit_code), (JobStatus::Cancelled, Some(137)));
+        let f = exit_facts(&exit(ExitStatus::Signal(11), None));
+        assert_eq!((f.status, f.exit_code, f.signal.as_deref()), (JobStatus::Failed, None, Some("SIGSEGV")));
+        assert_eq!(f.error.as_deref(), Some("terminated by signal SIGSEGV"));
+    }
+
+    /// `SHELL_OUTPUT_DISK_CAP`: the kill for writing past the cap ends the job failed, with the cap named, whatever the kill's exit said.
+    #[test]
+    fn a_job_killed_for_its_output_cap_fails_naming_the_cap() {
+        let exit = |status, killed| ProcessExit { status, killed };
+        let mut f = exit_facts(&exit(ExitStatus::Signal(9), Some(KillReason::Requested)));
+        assert_eq!(f.status, JobStatus::Cancelled);
+        f.mark_output_capped();
+        assert_eq!(f.status, JobStatus::Failed);
+        assert_eq!(f.error.as_deref(), Some("output exceeded 104857600 byte cap"));
+    }
+
+    /// The kill itself: the chunk that takes the two logs past the cap asks for it, once, and the later chunks are kept without asking again.
+    #[test]
+    fn the_chunk_that_passes_the_output_cap_asks_for_the_kill_once() {
+        let mut state = JobState::new(None);
+        assert!(!state.take_output(0, &[b'a'; 6], 1, 10));
+        assert!(!state.take_output(1, &[b'b'; 4], 2, 10), "exactly the cap is not past it");
+        assert!(state.take_output(0, b"c", 3, 10));
+        assert!(state.output_capped);
+        assert!(!state.take_output(1, b"d", 4, 10));
+        assert_eq!(state.last_output_ms, Some(4));
+    }
+
+    #[test]
+    fn the_quietest_waited_job_wins_and_the_first_of_equals_keeps_it() {
+        let rows = |v: &[(&str, u64)]| v.iter().map(|(id, ms)| (id.to_string(), *ms)).collect::<Vec<_>>();
+        assert_eq!(quietest(rows(&[]), 600_000.0), None);
+        assert_eq!(quietest(rows(&[("a", 10), ("b", 30), ("c", 30)]), 600_000.0), Some(WaitedSilence { task_id: "b".into(), silent_ms: 30, hung: false }));
+        assert_eq!(quietest(rows(&[("a", 600_000)]), 600_000.0), Some(WaitedSilence { task_id: "a".into(), silent_ms: 600_000, hung: true }));
+    }
+
+    /// The encoding is decided on the stream's first non-ASCII bytes even once memory dropped them, as Node's
+    /// `FileEncodingSniffer` reads its window from the log.
+    #[test]
+    fn the_encoding_is_decided_on_first_bytes_memory_dropped() {
+        let (mut stream, mut sniffer) = (Stream::new(Some("euc-kr")), Sniffer::new(Some("euc-kr")));
+        stream.push(&[0xC7]);
+        assert_eq!(stream.probe(&mut sniffer, false), None, "a cut character decides nothing");
+        stream.push(&[0xD1, b'\n']);
+        stream.push(&b"a".repeat(MEMORY_CAP));
+        assert!(stream.base > 0, "memory dropped the stream's start");
+        assert_eq!(stream.probe(&mut sniffer, false), Some("euc-kr"));
+    }
+
+    /// A stream's end counts the bytes memory dropped, which is what `captured_bytes` compares to the output cap.
+    #[test]
+    fn a_stream_ends_where_its_output_does_whatever_memory_dropped() {
+        let mut stream = Stream::new(None);
+        stream.push(&b"a".repeat(MEMORY_CAP + 10));
+        assert_eq!((stream.base, stream.end()), (10, MEMORY_CAP as u64 + 10));
+    }
+
+    /// Past the cap memory holds exactly the last `MEMORY_CAP` bytes, but the dropped front is moved out only once it
+    /// passes `COMPACT_SLACK`, not on every chunk.
+    #[test]
+    fn overflow_moves_the_buffer_once_per_slack_not_per_chunk() {
+        let mut stream = Stream::new(None);
+        stream.push(&b"a".repeat(MEMORY_CAP));
+        let chunk = [b'b'; 4096];
+        let mut moves = 0;
+        for _ in 0..(2 * COMPACT_SLACK / chunk.len()) {
+            let dead = stream.dead;
+            stream.push(&chunk);
+            moves += usize::from(stream.dead < dead);
+            assert_eq!(stream.bytes().len(), MEMORY_CAP);
+            assert!(stream.buf.len() <= MEMORY_CAP + COMPACT_SLACK + chunk.len());
+        }
+        assert!((1..=2).contains(&moves), "{moves}");
+        assert_eq!(stream.end(), (MEMORY_CAP + 2 * COMPACT_SLACK) as u64);
+        assert_eq!(stream.slice(stream.end() - 4, stream.end()), b"bbbb");
+    }
+
+    /// A finished job keeps only `FINISHED_KEEP` of a stream; its unread range still reads with its head and line count,
+    /// and a replay still reads its last `FULL_READ_BYTES`.
+    #[test]
+    fn a_finished_stream_keeps_a_tail_and_still_reads_its_unread_range() {
+        let mut stream = Stream::new(None);
+        let line = b"0123456789abcde\n";
+        for _ in 0..(1024 * 1024 / line.len()) {
+            stream.push(line);
+        }
+        let (end, lines) = (stream.end(), stream.lines_before(stream.end()));
+        let mut whole = Cursor::new(None);
+        let before = read_range(&stream, &mut whole, 0, end, true, Some("utf-8"), "log");
+        stream.trim_finished();
+        assert_eq!(stream.bytes().len(), FINISHED_KEEP);
+        assert_eq!(stream.buf.capacity(), FINISHED_KEEP);
+        assert_eq!((stream.end(), stream.lines_before(end)), (end, lines));
+        // The stream's own cursor never read: memory kept the head of its unread range as it dropped it.
+        let mut cursor = std::mem::replace(&mut stream.cursor, Cursor::new(None));
+        let after = read_range(&stream, &mut cursor, 0, end, true, Some("utf-8"), "log");
+        assert_eq!((after.bytes, after.lines, &after.text), (before.bytes, before.lines, &before.text));
+        let budget = delivery_full_chars();
+        assert_eq!(fit_pieces(&[after.piece], budget), fit_pieces(&[before.piece], budget));
+        let tail = stream.slice(end - FULL_READ_BYTES as u64, end);
+        assert_eq!(tail.len(), FULL_READ_BYTES);
+    }
+
+    #[test]
+    fn a_cut_escape_sequence_waits_for_the_next_chunk() {
+        let mut cursor = Cursor::new(None);
+        assert_eq!(decode_visible(&mut cursor, b"ab\x1b[3", false), "ab");
+        assert_eq!(decode_visible(&mut cursor, b"1mcd", false), "cd");
+        let mut cursor = Cursor::new(None);
+        let bytes = "é".as_bytes();
+        assert_eq!(decode_visible(&mut cursor, &bytes[..1], false), "");
+        assert_eq!(decode_visible(&mut cursor, &bytes[1..], false), "é");
+    }
+
+
+    #[test]
+    fn a_silent_job_is_reported_as_possibly_hung_in_the_digest() {
+        assert_eq!(
+            progress_digest(&[], Some("no output for 10m — may be hung; inspect or cancel")),
+            "[progress] no output for 10m — may be hung; inspect or cancel"
+        );
+        assert_eq!(most_significant_duration(999), "");
+        assert_eq!(most_significant_duration(59_999), "59s");
+        assert_eq!(most_significant_duration(601_000), "10m");
+        assert_eq!(most_significant_duration(7_300_000), "2h");
+        assert_eq!(describe_silence(599_000), None);
+    }
+}
+
+
+/// `MIXDOG_SHELL_OUTPUT_SILENCE_WARN_MS` (`resolveTimeoutMs`: a positive number, at least 1 s),
+/// else the agent stall budget `STALL_TIMEOUT_S` (default 600 s).
+pub fn silence_warn_ms() -> f64 {
+    static WARN: LazyLock<f64> = LazyLock::new(|| {
+        let abort_s = std::env::var("STALL_TIMEOUT_S")
+            .ok()
+            .and_then(|raw| super::delivery::parse_int_prefix(&raw))
+            .filter(|n| *n > 0)
+            .unwrap_or(600);
+        let fallback = (abort_s as f64 * 1000.0).max(1_000.0);
+        std::env::var("MIXDOG_SHELL_OUTPUT_SILENCE_WARN_MS")
+            .ok()
+            .filter(|raw| !raw.is_empty())
+            .map(|raw| mixdog_js::string_to_number(&raw))
+            .filter(|n| n.is_finite() && *n > 0.0)
+            .map_or(fallback, |n| n.max(1_000.0))
+    });
+    *WARN
+}
+/// `describeShellOutputSilence`: the warning for a silence at or past the threshold.
+pub fn describe_silence(silent_ms: u64) -> Option<String> {
+    (silent_ms as f64 >= silence_warn_ms()).then(|| {
+        format!("no output for {} — may be hung; inspect or cancel", most_significant_duration(silent_ms))
+    })
+}
 impl Job {
     /// What the logs lack: a log whose write failed or stalled holds the output only up to the
     /// byte named, though the result points at it for the rest. `None` while both are whole.
@@ -934,9 +1275,8 @@ impl Job {
         let _ = rx.wait_for(|done| *done).await;
     }
 
-    /// Hands the running job to the background, stamped with the owner's current user `cycle`.
-    /// `false` when it has already finished.
-    pub fn detach(&self, now_ms: u64, cycle: u64) -> bool {
+    /// Hands the running job to the background. `false` when it has already finished.
+    pub fn detach(&self, now_ms: u64) -> bool {
         {
             let mut state = self.state();
             if state.finished {
@@ -944,7 +1284,6 @@ impl Job {
             }
             state.detached = true;
             state.promoted_ms = Some(now_ms);
-            state.user_cycle = Some(cycle);
         }
         // `publishShellJobRecord`: the record names the background task and its owner, so a runtime that does not hold the
         // job (after a restart) answers for it.
@@ -964,13 +1303,10 @@ impl Job {
     /// Whether this job is a running background task that counts for `hasActiveBackgroundTasks`
     /// on the shell surface: it moved to the background (a foreground command is no task) or
     /// tracks a finished command's survivors. `awaited_only` leaves out the survivors (Node's
-    /// `detached` tasks); `user_cycle` keeps only a task stamped with that cycle.
-    fn counts_as_active(&self, awaited_only: bool, user_cycle: Option<u64>) -> bool {
+    /// `detached` tasks).
+    fn counts_as_active(&self, awaited_only: bool) -> bool {
         let state = self.state();
-        (state.promoted_ms.is_some() || self.survivors)
-            && !state.finished
-            && !(awaited_only && self.survivors)
-            && user_cycle.is_none_or(|cycle| state.user_cycle == Some(cycle))
+        (state.promoted_ms.is_some() || self.survivors) && !state.finished && !(awaited_only && self.survivors)
     }
 
     /// The task started when it moved to the background, not when the process did.
@@ -983,7 +1319,7 @@ impl Job {
     fn facts_of(&self, state: &JobState, exit: &ProcessExit) -> ExitFacts {
         let mut facts = exit_facts(exit);
         if let (true, Some(promoted)) = (facts.timed_out && self.time_limit_ms > 0, state.promoted_ms) {
-            let left = self.time_limit_ms.saturating_sub(promoted.saturating_sub(self.started_ms));
+            let left = self.remaining_time_limit_ms(promoted);
             facts.error = Some(format!("timed out after {left} ms"));
         }
         if state.output_capped {
@@ -992,11 +1328,15 @@ impl Job {
         facts
     }
 
+    pub(super) fn remaining_time_limit_ms(&self, promoted: u64) -> u64 {
+        self.time_limit_ms.saturating_sub(promoted.saturating_sub(self.started_ms)).max(1)
+    }
+
     /// The capture of both streams that memory holds as text, for a foreground result: the whole of each stream unless
     /// memory dropped its start (see `spilled_pieces`).
     pub fn captured(&self) -> (String, String) {
         let state = self.state();
-        let all = |s: &Stream| decode_shell_bytes(&s.buf, s.oem);
+        let all = |s: &Stream| decode_shell_bytes(s.bytes(), s.oem);
         (all(&state.stdout), all(&state.stderr))
     }
 
@@ -1329,103 +1669,6 @@ impl Job {
         out.join("\n")
     }
 }
-
-/// Node's `TERMINATION_RECHECK_MS` (`lib/shell-descendants.mjs`): the cadence of every termination re-check.
-const TERMINATION_RECHECK: Duration = Duration::from_millis(5_000);
-
-/// The error of a background job a runtime that is gone left running (`reconcileRecoveredShellJobCompletions`).
-const OUTCOME_LOST: &str =
-    "daemon restarted while this shell task was running; its outcome was lost. Re-run the command if the result is still needed.";
-
-/// A job's ownership record, as a runtime that does not hold the job reads it (`readShellJobRecord`).
-pub(crate) struct KeptJob {
-    pub(crate) id: String,
-    record: serde_json::Map<String, serde_json::Value>,
-}
-
-impl KeptJob {
-    fn text(&self, key: &str) -> String {
-        self.record.get(key).and_then(serde_json::Value::as_str).unwrap_or_default().to_owned()
-    }
-
-    fn number(&self, key: &str) -> Option<u64> {
-        self.record.get(key).and_then(serde_json::Value::as_u64)
-    }
-
-    pub(crate) fn command(&self) -> String {
-        self.text("command")
-    }
-
-    /// How the job ended; `None` while the record says it runs.
-    pub(crate) fn end(&self) -> Option<ExitFacts> {
-        ExitFacts::of_record(&self.record)
-    }
-
-    /// A background job's record that says the job runs: neither ended nor marked finished.
-    fn left_running(&self) -> bool {
-        self.background() && self.end().is_none() && self.record.get("state").and_then(serde_json::Value::as_str) == Some("running")
-    }
-
-    fn background(&self) -> bool {
-        self.record.get("background").and_then(serde_json::Value::as_bool) == Some(true)
-    }
-
-    /// The process that wrote the record (`clientHostPid`).
-    fn writer(&self) -> u32 {
-        self.number("clientHostPid").and_then(|pid| u32::try_from(pid).ok()).unwrap_or(0)
-    }
-
-    /// The job's own process (`record.pid`): 0 when the record names none.
-    fn job_pid(&self) -> u32 {
-        self.number("pid").and_then(|pid| u32::try_from(pid).ok()).unwrap_or(0)
-    }
-
-    /// `recoveredTaskMatches` and the terminal record's life (`COMPLETED_SHELL_JOB_TTL_MS`): the record answers for a
-    /// background job of `owner` that ended less than a finished job's retention ago, or that another process left
-    /// running (one this process still writes is a job it runs).
-    fn answers_for(&self, owner: &ThreadId, now_ms: u64) -> bool {
-        let fresh = match self.end() {
-            Some(_) => self.number("finishedAtMs").is_some_and(|at| now_ms.saturating_sub(at) < RETENTION_MS),
-            None => self.writer() != std::process::id(),
-        };
-        self.background() && self.text("ownerSessionId") == owner.as_str() && fresh
-    }
-}
-
-/// The jobs of one runtime.
-pub struct ExecRuntime {
-    pub(crate) config: ExecConfig,
-    pub(crate) snapshots: super::snapshot::Snapshots,
-    /// The skill launchers' directory and contents, made once.
-    pub(crate) launchers: spill::KeptLaunchers,
-    jobs: Mutex<HashMap<String, Arc<Job>>>,
-    cycles: OnceLock<Arc<dyn OwnerCycles>>,
-    /// Owner thread -> the shells a timeout reap stopped, until the owner's handoff reports them
-    /// or its next turn starts (`stoppedJobs`, `turn-reap.mjs`).
-    reaped: Mutex<HashMap<String, Vec<String>>>,
-    /// Whether the expired logs of the spill directory were swept.
-    swept: std::sync::atomic::AtomicBool,
-    /// That sweep while it runs, awaited at shutdown.
-    sweep: Mutex<Option<tokio::task::JoinHandle<()>>>,
-    /// The hoisted scripts and tee captures a command still uses, removed when it settles or, for
-    /// a tree that never settled, at shutdown (`PENDING_ARTIFACT_PATHS`, `transport-artifacts.mjs`).
-    artifacts: Mutex<Vec<PathBuf>>,
-    pub(crate) standby: Arc<super::standby::Standby>,
-}
-
-/// The owner's user cycle (`currentUserCycle`): how many genuine prompts the session has seen.
-pub trait OwnerCycles: Send + Sync {
-    fn current(&self, owner: &ThreadId) -> u64;
-}
-
-impl ExecConfig {
-    /// A copy sharing every handle, for a test that varies one setting.
-    #[cfg(test)]
-    pub(crate) fn clone_for_test(&self) -> Self {
-        self.clone()
-    }
-}
-
 impl ExecRuntime {
     pub fn new(config: ExecConfig) -> Arc<Self> {
         Arc::new(Self {
@@ -1433,7 +1676,6 @@ impl ExecRuntime {
             jobs: Mutex::new(HashMap::new()),
             snapshots: super::snapshot::Snapshots::default(),
             launchers: spill::KeptLaunchers::default(),
-            cycles: OnceLock::new(),
             reaped: Mutex::new(HashMap::new()),
             swept: std::sync::atomic::AtomicBool::new(false),
             sweep: Mutex::new(None),
@@ -1492,20 +1734,9 @@ impl ExecRuntime {
         lock(&self.reaped).remove(owner.as_str()).unwrap_or_default()
     }
 
-    /// Where a job moved to the background reads its owner's user cycle. Set once, before jobs
-    /// run; without it every owner is on cycle 0 (a session that has seen no prompt).
-    pub fn set_cycles(&self, cycles: Arc<dyn OwnerCycles>) {
-        let _ = self.cycles.set(cycles);
-    }
-
-    /// The owner's current user cycle.
-    pub fn cycle_of(&self, owner: &ThreadId) -> u64 {
-        self.cycles.get().map_or(0, |cycles| cycles.current(owner))
-    }
-
-    /// `hasActiveBackgroundTasks({ callerSessionId: owner, surface: 'shell', awaitedOnly, match })`.
-    pub fn has_active(&self, owner: &ThreadId, awaited_only: bool, user_cycle: Option<u64>) -> bool {
-        lock(&self.jobs).values().any(|job| &job.owner == owner && job.counts_as_active(awaited_only, user_cycle))
+    /// `hasActiveBackgroundTasks({ callerSessionId: owner, surface: 'shell', awaitedOnly })`.
+    pub fn has_active(&self, owner: &ThreadId, awaited_only: bool) -> bool {
+        lock(&self.jobs).values().any(|job| &job.owner == owner && job.counts_as_active(awaited_only))
     }
 
     /// `otherSessionBackgroundShellJobCount` and the foreground side of `otherSessionShellHolders` (`task-tool.mjs`): the running
@@ -1522,7 +1753,7 @@ impl ExecRuntime {
     /// `activeBackgroundTaskSessionIds({ surface: 'shell', awaitedOnly: true })`: the owner of every running awaited task, from one pass over
     /// the runtime's table. Node's task registry is process-wide, so a session that is not loaded but owns an awaited job is listed too.
     pub fn awaited_owners(&self) -> HashSet<ThreadId> {
-        lock(&self.jobs).values().filter(|job| job.counts_as_active(true, None)).map(|job| job.owner.clone()).collect()
+        lock(&self.jobs).values().filter(|job| job.counts_as_active(true)).map(|job| job.owner.clone()).collect()
     }
 
     /// `waitedJobSilence(taskIds, { now })`: the quietest of the running tasks among `ids` (a task of any owner, as Node's registry is
@@ -1531,7 +1762,7 @@ impl ExecRuntime {
         let table = lock(&self.jobs);
         let silences = ids.iter().filter_map(|id| {
             let job = table.get(id)?;
-            job.counts_as_active(false, None).then(|| (id.clone(), job.silent_ms(&job.state(), now_ms)))
+            job.counts_as_active(false).then(|| (id.clone(), job.silent_ms(&job.state(), now_ms)))
         });
         quietest(silences, silence_warn_ms())
     }
@@ -1645,11 +1876,14 @@ impl ExecRuntime {
     }
 
     pub fn get(&self, owner: &ThreadId, id: &str) -> Option<Arc<Job>> {
+        // Expiry is applied on every lookup, not only when a job starts, so an idle runtime drops finished jobs too.
+        self.purge_expired(self.now_ms());
         lock(&self.jobs).get(id).filter(|j| &j.owner == owner).cloned()
     }
 
     /// Jobs of `owner` in start order.
     pub fn list(&self, owner: &ThreadId) -> Vec<Arc<Job>> {
+        self.purge_expired(self.now_ms());
         let mut rows: Vec<_> = lock(&self.jobs).values().filter(|j| &j.owner == owner).cloned().collect();
         rows.sort_by(|a, b| (a.started_ms, &a.id).cmp(&(b.started_ms, &b.id)));
         rows
@@ -1877,168 +2111,5 @@ impl ExecRuntime {
             let output = job.read_output(ReadOptions { terminal: true, ..ReadOptions::default() });
             job.report_finished(self.config.notifier.as_deref(), JobStatus::Failed.as_str(), job.notification(&output)).await;
         }
-    }
-}
-
-/// Fills the job from the process's events and hands each chunk to the job's log writer; the job
-/// ends (its logs complete) once the writer has written everything it was given.
-async fn collect(
-    job: Arc<Job>,
-    mut source: Box<dyn EventSource<ProcessEvent>>,
-    runtime: Arc<ExecRuntime>,
-    logs: spill::LogWriter,
-    processes: Arc<dyn ProcessManager>,
-) {
-    let mut exit = None;
-    logs.open().await;
-    while let Some(event) = source.next().await {
-        match event {
-            ProcessEvent::Output { stream, bytes, .. } => {
-                let index = usize::from(stream == OutputStream::Stderr);
-                if job.state().take_output(index, &bytes, runtime.now_ms(), OUTPUT_DISK_CAP) {
-                    let _ = processes.kill(&job.handle);
-                }
-                logs.push(index, bytes).await;
-            }
-            ProcessEvent::Exited { exit: exited, .. } => {
-                exit = Some(exited);
-                break;
-            }
-        }
-    }
-    // Bounded: a log whose writes stall past it is given up, and the job's results say from
-    // which byte it lacks output (`Job::log_note`).
-    let _closed = logs.close(spill::LOG_STALL).await;
-    // Nothing writes the logs after this: their ownership record, which also says how the job ended
-    // (`completeShellJobRecord`), lets a sweep take them once they have aged. Bounded like the close: the job's end does not
-    // wait on a record write that stalls.
-    let end = exit.as_ref().map_or_else(|| ExitFacts::failed(None), |e| job.facts_of(&job.state(), e));
-    logs.mark_finished(spill::LOG_STALL, end.record(runtime.now_ms())).await;
-    job.state().exit = exit;
-    let now = runtime.now_ms();
-    let detached = {
-        let mut state = job.state();
-        state.finished = true;
-        state.finished_ms = Some(now);
-        state.detached
-    };
-    // Read once the job is finished, so no detach comes after it: a promotion that landed while the record was written
-    // still counts in a time-limit kill's text (`facts_of`), as the job's later reads show it.
-    let facts = job.exit().map(|e| job.facts_of(&job.state(), &e));
-    let outcome = facts.as_ref().map_or(
-        TaskOutcome { status: SpawnStatus::Failed, exit_code: None },
-        |f| TaskOutcome {
-            status: match f.status {
-                JobStatus::Completed | JobStatus::Running => SpawnStatus::Completed,
-                JobStatus::Failed => SpawnStatus::Failed,
-                JobStatus::Cancelled => SpawnStatus::Cancelled,
-            },
-            exit_code: f.exit_code,
-        },
-    );
-    runtime.finish_row(&job.id, outcome);
-    if detached {
-        // A background task's end is a boundary for the review of its folder (`completeBackgroundTask`).
-        super::settle::note_command_settled(job.review.as_ref(), &job.cwd);
-        let output = job.read_output(ReadOptions { terminal: true, ..ReadOptions::default() });
-        job.state().completion_output = Some(output.clone());
-        job.report_finished(runtime.config.notifier.as_deref(), job.status().as_str(), job.notification(&output)).await;
-    }
-    job.settled.send_replace(true);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn task_status_follows_node_and_a_non_zero_exit_stays_completed() {
-        let exit = |status, killed| ProcessExit { status, killed };
-        let f = exit_facts(&exit(ExitStatus::Code(3), None));
-        assert_eq!((f.status, f.exit_code, f.error), (JobStatus::Completed, Some(3), None));
-        let f = exit_facts(&exit(ExitStatus::Signal(9), Some(KillReason::TimeLimit)));
-        assert_eq!((f.status, f.exit_code, f.timed_out), (JobStatus::Failed, Some(124), true));
-        assert_eq!(f.error.as_deref(), Some("timed out before completing (exit 124)"));
-        let f = exit_facts(&exit(ExitStatus::Signal(9), Some(KillReason::Requested)));
-        assert_eq!((f.status, f.exit_code), (JobStatus::Cancelled, Some(137)));
-        let f = exit_facts(&exit(ExitStatus::Signal(11), None));
-        assert_eq!((f.status, f.exit_code, f.signal.as_deref()), (JobStatus::Failed, None, Some("SIGSEGV")));
-        assert_eq!(f.error.as_deref(), Some("terminated by signal SIGSEGV"));
-    }
-
-    /// `SHELL_OUTPUT_DISK_CAP`: the kill for writing past the cap ends the job failed, with the cap named, whatever the kill's exit said.
-    #[test]
-    fn a_job_killed_for_its_output_cap_fails_naming_the_cap() {
-        let exit = |status, killed| ProcessExit { status, killed };
-        let mut f = exit_facts(&exit(ExitStatus::Signal(9), Some(KillReason::Requested)));
-        assert_eq!(f.status, JobStatus::Cancelled);
-        f.mark_output_capped();
-        assert_eq!(f.status, JobStatus::Failed);
-        assert_eq!(f.error.as_deref(), Some("output exceeded 104857600 byte cap"));
-    }
-
-    /// The kill itself: the chunk that takes the two logs past the cap asks for it, once, and the later chunks are kept without asking again.
-    #[test]
-    fn the_chunk_that_passes_the_output_cap_asks_for_the_kill_once() {
-        let mut state = JobState::new(None);
-        assert!(!state.take_output(0, &[b'a'; 6], 1, 10));
-        assert!(!state.take_output(1, &[b'b'; 4], 2, 10), "exactly the cap is not past it");
-        assert!(state.take_output(0, b"c", 3, 10));
-        assert!(state.output_capped);
-        assert!(!state.take_output(1, b"d", 4, 10));
-        assert_eq!(state.last_output_ms, Some(4));
-    }
-
-    #[test]
-    fn a_silent_job_is_reported_as_possibly_hung_in_the_digest() {
-        assert_eq!(
-            progress_digest(&[], Some("no output for 10m — may be hung; inspect or cancel")),
-            "[progress] no output for 10m — may be hung; inspect or cancel"
-        );
-        assert_eq!(most_significant_duration(999), "");
-        assert_eq!(most_significant_duration(59_999), "59s");
-        assert_eq!(most_significant_duration(601_000), "10m");
-        assert_eq!(most_significant_duration(7_300_000), "2h");
-        assert_eq!(describe_silence(599_000), None);
-    }
-
-    #[test]
-    fn the_quietest_waited_job_wins_and_the_first_of_equals_keeps_it() {
-        let rows = |v: &[(&str, u64)]| v.iter().map(|(id, ms)| (id.to_string(), *ms)).collect::<Vec<_>>();
-        assert_eq!(quietest(rows(&[]), 600_000.0), None);
-        assert_eq!(quietest(rows(&[("a", 10), ("b", 30), ("c", 30)]), 600_000.0), Some(WaitedSilence { task_id: "b".into(), silent_ms: 30, hung: false }));
-        assert_eq!(quietest(rows(&[("a", 600_000)]), 600_000.0), Some(WaitedSilence { task_id: "a".into(), silent_ms: 600_000, hung: true }));
-    }
-
-    /// The encoding is decided on the stream's first non-ASCII bytes even once memory dropped them, as Node's
-    /// `FileEncodingSniffer` reads its window from the log.
-    #[test]
-    fn the_encoding_is_decided_on_first_bytes_memory_dropped() {
-        let (mut stream, mut sniffer) = (Stream::new(Some("euc-kr")), Sniffer::new(Some("euc-kr")));
-        stream.push(&[0xC7]);
-        assert_eq!(stream.probe(&mut sniffer, false), None, "a cut character decides nothing");
-        stream.push(&[0xD1, b'\n']);
-        stream.push(&b"a".repeat(MEMORY_CAP));
-        assert!(stream.base > 0, "memory dropped the stream's start");
-        assert_eq!(stream.probe(&mut sniffer, false), Some("euc-kr"));
-    }
-
-    /// A stream's end counts the bytes memory dropped, which is what `captured_bytes` compares to the output cap.
-    #[test]
-    fn a_stream_ends_where_its_output_does_whatever_memory_dropped() {
-        let mut stream = Stream::new(None);
-        stream.push(&b"a".repeat(MEMORY_CAP + 10));
-        assert_eq!((stream.base, stream.end()), (10, MEMORY_CAP as u64 + 10));
-    }
-
-    #[test]
-    fn a_cut_escape_sequence_waits_for_the_next_chunk() {
-        let mut cursor = Cursor::new(None);
-        assert_eq!(decode_visible(&mut cursor, b"ab\x1b[3", false), "ab");
-        assert_eq!(decode_visible(&mut cursor, b"1mcd", false), "cd");
-        let mut cursor = Cursor::new(None);
-        let bytes = "é".as_bytes();
-        assert_eq!(decode_visible(&mut cursor, &bytes[..1], false), "");
-        assert_eq!(decode_visible(&mut cursor, &bytes[1..], false), "é");
     }
 }

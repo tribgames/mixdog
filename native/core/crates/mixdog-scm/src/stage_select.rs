@@ -447,43 +447,6 @@ fn digest(text: &str) -> String {
     hex(&Sha256::digest(text.as_bytes()))
 }
 
-impl DiffSnapshots {
-    pub fn new() -> Arc<Self> {
-        Arc::default()
-    }
-
-    fn remember(&self, snapshot: Snapshot) -> String {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
-        let seed = format!("{nanos}:{}:{}", std::process::id(), self.counter.fetch_add(1, Ordering::Relaxed));
-        let id = format!("diff_{}", &digest(&seed)[..20]);
-        let mut guard = self.inner.lock().expect("snapshots");
-        guard.0.insert(id.clone(), snapshot);
-        guard.1.push_back(id.clone());
-        while guard.1.len() > SNAPSHOT_LIMIT {
-            if let Some(oldest) = guard.1.pop_front() {
-                guard.0.remove(&oldest);
-            }
-        }
-        id
-    }
-
-    fn get(&self, id: &str) -> Option<Snapshot> {
-        let mut guard = self.inner.lock().expect("snapshots");
-        let found = guard.0.get(id).cloned()?;
-        guard.1.retain(|known| known != id);
-        guard.1.push_back(id.to_owned());
-        Some(found)
-    }
-
-    fn forget(&self, id: &str) {
-        let mut guard = self.inner.lock().expect("snapshots");
-        guard.0.remove(id);
-        guard.1.retain(|known| known != id);
-    }
-}
-
 /// A stageable diff: its text and, when it holds changes, the id they are listed under.
 pub struct StageableDiff {
     pub raw: String,
@@ -520,6 +483,77 @@ pub fn stage_request(diff_id: &str, change_ids: &[String]) -> Result<(String, Ve
     Ok((diff_id.to_owned(), ids))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DIFF: &str = "diff --git a/f.txt b/f.txt\nindex 1..2 100644\n--- a/f.txt\n+++ b/f.txt\n@@ -1,5 +1,5 @@\n a\n-b\n+B\n c\n d\n-e\n+E\n";
+
+    #[test]
+    fn runs_of_plus_and_minus_are_numbered_in_order() {
+        let changes = list_changes(DIFF);
+        assert_eq!(changes.len(), 2);
+        assert_eq!((changes[0].id.as_str(), changes[0].additions, changes[0].deletions), ("c1", 1, 1));
+        assert_eq!(changes[1].old_start, 5);
+        assert!(listing("diff_x", &changes).contains("f.txt: c1-c2"));
+    }
+
+    #[test]
+    fn an_unselected_run_stays_as_context() {
+        let picked = build_selected_patch(DIFF, &["c2".to_owned()]);
+        assert!(picked.missing.is_empty());
+        assert!(picked.patch.contains("@@ -1,5 +1,5 @@") || picked.patch.contains("@@ -1,5 +"), "{}", picked.patch);
+        assert!(picked.patch.contains("\n b\n"), "{}", picked.patch);
+        assert!(picked.patch.contains("-e\n+E"));
+        assert!(!picked.patch.contains("+B"));
+        assert_eq!(build_selected_patch(DIFF, &["c9".to_owned()]).missing, ["c9"]);
+    }
+
+    #[test]
+    fn stage_requests_are_validated() {
+        assert!(stage_request("", &["c1".into()]).is_err());
+        assert!(stage_request("diff_a", &[]).is_err());
+        assert_eq!(stage_request(" diff_a ", &["c1".into(), "c1".into()]).unwrap().1, ["c1"]);
+    }
+}
+
+
+impl DiffSnapshots {
+    pub fn new() -> Arc<Self> {
+        Arc::default()
+    }
+
+    fn remember(&self, snapshot: Snapshot) -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let seed = format!("{nanos}:{}:{}", std::process::id(), self.counter.fetch_add(1, Ordering::Relaxed));
+        let id = format!("diff_{}", &digest(&seed)[..20]);
+        let mut guard = self.inner.lock().expect("snapshots");
+        guard.0.insert(id.clone(), snapshot);
+        guard.1.push_back(id.clone());
+        while guard.1.len() > SNAPSHOT_LIMIT {
+            if let Some(oldest) = guard.1.pop_front() {
+                guard.0.remove(&oldest);
+            }
+        }
+        id
+    }
+
+    fn get(&self, id: &str) -> Option<Snapshot> {
+        let mut guard = self.inner.lock().expect("snapshots");
+        let found = guard.0.get(id).cloned()?;
+        guard.1.retain(|known| known != id);
+        guard.1.push_back(id.to_owned());
+        Some(found)
+    }
+
+    fn forget(&self, id: &str) {
+        let mut guard = self.inner.lock().expect("snapshots");
+        guard.0.remove(id);
+        guard.1.retain(|known| known != id);
+    }
+}
 impl Repo {
     /// Runs the read-only `git diff <args>` and appends the diffs of untracked files that match
     /// its pathspecs, so new files can be staged by id too.
@@ -645,39 +679,5 @@ impl Repo {
         result?;
         snapshots.forget(&diff_id);
         Ok(StageOutcome::Staged(staged_summary(&built.changes)))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const DIFF: &str = "diff --git a/f.txt b/f.txt\nindex 1..2 100644\n--- a/f.txt\n+++ b/f.txt\n@@ -1,5 +1,5 @@\n a\n-b\n+B\n c\n d\n-e\n+E\n";
-
-    #[test]
-    fn runs_of_plus_and_minus_are_numbered_in_order() {
-        let changes = list_changes(DIFF);
-        assert_eq!(changes.len(), 2);
-        assert_eq!((changes[0].id.as_str(), changes[0].additions, changes[0].deletions), ("c1", 1, 1));
-        assert_eq!(changes[1].old_start, 5);
-        assert!(listing("diff_x", &changes).contains("f.txt: c1-c2"));
-    }
-
-    #[test]
-    fn an_unselected_run_stays_as_context() {
-        let picked = build_selected_patch(DIFF, &["c2".to_owned()]);
-        assert!(picked.missing.is_empty());
-        assert!(picked.patch.contains("@@ -1,5 +1,5 @@") || picked.patch.contains("@@ -1,5 +"), "{}", picked.patch);
-        assert!(picked.patch.contains("\n b\n"), "{}", picked.patch);
-        assert!(picked.patch.contains("-e\n+E"));
-        assert!(!picked.patch.contains("+B"));
-        assert_eq!(build_selected_patch(DIFF, &["c9".to_owned()]).missing, ["c9"]);
-    }
-
-    #[test]
-    fn stage_requests_are_validated() {
-        assert!(stage_request("", &["c1".into()]).is_err());
-        assert!(stage_request("diff_a", &[]).is_err());
-        assert_eq!(stage_request(" diff_a ", &["c1".into(), "c1".into()]).unwrap().1, ["c1"]);
     }
 }

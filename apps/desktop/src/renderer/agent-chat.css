@@ -120,6 +120,16 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   font-weight: var(--mx-weight-medium);
   line-height: var(--mx-line-meta);
 }
+/* The typing band's name line has one fixed allocation, whatever it holds (a short name, a long one, nobody while the room
+   decides): a single line, a long name cut with an ellipsis (the full name is in the title and the text). Names on message
+   rows are not the band's and wrap as before. */
+.mx-chat-name[data-band] {
+  height: var(--mx-line-meta);
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .mx-chat-line {
   display: flex;
   align-items: flex-end;

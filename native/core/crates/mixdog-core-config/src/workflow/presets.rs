@@ -4,6 +4,8 @@
 //! onboarding status reports.
 
 use mixdog_ai::service::admin_route::Obj;
+use mixdog_ai::service::admin_route::clean_model_parameters;
+use mixdog_ai::service::admin_route::workflow_preset_id;
 use mixdog_ai::service::admin_route::find_preset;
 use mixdog_ai::service::admin_route::normalize_workflow_route;
 use mixdog_js::js_trim;
@@ -19,55 +21,6 @@ use super::ids::truthy;
 const AGENT_PROVIDER_ALIASES: [(&str, &str); 3] = [("openai-api", "openai"), ("gemini-api", "gemini"), ("xai-api", "xai")];
 const FAST_CAPABLE_PRESET_PROVIDERS: [&str; 6] =
     ["anthropic", "anthropic-oauth", "openai", "openai-oauth", "cursor-oauth", "cursor-api"];
-
-/// `resolveAnthropicFamilyModel(family)`: the environment override, else the shipped model.
-fn anthropic_family_model(family: &str) -> String {
-    let variable = format!("ANTHROPIC_DEFAULT_{}_MODEL", family.to_uppercase());
-    if let Some(model) = std::env::var(&variable).ok().filter(|model| !model.is_empty()) {
-        return model;
-    }
-    match family {
-        "opus" => "claude-opus-4-8",
-        "sonnet" => "claude-sonnet-4-6",
-        _ => "claude-haiku-4-5-20251001",
-    }
-    .to_owned()
-}
-
-/// `DEFAULT_MAINTENANCE`: the shipped route of each maintenance slot.
-pub(crate) fn default_maintenance() -> Map<String, Value> {
-    let mut slots = Map::new();
-    slots.insert("webhook".into(), json!({ "provider": "anthropic-oauth", "model": anthropic_family_model("haiku") }));
-    slots
-}
-
-/// `withDefaultPresets(stored)`: the stored presets, then the shipped ones whose id none of them has.
-pub fn with_default_presets(stored: Option<&Value>) -> Vec<Value> {
-    let mut list: Vec<Value> = stored.and_then(Value::as_array).cloned().unwrap_or_default();
-    let key = |preset: &Value| first_text(preset, &["id", "name"]);
-    let present: Vec<String> = list.iter().map(key).collect();
-    list.extend(default_presets().into_iter().filter(|shipped| !present.contains(&key(shipped))));
-    list
-}
-
-/// `DEFAULT_PRESETS`.
-pub(crate) fn default_presets() -> Vec<Value> {
-    let preset = |id: &str, name: &str, family: &str, effort: Option<&str>| {
-        let mut preset = json!({ "id": id, "name": name, "type": "agent", "provider": "anthropic-oauth", "model": anthropic_family_model(family) });
-        if let Some(effort) = effort {
-            preset["effort"] = json!(effort);
-        }
-        preset["tools"] = json!("full");
-        preset
-    };
-    vec![
-        preset("haiku", "HAIKU", "haiku", None),
-        preset("sonnet-mid", "SONNET MID", "sonnet", Some("medium")),
-        preset("sonnet-high", "SONNET HIGH", "sonnet", Some("high")),
-        preset("opus-mid", "OPUS MID", "opus", Some("medium")),
-        preset("opus-high", "OPUS HIGH", "opus", Some("high")),
-    ]
-}
 
 /// `String(a || b || '')` for a preset's own fields.
 fn first_text(preset: &Value, keys: &[&str]) -> String {
@@ -121,6 +74,7 @@ pub(crate) fn normalize_preset(preset: &Value) -> Option<Value> {
     if name.is_empty() || model.is_empty() || provider.is_empty() {
         return None;
     }
+    let lead = id == workflow_preset_id("lead");
     let mut out = Map::new();
     out.insert("id".into(), Value::String(id));
     out.insert("name".into(), Value::String(name));
@@ -136,6 +90,18 @@ pub(crate) fn normalize_preset(preset: &Value) -> Option<Value> {
     if map.get("autoEffort") == Some(&Value::Bool(false)) {
         out.insert("autoEffort".into(), Value::Bool(false));
     }
+    // The Lead preset alone holds its saved speed: an explicit Standard and the selected
+    // parameters (Ultrafast's `serviceTier`). Dropping them made a reloaded or published Lead
+    // read back at another speed; ordinary presets keep their shape.
+    if lead {
+        if map.get("fast") == Some(&Value::Bool(false)) {
+            out.insert("fast".into(), Value::Bool(false));
+        }
+        let parameters = clean_model_parameters(map.get("modelParameters"));
+        if !parameters.is_empty() {
+            out.insert("modelParameters".into(), Value::Object(parameters));
+        }
+    }
     let tools = map.get("tools").and_then(Value::as_str).filter(|tools| ["full", "readonly", "mcp"].contains(tools)).unwrap_or("full");
     out.insert("tools".into(), json!(tools));
     if let Some(fallbacks) = map.get("fallbacks").filter(|fallbacks| fallbacks.as_array().is_some_and(|list| !list.is_empty())) {
@@ -144,9 +110,20 @@ pub(crate) fn normalize_preset(preset: &Value) -> Option<Value> {
     Some(Value::Object(out))
 }
 
-/// `normalizeWebSearchRoute` of `config-storage.mjs`: the stored shape of the route, which keeps
-/// neither fallbacks nor a false `fast`.
+/// The stored web-search selection. The save diffs this projection, so omitting
+/// the chain would turn a fallback-only speed change into an empty patch.
 pub(crate) fn stored_web_search_route(route: &Value) -> Value {
+    let mut primary = stored_search_leaf(route);
+    if let Some(fields) = primary.as_object_mut()
+        && let Some(chain) = route.get("fallbacks").and_then(Value::as_array)
+        && !chain.is_empty()
+    {
+        fields.insert("fallbacks".into(), Value::Array(chain.iter().map(stored_search_leaf).collect()));
+    }
+    primary
+}
+
+fn stored_search_leaf(route: &Value) -> Value {
     let Some(map) = route.as_object() else { return Value::Null };
     let text = |key: &str| js_trim(&first_text(route, &[key])).to_owned();
     let provider = text("provider");
@@ -172,8 +149,11 @@ pub(crate) fn stored_web_search_route(route: &Value) -> Value {
     if !effort.is_empty() {
         out.insert("effort".into(), Value::String(effort));
     }
-    if map.get("fast") == Some(&Value::Bool(true)) {
-        out.insert("fast".into(), Value::Bool(true));
+    if let Some(fast) = map.get("fast").and_then(Value::as_bool) {
+        out.insert("fast".into(), Value::Bool(fast));
+    }
+    if let Some(params) = map.get("modelParameters").filter(|v| v.is_object()) {
+        out.insert("modelParameters".into(), params.clone());
     }
     if !tool_type.is_empty() {
         out.insert("toolType".into(), Value::String(tool_type));
@@ -196,43 +176,6 @@ pub(crate) struct Effective {
     pub onboarding: Doc,
 }
 
-/// The effective presets of `agent`: what `loadConfig().presets` holds.
-pub fn effective_presets(agent: &Doc) -> Vec<Value> {
-    effective(agent).config.get("presets").and_then(Value::as_array).cloned().unwrap_or_default()
-}
-
-pub(crate) fn effective(agent: &Doc) -> Effective {
-    effective_keeping(agent, &[])
-}
-
-/// `effective`, except that the presets with an id in `written` stay as a save wrote them. The
-/// runtime adopts the config it just saved without a reload, so those still hold what the
-/// loader's `normalizePreset` drops (`modelParameters`).
-pub(crate) fn effective_keeping(agent: &Doc, written: &[String]) -> Effective {
-    let stored = crate::config::patch::stored_form(agent);
-    let default = stored.get("default").cloned().unwrap_or(Value::Null);
-    let normalized = |preset: &Value| {
-        let id = first_text(preset, &["id", "name"]);
-        if written.contains(&id) { Some(preset.clone()) } else { normalize_preset(preset) }
-    };
-    let mut presets: Vec<Value> = agent
-        .get("presets")
-        .and_then(Value::as_array)
-        .map(|list| list.iter().filter_map(normalized).filter(|preset| preset.get("id").and_then(Value::as_str) != Some("workflow-search")).collect())
-        .unwrap_or_default();
-    let key = |preset: &Value| first_text(preset, &["id", "name"]);
-    let present: Vec<String> = presets.iter().map(key).collect();
-    presets.extend(default_presets().into_iter().filter(|shipped| !present.contains(&key(shipped))));
-    let default_id = if truthy(Some(&default)) { js_trim(&value_to_string(&default)).to_owned() } else { String::new() };
-    presets.retain(|preset| !redundant_generated(preset, &default_id));
-    let mut config = Obj::new();
-    config.insert("presets".into(), Value::Array(presets));
-    config.insert("default".into(), default);
-    let agents = stored.get("agents").and_then(Value::as_object).cloned().unwrap_or_default();
-    let onboarding = agent.get("onboarding").and_then(Value::as_object).cloned().unwrap_or_default();
-    Effective { config, agents, onboarding }
-}
-
 /// `routeFromPreset(config, slotValue)`.
 fn route_from_preset(config: &Obj, slot: &Value) -> Result<Option<Value>, String> {
     let empty = Value::Object(Map::new());
@@ -245,12 +188,6 @@ fn route_from_preset(config: &Obj, slot: &Value) -> Result<Option<Value>, String
         Some(preset) => normalize_workflow_route(preset, &empty, false),
         None => Ok(None),
     }
-}
-
-/// `agentRouteFromConfig(config, agentId)` for an id that is no fixed role alias.
-fn agent_route(effective: &Effective, id: &str) -> Result<Option<Value>, String> {
-    let Some(candidate) = effective.agents.get(id).filter(|route| truthy(Some(*route))) else { return Ok(None) };
-    route_of_candidate(&effective.config, candidate)
 }
 
 /// One candidate of `agentRouteFromConfig`: a route as it is, else the preset it names (the
@@ -288,41 +225,9 @@ impl Effective {
     }
 }
 
-/// `summarizeWorkflowRoutes(config)`: the Lead route of the default preset, the worker route as
-/// `agent`, the maintainer route as `memory`.
-pub(crate) fn summarize_workflow_routes(effective: &Effective) -> Result<Value, String> {
-    let mut out = Map::new();
-    let default = effective.config.get("default").cloned().unwrap_or(Value::Null);
-    if let Some(lead) = route_from_preset(&effective.config, &default)? {
-        out.insert("lead".into(), lead);
-    }
-    for (slot, id) in SUMMARY_AGENTS {
-        if let Some(route) = agent_route(effective, id)? {
-            out.insert(slot.into(), route);
-        }
-    }
-    Ok(Value::Object(out))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_shipped_presets_lie_under_the_stored_ones() {
-        let agent: Doc = serde_json::from_value(json!({
-            "default": "sonnet-high",
-            "presets": [{ "id": "mine", "provider": "openai-api", "model": "gpt-x", "fast": true }],
-        }))
-        .unwrap();
-        let view = effective(&agent);
-        let presets = view.config["presets"].as_array().unwrap();
-        assert_eq!(presets[0]["provider"], "openai");
-        assert_eq!(presets[0]["fast"], true);
-        assert_eq!(presets.len(), 6);
-        let summary = summarize_workflow_routes(&view).unwrap();
-        assert_eq!(summary["lead"]["effort"], "high");
-    }
 
     /// `normalizeMaintenanceRoutes`: only the slots with a provider and a model stay, holding the fields the route states.
     #[test]
@@ -344,4 +249,168 @@ mod tests {
             })
         );
     }
+
+
+    /// A saved Lead reads back, reloads and publishes at the speed it was saved at: an explicit Standard and
+    /// Ultrafast's service tier survive the preset projection.
+    #[test]
+    fn a_preset_keeps_its_saved_speed() {
+        let lead = |extra: Value| {
+            let mut preset = json!({ "id": "workflow-lead", "name": "WORKFLOW LEAD", "provider": "openai-oauth", "model": "gpt-x" });
+            preset.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            normalize_preset(&preset).unwrap()
+        };
+        let ultra = lead(json!({ "fast": true, "modelParameters": { "serviceTier": " ultrafast ", "empty": " " } }));
+        assert_eq!((ultra["fast"].clone(), ultra["modelParameters"].clone()), (json!(true), json!({ "serviceTier": "ultrafast" })));
+        let standard = lead(json!({ "fast": false, "modelParameters": {} }));
+        assert_eq!(standard["fast"], false);
+        assert!(standard.get("modelParameters").is_none(), "no selected parameter, nothing kept");
+        let ordinary = normalize_preset(&json!({ "id": "mine", "provider": "openai-oauth", "model": "gpt-x", "fast": false, "modelParameters": { "serviceTier": "ultrafast" } })).unwrap();
+        assert!(ordinary.get("fast").is_none() && ordinary.get("modelParameters").is_none(), "an ordinary preset keeps its shape");
+        let agent: Doc = serde_json::from_value(json!({
+            "default": "workflow-lead",
+            "presets": [{ "id": "workflow-lead", "provider": "openai-oauth", "model": "gpt-x", "fast": true, "modelParameters": { "serviceTier": "ultrafast" } }],
+        }))
+        .unwrap();
+        assert_eq!(effective_presets(&agent)[0]["modelParameters"], json!({ "serviceTier": "ultrafast" }), "the listed presets");
+        let stored = crate::config::patch::stored_form(&agent);
+        assert_eq!(stored["presets"][0]["modelParameters"], json!({ "serviceTier": "ultrafast" }), "the saved file");
+    }
+
+    /// The user's case, persisted: slot 1 saved at Ultrafast with only slot 2's speed edited. The written,
+    /// stored and listed Lead keep slot 1's speed and slot 2's new one.
+    #[test]
+    fn a_slot_two_only_edit_persists_both_speeds() {
+        let route = json!({
+            "provider": "openai-oauth", "model": "gpt-5", "effort": "high", "fast": true,
+            "modelParameters": { "serviceTier": "ultrafast" },
+            "fallbacks": [{ "provider": "anthropic-oauth", "model": "claude-opus-4-5", "fast": true }],
+        });
+        let mut config = Obj::new();
+        mixdog_ai::service::admin_route::persist_lead_route(&mut config, &route).unwrap();
+        let agent: Doc = serde_json::from_value(Value::Object(config.into_iter().collect())).unwrap();
+        let stored = crate::config::patch::stored_form(&agent);
+        let listed = effective_presets(&agent);
+        for lead in [&stored["presets"][0], listed.iter().find(|preset| preset["id"] == "workflow-lead").unwrap()] {
+            assert_eq!((lead["fast"].clone(), lead["modelParameters"].clone()), (json!(true), json!({ "serviceTier": "ultrafast" })), "slot 1");
+            assert_eq!(lead["fallbacks"][0]["fast"], true, "slot 2");
+        }
+    }
+
+    #[test]
+    fn the_shipped_presets_lie_under_the_stored_ones() {
+        let agent: Doc = serde_json::from_value(json!({
+            "default": "sonnet-high",
+            "presets": [{ "id": "mine", "provider": "openai-api", "model": "gpt-x", "fast": true }],
+        }))
+        .unwrap();
+        let view = effective(&agent);
+        let presets = view.config["presets"].as_array().unwrap();
+        assert_eq!(presets[0]["provider"], "openai");
+        assert_eq!(presets[0]["fast"], true);
+        assert_eq!(presets.len(), 6);
+        let summary = summarize_workflow_routes(&view).unwrap();
+        assert_eq!(summary["lead"]["effort"], "high");
+    }
+}
+
+
+/// `resolveAnthropicFamilyModel(family)`: the environment override, else the shipped model.
+fn anthropic_family_model(family: &str) -> String {
+    let variable = format!("ANTHROPIC_DEFAULT_{}_MODEL", family.to_uppercase());
+    if let Some(model) = std::env::var(&variable).ok().filter(|model| !model.is_empty()) {
+        return model;
+    }
+    match family {
+        "opus" => "claude-opus-4-8",
+        "sonnet" => "claude-sonnet-4-6",
+        _ => "claude-haiku-4-5-20251001",
+    }
+    .to_owned()
+}
+/// `DEFAULT_MAINTENANCE`: the shipped route of each maintenance slot.
+pub(crate) fn default_maintenance() -> Map<String, Value> {
+    let mut slots = Map::new();
+    slots.insert("webhook".into(), json!({ "provider": "anthropic-oauth", "model": anthropic_family_model("haiku") }));
+    slots
+}
+/// `withDefaultPresets(stored)`: the stored presets, then the shipped ones whose id none of them has.
+pub fn with_default_presets(stored: Option<&Value>) -> Vec<Value> {
+    let mut list: Vec<Value> = stored.and_then(Value::as_array).cloned().unwrap_or_default();
+    let key = |preset: &Value| first_text(preset, &["id", "name"]);
+    let present: Vec<String> = list.iter().map(key).collect();
+    list.extend(default_presets().into_iter().filter(|shipped| !present.contains(&key(shipped))));
+    list
+}
+/// `DEFAULT_PRESETS`.
+pub(crate) fn default_presets() -> Vec<Value> {
+    let preset = |id: &str, name: &str, family: &str, effort: Option<&str>| {
+        let mut preset = json!({ "id": id, "name": name, "type": "agent", "provider": "anthropic-oauth", "model": anthropic_family_model(family) });
+        if let Some(effort) = effort {
+            preset["effort"] = json!(effort);
+        }
+        preset["tools"] = json!("full");
+        preset
+    };
+    vec![
+        preset("haiku", "HAIKU", "haiku", None),
+        preset("sonnet-mid", "SONNET MID", "sonnet", Some("medium")),
+        preset("sonnet-high", "SONNET HIGH", "sonnet", Some("high")),
+        preset("opus-mid", "OPUS MID", "opus", Some("medium")),
+        preset("opus-high", "OPUS HIGH", "opus", Some("high")),
+    ]
+}
+/// The effective presets of `agent`: what `loadConfig().presets` holds.
+pub fn effective_presets(agent: &Doc) -> Vec<Value> {
+    effective(agent).config.get("presets").and_then(Value::as_array).cloned().unwrap_or_default()
+}
+pub(crate) fn effective(agent: &Doc) -> Effective {
+    effective_keeping(agent, &[])
+}
+/// `effective`, except that the presets with an id in `written` stay as a save wrote them. The
+/// runtime adopts the config it just saved without a reload, so those still hold what the
+/// loader's `normalizePreset` drops (a context window, a non-string parameter).
+pub(crate) fn effective_keeping(agent: &Doc, written: &[String]) -> Effective {
+    let stored = crate::config::patch::stored_form(agent);
+    let default = stored.get("default").cloned().unwrap_or(Value::Null);
+    let normalized = |preset: &Value| {
+        let id = first_text(preset, &["id", "name"]);
+        if written.contains(&id) { Some(preset.clone()) } else { normalize_preset(preset) }
+    };
+    let mut presets: Vec<Value> = agent
+        .get("presets")
+        .and_then(Value::as_array)
+        .map(|list| list.iter().filter_map(normalized).filter(|preset| preset.get("id").and_then(Value::as_str) != Some("workflow-search")).collect())
+        .unwrap_or_default();
+    let key = |preset: &Value| first_text(preset, &["id", "name"]);
+    let present: Vec<String> = presets.iter().map(key).collect();
+    presets.extend(default_presets().into_iter().filter(|shipped| !present.contains(&key(shipped))));
+    let default_id = if truthy(Some(&default)) { js_trim(&value_to_string(&default)).to_owned() } else { String::new() };
+    presets.retain(|preset| !redundant_generated(preset, &default_id));
+    let mut config = Obj::new();
+    config.insert("presets".into(), Value::Array(presets));
+    config.insert("default".into(), default);
+    let agents = stored.get("agents").and_then(Value::as_object).cloned().unwrap_or_default();
+    let onboarding = agent.get("onboarding").and_then(Value::as_object).cloned().unwrap_or_default();
+    Effective { config, agents, onboarding }
+}
+/// `agentRouteFromConfig(config, agentId)` for an id that is no fixed role alias.
+fn agent_route(effective: &Effective, id: &str) -> Result<Option<Value>, String> {
+    let Some(candidate) = effective.agents.get(id).filter(|route| truthy(Some(*route))) else { return Ok(None) };
+    route_of_candidate(&effective.config, candidate)
+}
+/// `summarizeWorkflowRoutes(config)`: the Lead route of the default preset, the worker route as
+/// `agent`, the maintainer route as `memory`.
+pub(crate) fn summarize_workflow_routes(effective: &Effective) -> Result<Value, String> {
+    let mut out = Map::new();
+    let default = effective.config.get("default").cloned().unwrap_or(Value::Null);
+    if let Some(lead) = route_from_preset(&effective.config, &default)? {
+        out.insert("lead".into(), lead);
+    }
+    for (slot, id) in SUMMARY_AGENTS {
+        if let Some(route) = agent_route(effective, id)? {
+            out.insert(slot.into(), route);
+        }
+    }
+    Ok(Value::Object(out))
 }

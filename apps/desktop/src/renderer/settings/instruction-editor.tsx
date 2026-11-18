@@ -196,7 +196,7 @@ export function useInstructionEditor({ data, pending, run, confirm, notice }: Pa
 export function DelegationPanel(context: PanelContext) {
   const { items, fileFor, editButton, editor } = useInstructionEditor(context, 'delegation');
   if (editor) return editor;
-  const activeMode = String(context.data.orchestrationMode || '');
+  const defaultMode = String(context.data.orchestrationMode || '');
   return (
     <Group
       title={t('Delegation mode')}
@@ -207,7 +207,7 @@ export function DelegationPanel(context: PanelContext) {
           key={item.id}
           title={item.label}
           meta={instructionPreview(item.body)}
-          status={item.id === activeMode ? 'In use' : undefined}
+          status={item.id === defaultMode ? 'Default' : undefined}
           badges={<InstructionBadges file={fileFor(item.id)} />}
           actions={editButton(item.id)}
         />

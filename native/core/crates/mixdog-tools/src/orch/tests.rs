@@ -1,6 +1,4 @@
-//! Golden twins that run a whole tool call: `golden/session_actions.json` is the `session` tool of
-//! today's Node product (`createWorkspaceToolHandlers`) driven with stub services; the Rust tool
-//! must read the same text (success) or fail with the same text (error) byte for byte.
+//! Whole tool calls driven with stub services: the text a `session`, `agent` or `tidy` call answers with, or fails with.
 
 use std::sync::Arc;
 
@@ -57,6 +55,9 @@ impl SessionPort for Stub {
         Ok(Vec::new())
     }
     async fn control(&self, call: ControlCall) -> Result<Value, PortError> {
+        if call.action == "status" && call.args["session_id"] == "sess_lead1" {
+            return Ok(json!({"sessionId":"sess_lead1","busy":true,"agentsWorking":true,"quotaResume":{"state":"waiting"}}));
+        }
         Ok(json!({"ok": true, "action": call.action, "sessionId": call.args.get("session_id").cloned().unwrap_or(Value::Null), "items": []}))
     }
     async fn status(&self, _: &ThreadId, cwd: &AbsPath) -> SessionStatus {
@@ -122,39 +123,6 @@ pub(crate) fn ctx() -> ToolContext {
     }
 }
 
-#[tokio::test]
-async fn session_actions_read_as_the_node_tool_does() {
-    let golden: Value = serde_json::from_str(include_str!("golden/session_actions.json")).expect("golden");
-    let tool = SessionTool::new(Arc::new(Stub), Arc::new(Facts));
-    let cwd = root().as_path().to_string_lossy().into_owned();
-    let cases = [
-        ("status", json!({"action":"status"})),
-        ("status_default", json!({})),
-        ("compact", json!({"action":"compact"})),
-        ("fork", json!({"action":"fork"})),
-        ("fork_compact", json!({"action":"fork","compact":true})),
-        ("rename_user_title", json!({"action":"rename","title":"New"})),
-        ("rename_missing", json!({"action":"rename"})),
-        ("list", json!({"action":"list","limit":5})),
-        ("read", json!({"action":"read","session_id":"sess_other"})),
-        ("create_not_bot", json!({"action":"create","brief":"x"})),
-        ("favorite_missing_value", json!({"action":"favorite"})),
-        ("other_target", json!({"action":"compact","session_id":"sess_other"})),
-        ("unknown", json!({"action":"zap"})),
-        ("set_project_missing_path", json!({"action":"set-project"})),
-    ];
-    for (name, args) in cases {
-        let want = &golden["outputs"][name];
-        let want_text = want["text"].as_str().expect(name).replace("C:/proj", &cwd.replace('\\', "\\\\"));
-        let (ok, got) = match tool.call(&ctx(), args).await {
-            Ok(out) => (true, match &out.parts[0] { ToolPart::Text(t) => t.clone(), other => panic!("{other:?}") }),
-            Err(e) => (false, e.message_for_model),
-        };
-        assert_eq!(ok, want["ok"].as_bool().unwrap(), "{name}");
-        assert_eq!(got, want_text, "{name}");
-    }
-}
-
 /// `BOT_TARGET_ACTIONS` of Node's `bot-target.mjs` is read, send and status: a bot id names its home chat for those three
 /// only; `list`, `bots`, `cancel` and `delete` take the id as given (`list` and `bots` do not look at it, `cancel` and
 /// `delete` look for a session of that id).
@@ -162,18 +130,88 @@ async fn session_actions_read_as_the_node_tool_does() {
 async fn a_bot_id_names_its_home_chat_for_read_send_and_status_only() {
     let tool = SessionTool::new(Arc::new(Stub), Arc::new(Facts));
     for (action, resolved) in [("read", true), ("send", true), ("status", true), ("list", false), ("bots", false), ("cancel", false), ("delete", false)] {
-        let out = tool.call(&ctx(), json!({"action": action, "session_id": "ann"})).await.expect(action);
+        let mut args = json!({"action": action, "session_id": "ann"});
+        if action == "send" {
+            args["prompt"] = json!("Follow up");
+        }
+        let out = tool.call(&ctx(), args).await.expect(action);
         let ToolPart::Text(text) = &out.parts[0] else { panic!("text") };
         let answered: Value = serde_json::from_str(text).expect("json");
         assert_eq!(answered["sessionId"], if resolved { "sess_home_ann" } else { "ann" }, "{action}");
     }
 }
 
-/// Live-turn twin: `golden/agent_turn.json` holds the tool results the Node loop put in the
-/// transcript when a scripted provider drove five `agent` calls (spawn, status, read, list,
-/// close); the Rust tool must hand the loop the same text for the same facts.
+/// A service call a turn's tool makes carries that turn's approval gate and the asking tool call
+/// (Node `callerCtx.toolApprovalHook` and `toolCallId`, `internal-tool-executor/feature-tools.mjs`):
+/// the service asks a person through it. Outside a tool call there is none.
 #[tokio::test]
-async fn agent_tool_results_equal_the_recorded_node_turn() {
+async fn a_service_call_carries_the_turns_approval_gate() {
+    use mixdog_core_api::domain::approval::{ApprovalAsk, ApprovalKind};
+
+    struct Asks;
+    #[async_trait]
+    impl super::service::ToolService for Asks {
+        async fn call(&self, _: super::service::ServiceCall<'_>) -> Result<Vec<ToolPart>, super::util::PortError> {
+            let approvals = super::service::call_approvals().expect("the tool call's gate");
+            let ask = ApprovalAsk {
+                kind: ApprovalKind::Tool,
+                call_id: Some(approvals.call_id.clone()),
+                tool: Some("tidy".into()),
+                action_kind: None,
+                reason: None,
+                payload: json!({}),
+                remember: Vec::new(),
+                expires_after: None,
+            };
+            let _ = approvals.gate.request(ask).await;
+            Ok(vec![ToolPart::Text(approvals.call_id.to_string())])
+        }
+    }
+    assert!(super::service::call_approvals().is_none(), "no tool call, no gate");
+    let gate = Arc::new(MockApprovalGate::default());
+    let context = ToolContext { approvals: gate.clone(), ..ctx() };
+    let out = super::service::ServiceTool::tidy(Arc::new(Asks)).call(&context, json!({})).await.expect("call");
+    assert_eq!(out.parts, [ToolPart::Text("c".into())]);
+    let asks = gate.asks.lock().unwrap();
+    assert_eq!(asks.len(), 1, "the ask reached the turn's own gate");
+    assert_eq!(asks[0].call_id, Some(ToolCallId::from("c")));
+}
+
+
+#[tokio::test]
+async fn session_actions_answer_with_their_json_or_their_refusal() {
+    let tool = SessionTool::new(Arc::new(Stub), Arc::new(Facts));
+    let cwd = root().as_path().to_string_lossy().replace('\\', "\\\\");
+    let status = format!("{{\n  \"sessionId\": \"sess_lead1\",\n  \"title\": \"My title\",\n  \"titleSource\": \"user\",\n  \"cwd\": \"{cwd}\",\n  \"project\": \"{cwd}\",\n  \"provider\": \"anthropic\",\n  \"model\": \"claude-x\",\n  \"effort\": \"high\",\n  \"autoEffort\": true,\n  \"fast\": false\n}}");
+    let cases = [
+        (json!({"action":"status"}), true, status.clone()),
+        (json!({"action":"status","session_id":"sess_lead1"}), true, r#"{"sessionId":"sess_lead1","busy":true,"agentsWorking":true,"quotaResume":{"state":"waiting"}}"#.to_owned()),
+        (json!({}), true, status),
+        (json!({"action":"compact"}), true, "{\n  \"action\": \"compact\",\n  \"sessionId\": \"sess_lead1\",\n  \"scheduled\": true,\n  \"note\": \"Compaction runs right after the current turn finishes.\"\n}".to_owned()),
+        (json!({"action":"fork"}), true, "{\n  \"action\": \"fork\",\n  \"sourceSessionId\": \"sess_lead1\",\n  \"sessionId\": \"sess_fork1\",\n  \"compacted\": false\n}".to_owned()),
+        (json!({"action":"fork","compact":true}), true, "{\n  \"action\": \"fork\",\n  \"sourceSessionId\": \"sess_lead1\",\n  \"sessionId\": \"sess_fork1\",\n  \"compacted\": true\n}".to_owned()),
+        (json!({"action":"rename","title":"New"}), false, "session: the user already titled this session; the title was not changed".to_owned()),
+        (json!({"action":"rename"}), false, "session: title is required for action=rename".to_owned()),
+        (json!({"action":"list","limit":5}), true, "{\"ok\":true,\"action\":\"list\",\"sessionId\":null,\"items\":[]}".to_owned()),
+        (json!({"action":"read","session_id":"sess_other"}), true, "{\"ok\":true,\"action\":\"read\",\"sessionId\":\"sess_other\",\"items\":[]}".to_owned()),
+        (json!({"action":"send","session_id":"sess_other","attachments":["x"]}), false, "session: prompt is required for action=send".to_owned()),
+        (json!({"action":"create","brief":"x"}), false, "session: create belongs to a bot conversation; delegated workers, agent task sessions and schedule/webhook runs cannot create agent task sessions".to_owned()),
+        (json!({"action":"favorite"}), false, "session: value (boolean) is required for action=favorite".to_owned()),
+        (json!({"action":"compact","session_id":"sess_other"}), false, "session: action=compact only applies to the current session".to_owned()),
+        (json!({"action":"zap"}), false, "session: unknown action \"zap\"".to_owned()),
+        (json!({"action":"set-project"}), false, "session: path is required for action=set-project".to_owned()),
+    ];
+    for (args, want_ok, want_text) in cases {
+        let (ok, got) = match tool.call(&ctx(), args.clone()).await {
+            Ok(out) => (true, match &out.parts[0] { ToolPart::Text(t) => t.clone(), other => panic!("{other:?}") }),
+            Err(e) => (false, e.message_for_model),
+        };
+        assert_eq!((ok, got), (want_ok, want_text), "{args}");
+    }
+}
+/// Five `agent` calls (spawn, status, read, list, close) hand the loop these texts for the scripted facts.
+#[tokio::test]
+async fn agent_tool_results_read_as_the_text_of_each_call() {
     use super::agent::*;
 
     struct Scripted;
@@ -215,8 +253,16 @@ async fn agent_tool_results_equal_the_recorded_node_turn() {
         }
     }
 
-    let golden: Value = serde_json::from_str(include_str!("golden/agent_turn.json")).expect("golden");
+    let texts = [
+        "agent task: job_1\nstatus: running\ntype: spawn\ntarget: worker-a sess_a\nnotification: completion will be delivered; end the turn.",
+        "agent task: job_1\nstatus: running\ntype: spawn\ntarget: worker-a sess_a\nagent: coder\nmodel: p/m\nworker: running/streaming\nnotification: completion will be delivered; end the turn.",
+        "agent task: job_1\nstatus: completed\ntype: spawn\ntarget: worker-a sess_a\n\nThe answer is 42.",
+        "agents: 1 · tasks: 1\n- idle/closed agents: 1 (latest 1; pass tag=<text> to find one)\n- worker-a  idle\n- finished tasks: 1 (latest 1; pass tag=<text> to find one)\n- job_1  spawn  completed  worker-a",
+        "agent close: ok\ntag: worker-a\nsessionId: sess_a",
+    ];
     let tool = AgentTool::new(Arc::new(Scripted), Arc::new(Stub), Arc::new(Facts));
+    let error = tool.call(&ctx(), json!({"agent":"coder","prompt":"do it"})).await.expect_err("no implicit spawn");
+    assert!(matches!(error.code, ToolErrorCode::InvalidArgs { field, .. } if field == "type"));
     let calls = [
         json!({"type":"spawn","agent":"coder","prompt":"do it"}),
         json!({"type":"status","tag":"worker-a"}),
@@ -227,14 +273,12 @@ async fn agent_tool_results_equal_the_recorded_node_turn() {
     for (i, args) in calls.into_iter().enumerate() {
         let out = tool.call(&ctx(), args).await.expect("agent call");
         let ToolPart::Text(got) = &out.parts[0] else { panic!("text") };
-        assert_eq!(got, golden["toolMessages"][i]["content"].as_str().unwrap(), "call {}", i + 1);
+        assert_eq!(got, texts[i], "call {}", i + 1);
     }
 }
-
-/// `golden/tidy_def.json` is Node's `tidy` entry in `tool-defs.mjs`; the model must see the same
-/// name, description and input schema.
+/// The model sees the tidy tool's name, its actions and what `fix` needs.
 #[test]
-fn tidy_definition_equals_the_recorded_node_one() {
+fn the_tidy_tool_is_defined_with_its_six_actions() {
     struct Never;
     #[async_trait]
     impl super::service::ToolService for Never {
@@ -242,46 +286,12 @@ fn tidy_definition_equals_the_recorded_node_one() {
             unreachable!()
         }
     }
-    let golden: Value = serde_json::from_str(include_str!("golden/tidy_def.json")).expect("golden");
     let tool = super::service::ServiceTool::tidy(Arc::new(Never));
     let spec = tool.spec();
-    assert_eq!(spec.name, golden["name"].as_str().unwrap());
-    assert_eq!(spec.description, golden["description"].as_str().unwrap());
-    assert_eq!(spec.input_schema, golden["inputSchema"]);
-}
-
-/// A service call a turn's tool makes carries that turn's approval gate and the asking tool call
-/// (Node `callerCtx.toolApprovalHook` and `toolCallId`, `internal-tool-executor/feature-tools.mjs`):
-/// the service asks a person through it. Outside a tool call there is none.
-#[tokio::test]
-async fn a_service_call_carries_the_turns_approval_gate() {
-    use mixdog_core_api::domain::approval::{ApprovalAsk, ApprovalKind};
-
-    struct Asks;
-    #[async_trait]
-    impl super::service::ToolService for Asks {
-        async fn call(&self, _: super::service::ServiceCall<'_>) -> Result<Vec<ToolPart>, super::util::PortError> {
-            let approvals = super::service::call_approvals().expect("the tool call's gate");
-            let ask = ApprovalAsk {
-                kind: ApprovalKind::Tool,
-                call_id: Some(approvals.call_id.clone()),
-                tool: Some("tidy".into()),
-                action_kind: None,
-                reason: None,
-                payload: json!({}),
-                remember: Vec::new(),
-                expires_after: None,
-            };
-            let _ = approvals.gate.request(ask).await;
-            Ok(vec![ToolPart::Text(approvals.call_id.to_string())])
-        }
-    }
-    assert!(super::service::call_approvals().is_none(), "no tool call, no gate");
-    let gate = Arc::new(MockApprovalGate::default());
-    let context = ToolContext { approvals: gate.clone(), ..ctx() };
-    let out = super::service::ServiceTool::tidy(Arc::new(Asks)).call(&context, json!({})).await.expect("call");
-    assert_eq!(out.parts, [ToolPart::Text("c".into())]);
-    let asks = gate.asks.lock().unwrap();
-    assert_eq!(asks.len(), 1, "the ask reached the turn's own gate");
-    assert_eq!(asks[0].call_id, Some(ToolCallId::from("c")));
+    assert_eq!(spec.name, "tidy");
+    assert!(spec.description.starts_with("Clean up code across the languages in this project; engine/rule work belongs here, not shell."), "{}", spec.description);
+    assert_eq!(spec.input_schema["required"], json!(["action"]));
+    assert_eq!(spec.input_schema["properties"]["action"]["enum"], json!(["scan", "check", "fix", "install", "rules", "results"]));
+    let fields: Vec<&str> = spec.input_schema["properties"].as_object().unwrap().keys().map(String::as_str).collect();
+    assert_eq!(fields, ["action", "paths", "languages", "engines", "rules", "apply", "approveDownloads", "structural", "offset", "limit"]);
 }

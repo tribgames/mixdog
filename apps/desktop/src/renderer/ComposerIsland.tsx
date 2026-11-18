@@ -37,7 +37,16 @@ import {
   islandUsageSummary,
   useIslandSessionUsage,
 } from './island-session-usage';
-import { statsCount, statsPercent, statsTokens } from './usage-stats-model';
+import { CircleDollarSign } from 'lucide-react';
+import {
+  cacheHitReadoutItem,
+  FittedReadout,
+  formatCompactTokens,
+  formatHitPercent,
+  readoutVariants,
+  tokensReadoutItem,
+} from './composer-usage-readout';
+import { statsCount } from './usage-stats-model';
 import { usageMoney } from './usage-format';
 import { ShellJobContent, ShellRowButton, useShellStops } from './shell-job-controls';
 import {
@@ -48,9 +57,10 @@ import {
   petIslandReserveFor,
   subscribePetIslandReserve,
 } from './composer-island-state';
-import { desktopHeaderSnapshotsEqual } from './desktop-snapshot-store';
+import { desktopHeaderSnapshotsEqual, paneHeaderView } from './desktop-snapshot-store';
 import { EMPTY_SNAPSHOT } from './desktop-types';
 import { t } from './i18n';
+import { IslandPanelFoot, TidyButton } from './IslandPanelFoot';
 import { MxIcon } from './MxIcon';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { quotaRemainingLabel, quotaResetLabel } from './quota-continue';
@@ -381,7 +391,9 @@ function rememberSegmentAdvances(sessionId: string, pill: Element): void {
     if (pill.querySelector(`[data-island-pending="${kind}"]`)) continue;
     const segment = pill.querySelector<HTMLElement>(RESERVED_SEGMENTS[kind]);
     const margin = segment ? Number.parseFloat(window.getComputedStyle(segment).marginInlineStart) || 0 : 0;
-    next[kind] = segment ? segment.offsetWidth + margin : 0;
+    // The laid-out width, fractions included: a reserve of the rounded
+    // offsetWidth stood up to half a pixel off the segment it holds room for.
+    next[kind] = segment ? segment.getBoundingClientRect().width + margin : 0;
   }
   segmentAdvances.delete(sessionId);
   segmentAdvances.set(sessionId, { ...recorded, [form]: next });
@@ -790,18 +802,16 @@ function ShellJobItem({
 }
 
 /** A jobs panel's header: its own title chip, optional state counts beside
- *  it, an optional header action, and the close button. */
+ *  it, and the close button. Actions live in the footer (IslandPanelFoot). */
 function JobsPanelHead({
   mark,
   title,
   meta,
-  action,
   onClose,
 }: {
   mark: ReactNode;
   title: string;
   meta?: ReactNode;
-  action?: ReactNode;
   onClose(): void;
 }) {
   return (
@@ -811,7 +821,6 @@ function JobsPanelHead({
         {title}
       </span>
       {meta ? <span className="composer-island-phead-meta">{meta}</span> : null}
-      {action}
       <button
         type="button"
         className="composer-island-close"
@@ -839,28 +848,6 @@ function islandAgentCounts(agents: readonly IslandAgentRow[]) {
   };
 }
 
-/** One attention state of the agents segment: its mark, then its words on a
- *  wide island or the bare count on a compact one. */
-function IslandSegState({
-  kind,
-  mark,
-  word,
-  count,
-}: {
-  kind: DesktopAgentActivityState;
-  mark: ReactNode;
-  word: string;
-  count: number;
-}) {
-  return (
-    <span className="composer-island-seg-state" data-kind={kind}>
-      {mark}
-      <span className="composer-island-seg-word">{word}</span>
-      <span className="composer-island-seg-num" data-count={count} aria-hidden="true" />
-    </span>
-  );
-}
-
 /** How many listed agents run, need the user, failed or wait: beside the title. */
 function AgentsStateCounts({ agents }: { agents: IslandAgentRow[] }) {
   const { running, needsUser, failed, waiting: queued, idle } = islandAgentCounts(agents);
@@ -880,49 +867,48 @@ function AgentsStateCounts({ agents }: { agents: IslandAgentRow[] }) {
 /** Shown for a figure the ledger has not answered yet or cannot attribute
  *  exactly: never an invented zero. */
 const SUMMARY_UNKNOWN = '-';
-/** The widest figures the footer reserves room for, so a measured value lands
- *  in the box its "-" placeholder already holds. */
-const SUMMARY_SAMPLE_TOKENS = 999_900_000;
-const SUMMARY_SAMPLE_COST = 9_999.99;
+/** Narrowing drops the cache hit first, as the composer's readout does, then
+ *  the cost (which that line lacks); the token total stays longest. */
+const SUMMARY_KEEP_ORDER = ['total', 'cost', 'hit'];
+const SUMMARY_DISPLAY_ORDER = ['total', 'hit', 'cost'];
 
-/** One footer stat. Its box is sized by `reserve` (the same words with the
- *  widest figures, drawn invisibly by CSS), not by the live text, so the
- *  placeholder and the measured value wrap and measure alike. */
-function SummaryStat({ reserve, children }: { reserve: string; children: ReactNode }) {
-  return (
-    <span className="composer-island-summary-stat" data-reserve={reserve}>
-      <span>{children}</span>
-    </span>
-  );
-}
-
-/** The session's totals below the agent rows: the ledger's exact figures for
- *  the Lead and its listed agents. The three stats and the Lead/Agents split
- *  are laid out from the first render; a figure not yet measured, or one the
- *  ledger cannot attribute exactly, reads "-", never an estimate or a zero. */
+/** The session's totals below the agent rows, in the composer usage
+ *  readout's own form (its items, formatters and fitting): the ledger's exact
+ *  figures for the Lead and its listed agents, the Lead/Agents split in the
+ *  total's worded form and the cost after. A figure not yet measured, or one
+ *  the ledger cannot attribute exactly, reads "-", never an estimate or a zero. */
 function AgentsSummary({ usage }: { usage: IslandUsageSummary }) {
   const { totalTokens, leadTokens, agentTokens, cacheHitRate, costUsd } = usage;
   const splitKnown = totalTokens !== null && leadTokens !== null && agentTokens !== null;
-  const split = (lead: string, agents: string) => `(${t('Lead {{lead}} · Agents {{agents}}', { lead, agents })})`;
-  const sampleTokens = statsTokens(SUMMARY_SAMPLE_TOKENS);
+  const split = `(${t('Lead {{lead}} · Agents {{agents}}', {
+    lead: splitKnown ? formatCompactTokens(leadTokens) : SUMMARY_UNKNOWN,
+    agents: splitKnown ? formatCompactTokens(agentTokens) : SUMMARY_UNKNOWN,
+  })})`;
+  const total = tokensReadoutItem(totalTokens === null ? SUMMARY_UNKNOWN : formatCompactTokens(totalTokens));
+  const cost = t('Island: {{cost}} est. cost', { cost: costUsd === null ? SUMMARY_UNKNOWN : usageMoney(costUsd) });
+  const parts = {
+    total: { ...total, label: `${total.label} ${split}`, word: `${total.word} ${split}` },
+    hit: cacheHitReadoutItem(cacheHitRate === null ? SUMMARY_UNKNOWN : formatHitPercent(cacheHitRate)),
+    cost: {
+      icon: CircleDollarSign,
+      text: costUsd === null ? SUMMARY_UNKNOWN : usageMoney(costUsd),
+      label: cost,
+      word: cost,
+    },
+  };
+  const [detailed, ...icons] = readoutVariants(parts, SUMMARY_KEEP_ORDER, SUMMARY_DISPLAY_ORDER);
+  // The composer's own wording (`11.6B tokens · Cache hit 92.0% · $6,216.60`) for a footer too narrow for the split.
+  const [worded] = readoutVariants(
+    { ...parts, total: { ...parts.total, word: total.word }, cost: { ...parts.cost, word: parts.cost.text } },
+    SUMMARY_KEEP_ORDER,
+    SUMMARY_DISPLAY_ORDER
+  );
   return (
-    // biome-ignore lint/a11y/useSemanticElements: fieldset default border/padding/margin would change the styling.
-    <div className="composer-island-summary" role="group" aria-label={t('Session usage')}>
-      <SummaryStat reserve={`${t('Island: Total tokens')} ${sampleTokens} ${split(sampleTokens, sampleTokens)}`}>
-        {t('Island: Total tokens')} <b>{totalTokens === null ? SUMMARY_UNKNOWN : statsTokens(totalTokens)}</b>{' '}
-        <span className="composer-island-summary-split">
-          {splitKnown
-            ? split(statsTokens(leadTokens), statsTokens(agentTokens))
-            : split(SUMMARY_UNKNOWN, SUMMARY_UNKNOWN)}
-        </span>
-      </SummaryStat>
-      <SummaryStat reserve={`${t('Island: Cache hit rate')} ${statsPercent(1)}`}>
-        {t('Island: Cache hit rate')} <b>{cacheHitRate === null ? SUMMARY_UNKNOWN : statsPercent(cacheHitRate)}</b>
-      </SummaryStat>
-      <SummaryStat reserve={`${t('Island: Approx. cost')} ${usageMoney(SUMMARY_SAMPLE_COST)}`}>
-        {t('Island: Approx. cost')} <b>{costUsd === null ? SUMMARY_UNKNOWN : usageMoney(costUsd)}</b>
-      </SummaryStat>
-    </div>
+    <FittedReadout
+      variants={[detailed, worded, ...icons]}
+      title={t('Session usage')}
+      className="composer-island-summary"
+    />
   );
 }
 
@@ -948,17 +934,6 @@ function AgentsPanel({
         mark={jobsTabMark('agent', agents, 0)}
         title={t('Agent {{agent}}', { agent: agents.length })}
         meta={<AgentsStateCounts agents={agents} />}
-        action={
-          clearable.length > 0 ? (
-            <button
-              type="button"
-              className="composer-island-button composer-island-phead-action"
-              onClick={() => dismissFinishedAgentRows(clearable)}
-            >
-              {t('Clear finished')}
-            </button>
-          ) : undefined
-        }
         onClose={onClose}
       />
       {/* The Agents window's own tree and row component; each row's own
@@ -987,14 +962,28 @@ function AgentsPanel({
               />
               {tokens === undefined ? null : (
                 <span className="composer-island-agent-tokens" aria-hidden="true">
-                  {statsTokens(tokens)}
+                  {formatCompactTokens(tokens)}
                 </span>
               )}
             </div>
           );
         })}
       </div>
-      <AgentsSummary usage={usage} />
+      <IslandPanelFoot
+        end={
+          <TidyButton
+            className="composer-island-button"
+            kind="clear-finished"
+            label={t('Clean up')}
+            description={t('Clear finished')}
+            named
+            disabled={clearable.length === 0}
+            onClick={() => dismissFinishedAgentRows(clearable)}
+          />
+        }
+      >
+        <AgentsSummary usage={usage} />
+      </IslandPanelFoot>
     </section>
   );
 }
@@ -1024,17 +1013,6 @@ function ShellsPanel({
         mark={jobsTabMark('shell', [], runningShells)}
         title={runningShells > 0 ? t('Shell {{shell}}', { shell: runningShells }) : t('Shell')}
         meta={finished.length > 0 ? <span>{t('Island: Ended {{count}}', { count: finished.length })}</span> : undefined}
-        action={
-          finished.length > 0 ? (
-            <button
-              type="button"
-              className="composer-island-button composer-island-phead-action"
-              onClick={() => onDismissAll(finished)}
-            >
-              {t('Island: Close all')}
-            </button>
-          ) : undefined
-        }
         onClose={onClose}
       />
       <ul className="composer-island-pbody composer-island-jobs">
@@ -1050,6 +1028,19 @@ function ShellsPanel({
           />
         ))}
       </ul>
+      <IslandPanelFoot
+        end={
+          finished.length > 0 ? (
+            <TidyButton
+              className="composer-island-button"
+              kind="close-all"
+              label={t('Island: Close all')}
+              description={t('Island: Close all')}
+              onClick={() => onDismissAll(finished)}
+            />
+          ) : undefined
+        }
+      />
     </section>
   );
 }
@@ -1125,9 +1116,10 @@ function useSettledTurns(busy: boolean): number {
   return settled;
 }
 
-/** The pill's agents segment: every agent of the session, finished ones
- *  included; the mark pulses while any runs or queues, rests idle once all
- *  finished, and what needs the user or waits is called out. */
+/** The pill's agents segment counts the agents still working, as the shell
+ *  segment counts running shells. With only finished agents left it reads
+ *  "Agent", muted and without a number; the mark pulses while any runs or
+ *  queues. */
 function AgentsSegment({
   agents,
   expanded,
@@ -1156,18 +1148,15 @@ function AgentsSegment({
       title={title}
       onClick={onClick}
     >
-      <IslandSegLabel text={t('Island: {{count}} agents', { count: total })} count={total} icon="agent" />
-      <AgentMark working={working + waiting > 0} />
-      {working > 0 && (
-        <span className="composer-island-seg-states">
-          <IslandSegState
-            kind="running"
-            mark={<span className="composer-island-dot" aria-hidden="true" />}
-            word={`${t('Island: Running')} ${working}`}
-            count={working}
-          />
-        </span>
+      {active > 0 ? (
+        <IslandSegLabel text={t('Island: {{count}} agents', { count: active })} count={active} icon="agent" />
+      ) : (
+        <>
+          <MxIcon name="agent" size={14} className="composer-island-seg-icon" aria-hidden="true" />
+          <span className="composer-island-seg-word">{t('Agent')}</span>
+        </>
       )}
+      <AgentMark working={working + waiting > 0} />
     </button>
   );
 }
@@ -1342,7 +1331,7 @@ export const ComposerIsland = memo(function ComposerIsland({
   onOpenAgentSession,
 }: ComposerIslandProps) {
   const lane = useSessionLane(sessionId, defaultSessionLaneStore, desktopHeaderSnapshotsEqual, Boolean(sessionId));
-  const snapshot = lane ?? EMPTY_SNAPSHOT;
+  const snapshot = lane ? paneHeaderView(lane) : EMPTY_SNAPSHOT;
   const dismissedShells = useDismissedShellJobs(sessionId);
   const hostJobRows = useMemo(() => backgroundJobRows(snapshot, dismissedShells), [snapshot, dismissedShells]);
   const jobRows = useShellRowsUntilFinished(sessionId, hostJobRows);

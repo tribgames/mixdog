@@ -112,12 +112,17 @@ const RETIRED_FILES: &[&str] = &[
     "client-versions.json",
     "update-check-cache.json",
     "cache.local.json",
-    "prompt-attachments/gc-reference-cache.json",
-    "prompt-attachments/gc-last-run",
-    "prompt-attachments/gc-running",
-    "prompt-attachments/staged-originals.json",
-    "prompt-attachments/staged-originals.json.lock",
 ];
+
+/// 1.4.5's attachment tree, which the core never changes: it stays whole for a rollback, and its blobs are taken in by
+/// `crate::legacy_blobs` alone. Only a manifest an earlier build planned has items there (its blobs as
+/// `store/attachmentBlobs`, its census files and cut writes as retire items); such an item settles with its sources left
+/// where they are, unread.
+const LEGACY_ATTACHMENTS: &str = "prompt-attachments/";
+
+fn in_legacy_attachments(item: &ManifestItem) -> bool {
+    item.kind == K::AttachmentBlobs || item.sources.iter().any(|s| s.root == D && s.path.starts_with(LEGACY_ATTACHMENTS))
+}
 
 /// Retired directories under `<D>`, one item each.
 const RETIRED_DIRS: &[&str] = &["live-sessions", "session-writer-locks", "media/renditions"];
@@ -131,22 +136,6 @@ const LEDGER_LEGACY_INPUTS: &[&str] = &[
     "gateway-usage.local.jsonl.migrated.bak",
     "gateway-usage.local.json.migrated.bak",
 ];
-
-fn is_hex(text: &str, len: usize) -> bool {
-    text.len() == len && text.bytes().all(|b| b.is_ascii_hexdigit())
-}
-
-/// `<blob dir>/<ab>/<64 hex>.mixdog-tmp-<16 hex>`: a blob whose write was cut (`src/runtime/attachments/store.mjs` publishes
-/// through the atomic writer).
-fn is_blob_leftover(rel: &str) -> bool {
-    let Some(rest) = rel.strip_prefix(mixdog_store::schema::blob::BLOB_DIR).and_then(|rest| rest.strip_prefix('/')) else {
-        return false;
-    };
-    let Some((shard, name)) = rest.split_once('/') else {
-        return false;
-    };
-    is_hex(shard, 2) && temp_files::atomic_publish_base(name).is_some_and(|base| is_hex(base, 64) && base.starts_with(shard))
-}
 
 /// Root-level retire patterns (besides exact names).
 fn is_retired_pattern(name: &str) -> bool {
@@ -184,32 +173,8 @@ pub const LEGACY_COMPACTION_KEYS: &[&str] = &[
 pub const CONFIG_FILE: &str = "mixdog-config.json";
 pub const LEGACY_COMPACTION_ITEM: &str = "config/agent.compaction";
 const LEGACY_COMPACTION_TARGET: &str = "agent.compaction";
-/// 1.4.5 kept the quota auto-resume switch at `quotaResume.autoResume`; the core reads the registered key `quotaAutoResume`
-/// (`desktop-services.md` A2/D1).
-pub const LEGACY_QUOTA_ITEM: &str = "config/quotaResume.autoResume";
-const QUOTA_TARGET: &str = "quotaAutoResume";
-
-/// The config document with `quotaResume.autoResume` moved to `quotaAutoResume`; `None` when it holds no such key. The switch
-/// is on unless it is the boolean `false` (`quotaAutoResumeEnabled`), so only `false` is carried; any other value is the
-/// default and is just dropped. A `quotaAutoResume` the document already has wins. The rest of `quotaResume` stays, and an
-/// emptied `quotaResume` goes.
-pub fn moved_quota_config(doc: &Value) -> Option<Value> {
-    let section = doc.get("quotaResume")?.as_object()?;
-    let legacy = section.get("autoResume")?;
-    let mut next = doc.clone();
-    let root = next.as_object_mut()?;
-    let mut rest = section.clone();
-    rest.shift_remove("autoResume");
-    if rest.is_empty() {
-        root.shift_remove("quotaResume");
-    } else {
-        root.insert("quotaResume".into(), Value::Object(rest));
-    }
-    if *legacy == Value::Bool(false) && !root.contains_key(QUOTA_TARGET) {
-        root.insert(QUOTA_TARGET.into(), Value::Bool(false));
-    }
-    Some(next)
-}
+// The 1.4.5 quota auto-resume switch (`quotaResume.autoResume`) is not migrated: the core reads and writes it where 1.4.5 did
+// (`mixdog_core_config::config::quota`), so a profile keeps working under either version and no step has to have run.
 
 /// `agent.compaction` with the legacy keys folded into their current meaning and removed,
 /// or `None` when it holds none. Same reading as the 1.4.5 runtime
@@ -296,16 +261,6 @@ fn parse_check(path: &Path, rel: &str, bytes: &[u8]) -> std::result::Result<(), 
     }
 }
 
-/// SHA-256 over a preserve item's sources (`root path sha256` lines): its staged output
-/// and verified digest.
-fn sources_sha256(sources: &[SourceFile]) -> String {
-    let mut text = String::new();
-    for s in sources {
-        text.push_str(&format!("{} {} {}\n", plan::root_name(s.root), s.path, s.sha256));
-    }
-    durable::sha256_hex(text.as_bytes())
-}
-
 pub(crate) fn store_key(kind: ItemKind) -> String {
     let name = serde_json::to_value(kind)
         .ok()
@@ -317,6 +272,131 @@ pub(crate) fn store_key(kind: ItemKind) -> String {
 #[derive(Default)]
 pub struct StoresDriver;
 
+fn digest(hex: &str) -> Result<Digest> {
+    Ok(json::hex_digest(hex))
+}
+
+fn handles(kind: ItemKind) -> bool {
+    matches!(
+        kind,
+        K::AttachmentBlobs | K::LedgerBackups | K::Retired | K::LedgerLegacyInputs
+    ) || STORES.iter().any(|s| s.kind == kind)
+}
+
+/// A preserved store as it stands. It is its own target, verified in its wave; the core that serves while the sessions
+/// convert may have written it since, so its links are read from the file there is, not from the planned bytes.
+fn standing(cx: &ItemContext<'_>, source: &mixdog_store::schema::migration::SourceFile) -> Result<Vec<u8>> {
+    durable::read(&cx.source_path(source)?)
+}
+
+/// Session ids named by a preserved keyed store (SM §11.6 `links`).
+fn linked_sessions(item: &ManifestItem, cx: &ItemContext<'_>) -> Result<Vec<String>> {
+    let mut ids = Vec::new();
+    match item.kind {
+        K::Goals => {
+            for s in &item.sources {
+                let rest = s.path.strip_prefix("goals/").unwrap_or(&s.path);
+                let id = match rest.strip_prefix("history/") {
+                    Some(h) => h.split('/').next().unwrap_or(""),
+                    None => rest.split('.').next().unwrap_or(""),
+                };
+                if !id.is_empty() && !ids.iter().any(|x| x == id) {
+                    ids.push(id.to_string());
+                }
+            }
+        }
+        K::ConnectorAccounts => {
+            for s in &item.sources {
+                if s.path == "connector-accounts-by-conversation.json" {
+                    let value = json::parse_source(&standing(cx, s)?).map_err(Blocked::journal)?.value;
+                    if let Some(map) = value.as_object() {
+                        ids.extend(map.keys().cloned());
+                    }
+                }
+            }
+        }
+        K::Worktrees => {
+            fn owners(v: &Value, out: &mut Vec<String>) {
+                match v {
+                    Value::Object(m) => {
+                        for (k, v) in m {
+                            match (k.as_str(), v) {
+                                ("ownerSessionId", Value::String(s)) => out.push(s.clone()),
+                                _ => owners(v, out),
+                            }
+                        }
+                    }
+                    Value::Array(a) => a.iter().for_each(|v| owners(v, out)),
+                    _ => {}
+                }
+            }
+            for s in &item.sources {
+                if s.path.ends_with(".json") {
+                    let value = json::parse_source(&standing(cx, s)?).map_err(Blocked::journal)?.value;
+                    owners(&value, &mut ids);
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn obj(v: Value) -> Map<String, Value> {
+        v.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn legacy_compaction_keys_fold_into_their_meaning() {
+        let folded = fold_legacy_compaction(&obj(serde_json::json!({
+            "enabled": false, "semanticModel": "m", "recallMemoryTimeoutMs": 5,
+            "type": "semantic", "onModelChange": true
+        })))
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            Value::Object(folded),
+            serde_json::json!({"auto": false, "summaryModel": "m", "memoryTimeoutMs": 5, "onModelChange": true})
+        );
+        assert_eq!(
+            fold_legacy_compaction(&obj(serde_json::json!({"prune": true}))),
+            Some(None)
+        );
+        assert_eq!(fold_legacy_compaction(&obj(serde_json::json!({"auto": false}))), None);
+        let kept = fold_legacy_compaction(&obj(serde_json::json!({"summaryModel": "a", "semanticModel": "b"})))
+            .unwrap()
+            .unwrap();
+        assert_eq!(Value::Object(kept), serde_json::json!({"summaryModel": "a"}));
+    }
+
+    #[test]
+    fn the_verify_reads_the_config_as_json_parse_does() {
+        let deep = format!("{}{}", "[".repeat(300), "]".repeat(300));
+        let mut bytes = b"{\"a\":\"\xff\",\"n\":1e400,\"deep\":".to_vec();
+        bytes.extend_from_slice(deep.as_bytes());
+        bytes.push(b'}');
+        let path = Path::new("mixdog-config.json");
+        assert_eq!(parse_check(path, CONFIG_FILE, &bytes), Ok(()));
+        // Another store's JSON keeps the strict parse.
+        assert!(parse_check(path, "other.json", &bytes).is_err());
+        assert!(parse_check(path, CONFIG_FILE, b"{\"a\":").is_err());
+    }
+}
+
+
+/// SHA-256 over a preserve item's sources (`root path sha256` lines): its staged output
+/// and verified digest.
+fn sources_sha256(sources: &[SourceFile]) -> String {
+    let mut text = String::new();
+    for s in sources {
+        text.push_str(&format!("{} {} {}\n", plan::root_name(s.root), s.path, s.sha256));
+    }
+    durable::sha256_hex(text.as_bytes())
+}
 impl StoresDriver {
     fn plan_store(&self, roots: &MigrationRoots, sink: &mut PlanSink, store: &Store) -> Result<()> {
         let Some(base) = roots.root(store.root) else {
@@ -363,40 +443,6 @@ impl StoresDriver {
             &store_key(store.kind),
             KindGroup::Data,
             store.kind,
-            Contract::Preserve,
-            sources,
-            None,
-        )?)
-    }
-
-    fn plan_blobs(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
-        let mut sources = Vec::new();
-        let mut leftovers = Vec::new();
-        let base = roots.data.join(mixdog_store::schema::blob::BLOB_DIR);
-        for (shard, is_dir) in durable::list_dir(&base)? {
-            if !is_dir || !is_hex(&shard, 2) {
-                continue;
-            }
-            for (name, is_dir) in durable::list_dir(&base.join(&shard))? {
-                if !is_dir && is_hex(&name, 64) && name.starts_with(&shard) {
-                    let rel = format!("{}/{shard}/{name}", mixdog_store::schema::blob::BLOB_DIR);
-                    sources.push(sink.source(D, &rel, false)?);
-                } else if !is_dir && is_blob_leftover(&format!("{}/{shard}/{name}", mixdog_store::schema::blob::BLOB_DIR)) {
-                    leftovers.push(format!("{}/{shard}/{name}", mixdog_store::schema::blob::BLOB_DIR));
-                }
-            }
-        }
-        for rel in leftovers {
-            let source = sink.source(D, &rel, false)?;
-            sink.add_item(plan::item(&plan::retire_key(D, &rel), KindGroup::Data, K::Retired, Contract::Retire, vec![source], None)?)?;
-        }
-        if sources.is_empty() {
-            return Ok(());
-        }
-        sink.add_item(plan::item(
-            &store_key(K::AttachmentBlobs),
-            KindGroup::Data,
-            K::AttachmentBlobs,
             Contract::Preserve,
             sources,
             None,
@@ -520,58 +566,6 @@ impl StoresDriver {
         )?)
     }
 
-    fn plan_legacy_quota(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
-        let Some((_, doc)) = read_config(&roots.data)? else {
-            return Ok(());
-        };
-        if moved_quota_config(&doc).is_none() {
-            return Ok(());
-        }
-        sink.add_item(plan::item(
-            LEGACY_QUOTA_ITEM,
-            KindGroup::Data,
-            K::Settings,
-            Contract::Convert,
-            Vec::new(),
-            Some(Target::ConfigKey {
-                key: QUOTA_TARGET.into(),
-            }),
-        )?)
-    }
-
-    fn stage_legacy_quota(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged> {
-        let (_, doc) = read_config(&cx.roots.data)?.ok_or_else(|| Blocked::StoreSchema {
-            key: item.key.as_str().into(),
-            detail: format!("{CONFIG_FILE} is gone"),
-        })?;
-        // Already moved (an earlier run published it): the current file is the output.
-        let bytes = match moved_quota_config(&doc) {
-            Some(next) => config_bytes(&next),
-            None => durable::read(&cx.roots.data.join(CONFIG_FILE))?,
-        };
-        durable::write_synced(&cx.stage_dir(item.key.as_str()).join(CONFIG_FILE), &bytes)?;
-        Ok(Staged::Output {
-            output_sha256: durable::sha256_hex(&bytes),
-            replaced_surrogates: 0,
-        })
-    }
-
-    fn verify_legacy_quota(&self, cx: &ItemContext<'_>) -> Result<Verdict> {
-        let (bytes, doc) = read_config(&cx.roots.data)?.ok_or_else(|| Blocked::StoreSchema {
-            key: LEGACY_QUOTA_ITEM.into(),
-            detail: format!("{CONFIG_FILE} is gone"),
-        })?;
-        if moved_quota_config(&doc).is_some() {
-            return Ok(Verdict::Quarantine {
-                code: QuarantineCode::DigestMismatch,
-                detail: "quotaResume.autoResume is still in the config".into(),
-            });
-        }
-        Ok(Verdict::Verified {
-            digest: Some(digest(&durable::sha256_hex(&bytes))?),
-        })
-    }
-
     fn stage_legacy_compaction(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged> {
         let (_, doc) = read_config(&cx.roots.data)?.ok_or_else(|| Blocked::StoreSchema {
             key: item.key.as_str().into(),
@@ -649,88 +643,15 @@ impl StoresDriver {
         })
     }
 }
-
-fn digest(hex: &str) -> Result<Digest> {
-    Ok(json::hex_digest(hex))
-}
-
-fn handles(kind: ItemKind) -> bool {
-    matches!(
-        kind,
-        K::AttachmentBlobs | K::LedgerBackups | K::Retired | K::LedgerLegacyInputs
-    ) || STORES.iter().any(|s| s.kind == kind)
-}
-
-/// A preserved store as it stands. It is its own target, verified in its wave; the core that serves while the sessions
-/// convert may have written it since, so its links are read from the file there is, not from the planned bytes.
-fn standing(cx: &ItemContext<'_>, source: &mixdog_store::schema::migration::SourceFile) -> Result<Vec<u8>> {
-    durable::read(&cx.source_path(source)?)
-}
-
-/// Session ids named by a preserved keyed store (SM §11.6 `links`).
-fn linked_sessions(item: &ManifestItem, cx: &ItemContext<'_>) -> Result<Vec<String>> {
-    let mut ids = Vec::new();
-    match item.kind {
-        K::Goals => {
-            for s in &item.sources {
-                let rest = s.path.strip_prefix("goals/").unwrap_or(&s.path);
-                let id = match rest.strip_prefix("history/") {
-                    Some(h) => h.split('/').next().unwrap_or(""),
-                    None => rest.split('.').next().unwrap_or(""),
-                };
-                if !id.is_empty() && !ids.iter().any(|x| x == id) {
-                    ids.push(id.to_string());
-                }
-            }
-        }
-        K::ConnectorAccounts => {
-            for s in &item.sources {
-                if s.path == "connector-accounts-by-conversation.json" {
-                    let value = json::parse_source(&standing(cx, s)?).map_err(Blocked::journal)?.value;
-                    if let Some(map) = value.as_object() {
-                        ids.extend(map.keys().cloned());
-                    }
-                }
-            }
-        }
-        K::Worktrees => {
-            fn owners(v: &Value, out: &mut Vec<String>) {
-                match v {
-                    Value::Object(m) => {
-                        for (k, v) in m {
-                            match (k.as_str(), v) {
-                                ("ownerSessionId", Value::String(s)) => out.push(s.clone()),
-                                _ => owners(v, out),
-                            }
-                        }
-                    }
-                    Value::Array(a) => a.iter().for_each(|v| owners(v, out)),
-                    _ => {}
-                }
-            }
-            for s in &item.sources {
-                if s.path.ends_with(".json") {
-                    let value = json::parse_source(&standing(cx, s)?).map_err(Blocked::journal)?.value;
-                    owners(&value, &mut ids);
-                }
-            }
-        }
-        _ => {}
-    }
-    Ok(ids)
-}
-
 impl ItemDriver for StoresDriver {
     fn plan(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
         for store in STORES {
             self.plan_store(roots, sink, store)?;
         }
-        self.plan_blobs(roots, sink)?;
         self.plan_ledger_backups(roots, sink)?;
         self.plan_retired(roots, sink)?;
         self.plan_ledger_inputs(roots, sink)?;
         self.plan_legacy_compaction(roots, sink)?;
-        self.plan_legacy_quota(roots, sink)?;
         connectors::plan(roots, sink)
     }
 
@@ -744,13 +665,13 @@ impl ItemDriver for StoresDriver {
                 || RETIRED_DIRS.contains(&rel)
                 || (!rel.contains('/') && is_retired_pattern(rel))
                 || temp_files::is_store_leftover(rel)
-                || is_blob_leftover(rel);
+                || rel.starts_with(LEGACY_ATTACHMENTS);
         }
         handles(item.kind)
     }
 
     fn wave(&self, item: &ManifestItem) -> Wave {
-        if [LEGACY_COMPACTION_ITEM, LEGACY_QUOTA_ITEM, connectors::ITEM].contains(&item.key.as_str()) {
+        if [LEGACY_COMPACTION_ITEM, connectors::ITEM].contains(&item.key.as_str()) {
             Wave::Settings
         } else {
             Wave::Stores
@@ -760,9 +681,6 @@ impl ItemDriver for StoresDriver {
     fn stage(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged> {
         if item.key.as_str() == LEGACY_COMPACTION_ITEM {
             return self.stage_legacy_compaction(cx, item);
-        }
-        if item.key.as_str() == LEGACY_QUOTA_ITEM {
-            return self.stage_legacy_quota(cx, item);
         }
         if item.key.as_str() == connectors::ITEM {
             return connectors::stage(cx, item);
@@ -783,10 +701,6 @@ impl ItemDriver for StoresDriver {
         if item.key.as_str() == LEGACY_COMPACTION_ITEM {
             return self.publish_legacy_compaction(cx, item, staged);
         }
-        if item.key.as_str() == LEGACY_QUOTA_ITEM {
-            // The same whole-file publish as the compaction item: the stage is the config as it stands plus this move.
-            return self.publish_legacy_compaction(cx, item, staged);
-        }
         if item.key.as_str() == connectors::ITEM {
             return connectors::publish(cx, item, staged);
         }
@@ -797,11 +711,12 @@ impl ItemDriver for StoresDriver {
         if item.key.as_str() == LEGACY_COMPACTION_ITEM {
             return self.verify_legacy_compaction(cx);
         }
-        if item.key.as_str() == LEGACY_QUOTA_ITEM {
-            return self.verify_legacy_quota(cx);
-        }
         if item.key.as_str() == connectors::ITEM {
             return connectors::verify(cx, item);
+        }
+        if in_legacy_attachments(item) {
+            let digest = (item.contract == Contract::Preserve).then(|| digest(&sources_sha256(&item.sources))).transpose()?;
+            return Ok(Verdict::Verified { digest });
         }
         match item.contract {
             Contract::Retire => Ok(Verdict::Verified { digest: None }),
@@ -821,85 +736,6 @@ impl ItemDriver for StoresDriver {
     }
 
     fn keeps_sources(&self, item: &ManifestItem) -> bool {
-        item.contract == Contract::Preserve
-            || item.key.as_str() == LEGACY_COMPACTION_ITEM
-            || item.key.as_str() == LEGACY_QUOTA_ITEM
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn obj(v: Value) -> Map<String, Value> {
-        v.as_object().unwrap().clone()
-    }
-
-    #[test]
-    fn legacy_compaction_keys_fold_into_their_meaning() {
-        let folded = fold_legacy_compaction(&obj(serde_json::json!({
-            "enabled": false, "semanticModel": "m", "recallMemoryTimeoutMs": 5,
-            "type": "semantic", "onModelChange": true
-        })))
-        .unwrap()
-        .unwrap();
-        assert_eq!(
-            Value::Object(folded),
-            serde_json::json!({"auto": false, "summaryModel": "m", "memoryTimeoutMs": 5, "onModelChange": true})
-        );
-        assert_eq!(
-            fold_legacy_compaction(&obj(serde_json::json!({"prune": true}))),
-            Some(None)
-        );
-        assert_eq!(fold_legacy_compaction(&obj(serde_json::json!({"auto": false}))), None);
-        let kept = fold_legacy_compaction(&obj(serde_json::json!({"summaryModel": "a", "semanticModel": "b"})))
-            .unwrap()
-            .unwrap();
-        assert_eq!(Value::Object(kept), serde_json::json!({"summaryModel": "a"}));
-    }
-
-    #[test]
-    fn a_1_4_5_config_with_the_quota_switch_off_keeps_it_off_under_the_new_key() {
-        // The shape 1.4.5 wrote: the switch in the `quotaResume` section, beside another of its keys.
-        let off = serde_json::json!({"agent": {}, "quotaResume": {"autoResume": false, "note": 1}, "desktop": {"zoom": 1}});
-        assert_eq!(
-            moved_quota_config(&off),
-            Some(serde_json::json!({"agent": {}, "quotaResume": {"note": 1}, "desktop": {"zoom": 1}, "quotaAutoResume": false}))
-        );
-        // Alone in its section, the section goes with it.
-        let only = serde_json::json!({"quotaResume": {"autoResume": false}});
-        assert_eq!(moved_quota_config(&only), Some(serde_json::json!({"quotaAutoResume": false})));
-        // On (or any value but `false`) is the default: nothing is written under the new key.
-        assert_eq!(
-            moved_quota_config(&serde_json::json!({"quotaResume": {"autoResume": true}})),
-            Some(serde_json::json!({}))
-        );
-        assert_eq!(
-            moved_quota_config(&serde_json::json!({"quotaResume": {"autoResume": "no"}})),
-            Some(serde_json::json!({}))
-        );
-        // A key the document already has wins; the legacy one is still removed.
-        assert_eq!(
-            moved_quota_config(&serde_json::json!({"quotaAutoResume": true, "quotaResume": {"autoResume": false}})),
-            Some(serde_json::json!({"quotaAutoResume": true}))
-        );
-        // Nothing to move: no item is planned, and a moved document is not moved again.
-        assert_eq!(moved_quota_config(&serde_json::json!({"agent": {}})), None);
-        assert_eq!(moved_quota_config(&serde_json::json!({"quotaResume": {"note": 1}})), None);
-        let moved = moved_quota_config(&off).unwrap();
-        assert_eq!(moved_quota_config(&moved), None);
-    }
-
-    #[test]
-    fn the_verify_reads_the_config_as_json_parse_does() {
-        let deep = format!("{}{}", "[".repeat(300), "]".repeat(300));
-        let mut bytes = b"{\"a\":\"\xff\",\"n\":1e400,\"deep\":".to_vec();
-        bytes.extend_from_slice(deep.as_bytes());
-        bytes.push(b'}');
-        let path = Path::new("mixdog-config.json");
-        assert_eq!(parse_check(path, CONFIG_FILE, &bytes), Ok(()));
-        // Another store's JSON keeps the strict parse.
-        assert!(parse_check(path, "other.json", &bytes).is_err());
-        assert!(parse_check(path, CONFIG_FILE, b"{\"a\":").is_err());
+        item.contract == Contract::Preserve || item.key.as_str() == LEGACY_COMPACTION_ITEM || in_legacy_attachments(item)
     }
 }

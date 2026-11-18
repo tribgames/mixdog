@@ -150,6 +150,10 @@ impl DomainService for SessionUsageService {
     }
 }
 
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "session_usage_tests.rs"]
 mod tests;

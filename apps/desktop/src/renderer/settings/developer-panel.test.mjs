@@ -52,7 +52,7 @@ const view = {
   ],
 };
 
-async function toggle(label) {
+async function toggle(label, developer = view) {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
@@ -60,7 +60,7 @@ async function toggle(label) {
   const confirms = [];
   const context = {
     api: {},
-    data: { developer: view },
+    data: { developer },
     snapshot: null,
     pending: '',
     run: async (capability, args) => {
@@ -72,8 +72,10 @@ async function toggle(label) {
   };
   try {
     await act(async () => root.render(React.createElement(DeveloperPanel, context)));
-    await act(async () => document.querySelector(`input[aria-label="${label}"]`).click());
-    return { runs, confirms };
+    const input = document.querySelector(`input[aria-label="${label}"]`);
+    const disabled = input.disabled;
+    await act(async () => input.click());
+    return { runs, confirms, disabled };
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -84,6 +86,25 @@ test('Allow all actions is turned on without an in-app confirmation: the desktop
   const { runs, confirms } = await toggle('Allow all actions');
   assert.deepEqual(confirms, []);
   assert.deepEqual(runs, [['setDeveloperOption', ['allowAllActions', true]]]);
+});
+
+test('a server window can turn off Allow all actions but cannot turn it on', async (t) => {
+  const desktop = window.mixdogDesktop;
+  window.mixdogDesktop = { ...desktop, connection: { kind: 'ssh' } };
+  t.after(() => {
+    window.mixdogDesktop = desktop;
+  });
+
+  const off = await toggle('Allow all actions');
+  assert.equal(off.disabled, true);
+  assert.deepEqual(off.runs, []);
+
+  const [approvals, ...others] = view.sections;
+  const on = await toggle('Allow all actions', {
+    sections: [{ ...approvals, options: [{ ...approvals.options[0], enabled: true }] }, ...others],
+  });
+  assert.equal(on.disabled, false);
+  assert.deepEqual(on.runs, [['setDeveloperOption', ['allowAllActions', false]]]);
 });
 
 test('another warned option still asks in-app before it turns on', async () => {

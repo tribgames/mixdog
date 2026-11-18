@@ -178,14 +178,18 @@ pub fn display_model_name(model: &str, hint: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use serde_json::Value;
 
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/hop-host/golden.json");
 
     /// Every model id and hint the recorder tried reads as Node's `displayModelName` reads it.
     #[test]
+    #[cfg(node_twin)]
     fn every_name_is_the_one_node_shows() {
         let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let cases = golden["display"].as_array().unwrap();
@@ -196,3 +200,5 @@ mod tests {
         }
     }
 }
+
+

@@ -296,14 +296,16 @@ pub fn normalize_grok_model_id(id: &str) -> &str {
     }
 }
 
-/// `ANTIGRAVITY_MODELS`: (id, wire ids) of the fallback rows; `wire` is the
-/// tier map's values or the single wire id.
+/// `ANTIGRAVITY_MODELS`: (id, wire ids) of the fallback rows, offered when the live roster cannot be read; `wire` is the
+/// tier map's values or the single wire id. Every row is one the service lists now: the ids and wire ids are those of the
+/// live roster this machine cached (`studio-models-antigravity-oauth-*.json`), whose display names the catalog folds into
+/// these ids (`family_id`: "Claude Opus 5.5" is `claude-opus-5.5`). The first row is the default model.
 pub const ANTIGRAVITY_FALLBACK: [(&str, &[&str]); 6] = [
     ("gemini-3.8-flash", &["gemini-3.8-flash-low", "gemini-3.8-flash-medium", "gemini-3.8-flash-high"]),
-    ("gemini-3.1-pro", &["gemini-3.1-pro-low", "gemini-3.1-pro-high"]),
     ("gemini-4-argon", &["gemini-4-argon-low", "gemini-4-argon-medium", "gemini-4-argon-high"]),
-    ("claude-opus-4-6-thinking", &["claude-opus-4-6-thinking"]),
-    ("claude-sonnet-4-6", &["claude-sonnet-4-6"]),
+    ("gemini-4-hydrogen", &["gemini-4-hydrogen-low", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-high"]),
+    ("claude-opus-5.5", &["claude-opus-5-5-low", "claude-opus-5-5-medium", "claude-opus-5-5-high"]),
+    ("claude-sonnet-5.5", &["claude-sonnet-5-5-low", "claude-sonnet-5-5-medium", "claude-sonnet-5-5-high"]),
     ("gpt-oss-120b-medium", &["gpt-oss-120b-medium"]),
 ];
 

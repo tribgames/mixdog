@@ -105,7 +105,9 @@ pub fn effort_configuration_mode(
     if opt("thinkingBudgetTokens").map_or(f64::NAN, to_number) > 0.0 {
         return None;
     }
-    if unsupported.contains(provider, &id) {
+    if unsupported.contains(provider, &id)
+        || (is_custom_provider_name(provider) && crate::providers::custom::responses::history_rejected(provider, &id))
+    {
         return None;
     }
     let openai = (provider == "openai" || provider == "openai-oauth") && {

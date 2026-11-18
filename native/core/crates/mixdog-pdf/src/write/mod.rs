@@ -65,8 +65,6 @@ impl fmt::Display for WriteError {
     }
 }
 
-impl std::error::Error for WriteError {}
-
 impl From<PdfError> for WriteError {
     fn from(error: PdfError) -> Self {
         WriteError::Pdf(error)
@@ -175,6 +173,8 @@ fn read_objects(xref: &Xref, guard: &Guard, recovered: bool) -> Result<ObjectSto
     Ok(store)
 }
 
+
+impl std::error::Error for WriteError {}
 impl PdfDocument {
     /// `PDFDocument.load(bytes, { ignoreEncryption, updateMetadata: false })`.
     pub fn load(data: impl Into<Arc<[u8]>>, options: &LoadOptions) -> Result<PdfDocument, WriteError> {

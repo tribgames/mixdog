@@ -4728,6 +4728,14 @@
     },
     {
       "list": "actions",
+      "name": "imageRecovery",
+      "target": {
+        "kind": "method",
+        "target": "thread/imageRecovery"
+      }
+    },
+    {
+      "list": "actions",
       "name": "inheritFrom",
       "target": {
         "kind": "method",

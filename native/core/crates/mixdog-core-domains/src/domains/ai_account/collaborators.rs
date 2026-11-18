@@ -34,6 +34,19 @@ pub trait OAuthProvider: Send + Sync {
     }
 }
 
+/// `openInBrowser` (`shared/open-url.mjs`): the machine's own browser, best effort and never blocking. A sign-in that
+/// began without `openBrowser: false` hands its page to this; the host that signs in elsewhere asks for no opening.
+pub trait LoginBrowser: Send + Sync {
+    fn open(&self, url: &str);
+}
+
+/// A host with no browser to open: the sign-in's page is for the client to show.
+pub struct NoBrowser;
+
+impl LoginBrowser for NoBrowser {
+    fn open(&self, _: &str) {}
+}
+
 /// What the runtime refreshes after credentials change (`provider-auth/refresh.mjs`): provider
 /// registry sync, caches, admission cooldowns and catalogs. Boot owns these.
 pub trait AuthRefresh: Send + Sync {

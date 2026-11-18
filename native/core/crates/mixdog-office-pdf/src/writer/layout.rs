@@ -596,6 +596,65 @@ fn draw_list_block(flow: &mut Flow, block: &Value) -> WriterResult<()> {
     Ok(())
 }
 
+struct ImageUnit {
+    placed: EmbeddedImage,
+    width: f64,
+    height: f64,
+    needed: f64,
+}
+
+// ---- the flow ---------------------------------------------------------------------------------------------------------
+
+fn present(amount: f64) -> bool {
+    amount != 0.0 && !amount.is_nan()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_palette_overrides_roles_and_names_its_faults() {
+        let (ink, custom) = resolve_palette(Some(&json!({ "accent": "112233" }))).unwrap();
+        assert!(custom);
+        assert_eq!((ink.accent.as_str(), ink.muted.as_str()), ("112233", "6B7280"));
+        let (ink, custom) = resolve_palette(None).unwrap();
+        assert!(!custom);
+        assert_eq!(ink.line, "C9CED6");
+        assert_eq!(
+            resolve_palette(Some(&json!("x"))).unwrap_err().message(),
+            "PDF properties.palette must be an object { muted, accent, field, line } of 6-digit hex colours."
+        );
+        assert_eq!(
+            resolve_palette(Some(&json!({ "tint": "112233", "line": "#fff" }))).unwrap_err().message(),
+            "PDF palette is invalid: properties.palette.tint is not a palette role (use muted, accent, field, line). properties.palette.line must be a 6-digit hex colour without '#' (for example \"C9CED6\"), got \"#fff\"."
+        );
+    }
+
+    #[test]
+    fn a_list_keeps_its_first_two_and_last_two_items_together() {
+        assert_eq!(list_keep_through(3, 0), 2);
+        assert_eq!(list_keep_through(3, 1), 1);
+        assert_eq!(list_keep_through(6, 0), 1);
+        assert_eq!(list_keep_through(6, 4), 5);
+        assert_eq!(list_keep_through(6, 2), 2);
+        assert_eq!(list_keep_through(1, 0), 0);
+    }
+
+    #[test]
+    fn the_space_above_a_heading_follows_its_size() {
+        assert_eq!(space_before(&json!({ "type": "heading", "text": "h" }), "heading"), 13.0);
+        assert_eq!(space_before(&json!({ "type": "heading", "level": 3 }), "heading"), 10.0);
+        assert_eq!(space_before(&json!({ "type": "heading", "size": 20 }), "heading"), 16.0);
+        assert_eq!(space_before(&json!({ "type": "quote" }), "quote"), 6.0);
+        assert_eq!(space_before(&json!({ "type": "paragraph", "before": -3 }), "paragraph"), 0.0);
+        assert_eq!(space_before(&json!({ "type": "paragraph", "before": 9 }), "paragraph"), 9.0);
+        assert_eq!(space_before(&json!({ "type": "paragraph" }), "paragraph"), 0.0);
+    }
+}
+
+
 // ---- pictures ---------------------------------------------------------------------------------------------------------
 
 /// The picture a block places, embedded once per document: the heading before it measures it, and the block draws the
@@ -609,14 +668,6 @@ fn block_image<P: ReadProof>(flow: &mut Flow, pictures: &Pictures<'_, P>, index:
     flow.images.insert(index, placed);
     Ok(placed)
 }
-
-struct ImageUnit {
-    placed: EmbeddedImage,
-    width: f64,
-    height: f64,
-    needed: f64,
-}
-
 /// The picture's placed size and the room it takes with the caption that names it.
 fn image_unit<P: ReadProof>(
     flow: &mut Flow,
@@ -633,7 +684,6 @@ fn image_unit<P: ReadProof>(
     let needed = height + if trailing != 0.0 { num_nn(block.get("after"), 12.0) + trailing } else { 0.0 };
     Ok(ImageUnit { placed, width, height, needed })
 }
-
 fn draw_image_block<P: ReadProof>(
     flow: &mut Flow,
     pictures: &Pictures<'_, P>,
@@ -655,13 +705,6 @@ fn draw_image_block<P: ReadProof>(
     flow.y -= unit.height + num_nn(block.get("after"), 12.0);
     Ok(())
 }
-
-// ---- the flow ---------------------------------------------------------------------------------------------------------
-
-fn present(amount: f64) -> bool {
-    amount != 0.0 && !amount.is_nan()
-}
-
 /// `flowBlocks(flow, blocks, baseDir)`: every block onto the pages in order.
 pub fn flow_blocks<P: ReadProof>(
     flow: &mut Flow,
@@ -730,49 +773,4 @@ pub fn flow_blocks<P: ReadProof>(
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn a_palette_overrides_roles_and_names_its_faults() {
-        let (ink, custom) = resolve_palette(Some(&json!({ "accent": "112233" }))).unwrap();
-        assert!(custom);
-        assert_eq!((ink.accent.as_str(), ink.muted.as_str()), ("112233", "6B7280"));
-        let (ink, custom) = resolve_palette(None).unwrap();
-        assert!(!custom);
-        assert_eq!(ink.line, "C9CED6");
-        assert_eq!(
-            resolve_palette(Some(&json!("x"))).unwrap_err().message(),
-            "PDF properties.palette must be an object { muted, accent, field, line } of 6-digit hex colours."
-        );
-        assert_eq!(
-            resolve_palette(Some(&json!({ "tint": "112233", "line": "#fff" }))).unwrap_err().message(),
-            "PDF palette is invalid: properties.palette.tint is not a palette role (use muted, accent, field, line). properties.palette.line must be a 6-digit hex colour without '#' (for example \"C9CED6\"), got \"#fff\"."
-        );
-    }
-
-    #[test]
-    fn a_list_keeps_its_first_two_and_last_two_items_together() {
-        assert_eq!(list_keep_through(3, 0), 2);
-        assert_eq!(list_keep_through(3, 1), 1);
-        assert_eq!(list_keep_through(6, 0), 1);
-        assert_eq!(list_keep_through(6, 4), 5);
-        assert_eq!(list_keep_through(6, 2), 2);
-        assert_eq!(list_keep_through(1, 0), 0);
-    }
-
-    #[test]
-    fn the_space_above_a_heading_follows_its_size() {
-        assert_eq!(space_before(&json!({ "type": "heading", "text": "h" }), "heading"), 13.0);
-        assert_eq!(space_before(&json!({ "type": "heading", "level": 3 }), "heading"), 10.0);
-        assert_eq!(space_before(&json!({ "type": "heading", "size": 20 }), "heading"), 16.0);
-        assert_eq!(space_before(&json!({ "type": "quote" }), "quote"), 6.0);
-        assert_eq!(space_before(&json!({ "type": "paragraph", "before": -3 }), "paragraph"), 0.0);
-        assert_eq!(space_before(&json!({ "type": "paragraph", "before": 9 }), "paragraph"), 9.0);
-        assert_eq!(space_before(&json!({ "type": "paragraph" }), "paragraph"), 0.0);
-    }
 }

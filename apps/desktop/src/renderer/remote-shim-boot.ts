@@ -121,11 +121,14 @@ function phoneEnv(ctx: RemoteShimContext): PhoneEnv {
             log: (line: string) => console.info(line),
           },
         }),
-    updateRequired: () =>
+    updateRequired: (reason) =>
       ctx.showPairingScreen(
-        earlyUiT('Update Mixdog on your PC, then reopen this page.'),
+        reason === 'clientOutdated'
+          ? earlyUiT('Your PC has a newer version of Mixdog. Reload this page to get its matching web client.')
+          : earlyUiT('Your PC has an older version of Mixdog. Reload this page or update Mixdog on your PC.'),
         false,
-        earlyUiT('Update required')
+        earlyUiT('Version mismatch'),
+        'reload'
       ),
   };
 }

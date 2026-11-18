@@ -51,7 +51,7 @@ async fn a_damaged_core_state_file_does_not_stop_the_daemon_from_composing() {
         log.enable_file_logging();
         let mut js = crate::js_runtime::fixture(dir.path());
         js.program = "node".into();
-        let core = mixdog_rt::time::timeout(Duration::from_secs(60), compose(&tokens, ComposeConfig {
+        let core = mixdog_rt::time::timeout(Duration::from_secs(60), compose(&tokens, ComposeConfig { rebuild: Default::default(),
             data_dir: data.clone(), user_data_dir: dir.path().join("userdata"), runtime_root: dir.path().join("runtime"),
             js_runtime: js, ort_library: OrtRuntime::NoBinding,
             outgoing: mixdog_app_server::Outgoing::new(),

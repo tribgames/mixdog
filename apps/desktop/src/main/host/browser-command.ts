@@ -155,12 +155,12 @@ export function createBrowserCommandHost(
       runner.begin();
       runner.ready();
     },
-    /** The role or the connection is gone: abandon in-flight commands, drop agent-only pages. */
+    /** The connection is gone: abandon in-flight commands. The session's named background pages stay: the same
+     *  desktop claims again on reconnect and its core still names them; the idle reclaim (kept running) is what ends
+     *  one nobody comes back to, and quitting the app ends the rest. */
     stop(): void {
       for (const controller of running) controller.abort(new Error('browser host stopped'));
       running.clear();
-      runner.inactive();
-      runner.end();
     },
   };
 }

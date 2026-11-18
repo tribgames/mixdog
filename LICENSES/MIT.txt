@@ -34,6 +34,17 @@ component listed here. Each component keeps its own copyright notice.
   https://github.com/jesseweed/seti-ui
   Copyright (c) 2014 Jesse Weed
 
+  regress (vendored; offered as MIT OR Apache-2.0 — the MIT terms are taken here)
+  https://github.com/ridiculousfish/regress
+  Copyright (c) 2020 ridiculous_fish
+
+  webrtc and rtc (offered as MIT OR Apache-2.0 — the MIT terms are taken here)
+  https://github.com/webrtc-rs/webrtc
+  Copyright (c) 2021 WebRTC.rs
+
+  The remaining MIT-licensed Rust crates, with their copyright holders, are
+  listed in rust-crates-NOTICE.txt.
+
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

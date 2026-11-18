@@ -3,7 +3,7 @@
 // its outcome: a pane opened later reads the same state, and every pane that is
 // open when the install succeeds retries its own preview.
 import { useSyncExternalStore } from 'react';
-import { readDesktopStatus, storeDesktopStatus, subscribeDesktopStatus } from './settings/desktop-status-cache';
+import { readDesktopStatus, recordDesktopStatus, subscribeDesktopStatus } from './settings/desktop-status-cache';
 import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
 
@@ -30,7 +30,7 @@ function officeInstalled(): void {
 }
 
 subscribeDesktopStatus((key, value, previous) => {
-  if (key !== 'libreOffice' || !(value as { installed?: boolean }).installed) return;
+  if (key !== 'libreOffice' || !(value as { installed?: boolean } | undefined)?.installed) return;
   if ((previous as { installed?: boolean } | undefined)?.installed) return;
   officeInstalled();
 });
@@ -61,7 +61,7 @@ export function installOfficeForPreview(api: typeof window.mixdogDesktop): Promi
       if (!dependency?.installed) throw new Error(t('LibreOffice installation did not complete.'));
       // Records the status; the cache subscription below clears the state and
       // tells the open panes, the same as an install done from Settings.
-      storeDesktopStatus(api, 'libreOffice', dependency);
+      recordDesktopStatus(api, 'libreOffice', dependency);
       // A cache that already said "installed" records no change.
       if (state.phase === 'installing') officeInstalled();
     } catch (reason) {

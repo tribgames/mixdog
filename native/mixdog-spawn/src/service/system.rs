@@ -57,6 +57,12 @@ fn list_json(ports: &BTreeMap<u16, ListeningPort>) -> Value {
     )
 }
 
+/// The read model a late viewer's `feed/snapshot` carries: the `ports` section as every scoped feed of sections holds it
+/// (`state.sections`), which is where the desktop's link reads the list a viewer joined to.
+fn state_json(revision: u64, list: Value) -> Value {
+    json!({ "sections": [{ "section": "ports", "revision": revision, "value": list }] })
+}
+
 impl PortsFeed {
     /// Publishes the whole list as the `ports` section with the next revision.
     fn publish(&mut self) {
@@ -76,7 +82,7 @@ impl PortsFeed {
         publisher.publish(
             "system/ports/updated",
             serde_json::to_value(update).expect("a section update serializes"),
-            json!({ "ports": list }),
+            state_json(self.revision, list),
         );
     }
 }
@@ -155,7 +161,7 @@ impl DomainService for SystemService {
                         let publisher = Arc::new(FramePublisher::create(
                             self.scoped.as_ref(),
                             FeedId::from("ports"),
-                            json!({ "ports": list_json(&feed.current) }),
+                            state_json(feed.revision, list_json(&feed.current)),
                         ));
                         feed.publisher = Some(Arc::clone(&publisher));
                         publisher

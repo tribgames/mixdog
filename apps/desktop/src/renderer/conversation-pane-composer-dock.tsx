@@ -231,7 +231,11 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
         modelParameters={
           draftModelSelection?.modelParameters || (routeSnapshot.modelParameters as Record<string, string> | undefined)
         }
-        contextPercent={draftModelSelection?.contextPercent ?? (Number(routeSnapshot.contextPercent) || undefined)}
+        // A draft's route carries its own model's context (or none): the
+        // snapshot's belongs to whatever model the engine last ran.
+        contextPercent={
+          draftModelSelection ? draftModelSelection.contextPercent : Number(routeSnapshot.contextPercent) || undefined
+        }
         contextTokens={draftModelSelection ? draftModelSelection.contextTokens : routeContextTokens(routeSnapshot)}
         draftMode={draftMode}
         onDraftModelSelection={onDraftModelSelection}

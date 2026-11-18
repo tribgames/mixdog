@@ -87,72 +87,9 @@ impl SensitiveValues for Gate {
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
-async fn closing_a_session_cancels_running_and_queued_writes() {
-    let pg = TestPg::start().await;
-    let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("open");
-    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
-    let (release_tx, release_rx) = std::sync::mpsc::channel();
-    let ingest = SessionSearchIngest::new(
-        db.clone(),
-        Arc::new(Gate { entered: entered_tx, release: std::sync::Mutex::new(release_rx) }),
-    );
-    let first = vec![json!({ "role": "user", "content": "running turn zebra" })];
-    let queued = vec![json!({ "role": "user", "content": "queued turn giraffe" })];
-    ingest.ingest_turn(IngestSession { id: "closing".into(), messages: first, agent_only: false });
-    tokio::task::spawn_blocking(move || entered_rx.recv_timeout(Duration::from_secs(10)).expect("write started"))
-        .await
-        .expect("join");
-    ingest.ingest_turn(IngestSession { id: "closing".into(), messages: queued, agent_only: false });
-    mixdog_rt::time::sleep(Duration::from_millis(200)).await;
-
-    let closing = {
-        let ingest = ingest.clone();
-        tokio::spawn(async move { ingest.close_session("closing").await })
-    };
-    mixdog_rt::time::sleep(Duration::from_millis(200)).await;
-    assert!(!closing.is_finished(), "close waits for the running write to settle");
-    release_tx.send(()).expect("release");
-    mixdog_rt::time::timeout(Duration::from_secs(10), closing).await.expect("close settles").expect("join");
-
-    assert!(db.search("giraffe", 10).await.expect("search").is_empty(), "a queued write never starts after close");
-
-    // The queue is usable again: a later turn is stored.
-    let (reopened_tx, _reopened_rx) = std::sync::mpsc::channel();
-    let (reopen_release_tx, reopen_release_rx) = std::sync::mpsc::channel();
-    reopen_release_tx.send(()).expect("pre-release");
-    let reopened = SessionSearchIngest::new(
-        db.clone(),
-        Arc::new(Gate { entered: reopened_tx, release: std::sync::Mutex::new(reopen_release_rx) }),
-    );
-    reopened.ingest_turn(IngestSession {
-        id: "closing".into(),
-        messages: vec![json!({ "role": "user", "content": "later turn flamingo" })],
-        agent_only: false,
-    });
-    mixdog_rt::time::sleep(Duration::from_millis(800)).await;
-    assert_eq!(db.search("flamingo", 10).await.expect("search").len(), 1);
-}
-
 struct Stored {
     sessions: Vec<(String, String, Vec<Value>, bool)>,
-}
-
-#[async_trait::async_trait]
-impl StoredSessions for Stored {
-    async fn session_ids(&self) -> crate::memory::error::Result<Vec<String>> {
-        Ok(self.sessions.iter().map(|s| s.0.clone()).collect())
-    }
-    async fn record_stamp(&self, id: &str) -> Option<String> {
-        self.sessions.iter().find(|s| s.0 == id).map(|s| s.1.clone())
-    }
-    async fn read(&self, id: &str) -> Option<IngestSession> {
-        self.sessions
-            .iter()
-            .find(|s| s.0 == id)
-            .map(|s| IngestSession { id: s.0.clone(), messages: s.2.clone(), agent_only: s.3 })
-    }
+    reads: std::sync::atomic::AtomicUsize,
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -171,6 +108,7 @@ async fn backfill_indexes_changed_sessions_once_and_drops_vanished_ones() {
             ("kept".into(), "s1".into(), vec![json!({ "role": "user", "content": "indexed heron conversation" })], false),
             ("agents".into(), "s1".into(), vec![json!({ "role": "user", "content": "agent only badger chatter" })], true),
         ],
+        reads: std::sync::atomic::AtomicUsize::new(0),
     };
     assert_eq!(ingest.backfill(&stored).await.expect("backfill"), 1, "agent-only sessions are not indexed");
     assert_eq!(db.search("heron", 10).await.expect("search").len(), 1);
@@ -181,29 +119,21 @@ async fn backfill_indexes_changed_sessions_once_and_drops_vanished_ones() {
     assert_eq!(stamps.get("agents").map(String::as_str), Some("s1"), "agent-only sessions are stamped");
     assert!(!stamps.contains_key("vanished"));
 
+    let reads = stored.reads.load(std::sync::atomic::Ordering::Relaxed);
+    let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("reopen");
+    let ingest = SessionSearchIngest::new(db.clone(), Arc::new(NoSecrets));
     assert_eq!(ingest.backfill(&stored).await.expect("again"), 0, "an unchanged stamp is not read again");
+    assert_eq!(stored.reads.load(std::sync::atomic::Ordering::Relaxed), reads);
 
     stored.sessions[0].1 = "s2".into();
     stored.sessions[0].2.push(json!({ "role": "assistant", "content": "the heron answer was recorded later" }));
     assert_eq!(ingest.backfill(&stored).await.expect("changed"), 1);
+    assert_eq!(stored.reads.load(std::sync::atomic::Ordering::Relaxed), reads + 1);
     assert_eq!(db.search("recorded later", 10).await.expect("search").len(), 1);
 }
 
 /// A store whose folder cannot be listed (Node's `readdirSync` throws).
 struct Unlistable;
-
-#[async_trait::async_trait]
-impl StoredSessions for Unlistable {
-    async fn session_ids(&self) -> crate::memory::error::Result<Vec<String>> {
-        Err(crate::memory::error::MemoryError::Io(std::io::Error::other("sessions folder unreadable")))
-    }
-    async fn record_stamp(&self, _: &str) -> Option<String> {
-        unreachable!("nothing is stamped after a failed listing")
-    }
-    async fn read(&self, _: &str) -> Option<IngestSession> {
-        unreachable!("nothing is read after a failed listing")
-    }
-}
 
 /// A failed listing must not read as "no sessions stored": the cleanup that drops the rows of
 /// vanished sessions would otherwise drop every session's rows.
@@ -221,6 +151,72 @@ async fn a_failed_session_listing_fails_the_backfill_and_removes_no_rows() {
     assert_eq!(db.search("heron", 10).await.expect("search").len(), 1, "no rows were removed");
     assert!(db.session_ids().await.expect("ids").contains("kept"));
     assert_eq!(db.backfill_stamps().await.expect("stamps").get("kept").map(String::as_str), Some("s1"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+async fn a_change_during_an_earlier_read_is_not_hidden_by_the_old_stamp() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct Concurrent(AtomicBool);
+    #[async_trait::async_trait]
+    impl StoredSessions for Concurrent {
+        async fn session_ids(&self) -> crate::memory::error::Result<Vec<String>> {
+            Ok(vec!["first".into(), "later".into()])
+        }
+        async fn record_stamp(&self, id: &str) -> crate::memory::error::Result<Option<String>> {
+            let stamp = if id == "later" && self.0.load(Ordering::SeqCst) { "new" } else { "old" };
+            Ok(Some(stamp.into()))
+        }
+        async fn read(&self, id: &str) -> Option<IngestSession> {
+            if id == "first" {
+                // The later record changed while backfill was reading the first.
+                // Its normal live search ingest never ran.
+                self.0.store(true, Ordering::SeqCst);
+            }
+            let content = if id == "first" { "first record" } else { "interrupted albatross update" };
+            Some(IngestSession { id: id.into(), messages: vec![json!({ "role": "user", "content": content })], agent_only: false })
+        }
+    }
+
+    let pg = TestPg::start().await;
+    let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("open");
+    db.record_backfill_stamp("later", "old").await.unwrap();
+    let ingest = SessionSearchIngest::new(db.clone(), Arc::new(NoSecrets));
+    assert_eq!(ingest.backfill(&Concurrent(AtomicBool::new(false))).await.unwrap(), 2);
+    let hits = db.search("albatross", 10).await.unwrap();
+    assert_eq!(hits.iter().map(|hit| hit.session_id.as_str()).collect::<Vec<_>>(), ["later"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+async fn a_rewrite_at_the_same_cursor_retries_the_read_instead_of_storing_the_old_transcript() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    const BEFORE: &str = "frame-v2:8:0:512:1:40:512:100:100";
+    const AFTER: &str = "frame-v2:8:0:512:1:41:512:100:100";
+    struct Edited(AtomicBool);
+    #[async_trait::async_trait]
+    impl StoredSessions for Edited {
+        async fn session_ids(&self) -> crate::memory::error::Result<Vec<String>> {
+            Ok(vec!["edited".into()])
+        }
+        async fn record_stamp(&self, _: &str) -> crate::memory::error::Result<Option<String>> {
+            Ok(Some(if self.0.load(Ordering::SeqCst) { AFTER } else { BEFORE }.into()))
+        }
+        async fn read(&self, id: &str) -> Option<IngestSession> {
+            let content = if self.0.swap(true, Ordering::SeqCst) { "updated albatross" } else { "obsolete pelican" };
+            Some(IngestSession { id: id.into(), messages: vec![json!({ "role": "user", "content": content })], agent_only: false })
+        }
+    }
+
+    let pg = TestPg::start().await;
+    let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("open");
+    let ingest = SessionSearchIngest::new(db.clone(), Arc::new(NoSecrets));
+    assert_eq!(ingest.backfill(&Edited(AtomicBool::new(false))).await.unwrap(), 1);
+    assert!(db.search("pelican", 10).await.unwrap().is_empty());
+    assert_eq!(db.search("albatross", 10).await.unwrap().len(), 1);
+    assert_eq!(db.backfill_stamps().await.unwrap().get("edited").map(String::as_str), Some(AFTER));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -336,5 +332,82 @@ async fn a_replaced_sensitive_row_leaves_no_file_of_the_cluster_whatever_step_a_
         assert_eq!(holders(pg.dir.path(), "682419"), Vec::<String>::new(), "killed after {kill_after:?}");
         assert!(db.search("682419", 10).await.expect("search").is_empty());
         assert_eq!(db.search("redacted", 10).await.expect("marker").len(), 1, "the replacement survived the kill");
+    }
+}
+
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+async fn closing_a_session_cancels_running_and_queued_writes() {
+    let pg = TestPg::start().await;
+    let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("open");
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let ingest = SessionSearchIngest::new(
+        db.clone(),
+        Arc::new(Gate { entered: entered_tx, release: std::sync::Mutex::new(release_rx) }),
+    );
+    let first = vec![json!({ "role": "user", "content": "running turn zebra" })];
+    let queued = vec![json!({ "role": "user", "content": "queued turn giraffe" })];
+    ingest.ingest_turn(IngestSession { id: "closing".into(), messages: first, agent_only: false });
+    tokio::task::spawn_blocking(move || entered_rx.recv_timeout(Duration::from_secs(10)).expect("write started"))
+        .await
+        .expect("join");
+    ingest.ingest_turn(IngestSession { id: "closing".into(), messages: queued, agent_only: false });
+    mixdog_rt::time::sleep(Duration::from_millis(200)).await;
+
+    let closing = {
+        let ingest = ingest.clone();
+        tokio::spawn(async move { ingest.close_session("closing").await })
+    };
+    mixdog_rt::time::sleep(Duration::from_millis(200)).await;
+    assert!(!closing.is_finished(), "close waits for the running write to settle");
+    release_tx.send(()).expect("release");
+    mixdog_rt::time::timeout(Duration::from_secs(10), closing).await.expect("close settles").expect("join");
+
+    assert!(db.search("giraffe", 10).await.expect("search").is_empty(), "a queued write never starts after close");
+
+    // The queue is usable again: a later turn is stored.
+    let (reopened_tx, _reopened_rx) = std::sync::mpsc::channel();
+    let (reopen_release_tx, reopen_release_rx) = std::sync::mpsc::channel();
+    reopen_release_tx.send(()).expect("pre-release");
+    let reopened = SessionSearchIngest::new(
+        db.clone(),
+        Arc::new(Gate { entered: reopened_tx, release: std::sync::Mutex::new(reopen_release_rx) }),
+    );
+    reopened.ingest_turn(IngestSession {
+        id: "closing".into(),
+        messages: vec![json!({ "role": "user", "content": "later turn flamingo" })],
+        agent_only: false,
+    });
+    mixdog_rt::time::sleep(Duration::from_millis(800)).await;
+    assert_eq!(db.search("flamingo", 10).await.expect("search").len(), 1);
+}
+#[async_trait::async_trait]
+impl StoredSessions for Stored {
+    async fn session_ids(&self) -> crate::memory::error::Result<Vec<String>> {
+        Ok(self.sessions.iter().map(|s| s.0.clone()).collect())
+    }
+    async fn record_stamp(&self, id: &str) -> crate::memory::error::Result<Option<String>> {
+        Ok(self.sessions.iter().find(|s| s.0 == id).map(|s| s.1.clone()))
+    }
+    async fn read(&self, id: &str) -> Option<IngestSession> {
+        self.reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.sessions
+            .iter()
+            .find(|s| s.0 == id)
+            .map(|s| IngestSession { id: s.0.clone(), messages: s.2.clone(), agent_only: s.3 })
+    }
+}
+#[async_trait::async_trait]
+impl StoredSessions for Unlistable {
+    async fn session_ids(&self) -> crate::memory::error::Result<Vec<String>> {
+        Err(crate::memory::error::MemoryError::Io(std::io::Error::other("sessions folder unreadable")))
+    }
+    async fn record_stamp(&self, _: &str) -> crate::memory::error::Result<Option<String>> {
+        unreachable!("nothing is stamped after a failed listing")
+    }
+    async fn read(&self, _: &str) -> Option<IngestSession> {
+        unreachable!("nothing is read after a failed listing")
     }
 }

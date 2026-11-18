@@ -1,19 +1,21 @@
 //! The worker pool behind [`ExtPool`] (RL §11): a dispatcher task that owns the queues, the
 //! workers and their slots, and nothing else. Workers are single-call processes started on
-//! demand; every wait is on a fact (a result, a credit, a process exit), except two bounds: a
-//! worker still on a cancelled call after [`CANCEL_GRACE`] is ended, and so is one still there
-//! `CLOSE_GRACE` after the close asked it to leave.
+//! demand. A worker still on a cancelled call after [`CANCEL_GRACE`] is ended, and so is one
+//! still there [`CLOSE_GRACE`] after shutdown or idle retirement asked it to leave.
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+use std::task::Poll;
 
 use arc_swap::ArcSwap;
 use mixdog_core_api::domain::ext::ExtCall;
@@ -67,9 +69,12 @@ pub fn timer_grace() -> GraceWait {
     })
 }
 
-/// How long a worker has to leave on the close's `BYE` before it is ended with its job: its office session hosts quit the
+/// How long a worker has to leave on `BYE` before it is ended with its job: its office session hosts quit the
 /// applications they own first (`closeOfficeSessions`), 3 to 5 s for a Word and an Excel.
 const CLOSE_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long a worker that holds no thread's state may sit idle before it is asked to leave: a document job's parsers, OCR
+/// models and page buffers stay in its memory until it exits.
+const RETIRE_IDLE: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Calls accepted and not yet released by their consumer; beyond it a call is `Overloaded`.
 pub const DEFAULT_PENDING_CAP: usize = 64;
@@ -275,6 +280,10 @@ struct Worker {
     io: Option<WorkerIo>,
     /// "Stop worker" arrived before the process existed; applied the moment it does.
     stop_requested: bool,
+    /// The idle deadline, or the BYE grace when retiring. Dropped when no longer applicable.
+    retirement_timer: Option<Pin<Box<mixdog_rt::time::Sleep>>>,
+    /// Asked to leave for being idle (`RETIRE_IDLE`): it takes no call, and its exit frees the slot.
+    retiring: bool,
 }
 
 struct Dispatcher {
@@ -327,8 +336,14 @@ impl Dispatcher {
     }
 
     async fn run(mut self, mut inbox: mpsc::UnboundedReceiver<Event>) {
-        while let Some(event) = inbox.recv().await {
-            self.on(event);
+        loop {
+            tokio::select! {
+                event = inbox.recv() => {
+                    let Some(event) = event else { break };
+                    self.on(event);
+                }
+                worker = Self::next_retirement(&mut self.workers) => self.retirement_due(worker),
+            }
             if self.shutting_down && self.workers.is_empty() {
                 break;
             }
@@ -405,6 +420,56 @@ impl Dispatcher {
         }
     }
 
+    async fn next_retirement(workers: &mut BTreeMap<u32, Worker>) -> u32 {
+        std::future::poll_fn(|cx| {
+            for (&worker, entry) in workers.iter_mut() {
+                if let Some(timer) = &mut entry.retirement_timer
+                    && timer.as_mut().poll(cx).is_ready()
+                {
+                    return Poll::Ready(worker);
+                }
+            }
+            Poll::Pending
+        })
+        .await
+    }
+
+    /// Refresh eligibility after dispatch and pin changes. A pin reported by an overlapping call
+    /// can move to another worker, making its previous holder eligible while still idle.
+    fn sync_retirement_timers(&mut self) {
+        for (&worker, entry) in &mut self.workers {
+            if entry.retiring {
+                continue;
+            }
+            if !self.shutting_down
+                && matches!(entry.state, WorkerState::Idle)
+                && entry.io.is_some()
+                && !self.schedule.pins_worker(worker)
+            {
+                entry.retirement_timer.get_or_insert_with(|| Box::pin(mixdog_rt::time::sleep(RETIRE_IDLE)));
+            } else {
+                entry.retirement_timer = None;
+            }
+        }
+    }
+
+    fn retirement_due(&mut self, worker: u32) {
+        let Some(entry) = self.workers.get_mut(&worker) else { return };
+        if entry.retirement_timer.take().is_none() {
+            return;
+        }
+        let Some(io) = &entry.io else { return };
+        if entry.retiring {
+            // Only the process owner signals and reaps. Exited, not the timer, frees the slot.
+            io.kill.kill();
+            return;
+        }
+        entry.retiring = true;
+        let _ = io.writer.send(frame::bye());
+        entry.retirement_timer = Some(Box::pin(mixdog_rt::time::sleep(CLOSE_GRACE)));
+        self.publish();
+    }
+
     fn on_dropped(&mut self, call: u32) {
         if self.schedule.remove_queued(call).is_some() {
             return;
@@ -475,7 +540,8 @@ impl Dispatcher {
         // (a worker still spawning is ended when its process exists, in `on_spawned`); `run` returns
         // only after each has signalled and reaped.
         let mut asked = false;
-        for entry in self.workers.values() {
+        for entry in self.workers.values_mut() {
+            entry.retirement_timer = None;
             if let Some(io) = &entry.io {
                 let _ = io.writer.send(frame::bye());
                 asked = true;
@@ -498,13 +564,14 @@ impl Dispatcher {
             let ready: Vec<u32> = self
                 .workers
                 .iter()
-                .filter(|(_, w)| matches!(w.state, WorkerState::Idle) && w.io.is_some())
+                .filter(|(_, w)| matches!(w.state, WorkerState::Idle) && w.io.is_some() && !w.retiring)
                 .map(|(id, _)| *id)
                 .collect();
             let Some(assignment) = self.schedule.next(&ready) else { break };
             self.start_call(assignment.worker, assignment.thread, assignment.id, assignment.item);
         }
         self.grow();
+        self.sync_retirement_timers();
         self.publish();
     }
 
@@ -562,6 +629,8 @@ impl Dispatcher {
                 state: WorkerState::Starting,
                 io: None,
                 stop_requested: false,
+                retirement_timer: None,
+                retiring: false,
             },
         );
         let program = self.config.program.clone();
@@ -686,5 +755,94 @@ pub(crate) mod tests {
         .await;
         assert!(dispatcher.workers.is_empty());
         assert!(status.load().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_worker_that_ignores_idle_bye_is_reaped_and_replaced() {
+        use std::time::Duration;
+
+        let spawn_io = mixdog_rt::testing::tokens().spawn_io;
+        let render_browser = RenderBrowserConfig {
+            command: None,
+            profile_root: std::env::temp_dir(), // No call leases a browser.
+            no_sandbox: false,
+        };
+        let config = ExtHostConfig {
+            program: fake_binary("ext_fake_worker"),
+            args: vec!["ignore-idle-bye".into()],
+            workers: 1,
+            pending_cap: 4,
+            spawn_io,
+            render_browser: render_browser.clone(),
+        };
+        let (events, mut inbox) = mpsc::unbounded_channel();
+        let status = Arc::new(ArcSwap::from_pointee(Vec::new()));
+        let exits = ChildExits::watch().unwrap();
+        let browser = browser::start(render_browser, spawn_io, Handle::current(), Arc::default(), exits.clone());
+        let mut dispatcher = Dispatcher::new(config, Handle::current(), events, browser, status, exits, timer_grace());
+        let watchdog = Duration::from_secs(30);
+        dispatcher.spawn_worker();
+
+        let result = async {
+            mixdog_rt::time::timeout(watchdog, async {
+                loop {
+                    let event = inbox.recv().await.expect("dispatcher events");
+                    let ready = matches!(event, Event::Ready(0));
+                    dispatcher.on(event);
+                    if ready {
+                        break;
+                    }
+                }
+            }).await.map_err(|_| "the first worker never became ready")?;
+
+            // Drive only retirement deadlines by hand. All child I/O uses a real-time watchdog.
+            dispatcher.retirement_due(0);
+            let (frames, mut reply) = mpsc::unbounded_channel();
+            dispatcher.on(Event::Enqueue {
+                id: 1,
+                queued: Queued {
+                    call: ExtCall {
+                        thread: ThreadId::from("waiting"),
+                        method: "sleep".into(),
+                        params: serde_json::json!({"ms": 0}),
+                        paths: Vec::new(),
+                    },
+                    out: Arc::new(CallOut { frames, outstanding: Arc::default() }),
+                    route: Arc::default(),
+                },
+            });
+
+            dispatcher.retirement_due(0);
+            // Do not handle any process events yet. Even if the owner has already killed and
+            // reaped the child, the dispatcher must reserve its sole slot until it handles Exited.
+            if dispatcher.workers.len() != 1
+                || !dispatcher.workers.get(&0).is_some_and(|worker| worker.retiring)
+                || !dispatcher.schedule.has_queued()
+            {
+                return Err("grace expiry made the retiring worker's slot available before Exited");
+            }
+            mixdog_rt::time::timeout(watchdog, async {
+                let mut reaped = false;
+                loop {
+                    tokio::select! {
+                        event = inbox.recv() => {
+                            let event = event.expect("dispatcher events");
+                            reaped |= matches!(event, Event::Exited(0));
+                            dispatcher.on(event);
+                        }
+                        frame = reply.recv() => return match frame {
+                            Some(ExtFrame::Done(Ok(_))) if reaped => Ok(()),
+                            _ => Err("the queued call did not succeed after the original worker was reaped"),
+                        },
+                    }
+                }
+            }).await.map_err(|_| "the worker slot was not reusable")?
+        }.await;
+
+        // The replacement uses the same fake; force test teardown without another grace wait.
+        let _ = dispatcher.events.send(Event::Shutdown(None));
+        let _ = dispatcher.events.send(Event::CloseGrace);
+        mixdog_rt::time::timeout(watchdog, dispatcher.run(inbox)).await.expect("dispatcher teardown");
+        result.expect("idle retirement releases the slot");
     }
 }

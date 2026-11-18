@@ -12,8 +12,6 @@ impl std::fmt::Display for NoPcmData {
     }
 }
 
-impl std::error::Error for NoPcmData {}
-
 fn u32_at(wav: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_le_bytes(wav.get(at..at + 4)?.try_into().ok()?))
 }
@@ -88,3 +86,6 @@ mod tests {
         assert_eq!(prepend_wav_silence(&wav(16000, &[])[..36], 0.3), Err(NoPcmData));
     }
 }
+
+
+impl std::error::Error for NoPcmData {}

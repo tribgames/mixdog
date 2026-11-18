@@ -283,6 +283,153 @@ impl MuseCodeLogin {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+use crate::oauth::pace::FakePace;
+use crate::oauth::http::testing::Scripted;
+use crate::oauth::http::testing::finish;
+    use super::*;
+    use crate::oauth::CredentialIo;
+    use crate::oauth::Probe;
+
+    const DEVICE: &str = r#"{"device_code":"DC","user_code":"ABCD","verification_uri":"https://meta/v","verification_uri_complete":"https://meta/v?c=ABCD","interval":2,"expires_in":600}"#;
+
+    #[test]
+    fn key_responses_are_validated() {
+        let ok = |doc: JsonValue| credentials_from_key_response(&doc, "AT");
+        assert_eq!(ok(json!({"api_key": "k", "user_email": "X@Y.Z"})).unwrap().account_id.as_deref(), Some("x@y.z"));
+        let code = |doc: JsonValue| match ok(doc) {
+            Err(LoginFailure::Failed { code, .. }) => code,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(code(json!({"api_key": "k", "is_subs_active": false})), "invalid_grant");
+        assert_eq!(code(json!({"require_payment": true, "action_url": "https://pay"})), "payment_required");
+        assert_eq!(code(json!({"user_id": "u"})), "validation");
+        assert_eq!(code(json!({"api_key": 7})), "validation");
+        let usage = |usage: JsonValue| ok(json!({"api_key": "k", "user_id": "u", "subs_usage": usage}));
+        assert!(usage(json!({"window": {"used_percent": 3, "resets_at": "t"}, "weekly": null})).is_ok());
+        assert!(usage(json!({"window": {"used_percent": "3"}})).is_err());
+        assert!(usage(json!({"weekly": {"resets_at": true}})).is_err());
+        assert!(usage(json!({"weekly": [1]})).is_err());
+        assert!(usage(json!([1])).is_err());
+        assert_eq!(code(json!({"api_key": "k"})), "validation", "no stable identity");
+        assert_eq!(code(json!([1])), "validation");
+    }
+
+    fn store(dir: &tempfile::TempDir) -> CredentialFile {
+        let tokens = mixdog_rt::testing::tokens();
+        CredentialFile::new(
+            dir.path().join("muse-code-oauth.json"),
+            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
+        )
+    }
+    #[tokio::test]
+    async fn a_device_grant_ends_with_the_minted_key_stored() {
+        mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let http = Scripted::new(&[
+            (200, DEVICE),
+            (400, r#"{"error":"authorization_pending"}"#),
+            (200, r#"{"access_token":"AT"}"#),
+            (200, r#"{"api_key":" K1 ","user_id":"u-1","user_email":"A@B.C","is_subs_active":true}"#),
+        ]);
+        let pace = Arc::new(FakePace::default());
+        let flow = MuseCodeLogin::new(http.clone(), pace.clone(), store(&dir));
+        let session = flow.start().await.unwrap();
+        assert!(matches!(flow.start().await, Err(LoginError::Busy)));
+        let states = finish(session.as_ref()).await;
+        assert!(matches!(&states[0], LoginState::DeviceCode { user_code, verification_uri, .. }
+            if user_code == "ABCD" && verification_uri == "https://meta/v?c=ABCD"));
+        assert_eq!(states.last(), Some(&LoginState::Done { account: Some("u-1".into()) }));
+        {
+            let seen = http.seen.lock().unwrap();
+            assert_eq!(
+                String::from_utf8_lossy(&seen[2].body),
+                "client_id=1031625952748946&device_code=DC&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code"
+            );
+            assert_eq!(seen[3].body, br#"{"onboard":true}"#);
+            assert!(seen[3].headers.contains(&("authorization".into(), "Bearer AT".into())));
+        }
+        assert_eq!(pace.waits.lock().unwrap().len(), 1, "one wait, after the pending answer");
+        let Probe::Present(saved) = store(&dir).load::<MuseCodeCredentials>().await else { panic!("stored") };
+        assert_eq!(
+            saved,
+            MuseCodeCredentials {
+                access_token: "AT".into(),
+                api_key: "K1".into(),
+                account_id: Some("u-1".into()),
+                email: Some("a@b.c".into()),
+            }
+        );
+        // The flow is free again.
+        let again = MuseCodeLogin::new(Scripted::new(&[(500, "")]), pace, store(&dir));
+        assert!(matches!(again.start().await, Err(LoginError::Failed(_))));
+    }
+    #[tokio::test]
+    async fn a_denied_grant_fails_the_login() {
+        mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let http = Scripted::new(&[(200, DEVICE), (400, r#"{"error":"access_denied"}"#)]);
+        let flow = MuseCodeLogin::new(http, Arc::new(FakePace::default()), store(&dir));
+        let session = flow.start().await.unwrap();
+        assert_eq!(finish(session.as_ref()).await.last(), Some(&LoginState::Failed(LoginFailure::Denied)));
+        assert!(matches!(store(&dir).load::<MuseCodeCredentials>().await, Probe::Absent));
+    }
+
+
+    /// A key mint and a device authorization that never answer fail their login step after a timer.
+    #[tokio::test(start_paused = true)]
+    async fn a_key_mint_and_a_device_authorization_that_outlive_their_timers_fail_the_step() {
+        let transport = crate::transport::timeout_probe::NeverAnswers::new();
+        let http: Http = transport.clone();
+        let failure = mint_key(&http, "t").await.expect_err("never answers");
+        assert!(matches!(&failure, LoginFailure::Failed { message, .. } if !message.is_empty()), "{failure:?}");
+        transport.assert_each_request_was_bounded(1);
+
+        let dir = tempfile::tempdir().unwrap();
+        let transport = crate::transport::timeout_probe::NeverAnswers::new();
+        let http: Http = transport.clone();
+        let flow = MuseCodeLogin::new(http, Arc::new(FakePace::default()), store(&dir));
+        let Err(LoginError::Failed(failure)) = flow.start().await else { panic!("the authorization never answers") };
+        assert!(matches!(&failure, LoginFailure::Failed { message, .. } if !message.is_empty()), "{failure:?}");
+        transport.assert_each_request_was_bounded(1);
+    }
+
+    /// The key mint that outlives its timer reads as the real Node function did (`sites.museKey`).
+    #[tokio::test(start_paused = true)]
+    async fn a_key_mint_that_outlives_its_timer_reads_as_nodes() {
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::login_message;
+
+        let transport = TimingOut::new();
+        let http: Http = transport.clone();
+        let failure = mint_key(&http, "t").await.expect_err("never answers");
+        assert_transport("museKey", &transport);
+        assert_thrown("museKey", login_message(&failure));
+    }
+    /// The device authorization that outlives its timer reads as the real Node function did (`sites.museDeviceAuth`): the
+    /// code's own wording over the timer, not the fetch's text.
+    #[tokio::test(start_paused = true)]
+    async fn a_device_authorization_that_outlives_its_timer_reads_as_nodes() {
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_window;
+        use crate::transport::site_probe::login_message;
+
+        let dir = tempfile::tempdir().unwrap();
+        let transport = TimingOut::new();
+        let http: Http = transport.clone();
+        let flow = MuseCodeLogin::new(http, Arc::new(FakePace::default()), store(&dir));
+        let Err(LoginError::Failed(failure)) = flow.start().await else { panic!("the authorization never answers") };
+        assert_window("museDeviceAuth", &transport);
+        assert_thrown("museDeviceAuth", login_message(&failure));
+    }
+}
+
+
 #[async_trait]
 impl LoginFlow for MuseCodeLogin {
     fn target(&self) -> &LoginTarget {
@@ -351,135 +498,5 @@ impl LoginFlow for MuseCodeLogin {
                 .map_err(|err| failed("store", err.to_string()))?;
             Ok(credentials.account_id)
         }))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-use crate::oauth::pace::FakePace;
-use crate::oauth::http::testing::Scripted;
-use crate::oauth::http::testing::finish;
-    use super::*;
-    use crate::oauth::CredentialIo;
-    use crate::oauth::Probe;
-
-    fn store(dir: &tempfile::TempDir) -> CredentialFile {
-        let tokens = mixdog_rt::testing::tokens();
-        CredentialFile::new(
-            dir.path().join("muse-code-oauth.json"),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        )
-    }
-
-    /// The key mint that outlives its timer reads as the real Node function did (`sites.museKey`).
-    #[tokio::test(start_paused = true)]
-    async fn a_key_mint_that_outlives_its_timer_reads_as_nodes() {
-        use crate::transport::site_probe::TimingOut;
-        use crate::transport::site_probe::assert_thrown;
-        use crate::transport::site_probe::assert_transport;
-        use crate::transport::site_probe::login_message;
-
-        let transport = TimingOut::new();
-        let http: Http = transport.clone();
-        let failure = mint_key(&http, "t").await.expect_err("never answers");
-        assert_transport("museKey", &transport);
-        assert_thrown("museKey", login_message(&failure));
-    }
-
-    /// The device authorization that outlives its timer reads as the real Node function did (`sites.museDeviceAuth`): the
-    /// code's own wording over the timer, not the fetch's text.
-    #[tokio::test(start_paused = true)]
-    async fn a_device_authorization_that_outlives_its_timer_reads_as_nodes() {
-        use crate::transport::site_probe::TimingOut;
-        use crate::transport::site_probe::assert_thrown;
-        use crate::transport::site_probe::assert_window;
-        use crate::transport::site_probe::login_message;
-
-        let dir = tempfile::tempdir().unwrap();
-        let transport = TimingOut::new();
-        let http: Http = transport.clone();
-        let flow = MuseCodeLogin::new(http, Arc::new(FakePace::default()), store(&dir));
-        let Err(LoginError::Failed(failure)) = flow.start().await else { panic!("the authorization never answers") };
-        assert_window("museDeviceAuth", &transport);
-        assert_thrown("museDeviceAuth", login_message(&failure));
-    }
-
-    const DEVICE: &str = r#"{"device_code":"DC","user_code":"ABCD","verification_uri":"https://meta/v","verification_uri_complete":"https://meta/v?c=ABCD","interval":2,"expires_in":600}"#;
-
-    #[tokio::test]
-    async fn a_device_grant_ends_with_the_minted_key_stored() {
-        mixdog_rt::testing::tokens();
-        let dir = tempfile::tempdir().unwrap();
-        let http = Scripted::new(&[
-            (200, DEVICE),
-            (400, r#"{"error":"authorization_pending"}"#),
-            (200, r#"{"access_token":"AT"}"#),
-            (200, r#"{"api_key":" K1 ","user_id":"u-1","user_email":"A@B.C","is_subs_active":true}"#),
-        ]);
-        let pace = Arc::new(FakePace::default());
-        let flow = MuseCodeLogin::new(http.clone(), pace.clone(), store(&dir));
-        let session = flow.start().await.unwrap();
-        assert!(matches!(flow.start().await, Err(LoginError::Busy)));
-        let states = finish(session.as_ref()).await;
-        assert!(matches!(&states[0], LoginState::DeviceCode { user_code, verification_uri, .. }
-            if user_code == "ABCD" && verification_uri == "https://meta/v?c=ABCD"));
-        assert_eq!(states.last(), Some(&LoginState::Done { account: Some("u-1".into()) }));
-        {
-            let seen = http.seen.lock().unwrap();
-            assert_eq!(
-                String::from_utf8_lossy(&seen[2].body),
-                "client_id=1031625952748946&device_code=DC&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code"
-            );
-            assert_eq!(seen[3].body, br#"{"onboard":true}"#);
-            assert!(seen[3].headers.contains(&("authorization".into(), "Bearer AT".into())));
-        }
-        assert_eq!(pace.waits.lock().unwrap().len(), 1, "one wait, after the pending answer");
-        let Probe::Present(saved) = store(&dir).load::<MuseCodeCredentials>().await else { panic!("stored") };
-        assert_eq!(
-            saved,
-            MuseCodeCredentials {
-                access_token: "AT".into(),
-                api_key: "K1".into(),
-                account_id: Some("u-1".into()),
-                email: Some("a@b.c".into()),
-            }
-        );
-        // The flow is free again.
-        let again = MuseCodeLogin::new(Scripted::new(&[(500, "")]), pace, store(&dir));
-        assert!(matches!(again.start().await, Err(LoginError::Failed(_))));
-    }
-
-    #[tokio::test]
-    async fn a_denied_grant_fails_the_login() {
-        mixdog_rt::testing::tokens();
-        let dir = tempfile::tempdir().unwrap();
-        let http = Scripted::new(&[(200, DEVICE), (400, r#"{"error":"access_denied"}"#)]);
-        let flow = MuseCodeLogin::new(http, Arc::new(FakePace::default()), store(&dir));
-        let session = flow.start().await.unwrap();
-        assert_eq!(finish(session.as_ref()).await.last(), Some(&LoginState::Failed(LoginFailure::Denied)));
-        assert!(matches!(store(&dir).load::<MuseCodeCredentials>().await, Probe::Absent));
-    }
-
-    #[test]
-    fn key_responses_are_validated() {
-        let ok = |doc: JsonValue| credentials_from_key_response(&doc, "AT");
-        assert_eq!(ok(json!({"api_key": "k", "user_email": "X@Y.Z"})).unwrap().account_id.as_deref(), Some("x@y.z"));
-        let code = |doc: JsonValue| match ok(doc) {
-            Err(LoginFailure::Failed { code, .. }) => code,
-            other => panic!("{other:?}"),
-        };
-        assert_eq!(code(json!({"api_key": "k", "is_subs_active": false})), "invalid_grant");
-        assert_eq!(code(json!({"require_payment": true, "action_url": "https://pay"})), "payment_required");
-        assert_eq!(code(json!({"user_id": "u"})), "validation");
-        assert_eq!(code(json!({"api_key": 7})), "validation");
-        let usage = |usage: JsonValue| ok(json!({"api_key": "k", "user_id": "u", "subs_usage": usage}));
-        assert!(usage(json!({"window": {"used_percent": 3, "resets_at": "t"}, "weekly": null})).is_ok());
-        assert!(usage(json!({"window": {"used_percent": "3"}})).is_err());
-        assert!(usage(json!({"weekly": {"resets_at": true}})).is_err());
-        assert!(usage(json!({"weekly": [1]})).is_err());
-        assert!(usage(json!([1])).is_err());
-        assert_eq!(code(json!({"api_key": "k"})), "validation", "no stable identity");
-        assert_eq!(code(json!([1])), "validation");
     }
 }

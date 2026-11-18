@@ -59,7 +59,14 @@ test('per-site sign-out clears that site only, its storage, and the sealed copy;
     clearOriginStorage: async (origin) => calls.push(['storage', origin]),
     clearAllStorage: async () => calls.push(['all-storage']),
     clearImportedData: async () => calls.push(['imported']),
-    saveSessionCookies: async () => calls.push(['save']),
+    withSiteSignOut: async (_site, remove) => {
+      calls.push(['invalidate']);
+      return await remove();
+    },
+    withCookieMutation: async (clear) => {
+      calls.push(['invalidate']);
+      await clear();
+    },
   });
   assert.equal(await signIns.signOut('example.com'), 3);
   assert.deepEqual(
@@ -77,7 +84,7 @@ test('per-site sign-out clears that site only, its storage, and the sealed copy;
   assert.ok(calls.some(([kind, origin]) => kind === 'storage' && origin === 'https://accounts.example.com'));
   assert.ok(calls.some(([kind, origin]) => kind === 'storage' && origin === 'https://example.com'));
   assert.ok(!calls.some(([, origin]) => String(origin).includes('other.org')), 'other sites keep their data');
-  assert.deepEqual(calls.at(-1), ['save'], 'the restart copy no longer holds the sign-in');
+  assert.deepEqual(calls[0], ['invalidate'], 'the restart copy is invalidated before clearing storage');
 
   // A partitioned cookie is removed from its own partition.
   await signIns.signOut('mail.other.org');
@@ -89,5 +96,5 @@ test('per-site sign-out clears that site only, its storage, and the sealed copy;
 
   calls.length = 0;
   await signIns.clearAll();
-  assert.deepEqual(calls, [['all-storage'], ['imported'], ['save']]);
+  assert.deepEqual(calls, [['invalidate'], ['imported'], ['all-storage']]);
 });

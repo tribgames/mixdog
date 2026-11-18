@@ -116,10 +116,8 @@ test('failed commands retain timing without changing a frozen error or replaying
   assert.equal(browserFailureTiming(new Error('unrelated')), undefined);
 });
 
-/** The corpus the Rust crate mixdog-browser-policy replays as well (native/core/fixtures/browser-parity). */
-const corpus = JSON.parse(
-  readFileSync(new URL('../../../../../native/core/fixtures/browser-parity/timing.json', import.meta.url), 'utf8')
-);
+/** fixtures/timing.json: the corpus the Rust crate mixdog-browser-policy replays as well. */
+const corpus = JSON.parse(readFileSync(new URL('./fixtures/timing.json', import.meta.url), 'utf8'));
 
 test('every scripted command of the shared corpus records what the Rust twin records', async () => {
   const run = async (nodes) => {

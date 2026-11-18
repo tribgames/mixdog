@@ -330,13 +330,22 @@ mod tests {
         assert!(c.turns.is_empty() && c.message_count == 0);
     }
 
+    #[test]
+    fn incomplete_text_drops_the_trailing_partial_line() {
+        let c = convert_conversation_text(Source::Codex, &format!("{CODEX}{{\"type\":\"resp"), false, Limits::default());
+        assert_eq!(c.message_count, 2);
+        assert_eq!(c.warnings, vec!["malformed".to_owned()], "only the unparsable middle line");
+    }
+
+
+    #[cfg(node_twin)]
     fn twin() -> Value {
         let root = std::env::var("MIXDOG_FIXTURES_ROOT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").to_owned());
         serde_json::from_str(&std::fs::read_to_string(format!("{root}/services/import-convert-twin.json")).unwrap()).unwrap()
     }
-
     /// Node-recorded twin `fixtures/services/import-convert-twin.json`
     /// (`benchmarks/rust-core/recorders/record-import-convert.mjs`); `MIXDOG_FIXTURES_ROOT` overrides the location.
+    #[cfg(node_twin)]
     #[test]
     fn conversions_match_the_node_recorded_results() {
         let twin = twin();
@@ -367,7 +376,7 @@ mod tests {
             assert_eq!(&got_json, want, "scenario {name}");
         }
     }
-
+    #[cfg(node_twin)]
     #[test]
     fn paste_unwrapping_and_truncated_meta_match_the_node_recorded_results() {
         let twin = twin();
@@ -379,12 +388,5 @@ mod tests {
                 .map_or(Value::Null, |m| serde_json::json!({"foreignSessionId": m.foreign_session_id, "cwd": m.cwd, "internalKind": m.internal_kind}));
             assert_eq!(got, case["output"], "truncated {:?}", case["input"]);
         }
-    }
-
-    #[test]
-    fn incomplete_text_drops_the_trailing_partial_line() {
-        let c = convert_conversation_text(Source::Codex, &format!("{CODEX}{{\"type\":\"resp"), false, Limits::default());
-        assert_eq!(c.message_count, 2);
-        assert_eq!(c.warnings, vec!["malformed".to_owned()], "only the unparsable middle line");
     }
 }

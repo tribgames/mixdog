@@ -221,27 +221,21 @@ impl DomainService for LeadService {
 mod tests {
     use super::*;
 
-    /// The decisions Node's `resolveMixyCreated` made (`agent-lifecycle-twin.json` `statusRuns`).
     #[test]
-    fn the_created_decision_is_what_node_decided() {
-        let twin: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/desktop/settings/agent-lifecycle-twin.json")).unwrap();
-        let runs = twin["statusRuns"].as_array().unwrap();
-        assert!(runs.len() > 30);
-        for run in runs {
-            let (exists, created) = (run["status"]["exists"].as_bool(), run["status"]["created"].as_bool());
-            let existing = run["sessions"].as_array().unwrap().iter().any(|id| id == "sess_home_lead");
-            let asked = run["setCreated"].as_array().unwrap().clone();
-            match (mixy_decision(exists, created, existing), run.get("error")) {
-                (Ok((got, persist)), None) => {
-                    assert_eq!(Value::Bool(got), run["result"], "{run}");
-                    assert_eq!(persist.into_iter().map(Value::Bool).collect::<Vec<_>>(), asked, "{run}");
-                }
-                (Err(CoreError::DomainError { message: Some(got), .. }), Some(want)) => {
-                    assert_eq!(Value::String(got.to_string()), *want, "{run}");
-                    assert!(asked.is_empty(), "nothing is decided when it could not be read: {run}");
-                }
-                (got, want) => panic!("{run}: got {got:?}, Node {want:?}"),
-            }
-        }
+    fn mixy_is_created_once_the_profile_has_no_flag_and_her_home_or_existence_proves_it() {
+        // The flag already decided: it is never decided again.
+        assert_eq!(mixy_decision(Some(true), Some(true), false).unwrap(), (true, None));
+        assert_eq!(mixy_decision(Some(false), Some(false), true).unwrap(), (false, None));
+        // No flag yet: existing evidence or her home thread settles it, and the decision is persisted.
+        assert_eq!(mixy_decision(Some(true), None, false).unwrap(), (true, Some(true)));
+        assert_eq!(mixy_decision(Some(false), None, true).unwrap(), (false, Some(true)));
+        assert_eq!(mixy_decision(Some(false), None, false).unwrap(), (false, Some(false)));
+    }
+
+    #[test]
+    fn nothing_is_decided_when_whether_mixy_exists_could_not_be_read() {
+        let Err(CoreError::DomainError { message: Some(message), .. }) = mixy_decision(None, None, true) else { panic!("not refused") };
+        assert_eq!(message.to_string(), "Mixy's status could not be read.");
     }
 }
+

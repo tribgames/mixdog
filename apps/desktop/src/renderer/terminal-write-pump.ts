@@ -3,6 +3,7 @@ interface PendingTerminalWrite {
   data: string;
   acknowledge: boolean;
   queuedAt: number;
+  before?: () => void;
   resolve?: () => void;
 }
 
@@ -67,15 +68,16 @@ export class TerminalWritePump {
   }
 
   /** Replays reconnect scrollback before newly arriving acknowledged output. */
-  writeReplay(data: string): Promise<void> {
+  writeReplay(data: string, before?: () => void): Promise<void> {
     const value = String(data || '');
-    if (this.disposed || !value) return Promise.resolve();
+    if (this.disposed || (!value && !before)) return Promise.resolve();
     return new Promise((resolve) => {
       this.pending.push({
         id: '',
         data: value,
         acknowledge: false,
         queuedAt: this.now(),
+        ...(before ? { before } : {}),
         resolve,
       });
       this.drain();
@@ -125,7 +127,9 @@ export class TerminalWritePump {
           this.drain();
         };
         try {
-          this.write(item.data, complete);
+          item.before?.();
+          if (item.data) this.write(item.data, complete);
+          else complete();
         } catch {
           // A disposed xterm must not strand main-process flow control.
           complete();

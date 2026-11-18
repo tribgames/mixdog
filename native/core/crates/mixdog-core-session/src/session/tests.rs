@@ -85,27 +85,6 @@ async fn an_inherited_conversation_larger_than_the_lane_is_stored_whole_and_in_o
     assert_eq!(stored, messages);
 }
 
-/// The Rig's Goal timers fire at their time on the test runtime's clock (here paused, so exactly),
-/// and a cancelled one never fires.
-#[tokio::test(start_paused = true)]
-async fn the_rigs_goal_timers_follow_the_test_clock_and_cancel() {
-    use std::sync::atomic::Ordering::SeqCst;
-
-    use mixdog_core_goal::goal::GoalTimers;
-    use mixdog_core_goal::goal::TimerKind;
-
-    let fired = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let (due, never) = (fired.clone(), fired.clone());
-    let timers = super::testing::RigGoalTimers;
-    let _due = timers.after(TimerKind::Deadline, 60_000.0, Box::new(move || { due.fetch_add(1, SeqCst); }));
-    let cancelled = timers.after(TimerKind::Warning, 30_000.0, Box::new(move || { never.fetch_add(10, SeqCst); }));
-    cancelled.cancel();
-    mixdog_rt::time::sleep(Duration::from_secs(59)).await;
-    assert_eq!(fired.load(SeqCst), 0, "not before its time");
-    mixdog_rt::time::sleep(Duration::from_secs(2)).await;
-    assert_eq!(fired.load(SeqCst), 1, "the due one fired once; the cancelled one never");
-}
-
 pub async fn start_thread(directory: &SessionDirectory) -> Arc<SessionHandle> {
     let reply = directory
         .request(request(
@@ -214,14 +193,6 @@ pub fn prompt_list(handle: &SessionHandle) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Returns once the actor has taken a message of its inbox. The loop is biased (jobs and deadlines before the inbox), so every
-/// timer that is due, and every job it queued, was handled first.
-pub async fn caught_up(handle: &SessionHandle) {
-    let (tx, taken) = tokio::sync::oneshot::channel();
-    handle.inbox.send(super::actor::Inbox::QuotaFacts { tx }).await.expect("the actor takes the inbox");
-    crate::session::testing::awaiting(|| "the actor to take a message of its inbox".to_owned(), taken).await.expect("the actor answers");
-}
-
 pub fn idle(handle: &SessionHandle) -> bool {
     handle.cell.run.load().is_none()
 }
@@ -265,194 +236,6 @@ async fn a_turn_publishes_its_rows_in_order_after_they_are_durable() {
         .collect();
     assert_eq!(completed, logged);
     assert!(frames.iter().any(|(_, method, _)| method == "turn/completed"));
-}
-
-#[tokio::test(start_paused = true)]
-async fn prompt_history_follows_todays_derivation_and_updates_incrementally() {
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let file = rig.prompts.file("/ws").expect("history file");
-    crate::session::fixture_fs::write(&file, br#"{"version":1,"entries":["older","one"]}"#);
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    eventually_on!(&[&handle.cell.stepped], || (prompt_list(&handle) == ["one", "older"]).then_some(())).await;
-
-    turn(&handle, "two", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    turn(&handle, "  one  ", "op-2").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
-    eventually_on!(&[&handle.cell.stepped], || (prompt_list(&handle) == ["one", "two", "older"]).then_some(())).await;
-    // The persisted history of the cwd took both submits (`appendPromptHistory`), written behind
-    // the window (`WRITE_BEHIND_MS`) after the last of them.
-    let want = json!({ "version": 1, "entries": ["older", "two", "one"] });
-    tokio::time::advance(Duration::from_millis(super::prompt_history::WRITE_BEHIND_MS)).await;
-    let saved =eventually_on!(&[&*rig.prompts_wrote], || {
-        let text = crate::session::fixture_fs::read_to_string(&file).ok()?;
-        serde_json::from_str::<Value>(&text).ok().filter(|saved| *saved == want)
-    })
-    .await;
-    assert_eq!(saved, want);
-
-    let updates: Vec<Value> = rig
-        .feeds
-        .frames(handle.id.as_str())
-        .into_iter()
-        .filter(|(_, method, _)| method == "thread/promptHistory/updated")
-        .map(|(_, _, params)| params["value"].clone())
-        .collect();
-    assert!(updates.contains(&json!({ "kind": "added", "prompt": "two" })));
-    assert!(updates.contains(&json!({ "kind": "added", "prompt": "one" })));
-
-    // Rewind to the second prompt: its text returns to the composer and leaves the list.
-    let second = handle.cell.view.load_full().items[2].id().clone();
-    let reply = handle
-        .request(request(
-            "thread/rewind",
-            json!({ "threadId": handle.id, "opId": "op-3", "itemId": second }),
-            "op-3",
-        ))
-        .await
-        .expect("rewind");
-    let Reply::Value(value) = reply else { panic!() };
-    assert_eq!(value["text"], "one");
-    eventually_on!(&[&handle.cell.stepped], || (rows(&handle).len() == 2).then_some(())).await;
-    assert_eq!(prompt_list(&handle), ["two", "older"]);
-    let frames = rig.feeds.frames(handle.id.as_str());
-    let reset = frames
-        .iter()
-        .find(|(_, method, _)| method == "thread/historyReset")
-        .expect("historyReset");
-    assert_eq!(reset.2["hasOlder"], false);
-    assert_eq!(
-        frames.last().map(|(_, m, p)| (m.as_str(), p["value"].clone())),
-        Some(("thread/promptHistory/updated", json!({ "kind": "replaced", "prompts": ["two", "older"] })))
-    );
-}
-
-/// A kickoff pushes no user row in Node (drain.mjs `renderBatchItems` skips `suppressDisplay`), so it never reaches the prompt
-/// history, neither the session's list nor the cwd's file (recorded: `running-runtime-turn`'s states keep `promptHistoryList` empty).
-#[tokio::test(start_paused = true)]
-async fn a_kickoff_stays_out_of_the_prompt_history() {
-    let rig = Rig::new();
-    let file = rig.prompts.file("/ws").expect("history file");
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    handle
-        .request(request(
-            "turn/start",
-            json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "greet the user", "options": { "clientSubmissionId": "sub-k", "kickoff": true } } }),
-            "op-1",
-        ))
-        .await
-        .expect("started");
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    turn(&handle, "typed", "op-2").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && prompt_list(&handle) == ["typed"]).then_some(())).await;
-    tokio::time::advance(Duration::from_millis(super::prompt_history::WRITE_BEHIND_MS)).await;
-    let want = json!({ "version": 1, "entries": ["typed"] });
-    let saved = eventually_on!(&[&*rig.prompts_wrote], || {
-        let text = crate::session::fixture_fs::read_to_string(&file).ok()?;
-        serde_json::from_str::<Value>(&text).ok().filter(|saved| *saved == want)
-    })
-    .await;
-    assert_eq!(saved, want);
-    let added: Vec<Value> = rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/promptHistory/updated").map(|(_, _, params)| params["value"].clone()).collect();
-    assert_eq!(added, vec![json!({ "kind": "added", "prompt": "typed" })]);
-}
-
-/// The spinner follows a tool batch as Node's turn sets it: `tool-use` as the batch opens (`openToolCalls`,
-/// `closeThinkingForToolBatch`), `tool-approval` while a call waits for the person (`approveToolRequest`), `requesting` once the
-/// batch is over (`onToolPhaseCompleted`; recorded: `running-approval-pending`'s states show `tool-approval`, then `tool-use`).
-#[tokio::test(start_paused = true)]
-async fn the_spinner_follows_a_tool_batch() {
-    use super::run::CallMark;
-    let rig = Rig::new();
-    rig.set_script(Arc::new(move |run| {
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            for mark in [CallMark::Streaming, CallMark::ToolCall, CallMark::ToolApproval, CallMark::ToolPhaseCompleted] {
-                run.port.call_mark(mark).await.expect("shown");
-            }
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, "use a tool", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    let mut modes: Vec<String> = Vec::new();
-    for (_, method, params) in rig.feeds.frames(handle.id.as_str()) {
-        if method != "thread/runtime/updated" {
-            continue;
-        }
-        if let Some(mode) = params["value"]["spinner"]["mode"].as_str()
-            && modes.last().map(String::as_str) != Some(mode)
-        {
-            modes.push(mode.to_owned());
-        }
-    }
-    assert_eq!(modes, ["requesting", "responding", "tool-use", "tool-approval", "requesting"]);
-}
-
-/// A tool step's approval is published in its own frame before the step's usage and `tool-use`, which follow it (recorded:
-/// `running-approval-pending` states 5 and 6: `toolApproval` with `tool-approval` and no tokens, then the tokens and `tool-use`).
-#[tokio::test(start_paused = true)]
-async fn a_tool_steps_approval_goes_out_before_the_step() {
-    use super::run::CallMark;
-    let rig = Rig::new();
-    rig.set_script(Arc::new(move |run| {
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            run.port.call_mark(CallMark::Streaming).await.expect("shown");
-            let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 2, ..Default::default() };
-            run.port
-                .usage(crate::session::UsageReport {
-                    iteration: 1,
-                    usage,
-                    model: "m".into(),
-                    requested_model: "m".into(),
-                    delta_tool_calls: 1,
-                    request_ms: 0,
-                    delta_prompt: 10,
-                    send_tools: Vec::new(),
-                    reasoning_tokens: None,
-                    reasoning_tokens_complete: false,
-                    outgoing: Vec::new(),
-                    sent_at_ms: 0,
-                    input_excludes_cache: false,
-                })
-                .await
-                .expect("usage");
-            run.port.call_mark(CallMark::ToolCall).await.expect("shown");
-            run.port.call_mark(CallMark::ToolApproval).await.expect("shown");
-            let _ = run
-                .port
-                .request(ApprovalAsk {
-                    kind: ApprovalKind::Tool,
-                    call_id: None,
-                    tool: Some("shell".into()),
-                    action_kind: None,
-                    reason: Some("shell needs a look".into()),
-                    payload: json!({ "name": "shell" }),
-                    remember: Vec::new(),
-                    expires_after: None,
-                })
-                .await;
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, "use a tool", "op-1").await;
-    let shown = |frames: &[(u64, String, Value)]| frames.iter().any(|(_, method, params)| method == "thread/runtime/updated" && params["value"]["spinner"]["mode"] == "tool-approval");
-    eventually_on!(&[&handle.cell.stepped], || shown(&rig.feeds.frames(handle.id.as_str())).then_some(())).await;
-    let frames = rig.feeds.frames(handle.id.as_str());
-    let at = frames.iter().position(|(_, method, params)| method == "thread/runtime/updated" && params["value"]["spinner"]["mode"] == "tool-approval").expect("the approval's mode");
-    assert_eq!(frames[at].2["value"]["spinner"]["inputTokens"], json!(0), "the approval's frame shows none of the step's usage");
-    assert_eq!(frames[at + 1].1, "thread/frame", "the approval is published in its own frame");
-    let after: Vec<&Value> = frames[at + 1..].iter().filter(|(_, method, _)| method == "thread/runtime/updated").map(|(_, _, params)| &params["value"]["spinner"]).collect();
-    let last = after.last().expect("the step's changes follow the approval");
-    assert_eq!((&last["mode"], &last["inputTokens"]), (&json!("tool-use"), &json!(10)), "the step's tool-use and tokens stand after it");
 }
 
 #[tokio::test(start_paused = true)]
@@ -632,41 +415,6 @@ async fn interrupt_is_answered_on_the_control_path_and_ends_the_run() {
     assert_eq!(reason.lock().unwrap().as_deref(), Some(expected.as_str()));
 }
 
-/// `abortRuntime` aborts synchronously: a control lane that is full (the actor has not drained it) cannot
-/// refuse the user's stop.
-#[tokio::test(start_paused = true)]
-async fn interrupt_cancels_the_run_while_the_control_lane_is_full() {
-    let rig = Rig::new();
-    let (seen_tx, seen_rx) = tokio::sync::oneshot::channel::<String>();
-    let seen_tx = Mutex::new(Some(seen_tx));
-    let seen_tx = Arc::new(seen_tx);
-    rig.set_script(Arc::new(move |run| {
-        let seen_tx = seen_tx.clone();
-        Box::pin(async move {
-            run.cancel.cancelled().await;
-            if let Some(tx) = seen_tx.lock().unwrap().take() {
-                let _ = tx.send(run.signal.reason());
-            }
-            RunOutcome::Interrupted
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    let started = turn(&handle, "long job", "op-1").await;
-    let turn_id = TurnId::from(started["turnId"].as_str().expect("turn id"));
-
-    // No await between the fill and the interrupt: the actor drains nothing.
-    let mut filled = 0;
-    while handle.cell.ctl_tx.try_send(crate::session::control::Ctl::RefreshSurface).is_ok() {
-        filled += 1;
-    }
-    assert_eq!(filled, 32, "the control lane holds 32");
-    handle.interrupt(&turn_id, None).expect("interrupt");
-
-    let expected = format!("Session \"{}\" closed: runtime abort (reason=user-cancel)", handle.id.as_str());
-    assert_eq!(seen_rx.await.expect("the script observed the cancel"), expected);
-}
-
 /// The real review, told apart by when its seals return: a turn settles after at most
 /// `TURN_CLEANUP_SETTLE` of waiting for its seal, which then goes on detached, so a reader waits
 /// for the seal's own end and not for the turn's.
@@ -794,214 +542,8 @@ async fn a_turn_that_edits_a_file_records_its_change_once_its_seal_returns() {
     assert!(text.contains("a.txt") && text.contains("+two"), "{text}");
 }
 
-#[tokio::test(start_paused = true)]
-async fn input_and_task_notifications_release_the_runs_wait() {
-    use mixdog_tools::exec::TaskNotifier;
-    use mixdog_tools::exec::WakeReason;
-    let rig = Rig::new();
-    let wakes = rig.wakes.clone();
-    let reasons: Arc<Mutex<Vec<WakeReason>>> = Arc::default();
-    let seen = reasons.clone();
-    let inputs: Arc<Mutex<Vec<Value>>> = Arc::default();
-    let bodies = inputs.clone();
-    // Told after each wait the run begins, each reason it records and each input it takes.
-    let progress = Arc::new(tokio::sync::Notify::new());
-    let told = progress.clone();
-    // The first run's `task wait`, twice: once released by new input, once by a notification.
-    rig.set_script(Arc::new(move |run| {
-        let wakes = wakes.clone();
-        let seen = seen.clone();
-        let told = told.clone();
-        let first = {
-            let mut bodies = lock(&bodies);
-            bodies.push(run.input_body.clone());
-            bodies.len() == 1
-        };
-        told.notify_waiters();
-        Box::pin(async move {
-            for _ in 0..usize::from(first) * 2 {
-                let wait = wakes.begin(&run.thread);
-                told.notify_waiters();
-                wait.released().await;
-                lock(&seen).push(wait.wake().expect("released").reason);
-                told.notify_waiters();
-            }
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, "build", "op-1").await;
-    eventually_on!(&[&progress], || (rig.wakes.active_waits(&handle.id) == 1).then_some(())).await;
-    assert_eq!(turn(&handle, "next", "op-2").await["kind"], "queued");
-    eventually_on!(&[&progress], || (rig.wakes.active_waits(&handle.id) == 1 && lock(&reasons).len() == 1).then_some(()))
-        .await;
-
-    directory.finished(&handle.id, "shell", "job-7", "completed", "Async shell task job-7 finished.".into()).await;
-    eventually_on!(&[&progress], || (lock(&reasons).len() == 2).then_some(())).await;
-    assert_eq!(*lock(&reasons), [WakeReason::UserMessage, WakeReason::Notification]);
-
-    // The completion was queued, never a queued prompt; the turn took no boundary after it, so
-    // it runs as its own turn after the queued prompt, as a task-notification row.
-    eventually_on!(&[&progress], || (lock(&inputs).len() == 3).then_some(())).await;
-    let bodies = lock(&inputs).clone();
-    assert_eq!(bodies[1]["content"], "next");
-    assert_eq!(bodies[2]["meta"]["source"], "task-notification");
-    assert_eq!(bodies[2]["meta"]["execution"], json!({ "surface": "shell", "id": "job-7", "status": "completed" }));
-    assert_eq!(bodies[2]["content"], "Async shell task job-7 finished.");
-    assert!(!prompt_list(&handle).iter().any(|p| p.contains("job-7")));
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    assert!(handle.cell.view.load_full().state.queued.as_ref().is_some_and(Vec::is_empty));
-}
-
-/// A queued completion as the run takes it at a boundary: `SteerMode::TaskNotification`
-/// with its execution, after steered prompts; taken, it never starts a turn of its own.
-#[tokio::test(start_paused = true)]
-async fn a_running_turn_takes_a_completion_at_its_next_boundary() {
-    use mixdog_tools::exec::TaskNotifier;
-    let rig = Rig::new();
-    let gate = Arc::new(tokio::sync::Notify::new());
-    let taken: Arc<Mutex<Vec<SteerInput>>> = Arc::default();
-    let (open, out) = (gate.clone(), taken.clone());
-    rig.set_script(Arc::new(move |run| {
-        let (open, out) = (open.clone(), out.clone());
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            open.notified().await;
-            let steers = run.port.take_steers(drain(DrainStage::PreSend)).await.expect("take");
-            lock(&out).extend(steers);
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, "build", "op-1").await;
-    directory.finished(&handle.id, "shell", "job-7", "completed", "job-7 finished.".into()).await;
-    // Durable before the boundary looks.
-    eventually_on!(&[&handle.cell.stepped], || {
-        rig.store.records(&handle.id).into_iter().any(|(_, record)| {
-            matches!(record, mixdog_store::schema::record::Record::Queue(_))
-        })
-        .then_some(())
-    })
-    .await;
-    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
-    gate.notify_one();
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    let taken = lock(&taken).clone();
-    assert_eq!(taken.len(), 1);
-    assert_eq!(taken[0].mode, SteerMode::TaskNotification);
-    assert_eq!(taken[0].execution, Some(json!({ "surface": "shell", "id": "job-7", "status": "completed" })));
-    assert_eq!(taken[0].content, "job-7 finished.");
-    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
-    assert_eq!(runs_started(&rig, &handle.id), 1, "a taken completion starts no turn");
-}
-
 fn drain(stage: DrainStage) -> DrainRequest {
     DrainRequest { stage, max_priority: Priority::Next }
-}
-
-/// `session-flow/steering.mjs:204` (`drainPendingSteering`, the desktop host's queue): every boundary takes each queued
-/// prompt within its priority as an input of its own, never merged (session-send-world `recipient-queued`); the completion
-/// then left alone in the queue is taken at the same boundary (`ask-turn-steering-drain.mjs:44-58`). None of it starts a turn.
-#[tokio::test(start_paused = true)]
-async fn queued_prompts_are_taken_one_by_one_at_the_next_boundary() {
-    use mixdog_tools::exec::TaskNotifier;
-    let rig = Rig::new();
-    let gate = Arc::new(tokio::sync::Notify::new());
-    let taken: Arc<Mutex<Vec<Vec<SteerInput>>>> = Arc::default();
-    let (open, out) = (gate.clone(), taken.clone());
-    rig.set_script(Arc::new(move |run| {
-        let (open, out) = (open.clone(), out.clone());
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            if lock(&out).is_empty() {
-                open.notified().await;
-            }
-            for stage in [DrainStage::PreSend, DrainStage::Terminal] {
-                let steers = run.port.take_steers(drain(stage)).await.expect("take");
-                lock(&out).push(steers);
-            }
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, "build", "op-1").await;
-    let first = turn(&handle, "first", "op-2").await;
-    let second = turn(&handle, "second", "op-3").await;
-    directory.finished(&handle.id, "shell", "job-7", "completed", "job-7 finished.".into()).await;
-    eventually_on!(&[&handle.cell.stepped], || {
-        let queued = rig.store.records(&handle.id).into_iter().filter(|(_, record)| {
-            matches!(record, mixdog_store::schema::record::Record::Queue(_))
-        });
-        (queued.count() == 3).then_some(())
-    })
-    .await;
-    gate.notify_one();
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    let taken = lock(&taken).clone();
-    assert_eq!(taken.len(), 2);
-    let next = &taken[0];
-    assert_eq!(next.len(), 3);
-    for (input, (content, queued)) in next.iter().zip([("first", &first), ("second", &second)]) {
-        assert_eq!(input.mode, SteerMode::Prompt);
-        assert_eq!(input.content, content);
-        let ids: Vec<&str> = input.queued_ids.iter().map(|id| id.as_str()).collect();
-        assert_eq!(ids, [queued["queuedId"].as_str().unwrap()]);
-    }
-    assert_eq!(next[2].mode, SteerMode::TaskNotification);
-    assert_eq!(next[2].content, "job-7 finished.");
-    assert!(taken[1].is_empty(), "the terminal boundary finds the queue empty");
-    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
-    assert_eq!(runs_started(&rig, &handle.id), 1, "taken input starts no turn");
-    assert!(handle.cell.view.load_full().state.queued.as_ref().is_some_and(Vec::is_empty));
-}
-
-/// `notification-bus.test.mjs` "one wake per session is in flight, and a suppressed wake
-/// replays afterwards": completions that land after the woken turn's last look each get a
-/// turn of their own, oldest first, and a replay that finds nothing ends the chain.
-#[tokio::test(start_paused = true)]
-async fn completions_after_the_woken_turns_last_look_replay_oldest_first() {
-    use mixdog_tools::exec::TaskNotifier;
-    let rig = Rig::new();
-    let gate = Arc::new(tokio::sync::Notify::new());
-    let inputs: Arc<Mutex<Vec<(Value, usize)>>> = Arc::default();
-    let (open, seen) = (gate.clone(), inputs.clone());
-    let progress = Arc::new(tokio::sync::Notify::new());
-    let said = progress.clone();
-    rig.set_script(Arc::new(move |run| {
-        let (open, seen, told) = (open.clone(), seen.clone(), said.clone());
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let first = lock(&seen).is_empty();
-            // The boundary looks first; the woken turn then waits past its last look.
-            let took = run.port.take_steers(drain(DrainStage::PreSend)).await.expect("take").len();
-            lock(&seen).push((run.input_body.clone(), took));
-            told.notify_waiters();
-            if first {
-                open.notified().await;
-            }
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    directory.finished(&handle.id, "shell", "job-1", "completed", "job-1 finished.".into()).await;
-    eventually_on!(&[&progress], || (lock(&inputs).len() == 1).then_some(())).await;
-    directory.finished(&handle.id, "shell", "job-2", "completed", "job-2 finished.".into()).await;
-    directory.finished(&handle.id, "shell", "job-3", "completed", "job-3 finished.".into()).await;
-    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
-    gate.notify_one();
-    eventually_on!(&[&progress], || (lock(&inputs).len() == 3).then_some(())).await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
-    let inputs = lock(&inputs).clone();
-    let order: Vec<&str> = inputs.iter().map(|(body, _)| body["content"].as_str().unwrap()).collect();
-    assert_eq!(order, ["job-1 finished.", "job-2 finished.", "job-3 finished."]);
-    // The replayed wake drained both: job-3 is its own turn, not taken by job-2's boundary.
-    assert!(inputs.iter().all(|(_, took)| *took == 0), "{inputs:?}");
-    assert_eq!(runs_started(&rig, &handle.id), 3, "a replay that finds nothing ends the chain");
 }
 
 /// The ports' header seam: `thread/header/patch` is one durable `meta` record and
@@ -1131,43 +673,6 @@ async fn a_panicking_header_update_fails_only_its_caller() {
         .await
         .expect("the actor serves the next update");
     assert_eq!(threads.header(&handle.id).await.expect("read")["skillCount"], json!(1));
-}
-
-/// `ask-turn-steering-drain.mjs:48`: while a route saved during the turn is held, the queued
-/// completion is left to the next turn.
-#[tokio::test(start_paused = true)]
-async fn a_held_route_leaves_a_completion_to_the_next_turn() {
-    use crate::session::thread_state::SessionThreads;
-    use mixdog_core_ports::ports::threads::ThreadState;
-    use mixdog_tools::exec::TaskNotifier;
-    let rig = Rig::new();
-    let gate = Arc::new(tokio::sync::Notify::new());
-    let took: Arc<Mutex<Vec<usize>>> = Arc::default();
-    let (open, seen) = (gate.clone(), took.clone());
-    rig.set_script(Arc::new(move |run| {
-        let (open, seen) = (open.clone(), seen.clone());
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            if lock(&seen).is_empty() {
-                open.notified().await;
-            }
-            let n = run.port.take_steers(drain(DrainStage::PreSend)).await.expect("take").len();
-            lock(&seen).push(n);
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = Arc::new(SessionDirectory::new(rig.deps()));
-    let handle = start_thread(&directory).await;
-    turn(&handle, "build", "op-1").await;
-    let mut set = serde_json::Map::new();
-    set.insert("pendingRoute".into(), json!({ "provider": "p", "model": "m" }));
-    SessionThreads::new(directory.clone()).patch_header(&handle.id, set, Vec::new()).await.expect("held");
-    directory.finished(&handle.id, "shell", "job-7", "completed", "job-7 finished.".into()).await;
-    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
-    gate.notify_one();
-    eventually_on!(&[&handle.cell.stepped], || (lock(&took).len() == 2).then_some(())).await;
-    assert_eq!(lock(&took)[0], 0, "held: not taken by this turn");
-    assert_eq!(runs_started(&rig, &handle.id), 2, "the next turn is the completion's");
 }
 
 pub fn runs_started(rig: &Rig, id: &ThreadId) -> usize {
@@ -1502,94 +1007,6 @@ async fn a_turn_creates_the_session_of_a_thread_that_has_none() {
     assert_eq!(*lock(&steps), [json!(["adopt", "sess_control"]), json!(["seat", "sess_control"])]);
 }
 
-/// `inheritFrom` into an existing heir as Node did it (`fixtures/inheritance-carry`, recorded by
-/// `record-inheritance-carry.mjs` from the real `createInheritance` over scripted sessions): the checks in its order and
-/// their texts, what travels and what the heir keeps, what the compactor is asked, and the measured sentence of a refusal.
-/// The scripted fit answers what Node measured for the conversation of that size; the compactor answers what it answered Node.
-#[tokio::test(start_paused = true)]
-async fn an_inherit_into_an_existing_heir_does_what_node_recorded() {
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/inheritance-carry/golden.json")).expect("golden");
-    let ctx = CallContext::internal("test");
-    let conversation = |messages: &Value| -> Vec<Value> { messages.as_array().expect("messages").iter().filter(|m| m["role"] != "system").cloned().collect() };
-    async fn append(directory: &SessionDirectory, id: String, messages: Vec<Value>) {
-        let ctx = CallContext::internal("test");
-        let handle = directory.open_handle(&ThreadId::from(id), &ctx).await.expect("open");
-        let request = CoreRequest { method: mixdog_core_api::ids::Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx };
-        handle.request(request).await.expect("append");
-    }
-    let mut ran = 0;
-    for case in golden["cases"].as_array().expect("cases") {
-        let name = case["name"].as_str().expect("name");
-        let rig = Rig::new();
-        let directory = SessionDirectory::new(rig.deps());
-        let (source, heir) = (&case["setup"]["source"], &case["setup"]["heir"]);
-        let heir_id = heir["id"].as_str().expect("heir id").to_owned();
-        let header = |title: &Value| json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model", "title": title }).as_object().cloned().expect("header");
-        directory.create_with_id(ThreadId::from(heir_id.clone()), header(&heir["title"]), json!({})).await.expect("create the heir");
-        let heir_rows = conversation(&heir["messages"]);
-        if !heir_rows.is_empty() {
-            append(&directory, heir_id.clone(), heir_rows.clone()).await;
-        }
-        let live = conversation(&heir["liveTurnMessages"]);
-        if !live.is_empty() {
-            let handle = directory.open_handle(&ThreadId::from(heir_id.clone()), &ctx).await.expect("open");
-            handle.cell.turn_messages.send_replace(Arc::new(live));
-        }
-        let source_rows = source.as_object().map(|_| conversation(&source["messages"])).unwrap_or_default();
-        if source["id"] != heir["id"] && source.is_object() {
-            let id = source["id"].as_str().expect("source id").to_owned();
-            directory.create_with_id(ThreadId::from(id.clone()), header(&source["title"]), json!({})).await.expect("create the source");
-            append(&directory, id, source_rows.clone()).await;
-        }
-        for fit in [&case["fit"], &case["fitCompacted"]].into_iter().filter(|fit| fit["known"] == true) {
-            let count = fit["messages"].as_u64().expect("count") as usize;
-            lock(&rig.inherit.measured).insert(count, (fit["limit"].as_u64().expect("limit"), fit["used"].as_u64().expect("used"), case["budgetTokens"].is_u64()));
-        }
-        *lock(&rig.inherit.budget) = case["budgetTokens"].as_u64();
-        match &case["compactorAnswer"] {
-            Value::Array(rows) => *lock(&rig.compaction.heir_rows) = Some(rows.clone()),
-            Value::String(_) => rig.compaction.heir_fails.store(true, std::sync::atomic::Ordering::SeqCst),
-            _ => {}
-        }
-
-        let params = json!({ "threadId": case["sourceId"], "intoThreadId": heir_id, "compact": case["options"]["compact"] == true, "opId": "op-inherit" });
-        let result = directory.request(request("thread/fork", params, "op-inherit")).await;
-        match (&case["outcome"]["ok"], &case["outcome"]["error"]) {
-            (ok, _) if ok.is_object() => {
-                let Reply::Value(done) = result.unwrap_or_else(|error| panic!("{name}: {error:?}")) else { panic!("{name}: a value") };
-                assert_eq!(
-                    (done["messages"].clone(), done["thread"]["id"].clone(), done["provider"].clone(), done["model"].clone()),
-                    (ok["messages"].clone(), ok["sessionId"].clone(), ok["provider"].clone(), ok["model"].clone()),
-                    "{name}"
-                );
-            }
-            // A source that is not stored is the typed `ThreadNotFound` (Node's text: "session <id> was not found").
-            (_, error) if error.as_str().is_some_and(|text| text.ends_with("was not found")) => {
-                assert!(matches!(result, Err(CoreError::ThreadNotFound { .. })), "{name}: {result:?}");
-            }
-            (_, error) => {
-                let refused = format!("{:?}", result.err().unwrap_or_else(|| panic!("{name}: refused")));
-                assert!(refused.contains(error.as_str().expect("the error text")), "{name}: {refused}");
-            }
-        }
-        let held = directory.rows_of(&heir_id).await.expect("rows");
-        let carried: Vec<Value> = held[heir_rows.len()..].iter().map(|m| json!({ "role": m["role"], "content": m["content"] })).collect();
-        let want: Vec<Value> = case["carried"].as_array().expect("carried").iter().map(|m| json!({ "role": m["role"], "content": m["content"] })).collect();
-        assert_eq!(carried, want, "{name}: what travelled");
-        let asked: Vec<(u64, bool)> = case["compactorCalls"].as_array().expect("calls").iter().map(|call| (call["budgetTokens"].as_u64().expect("budget"), call["conversationThresholdTokens"] == 1)).collect();
-        assert_eq!(*lock(&rig.compaction.heir_asked), asked, "{name}: what the compactor was asked");
-        let heir = directory.open_handle(&ThreadId::from(heir_id), &ctx).await.expect("open");
-        let header = heir.cell.header.load();
-        assert_eq!(header.get("title").unwrap_or(&Value::Null), &case["title"], "{name}: title");
-        assert_eq!(header.get("inheritedFromSessionId").unwrap_or(&Value::Null), &case["inheritedFromSessionId"], "{name}: inheritedFromSessionId");
-        if source.is_object() && source["id"] != case["setup"]["heir"]["id"] {
-            assert_eq!(directory.rows_of(source["id"].as_str().expect("id")).await.expect("rows").len(), source_rows.len(), "{name}: the source keeps every message");
-        }
-        ran += 1;
-    }
-    assert_eq!(ran, 13);
-}
-
 /// `inheritToNewSession` carries before it persists the heir: a fork asked to compact whose compaction cannot run is
 /// refused and leaves no copy of the conversation behind.
 #[tokio::test(start_paused = true)]
@@ -1611,31 +1028,6 @@ async fn a_refused_compacting_fork_leaves_no_heir() {
     for id in directory.loaded_ids().into_iter().filter(|id| *id != source) {
         assert!(directory.stored_header(&id).await.is_none(), "the refused fork left {id:?}");
     }
-}
-/// The reads that decide a workspace move, as Node answered them over committed and running-turn messages
-/// (`hasUserConversationMessage(session.messages)` of `refreshSessionWorkspaceContext`; the intent view of
-/// `worktree-intents.mjs`: committed or live): an idle session whose turn settled still has its conversation.
-#[tokio::test(start_paused = true)]
-async fn the_conversation_reads_of_a_workspace_move_equal_nodes() {
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/inheritance-carry/golden.json")).expect("golden");
-    let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps());
-    let header = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" }).as_object().cloned().expect("header");
-    let cases = golden["conversation"].as_array().expect("conversation");
-    for (n, case) in cases.iter().enumerate() {
-        let id = ThreadId::from(format!("sess_{n}"));
-        directory.create_with_id(id.clone(), header.clone(), json!({})).await.expect("create");
-        let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-        let committed = case["messages"].as_array().expect("messages").clone();
-        if !committed.is_empty() {
-            let append = CoreRequest { method: mixdog_core_api::ids::Method("thread/inheritedRows/append"), params: json!({ "messages": committed }), op: None, ctx: CallContext::internal("test") };
-            handle.request(append).await.expect("append");
-        }
-        handle.cell.turn_messages.send_replace(Arc::new(case["liveTurnMessages"].as_array().expect("live").clone()));
-        let got = (directory.holds_user_conversation(&id).await.expect("read"), directory.holds_conversation(&id).await.expect("read"));
-        assert_eq!(got, (case["hasUserConversationMessage"] == true, case["intentView"] == true), "{}", case["name"]);
-    }
-    assert_eq!(cases.len(), 6);
 }
 
 /// `runtime.clear` answers false for a runtime with no session, which the host's reset turns into a refusal when it
@@ -2111,29 +1503,6 @@ async fn a_control_actor_that_unwinds_after_its_reply_is_unlisted_until_it_is_re
     assert_eq!(directory.control_ids(), [id]);
 }
 
-/// Unload, reopen and fork. A control thread that unloads (its last subscriber left and its idle delay passed) is not synced;
-/// reopened, it is again, from its record's header. Its heir (`thread/fork`) is a thread of its own, not a second control session.
-#[tokio::test(start_paused = true)]
-async fn an_unloaded_control_thread_is_synced_again_once_reopened_and_its_heir_is_not() {
-    let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps());
-    let id = start_control(&directory, "op-control").await.expect("control start");
-    let handle = directory.handle(&id).expect("loaded");
-    subscribe(&handle);
-    left_idle(&handle).await;
-    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&id).is_none().then_some(())).await;
-    assert!(directory.control_ids().is_empty(), "an unloaded thread is not live");
-    handle.inbox.closed().await;
-    let reopened = directory.open_handle(&id, &CallContext::internal("test")).await.expect("reopened");
-    assert_eq!(directory.control_ids(), [id.clone()]);
-    give_conversation(&reopened).await;
-    let reply = reopened.request(request("thread/fork", json!({ "threadId": id, "opId": "op-fork" }), "op-fork")).await.expect("thread/fork");
-    let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
-    let heir = ThreadId::from(value["thread"]["id"].as_str().expect("heir id"));
-    assert!(!directory.handle(&heir).expect("loaded").control);
-    assert_eq!(directory.control_ids(), [id]);
-}
-
 /// Close. A control thread the idle close tombstones leaves the directory and is not synced.
 #[tokio::test(start_paused = true)]
 async fn a_closed_control_thread_is_not_synced() {
@@ -2235,64 +1604,6 @@ async fn an_adoption_never_writes_a_control_thread_that_ended_after_it_was_liste
     assert_eq!(directory.control_ids(), [live]);
 }
 
-/// The control kind is the `session` record's own field, outside its header: a control thread's hook transcript export and its
-/// `thread/read` carry no trace of it, and a reopen in another directory over the same store still finds the control session.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_control_threads_export_and_read_carry_no_kind_and_a_reopen_restores_it() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let first = SessionDirectory::new(rig.deps_on(store.clone()));
-    let id = start_control(&first, "op-control").await.expect("control start");
-    let handle = first.handle(&id).expect("loaded");
-    turn(&handle, "hello", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
-    let no_kind = |value: &Value, what: &str| {
-        fn keys(value: &Value, out: &mut Vec<String>) {
-            match value {
-                Value::Object(map) => map.iter().for_each(|(key, value)| {
-                    out.push(key.clone());
-                    keys(value, out);
-                }),
-                Value::Array(items) => items.iter().for_each(|value| keys(value, out)),
-                _ => {}
-            }
-        }
-        let mut found = Vec::new();
-        keys(value, &mut found);
-        let kind: Vec<_> = found.iter().filter(|key| key.to_lowercase().contains("control")).collect();
-        assert!(kind.is_empty(), "{what} carries {kind:?}");
-    };
-
-    let tokens = mixdog_rt::testing::tokens();
-    let lanes = super::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io };
-    let files = super::transcript_export::TranscriptFiles::new(data.path(), store.clone(), lanes, tokens.maintenance_io);
-    let path = super::transcript_export::export_path(data.path(), id.as_str());
-    use mixdog_mcp::hook_bus::TranscriptExport;
-    assert_eq!(files.transcript_path(id.as_str()).await, json!(path.to_string_lossy()), "the thread has a transcript");
-    let bytes = mixdog_core_base::support::on_lane(tokens.maintenance_io, &CancellationToken::new(), move |_| mixdog_statefile::read_content(&path))
-        .await
-        .expect("read job")
-        .expect("readable")
-        .expect("the export exists");
-    let text = String::from_utf8(bytes).expect("UTF-8");
-    let session: Value = serde_json::from_str(text.lines().next().expect("the session line")).expect("JSON");
-    assert_eq!(session["header"]["id"], id.as_str(), "the export is the thread's");
-    for line in text.lines() {
-        no_kind(&serde_json::from_str(line).expect("JSON"), "the export");
-    }
-
-    let read = CoreRequest { method: Method("thread/read"), params: json!({ "threadId": id }), op: None, ctx: CallContext::internal("test") };
-    let Reply::Value(read) = handle.request(read).await.expect("thread/read") else { panic!("thread/read answers a value") };
-    assert_eq!(read["thread"]["id"], id.as_str());
-    no_kind(&read, "thread/read");
-
-    let second = SessionDirectory::new(rig.deps_on(store));
-    second.open_handle(&id, &CallContext::internal("test")).await.expect("reopened");
-    assert_eq!(second.control_ids(), [id]);
-}
-
 /// A `thread/start` with no `session` options is a `full` Lead denied the goal tools, as
 /// Node's `sessionOptions` makes it.
 #[tokio::test(start_paused = true)]
@@ -2368,249 +1679,20 @@ async fn a_started_thread_is_classified_as_the_desktop_host_classifies_a_session
     assert!(bare.get("desktopSession").is_none());
 }
 
-/// The draft's worktree is entered after the thread exists and before the first prompt, through the workspace seam, with the
-/// worktree choice and the start's input; a draft without one, and a control start, enter nothing (`createNewTask`).
-#[tokio::test(start_paused = true)]
-async fn a_drafts_worktree_is_entered_once_the_thread_exists() {
-    let rig = Rig::new();
-    let place = Arc::new(super::testing::RecordingPlace::default());
-    let mut deps = rig.deps_parts(rig.store.clone());
-    deps.new_place = place.clone();
-    let directory = SessionDirectory::new(Arc::new(deps));
-    let draft = json!({ "projectPath": "/repo", "worktree": { "branch": "feat", "create": true } });
-    let reply = directory.request(request("thread/start", json!({ "opId": "op-wt", "kind": "task", "draft": draft }), "op-wt")).await.expect("thread/start");
-    let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
-    let id = started.result["thread"]["id"].as_str().expect("thread id").to_owned();
-    let header = directory.handle(&ThreadId::from(id.as_str())).expect("loaded").cell.header.load_full();
-    // The project stays the project; the workspace service moves the folder.
-    assert_eq!(header["desktopSession"], json!({ "classification": "project", "projectPath": "/repo" }));
-    assert_eq!(*lock(&place.entered), vec![(id, json!({ "branch": "feat", "create": true }), None)]);
-    directory.request(request("thread/start", json!({ "opId": "op-plain", "kind": "task", "draft": { "projectPath": "/repo" } }), "op-plain")).await.expect("thread/start");
-    directory.request(request("thread/start", json!({ "opId": "op-ctl", "kind": "control", "draft": { "worktree": { "fromDefault": true } } }), "op-ctl")).await.expect("thread/start");
-    assert_eq!(lock(&place.entered).len(), 1);
-}
-
-/// A fork the desktop makes is placed as `inheritSession` places its heir (`resolveSessionWorkspace(sessionProjectPath(source))`):
-/// in the source's Project, or in the task workspace, with a fresh classification and no worktree record; a source of another
-/// client keeps its header, and an inherit into an existing thread keeps that thread's place.
-#[tokio::test(start_paused = true)]
-async fn a_fork_is_placed_where_the_desktop_places_an_heir() {
-    use mixdog_store::schema::record::Header;
-    let rig = Rig::new();
-    let place = Arc::new(super::testing::RecordingPlace { projects: vec!["/repo".to_owned()], ..Default::default() });
-    let mut deps = rig.deps_parts(rig.store.clone());
-    deps.new_place = place;
-    let directory = SessionDirectory::new(Arc::new(deps));
-    let source = |cwd: &str, desktop: Value| {
-        let mut header = Header::new();
-        header.insert("createdAt".into(), json!(1));
-        header.insert("updatedAt".into(), json!(1));
-        header.insert("cwd".into(), json!(cwd));
-        // Only a project session can sit in a managed worktree: a task session has no `workspace` record.
-        let in_project = desktop.get("classification") == Some(&json!("project"));
-        if !desktop.is_null() {
-            header.insert("desktopSession".into(), desktop);
-        }
-        if in_project {
-            header.insert("workspace".into(), json!({ "worktreeId": "w1", "cwd": cwd, "projectPath": "/repo" }));
-        }
-        header
-    };
-    let fork = |id: &'static str, header: Header, extra: Value| {
-        let directory = &directory;
-        async move {
-            let thread = ThreadId::from(id.to_owned());
-            directory.create_with_id(thread.clone(), header, json!({})).await.expect("source");
-            give_conversation(&directory.handle(&thread).expect("loaded")).await;
-            let mut params = json!({ "threadId": id, "opId": format!("op-{id}") });
-            params.as_object_mut().expect("object").extend(extra.as_object().expect("object").clone());
-            let reply = directory.handle(&thread).expect("loaded").request(request("thread/fork", params, &format!("op-{id}"))).await.expect("thread/fork");
-            let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
-            let heir = ThreadId::from(value["thread"]["id"].as_str().expect("heir id"));
-            directory.handle(&heir).expect("loaded").cell.header.load_full()
-        }
-    };
-    let in_worktree = fork("src_wt", source("/repo/.wt/feat", json!({ "classification": "project", "projectPath": "/repo" })), json!({})).await;
-    assert_eq!(in_worktree["cwd"], "/repo");
-    assert_eq!(in_worktree["desktopSession"], json!({ "classification": "project", "projectPath": "/repo" }));
-    assert!(in_worktree.get("workspace").is_none());
-    let in_tasks = fork("src_task", source("/tasks", json!({ "classification": "task", "projectPath": null })), json!({})).await;
-    assert_eq!(in_tasks["cwd"], "/tasks");
-    assert_eq!(in_tasks["desktopSession"], json!({ "classification": "task", "projectPath": null }));
-    let foreign = fork("src_tui", source("/elsewhere", Value::Null), json!({})).await;
-    assert_eq!(foreign["cwd"], "/elsewhere");
-    assert!(foreign.get("desktopSession").is_none());
-    let into = fork("src_into", source("/repo/.wt/feat", json!({ "classification": "project", "projectPath": "/repo" })), json!({ "intoThreadId": "heir_existing" })).await;
-    assert_eq!(into["cwd"], "/repo/.wt/feat");
-}
-
-/// Node's own forks (`fixtures/roster-rows`: the desktop's `inheritSession` steps run on the b6f10295a product over sources that
-/// really hold a conversation: in a registered project, in its worktree, outside every project, and a task). The recorded data
-/// directory is migrated and opened through the real store; the Rust fork of each recorded source, started at the instant Node's
-/// fork was made, is set against the heir Node stored (opened the same way). Node's heir record is read by the core's own store,
-/// so both sides are core views of a stored session and differ only in the thread id: the heir's conversation (messages), its
-/// row as `thread/list` shows it (title, preview, count, route, compaction, times, source, favorite and archived state, place)
-/// and the stored header's place and times are compared whole.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_fork_is_placed_and_stamped_as_nodes_fork_is() {
-    use std::sync::atomic::Ordering;
-    let answers: Value = serde_json::from_slice(&std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/roster-rows/answers.json")).expect("recording")).expect("json");
-    let recording = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/roster-rows");
-    let scratch = super::testing::DataDir::default();
-    let home = scratch.path().join(".mixdog");
-    let profile = scratch.path().join("profile");
-    for (from, to) in [(recording.join(".mixdog"), home.clone()), (recording.join("profile"), profile.clone())] {
-        for rel in mixdog_migrate::durable::walk_files(&from).expect("walk the recording") {
-            let target = to.join(&rel);
-            mixdog_migrate::durable::create_dir_all(target.parent().expect("parent")).expect("dir");
-            mixdog_migrate::durable::write_synced(&target, &mixdog_migrate::durable::read(&from.join(&rel)).expect("read")).expect("copy");
-        }
-    }
-    let roots = mixdog_migrate::framework::MigrationRoots { data: home.join("data"), home, profile: Some(profile) };
-    let office = mixdog_migrate::session::context_blobs::OfficeExtractor { docs: Arc::new(super::recorded_145_tests::NoDocuments), runtime: tokio::runtime::Handle::current() };
-    mixdog_migrate::run::Migrator::new(roots.clone(), mixdog_migrate::run::product_drivers(Arc::new(super::recorded_145_tests::StoreProjector), office), mixdog_migrate::run::MigrateOptions::default())
-        .run()
-        .expect("the migration of the recorded data completes");
-    let registered: Vec<String> = answers["registeredProjects"].as_array().expect("projects").iter().map(|p| p.as_str().expect("path").to_owned()).collect();
-    let tasks: &'static str = Box::leak(answers["taskWorkspace"].as_str().expect("task workspace").to_owned().into_boxed_str());
-    let rig = Rig::new();
-    let tokens = mixdog_rt::testing::tokens();
-    let root = roots.data.clone();
-    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
-        mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
-    })
-    .expect("lane")
-    .await
-    .expect("job ran")
-    .expect("index");
-    let index = scratch.index(index);
-    let threads = super::StoreThreads::over_data_dir(&roots.data, index.clone(), Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store");
-    let mut deps = rig.deps_parts(Arc::new(threads));
-    deps.new_place = Arc::new(super::testing::RecordingPlace { projects: registered, ..Default::default() });
-    deps.task_workspace = Arc::new(super::testing::FixedTaskWorkspace(tasks));
-    // The heir's prompt is composed for the heir (`createSession`): its scratch directory is `s.` and the first 16 hex digits of the
-    // sha256 of its id (`session-scratch.mjs`). The rebuild stands in for the product's compose, whose text is the source's except that
-    // directory; Node's recorded heirs say whether the core asked for it.
-    struct Rebuilds(std::sync::OnceLock<Arc<SessionDirectory>>);
-    #[async_trait::async_trait]
-    impl super::EmptyToolSurface for Rebuilds {
-        async fn refresh_empty(&self, thread: &ThreadId) -> Result<bool, String> {
-            use sha2::Digest;
-            let ctx = CallContext::internal("test");
-            let handle = self.0.get().expect("directory").open_handle(thread, &ctx).await.map_err(|error| format!("{error:?}"))?;
-            let header = handle.cell.header.load_full();
-            let scratch = format!("s.{}", &format!("{:x}", sha2::Sha256::digest(thread.as_str().as_bytes()))[..16]);
-            let mut set = serde_json::Map::new();
-            let source = self.0.get().expect("directory").open_handle(&ThreadId::from(header["inheritedFromSessionId"].as_str().expect("source")), &ctx).await.map_err(|error| format!("{error:?}"))?;
-            let (was, now) = (source.cell.header.load_full()["cwd"].as_str().expect("source cwd").to_owned(), header["cwd"].as_str().expect("heir cwd").to_owned());
-            for key in ["bp3EnvironmentContext", "promptEnv"] {
-                let text = header.get(key).and_then(Value::as_str).expect("the heir carries the prompt text").replace(&was, &now);
-                let text = text.as_str();
-                let line = text.find("- Scratch: ").expect("a scratch line");
-                let at = line + text[line..].find("\n").map_or(0, |end| text[line..line + end].rfind("\\scratch\\s.").expect("a scratch name")) + "\\scratch\\".len();
-                set.insert(key.into(), json!(format!("{}{scratch}{}", &text[..at], &text[at + scratch.len()..])));
-            }
-            handle.request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": thread, "set": set, "unset": [] }), op: None, ctx }).await.map_err(|error| format!("{error:?}"))?;
-            Ok(true)
-        }
-    }
-    let rebuilds = Arc::new(Rebuilds(std::sync::OnceLock::new()));
-    deps.empty_surface = rebuilds.clone();
-    let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
-    assert!(rebuilds.0.set(directory.clone()).is_ok());
-    let list = super::thread_list::ThreadListService::new(Arc::new(index), Arc::new(NoLive), Arc::new(NoRooms), Arc::new(super::testing::FixedTaskWorkspace(tasks)));
-    let ctx = CallContext::internal("test");
-    let forks = answers["forks"].as_array().expect("forks");
-    assert_eq!(forks.len(), 6);
-    let read_messages = |handle: Arc<SessionHandle>| async move {
-        let reply = handle.request(CoreRequest { method: Method("thread/messages/read"), params: json!({}), op: None, ctx: CallContext::internal("test") }).await.expect("thread/messages/read");
-        let Reply::Value(value) = reply else { panic!("thread/messages/read answers a value") };
-        value
-    };
-    for node in forks {
-        let source_id = ThreadId::from(node["source"].as_str().expect("source id").to_owned());
-        let node_heir = ThreadId::from(node["heir"].as_str().expect("heir id").to_owned());
-        let source = directory.open_handle(&source_id, &ctx).await.expect("the recorded source opens");
-        let before = read_messages(source.clone()).await;
-        assert!(before["messages"].as_array().is_some_and(|messages| !messages.is_empty()), "the recorded source holds a conversation");
-        rig.clock.0.store(node["heirHeader"]["createdAt"].as_u64().expect("heir time"), Ordering::SeqCst);
-        let reply = source.request(request("thread/fork", json!({ "threadId": source_id, "opId": "op-fork" }), "op-fork")).await.expect("thread/fork");
-        let Reply::Value(forked) = reply else { panic!("thread/fork answers a value") };
-        let rust = directory.open_handle(&ThreadId::from(forked["thread"]["id"].as_str().expect("heir id")), &ctx).await.expect("the heir opens");
-        let node = directory.open_handle(&node_heir, &ctx).await.expect("Node's heir opens");
-        let label = format!("the fork of {source_id}");
-        // The heir's id is the one thing that differs: the inheritance boundary names it (`sessionId`).
-        let named = |mut messages: Value, id: &ThreadId| {
-            let last = messages.as_array_mut().and_then(|rows| rows.last_mut()).expect("the heir holds messages");
-            for boundary in last.pointer_mut("/meta/sessionInheritances").into_iter().filter_map(Value::as_array_mut).flatten() {
-                assert_eq!(boundary["sessionId"], id.as_str());
-                boundary["sessionId"] = Value::Null;
-            }
-            messages
-        };
-        let (rust_messages, node_messages) = (read_messages(rust.clone()).await["messages"].clone(), read_messages(node.clone()).await["messages"].clone());
-        assert_eq!(named(rust_messages, &rust.id), named(node_messages, &node_heir), "messages of {label}");
-        let (rust_header, node_header) = (rust.cell.header.load_full(), node.cell.header.load_full());
-        // The thread id is the one header key that differs by construction; every other key is compared, the two prompt texts included.
-        // A heir's scratch directory is named by its own id (`s.` + sha256 prefix): each side's name is asserted to be that rule's
-        // value for its own id, then named `id`, as the boundary above is.
-        let scratched = |header: &mixdog_store::schema::record::Header, id: &ThreadId| {
-            use sha2::Digest;
-            let digest = format!("s.{}", &format!("{:x}", sha2::Sha256::digest(id.as_str().as_bytes()))[..16]);
-            let mut header = header.clone();
-            for key in ["bp3EnvironmentContext", "promptEnv"] {
-                let text = header.get(key).and_then(Value::as_str).expect("prompt text").to_owned();
-                assert_eq!(text.matches(&digest).count(), 1, "{key} of {label} names the heir's own scratch directory");
-                // The listing of the folder at the time (`Cwd entries at startup`) is a fact of the host's disk, which the recording's
-                // folders are not part of; it is the one line the heir's prompt composition reads from the file system.
-                let text: Vec<String> = text.replace(&digest, "s.<id>").split('\n').map(|line| if line.starts_with("- Cwd entries at startup:") { "- Cwd entries at startup: <disk>".to_owned() } else { line.to_owned() }).collect();
-                header.insert(key.into(), json!(text.join("\n")));
-            }
-            header
-        };
-        let (rust_header, node_header) = (scratched(&rust_header, &rust.id), scratched(&node_header, &node_heir));
-        // `offloadSources` and `offloadSourcesRules` (the sessions whose sidecars the heir may name, which the prune's
-        // index reads, and the rules that set was computed under) are the fix of `node-fix-prune-after-save.patch`,
-        // which this recording of Node as shipped predates: their value is replayed by the offload-prune-order set.
-        let keys: std::collections::BTreeSet<&String> =
-            rust_header.keys().chain(node_header.keys()).filter(|key| !["id", "offloadSources", "offloadSourcesRules"].contains(&key.as_str())).collect();
-        let differing: Vec<String> = keys.into_iter().filter(|key| rust_header.get(*key) != node_header.get(*key)).map(|key| format!("{key}: rust {:?} node {:?}", rust_header.get(key), node_header.get(key))).collect();
-        assert!(differing.is_empty(), "header of {label}: {differing:#?}");
-        // The row `thread/list` shows for each heir, whole, as the desktop's roster showed Node's (the protocol names the fork source
-        // `forkedFromId`; the thread id is the one thing that differs). Favorite and archived state are part of that row.
-        let answer = mixdog_core_base::support::testing::value(&list, mixdog_core_base::support::testing::request(super::thread_list::LIST, json!({ "limit": 1000 }), None)).await.expect("thread/list");
-        let rows = answer["data"].as_array().expect("data");
-        let mut rust_row = rows.iter().find(|row| row["id"] == rust.id.as_str()).expect("the Rust heir is listed").clone();
-        let mut node_row = answers["roster"].as_array().expect("roster").iter().find(|row| row["id"] == node_heir.as_str()).expect("Node's roster lists the heir").as_object().expect("row").clone();
-        if let Some(from) = node_row.shift_remove("inheritedFromSessionId") {
-            node_row.insert("forkedFromId".into(), from);
-        }
-        let mut node_row = Value::Object(node_row);
-        // The ids differ by construction; each is the heir that was asked for and has the shape Node's ids have.
-        let shape = |id: &Value| {
-            let id = id.as_str().expect("id");
-            let parts: Vec<&str> = id.strip_prefix("sess_").expect("sess_ prefix").split('_').collect();
-            (parts.len(), parts[0].chars().all(|c| c.is_ascii_digit()), parts[1].chars().all(|c| c.is_ascii_digit()), parts[2].len(), parts[3].len(), parts[3].chars().all(|c| c.is_ascii_hexdigit()))
-        };
-        assert_eq!(rust_row["id"], rust.id.as_str());
-        assert_eq!(node_row["id"], node_heir.as_str());
-        assert_eq!(shape(&rust_row["id"]), shape(&node_row["id"]), "id shape of {label}");
-        rust_row["id"] = Value::Null;
-        node_row["id"] = Value::Null;
-        assert_eq!(rust_row, node_row, "row of {label}");
-    }
-}
-
+#[cfg(node_twin)]
 /// No live flags on a listed row.
 struct NoLive;
+#[cfg(node_twin)]
 impl super::thread_list::ListOverlay for NoLive {
     fn of(&self, _: &ThreadId) -> super::thread_list::RowOverlay {
         super::thread_list::RowOverlay::default()
     }
 }
 
+#[cfg(node_twin)]
 /// No rooms: every row passes as listed.
 struct NoRooms;
+#[cfg(node_twin)]
 #[async_trait::async_trait]
 impl super::thread_list::ListRooms for NoRooms {
     async fn with_rooms(&self, rows: Vec<mixdog_protocol::ThreadSummary>) -> Result<Vec<mixdog_protocol::ThreadSummary>, String> {
@@ -2680,35 +1762,6 @@ async fn a_value_the_source_marks_after_a_fork_is_the_forks_too() {
     assert_eq!(rig.sensitive.redact_text(&heir, "code 482913"), "code [redacted]");
 }
 
-/// `notification-bus.test.mjs` "a queued completion wakes its owner session" and
-/// `ask-queue.mjs:87-101`: the completion is the woken turn's input, a task-notification row.
-#[tokio::test(start_paused = true)]
-async fn a_completion_on_an_idle_thread_wakes_it_with_the_completion_as_the_turns_input() {
-    use mixdog_tools::exec::TaskNotifier;
-    let rig = Rig::new();
-    let inputs: Arc<Mutex<Vec<Value>>> = Arc::default();
-    let seen = inputs.clone();
-    rig.set_script(Arc::new(move |run| {
-        lock(&seen).push(run.input_body.clone());
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    directory.finished(&handle.id, "shell", "job-7", "completed", "Async shell task job-7 finished.".into()).await;
-    eventually_on!(&[&handle.cell.stepped], || (lock(&inputs).len() == 1).then_some(())).await;
-    let body = lock(&inputs)[0].clone();
-    assert_eq!(body["role"], "user");
-    assert_eq!(body["content"], "Async shell task job-7 finished.");
-    assert_eq!(body["meta"]["source"], "task-notification");
-    assert_eq!(body["meta"]["execution"], json!({ "surface": "shell", "id": "job-7", "status": "completed" }));
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    assert_eq!(runs_started(&rig, &handle.id), 1);
-    assert!(prompt_list(&handle).is_empty(), "a completion is no prompt");
-}
-
 /// The restart notice's queue (`enqueuePendingMessage` then `settlePendingMessageWrites`, `restart-notify.mjs:116-119`): the
 /// call answers only once the entry's record is stored, and the same execution queued again (a retry after a crash before the
 /// row's stamp) stays one entry and is answered too.
@@ -2723,40 +1776,6 @@ async fn a_durable_completion_answers_once_stored_and_a_repeat_is_one_entry() {
         let queued = rig.store.records(&owner.id).into_iter().filter(|(_, record)| matches!(record, mixdog_store::schema::record::Record::Queue(_))).count();
         assert_eq!(queued, 1, "attempt {attempt}: one entry, stored before the answer");
     }
-}
-
-/// `autoWakeCompletions: false` (`infrastructure.mjs:154`) and an owner that is not the live
-/// session (`notification-bus.test.mjs` "no longer the live session"): the completion is kept
-/// for the next turn and starts none.
-#[tokio::test(start_paused = true)]
-async fn no_wake_without_auto_wake_or_for_a_thread_opened_for_the_completion() {
-    use mixdog_tools::exec::TaskNotifier;
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps());
-    let quiet = start_with_session(&directory, json!({ "autoWakeCompletions": false })).await;
-    directory.finished(&quiet.id, "shell", "job-1", "completed", "job-1 finished.".into()).await;
-
-    let parked = start_thread(&directory).await;
-    subscribe(&parked);
-    left_idle(&parked).await;
-    eventually_on!(&[&parked.cell.stepped, directory.left()], || directory.handle(&parked.id).is_none().then_some(())).await;
-    directory.finished(&parked.id, "shell", "job-2", "completed", "job-2 finished.".into()).await;
-
-    for (handle, task) in [(&quiet, "job-1"), (&parked, "job-2")] {
-        let queued = eventually_on!(&[&rig.store.committed], || {
-            rig.store.records(&handle.id).into_iter().find_map(|(_, record)| match record {
-                mixdog_store::schema::record::Record::Queue(queue) => queue.entry,
-                _ => None,
-            })
-        })
-        .await;
-        let mixdog_store::schema::blob::Slot::Inline(entry) = &queued else { panic!("inline entry") };
-        assert_eq!(entry["executionId"], task, "kept for the next turn");
-    }
-    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
-    assert_eq!(runs_started(&rig, &quiet.id), 0);
-    assert_eq!(runs_started(&rig, &parked.id), 0);
 }
 
 /// `thread/revertTurnReview` and `thread/revertTurnReviewFile` reach the turn review through the
@@ -2875,147 +1894,6 @@ async fn a_cold_open_is_single_flight_and_reopens_the_same_state() {
     ));
 }
 
-/// The real thread store (log writer, codec, index) over the data dir `data`
-/// (`StoreThreads::over_data_dir`).
-pub async fn real_store(data: &std::path::Path) -> Arc<dyn super::ThreadStore> {
-    use mixdog_core_api::domain::mock::MockOwnership;
-    use mixdog_store::sqlite::SqliteStore;
-
-    let tokens = mixdog_rt::testing::tokens();
-    let root = data.to_path_buf();
-    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
-        SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
-    })
-    .expect("lane")
-    .await
-    .expect("job ran")
-    .expect("index");
-    let ownership = Arc::new(MockOwnership::default());
-    Arc::new(super::StoreThreads::over_data_dir(data, index, ownership, tokens.maintenance_io).await.expect("the thread store"))
-}
-
-/// `thread/delete` (`deleteSession`): the pending approval leaves the list and the running
-/// turn is aborted with the close reason and ends first; then the agent tool forgets it, its
-/// work is released, the mark makes it gone (not openable, not deleted twice) and the purge
-/// removes its files, the purge hooks run in the order a 1.4.5 daemon registers them (the turn
-/// review's in its place), the app feed hears `thread/deleted`, and the search copy and the
-/// worktree go after.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[allow(clippy::disallowed_methods, reason = "the test checks the purged folder")]
-async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    let aborted: Arc<Mutex<Option<(ApprovalResolution, String)>>> = Arc::default();
-    let seen = aborted.clone();
-    rig.set_script(Arc::new(move |run| {
-        let seen = seen.clone();
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let resolution = run
-                .port
-                .request(ApprovalAsk {
-                    kind: ApprovalKind::Tool,
-                    call_id: None,
-                    tool: Some("shell".into()),
-                    action_kind: None,
-                    reason: None,
-                    payload: json!({ "kind": "shell", "tool": "shell", "request": { "target": "make" } }),
-                    remember: Vec::new(),
-                    expires_after: None,
-                })
-                .await;
-            run.cancel.cancelled().await;
-            *seen.lock().unwrap() = Some((resolution, run.signal.reason()));
-            RunOutcome::Interrupted
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps_on(store));
-    let handle = start_thread(&directory).await;
-    let id = handle.id.clone();
-    turn(&handle, "long job", "op-1").await;
-    let published = eventually_on!(&[&handle.cell.stepped], || {
-        rig.sink.events().into_iter().find_map(|event| match event {
-            ServerRequestEvent::Published(request) => Some(request.id),
-            _ => None,
-        })
-    })
-    .await;
-    let reply = handle
-        .request(request("thread/delete", json!({ "threadId": id, "opId": "op-del" }), "op-del"))
-        .await
-        .expect("thread/delete");
-    assert!(matches!(reply, Reply::Value(Value::Bool(true))), "{reply:?}");
-    let reason = mixdog_agent::cancel::close_session_reason(id.as_str(), super::delete::DELETE_REASON);
-    let (resolution, signal) = aborted.lock().unwrap().clone().expect("the turn ended before the delete went on");
-    assert!(matches!(resolution, ApprovalResolution::Interrupted { .. }), "{resolution:?}");
-    assert_eq!(signal, reason);
-    assert!(
-        rig.sink.events().iter().any(|event| matches!(event, ServerRequestEvent::Resolved(rid, _) if *rid == published)),
-        "the approval left the list"
-    );
-    assert!(directory.handle(&id).is_none(), "the thread left the directory");
-    assert!(matches!(
-        directory.open(&id, &CallContext::internal("test")).await,
-        Err(CoreError::ThreadNotFound { .. })
-    ));
-    assert!(!data.path().join("sessions").join(id.as_str()).exists(), "no fork reads it: its files are gone");
-
-    // The hook order is the golden's (the turn review's hook is not recorded here; Node's
-    // usage-metrics, browser and compaction-capture hooks have no Rust state).
-    let golden: Vec<String> = serde_json::from_str(include_str!("delete_goldens/purge_order.json")).unwrap();
-    let name = |path: &str| match path.rsplit('/').next().unwrap() {
-        "tool-result-offload.mjs:506" => "toolResultOffload",
-        "usage-metrics.mjs:21" => "usageMetrics",
-        "runtime-liveness.mjs:65" => "browserSession",
-        "session-transcript-purge.mjs:20" => "transcripts",
-        "cache-warm.mjs:424" => "cacheWarm",
-        "read-cache.mjs:317" => "readCache",
-        "compaction-archive-capture.mjs:738" => "compactionCapture",
-        "session-close.mjs:282" => "providerConnections",
-        "providers.mjs:54" => "connectorAccounts",
-        "runtime-review-api.mjs:26" => "turnReview",
-        "worker-turns.mjs:208" => "workerTurns",
-        "agent-tool.mjs:347" => "agentStatus",
-        other => panic!("{other}"),
-    };
-    let s = id.as_str();
-    // The close metric follows the acknowledged delete mark, so it comes after the work release.
-    // The conversation leaves the catalog when the mark lands, ahead of the purge (a phone's downloads end there, not at `thread/deleted`).
-    let mut expected = vec![format!("releaseSessionWork:{s}:desktop-session-delete"), format!("tombstoned:{s}"), format!("sessionClosed:{s}:desktop-session-delete")];
-    let unrecorded = ["turnReview", "usageMetrics", "browserSession", "compactionCapture"];
-    // The store unlinks the session's log before Node's hooks run, so the export's removal is first.
-    let hooks = golden.iter().map(|path| name(path)).filter(|hook| !unrecorded.contains(hook));
-    // The desktop's retention record is forgotten once the store's delete is done.
-    for hook in ["transcriptExport"].into_iter().chain(hooks).chain(["compactionArchive", "scratchDir", "retention"]) {
-        expected.push(format!("{hook}:{s}:/ws"));
-    }
-    expected.extend([format!("thread/deleted:{s}"), format!("forgetSessionSearch:{s}"), format!("releaseDeletedWorktree:{s}")]);
-    eventually_on!(&[&handle.cell.stepped, &rig.deletes.1], || (lock(&rig.deletes.0).len() == expected.len()).then_some(())).await;
-    assert_eq!(*lock(&rig.deletes.0), expected);
-    // The deleted session's MCP scope is released with its close (the servers it connected close).
-    assert_eq!(*lock(&rig.deletes.2), [s.to_owned()]);
-
-    // Deleted already, or not a session id: nothing is deleted, nothing runs.
-    let other = start_thread(&directory).await;
-    for target in [id.as_str(), "../x"] {
-        let reply = other.request(request("thread/delete", json!({ "threadId": target, "opId": "op-bad" }), "op-bad")).await.expect("delete");
-        assert!(matches!(reply, Reply::Value(Value::Bool(false))), "{target}");
-    }
-    // A thread that cannot be opened (deleted, or never there) is answered by the directory:
-    // nothing to delete, `false`, never `threadNotFound`.
-    for target in [id.as_str(), "sess_missing"] {
-        assert!(matches!(
-            directory.open(&ThreadId::from(target), &CallContext::internal("test")).await,
-            Err(CoreError::ThreadNotFound { .. })
-        ));
-        let params = json!({ "threadId": target, "opId": "op-gone" });
-        let reply = mixdog_core_api::ThreadDirectory::request(&directory, request("thread/delete", params, "op-gone")).await.expect("delete");
-        assert!(matches!(reply, Reply::Value(Value::Bool(false))), "{target}: {reply:?}");
-    }
-    assert_eq!(lock(&rig.deletes.0).len(), expected.len());
-}
-
 /// `markSessionClosed` logs the close metric only after the tombstone write is acknowledged: a
 /// delete whose mark fails closed nothing and logs nothing; the delete that lands logs once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -3039,81 +1917,6 @@ async fn a_delete_whose_mark_fails_logs_no_close() {
     assert!(matches!(reply, Reply::Value(Value::Bool(true))), "{reply:?}");
     assert_eq!(closes(&rig), 1);
     assert_eq!(*lock(&rig.deletes.2), [other.id.as_str().to_owned()]);
-}
-
-/// D-downloads-1, held at the purge: while an explicit delete's purge is held at its first hook, the store's list row is already gone
-/// (`summary`, which the phone grants' catalog reads, `CatalogSessions::has/row`) and the delete has told `tombstoned`, whose production
-/// seam ends the conversation's phone downloads (`purge.rs` `tombstoned` -> `ThreadDeletions::tell` -> `WorkspaceService::session_removed`,
-/// `compose_flip.rs` `on_gone`); `thread/deleted` waits for the purge.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_explicit_delete_ends_downloads_at_its_tombstone_before_the_purge_finishes() {
-    use mixdog_core_api::domain::mock::MockOwnership;
-    use mixdog_store::sqlite::SqliteStore;
-    let data = tempfile::tempdir().expect("data dir");
-    let tokens = mixdog_rt::testing::tokens();
-    let root = data.path().to_path_buf();
-    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
-        SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
-    })
-    .expect("lane")
-    .await
-    .expect("job ran")
-    .expect("index");
-    let list = index.clone();
-    let store: Arc<dyn super::ThreadStore> =
-        Arc::new(super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
-    let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps_on(store));
-    let handle = start_thread(&directory).await;
-    turn(&handle, "hello", "op-1").await;
-    let id = handle.id.clone();
-    eventually_on!(&[&handle.cell.stepped, &rig.store.committed], || {
-        futures::executor::block_on(list.summary(id.as_str())).expect("summary").map(|_| ())
-    })
-    .await;
-    let (reached, (release, held)) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
-    *lock(&rig.deletes.6) = Some((reached.clone(), held));
-    let delete = {
-        let (handle, id) = (handle.clone(), id.clone());
-        tokio::spawn(async move { handle.request(request("thread/delete", json!({ "threadId": id, "opId": "op-del" }), "op-del")).await.expect("thread/delete") })
-    };
-    crate::session::testing::awaiting(|| "the purge's first hook".to_owned(), reached.notified()).await;
-    let s = id.as_str();
-    let steps = lock(&rig.deletes.0).clone();
-    assert!(steps.contains(&format!("tombstoned:{s}")), "the downloads were told before the purge: {steps:?}");
-    assert!(!steps.contains(&format!("thread/deleted:{s}")), "{steps:?}");
-    assert_eq!(list.summary(s).await.expect("summary"), None, "the list row is gone while the purge is held");
-    release.send(()).unwrap();
-    assert!(matches!(delete.await.unwrap(), Reply::Value(Value::Bool(true))));
-    assert!(lock(&rig.deletes.0).contains(&format!("thread/deleted:{s}")));
-}
-
-/// The fork carries the source's conversation as `inheritFrom` does (a copy, not a shared lineage), so it still opens with
-/// that history once the source is deleted.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_deleted_base_stays_readable_by_its_fork() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
-    let base = start_thread(&directory).await;
-    turn(&base, "first", "op-1").await;
-    eventually_on!(&[&base.cell.stepped], || (idle(&base) && rows(&base).len() == 2).then_some(())).await;
-    let reply = base
-        .request(request("thread/fork", json!({ "threadId": base.id, "opId": "op-fork" }), "op-fork"))
-        .await
-        .expect("thread/fork");
-    let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
-    let fork = ThreadId::from(value["thread"]["id"].as_str().expect("fork id"));
-    let reply = base
-        .request(request("thread/delete", json!({ "threadId": base.id, "opId": "op-del" }), "op-del"))
-        .await
-        .expect("thread/delete");
-    assert!(matches!(reply, Reply::Value(Value::Bool(true))), "{reply:?}");
-    let second = SessionDirectory::new(rig.deps_on(store));
-    let reopened = second.open_handle(&fork, &CallContext::internal("test")).await.expect("the fork opens");
-    assert_eq!(rows(&reopened).len(), 2, "the base's history shows in the fork");
 }
 
 /// A fork of a live memory-cycle dispatch is the user's own Lead (`cold-heir.mjs` `ROOT_LEAD_IDENTITY.sourceType`): it does not
@@ -3180,314 +1983,6 @@ async fn a_fork_keeps_the_order_of_the_header_keys_it_carries() {
     assert_eq!(carried, kept);
 }
 
-/// `thread/delete` with `ifIdle` (`deleteSessionIfIdle`): each refusal in Node's order deletes
-/// nothing; an archived, unfavored, idle and unchanged session is deleted.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_session() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    let release: Arc<tokio::sync::Notify> = Arc::default();
-    let gate = release.clone();
-    rig.set_script(Arc::new(move |run| {
-        let gate = gate.clone();
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            gate.notified().await;
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps_on(store));
-    let handle = start_thread(&directory).await;
-    let id = handle.id.clone();
-    let ask = |expected: Value| {
-        let handle = handle.clone();
-        let id = id.clone();
-        async move {
-            match handle
-                .request(request("thread/delete", json!({ "threadId": id, "opId": "op-d", "ifIdle": expected }), "op-d"))
-                .await
-                .expect("delete")
-            {
-                Reply::Value(value) => value,
-                other => panic!("{other:?}"),
-            }
-        }
-    };
-    // The desktop's archive and favorite marks are the session's header fields.
-    let state = |archived: bool, favorite: bool| {
-        let handle = handle.clone();
-        async move {
-            let (mut set, mut unset) = (serde_json::Map::new(), Vec::new());
-            for (key, on) in [("archivedAt", archived), ("favoriteAt", favorite)] {
-                if on {
-                    set.insert(key.into(), json!(1_793_306_570_000_i64));
-                } else {
-                    unset.push(key);
-                }
-            }
-            let params = json!({ "threadId": handle.id, "set": set, "unset": unset });
-            handle
-                .request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") })
-                .await
-                .expect("patch");
-        }
-    };
-    let refused = |reason: &str| json!({ "deleted": false, "reason": reason });
-    assert_eq!(ask(json!({})).await, refused("not-archived"), "never archived");
-    state(false, true).await;
-    assert_eq!(ask(json!({})).await, refused("not-archived"));
-    state(true, true).await;
-    assert_eq!(ask(json!({})).await, refused("favorite"));
-    state(true, false).await;
-    turn(&handle, "work", "op-1").await;
-    assert_eq!(ask(json!({})).await, refused("busy"));
-    release.notify_one();
-    // Not settled yet, the turn still holds what Node's ask lock is held for (`busy`).
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.turn_held.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
-    // The turn moved `lastUsedAt` past what the caller saw.
-    let used = eventually_on!(&[&handle.cell.stepped, &rig.store.committed], || {
-        let meta = futures::executor::block_on(directory.session_meta(&id)).expect("meta").expect("listed");
-        (meta.last_used_at > 0.0).then_some(meta.last_used_at)
-    })
-    .await;
-    assert_eq!(ask(json!({ "lastUsedAt": used - 1.0 })).await, refused("changed"));
-    assert!(lock(&rig.deletes.0).is_empty(), "a refusal deletes nothing");
-    assert_eq!(ask(json!({ "lastUsedAt": used })).await, super::delete_idle_tests::recorded("deleted")["reply"]);
-    let s = id.as_str();
-    let worktree = format!("releaseDeletedWorktree:{s}");
-    eventually_on!(&[&handle.cell.stepped, &rig.deletes.1], || lock(&rig.deletes.0).contains(&worktree).then_some(())).await;
-    let steps = lock(&rig.deletes.0).clone();
-    // The tombstone's close metric (`markSessionClosed`), logged at the mark's ack, precedes the purge hooks.
-    assert_eq!(steps[0], format!("tombstoned:{s}"), "the conversation leaves the catalog when the mark lands");
-    assert_eq!(steps[1], format!("sessionClosed:{s}:desktop-auto-delete"));
-    assert_eq!(steps[2], format!("transcriptExport:{s}:/ws"), "the purge hooks run next");
-    let tail: Vec<&str> = steps[steps.len() - 4..].iter().map(String::as_str).collect();
-    assert_eq!(
-        tail,
-        [
-            format!("thread/deleted:{s}"),
-            format!("releaseSessionWork:{s}:desktop-auto-delete"),
-            format!("forgetSessionSearch:{s}"),
-            format!("releaseDeletedWorktree:{s}"),
-        ]
-    );
-}
-
-/// A prompt larger than a frame's inline budget goes through the runtime codec into a
-/// blob of its own, and a reopen gives it back (prompt history and the rewind text).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[allow(clippy::disallowed_methods, reason = "the test reads the written log")]
-async fn a_large_prompt_round_trips_through_the_real_store() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let first = SessionDirectory::new(rig.deps_on(store.clone()));
-    let handle = start_thread(&first).await;
-    let text = format!("ask {}", "p".repeat(300 << 10));
-    turn(&handle, &text, "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
-    let id = handle.id.clone();
-    // Body and prompt are blobs: the log holds neither copy of the text.
-    let log = std::fs::read(data.path().join("sessions").join(id.as_str()).join("log.000000")).unwrap();
-    assert!(log.len() < 64 << 10, "{} log bytes", log.len());
-
-    let second = SessionDirectory::new(rig.deps_on(store));
-    let reopened = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-    assert_eq!(prompt_list(&reopened), std::slice::from_ref(&text));
-    let asked = reopened.cell.view.load_full().items[0].id().clone();
-    let reply = reopened
-        .request(request("thread/rewind", json!({ "threadId": id, "opId": "op-2", "itemId": asked }), "op-2"))
-        .await
-        .expect("rewind");
-    let Reply::Value(value) = reply else { panic!() };
-    assert_eq!(value["text"], text.as_str());
-}
-
-/// A fence `op/status` recorded is in the log: a thread that loads afterwards answers the fenced
-/// id `opFenced` and runs nothing (P §9.4).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_fenced_op_is_refused_after_the_thread_reloads() {
-    use mixdog_core_base::ops::ThreadOpGates;
-
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let first = SessionDirectory::new(rig.deps_on(store.clone()));
-    let handle = start_thread(&first).await;
-    let id = handle.id.clone();
-    let op = "0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0b";
-    let gate = first.thread_ops().gate(&id, &connection()).await.expect("gate");
-    let status = gate.status(&[OpId::from(op)], true, &connection()).await.expect("status");
-    assert!(matches!(status[..], [mixdog_core_api::ops::OpStatus::NotApplied]));
-
-    let second = SessionDirectory::new(rig.deps_on(store));
-    let reopened = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-    let late = reopened
-        .request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": "late" } }), op))
-        .await;
-    assert!(matches!(late, Err(CoreError::OpFenced { .. })));
-    assert!(rows(&reopened).is_empty(), "the fenced turn ran nothing");
-}
-
-/// The whole stored history reads every page of the lineage, oldest first, and a rewind's
-/// superseded rows are not part of it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_real_store_reads_the_whole_history_oldest_first() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps_on(store));
-    let handle = start_thread(&directory).await;
-    turn(&handle, "one", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
-    turn(&handle, "two", "op-2").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
-    let ids = |items: Vec<mixdog_protocol::ThreadItem>| items.iter().map(|i| i.id().clone()).collect::<Vec<_>>();
-    let shown: Vec<_> = handle.cell.view.load_full().items.iter().map(|i| i.id().clone()).collect();
-    assert_eq!(ids(directory.history_items(&handle.id).await.expect("history")), shown);
-
-    let second = shown[2].clone();
-    let reply = handle
-        .request(request("thread/rewind", json!({ "threadId": handle.id, "opId": "op-3", "itemId": second }), "op-3"))
-        .await
-        .expect("rewind");
-    assert!(matches!(reply, Reply::Value(_)));
-    eventually_on!(&[&handle.cell.stepped], || (rows(&handle).len() == 2).then_some(())).await;
-    assert_eq!(ids(directory.history_items(&handle.id).await.expect("history")), shown[..2]);
-    assert!(directory.history_items(&ThreadId::from("missing")).await.is_err());
-}
-
-/// Paging history by item cursor across a rewind and across a clear (protocol §5.5): a cursor
-/// naming a row the rewind or the clear removed is `cursorInvalidated`, and one that survived
-/// still pages; the thread need not be loaded to be read.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_item_cursor_into_rewound_or_cleared_history_is_invalidated() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps_on(store));
-    let handle = start_thread(&directory).await;
-    turn(&handle, "one", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
-    turn(&handle, "two", "op-2").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
-    let shown: Vec<_> = handle.cell.view.load_full().items.iter().map(|i| i.id().clone()).collect();
-    let list = |cursor: &ItemId| {
-        directory.request(request(
-            "thread/items/list",
-            json!({ "threadId": handle.id, "cursor": cursor, "sortDirection": "asc" }),
-            "list",
-        ))
-    };
-
-    let Reply::Value(page) = list(&shown[1]).await.expect("page") else { panic!() };
-    assert_eq!(page["data"].as_array().map(Vec::len), Some(2));
-
-    handle
-        .request(request("thread/rewind", json!({ "threadId": handle.id, "opId": "op-3", "itemId": shown[2] }), "op-3"))
-        .await
-        .expect("rewind");
-    eventually_on!(&[&handle.cell.stepped], || (rows(&handle).len() == 2).then_some(())).await;
-    assert!(matches!(list(&shown[3]).await, Err(CoreError::CursorInvalidated { .. })));
-    assert!(list(&shown[0]).await.is_ok(), "a cursor that survived the rewind pages");
-
-    handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-4" }), "op-4")).await.expect("clear");
-    eventually_on!(&[&handle.cell.stepped], || rows(&handle).is_empty().then_some(())).await;
-    assert!(matches!(list(&shown[0]).await, Err(CoreError::CursorInvalidated { .. })));
-}
-
-/// `thread/clear` with `rebuildPrompt` (Node's `clear({ rebuildPrompt })`): the emptied thread's surface is composed again and the
-/// answer says whether that applied; without it nothing is rebuilt; a running turn refuses it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn clear_with_rebuild_prompt_reseeds_the_emptied_thread_and_answers_whether_it_applied() {
-    struct Reseeds(Arc<Mutex<Vec<ThreadId>>>, bool);
-    #[async_trait::async_trait]
-    impl super::EmptyToolSurface for Reseeds {
-        async fn refresh_empty(&self, thread: &ThreadId) -> Result<bool, String> {
-            self.0.lock().expect("calls").push(thread.clone());
-            Ok(self.1)
-        }
-    }
-    for applied in [true, false] {
-        let data = tempfile::tempdir().expect("data dir");
-        let store = real_store(data.path()).await;
-        let rig = Rig::new();
-        rig.set_script(echo());
-        let calls: Arc<Mutex<Vec<ThreadId>>> = Arc::default();
-        let mut deps = rig.deps_parts(store);
-        deps.empty_surface = Arc::new(Reseeds(calls.clone(), applied));
-        let directory = SessionDirectory::new(Arc::new(deps));
-        let handle = start_thread(&directory).await;
-        // A session of a real route names its model; the rig's route has none, which would make the emptied thread a reservation.
-        let set = json!({ "provider": "custom-harness", "model": "harness-model" });
-        let patch = CoreRequest { method: mixdog_core_api::ids::Method("thread/header/patch"), params: json!({ "threadId": handle.id, "set": set, "unset": [] }), op: None, ctx: CallContext::internal("test") };
-        handle.request(patch).await.expect("patch");
-        turn(&handle, "one", "op-1").await;
-        eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
-        let Reply::Value(plain) = handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-2" }), "op-2")).await.expect("clear") else { panic!("a value") };
-        assert_eq!(plain, json!({}), "without rebuildPrompt the answer is the clear's own");
-        // The copy a person's clear keeps (`forkOutgoingTranscript`'s heir) has its own prompt composed; the cleared thread's is not.
-        assert!(!calls.lock().expect("calls").contains(&handle.id), "nothing is rebuilt without it");
-        calls.lock().expect("calls").clear();
-        let Reply::Value(rebuilt) = handle
-            .request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-3", "rebuildPrompt": true }), "op-3"))
-            .await
-            .expect("clear")
-        else {
-            panic!("a value")
-        };
-        assert_eq!(rebuilt, json!({ "promptRebuilt": applied }));
-        assert_eq!(*calls.lock().expect("calls"), [handle.id.clone()]);
-    }
-}
-
-/// The run publishes its progress into the session cell; the registry's `runtime_stage` and the
-/// worker views' `live` read that one value, and a thread this process does not host has none.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_runs_progress_is_read_from_the_session_cell() {
-    use mixdog_core_run::run_host::progress::ProgressPublisher;
-    use mixdog_core_run::run_host::progress::WaitedJobs;
-    use crate::session::agent_registry::LiveSessions;
-
-    struct At(i64);
-    impl mixdog_agent::env::Clock for At {
-        fn now_ms(&self) -> i64 {
-            self.0
-        }
-    }
-    struct NoJobs;
-    impl WaitedJobs for NoJobs {
-        fn silence(&self, _: &[String], _: i64) -> Option<mixdog_agent::agent_tool::progress::ToolSilence> {
-            None
-        }
-    }
-
-    let rig = Rig::new();
-    rig.set_script(Arc::new(|run| {
-        Box::pin(async move {
-            let progress = ProgressPublisher::new(run.progress.clone(), Arc::new(At(1_000)));
-            progress.ask_start();
-            progress.stage("streaming");
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    assert_eq!(LiveSessions::runtime_stage(&directory, handle.id.as_str()), None, "no marker yet");
-    turn(&handle, "go", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    assert_eq!(LiveSessions::runtime_stage(&directory, handle.id.as_str()).as_deref(), Some("streaming"));
-    let live = directory.worker_live(&handle.id, 2_000, &NoJobs);
-    assert_eq!(live.runtime_stage.as_deref(), Some("streaming"));
-    assert_eq!(live.runtime.map(|facts| facts.ask_started_at), Some(1_000));
-    assert_eq!(directory.worker_live(&ThreadId::from("elsewhere"), 2_000, &NoJobs), Default::default());
-}
-
 /// `assertAgentEditorAccess` reads the caller record's own `agent`
 /// (`String(caller?.agent || '').trim()`): an agent home carries it from creation, a coding
 /// Lead names none; a thread that cannot be opened is an error, not "no agent".
@@ -3547,158 +2042,35 @@ async fn a_model_switch_after_a_compaction_anchors_on_the_summary() {
     assert_eq!(anchors, [("sum1".to_owned(), 1)], "the compaction frame's ordinal");
 }
 
-/// A run's live-only events reach the view and the feed as Node's turn shows them: reasoning
-/// grows its item (`item/reasoning/textDelta`), a notice is a polished `info` line, a model
-/// call's usage is `thread/tokenUsage/updated`, and a committed row's own prompt text joins the
-/// prompt history.
+/// A turn that ends in a safety refusal tells the user with Node's warn notice; a turn that ends otherwise does not.
 #[tokio::test(start_paused = true)]
-async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
+async fn a_refused_turn_ends_with_the_refusal_notice() {
     let rig = Rig::new();
-    let gate: Arc<tokio::sync::Notify> = Arc::default();
-    let release = gate.clone();
     rig.set_script(Arc::new(move |run| {
-        let release = release.clone();
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
-            let reasoning = ItemId::from("r1".to_owned());
-            let item = ThreadItem::Reasoning { id: reasoning.clone(), summary: Vec::new(), content: Vec::new(), meta: Default::default() };
-            run.port.item_started(item).await.expect("started");
-            run.port.reasoning_delta(reasoning.clone(), "think ".into()).await.expect("delta");
-            run.port.reasoning_delta(reasoning.clone(), "more".into()).await.expect("delta");
-            run.port.reasoning_completed(reasoning, "think more".into()).await.expect("completed");
-            run.port.notice("model switch failed".into(), mixdog_agent::env::Tone::Info).await.expect("notice");
-            let excluded = "Tool \"mcp__x__broken\" was excluded from this session's requests: its input schema is invalid at / (bad). Fix the tool's schema or disable the tool.";
-            run.port.notice(excluded.into(), mixdog_agent::env::Tone::Warn).await.expect("warn notice");
-            let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 5, cache_read_tokens: 3, cache_write_tokens: 2, ..Default::default() };
-            let tool = mixdog_core_api::domain::provider::ToolDefinition { name: "read".into(), description: "d".into(), input_schema: json!({ "type": "object" }), defer_loading: true, freeform: None };
-            run.port
-                .usage(crate::session::UsageReport {
-                    iteration: 1,
-                    usage,
-                    model: "gpt-answered".into(),
-                    requested_model: "gpt-asked".into(),
-                    delta_tool_calls: 2,
-                    request_ms: 340,
-                    delta_prompt: 15,
-                    send_tools: vec![tool],
-                    reasoning_tokens: Some(4),
-                    reasoning_tokens_complete: true,
-                    outgoing: Vec::new(),
-                    sent_at_ms: 0,
-                    input_excludes_cache: false,
-                })
-                .await
-                .expect("usage");
-            let event = mixdog_agent::env::CompactEvent {
-                dropped_count: 2,
-                dropped: None,
-                trigger: mixdog_agent::env::CompactTrigger::Auto,
-                status: mixdog_agent::env::CompactStatus::Compacted,
-                before_tokens: 0,
-                duration_ms: 0,
-                after_tokens: 0,
-                before_messages: 4,
-                after_messages: 1,
-                pressure_tokens: 900,
-                trigger_tokens: 800,
-                boundary_tokens: 1000,
-                target_budget_tokens: 500,
-            };
-            run.port.compact_event(event).await.expect("compact");
-            run.port
-                .commit_item(ItemCommit {
-                    iid: ItemId::from(format!("s-{}", run.turn)),
-                    role: Some("user".into()),
-                    model: true,
-                    visible: true,
-                    body: json!({ "role": "user", "content": "steered", "meta": { "transcript": { "at": 1 } } }),
-                    prompt: Some("steered words".into()),
-                })
-                .await
-                .expect("commit");
-            release.notified().await;
-            RunOutcome::Completed(Default::default())
+            let mut result = mixdog_agent::agent_tool::flow::seams::TurnResult::default();
+            result.termination = Some(mixdog_agent::response::Termination::Refusal);
+            RunOutcome::Completed(Box::new(result))
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "go", "op-1").await;
-    let items = |handle: &SessionHandle| -> Vec<ThreadItem> { handle.cell.view.load_full().items.iter().map(|item| (**item).clone()).collect() };
-    let thinking = eventually_on!(&[&handle.cell.stepped], || {
-        items(&handle).into_iter().find_map(|item| match item {
-            ThreadItem::Reasoning { content, .. } if content.concat() == "think more" => Some(content),
-            _ => None,
-        })
-    })
-    .await;
-    assert_eq!(thinking, ["think more"], "one growing part");
-    eventually_on!(&[&handle.cell.stepped], || prompt_list(&handle).contains(&"steered words".to_owned()).then_some(())).await;
-    gate.notify_one();
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-
-    let shown = items(&handle);
-    let kinds: Vec<String> = shown
-        .iter()
-        .map(|item| match item {
-            ThreadItem::UserMessage { display_text, .. } => format!("user:{display_text}"),
-            ThreadItem::StatusRow { kind, meta, .. } => format!("{kind}:{}", meta.label.clone().unwrap_or_default()),
-            other => format!("{:?}", std::mem::discriminant(other)),
-        })
-        .collect();
-    assert!(kinds.contains(&"user:go".to_owned()), "{kinds:?}");
+    let shown: Vec<ThreadItem> = handle.cell.view.load_full().items.iter().map(|item| (**item).clone()).collect();
     let notice = shown
         .iter()
         .find_map(|item| match item {
             ThreadItem::StatusRow { kind, meta, .. } if kind == "notice" => Some(serde_json::to_value(meta).expect("meta")),
             _ => None,
         })
-        .expect("the notice");
-    assert_eq!((notice["ext"]["text"].clone(), notice["ext"]["tone"].clone()), (json!("Couldn’t switch model."), json!("info")), "{notice}");
-    // A warn-toned stage notice (an excluded tool) is shown with the warn level.
-    let warned = shown
-        .iter()
-        .find_map(|item| match item {
-            ThreadItem::StatusRow { kind, meta, .. } if kind == "notice" => {
-                let meta = serde_json::to_value(meta).expect("meta");
-                meta["ext"]["text"].as_str().is_some_and(|text| text.contains("was excluded from this session")).then_some(meta)
-            }
-            _ => None,
-        })
-        .expect("the warn notice");
-    assert_eq!(warned["ext"]["tone"], json!("warn"), "{warned}");
-
-    let frames = rig.feeds.frames(handle.id.as_str());
-    let methods: Vec<&str> = frames.iter().map(|(_, method, _)| method.as_str()).collect();
-    assert_eq!(methods.iter().filter(|m| **m == "item/reasoning/textDelta").count(), 2);
-    let usage = frames.iter().find(|(_, method, _)| method == "thread/tokenUsage/updated").expect("usage").2["usage"].clone();
+        .expect("the refusal notice");
     assert_eq!(
-        (usage["deltaInput"].clone(), usage["deltaOutput"].clone(), usage["deltaCachedRead"].clone(), usage["deltaCacheWrite"].clone(), usage["iterationIndex"].clone()),
-        (json!(10), json!(5), json!(3), json!(2), json!(1))
+        (notice["ext"]["text"].clone(), notice["ext"]["tone"].clone()),
+        (json!("The model refused to respond (safety refusal) — retry or rephrase your prompt."), json!("warn")),
+        "{notice}"
     );
-    // `usageDeltaEvent`'s other fields, in Node's key order.
-    let keys: Vec<&str> = usage.as_object().expect("usage").keys().map(String::as_str).collect();
-    assert_eq!(
-        keys,
-        [
-            "sessionId", "iterationIndex", "source", "requestedModel", "model", "deltaInput", "deltaOutput", "deltaToolCalls", "reasoningTokens",
-            "reasoningTokensComplete", "deltaPrompt", "requestMs", "promptKnown", "deltaCachedRead", "deltaCacheWrite", "contextInputTokens",
-            "contextOutputTokens", "contextPromptTokens", "contextCachedReadTokens", "contextCacheWriteTokens", "contextMeasuredTokens", "sendTools", "ts"
-        ]
-    );
-    assert_eq!(
-        (usage["model"].clone(), usage["requestedModel"].clone(), usage["deltaToolCalls"].clone(), usage["requestMs"].clone(), usage["deltaPrompt"].clone(), usage["reasoningTokens"].clone()),
-        (json!("gpt-answered"), json!("gpt-asked"), json!(2), json!(340), json!(15), json!(4))
-    );
-    assert_eq!(usage["sendTools"], json!([{ "name": "read", "description": "d", "inputSchema": { "type": "object" }, "deferLoading": true }]));
-    // The finished thinking is `item/completed` of type `reasoning`, once, in place of the live item.
-    let completed: Vec<&Value> = frames
-        .iter()
-        .filter(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "reasoning")
-        .map(|(_, _, params)| params)
-        .collect();
-    assert_eq!(completed.len(), 1);
-    assert_eq!((completed[0]["item"]["id"].clone(), completed[0]["item"]["content"].clone()), (json!("r1"), json!(["think more"])));
-    assert_eq!(shown.iter().filter(|item| matches!(item, ThreadItem::Reasoning { .. })).count(), 1);
 }
 
 /// A model call's usage is written to the session header when it is reported (`persistIterationMetrics`), not at
@@ -3725,9 +2097,9 @@ async fn a_model_calls_usage_reaches_the_header_when_it_is_reported() {
                     send_tools: Vec::new(),
                     reasoning_tokens: Some(4),
                     reasoning_tokens_complete: true,
-                    outgoing: Vec::new(),
+                    outgoing: Vec::new().into(),
                     sent_at_ms: 4242,
-                    input_excludes_cache: false,
+                    input_excludes_cache: false, tail_book: None,
                 })
                 .await
                 .expect("usage");
@@ -3763,109 +2135,6 @@ async fn a_model_calls_usage_reaches_the_header_when_it_is_reported() {
     }
 }
 
-/// A hosted web search's spend reaches the feed as `thread/tokenUsage/updated` with Node's own delta (recorded by
-/// `mixdog-cli/tests/record_search_usage.mjs`), but never the header's usage books: Node feeds those from the
-/// main stream's `onUsageDelta` only, and hands the search's delta to `onNativeWebSearchUsage` alone.
-#[tokio::test(start_paused = true)]
-async fn a_web_searchs_spend_is_heard_by_the_feed_and_not_by_the_headers_books() {
-    let golden: Value = serde_json::from_str(include_str!("../../../mixdog-cli/tests/goldens/exec_search_usage.json")).expect("golden");
-    let delta = golden["search"][0].clone();
-    let rig = Rig::new();
-    let gate: Arc<tokio::sync::Notify> = Arc::default();
-    let (release, sent) = (gate.clone(), delta.clone());
-    rig.set_script(Arc::new(move |run| {
-        let (release, sent) = (release.clone(), sent.clone());
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 5, ..Default::default() };
-            run.port
-                .usage(crate::session::UsageReport {
-                    iteration: 1,
-                    usage,
-                    model: "m".into(),
-                    requested_model: "m".into(),
-                    delta_tool_calls: 0,
-                    request_ms: 0,
-                    delta_prompt: 10,
-                    send_tools: Vec::new(),
-                    reasoning_tokens: None,
-                    reasoning_tokens_complete: false,
-                    outgoing: Vec::new(),
-                    sent_at_ms: 0,
-                    input_excludes_cache: false,
-                })
-                .await
-                .expect("usage");
-            run.port.search_usage(sent).await.expect("search usage");
-            release.notified().await;
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, "go", "op-1").await;
-    let heard = |rig: &Rig| -> Vec<Value> { rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/tokenUsage/updated").map(|(_, _, params)| params["usage"].clone()).collect() };
-    eventually_on!(&[&rig.feeds.published], || (heard(&rig).len() == 2).then_some(())).await;
-    assert_eq!(heard(&rig)[1], delta);
-    gate.notify_one();
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    let live = handle.live_header();
-    let header = live.header();
-    assert_eq!((header.get("totalInputTokens"), header.get("totalOutputTokens"), header.get("lastIterationIndex")), (Some(&json!(10)), Some(&json!(5)), Some(&json!(1))));
-    // The session's stats (`applyUsageDelta`) fold the main stream only: the TUI never registers `onNativeWebSearchUsage`.
-    let stats = rig
-        .feeds
-        .frames(handle.id.as_str())
-        .into_iter()
-        .rev()
-        .find_map(|(_, method, params)| (method == "thread/context/updated" && params["value"]["stats"].is_object()).then(|| params["value"]["stats"].clone()))
-        .expect("the stats are published");
-    assert_eq!((&stats["inputTokens"], &stats["outputTokens"]), (&json!(10), &json!(5)), "a web search's spend is not in the totals");
-}
-
-
-/// A turn's start does not re-sync the session's compaction with the saved settings, its completion does
-/// (`completeTurn`'s `setSession`, `turn-settle.mjs:38`, runs `syncSessionCompaction`), the first streamed text stamps the
-/// disk-side heartbeat (`markSessionStreamDelta`) once and not again within a minute, and a report that
-/// prices the transcript has the meters prepared first (`MediaMeter::prepare`).
-#[tokio::test(start_paused = true)]
-async fn a_turn_stamps_its_heartbeat_and_prepares_its_meters_and_syncs_the_compaction_when_it_completes() {
-    let rig = Rig::new();
-    // The throttle compares with 0 for a header that never beat: a clock inside the first minute stamps nothing.
-    rig.clock.0.store(1_700_000_000_000, std::sync::atomic::Ordering::SeqCst);
-    let gate: Arc<tokio::sync::Notify> = Arc::default();
-    let release = gate.clone();
-    rig.set_script(Arc::new(move |run| {
-        let release = release.clone();
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let item = ItemId::from("a1".to_owned());
-            run.port.delta(item.clone(), "hello ".into()).await.expect("delta");
-            run.port.delta(item, "again".into()).await.expect("delta");
-            run.port
-                .send_check(crate::session::run::SendCheck { messages: Vec::new(), tools: Vec::new(), reactive: false })
-                .await
-                .expect("check");
-            release.notified().await;
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, "go", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || handle.live_header().header().get("lastHeartbeatAt").filter(|at| at.as_f64().is_some_and(|at| at > 0.0)).map(|_| ())).await;
-    let stamped = handle.live_header().header().get("lastHeartbeatAt").cloned();
-    assert_eq!(*lock(&rig.compaction.sync_calls), vec![true], "the installation syncs; a turn start and its checks do not");
-    gate.notify_one();
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    let live = handle.live_header();
-    let header = live.header();
-    assert_eq!(*lock(&rig.compaction.sync_calls), vec![true, true], "the completed turn syncs again");
-    assert_eq!(header.get("lastHeartbeatAt"), stamped.as_ref(), "the second delta is inside the minute");
-    let provider = header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned();
-    assert_eq!(*lock(&rig.compaction.prepared), vec![(provider, 0usize)]);
-}
-
 /// A tool call's arguments streaming (`RunEvent::ToolStream`) reach the stored `lastHeartbeatAt` through the whole
 /// path, one write per minute: the first event stamps it, one exactly 60 s later does not, one 1 ms past does.
 #[tokio::test(start_paused = true)]
@@ -3896,9 +2165,9 @@ async fn a_streaming_tool_call_stamps_the_stored_heartbeat_once_a_minute() {
                         send_tools: Vec::new(),
                         reasoning_tokens: None,
                         reasoning_tokens_complete: false,
-                        outgoing: Vec::new(),
+                        outgoing: Vec::new().into(),
                         sent_at_ms: 0,
-                        input_excludes_cache: false,
+                        input_excludes_cache: false, tail_book: None,
                     })
                     .await
                     .expect("usage");
@@ -3941,9 +2210,9 @@ async fn a_compaction_passs_summary_usage_reaches_the_header_totals() {
                     send_tools: Vec::new(),
                     reasoning_tokens: None,
                     reasoning_tokens_complete: false,
-                    outgoing: Vec::new(),
+                    outgoing: Vec::new().into(),
                     sent_at_ms: 0,
-                    input_excludes_cache: false,
+                    input_excludes_cache: false, tail_book: None,
                 })
                 .await
                 .expect("usage");
@@ -3964,71 +2233,11 @@ async fn a_compaction_passs_summary_usage_reaches_the_header_totals() {
     assert_eq!(header.get("usageMetricsEpoch").and_then(Value::as_u64).unwrap_or(0), 0);
 }
 
-/// A Goal set during a user turn continues across it: once the turn settles with the Goal
-/// active and the thread idle, the runtime's continuation runs as an automatic turn whose input
-/// is runtime-synthetic (no user row); that turn pausing the Goal ends the chain, and the lane
-/// shows the paused Goal.
-#[tokio::test(start_paused = true)]
-async fn a_goal_continues_across_a_turn_until_it_stops() {
-    use mixdog_core_goal::goal::hooks::GoalViewHooks;
-
-    let rig = Rig::new();
-    let inputs: Arc<Mutex<Vec<Value>>> = Arc::default();
-    let (seen, goals) = (inputs.clone(), rig.goals.clone());
-    rig.set_script(Arc::new(move |run| {
-        let (seen, goals) = (seen.clone(), goals.clone());
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let automatic = run.input_body.pointer("/meta/source") == Some(&json!("goal-continuation"));
-            lock(&seen).push(run.input_body.clone());
-            let action = if automatic {
-                // The automatic turn does work, then the Goal is paused.
-                let call = ItemCommit {
-                    iid: ItemId::from(format!("t-{}", run.turn)),
-                    role: Some("tool".into()),
-                    model: true,
-                    visible: true,
-                    body: json!({ "role": "tool", "toolCallId": "c1", "content": "ok" }),
-                    prompt: None,
-                };
-                run.port.commit_item(call).await.expect("tool row");
-                json!({ "action": "pause" })
-            } else {
-                json!({ "action": "create", "objective": "Ship the feature" })
-            };
-            goals.goal_control(&run.thread, action).await.expect("goal control");
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, "start", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || (lock(&inputs).len() == 2 && idle(&handle)).then_some(())).await;
-    let goal_status = |frames: &[(u64, String, Value)]| {
-        frames.iter().rev().find(|(_, method, _)| method == "thread/goal/updated").map(|(_, _, p)| p["value"]["status"].clone())
-    };
-    eventually_on!(&[&rig.feeds.published], || (goal_status(&rig.feeds.frames(handle.id.as_str())) == Some(json!("paused"))).then_some(())).await;
-    mixdog_rt::time::sleep(std::time::Duration::from_millis(200)).await;
-    let inputs = lock(&inputs).clone();
-    assert_eq!(inputs.len(), 2, "a paused Goal does not continue: {inputs:?}");
-    let meta = &inputs[1]["meta"];
-    assert_eq!((&meta["source"], &meta["synthetic"]), (&json!("goal-continuation"), &json!(true)), "{meta}");
-    // Its prompt carries the turn's transcript metadata as a user prompt does (`persistedUserTranscriptMetadata`).
-    assert!(meta.pointer("/transcript/messageId").and_then(Value::as_str).is_some_and(|id| id.starts_with("msg_")), "{meta}");
-    assert!(meta.pointer("/transcript/attemptId").and_then(Value::as_str).is_some_and(|id| !id.is_empty()), "{meta}");
-    assert!(!inputs[1]["content"].as_str().unwrap_or_default().is_empty(), "the runtime's continuation prompt");
-    let users: Vec<String> = rows(&handle).into_iter().filter(|(role, _)| *role == "user").map(|(_, text)| text).collect();
-    assert_eq!(users, ["start"], "the automatic turn shows no user row");
-    let frames = rig.feeds.frames(handle.id.as_str());
-    let statuses: Vec<Value> = frames.iter().filter(|(_, m, _)| m == "thread/goal/updated").map(|(_, _, p)| p["value"]["status"].clone()).collect();
-    assert!(statuses.contains(&json!("active")), "{statuses:?}");
-}
-
 /// The Goal runtime with a held `turn_settled`.
-struct HeldSettle {
-    goals: mixdog_core_goal::goal::GoalRuntime,
-    release: Arc<tokio::sync::Notify>,
-    settled: Arc<std::sync::atomic::AtomicUsize>,
+pub(crate) struct HeldSettle {
+    pub(crate) goals: mixdog_core_goal::goal::GoalRuntime,
+    pub(crate) release: Arc<tokio::sync::Notify>,
+    pub(crate) settled: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 #[async_trait::async_trait]
@@ -4081,109 +2290,6 @@ impl mixdog_core_goal::goal::hooks::GoalViewHooks for HeldSettle {
     }
 }
 
-/// A turn queued behind a running one starts only once the running turn's settlement
-/// (`turn_settled`) has returned, as Node's queue drains after `runTurn` awaits it.
-#[tokio::test(start_paused = true)]
-async fn a_queued_turn_starts_after_the_settlement_returns() {
-    use std::sync::atomic::Ordering;
-
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let release: Arc<tokio::sync::Notify> = Arc::default();
-    let settled: Arc<std::sync::atomic::AtomicUsize> = Arc::default();
-    let mut deps = rig.deps_parts(rig.store.clone());
-    deps.goals = Arc::new(HeldSettle { goals: rig.goals.clone(), release: release.clone(), settled: settled.clone() });
-    let directory = SessionDirectory::new(Arc::new(deps));
-    let handle = start_thread(&directory).await;
-    turn(&handle, "one", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    // The first turn ended; its settlement is held. A new prompt waits behind it.
-    let queued = turn(&handle, "two", "op-2").await;
-    assert_eq!(queued["kind"], "queued", "{queued}");
-    mixdog_rt::time::sleep(std::time::Duration::from_millis(100)).await;
-    assert!(idle(&handle), "no turn starts before the settlement");
-    assert_eq!(settled.load(Ordering::SeqCst), 0);
-    release.notify_one();
-    eventually_on!(&[&handle.cell.stepped], || (settled.load(Ordering::SeqCst) == 1).then_some(())).await;
-    eventually_on!(&[&handle.cell.stepped], || rows(&handle).iter().any(|(role, text)| *role == "user" && text == "two").then_some(())).await;
-    release.notify_one();
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
-}
-
-/// Each run fails on exhausted provider quota with the reset the provider named, as the run host
-/// reports it; the session shows the failed turn end and the quota settlement reads it.
-fn quota_failure() -> Script {
-    Arc::new(|run| {
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            RunOutcome::Failed(super::testing::quota_error(5000))
-        })
-    })
-}
-
-/// `beginQuotaSettlement` / `finishQuotaSettlement`: an automatic Goal turn that fails on quota
-/// queues its resume and, once its Goal settled `usage_limited`, records that Goal for the
-/// resume. A user prompt inside the settling window (after the failed turn end, before the
-/// Goal settlement) cancels the resume and keeps the suspension from being recorded.
-#[tokio::test(start_paused = true)]
-async fn a_cancel_inside_the_quota_settling_window_keeps_the_suspension_unrecorded() {
-    use std::sync::atomic::Ordering;
-
-    use mixdog_core_goal::goal::hooks::GoalViewHooks;
-
-    let rig = Rig::new();
-    let release: Arc<tokio::sync::Notify> = Arc::default();
-    let settled: Arc<std::sync::atomic::AtomicUsize> = Arc::default();
-    let mut deps = rig.deps_parts(rig.store.clone());
-    deps.goals = Arc::new(HeldSettle { goals: rig.goals.clone(), release: release.clone(), settled: settled.clone() });
-    let directory = SessionDirectory::new(Arc::new(deps));
-    // A new active Goal continues at once: its automatic turn fails on quota, and the
-    // settlement is held.
-    let failed_turn = |rig: &Rig, handle: Arc<SessionHandle>| {
-        let goals = rig.goals.clone();
-        async move {
-            goals.goal_control(&handle.id, json!({ "action": "create", "objective": "Ship it" })).await.expect("create");
-            let goal = goals.goal_status(&handle.id).await.expect("status").expect("a goal");
-            let attempt = eventually_on!(&[&handle.cell.stepped], || {
-                handle.cell.view.load_full().items.iter().find_map(|item| match item.as_ref() {
-                    ThreadItem::TurnEnd { meta, .. } => meta.ext.get("attemptId").and_then(Value::as_str).map(str::to_owned),
-                    _ => None,
-                })
-            })
-            .await;
-            (goal["id"].as_str().expect("goal id").to_owned(), format!("attempt:{attempt}"))
-        }
-    };
-    rig.set_script(quota_failure());
-
-    // Settled undisturbed: the resume waits and the suspended Goal is recorded.
-    let first = start_routed_thread(&directory).await;
-    let (goal_id, key) = failed_turn(&rig, first.clone()).await;
-    eventually_on!(&[&rig.quota_changed, &first.cell.stepped], || rig.quota.entry(first.id.as_str()).filter(|entry| entry.turn_key == key)).await;
-    assert_eq!(settled.load(Ordering::SeqCst), 0);
-    release.notify_one();
-    eventually_on!(&[&rig.quota_changed, &first.cell.stepped], || (rig.quota.suspended_goal(first.id.as_str(), &key) == goal_id).then_some(())).await;
-
-    // A prompt while the failed turn settles: the resume goes, and the settlement records nothing.
-    let second = start_routed_thread(&directory).await;
-    let (_, key) = failed_turn(&rig, second.clone()).await;
-    let id = second.id.as_str();
-    eventually_on!(&[&rig.quota_changed, &second.cell.stepped], || rig.quota.entry(id).filter(|entry| entry.turn_key == key)).await;
-    rig.set_script(echo());
-    let queued = turn(&second, "next", "op-next").await;
-    assert_eq!(queued["kind"], "queued", "the failed turn is still settling: {queued}");
-    eventually_on!(&[&rig.quota_changed, &second.cell.stepped], || rig.quota.entry(id).is_none().then_some(())).await;
-    release.notify_one();
-    eventually_on!(&[&second.cell.stepped], || (settled.load(Ordering::SeqCst) == 2).then_some(())).await;
-    eventually_on!(&[&second.cell.stepped], || rows(&second).iter().any(|(role, text)| *role == "user" && text == "next").then_some(())).await;
-    release.notify_one();
-    eventually_on!(&[&second.cell.stepped], || (settled.load(Ordering::SeqCst) == 3).then_some(())).await;
-    // The settlement's store call runs after the cancel's, on the session's quota lane.
-    mixdog_rt::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(rig.quota.suspended_goal(id, &key), "", "the cancel inside the window wins");
-    assert!(rig.quota.entry(id).is_none());
-}
-
 /// No reading is asked of it in these tests.
 struct NoUsage;
 
@@ -4192,41 +2298,6 @@ impl super::quota_resume_host::QuotaUsage for NoUsage {
     async fn usable(&self, _: &str, _: &str) -> Result<bool, super::quota_resume_scheduler::UsageError> {
         unreachable!("the fire is driven directly")
     }
-}
-
-/// The scheduler's fire through the production `ResumeHost` (Node `fireQuotaResume`, recorded in
-/// `fixtures/quota-resume-fire`): while the quota-failed turn settles the fire is `busy`; then
-/// the queued resume of a user turn fires once (its prompt runs again as a new turn, the entry
-/// goes), and every repeat of that generation is `stale` ("prompt replayed").
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_scheduler_fire_replays_the_failed_turn_once() {
-    use super::quota_resume_host::SessionResumeHost;
-    use super::quota_resume_scheduler::FireOutcome;
-    use super::quota_resume_scheduler::ResumeHost;
-
-    let rig = Rig::new();
-    let directory = Arc::new(SessionDirectory::new(rig.deps()));
-    rig.set_script(quota_failure());
-    let handle = start_routed_thread(&directory).await;
-    let id = handle.id.as_str().to_owned();
-    turn(&handle, "build the parser", "op-failed").await;
-    let entry = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id)).await;
-    rig.set_script(echo());
-    let host = SessionResumeHost::new(directory.clone(), Arc::new(NoUsage));
-    host.materialize(&id).await.expect("loaded");
-    // A generation that is not queued is stale at once.
-    assert_eq!(host.fire(&id, entry.generation + 1).await, Ok(FireOutcome::Stale));
-    // The fire answers `Busy` while `retry_blocked` holds (a turn, the quota settlement, a compaction, a wake, queued input):
-    // wait for the actor to publish that it does not.
-    eventually_on!(&[&handle.cell.stepped, &rig.quota_changed], || (!handle.cell.retry_blocked.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
-    let outcome = host.fire(&id, entry.generation).await;
-    assert_eq!(outcome, Ok(FireOutcome::Fired));
-    assert_eq!(host.fire(&id, entry.generation).await, Ok(FireOutcome::Stale), "a repeat of the generation");
-    eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id).is_none().then_some(())).await;
-    // The retry ran (the failed turn's own message, or its prompt, is what it answered).
-    eventually_on!(&[&handle.cell.stepped], || rows(&handle).iter().any(|(role, text)| *role == "assistant" && text.starts_with("re: ")).then_some(())).await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    assert_eq!(host.fire(&id, entry.generation).await, Ok(FireOutcome::Stale), "after the retry ran");
 }
 
 /// `thread/clear` resets the environment in the same header change that drops the provider
@@ -4267,776 +2338,10 @@ async fn a_clear_resets_the_environment_with_the_provider_state() {
     }
 }
 
-/// A restored window shows each compaction's divider where 1.4.5 restores it (after the rows
-/// before the compaction, when its replacement kept none of them), the switches anchored on its
-/// summary right after it, and a switch recorded live on the summary joins them.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_restored_compaction_shows_its_divider_and_the_switches_on_its_summary() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
-    let handle = start_thread(&directory).await;
-    turn(&handle, "first", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
-    rig.set_script(Arc::new(|run| {
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let summary = json!({ "role": "user", "content": "[summary] earlier work" });
-            let compaction = super::run::Compaction { replacement: vec![(ItemId::from("sum1".to_owned()), summary)], at: 777, dropped_count: 3, dropped: None };
-            run.port.compacted(compaction).await.expect("compacted");
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    turn(&handle, "compact", "op-2").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
-    let ids = |handle: &SessionHandle| -> Vec<String> {
-        handle.cell.view.load_full().items.iter().map(|item| item.id().as_str().to_owned()).collect()
-    };
-    // Live: the divider shows where the compaction happened, and a switch on its summary
-    // shows right after it.
-    let live = ids(&handle);
-    assert!(live[3].starts_with("divider:") && !live[3].contains(":model:"), "{live:?}");
-    // Live: the rows the compaction took out of the context show `archived` once it is durable, as a reopen shows them.
-    let archived = |handle: &SessionHandle| -> Vec<bool> {
-        handle.cell.view.load_full().items.iter().map(|item| super::view::meta(item).ext.get("archived") == Some(&json!(true))).collect()
-    };
-    eventually_on!(&[&handle.cell.stepped], || archived(&handle)[0].then_some(())).await;
-    let marked = archived(&handle);
-    assert_eq!(marked, [true, true, true, false], "every row before the compaction, and not its divider");
-    let id = handle.id.clone();
-    let switch = |at: i64| json!({ "provider": "openai", "modelId": "gpt-next", "at": at });
-    assert!(super::record_model_switch(&directory, &id, &switch(300)).await.expect("record"));
-    eventually_on!(&[&handle.cell.stepped], || (ids(&handle).len() == 5).then_some(())).await;
-    assert_eq!(ids(&handle)[4], format!("{}:model:300", live[3]));
-
-    let reopened = SessionDirectory::new(rig.deps_on(store));
-    let restored = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-    let shown = ids(&restored);
-    let divider = shown.iter().position(|id| id.starts_with("divider:") && !id.contains(":model:")).expect("a divider");
-    assert_eq!(divider, 3, "after the rows before the compaction: {shown:?}");
-    assert_eq!(archived(&restored)[..4], marked[..], "the live marks are the reopened window's");
-    let cid = shown[divider].trim_start_matches("divider:").to_owned();
-    assert_eq!(shown[divider + 1..], [format!("divider:{cid}:model:300")]);
-    let ThreadItem::ContextCompaction { meta, .. } = restored.cell.view.load_full().items[divider].as_ref().clone() else {
-        panic!("the divider is a compaction row");
-    };
-    assert_eq!(meta.at, Some(777));
-
-    assert!(super::record_model_switch(&reopened, &id, &switch(400)).await.expect("record live"));
-    eventually_on!(&[&restored.cell.stepped], || (ids(&restored).len() == shown.len() + 1).then_some(())).await;
-    assert_eq!(ids(&restored)[divider + 1..], [format!("divider:{cid}:model:300"), format!("divider:{cid}:model:400")]);
-}
-
-/// One compaction of a run shows one divider, carrying the pass's duration and token move: the pass's
-/// event and the `compacted` record reach the thread in either order, and neither adds a row of its own.
-#[tokio::test(start_paused = true)]
-async fn one_compaction_of_a_run_shows_one_divider_with_its_stats() {
-    for event_first in [true, false] {
-        let rig = Rig::new();
-        rig.set_script(Arc::new(move |run| {
-            Box::pin(async move {
-                run.port.input_durable().await.expect("input durable");
-                let event = mixdog_agent::env::CompactEvent {
-                    dropped_count: 3,
-                    dropped: None,
-                    trigger: mixdog_agent::env::CompactTrigger::Auto,
-                    status: mixdog_agent::env::CompactStatus::Compacted,
-                    before_tokens: 537_276,
-                    duration_ms: 110,
-                    after_tokens: 41_248,
-                    before_messages: 4,
-                    after_messages: 1,
-                    pressure_tokens: 537_276,
-                    trigger_tokens: 500_000,
-                    boundary_tokens: 500_000,
-                    target_budget_tokens: 40_000,
-                };
-                let summary = json!({ "role": "user", "content": "[summary] earlier work" });
-                let compaction = super::run::Compaction { replacement: vec![(ItemId::from("sum1".to_owned()), summary)], at: 777, dropped_count: 3, dropped: None };
-                if event_first {
-                    run.port.compact_event(event).await.expect("compact");
-                    run.port.compacted(compaction).await.expect("compacted");
-                } else {
-                    run.port.compacted(compaction).await.expect("compacted");
-                    run.port.compact_event(event).await.expect("compact");
-                }
-                RunOutcome::Completed(Default::default())
-            })
-        }));
-        let directory = SessionDirectory::new(rig.deps());
-        let handle = start_thread(&directory).await;
-        turn(&handle, "go", "op-1").await;
-        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-        let dividers: Vec<Option<String>> = handle
-            .cell
-            .view
-            .load_full()
-            .items
-            .iter()
-            .filter(|item| matches!(item.as_ref(), ThreadItem::ContextCompaction { .. }) || super::view::meta(item).label.as_deref().is_some_and(|label| label.starts_with("Compact")))
-            .map(|item| super::view::meta(item).detail.clone())
-            .collect();
-        assert_eq!(dividers, [Some("1s · 537k→41k".to_owned())], "event first: {event_first}");
-    }
-}
-
-/// Two compactions of one turn, their records and their events arriving in batches (each stream in order, as the run
-/// delivers them), still pair one to one: each divider shows its own pass's figures, and no pass adds a row of its own.
-/// Node keeps no figures past the live row (the archive's divider is the label and the time), so a reopened store shows
-/// the same two dividers without a detail.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn two_compactions_of_one_turn_pair_their_stats_in_order_and_reopen_as_two_dividers() {
-    for event_first in [true, false] {
-        let data = tempfile::tempdir().expect("data dir");
-        let store = real_store(data.path()).await;
-        let rig = Rig::new();
-        rig.set_script(Arc::new(move |run| {
-            Box::pin(async move {
-                run.port.input_durable().await.expect("input durable");
-                let event = |before_tokens: u64, after_tokens: u64| mixdog_agent::env::CompactEvent {
-                    dropped_count: 3,
-                    dropped: None,
-                    trigger: mixdog_agent::env::CompactTrigger::Auto,
-                    status: mixdog_agent::env::CompactStatus::Compacted,
-                    before_tokens,
-                    duration_ms: 110,
-                    after_tokens,
-                    before_messages: 4,
-                    after_messages: 1,
-                    pressure_tokens: before_tokens,
-                    trigger_tokens: 500_000,
-                    boundary_tokens: 500_000,
-                    target_budget_tokens: 40_000,
-                };
-                let compaction = |iid: &str, at: i64| {
-                    let summary = json!({ "role": "user", "content": format!("[summary] {iid}") });
-                    super::run::Compaction { replacement: vec![(ItemId::from(iid.to_owned()), summary)], at, dropped_count: 3, dropped: None }
-                };
-                if event_first {
-                    run.port.compact_event(event(537_276, 41_248)).await.expect("event a");
-                    run.port.compact_event(event(300_000, 20_000)).await.expect("event b");
-                    run.port.compacted(compaction("sum1", 777)).await.expect("record a");
-                    run.port.compacted(compaction("sum2", 888)).await.expect("record b");
-                } else {
-                    run.port.compacted(compaction("sum1", 777)).await.expect("record a");
-                    run.port.compacted(compaction("sum2", 888)).await.expect("record b");
-                    run.port.compact_event(event(537_276, 41_248)).await.expect("event a");
-                    run.port.compact_event(event(300_000, 20_000)).await.expect("event b");
-                }
-                RunOutcome::Completed(Default::default())
-            })
-        }));
-        let directory = SessionDirectory::new(rig.deps_on(store.clone()));
-        let handle = start_thread(&directory).await;
-        turn(&handle, "go", "op-1").await;
-        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-        let compactions = |handle: &SessionHandle| -> Vec<(i64, Option<String>)> {
-            handle
-                .cell
-                .view
-                .load_full()
-                .items
-                .iter()
-                .filter(|item| matches!(item.as_ref(), ThreadItem::ContextCompaction { .. }) || super::view::meta(item).label.as_deref().is_some_and(|label| label.starts_with("Compact")))
-                .map(|item| (super::view::meta(item).at.unwrap_or_default(), super::view::meta(item).detail.clone()))
-                .collect()
-        };
-        assert_eq!(
-            compactions(&handle),
-            [(777, Some("1s · 537k→41k".to_owned())), (888, Some("1s · 300k→20k".to_owned()))],
-            "live, event first: {event_first}"
-        );
-        let id = handle.id.clone();
-        let reopened = SessionDirectory::new(rig.deps_on(store));
-        let restored = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-        assert_eq!(compactions(&restored), [(777, None), (888, None)], "reopened, event first: {event_first}");
-    }
-}
-
-/// A compaction record the encoder rejects (an oversized replacement) leaves no divider, and the live view is the same
-/// whichever of the record and its event came first: the rejected pass's event is dropped with it, the patch of a
-/// record-first divider goes with its record, and the pairs after it stay aligned.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_rejected_compaction_record_leaves_no_divider_in_either_arrival_order_and_later_pairs_stay_aligned() {
-    for event_first in [true, false] {
-        let data = tempfile::tempdir().expect("data dir");
-        let store = real_store(data.path()).await;
-        let rig = Rig::new();
-        rig.set_script(Arc::new(move |run| {
-            Box::pin(async move {
-                run.port.input_durable().await.expect("input durable");
-                let event = |before_tokens: u64, after_tokens: u64| mixdog_agent::env::CompactEvent {
-                    dropped_count: 3,
-                    dropped: None,
-                    trigger: mixdog_agent::env::CompactTrigger::Auto,
-                    status: mixdog_agent::env::CompactStatus::Compacted,
-                    before_tokens,
-                    duration_ms: 110,
-                    after_tokens,
-                    before_messages: 4,
-                    after_messages: 1,
-                    pressure_tokens: before_tokens,
-                    trigger_tokens: 500_000,
-                    boundary_tokens: 500_000,
-                    target_budget_tokens: 40_000,
-                };
-                let compaction = |iid: &str, at: i64, size: usize| {
-                    let summary = json!({ "role": "user", "content": format!("[summary] {iid}{}", "x".repeat(size)) });
-                    super::run::Compaction { replacement: vec![(ItemId::from(iid.to_owned()), summary)], at, dropped_count: 3, dropped: None }
-                };
-                let oversized = mixdog_protocol::MAX_BLOB_BYTES as usize + 1;
-                let events = [event(537_276, 41_248), event(400_000, 30_000), event(300_000, 20_000)];
-                let records = [compaction("sum1", 777, 0), compaction("sum2", 888, oversized), compaction("sum3", 999, 0)];
-                if event_first {
-                    for event in events {
-                        run.port.compact_event(event).await.expect("event");
-                    }
-                    for record in records {
-                        let _ = run.port.compacted(record).await;
-                    }
-                } else {
-                    for record in records {
-                        let _ = run.port.compacted(record).await;
-                    }
-                    for event in events {
-                        run.port.compact_event(event).await.expect("event");
-                    }
-                }
-                RunOutcome::Completed(Default::default())
-            })
-        }));
-        let directory = SessionDirectory::new(rig.deps_on(store.clone()));
-        let handle = start_thread(&directory).await;
-        turn(&handle, "go", "op-1").await;
-        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-        let compactions = |handle: &SessionHandle| -> Vec<(i64, Option<String>)> {
-            handle
-                .cell
-                .view
-                .load_full()
-                .items
-                .iter()
-                .filter(|item| matches!(item.as_ref(), ThreadItem::ContextCompaction { .. }) || super::view::meta(item).label.as_deref().is_some_and(|label| label.starts_with("Compact")))
-                .map(|item| (super::view::meta(item).at.unwrap_or_default(), super::view::meta(item).detail.clone()))
-                .collect()
-        };
-        assert_eq!(
-            compactions(&handle),
-            [(777, Some("1s · 537k→41k".to_owned())), (999, Some("1s · 300k→20k".to_owned()))],
-            "live, event first: {event_first}"
-        );
-        let id = handle.id.clone();
-        let reopened = SessionDirectory::new(rig.deps_on(store));
-        let restored = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-        assert_eq!(compactions(&restored), [(777, None), (999, None)], "reopened, event first: {event_first}");
-    }
-}
-
-/// `recordModelSwitchBoundary`: the boundary goes on the switch anchor once, as a record
-/// naming the stored row; the live row follows the anchor's, and a reader folds the record
-/// back onto the anchor's `meta.modelSwitches`. A connection cannot write one.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_model_switch_is_recorded_once_on_its_anchor_and_read_back_folded() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
-    let handle = start_thread(&directory).await;
-    turn(&handle, "hello", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
-    let id = handle.id.clone();
-    let boundary = json!({ "provider": "openai", "modelId": "gpt-next", "at": 200 });
-    assert!(super::record_model_switch(&directory, &id, &boundary).await.expect("record"));
-    assert!(super::record_model_switch(&directory, &id, &boundary).await.expect("again"), "recorded once");
-    let items = handle.cell.view.load_full().items.clone();
-    assert_eq!(items.len(), 3, "the switch row follows the anchor's");
-    // The test transcript shows a row under its stored id.
-    let anchor_iid = items[1].id().as_str().to_owned();
-    assert_eq!(items[2].id().as_str(), format!("{anchor_iid}:model:200"));
-
-    let reopened = SessionDirectory::new(rig.deps_on(store));
-    let (_, anchor) = reopened.history_row(&id, &anchor_iid).await.expect("read").expect("anchor row");
-    let mixdog_store::schema::blob::Slot::Inline(body) = &anchor.body else { panic!("inline") };
-    assert_eq!(body["meta"]["modelSwitches"], json!([boundary]));
-
-    let refused = handle
-        .request(request(
-            "thread/boundary/record",
-            json!({ "threadId": id, "anchor": { "iid": anchor_iid, "ordinal": 1 }, "entry": boundary }),
-            "op-x",
-        ))
-        .await;
-    assert!(matches!(refused, Err(CoreError::InvalidParams { .. })), "{refused:?}");
-}
-
-/// Node's reconnect recovery (`turn-checkpoint-recovery.mjs:113-131`): a thread whose process died with a tool call
-/// unanswered opens with the call closed as cancelled and the restart line saved, so the first read, before any new
-/// turn, shows the recovered conversation.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_turn_the_process_died_in_is_recovered_at_open_before_any_read() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    let committed = Arc::new(tokio::sync::Notify::new());
-    let told = committed.clone();
-    rig.set_script(Arc::new(move |run| {
-        let told = told.clone();
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let call = json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] });
-            let item = ItemCommit { iid: ItemId::from("itm_call"), role: Some("assistant".into()), model: true, visible: true, body: call, prompt: None };
-            run.port.commit_item(item).await.expect("commit");
-            told.notify_one();
-            // The process dies here: the run never ends.
-            std::future::pending::<RunOutcome>().await
-        })
-    }));
-    let first = SessionDirectory::new(rig.deps_on(store.clone()));
-    let handle = start_thread(&first).await;
-    let id = handle.id.clone();
-    turn(&handle, "read a", "op-1").await;
-    crate::session::testing::awaiting(|| "the tool call row to be durable".to_owned(), committed.notified()).await;
-
-    let second = SessionDirectory::new(rig.deps_on(store));
-    let reopened = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-    let Reply::Value(read) = reopened.request(CoreRequest { method: Method("thread/messages/read"), params: json!({}), op: None, ctx: CallContext::internal("test") }).await.expect("read") else { panic!("a value") };
-    let messages = read["messages"].as_array().expect("messages");
-    let shown: Vec<(&str, &str)> = messages.iter().map(|m| (m["role"].as_str().unwrap_or_default(), m["content"].as_str().unwrap_or_default())).collect();
-    assert_eq!(
-        shown,
-        [("user", "read a"), ("assistant", "Reading."), ("tool", "Cancelled"), ("user", "[Request interrupted by process restart]")],
-        "{read}"
-    );
-    assert_eq!(messages[2]["toolCallId"], "call_1");
-}
-
-/// A second crash during recovery must find the run still unfinished: the run's `Interrupted` marker is the last record the
-/// recovery writes, behind the cancelled result and the restart line (Node keeps the checkpoint until the recovery is saved).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_marker_of_a_recovered_run_lands_behind_its_recovery_rows() {
-    use mixdog_store::schema::record::{Record, RunPhase};
-    let rig = Rig::new();
-    let committed = Arc::new(tokio::sync::Notify::new());
-    let told = committed.clone();
-    rig.set_script(Arc::new(move |run| {
-        let told = told.clone();
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let call = json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] });
-            let item = ItemCommit { iid: ItemId::from("itm_call"), role: Some("assistant".into()), model: true, visible: true, body: call, prompt: None };
-            run.port.commit_item(item).await.expect("commit");
-            told.notify_one();
-            std::future::pending::<RunOutcome>().await
-        })
-    }));
-    let first = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&first).await;
-    let id = handle.id.clone();
-    turn(&handle, "read a", "op-1").await;
-    crate::session::testing::awaiting(|| "the tool call row to be durable".to_owned(), committed.notified()).await;
-
-    let second = SessionDirectory::new(rig.deps());
-    second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-    let records = rig.store.records(&id);
-    let marker = records.iter().position(|(_, record)| matches!(record, Record::Run(run) if run.phase == RunPhase::Interrupted)).expect("the run ended");
-    let restart = records
-        .iter()
-        .position(|(_, record)| matches!(record, Record::Item(row) if format!("{:?}", row.body).contains("process restart")))
-        .expect("the restart line was saved");
-    assert!(restart < marker, "the marker ends the recovery: {records:?}");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_real_store_reopens_a_thread_and_appends_after_it() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    rig.set_script(echo());
-
-    let first = SessionDirectory::new(rig.deps_on(store.clone()));
-    let handle = start_thread(&first).await;
-    turn(&handle, "hello", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
-    turn(&handle, "again", "op-2").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
-    let id = handle.id.clone();
-    handle
-        .request(request(
-            "thread/name/set",
-            json!({ "threadId": id, "opId": "op-name", "title": "  Haiku  " }),
-            "op-name",
-        ))
-        .await
-        .expect("name/set");
-    // The index answers the metadata with the stored (normalized) title, without loading anything.
-    // Reading a row waits for the index to hold every barrier acked so far.
-    first.history_row(&id, handle.cell.view.load_full().items[0].id().as_str()).await.expect("read");
-    let meta = first.session_meta(&id).await.expect("meta").expect("listed");
-    assert_eq!(meta.title.as_deref(), Some("Haiku"), "the index answers the stored title");
-    assert_eq!(meta.agent, Value::Null);
-    assert_eq!(meta.owner_session_id, Value::Null);
-    assert_eq!(
-        first.session_meta(&ThreadId::from("missing")).await.expect("meta"),
-        None
-    );
-
-    // A fresh directory opens the thread from its log and the index.
-    let second = SessionDirectory::new(rig.deps_on(store));
-    let reopened = second
-        .open_handle(&id, &CallContext::internal("test"))
-        .await
-        .expect("open");
-    assert_eq!(rows(&reopened), rows(&handle));
-    assert_eq!(prompt_list(&reopened), ["again", "hello"]);
-
-    // The first write after the open appends to the same log.
-    let again = reopened.cell.view.load_full().items[2].id().clone();
-    let reply = reopened
-        .request(request(
-            "thread/rewind",
-            json!({ "threadId": id, "opId": "op-3", "itemId": again }),
-            "op-3",
-        ))
-        .await
-        .expect("rewind");
-    let Reply::Value(value) = reply else { panic!() };
-    assert_eq!(value["text"], "again");
-    eventually_on!(&[&reopened.cell.stepped], || (rows(&reopened).len() == 2).then_some(())).await;
-    eventually_on!(&[&reopened.cell.stepped], || (prompt_list(&reopened) == ["hello"]).then_some(())).await;
-}
-
-/// A run the process died in, with more rows than the opened window holds: its recovery still knows its input row (the
-/// row before its start, read from the log), so a finished answer is not taken for an unanswered turn.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_crashed_run_past_the_window_is_recovered_with_its_input_row() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    let committed = Arc::new(tokio::sync::Notify::new());
-    let (begun, proceed) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
-    let (signal, started, go) = (committed.clone(), begun.clone(), proceed.clone());
-    rig.set_script(Arc::new(move |run| {
-        let (signal, started, go) = (signal.clone(), started.clone(), go.clone());
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            started.notify_one();
-            go.notified().await;
-            for n in 0..210 {
-                let row = ItemCommit { iid: ItemId::from(format!("t-{n}")), role: Some("tool".into()), model: true, visible: true, body: json!({ "text": format!("r{n}") }), prompt: None };
-                run.port.commit_item(row).await.expect("a tool row");
-            }
-            signal.notify_one();
-            // The process dies here: the run never ends.
-            std::future::pending::<RunOutcome>().await
-        })
-    }));
-    let first = SessionDirectory::new(rig.deps_on(store.clone()));
-    let handle = start_thread(&first).await;
-    turn(&handle, "hello", "op-1").await;
-    crate::session::testing::awaiting(|| "the run's start".to_owned(), begun.notified()).await;
-    // The input row, read before the run's rows push it out of the shown window.
-    let input = handle.cell.view.load_full().items[0].id().clone();
-    proceed.notify_one();
-    crate::session::testing::awaiting(|| "the run's rows".to_owned(), committed.notified()).await;
-
-    let second = SessionDirectory::new(rig.deps_on(store));
-    let reopened = second.open_handle(&handle.id, &CallContext::internal("test")).await.expect("open");
-    eventually_on!(&[&reopened.cell.stepped], || reopened.recovered().then_some(())).await;
-    assert_eq!(*lock(&rig.runs.crashed), [Some(input)]);
-}
-
 /// A subscriber attaches (the counting `FeedSource::attach` does around the feed).
 fn subscribe(handle: &SessionHandle) {
     assert!(handle.cell.subscribing());
     handle.cell.subscribed(true);
-}
-
-/// The last subscriber of a settled thread leaves and its idle delay passes (`Inbox::IdleDue` stands for it, so a test on the
-/// real clock does not wait it out): the thread unloads, as Node releases a session `idle and unwatched`.
-pub async fn left_idle(handle: &SessionHandle) {
-    eventually_on!(&[&handle.cell.stepped], || (!handle.turn_busy()).then_some(())).await;
-    handle.cell.unsubscribed();
-    // The leave is taken before the deadline: on a multi-threaded runtime a step already polling could take the inbox first.
-    caught_up(handle).await;
-    handle.inbox.send(super::actor::Inbox::IdleDue).await.expect("the actor takes the inbox");
-}
-
-/// `retention.mjs`: the last subscriber leaving retains the thread (`retainedAt`); it unloads once it has been idle and
-/// unwatched for the idle delay, and its context goes to memory.
-#[tokio::test(start_paused = true)]
-async fn an_idle_thread_unloads_one_idle_delay_after_its_last_subscriber_left_and_ingests_its_context() {
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, "hello", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
-    subscribe(&handle);
-    subscribe(&handle);
-    handle.cell.unsubscribed();
-    assert!(directory.handle(&handle.id).is_some(), "one subscriber is left");
-
-    handle.cell.unsubscribed();
-    caught_up(&handle).await;
-    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
-    caught_up(&handle).await;
-    assert!(directory.handle(&handle.id).is_some(), "retained for the idle delay");
-    tokio::time::advance(Duration::from_secs(2)).await;
-    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
-    eventually_on!(&[&*rig.closes.ended], || (lock(&rig.closes.seen).len() == 1).then_some(())).await;
-    assert_eq!(lock(&rig.closes.seen)[0].1.len(), 2, "the input row and the reply");
-    assert!(!handle.cell.subscribing(), "an unloaded thread takes no subscriber");
-    assert_eq!(*lock(&rig.deletes.0), [format!("unloadMcpScope:{}", handle.id)], "the unload released the thread's MCP scope");
-    assert!(lock(&rig.deletes.2).is_empty(), "and did not close its owner");
-    // A later open loads it again.
-    let reopened = directory.open_handle(&handle.id, &connection()).await.expect("reopen");
-    assert!(!Arc::ptr_eq(&reopened.cell, &handle.cell));
-}
-
-/// The feed a `thread/resume` reply hands the server counts the subscription the server attaches: the watched thread is
-/// off the idle clock (`unwatchedRetained`). Its detach counts once (a second detach of it counts nothing while another view
-/// stays); the last view leaving retains the thread for the idle delay, a resume meanwhile starts the delay over
-/// (`idleClock.refresh`), and a whole delay unwatched unloads it.
-#[tokio::test(start_paused = true)]
-async fn a_resumed_subscription_keeps_the_thread_off_the_idle_clock_and_its_last_detach_retains_it() {
-    use mixdog_core_api::FeedSource;
-    use mixdog_core_api::sink::ConnectionSink;
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, "hello", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
-    let resume = |op: &str| request("thread/resume", json!({ "threadId": handle.id, "window": { "lastItems": 10 } }), op);
-    let Reply::Subscribe(resumed) = handle.request(resume("op-resume-1")).await.expect("thread/resume") else { panic!("thread/resume subscribes") };
-    let feed: Arc<dyn FeedSource> = resumed.feed;
-    let client = mixdog_core_api::mock::MockConnection::new(ConnectionId(7), mixdog_core_api::mock::MockLimits::default());
-    let sub = mixdog_core_api::ids::SubscriptionId::from("client");
-    let attached = mixdog_core_api::feed::subscribe(&feed, sub.clone(), resumed.window, None, &client).expect("attach");
-    client.send_control_release(bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
-    assert_eq!(handle.cell.attached(), 1, "the subscription is counted");
-
-    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
-    caught_up(&handle).await;
-    assert!(directory.handle(&handle.id).is_some(), "a watched thread is not evicted");
-
-    subscribe(&handle);
-    feed.detach(sub.clone());
-    feed.detach(sub);
-    assert_eq!(handle.cell.attached(), 1, "the second detach counted nothing");
-    handle.cell.unsubscribed();
-    caught_up(&handle).await;
-    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
-    caught_up(&handle).await;
-    assert!(directory.handle(&handle.id).is_some(), "retained for the idle delay");
-
-    let Reply::Subscribe(_) = handle.request(resume("op-resume-2")).await.expect("thread/resume") else { panic!("thread/resume subscribes") };
-    caught_up(&handle).await;
-    tokio::time::advance(Duration::from_secs(2)).await;
-    caught_up(&handle).await;
-    assert!(directory.handle(&handle.id).is_some(), "the resume started the delay over");
-    tokio::time::advance(super::actor::IDLE_EVICT).await;
-    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
-}
-
-/// `sessionBusy` counts `commandBusy`: a compaction running when the idle deadline comes keeps the thread nobody watches
-/// loaded and answers; its end starts the idle delay over (`onBusyChange`), and the thread unloads a whole delay later.
-#[tokio::test(start_paused = true)]
-async fn a_running_compaction_keeps_a_thread_nobody_watches_loaded() {
-    let rig = Rig::new();
-    let hold = Arc::new(tokio::sync::Notify::new());
-    *lock(&rig.compaction.hold) = Some(hold.clone());
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    let compacting = {
-        let handle = handle.clone();
-        tokio::spawn(async move { handle.request(request("thread/compact/start", json!({ "threadId": handle.id, "opId": "op-compact" }), "op-compact")).await })
-    };
-    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!lock(&rig.compaction.calls).is_empty()).then_some(())).await;
-    caught_up(&handle).await;
-
-    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
-    caught_up(&handle).await;
-    assert!(directory.handle(&handle.id).is_some(), "a compacting thread is not evicted");
-    // Half a delay later it still compacts: the deadline the busy thread armed again is nearer than a whole delay after its end.
-    tokio::time::advance(super::actor::IDLE_EVICT / 2).await;
-    caught_up(&handle).await;
-    hold.notify_one();
-    let answered = crate::session::testing::awaiting(|| "the compaction's answer".to_owned(), compacting).await;
-    assert!(matches!(answered, Ok(Ok(Reply::Value(_)))), "the compaction answers: {answered:?}");
-    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
-    caught_up(&handle).await;
-    assert!(directory.handle(&handle.id).is_some(), "not before a whole delay after the compaction");
-    tokio::time::advance(Duration::from_secs(2)).await;
-    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
-}
-
-/// `idleEvictMs`: a quiet thread nobody watches (a worker, a headless run) unloads once it has been quiet for the idle
-/// delay; one still working starts the delay over.
-#[tokio::test(start_paused = true)]
-async fn a_thread_nobody_watched_unloads_after_the_idle_delay() {
-    let rig = Rig::new();
-    let (release, gate) = tokio::sync::watch::channel(false);
-    rig.set_script(Arc::new(move |run| {
-        let mut gate = gate.clone();
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let _ = gate.wait_for(|open| *open).await;
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, "hold", "op-1").await;
-
-    // Working at the deadline: the whole delay starts again.
-    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
-    caught_up(&handle).await;
-    assert!(directory.handle(&handle.id).is_some(), "a running thread is never evicted");
-
-    release.send(true).expect("release");
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
-    caught_up(&handle).await;
-    assert!(directory.handle(&handle.id).is_some(), "not before the delay");
-    tokio::time::advance(Duration::from_secs(2)).await;
-    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
-}
-
-/// Retention's delete (`deleteSession(id, { isSessionLive: treeChanged })`) asks again under the
-/// thread's own admission, before it closes anything: a session opened or used after the pass
-/// checked it, or a sweep that was shut down, is refused and stays.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_retention_delete_is_refused_when_the_session_changed_after_the_check() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps_on(store));
-    let handle = start_thread(&directory).await;
-    let id = handle.id.clone();
-    turn(&handle, "hello", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    let read = super::sub_agent_retention::activity_at(&directory.stored_header(&id).await.expect("header"));
-    let live = CancellationToken::new();
-
-    // Opened (attached) after the check.
-    subscribe(&handle);
-    assert!(!directory.delete_stored(id.as_str(), read, &[], &live).await.expect("delete"), "opened");
-    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
-    left_idle(&handle).await;
-    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&id).is_none().then_some(())).await;
-    handle.inbox.closed().await;
-
-    // Used after the check: its activity is not what the pass read.
-    assert!(!directory.delete_stored(id.as_str(), read - 1.0, &[], &live).await.expect("delete"), "moved");
-    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
-
-    // The sweep was shut down: no new mutation.
-    let down = CancellationToken::new();
-    down.cancel();
-    assert!(!directory.delete_stored(id.as_str(), read, &[], &down).await.expect("delete"), "shut down");
-    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
-
-    // Unchanged and not shut down: gone.
-    assert!(directory.delete_stored(id.as_str(), read, &[], &live).await.expect("delete"));
-    assert!(directory.session_meta(&id).await.expect("meta").is_none(), "deleted");
-}
-
-/// The idle sweep's close (`markSessionClosed(id, 'idle-sweep')`) is admitted as the delete is:
-/// refused when the session moved after the pass read it or the sweep was shut down, otherwise
-/// the record is tombstoned (closed, `closedReason: idle-sweep`) and stays listed.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_idle_close_is_guarded_and_leaves_a_tombstone() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps_on(store));
-    let handle = start_thread(&directory).await;
-    let id = handle.id.clone();
-    turn(&handle, "hello", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    let read = super::sub_agent_retention::activity_at(&directory.stored_header(&id).await.expect("header"));
-    let live = CancellationToken::new();
-    subscribe(&handle);
-    left_idle(&handle).await;
-    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&id).is_none().then_some(())).await;
-    handle.inbox.closed().await;
-
-    assert!(!directory.close_stored(id.as_str(), read - 1.0, &live).await.expect("close"), "moved");
-    let down = CancellationToken::new();
-    down.cancel();
-    assert!(!directory.close_stored(id.as_str(), read, &down).await.expect("close"), "shut down");
-    let open = directory.stored_header(&id).await.expect("header");
-    assert_ne!(open.get("closed"), Some(&serde_json::json!(true)), "refusals change nothing");
-
-    assert!(directory.close_stored(id.as_str(), read, &live).await.expect("close"));
-    let closed = directory.stored_header(&id).await.expect("header");
-    assert_eq!(
-        (closed.get("closed"), closed.get("status"), closed.get("closedReason")),
-        (Some(&serde_json::json!(true)), Some(&serde_json::json!("closed")), Some(&serde_json::json!("idle-sweep")))
-    );
-    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "a tombstone stays listed");
-}
-
-/// `treeChanged` is the whole tree's: a member other than the target that is open (opened after
-/// the pass read the tree) refuses the delete under the target's admission; once it is gone the
-/// delete goes through.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_retention_delete_is_refused_when_another_member_of_the_tree_is_open() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps_on(store));
-    let target = start_thread(&directory).await;
-    let id = target.id.clone();
-    turn(&target, "hello", "op-1").await;
-    eventually_on!(&[&target.cell.stepped], || idle(&target).then_some(())).await;
-    let read = super::sub_agent_retention::activity_at(&directory.stored_header(&id).await.expect("header"));
-    let peer = start_thread(&directory).await;
-    let peer_id = peer.id.clone();
-    let live = CancellationToken::new();
-    async fn unload(directory: &SessionDirectory, handle: Arc<SessionHandle>) {
-        subscribe(&handle);
-        left_idle(&handle).await;
-        eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
-        // Out of the directory is not stopped: the actor still hands off what it accepted. Its inbox
-        // closes when it ends, and only then is the stored header final.
-        handle.inbox.closed().await;
-    }
-    turn(&peer, "hello", "op-p1").await;
-    eventually_on!(&[&peer.cell.stepped], || idle(&peer).then_some(())).await;
-    let seen = |peer_at: f64| [(peer_id.as_str().to_owned(), peer_at)];
-
-    // The member is open now (whatever the pass read).
-    assert!(!directory.delete_stored(id.as_str(), read, &seen(0.0), &live).await.expect("delete"), "a member is open");
-    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
-    assert!(!target.cell.closed.load(std::sync::atomic::Ordering::SeqCst), "nothing was closed");
-
-    // The member is stored again, as the pass read it: the delete goes ahead.
-    unload(&directory, peer).await;
-    let sweep_read = super::sub_agent_retention::activity_at(&directory.stored_header(&peer_id).await.expect("header"));
-
-    // It was opened, used and unloaded between the pass and the delete: its stored activity is
-    // not what the pass read, so the delete is refused though nothing of it is open.
-    rig.clock.0.store(5000, std::sync::atomic::Ordering::SeqCst);
-    let reopened = directory.open_handle(&peer_id, &connection()).await.expect("reopen");
-    turn(&reopened, "again", "op-p2").await;
-    eventually_on!(&[&reopened.cell.stepped], || idle(&reopened).then_some(())).await;
-    unload(&directory, reopened).await;
-    let now = super::sub_agent_retention::activity_at(&directory.stored_header(&peer_id).await.expect("header"));
-    assert_ne!(now, sweep_read, "the member's activity moved");
-    assert!(!directory.delete_stored(id.as_str(), read, &seen(sweep_read), &live).await.expect("delete"), "a member moved");
-    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
-    assert!(!target.cell.closed.load(std::sync::atomic::Ordering::SeqCst), "nothing was closed");
-
-    // Read afresh, nothing open: deleted.
-    assert!(directory.delete_stored(id.as_str(), read, &seen(now), &live).await.expect("delete"), "no member changed");
 }
 
 /// Attach and close are transitions of one word, so exactly one of a racing attach and a
@@ -5099,115 +2404,6 @@ async fn a_close_from_a_stale_admission_word_is_refused_after_an_attach_and_deta
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_headless_session_keeps_its_options_and_ingests_no_memory_when_it_closes() {
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps());
-    let reply = directory
-        .request(request(
-            "thread/start",
-            json!({
-                "opId": "op-start", "kind": "task", "projectPath": "/ws",
-                "session": { "toolProfile": "headless", "approvalMode": "implicit", "memory": false },
-            }),
-            "op-start",
-        ))
-        .await
-        .expect("thread/start");
-    let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
-    let id = ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"));
-    let handle = directory.handle(&id).expect("loaded");
-    let header = handle.cell.header.load_full();
-    assert_eq!(header["approvalMode"], "implicit");
-    assert_eq!(header["sourceType"], "exec");
-
-    turn(&handle, "hello", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    subscribe(&handle);
-    left_idle(&handle).await;
-    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
-    // The decision is made where the session unloads, before anything is spawned.
-    assert!(lock(&rig.closes.seen).is_empty(), "memory is off for this session");
-}
-
-/// A run outlives the client that walked away (`releaseClient`): the thread stays loaded while it runs, and its end starts the
-/// idle delay over.
-#[tokio::test(start_paused = true)]
-async fn a_live_run_keeps_the_thread_loaded_until_it_ends() {
-    let rig = Rig::new();
-    let (release, gate) = tokio::sync::watch::channel(false);
-    rig.set_script(Arc::new(move |run| {
-        let mut gate = gate.clone();
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let _ = gate.wait_for(|open| *open).await;
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    subscribe(&handle);
-    turn(&handle, "hold", "op-1").await;
-    handle.cell.unsubscribed();
-    caught_up(&handle).await;
-    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
-    caught_up(&handle).await;
-    assert!(directory.handle(&handle.id).is_some(), "the run is live");
-    // Half a delay later it still runs: the deadline the busy thread armed again is nearer than a whole delay after its end.
-    tokio::time::advance(super::actor::IDLE_EVICT / 2).await;
-    caught_up(&handle).await;
-
-    release.send(true).expect("release");
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
-    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
-    caught_up(&handle).await;
-    assert!(directory.handle(&handle.id).is_some(), "not before the delay after the run");
-    tokio::time::advance(Duration::from_secs(2)).await;
-    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
-}
-
-/// The last view's leave reaches the actor although its control lane is full: the thread goes back on the idle clock and
-/// unloads a delay later, never left loaded with nobody watching.
-#[tokio::test(start_paused = true)]
-async fn the_last_detach_on_a_full_control_lane_still_retains_the_thread() {
-    let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    subscribe(&handle);
-    // The deadline armed at the open finds the thread watched: it is off the idle clock.
-    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
-    caught_up(&handle).await;
-    assert!(directory.handle(&handle.id).is_some(), "a watched thread is not evicted");
-
-    // No await between the fill and the leave: the actor drains nothing before it.
-    while handle.cell.ctl_tx.try_send(crate::session::control::Ctl::RefreshSurface).is_ok() {}
-    handle.cell.unsubscribed();
-    // The leave waits for room behind the fill, and the actor takes it before the clock moves.
-    caught_up(&handle).await;
-    caught_up(&handle).await;
-    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
-    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
-}
-
-#[tokio::test(start_paused = true)]
-async fn shutdown_waits_for_the_ingests_at_most_2500_ms() {
-    let rig = Rig::new();
-    rig.set_script(echo());
-    *lock(&rig.closes.delay) = Duration::from_secs(10);
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, "hello", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-
-    let started = tokio::time::Instant::now();
-    directory.shutdown().await;
-    let took = started.elapsed();
-    assert!(took >= Duration::from_millis(2400) && took < Duration::from_millis(4000), "{took:?}");
-    assert!(directory.handle(&handle.id).is_none());
-    assert!(lock(&rig.closes.seen).is_empty(), "the slow ingest was not waited for");
-}
-
-#[tokio::test(start_paused = true)]
 async fn a_completed_turn_goes_to_session_search_with_its_model_context() {
     let rig = Rig::new();
     rig.set_script(echo());
@@ -5219,46 +2415,6 @@ async fn a_completed_turn_goes_to_session_search_with_its_model_context() {
     assert_eq!(thread, handle.id);
     assert_eq!(messages.len(), 2, "the input row and the reply: {messages:?}");
     assert_eq!(messages[1]["text"], "re: hello");
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_value_marked_sensitive_while_a_turn_runs_reingests_its_session_search_copy() {
-    let rig = Rig::new();
-    let (release, gate) = tokio::sync::watch::channel(false);
-    rig.set_script(Arc::new(move |run| {
-        let mut gate = gate.clone();
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let _ = gate.wait_for(|open| *open).await;
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    let fill = json!({
-        "name": "browser",
-        "arguments": { "action": "fill", "input": { "sensitive": true, "text": "hunter2" } },
-    });
-    // Outside a turn no barrier of a turn follows the mark: the thread rewrites its log and re-ingests its copy itself,
-    // once.
-    assert!(rig.sensitive.remember(handle.id.as_str(), std::slice::from_ref(&fill)));
-    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
-    turn(&handle, "hold", "op-1").await;
-    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
-    assert_eq!(lock(&rig.ingests.0).len(), 1);
-
-    let again = json!({
-        "name": "browser",
-        "arguments": { "action": "fill", "input": { "sensitive": true, "text": "s3cret" } },
-    });
-    assert!(rig.sensitive.remember(handle.id.as_str(), &[again]));
-    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 2).then_some(())).await;
-    let (thread, messages) = lock(&rig.ingests.0)[1].clone();
-    assert_eq!(thread, handle.id);
-    assert_eq!(messages.len(), 1, "the turn's durable input row: {messages:?}");
-
-    release.send(true).expect("release");
-    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 3).then_some(())).await;
 }
 
 /// A value a call marked sensitive (`rememberSensitiveValues`, before the assistant row carrying it is committed) is in
@@ -5303,201 +2459,6 @@ async fn a_sensitive_value_never_reaches_the_log_and_the_model_context_keeps_it(
     let context = directory.model_context(&handle.id).read().await.expect("context");
     let row = context.iter().find(|(iid, _)| iid.as_str() == "a-1").expect("the assistant row");
     assert_eq!(row.1, committed, "the model context keeps the row as committed");
-}
-
-/// A value marked sensitive after records holding it were written (the prompt that brought it, its title and prompt-history
-/// rows) leaves every file the thread store and the prompt history wrote (`redactSessionFiles`): the log is rewritten at the
-/// next barrier, the thread's index rows are rebuilt from it with their old pages overwritten and the WAL emptied, and the
-/// cwd's persisted prompts take the marker. The model context still reads the prompt whole for the process.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_value_marked_after_it_was_written_leaves_every_stored_file_and_the_model_context_keeps_it() {
-    use mixdog_core_api::domain::mock::MockOwnership;
-    const CODE: &str = "482913";
-    let data = tempfile::tempdir().expect("data dir");
-    let tokens = mixdog_rt::testing::tokens();
-    let root = data.path().to_path_buf();
-    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
-        mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
-    })
-    .expect("lane")
-    .await
-    .expect("job ran")
-    .expect("index");
-    let threads = Arc::new(super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
-    let rig = Rig::new();
-    let deps = rig.deps_parts(threads.clone());
-    assert!(threads.redact_with(deps.sensitive.clone()).is_ok());
-    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
-    let body = json!({ "role": "assistant", "content": "", "toolCalls": [fill.clone()] });
-    rig.set_script(Arc::new(move |run| {
-        let (body, fill) = (body.clone(), fill.clone());
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            assert!(run.context.remember_sensitive(&[fill]));
-            let row = ItemCommit { iid: ItemId::from("a-1"), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
-            run.port.commit_item(row).await.expect("assistant row");
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(Arc::new(deps));
-    let handle = start_thread(&directory).await;
-    let prompt = format!("{CODE} is the code from the mail");
-    turn(&handle, &prompt, "op-1").await;
-    let cwd = handle.cell.header.load_full()["cwd"].as_str().map(str::to_owned).expect("cwd");
-    let history = rig.prompts.file(&cwd).expect("a prompt history file");
-    let holds = |path: &std::path::Path| std::fs::read(path).is_ok_and(|bytes| bytes.windows(CODE.len()).any(|w| w == CODE.as_bytes()));
-    let files = |dir: &std::path::Path| -> Vec<std::path::PathBuf> {
-        let mut out = Vec::new();
-        let mut stack = vec![dir.to_path_buf()];
-        while let Some(dir) = stack.pop() {
-            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-                if entry.path().is_dir() { stack.push(entry.path()) } else { out.push(entry.path()) }
-            }
-        }
-        out
-    };
-    // The log was rewritten at the barrier after the mark, inside the turn; the index rows follow the projector; the
-    // prompt history is written on the durability lane and tells the rig each time.
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    threads.projected().await;
-    eventually_on!(&[&*rig.prompts_wrote], || (history.is_file() && !holds(&history)).then_some(())).await;
-    let held: Vec<_> = files(data.path()).into_iter().filter(|path| holds(path)).collect();
-    assert!(held.is_empty(), "files holding the value: {held:?}");
-    let context = directory.model_context(&handle.id).read().await.expect("context");
-    let texts = serde_json::to_string(&context.iter().map(|(_, row)| row.clone()).collect::<Vec<_>>()).expect("rows");
-    assert!(texts.contains(&prompt), "the model context keeps the prompt whole: {texts}");
-    assert!(std::fs::read_to_string(&history).expect("history").contains("[redacted] is the code from the mail"));
-    // The history a client is sent after the mark: the thread's own lists take the marker too.
-    let list = eventually_on!(&[&handle.cell.stepped], || {
-        let list = prompt_list(&handle);
-        list.iter().all(|entry| !entry.contains(CODE)).then_some(list)
-    })
-    .await;
-    assert_eq!(list, ["[redacted] is the code from the mail"]);
-    // What a client (the desktop, or a paired phone through the relay: the same `thread/read`) reads after the mark once
-    // the thread is loaded again from its stored files. The live view of the still-loaded thread keeps its rows as sent,
-    // as Node's does.
-    let restarted = SessionDirectory::new(Arc::new(rig.deps_parts(threads.clone())));
-    let reread = restarted.open_handle(&handle.id, &CallContext::internal("test")).await.expect("open");
-    let read = reread
-        .request(request("thread/read", json!({ "threadId": handle.id }), "op-read"))
-        .await
-        .expect("thread/read");
-    let Reply::Value(read) = read else { panic!("thread/read answers a value") };
-    let read = serde_json::to_string(&read).expect("json");
-    assert!(!read.contains(CODE) && read.contains("[redacted] is the code from the mail"), "the loaded view: {read}");
-}
-
-/// A value a worker marks after its report reached its owner leaves the owner's stored files, and on up the chain: a
-/// grandchild's mark is carried to the child whose report quoted it and on to the parent (`carry`, as the worker's turn
-/// sets it up), and each of them, idle, rewrites its log, index rows and prompt history as for a mark of its own.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_value_a_worker_marks_after_its_report_leaves_every_owner_up_the_chain() {
-    use mixdog_core_api::domain::mock::MockOwnership;
-    const CODE: &str = "482913";
-    let data = tempfile::tempdir().expect("data dir");
-    let tokens = mixdog_rt::testing::tokens();
-    let root = data.path().to_path_buf();
-    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
-        mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
-    })
-    .expect("lane")
-    .await
-    .expect("job ran")
-    .expect("index");
-    let threads = Arc::new(super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
-    let rig = Rig::new();
-    let deps = rig.deps_parts(threads.clone());
-    assert!(threads.redact_with(deps.sensitive.clone()).is_ok());
-    let marks = deps.sensitive.clone();
-    rig.set_script(Arc::new(move |run| {
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let row = ItemCommit { iid: ItemId::from(format!("a-{}", run.turn)), role: Some("assistant".into()), model: true, visible: true, body: json!({ "role": "assistant", "content": "noted" }), prompt: None };
-            run.port.commit_item(row).await.expect("assistant row");
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(Arc::new(deps));
-    let (parent, child, grandchild) = (start_thread(&directory).await, start_thread(&directory).await, start_thread(&directory).await);
-    // The reports as delivered before the mark: the child's quoted the value to the parent, the grandchild's to the child.
-    turn(&parent, &format!("the child reported {CODE}"), "op-p").await;
-    turn(&child, &format!("the grandchild reported {CODE}"), "op-c").await;
-    let all = [&parent, &child, &grandchild];
-    eventually_on!(&[&parent.cell.stepped, &child.cell.stepped], || all.iter().all(|h| idle(h)).then_some(())).await;
-    threads.projected().await;
-    let holds = |path: &std::path::Path| std::fs::read(path).is_ok_and(|bytes| bytes.windows(CODE.len()).any(|w| w == CODE.as_bytes()));
-    let files = |dir: &std::path::Path| -> Vec<std::path::PathBuf> {
-        let mut out = Vec::new();
-        let mut stack = vec![dir.to_path_buf()];
-        while let Some(dir) = stack.pop() {
-            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-                if entry.path().is_dir() { stack.push(entry.path()) } else { out.push(entry.path()) }
-            }
-        }
-        out
-    };
-    let held = || files(data.path()).into_iter().filter(|path| holds(path)).collect::<Vec<_>>();
-    assert!(!held().is_empty(), "the reports are stored before the mark");
-    // As each worker's turn sets it up (`TurnRunner::run`), then the grandchild marks the value.
-    marks.carry(&grandchild.id, &child.id);
-    marks.carry(&child.id, &parent.id);
-    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
-    assert!(rig.sensitive.remember(grandchild.id.as_str(), &[fill]));
-    // The files are read after the index holds every write acked so far: the rewrite's index rows are projected behind their ack and
-    // nothing signals the projection, so a probe woken only by the owners' steps and the prompt history read the index before it
-    // had them and then waited for a wake that never came.
-    super::testing::awaiting(
-        || format!("until no file holds the value: {:?}", held()),
-        async {
-            let wakes = [&parent.cell.stepped, &child.cell.stepped, &grandchild.cell.stepped, &*rig.prompts_wrote];
-            loop {
-                let mut waits: Vec<_> = wakes.iter().map(|wake| Box::pin(wake.notified())).collect();
-                for wait in &mut waits {
-                    wait.as_mut().enable();
-                }
-                threads.projected().await;
-                if held().is_empty() {
-                    return;
-                }
-                futures::future::select_all(waits).await;
-            }
-        },
-    )
-    .await;
-    assert!(all.iter().all(|h| idle(h)), "no turn ran for it");
-    assert_eq!(rig.sensitive.redact_text(parent.id.as_str(), CODE), "[redacted]", "the parent holds the mark");
-}
-
-/// The memory ingest of an unloading thread (`ingestSessionIntoMemory`) goes to a database on disk: a value the thread
-/// marked sensitive goes there as the marker, though the model context holds it whole (Node bug, fixed on both sides:
-/// `memory-ingest.mjs` passes the loaded session's messages as they are).
-#[tokio::test(start_paused = true)]
-async fn an_unloading_thread_goes_to_memory_with_its_sensitive_values_as_the_marker() {
-    const CODE: &str = "482913";
-    let rig = Rig::new();
-    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
-    let body = json!({ "role": "assistant", "content": "", "toolCalls": [fill.clone()] });
-    rig.set_script(Arc::new(move |run| {
-        let (body, fill) = (body.clone(), fill.clone());
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            run.context.remember_sensitive(&[fill]);
-            let row = ItemCommit { iid: ItemId::from("a-1"), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
-            run.port.commit_item(row).await.expect("assistant row");
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, &format!("the code is {CODE}"), "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    subscribe(&handle);
-    left_idle(&handle).await;
-    eventually_on!(&[&*rig.closes.ended], || (lock(&rig.closes.seen).len() == 1).then_some(())).await;
-    let ingested = serde_json::to_string(&lock(&rig.closes.seen)[0].1).expect("messages json");
-    assert!(!ingested.contains(CODE), "the memory ingest holds the value: {ingested}");
-    assert!(ingested.contains("[redacted]"), "{ingested}");
 }
 
 #[tokio::test(start_paused = true)]
@@ -5715,480 +2676,6 @@ async fn the_live_header_follows_acked_header_changes() {
     assert_eq!(live.header().get("title"), Some(&json!("renamed")));
 }
 
-/// `thread/reactions/set`: the reaction is stored on the user's message (an amend of its row), a
-/// repeat changes nothing, and the refusals carry Node's text.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_reaction_is_stored_on_the_users_message_and_refused_as_node_does() {
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    rig.set_script(Arc::new(|run| {
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            run.port
-                .commit_item(ItemCommit {
-                    iid: ItemId::from("u1".to_owned()),
-                    role: Some("user".into()),
-                    model: true,
-                    visible: true,
-                    body: json!({ "role": "user", "content": "hello", "meta": { "transcript": { "at": 1, "messageId": "m1" } } }),
-                    prompt: None,
-                })
-                .await
-                .expect("commit");
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
-    let handle = start_thread(&directory).await;
-    turn(&handle, "go", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    let id = handle.id.clone();
-    let react = |params: Value| {
-        handle.request(CoreRequest {
-            method: Method("thread/reactions/set"),
-            params,
-            op: None,
-            ctx: CallContext::internal("test"),
-        })
-    };
-    let value = |reply: Result<Reply, CoreError>| match reply.expect("reply") {
-        Reply::Value(value) => value,
-        Reply::Subscribe(_) => panic!("a value"),
-    };
-
-    let set = value(react(json!({ "agentId": "rev", "emoji": "👍", "messagesBack": 0 })).await);
-    assert_eq!((set["changed"].clone(), set["messageId"].clone()), (json!(true), json!("m1")));
-    assert_eq!(set["reactions"][0]["emoji"], "👍");
-    let again = value(react(json!({ "agentId": "rev", "emoji": "👍" })).await);
-    assert_eq!(again["changed"], false, "the same emoji again changes nothing");
-
-    let stored = |directory: SessionDirectory| {
-        let id = id.clone();
-        async move {
-            let (_, row) = directory.history_row(&id, "u1").await.expect("read").expect("row");
-            let mixdog_store::schema::blob::Slot::Inline(body) = row.body else { panic!("inline") };
-            body["meta"]["transcript"].clone()
-        }
-    };
-    let reopened = SessionDirectory::new(rig.deps_on(store.clone()));
-    let transcript = stored(reopened).await;
-    assert_eq!(transcript["reactions"][0]["agentId"], "rev");
-    assert_eq!(transcript["reactions"][0]["emoji"], "👍");
-
-    let domain = |reply: Result<Reply, CoreError>| match reply {
-        Err(CoreError::DomainError { message: Some(message), .. }) => message.to_string(),
-        other => panic!("a domain error, got {other:?}"),
-    };
-    let taken = domain(react(json!({ "agentId": "bob", "emoji": "👍", "othersKeep": true })).await);
-    assert_eq!(taken, "react: rev already left 👍 on that message");
-    let far = domain(react(json!({ "agentId": "rev", "emoji": "🙏", "messagesBack": 3 })).await);
-    assert_eq!(far, "react: there are only 1 user messages to react to");
-
-    let removed = value(react(json!({ "agentId": "rev", "emoji": null })).await);
-    assert_eq!((removed["changed"].clone(), removed["reactions"].clone()), (json!(true), json!([])));
-    let reopened = SessionDirectory::new(rig.deps_on(store));
-    assert!(stored(reopened).await.get("reactions").is_none(), "the last removal drops the key");
-    let refused = handle
-        .request(request("thread/reactions/set", json!({ "agentId": "rev", "emoji": "👍" }), "op-x"))
-        .await;
-    assert!(matches!(refused, Err(CoreError::InvalidParams { .. }) | Err(CoreError::PermissionDenied { .. })), "{refused:?}");
-}
-
-/// The room log (`agent-room-delivery.mjs` `commit`): a post's rows land in the room session
-/// without a turn and show at once; a messageId the conversation holds, or the post repeats,
-/// is stored once; a session that does not exist is not available, in Node's words.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_room_post_stores_each_message_once_and_shows_it() {
-    use super::room_log::RoomLog;
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    let directory = Arc::new(SessionDirectory::new(rig.deps_on(store.clone())));
-    let handle = start_thread(&directory).await;
-    let id = handle.id.clone();
-    let log = super::room_log::SessionRoomLog::new(directory.clone());
-    let row = |message_id: &str, text: &str| {
-        json!({
-            "role": "user",
-            "content": text,
-            "meta": { "source": "room", "room": { "id": "r1", "speaker": "alice" }, "transcript": { "at": 5, "messageId": message_id } },
-        })
-    };
-    let before = rows(&handle).len();
-    let added = log.append_rows(id.as_str(), vec![row("m1", "one"), row("m2", "two"), row("m1", "again")]).await.expect("post");
-    assert_eq!(added, 2, "a messageId repeated in the post is one row");
-    let added = log.append_rows(id.as_str(), vec![row("m2", "two"), row("m3", "three")]).await.expect("post");
-    assert_eq!(added, 1, "a messageId the conversation holds is skipped");
-    eventually_on!(&[&handle.cell.stepped], || (rows(&handle).len() == before + 3).then_some(())).await;
-
-    let reopened = SessionDirectory::new(rig.deps_on(store));
-    let reread = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-    let Reply::Value(value) = reread
-        .request(CoreRequest {
-            method: Method("thread/messages/read"),
-            params: json!({}),
-            op: None,
-            ctx: CallContext::internal("test"),
-        })
-        .await
-        .expect("messages")
-    else {
-        panic!("a value")
-    };
-    let texts: Vec<&str> = value["messages"].as_array().expect("messages").iter().filter_map(|m| m["content"].as_str()).collect();
-    assert_eq!(texts, ["one", "two", "three"]);
-
-    let missing = log.append_rows("sess_gone", vec![row("m9", "x")]).await;
-    match missing {
-        Err(CoreError::DomainError { message: Some(message), .. }) => assert_eq!(message.to_string(), "session sess_gone is not available"),
-        other => panic!("{other:?}"),
-    }
-}
-
-/// A room post admitted while its log is released on close (Node: the post's save is dropped by the generation fence of the
-/// log's detach, and the fixed `commit` fails with `session <id> is not available`; recorded: `startup-interrupted-post-behind-detach`):
-/// the post is refused in Node's words and no row is written.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_room_post_admitted_while_its_log_is_released_on_close_is_refused_and_writes_nothing() {
-    struct NoShells;
-    impl super::shell_jobs::OwnedShells for NoShells {
-        fn cancel_owned(&self, _: &ThreadId) {}
-    }
-    struct NoProviders;
-    #[async_trait::async_trait]
-    impl mixdog_ai::registry::providers::ProviderBuilder for NoProviders {
-        async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
-            Err(format!("no {name}"))
-        }
-        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
-            Ok(Vec::new())
-        }
-        fn available(&self, _: &str) -> bool {
-            false
-        }
-        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
-            Ok(false)
-        }
-    }
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    let directory = Arc::new(SessionDirectory::new(rig.deps_on(store.clone())));
-    let handle = start_thread(&directory).await;
-    let id = handle.id.clone();
-    let providers = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(NoProviders)));
-    let close = super::close::SessionClose::new(directory.clone(), providers, Arc::new(NoShells), Arc::new(mixdog_tools::fs::ReadState::new(None)));
-    let row = json!({
-        "role": "assistant",
-        "content": "interrupted",
-        "meta": { "source": "agent-room", "room": { "kind": "interrupted" }, "transcript": { "at": 5, "messageId": "row_1" } },
-    });
-    // The post's log is open (admitted) when the log's detach lands.
-    assert!(close.detach(id.as_str(), "test", false).await);
-    let refused = super::room_log::post_on_opened(&handle, vec![row]).await;
-    match refused {
-        Err(CoreError::DomainError { message: Some(message), .. }) => assert_eq!(message.to_string(), format!("session {id} is not available")),
-        other => panic!("{other:?}"),
-    }
-    let reopened = SessionDirectory::new(rig.deps_on(store));
-    let reread = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-    let Reply::Value(value) = reread
-        .request(CoreRequest { method: Method("thread/messages/read"), params: json!({}), op: None, ctx: CallContext::internal("test") })
-        .await
-        .expect("messages")
-    else {
-        panic!("a value")
-    };
-    let texts: Vec<&str> = value["messages"].as_array().expect("messages").iter().filter_map(|m| m["content"].as_str()).collect();
-    assert!(!texts.contains(&"interrupted"), "the refused post wrote nothing: {texts:?}");
-}
-
-/// A hook's `transcript_path` over the real thread store: Node's `<id>.json` before the session
-/// has a model context, the refreshed `<id>.log.jsonl` after it, `null` for an id that names no
-/// session.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_hooks_transcript_path_is_the_sessions_export() {
-    use mixdog_mcp::hook_bus::TranscriptExport;
-
-    let data = tempfile::tempdir().expect("data dir");
-    let store = real_store(data.path()).await;
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
-    let handle = start_thread(&directory).await;
-    let tokens = mixdog_rt::testing::tokens();
-    let lanes = super::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io };
-    let files = super::transcript_export::TranscriptFiles::new(data.path(), store.clone(), lanes, tokens.maintenance_io);
-    let id = handle.id.as_str().to_owned();
-    let sessions = data.path().join("sessions");
-
-    assert_eq!(files.transcript_path(&id).await, json!(sessions.join(format!("{id}.json")).to_string_lossy()));
-    let unexported = sessions.join(format!("{id}.log.jsonl"));
-    let found = mixdog_core_base::support::on_lane(tokens.maintenance_io, &CancellationToken::new(), move |_| mixdog_statefile::read_content(&unexported))
-        .await
-        .expect("read job")
-        .expect("readable");
-    assert!(found.is_none(), "nothing is exported before the first message");
-    assert_eq!(files.transcript_path("../x").await, Value::Null);
-
-    turn(&handle, "hello", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    let log = sessions.join(format!("{id}.log.jsonl"));
-    assert_eq!(files.transcript_path(&id).await, json!(log.to_string_lossy()));
-    let read = log.clone();
-    let bytes = mixdog_core_base::support::on_lane(tokens.maintenance_io, &CancellationToken::new(), move |_| mixdog_statefile::read_content(&read))
-        .await
-        .expect("read job")
-        .expect("readable")
-        .expect("the export exists");
-    let text = String::from_utf8(bytes).expect("UTF-8");
-    let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines.len(), 2, "the session record and the compacted record");
-    let session: Value = serde_json::from_str(lines[0]).expect("session line");
-    assert_eq!(session["t"], "session");
-    assert_eq!(session["id"], id.as_str());
-    let tid = ThreadId::from(id.as_str());
-    let log_id = on_lane_io(&store, move |store, lane| store.read_log_id(lane, &tid)).await;
-    assert_eq!(session["logId"], log_id.as_str());
-    assert!(lines[1].starts_with(r#"{"t":"compacted","s":1,"len":2,"messages":["#), "{}", lines[1]);
-    assert!(lines[1].contains("hello") && lines[1].contains("re: hello"), "{}", lines[1]);
-}
-
-async fn on_lane_io<R: Send + 'static>(
-    store: &Arc<dyn super::ThreadStore>,
-    job: impl FnOnce(&dyn super::ThreadStore, &mixdog_rt::InLane<mixdog_rt::InteractiveIo>) -> Result<R, CoreError> + Send + 'static,
-) -> R {
-    use mixdog_rt::LaneToken;
-    let tokens = mixdog_rt::testing::tokens();
-    let store = store.clone();
-    tokens
-        .interactive_io
-        .submit(&CancellationToken::new(), move |lane| job(store.as_ref(), lane))
-        .expect("lane")
-        .await
-        .expect("job ran")
-        .expect("read")
-}
-
-
-/// A cancel of the pending auto-resume takes effect in memory at once (Node's `cancelEpoch += 1` and
-/// `cancelQuotaResumeEntry` are synchronous): with the store write failing, a fire of the cancelled entry
-/// is stale and the failed turn is not replayed.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_cancel_whose_store_write_fails_still_disarms_the_pending_resume() {
-    use super::quota_resume_host::SessionResumeHost;
-    use super::quota_resume_scheduler::FireOutcome;
-    use super::quota_resume_scheduler::ResumeHost;
-    use mixdog_core_ports::ports::domain_sessions::QuotaResumeSessions;
-
-    let rig = Rig::new();
-    let directory = Arc::new(SessionDirectory::new(rig.deps()));
-    rig.set_script(quota_failure());
-    let handle = start_routed_thread(&directory).await;
-    let id = handle.id.as_str().to_owned();
-    turn(&handle, "build the parser", "op-failed").await;
-    let entry = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id)).await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    // The next store write fails: the file's place becomes a directory (the atomic rename cannot land).
-    let file = rig._data.path().join(mixdog_core_base::quota_resume::QUOTA_RESUME_FILE);
-    crate::session::fixture_fs::remove_file(&file);
-    crate::session::fixture_fs::create_dir_all(&file);
-    directory.cancelled(&handle.id).await.unwrap();
-    assert!(rig.quota.entry(&id).is_some(), "the entry is still stored: the write failed");
-
-    rig.set_script(echo());
-    let host = SessionResumeHost::new(directory.clone(), Arc::new(NoUsage));
-    host.materialize(&id).await.expect("loaded");
-    eventually_on!(&[&handle.cell.stepped], || (!handle.cell.busy.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
-    let outcome = host.fire(&id, entry.generation).await;
-    assert_eq!(outcome, Ok(FireOutcome::Stale), "the cancelled resume does not fire");
-    assert!(!rows(&handle).iter().any(|(role, text)| *role == "assistant" && text.starts_with("re: ")), "and the failed turn was not replayed");
-}
-
-/// A user's rename as Node's runtime answers it (`record-session-rename.mjs` → `session-rename-twin.json`,
-/// `updateSessionManualTitle`): every case's outcome and the title keys left on the session are Node's, and a refusal is the
-/// text the desktop host shows for it (`Session is not available.`).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_rename_is_refused_and_leaves_the_session_as_nodes_runtime_does() {
-    let twin: Value = serde_json::from_str(include_str!("../../../../fixtures/desktop/settings/session-rename-twin.json")).unwrap();
-    let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps());
-    let kept = |header: &serde_json::Map<String, Value>| {
-        json!({
-            "title": header.get("title").cloned().unwrap_or(Value::Null),
-            "titleLocked": header.get("titleLocked").cloned().unwrap_or(Value::Null),
-            "titleSource": header.get("titleSource").cloned().unwrap_or(Value::Null),
-            "stamped": header.get("titleUpdatedAt").is_some_and(|stamp| stamp.as_i64().is_some_and(|stamp| stamp > 0)),
-        })
-    };
-    let mut refused = 0;
-    for (index, case) in twin["cases"].as_array().unwrap().iter().enumerate() {
-        let label = format!("case {index} {} {:?}", case["state"], case["title"]);
-        let handle = start_thread(&directory).await;
-        let patch = json!({ "threadId": handle.id, "set": case["initial"], "unset": [] });
-        handle
-            .request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") })
-            .await
-            .expect("plant");
-        let before = handle.live_header().header();
-        let op = format!("op-rename-{index}");
-        let answer = handle.request(request("thread/name/set", json!({ "threadId": handle.id, "opId": op, "title": case["title"] }), &op)).await;
-        let after = handle.live_header().header();
-        // The IPC and remote edge of Node (`sessionDisplayName`) is the core's now: a title it refuses never reaches the host's
-        // or the runtime's rule, and the twin's `runtime`/`desktop` answers for it (recorded without that edge) do not apply.
-        let title = case["title"].as_str().unwrap();
-        let shown = title.trim();
-        if shown.is_empty() || shown.encode_utf16().count() > 1_024 || shown.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}') {
-            refused += 1;
-            let Err(CoreError::DomainError { message: Some(message), code: None, .. }) = &answer else { panic!("{label}: got {answer:?}") };
-            assert_eq!(&**message, "title is invalid.", "{label}");
-            assert_eq!(after, before, "{label}: a refused rename writes nothing");
-            continue;
-        }
-        let node = &case["runtime"];
-        match (answer, node["returned"].as_bool().unwrap()) {
-            (Ok(_), true) => {
-                let want = &node["kept"];
-                let got = kept(&after);
-                assert_eq!((&got["title"], &got["titleLocked"], &got["titleSource"], &got["stamped"]), (&want["title"], &want["titleLocked"], &want["titleSource"], &want["stamped"]), "{label}");
-            }
-            (Err(CoreError::DomainError { message: Some(message), code: None, .. }), false) => {
-                refused += 1;
-                assert_eq!(&*message, "Session is not available.", "{label}");
-                assert_eq!(after, before, "{label}: a refused rename writes nothing");
-            }
-            (answer, returned) => panic!("{label}: got {answer:?}, Node returned {returned}"),
-        }
-    }
-    assert!(refused > 15, "the twin refuses {refused} renames");
-}
-
-/// A worker's reply committed while the io-interactive lane is full (its threads and queue taken by jobs a gate holds)
-/// waits for room: once the gate lets the lane go the row lands and the turn ends with it, never dropped as closed.
-#[tokio::test(start_paused = true)]
-async fn a_reply_committed_while_the_io_lane_is_full_lands_once_it_has_room() {
-    let rig = Rig::new();
-    let (release, gate) = tokio::sync::watch::channel(false);
-    let committed: Arc<Mutex<Option<Result<(), super::run::RunError>>>> = Arc::default();
-    let seen = committed.clone();
-    rig.set_script(Arc::new(move |run| {
-        let (mut gate, seen) = (gate.clone(), seen.clone());
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let _ = gate.wait_for(|open| *open).await;
-            let done = run
-                .port
-                .commit_item(ItemCommit {
-                    iid: ItemId::from(format!("a-{}", run.turn)),
-                    role: Some("assistant".into()),
-                    model: true,
-                    visible: true,
-                    body: json!({ "text": "re: hello" }),
-                    prompt: None,
-                })
-                .await;
-            *lock(&seen) = Some(done);
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, "hello", "op-1").await;
-    let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
-    release.send(true).expect("release");
-    super::testing::awaiting(|| "the reply's commit to meet the full lane".into(), full.met_by_a_submit()).await;
-    assert!(lock(&committed).is_none(), "the commit waits for room");
-    assert!(!idle(&handle), "the run waits with it");
-    drop(full);
-    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
-    assert_eq!(*lock(&committed), Some(Ok(())));
-    let (_, messages) = lock(&rig.ingests.0)[0].clone();
-    assert_eq!(messages[1]["text"], "re: hello", "{messages:?}");
-}
-
-/// A Lead turn submitted while the io-interactive lane is full is accepted once it has room, not refused as closed.
-#[tokio::test(start_paused = true)]
-async fn a_turn_submitted_while_the_io_lane_is_full_starts_once_it_has_room() {
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
-    let submitted = {
-        let handle = handle.clone();
-        tokio::spawn(async move { turn(&handle, "hello", "op-1").await })
-    };
-    super::testing::awaiting(|| "the turn's start to meet the full lane".into(), full.met_by_a_submit()).await;
-    assert!(!submitted.is_finished(), "the start waits for room");
-    drop(full);
-    let started = super::testing::awaiting(|| "the turn's start once the lane has room".into(), submitted).await.expect("the submit's task");
-    assert_eq!(started["kind"], "started", "{started}");
-    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
-}
-
-/// A turn whose input row's lane job can never run (a lane that cannot take it or signal room) is answered with an error
-/// that names the lane, never "The session is closed.".
-#[tokio::test]
-async fn a_turn_whose_lane_job_is_refused_hears_the_lane_not_closed() {
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    let answer = {
-        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
-        handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "hello" } }), "op-1")).await
-    };
-    match answer {
-        Err(CoreError::QueueFull { queue }) => assert_eq!(&*queue, mixdog_rt::LaneKind::InteractiveIo.name()),
-        other => panic!("the refused start names the lane: {other:?}"),
-    }
-}
-
-/// Each lane job a turn submits, refused in its turn (a lane that cannot run it): the start is answered with its result or
-/// an error that names the cause, never "The session is closed.", and the thread takes the next turn.
-#[tokio::test]
-async fn a_refused_lane_job_anywhere_in_a_turn_never_closes_the_session() {
-    let closed = |answer: &Result<Reply, CoreError>| format!("{answer:?}").contains("The session is closed.");
-    for n in 0.. {
-        let rig = Rig::new();
-        // The run hears a refused input or commit as an error and ends interrupted: the refusal is the thread's to answer.
-        rig.set_script(Arc::new(|run| {
-            Box::pin(async move {
-                if run.port.input_durable().await.is_err() {
-                    return RunOutcome::Interrupted;
-                }
-                let commit = ItemCommit {
-                    iid: ItemId::from(format!("a-{}", run.turn)),
-                    role: Some("assistant".into()),
-                    model: true,
-                    visible: true,
-                    body: json!({ "text": "re" }),
-                    prompt: None,
-                };
-                match run.port.commit_item(commit).await {
-                    Ok(_) => RunOutcome::Completed(Default::default()),
-                    Err(_) => RunOutcome::Interrupted,
-                }
-            })
-        }));
-        let directory = SessionDirectory::new(rig.deps());
-        let handle = start_thread(&directory).await;
-        let (answer, reached) = {
-            let _refused = mixdog_rt::testing::refuse_nth_job_on_this_thread(n);
-            let answer = handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "hello" } }), "op-1")).await;
-            eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-            (answer, mixdog_rt::testing::attempts_on_this_thread() > n)
-        };
-        assert!(!closed(&answer), "job {n} refused: {answer:?}");
-        let next = handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-2", "input": { "prompt": "again" } }), "op-2")).await;
-        assert!(next.is_ok(), "job {n} refused, then the next turn: {next:?}");
-        if !reached {
-            break;
-        }
-    }
-}
-
 /// `rewindToItem` (`rewind.mjs`): a composer that cannot hold file parts (`restoreFiles: false`) is refused with Node's sentence and
 /// the conversation stays as it was; otherwise the stored prompt's pasted text, image and file come back with their bytes
 /// (`restorableAttachmentsFromPrompt`, `hydrateTolerantly`), a blob that is gone dropped alone and counted in `notice`.
@@ -6204,7 +2691,7 @@ async fn a_rewind_hands_back_the_prompts_attachments_and_refuses_a_composer_that
     let id = start_thread(&first).await.id.clone();
     let blob = |bytes: &[u8]| {
         let reference = format!("{:x}", sha2::Sha256::digest(bytes));
-        let dir = root.join("prompt-attachments/sha256").join(&reference[..2]);
+        let dir = root.join(mixdog_store::schema::blob::BLOB_DIR).join(&reference[..2]);
         std::fs::create_dir_all(&dir).expect("blob dir");
         std::fs::write(dir.join(&reference), bytes).expect("blob");
         reference
@@ -6290,6 +2777,2560 @@ async fn a_persons_clear_keeps_the_conversation_as_a_session_of_its_own_and_reco
     assert_eq!(ids(), before, "an internal reset makes no copy of its own");
 }
 
+// ---- the retained working indicator: a run stage is the spinner's state, not an event a client reconstructs ----
+
+/// The spinner of the acked view, as every client folds it.
+fn spinner_of(handle: &SessionHandle) -> Option<Value> {
+    handle.cell.view.load_full().state.runtime.as_ref().and_then(|runtime| runtime.spinner.clone())
+}
+
+/// One turn whose script performs `steps` in order and ends as `ending` says. `hold` waits for `gate`; a stage sent after the run
+/// ended (`late`) is raised by a task of the run's own port once `late` is notified.
+struct StageTurn {
+    _directory: SessionDirectory,
+    handle: Arc<SessionHandle>,
+    gate: Arc<tokio::sync::Notify>,
+    late: Arc<tokio::sync::Notify>,
+    turn_id: TurnId,
+}
+
+async fn spinner_where(rig: &Rig, run: &StageTurn, _what: &str, ok: impl Fn(&Value) -> bool) -> Value {
+    eventually_on!(&[&rig.feeds.published, &run.handle.cell.stepped], || spinner_of(&run.handle).filter(|spinner| ok(spinner))).await
+}
+
+async fn spinner_gone(rig: &Rig, run: &StageTurn) {
+    eventually_on!(&[&rig.feeds.published, &run.handle.cell.stepped], || (idle(&run.handle) && spinner_of(&run.handle).is_none()).then_some(())).await;
+}
+
+/// A client attaching now: the spinner its first snapshot carries.
+async fn attached_spinner(handle: &Arc<SessionHandle>, connection: u64) -> Value {
+    use mixdog_core_api::mock::{MockConnection, MockLimits};
+    use mixdog_core_api::sink::ConnectionSink;
+    let resume = request("thread/resume", json!({ "threadId": handle.id, "window": { "lastItems": 10 } }), &format!("op-resume-{connection}"));
+    let Reply::Subscribe(resumed) = handle.request(resume).await.expect("thread/resume") else { panic!("thread/resume subscribes") };
+    let client = MockConnection::new(ConnectionId(connection), MockLimits::default());
+    let attached = mixdog_core_api::feed::subscribe(&resumed.feed, mixdog_core_api::ids::SubscriptionId::from("client"), resumed.window, None, &client).expect("attach");
+    client.send_control_release(bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
+    let texts = client.drain_text_until(|texts| texts.iter().any(|text| text.contains("thread/snapshot"))).await;
+    // `drain_text` names the lane before the frame (`<subscription>:{...}`).
+    let frame = texts.iter().find(|text| text.contains("thread/snapshot")).expect("a snapshot");
+    serde_json::from_str::<Value>(&frame[frame.find('{').expect("a json frame")..]).expect("a frame")["params"]["state"]["runtime"]["spinner"].clone()
+}
+
+
+
+/// The Rig's Goal timers fire at their time on the test runtime's clock (here paused, so exactly),
+/// and a cancelled one never fires.
+#[tokio::test(start_paused = true)]
+async fn the_rigs_goal_timers_follow_the_test_clock_and_cancel() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    use mixdog_core_goal::goal::GoalTimers;
+    use mixdog_core_goal::goal::TimerKind;
+
+    let fired = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (due, never) = (fired.clone(), fired.clone());
+    let timers = super::testing::RigGoalTimers;
+    let _due = timers.after(TimerKind::Deadline, 60_000.0, Box::new(move || { due.fetch_add(1, SeqCst); }));
+    let cancelled = timers.after(TimerKind::Warning, 30_000.0, Box::new(move || { never.fetch_add(10, SeqCst); }));
+    cancelled.cancel();
+    mixdog_rt::time::sleep(Duration::from_secs(59)).await;
+    assert_eq!(fired.load(SeqCst), 0, "not before its time");
+    mixdog_rt::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(fired.load(SeqCst), 1, "the due one fired once; the cancelled one never");
+}
+
+
+#[tokio::test(start_paused = true)]
+async fn prompt_history_follows_todays_derivation_and_updates_incrementally() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let file = rig.prompts.file("/ws").expect("history file");
+    crate::session::fixture_fs::write(&file, br#"{"version":1,"entries":["older","one"]}"#);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    eventually_on!(&[&handle.cell.stepped], || (prompt_list(&handle) == ["one", "older"]).then_some(())).await;
+
+    turn(&handle, "two", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    turn(&handle, "  one  ", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (prompt_list(&handle) == ["one", "two", "older"]).then_some(())).await;
+    // The persisted history of the cwd took both submits (`appendPromptHistory`), written behind
+    // the window (`WRITE_BEHIND_MS`) after the last of them.
+    let want = json!({ "version": 1, "entries": ["older", "two", "one"] });
+    tokio::time::advance(Duration::from_millis(super::prompt_history::WRITE_BEHIND_MS)).await;
+    let saved =eventually_on!(&[&*rig.prompts_wrote], || {
+        let text = crate::session::fixture_fs::read_to_string(&file).ok()?;
+        serde_json::from_str::<Value>(&text).ok().filter(|saved| *saved == want)
+    })
+    .await;
+    assert_eq!(saved, want);
+
+    let updates: Vec<Value> = rig
+        .feeds
+        .frames(handle.id.as_str())
+        .into_iter()
+        .filter(|(_, method, _)| method == "thread/promptHistory/updated")
+        .map(|(_, _, params)| params["value"].clone())
+        .collect();
+    assert!(updates.contains(&json!({ "kind": "added", "prompt": "two" })));
+    assert!(updates.contains(&json!({ "kind": "added", "prompt": "one" })));
+
+    // Rewind to the second prompt: its text returns to the composer and leaves the list.
+    let second = handle.cell.view.load_full().items[2].id().clone();
+    let reply = handle
+        .request(request(
+            "thread/rewind",
+            json!({ "threadId": handle.id, "opId": "op-3", "itemId": second }),
+            "op-3",
+        ))
+        .await
+        .expect("rewind");
+    let Reply::Value(value) = reply else { panic!() };
+    assert_eq!(value["text"], "one");
+    eventually_on!(&[&handle.cell.stepped], || (rows(&handle).len() == 2).then_some(())).await;
+    assert_eq!(prompt_list(&handle), ["two", "older"]);
+    let frames = rig.feeds.frames(handle.id.as_str());
+    let reset = frames
+        .iter()
+        .find(|(_, method, _)| method == "thread/historyReset")
+        .expect("historyReset");
+    assert_eq!(reset.2["hasOlder"], false);
+    assert_eq!(
+        frames.last().map(|(_, m, p)| (m.as_str(), p["value"].clone())),
+        Some(("thread/promptHistory/updated", json!({ "kind": "replaced", "prompts": ["two", "older"] })))
+    );
+}
+
+
+/// A kickoff pushes no user row in Node (drain.mjs `renderBatchItems` skips `suppressDisplay`), so it never reaches the prompt
+/// history, neither the session's list nor the cwd's file (recorded: `running-runtime-turn`'s states keep `promptHistoryList` empty).
+#[tokio::test(start_paused = true)]
+async fn a_kickoff_stays_out_of_the_prompt_history() {
+    let rig = Rig::new();
+    let file = rig.prompts.file("/ws").expect("history file");
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    handle
+        .request(request(
+            "turn/start",
+            json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "greet the user", "options": { "clientSubmissionId": "sub-k", "kickoff": true } } }),
+            "op-1",
+        ))
+        .await
+        .expect("started");
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    turn(&handle, "typed", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && prompt_list(&handle) == ["typed"]).then_some(())).await;
+    tokio::time::advance(Duration::from_millis(super::prompt_history::WRITE_BEHIND_MS)).await;
+    let want = json!({ "version": 1, "entries": ["typed"] });
+    let saved = eventually_on!(&[&*rig.prompts_wrote], || {
+        let text = crate::session::fixture_fs::read_to_string(&file).ok()?;
+        serde_json::from_str::<Value>(&text).ok().filter(|saved| *saved == want)
+    })
+    .await;
+    assert_eq!(saved, want);
+    let added: Vec<Value> = rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/promptHistory/updated").map(|(_, _, params)| params["value"].clone()).collect();
+    assert_eq!(added, vec![json!({ "kind": "added", "prompt": "typed" })]);
+}
+
+
+/// The spinner follows a tool batch as Node's turn sets it: `tool-use` as the batch opens (`openToolCalls`,
+/// `closeThinkingForToolBatch`), `tool-approval` while a call waits for the person (`approveToolRequest`), `requesting` once the
+/// batch is over (`onToolPhaseCompleted`; recorded: `running-approval-pending`'s states show `tool-approval`, then `tool-use`).
+#[tokio::test(start_paused = true)]
+async fn the_spinner_follows_a_tool_batch() {
+    use super::run::CallMark;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            for mark in [CallMark::Streaming, CallMark::ToolCall, CallMark::ToolApproval, CallMark::ToolPhaseCompleted] {
+                run.port.call_mark(mark).await.expect("shown");
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "use a tool", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let mut modes: Vec<String> = Vec::new();
+    for (_, method, params) in rig.feeds.frames(handle.id.as_str()) {
+        if method != "thread/runtime/updated" {
+            continue;
+        }
+        if let Some(mode) = params["value"]["spinner"]["mode"].as_str()
+            && modes.last().map(String::as_str) != Some(mode)
+        {
+            modes.push(mode.to_owned());
+        }
+    }
+    assert_eq!(modes, ["requesting", "responding", "tool-use", "tool-approval", "requesting"]);
+}
+
+
+/// A batch holding a `task wait` (no card of its own) shows as the spinner's `task-wait` until the wait settles, then `tool-use`
+/// again (`taskWaitSpinnerMode`, `refreshTaskWaitSpinner`): the turn reads as waiting, not thinking.
+#[tokio::test(start_paused = true)]
+async fn the_spinner_shows_a_task_wait_until_it_settles() {
+    use super::run::CallMark;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            for mark in [CallMark::ToolCall, CallMark::TaskWait(true), CallMark::TaskWait(false), CallMark::ToolPhaseCompleted] {
+                run.port.call_mark(mark).await.expect("shown");
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "wait on a task", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let mut modes: Vec<String> = Vec::new();
+    for (_, method, params) in rig.feeds.frames(handle.id.as_str()) {
+        if method != "thread/runtime/updated" {
+            continue;
+        }
+        if let Some(mode) = params["value"]["spinner"]["mode"].as_str()
+            && modes.last().map(String::as_str) != Some(mode)
+        {
+            modes.push(mode.to_owned());
+        }
+    }
+    assert_eq!(modes, ["requesting", "tool-use", "task-wait", "tool-use", "requesting"]);
+}
+
+
+#[tokio::test(start_paused = true)]
+async fn input_and_task_notifications_release_the_runs_wait() {
+    use mixdog_tools::exec::TaskNotifier;
+    use mixdog_tools::exec::WakeReason;
+    let rig = Rig::new();
+    let wakes = rig.wakes.clone();
+    let reasons: Arc<Mutex<Vec<WakeReason>>> = Arc::default();
+    let seen = reasons.clone();
+    let inputs: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let bodies = inputs.clone();
+    // Told after each wait the run begins, each reason it records and each input it takes.
+    let progress = Arc::new(tokio::sync::Notify::new());
+    let told = progress.clone();
+    // The first run's `task wait`, twice: once released by new input, once by a notification.
+    rig.set_script(Arc::new(move |run| {
+        let wakes = wakes.clone();
+        let seen = seen.clone();
+        let told = told.clone();
+        let first = {
+            let mut bodies = lock(&bodies);
+            bodies.push(run.input_body.clone());
+            bodies.len() == 1
+        };
+        told.notify_waiters();
+        Box::pin(async move {
+            for _ in 0..usize::from(first) * 2 {
+                let wait = wakes.begin(&run.thread);
+                told.notify_waiters();
+                wait.released().await;
+                lock(&seen).push(wait.wake().expect("released").reason);
+                told.notify_waiters();
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "build", "op-1").await;
+    eventually_on!(&[&progress], || (rig.wakes.active_waits(&handle.id) == 1).then_some(())).await;
+    assert_eq!(turn(&handle, "next", "op-2").await["kind"], "queued");
+    eventually_on!(&[&progress], || (rig.wakes.active_waits(&handle.id) == 1 && lock(&reasons).len() == 1).then_some(()))
+        .await;
+
+    directory.finished(&handle.id, "shell", "job-7", "completed", "Async shell task job-7 finished.".into()).await;
+    eventually_on!(&[&progress], || (lock(&reasons).len() == 2).then_some(())).await;
+    assert_eq!(*lock(&reasons), [WakeReason::UserMessage, WakeReason::Notification]);
+
+    // The completion was queued, never a queued prompt; the turn took no boundary after it, so
+    // it runs as its own turn after the queued prompt, as a task-notification row.
+    eventually_on!(&[&progress], || (lock(&inputs).len() == 3).then_some(())).await;
+    let bodies = lock(&inputs).clone();
+    assert_eq!(bodies[1]["content"], "next");
+    assert_eq!(bodies[2]["meta"]["source"], "task-notification");
+    assert_eq!(bodies[2]["meta"]["execution"], json!({ "surface": "shell", "id": "job-7", "status": "completed" }));
+    assert_eq!(bodies[2]["content"], "Async shell task job-7 finished.");
+    assert!(!prompt_list(&handle).iter().any(|p| p.contains("job-7")));
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    assert!(handle.cell.view.load_full().state.queued.as_ref().is_some_and(Vec::is_empty));
+}
+
+
+/// A queued completion as the run takes it at a boundary: `SteerMode::TaskNotification`
+/// with its execution, after steered prompts; taken, it never starts a turn of its own.
+#[tokio::test(start_paused = true)]
+async fn a_running_turn_takes_a_completion_at_its_next_boundary() {
+    use mixdog_tools::exec::TaskNotifier;
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let taken: Arc<Mutex<Vec<SteerInput>>> = Arc::default();
+    let (open, out) = (gate.clone(), taken.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (open, out) = (open.clone(), out.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            open.notified().await;
+            let steers = run.port.take_steers(drain(DrainStage::PreSend)).await.expect("take");
+            lock(&out).extend(steers);
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "build", "op-1").await;
+    directory.finished(&handle.id, "shell", "job-7", "completed", "job-7 finished.".into()).await;
+    // Durable before the boundary looks.
+    eventually_on!(&[&handle.cell.stepped], || {
+        rig.store.records(&handle.id).into_iter().any(|(_, record)| {
+            matches!(record, mixdog_store::schema::record::Record::Queue(_))
+        })
+        .then_some(())
+    })
+    .await;
+    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let taken = lock(&taken).clone();
+    assert_eq!(taken.len(), 1);
+    assert_eq!(taken[0].mode, SteerMode::TaskNotification);
+    assert_eq!(taken[0].execution, Some(json!({ "surface": "shell", "id": "job-7", "status": "completed" })));
+    assert_eq!(taken[0].content, "job-7 finished.");
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(runs_started(&rig, &handle.id), 1, "a taken completion starts no turn");
+}
+
+
+/// `session-flow/steering.mjs:204` (`drainPendingSteering`, the desktop host's queue): every boundary takes each queued
+/// prompt within its priority as an input of its own, never merged (session-send-world `recipient-queued`); the completion
+/// then left alone in the queue is taken at the same boundary (`ask-turn-steering-drain.mjs:44-58`). None of it starts a turn.
+#[tokio::test(start_paused = true)]
+async fn queued_prompts_are_taken_one_by_one_at_the_next_boundary() {
+    use mixdog_tools::exec::TaskNotifier;
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let taken: Arc<Mutex<Vec<Vec<SteerInput>>>> = Arc::default();
+    let (open, out) = (gate.clone(), taken.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (open, out) = (open.clone(), out.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            if lock(&out).is_empty() {
+                open.notified().await;
+            }
+            for stage in [DrainStage::PreSend, DrainStage::Terminal] {
+                let steers = run.port.take_steers(drain(stage)).await.expect("take");
+                lock(&out).push(steers);
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "build", "op-1").await;
+    let first = turn(&handle, "first", "op-2").await;
+    let second = turn(&handle, "second", "op-3").await;
+    directory.finished(&handle.id, "shell", "job-7", "completed", "job-7 finished.".into()).await;
+    eventually_on!(&[&handle.cell.stepped], || {
+        let queued = rig.store.records(&handle.id).into_iter().filter(|(_, record)| {
+            matches!(record, mixdog_store::schema::record::Record::Queue(_))
+        });
+        (queued.count() == 3).then_some(())
+    })
+    .await;
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let taken = lock(&taken).clone();
+    assert_eq!(taken.len(), 2);
+    let next = &taken[0];
+    assert_eq!(next.len(), 3);
+    for (input, (content, queued)) in next.iter().zip([("first", &first), ("second", &second)]) {
+        assert_eq!(input.mode, SteerMode::Prompt);
+        assert_eq!(input.content, content);
+        let ids: Vec<&str> = input.queued_ids.iter().map(|id| id.as_str()).collect();
+        assert_eq!(ids, [queued["queuedId"].as_str().unwrap()]);
+    }
+    assert_eq!(next[2].mode, SteerMode::TaskNotification);
+    assert_eq!(next[2].content, "job-7 finished.");
+    assert!(taken[1].is_empty(), "the terminal boundary finds the queue empty");
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(runs_started(&rig, &handle.id), 1, "taken input starts no turn");
+    assert!(handle.cell.view.load_full().state.queued.as_ref().is_some_and(Vec::is_empty));
+}
+
+
+/// `notification-bus.test.mjs` "one wake per session is in flight, and a suppressed wake
+/// replays afterwards": completions that land after the woken turn's last look are one batch in one
+/// turn, oldest first (`drain.mjs`: queued notices merged into one batch), and a replay that finds nothing ends the chain.
+#[tokio::test(start_paused = true)]
+async fn completions_after_the_woken_turns_last_look_replay_oldest_first() {
+    use mixdog_tools::exec::TaskNotifier;
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let inputs: Arc<Mutex<Vec<(Value, usize)>>> = Arc::default();
+    let (open, seen) = (gate.clone(), inputs.clone());
+    let progress = Arc::new(tokio::sync::Notify::new());
+    let said = progress.clone();
+    rig.set_script(Arc::new(move |run| {
+        let (open, seen, told) = (open.clone(), seen.clone(), said.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let first = lock(&seen).is_empty();
+            // The boundary looks first; the woken turn then waits past its last look.
+            let took = run.port.take_steers(drain(DrainStage::PreSend)).await.expect("take").len();
+            lock(&seen).push((run.input_body.clone(), took));
+            told.notify_waiters();
+            if first {
+                open.notified().await;
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    directory.finished(&handle.id, "shell", "job-1", "completed", "job-1 finished.".into()).await;
+    eventually_on!(&[&progress], || (lock(&inputs).len() == 1).then_some(())).await;
+    directory.finished(&handle.id, "shell", "job-2", "completed", "job-2 finished.".into()).await;
+    directory.finished(&handle.id, "shell", "job-3", "completed", "job-3 finished.".into()).await;
+    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
+    gate.notify_one();
+    eventually_on!(&[&progress], || (lock(&inputs).len() == 2).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
+    let inputs = lock(&inputs).clone();
+    let order: Vec<&str> = inputs.iter().map(|(body, _)| body["content"].as_str().unwrap()).collect();
+    assert_eq!(order, ["job-1 finished.", "job-2 finished.\njob-3 finished."]);
+    // The replayed wake drained both: they are one turn, not taken by a boundary.
+    assert!(inputs.iter().all(|(_, took)| *took == 0), "{inputs:?}");
+    assert_eq!(runs_started(&rig, &handle.id), 2, "a replay that finds nothing ends the chain");
+}
+
+
+/// `ask-turn-steering-drain.mjs:48`: while a route saved during the turn is held, the queued
+/// completion is left to the next turn.
+#[tokio::test(start_paused = true)]
+async fn a_held_route_leaves_a_completion_to_the_next_turn() {
+    use crate::session::thread_state::SessionThreads;
+    use mixdog_core_ports::ports::threads::ThreadState;
+    use mixdog_tools::exec::TaskNotifier;
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let took: Arc<Mutex<Vec<usize>>> = Arc::default();
+    let (open, seen) = (gate.clone(), took.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (open, seen) = (open.clone(), seen.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            if lock(&seen).is_empty() {
+                open.notified().await;
+            }
+            let n = run.port.take_steers(drain(DrainStage::PreSend)).await.expect("take").len();
+            lock(&seen).push(n);
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "build", "op-1").await;
+    let mut set = serde_json::Map::new();
+    set.insert("pendingRoute".into(), json!({ "provider": "p", "model": "m" }));
+    SessionThreads::new(directory.clone()).patch_header(&handle.id, set, Vec::new()).await.expect("held");
+    directory.finished(&handle.id, "shell", "job-7", "completed", "job-7 finished.".into()).await;
+    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (lock(&took).len() == 2).then_some(())).await;
+    assert_eq!(lock(&took)[0], 0, "held: not taken by this turn");
+    assert_eq!(runs_started(&rig, &handle.id), 2, "the next turn is the completion's");
+}
+
+
+/// The control kind is the `session` record's own field, outside its header: a control thread's hook transcript export and its
+/// `thread/read` carry no trace of it, and a reopen in another directory over the same store still finds the control session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_control_threads_export_and_read_carry_no_kind_and_a_reopen_restores_it() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let first = SessionDirectory::new(rig.deps_on(store.clone()));
+    let id = start_control(&first, "op-control").await.expect("control start");
+    let handle = first.handle(&id).expect("loaded");
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    let no_kind = |value: &Value, what: &str| {
+        fn keys(value: &Value, out: &mut Vec<String>) {
+            match value {
+                Value::Object(map) => map.iter().for_each(|(key, value)| {
+                    out.push(key.clone());
+                    keys(value, out);
+                }),
+                Value::Array(items) => items.iter().for_each(|value| keys(value, out)),
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        keys(value, &mut found);
+        let kind: Vec<_> = found.iter().filter(|key| key.to_lowercase().contains("control")).collect();
+        assert!(kind.is_empty(), "{what} carries {kind:?}");
+    };
+
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = super::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io };
+    let files = super::transcript_export::TranscriptFiles::new(data.path(), store.clone(), lanes, tokens.maintenance_io);
+    let path = super::transcript_export::export_path(data.path(), id.as_str());
+    use mixdog_mcp::hook_bus::TranscriptExport;
+    assert_eq!(files.transcript_path(id.as_str()).await, json!(path.to_string_lossy()), "the thread has a transcript");
+    let bytes = mixdog_core_base::support::on_lane(tokens.maintenance_io, &CancellationToken::new(), move |_| mixdog_statefile::read_content(&path))
+        .await
+        .expect("read job")
+        .expect("readable")
+        .expect("the export exists");
+    let text = String::from_utf8(bytes).expect("UTF-8");
+    let session: Value = serde_json::from_str(text.lines().next().expect("the session line")).expect("JSON");
+    assert_eq!(session["header"]["id"], id.as_str(), "the export is the thread's");
+    for line in text.lines() {
+        no_kind(&serde_json::from_str(line).expect("JSON"), "the export");
+    }
+
+    let read = CoreRequest { method: Method("thread/read"), params: json!({ "threadId": id }), op: None, ctx: CallContext::internal("test") };
+    let Reply::Value(read) = handle.request(read).await.expect("thread/read") else { panic!("thread/read answers a value") };
+    assert_eq!(read["thread"]["id"], id.as_str());
+    no_kind(&read, "thread/read");
+
+    let second = SessionDirectory::new(rig.deps_on(store));
+    second.open_handle(&id, &CallContext::internal("test")).await.expect("reopened");
+    assert_eq!(second.control_ids(), [id]);
+}
+
+
+/// The draft's worktree is entered after the thread exists and before the first prompt, through the workspace seam, with the
+/// worktree choice and the start's input; a draft without one, and a control start, enter nothing (`createNewTask`).
+#[tokio::test(start_paused = true)]
+async fn a_drafts_worktree_is_entered_once_the_thread_exists() {
+    let rig = Rig::new();
+    let place = Arc::new(super::testing::RecordingPlace::default());
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_place = place.clone();
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let draft = json!({ "projectPath": "/repo", "worktree": { "branch": "feat", "create": true } });
+    let reply = directory.request(request("thread/start", json!({ "opId": "op-wt", "kind": "task", "draft": draft }), "op-wt")).await.expect("thread/start");
+    let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
+    let id = started.result["thread"]["id"].as_str().expect("thread id").to_owned();
+    let header = directory.handle(&ThreadId::from(id.as_str())).expect("loaded").cell.header.load_full();
+    // The project stays the project; the workspace service moves the folder.
+    assert_eq!(header["desktopSession"], json!({ "classification": "project", "projectPath": "/repo" }));
+    assert_eq!(*lock(&place.entered), vec![(id, json!({ "branch": "feat", "create": true }), None)]);
+    directory.request(request("thread/start", json!({ "opId": "op-plain", "kind": "task", "draft": { "projectPath": "/repo" } }), "op-plain")).await.expect("thread/start");
+    directory.request(request("thread/start", json!({ "opId": "op-ctl", "kind": "control", "draft": { "worktree": { "fromDefault": true } } }), "op-ctl")).await.expect("thread/start");
+    assert_eq!(lock(&place.entered).len(), 1);
+}
+
+
+/// A fork the desktop makes is placed as `inheritSession` places its heir (`resolveSessionWorkspace(sessionProjectPath(source))`):
+/// in the source's Project, or in the task workspace, with a fresh classification and no worktree record; a source of another
+/// client keeps its header, and an inherit into an existing thread keeps that thread's place.
+#[tokio::test(start_paused = true)]
+async fn a_fork_is_placed_where_the_desktop_places_an_heir() {
+    use mixdog_store::schema::record::Header;
+    let rig = Rig::new();
+    let place = Arc::new(super::testing::RecordingPlace { projects: vec!["/repo".to_owned()], ..Default::default() });
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_place = place;
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let source = |cwd: &str, desktop: Value| {
+        let mut header = Header::new();
+        header.insert("createdAt".into(), json!(1));
+        header.insert("updatedAt".into(), json!(1));
+        header.insert("cwd".into(), json!(cwd));
+        // Only a project session can sit in a managed worktree: a task session has no `workspace` record.
+        let in_project = desktop.get("classification") == Some(&json!("project"));
+        if !desktop.is_null() {
+            header.insert("desktopSession".into(), desktop);
+        }
+        if in_project {
+            header.insert("workspace".into(), json!({ "worktreeId": "w1", "cwd": cwd, "projectPath": "/repo" }));
+        }
+        header
+    };
+    let fork = |id: &'static str, header: Header, extra: Value| {
+        let directory = &directory;
+        async move {
+            let thread = ThreadId::from(id.to_owned());
+            directory.create_with_id(thread.clone(), header, json!({})).await.expect("source");
+            give_conversation(&directory.handle(&thread).expect("loaded")).await;
+            let mut params = json!({ "threadId": id, "opId": format!("op-{id}") });
+            params.as_object_mut().expect("object").extend(extra.as_object().expect("object").clone());
+            let reply = directory.handle(&thread).expect("loaded").request(request("thread/fork", params, &format!("op-{id}"))).await.expect("thread/fork");
+            let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+            let heir = ThreadId::from(value["thread"]["id"].as_str().expect("heir id"));
+            directory.handle(&heir).expect("loaded").cell.header.load_full()
+        }
+    };
+    let in_worktree = fork("src_wt", source("/repo/.wt/feat", json!({ "classification": "project", "projectPath": "/repo" })), json!({})).await;
+    assert_eq!(in_worktree["cwd"], "/repo");
+    assert_eq!(in_worktree["desktopSession"], json!({ "classification": "project", "projectPath": "/repo" }));
+    assert!(in_worktree.get("workspace").is_none());
+    let in_tasks = fork("src_task", source("/tasks", json!({ "classification": "task", "projectPath": null })), json!({})).await;
+    assert_eq!(in_tasks["cwd"], "/tasks");
+    assert_eq!(in_tasks["desktopSession"], json!({ "classification": "task", "projectPath": null }));
+    let foreign = fork("src_tui", source("/elsewhere", Value::Null), json!({})).await;
+    assert_eq!(foreign["cwd"], "/elsewhere");
+    assert!(foreign.get("desktopSession").is_none());
+    let into = fork("src_into", source("/repo/.wt/feat", json!({ "classification": "project", "projectPath": "/repo" })), json!({ "intoThreadId": "heir_existing" })).await;
+    assert_eq!(into["cwd"], "/repo/.wt/feat");
+}
+
+
+/// `notification-bus.test.mjs` "a queued completion wakes its owner session" and
+/// `ask-queue.mjs:87-101`: the completion is the woken turn's input, a task-notification row.
+#[tokio::test(start_paused = true)]
+async fn a_completion_on_an_idle_thread_wakes_it_with_the_completion_as_the_turns_input() {
+    use mixdog_tools::exec::TaskNotifier;
+    let rig = Rig::new();
+    let inputs: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let seen = inputs.clone();
+    rig.set_script(Arc::new(move |run| {
+        lock(&seen).push(run.input_body.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    directory.finished(&handle.id, "shell", "job-7", "completed", "Async shell task job-7 finished.".into()).await;
+    eventually_on!(&[&handle.cell.stepped], || (lock(&inputs).len() == 1).then_some(())).await;
+    let body = lock(&inputs)[0].clone();
+    assert_eq!(body["role"], "user");
+    assert_eq!(body["content"], "Async shell task job-7 finished.");
+    assert_eq!(body["meta"]["source"], "task-notification");
+    assert_eq!(body["meta"]["execution"], json!({ "surface": "shell", "id": "job-7", "status": "completed" }));
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    assert_eq!(runs_started(&rig, &handle.id), 1);
+    assert!(prompt_list(&handle).is_empty(), "a completion is no prompt");
+}
+
+
+/// The real thread store (log writer, codec, index) over the data dir `data`
+/// (`StoreThreads::over_data_dir`).
+pub async fn real_store(data: &std::path::Path) -> Arc<dyn super::ThreadStore> {
+    use mixdog_core_api::domain::mock::MockOwnership;
+    use mixdog_store::sqlite::SqliteStore;
+
+    let tokens = mixdog_rt::testing::tokens();
+    let root = data.to_path_buf();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+        SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+    .expect("index");
+    let ownership = Arc::new(MockOwnership::default());
+    Arc::new(super::StoreThreads::over_data_dir(data, index, ownership, tokens.maintenance_io).await.expect("the thread store"))
+}
+
+
+#[cfg(node_twin)]
+/// `thread/delete` (`deleteSession`): the pending approval leaves the list and the running
+/// turn is aborted with the close reason and ends first; then the agent tool forgets it, its
+/// work is released, the mark makes it gone (not openable, not deleted twice) and the purge
+/// removes its files, the purge hooks run in the order a 1.4.5 daemon registers them (the turn
+/// review's in its place), the app feed hears `thread/deleted`, and the search copy and the
+/// worktree go after.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, reason = "the test checks the purged folder")]
+async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let aborted: Arc<Mutex<Option<(ApprovalResolution, String)>>> = Arc::default();
+    let seen = aborted.clone();
+    rig.set_script(Arc::new(move |run| {
+        let seen = seen.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let resolution = run
+                .port
+                .request(ApprovalAsk {
+                    kind: ApprovalKind::Tool,
+                    call_id: None,
+                    tool: Some("shell".into()),
+                    action_kind: None,
+                    reason: None,
+                    payload: json!({ "kind": "shell", "tool": "shell", "request": { "target": "make" } }),
+                    remember: Vec::new(),
+                    expires_after: None,
+                })
+                .await;
+            run.cancel.cancelled().await;
+            *seen.lock().unwrap() = Some((resolution, run.signal.reason()));
+            RunOutcome::Interrupted
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.clone();
+    turn(&handle, "long job", "op-1").await;
+    let published = eventually_on!(&[&handle.cell.stepped], || {
+        rig.sink.events().into_iter().find_map(|event| match event {
+            ServerRequestEvent::Published(request) => Some(request.id),
+            _ => None,
+        })
+    })
+    .await;
+    let reply = handle
+        .request(request("thread/delete", json!({ "threadId": id, "opId": "op-del" }), "op-del"))
+        .await
+        .expect("thread/delete");
+    assert!(matches!(reply, Reply::Value(Value::Bool(true))), "{reply:?}");
+    let reason = mixdog_agent::cancel::close_session_reason(id.as_str(), super::delete::DELETE_REASON);
+    let (resolution, signal) = aborted.lock().unwrap().clone().expect("the turn ended before the delete went on");
+    assert!(matches!(resolution, ApprovalResolution::Interrupted { .. }), "{resolution:?}");
+    assert_eq!(signal, reason);
+    assert!(
+        rig.sink.events().iter().any(|event| matches!(event, ServerRequestEvent::Resolved(rid, _) if *rid == published)),
+        "the approval left the list"
+    );
+    assert!(directory.handle(&id).is_none(), "the thread left the directory");
+    assert!(matches!(
+        directory.open(&id, &CallContext::internal("test")).await,
+        Err(CoreError::ThreadNotFound { .. })
+    ));
+    assert!(!data.path().join("sessions").join(id.as_str()).exists(), "no fork reads it: its files are gone");
+
+    // The hook order is the golden's (the turn review's hook is not recorded here; Node's
+    // usage-metrics, browser and compaction-capture hooks have no Rust state).
+    let golden: Vec<String> = serde_json::from_str(include_str!("delete_goldens/purge_order.json")).unwrap();
+    let name = |path: &str| match path.rsplit('/').next().unwrap() {
+        "tool-result-offload.mjs:506" => "toolResultOffload",
+        "usage-metrics.mjs:21" => "usageMetrics",
+        "runtime-liveness.mjs:65" => "browserSession",
+        "session-transcript-purge.mjs:20" => "transcripts",
+        "cache-warm.mjs:424" => "cacheWarm",
+        "read-cache.mjs:317" => "readCache",
+        "compaction-archive-capture.mjs:738" => "compactionCapture",
+        "session-close.mjs:282" => "providerConnections",
+        "providers.mjs:54" => "connectorAccounts",
+        "runtime-review-api.mjs:26" => "turnReview",
+        "worker-turns.mjs:208" => "workerTurns",
+        "agent-tool.mjs:347" => "agentStatus",
+        other => panic!("{other}"),
+    };
+    let s = id.as_str();
+    // The close metric follows the acknowledged delete mark, so it comes after the work release.
+    // The conversation leaves the catalog when the mark lands, ahead of the purge (a phone's downloads end there, not at `thread/deleted`).
+    let mut expected = vec![format!("releaseSessionWork:{s}:desktop-session-delete"), format!("tombstoned:{s}"), format!("sessionClosed:{s}:desktop-session-delete")];
+    let unrecorded = ["turnReview", "usageMetrics", "browserSession", "compactionCapture"];
+    // The store unlinks the session's log before Node's hooks run, so the export's removal is first.
+    let hooks = golden.iter().map(|path| name(path)).filter(|hook| !unrecorded.contains(hook));
+    // The desktop's retention record is forgotten once the store's delete is done.
+    for hook in ["transcriptExport"].into_iter().chain(hooks).chain(["compactionArchive", "scratchDir", "retention"]) {
+        expected.push(format!("{hook}:{s}:/ws"));
+    }
+    expected.extend([format!("thread/deleted:{s}"), format!("forgetSessionSearch:{s}"), format!("releaseDeletedWorktree:{s}")]);
+    eventually_on!(&[&handle.cell.stepped, &rig.deletes.1], || (lock(&rig.deletes.0).len() == expected.len()).then_some(())).await;
+    assert_eq!(*lock(&rig.deletes.0), expected);
+    // The deleted session's MCP scope is released with its close (the servers it connected close).
+    assert_eq!(*lock(&rig.deletes.2), [s.to_owned()]);
+
+    // Deleted already, or not a session id: nothing is deleted, nothing runs.
+    let other = start_thread(&directory).await;
+    for target in [id.as_str(), "../x"] {
+        let reply = other.request(request("thread/delete", json!({ "threadId": target, "opId": "op-bad" }), "op-bad")).await.expect("delete");
+        assert!(matches!(reply, Reply::Value(Value::Bool(false))), "{target}");
+    }
+    // A thread that cannot be opened (deleted, or never there) is answered by the directory:
+    // nothing to delete, `false`, never `threadNotFound`.
+    for target in [id.as_str(), "sess_missing"] {
+        assert!(matches!(
+            directory.open(&ThreadId::from(target), &CallContext::internal("test")).await,
+            Err(CoreError::ThreadNotFound { .. })
+        ));
+        let params = json!({ "threadId": target, "opId": "op-gone" });
+        let reply = mixdog_core_api::ThreadDirectory::request(&directory, request("thread/delete", params, "op-gone")).await.expect("delete");
+        assert!(matches!(reply, Reply::Value(Value::Bool(false))), "{target}: {reply:?}");
+    }
+    assert_eq!(lock(&rig.deletes.0).len(), expected.len());
+}
+
+
+/// The fork carries the source's conversation as `inheritFrom` does (a copy, not a shared lineage), so it still opens with
+/// that history once the source is deleted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deleted_base_stays_readable_by_its_fork() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+    let base = start_thread(&directory).await;
+    turn(&base, "first", "op-1").await;
+    eventually_on!(&[&base.cell.stepped], || (idle(&base) && rows(&base).len() == 2).then_some(())).await;
+    let reply = base
+        .request(request("thread/fork", json!({ "threadId": base.id, "opId": "op-fork" }), "op-fork"))
+        .await
+        .expect("thread/fork");
+    let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+    let fork = ThreadId::from(value["thread"]["id"].as_str().expect("fork id"));
+    let reply = base
+        .request(request("thread/delete", json!({ "threadId": base.id, "opId": "op-del" }), "op-del"))
+        .await
+        .expect("thread/delete");
+    assert!(matches!(reply, Reply::Value(Value::Bool(true))), "{reply:?}");
+    let second = SessionDirectory::new(rig.deps_on(store));
+    let reopened = second.open_handle(&fork, &CallContext::internal("test")).await.expect("the fork opens");
+    assert_eq!(rows(&reopened).len(), 2, "the base's history shows in the fork");
+}
+
+
+/// `thread/delete` with `ifIdle` (`deleteSessionIfIdle`): each refusal in Node's order deletes
+/// nothing; an archived, unfavored, idle and unchanged session is deleted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_session() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let release: Arc<tokio::sync::Notify> = Arc::default();
+    let gate = release.clone();
+    rig.set_script(Arc::new(move |run| {
+        let gate = gate.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            gate.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.clone();
+    let ask = |expected: Value| {
+        let handle = handle.clone();
+        let id = id.clone();
+        async move {
+            match handle
+                .request(request("thread/delete", json!({ "threadId": id, "opId": "op-d", "ifIdle": expected }), "op-d"))
+                .await
+                .expect("delete")
+            {
+                Reply::Value(value) => value,
+                other => panic!("{other:?}"),
+            }
+        }
+    };
+    // The desktop's archive and favorite marks are the session's header fields.
+    let state = |archived: bool, favorite: bool| {
+        let handle = handle.clone();
+        async move {
+            let (mut set, mut unset) = (serde_json::Map::new(), Vec::new());
+            for (key, on) in [("archivedAt", archived), ("favoriteAt", favorite)] {
+                if on {
+                    set.insert(key.into(), json!(1_793_306_570_000_i64));
+                } else {
+                    unset.push(key);
+                }
+            }
+            let params = json!({ "threadId": handle.id, "set": set, "unset": unset });
+            handle
+                .request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") })
+                .await
+                .expect("patch");
+        }
+    };
+    let refused = |reason: &str| json!({ "deleted": false, "reason": reason });
+    assert_eq!(ask(json!({})).await, refused("not-archived"), "never archived");
+    state(false, true).await;
+    assert_eq!(ask(json!({})).await, refused("not-archived"));
+    state(true, true).await;
+    assert_eq!(ask(json!({})).await, refused("favorite"));
+    state(true, false).await;
+    turn(&handle, "work", "op-1").await;
+    assert_eq!(ask(json!({})).await, refused("busy"));
+    release.notify_one();
+    // Not settled yet, the turn still holds what Node's ask lock is held for (`busy`).
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.turn_held.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
+    // The turn moved `lastUsedAt` past what the caller saw.
+    let used = eventually_on!(&[&handle.cell.stepped, &rig.store.committed], || {
+        let meta = futures::executor::block_on(directory.session_meta(&id)).expect("meta").expect("listed");
+        (meta.last_used_at > 0.0).then_some(meta.last_used_at)
+    })
+    .await;
+    assert_eq!(ask(json!({ "lastUsedAt": used - 1.0 })).await, refused("changed"));
+    assert!(lock(&rig.deletes.0).is_empty(), "a refusal deletes nothing");
+    assert_eq!(ask(json!({ "lastUsedAt": used })).await, json!({ "deleted": true }));
+    let s = id.as_str();
+    let worktree = format!("releaseDeletedWorktree:{s}");
+    eventually_on!(&[&handle.cell.stepped, &rig.deletes.1], || lock(&rig.deletes.0).contains(&worktree).then_some(())).await;
+    let steps = lock(&rig.deletes.0).clone();
+    // The tombstone's close metric (`markSessionClosed`), logged at the mark's ack, precedes the purge hooks.
+    assert_eq!(steps[0], format!("tombstoned:{s}"), "the conversation leaves the catalog when the mark lands");
+    assert_eq!(steps[1], format!("sessionClosed:{s}:desktop-auto-delete"));
+    assert_eq!(steps[2], format!("transcriptExport:{s}:/ws"), "the purge hooks run next");
+    let tail: Vec<&str> = steps[steps.len() - 4..].iter().map(String::as_str).collect();
+    assert_eq!(
+        tail,
+        [
+            format!("thread/deleted:{s}"),
+            format!("releaseSessionWork:{s}:desktop-auto-delete"),
+            format!("forgetSessionSearch:{s}"),
+            format!("releaseDeletedWorktree:{s}"),
+        ]
+    );
+}
+
+
+/// A prompt larger than a frame's inline budget goes through the runtime codec into a
+/// blob of its own, and a reopen gives it back (prompt history and the rewind text).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, reason = "the test reads the written log")]
+async fn a_large_prompt_round_trips_through_the_real_store() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let first = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&first).await;
+    let text = format!("ask {}", "p".repeat(300 << 10));
+    turn(&handle, &text, "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    let id = handle.id.clone();
+    // Body and prompt are blobs: the log holds neither copy of the text.
+    let log = std::fs::read(data.path().join("sessions").join(id.as_str()).join("log.000000")).unwrap();
+    assert!(log.len() < 64 << 10, "{} log bytes", log.len());
+
+    let second = SessionDirectory::new(rig.deps_on(store));
+    let reopened = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    assert_eq!(prompt_list(&reopened), std::slice::from_ref(&text));
+    let asked = reopened.cell.view.load_full().items[0].id().clone();
+    let reply = reopened
+        .request(request("thread/rewind", json!({ "threadId": id, "opId": "op-2", "itemId": asked }), "op-2"))
+        .await
+        .expect("rewind");
+    let Reply::Value(value) = reply else { panic!() };
+    assert_eq!(value["text"], text.as_str());
+}
+
+
+/// A fence `op/status` recorded is in the log: a thread that loads afterwards answers the fenced
+/// id `opFenced` and runs nothing (P §9.4).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fenced_op_is_refused_after_the_thread_reloads() {
+    use mixdog_core_base::ops::ThreadOpGates;
+
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let first = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&first).await;
+    let id = handle.id.clone();
+    let op = "0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0b";
+    let gate = first.thread_ops().gate(&id, &connection()).await.expect("gate");
+    let status = gate.status(&[OpId::from(op)], true, &connection()).await.expect("status");
+    assert!(matches!(status[..], [mixdog_core_api::ops::OpStatus::NotApplied]));
+
+    let second = SessionDirectory::new(rig.deps_on(store));
+    let reopened = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let late = reopened
+        .request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": "late" } }), op))
+        .await;
+    assert!(matches!(late, Err(CoreError::OpFenced { .. })));
+    assert!(rows(&reopened).is_empty(), "the fenced turn ran nothing");
+}
+
+
+/// The whole stored history reads every page of the lineage, oldest first, and a rewind's
+/// superseded rows are not part of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_real_store_reads_the_whole_history_oldest_first() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "one", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    turn(&handle, "two", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    let ids = |items: Vec<mixdog_protocol::ThreadItem>| items.iter().map(|i| i.id().clone()).collect::<Vec<_>>();
+    let shown: Vec<_> = handle.cell.view.load_full().items.iter().map(|i| i.id().clone()).collect();
+    assert_eq!(ids(directory.history_items(&handle.id).await.expect("history")), shown);
+
+    let second = shown[2].clone();
+    let reply = handle
+        .request(request("thread/rewind", json!({ "threadId": handle.id, "opId": "op-3", "itemId": second }), "op-3"))
+        .await
+        .expect("rewind");
+    assert!(matches!(reply, Reply::Value(_)));
+    eventually_on!(&[&handle.cell.stepped], || (rows(&handle).len() == 2).then_some(())).await;
+    assert_eq!(ids(directory.history_items(&handle.id).await.expect("history")), shown[..2]);
+    assert!(directory.history_items(&ThreadId::from("missing")).await.is_err());
+}
+
+
+/// Paging history by item cursor across a rewind and across a clear (protocol §5.5): a cursor
+/// naming a row the rewind or the clear removed is `cursorInvalidated`, and one that survived
+/// still pages; the thread need not be loaded to be read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_item_cursor_into_rewound_or_cleared_history_is_invalidated() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "one", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    turn(&handle, "two", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    let shown: Vec<_> = handle.cell.view.load_full().items.iter().map(|i| i.id().clone()).collect();
+    let list = |cursor: &ItemId| {
+        directory.request(request(
+            "thread/items/list",
+            json!({ "threadId": handle.id, "cursor": cursor, "sortDirection": "asc" }),
+            "list",
+        ))
+    };
+
+    let Reply::Value(page) = list(&shown[1]).await.expect("page") else { panic!() };
+    assert_eq!(page["data"].as_array().map(Vec::len), Some(2));
+
+    handle
+        .request(request("thread/rewind", json!({ "threadId": handle.id, "opId": "op-3", "itemId": shown[2] }), "op-3"))
+        .await
+        .expect("rewind");
+    eventually_on!(&[&handle.cell.stepped], || (rows(&handle).len() == 2).then_some(())).await;
+    assert!(matches!(list(&shown[3]).await, Err(CoreError::CursorInvalidated { .. })));
+    assert!(list(&shown[0]).await.is_ok(), "a cursor that survived the rewind pages");
+
+    handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-4" }), "op-4")).await.expect("clear");
+    eventually_on!(&[&handle.cell.stepped], || rows(&handle).is_empty().then_some(())).await;
+    assert!(matches!(list(&shown[0]).await, Err(CoreError::CursorInvalidated { .. })));
+}
+
+
+/// `thread/clear` with `rebuildPrompt` (Node's `clear({ rebuildPrompt })`): the emptied thread's surface is composed again and the
+/// answer says whether that applied; without it nothing is rebuilt; a running turn refuses it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn clear_with_rebuild_prompt_reseeds_the_emptied_thread_and_answers_whether_it_applied() {
+    struct Reseeds(Arc<Mutex<Vec<ThreadId>>>, bool);
+    #[async_trait::async_trait]
+    impl super::EmptyToolSurface for Reseeds {
+        async fn refresh_empty(&self, thread: &ThreadId) -> Result<bool, String> {
+            self.0.lock().expect("calls").push(thread.clone());
+            Ok(self.1)
+        }
+    }
+    for applied in [true, false] {
+        let data = tempfile::tempdir().expect("data dir");
+        let store = real_store(data.path()).await;
+        let rig = Rig::new();
+        rig.set_script(echo());
+        let calls: Arc<Mutex<Vec<ThreadId>>> = Arc::default();
+        let mut deps = rig.deps_parts(store);
+        deps.empty_surface = Arc::new(Reseeds(calls.clone(), applied));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+        // A session of a real route names its model; the rig's route has none, which would make the emptied thread a reservation.
+        let set = json!({ "provider": "custom-harness", "model": "harness-model" });
+        let patch = CoreRequest { method: mixdog_core_api::ids::Method("thread/header/patch"), params: json!({ "threadId": handle.id, "set": set, "unset": [] }), op: None, ctx: CallContext::internal("test") };
+        handle.request(patch).await.expect("patch");
+        turn(&handle, "one", "op-1").await;
+        eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+        let Reply::Value(plain) = handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-2" }), "op-2")).await.expect("clear") else { panic!("a value") };
+        assert_eq!(plain, json!({}), "without rebuildPrompt the answer is the clear's own");
+        // The copy a person's clear keeps (`forkOutgoingTranscript`'s heir) has its own prompt composed; the cleared thread's is not.
+        assert!(!calls.lock().expect("calls").contains(&handle.id), "nothing is rebuilt without it");
+        calls.lock().expect("calls").clear();
+        let Reply::Value(rebuilt) = handle
+            .request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-3", "rebuildPrompt": true }), "op-3"))
+            .await
+            .expect("clear")
+        else {
+            panic!("a value")
+        };
+        assert_eq!(rebuilt, json!({ "promptRebuilt": applied }));
+        assert_eq!(*calls.lock().expect("calls"), [handle.id.clone()]);
+    }
+}
+
+
+/// The run publishes its progress into the session cell; the registry's `runtime_stage` and the
+/// worker views' `live` read that one value, and a thread this process does not host has none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_runs_progress_is_read_from_the_session_cell() {
+    use mixdog_core_run::run_host::progress::ProgressPublisher;
+    use mixdog_core_run::run_host::progress::WaitedJobs;
+    use crate::session::agent_registry::LiveSessions;
+
+    struct At(i64);
+    impl mixdog_agent::env::Clock for At {
+        fn now_ms(&self) -> i64 {
+            self.0
+        }
+    }
+    struct NoJobs;
+    impl WaitedJobs for NoJobs {
+        fn silence(&self, _: &[String], _: i64) -> Option<mixdog_agent::agent_tool::progress::ToolSilence> {
+            None
+        }
+    }
+
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            let progress = ProgressPublisher::new(run.progress.clone(), Arc::new(At(1_000)));
+            progress.ask_start();
+            progress.stage("streaming");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    assert_eq!(LiveSessions::runtime_stage(&directory, handle.id.as_str()), None, "no marker yet");
+    turn(&handle, "go", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    assert_eq!(LiveSessions::runtime_stage(&directory, handle.id.as_str()).as_deref(), Some("streaming"));
+    let live = directory.worker_live(&handle.id, 2_000, &NoJobs);
+    assert_eq!(live.runtime_stage.as_deref(), Some("streaming"));
+    assert_eq!(live.runtime.map(|facts| facts.ask_started_at), Some(1_000));
+    assert_eq!(directory.worker_live(&ThreadId::from("elsewhere"), 2_000, &NoJobs), Default::default());
+}
+
+
+/// A run's live-only events reach the view and the feed as Node's turn shows them: reasoning
+/// grows its item (`item/reasoning/textDelta`), a notice is a polished `info` line, a model
+/// call's usage is `thread/tokenUsage/updated`, and a committed row's own prompt text joins the
+/// prompt history.
+#[tokio::test(start_paused = true)]
+async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
+    let rig = Rig::new();
+    let gate: Arc<tokio::sync::Notify> = Arc::default();
+    let release = gate.clone();
+    rig.set_script(Arc::new(move |run| {
+        let release = release.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let reasoning = ItemId::from("r1".to_owned());
+            let item = ThreadItem::Reasoning { id: reasoning.clone(), summary: Vec::new(), content: Vec::new(), meta: Default::default() };
+            run.port.item_started(item).await.expect("started");
+            run.port.reasoning_delta(reasoning.clone(), "think ".into()).await.expect("delta");
+            run.port.reasoning_delta(reasoning.clone(), "more".into()).await.expect("delta");
+            run.port.reasoning_completed(reasoning, "think more".into()).await.expect("completed");
+            run.port.notice("model switch failed".into(), mixdog_agent::env::Tone::Info).await.expect("notice");
+            let excluded = "Tool \"mcp__x__broken\" was excluded from this session's requests: its input schema is invalid at / (bad). Fix the tool's schema or disable the tool.";
+            run.port.notice(excluded.into(), mixdog_agent::env::Tone::Warn).await.expect("warn notice");
+            let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 5, cache_read_tokens: 3, cache_write_tokens: 2, ..Default::default() };
+            let tool = mixdog_core_api::domain::provider::ToolDefinition { name: "read".into(), description: "d".into(), input_schema: json!({ "type": "object" }), defer_loading: true, freeform: None };
+            run.port
+                .usage(crate::session::UsageReport {
+                    iteration: 1,
+                    usage,
+                    model: "gpt-answered".into(),
+                    requested_model: "gpt-asked".into(),
+                    delta_tool_calls: 2,
+                    request_ms: 340,
+                    delta_prompt: 15,
+                    send_tools: vec![tool],
+                    reasoning_tokens: Some(4),
+                    reasoning_tokens_complete: true,
+                    outgoing: Vec::new().into(),
+                    sent_at_ms: 0,
+                    input_excludes_cache: false, tail_book: None,
+                })
+                .await
+                .expect("usage");
+            let event = mixdog_agent::env::CompactEvent {
+                dropped_count: 2,
+                dropped: None,
+                trigger: mixdog_agent::env::CompactTrigger::Auto,
+                status: mixdog_agent::env::CompactStatus::Compacted,
+                before_tokens: 0,
+                duration_ms: 0,
+                after_tokens: 0,
+                before_messages: 4,
+                after_messages: 1,
+                pressure_tokens: 900,
+                trigger_tokens: 800,
+                boundary_tokens: 1000,
+                target_budget_tokens: 500,
+            };
+            run.port.compact_event(event).await.expect("compact");
+            run.port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from(format!("s-{}", run.turn)),
+                    role: Some("user".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "role": "user", "content": "steered", "meta": { "transcript": { "at": 1 } } }),
+                    prompt: Some("steered words".into()),
+                })
+                .await
+                .expect("commit");
+            release.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    let items = |handle: &SessionHandle| -> Vec<ThreadItem> { handle.cell.view.load_full().items.iter().map(|item| (**item).clone()).collect() };
+    let thinking = eventually_on!(&[&handle.cell.stepped], || {
+        items(&handle).into_iter().find_map(|item| match item {
+            ThreadItem::Reasoning { content, .. } if content.concat() == "think more" => Some(content),
+            _ => None,
+        })
+    })
+    .await;
+    assert_eq!(thinking, ["think more"], "one growing part");
+    eventually_on!(&[&handle.cell.stepped], || prompt_list(&handle).contains(&"steered words".to_owned()).then_some(())).await;
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+
+    let shown = items(&handle);
+    let kinds: Vec<String> = shown
+        .iter()
+        .map(|item| match item {
+            ThreadItem::UserMessage { display_text, .. } => format!("user:{display_text}"),
+            ThreadItem::StatusRow { kind, meta, .. } => format!("{kind}:{}", meta.label.clone().unwrap_or_default()),
+            other => format!("{:?}", std::mem::discriminant(other)),
+        })
+        .collect();
+    assert!(kinds.contains(&"user:go".to_owned()), "{kinds:?}");
+    let notice = shown
+        .iter()
+        .find_map(|item| match item {
+            ThreadItem::StatusRow { kind, meta, .. } if kind == "notice" => Some(serde_json::to_value(meta).expect("meta")),
+            _ => None,
+        })
+        .expect("the notice");
+    assert_eq!((notice["ext"]["text"].clone(), notice["ext"]["tone"].clone()), (json!("Couldn’t switch model."), json!("info")), "{notice}");
+    // A warn-toned stage notice (an excluded tool) is shown with the warn level.
+    let warned = shown
+        .iter()
+        .find_map(|item| match item {
+            ThreadItem::StatusRow { kind, meta, .. } if kind == "notice" => {
+                let meta = serde_json::to_value(meta).expect("meta");
+                meta["ext"]["text"].as_str().is_some_and(|text| text.contains("was excluded from this session")).then_some(meta)
+            }
+            _ => None,
+        })
+        .expect("the warn notice");
+    assert_eq!(warned["ext"]["tone"], json!("warn"), "{warned}");
+
+    let frames = rig.feeds.frames(handle.id.as_str());
+    let methods: Vec<&str> = frames.iter().map(|(_, method, _)| method.as_str()).collect();
+    assert_eq!(methods.iter().filter(|m| **m == "item/reasoning/textDelta").count(), 2);
+    let usage = frames.iter().find(|(_, method, _)| method == "thread/tokenUsage/updated").expect("usage").2["usage"].clone();
+    assert_eq!(
+        (usage["deltaInput"].clone(), usage["deltaOutput"].clone(), usage["deltaCachedRead"].clone(), usage["deltaCacheWrite"].clone(), usage["iterationIndex"].clone()),
+        (json!(10), json!(5), json!(3), json!(2), json!(1))
+    );
+    // `usageDeltaEvent`'s other fields, in Node's key order, less the request's tool definitions (`sendTools`), which no client reads.
+    let keys: Vec<&str> = usage.as_object().expect("usage").keys().map(String::as_str).collect();
+    assert_eq!(
+        keys,
+        [
+            "sessionId", "iterationIndex", "source", "requestedModel", "model", "deltaInput", "deltaOutput", "deltaToolCalls", "reasoningTokens",
+            "reasoningTokensComplete", "deltaPrompt", "requestMs", "promptKnown", "deltaCachedRead", "deltaCacheWrite", "contextInputTokens",
+            "contextOutputTokens", "contextPromptTokens", "contextCachedReadTokens", "contextCacheWriteTokens", "contextMeasuredTokens", "ts"
+        ]
+    );
+    assert_eq!(
+        (usage["model"].clone(), usage["requestedModel"].clone(), usage["deltaToolCalls"].clone(), usage["requestMs"].clone(), usage["deltaPrompt"].clone(), usage["reasoningTokens"].clone()),
+        (json!("gpt-answered"), json!("gpt-asked"), json!(2), json!(340), json!(15), json!(4))
+    );
+    // The finished thinking is `item/completed` of type `reasoning`, once, in place of the live item.
+    let completed: Vec<&Value> = frames
+        .iter()
+        .filter(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "reasoning")
+        .map(|(_, _, params)| params)
+        .collect();
+    assert_eq!(completed.len(), 1);
+    assert_eq!((completed[0]["item"]["id"].clone(), completed[0]["item"]["content"].clone()), (json!("r1"), json!(["think more"])));
+    assert_eq!(shown.iter().filter(|item| matches!(item, ThreadItem::Reasoning { .. })).count(), 1);
+}
+
+
+
+/// A turn's start does not re-sync the session's compaction with the saved settings, its completion does
+/// (`completeTurn`'s `setSession`, `turn-settle.mjs:38`, runs `syncSessionCompaction`), the first streamed text stamps the
+/// disk-side heartbeat (`markSessionStreamDelta`) once and not again within a minute, and a report that
+/// prices the transcript has the meters prepared first (`MediaMeter::prepare`).
+#[tokio::test(start_paused = true)]
+async fn a_turn_stamps_its_heartbeat_and_prepares_its_meters_and_syncs_the_compaction_when_it_completes() {
+    let rig = Rig::new();
+    // The throttle compares with 0 for a header that never beat: a clock inside the first minute stamps nothing.
+    rig.clock.0.store(1_700_000_000_000, std::sync::atomic::Ordering::SeqCst);
+    let gate: Arc<tokio::sync::Notify> = Arc::default();
+    let release = gate.clone();
+    rig.set_script(Arc::new(move |run| {
+        let release = release.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let item = ItemId::from("a1".to_owned());
+            run.port.delta(item.clone(), "hello ".into()).await.expect("delta");
+            run.port.delta(item, "again".into()).await.expect("delta");
+            run.port
+                .send_check(crate::session::run::SendCheck { messages: Vec::new().into(), tools: Vec::new(), reactive: false })
+                .await
+                .expect("check");
+            release.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || handle.live_header().header().get("lastHeartbeatAt").filter(|at| at.as_f64().is_some_and(|at| at > 0.0)).map(|_| ())).await;
+    let stamped = handle.live_header().header().get("lastHeartbeatAt").cloned();
+    assert_eq!(*lock(&rig.compaction.sync_calls), vec![true], "the installation syncs; a turn start and its checks do not");
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let live = handle.live_header();
+    let header = live.header();
+    assert_eq!(*lock(&rig.compaction.sync_calls), vec![true, true], "the completed turn syncs again");
+    assert_eq!(header.get("lastHeartbeatAt"), stamped.as_ref(), "the second delta is inside the minute");
+    let provider = header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned();
+    assert_eq!(*lock(&rig.compaction.prepared), vec![(provider, 0usize)]);
+}
+
+
+/// A Goal set during a user turn continues across it: once the turn settles with the Goal
+/// active and the thread idle, the runtime's continuation runs as an automatic turn whose input
+/// is runtime-synthetic (no user row); that turn pausing the Goal ends the chain, and the lane
+/// shows the paused Goal.
+#[tokio::test(start_paused = true)]
+async fn a_goal_continues_across_a_turn_until_it_stops() {
+    use mixdog_core_goal::goal::hooks::GoalViewHooks;
+
+    let rig = Rig::new();
+    let inputs: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let (seen, goals) = (inputs.clone(), rig.goals.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (seen, goals) = (seen.clone(), goals.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let automatic = run.input_body.pointer("/meta/source") == Some(&json!("goal-continuation"));
+            lock(&seen).push(run.input_body.clone());
+            let action = if automatic {
+                // The automatic turn does work, then the Goal is paused.
+                let call = ItemCommit {
+                    iid: ItemId::from(format!("t-{}", run.turn)),
+                    role: Some("tool".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "role": "tool", "toolCallId": "c1", "content": "ok" }),
+                    prompt: None,
+                };
+                run.port.commit_item(call).await.expect("tool row");
+                json!({ "action": "pause" })
+            } else {
+                json!({ "action": "create", "objective": "Ship the feature" })
+            };
+            goals.goal_control(&run.thread, action).await.expect("goal control");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "start", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (lock(&inputs).len() == 2 && idle(&handle)).then_some(())).await;
+    let goal_status = |frames: &[(u64, String, Value)]| {
+        frames.iter().rev().find(|(_, method, _)| method == "thread/goal/updated").map(|(_, _, p)| p["value"]["status"].clone())
+    };
+    eventually_on!(&[&rig.feeds.published], || (goal_status(&rig.feeds.frames(handle.id.as_str())) == Some(json!("paused"))).then_some(())).await;
+    mixdog_rt::time::sleep(std::time::Duration::from_millis(200)).await;
+    let inputs = lock(&inputs).clone();
+    assert_eq!(inputs.len(), 2, "a paused Goal does not continue: {inputs:?}");
+    let meta = &inputs[1]["meta"];
+    assert_eq!((&meta["source"], &meta["synthetic"]), (&json!("goal-continuation"), &json!(true)), "{meta}");
+    // Its prompt carries the turn's transcript metadata as a user prompt does (`persistedUserTranscriptMetadata`).
+    assert!(meta.pointer("/transcript/messageId").and_then(Value::as_str).is_some_and(|id| id.starts_with("msg_")), "{meta}");
+    assert!(meta.pointer("/transcript/attemptId").and_then(Value::as_str).is_some_and(|id| !id.is_empty()), "{meta}");
+    assert!(!inputs[1]["content"].as_str().unwrap_or_default().is_empty(), "the runtime's continuation prompt");
+    let users: Vec<String> = rows(&handle).into_iter().filter(|(role, _)| *role == "user").map(|(_, text)| text).collect();
+    assert_eq!(users, ["start"], "the automatic turn shows no user row");
+    let frames = rig.feeds.frames(handle.id.as_str());
+    let statuses: Vec<Value> = frames.iter().filter(|(_, m, _)| m == "thread/goal/updated").map(|(_, _, p)| p["value"]["status"].clone()).collect();
+    assert!(statuses.contains(&json!("active")), "{statuses:?}");
+}
+
+
+/// A turn queued behind a running one starts only once the running turn's settlement
+/// (`turn_settled`) has returned, as Node's queue drains after `runTurn` awaits it.
+#[tokio::test(start_paused = true)]
+async fn a_queued_turn_starts_after_the_settlement_returns() {
+    use std::sync::atomic::Ordering;
+
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let release: Arc<tokio::sync::Notify> = Arc::default();
+    let settled: Arc<std::sync::atomic::AtomicUsize> = Arc::default();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.goals = Arc::new(HeldSettle { goals: rig.goals.clone(), release: release.clone(), settled: settled.clone() });
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "one", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    // The first turn ended; its settlement is held. A new prompt waits behind it.
+    let queued = turn(&handle, "two", "op-2").await;
+    assert_eq!(queued["kind"], "queued", "{queued}");
+    mixdog_rt::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(idle(&handle), "no turn starts before the settlement");
+    assert_eq!(settled.load(Ordering::SeqCst), 0);
+    release.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (settled.load(Ordering::SeqCst) == 1).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || rows(&handle).iter().any(|(role, text)| *role == "user" && text == "two").then_some(())).await;
+    release.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+}
+
+
+/// Each run fails on exhausted provider quota with the reset the provider named, as the run host
+/// reports it; the session shows the failed turn end and the quota settlement reads it.
+fn quota_failure() -> Script {
+    Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            RunOutcome::Failed(super::testing::quota_error(5000))
+        })
+    })
+}
+
+
+/// `beginQuotaSettlement` / `finishQuotaSettlement`: an automatic Goal turn that fails on quota
+/// queues its resume and, once its Goal settled `usage_limited`, records that Goal for the
+/// resume. A user prompt inside the settling window (after the failed turn end, before the
+/// Goal settlement) cancels the resume and keeps the suspension from being recorded.
+#[tokio::test(start_paused = true)]
+async fn a_cancel_inside_the_quota_settling_window_keeps_the_suspension_unrecorded() {
+    use std::sync::atomic::Ordering;
+
+    use mixdog_core_goal::goal::hooks::GoalViewHooks;
+
+    let rig = Rig::new();
+    let release: Arc<tokio::sync::Notify> = Arc::default();
+    let settled: Arc<std::sync::atomic::AtomicUsize> = Arc::default();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.goals = Arc::new(HeldSettle { goals: rig.goals.clone(), release: release.clone(), settled: settled.clone() });
+    let directory = SessionDirectory::new(Arc::new(deps));
+    // A new active Goal continues at once: its automatic turn fails on quota, and the
+    // settlement is held.
+    let failed_turn = |rig: &Rig, handle: Arc<SessionHandle>| {
+        let goals = rig.goals.clone();
+        async move {
+            goals.goal_control(&handle.id, json!({ "action": "create", "objective": "Ship it" })).await.expect("create");
+            let goal = goals.goal_status(&handle.id).await.expect("status").expect("a goal");
+            let attempt = eventually_on!(&[&handle.cell.stepped], || {
+                handle.cell.view.load_full().items.iter().find_map(|item| match item.as_ref() {
+                    ThreadItem::TurnEnd { meta, .. } => meta.ext.get("attemptId").and_then(Value::as_str).map(str::to_owned),
+                    _ => None,
+                })
+            })
+            .await;
+            (goal["id"].as_str().expect("goal id").to_owned(), format!("attempt:{attempt}"))
+        }
+    };
+    rig.set_script(quota_failure());
+
+    // Settled undisturbed: the resume waits and the suspended Goal is recorded.
+    let first = start_routed_thread(&directory).await;
+    let (goal_id, key) = failed_turn(&rig, first.clone()).await;
+    eventually_on!(&[&rig.quota_changed, &first.cell.stepped], || rig.quota.entry(first.id.as_str()).filter(|entry| entry.turn_key == key)).await;
+    assert_eq!(settled.load(Ordering::SeqCst), 0);
+    release.notify_one();
+    eventually_on!(&[&rig.quota_changed, &first.cell.stepped], || (rig.quota.suspended_goal(first.id.as_str(), &key) == goal_id).then_some(())).await;
+
+    // A prompt while the failed turn settles: the resume goes, and the settlement records nothing.
+    let second = start_routed_thread(&directory).await;
+    let (_, key) = failed_turn(&rig, second.clone()).await;
+    let id = second.id.as_str();
+    eventually_on!(&[&rig.quota_changed, &second.cell.stepped], || rig.quota.entry(id).filter(|entry| entry.turn_key == key)).await;
+    rig.set_script(echo());
+    let queued = turn(&second, "next", "op-next").await;
+    assert_eq!(queued["kind"], "queued", "the failed turn is still settling: {queued}");
+    eventually_on!(&[&rig.quota_changed, &second.cell.stepped], || rig.quota.entry(id).is_none().then_some(())).await;
+    release.notify_one();
+    eventually_on!(&[&second.cell.stepped], || (settled.load(Ordering::SeqCst) == 2).then_some(())).await;
+    eventually_on!(&[&second.cell.stepped], || rows(&second).iter().any(|(role, text)| *role == "user" && text == "next").then_some(())).await;
+    release.notify_one();
+    eventually_on!(&[&second.cell.stepped], || (settled.load(Ordering::SeqCst) == 3).then_some(())).await;
+    // The settlement's store call runs after the cancel's, on the session's quota lane.
+    mixdog_rt::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(rig.quota.suspended_goal(id, &key), "", "the cancel inside the window wins");
+    assert!(rig.quota.entry(id).is_none());
+}
+
+
+/// The scheduler's fire through the production `ResumeHost` (Node `fireQuotaResume`, recorded in
+/// `fixtures/quota-resume-fire`): while the quota-failed turn settles the fire is `busy`; then
+/// the queued resume of a user turn fires once (its prompt runs again as a new turn, the entry
+/// goes), and every repeat of that generation is `stale` ("prompt replayed").
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_scheduler_fire_replays_the_failed_turn_once() {
+    use super::quota_resume_host::SessionResumeHost;
+    use super::quota_resume_scheduler::FireOutcome;
+    use super::quota_resume_scheduler::ResumeHost;
+
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    rig.set_script(quota_failure());
+    let handle = start_routed_thread(&directory).await;
+    let id = handle.id.as_str().to_owned();
+    turn(&handle, "build the parser", "op-failed").await;
+    let entry = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id)).await;
+    rig.set_script(echo());
+    let host = SessionResumeHost::new(directory.clone(), Arc::new(NoUsage));
+    host.materialize(&id).await.expect("loaded");
+    // A generation that is not queued is stale at once.
+    assert_eq!(host.fire(&id, entry.generation + 1).await, Ok(FireOutcome::Stale));
+    // The fire answers `Busy` while `retry_blocked` holds (a turn, the quota settlement, a compaction, a wake, queued input):
+    // wait for the actor to publish that it does not.
+    eventually_on!(&[&handle.cell.stepped, &rig.quota_changed], || (!handle.cell.retry_blocked.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
+    let outcome = host.fire(&id, entry.generation).await;
+    assert_eq!(outcome, Ok(FireOutcome::Fired));
+    assert_eq!(host.fire(&id, entry.generation).await, Ok(FireOutcome::Stale), "a repeat of the generation");
+    eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id).is_none().then_some(())).await;
+    // The retry ran (the failed turn's own message, or its prompt, is what it answered).
+    eventually_on!(&[&handle.cell.stepped], || rows(&handle).iter().any(|(role, text)| *role == "assistant" && text.starts_with("re: ")).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    assert_eq!(host.fire(&id, entry.generation).await, Ok(FireOutcome::Stale), "after the retry ran");
+}
+
+
+/// A restored window shows each compaction's divider where 1.4.5 restores it (after the rows
+/// before the compaction, when its replacement kept none of them), the switches anchored on its
+/// summary right after it, and a switch recorded live on the summary joins them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_restored_compaction_shows_its_divider_and_the_switches_on_its_summary() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "first", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let summary = json!({ "role": "user", "content": "[summary] earlier work" });
+            let compaction = super::run::Compaction { replacement: vec![(ItemId::from("sum1".to_owned()), summary)], at: 777, dropped_count: 3, dropped: None };
+            run.port.compacted(compaction).await.expect("compacted");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    turn(&handle, "compact", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    let ids = |handle: &SessionHandle| -> Vec<String> {
+        handle.cell.view.load_full().items.iter().map(|item| item.id().as_str().to_owned()).collect()
+    };
+    // Live: the divider shows where the compaction happened, and a switch on its summary
+    // shows right after it.
+    let live = ids(&handle);
+    assert!(live[3].starts_with("divider:") && !live[3].contains(":model:"), "{live:?}");
+    // Live: the rows the compaction took out of the context show `archived` once it is durable, as a reopen shows them.
+    let archived = |handle: &SessionHandle| -> Vec<bool> {
+        handle.cell.view.load_full().items.iter().map(|item| super::view::meta(item).ext.get("archived") == Some(&json!(true))).collect()
+    };
+    eventually_on!(&[&handle.cell.stepped], || archived(&handle)[0].then_some(())).await;
+    let marked = archived(&handle);
+    assert_eq!(marked, [true, true, true, false], "every row before the compaction, and not its divider");
+    let id = handle.id.clone();
+    let switch = |at: i64| json!({ "provider": "openai", "modelId": "gpt-next", "at": at });
+    assert!(super::record_model_switch(&directory, &id, &switch(300)).await.expect("record"));
+    eventually_on!(&[&handle.cell.stepped], || (ids(&handle).len() == 5).then_some(())).await;
+    assert_eq!(ids(&handle)[4], format!("{}:model:300", live[3]));
+
+    let reopened = SessionDirectory::new(rig.deps_on(store));
+    let restored = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let shown = ids(&restored);
+    let divider = shown.iter().position(|id| id.starts_with("divider:") && !id.contains(":model:")).expect("a divider");
+    assert_eq!(divider, 3, "after the rows before the compaction: {shown:?}");
+    assert_eq!(archived(&restored)[..4], marked[..], "the live marks are the reopened window's");
+    let cid = shown[divider].trim_start_matches("divider:").to_owned();
+    assert_eq!(shown[divider + 1..], [format!("divider:{cid}:model:300")]);
+    let ThreadItem::ContextCompaction { meta, .. } = restored.cell.view.load_full().items[divider].as_ref().clone() else {
+        panic!("the divider is a compaction row");
+    };
+    assert_eq!(meta.at, Some(777));
+
+    assert!(super::record_model_switch(&reopened, &id, &switch(400)).await.expect("record live"));
+    eventually_on!(&[&restored.cell.stepped], || (ids(&restored).len() == shown.len() + 1).then_some(())).await;
+    assert_eq!(ids(&restored)[divider + 1..], [format!("divider:{cid}:model:300"), format!("divider:{cid}:model:400")]);
+}
+
+
+/// One compaction of a run shows one divider, carrying the pass's duration and token move: the pass's
+/// event and the `compacted` record reach the thread in either order, and neither adds a row of its own.
+#[tokio::test(start_paused = true)]
+async fn one_compaction_of_a_run_shows_one_divider_with_its_stats() {
+    for event_first in [true, false] {
+        let rig = Rig::new();
+        rig.set_script(Arc::new(move |run| {
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let event = mixdog_agent::env::CompactEvent {
+                    dropped_count: 3,
+                    dropped: None,
+                    trigger: mixdog_agent::env::CompactTrigger::Auto,
+                    status: mixdog_agent::env::CompactStatus::Compacted,
+                    before_tokens: 537_276,
+                    duration_ms: 110,
+                    after_tokens: 41_248,
+                    before_messages: 4,
+                    after_messages: 1,
+                    pressure_tokens: 537_276,
+                    trigger_tokens: 500_000,
+                    boundary_tokens: 500_000,
+                    target_budget_tokens: 40_000,
+                };
+                let summary = json!({ "role": "user", "content": "[summary] earlier work" });
+                let compaction = super::run::Compaction { replacement: vec![(ItemId::from("sum1".to_owned()), summary)], at: 777, dropped_count: 3, dropped: None };
+                if event_first {
+                    run.port.compact_event(event).await.expect("compact");
+                    run.port.compacted(compaction).await.expect("compacted");
+                } else {
+                    run.port.compacted(compaction).await.expect("compacted");
+                    run.port.compact_event(event).await.expect("compact");
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+        let directory = SessionDirectory::new(rig.deps());
+        let handle = start_thread(&directory).await;
+        turn(&handle, "go", "op-1").await;
+        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+        let dividers: Vec<Option<String>> = handle
+            .cell
+            .view
+            .load_full()
+            .items
+            .iter()
+            .filter(|item| matches!(item.as_ref(), ThreadItem::ContextCompaction { .. }) || super::view::meta(item).label.as_deref().is_some_and(|label| label.starts_with("Compact")))
+            .map(|item| super::view::meta(item).detail.clone())
+            .collect();
+        assert_eq!(dividers, [Some("1s · 537k→41k".to_owned())], "event first: {event_first}");
+    }
+}
+
+
+/// Two compactions of one turn, their records and their events arriving in batches (each stream in order, as the run
+/// delivers them), still pair one to one: each divider shows its own pass's figures, and no pass adds a row of its own.
+/// Node keeps no figures past the live row (the archive's divider is the label and the time), so a reopened store shows
+/// the same two dividers without a detail.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_compactions_of_one_turn_pair_their_stats_in_order_and_reopen_as_two_dividers() {
+    for event_first in [true, false] {
+        let data = tempfile::tempdir().expect("data dir");
+        let store = real_store(data.path()).await;
+        let rig = Rig::new();
+        rig.set_script(Arc::new(move |run| {
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let event = |before_tokens: u64, after_tokens: u64| mixdog_agent::env::CompactEvent {
+                    dropped_count: 3,
+                    dropped: None,
+                    trigger: mixdog_agent::env::CompactTrigger::Auto,
+                    status: mixdog_agent::env::CompactStatus::Compacted,
+                    before_tokens,
+                    duration_ms: 110,
+                    after_tokens,
+                    before_messages: 4,
+                    after_messages: 1,
+                    pressure_tokens: before_tokens,
+                    trigger_tokens: 500_000,
+                    boundary_tokens: 500_000,
+                    target_budget_tokens: 40_000,
+                };
+                let compaction = |iid: &str, at: i64| {
+                    let summary = json!({ "role": "user", "content": format!("[summary] {iid}") });
+                    super::run::Compaction { replacement: vec![(ItemId::from(iid.to_owned()), summary)], at, dropped_count: 3, dropped: None }
+                };
+                if event_first {
+                    run.port.compact_event(event(537_276, 41_248)).await.expect("event a");
+                    run.port.compact_event(event(300_000, 20_000)).await.expect("event b");
+                    run.port.compacted(compaction("sum1", 777)).await.expect("record a");
+                    run.port.compacted(compaction("sum2", 888)).await.expect("record b");
+                } else {
+                    run.port.compacted(compaction("sum1", 777)).await.expect("record a");
+                    run.port.compacted(compaction("sum2", 888)).await.expect("record b");
+                    run.port.compact_event(event(537_276, 41_248)).await.expect("event a");
+                    run.port.compact_event(event(300_000, 20_000)).await.expect("event b");
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+        let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+        let handle = start_thread(&directory).await;
+        turn(&handle, "go", "op-1").await;
+        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+        let compactions = |handle: &SessionHandle| -> Vec<(i64, Option<String>)> {
+            handle
+                .cell
+                .view
+                .load_full()
+                .items
+                .iter()
+                .filter(|item| matches!(item.as_ref(), ThreadItem::ContextCompaction { .. }) || super::view::meta(item).label.as_deref().is_some_and(|label| label.starts_with("Compact")))
+                .map(|item| (super::view::meta(item).at.unwrap_or_default(), super::view::meta(item).detail.clone()))
+                .collect()
+        };
+        assert_eq!(
+            compactions(&handle),
+            [(777, Some("1s · 537k→41k".to_owned())), (888, Some("1s · 300k→20k".to_owned()))],
+            "live, event first: {event_first}"
+        );
+        let id = handle.id.clone();
+        let reopened = SessionDirectory::new(rig.deps_on(store));
+        let restored = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+        assert_eq!(compactions(&restored), [(777, None), (888, None)], "reopened, event first: {event_first}");
+    }
+}
+
+
+/// A compaction record the encoder rejects (an oversized replacement) leaves no divider, and the live view is the same
+/// whichever of the record and its event came first: the rejected pass's event is dropped with it, the patch of a
+/// record-first divider goes with its record, and the pairs after it stay aligned.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rejected_compaction_record_leaves_no_divider_in_either_arrival_order_and_later_pairs_stay_aligned() {
+    for event_first in [true, false] {
+        let data = tempfile::tempdir().expect("data dir");
+        let store = real_store(data.path()).await;
+        let rig = Rig::new();
+        rig.set_script(Arc::new(move |run| {
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let event = |before_tokens: u64, after_tokens: u64| mixdog_agent::env::CompactEvent {
+                    dropped_count: 3,
+                    dropped: None,
+                    trigger: mixdog_agent::env::CompactTrigger::Auto,
+                    status: mixdog_agent::env::CompactStatus::Compacted,
+                    before_tokens,
+                    duration_ms: 110,
+                    after_tokens,
+                    before_messages: 4,
+                    after_messages: 1,
+                    pressure_tokens: before_tokens,
+                    trigger_tokens: 500_000,
+                    boundary_tokens: 500_000,
+                    target_budget_tokens: 40_000,
+                };
+                let compaction = |iid: &str, at: i64, size: usize| {
+                    let summary = json!({ "role": "user", "content": format!("[summary] {iid}{}", "x".repeat(size)) });
+                    super::run::Compaction { replacement: vec![(ItemId::from(iid.to_owned()), summary)], at, dropped_count: 3, dropped: None }
+                };
+                let oversized = mixdog_protocol::MAX_BLOB_BYTES as usize + 1;
+                let events = [event(537_276, 41_248), event(400_000, 30_000), event(300_000, 20_000)];
+                let records = [compaction("sum1", 777, 0), compaction("sum2", 888, oversized), compaction("sum3", 999, 0)];
+                if event_first {
+                    for event in events {
+                        run.port.compact_event(event).await.expect("event");
+                    }
+                    for record in records {
+                        let _ = run.port.compacted(record).await;
+                    }
+                } else {
+                    for record in records {
+                        let _ = run.port.compacted(record).await;
+                    }
+                    for event in events {
+                        run.port.compact_event(event).await.expect("event");
+                    }
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+        let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+        let handle = start_thread(&directory).await;
+        turn(&handle, "go", "op-1").await;
+        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+        let compactions = |handle: &SessionHandle| -> Vec<(i64, Option<String>)> {
+            handle
+                .cell
+                .view
+                .load_full()
+                .items
+                .iter()
+                .filter(|item| matches!(item.as_ref(), ThreadItem::ContextCompaction { .. }) || super::view::meta(item).label.as_deref().is_some_and(|label| label.starts_with("Compact")))
+                .map(|item| (super::view::meta(item).at.unwrap_or_default(), super::view::meta(item).detail.clone()))
+                .collect()
+        };
+        assert_eq!(
+            compactions(&handle),
+            [(777, Some("1s · 537k→41k".to_owned())), (999, Some("1s · 300k→20k".to_owned()))],
+            "live, event first: {event_first}"
+        );
+        let id = handle.id.clone();
+        let reopened = SessionDirectory::new(rig.deps_on(store));
+        let restored = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+        assert_eq!(compactions(&restored), [(777, None), (999, None)], "reopened, event first: {event_first}");
+    }
+}
+
+
+/// `recordModelSwitchBoundary`: the boundary goes on the switch anchor once, as a record
+/// naming the stored row; the live row follows the anchor's, and a reader folds the record
+/// back onto the anchor's `meta.modelSwitches`. A connection cannot write one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_model_switch_is_recorded_once_on_its_anchor_and_read_back_folded() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    let id = handle.id.clone();
+    let boundary = json!({ "provider": "openai", "modelId": "gpt-next", "at": 200 });
+    assert!(super::record_model_switch(&directory, &id, &boundary).await.expect("record"));
+    assert!(super::record_model_switch(&directory, &id, &boundary).await.expect("again"), "recorded once");
+    let items = handle.cell.view.load_full().items.clone();
+    assert_eq!(items.len(), 3, "the switch row follows the anchor's");
+    // The test transcript shows a row under its stored id.
+    let anchor_iid = items[1].id().as_str().to_owned();
+    assert_eq!(items[2].id().as_str(), format!("{anchor_iid}:model:200"));
+
+    let reopened = SessionDirectory::new(rig.deps_on(store));
+    let (_, anchor) = reopened.history_row(&id, &anchor_iid).await.expect("read").expect("anchor row");
+    let mixdog_store::schema::blob::Slot::Inline(body) = &anchor.body else { panic!("inline") };
+    assert_eq!(body["meta"]["modelSwitches"], json!([boundary]));
+
+    let refused = handle
+        .request(request(
+            "thread/boundary/record",
+            json!({ "threadId": id, "anchor": { "iid": anchor_iid, "ordinal": 1 }, "entry": boundary }),
+            "op-x",
+        ))
+        .await;
+    assert!(matches!(refused, Err(CoreError::InvalidParams { .. })), "{refused:?}");
+}
+
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_real_store_reopens_a_thread_and_appends_after_it() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+
+    let first = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&first).await;
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    turn(&handle, "again", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    let id = handle.id.clone();
+    handle
+        .request(request(
+            "thread/name/set",
+            json!({ "threadId": id, "opId": "op-name", "title": "  Haiku  " }),
+            "op-name",
+        ))
+        .await
+        .expect("name/set");
+    // The index answers the metadata with the stored (normalized) title, without loading anything.
+    // Reading a row waits for the index to hold every barrier acked so far.
+    first.history_row(&id, handle.cell.view.load_full().items[0].id().as_str()).await.expect("read");
+    let meta = first.session_meta(&id).await.expect("meta").expect("listed");
+    assert_eq!(meta.title.as_deref(), Some("Haiku"), "the index answers the stored title");
+    assert_eq!(meta.agent, Value::Null);
+    assert_eq!(meta.owner_session_id, Value::Null);
+    assert_eq!(
+        first.session_meta(&ThreadId::from("missing")).await.expect("meta"),
+        None
+    );
+
+    // A fresh directory opens the thread from its log and the index.
+    let second = SessionDirectory::new(rig.deps_on(store));
+    let reopened = second
+        .open_handle(&id, &CallContext::internal("test"))
+        .await
+        .expect("open");
+    assert_eq!(rows(&reopened), rows(&handle));
+    assert_eq!(prompt_list(&reopened), ["again", "hello"]);
+
+    // The first write after the open appends to the same log.
+    let again = reopened.cell.view.load_full().items[2].id().clone();
+    let reply = reopened
+        .request(request(
+            "thread/rewind",
+            json!({ "threadId": id, "opId": "op-3", "itemId": again }),
+            "op-3",
+        ))
+        .await
+        .expect("rewind");
+    let Reply::Value(value) = reply else { panic!() };
+    assert_eq!(value["text"], "again");
+    eventually_on!(&[&reopened.cell.stepped], || (rows(&reopened).len() == 2).then_some(())).await;
+    eventually_on!(&[&reopened.cell.stepped], || (prompt_list(&reopened) == ["hello"]).then_some(())).await;
+}
+
+
+#[tokio::test(start_paused = true)]
+async fn shutdown_waits_for_the_ingests_at_most_2500_ms() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    *lock(&rig.closes.delay) = Duration::from_secs(10);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+
+    let started = tokio::time::Instant::now();
+    directory.shutdown().await;
+    let took = started.elapsed();
+    assert!(took >= Duration::from_millis(2400) && took < Duration::from_millis(4000), "{took:?}");
+    assert!(directory.handle(&handle.id).is_none());
+    assert!(lock(&rig.closes.seen).is_empty(), "the slow ingest was not waited for");
+}
+
+
+#[tokio::test(start_paused = true)]
+async fn a_value_marked_sensitive_while_a_turn_runs_reingests_its_session_search_copy() {
+    let rig = Rig::new();
+    let (release, gate) = tokio::sync::watch::channel(false);
+    rig.set_script(Arc::new(move |run| {
+        let mut gate = gate.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let _ = gate.wait_for(|open| *open).await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let fill = json!({
+        "name": "browser",
+        "arguments": { "action": "fill", "input": { "sensitive": true, "text": "hunter2" } },
+    });
+    // Outside a turn no barrier of a turn follows the mark: the thread rewrites its log and re-ingests its copy itself,
+    // once.
+    assert!(rig.sensitive.remember(handle.id.as_str(), std::slice::from_ref(&fill)));
+    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
+    turn(&handle, "hold", "op-1").await;
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(lock(&rig.ingests.0).len(), 1);
+
+    let again = json!({
+        "name": "browser",
+        "arguments": { "action": "fill", "input": { "sensitive": true, "text": "s3cret" } },
+    });
+    assert!(rig.sensitive.remember(handle.id.as_str(), &[again]));
+    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 2).then_some(())).await;
+    let (thread, messages) = lock(&rig.ingests.0)[1].clone();
+    assert_eq!(thread, handle.id);
+    assert_eq!(messages.len(), 1, "the turn's durable input row: {messages:?}");
+
+    release.send(true).expect("release");
+    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 3).then_some(())).await;
+}
+
+
+/// A value marked sensitive after records holding it were written (the prompt that brought it, its title and prompt-history
+/// rows) leaves every file the thread store and the prompt history wrote (`redactSessionFiles`): the log is rewritten at the
+/// next barrier, the thread's index rows are rebuilt from it with their old pages overwritten and the WAL emptied, and the
+/// cwd's persisted prompts take the marker. The model context still reads the prompt whole for the process.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_value_marked_after_it_was_written_leaves_every_stored_file_and_the_model_context_keeps_it() {
+    use mixdog_core_api::domain::mock::MockOwnership;
+    const CODE: &str = "482913";
+    let data = tempfile::tempdir().expect("data dir");
+    let tokens = mixdog_rt::testing::tokens();
+    let root = data.path().to_path_buf();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+        mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+    .expect("index");
+    let threads = Arc::new(super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
+    let rig = Rig::new();
+    let deps = rig.deps_parts(threads.clone());
+    assert!(threads.redact_with(deps.sensitive.clone()).is_ok());
+    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
+    let body = json!({ "role": "assistant", "content": "", "toolCalls": [fill.clone()] });
+    rig.set_script(Arc::new(move |run| {
+        let (body, fill) = (body.clone(), fill.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            assert!(run.context.remember_sensitive(&[fill]));
+            let row = ItemCommit { iid: ItemId::from("a-1"), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
+            run.port.commit_item(row).await.expect("assistant row");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    let prompt = format!("{CODE} is the code from the mail");
+    turn(&handle, &prompt, "op-1").await;
+    let cwd = handle.cell.header.load_full()["cwd"].as_str().map(str::to_owned).expect("cwd");
+    let history = rig.prompts.file(&cwd).expect("a prompt history file");
+    let holds = |path: &std::path::Path| std::fs::read(path).is_ok_and(|bytes| bytes.windows(CODE.len()).any(|w| w == CODE.as_bytes()));
+    let files = |dir: &std::path::Path| -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                if entry.path().is_dir() { stack.push(entry.path()) } else { out.push(entry.path()) }
+            }
+        }
+        out
+    };
+    // The log was rewritten at the barrier after the mark, inside the turn; the index rows follow the projector; the
+    // prompt history is written on the durability lane and tells the rig each time.
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    threads.projected().await;
+    eventually_on!(&[&*rig.prompts_wrote], || (history.is_file() && !holds(&history)).then_some(())).await;
+    let held: Vec<_> = files(data.path()).into_iter().filter(|path| holds(path)).collect();
+    assert!(held.is_empty(), "files holding the value: {held:?}");
+    let context = directory.model_context(&handle.id).read().await.expect("context");
+    let texts = serde_json::to_string(&context.iter().map(|(_, row)| row.clone()).collect::<Vec<_>>()).expect("rows");
+    assert!(texts.contains(&prompt), "the model context keeps the prompt whole: {texts}");
+    assert!(std::fs::read_to_string(&history).expect("history").contains("[redacted] is the code from the mail"));
+    // The history a client is sent after the mark: the thread's own lists take the marker too.
+    let list = eventually_on!(&[&handle.cell.stepped], || {
+        let list = prompt_list(&handle);
+        list.iter().all(|entry| !entry.contains(CODE)).then_some(list)
+    })
+    .await;
+    assert_eq!(list, ["[redacted] is the code from the mail"]);
+    // What a client (the desktop, or a paired phone through the relay: the same `thread/read`) reads after the mark once
+    // the thread is loaded again from its stored files. The live view of the still-loaded thread keeps its rows as sent,
+    // as Node's does.
+    let restarted = SessionDirectory::new(Arc::new(rig.deps_parts(threads.clone())));
+    let reread = restarted.open_handle(&handle.id, &CallContext::internal("test")).await.expect("open");
+    let read = reread
+        .request(request("thread/read", json!({ "threadId": handle.id }), "op-read"))
+        .await
+        .expect("thread/read");
+    let Reply::Value(read) = read else { panic!("thread/read answers a value") };
+    let read = serde_json::to_string(&read).expect("json");
+    assert!(!read.contains(CODE) && read.contains("[redacted] is the code from the mail"), "the loaded view: {read}");
+}
+
+
+/// A value a worker marks after its report reached its owner leaves the owner's stored files, and on up the chain: a
+/// grandchild's mark is carried to the child whose report quoted it and on to the parent (`carry`, as the worker's turn
+/// sets it up), and each of them, idle, rewrites its log, index rows and prompt history as for a mark of its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_value_a_worker_marks_after_its_report_leaves_every_owner_up_the_chain() {
+    use mixdog_core_api::domain::mock::MockOwnership;
+    const CODE: &str = "482913";
+    let data = tempfile::tempdir().expect("data dir");
+    let tokens = mixdog_rt::testing::tokens();
+    let root = data.path().to_path_buf();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+        mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+    .expect("index");
+    let threads = Arc::new(super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
+    let rig = Rig::new();
+    let deps = rig.deps_parts(threads.clone());
+    assert!(threads.redact_with(deps.sensitive.clone()).is_ok());
+    let marks = deps.sensitive.clone();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let row = ItemCommit { iid: ItemId::from(format!("a-{}", run.turn)), role: Some("assistant".into()), model: true, visible: true, body: json!({ "role": "assistant", "content": "noted" }), prompt: None };
+            run.port.commit_item(row).await.expect("assistant row");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let (parent, child, grandchild) = (start_thread(&directory).await, start_thread(&directory).await, start_thread(&directory).await);
+    // The reports as delivered before the mark: the child's quoted the value to the parent, the grandchild's to the child.
+    turn(&parent, &format!("the child reported {CODE}"), "op-p").await;
+    turn(&child, &format!("the grandchild reported {CODE}"), "op-c").await;
+    let all = [&parent, &child, &grandchild];
+    eventually_on!(&[&parent.cell.stepped, &child.cell.stepped], || all.iter().all(|h| idle(h)).then_some(())).await;
+    threads.projected().await;
+    let holds = |path: &std::path::Path| std::fs::read(path).is_ok_and(|bytes| bytes.windows(CODE.len()).any(|w| w == CODE.as_bytes()));
+    let files = |dir: &std::path::Path| -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                if entry.path().is_dir() { stack.push(entry.path()) } else { out.push(entry.path()) }
+            }
+        }
+        out
+    };
+    let held = || files(data.path()).into_iter().filter(|path| holds(path)).collect::<Vec<_>>();
+    assert!(!held().is_empty(), "the reports are stored before the mark");
+    // As each worker's turn sets it up (`TurnRunner::run`), then the grandchild marks the value.
+    marks.carry(&grandchild.id, &child.id);
+    marks.carry(&child.id, &parent.id);
+    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
+    assert!(rig.sensitive.remember(grandchild.id.as_str(), &[fill]));
+    // The files are read after the index holds every write acked so far: the rewrite's index rows are projected behind their ack and
+    // nothing signals the projection, so a probe woken only by the owners' steps and the prompt history read the index before it
+    // had them and then waited for a wake that never came.
+    super::testing::awaiting(
+        || format!("until no file holds the value: {:?}", held()),
+        async {
+            let wakes = [&parent.cell.stepped, &child.cell.stepped, &grandchild.cell.stepped, &*rig.prompts_wrote];
+            loop {
+                let mut waits: Vec<_> = wakes.iter().map(|wake| Box::pin(wake.notified())).collect();
+                for wait in &mut waits {
+                    wait.as_mut().enable();
+                }
+                threads.projected().await;
+                if held().is_empty() {
+                    return;
+                }
+                futures::future::select_all(waits).await;
+            }
+        },
+    )
+    .await;
+    assert!(all.iter().all(|h| idle(h)), "no turn ran for it");
+    assert_eq!(rig.sensitive.redact_text(parent.id.as_str(), CODE), "[redacted]", "the parent holds the mark");
+}
+
+
+/// `thread/reactions/set`: the reaction is stored on the user's message (an amend of its row), a
+/// repeat changes nothing, and the refusals carry Node's text.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reaction_is_stored_on_the_users_message_and_refused_as_node_does() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from("u1".to_owned()),
+                    role: Some("user".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "role": "user", "content": "hello", "meta": { "transcript": { "at": 1, "messageId": "m1" } } }),
+                    prompt: None,
+                })
+                .await
+                .expect("commit");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let id = handle.id.clone();
+    let react = |params: Value| {
+        handle.request(CoreRequest {
+            method: Method("thread/reactions/set"),
+            params,
+            op: None,
+            ctx: CallContext::internal("test"),
+        })
+    };
+    let value = |reply: Result<Reply, CoreError>| match reply.expect("reply") {
+        Reply::Value(value) => value,
+        Reply::Subscribe(_) => panic!("a value"),
+    };
+
+    let set = value(react(json!({ "agentId": "rev", "emoji": "👍", "messagesBack": 0 })).await);
+    assert_eq!((set["changed"].clone(), set["messageId"].clone()), (json!(true), json!("m1")));
+    assert_eq!(set["reactions"][0]["emoji"], "👍");
+    let again = value(react(json!({ "agentId": "rev", "emoji": "👍" })).await);
+    assert_eq!(again["changed"], false, "the same emoji again changes nothing");
+
+    let stored = |directory: SessionDirectory| {
+        let id = id.clone();
+        async move {
+            let (_, row) = directory.history_row(&id, "u1").await.expect("read").expect("row");
+            let mixdog_store::schema::blob::Slot::Inline(body) = row.body else { panic!("inline") };
+            body["meta"]["transcript"].clone()
+        }
+    };
+    let reopened = SessionDirectory::new(rig.deps_on(store.clone()));
+    let transcript = stored(reopened).await;
+    assert_eq!(transcript["reactions"][0]["agentId"], "rev");
+    assert_eq!(transcript["reactions"][0]["emoji"], "👍");
+
+    let domain = |reply: Result<Reply, CoreError>| match reply {
+        Err(CoreError::DomainError { message: Some(message), .. }) => message.to_string(),
+        other => panic!("a domain error, got {other:?}"),
+    };
+    let taken = domain(react(json!({ "agentId": "bob", "emoji": "👍", "othersKeep": true })).await);
+    assert_eq!(taken, "react: rev already left 👍 on that message");
+    let far = domain(react(json!({ "agentId": "rev", "emoji": "🙏", "messagesBack": 3 })).await);
+    assert_eq!(far, "react: there are only 1 user messages to react to");
+
+    let removed = value(react(json!({ "agentId": "rev", "emoji": null })).await);
+    assert_eq!((removed["changed"].clone(), removed["reactions"].clone()), (json!(true), json!([])));
+    let reopened = SessionDirectory::new(rig.deps_on(store));
+    assert!(stored(reopened).await.get("reactions").is_none(), "the last removal drops the key");
+    let refused = handle
+        .request(request("thread/reactions/set", json!({ "agentId": "rev", "emoji": "👍" }), "op-x"))
+        .await;
+    assert!(matches!(refused, Err(CoreError::InvalidParams { .. }) | Err(CoreError::PermissionDenied { .. })), "{refused:?}");
+}
+
+
+/// The room log (`agent-room-delivery.mjs` `commit`): a post's rows land in the room session
+/// without a turn and show at once; a messageId the conversation holds, or the post repeats,
+/// is stored once; a session that does not exist is not available, in Node's words.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_room_post_stores_each_message_once_and_shows_it() {
+    use super::room_log::RoomLog;
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps_on(store.clone())));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.clone();
+    let log = super::room_log::SessionRoomLog::new(directory.clone());
+    let row = |message_id: &str, text: &str| {
+        json!({
+            "role": "user",
+            "content": text,
+            "meta": { "source": "room", "room": { "id": "r1", "speaker": "alice" }, "transcript": { "at": 5, "messageId": message_id } },
+        })
+    };
+    let before = rows(&handle).len();
+    let added = log.append_rows(id.as_str(), vec![row("m1", "one"), row("m2", "two"), row("m1", "again")]).await.expect("post");
+    assert_eq!(added, 2, "a messageId repeated in the post is one row");
+    let added = log.append_rows(id.as_str(), vec![row("m2", "two"), row("m3", "three")]).await.expect("post");
+    assert_eq!(added, 1, "a messageId the conversation holds is skipped");
+    eventually_on!(&[&handle.cell.stepped], || (rows(&handle).len() == before + 3).then_some(())).await;
+
+    let reopened = SessionDirectory::new(rig.deps_on(store));
+    let reread = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let Reply::Value(value) = reread
+        .request(CoreRequest {
+            method: Method("thread/messages/read"),
+            params: json!({}),
+            op: None,
+            ctx: CallContext::internal("test"),
+        })
+        .await
+        .expect("messages")
+    else {
+        panic!("a value")
+    };
+    let texts: Vec<&str> = value["messages"].as_array().expect("messages").iter().filter_map(|m| m["content"].as_str()).collect();
+    assert_eq!(texts, ["one", "two", "three"]);
+
+    let missing = log.append_rows("sess_gone", vec![row("m9", "x")]).await;
+    match missing {
+        Err(CoreError::DomainError { message: Some(message), .. }) => assert_eq!(message.to_string(), "session sess_gone is not available"),
+        other => panic!("{other:?}"),
+    }
+}
+
+
+/// A room post admitted while its log is released on close (Node: the post's save is dropped by the generation fence of the
+/// log's detach, and the fixed `commit` fails with `session <id> is not available`; recorded: `startup-interrupted-post-behind-detach`):
+/// the post is refused in Node's words and no row is written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_room_post_admitted_while_its_log_is_released_on_close_is_refused_and_writes_nothing() {
+    struct NoShells;
+    impl super::shell_jobs::OwnedShells for NoShells {
+        fn cancel_owned(&self, _: &ThreadId) {}
+    }
+    struct NoProviders;
+    #[async_trait::async_trait]
+    impl mixdog_ai::registry::providers::ProviderBuilder for NoProviders {
+        async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
+            Err(format!("no {name}"))
+        }
+        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _: &str) -> bool {
+            false
+        }
+        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+            Ok(false)
+        }
+    }
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps_on(store.clone())));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.clone();
+    let providers = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(NoProviders)));
+    let close = super::close::SessionClose::new(directory.clone(), providers, Arc::new(NoShells), Arc::new(mixdog_tools::fs::ReadState::new(None)));
+    let row = json!({
+        "role": "assistant",
+        "content": "interrupted",
+        "meta": { "source": "agent-room", "room": { "kind": "interrupted" }, "transcript": { "at": 5, "messageId": "row_1" } },
+    });
+    // The post's log is open (admitted) when the log's detach lands.
+    assert!(close.detach(id.as_str(), "test", false).await);
+    let refused = super::room_log::post_on_opened(&handle, vec![row]).await;
+    match refused {
+        Err(CoreError::DomainError { message: Some(message), .. }) => assert_eq!(message.to_string(), format!("session {id} is not available")),
+        other => panic!("{other:?}"),
+    }
+    let reopened = SessionDirectory::new(rig.deps_on(store));
+    let reread = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let Reply::Value(value) = reread
+        .request(CoreRequest { method: Method("thread/messages/read"), params: json!({}), op: None, ctx: CallContext::internal("test") })
+        .await
+        .expect("messages")
+    else {
+        panic!("a value")
+    };
+    let texts: Vec<&str> = value["messages"].as_array().expect("messages").iter().filter_map(|m| m["content"].as_str()).collect();
+    assert!(!texts.contains(&"interrupted"), "the refused post wrote nothing: {texts:?}");
+}
+
+
+/// A hook's `transcript_path` over the real thread store: Node's `<id>.json` before the session
+/// has a model context, the refreshed `<id>.log.jsonl` after it, `null` for an id that names no
+/// session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_hooks_transcript_path_is_the_sessions_export() {
+    use mixdog_mcp::hook_bus::TranscriptExport;
+
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&directory).await;
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = super::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io };
+    let files = super::transcript_export::TranscriptFiles::new(data.path(), store.clone(), lanes, tokens.maintenance_io);
+    let id = handle.id.as_str().to_owned();
+    let sessions = data.path().join("sessions");
+
+    assert_eq!(files.transcript_path(&id).await, json!(sessions.join(format!("{id}.json")).to_string_lossy()));
+    let unexported = sessions.join(format!("{id}.log.jsonl"));
+    let found = mixdog_core_base::support::on_lane(tokens.maintenance_io, &CancellationToken::new(), move |_| mixdog_statefile::read_content(&unexported))
+        .await
+        .expect("read job")
+        .expect("readable");
+    assert!(found.is_none(), "nothing is exported before the first message");
+    assert_eq!(files.transcript_path("../x").await, Value::Null);
+
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let log = sessions.join(format!("{id}.log.jsonl"));
+    assert_eq!(files.transcript_path(&id).await, json!(log.to_string_lossy()));
+    let read = log.clone();
+    let bytes = mixdog_core_base::support::on_lane(tokens.maintenance_io, &CancellationToken::new(), move |_| mixdog_statefile::read_content(&read))
+        .await
+        .expect("read job")
+        .expect("readable")
+        .expect("the export exists");
+    let text = String::from_utf8(bytes).expect("UTF-8");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 2, "the session record and the compacted record");
+    let session: Value = serde_json::from_str(lines[0]).expect("session line");
+    assert_eq!(session["t"], "session");
+    assert_eq!(session["id"], id.as_str());
+    let tid = ThreadId::from(id.as_str());
+    let log_id = on_lane_io(&store, move |store, lane| store.read_log_id(lane, &tid)).await;
+    assert_eq!(session["logId"], log_id.as_str());
+    assert!(lines[1].starts_with(r#"{"t":"compacted","s":1,"len":2,"messages":["#), "{}", lines[1]);
+    assert!(lines[1].contains("hello") && lines[1].contains("re: hello"), "{}", lines[1]);
+}
+
+
+async fn on_lane_io<R: Send + 'static>(
+    store: &Arc<dyn super::ThreadStore>,
+    job: impl FnOnce(&dyn super::ThreadStore, &mixdog_rt::InLane<mixdog_rt::InteractiveIo>) -> Result<R, CoreError> + Send + 'static,
+) -> R {
+    use mixdog_rt::LaneToken;
+    let tokens = mixdog_rt::testing::tokens();
+    let store = store.clone();
+    tokens
+        .interactive_io
+        .submit(&CancellationToken::new(), move |lane| job(store.as_ref(), lane))
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("read")
+}
+
+
+
+/// A cancel of the pending auto-resume takes effect in memory at once (Node's `cancelEpoch += 1` and
+/// `cancelQuotaResumeEntry` are synchronous): with the store write failing, a fire of the cancelled entry
+/// is stale and the failed turn is not replayed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cancel_whose_store_write_fails_still_disarms_the_pending_resume() {
+    use super::quota_resume_host::SessionResumeHost;
+    use super::quota_resume_scheduler::FireOutcome;
+    use super::quota_resume_scheduler::ResumeHost;
+    use mixdog_core_ports::ports::domain_sessions::QuotaResumeSessions;
+
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    rig.set_script(quota_failure());
+    let handle = start_routed_thread(&directory).await;
+    let id = handle.id.as_str().to_owned();
+    turn(&handle, "build the parser", "op-failed").await;
+    let entry = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id)).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    // The next store write fails: the file's place becomes a directory (the atomic rename cannot land).
+    let file = rig._data.path().join(mixdog_core_base::quota_resume::QUOTA_RESUME_FILE);
+    crate::session::fixture_fs::remove_file(&file);
+    crate::session::fixture_fs::create_dir_all(&file);
+    directory.cancelled(&handle.id).await.unwrap();
+    assert!(rig.quota.entry(&id).is_some(), "the entry is still stored: the write failed");
+
+    rig.set_script(echo());
+    let host = SessionResumeHost::new(directory.clone(), Arc::new(NoUsage));
+    host.materialize(&id).await.expect("loaded");
+    eventually_on!(&[&handle.cell.stepped], || (!handle.cell.busy.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
+    let outcome = host.fire(&id, entry.generation).await;
+    assert_eq!(outcome, Ok(FireOutcome::Stale), "the cancelled resume does not fire");
+    assert!(!rows(&handle).iter().any(|(role, text)| *role == "assistant" && text.starts_with("re: ")), "and the failed turn was not replayed");
+}
+
+
+/// A worker's reply committed while the io-interactive lane is full (its threads and queue taken by jobs a gate holds)
+/// waits for room: once the gate lets the lane go the row lands and the turn ends with it, never dropped as closed.
+#[tokio::test(start_paused = true)]
+async fn a_reply_committed_while_the_io_lane_is_full_lands_once_it_has_room() {
+    let rig = Rig::new();
+    let (release, gate) = tokio::sync::watch::channel(false);
+    let committed: Arc<Mutex<Option<Result<(), super::run::RunError>>>> = Arc::default();
+    let seen = committed.clone();
+    rig.set_script(Arc::new(move |run| {
+        let (mut gate, seen) = (gate.clone(), seen.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let _ = gate.wait_for(|open| *open).await;
+            let done = run
+                .port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from(format!("a-{}", run.turn)),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "text": "re: hello" }),
+                    prompt: None,
+                })
+                .await;
+            *lock(&seen) = Some(done);
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
+    release.send(true).expect("release");
+    super::testing::awaiting(|| "the reply's commit to meet the full lane".into(), full.met_by_a_submit()).await;
+    assert!(lock(&committed).is_none(), "the commit waits for room");
+    assert!(!idle(&handle), "the run waits with it");
+    drop(full);
+    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
+    assert_eq!(*lock(&committed), Some(Ok(())));
+    let (_, messages) = lock(&rig.ingests.0)[0].clone();
+    assert_eq!(messages[1]["text"], "re: hello", "{messages:?}");
+}
+
+
+/// A Lead turn submitted while the io-interactive lane is full is accepted once it has room, not refused as closed.
+#[tokio::test(start_paused = true)]
+async fn a_turn_submitted_while_the_io_lane_is_full_starts_once_it_has_room() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
+    let submitted = {
+        let handle = handle.clone();
+        tokio::spawn(async move { turn(&handle, "hello", "op-1").await })
+    };
+    super::testing::awaiting(|| "the turn's start to meet the full lane".into(), full.met_by_a_submit()).await;
+    assert!(!submitted.is_finished(), "the start waits for room");
+    drop(full);
+    let started = super::testing::awaiting(|| "the turn's start once the lane has room".into(), submitted).await.expect("the submit's task");
+    assert_eq!(started["kind"], "started", "{started}");
+    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
+}
+
+
+/// A turn whose input row's lane job can never run (a lane that cannot take it or signal room) is answered with an error
+/// that names the lane, never "The session is closed.".
+#[tokio::test]
+async fn a_turn_whose_lane_job_is_refused_hears_the_lane_not_closed() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let answer = {
+        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+        handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "hello" } }), "op-1")).await
+    };
+    match answer {
+        Err(CoreError::QueueFull { queue }) => assert_eq!(&*queue, mixdog_rt::LaneKind::InteractiveIo.name()),
+        other => panic!("the refused start names the lane: {other:?}"),
+    }
+}
+
+
+/// Each lane job a turn submits, refused in its turn (a lane that cannot run it): the start is answered with its result or
+/// an error that names the cause, never "The session is closed.", and the thread takes the next turn.
+#[tokio::test]
+async fn a_refused_lane_job_anywhere_in_a_turn_never_closes_the_session() {
+    let closed = |answer: &Result<Reply, CoreError>| format!("{answer:?}").contains("The session is closed.");
+    for n in 0.. {
+        let rig = Rig::new();
+        // The run hears a refused input or commit as an error and ends interrupted: the refusal is the thread's to answer.
+        rig.set_script(Arc::new(|run| {
+            Box::pin(async move {
+                if run.port.input_durable().await.is_err() {
+                    return RunOutcome::Interrupted;
+                }
+                let commit = ItemCommit {
+                    iid: ItemId::from(format!("a-{}", run.turn)),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "text": "re" }),
+                    prompt: None,
+                };
+                match run.port.commit_item(commit).await {
+                    Ok(_) => RunOutcome::Completed(Default::default()),
+                    Err(_) => RunOutcome::Interrupted,
+                }
+            })
+        }));
+        let directory = SessionDirectory::new(rig.deps());
+        let handle = start_thread(&directory).await;
+        let (answer, reached) = {
+            let _refused = mixdog_rt::testing::refuse_nth_job_on_this_thread(n);
+            let answer = handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "hello" } }), "op-1")).await;
+            eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+            (answer, mixdog_rt::testing::attempts_on_this_thread() > n)
+        };
+        assert!(!closed(&answer), "job {n} refused: {answer:?}");
+        let next = handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-2", "input": { "prompt": "again" } }), "op-2")).await;
+        assert!(next.is_ok(), "job {n} refused, then the next turn: {next:?}");
+        if !reached {
+            break;
+        }
+    }
+}
+
+
 /// A queue entry an earlier build wrote (its `{"type":"text"}` part beside an image, which this build's intake would have
 /// cleaned) is delivered under the one rule on resume: the image reaches the turn's input row, the entry is delivered.
 #[tokio::test(start_paused = true)]
@@ -6343,6 +5384,7 @@ async fn a_restored_queue_entry_keeps_its_image_beside_an_empty_text_part() {
     assert_eq!(dequeued, [DequeueReason::Delivered]);
 }
 
+
 /// A restored queue entry that cannot be delivered is handed back to its sender under the submission id the sender registered
 /// (`options.clientSubmissionId`, what a composer's `wasSubmittedHere` knows), and leaves the queue as cancelled, not delivered.
 #[tokio::test(start_paused = true)]
@@ -6381,4 +5423,1440 @@ async fn a_refused_queue_entry_is_handed_back_under_its_client_submission_id() {
         _ => None,
     }).collect();
     assert_eq!(dequeued, [DequeueReason::Cancelled]);
+}
+
+
+async fn stage_turn(rig: &Rig, steps: &'static [&'static str], ending: &'static str) -> StageTurn {
+    use super::run::CallMark;
+    use mixdog_core_ports::ports::threads::Section;
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let late = Arc::new(tokio::sync::Notify::new());
+    let (held, after) = (gate.clone(), late.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (held, after) = (held.clone(), after.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            for step in steps {
+                match *step {
+                    // A cancelled run leaves its hold, as a real run leaves what it waits on.
+                    "hold" => tokio::select! {
+                        _ = held.notified() => {}
+                        _ = run.cancel.cancelled() => {}
+                    },
+                    "reconnecting" => run
+                        .port
+                        .stage("reconnecting".into(), Some(json!({ "message": "Retrying", "retryAt": super::spinner::core_now_ms() + 60_000 })))
+                        .await
+                        .expect("shown"),
+                    "streaming" => run.port.call_mark(CallMark::Streaming).await.expect("shown"),
+                    "tool" => run.port.call_mark(CallMark::ToolCall).await.expect("shown"),
+                    "quiet" => run.port.section(Section::SpinnerQuiet(Some(json!({ "quietMs": 30_000 })))).await.expect("shown"),
+                    "resumed" => run.port.section(Section::SpinnerQuiet(None)).await.expect("shown"),
+                    stage => run.port.stage(stage.into(), None).await.expect("shown"),
+                }
+            }
+            let port = run.port.clone();
+            tokio::spawn(async move {
+                after.notified().await;
+                let _ = port.stage("compacting".into(), None).await;
+                let _ = port.stage("reconnecting".into(), Some(json!({ "message": "late", "retryAt": super::spinner::core_now_ms() + 60_000 }))).await;
+            });
+            match ending {
+                // Not a quota error: that one schedules a replay of the turn, which is another turn.
+                "failed" => RunOutcome::Failed(mixdog_protocol::TurnError { message: "the run broke".into(), data: json!({}), provider_error: None }),
+                "interrupted" => {
+                    run.cancel.cancelled().await;
+                    RunOutcome::Interrupted
+                }
+                _ => RunOutcome::Completed(Default::default()),
+            }
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let started = turn(&handle, "go", "op-1").await;
+    let turn_id = TurnId::from(started["turnId"].as_str().expect("turn id"));
+    StageTurn { _directory: directory, handle, gate, late, turn_id }
+}
+
+
+/// A recovery snapshot, and a second client attaching at the same sequence later, show `reconnecting` with the wait left at their own
+/// delivery, on the core's clock: the deadline's absolute value is meaningless to a client and the clock the stage was published by
+/// is not the one the wait is read by.
+#[tokio::test(start_paused = true)]
+async fn a_snapshot_mid_retry_carries_the_wait_left_at_its_delivery() {
+    let rig = Rig::new();
+    // A clock far from the wall: the wait published with the stage is nonsense, the delivered one is not.
+    rig.clock.0.store(5, std::sync::atomic::Ordering::SeqCst);
+    let run = stage_turn(&rig, &["reconnecting", "hold"], "done").await;
+    let held = spinner_where(&rig, &run, "reconnecting", |spinner| spinner["mode"] == "reconnecting").await;
+    let retry_at = held["retryAt"].as_i64().expect("the deadline is retained");
+    assert_eq!(held["verb"], "Retrying");
+    let (before, first, after) = (super::spinner::core_now_ms(), attached_spinner(&run.handle, 1).await, super::spinner::core_now_ms());
+    assert_eq!((first["mode"].as_str(), first["retryAt"].as_i64()), (Some("reconnecting"), Some(retry_at)));
+    let first_left = first["retryInMs"].as_i64().expect("the wait left");
+    // The wait left is the deadline minus the core's clock at the delivery, which fell between the two readings; the published
+    // clock (5) would have made it about 1.7e12.
+    assert!((retry_at - after..=retry_at - before).contains(&first_left), "{first_left} is not the deadline less the core's clock at delivery: {first}");
+    // Let the core's clock move on by 100 ms, awaiting the clock itself rather than assuming how long a sleep takes.
+    while super::spinner::core_now_ms() < after + 100 {
+        std::thread::yield_now();
+    }
+    // The same sequence: the encoded snapshot is the cached one, and the wait left is the delivery's.
+    let second = attached_spinner(&run.handle, 2).await;
+    let second_left = second["retryInMs"].as_i64().expect("the wait left");
+    assert_eq!(second["retryAt"].as_i64(), Some(retry_at), "the retry keeps its identity");
+    assert!(second_left <= first_left - 100, "{second_left} is not at least 100 ms shorter than {first_left}");
+    // A read shows the same.
+    let view = run.handle.cell.view.load_full();
+    let mut read = serde_json::to_value(&view.state).expect("state");
+    super::spinner::project_retry(&mut read["runtime"]["spinner"], super::spinner::core_now_ms());
+    assert!(read["runtime"]["spinner"]["retryInMs"].as_i64().unwrap() <= second_left);
+    run.gate.notify_one();
+    spinner_gone(&rig, &run).await;
+}
+
+
+/// A retry that succeeds straight into a tool-only response leaves `reconnecting` on the request's `Streaming`, before any text:
+/// the retry fields go with it and no text delta was needed.
+#[tokio::test(start_paused = true)]
+async fn a_retry_that_succeeds_into_a_tool_only_response_replaces_reconnecting() {
+    let rig = Rig::new();
+    let run = stage_turn(&rig, &["reconnecting", "hold", "streaming", "hold", "tool", "hold"], "done").await;
+    spinner_where(&rig, &run, "reconnecting", |spinner| spinner["mode"] == "reconnecting").await;
+    run.gate.notify_one();
+    let left = spinner_where(&rig, &run, "responding", |spinner| spinner["mode"] != "reconnecting").await;
+    assert_eq!((left["retryAt"].is_null(), left["retryInMs"].is_null()), (true, true), "{left}");
+    run.gate.notify_one();
+    spinner_where(&rig, &run, "tool-use", |spinner| spinner["mode"] == "tool-use").await;
+    run.gate.notify_one();
+    spinner_gone(&rig, &run).await;
+    let deltas = rig.feeds.frames(run.handle.id.as_str()).into_iter().filter(|(_, method, _)| method.contains("delta")).count();
+    assert_eq!(deltas, 0, "no text arrived");
+}
+
+
+/// `compacting` is the mode until the next requesting or streaming, or the turn's end: a pass that succeeds, one that is skipped
+/// and one that fails each leave the mode of what came next.
+#[tokio::test(start_paused = true)]
+async fn compacting_ends_on_the_next_phase_or_the_turns_end() {
+    let cases: [(&str, &'static [&'static str], &str, &[&str]); 3] = [
+        ("success", &["compacting", "hold", "requesting", "hold", "streaming", "hold"], "done", &["compacting", "requesting", "responding"]),
+        ("skipped", &["compacting", "hold", "requesting", "hold"], "done", &["compacting", "requesting"]),
+        ("failed", &["compacting", "hold"], "failed", &["compacting"]),
+    ];
+    for (name, steps, ending, modes) in cases {
+        let rig = Rig::new();
+        let run = stage_turn(&rig, steps, ending).await;
+        for mode in modes {
+            spinner_where(&rig, &run, mode, |spinner| spinner["mode"] == *mode).await;
+            run.gate.notify_one();
+        }
+        spinner_gone(&rig, &run).await;
+        let _ = name;
+    }
+}
+
+
+/// The provider's "still thinking" stage is the mode `model-thinking`, and the request's `Streaming` ends it.
+#[tokio::test(start_paused = true)]
+async fn model_thinking_ends_on_streaming() {
+    let rig = Rig::new();
+    let run = stage_turn(&rig, &["model_thinking", "hold", "streaming", "hold"], "done").await;
+    spinner_where(&rig, &run, "model-thinking", |spinner| spinner["mode"] == "model-thinking").await;
+    run.gate.notify_one();
+    spinner_where(&rig, &run, "responding", |spinner| spinner["mode"] == "responding").await;
+    run.gate.notify_one();
+    spinner_gone(&rig, &run).await;
+}
+
+
+/// The quiet cue is its own field of the spinner: a stage neither sets nor clears it, and progress that resumes is what clears it.
+#[tokio::test(start_paused = true)]
+async fn the_quiet_cue_is_independent_of_the_stage_and_clears_when_progress_resumes() {
+    let rig = Rig::new();
+    let run = stage_turn(&rig, &["quiet", "hold", "reconnecting", "hold", "streaming", "resumed", "hold"], "done").await;
+    let quiet = spinner_where(&rig, &run, "quiet", |spinner| !spinner["quiet"].is_null()).await;
+    assert_eq!(quiet["quiet"]["quietMs"], 30_000);
+    run.gate.notify_one();
+    let retrying = spinner_where(&rig, &run, "reconnecting", |spinner| spinner["mode"] == "reconnecting").await;
+    assert!(!retrying["quiet"].is_null(), "the stage did not clear the quiet cue");
+    run.gate.notify_one();
+    let resumed = spinner_where(&rig, &run, "resumed", |spinner| spinner["mode"] == "responding" && spinner["quiet"].is_null()).await;
+    assert!(resumed["retryAt"].is_null());
+    run.gate.notify_one();
+    spinner_gone(&rig, &run).await;
+}
+
+
+/// `abortRuntime` aborts synchronously: a control lane that is full (the actor has not drained it) cannot
+/// refuse the user's stop.
+#[tokio::test(start_paused = true)]
+async fn interrupt_cancels_the_run_while_the_control_lane_is_full() {
+    let rig = Rig::new();
+    let (seen_tx, seen_rx) = tokio::sync::oneshot::channel::<String>();
+    let seen_tx = Mutex::new(Some(seen_tx));
+    let seen_tx = Arc::new(seen_tx);
+    rig.set_script(Arc::new(move |run| {
+        let seen_tx = seen_tx.clone();
+        Box::pin(async move {
+            run.cancel.cancelled().await;
+            if let Some(tx) = seen_tx.lock().unwrap().take() {
+                let _ = tx.send(run.signal.reason());
+            }
+            RunOutcome::Interrupted
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let started = turn(&handle, "long job", "op-1").await;
+    let turn_id = TurnId::from(started["turnId"].as_str().expect("turn id"));
+
+    // No await between the fill and the interrupt: the actor drains nothing.
+    let mut filled = 0;
+    while handle.cell.ctl_tx.try_send(crate::session::control::Ctl::RefreshSurface).is_ok() {
+        filled += 1;
+    }
+    assert_eq!(filled, 32, "the control lane holds 32");
+    handle.interrupt(&turn_id, None).expect("interrupt");
+
+    let expected = format!("Session \"{}\" closed: runtime abort (reason=user-cancel)", handle.id.as_str());
+    assert_eq!(seen_rx.await.expect("the script observed the cancel"), expected);
+}
+
+
+
+
+
+
+
+#[cfg(node_twin)]
+/// `inheritFrom` into an existing heir as Node did it (`fixtures/inheritance-carry`, recorded by
+/// `record-inheritance-carry.mjs` from the real `createInheritance` over scripted sessions): the checks in its order and
+/// their texts, what travels and what the heir keeps, what the compactor is asked, and the measured sentence of a refusal.
+/// The scripted fit answers what Node measured for the conversation of that size; the compactor answers what it answered Node.
+#[tokio::test(start_paused = true)]
+async fn an_inherit_into_an_existing_heir_does_what_node_recorded() {
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/inheritance-carry/golden.json")).expect("golden");
+    let ctx = CallContext::internal("test");
+    let conversation = |messages: &Value| -> Vec<Value> { messages.as_array().expect("messages").iter().filter(|m| m["role"] != "system").cloned().collect() };
+    async fn append(directory: &SessionDirectory, id: String, messages: Vec<Value>) {
+        let ctx = CallContext::internal("test");
+        let handle = directory.open_handle(&ThreadId::from(id), &ctx).await.expect("open");
+        let request = CoreRequest { method: mixdog_core_api::ids::Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx };
+        handle.request(request).await.expect("append");
+    }
+    let mut ran = 0;
+    for case in golden["cases"].as_array().expect("cases") {
+        let name = case["name"].as_str().expect("name");
+        let rig = Rig::new();
+        let directory = SessionDirectory::new(rig.deps());
+        let (source, heir) = (&case["setup"]["source"], &case["setup"]["heir"]);
+        let heir_id = heir["id"].as_str().expect("heir id").to_owned();
+        let header = |title: &Value| json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model", "title": title }).as_object().cloned().expect("header");
+        directory.create_with_id(ThreadId::from(heir_id.clone()), header(&heir["title"]), json!({})).await.expect("create the heir");
+        let heir_rows = conversation(&heir["messages"]);
+        if !heir_rows.is_empty() {
+            append(&directory, heir_id.clone(), heir_rows.clone()).await;
+        }
+        let live = conversation(&heir["liveTurnMessages"]);
+        if !live.is_empty() {
+            let handle = directory.open_handle(&ThreadId::from(heir_id.clone()), &ctx).await.expect("open");
+            handle.cell.turn_messages.send_replace(Arc::new(live));
+        }
+        let source_rows = source.as_object().map(|_| conversation(&source["messages"])).unwrap_or_default();
+        if source["id"] != heir["id"] && source.is_object() {
+            let id = source["id"].as_str().expect("source id").to_owned();
+            directory.create_with_id(ThreadId::from(id.clone()), header(&source["title"]), json!({})).await.expect("create the source");
+            append(&directory, id, source_rows.clone()).await;
+        }
+        for fit in [&case["fit"], &case["fitCompacted"]].into_iter().filter(|fit| fit["known"] == true) {
+            let count = fit["messages"].as_u64().expect("count") as usize;
+            lock(&rig.inherit.measured).insert(count, (fit["limit"].as_u64().expect("limit"), fit["used"].as_u64().expect("used"), case["budgetTokens"].is_u64()));
+        }
+        *lock(&rig.inherit.budget) = case["budgetTokens"].as_u64();
+        match &case["compactorAnswer"] {
+            Value::Array(rows) => *lock(&rig.compaction.heir_rows) = Some(rows.clone()),
+            Value::String(_) => rig.compaction.heir_fails.store(true, std::sync::atomic::Ordering::SeqCst),
+            _ => {}
+        }
+
+        let params = json!({ "threadId": case["sourceId"], "intoThreadId": heir_id, "compact": case["options"]["compact"] == true, "opId": "op-inherit" });
+        let result = directory.request(request("thread/fork", params, "op-inherit")).await;
+        match (&case["outcome"]["ok"], &case["outcome"]["error"]) {
+            (ok, _) if ok.is_object() => {
+                let Reply::Value(done) = result.unwrap_or_else(|error| panic!("{name}: {error:?}")) else { panic!("{name}: a value") };
+                assert_eq!(
+                    (done["messages"].clone(), done["thread"]["id"].clone(), done["provider"].clone(), done["model"].clone()),
+                    (ok["messages"].clone(), ok["sessionId"].clone(), ok["provider"].clone(), ok["model"].clone()),
+                    "{name}"
+                );
+            }
+            // A source that is not stored is the typed `ThreadNotFound` (Node's text: "session <id> was not found").
+            (_, error) if error.as_str().is_some_and(|text| text.ends_with("was not found")) => {
+                assert!(matches!(result, Err(CoreError::ThreadNotFound { .. })), "{name}: {result:?}");
+            }
+            (_, error) => {
+                let refused = format!("{:?}", result.err().unwrap_or_else(|| panic!("{name}: refused")));
+                assert!(refused.contains(error.as_str().expect("the error text")), "{name}: {refused}");
+            }
+        }
+        let held = directory.rows_of(&heir_id).await.expect("rows");
+        let carried: Vec<Value> = held[heir_rows.len()..].iter().map(|m| json!({ "role": m["role"], "content": m["content"] })).collect();
+        let want: Vec<Value> = case["carried"].as_array().expect("carried").iter().map(|m| json!({ "role": m["role"], "content": m["content"] })).collect();
+        assert_eq!(carried, want, "{name}: what travelled");
+        let asked: Vec<(u64, bool)> = case["compactorCalls"].as_array().expect("calls").iter().map(|call| (call["budgetTokens"].as_u64().expect("budget"), call["conversationThresholdTokens"] == 1)).collect();
+        assert_eq!(*lock(&rig.compaction.heir_asked), asked, "{name}: what the compactor was asked");
+        let heir = directory.open_handle(&ThreadId::from(heir_id), &ctx).await.expect("open");
+        let header = heir.cell.header.load();
+        assert_eq!(header.get("title").unwrap_or(&Value::Null), &case["title"], "{name}: title");
+        assert_eq!(header.get("inheritedFromSessionId").unwrap_or(&Value::Null), &case["inheritedFromSessionId"], "{name}: inheritedFromSessionId");
+        if source.is_object() && source["id"] != case["setup"]["heir"]["id"] {
+            assert_eq!(directory.rows_of(source["id"].as_str().expect("id")).await.expect("rows").len(), source_rows.len(), "{name}: the source keeps every message");
+        }
+        ran += 1;
+    }
+    assert_eq!(ran, 13);
+}
+
+#[cfg(node_twin)]
+/// The reads that decide a workspace move, as Node answered them over committed and running-turn messages
+/// (`hasUserConversationMessage(session.messages)` of `refreshSessionWorkspaceContext`; the intent view of
+/// `worktree-intents.mjs`: committed or live): an idle session whose turn settled still has its conversation.
+#[tokio::test(start_paused = true)]
+async fn the_conversation_reads_of_a_workspace_move_equal_nodes() {
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/inheritance-carry/golden.json")).expect("golden");
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let header = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" }).as_object().cloned().expect("header");
+    let cases = golden["conversation"].as_array().expect("conversation");
+    for (n, case) in cases.iter().enumerate() {
+        let id = ThreadId::from(format!("sess_{n}"));
+        directory.create_with_id(id.clone(), header.clone(), json!({})).await.expect("create");
+        let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+        let committed = case["messages"].as_array().expect("messages").clone();
+        if !committed.is_empty() {
+            let append = CoreRequest { method: mixdog_core_api::ids::Method("thread/inheritedRows/append"), params: json!({ "messages": committed }), op: None, ctx: CallContext::internal("test") };
+            handle.request(append).await.expect("append");
+        }
+        handle.cell.turn_messages.send_replace(Arc::new(case["liveTurnMessages"].as_array().expect("live").clone()));
+        let got = (directory.holds_user_conversation(&id).await.expect("read"), directory.holds_conversation(&id).await.expect("read"));
+        assert_eq!(got, (case["hasUserConversationMessage"] == true, case["intentView"] == true), "{}", case["name"]);
+    }
+    assert_eq!(cases.len(), 6);
+}
+
+
+#[cfg(node_twin)]
+/// Node's own forks (`fixtures/roster-rows`: the desktop's `inheritSession` steps run on the b6f10295a product over sources that
+/// really hold a conversation: in a registered project, in its worktree, outside every project, and a task). The recorded data
+/// directory is migrated and opened through the real store; the Rust fork of each recorded source, started at the instant Node's
+/// fork was made, is set against the heir Node stored (opened the same way). Node's heir record is read by the core's own store,
+/// so both sides are core views of a stored session and differ only in the thread id: the heir's conversation (messages), its
+/// row as `thread/list` shows it (title, preview, count, route, compaction, times, source, favorite and archived state, place)
+/// and the stored header's place and times are compared whole.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fork_is_placed_and_stamped_as_nodes_fork_is() {
+    use std::sync::atomic::Ordering;
+    let answers: Value = serde_json::from_slice(&std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/roster-rows/answers.json")).expect("recording")).expect("json");
+    let recording = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/roster-rows");
+    let scratch = super::testing::DataDir::default();
+    let home = scratch.path().join(".mixdog");
+    let profile = scratch.path().join("profile");
+    for (from, to) in [(recording.join(".mixdog"), home.clone()), (recording.join("profile"), profile.clone())] {
+        for rel in mixdog_migrate::durable::walk_files(&from).expect("walk the recording") {
+            let target = to.join(&rel);
+            mixdog_migrate::durable::create_dir_all(target.parent().expect("parent")).expect("dir");
+            mixdog_migrate::durable::write_synced(&target, &mixdog_migrate::durable::read(&from.join(&rel)).expect("read")).expect("copy");
+        }
+    }
+    let roots = mixdog_migrate::framework::MigrationRoots { data: home.join("data"), home, profile: Some(profile) };
+    let office = mixdog_migrate::session::context_blobs::OfficeExtractor { docs: Arc::new(super::recorded_145_tests::NoDocuments), runtime: tokio::runtime::Handle::current() };
+    mixdog_migrate::run::Migrator::new(roots.clone(), mixdog_migrate::run::product_drivers(Arc::new(super::recorded_145_tests::StoreProjector), office), mixdog_migrate::run::MigrateOptions::default())
+        .run()
+        .expect("the migration of the recorded data completes");
+    let registered: Vec<String> = answers["registeredProjects"].as_array().expect("projects").iter().map(|p| p.as_str().expect("path").to_owned()).collect();
+    let tasks: &'static str = Box::leak(answers["taskWorkspace"].as_str().expect("task workspace").to_owned().into_boxed_str());
+    let rig = Rig::new();
+    let tokens = mixdog_rt::testing::tokens();
+    let root = roots.data.clone();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+        mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+    .expect("index");
+    let index = scratch.index(index);
+    let threads = super::StoreThreads::over_data_dir(&roots.data, index.clone(), Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store");
+    let mut deps = rig.deps_parts(Arc::new(threads));
+    deps.new_place = Arc::new(super::testing::RecordingPlace { projects: registered, ..Default::default() });
+    deps.task_workspace = Arc::new(super::testing::FixedTaskWorkspace(tasks));
+    // The heir's prompt is composed for the heir (`createSession`): its scratch directory is `s.` and the first 16 hex digits of the
+    // sha256 of its id (`session-scratch.mjs`). The rebuild stands in for the product's compose, whose text is the source's except that
+    // directory; Node's recorded heirs say whether the core asked for it.
+    struct Rebuilds(std::sync::OnceLock<Arc<SessionDirectory>>);
+    #[async_trait::async_trait]
+    impl super::EmptyToolSurface for Rebuilds {
+        async fn refresh_empty(&self, thread: &ThreadId) -> Result<bool, String> {
+            use sha2::Digest;
+            let ctx = CallContext::internal("test");
+            let handle = self.0.get().expect("directory").open_handle(thread, &ctx).await.map_err(|error| format!("{error:?}"))?;
+            let header = handle.cell.header.load_full();
+            let scratch = format!("s.{}", &format!("{:x}", sha2::Sha256::digest(thread.as_str().as_bytes()))[..16]);
+            let mut set = serde_json::Map::new();
+            let source = self.0.get().expect("directory").open_handle(&ThreadId::from(header["inheritedFromSessionId"].as_str().expect("source")), &ctx).await.map_err(|error| format!("{error:?}"))?;
+            let (was, now) = (source.cell.header.load_full()["cwd"].as_str().expect("source cwd").to_owned(), header["cwd"].as_str().expect("heir cwd").to_owned());
+            for key in ["bp3EnvironmentContext", "promptEnv"] {
+                let text = header.get(key).and_then(Value::as_str).expect("the heir carries the prompt text").replace(&was, &now);
+                let text = text.as_str();
+                let line = text.find("- Scratch: ").expect("a scratch line");
+                let at = line + text[line..].find("\n").map_or(0, |end| text[line..line + end].rfind("\\scratch\\s.").expect("a scratch name")) + "\\scratch\\".len();
+                set.insert(key.into(), json!(format!("{}{scratch}{}", &text[..at], &text[at + scratch.len()..])));
+            }
+            handle.request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": thread, "set": set, "unset": [] }), op: None, ctx }).await.map_err(|error| format!("{error:?}"))?;
+            Ok(true)
+        }
+    }
+    let rebuilds = Arc::new(Rebuilds(std::sync::OnceLock::new()));
+    deps.empty_surface = rebuilds.clone();
+    let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+    assert!(rebuilds.0.set(directory.clone()).is_ok());
+    let list = super::thread_list::ThreadListService::new(Arc::new(index), Arc::new(NoLive), Arc::new(NoRooms), Arc::new(super::testing::FixedTaskWorkspace(tasks)));
+    let ctx = CallContext::internal("test");
+    let forks = answers["forks"].as_array().expect("forks");
+    assert_eq!(forks.len(), 6);
+    let read_messages = |handle: Arc<SessionHandle>| async move {
+        let reply = handle.request(CoreRequest { method: Method("thread/messages/read"), params: json!({}), op: None, ctx: CallContext::internal("test") }).await.expect("thread/messages/read");
+        let Reply::Value(value) = reply else { panic!("thread/messages/read answers a value") };
+        value
+    };
+    for node in forks {
+        let source_id = ThreadId::from(node["source"].as_str().expect("source id").to_owned());
+        let node_heir = ThreadId::from(node["heir"].as_str().expect("heir id").to_owned());
+        let source = directory.open_handle(&source_id, &ctx).await.expect("the recorded source opens");
+        let before = read_messages(source.clone()).await;
+        assert!(before["messages"].as_array().is_some_and(|messages| !messages.is_empty()), "the recorded source holds a conversation");
+        rig.clock.0.store(node["heirHeader"]["createdAt"].as_u64().expect("heir time"), Ordering::SeqCst);
+        let reply = source.request(request("thread/fork", json!({ "threadId": source_id, "opId": "op-fork" }), "op-fork")).await.expect("thread/fork");
+        let Reply::Value(forked) = reply else { panic!("thread/fork answers a value") };
+        let rust = directory.open_handle(&ThreadId::from(forked["thread"]["id"].as_str().expect("heir id")), &ctx).await.expect("the heir opens");
+        let node = directory.open_handle(&node_heir, &ctx).await.expect("Node's heir opens");
+        let label = format!("the fork of {source_id}");
+        // The heir's id is the one thing that differs: the inheritance boundary names it (`sessionId`).
+        let named = |mut messages: Value, id: &ThreadId| {
+            let last = messages.as_array_mut().and_then(|rows| rows.last_mut()).expect("the heir holds messages");
+            for boundary in last.pointer_mut("/meta/sessionInheritances").into_iter().filter_map(Value::as_array_mut).flatten() {
+                assert_eq!(boundary["sessionId"], id.as_str());
+                boundary["sessionId"] = Value::Null;
+            }
+            messages
+        };
+        let (rust_messages, node_messages) = (read_messages(rust.clone()).await["messages"].clone(), read_messages(node.clone()).await["messages"].clone());
+        assert_eq!(named(rust_messages, &rust.id), named(node_messages, &node_heir), "messages of {label}");
+        let (rust_header, node_header) = (rust.cell.header.load_full(), node.cell.header.load_full());
+        // The thread id is the one header key that differs by construction; every other key is compared, the two prompt texts included.
+        // A heir's scratch directory is named by its own id (`s.` + sha256 prefix): each side's name is asserted to be that rule's
+        // value for its own id, then named `id`, as the boundary above is.
+        let scratched = |header: &mixdog_store::schema::record::Header, id: &ThreadId| {
+            use sha2::Digest;
+            let digest = format!("s.{}", &format!("{:x}", sha2::Sha256::digest(id.as_str().as_bytes()))[..16]);
+            let mut header = header.clone();
+            for key in ["bp3EnvironmentContext", "promptEnv"] {
+                let text = header.get(key).and_then(Value::as_str).expect("prompt text").to_owned();
+                assert_eq!(text.matches(&digest).count(), 1, "{key} of {label} names the heir's own scratch directory");
+                // The listing of the folder at the time (`Cwd entries at startup`) is a fact of the host's disk, which the recording's
+                // folders are not part of; it is the one line the heir's prompt composition reads from the file system.
+                let text: Vec<String> = text.replace(&digest, "s.<id>").split('\n').map(|line| if line.starts_with("- Cwd entries at startup:") { "- Cwd entries at startup: <disk>".to_owned() } else { line.to_owned() }).collect();
+                header.insert(key.into(), json!(text.join("\n")));
+            }
+            header
+        };
+        let (rust_header, node_header) = (scratched(&rust_header, &rust.id), scratched(&node_header, &node_heir));
+        // `offloadSources` and `offloadSourcesRules` (the sessions whose sidecars the heir may name, which the prune's
+        // index reads, and the rules that set was computed under) are the fix of `node-fix-prune-after-save.patch`,
+        // which this recording of Node as shipped predates: their value is replayed by the offload-prune-order set.
+        let keys: std::collections::BTreeSet<&String> =
+            rust_header.keys().chain(node_header.keys()).filter(|key| !["id", "offloadSources", "offloadSourcesRules"].contains(&key.as_str())).collect();
+        let differing: Vec<String> = keys.into_iter().filter(|key| rust_header.get(*key) != node_header.get(*key)).map(|key| format!("{key}: rust {:?} node {:?}", rust_header.get(key), node_header.get(key))).collect();
+        assert!(differing.is_empty(), "header of {label}: {differing:#?}");
+        // The row `thread/list` shows for each heir, whole, as the desktop's roster showed Node's (the protocol names the fork source
+        // `forkedFromId`; the thread id is the one thing that differs). Favorite and archived state are part of that row.
+        let answer = mixdog_core_base::support::testing::value(&list, mixdog_core_base::support::testing::request(super::thread_list::LIST, json!({ "limit": 1000 }), None)).await.expect("thread/list");
+        let rows = answer["data"].as_array().expect("data");
+        let mut rust_row = rows.iter().find(|row| row["id"] == rust.id.as_str()).expect("the Rust heir is listed").clone();
+        let mut node_row = answers["roster"].as_array().expect("roster").iter().find(|row| row["id"] == node_heir.as_str()).expect("Node's roster lists the heir").as_object().expect("row").clone();
+        if let Some(from) = node_row.shift_remove("inheritedFromSessionId") {
+            node_row.insert("forkedFromId".into(), from);
+        }
+        let mut node_row = Value::Object(node_row);
+        // The ids differ by construction; each is the heir that was asked for and has the shape Node's ids have.
+        let shape = |id: &Value| {
+            let id = id.as_str().expect("id");
+            let parts: Vec<&str> = id.strip_prefix("sess_").expect("sess_ prefix").split('_').collect();
+            (parts.len(), parts[0].chars().all(|c| c.is_ascii_digit()), parts[1].chars().all(|c| c.is_ascii_digit()), parts[2].len(), parts[3].len(), parts[3].chars().all(|c| c.is_ascii_hexdigit()))
+        };
+        assert_eq!(rust_row["id"], rust.id.as_str());
+        assert_eq!(node_row["id"], node_heir.as_str());
+        assert_eq!(shape(&rust_row["id"]), shape(&node_row["id"]), "id shape of {label}");
+        rust_row["id"] = Value::Null;
+        node_row["id"] = Value::Null;
+        assert_eq!(rust_row, node_row, "row of {label}");
+    }
+}
+
+
+#[cfg(node_twin)]
+/// A hosted web search's spend reaches the feed as `thread/tokenUsage/updated` with Node's own delta (recorded by
+/// `mixdog-cli/tests/record_search_usage.mjs`), but never the header's usage books: Node feeds those from the
+/// main stream's `onUsageDelta` only, and hands the search's delta to `onNativeWebSearchUsage` alone.
+#[tokio::test(start_paused = true)]
+async fn a_web_searchs_spend_is_heard_by_the_feed_and_not_by_the_headers_books() {
+    let golden: Value = serde_json::from_str(include_str!("../../../mixdog-cli/tests/goldens/exec_search_usage.json")).expect("golden");
+    let delta = golden["search"][0].clone();
+    let rig = Rig::new();
+    let gate: Arc<tokio::sync::Notify> = Arc::default();
+    let (release, sent) = (gate.clone(), delta.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (release, sent) = (release.clone(), sent.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 5, ..Default::default() };
+            run.port
+                .usage(crate::session::UsageReport {
+                    iteration: 1,
+                    usage,
+                    model: "m".into(),
+                    requested_model: "m".into(),
+                    delta_tool_calls: 0,
+                    request_ms: 0,
+                    delta_prompt: 10,
+                    send_tools: Vec::new(),
+                    reasoning_tokens: None,
+                    reasoning_tokens_complete: false,
+                    outgoing: Vec::new().into(),
+                    sent_at_ms: 0,
+                    input_excludes_cache: false, tail_book: None,
+                })
+                .await
+                .expect("usage");
+            run.port.search_usage(sent).await.expect("search usage");
+            release.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    let heard = |rig: &Rig| -> Vec<Value> { rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/tokenUsage/updated").map(|(_, _, params)| params["usage"].clone()).collect() };
+    eventually_on!(&[&rig.feeds.published], || (heard(&rig).len() == 2).then_some(())).await;
+    assert_eq!(heard(&rig)[1], delta);
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let live = handle.live_header();
+    let header = live.header();
+    assert_eq!((header.get("totalInputTokens"), header.get("totalOutputTokens"), header.get("lastIterationIndex")), (Some(&json!(10)), Some(&json!(5)), Some(&json!(1))));
+    // The session's stats (`applyUsageDelta`) fold the main stream only: the TUI never registers `onNativeWebSearchUsage`.
+    let stats = rig
+        .feeds
+        .frames(handle.id.as_str())
+        .into_iter()
+        .rev()
+        .find_map(|(_, method, params)| (method == "thread/context/updated" && params["value"]["stats"].is_object()).then(|| params["value"]["stats"].clone()))
+        .expect("the stats are published");
+    assert_eq!((&stats["inputTokens"], &stats["outputTokens"]), (&json!(10), &json!(5)), "a web search's spend is not in the totals");
+}
+
+
+#[cfg(node_twin)]
+/// A user's rename as Node's runtime answers it (`record-session-rename.mjs` → `session-rename-twin.json`,
+/// `updateSessionManualTitle`): every case's outcome and the title keys left on the session are Node's, and a refusal is the
+/// text the desktop host shows for it (`Session is not available.`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rename_is_refused_and_leaves_the_session_as_nodes_runtime_does() {
+    let twin: Value = serde_json::from_str(include_str!("../../../../fixtures/desktop/settings/session-rename-twin.json")).unwrap();
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let kept = |header: &serde_json::Map<String, Value>| {
+        json!({
+            "title": header.get("title").cloned().unwrap_or(Value::Null),
+            "titleLocked": header.get("titleLocked").cloned().unwrap_or(Value::Null),
+            "titleSource": header.get("titleSource").cloned().unwrap_or(Value::Null),
+            "stamped": header.get("titleUpdatedAt").is_some_and(|stamp| stamp.as_i64().is_some_and(|stamp| stamp > 0)),
+        })
+    };
+    let mut refused = 0;
+    for (index, case) in twin["cases"].as_array().unwrap().iter().enumerate() {
+        let label = format!("case {index} {} {:?}", case["state"], case["title"]);
+        let handle = start_thread(&directory).await;
+        let patch = json!({ "threadId": handle.id, "set": case["initial"], "unset": [] });
+        handle
+            .request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") })
+            .await
+            .expect("plant");
+        let before = handle.live_header().header();
+        let op = format!("op-rename-{index}");
+        let answer = handle.request(request("thread/name/set", json!({ "threadId": handle.id, "opId": op, "title": case["title"] }), &op)).await;
+        let after = handle.live_header().header();
+        // The IPC and remote edge of Node (`sessionDisplayName`) is the core's now: a title it refuses never reaches the host's
+        // or the runtime's rule, and the twin's `runtime`/`desktop` answers for it (recorded without that edge) do not apply.
+        let title = case["title"].as_str().unwrap();
+        let shown = title.trim();
+        if shown.is_empty() || shown.encode_utf16().count() > 1_024 || shown.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}') {
+            refused += 1;
+            let Err(CoreError::DomainError { message: Some(message), code: None, .. }) = &answer else { panic!("{label}: got {answer:?}") };
+            assert_eq!(&**message, "title is invalid.", "{label}");
+            assert_eq!(after, before, "{label}: a refused rename writes nothing");
+            continue;
+        }
+        let node = &case["runtime"];
+        match (answer, node["returned"].as_bool().unwrap()) {
+            (Ok(_), true) => {
+                let want = &node["kept"];
+                let got = kept(&after);
+                assert_eq!((&got["title"], &got["titleLocked"], &got["titleSource"], &got["stamped"]), (&want["title"], &want["titleLocked"], &want["titleSource"], &want["stamped"]), "{label}");
+            }
+            (Err(CoreError::DomainError { message: Some(message), code: None, .. }), false) => {
+                refused += 1;
+                assert_eq!(&*message, "Session is not available.", "{label}");
+                assert_eq!(after, before, "{label}: a refused rename writes nothing");
+            }
+            (answer, returned) => panic!("{label}: got {answer:?}, Node returned {returned}"),
+        }
+    }
+    assert!(refused > 15, "the twin refuses {refused} renames");
+}
+
+
+
+/// Returns once the actor has taken a message of its inbox. The loop is biased (jobs and deadlines before the inbox), so every
+/// timer that is due, and every job it queued, was handled first.
+pub async fn caught_up(handle: &SessionHandle) {
+    let (tx, taken) = tokio::sync::oneshot::channel();
+    handle.inbox.send(super::actor::Inbox::QuotaFacts { tx }).await.expect("the actor takes the inbox");
+    crate::session::testing::awaiting(|| "the actor to take a message of its inbox".to_owned(), taken).await.expect("the actor answers");
+}
+
+
+/// Unload, reopen and fork. A control thread that unloads (its last subscriber left and its idle delay passed) is not synced;
+/// reopened, it is again, from its record's header. Its heir (`thread/fork`) is a thread of its own, not a second control session.
+#[tokio::test(start_paused = true)]
+async fn an_unloaded_control_thread_is_synced_again_once_reopened_and_its_heir_is_not() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let id = start_control(&directory, "op-control").await.expect("control start");
+    let handle = directory.handle(&id).expect("loaded");
+    subscribe(&handle);
+    left_idle(&handle).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&id).is_none().then_some(())).await;
+    assert!(directory.control_ids().is_empty(), "an unloaded thread is not live");
+    handle.inbox.closed().await;
+    let reopened = directory.open_handle(&id, &CallContext::internal("test")).await.expect("reopened");
+    assert_eq!(directory.control_ids(), [id.clone()]);
+    give_conversation(&reopened).await;
+    let reply = reopened.request(request("thread/fork", json!({ "threadId": id, "opId": "op-fork" }), "op-fork")).await.expect("thread/fork");
+    let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+    let heir = ThreadId::from(value["thread"]["id"].as_str().expect("heir id"));
+    assert!(!directory.handle(&heir).expect("loaded").control);
+    assert_eq!(directory.control_ids(), [id]);
+}
+
+
+/// `autoWakeCompletions: false` (`infrastructure.mjs:154`) and an owner that is not the live
+/// session (`notification-bus.test.mjs` "no longer the live session"): the completion is kept
+/// for the next turn and starts none.
+#[tokio::test(start_paused = true)]
+async fn no_wake_without_auto_wake_or_for_a_thread_opened_for_the_completion() {
+    use mixdog_tools::exec::TaskNotifier;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let quiet = start_with_session(&directory, json!({ "autoWakeCompletions": false })).await;
+    directory.finished(&quiet.id, "shell", "job-1", "completed", "job-1 finished.".into()).await;
+
+    let parked = start_thread(&directory).await;
+    subscribe(&parked);
+    left_idle(&parked).await;
+    eventually_on!(&[&parked.cell.stepped, directory.left()], || directory.handle(&parked.id).is_none().then_some(())).await;
+    directory.finished(&parked.id, "shell", "job-2", "completed", "job-2 finished.".into()).await;
+
+    for (handle, task) in [(&quiet, "job-1"), (&parked, "job-2")] {
+        let queued = eventually_on!(&[&rig.store.committed], || {
+            rig.store.records(&handle.id).into_iter().find_map(|(_, record)| match record {
+                mixdog_store::schema::record::Record::Queue(queue) => queue.entry,
+                _ => None,
+            })
+        })
+        .await;
+        let mixdog_store::schema::blob::Slot::Inline(entry) = &queued else { panic!("inline entry") };
+        assert_eq!(entry["executionId"], task, "kept for the next turn");
+    }
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(runs_started(&rig, &quiet.id), 0);
+    assert_eq!(runs_started(&rig, &parked.id), 0);
+}
+
+
+/// D-downloads-1, held at the purge: while an explicit delete's purge is held at its first hook, the store's list row is already gone
+/// (`summary`, which the phone grants' catalog reads, `CatalogSessions::has/row`) and the delete has told `tombstoned`, whose production
+/// seam ends the conversation's phone downloads (`purge.rs` `tombstoned` -> `ThreadDeletions::tell` -> `WorkspaceService::session_removed`,
+/// `compose_flip.rs` `on_gone`); `thread/deleted` waits for the purge.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_explicit_delete_ends_downloads_at_its_tombstone_before_the_purge_finishes() {
+    use mixdog_core_api::domain::mock::MockOwnership;
+    use mixdog_store::sqlite::SqliteStore;
+    let data = tempfile::tempdir().expect("data dir");
+    let tokens = mixdog_rt::testing::tokens();
+    let root = data.path().to_path_buf();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+        SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+    .expect("index");
+    let list = index.clone();
+    let store: Arc<dyn super::ThreadStore> =
+        Arc::new(super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    let id = handle.id.clone();
+    eventually_on!(&[&handle.cell.stepped, &rig.store.committed], || {
+        futures::executor::block_on(list.summary(id.as_str())).expect("summary").map(|_| ())
+    })
+    .await;
+    let (reached, (release, held)) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+    *lock(&rig.deletes.6) = Some((reached.clone(), held));
+    let delete = {
+        let (handle, id) = (handle.clone(), id.clone());
+        tokio::spawn(async move { handle.request(request("thread/delete", json!({ "threadId": id, "opId": "op-del" }), "op-del")).await.expect("thread/delete") })
+    };
+    crate::session::testing::awaiting(|| "the purge's first hook".to_owned(), reached.notified()).await;
+    let s = id.as_str();
+    let steps = lock(&rig.deletes.0).clone();
+    assert!(steps.contains(&format!("tombstoned:{s}")), "the downloads were told before the purge: {steps:?}");
+    assert!(!steps.contains(&format!("thread/deleted:{s}")), "{steps:?}");
+    assert_eq!(list.summary(s).await.expect("summary"), None, "the list row is gone while the purge is held");
+    release.send(()).unwrap();
+    assert!(matches!(delete.await.unwrap(), Reply::Value(Value::Bool(true))));
+    assert!(lock(&rig.deletes.0).contains(&format!("thread/deleted:{s}")));
+}
+
+
+/// Node's reconnect recovery (`turn-checkpoint-recovery.mjs:113-131`): a thread whose process died with a tool call
+/// unanswered opens with the call closed as cancelled and the restart line saved, so the first read, before any new
+/// turn, shows the recovered conversation.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_the_process_died_in_is_recovered_at_open_before_any_read() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let committed = Arc::new(tokio::sync::Notify::new());
+    let told = committed.clone();
+    rig.set_script(Arc::new(move |run| {
+        let told = told.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let call = json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] });
+            let item = ItemCommit { iid: ItemId::from("itm_call"), role: Some("assistant".into()), model: true, visible: true, body: call, prompt: None };
+            run.port.commit_item(item).await.expect("commit");
+            told.notify_one();
+            // The process dies here: the run never ends.
+            std::future::pending::<RunOutcome>().await
+        })
+    }));
+    let first = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&first).await;
+    let id = handle.id.clone();
+    turn(&handle, "read a", "op-1").await;
+    crate::session::testing::awaiting(|| "the tool call row to be durable".to_owned(), committed.notified()).await;
+
+    let second = SessionDirectory::new(rig.deps_on(store));
+    let reopened = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let Reply::Value(read) = reopened.request(CoreRequest { method: Method("thread/messages/read"), params: json!({}), op: None, ctx: CallContext::internal("test") }).await.expect("read") else { panic!("a value") };
+    let messages = read["messages"].as_array().expect("messages");
+    let shown: Vec<(&str, &str)> = messages.iter().map(|m| (m["role"].as_str().unwrap_or_default(), m["content"].as_str().unwrap_or_default())).collect();
+    assert_eq!(
+        shown,
+        [("user", "read a"), ("assistant", "Reading."), ("tool", "Cancelled"), ("user", "[Request interrupted by process restart]")],
+        "{read}"
+    );
+    assert_eq!(messages[2]["toolCallId"], "call_1");
+}
+
+
+/// A second crash during recovery must find the run still unfinished: the run's `Interrupted` marker is the last record the
+/// recovery writes, behind the cancelled result and the restart line (Node keeps the checkpoint until the recovery is saved).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_marker_of_a_recovered_run_lands_behind_its_recovery_rows() {
+    use mixdog_store::schema::record::{Record, RunPhase};
+    let rig = Rig::new();
+    let committed = Arc::new(tokio::sync::Notify::new());
+    let told = committed.clone();
+    rig.set_script(Arc::new(move |run| {
+        let told = told.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let call = json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] });
+            let item = ItemCommit { iid: ItemId::from("itm_call"), role: Some("assistant".into()), model: true, visible: true, body: call, prompt: None };
+            run.port.commit_item(item).await.expect("commit");
+            told.notify_one();
+            std::future::pending::<RunOutcome>().await
+        })
+    }));
+    let first = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&first).await;
+    let id = handle.id.clone();
+    turn(&handle, "read a", "op-1").await;
+    crate::session::testing::awaiting(|| "the tool call row to be durable".to_owned(), committed.notified()).await;
+
+    let second = SessionDirectory::new(rig.deps());
+    second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let records = rig.store.records(&id);
+    let marker = records.iter().position(|(_, record)| matches!(record, Record::Run(run) if run.phase == RunPhase::Interrupted)).expect("the run ended");
+    let restart = records
+        .iter()
+        .position(|(_, record)| matches!(record, Record::Item(row) if format!("{:?}", row.body).contains("process restart")))
+        .expect("the restart line was saved");
+    assert!(restart < marker, "the marker ends the recovery: {records:?}");
+}
+
+
+/// A run the process died in, with more rows than the opened window holds: its recovery still knows its input row (the
+/// row before its start, read from the log), so a finished answer is not taken for an unanswered turn.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_crashed_run_past_the_window_is_recovered_with_its_input_row() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let committed = Arc::new(tokio::sync::Notify::new());
+    let (begun, proceed) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+    let (signal, started, go) = (committed.clone(), begun.clone(), proceed.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (signal, started, go) = (signal.clone(), started.clone(), go.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            started.notify_one();
+            go.notified().await;
+            for n in 0..210 {
+                let row = ItemCommit { iid: ItemId::from(format!("t-{n}")), role: Some("tool".into()), model: true, visible: true, body: json!({ "text": format!("r{n}") }), prompt: None };
+                run.port.commit_item(row).await.expect("a tool row");
+            }
+            signal.notify_one();
+            // The process dies here: the run never ends.
+            std::future::pending::<RunOutcome>().await
+        })
+    }));
+    let first = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&first).await;
+    turn(&handle, "hello", "op-1").await;
+    crate::session::testing::awaiting(|| "the run's start".to_owned(), begun.notified()).await;
+    // The input row, read before the run's rows push it out of the shown window.
+    let input = handle.cell.view.load_full().items[0].id().clone();
+    proceed.notify_one();
+    crate::session::testing::awaiting(|| "the run's rows".to_owned(), committed.notified()).await;
+
+    let second = SessionDirectory::new(rig.deps_on(store));
+    let reopened = second.open_handle(&handle.id, &CallContext::internal("test")).await.expect("open");
+    eventually_on!(&[&reopened.cell.stepped], || reopened.recovered().then_some(())).await;
+    assert_eq!(*lock(&rig.runs.crashed), [Some(input)]);
+}
+
+
+/// A read of a stored session (its header, its context) recovers nothing and loads nothing, even when its turn was cut after
+/// the sealed answer was drafted: the draft stays for the open that has work (a turn, a message), and that open recovers it.
+/// A session whose turn ended is read the same way.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reading_a_stored_session_leaves_its_cut_turn_for_the_open_that_has_work() {
+    use mixdog_core_ports::ports::threads::ThreadState;
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let drafted = Arc::new(tokio::sync::Notify::new());
+    let told = drafted.clone();
+    rig.set_script(Arc::new(move |run| {
+        let told = told.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.port.draft(json!({ "sealed": { "role": "assistant", "content": "the sealed answer" } })).await.expect("drafted");
+            told.notify_one();
+            // The process dies here: the answer's row never lands.
+            std::future::pending::<RunOutcome>().await
+        })
+    }));
+    let first = SessionDirectory::new(rig.deps_on(store.clone()));
+    let cut = start_thread(&first).await;
+    turn(&cut, "question", "op-1").await;
+    crate::session::testing::awaiting(|| "the sealed draft to be durable".to_owned(), drafted.notified()).await;
+    rig.set_script(echo());
+    let done = start_thread(&first).await;
+    turn(&done, "hello", "op-2").await;
+    eventually_on!(&[&done.cell.stepped], || (idle(&done) && !done.turn_busy()).then_some(())).await;
+
+    let reader = Arc::new(SessionDirectory::new(rig.deps_on(store)));
+    let threads = crate::session::thread_state::SessionThreads::new(reader.clone());
+    for id in [&cut.id, &done.id] {
+        threads.header(id).await.expect("the header is read");
+        reader.model_context(id).read_tail_until(|_| true).await.expect("the context tail is read");
+    }
+    assert!(reader.loaded_ids().is_empty(), "reading opens no session");
+    assert!(lock(&rig.runs.crashed).is_empty(), "reading recovers no turn");
+
+    let opened = reader.open_handle(&cut.id, &CallContext::internal("test")).await.expect("open");
+    eventually_on!(&[&opened.cell.stepped], || opened.recovered().then_some(())).await;
+    let drafts = lock(&rig.runs.crashed_drafts).clone();
+    assert_eq!(drafts.len(), 1, "the open that has work recovers the cut turn");
+    assert_eq!(drafts[0].sealed, Some(json!({ "role": "assistant", "content": "the sealed answer" })));
+}
+
+
+/// The last subscriber of a settled thread leaves and its idle delay passes (`Inbox::IdleDue` stands for it, so a test on the
+/// real clock does not wait it out): the thread unloads, as Node releases a session `idle and unwatched`.
+pub async fn left_idle(handle: &SessionHandle) {
+    eventually_on!(&[&handle.cell.stepped], || (!handle.turn_busy()).then_some(())).await;
+    handle.cell.unsubscribed();
+    // The leave is taken before the deadline: on a multi-threaded runtime a step already polling could take the inbox first.
+    caught_up(handle).await;
+    handle.inbox.send(super::actor::Inbox::IdleDue).await.expect("the actor takes the inbox");
+}
+
+
+/// `retention.mjs`: the last subscriber leaving retains the thread (`retainedAt`); it unloads once it has been idle and
+/// unwatched for the idle delay, and its context goes to memory.
+#[tokio::test(start_paused = true)]
+async fn an_idle_thread_unloads_one_idle_delay_after_its_last_subscriber_left_and_ingests_its_context() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
+    subscribe(&handle);
+    subscribe(&handle);
+    handle.cell.unsubscribed();
+    assert!(directory.handle(&handle.id).is_some(), "one subscriber is left");
+
+    handle.cell.unsubscribed();
+    caught_up(&handle).await;
+    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "retained for the idle delay");
+    tokio::time::advance(Duration::from_secs(2)).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+    eventually_on!(&[&*rig.closes.ended], || (lock(&rig.closes.seen).len() == 1).then_some(())).await;
+    assert_eq!(lock(&rig.closes.seen)[0].1.len(), 2, "the input row and the reply");
+    assert!(!handle.cell.subscribing(), "an unloaded thread takes no subscriber");
+    assert_eq!(*lock(&rig.deletes.0), [format!("unloadMcpScope:{}", handle.id)], "the unload released the thread's MCP scope");
+    assert!(lock(&rig.deletes.2).is_empty(), "and did not close its owner");
+    // A later open loads it again.
+    let reopened = directory.open_handle(&handle.id, &connection()).await.expect("reopen");
+    assert!(!Arc::ptr_eq(&reopened.cell, &handle.cell));
+}
+
+
+/// A header saved before transcript epochs existed (a provider state, no `transcriptEpoch`) is named an epoch when its next turn
+/// saves, and keeps its provider state: the state is not invalid for this build (a Responses slot is read from its own wire's key
+/// and used only while its model and message count fit the transcript, a Gemini entry only under its credential fingerprint, and a
+/// pool account is sent only a state stamped as its own, which an older state never is), so the mint is not a reset.
+#[tokio::test(start_paused = true)]
+async fn a_header_without_an_epoch_is_named_one_and_keeps_its_provider_state() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let state = json!({ "openaiResponses": { "model": "m", "seenMessageCount": 2, "previousResponseId": "resp_old" } });
+    let patch = json!({ "threadId": handle.id, "set": { "providerState": state }, "unset": ["transcriptEpoch"] });
+    handle
+        .request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") })
+        .await
+        .expect("plant");
+    assert!(handle.live_header().header().get("transcriptEpoch").is_none(), "planted as an older build left it");
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
+    let header = handle.live_header().header();
+    assert!(header.get("transcriptEpoch").and_then(Value::as_str).is_some_and(|epoch| !epoch.is_empty()), "the epoch is minted");
+    assert_eq!(header.get("providerState"), Some(&state), "and the state is kept");
+}
+
+/// The prefix guard is the actor incarnation's: the runs of one actor share it (a turn's guard is the next turn's baseline), and an
+/// actor that ends, however it ends, takes it along, so a replacement starts its first run on none (the agent that failed with
+/// `Session state changed unexpectedly.` a minute after its turn ended was refused by the old actor's guard).
+#[tokio::test(start_paused = true)]
+async fn the_prefix_guard_goes_with_the_actor_incarnation_that_kept_it() {
+    let rig = Rig::new();
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = seen.clone();
+    rig.set_script(Arc::new(move |run| {
+        let recorded = recorded.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            lock(&recorded).push(run.prefix_guard.for_header(&Default::default()));
+            run.prefix_guard.keep(Some(mixdog_agent::prefix_guard::Snapshot { provider: "kept".into(), ..Default::default() }));
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    for (n, op) in ["op-1", "op-2"].into_iter().enumerate() {
+        turn(&handle, "hello", op).await;
+        eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && lock(&seen).len() == n + 1 && !handle.turn_busy()).then_some(())).await;
+    }
+    // Unloaded at its idle deadline.
+    subscribe(&handle);
+    left_idle(&handle).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+    handle.inbox.closed().await;
+    let reopened = directory.open_handle(&handle.id, &connection()).await.expect("reopen");
+    turn(&reopened, "hello", "op-3").await;
+    eventually_on!(&[&reopened.cell.stepped], || (idle(&reopened) && lock(&seen).len() == 3 && !reopened.turn_busy()).then_some(())).await;
+    // Ended by an unwind, which releases the slot without an unload.
+    reopened.inbox.send(super::actor::Inbox::Unwind(super::actor::UnwindAt::Now)).await.expect("the actor runs");
+    reopened.inbox.closed().await;
+    assert!(directory.handle(&handle.id).is_none());
+    let replacement = directory.open_handle(&handle.id, &connection()).await.expect("reopen after the unwind");
+    turn(&replacement, "hello", "op-4").await;
+    eventually_on!(&[&replacement.cell.stepped], || (idle(&replacement) && lock(&seen).len() == 4 && !replacement.turn_busy()).then_some(())).await;
+    let kept = Some(mixdog_agent::prefix_guard::Snapshot { provider: "kept".into(), ..Default::default() });
+    assert_eq!(*lock(&seen), [None, kept, None, None], "first run, the same actor's next run, the run after an unload, the run after an unwind");
+}
+
+
+/// One actor never has two runs between a guard lookup and its save: a prompt sent while a run is between them is queued,
+/// and its run looks the guard up only after the first run kept its own (`RunSlot` is set at admission and cleared by
+/// the run task's `RunEnded`, sent after the driver saved the guard; every start passes `turn_busy`). So the slot's `keep`
+/// has one writer at a time, and the second run's baseline is the first run's guard.
+#[tokio::test(start_paused = true)]
+async fn a_second_run_looks_up_the_prefix_guard_only_after_the_first_kept_its_own() {
+    let rig = Rig::new();
+    let log = Arc::new(std::sync::Mutex::new(Vec::<&'static str>::new()));
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let release: Arc<tokio::sync::Notify> = Arc::default();
+    let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (script_log, script_seen, script_release) = (log.clone(), seen.clone(), release.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (log, seen, release, runs) = (script_log.clone(), script_seen.clone(), script_release.clone(), runs.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            lock(&log).push("lookup");
+            lock(&seen).push(run.prefix_guard.for_header(&Default::default()));
+            if runs.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                release.notified().await;
+            }
+            run.prefix_guard.keep(Some(mixdog_agent::prefix_guard::Snapshot { provider: "kept".into(), ..Default::default() }));
+            lock(&log).push("keep");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "one", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (lock(&log).len() == 1).then_some(())).await;
+    let second = turn(&handle, "two", "op-2").await;
+    assert_eq!(second["kind"], "queued", "{second}");
+    mixdog_rt::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert_eq!(*lock(&log), ["lookup"], "the queued prompt's run does not start while the first holds its guard");
+    release.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (lock(&log).len() == 4 && idle(&handle) && !handle.turn_busy()).then_some(())).await;
+    assert_eq!(*lock(&log), ["lookup", "keep", "lookup", "keep"]);
+    let kept = Some(mixdog_agent::prefix_guard::Snapshot { provider: "kept".into(), ..Default::default() });
+    assert_eq!(*lock(&seen), [None, kept]);
+}
+
+
+/// The feed a `thread/resume` reply hands the server counts the subscription the server attaches: the watched thread is
+/// off the idle clock (`unwatchedRetained`). Its detach counts once (a second detach of it counts nothing while another view
+/// stays); the last view leaving retains the thread for the idle delay, a resume meanwhile starts the delay over
+/// (`idleClock.refresh`), and a whole delay unwatched unloads it.
+#[tokio::test(start_paused = true)]
+async fn a_resumed_subscription_keeps_the_thread_off_the_idle_clock_and_its_last_detach_retains_it() {
+    use mixdog_core_api::FeedSource;
+    use mixdog_core_api::sink::ConnectionSink;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
+    let resume = |op: &str| request("thread/resume", json!({ "threadId": handle.id, "window": { "lastItems": 10 } }), op);
+    let Reply::Subscribe(resumed) = handle.request(resume("op-resume-1")).await.expect("thread/resume") else { panic!("thread/resume subscribes") };
+    let feed: Arc<dyn FeedSource> = resumed.feed;
+    let client = mixdog_core_api::mock::MockConnection::new(ConnectionId(7), mixdog_core_api::mock::MockLimits::default());
+    let sub = mixdog_core_api::ids::SubscriptionId::from("client");
+    let attached = mixdog_core_api::feed::subscribe(&feed, sub.clone(), resumed.window, None, &client).expect("attach");
+    client.send_control_release(bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
+    assert_eq!(handle.cell.attached(), 1, "the subscription is counted");
+
+    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "a watched thread is not evicted");
+
+    subscribe(&handle);
+    feed.detach(sub.clone());
+    feed.detach(sub);
+    assert_eq!(handle.cell.attached(), 1, "the second detach counted nothing");
+    handle.cell.unsubscribed();
+    caught_up(&handle).await;
+    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "retained for the idle delay");
+
+    let Reply::Subscribe(_) = handle.request(resume("op-resume-2")).await.expect("thread/resume") else { panic!("thread/resume subscribes") };
+    caught_up(&handle).await;
+    tokio::time::advance(Duration::from_secs(2)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "the resume started the delay over");
+    tokio::time::advance(super::actor::IDLE_EVICT).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+}
+
+
+/// `sessionBusy` counts `commandBusy`: a compaction running when the idle deadline comes keeps the thread nobody watches
+/// loaded and answers; its end starts the idle delay over (`onBusyChange`), and the thread unloads a whole delay later.
+#[tokio::test(start_paused = true)]
+async fn a_running_compaction_keeps_a_thread_nobody_watches_loaded() {
+    let rig = Rig::new();
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *lock(&rig.compaction.hold) = Some(hold.clone());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let compacting = {
+        let handle = handle.clone();
+        tokio::spawn(async move { handle.request(request("thread/compact/start", json!({ "threadId": handle.id, "opId": "op-compact" }), "op-compact")).await })
+    };
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!lock(&rig.compaction.calls).is_empty()).then_some(())).await;
+    caught_up(&handle).await;
+
+    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "a compacting thread is not evicted");
+    // Half a delay later it still compacts: the deadline the busy thread armed again is nearer than a whole delay after its end.
+    tokio::time::advance(super::actor::IDLE_EVICT / 2).await;
+    caught_up(&handle).await;
+    hold.notify_one();
+    let answered = crate::session::testing::awaiting(|| "the compaction's answer".to_owned(), compacting).await;
+    assert!(matches!(answered, Ok(Ok(Reply::Value(_)))), "the compaction answers: {answered:?}");
+    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "not before a whole delay after the compaction");
+    tokio::time::advance(Duration::from_secs(2)).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+}
+
+
+/// `idleEvictMs`: a quiet thread nobody watches (a worker, a headless run) unloads once it has been quiet for the idle
+/// delay; one still working starts the delay over.
+#[tokio::test(start_paused = true)]
+async fn a_thread_nobody_watched_unloads_after_the_idle_delay() {
+    let rig = Rig::new();
+    let (release, gate) = tokio::sync::watch::channel(false);
+    rig.set_script(Arc::new(move |run| {
+        let mut gate = gate.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let _ = gate.wait_for(|open| *open).await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hold", "op-1").await;
+
+    // Working at the deadline: the whole delay starts again.
+    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "a running thread is never evicted");
+
+    release.send(true).expect("release");
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "not before the delay");
+    tokio::time::advance(Duration::from_secs(2)).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+}
+
+
+/// Retention's delete (`deleteSession(id, { isSessionLive: treeChanged })`) asks again under the
+/// thread's own admission, before it closes anything: a session opened or used after the pass
+/// checked it, or a sweep that was shut down, is refused and stays.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_retention_delete_is_refused_when_the_session_changed_after_the_check() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.clone();
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let read = super::sub_agent_retention::activity_at(&directory.stored_header(&id).await.expect("header"));
+    let live = CancellationToken::new();
+
+    // Opened (attached) after the check.
+    subscribe(&handle);
+    assert!(!directory.delete_stored(id.as_str(), read, &[], &live).await.expect("delete"), "opened");
+    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
+    left_idle(&handle).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&id).is_none().then_some(())).await;
+    handle.inbox.closed().await;
+
+    // Used after the check: its activity is not what the pass read.
+    assert!(!directory.delete_stored(id.as_str(), read - 1.0, &[], &live).await.expect("delete"), "moved");
+    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
+
+    // The sweep was shut down: no new mutation.
+    let down = CancellationToken::new();
+    down.cancel();
+    assert!(!directory.delete_stored(id.as_str(), read, &[], &down).await.expect("delete"), "shut down");
+    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
+
+    // Unchanged and not shut down: gone.
+    assert!(directory.delete_stored(id.as_str(), read, &[], &live).await.expect("delete"));
+    assert!(directory.session_meta(&id).await.expect("meta").is_none(), "deleted");
+}
+
+
+/// The idle sweep's close (`markSessionClosed(id, 'idle-sweep')`) is admitted as the delete is:
+/// refused when the session moved after the pass read it or the sweep was shut down, otherwise
+/// the record is tombstoned (closed, `closedReason: idle-sweep`) and stays listed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_idle_close_is_guarded_and_leaves_a_tombstone() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.clone();
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let read = super::sub_agent_retention::activity_at(&directory.stored_header(&id).await.expect("header"));
+    let live = CancellationToken::new();
+    subscribe(&handle);
+    left_idle(&handle).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&id).is_none().then_some(())).await;
+    handle.inbox.closed().await;
+
+    assert!(!directory.close_stored(id.as_str(), read - 1.0, &live).await.expect("close"), "moved");
+    let down = CancellationToken::new();
+    down.cancel();
+    assert!(!directory.close_stored(id.as_str(), read, &down).await.expect("close"), "shut down");
+    let open = directory.stored_header(&id).await.expect("header");
+    assert_ne!(open.get("closed"), Some(&serde_json::json!(true)), "refusals change nothing");
+
+    assert!(directory.close_stored(id.as_str(), read, &live).await.expect("close"));
+    let closed = directory.stored_header(&id).await.expect("header");
+    assert_eq!(
+        (closed.get("closed"), closed.get("status"), closed.get("closedReason")),
+        (Some(&serde_json::json!(true)), Some(&serde_json::json!("closed")), Some(&serde_json::json!("idle-sweep")))
+    );
+    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "a tombstone stays listed");
+}
+
+
+/// `treeChanged` is the whole tree's: a member other than the target that is open (opened after
+/// the pass read the tree) refuses the delete under the target's admission; once it is gone the
+/// delete goes through.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_retention_delete_is_refused_when_another_member_of_the_tree_is_open() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let target = start_thread(&directory).await;
+    let id = target.id.clone();
+    turn(&target, "hello", "op-1").await;
+    eventually_on!(&[&target.cell.stepped], || idle(&target).then_some(())).await;
+    let read = super::sub_agent_retention::activity_at(&directory.stored_header(&id).await.expect("header"));
+    let peer = start_thread(&directory).await;
+    let peer_id = peer.id.clone();
+    let live = CancellationToken::new();
+    async fn unload(directory: &SessionDirectory, handle: Arc<SessionHandle>) {
+        subscribe(&handle);
+        left_idle(&handle).await;
+        eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+        // Out of the directory is not stopped: the actor still hands off what it accepted. Its inbox
+        // closes when it ends, and only then is the stored header final.
+        handle.inbox.closed().await;
+    }
+    turn(&peer, "hello", "op-p1").await;
+    eventually_on!(&[&peer.cell.stepped], || idle(&peer).then_some(())).await;
+    let seen = |peer_at: f64| [(peer_id.as_str().to_owned(), peer_at)];
+
+    // The member is open now (whatever the pass read).
+    assert!(!directory.delete_stored(id.as_str(), read, &seen(0.0), &live).await.expect("delete"), "a member is open");
+    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
+    assert!(!target.cell.closed.load(std::sync::atomic::Ordering::SeqCst), "nothing was closed");
+
+    // The member is stored again, as the pass read it: the delete goes ahead.
+    unload(&directory, peer).await;
+    let sweep_read = super::sub_agent_retention::activity_at(&directory.stored_header(&peer_id).await.expect("header"));
+
+    // It was opened, used and unloaded between the pass and the delete: its stored activity is
+    // not what the pass read, so the delete is refused though nothing of it is open.
+    rig.clock.0.store(5000, std::sync::atomic::Ordering::SeqCst);
+    let reopened = directory.open_handle(&peer_id, &connection()).await.expect("reopen");
+    turn(&reopened, "again", "op-p2").await;
+    eventually_on!(&[&reopened.cell.stepped], || idle(&reopened).then_some(())).await;
+    unload(&directory, reopened).await;
+    let now = super::sub_agent_retention::activity_at(&directory.stored_header(&peer_id).await.expect("header"));
+    assert_ne!(now, sweep_read, "the member's activity moved");
+    assert!(!directory.delete_stored(id.as_str(), read, &seen(sweep_read), &live).await.expect("delete"), "a member moved");
+    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
+    assert!(!target.cell.closed.load(std::sync::atomic::Ordering::SeqCst), "nothing was closed");
+
+    // Read afresh, nothing open: deleted.
+    assert!(directory.delete_stored(id.as_str(), read, &seen(now), &live).await.expect("delete"), "no member changed");
+}
+
+
+#[tokio::test(start_paused = true)]
+async fn a_headless_session_keeps_its_options_and_ingests_no_memory_when_it_closes() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let reply = directory
+        .request(request(
+            "thread/start",
+            json!({
+                "opId": "op-start", "kind": "task", "projectPath": "/ws",
+                "session": { "toolProfile": "headless", "approvalMode": "implicit", "memory": false },
+            }),
+            "op-start",
+        ))
+        .await
+        .expect("thread/start");
+    let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
+    let id = ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"));
+    let handle = directory.handle(&id).expect("loaded");
+    let header = handle.cell.header.load_full();
+    assert_eq!(header["approvalMode"], "implicit");
+    assert_eq!(header["sourceType"], "exec");
+
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    subscribe(&handle);
+    left_idle(&handle).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+    // The decision is made where the session unloads, before anything is spawned.
+    assert!(lock(&rig.closes.seen).is_empty(), "memory is off for this session");
+}
+
+
+/// A run outlives the client that walked away (`releaseClient`): the thread stays loaded while it runs, and its end starts the
+/// idle delay over.
+#[tokio::test(start_paused = true)]
+async fn a_live_run_keeps_the_thread_loaded_until_it_ends() {
+    let rig = Rig::new();
+    let (release, gate) = tokio::sync::watch::channel(false);
+    rig.set_script(Arc::new(move |run| {
+        let mut gate = gate.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let _ = gate.wait_for(|open| *open).await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    subscribe(&handle);
+    turn(&handle, "hold", "op-1").await;
+    handle.cell.unsubscribed();
+    caught_up(&handle).await;
+    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "the run is live");
+    // Half a delay later it still runs: the deadline the busy thread armed again is nearer than a whole delay after its end.
+    tokio::time::advance(super::actor::IDLE_EVICT / 2).await;
+    caught_up(&handle).await;
+
+    release.send(true).expect("release");
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
+    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "not before the delay after the run");
+    tokio::time::advance(Duration::from_secs(2)).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+}
+
+
+/// The last view's leave reaches the actor although its control lane is full: the thread goes back on the idle clock and
+/// unloads a delay later, never left loaded with nobody watching.
+#[tokio::test(start_paused = true)]
+async fn the_last_detach_on_a_full_control_lane_still_retains_the_thread() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    subscribe(&handle);
+    // The deadline armed at the open finds the thread watched: it is off the idle clock.
+    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "a watched thread is not evicted");
+
+    // No await between the fill and the leave: the actor drains nothing before it.
+    while handle.cell.ctl_tx.try_send(crate::session::control::Ctl::RefreshSurface).is_ok() {}
+    handle.cell.unsubscribed();
+    // The leave waits for room behind the fill, and the actor takes it before the clock moves.
+    caught_up(&handle).await;
+    caught_up(&handle).await;
+    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+}
+
+
+/// The memory ingest of an unloading thread (`ingestSessionIntoMemory`) goes to a database on disk: a value the thread
+/// marked sensitive goes there as the marker, though the model context holds it whole (Node bug, fixed on both sides:
+/// `memory-ingest.mjs` passes the loaded session's messages as they are).
+#[tokio::test(start_paused = true)]
+async fn an_unloading_thread_goes_to_memory_with_its_sensitive_values_as_the_marker() {
+    const CODE: &str = "482913";
+    let rig = Rig::new();
+    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
+    let body = json!({ "role": "assistant", "content": "", "toolCalls": [fill.clone()] });
+    rig.set_script(Arc::new(move |run| {
+        let (body, fill) = (body.clone(), fill.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.context.remember_sensitive(&[fill]);
+            let row = ItemCommit { iid: ItemId::from("a-1"), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
+            run.port.commit_item(row).await.expect("assistant row");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, &format!("the code is {CODE}"), "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    subscribe(&handle);
+    left_idle(&handle).await;
+    eventually_on!(&[&*rig.closes.ended], || (lock(&rig.closes.seen).len() == 1).then_some(())).await;
+    let ingested = serde_json::to_string(&lock(&rig.closes.seen)[0].1).expect("messages json");
+    assert!(!ingested.contains(CODE), "the memory ingest holds the value: {ingested}");
+    assert!(ingested.contains("[redacted]"), "{ingested}");
+}
+
+
+/// A turn that ends while a retry waits (done, failed, cancelled) removes the spinner, and a stage the run raises afterwards does not
+/// bring it back.
+#[tokio::test(start_paused = true)]
+async fn a_turn_that_ends_during_the_wait_removes_the_spinner_and_a_late_stage_does_not_return_it() {
+    for ending in ["done", "failed", "interrupted"] {
+        let rig = Rig::new();
+        let run = stage_turn(&rig, &["reconnecting", "hold"], ending).await;
+        spinner_where(&rig, &run, "reconnecting", |spinner| spinner["mode"] == "reconnecting").await;
+        if ending == "interrupted" {
+            run.handle.interrupt(&run.turn_id, None).expect("interrupt");
+        } else {
+            run.gate.notify_one();
+        }
+        spinner_gone(&rig, &run).await;
+        run.late.notify_one();
+        caught_up(&run.handle).await;
+        caught_up(&run.handle).await;
+        assert!(spinner_of(&run.handle).is_none(), "{ending}: a late stage brought the spinner back");
+    }
 }

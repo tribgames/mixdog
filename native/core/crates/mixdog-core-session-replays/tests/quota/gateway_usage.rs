@@ -21,7 +21,9 @@ use mixdog_ai::transport::http::HttpSend;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ProviderError;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::UsdTicks;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::Usage;
 use mixdog_core_api::domain::provider::WireRequest;
 use serde_json::Map;
@@ -29,12 +31,12 @@ use serde_json::Value;
 use serde_json::json;
 use tokio::sync::Notify;
 
+#[cfg(node_twin)]
 use mixdog_core_session::session::gateway_usage::Ask;
 use mixdog_core_session::session::gateway_usage::GatewayUsage;
 use mixdog_core_session::session::gateway_usage::Scheduler;
 use mixdog_core_session::session::Clock;
-
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/gateway-usage/golden.json");
+#[cfg(node_twin)]
 const PER_CHUNK: usize = 3;
 
 struct TestClock(AtomicI64);
@@ -46,9 +48,12 @@ impl Clock for TestClock {
 }
 
 struct Timer {
+    #[cfg(node_twin)]
     ms: u64,
     cleared: bool,
+    #[cfg(node_twin)]
     fired: bool,
+    #[cfg(node_twin)]
     job: Option<Box<dyn FnOnce() + Send>>,
 }
 
@@ -62,7 +67,17 @@ struct Manual {
 impl Scheduler for Manual {
     fn after(&self, delay_ms: u64, job: Box<dyn FnOnce() + Send>) -> Box<dyn FnOnce() + Send> {
         let mut timers = self.timers.lock().unwrap();
-        timers.push(Timer { ms: delay_ms, cleared: false, fired: false, job: Some(job) });
+        #[cfg(not(node_twin))]
+        let _ = (delay_ms, job);
+        timers.push(Timer {
+            #[cfg(node_twin)]
+            ms: delay_ms,
+            cleared: false,
+            #[cfg(node_twin)]
+            fired: false,
+            #[cfg(node_twin)]
+            job: Some(job),
+        });
         let index = timers.len() - 1;
         drop(timers);
         self.set.notify_waiters();
@@ -97,6 +112,7 @@ async fn pricing(modelsdev: &Value) -> Arc<CatalogPricing> {
     Arc::new(CatalogPricing(Arc::new(service)))
 }
 
+#[cfg(node_twin)]
 /// A seeded file: its recorded text, or the generated event lines (the recorder's `generate`).
 fn seed_bytes(seed: &Value) -> String {
     if let Some(spec) = seed.get("gen") {
@@ -108,6 +124,7 @@ fn seed_bytes(seed: &Value) -> String {
     seed["text"].as_str().unwrap().to_owned()
 }
 
+#[cfg(node_twin)]
 fn usage_of(usage: &Value) -> Usage {
     let count = |key: &str| usage[key].as_u64().unwrap_or(0);
     Usage {
@@ -122,10 +139,12 @@ fn usage_of(usage: &Value) -> Usage {
     }
 }
 
+#[cfg(node_twin)]
 fn timer_states(timers: &Mutex<Vec<Timer>>) -> Vec<Value> {
     timers.lock().unwrap().iter().map(|t| json!({ "ms": t.ms, "cleared": t.cleared, "fired": t.fired })).collect()
 }
 
+#[cfg(node_twin)]
 async fn replay(case: &Value, modelsdev: &Value) {
     let name = case["name"].as_str().unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -215,15 +234,6 @@ async fn replay(case: &Value, modelsdev: &Value) {
     }
 }
 
-async fn cases_chunk(chunk: usize) {
-    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-    let cases = golden["cases"].as_array().unwrap();
-    let range = mixdog_rt::testing::chunk_range(cases.len(), chunk, PER_CHUNK);
-    for case in &cases[range] {
-        replay(case, &golden["modelsdev"]).await;
-    }
-}
-
 const HELD: std::time::Duration = std::time::Duration::from_secs(10);
 
 async fn writer_in(dir: &std::path::Path) -> GatewayUsage {
@@ -269,12 +279,25 @@ async fn a_failed_append_before_the_barrier_is_its_error() {
     assert!(error.starts_with("the gateway usage events: write 1, accepted before the barrier, failed: "), "{error}");
 }
 
+
+#[cfg(node_twin)]
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/gateway-usage/golden.json");
+#[cfg(node_twin)]
+async fn cases_chunk(chunk: usize) {
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
+    let cases = golden["cases"].as_array().unwrap();
+    let range = mixdog_rt::testing::chunk_range(cases.len(), chunk, PER_CHUNK);
+    for case in &cases[range] {
+        replay(case, &golden["modelsdev"]).await;
+    }
+}
+#[cfg(node_twin)]
 #[test]
 fn the_chunks_cover_the_recording() {
     let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     mixdog_rt::testing::assert_chunks_registered(CASES, golden["cases"].as_array().unwrap().len(), PER_CHUNK);
 }
-
+#[cfg(node_twin)]
 mixdog_rt::replay_chunks!(CASES, #[tokio::test] async cases_chunk; [
     the_writer_equals_node_chunk_00 = 0,
     the_writer_equals_node_chunk_01 = 1,

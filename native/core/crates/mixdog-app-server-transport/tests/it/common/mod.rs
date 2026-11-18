@@ -162,10 +162,6 @@ pub fn connect(hub: &ConnectionHub, origin: ConnectionOrigin, writable: bool) ->
     }
 }
 
-pub fn install_rt() {
-    mixdog_rt::testing::tokens();
-}
-
 /// Limits small enough to fill in a test, still satisfying the P §6.5 invariants.
 pub fn small_limits() -> Limits {
     let kib = 1024;
@@ -189,4 +185,9 @@ pub fn mock_limits(limits: &Limits) -> MockLimits {
         max_snapshot_bytes: limits.max_snapshot_bytes as usize,
         ring_bytes: limits.ring_bytes as usize,
     }
+}
+
+
+pub fn install_rt() {
+    mixdog_rt::testing::tokens();
 }

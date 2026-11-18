@@ -75,85 +75,6 @@ fn lock_contention(stderr: &str) -> bool {
         .is_ok_and(|re| re.is_match(stderr))
 }
 
-impl Runner<'_> {
-    /// Blocking filesystem work as a maintenance-lane job; `None` when the call was cancelled
-    /// or the lane refused it.
-    pub async fn blocking<R: Send + 'static>(&self, job: impl FnOnce() -> R + Send + 'static) -> Option<R> {
-        on_lane(self.lane, self.cancel, job).await.ok()
-    }
-
-    /// Like [`Self::blocking`] but for cleanup that must still run after a cancellation.
-    pub async fn blocking_cleanup<R: Send + 'static>(&self, job: impl FnOnce() -> R + Send + 'static) -> Option<R> {
-        on_lane(self.lane, &CancellationToken::new(), job).await.ok()
-    }
-
-    /// One git child. Reads pin `GIT_OPTIONAL_LOCKS=0` so a status never takes `index.lock`.
-    pub async fn run(&self, plan: &Plan, argv: &[String], read_only: bool) -> GitRun {
-        self.run_in(&plan.cwd, &plan.global_args, argv, read_only).await
-    }
-
-    pub async fn run_in(&self, cwd: &Path, global_args: &[String], argv: &[String], read_only: bool) -> GitRun {
-        let mut spec = ExecSpec::new("git", cwd);
-        // File names print as they are, not as quoted octal escapes (`core.quotepath=false`); a `-c` of the command's own comes after
-        // and wins.
-        spec.args = ["-c", "core.quotepath=false"].into_iter().map(str::to_owned).chain(global_args.iter().chain(argv).cloned()).collect();
-        spec.env_set = vec![
-            ("GIT_TERMINAL_PROMPT".into(), "0".into()),
-            ("GIT_PAGER".into(), "cat".into()),
-            ("GIT_EDITOR".into(), "true".into()),
-            ("GIT_SEQUENCE_EDITOR".into(), "true".into()),
-            ("LC_ALL".into(), "C".into()),
-        ];
-        if read_only {
-            spec.env_set.push(("GIT_OPTIONAL_LOCKS".into(), "0".into()));
-        }
-        spec.time_limit = Some(DEFAULT_TIMEOUT);
-        spec.max_output = MAX_CAPTURE_BYTES;
-        // `runGit`: `startGit(env, ...)`, the git PATH resolves to with its launcher's environment.
-        match mixdog_scm::git::start_git(self.exec, self.lane, spec, self.cancel).await {
-            Ok(out) => GitRun {
-                code: out.code,
-                stdout: out.stdout,
-                stderr: out.stderr,
-                error: None,
-                retries: 0,
-                retry_ms: 0,
-                not_utf8: false,
-            },
-            Err(ScmFailure::Unavailable { .. }) => GitRun::failed(RunError::NotFound),
-            Err(ScmFailure::Cancelled) => GitRun::failed(RunError::Aborted),
-            Err(ScmFailure::TimedOut { .. }) => GitRun::failed(RunError::TimedOut),
-            Err(ScmFailure::OutputTooLarge { .. }) => GitRun::failed(RunError::Overflow),
-            // `result.error.code || result.error.message`: a refused start is named by its code alone.
-            Err(ScmFailure::Spawn { code: "ENOENT", .. }) => GitRun::failed(RunError::NotFound),
-            Err(ScmFailure::Spawn { code, .. }) => GitRun::failed(RunError::Spawn(code.to_owned())),
-            Err(other) => GitRun::failed(RunError::Spawn(other.to_string())),
-        }
-    }
-
-    /// A write: another process holding one of git's lock files turns into a short bounded
-    /// wait (3.1 s in all) instead of a failure.
-    pub async fn run_write(&self, plan: &Plan, argv: &[String]) -> GitRun {
-        let mut retry_ms = 0;
-        let mut retries = 0;
-        loop {
-            let mut run = self.run(plan, argv, false).await;
-            run.retries = retries;
-            run.retry_ms = retry_ms;
-            let Some(delay) = LOCK_RETRY_DELAYS_MS.get(retries).copied() else { return run };
-            if run.succeeded() || !lock_contention(&run.err()) {
-                return run;
-            }
-            tokio::select! {
-                _ = mixdog_rt::time::sleep(Duration::from_millis(delay)) => {}
-                _ = self.cancel.cancelled() => return run,
-            }
-            retry_ms += delay;
-            retries += 1;
-        }
-    }
-}
-
 /// Waiting is reported once it exceeds a second, so a slow answer is never mistaken for slow
 /// git work.
 pub(super) fn lock_wait_note(waited_ms: u64, run: Option<&GitRun>) -> String {
@@ -388,6 +309,14 @@ mod tests {
         }
     }
 
+    #[test]
+    fn append_text_joins_on_a_line_break() {
+        assert_eq!(append_text("a", "b"), "a\nb");
+        assert_eq!(append_text("a\n", "b"), "a\nb");
+        assert_eq!(append_text("a", ""), "a");
+    }
+
+
     /// `runGit`'s `result.error.code || result.error.message`: the git tool names a refused start by its code alone,
     /// `git process failed (EPERM)`.
     #[tokio::test]
@@ -399,11 +328,84 @@ mod tests {
         let code = if cfg!(windows) { "EPERM" } else { "EACCES" };
         assert!(matches!(&run.error, Some(RunError::Spawn(text)) if text == code), "the start is named {code}");
     }
+}
 
-    #[test]
-    fn append_text_joins_on_a_line_break() {
-        assert_eq!(append_text("a", "b"), "a\nb");
-        assert_eq!(append_text("a\n", "b"), "a\nb");
-        assert_eq!(append_text("a", ""), "a");
+
+impl Runner<'_> {
+    /// Blocking filesystem work as a maintenance-lane job; `None` when the call was cancelled
+    /// or the lane refused it.
+    pub async fn blocking<R: Send + 'static>(&self, job: impl FnOnce() -> R + Send + 'static) -> Option<R> {
+        on_lane(self.lane, self.cancel, job).await.ok()
+    }
+
+    /// Like [`Self::blocking`] but for cleanup that must still run after a cancellation.
+    pub async fn blocking_cleanup<R: Send + 'static>(&self, job: impl FnOnce() -> R + Send + 'static) -> Option<R> {
+        on_lane(self.lane, &CancellationToken::new(), job).await.ok()
+    }
+
+    /// One git child. Reads pin `GIT_OPTIONAL_LOCKS=0` so a status never takes `index.lock`.
+    pub async fn run(&self, plan: &Plan, argv: &[String], read_only: bool) -> GitRun {
+        self.run_in(&plan.cwd, &plan.global_args, argv, read_only).await
+    }
+
+    pub async fn run_in(&self, cwd: &Path, global_args: &[String], argv: &[String], read_only: bool) -> GitRun {
+        let mut spec = ExecSpec::new("git", cwd);
+        // File names print as they are, not as quoted octal escapes (`core.quotepath=false`); a `-c` of the command's own comes after
+        // and wins.
+        spec.args = ["-c", "core.quotepath=false"].into_iter().map(str::to_owned).chain(global_args.iter().chain(argv).cloned()).collect();
+        spec.env_set = vec![
+            ("GIT_TERMINAL_PROMPT".into(), "0".into()),
+            ("GIT_PAGER".into(), "cat".into()),
+            ("GIT_EDITOR".into(), "true".into()),
+            ("GIT_SEQUENCE_EDITOR".into(), "true".into()),
+            ("LC_ALL".into(), "C".into()),
+        ];
+        if read_only {
+            spec.env_set.push(("GIT_OPTIONAL_LOCKS".into(), "0".into()));
+        }
+        spec.time_limit = Some(DEFAULT_TIMEOUT);
+        spec.max_output = MAX_CAPTURE_BYTES;
+        // `runGit`: `startGit(env, ...)`, the git PATH resolves to with its launcher's environment.
+        match mixdog_scm::git::start_git(self.exec, self.lane, spec, self.cancel).await {
+            Ok(out) => GitRun {
+                code: out.code,
+                stdout: out.stdout,
+                stderr: out.stderr,
+                error: None,
+                retries: 0,
+                retry_ms: 0,
+                not_utf8: false,
+            },
+            Err(ScmFailure::Unavailable { .. }) => GitRun::failed(RunError::NotFound),
+            Err(ScmFailure::Cancelled) => GitRun::failed(RunError::Aborted),
+            Err(ScmFailure::TimedOut { .. }) => GitRun::failed(RunError::TimedOut),
+            Err(ScmFailure::OutputTooLarge { .. }) => GitRun::failed(RunError::Overflow),
+            // `result.error.code || result.error.message`: a refused start is named by its code alone.
+            Err(ScmFailure::Spawn { code: "ENOENT", .. }) => GitRun::failed(RunError::NotFound),
+            Err(ScmFailure::Spawn { code, .. }) => GitRun::failed(RunError::Spawn(code.to_owned())),
+            Err(other) => GitRun::failed(RunError::Spawn(other.to_string())),
+        }
+    }
+
+    /// A write: another process holding one of git's lock files turns into a short bounded
+    /// wait (3.1 s in all) instead of a failure.
+    pub async fn run_write(&self, plan: &Plan, argv: &[String]) -> GitRun {
+        let mut retry_ms = 0;
+        let mut retries = 0;
+        loop {
+            let mut run = self.run(plan, argv, false).await;
+            run.retries = retries;
+            run.retry_ms = retry_ms;
+            let Some(delay) = LOCK_RETRY_DELAYS_MS.get(retries).copied() else { return run };
+            if run.succeeded() || !lock_contention(&run.err()) {
+                return run;
+            }
+            tokio::select! {
+                _ = mixdog_rt::time::sleep(Duration::from_millis(delay)) => {}
+                _ = self.cancel.cancelled() => return run,
+            }
+            retry_ms += delay;
+            retries += 1;
+        }
     }
 }

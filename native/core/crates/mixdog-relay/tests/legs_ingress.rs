@@ -1,10 +1,4 @@
-//! Ingress metering and admission over the raw byte stream of a leg: the socket-level parts of the ingress cases of
-//! `apps/relay/security.test.mjs`, run against this crate's WebSocket server with raw byte clients. The routed halves (what the
-//! desktop leg and the phone legs do with a delivered message) are twin scenarios of the legs track.
-//!
-//! Each test plays the part of the sockets code of the legs: it installs the ingress tap right after the upgrade, asks
-//! `note_delivery` for every message the parser delivers, refuses a delivered message past its limit with `check_oversize`
-//! (unless the meter already did) and releases the leg when its socket closes.
+//! Uplink admission and refusal of oversize frames, run against this crate's WebSocket server with raw byte clients: refusal while a frame is still arriving, the ceiling, bursts, coalesced reads, fragmentation, and the shared pool.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;

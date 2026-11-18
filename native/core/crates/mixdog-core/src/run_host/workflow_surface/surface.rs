@@ -15,7 +15,7 @@ use mixdog_app_protocol::v2::thread::ToolProfile;
 use mixdog_core_agents::agents::AgentDefinitions;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_config::config::Config;
-use mixdog_core_config::tool_modules::with_grandfathered_builtins;
+use mixdog_core_config::tool_modules::adopted_stored_agent;
 use mixdog_core_config::workflow::WorkflowPaths;
 use mixdog_core_config::workflow::ids::active_workflow_id;
 use mixdog_core_config::workflow::ids::configured_orchestration_mode;
@@ -124,9 +124,16 @@ impl RunWorkflowSurface {
     /// daemon's runtime is interactive).
     pub async fn feature_denied(&self, session: Option<&Header>) -> Result<Vec<String>, SurfaceFailure> {
         let facts = self.probes.read().await?;
-        let config = with_grandfathered_builtins(&self.config.agent());
+        let config = adopted_stored_agent(&self.config.agent());
         let profile = session.and_then(header_tool_profile).unwrap_or(self.tool_profile);
         Ok(feature_disallowed_tools(&config, &facts, &*self.env, profile))
+    }
+
+    /// The tools the user's settings switch off now, from the config as the runtime holds it, with every machine fact (git on PATH,
+    /// a desktop bridge) taken as present: those are the surface's question at a turn start, not a dispatch's.
+    pub fn setting_denied(&self) -> Vec<String> {
+        let config = adopted_stored_agent(&self.config.agent());
+        super::denials::setting_denied_tools(&config, &*self.env, self.tool_profile)
     }
 
     /// `modelStandaloneTools()` for `session` with `features` as the denied gates.
@@ -144,6 +151,12 @@ impl RunWorkflowSurface {
             delegatable_agents: &|| delegatable,
         };
         Ok(model_internal_tools(&self.standalone, &agent_tools, &inputs))
+    }
+}
+
+impl crate::run_host::mcp_seams::SettingGates for RunWorkflowSurface {
+    fn setting_denied(&self) -> Vec<String> {
+        RunWorkflowSurface::setting_denied(self)
     }
 }
 
@@ -170,7 +183,7 @@ impl WorkflowSurface for RunWorkflowSurface {
 
     async fn internal_tools(&self, session: &Header) -> Result<Vec<Value>, SurfaceFailure> {
         let features = self.feature_denied(Some(session)).await?;
-        Ok(self.gated_tools(session, &features).await?.iter().map(|tool| tool.spec().definition()).collect())
+        Ok(self.gated_tools(session, &features).await?.iter().map(|tool| tool.stored().encode()).collect())
     }
 
     async fn orchestration_instructions(&self, mode: &str) -> Result<String, SurfaceFailure> {

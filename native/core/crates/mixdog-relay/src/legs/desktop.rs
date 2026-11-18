@@ -19,8 +19,6 @@ use mixdog_rt::TaskClass;
 use mixdog_rt::time::{Instant, sleep_unrefed};
 use serde_json::{Value, json};
 
-use futures::stream::StreamExt as _;
-
 use super::dispatch::{CapabilityOffer, HandlerFuture, Later, LegCall};
 use super::envelope;
 use super::hub::{

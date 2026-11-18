@@ -4,7 +4,7 @@ import { projectIdentity } from './project-catalog-cache';
 import type { DesktopProjectSummary, DesktopSessionSummary } from '../shared/contract';
 import { confirmAction } from './app-confirm';
 import { t } from './i18n';
-import { usePhoneSurfaceMarked } from './mobile-surface';
+import { isMobileDeviceSurface, usePhoneSurfaceMarked } from './mobile-surface';
 import { useScrollProgress } from './scroll-progress';
 import type { NavigationSelection } from './nav-types';
 import {
@@ -163,7 +163,10 @@ export function useSessionPrefetch(
     if (!open || !sessionsReady || !onPrefetchSession) return undefined;
     // Touch has no hover-intent window. Warm only the first two recent rows
     // during browser idle so the common mobile tap avoids a full relay RTT
-    // without flooding the lane cache with large transcripts.
+    // without flooding the lane cache with large transcripts. A pointer device
+    // has that window (hover, press and focus ask the same read), so it warms
+    // nothing unasked: an idle warm loads each session in the core.
+    if (!isMobileDeviceSurface()) return undefined;
     const sessionIds = visibleRecentRows.slice(0, 2).map((session) => session.id);
     if (sessionIds.length === 0) return undefined;
     const host = window as typeof window & {

@@ -6,12 +6,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_agent::compact::compactor::{FreshCompactor, FreshParts, SessionCompactor, TriggerSeams};
+use mixdog_agent::compact::compactor::{FreshCompactor, FreshParts, HandoffSource, PlannedHandoff, SessionCompactor, TriggerSeams};
 use mixdog_agent::compact::dropped::Redactor;
 use mixdog_agent::compact::estimate::MediaMeter;
 use mixdog_agent::compact::fresh::AttachmentSeam;
 use mixdog_agent::compact::summary_run::SummaryMode;
-use mixdog_agent::compact::triggers::{CacheTail, ToolMediaMeter};
+use mixdog_agent::compact::triggers::ToolMediaMeter;
 use mixdog_agent::env::{Clock, Compactor};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_protocol::ProviderId;
@@ -27,8 +27,7 @@ use super::message_row::{message_of, row_of};
 use super::summary_routes::{ForkSender, SavedRequest, SessionFork, SummaryHost, SummaryRoutes};
 
 /// What a compaction reads of the session beyond the run's own rows, archive and blobs. Each field
-/// is built for one session at one moment (the media meter sees its attachments, the cache tail its
-/// last send).
+/// is built for one session at one moment (the media meter sees its attachments).
 pub struct CompactionFacts {
     /// The session's priced media (`MediaLowering`).
     pub media: Arc<dyn MediaMeter>,
@@ -40,8 +39,6 @@ pub struct CompactionFacts {
     pub attachments: Arc<dyn AttachmentSeam>,
     /// The session's sensitive-value redaction of stored rows (Node `_messagesForDisk`).
     pub redactor: Arc<dyn Redactor>,
-    /// The session's last request as the cache sees it (`RequestCacheTail`).
-    pub cache: Arc<dyn CacheTail>,
     /// The runtime around the summary route plan.
     pub summary: Arc<dyn SummaryHost>,
     /// The side-question store's saved request of the session, if any.
@@ -53,9 +50,12 @@ pub struct CompactionFacts {
 /// The session side of a compaction.
 #[async_trait]
 pub trait CompactionWorld: Send + Sync + 'static {
-    /// The session's facts. Runs once per turn, ahead of its first request. Async: the account that
-    /// would serve the session's next request is read from the roster.
+    /// The session's facts. Runs once per turn, ahead of its first request.
     async fn facts(&self, thread: &ThreadId, header: &Header, prior: &[Value]) -> CompactionFacts;
+    /// Wraps the plan when its fork source has to be bound at handoff rather than assembly.
+    fn handoff(&self, _thread: &ThreadId, _header: &Header, _clock: &Arc<dyn Clock>, planned: PlannedHandoff) -> Arc<dyn HandoffSource> {
+        Arc::new(planned)
+    }
     /// The saved `config.compaction` object, the one `normalizeCompactionSummaryMode` reads
     /// (`fresh-context.mjs:113`); `None` when the install saved none.
     fn compaction_config(&self) -> Option<Value>;
@@ -68,11 +68,17 @@ pub trait CompactionWorld: Send + Sync + 'static {
 pub struct SessionCompactors {
     world: Arc<dyn CompactionWorld>,
     clock: Arc<dyn Clock>,
+    skills: Option<(Arc<mixdog_mcp::skill_catalog::SkillCatalog>, Arc<super::skill_session::HeaderSkillArm>)>,
 }
 
 impl SessionCompactors {
     pub fn new(world: Arc<dyn CompactionWorld>, clock: Arc<dyn Clock>) -> Self {
-        Self { world, clock }
+        Self { world, clock, skills: None }
+    }
+
+    pub fn with_skills(mut self, catalog: Arc<mixdog_mcp::skill_catalog::SkillCatalog>, arm: Arc<super::skill_session::HeaderSkillArm>) -> Self {
+        self.skills = Some((catalog, arm));
+        self
     }
 }
 
@@ -100,7 +106,10 @@ impl CompactorSource for SessionCompactors {
 impl SessionCompactors {
     /// The session's compactor; `None` when the session knows no boundary (Node has no policy).
     async fn fresh(&self, thread: &ThreadId, header: &Header, prior: &[Value], input: CompactorInput) -> Option<Arc<FreshCompactor>> {
-        FreshCompactor::for_session(self.session(thread, header, prior, input).await)
+        let session = self.session(thread, header, prior, input).await;
+        let (planned, config) = PlannedHandoff::for_session(&session)?;
+        let summary = self.world.handoff(thread, header, &self.clock, planned);
+        Some(Arc::new(FreshCompactor { parts: session.parts, triggers: Some(session.triggers), summary: Some(summary), config }))
     }
 
     /// What the session's compactor is wired from: the world's facts of the session, its settings and its summary plan.
@@ -115,11 +124,19 @@ impl SessionCompactors {
             attachments: facts.attachments,
             redactor: facts.redactor,
             blobs: input.blobs,
+            skills: self.skills.as_ref().map(|(catalog, arm)| {
+                Arc::new(super::skill_session::CompactionSkills {
+                    catalog: catalog.clone(),
+                    arm: arm.clone(),
+                    thread: thread.clone(),
+                    cwd: super::resume_tools::header_cwd(header),
+                }) as Arc<dyn mixdog_agent::compact::skills::CurrentSkills>
+            }),
         });
         SessionCompactor {
             settings: input.settings,
             parts,
-            triggers: TriggerSeams { tool_media: facts.tool_media, native_pdf: facts.native_pdf, cache: facts.cache },
+            triggers: TriggerSeams { tool_media: facts.tool_media, native_pdf: facts.native_pdf },
             fork: Arc::new(SessionFork::new(facts.saved_request, self.clock.clone(), facts.fork_sender)),
             resolver: Arc::new(SummaryRoutes::new(facts.summary)),
             summary_mode: summary_mode(self.world.compaction_config().as_ref()),
@@ -154,7 +171,6 @@ mod tests {
     use mixdog_agent::boundary::CompactSettings;
     use mixdog_agent::compact::estimate::PartMeter;
     use mixdog_agent::compact::summary_run::{SummaryCall, SummaryFailure, SummaryResponse, SummaryRoute, SummarySender};
-    use mixdog_agent::compact::triggers::CacheWarmLedger;
     use mixdog_agent::message::AgentMessage;
     use mixdog_agent::offload::{Artifact, ArtifactStore};
     use mixdog_core_api::domain::provider::{Content, ContentPart};
@@ -197,29 +213,6 @@ mod tests {
     impl Redactor for NoRedaction {
         fn redact(&self, rows: Vec<Value>) -> Vec<Value> {
             rows
-        }
-    }
-    struct WarmTail;
-    impl CacheWarmLedger for WarmTail {
-        fn last_use_at(&self) -> u64 {
-            0
-        }
-        fn route_use_at(&self) -> Option<u64> {
-            None
-        }
-    }
-    impl CacheTail for WarmTail {
-        fn agent_owner(&self) -> bool {
-            false
-        }
-        fn five_minute_tail(&self) -> bool {
-            false
-        }
-        fn last_provider_send_at(&self) -> u64 {
-            0
-        }
-        fn now_ms(&self) -> u64 {
-            0
         }
     }
     struct Quiet;
@@ -306,7 +299,6 @@ mod tests {
                 native_pdf: false,
                 attachments: Arc::new(NoAttachments),
                 redactor: Arc::new(NoRedaction),
-                cache: Arc::new(WarmTail),
                 summary: Arc::new(Host),
                 saved_request: None,
                 fork_sender: Arc::new(NoSend),

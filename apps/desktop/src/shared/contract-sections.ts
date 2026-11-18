@@ -27,8 +27,19 @@ export const EVENT_SECTIONS: readonly string[] = ['reviewDiff'];
 
 export type DesktopProtocolStatus = 'ready' | 'reconnecting' | 'closed';
 
+/** How far a window's core connection is from being up: the attempt its reconnecting has come to, and, once it is closed, why. */
+export interface DesktopCoreLink {
+  readonly attempt: number;
+  readonly closed: {
+    /** `clientOutdated` / `serverOutdated`: the core refused this app's version (or the app the core's); `failed`: any other end. */
+    readonly cause: 'clientOutdated' | 'serverOutdated' | 'failed';
+    readonly message: string;
+  } | null;
+}
+
 export interface DesktopSectionsSnapshot {
   readonly status: DesktopProtocolStatus;
+  readonly link?: DesktopCoreLink;
   readonly entries: readonly DesktopSectionEntry[];
   /** The core's app feed these entries are of (see the commit push's `epoch`). */
   readonly epoch?: string;
@@ -54,7 +65,7 @@ export type DesktopSectionsPush =
   /** A scoped feed the window watches could not be restored after a reconnect, for a reason other than the core not
    *  holding it (that one is a removal of its sections). Its held sections stay. */
   | { readonly kind: 'feedError'; readonly feedId: string; readonly message: string }
-  | { readonly kind: 'status'; readonly status: DesktopProtocolStatus };
+  | { readonly kind: 'status'; readonly status: DesktopProtocolStatus; readonly link?: DesktopCoreLink };
 
 /** The only core methods a renderer may call. Each is a detail read the pushed state does not carry (stubs, history). */
 export const RENDERER_PROTOCOL_METHODS = [
@@ -87,6 +98,8 @@ export interface DesktopSectionsApi {
   snapshot(): Promise<DesktopSectionsSnapshot>;
   subscribe(listener: (push: DesktopSectionsPush) => void): () => void;
   call(method: RendererProtocolMethod, params: unknown): Promise<unknown>;
+  /** Opens this window's core connection anew (the one a closed connection offers); resolves once it is up, rejects with why not. */
+  reconnect?(): Promise<void>;
   /** `fs/changed` for this window's watches; returns the unsubscribe. */
   subscribeFsChanged(listener: (change: { watchId: string; changedPaths: string[]; kind?: string }) => void): () => void;
   /** Progress of a sign-in flow (`login/updated`); the caller filters by `flowId`. Returns the unsubscribe. */

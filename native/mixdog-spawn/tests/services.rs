@@ -698,6 +698,43 @@ async fn ports_are_sampled_only_while_a_connection_views_them() {
     assert_eq!(service.sampler_threads(), 0, "no sampling once nobody views");
 }
 
+/// The ports a `feed/snapshot` carries the way the desktop's link reads them: `state.sections`, the `ports` section's `value`.
+fn snapshot_ports(frame: &Value) -> Option<Vec<Value>> {
+    if frame["method"] != "feed/snapshot" {
+        return None;
+    }
+    let sections = frame["params"]["state"]["sections"].as_array()?;
+    let section = sections.iter().find(|section| section["section"] == "ports")?;
+    section["value"].as_array().cloned()
+}
+
+fn carries_port(frame: &Value, port: u16) -> bool {
+    let listed = |value: Option<&Vec<Value>>| value.is_some_and(|ports| ports.iter().any(|p| p["port"] == json!(port)));
+    listed(snapshot_ports(frame).as_ref()) || listed(frame["params"]["value"].as_array())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_viewer_that_joins_late_gets_the_listening_ports_in_the_section_snapshot() {
+    let feeds = scoped();
+    // The source never changes: after the first sample nothing is published, so a late viewer has only its snapshot.
+    let service = SystemService::with_source(feeds.clone(), Duration::from_millis(20), || {
+        Ok(vec![ListeningPort { port: 8099, addresses: vec!["127.0.0.1".into()], process: None, pid: None }])
+    });
+    service.call(request("system/ports/subscribe", json!({}), 7)).await.unwrap();
+    let feed = feeds.find(&mixdog_core_api::ids::FeedId::from("ports")).expect("the ports feed exists once viewed");
+    let first = mixdog_core_api::mock::FeedTap::attach_as(&feed, 7);
+    tokio::time::timeout(EVENT_DEADLINE, first.notifications_until(|frames| frames.iter().any(|frame| carries_port(frame, 8099))))
+        .await
+        .expect("the first viewer never got the ports");
+
+    service.call(request("system/ports/subscribe", json!({}), 8)).await.unwrap();
+    let late = mixdog_core_api::mock::FeedTap::attach_as(&feed, 8);
+    let frames = tokio::time::timeout(EVENT_DEADLINE, late.notifications_until(|frames| !frames.is_empty()))
+        .await
+        .expect("the late viewer never got a frame");
+    let ports = snapshot_ports(&frames[0]).expect("the late viewer's first frame is a snapshot with the ports section");
+    assert_eq!(ports.iter().map(|port| port["port"].clone()).collect::<Vec<_>>(), [json!(8099)]);
+}
 #[tokio::test(flavor = "multi_thread")]
 async fn terminal_service_ensures_publishes_tabs_and_disposes() {
     let manager = manager();

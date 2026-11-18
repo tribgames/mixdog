@@ -7,6 +7,7 @@
 use std::path::Path;
 
 use mixdog_rt::testing::tokens;
+#[cfg(node_twin)]
 use mixdog_testkit::Exact;
 use serde_json::Value;
 use serde_json::json;
@@ -15,8 +16,6 @@ use crate::sqlite::DbError;
 use crate::state::CoreState;
 use crate::state::ProjectRow;
 use crate::state::SetAside;
-
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/corrupt-state-file-cases/golden.json");
 
 fn project(path: &str) -> ProjectRow {
     ProjectRow { path: path.into(), alias: Some("A".into()), hidden: false, hidden_rank: None, last_used_at: Some(5), name: Some("alpha".into()) }
@@ -69,51 +68,6 @@ fn asides(dir: &Path) -> Vec<(String, Vec<u8>)> {
         .collect();
     found.sort();
     found
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn recorded_damage_of_node_state_files_is_set_aside_and_the_next_read_and_write_work() {
-    let recorded = Exact::decode(&serde_json::from_str::<Value>(&GOLDEN).expect("golden is JSON")).expect("golden decodes");
-    let runs = recorded.get("cases").as_array()[0].get("observed").get("runs").as_array();
-    let mut replayed = 0;
-    for run in runs {
-        let file = run.get("file").as_str();
-        // The cycle state stays a file (replayed over the ledger); a `.bak` has no counterpart (see the manifest's exclusions).
-        if file == "memory-cycle-state.json" || run.get("backup").as_bool() {
-            continue;
-        }
-        let shared = run.get("shared");
-        let plain = run.to_plain().expect("a run holds no tagged part");
-        let stamp = shared.get("asideSuffixes").as_array()[0].as_str().strip_prefix(".corrupt-").unwrap().parse::<u128>().unwrap();
-        let _clock = mixdog_statefile::fix_recovery_clock(stamp);
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("core.sqlite");
-        good_file(&path).await;
-        let damaged = damage(&path, &plain["damage"]);
-
-        let (state, _, aside) = open_aside(&path).unwrap_or_else(|e| panic!("{file} {}: the daemon's open must survive: {e}", plain["damage"]["kind"]));
-        assert!(aside.file.is_some(), "{file}: a set-aside is reported");
-        let kept = asides(dir.path());
-        let suffixes = |found: &[(String, Vec<u8>)]| found.iter().map(|(s, _)| json!(s)).collect::<Vec<_>>();
-        let hold = !kept.is_empty() && kept.iter().all(|(_, bytes)| *bytes == damaged);
-        let empty = state.projects().await.unwrap().is_empty() && state.rooms().await.unwrap().is_empty();
-        let wrote = state.write(|tx| tx.put_project(&project("/work/third"))).await.is_ok();
-        let read_back = state.projects().await.unwrap().iter().any(|p| p.path == "/work/third");
-        let actual = json!({
-            "asideSuffixes": suffixes(&kept),
-            "asideHoldsDamagedBytes": hold,
-            "readIsEmpty": empty,
-            "writeSucceeded": wrote,
-            "readAfterWriteHasWrite": read_back,
-            "asideSuffixesAfterWrite": suffixes(&asides(dir.path())),
-        });
-        if let Some(difference) = Exact::plain(&actual).difference(shared) {
-            panic!("{file} / {}: {difference}", plain["damage"]["kind"]);
-        }
-        state.close();
-        replayed += 1;
-    }
-    assert_eq!(replayed, 9, "three files and three damages, without a backup");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -303,4 +257,83 @@ async fn an_unreadable_project_row_is_kept_in_meta_and_the_other_rows_stay() {
     assert_eq!(paths, ["/work/alpha"]);
     assert_eq!(state.meta("corrupt:projects:/work/bad").await.unwrap().as_deref(), Some(r#"["/work/bad","00ff",0,null,null,null]"#));
     state.close();
+}
+
+
+/// Whatever damage a state database has, the daemon's open survives: the damaged bytes stay under `<file>.corrupt-<ms>`, the next
+/// read is empty, a next write works and is read back, and a later open sets nothing more aside.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_damaged_state_database_is_set_aside_and_the_next_read_and_write_work() {
+    let stamp = 1_700_000_000_000_u128;
+    for damage_kind in [
+        json!({"kind": "truncated"}),
+        json!({"kind": "bytes", "bytes": "this is not a database, just some text that was written over it"}),
+        json!({"kind": "bytes", "bytes": "\u{0}".repeat(8192)}),
+    ] {
+        let _clock = mixdog_statefile::fix_recovery_clock(stamp);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("core.sqlite");
+        good_file(&path).await;
+        let damaged = damage(&path, &damage_kind);
+
+        let (state, _, aside) = open_aside(&path).unwrap_or_else(|e| panic!("{damage_kind}: the daemon's open must survive: {e}"));
+        assert!(aside.file.is_some(), "{damage_kind}: a set-aside is reported");
+        let kept = asides(dir.path());
+        assert_eq!(kept.len(), 1, "{damage_kind}");
+        assert_eq!(kept[0].0, format!(".corrupt-{stamp}"));
+        assert_eq!(kept[0].1, damaged, "{damage_kind}: the aside holds the damaged bytes");
+        assert!(state.projects().await.unwrap().is_empty() && state.rooms().await.unwrap().is_empty(), "{damage_kind}: the next read is empty");
+        state.write(|tx| tx.put_project(&project("/work/third"))).await.unwrap();
+        assert!(state.projects().await.unwrap().iter().any(|p| p.path == "/work/third"), "{damage_kind}: the write reads back");
+        assert_eq!(asides(dir.path()).len(), 1, "{damage_kind}: the write sets nothing more aside");
+        state.close();
+    }
+}
+
+#[cfg(node_twin)]
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/corrupt-state-file-cases/golden.json");
+#[cfg(node_twin)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn recorded_damage_of_node_state_files_is_set_aside_and_the_next_read_and_write_work() {
+    let recorded = Exact::decode(&serde_json::from_str::<Value>(&GOLDEN).expect("golden is JSON")).expect("golden decodes");
+    let runs = recorded.get("cases").as_array()[0].get("observed").get("runs").as_array();
+    let mut replayed = 0;
+    for run in runs {
+        let file = run.get("file").as_str();
+        // The cycle state stays a file (replayed over the ledger); a `.bak` has no counterpart (see the manifest's exclusions).
+        if file == "memory-cycle-state.json" || run.get("backup").as_bool() {
+            continue;
+        }
+        let shared = run.get("shared");
+        let plain = run.to_plain().expect("a run holds no tagged part");
+        let stamp = shared.get("asideSuffixes").as_array()[0].as_str().strip_prefix(".corrupt-").unwrap().parse::<u128>().unwrap();
+        let _clock = mixdog_statefile::fix_recovery_clock(stamp);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("core.sqlite");
+        good_file(&path).await;
+        let damaged = damage(&path, &plain["damage"]);
+
+        let (state, _, aside) = open_aside(&path).unwrap_or_else(|e| panic!("{file} {}: the daemon's open must survive: {e}", plain["damage"]["kind"]));
+        assert!(aside.file.is_some(), "{file}: a set-aside is reported");
+        let kept = asides(dir.path());
+        let suffixes = |found: &[(String, Vec<u8>)]| found.iter().map(|(s, _)| json!(s)).collect::<Vec<_>>();
+        let hold = !kept.is_empty() && kept.iter().all(|(_, bytes)| *bytes == damaged);
+        let empty = state.projects().await.unwrap().is_empty() && state.rooms().await.unwrap().is_empty();
+        let wrote = state.write(|tx| tx.put_project(&project("/work/third"))).await.is_ok();
+        let read_back = state.projects().await.unwrap().iter().any(|p| p.path == "/work/third");
+        let actual = json!({
+            "asideSuffixes": suffixes(&kept),
+            "asideHoldsDamagedBytes": hold,
+            "readIsEmpty": empty,
+            "writeSucceeded": wrote,
+            "readAfterWriteHasWrite": read_back,
+            "asideSuffixesAfterWrite": suffixes(&asides(dir.path())),
+        });
+        if let Some(difference) = Exact::plain(&actual).difference(shared) {
+            panic!("{file} / {}: {difference}", plain["damage"]["kind"]);
+        }
+        state.close();
+        replayed += 1;
+    }
+    assert_eq!(replayed, 9, "three files and three damages, without a backup");
 }

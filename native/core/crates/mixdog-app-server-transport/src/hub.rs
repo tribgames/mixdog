@@ -54,7 +54,7 @@ struct HubInner {
     next_id: AtomicU64,
     entries: Mutex<HashMap<ConnectionId, Arc<Shared>>>,
     /// Where the line of each socket that never becomes a connection goes (the daemon log, through its contained sink).
-    log: OnceLock<LineSink>,
+    log: Arc<OnceLock<LineSink>>,
 }
 
 impl HubInner {
@@ -82,12 +82,13 @@ impl ConnectionHub {
                 clock: Arc::new(AtomicU64::new(1)),
                 next_id: AtomicU64::new(1),
                 entries: Mutex::new(HashMap::new()),
-                log: OnceLock::new(),
+                log: Arc::new(OnceLock::new()),
             }),
         })
     }
 
-    /// Where the lines of sockets that never become a connection go (refused, abandoned, handshake failed); set once.
+    /// Where the lines of sockets that never become a connection go (refused, abandoned, handshake failed), and the line that
+    /// says what a connection closed as a slow consumer held; set once.
     pub fn set_log(&self, sink: LineSink) -> Result<(), LineSink> {
         self.inner.log.set(sink)
     }
@@ -130,6 +131,7 @@ impl ConnectionHub {
             origin,
             self.inner.writer_limits,
             Arc::clone(&self.inner.clock),
+            Arc::clone(&self.inner.log),
         ));
         self.inner.entries().insert(id, Arc::clone(&shared));
         let unserved = Unserved {
@@ -330,6 +332,7 @@ impl Pending {
         AcceptedConnection {
             id,
             origin,
+            authenticated_relay_credential: None,
             inbound: InboundFrames::new(inbound_rx, sink.clone()),
             sink,
         }

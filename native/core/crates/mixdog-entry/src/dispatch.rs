@@ -1,14 +1,9 @@
 //! What the command does with a classified line (`src/cli.mjs` `main`, `src/app.mjs` `run`). An exec and a refusal made before the
-//! host matters never touch the data folder: no lifecycle ledger, no staged-update swap, no live-session mark (`skipHostPrelude`).
+//! host matters never touch the data folder: no lifecycle ledger, no live-session mark (`skipHostPrelude`). The staged-update swap is
+//! not this program's: the npm launcher (`bin/mixdog.mjs`) does it before this program starts.
 //! Dev-only Node items (the V8 compile cache, `NODE_ENV`, the uv thread pool, `MIXDOG_TUI_DEV`'s rebuild, the stale-bundle
 //! warning) have no counterpart here. An inherited `MIXDOG_BOOT_PROFILE` stays away from the exec path as it did in Node: the
 //! exec's boundary removes every `MIXDOG_*` variable from the process before its core starts.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the swap re-runs this program as a process of its own: it is the command's entry, with no lane to spawn through"
-)]
-
 use std::io::Write;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
@@ -20,8 +15,6 @@ use mixdog_cli::exec::run_command;
 use mixdog_launch::lifecycle::begin_process_lifecycle;
 use mixdog_launch::lifecycle::finish_process_lifecycle;
 use mixdog_launch::lifecycle::record_catchable_fatal;
-use mixdog_launch::staged_update::SwapOutcome;
-use mixdog_launch::staged_update::perform_pending_swap;
 use mixdog_launch::staged_update::register_live_session;
 
 use crate::argv::Invocation;
@@ -29,44 +22,6 @@ use crate::argv::Kind;
 use crate::argv::classify;
 use crate::interactive::Mode;
 use crate::interactive::run_interactive;
-
-/// Set in the process a swap starts again, so that it does not swap and start again in its turn.
-const SWAP_REEXEC: &str = "MIXDOG_SWAP_REEXEC";
-
-/// Runs the command on `argv` (the words after the program's name) and returns the exit code.
-pub fn run(argv: &[String]) -> i32 {
-    let invocation = classify(argv);
-    if invocation.skip_host_prelude {
-        return match std::panic::catch_unwind(AssertUnwindSafe(|| execute(&invocation))) {
-            Ok(code) => code,
-            Err(_) => 1,
-        };
-    }
-    let lifecycle = begin_process_lifecycle("tui");
-    // Interactive and general sessions keep the staged-update and live-session semantics.
-    let swapped = matches!(perform_pending_swap(), SwapOutcome::Swapped(_));
-    let _live = register_live_session(&format!("pid-{}", std::process::id()));
-    let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        // After a swap the new program starts again with a clean state; the guard stops a swap and start loop. If it cannot be
-        // started the run goes on in place.
-        if swapped && std::env::var_os(SWAP_REEXEC).is_none() {
-            if let Some(ended) = rerun(argv) {
-                return ended;
-            }
-        }
-        (execute(&invocation), "clean-shutdown")
-    }));
-    let (code, reason) = match outcome {
-        Ok(ended) => ended,
-        Err(payload) => {
-            let text = payload.downcast_ref::<String>().map(String::as_str).or_else(|| payload.downcast_ref::<&str>().copied()).unwrap_or("panic");
-            record_catchable_fatal(&lifecycle, text);
-            (1, "catchable-fatal-error")
-        }
-    };
-    finish_process_lifecycle(lifecycle, reason, code);
-    code
-}
 
 /// The refusal, the help and the removed flag's line: what needs no more than the two streams. `None` for a run.
 fn immediate(kind: &Kind, out: &mut dyn Write, err: &mut dyn Write) -> Option<i32> {
@@ -88,6 +43,76 @@ fn immediate(kind: &Kind, out: &mut dyn Write, err: &mut dyn Write) -> Option<i3
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn answer(kind: &Kind) -> (Option<i32>, String, String) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = immediate(kind, &mut out, &mut err);
+        (code, String::from_utf8(out).unwrap(), String::from_utf8(err).unwrap())
+    }
+
+    #[test]
+    fn a_refusal_is_one_line_on_stderr_with_exit_1() {
+        assert_eq!(answer(&Kind::Error("unknown option --x".to_owned())), (Some(1), String::new(), "mixdog: unknown option --x\n".to_owned()));
+    }
+
+    #[test]
+    fn help_is_the_usage_on_stdout_with_exit_0() {
+        let (code, out, err) = answer(&Kind::Help);
+        assert_eq!((code, out.as_str(), err.as_str()), (Some(0), HELP_TEXT, ""));
+        assert!(out.starts_with("mixdog — standalone mixdog CLI/TUI coding agent."));
+    }
+
+    #[test]
+    fn a_run_is_not_answered_by_the_streams() {
+        assert_eq!(answer(&Kind::General).0, None);
+        assert_eq!(answer(&Kind::Plain).0, None);
+        assert_eq!(answer(&Kind::Exec { message: "hi".to_owned() }).0, None);
+    }
+
+    #[test]
+    fn an_exec_and_a_refusal_before_the_host_skip_the_prelude_and_help_does_not() {
+        let line = |words: &[&str]| classify(&words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>()).skip_host_prelude;
+        assert!(line(&["exec", "hi"]) && line(&["--json"]) && line(&["exec"]));
+        assert!(!line(&[]) && !line(&["--help"]) && !line(&["--bogus"]) && !line(&["--plain"]));
+    }
+
+
+    #[test]
+    fn the_removed_react_flag_says_so_with_exit_1() {
+        let (code, out, err) = answer(&Kind::React);
+        assert_eq!((code, out.as_str(), err.as_str()), (Some(1), "", "mixdog: --react was removed; run `mixdog` for the canonical TUI.\n"));
+    }
+}
+
+
+/// Runs the command on `argv` (the words after the program's name) and returns the exit code.
+pub fn run(argv: &[String]) -> i32 {
+    let invocation = classify(argv);
+    if invocation.skip_host_prelude {
+        return match std::panic::catch_unwind(AssertUnwindSafe(|| execute(&invocation))) {
+            Ok(code) => code,
+            Err(_) => 1,
+        };
+    }
+    let lifecycle = begin_process_lifecycle("tui");
+    // Interactive and general sessions are live sessions: the launcher's staged-update swap (`bin/staged-swap.mjs`) never replaces
+    // the package under one that runs.
+    let _live = register_live_session(&format!("pid-{}", std::process::id()));
+    let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| (execute(&invocation), "clean-shutdown")));
+    let (code, reason) = match outcome {
+        Ok(ended) => ended,
+        Err(payload) => {
+            let text = payload.downcast_ref::<String>().map(String::as_str).or_else(|| payload.downcast_ref::<&str>().copied()).unwrap_or("panic");
+            record_catchable_fatal(&lifecycle, text);
+            (1, "catchable-fatal-error")
+        }
+    };
+    finish_process_lifecycle(lifecycle, reason, code);
+    code
+}
 /// `run` of `app.mjs`.
 fn execute(invocation: &Invocation) -> i32 {
     if let Some(code) = immediate(&invocation.kind, &mut std::io::stdout().lock(), &mut std::io::stderr().lock()) {
@@ -119,68 +144,5 @@ fn execute(invocation: &Invocation) -> i32 {
         }
         Kind::Plain => run_interactive(Mode::Plain, options),
         _ => run_interactive(Mode::Tui, options),
-    }
-}
-
-/// Starts the program again on the same words with the swap guard set, attached to this process's console and streams (Node's
-/// `spawnSync` with `stdio: 'inherit'`: the terminal interface and Ctrl+C reach it as they reached this run); its exit code, and
-/// the reason the run ended with when a signal ended the child (`stagedChildExitCode`). `None` when it could not be started.
-fn rerun(argv: &[String]) -> Option<(i32, &'static str)> {
-    let exe = std::env::current_exe().ok()?;
-    let mut command = std::process::Command::new(exe);
-    command.args(argv).env(SWAP_REEXEC, "1");
-    let status = command.status().ok()?;
-    Some(child_exit(&status))
-}
-
-/// `stagedChildExitCode`: a child ended by a signal is `128 + signal` and a forced cleanup; any other end is its status.
-fn child_exit(status: &std::process::ExitStatus) -> (i32, &'static str) {
-    #[cfg(unix)]
-    if let Some(signal) = std::os::unix::process::ExitStatusExt::signal(status) {
-        return (128 + signal, "forced-cleanup");
-    }
-    (status.code().unwrap_or(1), "clean-shutdown")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn answer(kind: &Kind) -> (Option<i32>, String, String) {
-        let (mut out, mut err) = (Vec::new(), Vec::new());
-        let code = immediate(kind, &mut out, &mut err);
-        (code, String::from_utf8(out).unwrap(), String::from_utf8(err).unwrap())
-    }
-
-    #[test]
-    fn a_refusal_is_one_line_on_stderr_with_exit_1() {
-        assert_eq!(answer(&Kind::Error("unknown option --x".to_owned())), (Some(1), String::new(), "mixdog: unknown option --x\n".to_owned()));
-    }
-
-    #[test]
-    fn help_is_the_usage_on_stdout_with_exit_0() {
-        let (code, out, err) = answer(&Kind::Help);
-        assert_eq!((code, out.as_str(), err.as_str()), (Some(0), HELP_TEXT, ""));
-        assert!(out.starts_with("mixdog — standalone mixdog CLI/TUI coding agent."));
-    }
-
-    #[test]
-    fn the_removed_react_flag_says_so_with_exit_1() {
-        let (code, out, err) = answer(&Kind::React);
-        assert_eq!((code, out.as_str(), err.as_str()), (Some(1), "", "mixdog: --react was removed; run `mixdog` for the canonical TUI.\n"));
-    }
-
-    #[test]
-    fn a_run_is_not_answered_by_the_streams() {
-        assert_eq!(answer(&Kind::General).0, None);
-        assert_eq!(answer(&Kind::Plain).0, None);
-        assert_eq!(answer(&Kind::Exec { message: "hi".to_owned() }).0, None);
-    }
-
-    #[test]
-    fn an_exec_and_a_refusal_before_the_host_skip_the_prelude_and_help_does_not() {
-        let line = |words: &[&str]| classify(&words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>()).skip_host_prelude;
-        assert!(line(&["exec", "hi"]) && line(&["--json"]) && line(&["exec"]));
-        assert!(!line(&[]) && !line(&["--help"]) && !line(&["--bogus"]) && !line(&["--plain"]));
     }
 }

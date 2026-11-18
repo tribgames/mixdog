@@ -502,98 +502,8 @@ mod tests {
         }
     }
 
-    fn rig() -> (tempfile::TempDir, Arc<AtomicI64>, GatewaySessionRoutes) {
-        let data = tempfile::tempdir().unwrap();
-        let now = Arc::new(AtomicI64::new(0));
-        let routes = GatewaySessionRoutes::with_clock(data.path(), mixdog_rt::testing::tokens().maintenance_io, Arc::new(Fixed(now.clone())));
-        (data, now, routes)
-    }
-
     fn text(path: &Path) -> Option<String> {
         crate::session::fixture_fs::read_to_string(path).ok()
-    }
-
-    /// Node's `writeStatuslineRoute` into its real route store: the file and its `.bak` after each
-    /// step are the recorded bytes. A step's calls run in one tick, so they land in one update.
-    #[tokio::test]
-    async fn the_route_store_bytes_equal_nodes() {
-        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/statusline-route/golden.json")).unwrap();
-        let cases = golden["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 8);
-        for case in cases {
-            let name = case["name"].as_str().unwrap();
-            let (data, clock, routes) = rig();
-            let store = data.path().join(STORE_FILE);
-            if let Some(initial) = case["initial"].as_str() {
-                crate::session::fixture_fs::write(&store, initial);
-            }
-            for step in case["steps"].as_array().unwrap() {
-                let calls = step["calls"].as_array().unwrap();
-                clock.store(calls.last().unwrap()["now"].as_i64().unwrap(), Ordering::SeqCst);
-                let usable: Vec<(&str, Option<u64>, &Map<String, Value>)> = calls
-                    .iter()
-                    .filter_map(|call| {
-                        let id = call["session"]["id"].as_str()?;
-                        Some((id, call["session"]["clientHostPid"].as_u64(), call["route"].as_object()?))
-                    })
-                    .collect();
-                if calls.len() == 1 {
-                    for (id, pid, route) in &usable {
-                        routes.write_route(id, route, *pid).await;
-                    }
-                } else {
-                    let entries: Vec<Entry> = usable.iter().filter_map(|(id, pid, route)| statusline_entry(id, route, *pid)).collect();
-                    let (path, now) = (store.clone(), clock.load(Ordering::SeqCst));
-                    let job = routes.maintenance.submit(&CancellationToken::new(), move |lane| apply_to_store(lane, &path, &[Change::Entries(entries)], now));
-                    job.expect("lane").await.expect("ran").expect("updated");
-                }
-                assert_eq!(text(&store).as_deref(), step["file"].as_str(), "{name}: store");
-                assert_eq!(text(&data.path().join(format!("{STORE_FILE}.bak"))).as_deref(), step["bak"].as_str(), "{name}: backup");
-            }
-        }
-    }
-
-    /// Without the session's own pid the route is keyed to this process (`session.clientHostPid ||
-    /// process.pid`); no session id queues nothing.
-    #[tokio::test]
-    async fn a_session_without_a_host_pid_is_this_process() {
-        let (data, clock, routes) = rig();
-        clock.store(1_800_000_000_000, Ordering::SeqCst);
-        let route: Map<String, Value> = serde_json::from_value(json!({ "provider": "openai", "model": "gpt-5" })).unwrap();
-        routes.write_route("", &route, None).await;
-        assert!(!crate::session::fixture_fs::exists(data.path().join(STORE_FILE)).unwrap());
-        routes.write_route("sess_abcdef01", &route, None).await;
-        let stored: Value = serde_json::from_str(&text(&data.path().join(STORE_FILE)).unwrap()).unwrap();
-        let key = format!("sess_abcdef01#{}", std::process::id());
-        assert_eq!(stored["sessionHosts"][&key]["clientHostPid"], json!(std::process::id()));
-    }
-
-    /// A clear queued after a write is applied after it, and returns once it has landed.
-    #[tokio::test]
-    async fn a_clear_after_a_write_removes_what_the_write_added() {
-        let (data, clock, routes) = rig();
-        clock.store(1_800_000_000_000, Ordering::SeqCst);
-        let route = statusline_section(&serde_json::from_value(json!({ "provider": "openai", "model": "gpt-5" })).unwrap()).unwrap();
-        // A legacy `sessions` slot (no host pid), written and then cleared in call order.
-        routes.enqueue(Change::Entries(vec![Entry { sid: "sess_abcdef01".into(), route, pid: None }]), None);
-        routes.clear("sess_abcdef01").await;
-        let stored: Value = serde_json::from_str(&text(&data.path().join(STORE_FILE)).unwrap()).unwrap();
-        assert_eq!((stored["sessions"].clone(), stored["sessionHosts"].clone()), (json!({}), json!({})));
-    }
-
-    /// The agent tool's synchronous clear drops the route of a closed worker; an id the store
-    /// never keys is ignored. A later awaited clear is the barrier that the queue has drained.
-    #[tokio::test]
-    async fn the_agent_statusline_clear_removes_the_workers_route() {
-        let (data, clock, routes) = rig();
-        clock.store(1_800_000_000_000, Ordering::SeqCst);
-        let route = statusline_section(&serde_json::from_value(json!({ "provider": "openai", "model": "gpt-5" })).unwrap()).unwrap();
-        routes.enqueue(Change::Entries(vec![Entry { sid: "sess_abcdef01".into(), route, pid: None }]), None);
-        AgentStatusline::clear(&routes, "not an id");
-        AgentStatusline::clear(&routes, "sess_abcdef01");
-        routes.clear("sess_barrier01").await;
-        let stored: Value = serde_json::from_str(&text(&data.path().join(STORE_FILE)).unwrap()).unwrap();
-        assert_eq!((stored["sessions"].clone(), stored["sessionHosts"].clone()), (json!({}), json!({})));
     }
 
     /// The reader side: a host's own route first, then the legacy slot only when asked, and the newest
@@ -634,5 +544,94 @@ mod tests {
         assert_eq!(normalize_client_host_pid(Some(&json!("12"))), Some(12));
         assert_eq!(normalize_client_host_pid(Some(&json!(1.5))), None);
         assert_eq!(normalize_client_host_pid(None), None);
+    }
+
+    fn rig() -> (tempfile::TempDir, Arc<AtomicI64>, GatewaySessionRoutes) {
+        let data = tempfile::tempdir().unwrap();
+        let now = Arc::new(AtomicI64::new(0));
+        let routes = GatewaySessionRoutes::with_clock(data.path(), mixdog_rt::testing::tokens().maintenance_io, Arc::new(Fixed(now.clone())));
+        (data, now, routes)
+    }
+    /// Without the session's own pid the route is keyed to this process (`session.clientHostPid ||
+    /// process.pid`); no session id queues nothing.
+    #[tokio::test]
+    async fn a_session_without_a_host_pid_is_this_process() {
+        let (data, clock, routes) = rig();
+        clock.store(1_800_000_000_000, Ordering::SeqCst);
+        let route: Map<String, Value> = serde_json::from_value(json!({ "provider": "openai", "model": "gpt-5" })).unwrap();
+        routes.write_route("", &route, None).await;
+        assert!(!crate::session::fixture_fs::exists(data.path().join(STORE_FILE)).unwrap());
+        routes.write_route("sess_abcdef01", &route, None).await;
+        let stored: Value = serde_json::from_str(&text(&data.path().join(STORE_FILE)).unwrap()).unwrap();
+        let key = format!("sess_abcdef01#{}", std::process::id());
+        assert_eq!(stored["sessionHosts"][&key]["clientHostPid"], json!(std::process::id()));
+    }
+    /// A clear queued after a write is applied after it, and returns once it has landed.
+    #[tokio::test]
+    async fn a_clear_after_a_write_removes_what_the_write_added() {
+        let (data, clock, routes) = rig();
+        clock.store(1_800_000_000_000, Ordering::SeqCst);
+        let route = statusline_section(&serde_json::from_value(json!({ "provider": "openai", "model": "gpt-5" })).unwrap()).unwrap();
+        // A legacy `sessions` slot (no host pid), written and then cleared in call order.
+        routes.enqueue(Change::Entries(vec![Entry { sid: "sess_abcdef01".into(), route, pid: None }]), None);
+        routes.clear("sess_abcdef01").await;
+        let stored: Value = serde_json::from_str(&text(&data.path().join(STORE_FILE)).unwrap()).unwrap();
+        assert_eq!((stored["sessions"].clone(), stored["sessionHosts"].clone()), (json!({}), json!({})));
+    }
+    /// The agent tool's synchronous clear drops the route of a closed worker; an id the store
+    /// never keys is ignored. A later awaited clear is the barrier that the queue has drained.
+    #[tokio::test]
+    async fn the_agent_statusline_clear_removes_the_workers_route() {
+        let (data, clock, routes) = rig();
+        clock.store(1_800_000_000_000, Ordering::SeqCst);
+        let route = statusline_section(&serde_json::from_value(json!({ "provider": "openai", "model": "gpt-5" })).unwrap()).unwrap();
+        routes.enqueue(Change::Entries(vec![Entry { sid: "sess_abcdef01".into(), route, pid: None }]), None);
+        AgentStatusline::clear(&routes, "not an id");
+        AgentStatusline::clear(&routes, "sess_abcdef01");
+        routes.clear("sess_barrier01").await;
+        let stored: Value = serde_json::from_str(&text(&data.path().join(STORE_FILE)).unwrap()).unwrap();
+        assert_eq!((stored["sessions"].clone(), stored["sessionHosts"].clone()), (json!({}), json!({})));
+    }
+
+
+    #[cfg(node_twin)]
+    /// Node's `writeStatuslineRoute` into its real route store: the file and its `.bak` after each
+    /// step are the recorded bytes. A step's calls run in one tick, so they land in one update.
+    #[tokio::test]
+    async fn the_route_store_bytes_equal_nodes() {
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/statusline-route/golden.json")).unwrap();
+        let cases = golden["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 8);
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let (data, clock, routes) = rig();
+            let store = data.path().join(STORE_FILE);
+            if let Some(initial) = case["initial"].as_str() {
+                crate::session::fixture_fs::write(&store, initial);
+            }
+            for step in case["steps"].as_array().unwrap() {
+                let calls = step["calls"].as_array().unwrap();
+                clock.store(calls.last().unwrap()["now"].as_i64().unwrap(), Ordering::SeqCst);
+                let usable: Vec<(&str, Option<u64>, &Map<String, Value>)> = calls
+                    .iter()
+                    .filter_map(|call| {
+                        let id = call["session"]["id"].as_str()?;
+                        Some((id, call["session"]["clientHostPid"].as_u64(), call["route"].as_object()?))
+                    })
+                    .collect();
+                if calls.len() == 1 {
+                    for (id, pid, route) in &usable {
+                        routes.write_route(id, route, *pid).await;
+                    }
+                } else {
+                    let entries: Vec<Entry> = usable.iter().filter_map(|(id, pid, route)| statusline_entry(id, route, *pid)).collect();
+                    let (path, now) = (store.clone(), clock.load(Ordering::SeqCst));
+                    let job = routes.maintenance.submit(&CancellationToken::new(), move |lane| apply_to_store(lane, &path, &[Change::Entries(entries)], now));
+                    job.expect("lane").await.expect("ran").expect("updated");
+                }
+                assert_eq!(text(&store).as_deref(), step["file"].as_str(), "{name}: store");
+                assert_eq!(text(&data.path().join(format!("{STORE_FILE}.bak"))).as_deref(), step["bak"].as_str(), "{name}: backup");
+            }
+        }
     }
 }

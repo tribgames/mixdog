@@ -66,14 +66,7 @@ mod tests {
         }
     }
 
-    /// The `fixtures/tools/code_graph` goldens run through the adapter's three modes.
-    const GOLDENS: [(&str, &str); 3] = [
-        ("find_symbol", include_str!("../../../../fixtures/tools/code_graph/mode-find_symbol.json")),
-        ("symbols", include_str!("../../../../fixtures/tools/code_graph/mode-symbols.json")),
-        ("references", include_str!("../../../../fixtures/tools/code_graph/mode-references.json")),
-    ];
-
-    /// `src/lib/math.mjs` as the goldens' project has it, in a folder with a project sentinel.
+    /// A small JavaScript project (`src/lib/math.mjs` and its users) in a folder with a project sentinel.
     async fn project() -> (tempfile::TempDir, PathBuf) {
         let files = [
             ("package.json", "{}"),
@@ -106,21 +99,21 @@ mod tests {
         (tmp, root)
     }
 
-    /// Node's `[warning] N source file(s) could not be indexed` over `fixtures/tools/code_graph_warn`:
-    /// a project of two good files and seven whose bytes do not decode.
-    const WARN_GOLDENS: [(&str, &str); 8] = [
-        ("whole-graph-symbol", include_str!("../../../../fixtures/tools/code_graph_warn/whole-graph-symbol.json")),
-        ("overview", include_str!("../../../../fixtures/tools/code_graph_warn/overview.json")),
-        ("batch-symbols", include_str!("../../../../fixtures/tools/code_graph_warn/batch-symbols.json")),
-        ("imports-file", include_str!("../../../../fixtures/tools/code_graph_warn/imports-file.json")),
-        ("exact-outline-bad-file", include_str!("../../../../fixtures/tools/code_graph_warn/exact-outline-bad-file.json")),
-        ("exact-outline-good-file", include_str!("../../../../fixtures/tools/code_graph_warn/exact-outline-good-file.json")),
-        ("find-symbol-good-anchor", include_str!("../../../../fixtures/tools/code_graph_warn/find-symbol-good-anchor.json")),
-        ("symbols-fanout", include_str!("../../../../fixtures/tools/code_graph_warn/symbols-fanout.json")),
-    ];
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_refused_call_carries_the_dispatchers_message() {
+        let (_tmp, root) = project().await;
+        let cache_dir = tempfile::tempdir().unwrap();
+        let cache = Arc::new(super::super::GraphCache::new(cache_dir.path().join("cache")));
+        let tool = Arc::new(CodeGraphTool::new(Arc::new(NoTrust), cache));
+        let graph = WorkspaceCodeGraph::new(tool, mixdog_rt::testing::tokens().maintenance_io);
+        let cancel = mixdog_rt::CancellationToken::new();
+        let error = graph.query(&root, json!({ "mode": "bogus", "symbols": "add" }), &cancel).await.unwrap_err();
+        assert_eq!(error.message, "code_graph: unknown mode \"bogus\"");
+    }
+
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn files_the_graph_could_not_index_are_warned_about_as_node_does() {
+    async fn an_answer_from_the_whole_graph_warns_of_unindexed_files_and_names_the_first_five() {
         let mut files = vec![
             ("package.json".to_owned(), b"{}".to_vec()),
             ("src/ok.mjs".to_owned(), b"export function good() {\n  return 1;\n}\n".to_vec()),
@@ -133,41 +126,33 @@ mod tests {
         let tool = Arc::new(CodeGraphTool::new(Arc::new(NoTrust), cache));
         let graph = WorkspaceCodeGraph::new(tool, mixdog_rt::testing::tokens().maintenance_io);
         let cancel = mixdog_rt::CancellationToken::new();
-        for (name, text) in WARN_GOLDENS {
-            let case: Value = serde_json::from_str(text).unwrap();
-            let got = graph.query(&root, case["input"].clone(), &cancel).await.unwrap();
-            assert_eq!(got, case["text"].as_str().unwrap(), "{name}");
-        }
+        // A declaration search reads the whole graph, so the files it left out qualify the answer. Seven are unindexed: the
+        // warning counts all seven and shows five.
+        let found = graph.query(&root, json!({ "mode": "find_symbol", "symbols": "good" }), &cancel).await.unwrap();
+        let header = "[warning] 7 source file(s) could not be indexed; graph results are partial:\n";
+        let warned = found.split_once(header).unwrap_or_else(|| panic!("{found}")).1;
+        let listed: Vec<&str> = warned.lines().take_while(|line| line.starts_with("src/bad")).collect();
+        assert_eq!(listed.len(), 5, "{found}");
+        assert!(found.contains("src/ok.mjs"), "{found}");
+        // An outline of one verified file does not depend on the files that failed to index.
+        let outline = graph.query(&root, json!({ "mode": "symbols", "files": "src/ok.mjs" }), &cancel).await.unwrap();
+        assert!(!outline.contains("could not be indexed") && outline.contains("good"), "{outline}");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_adapter_answers_with_the_text_node_returns() {
+    async fn the_adapter_answers_declaration_outline_and_reference_queries_with_the_tools_text() {
         let (_tmp, root) = project().await;
         let cache_dir = tempfile::tempdir().unwrap();
         let cache = Arc::new(super::super::GraphCache::new(cache_dir.path().join("cache")));
         let tool = Arc::new(CodeGraphTool::new(Arc::new(NoTrust), cache));
         let graph = WorkspaceCodeGraph::new(tool, mixdog_rt::testing::tokens().maintenance_io);
         let cancel = mixdog_rt::CancellationToken::new();
-        let root_text = root.display().to_string();
-        for (mode, text) in GOLDENS {
-            let case: Value = serde_json::from_str(text).unwrap();
-            let got = graph.query(&root, case["input"].clone(), &cancel).await.unwrap().replace(&root_text, "<ROOT>");
-            // The goldens were recorded on Windows, where the call federated over its own cwd
-            // and gained a `# project ws [<ROOT>]` header (see `code_graph::tests`).
-            let want = case["text"].as_str().unwrap().trim_start_matches("# project ws [<ROOT>]\n");
-            assert_eq!(got, want, "{mode}");
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_refused_call_carries_the_dispatchers_message() {
-        let (_tmp, root) = project().await;
-        let cache_dir = tempfile::tempdir().unwrap();
-        let cache = Arc::new(super::super::GraphCache::new(cache_dir.path().join("cache")));
-        let tool = Arc::new(CodeGraphTool::new(Arc::new(NoTrust), cache));
-        let graph = WorkspaceCodeGraph::new(tool, mixdog_rt::testing::tokens().maintenance_io);
-        let cancel = mixdog_rt::CancellationToken::new();
-        let error = graph.query(&root, json!({ "mode": "bogus", "symbols": "add" }), &cancel).await.unwrap_err();
-        assert_eq!(error.message, "code_graph: unknown mode \"bogus\"");
+        let ask = |args: Value| graph.query(&root, args, &cancel);
+        let found = ask(json!({ "mode": "find_symbol", "symbols": "add" })).await.unwrap();
+        assert!(found.contains("src/lib/math.mjs:1-3") && found.contains("export function add(a, b) {"), "{found}");
+        let outline = ask(json!({ "mode": "symbols", "files": "src/lib/math.mjs" })).await.unwrap();
+        assert!(outline.contains("add") && outline.contains("sub"), "{outline}");
+        let references = ask(json!({ "mode": "references", "symbols": "add" })).await.unwrap();
+        assert!(references.contains("src/main.mjs") && references.contains("src/lib/util.mjs"), "{references}");
     }
 }

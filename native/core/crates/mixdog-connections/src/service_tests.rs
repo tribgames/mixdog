@@ -46,23 +46,10 @@ fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-async fn within<T>(work: impl Future<Output = T>) -> T {
-    mixdog_rt::time::timeout(Duration::from_secs(5), work).await.expect("timed out")
-}
-
 async fn settle() {
     for _ in 0..100 {
         tokio::task::yield_now().await;
     }
-}
-
-async fn advance(duration: Duration) {
-    mixdog_rt::time::sleep(duration).await;
-    settle().await;
-}
-
-fn io_lane() -> mixdog_rt::DurabilityIo {
-    mixdog_rt::testing::tokens().durability_io
 }
 
 // ----- fakes: the links --------------------------------------------------------------------------------------------------
@@ -161,7 +148,7 @@ impl ServiceLink for FakeLink {
         if remote_port == 1 {
             return Err(PortError { code: PortErrorCode::PortPrivileged, message: "Port 1 is privileged.".to_owned() });
         }
-        Ok(PortForward { remote_port, local_port: local_port.unwrap_or(remote_port), status: PortForwardStatus::Active, message: None })
+        Ok(PortForward { remote_port, local_port: local_port.unwrap_or(remote_port), status: PortForwardStatus::Active, message: None, notice: None })
     }
 
     async fn stop_forward(&self, remote_port: u16) {
@@ -265,16 +252,23 @@ impl Links for FakeLinks {
         locked(&self.links).iter().map(|link| link.clone() as Arc<dyn ServiceLink>).collect()
     }
 
-    async fn open(&self, spec: LinkSpec, _context: AttemptContext, _progress: Option<Progress>) -> Result<(), ConnectError> {
+    async fn open(&self, spec: LinkSpec, _context: AttemptContext, _progress: Option<Progress>) -> Result<LinkOpen, ConnectError> {
         locked(&self.opened).push(spec.id.clone());
-        if !self.has(&spec.id) {
-            self.add(&spec.id);
+        if self.has(&spec.id) {
+            return Ok(LinkOpen::Reused);
         }
-        Ok(())
+        self.add(&spec.id);
+        Ok(LinkOpen::Owned(1))
     }
 
-    async fn close(&self, id: &str) {
+    async fn rollback(&self, id: &str, _token: u64) {
         self.remove(id);
+    }
+
+    async fn close_identity(&self, id: &str, identity: usize) {
+        if Links::get(self, id).is_some_and(|link| link.identity() == identity) {
+            self.remove(id);
+        }
     }
 
     async fn close_all(&self) {
@@ -304,7 +298,7 @@ impl ServerLinks for FakeLinks {
         self.has(id)
     }
 
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<(), ConnectError> {
+    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>, _cancel: Option<&CancellationToken>) -> Result<LinkOpen, ConnectError> {
         Links::open(self, spec, context, progress).await
     }
 
@@ -340,6 +334,7 @@ impl FeedLinks for FakeLinks {
 #[derive(Default)]
 struct FakeWindows {
     opened: Mutex<Vec<(String, String)>>,
+    tokens: Mutex<Vec<String>>,
     closed: Mutex<Vec<String>>,
     focused: AtomicUsize,
     refuse: AtomicBool,
@@ -347,12 +342,13 @@ struct FakeWindows {
 
 #[async_trait]
 impl WindowHost for FakeWindows {
-    async fn open(&self, connection_id: &str, name: &str) -> Result<(), String> {
+    async fn open(&self, connection_id: &str, name: &str, token: &str) -> Result<bool, String> {
         if self.refuse.load(Ordering::SeqCst) {
             return Err("The window could not be made.".to_owned());
         }
         locked(&self.opened).push((connection_id.to_owned(), name.to_owned()));
-        Ok(())
+        locked(&self.tokens).push(token.to_owned());
+        Ok(true)
     }
 
     async fn close(&self, connection_id: &str) {
@@ -383,7 +379,7 @@ impl ConnectionNotifier for FakeNotifier {
 }
 
 fn trusted() -> HostKeyInspection {
-    HostKeyInspection { hops: Vec::new(), check: SshHostKeyCheck::Trusted { authority: None, hops: None }, pin: None, replace: None, summary: None }
+    HostKeyInspection { hops: Vec::new(), check: SshHostKeyCheck::Trusted { authority: None, hops: None }, pin: None, replace: None, summary: None, reviewed: None }
 }
 
 struct FakeMachine {
@@ -396,7 +392,7 @@ impl SshMachine for FakeMachine {
         Ok(trusted())
     }
 
-    fn pin(&self, _inspection: &HostKeyInspection) -> Result<(), SshError> {
+    async fn pin(&self, _inspection: &HostKeyInspection) -> Result<(), SshError> {
         Ok(())
     }
 
@@ -497,16 +493,6 @@ struct FakeLogins {
     updates: broadcast::Sender<(String, SshServerLoginFlow)>,
 }
 
-impl FakeLogins {
-    fn note(&self, call: String) {
-        locked(&self.calls).push(call);
-    }
-
-    fn calls(&self) -> Vec<String> {
-        locked(&self.calls).clone()
-    }
-}
-
 #[async_trait]
 impl ServerLoginOps for FakeLogins {
     async fn list(&self, id: &str) -> Result<SshServerLogins, LoginError> {
@@ -604,64 +590,6 @@ struct Rig {
     _dir: tempfile::TempDir,
 }
 
-async fn rig() -> Rig {
-    let dir = tempfile::tempdir().expect("a folder");
-    let paths = ConnectionsPaths::new(dir.path());
-    let hosts = Arc::new(SshHostStore::load(&paths, io_lane()).await);
-    let remote_hosts = Arc::new(RemoteHostStore::load(&paths, io_lane()).await);
-    let window_restore = Arc::new(WindowRestoreStore::new(&paths, io_lane()));
-    let links = FakeLinks::new();
-    let windows = Arc::new(FakeWindows::default());
-    let notifier = Arc::new(FakeNotifier::default());
-    let diagnostics = Arc::new(Diagnostics::new());
-    let login: Arc<dyn LoginHelpers> = Arc::new(FakeLogin);
-    let opener = Arc::new(ServerWindowOpener::new(windows.clone(), window_restore.clone()));
-    let attempts = Attempts::new(links.clone(), Arc::new(NotifierPush(notifier.clone())));
-    let connect = Arc::new(Connect::new(ConnectDeps {
-        attempts: attempts.clone(),
-        machine: Arc::new(FakeMachine { diagnostics: diagnostics.clone() }),
-        login: login.clone(),
-        hosts: hosts.clone(),
-        windows: opener,
-        view: Arc::new(|record| ssh_host_view(record, true)),
-        clock: Arc::new(|| 1_000),
-    }));
-    let cleanup = Arc::new(Cleanup::new(CleanupDeps { hosts: hosts.clone(), attempts, cleaner: Arc::new(FakeCleaner), login }));
-    let diagnostics_ops = Arc::new(DiagnosticsOps::new(hosts.clone(), Arc::new(FakeDiagnostics { diagnostics })));
-    let host_list = Arc::new(HostList::new(hosts.clone(), links.clone()));
-    let logins = Arc::new(FakeLogins { calls: Mutex::new(Vec::new()), updates: broadcast::channel(8).0 });
-    let restore = Arc::new(Restore::new(window_restore.clone(), hosts.clone()));
-    let feeds: Arc<dyn ScopedFeeds> = Arc::new(MockScopedFeeds::new(MockLimits::default()));
-    let feed = Arc::new(ConnectionsFeed::start(feeds, links.clone(), hosts.clone(), window_restore.clone(), &restore));
-    let relay = Arc::new(FakeRelay::default());
-    let service = ConnectionsService::new(ConnectionsDeps {
-        hosts: hosts.clone(),
-        remote_hosts: remote_hosts.clone(),
-        window_restore: window_restore.clone(),
-        links: links.clone(),
-        connect,
-        cleanup,
-        diagnostics: diagnostics_ops,
-        host_list,
-        logins: logins.clone(),
-        restore,
-        feed,
-        windows: windows.clone(),
-        notifier: notifier.clone(),
-        relay: relay.clone(),
-        relay_url: Arc::new(|| Some("wss://relay.example/ws".to_owned())),
-        translate: Arc::new(|text| format!("translated: {text}")),
-        config_hosts: Arc::new(|| vec![SshConfigHost { alias: "build".to_owned(), detail: TARGET.to_owned() }]),
-        client_version: Arc::new(|connection| (connection == MAIN).then(|| "9.9.9".to_owned())),
-    });
-    Rig { service, hosts, remote_hosts, window_restore, links, windows, notifier, logins, relay, _dir: dir }
-}
-
-async fn save_box(rig: &Rig) -> SshHostRecord {
-    let record = rig.hosts.ensure_for_target(TARGET, "Build").expect("a target");
-    rig.hosts.save(SshHostRecord { id: "box".to_owned(), ..record }).await.expect("saved")
-}
-
 // ----- callers and calls --------------------------------------------------------------------------------------------------
 
 fn host_ctx() -> CallContext {
@@ -682,17 +610,6 @@ fn server_ctx(connection: ConnectionId, server: &str) -> CallContext {
 
 fn bystander_ctx() -> CallContext {
     CallContext::connection(ConnectionId(9), Origin::Local, CancellationToken::new())
-}
-
-async fn reply(rig: &Rig, method: &'static str, params: Value, ctx: CallContext) -> Result<Reply, CoreError> {
-    within(rig.service.call(CoreRequest { method: Method(method), params, op: None, ctx })).await
-}
-
-async fn call(rig: &Rig, method: &'static str, params: Value, ctx: CallContext) -> Result<Value, CoreError> {
-    match reply(rig, method, params, ctx).await? {
-        Reply::Value(value) => Ok(value),
-        Reply::Subscribe(_) => panic!("{method} subscribed"),
-    }
 }
 
 fn message_of(error: &CoreError) -> String {
@@ -762,6 +679,92 @@ fn sweep() -> Vec<(&'static str, Value, CallContext)> {
     ]
 }
 
+
+async fn within<T>(work: impl Future<Output = T>) -> T {
+    mixdog_rt::time::timeout(Duration::from_secs(5), work).await.expect("timed out")
+}
+async fn advance(duration: Duration) {
+    mixdog_rt::time::sleep(duration).await;
+    settle().await;
+}
+fn io_lane() -> mixdog_rt::DurabilityIo {
+    mixdog_rt::testing::tokens().durability_io
+}
+impl FakeLogins {
+    fn note(&self, call: String) {
+        locked(&self.calls).push(call);
+    }
+
+    fn calls(&self) -> Vec<String> {
+        locked(&self.calls).clone()
+    }
+}
+async fn rig() -> Rig {
+    let dir = tempfile::tempdir().expect("a folder");
+    let paths = ConnectionsPaths::new(dir.path());
+    let hosts = Arc::new(SshHostStore::load(&paths, io_lane()).await);
+    let remote_hosts = Arc::new(RemoteHostStore::load(&paths, io_lane()).await);
+    let window_restore = Arc::new(WindowRestoreStore::new(&paths, io_lane()));
+    let links = FakeLinks::new();
+    let windows = Arc::new(FakeWindows::default());
+    let notifier = Arc::new(FakeNotifier::default());
+    let diagnostics = Arc::new(Diagnostics::new());
+    let login: Arc<dyn LoginHelpers> = Arc::new(FakeLogin);
+    let opener = Arc::new(ServerWindowOpener::new(windows.clone(), window_restore.clone(), links.clone()));
+    let attempts = Attempts::new(links.clone(), Arc::new(NotifierPush(notifier.clone())));
+    let connect = Arc::new(Connect::new(ConnectDeps {
+        attempts: attempts.clone(),
+        machine: Arc::new(FakeMachine { diagnostics: diagnostics.clone() }),
+        login: login.clone(),
+        hosts: hosts.clone(),
+        windows: opener.clone(),
+        view: Arc::new(|record| ssh_host_view(record, true)),
+        clock: Arc::new(|| 1_000),
+    }));
+    let cleanup = Arc::new(Cleanup::new(CleanupDeps { hosts: hosts.clone(), attempts: attempts.clone(), cleaner: Arc::new(FakeCleaner), login }));
+    let diagnostics_ops = Arc::new(DiagnosticsOps::new(hosts.clone(), Arc::new(FakeDiagnostics { diagnostics })));
+    let host_list = Arc::new(HostList::new(hosts.clone(), links.clone(), attempts));
+    let logins = Arc::new(FakeLogins { calls: Mutex::new(Vec::new()), updates: broadcast::channel(8).0 });
+    let restore = Arc::new(Restore::new(window_restore.clone(), hosts.clone()));
+    let feeds: Arc<dyn ScopedFeeds> = Arc::new(MockScopedFeeds::new(MockLimits::default()));
+    let feed = Arc::new(ConnectionsFeed::start(feeds, links.clone(), hosts.clone(), window_restore.clone(), &restore));
+    let relay = Arc::new(FakeRelay::default());
+    let service = ConnectionsService::new(ConnectionsDeps {
+        opener,
+        hosts: hosts.clone(),
+        remote_hosts: remote_hosts.clone(),
+        window_restore: window_restore.clone(),
+        links: links.clone(),
+        connect,
+        cleanup,
+        diagnostics: diagnostics_ops,
+        host_list,
+        logins: logins.clone(),
+        restore,
+        feed,
+        windows: windows.clone(),
+        notifier: notifier.clone(),
+        relay: relay.clone(),
+        relay_url: Arc::new(|| Some("wss://relay.example/ws".to_owned())),
+        translate: Arc::new(|text| format!("translated: {text}")),
+        config_hosts: Arc::new(|| vec![SshConfigHost { alias: "build".to_owned(), detail: TARGET.to_owned() }]),
+        client_version: Arc::new(|connection| (connection == MAIN).then(|| "9.9.9".to_owned())),
+    });
+    Rig { service, hosts, remote_hosts, window_restore, links, windows, notifier, logins, relay, _dir: dir }
+}
+async fn save_box(rig: &Rig) -> SshHostRecord {
+    let record = rig.hosts.ensure_for_target(TARGET, "Build").expect("a target");
+    rig.hosts.save(SshHostRecord { id: "box".to_owned(), ..record }).await.expect("saved")
+}
+async fn reply(rig: &Rig, method: &'static str, params: Value, ctx: CallContext) -> Result<Reply, CoreError> {
+    within(rig.service.call(CoreRequest { method: Method(method), params, op: None, ctx })).await
+}
+async fn call(rig: &Rig, method: &'static str, params: Value, ctx: CallContext) -> Result<Value, CoreError> {
+    match reply(rig, method, params, ctx).await? {
+        Reply::Value(value) => Ok(value),
+        Reply::Subscribe(_) => panic!("{method} subscribed"),
+    }
+}
 #[tokio::test]
 async fn every_method_routes_to_its_module() {
     let rig = rig().await;
@@ -793,14 +796,12 @@ async fn every_method_routes_to_its_module() {
     }
     assert_eq!(rig.service.methods(), METHODS);
 }
-
 #[tokio::test]
 async fn a_method_of_another_namespace_is_refused() {
     let rig = rig().await;
     let result = call(&rig, "terminal/input", json!({}), host_ctx()).await;
     assert!(matches!(result, Err(CoreError::InvalidParams { .. })), "{result:?}");
 }
-
 #[tokio::test]
 async fn callers_are_held_to_the_table() {
     let rig = rig().await;
@@ -824,7 +825,6 @@ async fn callers_are_held_to_the_table() {
     assert!(call(&rig, "remoteHosts/list", json!({}), main_ctx()).await.is_ok());
     assert!(call(&rig, "remoteHosts/list", json!({}), host_ctx()).await.is_ok());
 }
-
 // ----- the feed and the ports view ----------------------------------------------------------------------------------------
 
 #[tokio::test]
@@ -841,7 +841,6 @@ async fn a_subscription_is_limited_to_the_scope_the_caller_may_have() {
     assert!(matches!(other, Err(CoreError::PermissionDenied { .. })));
     assert!(matches!(reply(&rig, "connections/subscribe", json!({}), bystander_ctx()).await, Err(CoreError::PermissionDenied { .. })));
 }
-
 #[tokio::test]
 async fn the_ports_of_a_server_are_sampled_while_a_window_views_them() {
     let rig = rig().await;
@@ -863,7 +862,6 @@ async fn the_ports_of_a_server_are_sampled_while_a_window_views_them() {
     settle().await;
     assert_eq!(locked(&link.viewed).last(), Some(&false));
 }
-
 #[tokio::test]
 async fn a_link_that_attaches_while_its_ports_are_viewed_starts_sampling() {
     let rig = rig().await;
@@ -872,7 +870,6 @@ async fn a_link_that_attaches_while_its_ports_are_viewed_starts_sampling() {
     settle().await;
     assert_eq!(*locked(&link.viewed), vec![true]);
 }
-
 // ----- the saved servers ---------------------------------------------------------------------------------------------------
 
 #[tokio::test]
@@ -896,27 +893,25 @@ async fn saved_servers_are_listed_renamed_updated_and_forgotten() {
     let refused = call(&rig, "connections/ssh/updateSettings", json!({ "id": "box", "settings": { "graceMinutes": 0 } }), main_ctx()).await;
     assert!(message_of(&refused.expect_err("refused")).contains("minutes"));
 
-    call(&rig, "connections/ssh/forget", json!({ "id": "box" }), main_ctx()).await.expect("forgotten");
+    let report = call(&rig, "connections/ssh/forget", json!({ "id": "box" }), main_ctx()).await.expect("forgotten");
+    assert_eq!(report, json!({ "ok": true }));
     assert!(rig.hosts.get("box").is_none());
     assert_eq!(rig.logins.calls().last().map(String::as_str), Some("forget_host box"));
     let refused = call(&rig, "connections/ssh/rename", json!({ "id": "", "name": "x" }), main_ctx()).await;
     assert!(message_of(&refused.expect_err("refused")).contains("non-empty"));
 }
-
 #[tokio::test]
 async fn the_ssh_config_aliases_are_listed() {
     let rig = rig().await;
     let hosts = call(&rig, "connections/ssh/configHosts", json!({}), main_ctx()).await.expect("listed");
     assert_eq!(hosts, json!([{ "alias": "build", "detail": TARGET }]));
 }
-
 #[tokio::test]
 async fn a_params_value_of_the_wrong_shape_is_refused_at_the_boundary() {
     let rig = rig().await;
     let result = call(&rig, "connections/ssh/rename", json!({ "id": 5 }), main_ctx()).await;
     assert!(matches!(result, Err(CoreError::InvalidParams { .. })), "{result:?}");
 }
-
 // ----- connecting ----------------------------------------------------------------------------------------------------------
 
 #[tokio::test]
@@ -950,7 +945,6 @@ async fn connecting_opens_the_window_and_remembers_it_and_a_cancel_withdraws_an_
     let gone = call(&rig, "connections/ssh/connect", json!({ "attemptId": second, "request": { "attemptId": second } }), main_ctx()).await;
     assert!(message_of(&gone.expect_err("refused")).contains("no longer active"));
 }
-
 #[tokio::test]
 async fn a_server_that_is_not_connected_is_not_opened_from_the_list() {
     let rig = rig().await;
@@ -958,7 +952,6 @@ async fn a_server_that_is_not_connected_is_not_opened_from_the_list() {
     let result = call(&rig, "connections/ssh/open", json!({ "id": "box" }), main_ctx()).await;
     assert!(message_of(&result.expect_err("refused")).contains("not connected"));
 }
-
 #[tokio::test]
 async fn the_environment_server_opens_a_window_that_is_not_remembered() {
     let rig = rig().await;
@@ -968,7 +961,6 @@ async fn the_environment_server_opens_a_window_that_is_not_remembered() {
     assert!(rig.window_restore.list().await.expect("listed").is_empty());
     assert!(rig.hosts.list().is_empty());
 }
-
 #[tokio::test]
 async fn a_closed_connection_cancels_its_attempts() {
     let rig = rig().await;
@@ -979,7 +971,6 @@ async fn a_closed_connection_cancels_its_attempts() {
     let gone = call(&rig, "connections/ssh/connect", json!({ "attemptId": attempt, "request": { "attemptId": attempt } }), main_ctx()).await;
     assert!(message_of(&gone.expect_err("refused")).contains("no longer active"));
 }
-
 #[tokio::test]
 async fn the_cleanup_reports_its_progress_to_the_caller_and_closes_the_window_first() {
     let rig = rig().await;
@@ -994,6 +985,7 @@ async fn the_cleanup_reports_its_progress_to_the_caller_and_closes_the_window_fi
     .await
     .expect("cleaned");
     assert_eq!(result["ok"], json!(true));
+    assert_eq!(result["forget"]["ok"], json!(true), "the local half is reported beside the remote one");
     assert!(rig.hosts.get("box").is_none());
     assert!(!rig.links.has("box"));
     let progress = rig.notifier.of("connections/ssh/cleanupProgress");
@@ -1003,7 +995,6 @@ async fn the_cleanup_reports_its_progress_to_the_caller_and_closes_the_window_fi
     let refused = call(&rig, "connections/ssh/cleanup", json!({ "id": "box", "request": { "operationId": "", "removeUserData": false, "forget": false } }), main_ctx()).await;
     assert!(message_of(&refused.expect_err("refused")).contains("operationId"));
 }
-
 // ----- diagnostics ---------------------------------------------------------------------------------------------------------
 
 #[tokio::test]
@@ -1022,7 +1013,6 @@ async fn diagnostics_answer_this_pc_for_any_server_and_a_server_window_for_its_o
     let copy = call(&rig, "connections/ssh/diagnosticsCopy", json!({ "ref": "box" }), main_ctx()).await.expect("copy");
     assert!(copy["text"].as_str().expect("text").contains("9.9.9"));
 }
-
 // ----- the logins on a server ----------------------------------------------------------------------------------------------
 
 #[tokio::test]
@@ -1074,7 +1064,6 @@ async fn the_server_logins_route_and_their_updates_reach_the_window_that_began_t
     settle().await;
     assert_eq!(rig.notifier.of("connections/ssh/serverLoginUpdated").len(), 1);
 }
-
 // ----- the link of a server window -----------------------------------------------------------------------------------------
 
 #[tokio::test]
@@ -1086,7 +1075,6 @@ async fn the_link_state_is_answered_and_a_missing_link_is_null() {
     let none = call(&rig, "connections/link/get", json!({ "connectionId": "gone" }), main_ctx()).await.expect("answered");
     assert_eq!(none, Value::Null);
 }
-
 #[tokio::test]
 async fn retry_dials_again_in_batch_mode_under_the_saved_settings() {
     let rig = rig().await;
@@ -1101,7 +1089,6 @@ async fn retry_dials_again_in_batch_mode_under_the_saved_settings() {
     assert_eq!(contexts[0].settings.as_ref().and_then(|settings| settings.identity_file.as_deref()), Some("/keys/id"));
     assert_eq!(rig.windows.focused.load(Ordering::SeqCst), 0);
 }
-
 #[tokio::test]
 async fn a_link_that_needs_the_user_asks_this_pcs_window_to_sign_in() {
     let rig = rig().await;
@@ -1123,7 +1110,6 @@ async fn a_link_that_needs_the_user_asks_this_pcs_window_to_sign_in() {
     let missing = call(&rig, "connections/link/requestSignIn", json!({ "connectionId": "gone" }), server_ctx(OTHER_WINDOW, "gone")).await;
     assert!(message_of(&missing.expect_err("refused")).contains("window-closed"));
 }
-
 #[tokio::test]
 async fn retry_now_skips_the_countdown_of_the_servers_link() {
     let rig = rig().await;
@@ -1133,7 +1119,6 @@ async fn retry_now_skips_the_countdown_of_the_servers_link() {
     // A server without a link has nothing waiting.
     call(&rig, "connections/link/retryNow", json!({ "connectionId": "gone" }), main_ctx()).await.expect("answered");
 }
-
 #[tokio::test]
 async fn the_ports_panel_lists_forwards_stops_and_dismisses() {
     let rig = rig().await;
@@ -1157,7 +1142,6 @@ async fn the_ports_panel_lists_forwards_stops_and_dismisses() {
     let empty = call(&rig, "connections/ports/list", json!({ "connectionId": "box" }), ctx()).await.expect("listed");
     assert_eq!(empty["forwards"], json!([]));
 }
-
 #[tokio::test]
 async fn the_endpoint_of_an_attached_server_is_the_hosts() {
     let rig = rig().await;
@@ -1167,7 +1151,6 @@ async fn the_endpoint_of_an_attached_server_is_the_hosts() {
     let missing = call(&rig, "connections/endpoint", json!({ "connectionId": "gone" }), host_ctx()).await;
     assert!(message_of(&missing.expect_err("refused")).contains("not attached"));
 }
-
 // ----- reopening the windows -----------------------------------------------------------------------------------------------
 
 #[tokio::test]
@@ -1179,27 +1162,29 @@ async fn the_reopen_setting_and_its_progress_are_answered() {
     assert_eq!(call(&rig, "connections/restore/get", json!({}), main_ctx()).await.expect("state"), json!({ "enabled": false }));
     assert_eq!(call(&rig, "connections/restore/progress", json!({}), main_ctx()).await.expect("progress"), json!([]));
 }
-
 #[tokio::test]
 async fn window_closed_by_user_forgets() {
     let rig = rig().await;
     save_box(&rig).await;
     rig.links.add("box");
-    rig.window_restore.remember("box").await.expect("remembered");
-    let admit = rig.service.notify(Method(WINDOW_CLOSED), json!({ "connectionId": "box", "byUser": true }), HOST);
+    rig.service.inner.opener.show("box", "box").await.unwrap();
+    rig.window_restore.remember("box").await.unwrap();
+    let token = locked(&rig.windows.tokens).last().unwrap().clone();
+    let admit = rig.service.notify(Method(WINDOW_CLOSED), json!({ "connectionId": "box", "windowToken": token, "byUser": true }), HOST);
     assert!(matches!(admit, Admit::Accepted));
     settle().await;
     assert!(!rig.links.has("box"));
     assert!(rig.window_restore.list().await.expect("listed").is_empty());
 }
-
 #[tokio::test]
 async fn window_closed_by_quit_detaches_the_link_and_stays_remembered() {
     let rig = rig().await;
     save_box(&rig).await;
     rig.links.add("box");
-    rig.window_restore.remember("box").await.expect("remembered");
-    rig.service.notify(Method(WINDOW_CLOSED), json!({ "connectionId": "box", "byUser": false }), HOST);
+    rig.service.inner.opener.show("box", "box").await.unwrap();
+    rig.window_restore.remember("box").await.unwrap();
+    let token = locked(&rig.windows.tokens).last().unwrap().clone();
+    rig.service.notify(Method(WINDOW_CLOSED), json!({ "connectionId": "box", "windowToken": token, "byUser": false }), HOST);
     settle().await;
     assert!(!rig.links.has("box"));
     assert_eq!(rig.window_restore.list().await.expect("listed"), vec!["box".to_owned()]);
@@ -1208,6 +1193,24 @@ async fn window_closed_by_quit_detaches_the_link_and_stays_remembered() {
     settle().await;
 }
 
+#[tokio::test]
+async fn delayed_window_close_does_not_retire_the_next_link_or_its_restore_entry() {
+    let rig = rig().await;
+    save_box(&rig).await;
+    let old = rig.links.add("box");
+    rig.service.inner.opener.show("box", "box").await.unwrap();
+    let token = locked(&rig.windows.tokens).last().unwrap().clone();
+    rig.links.remove("box");
+    let next = rig.links.add("box");
+    rig.service.inner.opener.show("box", "box").await.unwrap();
+    rig.window_restore.remember("box").await.unwrap();
+
+    rig.service.notify(Method(WINDOW_CLOSED), json!({ "connectionId": "box", "windowToken": token, "byUser": true }), HOST);
+    settle().await;
+    assert!(!Arc::ptr_eq(&old, &next));
+    assert!(Arc::ptr_eq(&rig.links.link("box"), &next));
+    assert_eq!(rig.window_restore.list().await.unwrap(), ["box"]);
+}
 #[tokio::test]
 async fn the_first_presence_of_the_host_reopens_the_remembered_windows() {
     let rig = rig().await;
@@ -1223,7 +1226,6 @@ async fn the_first_presence_of_the_host_reopens_the_remembered_windows() {
     settle().await;
     assert_eq!(locked(&rig.links.opened).len(), 1);
 }
-
 #[tokio::test(start_paused = true)]
 async fn host_absent_grace_closes_links() {
     let rig = rig().await;
@@ -1244,7 +1246,6 @@ async fn host_absent_grace_closes_links() {
     assert!(rig.links.has("box"));
     assert_eq!(locked(&rig.links.opened).len(), 2);
 }
-
 #[tokio::test(start_paused = true)]
 async fn a_host_that_returns_within_the_grace_keeps_its_links() {
     let rig = rig().await;
@@ -1258,7 +1259,6 @@ async fn a_host_that_returns_within_the_grace_keeps_its_links() {
     assert!(rig.links.has("box"));
     assert_eq!(rig.links.close_all.load(Ordering::SeqCst), 0);
 }
-
 #[tokio::test]
 async fn power_events_reach_the_links() {
     let rig = rig().await;
@@ -1267,7 +1267,6 @@ async fn power_events_reach_the_links() {
     settle().await;
     assert_eq!(*locked(&rig.links.power), vec![PowerEvent::Suspend, PowerEvent::Resume]);
 }
-
 #[tokio::test]
 async fn dispose_closes_every_link_and_the_logins() {
     let rig = rig().await;
@@ -1276,7 +1275,6 @@ async fn dispose_closes_every_link_and_the_logins() {
     assert!(!rig.links.has("box"));
     assert_eq!(rig.logins.calls(), vec!["dispose"]);
 }
-
 // ----- what follows a link ------------------------------------------------------------------------------------------------
 
 #[tokio::test]
@@ -1299,7 +1297,6 @@ async fn each_attached_link_is_followed_until_it_closes_or_is_replaced() {
     settle().await;
     assert_eq!((first.watching.load(Ordering::SeqCst), second.watching.load(Ordering::SeqCst)), (0, 1));
 }
-
 #[tokio::test]
 async fn a_notice_of_a_link_reaches_the_windows_that_view_it() {
     let rig = rig().await;
@@ -1316,7 +1313,6 @@ async fn a_notice_of_a_link_reaches_the_windows_that_view_it() {
         (WINDOW, json!({ "connectionId": "box", "notice": { "kind": "model-sign-in", "provider": "openai" } }))
     );
 }
-
 // ----- "Connect to another PC" ---------------------------------------------------------------------------------------------
 
 #[tokio::test]
@@ -1339,7 +1335,6 @@ async fn a_code_saves_the_host_and_answers_the_address_the_window_loads() {
     let malformed = call(&rig, "remoteHosts/redeemCode", json!({ "code": "12" }), host_ctx()).await;
     assert_eq!(message_of(&malformed.expect_err("refused")), "translated: Enter the 6-digit code shown on your PC.");
 }
-
 #[tokio::test]
 async fn saved_hosts_are_listed_renamed_forgotten_and_asked_about() {
     let rig = rig().await;

@@ -42,6 +42,16 @@ impl Dialer for LocalDialer {
         (self.accept)(accepted);
         Ok(Box::new(LocalUpstream { endpoint: Some(endpoint) }))
     }
+
+    async fn dial_open(&self, peer_id: &str, generation: u64) -> Result<Box<dyn Upstream>, DialError> {
+        let (mut accepted, endpoint) = open_relay(&self.hub, peer_id.to_owned()).map_err(|_| DialError)?;
+        self.devices.connect_relay_in(accepted.id.0, peer_id, generation);
+        accepted.authenticated_relay_credential = self.devices.describe(accepted.id.0)
+            .map(|device| device.credential)
+            .filter(|credential| !credential.is_empty());
+        (self.accept)(accepted);
+        Ok(Box::new(LocalUpstream { endpoint: Some(endpoint) }))
+    }
 }
 
 #[async_trait]

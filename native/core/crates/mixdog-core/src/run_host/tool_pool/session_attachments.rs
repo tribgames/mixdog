@@ -170,7 +170,7 @@ mod tests {
                 json!({ "type": "image", "attachmentRef": shot, "sizeBytes": 4, "mimeType": "image/png", "filename": "shot.png" }),
             ]
         );
-        let stored = data.join("prompt-attachments").join("sha256").join(&notes[..2]).join(&notes);
+        let stored = data.join(mixdog_store::schema::blob::BLOB_DIR).join(&notes[..2]).join(&notes);
         assert_eq!(mixdog_statefile::read_content(&stored).unwrap().unwrap(), b"# notes\nhello\n");
         // What the forwarded prompt carries (`handoffContent`): the text, then the parts as they are.
         let content = mixdog_agent::agent_tool::flow::handoff::handoff_content("look", &parts);

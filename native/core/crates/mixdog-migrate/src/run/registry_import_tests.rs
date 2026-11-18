@@ -1,6 +1,5 @@
-//! The project list of a Node profile after `migrate` and the first start of the core: what the desktop lists for the same profile
-//! (the recording `project-registry-import-cases`: the real DesktopProjectRegistry over the real projects.mjs), through the real
-//! `Migrator` and the real `Catalog`.
+//! The project list of a 1.4.5 profile (`projects.json` and the desktop's `desktop-projects.json`, written by the test in the
+//! formats 1.4.5 wrote) after `migrate` and the first start of the core, through the real `Migrator` and the real `Catalog`.
 
 #![allow(
     clippy::disallowed_methods,
@@ -20,7 +19,64 @@ use serde_json::json;
 use super::tests::drivers;
 use super::*;
 
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/project-registry-import-cases/golden.json");
+/// One 1.4.5 profile and the list it gives: (display name, folder, alias) in order.
+struct Case {
+    name: &'static str,
+    profile: Value,
+    listed: Vec<(&'static str, &'static str, Option<&'static str>)>,
+}
+
+fn registry() -> Value {
+    json!([
+        {"path": "alpha", "addedAt": 1000},
+        {"path": "beta", "name": "beta", "addedAt": 3000, "lastSelectedAt": 5000},
+        {"path": "gamma", "addedAt": 2000, "lastSelectedAt": 2500},
+        {"path": "delta", "addedAt": 2500},
+        {"path": "epsilon", "name": "Zed", "addedAt": 4000}
+    ])
+}
+
+const ORDER: [(&str, &str); 5] = [("beta", "beta"), ("Zed", "epsilon"), ("delta", "delta"), ("gamma", "gamma"), ("alpha", "alpha")];
+
+fn cases() -> Vec<Case> {
+    let plain = || ORDER.iter().map(|(name, folder)| (*name, *folder, None)).collect::<Vec<_>>();
+    let mut alias_a = plain();
+    alias_a[4].2 = Some("The A");
+    let mut alias_b = plain();
+    alias_b[0].2 = Some("The B");
+    let mut vanished = plain();
+    vanished.insert(0, ("vanished", "vanished", None));
+    let mut with_vanished = registry();
+    with_vanished.as_array_mut().unwrap().push(json!({"path": "vanished", "addedAt": 6000}));
+    vec![
+        Case { name: "projects.json only", profile: json!({"registry": registry()}), listed: plain() },
+        Case {
+            name: "both files: aliases, one of a path that is not registered, one blank",
+            profile: json!({"registry": registry(), "preferences": {"aliases": {"alpha": "The A", "gamma": "  ", "ghost": "Ghost"}, "hidden": []}}),
+            listed: alias_a,
+        },
+        Case {
+            name: "a tombstoned path that is still registered",
+            profile: json!({"registry": registry(), "preferences": {"aliases": {"beta": "The B"}, "hidden": ["beta", "ghost"]}}),
+            listed: alias_b,
+        },
+        Case { name: "an entry whose folder no longer exists", profile: json!({"registry": with_vanished, "missing": ["vanished"]}), listed: vanished },
+        Case { name: "neither file", profile: json!({}), listed: Vec::new() },
+        Case {
+            name: "desktop-projects.json only: nothing is registered",
+            profile: json!({"preferences": {"aliases": {"alpha": "The A"}, "hidden": ["beta"]}}),
+            listed: Vec::new(),
+        },
+    ]
+}
+
+/// What the desktop lists for `case` in the profile rooted at `root`.
+fn expected(case: &Case, root: &Path) -> Value {
+    let at = |folder: &str| root.join(folder).to_string_lossy().into_owned();
+    let projects: Vec<Value> = case.listed.iter().map(|(name, folder, alias)| json!({"name": name, "path": at(folder), "alias": alias})).collect();
+    let recents: Vec<String> = case.listed.iter().map(|(_, folder, _)| at(folder)).collect();
+    json!({"projects": projects, "recents": recents})
+}
 
 /// The profile of a recorded case under `root`: the folders that exist, `home/projects.json` and `profile/desktop-projects.json` as the
 /// recorder wrote them (a project is `<root>/<name>`).
@@ -58,16 +114,6 @@ fn prepare(root: &Path, profile: &Value) -> MigrationRoots {
     MigrationRoots { data, home, profile: Some(user) }
 }
 
-/// The recorded answer with `<root>` as this run's root.
-fn with_root(value: &Value, root: &str) -> Value {
-    match value {
-        Value::String(text) => json!(text.replace("<root>", root)),
-        Value::Array(items) => Value::Array(items.iter().map(|item| with_root(item, root)).collect()),
-        Value::Object(fields) => Value::Object(fields.iter().map(|(key, item)| (key.clone(), with_root(item, root))).collect()),
-        other => other.clone(),
-    }
-}
-
 fn migrate(roots: &MigrationRoots) {
     Migrator::new(roots.clone(), drivers(), MigrateOptions { workers: 1, fault: None, verified: None }).run().unwrap();
 }
@@ -92,21 +138,20 @@ async fn listed(catalog: &Catalog) -> Value {
 }
 
 #[test]
-fn a_migrated_node_profile_lists_the_projects_the_desktop_lists() {
-    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
+fn a_migrated_145_profile_lists_the_projects_the_desktop_lists() {
     let mut failures = Vec::new();
-    for case in golden["cases"].as_array().unwrap() {
+    for case in cases() {
         let dir = tempfile::tempdir().unwrap();
-        let roots = prepare(dir.path(), &case["observed"]["profile"]);
+        let roots = prepare(dir.path(), &case.profile);
         migrate(&roots);
         let answer = block_on(async {
             let catalog = catalog(&roots);
             catalog.import_registry(&roots.home).await.unwrap();
             listed(&catalog).await
         });
-        let expected = with_root(&case["observed"]["listed"], &dir.path().to_string_lossy());
-        if answer != expected {
-            failures.push(format!("{}\n  desktop: {expected}\n  core:    {answer}", case["case"]));
+        let want = expected(&case, dir.path());
+        if answer != want {
+            failures.push(format!("{}\n  desktop: {want}\n  core:    {answer}", case.name));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -116,10 +161,10 @@ fn a_migrated_node_profile_lists_the_projects_the_desktop_lists() {
 /// file is the way back to Node), and the file is imported once it reads again.
 #[test]
 fn a_damaged_registry_is_left_byte_for_byte_and_imported_once_it_reads() {
-    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-    let case = golden["cases"].as_array().unwrap().iter().find(|c| c["case"].as_str().unwrap().starts_with("both files")).unwrap();
+    let golden = cases();
+    let case = &golden[1];
     let dir = tempfile::tempdir().unwrap();
-    let roots = prepare(dir.path(), &case["observed"]["profile"]);
+    let roots = prepare(dir.path(), &case.profile);
     migrate(&roots);
     let file = roots.home.join("projects.json");
     let whole = std::fs::read(&file).unwrap();
@@ -139,17 +184,17 @@ fn a_damaged_registry_is_left_byte_for_byte_and_imported_once_it_reads() {
         assert_eq!(catalog.list().await.unwrap(), before, "the rows are as they were");
         std::fs::write(&file, &whole).unwrap();
         assert!(catalog.import_registry(&roots.home).await.unwrap(), "the step was left open");
-        assert_eq!(listed(&catalog).await, with_root(&case["observed"]["listed"], &dir.path().to_string_lossy()));
+        assert_eq!(listed(&catalog).await, expected(case, dir.path()));
         assert_eq!(std::fs::read(&file).unwrap(), whole, "the imported file is left byte for byte");
     });
 }
 
 #[test]
 fn a_profile_migrated_by_an_earlier_build_joins_the_registry_once_and_keeps_its_alias_and_touch() {
-    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-    let case = golden["cases"].as_array().unwrap().iter().find(|c| c["case"].as_str().unwrap().starts_with("both files")).unwrap();
+    let golden = cases();
+    let case = &golden[1];
     let dir = tempfile::tempdir().unwrap();
-    let roots = prepare(dir.path(), &case["observed"]["profile"]);
+    let roots = prepare(dir.path(), &case.profile);
     // The earlier build: rows from `desktop-projects.json` only (the alias of `alpha`, and of `ghost`, which no registry has), then a touch.
     migrate(&roots);
     let at = |name: &str| dir.path().join(name).to_string_lossy().into_owned();

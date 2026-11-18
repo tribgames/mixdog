@@ -1,6 +1,8 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread")]
 //! A paired device's file previews (Node `remote-file-preview.ts`): what a file is for a preview (`previewProjectFile`), one bounded
-//! window of its bytes (`previewProjectFileRange`). No media lease is minted: a paired device streams by ranged reads. Every read opens the file first and authorizes the OPEN file (`inplace::open_authorized_ro`), so a path swapped
+//! window of its bytes (`previewProjectFileRange`). A paired device's call for an image, audio or video also gets a media lease
+//! ([`crate::media_lease`]) the relay media lane streams by ranged requests; a device without the lane reads ranges. Every read
+//! opens the file first and authorizes the OPEN file (`inplace::open_authorized_ro`), so a path swapped
 //! for a link between the checks and the read reaches nothing.
 
 use std::io::Read;
@@ -36,13 +38,11 @@ fn extension(path: &Path) -> String {
 
 /// `FILE_PREVIEW_TYPES` (`shared/file-preview.ts`): the kind and mime of a browser-native preview.
 pub fn file_preview_type(path: &Path) -> Option<(&'static str, &'static str)> {
-    Some(match extension(path).as_str() {
-        "png" => ("image", "image/png"),
-        "jpg" | "jpeg" | "jfif" => ("image", "image/jpeg"),
-        "gif" => ("image", "image/gif"),
-        "webp" => ("image", "image/webp"),
-        "avif" => ("image", "image/avif"),
-        "svg" => ("image", "image/svg+xml"),
+    let extension = extension(path);
+    if let Some(media_type) = mixdog_imaging::Format::browser_media_type(&extension) {
+        return Some(("image", media_type));
+    }
+    Some(match extension.as_str() {
         "bmp" => ("image", "image/bmp"),
         "ico" => ("image", "image/x-icon"),
         "pdf" => ("pdf", "application/pdf"),
@@ -71,17 +71,15 @@ fn page_asset_type(root: &Path, file: &Path) -> Option<&'static str> {
     if relative.components().any(|part| part.as_os_str().to_string_lossy().starts_with('.')) {
         return None;
     }
-    Some(match extension(file).as_str() {
+    let extension = extension(file);
+    if let Some(media_type) = mixdog_imaging::Format::browser_media_type(&extension) {
+        return Some(media_type);
+    }
+    Some(match extension.as_str() {
         "html" | "htm" => "text/html; charset=utf-8",
         "css" => "text/css; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",
         "map" => "application/json; charset=utf-8",
-        "svg" => "image/svg+xml",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "avif" => "image/avif",
         "bmp" => "image/bmp",
         "ico" => "image/x-icon",
         "woff2" => "font/woff2",
@@ -126,14 +124,20 @@ pub fn preview_range(root: &Path, rel: &str, offset: u64, length: u64) -> WsResu
         None => page_asset_type(root, &absolute).ok_or_else(|| WsError::plain(UNSUPPORTED))?,
     };
     let mut opened = open_authorized_ro(&absolute, root)?;
-    let meta = opened.file.metadata().at("fstat", &absolute)?;
+    read_window(&mut opened.file, &absolute, mime, offset, length)
+}
+
+/// The window of an opened (and authorized) file that [`preview_range`] answers; a visualize pane's read is the same answer
+/// (`visualize_pane::range`).
+pub(crate) fn read_window(file: &mut std::fs::File, absolute: &Path, mime: &str, offset: u64, length: u64) -> WsResult<Value> {
+    let meta = file.metadata().at("fstat", absolute)?;
     let wanted = length.min(meta.len().saturating_sub(offset)) as usize;
     let mut bytes = vec![0u8; wanted];
     let mut filled = 0;
     if wanted > 0 {
-        opened.file.seek(SeekFrom::Start(offset)).at("read", &absolute)?;
+        file.seek(SeekFrom::Start(offset)).at("read", absolute)?;
         while filled < wanted {
-            let read = opened.file.read(&mut bytes[filled..]).at("read", &absolute)?;
+            let read = file.read(&mut bytes[filled..]).at("read", absolute)?;
             if read == 0 {
                 break;
             }

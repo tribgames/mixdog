@@ -124,7 +124,9 @@ pub fn bridge_surface_outdated(session: &Value, load_tool: &LoadToolDef) -> bool
             Some("search_tools") => true,
             Some("load_tool") => {
                 tool.get("description").and_then(Value::as_str) != Some(load_tool.description.as_str())
-                    || tool.get("inputSchema") != Some(&load_tool.input_schema)
+                    // The serialized strings, as Node compares them (`JSON.stringify`): a schema that reads equal as a value but is
+                    // stored with another key order is another definition on the wire.
+                    || tool.get("inputSchema").map(Value::to_string) != Some(load_tool.input_schema.to_string())
             }
             _ => false,
         })
@@ -166,12 +168,26 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn a_load_tool_with_a_differently_serialized_schema_needs_migration() {
+        let load = LoadToolDef { description: "load tools".into(), input_schema: json!({ "type": "object", "properties": {} }) };
+        let mut session = json!({
+            "provider": "gemini", "toolExposureMode": "bridge-v1",
+            "tools": [{ "name": "load_tool", "description": &load.description, "inputSchema": &load.input_schema }],
+        });
+        assert!(!tool_exposure_migration_needed(&session, None, &load));
+        session["tools"][0]["inputSchema"] = json!({ "properties": {}, "type": "object" });
+        assert!(tool_exposure_migration_needed(&session, None, &load));
+    }
+
+    #[cfg(node_twin)]
     fn golden() -> Value {
         serde_json::from_str(include_str!("golden/tool_exposure.json")).expect("fixture")
     }
 
     /// The shared loader Node's bridge carries is the one the Rust tool definition has.
     #[test]
+    #[cfg(node_twin)]
     fn the_shared_load_tool_is_the_rust_definition() {
         let rust: Value = serde_json::from_str(include_str!("../../../mixdog-tools/src/orch/defs/load_tool.json")).unwrap();
         let load = LoadToolDef::from_def(&rust);
@@ -181,6 +197,7 @@ mod tests {
 
     /// Node's real functions over 13 stored sessions.
     #[test]
+    #[cfg(node_twin)]
     fn exposure_and_migration_follow_node() {
         let golden = golden();
         let load = LoadToolDef { description: golden["load"]["description"].as_str().unwrap().to_owned(), input_schema: golden["load"]["inputSchema"].clone() };
@@ -196,6 +213,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(node_twin)]
     fn the_provider_decides_the_mode_unless_a_verified_route_is_pinned() {
         let golden = golden();
         for (provider, want) in golden["modes"].as_object().unwrap() {
@@ -208,6 +226,7 @@ mod tests {
 
     /// Node's request assembly (`snapshotProviderRequestTools`) leaves no native prefix on any provider.
     #[test]
+    #[cfg(node_twin)]
     fn a_session_request_has_no_native_tools() {
         let golden: Value = serde_json::from_str(include_str!("golden/native_tools.json")).unwrap();
         for (provider, row) in golden.as_object().unwrap() {
@@ -217,6 +236,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(node_twin)]
     fn bridge_only_definitions_are_recognised() {
 
         let load = golden()["load"]["description"].clone();

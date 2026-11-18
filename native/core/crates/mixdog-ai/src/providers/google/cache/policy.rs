@@ -164,12 +164,11 @@ pub fn stall_deadlines_ms(get: impl Fn(&str) -> Option<String>) -> (f64, f64) {
     (first_byte, sse_idle)
 }
 
-/// `GEMINI_FIRST_BYTE_TIMEOUT_MS` (`gemini-stream.mjs:24`): the wait for a Gemini stream's first payload once its
-/// headers arrived, in ms.
+/// The first-byte window of every Gemini route, in ms (`gemini-stream.mjs:24` named the shared 60 s; a Gemini model that is
+/// slow to answer is given the long wait instead): 300 s held to the ceiling, 285 s at the defaults, `Antigravity` Pro's.
 pub fn gemini_first_byte_ms(get: impl Fn(&str) -> Option<String>) -> f64 {
-    let (first_byte, _) = stall_deadlines_ms(&get);
     let (_, max_before_warn) = stall_windows_ms(&get);
-    resolve_timeout_ms(&get, &["MIXDOG_GEMINI_FIRST_BYTE_TIMEOUT_MS"], first_byte, 30_000.0, max_before_warn)
+    resolve_timeout_ms(&get, &["MIXDOG_GEMINI_FIRST_BYTE_TIMEOUT_MS"], 300_000.0, 30_000.0, max_before_warn)
 }
 
 /// `ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS` (`antigravity-retry-policy.mjs:96`): the `gemini-pro` family's first window.

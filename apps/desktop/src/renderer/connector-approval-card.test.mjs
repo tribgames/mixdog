@@ -63,7 +63,7 @@ test('an outbound card that already names its account gets no second account lin
   );
 });
 
-test('an outbound or action-kind approval offers once, this session, always and deny; a payment only once', () => {
+test('an outbound approval offers once, this conversation, this agent and deny; a payment only once', () => {
   const rowsOf = (approval) =>
     approvalCardRows(approvalCardModel(approval), { agentName: 'Bot', officeLabel: '' }).map((row) => [
       row.label,
@@ -72,8 +72,8 @@ test('an outbound or action-kind approval offers once, this session, always and 
   const outbound = { kind: 'outbound', outbound: { category: 'comment' }, remember: ['once', 'session', 'agent'] };
   assert.deepEqual(rowsOf(outbound), [
     ['Allow just once', ''],
-    ['Allow for this session', 'session'],
-    ['Always allow', 'agent'],
+    ['Allow for this conversation', 'session'],
+    ['Allow for this agent', 'agent'],
     ['Deny', ''],
   ]);
   const payment = { kind: 'outbound', outbound: { category: 'payment' }, remember: ['once'] };
@@ -87,7 +87,7 @@ test('an outbound or action-kind approval offers once, this session, always and 
   );
 });
 
-test('a tool or hook-ask card offers once, this session, always for all conversations and deny, with the scope stated', () => {
+test('a tool or hook-ask card offers once, this conversation, always for every agent and deny, each saying it is for this tool', () => {
   const rows = (approval) => approvalCardRows(approvalCardModel(approval), { agentName: 'Lead', officeLabel: '' });
   const tool = { kind: 'approval', name: 'shell', remember: ['once', 'session', 'always'] };
   const list = rows(tool);
@@ -95,17 +95,13 @@ test('a tool or hook-ask card offers once, this session, always for all conversa
     list.map((row) => [row.label, row.decision.remember ?? '']),
     [
       ['Allow just once', ''],
-      ['Allow for this session', 'session'],
-      ['Always allow (all conversations)', 'always'],
+      ['Allow for this conversation', 'session'],
+      ['Always allow', 'always'],
       ['Deny', ''],
     ]
   );
-  assert.equal(list[1].desc, "For this session, shell won't ask again");
-  assert.equal(list[2].desc, "With Always allow, shell won't ask again in any conversation");
-  // A classified send keeps its kind's name.
-  const send = rows({ kind: 'outbound', outbound: { category: 'email' }, remember: ['once', 'session', 'always'] });
-  assert.equal(send[2].decision.remember, 'always');
-  assert.equal(send[2].desc, "With Always allow, Send an email won't ask again in any conversation");
+  assert.equal(list[1].desc, "shell won't ask again in this conversation until you close, delete, or reset it, change its agent, or restart the app.");
+  assert.equal(list[2].desc, "shell won't ask again for any agent, in any conversation");
   // Once only: no standing choice at all.
   assert.deepEqual(
     rows({ kind: 'approval', name: 'shell', remember: ['once'] }).map((row) => row.label),
@@ -113,32 +109,38 @@ test('a tool or hook-ask card offers once, this session, always for all conversa
   );
 });
 
-test('a Lead hook-ask card words its session and always rows by what the grant covers', () => {
-  const rows = (approval) => approvalCardRows(approvalCardModel(approval), { agentName: 'Lead', officeLabel: '' });
-  // A classified call asked through the github tool: the grant is the kind, any tool.
-  const kind = rows({
-    kind: 'approval',
-    name: 'github',
-    grantAction: 'comment',
-    remember: ['once', 'session', 'always'],
+test('every remembered choice names the tool, never the action category, whatever the card is', () => {
+  const rows = (approval) => approvalCardRows(approvalCardModel(approval), { agentName: 'Mailer', officeLabel: '' });
+  // A classified send: the card shows its action, the choices cover the tool.
+  const send = rows({
+    kind: 'outbound',
+    name: 'mcp__gmail-2__send_email',
+    grantAction: 'tool:mcp__gmail__send_email',
+    outbound: { category: 'email' },
+    remember: ['once', 'session', 'agent', 'always'],
   });
-  assert.equal(kind[1].desc, "For this session, Post a comment from any tool won't ask again");
-  assert.equal(kind[2].desc, "With Always allow, Post a comment from any tool won't ask again in any conversation");
-  assert.ok(!kind.some((row) => /github/.test(row.desc ?? '')));
-  // A tool key names the tool, even when the card's tool differs in label.
+  assert.deepEqual(
+    send.map((row) => [row.label, row.decision.remember ?? '']),
+    [
+      ['Allow just once', ''],
+      ['Allow for this conversation', 'session'],
+      ['Allow for this agent', 'agent'],
+      ['Always allow', 'always'],
+      ['Deny', ''],
+    ]
+  );
+  assert.equal(send[1].desc, "send_email (gmail) won't ask again in this conversation until you close, delete, or reset it, change its agent, or restart the app.");
+  assert.equal(send[2].desc, "send_email (gmail) won't ask again for Mailer, in any conversation");
+  assert.equal(send[3].desc, "send_email (gmail) won't ask again for any agent, in any conversation");
+  // A hook's ask on a plain tool names that tool.
   const tool = rows({
     kind: 'approval',
     name: 'github',
     grantAction: 'tool:github',
     remember: ['once', 'session', 'always'],
   });
-  assert.equal(tool[1].desc, "For this session, github won't ask again");
-  assert.equal(tool[2].desc, "With Always allow, github won't ask again in any conversation");
-  const mcp = rows({
-    kind: 'approval',
-    name: 'mcp__acme__run',
-    grantAction: 'tool:mcp__acme__run',
-    remember: ['once', 'always'],
-  });
-  assert.equal(mcp[1].desc, "With Always allow, run (acme) won't ask again in any conversation");
+  assert.equal(tool[2].desc, "github won't ask again for any agent, in any conversation");
+  for (const row of [...send, ...tool]) {
+    assert.ok(!/any tool|Send an email|Post a comment/.test(row.desc ?? ''), `${row.label}: ${row.desc}`);
+  }
 });

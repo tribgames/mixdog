@@ -287,7 +287,7 @@ export function remoteTranscriptRow(item: unknown, history: boolean): RemoteTran
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 
-/** One tool row of a transcript by id: a top-level row, an aggregate's member
+/** One tool call of a transcript by id: a standalone row, an aggregate's member
  *  by its own id, or by the `<aggregate id>:member:<index>` name the renderer
  *  gives an id-less member. */
 export function findToolRecord(snapshot: unknown, itemId: string): Record<string, unknown> | null {
@@ -296,7 +296,9 @@ export function findToolRecord(snapshot: unknown, itemId: string): Record<string
   for (const item of items) {
     const row = asRecord(item);
     if (row?.kind !== 'tool') continue;
-    if (row.id != null && String(row.id) === itemId) return row;
+    // The wrapper can share its first call's ID, but its numbered output is
+    // presentation, not that call's original body.
+    if (row.aggregate !== true && row.id != null && String(row.id) === itemId) return row;
     const members = Array.isArray(row.toolMembers) ? row.toolMembers.map(asRecord) : [];
     for (const [index, record] of members.entries()) {
       if (record && String(record.id ?? `${String(row.id ?? 'aggregate')}:member:${index}`) === itemId) return record;

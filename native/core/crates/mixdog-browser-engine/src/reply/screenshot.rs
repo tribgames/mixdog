@@ -25,8 +25,9 @@ use super::reply::ReplyError;
 use super::reply::ReplyImage;
 use super::reply::ToolReply;
 
-/// The most an image may weigh inline in a reply: the tool output refuses a larger one.
-pub const MAX_INLINE_IMAGE_BYTES: usize = 20 * 1024 * 1024;
+/// The most an image may weigh inline in a reply: the tool output refuses a larger one (`MAX_IMAGE_BYTES` of `attachments/limits.mjs`;
+/// `mixdog-tools`' `browser_output` reads this same constant).
+pub const MAX_INLINE_IMAGE_BYTES: usize = 48 * 1024 * 1024;
 /// The most a frame file may hold (`FRAME_MAX_BYTES` of `frame-files.ts`).
 pub const FRAME_MAX_BYTES: usize = 100 * 1024 * 1024;
 
@@ -271,6 +272,13 @@ mod tests {
         let mut reply = ToolReply::default();
         attach_frame(&frames, &mut reply, ImageOutput::File, Path::new("frames"), &capture(b"pixels", false)).await.unwrap();
         assert!(reply.image.is_some() && !reply.text.contains("Frame written"), "the picture is not lost with the file");
+    }
+
+    #[tokio::test]
+    async fn a_thirty_mebibyte_frame_stays_in_the_reply() {
+        let mut reply = ToolReply::default();
+        attach_frame(&Frames::default(), &mut reply, ImageOutput::Inline, Path::new("frames"), &capture(&vec![0u8; 30 * 1024 * 1024], false)).await.unwrap();
+        assert_eq!(reply.image.map(|image| image.bytes.len()), Some(30 * 1024 * 1024));
     }
 
     #[tokio::test]

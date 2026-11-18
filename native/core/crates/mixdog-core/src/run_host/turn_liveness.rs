@@ -33,6 +33,77 @@ pub struct TurnLiveness {
     watcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
+impl Drop for TurnLiveness {
+    fn drop(&mut self) {
+        let mut closed = self.closed.lock().unwrap_or_else(PoisonError::into_inner);
+        *closed = true;
+        self.liveness.remove_entry(&self.id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mixdog_agent::env::Clock;
+    use mixdog_core_run::run_host::progress::ProgressPublisher;
+
+    use super::*;
+
+    struct Fixed;
+    impl Clock for Fixed {
+        fn now_ms(&self) -> i64 {
+            1_000
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_run_is_working_while_its_stage_is_in_flight_and_gone_when_the_guard_drops() {
+        // `begin` spawns its watcher on the lane runtime: installed here as every test of the tree that spawns does.
+        let _tokens = mixdog_rt::testing::tokens();
+        let liveness = RuntimeLiveness::new();
+        let (tx, rx) = watch::channel(RunProgress::default());
+        let publisher = ProgressPublisher::new(tx, Arc::new(Fixed));
+        let thread = ThreadId::from("t1");
+        let header = serde_json::json!({ "owner": "user" });
+        let guard = TurnLiveness::begin(&liveness, &thread, header.as_object().expect("a header"), rx, CancellationToken::new());
+        // The dispatched count covers the gap before any stage: the turn is working at once.
+        assert!(liveness.in_flight_session_activity().working.contains("t1"));
+        publisher.ask_start();
+        publisher.stage("streaming");
+        // The sender is gone, so the follower ends once it has published the stage.
+        drop(publisher);
+        guard.watcher_ended().await;
+        assert!(liveness.in_flight_session_activity().working.contains("t1"));
+        drop(guard);
+        assert!(!liveness.in_flight_session_activity().working.contains("t1"));
+        assert!(liveness.in_flight_session_activity().agent_working.is_empty());
+    }
+
+
+    /// The progress sender a run watches is the thread's (the actor's `ControlCell` holds it for the thread's life), so it
+    /// outlives every run: each run's follower ends with its guard and leaves no task, no copy of the session and no hold of
+    /// the map behind (Node's `whileTurnDispatched` keeps nothing of a settled turn).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn each_runs_follower_ends_with_its_guard_while_the_threads_progress_sender_lives_on() {
+        let _tokens = mixdog_rt::testing::tokens();
+        let liveness = RuntimeLiveness::new();
+        let (tx, _rx) = watch::channel(RunProgress::default());
+        let publisher = ProgressPublisher::new(tx.clone(), Arc::new(Fixed));
+        let thread = ThreadId::from("worker");
+        let header = serde_json::json!({ "owner": "agent", "ownerSessionId": "lead", "deferredToolCatalog": [{ "name": "shell" }] });
+        for run in 0..3 {
+            let guard = TurnLiveness::begin(&liveness, &thread, header.as_object().expect("a header"), tx.subscribe(), CancellationToken::new());
+            // The record fields the activity read looks at are carried.
+            assert!(liveness.in_flight_session_activity().agent_working.contains("lead"), "run {run}");
+            publisher.stage("streaming");
+            let watcher = guard.watcher.lock().unwrap_or_else(PoisonError::into_inner).take().expect("the follower");
+            drop(guard);
+            mixdog_core_session::session::testing::awaiting(|| format!("run {run}'s follower to end with its guard"), watcher).await.unwrap();
+            assert_eq!(Arc::strong_count(&liveness), 1, "run {run} left a hold of the map behind");
+            assert!(!liveness.in_flight_session_activity().working.contains("worker"), "run {run}");
+        }
+    }
+}
+
 impl TurnLiveness {
     /// Counts `thread` as dispatched and publishes its entry; the entry's session record is
     /// [`RuntimeEntry::session_of`] `header`, `cancel` the run's controller.
@@ -86,75 +157,5 @@ impl TurnLiveness {
     async fn watcher_ended(&self) {
         let watcher = self.watcher.lock().unwrap_or_else(PoisonError::into_inner).take().expect("awaited once");
         mixdog_core_session::session::testing::awaiting(|| "the follower to publish the last progress and end".to_owned(), watcher).await.unwrap();
-    }
-}
-
-impl Drop for TurnLiveness {
-    fn drop(&mut self) {
-        let mut closed = self.closed.lock().unwrap_or_else(PoisonError::into_inner);
-        *closed = true;
-        self.liveness.remove_entry(&self.id);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use mixdog_agent::env::Clock;
-    use mixdog_core_run::run_host::progress::ProgressPublisher;
-
-    use super::*;
-
-    struct Fixed;
-    impl Clock for Fixed {
-        fn now_ms(&self) -> i64 {
-            1_000
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_run_is_working_while_its_stage_is_in_flight_and_gone_when_the_guard_drops() {
-        // `begin` spawns its watcher on the lane runtime: installed here as every test of the tree that spawns does.
-        let _tokens = mixdog_rt::testing::tokens();
-        let liveness = RuntimeLiveness::new();
-        let (tx, rx) = watch::channel(RunProgress::default());
-        let publisher = ProgressPublisher::new(tx, Arc::new(Fixed));
-        let thread = ThreadId::from("t1");
-        let header = serde_json::json!({ "owner": "user" });
-        let guard = TurnLiveness::begin(&liveness, &thread, header.as_object().expect("a header"), rx, CancellationToken::new());
-        // The dispatched count covers the gap before any stage: the turn is working at once.
-        assert!(liveness.in_flight_session_activity().working.contains("t1"));
-        publisher.ask_start();
-        publisher.stage("streaming");
-        // The sender is gone, so the follower ends once it has published the stage.
-        drop(publisher);
-        guard.watcher_ended().await;
-        assert!(liveness.in_flight_session_activity().working.contains("t1"));
-        drop(guard);
-        assert!(!liveness.in_flight_session_activity().working.contains("t1"));
-        assert!(liveness.in_flight_session_activity().agent_working.is_empty());
-    }
-
-    /// The progress sender a run watches is the thread's (the actor's `ControlCell` holds it for the thread's life), so it
-    /// outlives every run: each run's follower ends with its guard and leaves no task, no copy of the session and no hold of
-    /// the map behind (Node's `whileTurnDispatched` keeps nothing of a settled turn).
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn each_runs_follower_ends_with_its_guard_while_the_threads_progress_sender_lives_on() {
-        let _tokens = mixdog_rt::testing::tokens();
-        let liveness = RuntimeLiveness::new();
-        let (tx, _rx) = watch::channel(RunProgress::default());
-        let publisher = ProgressPublisher::new(tx.clone(), Arc::new(Fixed));
-        let thread = ThreadId::from("worker");
-        let header = serde_json::json!({ "owner": "agent", "ownerSessionId": "lead", "deferredToolCatalog": [{ "name": "shell" }] });
-        for run in 0..3 {
-            let guard = TurnLiveness::begin(&liveness, &thread, header.as_object().expect("a header"), tx.subscribe(), CancellationToken::new());
-            // The record fields the activity read looks at are carried.
-            assert!(liveness.in_flight_session_activity().agent_working.contains("lead"), "run {run}");
-            publisher.stage("streaming");
-            let watcher = guard.watcher.lock().unwrap_or_else(PoisonError::into_inner).take().expect("the follower");
-            drop(guard);
-            mixdog_core_session::session::testing::awaiting(|| format!("run {run}'s follower to end with its guard"), watcher).await.unwrap();
-            assert_eq!(Arc::strong_count(&liveness), 1, "run {run} left a hold of the map behind");
-            assert!(!liveness.in_flight_session_activity().working.contains("worker"), "run {run}");
-        }
     }
 }

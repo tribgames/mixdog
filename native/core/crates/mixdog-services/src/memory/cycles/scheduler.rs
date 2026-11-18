@@ -11,12 +11,16 @@ use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use mixdog_rt::MaintenanceIo;
 use serde_json::{Map, Value, json};
-use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+
+use crate::memory::lifecycle::Owned;
+
+/// What a run the stopping database scope refused or revoked answers.
+const STOPPING: &str = "memory service stopping";
 
 use super::ledger::Ledger;
 use crate::bots::delivery::env::RetryTimer;
-use super::requests::{wait, RetryRunner, claim_and_mark_scheduled_cycle, resolve_coalesce_max_retries, spawn_work};
+use super::requests::{wait, RetryRunner, claim_and_mark_scheduled_cycle, resolve_coalesce_max_retries, spawn_in};
 use super::rows::{cycle1_row_due_sql, cycle1_unchunked_sql};
 use super::run::{Cycle1Options, Cycle1Result, Cycle1Runner};
 use super::signature::{number_or_zero, parse_interval, periodic_cycle_due, scheduled_cycle1_signature};
@@ -45,7 +49,8 @@ struct Tick {
     active: bool,
     started_at: i64,
     stop: Option<CancellationToken>,
-    task: Option<JoinHandle<()>>,
+    /// The tick loop, work of the database's scope.
+    task: Option<Owned<()>>,
 }
 
 struct Inner {
@@ -59,9 +64,8 @@ struct Inner {
     tick_every: Duration,
     /// `mainConfig`: the memory section as the last tick read it.
     main_config: Mutex<Value>,
+    /// The run in flight: work of the database's scope, so a stop past its deadline revokes it with the rest.
     in_flight: Mutex<Option<(u64, Shared1)>>,
-    /// The task of the latest run, which an abandoned shutdown aborts.
-    run_task: Mutex<Option<tokio::task::AbortHandle>>,
     next_run: Mutex<u64>,
     tick: Mutex<Tick>,
     checking: AtomicBool,
@@ -113,7 +117,6 @@ impl CycleScheduler {
             tick_every: TICK,
             main_config: Mutex::new(Value::Null),
             in_flight: Mutex::new(None),
-            run_task: Mutex::new(None),
             next_run: Mutex::new(0),
             tick: Mutex::new(Tick { active: false, started_at: 0, stop: None, task: None }),
             checking: AtomicBool::new(false),
@@ -159,12 +162,12 @@ impl CycleScheduler {
         inner.ledger.reset_running();
         inner.ledger.write().await;
         let hydrate = Arc::clone(inner);
-        spawn_work("memory-cycle-hydrate", async move {
+        let _hydrating = spawn_in(inner.db.scope(), "memory-cycle-hydrate", async move {
             let last = hydrate.last_run().await;
             hydrate.ledger.hydrate_success(last.cycle1).await;
         });
         let looped = Arc::clone(inner);
-        let task = spawn_work("memory-cycle-tick", async move {
+        let task = spawn_in(inner.db.scope(), "memory-cycle-tick", async move {
             loop {
                 tokio::select! {
                     () = stop.cancelled() => break,
@@ -176,7 +179,7 @@ impl CycleScheduler {
                 }
             }
         });
-        inner.tick.lock().expect("tick").task = Some(task);
+        inner.tick.lock().expect("tick").task = task;
     }
 
     /// `stopCycles`: the tick stops and waiting retries are cancelled; a run in progress finishes.
@@ -190,15 +193,14 @@ impl CycleScheduler {
         self.0.runner.retries().cancel_all();
     }
 
-    /// Daemon shutdown: [`Self::stop_cycles`], then the run in progress is cancelled and awaited. A shutdown abandoned while it waits ends the tick it took
-    /// (the run in flight stays reachable for [`Self::abandon`]).
+    /// Daemon shutdown: [`Self::stop_cycles`], then the run in progress is cancelled and awaited. The tick and the run are work of the database's
+    /// scope: a shutdown abandoned while it waits leaves them owned, and the stop's revocation ends them.
     pub async fn shutdown(&self) {
         self.stop_cycles();
         self.0.shutdown.cancel();
         let task = self.0.tick.lock().expect("tick").task.take();
         if let Some(task) = task {
-            let _abandoned = crate::memory::AbortOnDrop(task.abort_handle());
-            let _ = task.await;
+            task.await;
         }
         let running = self.0.in_flight.lock().expect("in flight").as_ref().map(|(_, run)| run.clone());
         if let Some(run) = running {
@@ -206,32 +208,24 @@ impl CycleScheduler {
         }
     }
 
-    /// The stop's bound passed while [`Self::shutdown`] waited: the tick and the run in flight are aborted, whatever they were waiting on.
-    pub fn abandon(&self) {
-        self.stop_cycles();
-        self.0.shutdown.cancel();
-        let tick = self.0.tick.lock().expect("tick").task.take();
-        if let Some(tick) = tick {
-            tick.abort();
-        }
-        let run = self.0.run_task.lock().expect("run task").take();
-        if let Some(run) = run {
-            run.abort();
-        }
-    }
-
-    /// A run in flight that ends only when the returned sender sends (or is dropped, then with an error): the scheduler's shutdown and abandon over a
-    /// run held as long as a test wants, without a database.
+    /// A run in flight that ends only when the returned sender sends (or is dropped, then with an error): the scheduler's shutdown and the stop's
+    /// revocation over a run held as long as a test wants, without a database.
     #[cfg(test)]
     pub(crate) fn hold_run(&self) -> tokio::sync::oneshot::Sender<()> {
         use futures::FutureExt as _;
         let (release, held) = tokio::sync::oneshot::channel::<()>();
-        let task = spawn_work_value("memory-cycle1-run", async move {
+        let task = self.0.db.scope().spawn("memory-cycle1-run", async move {
             let _ = held.await;
             Err("released".to_owned())
         });
-        *self.0.run_task.lock().expect("run task") = Some(task.abort_handle());
-        let shared: Shared1 = async move { task.await.unwrap_or_else(|e| Err(e.to_string())) }.boxed().shared();
+        let shared: Shared1 = async move {
+            match task {
+                Some(task) => task.await.unwrap_or_else(|| Err(STOPPING.to_owned())),
+                None => Err(STOPPING.to_owned()),
+            }
+        }
+        .boxed()
+        .shared();
         *self.0.in_flight.lock().expect("in flight") = Some((0, shared));
         release
     }
@@ -336,7 +330,7 @@ impl Inner {
         let scheduled_record = options.on_coalesced_success.is_some();
         // The run waits to be registered, so it never clears a slot before it holds it.
         let (registered, wait_registered) = tokio::sync::oneshot::channel::<()>();
-        let task = spawn_work_value("memory-cycle1-run", async move {
+        let task = self.db.scope().spawn("memory-cycle1-run", async move {
             let _ = wait_registered.await;
             this.ledger.mark_running("cycle1").await;
             let ran = this.runner.clone().run_cycle1(config, options).await;
@@ -362,8 +356,11 @@ impl Inner {
             }
             outcome
         });
-        *self.run_task.lock().expect("run task") = Some(task.abort_handle());
-        let shared: Shared1 = async move { task.await.unwrap_or_else(|e| Err(e.to_string())) }.boxed().shared();
+        let Some(task) = task else {
+            // Refused by the stopping scope: the run never started.
+            return async { Err(STOPPING.to_owned()) }.boxed().shared();
+        };
+        let shared: Shared1 = async move { task.await.unwrap_or_else(|| Err(STOPPING.to_owned())) }.boxed().shared();
         *self.in_flight.lock().expect("in flight") = Some((id, shared.clone()));
         let _ = registered.send(());
         shared
@@ -456,7 +453,7 @@ impl Inner {
             return;
         }
         let this = Arc::clone(self);
-        spawn_work("memory-cycle-raw-flush", async move {
+        let registered = spawn_in(self.db.scope(), "memory-cycle-raw-flush", async move {
             match this.embeddings.flush_raw(limit).await {
                 Ok((attempted, embedded)) if attempted > 0 => log(&format!("[embed] raw fallback flush attempted={attempted} embedded={embedded}\n")),
                 Ok(_) => {}
@@ -464,6 +461,9 @@ impl Inner {
             }
             this.flushing.store(false, Ordering::SeqCst);
         });
+        if registered.is_none() {
+            self.flushing.store(false, Ordering::SeqCst);
+        }
     }
 
     async fn check_cycles(self: &Arc<Self>) -> Result<()> {
@@ -495,8 +495,4 @@ impl Inner {
         }
         self.checking.store(false, Ordering::SeqCst);
     }
-}
-
-fn spawn_work_value<T: Send + 'static>(name: &'static str, fut: impl std::future::Future<Output = T> + Send + 'static) -> JoinHandle<T> {
-    mixdog_rt::spawn(name, mixdog_rt::TaskClass::Work, fut)
 }

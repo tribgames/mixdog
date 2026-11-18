@@ -333,24 +333,29 @@ impl DomainService for TerminalService {
                 let Some(attached) = self.tabs.attach(params.tab_id.as_str()).await else {
                     return Ok(Reply::Value(Value::Null));
                 };
-                // A phone reads the tab's output on the terminal lane, as Node's relay pushed it whether or not the phone had
-                // attached; its attach subscribes it to nothing more. The window keeps the raw feed (its own 5 ms buffer is in the
-                // desktop's main process, ipc-terminal.ts).
-                if req.ctx.origin == mixdog_protocol::Origin::Relay {
-                    return Ok(Reply::Value(attached_reply(&attached, &client)));
-                }
                 // The replay and the subscription start at one position: the replay is read under the lock that appends the tab's
                 // output, the pump is held there until the answer is queued, and the subscription attaches once the pump has
                 // published up to it, so no chunk is written twice (in the replay and as a frame) or lost between them.
                 let mut attached = attached;
+                let relay = req.ctx.origin == mixdog_protocol::Origin::Relay;
                 if let Some(cut) = self.feeds.terminal_cut(&attached.id, || self.tabs.relay_order(&attached.id)) {
                     let id = attached.id.clone();
                     let Some((cut_attached, emitted, held)) = self.tabs.attach_cut(&id, |at| cut.hold_at(at)).await else {
                         return Ok(Reply::Value(Value::Null));
                     };
-                    cut.published(emitted).await;
                     req.ctx.after_answer.keep(held);
+                    if relay {
+                        // The aggregate feed may already have queued (or may still be buffering) output below this cut.
+                        // It stays subscribed once; the phone trims its frames against the replay's byte position.
+                        let mut reply = attached_reply(&cut_attached, &client);
+                        reply["replayCut"] = json!({ "stream": cut.position().epoch, "offset": emitted });
+                        return Ok(Reply::Value(reply));
+                    }
+                    cut.published(emitted).await;
                     attached = cut_attached;
+                }
+                if relay {
+                    return Ok(Reply::Value(attached_reply(&attached, &client)));
                 }
                 Ok(Reply::Subscribe(Subscribe {
                     result: attached_reply(&attached, &client),

@@ -31,9 +31,8 @@ const RETIRED_LOCAL_PROVIDER_IDS: [&str; 2] = ["ollama", "lmstudio"];
 const RETIRED_AGENT_FIELDS: [&str; 9] =
     ["fastModels", "agentMaintenance", "runtime", "search", "searchRoute", "capabilities", "defaultProvider", "guide", "mcpProjectOverrides"];
 const CODEX_PROVIDER_ID: &str = "openai-oauth";
-/// `CODEX_MODEL_CACHE_OPTIONS`.
-const CODEX_CACHE_FILE: &str = "openai-oauth-models.json";
-const CODEX_CACHE_VERSION: i64 = 7;
+/// The saved `openai-oauth` credential (`account_id` names the account the catalog is listed for).
+const CODEX_CREDENTIALS_FILE: &str = "openai-oauth.json";
 const DAYBREAK_BLUE_PROGRAM: &str = "daybreak_blue";
 const STANDARD_PROGRAM: &str = "standard";
 
@@ -42,12 +41,16 @@ const STANDARD_PROGRAM: &str = "standard";
 /// `loadSavedCodexCatalog()`: the models of the last saved catalog, stale or not; none when no catalog was
 /// ever fetched or the file is not a catalog of this version (`makeModelCache(...).loadSync({ allowStale })`).
 pub(super) fn saved_catalog(data_dir: &Path) -> Option<Vec<Value>> {
-    let bytes = mixdog_statefile::read_content(&data_dir.join(CODEX_CACHE_FILE)).ok()??;
-    let record: Value = mixdog_statefile::parse_json_text(&bytes).ok()?;
-    if record.get("version").and_then(Value::as_i64) != Some(CODEX_CACHE_VERSION) || !truthy(record.get("fetchedAt")) {
-        return None;
-    }
-    record.get("models").and_then(Value::as_array).cloned()
+    // The catalog is the signed-in account's that fetched it, in that account's own file: the account is the one the saved
+    // credential names, which is what the listing keyed it by. With none named nothing is read, and the shared, unattributed
+    // file a 1.4.5 install left under the route's plain name proves nothing about this account: it is not opened.
+    let account = mixdog_statefile::read_content(&data_dir.join(CODEX_CREDENTIALS_FILE))
+        .ok()
+        .flatten()
+        .and_then(|bytes| mixdog_statefile::parse_json_text(&bytes).ok())
+        .and_then(|credentials| credentials.get("account_id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned))
+        .map(|id| mixdog_ai::catalog::account_fingerprint(&[&id]))?;
+    mixdog_ai::catalog::saved_rows(data_dir, mixdog_ai::catalog::Roster::Codex, &account)
 }
 
 /// `accessProgramOnly(model)`: the program a model exists only for.
@@ -314,4 +317,40 @@ pub(super) fn migrated_agent(agent: &Doc, catalog: &[Value], now_ms: i64) -> Opt
     }
     let next = stored_agent_form(&canonical_agent_storage(agent, catalog, now_ms));
     (!js_deep_equal(&Value::Object(next.clone()), &Value::Object(agent.clone()))).then_some(next)
+}
+
+#[cfg(test)]
+mod saved_catalog_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[allow(clippy::disallowed_methods, reason = "the data directory is written directly")]
+    fn write(dir: &Path, file: &str, value: &Value) {
+        std::fs::write(dir.join(file), value.to_string()).unwrap();
+    }
+
+    /// The saved Codex catalog is the signed-in account's file, read as the catalog reads it: the shared file 1.4.5 left
+    /// names no account and is not read, nor is another account's file or one of another schema version.
+    #[test]
+    fn the_saved_catalog_is_the_signed_in_accounts_own_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = |account: &str| mixdog_ai::catalog::account_fingerprint(&[account]);
+        let roster = |account: &str, version: i64, model: &str| {
+            json!({ "version": version, "fetchedAt": 1, "account": key(account), "provenance": "fetched", "models": [{ "id": model }] })
+        };
+        let keyed = |account: &str| mixdog_ai::catalog::Roster::Codex.keyed_file(&key(account));
+        write(dir.path(), CODEX_CREDENTIALS_FILE, &json!({ "account_id": "acct-a" }));
+        write(dir.path(), "openai-oauth-models.json", &json!({ "version": 7, "fetchedAt": 1, "models": [{ "id": "shared-model" }] }));
+        assert!(saved_catalog(dir.path()).is_none(), "the 1.4.5 file is not this account's");
+
+        write(dir.path(), &keyed("acct-b"), &roster("acct-b", 7, "b-model"));
+        assert!(saved_catalog(dir.path()).is_none(), "another account's file is not this one's");
+
+        write(dir.path(), &keyed("acct-a"), &roster("acct-a", 6, "old-model"));
+        assert!(saved_catalog(dir.path()).is_none(), "another schema version is not read");
+
+        write(dir.path(), &keyed("acct-a"), &roster("acct-a", 7, "a-model"));
+        assert_eq!(saved_catalog(dir.path()).unwrap()[0]["id"], "a-model");
+    }
 }

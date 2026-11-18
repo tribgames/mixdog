@@ -69,13 +69,19 @@ async function mount(api, initial, run) {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
-  // The core's section is the card's only source: the status a test shows is pushed before it renders.
+  // This host supplies progress over the section feed.
   const render = async (localProvider) => {
     await pushToolModules({ localProvider });
     await act(async () =>
       root.render(
         React.createElement(BuiltInFeaturesPanel, {
-          api,
+          api: {
+            invokeCapability: async ({ capability }) => {
+              if (capability === 'getToolModuleSettings') return { value: { localProvider } };
+              throw new Error(`Unsupported fixture read: ${capability}`);
+            },
+            ...api,
+          },
           data: { toolModules: {} },
           snapshot: {},
           pending: '',
@@ -102,10 +108,14 @@ async function mount(api, initial, run) {
 test('runtime progress from a chat installation stays live without a UI install command', async () => {
   let current = status();
   const calls = [];
-  const mounted = await mount({}, current, async (capability, args) => {
-    calls.push([capability, args]);
-    assert.fail('installation belongs to chat');
-  });
+  const mounted = await mount(
+    { invokeCapability: async ({ capability }) => assert.fail(`unexpected status read: ${capability}`) },
+    current,
+    async (capability, args) => {
+      calls.push([capability, args]);
+      assert.fail('installation belongs to chat');
+    }
+  );
   try {
     assert.match(document.querySelector('[data-feature-id="localProvider"]').textContent, /Install through chat/);
     assert.deepEqual(calls, []);

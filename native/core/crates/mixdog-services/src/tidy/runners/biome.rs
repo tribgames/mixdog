@@ -15,7 +15,6 @@ use crate::tidy::process::map_limit;
 pub const BIOME_CHECK_ARGS: [&str; 3] = ["check", "--reporter=json", "--max-diagnostics=none"];
 pub const BIOME_TRUNCATED_NOTE: &str = "biome JSON output was truncated; split the scope and re-run to get complete diagnostics";
 const EXPLAIN_CONCURRENCY: usize = 4;
-const EXPLAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 
 fn severity_of(value: &str) -> &'static str {
     match value.to_lowercase().as_str() {
@@ -30,6 +29,8 @@ pub struct Parsed {
     pub diagnostics: Vec<Diagnostic>,
     pub changed_files: Vec<String>,
     pub truncated: bool,
+    /// Files biome itself says it processed (`summary.changed + unchanged`); `None` without a summary.
+    pub processed: Option<i64>,
 }
 
 /// Byte index just past a JSON object/array starting at `start`, or `None` if truncated.
@@ -182,14 +183,14 @@ fn payload_fix_kind(row: &Value, category: &str) -> &'static str {
 
 pub fn apply_biome_fix_kinds(diagnostics: &mut [Diagnostic], kinds: &HashMap<String, String>) {
     for f in diagnostics {
-        if f.code.starts_with("format") {
-            f.fix_kind = Some("safe".into());
-            f.fixable = true;
-            continue;
-        }
         if f.code_fix == Some(false) {
             f.fix_kind = Some("manual".into());
             f.fixable = false;
+            continue;
+        }
+        if f.code.starts_with("format") {
+            f.fix_kind = Some("safe".into());
+            f.fixable = true;
             continue;
         }
         match kinds.get(&rule_name(&f.code)).map(String::as_str) {
@@ -214,15 +215,23 @@ pub fn apply_biome_fix_kinds(diagnostics: &mut [Diagnostic], kinds: &HashMap<Str
 
 fn rows_to_result(rows: &[Value], cwd: &std::path::Path, truncated: bool) -> Parsed {
     let (mut diagnostics, mut changed) = (Vec::new(), Vec::new());
+    let category_of = |row: &Value| row.get("category").and_then(Value::as_str).or_else(|| row.pointer("/code/value").and_then(Value::as_str)).or_else(|| row.get("code").and_then(Value::as_str)).unwrap_or("").to_owned();
+    // The formatter refuses a file that does not parse and says so as a `format` row: nothing
+    // would be rewritten there, so it is neither a file to format nor a fixable finding.
+    let unparsable: std::collections::HashSet<String> = rows.iter().filter(|r| category_of(r) == "parse").map(|r| location_of(r, cwd).0).collect();
     for row in rows {
-        let category = row.get("category").and_then(Value::as_str).or_else(|| row.pointer("/code/value").and_then(Value::as_str)).or_else(|| row.get("code").and_then(Value::as_str)).unwrap_or("");
+        let category = category_of(row);
+        let category = category.as_str();
         let (file, line, col) = location_of(row, cwd);
-        if category.starts_with("format") {
+        let blocked = category.starts_with("format") && unparsable.contains(&file);
+        if category.starts_with("format") && !blocked {
             changed.push(file.clone());
         }
-        let kind = payload_fix_kind(row, category);
+        let kind = if blocked { "" } else { payload_fix_kind(row, category) };
         let rdjson = row.pointer("/code/value").is_some_and(Value::is_string);
-        let code_fix = if category.starts_with("format") {
+        let code_fix = if blocked {
+            Some(false)
+        } else if category.starts_with("format") {
             Some(true)
         } else if let Some(s) = row.get("suggestions").and_then(Value::as_array) {
             Some(!s.is_empty())
@@ -245,7 +254,7 @@ fn rows_to_result(rows: &[Value], cwd: &std::path::Path, truncated: bool) -> Par
         d.code_fix = code_fix;
         diagnostics.push(d);
     }
-    Parsed { diagnostics, changed_files: unique_paths(changed), truncated }
+    Parsed { diagnostics, changed_files: unique_paths(changed), truncated, processed: None }
 }
 
 /// Parses `biome check --reporter=json` output (one document, many, or a truncated tail).
@@ -260,13 +269,17 @@ pub fn parse_biome_json(stdout: &str, cwd: &std::path::Path, truncated_input: bo
     }
     let mut rows = Vec::new();
     let mut omitted = false;
+    let mut processed: Option<i64> = None;
     for doc in &docs {
         rows.extend(doc.get("diagnostics").and_then(Value::as_array).cloned().unwrap_or_default());
         if number(doc.pointer("/summary/diagnosticsNotPrinted")) > 0 {
             omitted = true;
         }
+        if doc.pointer("/summary/changed").or_else(|| doc.pointer("/summary/unchanged")).is_some() {
+            *processed.get_or_insert(0) += number(doc.pointer("/summary/changed")) + number(doc.pointer("/summary/unchanged"));
+        }
     }
-    rows_to_result(&rows, cwd, truncated_input || parse_truncated || omitted)
+    Parsed { processed, ..rows_to_result(&rows, cwd, truncated_input || parse_truncated || omitted) }
 }
 
 pub fn merge_biome_parses(parts: Vec<Parsed>) -> Parsed {
@@ -317,12 +330,41 @@ pub fn biome_stderr_tail(stderr: &str) -> String {
 struct Chunks {
     parts: Vec<Parsed>,
     failure: Option<Chunked>,
+    /// Biome exited non-zero without a report: its configuration or invocation was rejected.
+    incomplete: Option<(i32, String)>,
+    /// Files biome itself listed as "provided but ignored", with no diagnostic against them.
+    ignored: Vec<String>,
+    /// Files biome did not process and did not say were ignored (an unreadable file, a missing one).
+    unexplained: Vec<String>,
     stderr: String,
+}
+
+impl Chunks {
+    fn absorb_nested(&mut self, nested: Chunks) {
+        self.parts.extend(nested.parts);
+        self.stderr.push_str(&nested.stderr);
+        self.failure = self.failure.take().or(nested.failure);
+        self.incomplete = self.incomplete.take().or(nested.incomplete);
+        self.ignored.extend(nested.ignored);
+        self.unexplained.extend(nested.unexplained);
+    }
+}
+
+fn normalize_path(path: &str) -> String {
+    let p = path.replace('\\', "/");
+    p.strip_prefix("./").unwrap_or(&p).to_owned()
+}
+
+/// The paths biome's own "These paths were provided but ignored:" stderr block names.
+fn ignored_paths(stderr: &str) -> Vec<String> {
+    let mut lines = stderr.lines().map(js_trim).skip_while(|l| !l.contains("provided but ignored"));
+    lines.next();
+    lines.filter_map(|l| l.strip_prefix("- ")).map(|p| normalize_path(js_trim(p))).collect()
 }
 
 fn run_json_chunks<'a>(req: &'a RunRequest, files: &'a [String], files_per_spawn: usize) -> std::pin::Pin<Box<dyn std::future::Future<Output = Chunks> + Send + 'a>> {
     Box::pin(async move {
-        let mut out = Chunks { parts: Vec::new(), failure: None, stderr: String::new() };
+        let mut out = Chunks { parts: Vec::new(), failure: None, incomplete: None, ignored: Vec::new(), unexplained: Vec::new(), stderr: String::new() };
         for chunk in chunk_files(files, files_per_spawn) {
             let args: Vec<String> = req.args.iter().cloned().chain(BIOME_CHECK_ARGS.map(String::from)).chain(chunk.iter().cloned()).collect();
             let result = req.spawn.run(&req.bin, &args, &req.cwd, req.timeout, req.cancel.as_ref(), None, None).await;
@@ -333,68 +375,41 @@ fn run_json_chunks<'a>(req: &'a RunRequest, files: &'a [String], files_per_spawn
             // A truncated answer is split in half and re-run so every diagnostic is seen.
             if result.error.is_empty() && result.truncated && chunk.len() > 1 {
                 let nested = run_json_chunks(req, &chunk, chunk.len().div_ceil(2)).await;
-                out.parts.extend(nested.parts);
-                out.stderr.push_str(&nested.stderr);
-                if out.failure.is_none() {
-                    out.failure = nested.failure;
-                }
+                out.absorb_nested(nested);
                 continue;
             }
-            out.parts.push(parse_biome_json(&result.stdout, &req.cwd, result.truncated));
+            let parsed = parse_biome_json(&result.stdout, &req.cwd, result.truncated);
+            if result.error.is_empty() && !result.truncated {
+                if parsed.processed.is_none() && result.code != 0 && js_trim(&result.stdout).is_empty() {
+                    out.incomplete.get_or_insert((result.code, result.stderr.clone()));
+                    continue;
+                }
+                if let Some(n) = parsed.processed.filter(|n| (*n as usize) < chunk.len()) {
+                    // Biome lists the paths it ignored only when it processed nothing, so a partly
+                    // processed set is split until each leftover file is asked about alone.
+                    if n > 0 && chunk.len() > 1 {
+                        let nested = run_json_chunks(req, &chunk, chunk.len().div_ceil(2)).await;
+                        out.absorb_nested(nested);
+                        continue;
+                    }
+                    let listed = ignored_paths(&result.stderr);
+                    for file in &chunk {
+                        let has_diagnostic = parsed.diagnostics.iter().any(|d| d.file == normalize_path(file));
+                        if listed.contains(&normalize_path(file)) && !has_diagnostic {
+                            out.ignored.push(file.clone());
+                        } else {
+                            out.unexplained.push(file.clone());
+                        }
+                    }
+                }
+            }
+            out.parts.push(parsed);
         }
         out
     })
 }
 
 pub struct Biome;
-
-#[async_trait]
-impl Runner for Biome {
-    fn id(&self) -> &'static str {
-        "biome"
-    }
-
-    async fn check(&self, req: &RunRequest) -> RunnerResult {
-        let result = run_json_chunks(req, &req.files, req.files_per_spawn).await;
-        if let Some(failure) = &result.failure {
-            return spawn_failure("biome", failure);
-        }
-        let mut parsed = merge_biome_parses(result.parts);
-        let mut names: Vec<String> = parsed.diagnostics.iter().map(|f| rule_name(&f.code)).filter(|n| !n.is_empty()).collect();
-        names.sort();
-        names.dedup();
-        let kinds: HashMap<String, String> = map_limit(names, EXPLAIN_CONCURRENCY, |name| async move {
-            let args = vec!["explain".to_owned(), name.clone()];
-            let r = req.spawn.run(&req.bin, &args, &req.cwd, EXPLAIN_TIMEOUT, req.cancel.as_ref(), None, None).await;
-            (name, parse_explain_fix(&format!("{}\n{}", r.stdout, r.stderr)).to_owned())
-        })
-        .await
-        .into_iter()
-        .collect();
-        apply_biome_fix_kinds(&mut parsed.diagnostics, &kinds);
-        RunnerResult {
-            counts: Some(biome_counts(&parsed.diagnostics, &parsed.changed_files)),
-            stderr_tail: biome_stderr_tail(&result.stderr),
-            truncated: parsed.truncated,
-            note: parsed.truncated.then(|| BIOME_TRUNCATED_NOTE.to_owned()),
-            diagnostics: parsed.diagnostics,
-            changed_files: parsed.changed_files,
-            ..Default::default()
-        }
-    }
-
-    async fn fix(&self, req: &RunRequest) -> RunnerResult {
-        let legacy = JsRegex::new_static(r"unexpected argument|unrecognized|unknown (?:option|argument)", "i");
-        let mut r = run_chunked(req, &args_with(req, &["check", "--write", "--max-diagnostics=none"]), &req.files, false).await;
-        if r.code != 0 && legacy.is_match(&r.stderr) {
-            r = run_chunked(req, &args_with(req, &["check", "--apply", "--max-diagnostics=none"]), &req.files, false).await;
-        }
-        if !r.error.is_empty() {
-            return spawn_failure("biome", &r);
-        }
-        RunnerResult::default().with_stderr(biome_stderr_tail(&r.stderr))
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -450,8 +465,63 @@ mod tests {
         assert_eq!(rule_name("format"), "");
     }
 
+    /// Answers every spawn from a function of its argv.
+    struct Reply(Box<dyn Fn(&[String]) -> crate::tidy::process::ProcessResult + Send + Sync>);
+
+    #[test]
+    fn a_format_row_for_a_file_that_does_not_parse_is_not_a_planned_rewrite() {
+        let rows = json!({"diagnostics": [
+            {"category": "parse", "severity": "error", "description": "Expected an expression", "location": {"path": {"file": "/r/p.ts"}}},
+            {"category": "format", "severity": "error", "description": "Code formatting aborted due to parsing errors.", "location": {"path": {"file": "/r/p.ts"}}},
+            {"category": "format", "severity": "error", "description": "Formatter would have printed", "location": {"path": {"file": "/r/q.ts"}}},
+        ]})
+        .to_string();
+        let mut p = parse_biome_json(&rows, Path::new(CWD), false);
+        assert_eq!(p.changed_files, ["q.ts"]);
+        apply_biome_fix_kinds(&mut p.diagnostics, &HashMap::new());
+        let fixable: Vec<&str> = p.diagnostics.iter().filter(|d| d.fixable).map(|d| d.file.as_str()).collect();
+        assert_eq!(fixable, ["q.ts"]);
+        assert_eq!(biome_counts(&p.diagnostics, &p.changed_files)["filesToFormat"], 1);
+    }
+
     struct Splitting(std::sync::Mutex<Vec<usize>>);
 
+
+    #[async_trait]
+    impl Spawn for Reply {
+        async fn run(&self, _: &str, args: &[String], _: &Path, _: std::time::Duration, _: Option<&tokio_util::sync::CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> crate::tidy::process::ProcessResult {
+            (self.0)(args)
+        }
+    }
+    fn request(files: &[&str], reply: impl Fn(&[String]) -> crate::tidy::process::ProcessResult + Send + Sync + 'static) -> RunRequest {
+        RunRequest::new(Path::new(CWD), "biome", files.iter().map(|f| (*f).to_owned()).collect(), std::sync::Arc::new(Reply(Box::new(reply))), mixdog_rt::testing::tokens().durability_io)
+    }
+    #[tokio::test]
+    async fn a_file_biome_did_not_process_is_ignored_not_checked_and_a_rejected_config_is_a_failure() {
+        use crate::tidy::process::ProcessResult;
+        // Biome processes everything but `ignored.ts`; with nothing processed it exits 1 and names no file.
+        let by_config = |args: &[String]| {
+            let files: Vec<&String> = args.iter().skip(3).collect();
+            let processed = files.iter().filter(|f| f.as_str() != "ignored.ts" && f.as_str() != "unreadable.ts").count();
+            let rows: Vec<Value> = files.iter().filter(|f| f.as_str() == "unreadable.ts").map(|f| json!({"category": "internalError/io", "severity": "error", "description": "stream did not contain valid UTF-8", "location": {"path": f}})).collect();
+            let stdout = json!({"summary": {"changed": 0, "unchanged": processed}, "diagnostics": rows}).to_string();
+            // Biome names the paths only when nothing at all was processed; it names unreadable ones too.
+            let stderr = if processed == 0 { format!("  × No files were processed in the specified paths.\n  \n  i These paths were provided but ignored:\n  \n{}", files.iter().map(|f| format!("  - {f}\n")).collect::<String>()) } else { String::new() };
+            ProcessResult { stdout, stderr, code: i32::from(processed == 0), ..Default::default() }
+        };
+        let mixed = Biome.check(&request(&["a.ts", "ignored.ts", "b.ts"], by_config)).await;
+        assert_eq!((mixed.files_checked, mixed.ignored.clone(), mixed.error.clone()), (Some(2), vec!["ignored.ts".to_owned()], None));
+        let only = Biome.check(&request(&["ignored.ts"], by_config)).await;
+        assert_eq!((only.files_checked, only.ignored.clone(), only.error.clone()), (Some(0), vec!["ignored.ts".to_owned()], None));
+        // Biome lists an unreadable file as "ignored" too, but with an error against it: a failure, with the diagnostic kept.
+        let unreadable = Biome.check(&request(&["a.ts", "unreadable.ts"], by_config)).await;
+        assert!(unreadable.error.as_deref().is_some_and(|e| e.contains("unreadable.ts")), "{:?}", unreadable.error);
+        assert_eq!((unreadable.files_checked, unreadable.ignored.is_empty(), unreadable.diagnostics.iter().map(|d| d.code.as_str()).collect::<Vec<_>>()), (Some(1), true, vec!["internalError/io"]));
+        // An invalid biome.json: exit 1, no report at all.
+        let rejected = Biome.check(&request(&["a.ts"], |_| ProcessResult { code: 1, stderr: "biome.json:1:11 deserialize\n\n  × Found an unknown key `bogus`.".into(), ..Default::default() })).await;
+        assert!(rejected.error.as_deref().is_some_and(|e| e.contains("unknown key")), "{:?}", rejected.error);
+        assert!(rejected.files_checked.is_none() && rejected.diagnostics.is_empty());
+    }
     #[async_trait]
     impl Spawn for Splitting {
         async fn run(&self, _: &str, args: &[String], _: &Path, _: std::time::Duration, _: Option<&tokio_util::sync::CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> crate::tidy::process::ProcessResult {
@@ -468,7 +538,6 @@ mod tests {
             crate::tidy::process::ProcessResult { stdout: json!({"diagnostics": rows}).to_string(), ..Default::default() }
         }
     }
-
     #[tokio::test]
     async fn a_truncated_chunk_is_halved_until_every_file_is_covered() {
         let spawn = std::sync::Arc::new(Splitting(Default::default()));
@@ -479,5 +548,62 @@ mod tests {
         assert_eq!(out.changed_files.len(), 5);
         assert_eq!(out.counts.unwrap()["filesToFormat"], 5);
         assert_eq!(spawn.0.lock().unwrap()[0], 5, "the whole set is tried first");
+    }
+}
+
+
+const EXPLAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+#[async_trait]
+impl Runner for Biome {
+    fn id(&self) -> &'static str {
+        "biome"
+    }
+
+    async fn check(&self, req: &RunRequest) -> RunnerResult {
+        let result = run_json_chunks(req, &req.files, req.files_per_spawn).await;
+        if let Some(failure) = &result.failure {
+            return spawn_failure("biome", failure);
+        }
+        if let Some((code, stderr)) = &result.incomplete {
+            return engine_failure("biome", *code, &biome_stderr_tail(stderr));
+        }
+        let mut parsed = merge_biome_parses(result.parts);
+        let mut names: Vec<String> = parsed.diagnostics.iter().map(|f| rule_name(&f.code)).filter(|n| !n.is_empty()).collect();
+        names.sort();
+        names.dedup();
+        let kinds: HashMap<String, String> = map_limit(names, EXPLAIN_CONCURRENCY, |name| async move {
+            let args = vec!["explain".to_owned(), name.clone()];
+            let r = req.spawn.run(&req.bin, &args, &req.cwd, EXPLAIN_TIMEOUT, req.cancel.as_ref(), None, None).await;
+            (name, parse_explain_fix(&format!("{}\n{}", r.stdout, r.stderr)).to_owned())
+        })
+        .await
+        .into_iter()
+        .collect();
+        apply_biome_fix_kinds(&mut parsed.diagnostics, &kinds);
+        let error = (!result.unexplained.is_empty()).then(|| format!("biome did not process {} file(s) and did not report them as ignored: {}", result.unexplained.len(), result.unexplained.join(", ")));
+        RunnerResult {
+            counts: Some(biome_counts(&parsed.diagnostics, &parsed.changed_files)),
+            stderr_tail: biome_stderr_tail(&result.stderr),
+            truncated: parsed.truncated,
+            note: parsed.truncated.then(|| BIOME_TRUNCATED_NOTE.to_owned()),
+            diagnostics: parsed.diagnostics,
+            changed_files: parsed.changed_files,
+            files_checked: Some(req.files.len() - result.ignored.len() - result.unexplained.len()),
+            ignored: result.ignored,
+            error,
+            ..Default::default()
+        }
+    }
+
+    async fn fix(&self, req: &RunRequest) -> RunnerResult {
+        let legacy = JsRegex::new_static(r"unexpected argument|unrecognized|unknown (?:option|argument)", "i");
+        let mut r = run_chunked(req, &args_with(req, &["check", "--write", "--max-diagnostics=none"]), &req.files, false).await;
+        if r.code != 0 && legacy.is_match(&r.stderr) {
+            r = run_chunked(req, &args_with(req, &["check", "--apply", "--max-diagnostics=none"]), &req.files, false).await;
+        }
+        if !r.error.is_empty() {
+            return spawn_failure("biome", &r);
+        }
+        RunnerResult::default().with_stderr(biome_stderr_tail(&r.stderr))
     }
 }

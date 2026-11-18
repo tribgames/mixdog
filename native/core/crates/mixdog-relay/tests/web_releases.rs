@@ -1,7 +1,4 @@
-//! The renderer release registry, the per-device choice of release, the `/readyz` report and the hashed asset rule. The
-//! cases are those of `apps/relay/lib/renderer-releases.test.mjs` and `deploy/verify-release.test.mjs` that need no running
-//! relay (the ones that start a relay are twin scenarios of the server tasks); the expected values are recorded from the
-//! Node code run on the same fixture trees.
+//! The renderer release registry, the per-device choice of release, the `/readyz` report and the hashed asset rule, on fixture trees built in each test.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -55,46 +52,38 @@ fn parse_error(value: &Value) -> String {
 }
 
 #[test]
-fn selection_exact_version_else_newest_compatible_else_legacy() {
+fn selection_requires_the_exact_reported_app_version() {
     let index = registry(vec![legacy(), release("r100", "1.0.0", 10.0), release("r102", "1.0.2", 20.0), release("r110", "1.1.0", 30.0)]);
     assert_eq!(selected(&index, &report("1.0.2", "")), "r102");
-    // No release for 1.0.5: the newest build that is not newer than the desktop.
-    assert_eq!(selected(&index, &report("1.0.5", "")), "r102");
-    // A desktop newer than everything retained gets the newest release.
-    assert_eq!(selected(&index, &report("9.0.0", "")), "r110");
-    // A pre-release or build suffix is ignored by the comparison.
-    assert_eq!(selected(&index, &report("1.0.5-beta.1", "")), "r102");
-    assert_eq!(selected(&index, &report("1.1.0+build7", "")), "r110");
-    // Older than every retained release, unparsable, or silent: legacy.
-    assert_eq!(selected(&index, &report("0.9.0", "")), "legacy");
-    assert_eq!(selected(&index, &report("nightly", "")), "legacy");
-    assert_eq!(selected(&index, &report("1.0", "")), "legacy");
-    assert_eq!(selected(&index, &report("1.0.5-a\nb", "")), "legacy");
+    for missing in ["1.0.5", "9.0.0", "1.0.5-beta.1", "1.1.0+build7", "0.9.0", "nightly"] {
+        assert!(index.select(&report(missing, "")).is_none(), "{missing}");
+    }
     assert_eq!(selected(&index, &DeviceReport::default()), "legacy");
     // Same desktop version deployed twice: the later build wins; at the same instant the later entry.
     let rebuilt = registry(vec![legacy(), release("a", "1.0.2", 20.0), release("b", "1.0.2", 25.0)]);
     assert_eq!(selected(&rebuilt, &report("1.0.2", "")), "b");
     let tied = registry(vec![legacy(), release("a", "1.0.2", 20.0), release("b", "1.0.2", 20.0)]);
     assert_eq!(selected(&tied, &report("1.0.2", "")), "b");
-    assert_eq!(selected(&tied, &report("1.0.9", "")), "b");
-    // Numbers compare as numbers, not as text.
-    let wide = registry(vec![legacy(), release("two", "1.2.0", 1.0), release("ten", "1.10.0", 2.0)]);
-    assert_eq!(selected(&wide, &report("1.9.0", "")), "two");
-    assert_eq!(selected(&wide, &report("1.10.0", "")), "ten");
 }
 
 #[test]
-fn an_exact_renderer_release_id_outranks_the_version_and_no_legacy_means_newest() {
+fn a_shell_hash_pins_a_rebuild_but_cannot_override_a_reported_version() {
     let pinned = "c".repeat(64);
-    let index = registry(vec![entry("old", "1.0.0", 10.0, false, &pinned), release("new", "1.1.0", 20.0)]);
-    assert_eq!(selected(&index, &report("1.1.0", &pinned)), "old");
+    let index = registry(vec![entry("old", "1.0.0", 10.0, false, &pinned), release("rebuilt", "1.0.0", 15.0), release("new", "1.1.0", 20.0)]);
+    assert_eq!(selected(&index, &report("1.0.0", &pinned)), "old");
+    assert_eq!(selected(&index, &report("1.1.0", &pinned)), "new");
+    assert!(index.select(&report("1.2.0", &pinned)).is_none());
     assert_eq!(selected(&index, &DeviceReport::default()), "new");
     // A release id that no retained release carries falls through to the version rule.
     assert_eq!(selected(&index, &report("1.1.0", &"d".repeat(64))), "new");
-    // The legacy release is never picked by its shell version.
+    // The adopted entry has no version on disk, but the exact known hash can prove a match.
     let with_legacy = registry(vec![entry("legacy", "", 1.0, true, &pinned), release("new", "1.1.0", 20.0)]);
     assert_eq!(selected(&with_legacy, &report("", &pinned)), "legacy");
-    assert_eq!(selected(&with_legacy, &report("1.1.0", &pinned)), "new");
+    assert_eq!(selected(&with_legacy, &report("1.0.0", &pinned)), "legacy");
+    assert!(with_legacy.select(&report("1.0.0", "")).is_none());
+    let conflict = registry(vec![entry("legacy", "", 1.0, true, &pinned), entry("new", "1.1.0", 20.0, false, &pinned)]);
+    assert!(conflict.select(&report("1.0.0", &pinned)).is_none());
+    assert_eq!(selected(&conflict, &report("1.1.0", &pinned)), "new");
 }
 
 #[test]
@@ -247,30 +236,31 @@ fn without_a_registry_the_relay_serves_the_single_renderer_to_everyone() {
     let root = guard.path();
     write_release(&root.join("renderer"), "only", &"a".repeat(64));
     let catalog = RendererCatalog::new(root.join("renderer"), root.join("renderer-releases"));
-    assert_eq!(catalog.dir_for(&report("9.9.9", "")), root.join("renderer"));
+    assert_eq!(catalog.dir_for(&report("9.9.9", "")), Some(root.join("renderer")));
     assert!(catalog.legacy_for(&report("9.9.9", "")).is_none());
-    // A registry naming a release whose files are gone falls back too.
+    // An incomplete retained tree must not fall back to a different release.
     write_registry(&root.join("renderer-releases"), &[release("gone", "1.0.0", 1.0)]);
     let stale = RendererCatalog::new(root.join("renderer"), root.join("renderer-releases"));
-    assert_eq!(stale.dir_for(&report("1.0.0", "")), root.join("renderer"));
+    assert!(stale.dir_for(&report("1.0.0", "")).is_none());
     // No releases directory at all is a single-renderer relay.
     let plain = RendererCatalog::new(root.join("renderer"), "");
-    assert_eq!(plain.dir_for(&report("1.0.0", "")), root.join("renderer"));
-    assert!(plain.index().is_none());
+    assert_eq!(plain.dir_for(&report("1.0.0", "")), Some(root.join("renderer")));
+    assert!(plain.index().expect("registry not configured").is_none());
 }
 
 #[test]
 fn the_catalog_serves_each_device_the_release_for_its_reported_desktop_version() {
     let fixture = release_fixture();
     let catalog = RendererCatalog::new(&fixture.renderer_dir, &fixture.releases_dir);
-    assert_eq!(catalog.dir_for(&report("2.0.0", "")), fixture.releases_dir.join("2.0.0-new"));
-    assert_eq!(catalog.dir_for(&report("3.0.0", "")), fixture.releases_dir.join("2.0.0-new"));
-    assert_eq!(catalog.dir_for(&report("", &"c".repeat(64))), fixture.releases_dir.join("2.0.0-new"));
-    assert_eq!(catalog.dir_for(&report("1.0.0", "")), fixture.releases_dir.join("legacy"));
-    assert_eq!(catalog.dir_for(&DeviceReport::default()), fixture.releases_dir.join("legacy"));
-    // The legacy release is the answer for a device older than every release; it is told what to update to.
+    assert_eq!(catalog.dir_for(&report("2.0.0", "")), Some(fixture.releases_dir.join("2.0.0-new")));
+    assert!(catalog.dir_for(&report("3.0.0", "")).is_none());
+    assert_eq!(catalog.dir_for(&report("", &"c".repeat(64))), Some(fixture.releases_dir.join("2.0.0-new")));
+    assert_eq!(catalog.dir_for(&DeviceReport::default()), Some(fixture.releases_dir.join("legacy")));
+    // Only the older unmatched device is told it can update its PC.
+    assert!(catalog.dir_for(&report("1.0.0", "")).is_none());
     assert_eq!(catalog.legacy_for(&report("1.0.0", "")).map(|notice| notice.min_version), Some("2.0.0".to_owned()));
     assert!(catalog.legacy_for(&report("2.0.0", "")).is_none());
+    assert!(catalog.legacy_for(&report("3.0.0", "")).is_none());
 }
 
 #[test]
@@ -279,21 +269,21 @@ fn the_catalog_reads_the_registry_at_most_once_per_second() {
     let (time, clock) = manual_clock();
     time.store(10_000, Ordering::SeqCst);
     let catalog = RendererCatalog::with_clock(&fixture.renderer_dir, &fixture.releases_dir, 1000, clock);
-    assert_eq!(catalog.dir_for(&report("2.0.0", "")), fixture.releases_dir.join("2.0.0-new"));
+    assert_eq!(catalog.dir_for(&report("2.0.0", "")), Some(fixture.releases_dir.join("2.0.0-new")));
     // The registry is rewritten (a deploy added a release): not seen within the second.
     write_registry(
         &fixture.releases_dir,
         &[entry("legacy", "", 1.0, true, &"b".repeat(64)), entry("2.0.0-new", "2.0.0", 2.0, false, &"c".repeat(64)), release("9.0.0-x", "9.0.0", 3.0)],
     );
     time.store(10_999, Ordering::SeqCst);
-    assert_eq!(catalog.index().expect("a registry").releases.len(), 2);
+    assert_eq!(catalog.index().expect("valid").expect("a registry").releases.len(), 2);
     time.store(11_000, Ordering::SeqCst);
-    assert_eq!(catalog.index().expect("a registry").releases.len(), 3);
-    // An invalid registry counts as none, and a missing one too.
+    assert_eq!(catalog.index().expect("valid").expect("a registry").releases.len(), 3);
+    // A bad registry must not silently enable single-renderer mode.
     put(&fixture.releases_dir.join("index.json"), "{ not json");
     time.store(12_000, Ordering::SeqCst);
-    assert!(catalog.index().is_none());
-    assert_eq!(catalog.dir_for(&report("2.0.0", "")), fixture.renderer_dir);
+    assert!(catalog.index().is_err());
+    assert!(catalog.dir_for(&report("2.0.0", "")).is_none());
 }
 
 // ---- readiness ----
@@ -323,7 +313,7 @@ fn renderer_fixture(root: &Path) {
 const NOT_READY: &str = r#"{"status":"not-ready"}"#;
 
 #[test]
-fn a_complete_renderer_is_ready_and_the_body_is_the_one_node_writes() {
+fn a_complete_renderer_is_ready_and_the_body_is_the_published_one() {
     let guard = tempfile::tempdir().expect("a temporary folder");
     renderer_fixture(guard.path());
     let inspected = inspect_renderer(guard.path()).expect("ready");

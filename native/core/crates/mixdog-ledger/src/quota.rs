@@ -24,14 +24,14 @@ use crate::db::Connection;
 use crate::db::OptionalExtension;
 use crate::db::TransactionBehavior;
 use crate::error::Result;
-use crate::measure::FAST_KEY;
 use crate::measure::NO_USAGE_COST_SOURCE;
 use crate::measure::Ordered;
-use crate::measure::fast_route_sql;
+use crate::measure::SpeedTier;
 use crate::measure::is_unmeasuring_provider;
 use crate::measure::js_number;
 use crate::measure::round_to;
-use crate::measure::sort_fast_beside_model;
+use crate::measure::sort_model_tiers;
+use crate::measure::speed_tier_sql;
 use crate::period::PeriodRequest;
 use crate::period::resolve_usage_stats_period;
 use crate::quota_estimate::Estimate;
@@ -745,7 +745,7 @@ fn read_quota_events(
     let sql = format!(
         "WITH routes AS (
             SELECT id,json_extract(signature,'$[1]') AS model,json_extract(signature,'$[7]') AS rank,
-                {} AS fast
+                {} AS speed_tier
             FROM usage_routes
             WHERE json_extract(signature,'$[0]')=?1 AND COALESCE(json_extract(signature,'$[8]'),'') IN (?2,?3)
                 AND json_extract(signature,'$[4]')<>'{NO_USAGE_COST_SOURCE}'
@@ -755,12 +755,12 @@ fn read_quota_events(
             SUM(e.cache_write) AS cacheWrite,SUM(e.cost_usd) AS costUsd,COUNT(e.cost_usd) AS priced,
             SUM(CASE WHEN e.duration_ms>0 AND e.output>0 THEN e.output ELSE 0 END) AS speedOutput,
             SUM(CASE WHEN e.duration_ms>0 AND e.output>0 THEN e.duration_ms ELSE 0 END) AS speedMs,
-            r.fast
+            r.speed_tier
         FROM usage_events e JOIN routes r ON r.id=e.route
         WHERE e.ts>=?4 AND e.ts<=?5
-        GROUP BY e.ts,e.day,r.model,r.rank,r.fast
+        GROUP BY e.ts,e.day,r.model,r.rank,r.speed_tier
         ORDER BY e.ts",
-        fast_route_sql("signature")
+        speed_tier_sql("signature")
     );
     struct Raw {
         ts: i64,
@@ -776,7 +776,7 @@ fn read_quota_events(
         priced: f64,
         speed_output: Option<f64>,
         speed_ms: Option<f64>,
-        fast: bool,
+        tier: SpeedTier,
     }
     let mut stmt = conn.prepare_cached(&sql)?;
     let raws: Vec<Raw> = stmt
@@ -797,7 +797,7 @@ fn read_quota_events(
                     priced: r.get::<_, i64>(10)? as f64,
                     speed_output: r.get(11)?,
                     speed_ms: r.get(12)?,
-                    fast: r.get::<_, i64>(13)? != 0,
+                    tier: r.get(13)?,
                 })
             },
         )?
@@ -854,11 +854,7 @@ fn read_quota_events(
         let output = row.output.unwrap_or(0.0);
         events.push(Event {
             ts: row.ts as f64,
-            model: if row.fast {
-                format!("{}{FAST_KEY}", row.model)
-            } else {
-                row.model.clone()
-            },
+            model: row.tier.key(&row.model),
             turns: row.turns,
             input,
             output,
@@ -1264,10 +1260,11 @@ fn export_usage(usage: &Usage) -> Map<String, Value> {
     out
 }
 
-/// What a Fast key stands for: `modelId` is the model itself, never the internal key.
+/// `modelId` is the model itself when the grouping key includes a tier suffix.
 fn put_identity(out: &mut Map<String, Value>, key: &str) {
-    if let Some(model) = key.strip_suffix(FAST_KEY) {
-        out.insert("fast".into(), true.into());
+    let (model, tier) = SpeedTier::split_key(key);
+    tier.put_fields(out);
+    if tier != SpeedTier::Standard {
         out.insert("modelId".into(), model.to_string().into());
     }
 }
@@ -1435,7 +1432,9 @@ fn model_series(slots: &[Slot], instances: &[&Instance], keys: &[String], now: f
         .map(|(key, points)| {
             let mut out = Map::new();
             out.insert("key".into(), key.clone().into());
-            put_identity(&mut out, &key);
+            if key != OUTSIDE_KEY {
+                put_identity(&mut out, &key);
+            }
             out.insert("points".into(), Value::Array(points));
             Value::Object(out)
         })
@@ -1731,7 +1730,7 @@ pub(crate) fn read_quota_history(
         .iter()
         .map(|(key, usage)| export_model(key, usage))
         .collect();
-    sort_fast_beside_model(&mut exported_models, model_of_row, &["consumed", "tokens"]);
+    sort_model_tiers(&mut exported_models, model_of_row, &["consumed", "tokens"]);
     let mut series_keys: Vec<String> = exported_models
         .iter()
         .filter(|m| m["consumed"].as_f64().unwrap_or(0.0) > 0.0)
@@ -1885,7 +1884,7 @@ pub(crate) fn read_quota_history(
                     Value::Object(m)
                 })
                 .collect();
-            sort_fast_beside_model(&mut slot_models, model_of_row, &["consumed", "tokens"]);
+            sort_model_tiers(&mut slot_models, model_of_row, &["consumed", "tokens"]);
             o.insert("models".into(), Value::Array(slot_models));
             Value::Object(o)
         })

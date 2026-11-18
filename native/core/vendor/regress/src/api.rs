@@ -57,6 +57,12 @@ pub struct Flags {
 }
 
 impl Flags {
+    /// Whether the pattern is in Unicode mode: `u` or `v` (ECMAScript 22.2.2: a UnicodeSets pattern is a Unicode pattern). `mixdog`: case-insensitive
+    /// matching, whose Canonicalize differs by this, reads it here.
+    pub(crate) fn unicode_mode(&self) -> bool {
+        self.unicode || self.unicode_sets
+    }
+
     /// Construct a Flags from a Unicode codepoints iterator, using JavaScript field names.
     /// 'i' means to ignore case, 'm' means multiline, 'u' means unicode.
     /// Note the 'g' flag implies a stateful regex and is not supported.
@@ -458,7 +464,7 @@ impl Regex {
         start: usize,
     ) -> exec::Matches<super::classicalbacktrack::BacktrackExecutor<'r, indexing::Utf16Input<'t>>>
     {
-        let input = Utf16Input::new(text, self.cr.flags.unicode);
+        let input = Utf16Input::new(text, self.cr.flags.unicode_mode());
         exec::Matches::new(
             super::classicalbacktrack::BacktrackExecutor::new(
                 input,
@@ -476,7 +482,7 @@ impl Regex {
         start: usize,
     ) -> exec::Matches<super::classicalbacktrack::BacktrackExecutor<'r, indexing::Ucs2Input<'t>>>
     {
-        let input = Ucs2Input::new(text, self.cr.flags.unicode);
+        let input = Ucs2Input::new(text, self.cr.flags.unicode_mode());
         exec::Matches::new(
             super::classicalbacktrack::BacktrackExecutor::new(
                 input,

@@ -1,21 +1,23 @@
 //! The credential files and loaders against Node's (fixtures/oauth-credentials/golden.json): the
 //! file each provider reads, the document it loads from a seeded file, and the description of it.
 
+#[cfg(node_twin)]
 use std::path::Path;
 
+#[cfg(node_twin)]
 use mixdog_rt::LaneToken as _;
+#[cfg(node_twin)]
 use serde_json::Value;
+#[cfg(node_twin)]
 use tokio_util::sync::CancellationToken;
 
 use super::oauth_credentials::credential_file;
 use super::oauth_credentials::load_oauth_credentials;
+#[cfg(node_twin)]
 use super::oauth_status::describe_oauth;
 
-fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/oauth-credentials/golden.json")).unwrap()
-}
-
 /// Strings the way the recorder wrote them: the data folder as `{dataDir}`, `/` as separator.
+#[cfg(node_twin)]
 fn normalized(value: &Value, dir: &str) -> Value {
     match value {
         Value::String(text) => Value::String(text.replace(dir, "{dataDir}").replace('\\', "/")),
@@ -25,6 +27,20 @@ fn normalized(value: &Value, dir: &str) -> Value {
     }
 }
 
+/// Each load of a credential file is one counted credential read (`mixdog_ai::work`), the file present or not: the
+/// describe screens read the files themselves, not through `CredentialFile`, so they move the same counter.
+#[test]
+fn every_load_of_a_credential_file_is_a_counted_credential_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = credential_file("openai-oauth", &|_| None, dir.path(), dir.path()).unwrap();
+    for read in 1..=2 {
+        let before = mixdog_ai::work::credential_reads();
+        assert_eq!(load_oauth_credentials("openai-oauth", &path, 0, None), None);
+        assert!(mixdog_ai::work::credential_reads() > before, "load {read} of a missing credential file moved no credential counter");
+    }
+}
+
+#[cfg(node_twin)]
 async fn seed(path: &Path, bytes: Vec<u8>) {
     let path = path.to_path_buf();
     mixdog_rt::testing::tokens()
@@ -36,6 +52,12 @@ async fn seed(path: &Path, bytes: Vec<u8>) {
         .unwrap();
 }
 
+
+#[cfg(node_twin)]
+fn golden() -> Value {
+    serde_json::from_str(include_str!("../../../../../fixtures/oauth-credentials/golden.json")).unwrap()
+}
+#[cfg(node_twin)]
 #[tokio::test]
 async fn every_seeded_file_loads_and_is_described_as_node_does() {
     let golden = golden();
@@ -67,7 +89,7 @@ async fn every_seeded_file_loads_and_is_described_as_node_does() {
         );
     }
 }
-
+#[cfg(node_twin)]
 #[test]
 fn the_credential_file_is_the_default_one_or_the_one_a_variable_names() {
     let golden = golden();
@@ -101,17 +123,4 @@ fn the_credential_file_is_the_default_one_or_the_one_a_variable_names() {
         assert_eq!(row["relative"], format!("{{dataDir}}/{relative}"));
     }
     assert_eq!(credential_file("unknown", &|_| None, &cwd, &data), None);
-}
-
-/// Each load of a credential file is one counted credential read (`mixdog_ai::work`), the file present or not: the
-/// describe screens read the files themselves, not through `CredentialFile`, so they move the same counter.
-#[test]
-fn every_load_of_a_credential_file_is_a_counted_credential_read() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = credential_file("openai-oauth", &|_| None, dir.path(), dir.path()).unwrap();
-    for read in 1..=2 {
-        let before = mixdog_ai::work::credential_reads();
-        assert_eq!(load_oauth_credentials("openai-oauth", &path, 0, None), None);
-        assert!(mixdog_ai::work::credential_reads() > before, "load {read} of a missing credential file moved no credential counter");
-    }
 }

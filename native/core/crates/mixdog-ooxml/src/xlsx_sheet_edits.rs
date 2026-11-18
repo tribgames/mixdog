@@ -15,7 +15,7 @@ use serde_json::{Map, Value, json};
 
 use crate::cells::{
     CellEntry, CellStyle, CellValue, Sheet, cell_records, cell_style_indexes, expand_range, set_cell_in_sheet, set_cell_styles_in_sheet,
-    set_cells_in_sheet, shared_strings,
+    set_cells_in_sheet, set_formulas_in_sheet, shared_strings,
 };
 use crate::opc::{
     add_package_relationship, ensure_content_type_override, part_from_target, part_relationship_path, posix, provenance_citation,
@@ -25,7 +25,7 @@ use crate::sheet_page::{column_file_width, workbook_digit_width};
 use crate::sheet_parts::{NoteRequest, excel_password_hash, write_worksheet_note};
 use crate::sheet_styles::{apply_cell_style, style_has_number_format};
 use crate::sheet_xml::{
-    area_reference, compose_sheet_view, freeze_pane_xml, merged_cell_anchor, merged_ranges, parse_area_range, safe_workbook_table_name,
+    area_reference, compose_sheet_view, freeze_pane_xml, MergeIndex, merged_areas, merged_cell_anchor, merged_ranges, parse_area_range, safe_workbook_table_name,
     sheet_view_parts, update_sheet_view, upsert_defined_name, upsert_worksheet_section, workbook_defined_name_fault, worksheet_section,
     write_column_visibility, write_column_widths, write_merged_ranges,
 };
@@ -96,13 +96,18 @@ pub fn set_worksheet_cell(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Op, 
     } else {
         zip.set(&sheet.path, set_cell_in_sheet(xml, &cell, value, &formula)?);
     }
+    Ok((cell_result(sheet, op, &cell, &formula, anchored)?, !formula.is_empty()))
+}
+
+/// The result row of a `set_cell` / `set_formula`.
+fn cell_result(sheet: &Sheet, op: &Op, cell: &str, formula: &str, anchored: bool) -> Result<Value, String> {
     let written = text_or_empty_nullish(op.get("formula"));
     let normalized = !formula.is_empty() && formula != written.strip_prefix('=').unwrap_or(&written);
     let mut result = Map::new();
     result.insert("op".to_owned(), op.get("op").cloned().unwrap_or(Value::Null));
     result.insert("changed".to_owned(), json!(true));
     result.insert("sheet".to_owned(), json!(sheet.name));
-    result.insert("cell".to_owned(), json!(parse_cell_ref(&cell)?.reference));
+    result.insert("cell".to_owned(), json!(parse_cell_ref(cell)?.reference));
     if normalized {
         result.insert("normalizedFormula".to_owned(), json!(format!("={formula}")));
     }
@@ -112,7 +117,31 @@ pub fn set_worksheet_cell(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Op, 
             json!("Cell is inside a merged range but is not its top-left anchor; Excel hides the value."),
         );
     }
-    Ok((Value::Object(result), !formula.is_empty()))
+    Ok(Value::Object(result))
+}
+
+/// A run of `set_formula` operations on one sheet, written in one pass over the sheet: a filled range is one operation per cell, and
+/// rebuilding the worksheet for each of them made a few thousand rows a hang. `None` when a formula normalizes to nothing (that
+/// operation writes a value, so the run is applied one operation at a time).
+pub fn set_worksheet_formulas(zip: &mut Package, sheet: &Sheet, xml: &str, ops: &[&Op], sheets: &[Sheet]) -> Result<Option<Vec<Value>>, String> {
+    let names: Vec<String> = sheets.iter().map(|entry| entry.name.clone()).collect();
+    let mut written: Vec<(String, String)> = Vec::with_capacity(ops.len());
+    let mut results = Vec::with_capacity(ops.len());
+    // The merged areas are read once for the run, not once per cell.
+    let cells: Vec<String> = ops.iter().map(|op| js_text(op.get("cell"))).collect();
+    let rows = cells.iter().map(|cell| parse_cell_ref(cell).map(|parsed| parsed.row)).collect::<Result<std::collections::BTreeSet<u64>, String>>()?;
+    let merged = MergeIndex::new(&merged_areas(xml)?, &rows);
+    for (op, cell) in ops.iter().zip(&cells) {
+        let formula = normalize_xlsx_formula(op.get("formula").unwrap_or(&Value::Null), "mixdog-ooxml", Some(names.as_slice()))?;
+        if formula.is_empty() {
+            return Ok(None);
+        }
+        let anchored = merged.anchored(cell)?;
+        results.push(cell_result(sheet, op, cell, &formula, anchored)?);
+        written.push((parse_cell_ref(cell)?.reference, formula));
+    }
+    zip.set(&sheet.path, set_formulas_in_sheet(xml, &written)?);
+    Ok(Some(results))
 }
 
 fn month_length(year: i64, month: i64) -> i64 {
@@ -900,4 +929,75 @@ pub fn add_worksheet_table(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Op)
     );
     zip.set(&sheet.path, next);
     Ok(json!({ "op": op.get("op"), "changed": true, "sheet": sheet.name, "name": table_name, "columns": names.len() }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sheet_xml::MERGED_AREA_READS;
+
+    fn filled(rows: usize) -> String {
+        let body: String = (1..=rows).map(|row| format!("<row r=\"{row}\"><c r=\"A{row}\"><v>{row}</v></c></row>")).collect();
+        format!("<worksheet><sheetData>{body}</sheetData><mergeCells count=\"1\"><mergeCell ref=\"D1:E2\"/></mergeCells></worksheet>")
+    }
+
+    #[test]
+    fn a_run_of_formulas_reads_the_merged_areas_once_however_many_cells_it_writes() {
+        let (xml, mut zip) = (filled(300), Package::new());
+        zip.set("xl/worksheets/sheet1.xml", xml.clone());
+        let sheet = Sheet { name: "Sheet1".to_owned(), path: "xl/worksheets/sheet1.xml".to_owned(), rid: "rId1".to_owned(), visibility: "visible" };
+        let ops: Vec<Op> = (1..=300).map(|row| serde_json::from_value(json!({ "op": "set_formula", "cell": format!("A{row}"), "formula": "=ROW()" })).expect("an op")).collect();
+        let refs: Vec<&Op> = ops.iter().collect();
+        MERGED_AREA_READS.with(|reads| reads.set(0));
+        let results = set_worksheet_formulas(&mut zip, &sheet, &xml, &refs, std::slice::from_ref(&sheet)).expect("written").expect("a run");
+        assert_eq!(results.len(), 300);
+        assert_eq!(MERGED_AREA_READS.with(std::cell::Cell::get), 1, "the sheet's merged areas are read once for the run");
+        assert!(zip.text("xl/worksheets/sheet1.xml").contains("<c r=\"A300\"><f>ROW()</f>"));
+    }
+
+    #[test]
+    fn a_merge_heavy_sheet_is_not_scanned_per_cell() {
+        // 400 merges, one per row of column B:C, and a formula into column A of each of those rows.
+        let merges: String = (1..=400).map(|row| format!("<mergeCell ref=\"B{row}:C{row}\"/>")).collect();
+        let body: String = (1..=400).map(|row| format!("<row r=\"{row}\"><c r=\"A{row}\"><v>{row}</v></c></row>")).collect();
+        let xml = format!("<worksheet><sheetData>{body}</sheetData><mergeCells count=\"400\">{merges}</mergeCells></worksheet>");
+        let (mut zip, sheet) = (Package::new(), Sheet { name: "Sheet1".to_owned(), path: "xl/worksheets/sheet1.xml".to_owned(), rid: "rId1".to_owned(), visibility: "visible" });
+        zip.set(&sheet.path, xml.clone());
+        let ops: Vec<Op> = (1..=400).flat_map(|row| ["A", "B"].map(|column| serde_json::from_value(json!({ "op": "set_formula", "cell": format!("{column}{row}"), "formula": "=1" })).expect("an op"))).collect();
+        let refs: Vec<&Op> = ops.iter().collect();
+        crate::sheet_xml::MERGE_PROBES.with(|probes| probes.set(0));
+        let results = set_worksheet_formulas(&mut zip, &sheet, &xml, &refs, std::slice::from_ref(&sheet)).expect("written").expect("a run");
+        let probes = crate::sheet_xml::MERGE_PROBES.with(std::cell::Cell::get);
+        // Each merge is filed once under its row, and each cell asks the one area on its row: a few looks per cell, not 400.
+        assert!(probes <= 4 * ops.len(), "{probes} looks at merges for 800 cells and 400 merges");
+        // B is the top-left cell of its merge (anchored, no warning), so nothing is flagged.
+        assert!(results.iter().all(|result| result.get("warning").is_none()), "{results:?}");
+    }
+
+    #[test]
+    fn many_merges_on_one_row_are_not_walked_per_cell() {
+        // 400 disjoint merges side by side on row 1 (columns 2k..2k+1), and a formula into the anchor and the covered cell of each.
+        let letters = |mut column: usize| {
+            let mut out = String::new();
+            while column > 0 {
+                out.insert(0, (b'A' + ((column - 1) % 26) as u8) as char);
+                column = (column - 1) / 26;
+            }
+            out
+        };
+        let merges: String = (1..=400).map(|k| format!("<mergeCell ref=\"{}1:{}1\"/>", letters(2 * k), letters(2 * k + 1))).collect();
+        let xml = format!("<worksheet><sheetData><row r=\"1\"><c r=\"A1\"><v>1</v></c></row></sheetData><mergeCells count=\"400\">{merges}</mergeCells></worksheet>");
+        let (mut zip, sheet) = (Package::new(), Sheet { name: "Sheet1".to_owned(), path: "xl/worksheets/sheet1.xml".to_owned(), rid: "rId1".to_owned(), visibility: "visible" });
+        zip.set(&sheet.path, xml.clone());
+        let ops: Vec<Op> = (1..=400).flat_map(|k| [2 * k, 2 * k + 1].map(|column| serde_json::from_value(json!({ "op": "set_formula", "cell": format!("{}1", letters(column)), "formula": "=1" })).expect("an op"))).collect();
+        let refs: Vec<&Op> = ops.iter().collect();
+        crate::sheet_xml::MERGE_PROBES.with(|probes| probes.set(0));
+        let results = set_worksheet_formulas(&mut zip, &sheet, &xml, &refs, std::slice::from_ref(&sheet)).expect("written").expect("a run");
+        let probes = crate::sheet_xml::MERGE_PROBES.with(std::cell::Cell::get);
+        // Filing the 400 merges under their row costs one look each (each crosses row 1); a cell then asks one merge, not the other 399.
+        assert!(probes <= 4 * ops.len(), "{probes} looks at merges for {} cells and 400 merges on one row", ops.len());
+        // The anchors are not flagged; the covered cell of each merge is.
+        let flagged = results.iter().filter(|result| result.get("warning").is_some()).count();
+        assert_eq!(flagged, 400);
+    }
 }

@@ -122,7 +122,7 @@ fn assert_schedule_name(name: Option<&Value>) -> Done<String> {
     let value = trimmed(name);
     let mut chars = value.chars();
     let ok = matches!(chars.next(), Some(c) if c.is_alphanumeric())
-        && mixdog_js::utf16_len(&value) <= 64
+        && value.chars().count() <= 64
         && chars.all(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | '_' | '-'));
     if ok { Ok(value) } else { Err("schedule name must be 1-64 letters, digits, spaces, dots, underscores, or hyphens".into()) }
 }
@@ -202,7 +202,7 @@ fn validate_schedule_cron(value: &str) -> Done<String> {
 fn resolve_schedule_timezone(value: Option<&Value>, local: Tz) -> Done<String> {
     let text = trimmed(value);
     let zone = if text.is_empty() { local.name().to_string() } else { text };
-    zone.parse::<Tz>().map_err(|_| format!("invalid schedule timezone \"{zone}\""))?;
+    crate::scheduler::zone::resolve(&zone).ok_or_else(|| format!("invalid schedule timezone \"{zone}\""))?;
     Ok(zone)
 }
 
@@ -888,4 +888,16 @@ fn percent_encode(name: &str) -> String {
     name.bytes()
         .map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')') { (b as char).to_string() } else { format!("%{b:02X}") })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schedule_name_counts_supplementary_letters_as_single_characters() {
+        let name = "\u{10400}".repeat(64);
+        assert_eq!(assert_schedule_name(Some(&json!(&name))).unwrap(), name);
+        assert!(assert_schedule_name(Some(&json!(format!("{name}a")))).is_err());
+    }
 }

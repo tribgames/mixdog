@@ -142,6 +142,61 @@ async fn a_value_carried_after_the_scan_never_stays_in_the_thread() {
     assert_eq!(holding(data.path(), &[CODE, LATER]), Vec::<String>::new());
 }
 
+/// What the row reads hold of a thread's log is kept while nothing writes the log and read again after each thing that
+/// does: an append, a rewind (whose history revision the kept one must not answer), and a rewrite that leaves the file's
+/// name, length and write time as they were (a marked value as long as its replacement, the write time put back). Each
+/// time it answers what an open made then answers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn what_the_row_reads_keep_of_a_log_is_read_again_after_every_write() {
+    const SAME_LENGTH: &str = "4829130157";
+    const THREAD: &str = "kept-shape-thread";
+    assert_eq!(SAME_LENGTH.len(), "[redacted]".len());
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index_over(data.path(), tokens).await, tokens, &marks).await;
+    let log = create(&threads, tokens, THREAD, vec![row("a", &format!("the code is {SAME_LENGTH}"))]).await;
+    threads.projected().await;
+    let shape = |threads: Arc<StoreThreads>| async move {
+        LaneToken::submit(tokens.interactive_io, &CancellationToken::new(), move |lane| {
+            let shape = threads.shape_now(lane, &ThreadId::from(THREAD));
+            (shape, threads.shape_and_open(lane, &ThreadId::from(THREAD)))
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+    };
+    let (first, (kept, opened)) = shape(threads.clone()).await;
+    assert_eq!(kept, opened);
+    assert!(Arc::ptr_eq(&first, &shape(threads.clone()).await.0), "an unwritten log is not opened again");
+
+    append(&log, tokens, vec![row("b", "a second row")]).await;
+    threads.projected().await;
+    let (appended, (kept, opened)) = shape(threads.clone()).await;
+    assert!(!Arc::ptr_eq(&first, &appended), "an appended log is opened again");
+    assert_eq!(kept, opened);
+    assert!(Arc::ptr_eq(&appended, &shape(threads.clone()).await.0));
+
+    append(&log, tokens, vec![commit(json!({"k":"rewind","to_ordinal":2,"reason":"edit"}))]).await;
+    threads.projected().await;
+    let (rewound, (kept, opened_after_rewind)) = shape(threads.clone()).await;
+    assert_eq!(kept, opened_after_rewind);
+    assert_ne!(opened_after_rewind.0, opened.0, "the rewind moved the history revision");
+
+    let dir = data.path().join("sessions").join(THREAD);
+    let newest = std::fs::read_dir(&dir).expect("dir").flatten().map(|e| e.path()).filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("log."))).max().expect("a log file");
+    let before = std::fs::metadata(&newest).expect("metadata");
+    assert!(marks.remember(THREAD, &[fill(SAME_LENGTH)]));
+    redact(&log, tokens).await;
+    threads.projected().await;
+    assert_eq!(holding(data.path(), &[SAME_LENGTH]), Vec::<String>::new(), "the log was rewritten");
+    std::fs::File::options().write(true).open(&newest).expect("the log file").set_modified(before.modified().expect("a write time")).expect("the write time put back");
+    assert_eq!(std::fs::metadata(&newest).expect("metadata").len(), before.len(), "the rewrite left the file's length");
+    let (rewritten, (kept, opened)) = shape(threads.clone()).await;
+    assert!(!Arc::ptr_eq(&rewound, &rewritten), "the rewritten log is opened again");
+    assert_eq!(kept, opened);
+}
+
 /// (b) The process ends after a child marked a value whose earlier report its parent holds and before the parent's rewrite:
 /// the next start knows the child's mark again and rewrites the parent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

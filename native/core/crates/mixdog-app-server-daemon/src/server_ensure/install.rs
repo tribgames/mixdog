@@ -54,6 +54,20 @@ struct Marker {
     installed_at: u64,
 }
 
+/// The build the installer recorded in the marker beside `exe` (the bundle manifest's id, a hash of the binary, so it
+/// cannot be compiled in); 1.4.5's daemon read the same marker (`marker.buildHash`).
+pub fn installed_build(exe: &Path) -> Option<String> {
+    let bytes = fs::read(exe.parent()?.join(COMPLETE_MARKER)).ok()?;
+    serde_json::from_slice::<Marker>(&bytes).ok().map(|marker| marker.build)
+}
+
+/// The build this process reports in `/health`, `daemon.json` and `initialize`: the one its install recorded, or `dev`
+/// for a binary that was not installed by `server-ensure` (a development run has no marker).
+pub fn running_build() -> &'static str {
+    static BUILD: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    BUILD.get_or_init(|| std::env::current_exe().ok().and_then(|exe| installed_build(&exe)).unwrap_or_else(|| "dev".to_owned()))
+}
+
 fn io_failed(what: &str, error: &std::io::Error) -> EnsureError {
     EnsureError::InstallFailed(format!("{what}: {error}"))
 }
@@ -307,6 +321,17 @@ mod tests {
         assert_eq!(second, Installed { exe: first.exe.clone(), fresh: false });
         let leftovers: Vec<_> = fs::read_dir(&paths.versions).unwrap().collect();
         assert_eq!(leftovers.len(), 1, "no staging directory remains");
+    }
+
+    #[test]
+    fn an_installed_core_reads_the_build_the_installer_recorded() {
+        let (home, paths) = setup();
+        let body = b"binary".to_vec();
+        let sha = hash(&body);
+        let spec = InstallSpec { install_id: "1.5.0-0123456789abcdef", version: "1.5.0", build: "0123456789abcdef", sha256: Some(&sha) };
+        let installed = ensure_installed(&paths, &spec, 7, Some(&source(&home, &body))).unwrap();
+        assert_eq!(installed_build(&installed.exe).as_deref(), Some("0123456789abcdef"));
+        assert_eq!(installed_build(&home.path().join("mixdogd")), None, "a binary beside no marker is not an install");
     }
 
     #[test]

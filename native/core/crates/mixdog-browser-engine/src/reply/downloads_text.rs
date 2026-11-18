@@ -98,6 +98,17 @@ pub fn download_mime_type(path: &str, fallback: &str) -> String {
         "gif" => "image/gif",
         "svg" => "image/svg+xml",
         "zip" => "application/zip",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "xlsm" => "application/vnd.ms-excel.sheet.macroenabled.12",
+        "yaml" | "yml" => "application/yaml",
+        "toml" => "application/toml",
+        "ndjson" | "jsonl" => "application/x-ndjson",
+        "md" => "text/markdown",
+        "tsv" => "text/tab-separated-values",
+        "js" | "mjs" => "text/javascript",
+        "css" => "text/css",
         _ => "",
     };
     if !known.is_empty() {
@@ -286,6 +297,21 @@ mod tests {
 
     fn disk(sizes: &[u64], content: &[u8], is_file: bool) -> OneFile {
         OneFile { sizes: std::sync::Mutex::new(sizes.iter().copied().collect()), content: content.to_vec(), is_file }
+    }
+
+    #[test]
+    fn office_and_structured_text_extensions_have_their_types() {
+        for (file, mime) in [
+            ("a.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+            ("a.XLSX", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            ("a.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+            ("a.yml", "application/yaml"),
+            ("a.toml", "application/toml"),
+            ("a.ndjson", "application/x-ndjson"),
+            ("a.bin", "application/octet-stream"),
+        ] {
+            assert_eq!(download_mime_type(file, ""), mime, "{file}");
+        }
     }
 
     #[tokio::test]

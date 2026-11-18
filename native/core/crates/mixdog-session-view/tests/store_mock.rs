@@ -4,7 +4,6 @@
 //! approvals, OAuth flows), and survives a reconnect with the subscription resumed. The states it publishes over the synthetic fold
 //! feeds equal the ones the TypeScript session state publishes (`goldens/store-steps.json`, `recorders/record-store-steps.mjs`).
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,8 +23,6 @@ use serde_json::Value;
 use serde_json::json;
 
 const CLIENT_OPTIONS: &str = include_str!("../../../../../packages/protocol-client/conformance/options.json");
-const FOLD_GOLDEN: &str = include_str!("goldens/fold.json");
-const STORE_GOLDEN: &str = include_str!("goldens/store-steps.json");
 
 /// A clock whose ladder never waits: a reconnect is the peer's to answer.
 struct ImmediateClock;
@@ -170,33 +167,6 @@ fn snapshot(items: &[Value]) -> Value {
     json!({ "thread": { "id": "lead" }, "items": items, "state": {}, "hasOlder": false })
 }
 
-/// The path of the first difference of two values (numbers compared as numbers), `None` when equal.
-fn difference(a: &Value, b: &Value, path: &str) -> Option<String> {
-    match (a, b) {
-        (Value::Number(x), Value::Number(y)) => (x.as_f64() != y.as_f64()).then(|| path.to_owned()),
-        (Value::Object(x), Value::Object(y)) => {
-            for key in x.keys().chain(y.keys()) {
-                match (x.get(key), y.get(key)) {
-                    (Some(p), Some(q)) => {
-                        if let Some(found) = difference(p, q, &format!("{path}.{key}")) {
-                            return Some(found);
-                        }
-                    }
-                    _ => return Some(format!("{path}.{key}")),
-                }
-            }
-            None
-        }
-        (Value::Array(x), Value::Array(y)) => {
-            if x.len() != y.len() {
-                return Some(format!("{path}.length"));
-            }
-            x.iter().zip(y).enumerate().find_map(|(at, (p, q))| difference(p, q, &format!("{path}[{at}]")))
-        }
-        _ => (a != b).then(|| path.to_owned()),
-    }
-}
-
 #[tokio::test(flavor = "current_thread")]
 async fn a_session_starts_with_the_options_and_attaches_its_feed() {
     let options = StoreOptions {
@@ -253,62 +223,6 @@ async fn a_changed_state_is_published_once_per_tick() {
     let published = Rig::pending_events(&mut events);
     assert_eq!(published.iter().filter(|event| matches!(event, StoreEvent::State(_))).count(), 1);
     assert!(!rig.store.tick());
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn the_published_states_are_the_typescript_ones_over_every_recorded_feed() {
-    let golden: Value = serde_json::from_str(STORE_GOLDEN).expect("the recording is JSON");
-    let folds: Value = serde_json::from_str(FOLD_GOLDEN).expect("the fold recording is JSON");
-    let scenarios = golden["scenarios"].as_array().expect("scenarios");
-    assert!(scenarios.len() >= 10, "{} scenarios", scenarios.len());
-    let mut mismatches = Vec::new();
-    for scenario in scenarios {
-        let name = scenario["name"].as_str().expect("a name");
-        let every = scenario["tickEvery"].as_u64().expect("tickEvery") as usize;
-        let feed = folds["feeds"].as_array().expect("feeds").iter().find(|feed| feed["name"] == scenario["feed"]).expect("the feed");
-        let steps = feed["steps"].as_array().expect("steps");
-        let mut rig = Rig::open(StoreOptions::default(), steps[0]["params"].clone()).await;
-        let mut published = scenario["published"].as_array().expect("published").iter();
-        let first = published.next().expect("the opening state");
-        if let Some(found) = difference(&rig.store.state(), &first["state"], "") {
-            mismatches.push(format!("{name}: opening state{found}"));
-        }
-        let mut pending: BTreeMap<String, Value> = BTreeMap::new();
-        let mut revision = 0;
-        for (at, step) in steps.iter().enumerate().skip(1) {
-            if let Some(list) = step.get("requests").and_then(Value::as_array) {
-                let wanted: BTreeMap<String, Value> = list.iter().map(|request| (request["id"].as_str().expect("an id").to_owned(), request.clone())).collect();
-                for (id, request) in &wanted {
-                    if !pending.contains_key(id) {
-                        rig.conn.server_send(request);
-                    }
-                }
-                for id in pending.keys().filter(|id| !wanted.contains_key(*id)) {
-                    rig.conn.server_send(&json!({
-                        "method": "serverRequest/resolved",
-                        "params": { "threadId": "lead", "requestId": id, "resolution": { "kind": "interrupted", "at": 1 } },
-                    }));
-                }
-                pending = wanted;
-            }
-            if let Some(jobs) = step.get("hostShellJobs") {
-                revision += 1;
-                rig.app_section("shellJobs/host/updated", "hostShellJobs", None, revision, jobs.clone()).await;
-            }
-            rig.feed(step["method"].as_str().expect("a method"), step["params"].clone()).await;
-            if at % every == every - 1 || at == steps.len() - 1 {
-                if rig.store.tick() {
-                    let want = published.next().expect("a published state for the tick");
-                    assert_eq!(want["after"].as_u64(), Some(at as u64), "{name}: the tick after step {at}");
-                    if let Some(found) = difference(&rig.store.state(), &want["state"], "") {
-                        mismatches.push(format!("{name} (after step {at}): state{found}"));
-                    }
-                }
-            }
-        }
-        assert!(published.next().is_none(), "{name}: every recorded state was published");
-    }
-    assert!(mismatches.is_empty(), "{} states differ, first: {:?}", mismatches.len(), mismatches.iter().take(5).collect::<Vec<_>>());
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -536,3 +450,8 @@ async fn a_session_list_reads_every_page_or_the_one_asked_for() {
     assert_eq!((request["params"]["limit"].clone(), request["params"]["cursor"].clone()), (json!(1), json!("k")));
     assert_eq!(rig.conn.queued(), 0);
 }
+
+
+#[cfg(node_twin)]
+#[path = "node-twin/store_mock.rs"]
+mod node_twin;

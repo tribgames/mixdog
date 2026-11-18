@@ -42,6 +42,8 @@ pub struct CatalogService {
     metadata: Arc<ModelsDevSource>,
     /// The live-roster files, read from the data directory on every lookup.
     pub(super) rosters: ArcSwap<Rosters>,
+    /// The signed-in account of each roster, shared by the listings that write the files and the readers of them.
+    pub(super) roster_accounts: super::oauth_cache::RosterAccounts,
     /// The LiteLLM price table, the metadata lookup's base layer.
     litellm: Option<Arc<ModelsDevSource>>,
     /// The tables adapters run their listing steps against.
@@ -87,6 +89,7 @@ impl CatalogService {
             registered: arc_swap::ArcSwapOption::empty(),
             metadata,
             rosters: ArcSwap::from_pointee(Rosters::default()),
+            roster_accounts: Default::default(),
             litellm: None,
             listing: ListingLookup::new(),
             audited: std::sync::Mutex::new(None),
@@ -184,14 +187,8 @@ impl CatalogService {
         let litellm = ModelsDevSource::litellm(http, data_dir.clone(), io);
         Self::cold_start(initial, sources, metadata).await.with_litellm(litellm).await.with_rosters(data_dir)
     }
-    /// Shares `handle` (already given to the adapters) as this service's
-    /// listing tables, so adapters built before the service see them.
-    pub fn with_listing_lookup(mut self, handle: ListingLookup) -> Self {
-        self.listing = handle;
-        self.publish_listing();
-        self
-    }
-
+    /// The one listing lookup: the handle this service publishes its tables into. Every adapter reads it, so the
+    /// composition hands this handle to them rather than making its own.
     pub fn listing_lookup(&self) -> ListingLookup {
         self.listing.clone()
     }
@@ -201,6 +198,7 @@ impl CatalogService {
             self.litellm.as_ref().and_then(|s| s.current()),
             self.metadata.current(),
             self.rosters.load_full(),
+            Some(self.metadata.clone()),
         );
     }
 
@@ -216,13 +214,12 @@ impl CatalogService {
     /// Runs `read` over the resident overlay tables and the roster files (what
     /// `getModelMetadataSync` reads); no I/O, never waits on a refresh.
     pub(super) fn with_lookup<R>(&self, read: impl FnOnce(&Lookup<'_>) -> R) -> R {
-        static EMPTY: std::sync::LazyLock<serde_json::Value> = std::sync::LazyLock::new(|| serde_json::json!({}));
         let litellm = self.litellm.as_ref().and_then(|s| s.current());
         let models_dev = self.metadata.current();
         let rosters = self.rosters.load();
         read(&Lookup {
-            litellm: litellm.as_deref().map_or(&EMPTY, ModelsDev::projected),
-            models_dev: models_dev.as_deref().map_or(&EMPTY, ModelsDev::projected),
+            litellm: litellm.as_deref().map_or(super::Overlay::empty(), ModelsDev::projected),
+            models_dev: models_dev.as_deref().map_or(super::Overlay::empty(), ModelsDev::projected),
             rosters: &rosters,
         })
     }
@@ -235,10 +232,18 @@ impl CatalogService {
         Some((litellm.cache_at(), self.metadata.cache_at()))
     }
 
+    /// `(LiteLLM, models.dev)` digests of the resident documents, only when both are resident ([`Self::warm_stamps`]): the
+    /// same documents fetched again keep them.
+    pub(super) fn warm_digests(&self) -> Option<(u64, u64)> {
+        let litellm = self.litellm.as_ref()?.current()?;
+        let models_dev = self.metadata.current()?;
+        Some((litellm.digest(), models_dev.digest()))
+    }
+
     /// Reads the providers' live-roster files from `data_dir` on every lookup (`readModelsFromCacheFile`), so a
     /// file another process writes is seen by the next one; nothing is held between lookups.
     pub fn with_rosters(self, data_dir: PathBuf) -> Self {
-        self.rosters.store(Arc::new(Rosters::in_dir(data_dir)));
+        self.rosters.store(Arc::new(Rosters::in_dir(data_dir).with_accounts(self.roster_accounts.clone())));
         self.publish_listing();
         self
     }
@@ -287,7 +292,8 @@ impl CatalogService {
     /// The listing source of a registered adapter, wired to this service's data directory (the Anthropic
     /// OAuth route's model cache lives there); `None` for an adapter that lists no models.
     pub fn model_source(&self, provider: ProviderId, adapter: Arc<dyn ProviderAdapter>) -> Option<ModelSource> {
-        ModelSource::of_adapter(provider, adapter).map(|source| source.with_oauth_cache(self.metadata.oauth_model_cache()))
+        ModelSource::of_adapter(provider, adapter)
+            .map(|source| source.with_oauth_cache(self.metadata.oauth_model_cache().with_accounts(self.roster_accounts.clone())))
     }
 
     /// The catalog readers hold.
@@ -316,6 +322,33 @@ impl CatalogService {
     /// live-roster rows, each id once, read from the data directory.
     pub fn cached_models(&self, provider: &str) -> Vec<serde_json::Value> {
         self.rosters.load().cached_models(provider)
+    }
+
+    /// The file of the roster the signed-in identity's listing keeps for `provider`, for a reader that parses the file itself:
+    /// none when the provider keeps none or no identity is known (nothing is then served).
+    pub fn roster_file(&self, provider: &str) -> Option<String> {
+        let roster = super::oauth_cache::Roster::of(provider)?;
+        Some(roster.keyed_file(&self.roster_accounts.get(roster)?))
+    }
+
+    /// States `key` as the signed-in identity of `provider`'s roster, as its listing does: for a test of a reader of the
+    /// roster files that runs no listing.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn sign_in_roster(&self, provider: &str, key: &str) {
+        let roster = super::oauth_cache::Roster::of(provider).expect("a provider that keeps a roster");
+        self.roster_accounts.note(roster, Some(key));
+    }
+
+    /// Whether a saved roster record (the whole file's JSON) was fetched for the signed-in identity: the one rule every
+    /// reader of a roster file applies.
+    pub fn roster_serves(&self, provider: &str, record: &serde_json::Value) -> bool {
+        let Some(roster) = super::oauth_cache::Roster::of(provider) else { return false };
+        self.roster_accounts.get(roster).is_some_and(|key| super::oauth_cache::record_is_fetched_for(record, &key))
+    }
+
+    /// `rejectedEffortLevelsSync`'s store: what endpoints refused per route, keyed by [`crate::effort::rejection_key`].
+    pub fn effort_rejections(&self) -> std::collections::HashMap<String, crate::effort::RejectionEntry> {
+        self.rosters.load().effort_rejections()
     }
 
     /// `getModelsDevProviderModelsSync(provider)` (`model-catalog.mjs:438`): the resident
@@ -361,7 +394,8 @@ impl CatalogService {
             let sources = self.sources();
             let ids: Vec<&str> = sources.iter().map(|s| s.provider().as_str()).collect();
             let names = matching_providers(&ids, wanted);
-            sources.iter().filter(|s| names.contains(&s.provider().as_str())).cloned().collect()
+            // A forced refresh asks the provider again whatever its saved roster holds (`refreshCodexCatalog`).
+            sources.iter().filter(|s| names.contains(&s.provider().as_str())).cloned().map(ModelSource::bypassing_cache).collect()
         };
         let outcome = self.catalog.refresh_asking(&only, Ask::All).await;
         self.publish_listing();
@@ -389,6 +423,7 @@ impl CatalogService {
     /// An auth/account change: the rows listed under the previous account are
     /// dropped (`invalidateSharedProviderCatalog`).
     pub fn invalidate_accounts(&self) {
+        self.roster_accounts.forget_all();
         self.catalog.invalidate_accounts();
     }
 

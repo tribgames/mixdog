@@ -152,6 +152,183 @@ test('a displayed device list and its cache survive until the relay answers agai
   assert.equal(dom.document.querySelector('.conn-list'), null, 'no stale list once the relay lost the link');
 });
 
+test('an open Connection panel follows relay descriptors and roster changes, including while switched off', async (t) => {
+  const listeners = new Set();
+  const snapshot = async () => ({ status: 'ready', entries: [] });
+  installSectionStore({ snapshot, subscribe: (listener) => (listeners.add(listener), () => listeners.delete(listener)) });
+  t.after(() => installSectionStore({ snapshot, subscribe: () => () => undefined }));
+  const { document, state } = await mount(t, { info: null });
+  const phone = client('c1', 'Fold', 'Mixdog App', true);
+  let revision = 0;
+  const publish = (clients, { connected = true, disabled = false } = {}) =>
+    act(async () => {
+      const value = {
+        clients,
+        disabled,
+        settings: { ...state.settings, enabled: !disabled },
+        info: {
+          enabled: !disabled,
+          connected,
+          relay: { clientUrl: disabled ? '' : 'https://relay.example/d/aaaaaaaa/', token: '', clients },
+        },
+      };
+      const entry = { section: 'remote', key: null, revision: ++revision, value };
+      for (const listener of [...listeners]) listener({ kind: 'sections', changes: [{ section: 'remote', key: null, entry }] });
+    });
+  const status = () => document.querySelector('.conn-list .conn-status')?.textContent;
+
+  await click(buttonNamed(document, 'Connect a device'));
+  assert.ok(document.querySelector('.conn-qr--loading'));
+  await publish([phone]);
+  assert.ok(document.querySelector('.conn-qr svg'));
+  assert.equal(status(), 'Online');
+  await publish([{ ...phone, online: false }], { connected: false });
+  assert.ok(document.querySelector('.conn-qr--loading'));
+  assert.equal(status(), 'Offline');
+  await publish([{ ...phone, online: false }], { disabled: true });
+  assert.equal(document.querySelector('.conn-dialog'), null);
+  assert.equal(status(), 'Off');
+  assert.equal(buttonNamed(document, 'Disconnect').disabled, false);
+  await publish([{ ...phone, pendingRemoval: true }], { disabled: true });
+  assert.equal(status(), 'Removing…');
+  await publish([], { disabled: true });
+  assert.equal(document.querySelector('.conn-empty').textContent, 'No connected devices.');
+});
+
+test('a focus refresh supersedes a pending roster read and closing Connection stops new reads', async (t) => {
+  const dom = installTestDom(t, DOM);
+  const { api } = makeApi();
+  const pages = [];
+  const subscriptions = new Set();
+  api.subscribeHostListsChanged = (listener) => {
+    subscriptions.add(listener);
+    return () => subscriptions.delete(listener);
+  };
+  api.getRemoteConnectionState = () => {
+    const page = Promise.withResolvers();
+    pages.push(page);
+    return page.promise;
+  };
+  const render = (active) => act(async () => dom.root.render(React.createElement(ConnectionPanel, { api, active })));
+  const focus = () => act(async () => dom.window.dispatchEvent(new dom.window.Event('focus')));
+  await render(true);
+  assert.equal(pages.length, 1);
+  await focus();
+  assert.equal(pages.length, 2, 'the first read has not settled');
+  await focus();
+  await focus();
+  assert.equal(pages.length, 2, 'invalidation cannot accumulate unresolved calls');
+  const state = { info: null, settings: null, disabled: false };
+  await act(async () => pages[1].resolve({ ...state, clients: [] }));
+  assert.equal(pages.length, 3, 'the latest invalidation runs as soon as a slot opens');
+  await act(async () => pages[2].resolve({ ...state, clients: [] }));
+  await act(async () => pages[0].resolve({ ...state, clients: [client('old', 'Old phone', 'Mixdog App', false)] }));
+  assert.equal(dom.document.querySelector('.conn-empty').textContent, 'No connected devices.');
+
+  await render(false);
+  await focus();
+  assert.equal(pages.length, 3);
+  assert.equal(subscriptions.size, 0);
+});
+
+test('the latest roster can land after both slow-read deadlines and resume readback', async (t) => {
+  const dom = installTestDom(t, DOM);
+  const { api } = makeApi();
+  const pages = [];
+  api.getRemoteConnectionState = () => {
+    const page = Promise.withResolvers();
+    pages.push(page);
+    return page.promise;
+  };
+
+  let now = 0;
+  let nextTimer = 0;
+  const timers = new Map();
+  t.mock.method(dom.window, 'setTimeout', (callback, delay = 0, ...args) => {
+    const id = ++nextTimer;
+    timers.set(id, { at: now + delay, run: () => callback(...args) });
+    return id;
+  });
+  t.mock.method(dom.window, 'clearTimeout', (id) => timers.delete(id));
+  const elapse = (ms) => act(async () => {
+    now += ms;
+    for (const [id, timer] of [...timers]) {
+      if (timer.at <= now && timers.delete(id)) timer.run();
+    }
+  });
+
+  await act(async () => dom.root.render(React.createElement(ConnectionPanel, { api })));
+  assert.equal(pages.length, 1);
+  await elapse(10_000);
+  await elapse(10_000);
+  assert.equal(pages.length, 2, 'a stalled replacement cannot start an unbounded chain');
+
+  const state = { info: null, settings: null, disabled: false };
+  await act(async () => pages[0].resolve({ ...state, clients: [client('old', 'Old phone', 'Mixdog App', false)] }));
+  assert.doesNotMatch(dom.document.body.textContent, /Old phone/);
+  await act(async () => pages[1].resolve({ ...state, clients: [client('new', 'New phone', 'Mixdog App', false)] }));
+  assert.match(dom.document.body.textContent, /New phone/);
+
+  await elapse(10_000);
+  assert.equal(pages.length, 3, 'readback resumes without another announcement or focus event');
+  await act(async () => pages[2].resolve({ ...state, clients: [] }));
+  assert.doesNotMatch(dom.document.body.textContent, /New phone/);
+});
+
+test('a paged roster stays manageable offline and a late page cannot restore removed devices', async (t) => {
+  const listeners = new Set();
+  const pair = client('c1', 'Fold', 'Mixdog App', true);
+  const settings = { enabled: true, name: 'Desk', defaultName: 'Desk' };
+  const ready = {
+    clients: [pair],
+    disabled: false,
+    settings,
+    info: { enabled: true, connected: true, relay: { clientUrl: 'https://relay.example/d/aaaaaaaa/', clients: [pair] } },
+  };
+  const snapshot = async () => ({ status: 'ready', entries: [{ section: 'remote', key: null, revision: 1, value: ready }] });
+  installSectionStore({ snapshot, subscribe: (listener) => (listeners.add(listener), () => listeners.delete(listener)) });
+  t.after(() =>
+    installSectionStore({ snapshot: async () => ({ status: 'ready', entries: [] }), subscribe: () => () => undefined })
+  );
+  const dom = installTestDom(t, DOM);
+  const { api, calls } = makeApi({ info: readyInfo('aaaaaaaa', [pair]) });
+  const pages = [];
+  api.getRemoteConnectionState = () => {
+    const page = Promise.withResolvers();
+    pages.push(page);
+    return page.promise;
+  };
+  await act(async () => dom.root.render(React.createElement(ConnectionPanel, { api })));
+  const { document } = dom;
+  await click(buttonNamed(document, 'Connect a device'));
+  assert.ok(document.querySelector('.conn-qr svg'));
+  assert.equal(pages.length, 0, 'an inline roster does not leave a page blocking the next stub');
+  let revision = 1;
+  const publish = (value) =>
+    act(async () => {
+      const entry = { section: 'remote', key: null, revision: ++revision, value };
+      for (const listener of [...listeners]) listener({ kind: 'sections', changes: [{ section: 'remote', key: null, entry }] });
+    });
+  const offline = { ...ready, clients: [{ ...pair, online: false }], info: { ...ready.info, connected: false } };
+  await publish(null);
+  await act(async () => pages[0].resolve(offline));
+  assert.ok(document.querySelector('.conn-qr--loading'));
+  assert.equal(document.querySelector('.conn-list .conn-status').textContent, 'Offline');
+  await click(buttonNamed(document, 'Close'));
+  await click(buttonNamed(document, 'Disconnect'));
+  await click(buttonNamed(document, 'Confirm disconnect'));
+  assert.deepEqual(calls.filter(([op]) => op === 'revoke'), [['revoke', pair.id]]);
+
+  const beforeStub = pages.length;
+  await publish(null);
+  assert.equal(pages.length, beforeStub + 1, 'a later stub issues its own read');
+  await publish({ ...offline, clients: [] });
+  await act(async () => {
+    for (const page of pages.slice(1)) page.resolve(offline);
+  });
+  assert.equal(document.querySelector('.conn-empty').textContent, 'No connected devices.');
+});
+
 async function remoteNoteGroup(t, native) {
   const dom = installTestDom(t, DOM);
   if (native) dom.window.mixdogNative = native;
@@ -163,9 +340,9 @@ test('a remote browser titles its connection note "Web app"', async (t) => {
   assert.match(await remoteNoteGroup(t, null), /Web app/);
 });
 
-test('the Android app titles its connection note with the app wording, not "Web app"', async (t) => {
+test('the Android app titles its connection note "App", not "Web app"', async (t) => {
   const group = await remoteNoteGroup(t, { platform: 'android', version: '1', call: () => Promise.resolve(true) });
-  assert.match(group, /Mixdog app/);
+  assert.match(group, /^App/);
   assert.doesNotMatch(group, /Web app/);
 });
 
@@ -426,6 +603,41 @@ test('Connect a device: browser view has the full-width address with copy plus t
 
   await click(tab('Phone'));
   assert.equal(calls.filter((call) => call[1] === 'release').length, 0, 'every view shares the one code');
+});
+
+test('an open view takes its hold once and asks nothing more until it closes', async (t) => {
+  const asks = [];
+  const { document } = await mount(t, {
+    pairCode: (action) => {
+      asks.push(action);
+      return Promise.resolve(null);
+    },
+  });
+  await click(buttonNamed(document, 'Connect a device'));
+  await act(async () => new Promise((done) => setTimeout(done, 2_300)));
+  assert.deepEqual(asks, ['ensure'], 'no heartbeat: the hold is taken once, whether or not a code has landed');
+  await click(buttonNamed(document, 'Close'));
+  assert.deepEqual(asks, ['ensure', 'release']);
+  await act(async () => new Promise((done) => setTimeout(done, 2_300)));
+  assert.deepEqual(asks, ['ensure', 'release'], 'a closed view asks no more');
+});
+
+test('the unsupported state arrives in the remote section, not as a second answer', async (t) => {
+  const listeners = new Set();
+  const empty = { snapshot: async () => ({ status: 'ready', entries: [] }), subscribe: () => () => undefined };
+  installSectionStore({
+    snapshot: async () => ({ status: 'ready', entries: [] }),
+    subscribe: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+  });
+  t.after(() => installSectionStore(empty));
+  const { document } = await mount(t, { pairCode: () => Promise.resolve(null) });
+  await click(buttonNamed(document, 'Connect a device'));
+  assert.ok(document.querySelector('.conn-code-tile--loading'));
+  await act(async () => {
+    const entry = { section: 'remote', key: null, revision: 1, value: { pairCode: null, pairCodeUnsupported: true } };
+    for (const listener of [...listeners]) listener({ kind: 'sections', changes: [{ section: 'remote', key: null, entry }] });
+  });
+  assert.equal(document.querySelector('.conn-code-tile--na').textContent, 'Codes aren’t available right now');
 });
 
 test('a pending code request shows the loading tile; the code and its replacement arrive in the remote section, with no re-ask', async (t) => {

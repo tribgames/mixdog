@@ -289,7 +289,7 @@ pub fn normalize_gateway_error_detail(detail: Js, envelope: Js) -> Option<Value>
 }
 
 /// The error followed down its `cause` chain, at most eight deep.
-pub fn bounded_cause_chain(err: Js) -> Vec<&Value> {
+pub fn bounded_cause_chain(err: Js<'_>) -> Vec<&Value> {
     let mut chain = Vec::new();
     let mut cursor = err;
     while let Some(item) = cursor.filter(|item| truthy(Some(*item))) {
@@ -341,7 +341,7 @@ fn wire_detail(err: Js) -> Js {
 
 // Every place a provider error may carry its response headers, outermost first: the error itself, the SDK response,
 // preserved wire `error.headers`.
-fn header_sources(err: Js) -> Vec<&Value> {
+fn header_sources(err: Js<'_>) -> Vec<&Value> {
     let detail = wire_detail(err);
     [
         get(err, "headers"),

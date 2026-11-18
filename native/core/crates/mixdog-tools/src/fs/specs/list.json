@@ -23,7 +23,7 @@
       },
       "meta": {
         "type": "boolean",
-        "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+        "description": "Per-entry size in bytes, UTC mtime, and octal mode. A readable text file up to 2 MiB also gets a line count."
       },
       "limit": {
         "type": "integer",

@@ -78,7 +78,7 @@ fn owner_of(value: &Value) -> Result<ProcessOwner, CoreError> {
     };
     match kind {
         "internal" => Ok(ProcessOwner::Internal),
-        "computerHelper" => Ok(ProcessOwner::ComputerHelper),
+        "computerHelper" => Ok(ProcessOwner::ComputerHelper { scope: None }),
         "tool" => Ok(ProcessOwner::Tool {
             thread_id: ThreadId::from(text(body, "threadId", "owner.threadId")?),
             tool_call_id: ToolCallId::from(text(body, "toolCallId", "owner.toolCallId")?),

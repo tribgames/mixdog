@@ -50,7 +50,7 @@ use mixdog_protocol::ProviderId;
 use serde_json::{Map, Value, json};
 
 use super::admin::ProviderAdmin;
-use super::collaborators::{AuthRefresh, OAuthProvider, VertexAdc};
+use super::collaborators::{AuthRefresh, LoginBrowser, OAuthProvider, VertexAdc};
 use super::oauth_credentials::load_oauth_credentials;
 use super::oauth_status::{PROVIDERS, describe_oauth};
 
@@ -70,7 +70,7 @@ pub struct OAuthWiring {
     pub io: CredentialIo,
     /// The plugin data folder: MiMo's key-name file lives in it.
     pub plugin_data: PathBuf,
-    /// Antigravity's login presents the live client version.
+    /// The process's shared client identities for OAuth requests.
     pub versions: Arc<ClientVersions>,
     /// `Date.now()`.
     pub now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
@@ -195,7 +195,10 @@ impl FileOAuth {
                     Arc::new(OpenAiDeviceLogin::new(login, http, pace, browser)) as Arc<dyn LoginFlow>
                 }
             }
-            "anthropic-oauth" => pkce(self.id, Arc::new(AnthropicLogin::new(file, http))),
+            "anthropic-oauth" => pkce(
+                self.id,
+                Arc::new(AnthropicLogin::new(file, http).with_cli_version_source(wiring.versions.claude())),
+            ),
             "grok-oauth" => Arc::new(GrokFlow { http, file, target: target(self.id), device: (!with_browser).then_some(pace) }),
             "antigravity-oauth" => {
                 let now = Arc::clone(&wiring.now_ms);
@@ -260,6 +263,7 @@ impl OAuthProvider for FileOAuth {
         }
         let now = Arc::clone(&self.wiring.now_ms);
         let session = mixdog_ai::providers::anthropic::OAuthSession::new(self.file(account)?, Arc::clone(&self.wiring.http))
+            .with_cli_version_source(self.wiring.versions.claude())
             .with_clock(Arc::new(move || u64::try_from(now()).unwrap_or(0)));
         session.ensure_lease(minimum_validity_ms).await.map(drop).map_err(|error| error.message)
     }
@@ -326,16 +330,18 @@ pub struct AdminParts {
     pub registry: Arc<ProviderRegistry>,
     pub oauth_usage: Arc<OAuthUsage>,
     pub io: CredentialIo,
+    /// The machine's browser, where a sign-in's page opens.
+    pub browser: Arc<dyn LoginBrowser>,
 }
 
 impl ProviderAdmin {
     /// The one production admin: the ten OAuth providers and the gcloud check are built here, the
     /// rest is passed in.
     pub fn production(parts: AdminParts) -> Arc<Self> {
-        let AdminParts { oauth, builder, vault, config, refresh, registry, oauth_usage, io } = parts;
+        let AdminParts { oauth, builder, vault, config, refresh, registry, oauth_usage, io, browser } = parts;
         let providers = oauth_providers(&oauth);
         let vertex_adc = Arc::new(AdcLogin(Arc::clone(&builder)));
         let accounts = oauth.accounts.clone();
-        Self::new(providers, builder, accounts, vault, config, refresh, vertex_adc, registry, oauth_usage, io)
+        Self::with_browser(providers, builder, accounts, vault, config, refresh, vertex_adc, registry, oauth_usage, io, browser)
     }
 }

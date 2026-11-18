@@ -181,6 +181,10 @@ fn user_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
         let (submission_ids, consumed, hop, bot_chain, room_row) = stored_details(message);
         details.submission_ids = submission_ids;
         details.consumed_execution_ids = consumed;
+        details.completions = message
+            .pointer("/meta/transcript/completions")
+            .and_then(|stored| serde_json::from_value::<Vec<mixdog_protocol::DeliveredCompletion>>(stored.clone()).ok())
+            .unwrap_or_default();
         details.hop = hop;
         details.bot_chain = bot_chain;
         details.room_row = room_row;
@@ -484,6 +488,12 @@ pub fn message_shown(record: &ItemRecord, message: &Value) -> Vec<(Shown, Option
             }
         }
     }
+    for (row, item) in shown.iter_mut().filter_map(|(shown, _)| match shown {
+        Shown::Item(item) => Some(item),
+        Shown::Update(_) => None,
+    }).enumerate() {
+        super::super::reads::mark_history_position(item, record.iid.as_str(), row);
+    }
     shown
 }
 
@@ -512,7 +522,9 @@ pub fn display_item(record: &ItemRecord, body: &Value) -> Option<ThreadItem> {
         counts_prompt: record.prompt.is_some(),
         source: None,
     };
-    Some(item_of(row, &ctx))
+    let mut item = item_of(row, &ctx);
+    super::super::reads::mark_history_position(&mut item, record.iid.as_str(), 0);
+    Some(item)
 }
 
 #[cfg(test)]
@@ -534,6 +546,10 @@ mod tests {
         }))
         .expect("record shape");
         record.body = Slot::Inline(body.clone());
+        // A user record carries its prompt text (a row shows none without it).
+        if let Some(text) = body.get("content").and_then(Value::as_str).filter(|_| body["role"] == "user") {
+            record.prompt = Some(Slot::Inline(text.to_owned()));
+        }
         let shown = message_items(&record, &body);
         let change = Change::Record { record: Arc::new(Record::Item(record)), display: Display::Items(shown.clone()) };
         state.apply(&change, Some(1));
@@ -546,38 +562,6 @@ mod tests {
 
     fn result(id: &str, text: &str) -> Value {
         json!({ "role": "tool", "content": text, "toolCallId": id })
-    }
-
-    /// A history page's byte budget counts `Buffer.byteLength(JSON.stringify(row))` of the display
-    /// row (`storedHistorySlice`). The recorded Node sizes of the rows `record-session-reads.mjs`
-    /// built are those of the same rows as display records here.
-    #[test]
-    fn display_rows_measure_as_nodes_do() {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-reads/golden.json");
-        let bytes = mixdog_statefile::read_content(&path).expect("read golden.json").expect("golden.json exists");
-        let golden: Value = serde_json::from_slice(&bytes).expect("golden.json parses");
-        let sizes = golden["pages"]["sizes"].as_array().expect("sizes");
-        assert_eq!(sizes.len(), 24);
-        for (i, size) in sizes.iter().enumerate() {
-            // The recorder's rows: `{ id, kind: 'assistant', text: 'x'.repeat(((i * 37) % 11) * 40 + 5) }`.
-            let body = json!({ "id": format!("r{i}"), "kind": "assistant", "text": "x".repeat(((i * 37) % 11) * 40 + 5) });
-            let mut record: ItemRecord = serde_json::from_value(json!({
-                "iid": format!("i{i}"), "form": "display", "model": false, "visible": true,
-                "refs": [], "body": { "inline": {} },
-            }))
-            .expect("record shape");
-            record.body = Slot::Inline(body.clone());
-            assert_eq!(display_bytes(&record, &body), size.as_u64().map(|n| n as usize), "row r{i}");
-            assert_eq!(display_item(&record, &body).map(|item| item.id().as_str().to_owned()), Some(format!("r{i}")));
-        }
-        // A row without an id is shown (and measured) under its record's id.
-        let body = json!({ "kind": "assistant", "text": "hi" });
-        let mut record: ItemRecord = serde_json::from_value(json!({
-            "iid": "i9", "form": "display", "model": false, "visible": true, "refs": [], "body": { "inline": {} },
-        }))
-        .expect("record shape");
-        record.body = Slot::Inline(body.clone());
-        assert_eq!(display_bytes(&record, &body), Some(r#"{"kind":"assistant","text":"hi","id":"i9"}"#.len()));
     }
 
     /// The roster account that served an answer is stored on the row (`providerMetadata.accountRouting`) and rides only the
@@ -595,6 +579,23 @@ mod tests {
         let wire = serde_json::to_string(&shown.iter().map(|s| match s { Shown::Item(i) | Shown::Update(i) => i }).collect::<Vec<_>>()).unwrap();
         assert!(wire.contains("ok"), "{wire}");
         assert!(!wire.contains("accountRouting") && !wire.contains("k2") && !wire.contains("k1"), "{wire}");
+    }
+
+    /// The count of images that went with only their smaller copy, written with the message, is on the item every surface
+    /// builds its note from, live (the commit) and restored (the same conversion); a message that recorded none has none, and a
+    /// stored zero or a non-number is none.
+    #[test]
+    fn a_message_that_lost_originals_carries_the_count_on_its_item() {
+        let ext_of = |stored: Value| {
+            let mut state = SessionState::new(16);
+            commit(&mut state, "u1", json!({ "role": "user", "content": "look", "meta": { "transcript": { "messageId": "m1", "originalImagesMissing": stored } } }));
+            let [row] = state.window.make_contiguous() else { panic!("one row") };
+            let ThreadItem::UserMessage { meta, .. } = &*row.item else { panic!("a user message") };
+            meta.ext.get("originalImagesMissing").cloned()
+        };
+        assert_eq!(ext_of(json!(2)), Some(json!(2)));
+        assert_eq!(ext_of(json!(0)), None);
+        assert_eq!(ext_of(json!("2")), None);
     }
 
     /// Node's `pendingToolCalls` has no entry for a skipped wait call, so its result attaches
@@ -635,5 +636,39 @@ mod tests {
         };
         let meta = run.tool_meta.as_ref().expect("the owner meta rides the run");
         assert_eq!((meta.code.as_str(), meta.owner_session_id.as_deref()), ("visualize_owner", Some("sess_lead1x")));
+    }
+
+
+    #[cfg(node_twin)]
+    /// A history page's byte budget counts `Buffer.byteLength(JSON.stringify(row))` of the display
+    /// row (`storedHistorySlice`). The recorded Node sizes of the rows `record-session-reads.mjs`
+    /// built are those of the same rows as display records here.
+    #[test]
+    fn display_rows_measure_as_nodes_do() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-reads/golden.json");
+        let bytes = mixdog_statefile::read_content(&path).expect("read golden.json").expect("golden.json exists");
+        let golden: Value = serde_json::from_slice(&bytes).expect("golden.json parses");
+        let sizes = golden["pages"]["sizes"].as_array().expect("sizes");
+        assert_eq!(sizes.len(), 24);
+        for (i, size) in sizes.iter().enumerate() {
+            // The recorder's rows: `{ id, kind: 'assistant', text: 'x'.repeat(((i * 37) % 11) * 40 + 5) }`.
+            let body = json!({ "id": format!("r{i}"), "kind": "assistant", "text": "x".repeat(((i * 37) % 11) * 40 + 5) });
+            let mut record: ItemRecord = serde_json::from_value(json!({
+                "iid": format!("i{i}"), "form": "display", "model": false, "visible": true,
+                "refs": [], "body": { "inline": {} },
+            }))
+            .expect("record shape");
+            record.body = Slot::Inline(body.clone());
+            assert_eq!(display_bytes(&record, &body), size.as_u64().map(|n| n as usize), "row r{i}");
+            assert_eq!(display_item(&record, &body).map(|item| item.id().as_str().to_owned()), Some(format!("r{i}")));
+        }
+        // A row without an id is shown (and measured) under its record's id.
+        let body = json!({ "kind": "assistant", "text": "hi" });
+        let mut record: ItemRecord = serde_json::from_value(json!({
+            "iid": "i9", "form": "display", "model": false, "visible": true, "refs": [], "body": { "inline": {} },
+        }))
+        .expect("record shape");
+        record.body = Slot::Inline(body.clone());
+        assert_eq!(display_bytes(&record, &body), Some(r#"{"kind":"assistant","text":"hi","id":"i9"}"#.len()));
     }
 }

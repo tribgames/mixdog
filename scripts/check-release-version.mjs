@@ -26,6 +26,8 @@ export async function checkReleaseVersion(root = repoRoot) {
   const release = await packageVersion(join(root, 'package.json'));
   const found = {
     'apps/desktop/package.json': await packageVersion(join(root, 'apps/desktop/package.json')),
+    // scripts/deploy-remote.ps1 names the VPS release tag (v<version>) from this file.
+    'apps/relay/package.json': await packageVersion(join(root, 'apps/relay/package.json')),
     'native/core/Cargo.toml [workspace.package]': await workspaceVersion(join(root, 'native/core/Cargo.toml')),
   };
   const wrong = Object.entries(found).filter(([, version]) => version !== release);

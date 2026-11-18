@@ -65,8 +65,6 @@ impl fmt::Display for OfficeConflictError {
     }
 }
 
-impl std::error::Error for OfficeConflictError {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,3 +94,6 @@ mod tests {
         assert_eq!(error.code(), Some("transaction_conflict"));
     }
 }
+
+
+impl std::error::Error for OfficeConflictError {}

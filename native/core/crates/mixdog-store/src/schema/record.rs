@@ -54,6 +54,31 @@ pub enum Record {
     Checkpoint(CheckpointRecord),
     ModelSwitch(ModelSwitchRecord),
     Draft(DraftRecord),
+    WorkStop(WorkStopRecord),
+}
+
+/// A user Stop's terminal disposition of the work it stopped (`crate::work_stops`): `stopped` names, in its body, every identity
+/// through which that work could run or be recreated and what is still owed for it (a hand-back to restore, or the cancelled
+/// outcome); `settled` says the owed outcome is final. One `stopped` record carries the Stop's whole target set (one frame is
+/// crash-atomic, several are not); a repeated Stop joins it (same `sid`) and writes nothing more.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkStopRecord {
+    pub sid: Id,
+    pub phase: WorkStopPhase,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at: Option<i64>,
+    /// Present iff `phase` is `stopped`: `{work[], queues[], submissions[], turn?, disposition:"handedBack"|"cancelled",
+    /// restore?{text, ids[], device}}`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<Slot<Value>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkStopPhase {
+    Stopped,
+    Settled,
 }
 
 /// What an open run produced that no `item` holds yet (the 1.4.5 turn checkpoint's interruption journal,
@@ -453,6 +478,9 @@ pub struct OpRef {
     pub method: Name,
     /// `sha256:` digest of the canonical JSON of the params without `opId` (P §9.2).
     pub digest: Digest,
+    /// Fingerprint of the authorized audience. Older records have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<Digest>,
     /// The response result when its encoding is ≤ `OP_RESULT_MAX`; otherwise absent and
     /// reproduced by a read (P §9.2 `resultRef`).
     #[serde(skip_serializing_if = "Option::is_none")]

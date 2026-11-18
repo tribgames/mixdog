@@ -63,7 +63,7 @@ impl AgentRegistry {
         let mut n = highest + 1.0;
         loop {
             let tag = format!("{base}{n}");
-            let taken = self.resolve(&mut st, &tag, scope, ResolveOptions { scan_sessions: false, exclude_terminal_traces: false });
+            let taken = self.resolve(&mut st, &tag, scope, ResolveOptions { scan_sessions: false, exclude_terminal_traces: false, skip_released: false });
             if !matches!(taken, Ok(Some(_))) {
                 return tag;
             }
@@ -259,6 +259,7 @@ mod tests {
     impl super::super::RuntimeRelease for NoRelease {
         fn release(&self, _: &mixdog_core_api::ids::ThreadId, _: &str) {}
     }
+
 
     /// `agent-turns.mjs:96`: a worker turn on a session a cancellation covers is refused before
     /// anything starts, with `assertAdmission`'s text.

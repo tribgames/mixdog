@@ -70,6 +70,8 @@ struct Provider {
     script: Mutex<VecDeque<(Vec<StreamEvent>, bool)>>,
     /// The cache scope of every request sent.
     scopes: Mutex<Vec<Option<String>>>,
+    /// The model parameters (where the breakpoint strategy rides) of every request sent.
+    parameters: Mutex<Vec<Option<serde_json::Value>>>,
 }
 
 impl Provider {
@@ -78,13 +80,18 @@ impl Provider {
     }
 
     fn scripted(script: Vec<(Vec<StreamEvent>, bool)>) -> Arc<Self> {
+        Self::named("scripted", script)
+    }
+
+    fn named(id: &str, script: Vec<(Vec<StreamEvent>, bool)>) -> Arc<Self> {
         Arc::new(Self {
-            id: ProviderId::from("scripted"),
+            id: ProviderId::from(id),
             policy: RetryPolicy::codex_default(),
             keepalive: KeepaliveSchedule::SPEC,
             codec: MockCodec,
             script: Mutex::new(script.into()),
             scopes: Mutex::new(Vec::new()),
+            parameters: Mutex::new(Vec::new()),
         })
     }
 }
@@ -106,6 +113,7 @@ impl ProviderAdapter for Provider {
     }
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.scopes.lock().unwrap().push(request.options.prompt_cache_scope.clone());
+        self.parameters.lock().unwrap().push(request.options.model_parameters.clone());
         let (events, hang) = self.script.lock().unwrap().pop_front().expect("provider script exhausted");
         Ok(Box::new(Stream { events: events.into(), hang }))
     }
@@ -234,6 +242,75 @@ async fn explore(provider: Arc<Provider>, deadline: Duration) -> Result<mixdog_t
         .await
 }
 
+#[tokio::test(start_paused = true)]
+async fn deadline_returns_the_text_written_so_far_marked_late() {
+    let provider = Provider::new(vec![StreamEvent::TextDelta("src/a.rs:1 foo".into())], true);
+    let answer = explore(provider, Duration::from_millis(100)).await.unwrap();
+    assert_eq!((answer.text.as_str(), answer.late), ("src/a.rs:1 foo", true));
+}
+
+#[tokio::test(start_paused = true)]
+async fn deadline_with_nothing_written_is_a_timeout() {
+    let provider = Provider::new(Vec::new(), true);
+    assert_eq!(explore(provider, Duration::from_millis(100)).await, Err(ExploreFailure::TimedOut));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_finished_answer_is_trimmed_and_not_late() {
+    let provider = Provider::new(
+        vec![StreamEvent::TextDelta("  done \n".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+        false,
+    );
+    let answer = explore(provider.clone(), Duration::from_secs(60)).await.unwrap();
+    assert_eq!((answer.text.as_str(), answer.late), ("done", false));
+    // The explorer's prefix is the same bytes on every call: keyed on it, never per call
+    // (`sharedPrefixProviderCacheOpts`, cache-strategy.mjs:548).
+    assert_eq!(*provider.scopes.lock().unwrap(), [Some("shared".to_owned())]);
+}
+
+/// The session-less explore loop keeps Node's `sharedPrefixProviderCacheOpts`: the shared scope on every provider, and on an
+/// explicit-breakpoint provider the 5m system prefix with no tier3 and no tools breakpoint, so the parallel explorers read
+/// what one wrote without a 1h write; a key-prefix provider is sent no breakpoint strategy.
+#[tokio::test(start_paused = true)]
+async fn the_explorer_sends_nodes_shared_prefix_cache_policy() {
+    let done = || vec![StreamEvent::TextDelta("done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }];
+    let anthropic = Provider::named("anthropic-oauth", vec![(done(), false)]);
+    explore(anthropic.clone(), Duration::from_secs(60)).await.unwrap();
+    assert_eq!(*anthropic.scopes.lock().unwrap(), [Some("shared".to_owned())]);
+    assert_eq!(
+        *anthropic.parameters.lock().unwrap(),
+        [Some(serde_json::json!({ "cacheStrategy": { "tools": "none", "system": "5m", "tier3": "none", "messages": "5m" } }))]
+    );
+    let keyed = Provider::named("openai-oauth", vec![(done(), false)]);
+    explore(keyed.clone(), Duration::from_secs(60)).await.unwrap();
+    assert_eq!(*keyed.scopes.lock().unwrap(), [Some("shared".to_owned())]);
+    assert_eq!(*keyed.parameters.lock().unwrap(), [None]);
+}
+
+/// At the deadline the explorer hands over everything it wrote: the text of its earlier turns and the streamed tail, joined by
+/// a blank line; a turn that wrote only a dot, or only blanks, wrote nothing.
+#[tokio::test(start_paused = true)]
+async fn at_the_deadline_the_earlier_turns_text_and_the_streamed_tail_are_joined() {
+    let tool_turn = |text: &str| {
+        vec![
+            StreamEvent::TextDelta(text.into()),
+            StreamEvent::ToolCallDone(mixdog_core_api::domain::provider::ToolCall { id: "c1".into(), name: "nope".into(), arguments: serde_json::json!({}), native_type: None }),
+            StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+        ]
+    };
+    let answer = |first: &str, tail: Vec<StreamEvent>| Provider::scripted(vec![(tool_turn(first), false), (tail, true)]);
+    let tail = || vec![StreamEvent::TextDelta("tail".into())];
+    let joined = explore(answer("looking", tail()), Duration::from_millis(150)).await.unwrap();
+    assert_eq!((joined.text.as_str(), joined.late), ("looking\n\ntail", true));
+    let dropped = explore(answer(".", tail()), Duration::from_millis(150)).await.unwrap();
+    assert_eq!(dropped.text, "tail");
+    let earlier_only = explore(answer("first", Vec::new()), Duration::from_millis(150)).await.unwrap();
+    assert_eq!(earlier_only.text, "first");
+    let blank = Provider::scripted(vec![(vec![StreamEvent::TextDelta(" \n ".into())], true)]);
+    assert_eq!(explore(blank, Duration::from_millis(150)).await, Err(ExploreFailure::TimedOut));
+}
+
+#[cfg(node_twin)]
 /// The recorded Node `runExplorer` results (`fixtures/agent/record-explorer.mjs`):
 /// the text it resolves with, or that it rejects. A deadline answer is the late
 /// one, so a case whose Node text exists after a hang is `late`.
@@ -287,30 +364,4 @@ async fn explorer_results_equal_nodes() {
             None => assert_eq!(got, Err(ExploreFailure::TimedOut), "{name}"),
         }
     }
-}
-
-#[tokio::test(start_paused = true)]
-async fn deadline_returns_the_text_written_so_far_marked_late() {
-    let provider = Provider::new(vec![StreamEvent::TextDelta("src/a.rs:1 foo".into())], true);
-    let answer = explore(provider, Duration::from_millis(100)).await.unwrap();
-    assert_eq!((answer.text.as_str(), answer.late), ("src/a.rs:1 foo", true));
-}
-
-#[tokio::test(start_paused = true)]
-async fn deadline_with_nothing_written_is_a_timeout() {
-    let provider = Provider::new(Vec::new(), true);
-    assert_eq!(explore(provider, Duration::from_millis(100)).await, Err(ExploreFailure::TimedOut));
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_finished_answer_is_trimmed_and_not_late() {
-    let provider = Provider::new(
-        vec![StreamEvent::TextDelta("  done \n".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
-        false,
-    );
-    let answer = explore(provider.clone(), Duration::from_secs(60)).await.unwrap();
-    assert_eq!((answer.text.as_str(), answer.late), ("done", false));
-    // The explorer's prefix is the same bytes on every call: keyed on it, never per call
-    // (`sharedPrefixProviderCacheOpts`, cache-strategy.mjs:548).
-    assert_eq!(*provider.scopes.lock().unwrap(), [Some("shared".to_owned())]);
 }

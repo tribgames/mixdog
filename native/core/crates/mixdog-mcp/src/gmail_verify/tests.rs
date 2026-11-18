@@ -277,13 +277,6 @@ pub(crate) fn lines(log: &Log) -> Vec<String> {
     log.lock().unwrap().clone()
 }
 
-/// The server sees QUIT after the check has already returned.
-async fn until(log: &Log, line: &str) {
-    while !lines(log).iter().any(|l| l == line) {
-        mixdog_rt::time::sleep(Duration::from_millis(10)).await;
-    }
-}
-
 fn texts(code: &str) -> String {
     match code {
         "REJECTED" => "GMAIL_APP_PASSWORD_REJECTED: Google did not accept this address and app password.".into(),
@@ -291,28 +284,6 @@ fn texts(code: &str) -> String {
         "NETWORK" => "GMAIL_APP_PASSWORD_NETWORK: Couldn't reach Gmail. Check the network connection.".into(),
         other => panic!("{other}"),
     }
-}
-
-#[tokio::test]
-async fn an_accepted_password_runs_imapflows_and_nodemailers_commands_in_order() {
-    let rig = rig(Imap::gmail(), Smtp::gmail(), quick()).await;
-    rig.verifier.check(EMAIL, SECRET).await.unwrap();
-    until(&rig.smtp_log, "QUIT").await;
-    until(&rig.imap_log, "7 LOGOUT").await;
-    assert_eq!(
-        lines(&rig.imap_log),
-        [
-            "1 CAPABILITY".to_owned(),
-            format!("2 {ID_LINE}"),
-            format!("3 LOGIN \"{EMAIL}\" \"{SECRET}\""),
-            "4 CAPABILITY".to_owned(),
-            "5 NAMESPACE".to_owned(),
-            "6 ENABLE CONDSTORE UTF8=ACCEPT".to_owned(),
-            "7 LOGOUT".to_owned(),
-        ]
-    );
-    let plain = STANDARD.encode(format!("\0{EMAIL}\0{SECRET}"));
-    assert_eq!(lines(&rig.smtp_log), ["EHLO test.example".to_owned(), format!("AUTH PLAIN {plain}"), "QUIT".to_owned()]);
 }
 
 #[tokio::test]
@@ -346,59 +317,6 @@ async fn smtp_535_is_rejected_and_534_is_unavailable() {
 }
 
 #[tokio::test]
-async fn a_server_offering_only_login_gets_auth_login() {
-    let mut smtp = Smtp::gmail();
-    smtp.ehlo = vec!["250-smtp.gmail.com at your service".into(), "250 AUTH LOGIN".into()];
-    let rig = rig(Imap::gmail(), smtp, quick()).await;
-    rig.verifier.check(EMAIL, SECRET).await.unwrap();
-    until(&rig.smtp_log, "QUIT").await;
-    assert_eq!(
-        lines(&rig.smtp_log),
-        [
-            "EHLO test.example".to_owned(),
-            "AUTH LOGIN".to_owned(),
-            STANDARD.encode(EMAIL),
-            STANDARD.encode(SECRET),
-            "QUIT".to_owned(),
-        ]
-    );
-}
-
-#[tokio::test]
-async fn a_server_that_advertises_no_auth_passes_without_a_login() {
-    let mut smtp = Smtp::gmail();
-    smtp.ehlo = vec!["250-smtp.gmail.com at your service".into(), "250 8BITMIME".into()];
-    let rig = rig(Imap::gmail(), smtp, quick()).await;
-    rig.verifier.check(EMAIL, SECRET).await.unwrap();
-    until(&rig.smtp_log, "QUIT").await;
-    assert_eq!(lines(&rig.smtp_log), ["EHLO test.example".to_owned(), "QUIT".to_owned()]);
-}
-
-#[tokio::test]
-async fn advertised_plain_authenticates_with_authenticate_plain() {
-    let mut imap = Imap::gmail();
-    imap.capabilities.push_str(" AUTH=PLAIN");
-    let rig = rig(imap, Smtp::gmail(), quick()).await;
-    rig.verifier.check(EMAIL, SECRET).await.unwrap();
-    until(&rig.imap_log, "7 LOGOUT").await;
-    let plain = STANDARD.encode(format!("\0{EMAIL}\0{SECRET}"));
-    let seen = lines(&rig.imap_log);
-    assert_eq!(seen[2], "3 AUTHENTICATE PLAIN");
-    assert_eq!(seen[3], plain);
-}
-
-#[tokio::test]
-async fn compression_is_negotiated_and_the_rest_of_the_session_is_deflated() {
-    let mut imap = Imap::gmail();
-    imap.capabilities.push_str(" COMPRESS=DEFLATE");
-    let rig = rig(imap, Smtp::gmail(), quick()).await;
-    rig.verifier.check(EMAIL, SECRET).await.unwrap();
-    until(&rig.imap_log, "8 LOGOUT").await;
-    let seen = lines(&rig.imap_log);
-    assert_eq!(&seen[4..], ["5 NAMESPACE", "6 COMPRESS DEFLATE", "7 ENABLE CONDSTORE UTF8=ACCEPT", "8 LOGOUT"]);
-}
-
-#[tokio::test]
 async fn an_unreachable_server_is_the_network_sentence() {
     let pki = pki();
     let closed = {
@@ -420,30 +338,6 @@ async fn a_silent_server_hits_the_greeting_timeout_as_the_network_sentence() {
     let timeouts = Timeouts { greeting: Duration::from_millis(150), ..quick() };
     let verifier = GmailAppPassword::with_servers(silent.clone(), silent, pki.roots, timeouts);
     assert_eq!(verifier.check(EMAIL, SECRET).await.unwrap_err(), texts("NETWORK"));
-}
-
-#[tokio::test]
-async fn a_bye_greeting_and_an_idle_session_are_failed_with_nodes_details() {
-    let mut imap = Imap::gmail();
-    imap.greeting = "* BYE Too many connections".into();
-    let rig = rig(imap, Smtp::gmail(), quick()).await;
-    assert_eq!(
-        rig.verifier.check(EMAIL, SECRET).await.unwrap_err(),
-        "GMAIL_APP_PASSWORD_FAILED: Gmail refused the request. (Unexpected close)"
-    );
-
-    // Greeting, then nothing: the socket timeout fires while the session is being set up.
-    let pki = pki();
-    let log = Log::default();
-    let stalled = serve(&pki, &log, |mut chan: Chan| async move {
-        chan.say("* OK ready").await;
-        chan.line().await;
-        mixdog_rt::time::sleep(Duration::from_secs(5)).await;
-    })
-    .await;
-    let timeouts = Timeouts { socket: Duration::from_millis(200), ..quick() };
-    let verifier = GmailAppPassword::with_servers(stalled.clone(), stalled, pki.roots, timeouts);
-    assert_eq!(verifier.check(EMAIL, SECRET).await.unwrap_err(), "GMAIL_APP_PASSWORD_FAILED: Gmail refused the request. (Socket timeout)");
 }
 
 #[tokio::test]
@@ -473,4 +367,105 @@ fn the_classifier_follows_the_node_order_and_clips_the_detail() {
     let spaced = Failure::new("", " two\t\n words ");
     assert_eq!(describe(&spaced, "pw"), "GMAIL_APP_PASSWORD_FAILED: Gmail refused the request. (two words)");
     assert_eq!(describe(&Failure::new("", ""), "pw"), "GMAIL_APP_PASSWORD_FAILED: Gmail refused the request.");
+}
+
+
+/// The server sees QUIT after the check has already returned.
+async fn until(log: &Log, line: &str) {
+    while !lines(log).iter().any(|l| l == line) {
+        mixdog_rt::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+#[tokio::test]
+async fn an_accepted_password_runs_imapflows_and_nodemailers_commands_in_order() {
+    let rig = rig(Imap::gmail(), Smtp::gmail(), quick()).await;
+    rig.verifier.check(EMAIL, SECRET).await.unwrap();
+    until(&rig.smtp_log, "QUIT").await;
+    until(&rig.imap_log, "7 LOGOUT").await;
+    assert_eq!(
+        lines(&rig.imap_log),
+        [
+            "1 CAPABILITY".to_owned(),
+            format!("2 {ID_LINE}"),
+            format!("3 LOGIN \"{EMAIL}\" \"{SECRET}\""),
+            "4 CAPABILITY".to_owned(),
+            "5 NAMESPACE".to_owned(),
+            "6 ENABLE CONDSTORE UTF8=ACCEPT".to_owned(),
+            "7 LOGOUT".to_owned(),
+        ]
+    );
+    let plain = STANDARD.encode(format!("\0{EMAIL}\0{SECRET}"));
+    assert_eq!(lines(&rig.smtp_log), ["EHLO test.example".to_owned(), format!("AUTH PLAIN {plain}"), "QUIT".to_owned()]);
+}
+#[tokio::test]
+async fn a_server_offering_only_login_gets_auth_login() {
+    let mut smtp = Smtp::gmail();
+    smtp.ehlo = vec!["250-smtp.gmail.com at your service".into(), "250 AUTH LOGIN".into()];
+    let rig = rig(Imap::gmail(), smtp, quick()).await;
+    rig.verifier.check(EMAIL, SECRET).await.unwrap();
+    until(&rig.smtp_log, "QUIT").await;
+    assert_eq!(
+        lines(&rig.smtp_log),
+        [
+            "EHLO test.example".to_owned(),
+            "AUTH LOGIN".to_owned(),
+            STANDARD.encode(EMAIL),
+            STANDARD.encode(SECRET),
+            "QUIT".to_owned(),
+        ]
+    );
+}
+#[tokio::test]
+async fn a_server_that_advertises_no_auth_passes_without_a_login() {
+    let mut smtp = Smtp::gmail();
+    smtp.ehlo = vec!["250-smtp.gmail.com at your service".into(), "250 8BITMIME".into()];
+    let rig = rig(Imap::gmail(), smtp, quick()).await;
+    rig.verifier.check(EMAIL, SECRET).await.unwrap();
+    until(&rig.smtp_log, "QUIT").await;
+    assert_eq!(lines(&rig.smtp_log), ["EHLO test.example".to_owned(), "QUIT".to_owned()]);
+}
+#[tokio::test]
+async fn advertised_plain_authenticates_with_authenticate_plain() {
+    let mut imap = Imap::gmail();
+    imap.capabilities.push_str(" AUTH=PLAIN");
+    let rig = rig(imap, Smtp::gmail(), quick()).await;
+    rig.verifier.check(EMAIL, SECRET).await.unwrap();
+    until(&rig.imap_log, "7 LOGOUT").await;
+    let plain = STANDARD.encode(format!("\0{EMAIL}\0{SECRET}"));
+    let seen = lines(&rig.imap_log);
+    assert_eq!(seen[2], "3 AUTHENTICATE PLAIN");
+    assert_eq!(seen[3], plain);
+}
+#[tokio::test]
+async fn compression_is_negotiated_and_the_rest_of_the_session_is_deflated() {
+    let mut imap = Imap::gmail();
+    imap.capabilities.push_str(" COMPRESS=DEFLATE");
+    let rig = rig(imap, Smtp::gmail(), quick()).await;
+    rig.verifier.check(EMAIL, SECRET).await.unwrap();
+    until(&rig.imap_log, "8 LOGOUT").await;
+    let seen = lines(&rig.imap_log);
+    assert_eq!(&seen[4..], ["5 NAMESPACE", "6 COMPRESS DEFLATE", "7 ENABLE CONDSTORE UTF8=ACCEPT", "8 LOGOUT"]);
+}
+#[tokio::test]
+async fn a_bye_greeting_and_an_idle_session_are_failed_with_nodes_details() {
+    let mut imap = Imap::gmail();
+    imap.greeting = "* BYE Too many connections".into();
+    let rig = rig(imap, Smtp::gmail(), quick()).await;
+    assert_eq!(
+        rig.verifier.check(EMAIL, SECRET).await.unwrap_err(),
+        "GMAIL_APP_PASSWORD_FAILED: Gmail refused the request. (Unexpected close)"
+    );
+
+    // Greeting, then nothing: the socket timeout fires while the session is being set up.
+    let pki = pki();
+    let log = Log::default();
+    let stalled = serve(&pki, &log, |mut chan: Chan| async move {
+        chan.say("* OK ready").await;
+        chan.line().await;
+        mixdog_rt::time::sleep(Duration::from_secs(5)).await;
+    })
+    .await;
+    let timeouts = Timeouts { socket: Duration::from_millis(200), ..quick() };
+    let verifier = GmailAppPassword::with_servers(stalled.clone(), stalled, pki.roots, timeouts);
+    assert_eq!(verifier.check(EMAIL, SECRET).await.unwrap_err(), "GMAIL_APP_PASSWORD_FAILED: Gmail refused the request. (Socket timeout)");
 }

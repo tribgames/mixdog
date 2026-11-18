@@ -1,5 +1,6 @@
 //! The four web tools over one shared service.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,6 +16,9 @@ use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::domain::tool::ToolSpec;
+use mixdog_ai::service::error_text::ErrorView;
+use mixdog_ai::service::error_text::PresentOptions;
+use mixdog_ai::service::error_text::present_error_text;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_protocol::JsonValue;
 use serde_json::json;
@@ -31,8 +35,6 @@ use super::cache::NodeCache;
 use super::cache::node_cache_key;
 use super::error::FetchError;
 use super::error::FetchKind;
-use super::extract::extract_document;
-use super::lanes;
 use super::format::FetchItem;
 use super::format::continuation;
 use super::format::format_fetch;
@@ -41,6 +43,7 @@ use super::http::Fetcher;
 use super::pipeline::Page;
 use super::pipeline::PageRenderer;
 use super::pipeline::Pipeline;
+use super::search::NativeSearchError;
 use super::search::NativeWebSearch;
 use super::search::SearchArgs;
 use super::search::SearchService;
@@ -51,9 +54,29 @@ const PAGE_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
 /// The `name` of the plain `Error` Node throws for an address-policy block; it serves as the code.
 const NODE_ERROR_NAME: &str = "Error";
 const FETCH_CACHE_VERSION: &str = "document-pipeline-v3";
-const FETCH_URL_CAP: usize = 10;
-const FETCH_CONCURRENCY: usize = 3;
-const SEARCH_FANOUT: usize = 10;
+/// Node's `Math.max(1, Number(process.env[name]) || default)`: an unset, blank, zero or non-numeric value is the default, a
+/// fraction is cut as `slice` and `Array.from({length})` cut it. Held under the semaphore's own ceiling.
+fn env_limit(name: &str, default: usize) -> usize {
+    limit_from(std::env::var(name).ok().as_deref(), default)
+}
+
+pub(super) fn limit_from(raw: Option<&str>, default: usize) -> usize {
+    let number = raw.map_or(f64::NAN, mixdog_js::string_to_number);
+    let number = if number.is_nan() || number == 0.0 { default as f64 } else { number };
+    (number.max(1.0).floor() as usize).min(Semaphore::MAX_PERMITS)
+}
+
+fn fetch_url_cap() -> usize {
+    env_limit("FETCH_URL_CAP", 10)
+}
+
+fn fetch_concurrency() -> usize {
+    env_limit("FETCH_CONCURRENCY", 3)
+}
+
+fn search_fanout() -> usize {
+    env_limit("WEB_SEARCH_FANOUT_CONCURRENCY", 10)
+}
 const LOCAL_BATCH_CAP: usize = 8;
 
 pub struct WebConfig {
@@ -100,6 +123,17 @@ fn unavailable(capability: &str, message: String) -> ToolError {
         },
         message,
     )
+}
+
+/// Node's `toolFailure` text (`index.mjs:120-125`): the message as `presentErrorText(normalizeErrorMessage(message), { surface })`
+/// words it, so a provider's status and JSON body read as one reason.
+pub(super) fn failure_text(message: &str, surface: &str) -> String {
+    let options = PresentOptions { surface: surface.to_owned(), ..PresentOptions::default() };
+    present_error_text(&ErrorView::message(crate::fs::normalize_error_message(message, None)), &options)
+}
+
+fn failed(message: String) -> ToolError {
+    ToolError::new(ToolErrorCode::Failed { reason: message.clone() }, message)
 }
 
 fn text_output(text: String) -> ToolOutput {
@@ -177,27 +211,47 @@ impl WebService {
 
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn web_fetch(&self, args: FetchArgs, cancel: &CancellationToken) -> ToolOutcome {
-        let urls: Vec<String> = args.urls.iter().take(FETCH_URL_CAP).cloned().collect();
+        let urls = &args.urls[..args.urls.len().min(fetch_url_cap())];
         let truncated = if args.urls.len() > urls.len() { args.urls.len() } else { 0 };
-        let gate = Semaphore::new(FETCH_CONCURRENCY);
-        let items: Vec<FetchItem> = join_all(urls.iter().map(|url| async {
+        // Preserve the request's positions (including repetitions) but only scrape each exact URL once.
+        let mut unique = Vec::new();
+        let mut indices = HashMap::new();
+        let positions: Vec<_> = urls.iter().map(|url| {
+            *indices.entry(url.as_str()).or_insert_with(|| {
+                unique.push(url.as_str());
+                unique.len() - 1
+            })
+        }).collect();
+        let gate = Semaphore::new(fetch_concurrency());
+        let (gate, args) = (&gate, &args);
+        let fetched = join_all(unique.into_iter().map(|url| async move {
             let _turn = gate.acquire().await;
-            self.fetch_one(url, &args, cancel).await
+            self.fetch_one(url, args, cancel).await
         }))
         .await;
         self.cache.flush().await;
+        let items: Vec<_> = positions.into_iter().map(|index| &fetched[index]).collect();
         let text = format_fetch(&items, truncated);
-        if items.iter().any(|item| matches!(item, FetchItem::Success { .. })) {
-            Ok(text_output(text))
-        } else {
-            Err(unavailable("web_fetch", text))
+        let failures = items.iter().filter(|item| matches!(item, FetchItem::Error { .. })).count();
+        match failures {
+            0 => Ok(text_output(text)),
+            n if n == items.len() => Err(failed(text)),
+            n => {
+                let text = format!("[web_fetch] {n}/{} URL slots failed; successful results are retained.\n\n{text}", items.len());
+                let mut error = failed(text.clone());
+                error.partial = Some(text_output(text));
+                Err(error)
+            }
         }
     }
 
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn web_search(&self, args: &JsonValue, thread: &ThreadId, cancel: &CancellationToken) -> ToolOutcome {
         let input = search_args(args)?;
-        let listed_alone = input.listed && input.queries.len() == 1;
+        // Node fans out on the list as given (`args.keywords.length > 1`) and de-duplicates inside the fan-out, so a list of
+        // the same query twice is one `### Query:` section; a list of one is searched as that list.
+        let fanned_out = input.queries.len() > 1;
+        let listed_alone = input.listed && !fanned_out;
         let mut queries: Vec<String> = Vec::new();
         for query in input.queries {
             if !queries.contains(&query) {
@@ -212,60 +266,60 @@ impl WebService {
             context_size: input.context_size.clone(),
             max_results: input.max_results,
         };
-        if let [only] = queries.as_slice() {
+        if let [only] = queries.as_slice()
+            && !fanned_out
+        {
             return match self.search.search(&one(only.clone()), thread, cancel).await {
                 Ok(payload) => Ok(text_output(format_results(&payload))),
-                Err(message) => Err(unavailable("web_search", format!("Web search failed: {message}"))),
+                Err(error) => {
+                    let text = format!("Web search failed: {}", failure_text(error.message(), "web_search"));
+                    Err(if matches!(error, NativeSearchError::Unavailable(_)) { unavailable("web_search", text) } else { failed(text) })
+                }
             };
         }
-        let gate = Semaphore::new(SEARCH_FANOUT);
+        let gate = Semaphore::new(search_fanout());
         let (gate, one) = (&gate, &one);
-        let sections: Vec<(String, bool)> = join_all(queries.iter().map(|query| async move {
+        let results = join_all(queries.iter().map(|query| async move {
             let _turn = gate.acquire().await;
-            let result = self.search.search(&one(query.clone()), thread, cancel).await;
-            let (text, failed) = match result {
-                Ok(payload) => (format_results(&payload), false),
-                Err(message) => (format!("Web search failed: {message}"), true),
-            };
-            (format!("### Query: {query}\n\n{text}"), failed)
+            self.search.search(&one(query.clone()), thread, cancel).await
         }))
         .await;
-        let failed = sections.iter().filter(|(_, failed)| *failed).count();
-        let summary = if failed > 0 {
-            format!(
-                "[web_search] {failed}/{} queries failed; successful results are retained.\n\n",
-                queries.len()
-            )
-        } else {
-            String::new()
-        };
-        let joined: Vec<String> = sections.into_iter().map(|(text, _)| text).collect();
-        let text = format!("{summary}{}", joined.join("\n\n---\n\n"));
-        if failed > 0 {
-            let mut error = unavailable("web_search", text.clone());
-            error.partial = Some(text_output(text));
-            return Err(error);
+        let mut failures = 0;
+        let mut unavailable_queries = 0;
+        let sections: Vec<String> = queries.iter().zip(results).map(|(query, result)| {
+            let text = match result {
+                Ok(payload) => format_results(&payload),
+                Err(error) => {
+                    failures += 1;
+                    if matches!(error, NativeSearchError::Unavailable(_)) {
+                        unavailable_queries += 1;
+                    }
+                    format!("Web search failed: {}", failure_text(error.message(), "web_search"))
+                }
+            };
+            format!("### Query: {query}\n\n{text}")
+        }).collect();
+        let joined = sections.join("\n\n---\n\n");
+        if failures == 0 {
+            return Ok(text_output(joined));
         }
-        Ok(text_output(text))
+        let total = queries.len();
+        if failures == total {
+            let text = format!("[web_search] {failures}/{total} queries failed.\n\n{joined}");
+            return Err(if unavailable_queries == total { unavailable("web_search", text) } else { failed(text) });
+        }
+        let text = format!("[web_search] {failures}/{total} queries failed; successful results are retained.\n\n{joined}");
+        let mut error = failed(text.clone());
+        error.partial = Some(text_output(text));
+        Err(error)
     }
 
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn local_fetch(&self, args: FetchArgs, cancel: &CancellationToken) -> ToolOutcome {
-        self.bounded_batch(&args, cancel, |url| async move {
+        self.bounded_batch("local_fetch", &args, cancel, |url| async move {
             let parsed = self.loopback.parse_url(&url)?;
-            let (body, content_type) = self.loopback.fetch_text(&parsed).await?;
-            // A page converts to markdown as a public one does; an empty body answers empty, as Node's raw text does
-            // (`extract_document` refuses it as unreadable).
-            let content = if mixdog_js::js_trim(&body).is_empty() {
-                body
-            } else {
-                let page_url = parsed.clone();
-                lanes::run(self.loopback.lanes().extract, move |_| extract_document(&page_url, &body, &content_type))
-                    .await
-                    .map_err(|_| FetchError::new(FetchKind::Network, "content extraction failed"))??
-                    .content
-            };
-            let window = paginate(&content, args.start_index, args.max_length);
+            let body = self.loopback.fetch_text(&parsed).await?;
+            let window = paginate(&body, args.start_index, args.max_length);
             Ok(vec![ToolPart::Text(format!("{url}\n\n{}{}", window.content, continuation(&window)))])
         })
         .await
@@ -273,7 +327,7 @@ impl WebService {
 
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn image_fetch(&self, args: FetchArgs, cancel: &CancellationToken) -> ToolOutcome {
-        self.bounded_batch(&args, cancel, |url| async move {
+        self.bounded_batch("image_fetch", &args, cancel, |url| async move {
             let parsed = self.public.parse_url(&url)?;
             let (mime, bytes) = self.public.fetch_image(&parsed).await?;
             Ok(vec![
@@ -289,46 +343,71 @@ impl WebService {
         .await
     }
 
-    /// Sequential URLs under one request deadline; the first failure ends the call.
+    /// Sequential URLs under one request deadline. A failed URL does not discard or block other slots.
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
-    async fn bounded_batch<F, Fut>(&self, args: &FetchArgs, cancel: &CancellationToken, each: F) -> ToolOutcome
+    async fn bounded_batch<F, Fut>(&self, surface: &str, args: &FetchArgs, cancel: &CancellationToken, each: F) -> ToolOutcome
     where
         F: Fn(String) -> Fut,
         Fut: std::future::Future<Output = Result<Vec<ToolPart>, FetchError>>,
     {
         if args.urls.len() > LOCAL_BATCH_CAP {
-            return Err(unavailable(
-                "fetch",
+            return Err(ToolError::new(
+                ToolErrorCode::InvalidArgs { field: "url".to_owned(), reason: format!("maximum of {LOCAL_BATCH_CAP} URLs") },
                 format!("Error: fetch batch exceeds maximum of {LOCAL_BATCH_CAP} URLs."),
             ));
         }
+        let mut parts = Vec::new();
+        let mut errors = Vec::new();
+        let mut successes = 0;
         let run = async {
-            let mut parts = Vec::new();
             for url in &args.urls {
-                parts.extend(each(url.clone()).await?);
+                match each(url.clone()).await {
+                    Ok(slot) => {
+                        successes += 1;
+                        parts.extend(slot);
+                    }
+                    Err(error) if error.kind == FetchKind::Cancelled => return Err(error),
+                    Err(error) => {
+                        let message = format!("Fetch failed: {}", failure_text(&error.message, surface));
+                        parts.push(ToolPart::Text(format!("[{url}]\n{message}")));
+                        errors.push(message);
+                    }
+                }
             }
-            Ok::<_, FetchError>(parts)
+            Ok(())
         };
         let outcome = tokio::select! {
-            () = cancel.cancelled() => Err(FetchError::new(super::error::FetchKind::Cancelled, "Fetch cancelled")),
+            biased;
+            () = cancel.cancelled() => Err(FetchError::new(FetchKind::Cancelled, "Fetch cancelled")),
             result = mixdog_rt::time::timeout(self.timeout, run) => match result {
                 Ok(result) => result,
                 Err(_) => Err(FetchError::new(
-                    super::error::FetchKind::Timeout,
+                    FetchKind::Timeout,
                     "The operation was aborted due to timeout",
                 )),
             },
         };
-        match outcome {
-            Ok(parts) => Ok(ToolOutput {
-                parts,
-                ..ToolOutput::default()
-            }),
-            Err(error) if error.kind == super::error::FetchKind::Cancelled => {
-                Err(ToolError::new(ToolErrorCode::Cancelled, "Fetch cancelled"))
+        let stopped = outcome.is_err();
+        let mut error = match outcome {
+            Ok(()) if errors.is_empty() => return Ok(ToolOutput { parts, ..ToolOutput::default() }),
+            Ok(()) if successes == 0 => return Err(failed(errors.join("\n"))),
+            Ok(()) => {
+                let summary = format!("[{surface}] {}/{} URL slots failed; successful results are retained.", errors.len(), args.urls.len());
+                parts.insert(0, ToolPart::Text(summary.clone()));
+                failed(format!("{summary}\n\n{}", errors.join("\n")))
             }
-            Err(error) => Err(unavailable("fetch", format!("Fetch failed: {}", error.message))),
+            Err(error) if error.kind == FetchKind::Cancelled => {
+                ToolError::new(ToolErrorCode::Cancelled, "Fetch cancelled")
+            }
+            Err(error) => failed(format!("Fetch failed: {}", failure_text(&error.message, surface))),
+        };
+        if successes > 0 {
+            if stopped {
+                parts.push(ToolPart::Text(error.message_for_model.clone()));
+            }
+            error.partial = Some(ToolOutput { parts, ..ToolOutput::default() });
         }
+        Err(error)
     }
 }
 

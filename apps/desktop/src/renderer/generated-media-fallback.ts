@@ -21,6 +21,24 @@ export async function readMediaStill(read: ReadMediaAsset, assetId: string, kind
   return mime.startsWith('video/') ? '' : `data:${mime};base64,${result.base64}`;
 }
 
+/** The same still as an object URL over its bytes ('' when none; the caller
+ *  revokes it): a card keeps a short blob: URL in state instead of the whole
+ *  base64 data URL. */
+export async function readMediaStillObjectUrl(
+  read: ReadMediaAsset,
+  assetId: string,
+  kind: 'image' | 'video'
+): Promise<string> {
+  const result = await read(
+    assetId,
+    kind === 'video' ? { variant: 'thumb' } : { variant: 'display', allowOriginal: true }
+  );
+  if (!result?.base64) return '';
+  const mime = result.mime || 'image/png';
+  if (mime.startsWith('video/')) return '';
+  return URL.createObjectURL(new Blob([base64Bytes(result.base64)], { type: mime }));
+}
+
 /** The clip itself as an object URL (the caller revokes it). */
 export async function readMediaClip(read: ReadMediaAsset, assetId: string): Promise<string> {
   const result = await read(assetId, { variant: 'original' });
@@ -29,7 +47,8 @@ export async function readMediaClip(read: ReadMediaAsset, assetId: string): Prom
 }
 
 export interface GeneratedMediaFallback {
-  /** Data URL of the still ('' until read, or when unavailable). */
+  /** Object URL of the still ('' until read, or when unavailable); revoked
+   *  when the asset changes or the card unmounts. */
   still: string;
   /** Video only: reads the clip into an object URL when the card opens. */
   loadClip?: () => Promise<string>;
@@ -52,14 +71,26 @@ export function useGeneratedMediaFallback(
   useEffect(() => {
     if (!enabled) return;
     let active = true;
-    readMediaStill(read, assetId, kind).then(
+    let owned = '';
+    readMediaStillObjectUrl(read, assetId, kind).then(
       (url) => {
-        if (active) setStill(url);
+        if (!url) return;
+        if (!active) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        owned = url;
+        setStill(url);
       },
       () => undefined
     );
     return () => {
       active = false;
+      if (!owned) return;
+      const revoked = owned;
+      owned = '';
+      setStill((current) => (current === revoked ? '' : current));
+      URL.revokeObjectURL(revoked);
     };
   }, [enabled, assetId, kind]);
   useEffect(() => {

@@ -12,6 +12,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_agent::agent_tool::watchdog::AgentKind;
 use mixdog_agent::agent_tool::watchdog::stall_warn_ms;
+use mixdog_core_agents::agents::HEADER_FIELDS;
 use mixdog_core_agents::agents::PoolLive;
 use mixdog_core_agents::agents::PoolStore;
 use mixdog_core_agents::agents::RuntimeEntry;
@@ -51,13 +52,18 @@ impl PoolStore for RegistryPoolStore {
         Some(self.registry.pool_index().await.1)
     }
 
+    async fn indexes(&self) -> (Option<Value>, Option<Value>) {
+        let (agents, leads) = self.registry.pool_index().await;
+        (Some(agents), Some(leads))
+    }
+
     /// One answer per id, in order; `None` for a session that is not stored.
     ///
     /// The header a loaded session holds, else its stored record: a listing reads every worker the index names, and
     /// opening each of them would load every session of the profile to list them.
     async fn headers(&self, session_ids: &[String]) -> Vec<Option<Row>> {
         let ids: Vec<ThreadId> = session_ids.iter().map(|id| ThreadId::from(id.as_str())).collect();
-        futures::future::join_all(ids.iter().map(|id| self.directory.listed_header(id))).await
+        self.directory.listed_fields_of(&ids, &HEADER_FIELDS).await
     }
 }
 
@@ -106,9 +112,13 @@ impl PoolLive for DirectoryPoolLive {
     }
 
     /// `_liveSessions.get(id)`: the header of a session this process holds.
-    fn live_session(&self, session_id: &str) -> Option<Value> {
+    fn live_session(&self, session_id: &str) -> Option<Arc<mixdog_store::schema::record::Header>> {
         let handle = self.directory.handle(&ThreadId::from(session_id))?;
-        Some(Value::Object((*handle.live_header().header()).clone()))
+        Some(handle.live_header().header())
+    }
+
+    fn request_route(&self, session_id: &str) -> Option<Arc<Row>> {
+        self.liveness.request_route(session_id)
     }
 
     /// `runtimeState.get(id)`: the run's liveness record, and whether its turn holds a controller that

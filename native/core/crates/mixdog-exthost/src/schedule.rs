@@ -101,6 +101,11 @@ impl<C> Schedule<C> {
 
     /// A call of `thread` ended on `worker`. `pin` is the worker's report of whether it still
     /// holds state for the thread; `None` (the worker died) leaves pins to [`Self::worker_gone`].
+    /// Whether `worker` holds a thread's state (a pin).
+    pub(crate) fn pins_worker(&self, worker: u32) -> bool {
+        self.pins.values().any(|pinned| *pinned == worker)
+    }
+
     pub(crate) fn finished(&mut self, thread: &ThreadId, worker: u32, pin: Option<bool>) {
         if let Some(count) = self.inflight.get_mut(thread) {
             *count -= 1;

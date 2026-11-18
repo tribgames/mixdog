@@ -2,9 +2,10 @@
 //! child window under the point.
 
 use super::super::native::{self, hwnd};
-use super::{belongs_to_top, bound, drops, is_chromium, refuse_dropped, send, with_release, Msg, MsgError, WinBackground};
+use super::{belongs_to_top, confirm_release, drops, is_chromium, refuse_dropped, send, with_release, Msg, MsgError, WinBackground};
 use crate::keys::Mod;
 use crate::platform::{window_id, Wid};
+use crate::port::windows::{Message, MouseButton, Pressed, WinPort};
 use std::time::Duration;
 use windows::Win32::Foundation::POINT;
 use windows::Win32::Graphics::Gdi::{MonitorFromWindow, ScreenToClient, MONITOR_DEFAULTTONEAREST};
@@ -12,21 +13,8 @@ use windows::Win32::UI::HiDpi::{
     GetDpiForMonitor, GetDpiForWindow, PhysicalToLogicalPointForPerMonitorDPI, MDT_EFFECTIVE_DPI,
 };
 
-const WM_MOUSEMOVE: u32 = 0x0200;
-const WM_LBUTTONDOWN: u32 = 0x0201;
-const WM_LBUTTONUP: u32 = 0x0202;
-const WM_LBUTTONDBLCLK: u32 = 0x0203;
-const WM_RBUTTONDOWN: u32 = 0x0204;
-const WM_RBUTTONUP: u32 = 0x0205;
-const WM_MBUTTONDOWN: u32 = 0x0207;
-const WM_MBUTTONUP: u32 = 0x0208;
-const WM_MOUSEWHEEL: u32 = 0x020A;
-const WM_MOUSEHWHEEL: u32 = 0x020E;
-const MK_LBUTTON: usize = 0x1;
-const MK_RBUTTON: usize = 0x2;
 const MK_SHIFT: usize = 0x4;
 const MK_CONTROL: usize = 0x8;
-const MK_MBUTTON: usize = 0x10;
 
 fn point_param(x: i32, y: i32) -> isize {
     (((y & 0xFFFF) << 16) | (x & 0xFFFF)) as isize
@@ -124,15 +112,9 @@ fn pointer_flags(modifiers: &[Mod]) -> Msg<usize> {
     Ok(flags)
 }
 
-fn mouse_click(target: Wid, point: isize, modifiers: usize, down: u32, up: u32, button: usize) -> Result<(), String> {
-    let release = bound(target, move || {
-        send(target, up, modifiers, point).map(|_| ())
-    });
-    with_release(
-        || send(target, down, modifiers | button, point).map(|_| ()),
-        || Ok(()),
-        &release,
-    )
+/// One click: the press through the port, and the release its receipt names.
+fn mouse_click(port: &WinPort, top: Wid, target: Wid, press: Message) -> Result<(), String> {
+    with_release(port, top, target, press, || Ok(()))
 }
 
 impl WinBackground {
@@ -144,6 +126,13 @@ impl WinBackground {
         kind: &str,
         modifiers: &[Mod],
     ) -> Result<String, String> {
+        // A held button is let go of through its receipt alone: no motion, no hold and no recovery ride along.
+        if kind == "release" {
+            if let Some(released) = self.release_held_button(window) {
+                return released;
+            }
+        }
+        let port = &*self.port;
         self.while_inactive(window, || {
             let target = message_target_at(window, x, y).map_err(|error| error.text)?;
             let p = message_point(target, x, y).map_err(|error| error.text)?;
@@ -152,10 +141,7 @@ impl WinBackground {
             if !["move", "right", "middle", "click", "double", "triple", "press", "release"].contains(&kind) {
                 return Err(format!("background_unsupported|unknown background pointer action: {kind}"));
             }
-            // A release lets go of what an accepted press holds, so it is never refused.
-            if kind != "release" {
-                refuse_dropped(window, target, if kind == "move" { drops::Kind::Move } else { drops::Kind::Click })?;
-            }
+            refuse_dropped(window, target, if kind == "move" { drops::Kind::Move } else { drops::Kind::Click })?;
             // The message target is often a renderer child whose own class says
             // nothing about the host, so the top level decides too.
             if (kind == "double" || kind == "triple")
@@ -163,30 +149,50 @@ impl WinBackground {
             {
                 return Err("background_unsupported|target renderer ignores a posted double-click; use explicit foreground delivery; no input sent".into());
             }
-            send(target, WM_MOUSEMOVE, flags, point).map_err(|error| error.text)?;
+            send(port, window, target, Message::MouseMove { flags, point }).map_err(|error| error.text)?;
+            let click = |button| Message::ButtonDown { button, flags, point };
             match kind {
                 "move" => {}
                 "press" => {
-                    send(target, WM_LBUTTONDOWN, flags | MK_LBUTTON, point).map_err(|error| error.text)?;
+                    send(port, window, target, click(MouseButton::Left)).map_err(|error| error.text)?;
                 }
+                // Nothing of this port's is held here: an ordinary button up the caller asked for.
                 "release" => {
-                    send(target, WM_LBUTTONUP, flags, point).map_err(|error| error.text)?;
+                    send(port, window, target, Message::ButtonUp { button: MouseButton::Left, flags, point })
+                        .map_err(|error| error.text)?;
                 }
-                "right" => mouse_click(target, point, flags, WM_RBUTTONDOWN, WM_RBUTTONUP, MK_RBUTTON)?,
-                "middle" => mouse_click(target, point, flags, WM_MBUTTONDOWN, WM_MBUTTONUP, MK_MBUTTON)?,
+                "right" => mouse_click(port, window, target, click(MouseButton::Right))?,
+                "middle" => mouse_click(port, window, target, click(MouseButton::Middle))?,
                 _ => {
-                    mouse_click(target, point, flags, WM_LBUTTONDOWN, WM_LBUTTONUP, MK_LBUTTON)?;
+                    mouse_click(port, window, target, click(MouseButton::Left))?;
+                    // The gap between the clicks holds nothing: each next press is arbitrated again.
                     if kind == "double" || kind == "triple" {
                         std::thread::sleep(Duration::from_millis(20));
-                        mouse_click(target, point, flags, WM_LBUTTONDBLCLK, WM_LBUTTONUP, MK_LBUTTON)?;
+                        mouse_click(port, window, target, Message::DoubleClick { flags, point })?;
                     }
                     if kind == "triple" {
                         std::thread::sleep(Duration::from_millis(20));
-                        mouse_click(target, point, flags, WM_LBUTTONDOWN, WM_LBUTTONUP, MK_LBUTTON)?;
+                        mouse_click(port, window, target, click(MouseButton::Left))?;
                     }
                 }
             }
             Ok(window_id(target))
+        })
+    }
+
+    /// The left button a press left held in `window`, let go of through its receipt; None when the port holds none there.
+    fn release_held_button(&self, window: Wid) -> Option<Result<String, String>> {
+        let target = self.port.release_button(window, MouseButton::Left)?;
+        Some(match target {
+            Ok(reply) => {
+                if self.port.wait(&reply, super::REPLY_WAIT).is_some() {
+                    Ok(window_id(window))
+                } else {
+                    confirm_release(&self.port, window, 0, Pressed::Button(MouseButton::Left)).map(|()| window_id(window))
+                }
+            }
+            Err(crate::port::windows::Refusal::Gone) => Ok(window_id(window)),
+            Err(refusal) => Err(super::refused(refusal).text),
         })
     }
 
@@ -199,6 +205,7 @@ impl WinBackground {
         horizontal: bool,
         modifiers: &[Mod],
     ) -> Result<String, String> {
+        let port = &*self.port;
         self.while_inactive(window, || {
             let target = message_target_at(window, x, y).map_err(|error| error.text)?;
             // Chromium reroutes a wheel message to whatever window is on top at
@@ -210,7 +217,8 @@ impl WinBackground {
             }
             let flags = pointer_flags(modifiers).map_err(|error| error.text)?;
             let client = message_point(target, x, y).map_err(|error| error.text)?;
-            send(target, WM_MOUSEMOVE, flags, point_param(client.x, client.y)).map_err(|error| error.text)?;
+            send(port, window, target, Message::MouseMove { flags, point: point_param(client.x, client.y) })
+                .map_err(|error| error.text)?;
             // The host's positive clicks scroll the content down or right; the
             // wheel's positive delta scrolls up, but right for the horizontal wheel.
             let notches = if horizontal { clicks } else { -clicks };
@@ -221,13 +229,8 @@ impl WinBackground {
             if !unsafe { PhysicalToLogicalPointForPerMonitorDPI(Some(hwnd(target)), &mut screen) }.as_bool() {
                 return Err("background_message_rejected|could not map point into target window DPI".to_string());
             }
-            send(
-                target,
-                if horizontal { WM_MOUSEHWHEEL } else { WM_MOUSEWHEEL },
-                packed,
-                point_param(screen.x, screen.y),
-            )
-            .map_err(|error| error.text)?;
+            send(port, window, target, Message::Wheel { horizontal, packed, point: point_param(screen.x, screen.y) })
+                .map_err(|error| error.text)?;
             Ok(window_id(target))
         })
     }
@@ -236,6 +239,7 @@ impl WinBackground {
         if points.len() < 2 {
             return Err("drag path requires at least two points".into());
         }
+        let port = &*self.port;
         self.while_inactive(window, || {
             let target = message_target_at(window, points[0].0, points[0].1).map_err(|error| error.text)?;
             for (x, y) in &points[1..] {
@@ -244,33 +248,24 @@ impl WinBackground {
             refuse_dropped(window, target, drops::Kind::Move)?;
             let start = message_point(target, points[0].0, points[0].1).map_err(|error| error.text)?;
             let flags = pointer_flags(modifiers).map_err(|error| error.text)?;
-            send(target, WM_MOUSEMOVE, flags, point_param(start.x, start.y)).map_err(|error| error.text)?;
-            let last = std::rc::Rc::new(std::cell::Cell::new(start));
-            let release = bound(target, {
-                let last = last.clone();
-                move || {
-                    let point = last.get();
-                    send(target, WM_LBUTTONUP, flags, point_param(point.x, point.y)).map(|_| ())
-                }
-            });
-            with_release(
-                || send(target, WM_LBUTTONDOWN, flags | MK_LBUTTON, point_param(start.x, start.y)).map(|_| ()),
-                || {
-                    for pair in points.windows(2) {
-                        let ((from_x, from_y), (to_x, to_y)) = (pair[0], pair[1]);
-                        for step in 1..=12 {
-                            let x = from_x + (to_x - from_x) * step / 12;
-                            let y = from_y + (to_y - from_y) * step / 12;
-                            let point = message_point(target, x, y)?;
-                            last.set(point);
-                            send(target, WM_MOUSEMOVE, flags | MK_LBUTTON, point_param(point.x, point.y))?;
-                            std::thread::sleep(Duration::from_millis(20));
-                        }
+            send(port, window, target, Message::MouseMove { flags, point: point_param(start.x, start.y) })
+                .map_err(|error| error.text)?;
+            let press = Message::ButtonDown { button: MouseButton::Left, flags, point: point_param(start.x, start.y) };
+            // Each motion is a submission of its own (the port moves the held button's release point with it); the pause
+            // between steps holds nothing. Revoked meanwhile, the next motion is refused and the receipt lets go of the button.
+            with_release(port, window, target, press, || {
+                for pair in points.windows(2) {
+                    let ((from_x, from_y), (to_x, to_y)) = (pair[0], pair[1]);
+                    for step in 1..=12 {
+                        let x = from_x + (to_x - from_x) * step / 12;
+                        let y = from_y + (to_y - from_y) * step / 12;
+                        let point = message_point(target, x, y)?;
+                        send(port, window, target, Message::MouseMove { flags, point: point_param(point.x, point.y) })?;
+                        std::thread::sleep(Duration::from_millis(20));
                     }
-                    Ok(())
-                },
-                &release,
-            )?;
+                }
+                Ok(())
+            })?;
             Ok(window_id(target))
         })
     }

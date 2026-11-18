@@ -35,9 +35,10 @@ function world({ identity = { id: 'local', kind: 'local', name: 'pc' }, replies 
 
 test('list_mutations_return_the_list_again', async () => {
   const hosts = [{ id: 'a', name: 'n', target: 'h', lastConnectedAt: null, open: false }];
-  const w = world({ replies: { 'connections/ssh/list': hosts } });
+  const w = world({ replies: { 'connections/ssh/list': hosts, 'connections/ssh/forget': { ok: true } } });
   assert.deepEqual(await w.api.sshRenameHost('a', 'x'), hosts);
-  assert.deepEqual(await w.api.sshForgetHost('a'), hosts);
+  // A forget answers with the list again.
+  assert.deepEqual(await w.api.sshForgetHost('a'), { ok: true, hosts });
   assert.deepEqual(await w.api.sshUpdateHostSettings('a', { graceMinutes: 5 }), hosts);
   assert.deepEqual(
     w.calls.map((c) => c.method),
@@ -252,3 +253,46 @@ test('a_server_window_hears_the_saved_servers_change_through_its_own_subscriptio
   w.note('connections/updated', { section: 'connections', key: 'hosts', revision: 2, value: [{ id: 's1' }] }, 'connections');
   assert.equal(changed, 2);
 });
+
+test('before_the_first_open_calls_and_listeners_wait_for_it', async () => {
+  const calls = [];
+  const handlers = new Set();
+  const client = {
+    async call(method, params) {
+      calls.push({ method, params });
+      return method === 'connections/subscribe' ? { id: 'sub1' } : [];
+    },
+    on(handler) {
+      handlers.add(handler);
+      return () => handlers.delete(handler);
+    },
+  };
+  let open = null;
+  let release;
+  let opening = new Promise((resolve) => (release = resolve)).then(() => (opening = null));
+  const api = createConnectionsCoreApi({
+    client: () => open,
+    opening: () => opening,
+    connection: () => ({ id: 'local', kind: 'local', name: 'pc' }),
+    openExternal: async () => undefined,
+  });
+  const listed = api.sshListHosts();
+  const heard = [];
+  api.subscribeSshProgress((p) => heard.push(p));
+  api.subscribeSshHostsChanged(() => heard.push('hosts'));
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(calls, [], 'nothing is sent, and nothing refused, before the open');
+  open = client;
+  release();
+  assert.deepEqual(await listed, []);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(calls.map((c) => c.method), ['connections/ssh/list', 'connections/subscribe']);
+  [...handlers].forEach((h) => h({ type: 'notification', notification: { method: 'connections/ssh/progress', params: { step: 1 } } }));
+  assert.deepEqual(heard, [{ step: 1 }], 'a listener added before the open hears the client once it is open');
+});
+
+test('with_no_open_in_flight_a_call_without_a_client_is_refused_at_once', async () => {
+  const api = createConnectionsCoreApi({ client: () => null, opening: () => null, connection: () => undefined, openExternal: async () => undefined });
+  await assert.rejects(() => api.sshListHosts(), /This window has no connection to the core\./);
+});
+

@@ -1111,8 +1111,67 @@ html[data-mixdog-skin] .desktop-boot-cover > .desktop-loading-surface {
   background: transparent;
 }
 .desktop-boot-cover > .desktop-loading-surface {
+  position: relative;
   border-radius: 0;
   box-shadow: none;
+}
+/* A core that ends at boot the same way each time: the cover's one card, in the cover's own ink. */
+.desktop-boot-failure-card {
+  box-sizing: border-box;
+  width: min(100%, 400px);
+  padding: 24px;
+  color: var(--mx-text);
+}
+.desktop-boot-failure-title {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+.desktop-boot-failure-body {
+  margin: 0;
+  color: var(--mx-text-soft);
+}
+.desktop-boot-failure-details {
+  margin-top: 12px;
+  color: var(--mx-text-soft);
+}
+.desktop-boot-failure-details pre {
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.desktop-boot-failure-retry {
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-window-band);
+  background: var(--mx-text);
+  font: inherit;
+  cursor: pointer;
+}/* The index rebuild's progress: a thin track 20px under the 40px mark (which stays where it is, bar or none), filled in the
+   mark's own ink. No text; the bar's own label serves a screen reader. */
+.desktop-loading-progress {
+  position: absolute;
+  top: calc(50% + 40px);
+  left: calc(50% - 80px);
+  width: 160px;
+  height: 2px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--mx-text-soft) 22%, transparent);
+}
+.desktop-loading-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--mx-text-soft);
+  transition: width 250ms linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .desktop-loading-progress-fill {
+    transition: none;
+  }
 }
 /* A relay surface whose PC never answered at boot (RemoteConnectionBanner):
    the loading mark gives way to a plain state over the same band. */

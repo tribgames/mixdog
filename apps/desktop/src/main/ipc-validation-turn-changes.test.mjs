@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { DESKTOP_READ_CAPABILITIES } from '../shared/contract.ts';
-import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-validation.ts';
+import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-capability-request.ts';
 
 test('turn changes capabilities accept exactly the transcript card contract', () => {
   for (const args of [

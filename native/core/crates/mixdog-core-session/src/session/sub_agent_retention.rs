@@ -17,7 +17,6 @@ use std::time::Duration;
 use async_trait::async_trait;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::ids::ThreadId;
-use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::TaskClass;
 use mixdog_store::schema::record::Header;
@@ -27,9 +26,9 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::SessionDirectory;
+use super::archive_trees::Mark;
 use super::delete::is_session_id;
 use super::thread_settings::ArchiveStamps;
-use super::thread_state::SessionThreads;
 
 const DAY_MS: f64 = 24.0 * 60.0 * 60.0 * 1000.0;
 /// `SUB_AGENT_ARCHIVE_AFTER_MS`.
@@ -185,6 +184,10 @@ pub trait RetentionHost: Send + Sync {
     async fn stored_header(&self, id: &str) -> Result<Option<Header>, CoreError>;
     /// Whether the session is open in this process (`_isSessionLive`).
     fn is_live(&self, id: &str) -> bool;
+    /// Whether its archive state (resolved in `header`) may be acted on: not when it may hide a lost entry of the authority.
+    fn trusted(&self, _id: &str, _header: &Header) -> bool {
+        true
+    }
     /// The desktop's automatic archive: this one session, no cascade.
     async fn archive(&self, id: &str) -> Result<(), CoreError>;
     /// `deleteSession(id, { isSessionLive: treeChanged })`: `true` once the session is gone.
@@ -194,6 +197,8 @@ pub trait RetentionHost: Send + Sync {
     /// of them may have been opened or have moved either (`treeChanged`, asked again inside the
     /// destructive step).
     async fn delete(&self, id: &str, activity: f64, peers: &[(String, f64)], cancel: &CancellationToken) -> Result<bool, CoreError>;
+    /// A pass ended (whatever its outcome): a host that keeps what it read may write it now.
+    async fn pass_ended(&self) {}
 }
 
 /// The members among the stored agent-only sessions.
@@ -203,8 +208,12 @@ pub async fn members_of(host: &dyn RetentionHost) -> Result<Vec<Member>, CoreErr
         // An unread record fails the pass: a tree judged without one of its members could be
         // archived or deleted whole while that member is still in use.
         if let Some(header) = host.stored_header(&id).await?
-            && let Some(found) = member(&id, &header)
+            && let Some(mut found) = member(&id, &header)
         {
+            // A state that may hide a lost entry (a restore the user made) is of unknown age: its tree is left alone.
+            if !host.trusted(&id, &header) {
+                found.last_active = f64::NAN;
+            }
             members.push(found);
         }
     }
@@ -340,6 +349,7 @@ pub fn start(
                 }
                 Err(error) => on_error(&format!("sub-agent retention error: {error}")),
             }
+            host.pass_ended().await;
         }
     })
 }
@@ -348,15 +358,25 @@ pub fn start(
 #[async_trait]
 pub trait AgentOnlyIndex: Send + Sync {
     async fn agent_only_ids(&self) -> Result<Vec<String>, CoreError>;
+    /// Each one's id and the row the tree links are read from (its owner, parent and visibility): what
+    /// [`Adjacency`](super::archive_trees::Adjacency) is built over, one read for every root.
+    async fn agent_only_rows(&self) -> Result<Vec<(String, Header)>, CoreError>;
 }
 
 #[async_trait]
 impl AgentOnlyIndex for SqliteStore {
     async fn agent_only_ids(&self) -> Result<Vec<String>, CoreError> {
+        Ok(self.agent_only_rows().await?.into_iter().map(|(id, _)| id).collect())
+    }
+
+    async fn agent_only_rows(&self) -> Result<Vec<(String, Header)>, CoreError> {
         let rows = self.agent_only_sessions().await.map_err(|e| internal("agent-only", &e))?;
         Ok(rows
             .iter()
-            .filter_map(|row| serde_json::from_str::<Value>(row).ok()?.get("id")?.as_str().map(str::to_owned))
+            .filter_map(|row| match serde_json::from_str::<Value>(row).ok()? {
+                Value::Object(row) => Some((row.get("id")?.as_str()?.to_owned(), row)),
+                _ => None,
+            })
             .collect())
     }
 }
@@ -368,29 +388,167 @@ fn internal(step: &str, error: &dyn std::fmt::Display) -> CoreError {
 /// [`RetentionHost`] over the session directory.
 pub struct DirectoryRetention {
     directory: Arc<SessionDirectory>,
-    threads: SessionThreads,
     index: Arc<dyn AgentOnlyIndex>,
     /// The host's archive stamps: Node's automatic archive is the host's own archive of that one session
     /// (`archiveSessionAlone`, `session-host.ts:983` via `session-sidebar-actions.ts:41`), stamped `Math.max(Date.now(), lastArchiveStamp + 1)`
     /// from the same `lastArchiveStamp` as an explicit one (`desktop-session-metadata.ts:142`). Pinned by the retention case of
     /// `thread_settings_tests.rs` ("sub-agent retention archives exactly its tree's members through the real host").
     stamps: Arc<ArchiveStamps>,
+    /// The record each pass read last ([`KEPT_FIELDS`] of it), by id, with the index's stamp of it ([`record_stamp`]): a record
+    /// whose stamp has not moved since is not opened again. Opening a stored record reads its log's head and tail (about 2 MB
+    /// here), and a pass reads every agent-only session, a thousand of them every five minutes.
+    read: std::sync::Mutex<HashMap<String, (String, Header)>>,
+    /// The index stamps of the current pass, taken with its id listing.
+    current: std::sync::Mutex<HashMap<String, String>>,
+    /// The archive entry each session's state was judged from in the current pass ([RetentionHost::trusted] is asked as each
+    /// member is read): its delete is admitted against it.
+    judged: std::sync::Mutex<HashMap<String, Option<mixdog_store::archive_state::ArchiveEntry>>>,
+    /// Where `read` is kept between starts ([`Self::persisted`]): without it the first pass after each start opened every
+    /// stored agent-only record again (1,119 of them here, about 1.5 GB read five minutes after the start).
+    persist: Option<mixdog_store::state::CoreState>,
+    /// `read` was taken from the file (or there was none to take).
+    loaded: std::sync::atomic::AtomicBool,
+    /// `read` moved since it was last written.
+    dirty: std::sync::atomic::AtomicBool,
 }
+
+/// The `meta` key of `state/core.sqlite` the kept records are written under, and the version of what it holds (another
+/// version is not read).
+const KEPT_META_KEY: &str = "sub-agent-retention-kept";
+const KEPT_FILE_VERSION: u64 = 1;
 
 impl DirectoryRetention {
     pub fn new(directory: Arc<SessionDirectory>, index: Arc<dyn AgentOnlyIndex>, stamps: Arc<ArchiveStamps>) -> Self {
-        Self { threads: SessionThreads::new(directory.clone()), directory, index, stamps }
+        Self {
+            directory,
+            index,
+            stamps,
+            read: std::sync::Mutex::default(),
+            current: std::sync::Mutex::default(),
+            judged: std::sync::Mutex::default(),
+            persist: None,
+            loaded: std::sync::atomic::AtomicBool::new(false),
+            dirty: std::sync::atomic::AtomicBool::new(false),
+        }
     }
+
+    /// Keeps what the passes read in `state` (written after a pass that read anything new), so the first pass after a start
+    /// reads only the records whose index stamp moved meanwhile. It is a cache: a missing, unreadable or foreign value is read
+    /// as empty, and a record's stamp is still checked against the index before its kept fields count.
+    pub fn persisted(mut self, state: mixdog_store::state::CoreState) -> Self {
+        self.persist = Some(state);
+        self
+    }
+
+    async fn load_kept(&self) {
+        if self.loaded.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let Some(state) = &self.persist else { return };
+        let Ok(Some(text)) = state.meta(KEPT_META_KEY).await else { return };
+        let Ok(Value::Object(file)) = serde_json::from_str::<Value>(&text) else { return };
+        if file.get("version").and_then(Value::as_u64) != Some(KEPT_FILE_VERSION) {
+            return;
+        }
+        let Some(Value::Object(entries)) = file.get("entries") else { return };
+        let mut read = self.read.lock().unwrap_or_else(|p| p.into_inner());
+        for (id, entry) in entries {
+            if let (Some(stamp), Some(Value::Object(header))) = (entry.get("stamp").and_then(Value::as_str), entry.get("header")) {
+                read.entry(id.clone()).or_insert_with(|| (stamp.to_owned(), kept(header)));
+            }
+        }
+    }
+
+    async fn write_kept(&self) {
+        let Some(state) = &self.persist else { return };
+        if !self.dirty.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let entries: Map<String, Value> = self
+            .read
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .map(|(id, (stamp, header))| (id.clone(), json!({ "stamp": stamp, "header": header })))
+            .collect();
+        let text = json!({ "version": KEPT_FILE_VERSION, "entries": entries }).to_string();
+        if state.write(move |tx| tx.put_meta(KEPT_META_KEY, &text)).await.is_err() {
+            // Owed to the next pass.
+            self.dirty.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+}
+
+/// The header fields a pass reads ([`member`], [`activity_at`], the archive resolution): what [`DirectoryRetention`] keeps of a
+/// record between passes. A whole stored header is about 2 MB (it carries the session's context); a thousand of them kept were
+/// 1.87 GB resident.
+const KEPT_FIELDS: [&str; 13] = [
+    "id",
+    "taskOrigin",
+    "agent",
+    "owner",
+    "ownerSessionId",
+    "parentSessionId",
+    "visibility",
+    "sessionVisibility",
+    "archivedAt",
+    "lastUsedAt",
+    "updatedAt",
+    "createdAt",
+    "lastHeartbeatAt",
+];
+
+/// `header` narrowed to [`KEPT_FIELDS`].
+fn kept(header: &Header) -> Header {
+    KEPT_FIELDS.iter().filter_map(|key| header.get(*key).map(|value| ((*key).to_owned(), value.clone()))).collect()
+}
+
+/// What moves whenever a stored record does: its last write, size and file time as the index projected them. Empty when
+/// the row carries none of them, which never matches, so such a record is always read.
+fn record_stamp(row: &Header) -> String {
+    let part = |key: &str| row.get(key).map(Value::to_string).unwrap_or_default();
+    let stamp = [part("updatedAt"), part("storageSize"), part("storageMtimeMs")];
+    if stamp.iter().all(String::is_empty) { String::new() } else { stamp.join("|") }
 }
 
 #[async_trait]
 impl RetentionHost for DirectoryRetention {
     async fn agent_only_ids(&self) -> Result<Vec<String>, CoreError> {
-        self.index.agent_only_ids().await
+        self.load_kept().await;
+        let rows = self.index.agent_only_rows().await?;
+        let stamps: HashMap<String, String> = rows.iter().map(|(id, row)| (id.clone(), record_stamp(row))).collect();
+        // A record no longer listed is not kept for a pass that will not ask for it.
+        self.read.lock().unwrap_or_else(|p| p.into_inner()).retain(|id, _| stamps.contains_key(id));
+        *self.current.lock().unwrap_or_else(|p| p.into_inner()) = stamps;
+        Ok(rows.into_iter().map(|(id, _)| id).collect())
     }
 
+    /// The header with its archive mark as the archive authority resolves it. A record that is not loaded and whose index
+    /// stamp has not moved since the last pass read it is answered from that read; the archive mark is resolved anew.
     async fn stored_header(&self, id: &str) -> Result<Option<Header>, CoreError> {
-        self.directory.try_stored_header(&ThreadId::from(id)).await
+        let thread = ThreadId::from(id);
+        let stamp = self.current.lock().unwrap_or_else(|p| p.into_inner()).get(id).cloned().filter(|stamp| !stamp.is_empty());
+        let loaded = self.directory.handle(&thread).is_some();
+        if !loaded
+            && let Some(stamp) = &stamp
+            && let Some((held, header)) = self.read.lock().unwrap_or_else(|p| p.into_inner()).get(id)
+            && held == stamp
+        {
+            return Ok(Some(self.directory.archive_resolved(id, header)));
+        }
+        // Only the fields a pass reads are answered (and kept), so a fresh read and a kept one answer alike.
+        let header = self.directory.try_stored_header(&thread).await?.map(|header| kept(&header));
+        if let (false, Some(stamp), Some(header)) = (loaded, stamp, header.as_ref()) {
+            self.read.lock().unwrap_or_else(|p| p.into_inner()).insert(id.to_owned(), (stamp, header.clone()));
+            self.dirty.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        Ok(header.map(|header| self.directory.archive_resolved(id, &header)))
+    }
+
+    fn trusted(&self, id: &str, header: &Header) -> bool {
+        let state = self.directory.archive_state(id, header);
+        self.judged.lock().unwrap_or_else(|p| p.into_inner()).insert(id.to_owned(), state.entry);
+        state.trusted()
     }
 
     fn is_live(&self, id: &str) -> bool {
@@ -398,12 +556,18 @@ impl RetentionHost for DirectoryRetention {
     }
 
     async fn archive(&self, id: &str) -> Result<(), CoreError> {
-        let stamp = self.stamps.take(self.directory.deps().clock.now_ms());
-        let set = Map::from_iter([("archivedAt".to_owned(), json!(stamp))]);
-        self.threads.patch_header(&ThreadId::from(id), set, vec![]).await.map_err(|e| internal("archive", &format!("{e:?}")))
+        let Some(header) = self.directory.try_stored_header(&ThreadId::from(id)).await? else { return Ok(()) };
+        let (stamps, now) = (self.stamps.clone(), self.directory.deps().clock.now_ms());
+        self.directory.mark_archived(id, &header, Mark::Automatic(Box::new(move || stamps.take(now) as f64))).await.map(drop)
     }
 
     async fn delete(&self, id: &str, activity: f64, peers: &[(String, f64)], cancel: &CancellationToken) -> Result<bool, CoreError> {
-        self.directory.delete_stored(id, activity, peers, cancel).await
+        // A session whose archive state this pass did not read is not deleted on it.
+        let Some(judged) = self.judged.lock().unwrap_or_else(|p| p.into_inner()).get(id).copied() else { return Ok(false) };
+        self.directory.delete_stored_judged(id, activity, peers, cancel, judged).await
+    }
+
+    async fn pass_ended(&self) {
+        self.write_kept().await;
     }
 }

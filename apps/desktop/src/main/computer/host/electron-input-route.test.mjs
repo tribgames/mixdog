@@ -15,6 +15,10 @@ registerHooks({
 const { electronKeyPresses } = await import('./input-electron-keys.ts');
 const { createInputDispatch } = await import('./input-dispatch.ts');
 
+const { underEndpoint } = await import('./command-fence.ts');
+/** The endpoint of the relayed command these inputs belong to, admitting everything. */
+const fenced = (run) => underEndpoint({ signal: new AbortController().signal, commit() {}, track() {} }, run);
+
 function fixtureWindow(commands, { log = [], delayMs = 0, attachedBefore = false } = {}) {
   let attached = attachedBefore;
   return {
@@ -47,7 +51,7 @@ function fixtureWindow(commands, { log = [], delayMs = 0, attachedBefore = false
 }
 
 function dispatcher(nativeCalls) {
-  return createInputDispatch(
+  const dispatch = createInputDispatch(
     {
       assertExecutionNotAborted() {},
       isObserveOnly: () => false,
@@ -59,6 +63,7 @@ function dispatcher(nativeCalls) {
     },
     { assertAction() {}, dispatchAuthority: () => ({}) }
   );
+  return (...args) => fenced(() => dispatch(...args));
 }
 
 test('key chords parse to browser chords', () => {

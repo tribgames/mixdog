@@ -39,6 +39,7 @@ fn write_files(base: &Path, files: &Value) {
     }
 }
 
+#[cfg(node_twin)]
 fn presence_text(presence: Presence) -> &'static str {
     match presence {
         Presence::Present => "present",
@@ -47,6 +48,7 @@ fn presence_text(presence: Presence) -> &'static str {
     }
 }
 
+#[cfg(node_twin)]
 fn definition_json(definition: &Option<AgentDefinition>) -> Value {
     let Some(d) = definition else { return Value::Null };
     json!({
@@ -56,6 +58,7 @@ fn definition_json(definition: &Option<AgentDefinition>) -> Value {
 }
 
 /// One recorded world opened as the loader reads it.
+#[cfg(node_twin)]
 async fn open_world(world: &Value) -> (tempfile::TempDir, AgentDefinitions) {
     let dir = tempfile::tempdir().unwrap();
     let (shipped, data) = (dir.path().join("shipped"), dir.path().join("data"));
@@ -88,152 +91,8 @@ async fn open_world(world: &Value) -> (tempfile::TempDir, AgentDefinitions) {
 /// The rooms module reads the same recorded worlds through `AgentCatalog`: contacts, Mixy's home
 /// route and existence, presence, and the name an archived agent left (`""` when none).
 /// Recorded worlds per test: each opens its own definitions and config.
+#[cfg(node_twin)]
 const WORLD_CHUNK: usize = 5;
-
-fn definition_worlds() -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/agent-definitions-twin.json");
-    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
-}
-
-mixdog_rt::replay_chunks!(ROOM_CATALOG_TESTS, #[tokio::test] async the_room_catalog_chunk; [
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_00 = 0,
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_01 = 1,
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_02 = 2,
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_03 = 3,
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_04 = 4,
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_05 = 5,
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_06 = 6,
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_07 = 7,
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_08 = 8,
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_09 = 9,
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_10 = 10,
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_11 = 11,
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_12 = 12,
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_13 = 13,
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_14 = 14,
-    the_room_catalog_answers_what_the_recorded_node_functions_answered_15 = 15,
-]);
-
-#[test]
-fn every_recorded_world_has_its_room_catalog_test() {
-    mixdog_rt::testing::assert_chunks_registered(ROOM_CATALOG_TESTS, definition_worlds()["worlds"].as_array().unwrap().len(), WORLD_CHUNK);
-}
-
-async fn the_room_catalog_chunk(chunk: usize) {
-    use mixdog_core_rooms::rooms::sessions::AgentCatalog;
-    let twin = definition_worlds();
-    let worlds = twin["worlds"].as_array().unwrap();
-    let mut failures = Vec::new();
-    for world in &worlds[mixdog_rt::testing::chunk_range(worlds.len(), chunk, WORLD_CHUNK)] {
-        let name = world["name"].as_str().unwrap();
-        let (_dir, agents) = open_world(world).await;
-        let catalog: &dyn AgentCatalog = &agents;
-        let want = &world["expect"];
-        let queries: Vec<String> = world["queries"].as_array().unwrap().iter().map(|q| q.as_str().unwrap().to_owned()).collect();
-        let mut check = |what: &str, got: Value, want: &Value| {
-            if &got != want {
-                failures.push(format!("{name} {what}: {got} != {want}"));
-            }
-        };
-        let contacts: Vec<Value> = catalog.agents().await.unwrap().iter().map(|c| json!({ "id": c.id, "route": c.route })).collect();
-        check("contacts", json!(contacts), &want["contacts"]);
-        check("mixyRoute", catalog.mixy_route().await, &want["leadHomeRoute"]);
-        check("mixyCreated", json!(catalog.mixy_created().await), &want["mixyExists"]);
-        let presence: serde_json::Map<String, Value> =
-            catalog.presence(&queries).await.unwrap().into_iter().map(|(id, p)| (id, json!(presence_text(p)))).collect();
-        check("presence", Value::Object(presence), &want["presence"]);
-        for id in &queries {
-            let node = want["archived"][id]["name"].as_str().unwrap_or_default();
-            check(&format!("archived {id:?}"), json!(catalog.archived_name(id).await), &json!(node));
-        }
-    }
-    assert!(failures.is_empty(), "{} differ:\n{}", failures.len(), failures.iter().take(40).cloned().collect::<Vec<_>>().join("\n"));
-}
-mixdog_rt::replay_chunks!(LOADER_TESTS, #[tokio::test] async the_loader_chunk; [
-    the_loader_answers_what_the_recorded_node_functions_answered_00 = 0,
-    the_loader_answers_what_the_recorded_node_functions_answered_01 = 1,
-    the_loader_answers_what_the_recorded_node_functions_answered_02 = 2,
-    the_loader_answers_what_the_recorded_node_functions_answered_03 = 3,
-    the_loader_answers_what_the_recorded_node_functions_answered_04 = 4,
-    the_loader_answers_what_the_recorded_node_functions_answered_05 = 5,
-    the_loader_answers_what_the_recorded_node_functions_answered_06 = 6,
-    the_loader_answers_what_the_recorded_node_functions_answered_07 = 7,
-    the_loader_answers_what_the_recorded_node_functions_answered_08 = 8,
-    the_loader_answers_what_the_recorded_node_functions_answered_09 = 9,
-    the_loader_answers_what_the_recorded_node_functions_answered_10 = 10,
-    the_loader_answers_what_the_recorded_node_functions_answered_11 = 11,
-    the_loader_answers_what_the_recorded_node_functions_answered_12 = 12,
-    the_loader_answers_what_the_recorded_node_functions_answered_13 = 13,
-    the_loader_answers_what_the_recorded_node_functions_answered_14 = 14,
-    the_loader_answers_what_the_recorded_node_functions_answered_15 = 15,
-]);
-
-#[test]
-fn every_recorded_world_has_its_loader_test() {
-    let twin = definition_worlds();
-    let worlds = twin["worlds"].as_array().unwrap();
-    assert_eq!(worlds.len(), 80);
-    mixdog_rt::testing::assert_chunks_registered(LOADER_TESTS, worlds.len(), WORLD_CHUNK);
-}
-
-async fn the_loader_chunk(chunk: usize) {
-    let twin = definition_worlds();
-    let worlds = twin["worlds"].as_array().unwrap();
-
-    let mut failures = Vec::new();
-    for world in &worlds[mixdog_rt::testing::chunk_range(worlds.len(), chunk, WORLD_CHUNK)] {
-        let name = world["name"].as_str().unwrap();
-        let (_dir, agents) = open_world(world).await;
-
-        let want = &world["expect"];
-        let queries: Vec<String> = world["queries"].as_array().unwrap().iter().map(|q| q.as_str().unwrap().to_owned()).collect();
-        let mut check = |what: &str, got: Value, want: &Value| {
-            if &got != want {
-                failures.push(format!("{name} {what}: {got} != {want}"));
-            }
-        };
-
-        check("customIds", json!(agents.custom_agent_ids().await.unwrap()), &want["customIds"]);
-        check("delegatable", json!(agents.delegatable_agent_ids().await.unwrap()), &want["delegatable"]);
-        for id in &queries {
-            let got = definition_json(&agents.load(id).await.unwrap());
-            check(&format!("definition {id:?}"), got, &want["definitions"][id]);
-        }
-        let rows: Vec<Value> = agents
-            .rows()
-            .await
-            .unwrap()
-            .iter()
-            .map(|row| {
-                json!({
-                    "id": row.id, "label": row.label, "description": row.description, "fixed": row.fixed,
-                    "userOverride": row.user_override, "route": row.route, "routeConfigured": row.route_configured,
-                    "kind": row.kind, "disabled": row.disabled, "avatar": row.avatar, "hasDefinition": row.definition.is_some(),
-                })
-            })
-            .collect();
-        check("rows", json!(rows), &want["rows"]);
-        let contacts: Vec<Value> = agents.contacts().await.unwrap().iter().map(|c| json!({ "id": c.id, "route": c.route })).collect();
-        check("contacts", json!(contacts), &want["contacts"]);
-        let presence: serde_json::Map<String, Value> =
-            agents.presence(&queries).await.unwrap().into_iter().map(|(id, p)| (id, json!(presence_text(p)))).collect();
-        check("presence", Value::Object(presence), &want["presence"]);
-        let mut archived = serde_json::Map::new();
-        for id in &queries {
-            archived.insert(id.clone(), json!(agents.archived_identity(id).await.unwrap().map(|who| json!({ "name": who.name, "avatar": who.avatar }))));
-        }
-        check("archived", Value::Object(archived), &want["archived"]);
-        let status = agents.lead_status().await.unwrap();
-        check(
-            "lead",
-            json!({ "created": status.created, "name": status.name, "avatar": status.avatar, "route": status.route }),
-            &want["lead"],
-        );
-        check("leadHomeRoute", agents.mixy_home_route().await.unwrap(), &want["leadHomeRoute"]);
-        check("mixyExists", json!(agents.mixy_exists().await.unwrap()), &want["mixyExists"]);
-    }
-    assert!(failures.is_empty(), "{} differ:\n{}", failures.len(), failures.iter().take(40).cloned().collect::<Vec<_>>().join("\n"));
-}
 
 #[tokio::test]
 async fn the_task_workspace_is_made_and_named_by_its_real_path() {
@@ -475,6 +334,154 @@ async fn the_catalog_shows_the_avatars_of_rows_lead_and_archived_agents() {
     assert_eq!((who.name.as_str(), who.avatar["kind"].as_str()), ("Pal", Some("mascot")));
 }
 
+
+#[cfg(node_twin)]
+fn definition_worlds() -> Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/agent-definitions-twin.json");
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+#[cfg(node_twin)]
+mixdog_rt::replay_chunks!(ROOM_CATALOG_TESTS, #[tokio::test] async the_room_catalog_chunk; [
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_00 = 0,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_01 = 1,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_02 = 2,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_03 = 3,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_04 = 4,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_05 = 5,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_06 = 6,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_07 = 7,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_08 = 8,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_09 = 9,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_10 = 10,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_11 = 11,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_12 = 12,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_13 = 13,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_14 = 14,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_15 = 15,
+]);
+#[cfg(node_twin)]
+#[test]
+fn every_recorded_world_has_its_room_catalog_test() {
+    mixdog_rt::testing::assert_chunks_registered(ROOM_CATALOG_TESTS, definition_worlds()["worlds"].as_array().unwrap().len(), WORLD_CHUNK);
+}
+#[cfg(node_twin)]
+async fn the_room_catalog_chunk(chunk: usize) {
+    use mixdog_core_rooms::rooms::sessions::AgentCatalog;
+    let twin = definition_worlds();
+    let worlds = twin["worlds"].as_array().unwrap();
+    let mut failures = Vec::new();
+    for world in &worlds[mixdog_rt::testing::chunk_range(worlds.len(), chunk, WORLD_CHUNK)] {
+        let name = world["name"].as_str().unwrap();
+        let (_dir, agents) = open_world(world).await;
+        let catalog: &dyn AgentCatalog = &agents;
+        let want = &world["expect"];
+        let queries: Vec<String> = world["queries"].as_array().unwrap().iter().map(|q| q.as_str().unwrap().to_owned()).collect();
+        let mut check = |what: &str, got: Value, want: &Value| {
+            if &got != want {
+                failures.push(format!("{name} {what}: {got} != {want}"));
+            }
+        };
+        let contacts: Vec<Value> = catalog.agents().await.unwrap().iter().map(|c| json!({ "id": c.id, "route": c.route })).collect();
+        check("contacts", json!(contacts), &want["contacts"]);
+        check("mixyRoute", catalog.mixy_route().await, &want["leadHomeRoute"]);
+        check("mixyCreated", json!(catalog.mixy_created().await), &want["mixyExists"]);
+        let presence: serde_json::Map<String, Value> =
+            catalog.presence(&queries).await.unwrap().into_iter().map(|(id, p)| (id, json!(presence_text(p)))).collect();
+        check("presence", Value::Object(presence), &want["presence"]);
+        for id in &queries {
+            let node = want["archived"][id]["name"].as_str().unwrap_or_default();
+            check(&format!("archived {id:?}"), json!(catalog.archived_name(id).await), &json!(node));
+        }
+    }
+    assert!(failures.is_empty(), "{} differ:\n{}", failures.len(), failures.iter().take(40).cloned().collect::<Vec<_>>().join("\n"));
+}
+#[cfg(node_twin)]
+mixdog_rt::replay_chunks!(LOADER_TESTS, #[tokio::test] async the_loader_chunk; [
+    the_loader_answers_what_the_recorded_node_functions_answered_00 = 0,
+    the_loader_answers_what_the_recorded_node_functions_answered_01 = 1,
+    the_loader_answers_what_the_recorded_node_functions_answered_02 = 2,
+    the_loader_answers_what_the_recorded_node_functions_answered_03 = 3,
+    the_loader_answers_what_the_recorded_node_functions_answered_04 = 4,
+    the_loader_answers_what_the_recorded_node_functions_answered_05 = 5,
+    the_loader_answers_what_the_recorded_node_functions_answered_06 = 6,
+    the_loader_answers_what_the_recorded_node_functions_answered_07 = 7,
+    the_loader_answers_what_the_recorded_node_functions_answered_08 = 8,
+    the_loader_answers_what_the_recorded_node_functions_answered_09 = 9,
+    the_loader_answers_what_the_recorded_node_functions_answered_10 = 10,
+    the_loader_answers_what_the_recorded_node_functions_answered_11 = 11,
+    the_loader_answers_what_the_recorded_node_functions_answered_12 = 12,
+    the_loader_answers_what_the_recorded_node_functions_answered_13 = 13,
+    the_loader_answers_what_the_recorded_node_functions_answered_14 = 14,
+    the_loader_answers_what_the_recorded_node_functions_answered_15 = 15,
+]);
+#[cfg(node_twin)]
+#[test]
+fn every_recorded_world_has_its_loader_test() {
+    let twin = definition_worlds();
+    let worlds = twin["worlds"].as_array().unwrap();
+    assert_eq!(worlds.len(), 80);
+    mixdog_rt::testing::assert_chunks_registered(LOADER_TESTS, worlds.len(), WORLD_CHUNK);
+}
+#[cfg(node_twin)]
+async fn the_loader_chunk(chunk: usize) {
+    let twin = definition_worlds();
+    let worlds = twin["worlds"].as_array().unwrap();
+
+    let mut failures = Vec::new();
+    for world in &worlds[mixdog_rt::testing::chunk_range(worlds.len(), chunk, WORLD_CHUNK)] {
+        let name = world["name"].as_str().unwrap();
+        let (_dir, agents) = open_world(world).await;
+
+        let want = &world["expect"];
+        let queries: Vec<String> = world["queries"].as_array().unwrap().iter().map(|q| q.as_str().unwrap().to_owned()).collect();
+        let mut check = |what: &str, got: Value, want: &Value| {
+            if &got != want {
+                failures.push(format!("{name} {what}: {got} != {want}"));
+            }
+        };
+
+        check("customIds", json!(agents.custom_agent_ids().await.unwrap()), &want["customIds"]);
+        check("delegatable", json!(agents.delegatable_agent_ids().await.unwrap()), &want["delegatable"]);
+        for id in &queries {
+            let got = definition_json(&agents.load(id).await.unwrap());
+            check(&format!("definition {id:?}"), got, &want["definitions"][id]);
+        }
+        let rows: Vec<Value> = agents
+            .rows()
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| {
+                json!({
+                    "id": row.id, "label": row.label, "description": row.description, "fixed": row.fixed,
+                    "userOverride": row.user_override, "route": row.route, "routeConfigured": row.route_configured,
+                    "kind": row.kind, "disabled": row.disabled, "avatar": row.avatar, "hasDefinition": row.definition.is_some(),
+                })
+            })
+            .collect();
+        check("rows", json!(rows), &want["rows"]);
+        let contacts: Vec<Value> = agents.contacts().await.unwrap().iter().map(|c| json!({ "id": c.id, "route": c.route })).collect();
+        check("contacts", json!(contacts), &want["contacts"]);
+        let presence: serde_json::Map<String, Value> =
+            agents.presence(&queries).await.unwrap().into_iter().map(|(id, p)| (id, json!(presence_text(p)))).collect();
+        check("presence", Value::Object(presence), &want["presence"]);
+        let mut archived = serde_json::Map::new();
+        for id in &queries {
+            archived.insert(id.clone(), json!(agents.archived_identity(id).await.unwrap().map(|who| json!({ "name": who.name, "avatar": who.avatar }))));
+        }
+        check("archived", Value::Object(archived), &want["archived"]);
+        let status = agents.lead_status().await.unwrap();
+        check(
+            "lead",
+            json!({ "created": status.created, "name": status.name, "avatar": status.avatar, "route": status.route }),
+            &want["lead"],
+        );
+        check("leadHomeRoute", agents.mixy_home_route().await.unwrap(), &want["leadHomeRoute"]);
+        check("mixyExists", json!(agents.mixy_exists().await.unwrap()), &want["mixyExists"]);
+    }
+    assert!(failures.is_empty(), "{} differ:\n{}", failures.len(), failures.iter().take(40).cloned().collect::<Vec<_>>().join("\n"));
+}
+#[cfg(node_twin)]
 /// `readAgentFirstResponseTimeoutMs` over the worlds real Node answered
 /// (`benchmarks/rust-core/recorders/record-agent-watchdog.mjs`): user copy against shipped, 0,
 /// negative, non-numeric, absent, flat files, a deleted agent and a store bot.

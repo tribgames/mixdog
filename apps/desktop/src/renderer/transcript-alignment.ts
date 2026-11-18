@@ -1,4 +1,5 @@
 import type { TranscriptItem } from './desktop-types';
+import { historyPositionOf } from '../../../../packages/protocol-client/src/rows.ts';
 
 const itemText = (item: TranscriptItem): string => {
   if (typeof item.text === 'string') return item.text;
@@ -86,7 +87,13 @@ export function joinTranscriptWindows<T extends RowIdentity>(
   for (let start = 0; start < older.length; start += 1) {
     const length = older.length - start;
     if (length > newer.length) continue;
-    if (!older.slice(start).every((row, index) => sameRowId(row, newer[index]))) continue;
+    if (!older.slice(start).every((row, index) => {
+      const next = newer[index]!;
+      const position = historyPositionOf(row);
+      const nextPosition = historyPositionOf(next);
+      return sameRowId(row, next) && (position === undefined && nextPosition === undefined ||
+        position !== undefined && position === nextPosition && historyPositionOf(row, 'after') === historyPositionOf(next, 'after'));
+    })) continue;
     overlap = length;
     break;
   }

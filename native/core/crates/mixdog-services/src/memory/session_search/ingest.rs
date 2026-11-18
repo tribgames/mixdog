@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -45,8 +46,11 @@ pub trait StoredSessions: Send + Sync {
     /// Every stored session, in listing order. A failed listing fails the backfill before it
     /// drops anything (Node's `readdirSync` throws out of `backfillSessionSearch`).
     async fn session_ids(&self) -> Result<Vec<String>>;
-    /// The change stamp of a session's stored record.
-    async fn record_stamp(&self, session_id: &str) -> Option<String>;
+    /// Observe this session's full source identity, including rewrites that do
+    /// not move its append cursor. Persist and compare it as an opaque value.
+    /// Only the listing authorizes cleanup, not a missing stamp.
+    async fn record_stamp(&self, session_id: &str) -> Result<Option<String>>;
+    /// One coherent transcript and header, or `None` when a read cannot establish them.
     async fn read(&self, session_id: &str) -> Option<IngestSession>;
 }
 
@@ -111,8 +115,8 @@ impl Drop for Slot {
 pub struct SessionSearchIngest {
     db: SessionSearchDb,
     sensitive: Arc<dyn SensitiveValues>,
-    /// session → (transcript length, sensitive-values version) of the last stored ingest.
-    last_ingested: Mutex<HashMap<String, (usize, Option<String>)>>,
+    /// session → (transcript length, sensitive-values version, transcript digest) of the last stored ingest.
+    last_ingested: Mutex<HashMap<String, (usize, Option<String>, TranscriptDigest)>>,
     queues: Queues,
 }
 
@@ -176,52 +180,52 @@ impl SessionSearchIngest {
     }
 
     async fn store_transcript(&self, session_id: &str, messages: &[Value]) -> Result<()> {
-        // A turn always grows the transcript; an unchanged length means nothing
-        // new. This is only a shortcut: the insert itself is idempotent.
         let length = messages.len();
         let version = self.sensitive.version(session_id);
-        let unchanged = self
-            .last_ingested
-            .lock()
-            .expect("last ingested")
-            .get(session_id)
-            .is_some_and(|(len, ver)| *len == length && *ver == version);
-        if unchanged {
+        let prior = self.last_ingested.lock().expect("last ingested").get(session_id).cloned();
+        let check = prior.as_ref().filter(|(len, ver, _)| *len <= length && *ver == version);
+        let prefix = check.map_or(0, |(len, _, _)| *len);
+        let mut hash = Sha256::new();
+        let mut bytes = Vec::new();
+        hash_messages(&mut hash, &mut bytes, &messages[..prefix])?;
+        let same_prefix = check.is_some_and(|(_, _, digest)| TranscriptDigest::from(hash.clone().finalize()) == *digest);
+        if same_prefix && prefix == length {
             return Ok(());
         }
-        // A marked value is stored as a marker here too. While the session has
-        // values not yet applied to its stored rows (rows made before the mark,
-        // compacted ones included), the rows that hold one are replaced in one
-        // transaction instead of only appending.
-        let redacted = self.sensitive.redact_messages(session_id, messages);
-        let applied = self
-            .last_ingested
-            .lock()
-            .expect("last ingested")
-            .get(session_id)
-            .map(|(_, ver)| ver.clone());
-        if version.is_some() && applied != Some(version.clone()) {
-            let redact = |text: &str| self.sensitive.redact_text(session_id, text);
-            self.db.replace(session_id, messages, &redacted, &redact).await?;
+        hash_messages(&mut hash, &mut bytes, &messages[prefix..])?;
+        let digest = hash.finalize().into();
+        if same_prefix {
+            let tail = self.sensitive.redact_messages(session_id, &messages[prefix..]);
+            self.db.append_from(session_id, &tail, prefix).await?;
         } else {
-            self.db.append(session_id, &redacted).await?;
+            // A new sensitive mark must also replace older rows, including ones
+            // for messages the current transcript dropped.
+            let redacted = self.sensitive.redact_messages(session_id, messages);
+            if version.is_some() && prior.as_ref().is_none_or(|(_, applied, _)| *applied != version) {
+                let redact = |text: &str| self.sensitive.redact_text(session_id, text);
+                self.db.replace(session_id, messages, &redacted, &redact).await?;
+            } else {
+                self.db.append(session_id, &redacted).await?;
+            }
         }
         let mut last = self.last_ingested.lock().expect("last ingested");
         if last.len() >= LAST_INGESTED_LIMIT {
             last.clear();
         }
-        last.insert(session_id.to_owned(), (length, version));
+        last.insert(session_id.to_owned(), (length, version, digest));
         Ok(())
     }
 
-    /// Fire-and-forget: store a completed turn's transcript. Never fails the caller.
+    /// Fire-and-forget for the caller: store a completed turn's transcript. Never fails the caller. The write is work of the database's scope,
+    /// registered before it is queued: the stop waits for it or revokes it, and a stopping scope refuses it before it touches the database (the
+    /// stored-session backfill restores the derived rows).
     pub fn ingest_turn(self: &Arc<Self>, session: IngestSession) {
         if session.id.is_empty() || session.messages.is_empty() || session.agent_only {
             return;
         }
         let this = self.clone();
         let slot = self.enqueue(&session.id);
-        tokio::spawn(async move {
+        let _queued = self.db.scope().spawn("services.memory.session-search-turn", async move {
             let id = session.id.clone();
             let messages = session.messages;
             let result = slot.run(|_| this.store_transcript(&id, &messages)).await;
@@ -231,8 +235,15 @@ impl SessionSearchIngest {
         });
     }
 
-    /// Best-effort removal of a deleted session's rows, after its pending writes.
-    pub async fn forget_session(&self, session_id: &str) {
+    /// Removal of a deleted session's rows as a scoped operation of the database's owner, queued after the session's pending writes: the stop drains
+    /// or revokes it, and a stopping owner refuses it before it touches the database (the backfill drops the rows of a session whose record is gone).
+    pub fn forget_session_owned(self: &Arc<Self>, session_id: &str) {
+        let (this, id) = (self.clone(), session_id.to_owned());
+        let _queued = self.db.scope().spawn("services.memory.session-search-delete", async move { this.forget_session(&id).await });
+    }
+
+    /// Best-effort removal of a deleted session's rows, after its pending writes (owned work only: [`Self::forget_session_owned`]).
+    pub(crate) async fn forget_session(&self, session_id: &str) {
         let result = self
             .enqueue(session_id)
             .run(|_| async {
@@ -254,10 +265,9 @@ impl SessionSearchIngest {
         let session_ids = stored.session_ids().await?;
         let mut ingested = 0;
         for session_id in &session_ids {
-            match self.backfill_one(stored, &stamps, session_id, &mut ingested).await {
-                // Nothing was read: no yield, as in Node.
-                Ok(false) => continue,
-                Ok(true) => {}
+            match self.backfill_one(stored, session_id, stamps.get(session_id).map(String::as_str)).await {
+                Ok(None) => continue,
+                Ok(Some(indexed)) => ingested += usize::from(indexed),
                 Err(error) => log_failure(&format!("backfill {session_id}"), &error),
             }
             tokio::task::yield_now().await;
@@ -274,31 +284,43 @@ impl SessionSearchIngest {
     async fn backfill_one(
         &self,
         stored: &dyn StoredSessions,
-        stamps: &std::collections::BTreeMap<String, String>,
         session_id: &str,
-        ingested: &mut usize,
-    ) -> Result<bool> {
-        let Some(stamp) = stored.record_stamp(session_id).await else { return Ok(false) };
-        if stamps.get(session_id) == Some(&stamp) {
-            return Ok(false);
-        }
-        let Some(session) = stored.read(session_id).await.filter(|s| !s.id.is_empty()) else {
-            return Ok(true);
-        };
-        // An agent-only session is never indexed, but its stamp is recorded all
-        // the same: without one it would be read in full on every start.
-        let indexed = !session.agent_only;
-        self.enqueue(&session.id).run(|_| async {
-            if indexed {
-                let redacted = self.sensitive.redact_messages(&session.id, &session.messages);
-                self.db.append(&session.id, &redacted).await?;
+        recorded: Option<&str>,
+    ) -> Result<Option<bool>> {
+        self.enqueue(session_id).run(|_| async {
+            let Some(mut stamp) = stored.record_stamp(session_id).await? else { return Ok(None) };
+            for _ in 0..2 {
+                if recorded == Some(stamp.as_str()) {
+                    return Ok(None);
+                }
+                let session = stored.read(session_id).await.filter(|s| s.id == session_id);
+                let Some(after) = stored.record_stamp(session_id).await? else { return Ok(Some(false)) };
+                if stamp != after {
+                    // Retry once from the newly observed identity, never attach it to
+                    // an earlier read. A busier session remains unstamped for later recovery.
+                    stamp = after;
+                    continue;
+                }
+                let Some(session) = session else { return Ok(Some(false)) };
+                let indexed = !session.agent_only;
+                let redacted = if indexed { self.sensitive.redact_messages(session_id, &session.messages) } else { Vec::new() };
+                self.db.store_backfill(session_id, &redacted, &stamp).await?;
+                return Ok(Some(indexed));
             }
-            self.db.record_backfill_stamp(&session.id, &stamp).await
+            Ok(Some(false))
         })
-        .await?;
-        if indexed {
-            *ingested += 1;
-        }
-        Ok(true)
+        .await
     }
+}
+
+type TranscriptDigest = [u8; 32];
+
+fn hash_messages(hash: &mut Sha256, bytes: &mut Vec<u8>, messages: &[Value]) -> Result<()> {
+    for message in messages {
+        bytes.clear();
+        serde_json::to_writer(&mut *bytes, message).map_err(|e| MemoryError::Io(std::io::Error::other(e)))?;
+        hash.update((bytes.len() as u64).to_le_bytes());
+        hash.update(&*bytes);
+    }
+    Ok(())
 }

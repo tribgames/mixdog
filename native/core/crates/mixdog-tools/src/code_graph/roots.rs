@@ -24,13 +24,6 @@ pub(super) const SENTINELS: [&str; 11] = [
     "Package.swift",
 ];
 
-/// `CODE_GRAPH_DISCOVERED_FEDERATION_CAP` (`aggregate-roots.mjs`): the discovered child projects a sentinel-free parent fans out
-/// over, 8 unless `MIXDOG_CODE_GRAPH_FEDERATION_CAP` names a positive integer (`parseInt`: its leading digits), read once.
-pub(super) fn federation_cap() -> usize {
-    static CAP: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    *CAP.get_or_init(|| federation_cap_of(std::env::var("MIXDOG_CODE_GRAPH_FEDERATION_CAP").ok().as_deref()))
-}
-
 fn federation_cap_of(raw: Option<&str>) -> usize {
     let text = raw.unwrap_or("").trim_start();
     let text = text.strip_prefix('+').unwrap_or(text);
@@ -82,46 +75,12 @@ thread_local! {
     pub(super) static LAYOUT: std::cell::RefCell<Option<Layout>> = const { std::cell::RefCell::new(None) };
 }
 
-/// Home and temp: an implicit ancestor walk never crosses them.
-fn user_boundaries() -> Vec<String> {
-    #[cfg(test)]
-    if let Some(boundaries) = LAYOUT.with(|l| l.borrow().as_ref().and_then(|l| l.boundaries.clone())) {
-        return boundaries.iter().map(|p| canonical_key(p)).collect();
-    }
-    [dirs::home_dir(), Some(std::env::temp_dir())]
-        .into_iter()
-        .flatten()
-        .map(|p| canonical_key(&p))
-        .collect()
-}
-
 fn has_sentinel(dir: &Path) -> bool {
     SENTINELS.iter().any(|s| dir.join(s).exists())
 }
 
 pub(super) fn is_filesystem_root(path: &Path) -> bool {
     path.parent().is_none()
-}
-
-/// The directory itself or its nearest ancestor holding a sentinel. `stop_at_user_boundary`
-/// marks a guessed root: it yields nothing at home/temp instead of adopting a stray sentinel.
-pub(super) fn find_dir_project_root(dir: &Path, stop_at_user_boundary: bool) -> Option<PathBuf> {
-    let stops = if stop_at_user_boundary { user_boundaries() } else { Vec::new() };
-    let mut current = abs_from(Path::new(""), &dir.to_string_lossy());
-    loop {
-        #[cfg(test)]
-        if LAYOUT.with(|l| l.borrow().as_ref().is_some_and(|l| !current.starts_with(&l.root))) {
-            return None;
-        }
-        let parent = current.parent()?.to_path_buf();
-        if stops.contains(&canonical_key(&current)) {
-            return None;
-        }
-        if has_sentinel(&current) {
-            return Some(current);
-        }
-        current = parent;
-    }
 }
 
 pub(super) fn child_project_roots(dir: &Path, cap: usize) -> Vec<PathBuf> {
@@ -153,41 +112,6 @@ fn is_wildcard(file: &str) -> bool {
 fn basename(path: &Path) -> String {
     path.file_name()
         .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
-}
-
-fn file_project_root(file: &Path, stop: bool) -> Option<PathBuf> {
-    find_dir_project_root(file.parent()?, stop)
-}
-
-/// Every anchor exists and resolves to one detectable project (or one containing the rest).
-fn aggregate_project_root(args: &Args, base: &Path, stop: bool) -> Option<PathBuf> {
-    if args.files.is_empty() || args.files_is_list_string {
-        return None;
-    }
-    let mut roots: Vec<PathBuf> = Vec::new();
-    for file in &args.files {
-        if is_wildcard(file) {
-            return None;
-        }
-        let abs = abs_from(base, file);
-        let meta = std::fs::metadata(&abs).ok()?;
-        let root = if meta.is_dir() {
-            find_dir_project_root(&abs, stop)
-        } else {
-            file_project_root(&abs, stop)
-        }?;
-        if !roots.contains(&root) {
-            roots.push(root);
-        }
-    }
-    match roots.len() {
-        0 => None,
-        1 => roots.pop(),
-        _ => roots
-            .iter()
-            .find(|c| roots.iter().all(|r| within(c, r)))
-            .cloned(),
-    }
 }
 
 /// A sentinel-free cwd that holds no project and contains every anchor is its own root.
@@ -271,6 +195,141 @@ fn relocate_under_child_project(args: &Args, base: &Path) -> Option<(PathBuf, Ar
     Some((root, next))
 }
 
+pub(super) enum FileAnchor {
+    /// The call answers with this text.
+    Error(String),
+    /// Re-home the call to this root (`None` keeps the cwd).
+    Root(Option<PathBuf>),
+}
+
+#[cfg(test)]
+mod federation_cap_tests {
+    use super::federation_cap_of;
+
+    /// `parseInt(process.env.MIXDOG_CODE_GRAPH_FEDERATION_CAP ?? '', 10)`: its leading digits when positive, else 8.
+    #[test]
+    fn the_federation_cap_reads_the_leading_integer_of_the_variable() {
+        let cap = |raw: &str| federation_cap_of(Some(raw));
+        assert_eq!(federation_cap_of(None), 8);
+        assert_eq!([cap(""), cap("abc"), cap("0"), cap("-3"), cap("2.9")], [8, 8, 8, 8, 2]);
+        assert_eq!([cap("12"), cap("  5x"), cap("+4")], [12, 5, 4]);
+    }
+}
+
+
+/// `CODE_GRAPH_DISCOVERED_FEDERATION_CAP` (`aggregate-roots.mjs`): the discovered child projects a sentinel-free parent fans out
+/// over, 8 unless `MIXDOG_CODE_GRAPH_FEDERATION_CAP` names a positive integer (`parseInt`: its leading digits), read once.
+pub(super) fn federation_cap() -> usize {
+    static CAP: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *CAP.get_or_init(|| federation_cap_of(std::env::var("MIXDOG_CODE_GRAPH_FEDERATION_CAP").ok().as_deref()))
+}
+/// The identity of a file or directory: its link-resolved absolute filesystem path (symlinks and junctions followed), then
+/// [`path_key`]'s spelling normalisation. Notifications, graph roots (and so cache keys) and inventory entries all take
+/// their identity here, so two spellings of one place (an alias and its target) are one key; presentation paths keep the
+/// caller's spelling. The shared SCM lock key is not changed.
+///
+/// A missing tail is resolved through the nearest surviving ancestor (a deleted file, a directory not made yet) with the
+/// missing names appended. A dangling link, a permission error, a link loop, or no surviving ancestor is an unresolved
+/// identity: `Err`, never a lexical fallback to the alias. Nothing is cached: every call asks the filesystem, so an
+/// identity stored by a caller is never re-resolved later.
+///
+/// Known boundary (decided): a link retargeted between a write and its notification is not detected; the identity is the
+/// one at resolution time, which is when the notification is ingested, not when the file was written.
+pub(super) fn identity_key(path: &Path) -> Result<String, String> {
+    let mut at = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().map_err(|e| format!("code_graph: cannot resolve {}: {e}", path.display()))?.join(path)
+    };
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    loop {
+        match std::fs::canonicalize(&at) {
+            Ok(mut resolved) => {
+                resolved.extend(tail.iter().rev());
+                return Ok(path_key(&resolved));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => match std::fs::symlink_metadata(&at) {
+                // Nothing is there: the name is part of the missing tail.
+                Err(absent) if absent.kind() == std::io::ErrorKind::NotFound => {
+                    let (Some(parent), Some(name)) = (at.parent(), at.file_name()) else {
+                        return Err(format!("code_graph: cannot resolve {}: no existing ancestor", path.display()));
+                    };
+                    tail.push(name.to_owned());
+                    at = parent.to_path_buf();
+                }
+                Err(other) => return Err(format!("code_graph: cannot resolve {}: {other}", at.display())),
+                // Something is there and does not resolve: a dangling link.
+                Ok(_) => return Err(format!("code_graph: cannot resolve {}: dangling link", at.display())),
+            },
+            Err(error) => return Err(format!("code_graph: cannot resolve {}: {error}", at.display())),
+        }
+    }
+}
+/// Home and temp: an implicit ancestor walk never crosses them.
+fn user_boundaries() -> Vec<String> {
+    #[cfg(test)]
+    if let Some(boundaries) = LAYOUT.with(|l| l.borrow().as_ref().and_then(|l| l.boundaries.clone())) {
+        return boundaries.iter().map(|p| canonical_key(p)).collect();
+    }
+    [dirs::home_dir(), Some(std::env::temp_dir())]
+        .into_iter()
+        .flatten()
+        .map(|p| canonical_key(&p))
+        .collect()
+}
+/// The directory itself or its nearest ancestor holding a sentinel. `stop_at_user_boundary`
+/// marks a guessed root: it yields nothing at home/temp instead of adopting a stray sentinel.
+pub(super) fn find_dir_project_root(dir: &Path, stop_at_user_boundary: bool) -> Option<PathBuf> {
+    let stops = if stop_at_user_boundary { user_boundaries() } else { Vec::new() };
+    let mut current = abs_from(Path::new(""), &dir.to_string_lossy());
+    loop {
+        #[cfg(test)]
+        if LAYOUT.with(|l| l.borrow().as_ref().is_some_and(|l| !current.starts_with(&l.root))) {
+            return None;
+        }
+        let parent = current.parent()?.to_path_buf();
+        if stops.contains(&canonical_key(&current)) {
+            return None;
+        }
+        if has_sentinel(&current) {
+            return Some(current);
+        }
+        current = parent;
+    }
+}
+fn file_project_root(file: &Path, stop: bool) -> Option<PathBuf> {
+    find_dir_project_root(file.parent()?, stop)
+}
+/// Every anchor exists and resolves to one detectable project (or one containing the rest).
+fn aggregate_project_root(args: &Args, base: &Path, stop: bool) -> Option<PathBuf> {
+    if args.files.is_empty() || args.files_is_list_string {
+        return None;
+    }
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for file in &args.files {
+        if is_wildcard(file) {
+            return None;
+        }
+        let abs = abs_from(base, file);
+        let meta = std::fs::metadata(&abs).ok()?;
+        let root = if meta.is_dir() {
+            find_dir_project_root(&abs, stop)
+        } else {
+            file_project_root(&abs, stop)
+        }?;
+        if !roots.contains(&root) {
+            roots.push(root);
+        }
+    }
+    match roots.len() {
+        0 => None,
+        1 => roots.pop(),
+        _ => roots
+            .iter()
+            .find(|c| roots.iter().all(|r| within(c, r)))
+            .cloned(),
+    }
+}
 /// Aggregate anchors outside any project: the root they share, a bounded sentinel-free tree,
 /// or the child project they relocate into.
 pub(super) fn resolve_aggregate_anchor_root(
@@ -312,14 +371,6 @@ pub(super) fn resolve_aggregate_anchor_root(
         .collect();
     Ok((effective, next))
 }
-
-pub(super) enum FileAnchor {
-    /// The call answers with this text.
-    Error(String),
-    /// Re-home the call to this root (`None` keeps the cwd).
-    Root(Option<PathBuf>),
-}
-
 /// One `file` anchor: an error text when it does not exist, else the root it re-homes to.
 pub(super) fn resolve_file_anchor_root(
     name: &str,
@@ -349,7 +400,6 @@ pub(super) fn resolve_file_anchor_root(
         )),
     }
 }
-
 /// No anchor and no explicit cwd: the enclosing project root, or the cwd when it is a bounded
 /// sentinel-free tree. A filesystem root, home or a parent of several projects is refused.
 pub(super) fn resolve_directory_root(name: &str, cwd: &Path) -> Result<PathBuf, String> {
@@ -385,18 +435,4 @@ pub(super) fn resolve_directory_root(name: &str, cwd: &Path) -> Result<PathBuf, 
             ))
             .unwrap_or_default()
     ))
-}
-
-#[cfg(test)]
-mod federation_cap_tests {
-    use super::federation_cap_of;
-
-    /// `parseInt(process.env.MIXDOG_CODE_GRAPH_FEDERATION_CAP ?? '', 10)`: its leading digits when positive, else 8.
-    #[test]
-    fn the_federation_cap_reads_the_leading_integer_of_the_variable() {
-        let cap = |raw: &str| federation_cap_of(Some(raw));
-        assert_eq!(federation_cap_of(None), 8);
-        assert_eq!([cap(""), cap("abc"), cap("0"), cap("-3"), cap("2.9")], [8, 8, 8, 8, 2]);
-        assert_eq!([cap("12"), cap("  5x"), cap("+4")], [12, 5, 4]);
-    }
 }

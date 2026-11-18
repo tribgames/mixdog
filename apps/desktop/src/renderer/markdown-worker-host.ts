@@ -52,17 +52,6 @@ export class MarkdownWorkerHost {
     });
   }
 
-  /** Boot the parser before the first session opens, so its first AST costs
-   *  one parse instead of a worker bootstrap. */
-  prewarm(): void {
-    if (this.worker || this.failure) return;
-    try {
-      this.getWorker();
-    } catch {
-      // No Worker support: parse() rejects into the renderer fallback.
-    }
-  }
-
   private fail(worker: Worker, error: Error): void {
     // Events already queued by a failed worker are ignored after it retires.
     if (this.worker !== worker) return;

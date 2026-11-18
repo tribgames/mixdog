@@ -223,6 +223,27 @@ test('a live owner that never publishes is named when no candidate was spawned',
   );
 });
 
+test('a core that says it is starting and answers its control listener is waited for past the ready time', async () => {
+  let clock = 0;
+  const booting = { state: 'booting', rpcPort: null, pid: 4321, controlPort: 7, token: 't' };
+  const run = (stalledMs: number, servesAt: number) =>
+    ensureCore({
+      readDiscovery: async () => (clock >= servesAt ? { ...booting, state: 'serving', rpcPort: 9 } : booting),
+      launch: async () => ({}),
+      sleep: async (ms) => void (clock += ms),
+      now: () => clock,
+      readyTimeoutMs: 1_000,
+      runs: () => true,
+      ping: async () => ({ answered: true, stalledMs }),
+    });
+  // Three ready times of index building, then it serves.
+  assert.equal((await run(0, 3_500)).state, 'serving');
+  // A runtime that reports a stall is not at work: the wait ends at the ready time.
+  clock = 0;
+  await assert.rejects(run(40_000, 3_500), /core is not ready: the core is booting/);
+  assert.ok(clock < 1_200);
+});
+
 test('a blocked core names its own reason and no owner is blamed beside it', async () => {
   let clock = 0;
   await assert.rejects(

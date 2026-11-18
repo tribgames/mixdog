@@ -25,7 +25,10 @@ use super::summary_routes::{ForkSender, SavedRequest};
 /// and the provider that sent it.
 #[derive(Clone)]
 pub struct SideMaterial {
-    pub request: ModelRequest,
+    /// Shared with the fork sender captured beside it ([`super::side_requests::RequestFork`]) and with the loop that sent it:
+    /// the request as sent, which may end with its tail reminder; what the store means by it is the request without that
+    /// reminder ([`mixdog_agent::kept_messages`], [`mixdog_agent::without_tail_reminder`]).
+    pub request: Arc<ModelRequest>,
     pub provider: Arc<dyn ProviderAdapter>,
 }
 
@@ -62,12 +65,38 @@ pub struct SideQuestionStore {
 
 /// The fork of a session with no saved request. A compaction only sends it for a request that
 /// `SessionFork` found forkable, so reaching it is a bug of the caller.
-struct NoSavedRequest;
+pub(crate) struct NoSavedRequest;
 
 #[async_trait]
 impl ForkSender for NoSavedRequest {
     async fn send(&self, _: &SummaryRoute) -> Result<SummaryResponse, SummaryFailure> {
         Err(SummaryFailure::Failed("no saved request to fork".to_owned()))
+    }
+}
+
+/// The same slot that supplied the fork's token count and route. A replacement or rewrite
+/// while the summary route is being resolved must not send the superseded prefix.
+struct CompactionFork {
+    store: Arc<SideQuestionStore>,
+    thread: ThreadId,
+    slot: Slot,
+}
+
+#[async_trait]
+impl ForkSender for CompactionFork {
+    async fn send(&self, route: &SummaryRoute) -> Result<SummaryResponse, SummaryFailure> {
+        let sender = {
+            let requests = self.store.requests();
+            let entry = lock(&self.slot);
+            if requests.get(self.thread.as_str()).is_none_or(|current| !Arc::ptr_eq(current, &self.slot))
+                || !entry.request.settled
+                || entry.request.compacted
+            {
+                return Err(SummaryFailure::Failed("saved compaction request is no longer current".to_owned()));
+            }
+            entry.sender.clone()
+        };
+        sender.send(route).await
     }
 }
 
@@ -109,11 +138,14 @@ impl SideQuestionStore {
         entry.reply = response;
     }
 
-    /// The session's saved request as a side question forks it, with the reply it settled on.
-    pub fn side_request(&self, thread: &ThreadId) -> Option<(SideMaterial, Option<ModelResponse>)> {
+    /// The saved material and reply, together with the slot a retry may invalidate.
+    fn side_request(&self, thread: &ThreadId) -> Option<(Slot, SideMaterial, Option<ModelResponse>)> {
         self.current(thread).map(|slot| {
-            let entry = lock(&slot);
-            (entry.side.clone(), entry.reply.clone())
+            let (material, reply) = {
+                let entry = lock(&slot);
+                (entry.side.clone(), entry.reply.clone())
+            };
+            (slot, material, reply)
         })
     }
 
@@ -147,6 +179,19 @@ impl SideQuestionStore {
         self.current(thread).map_or_else(|| Arc::new(NoSavedRequest) as Arc<dyn ForkSender>, |slot| lock(&slot).sender.clone())
     }
 
+    /// Only the current entry is eligible. In particular, an unsettled entry must not make
+    /// the summary silently fall back to an earlier turn's cached request.
+    pub(crate) fn compaction_fork(self: &Arc<Self>, thread: &ThreadId) -> Option<(SavedRequest, Arc<dyn ForkSender>)> {
+        let requests = self.requests();
+        let slot = requests.get(thread.as_str())?;
+        let entry = lock(slot);
+        if !entry.request.settled || entry.request.compacted {
+            return None;
+        }
+        let sender = CompactionFork { store: self.clone(), thread: thread.clone(), slot: slot.clone() };
+        Some((entry.request.clone(), Arc::new(sender)))
+    }
+
     /// `retireCompactionFork`: a compaction rewrote the transcript, so the saved request no longer
     /// holds the history a later compaction must summarize.
     pub fn retire_compaction_fork(&self, thread: &ThreadId) {
@@ -159,6 +204,13 @@ impl SideQuestionStore {
     pub fn forget(&self, thread: &ThreadId) {
         self.requests().remove(thread.as_str());
     }
+
+    fn forget_if_current(&self, thread: &ThreadId, slot: &Slot) {
+        let mut requests = self.requests();
+        if requests.get(thread.as_str()).is_some_and(|current| Arc::ptr_eq(current, slot)) {
+            requests.remove(thread.as_str());
+        }
+    }
 }
 
 /// `nextMainRequest`: the request the session's next turn would send, for a session with none
@@ -168,6 +220,10 @@ impl SideQuestionStore {
 #[async_trait]
 pub trait NextMainRequest: Send + Sync {
     async fn next(&self, thread: &ThreadId) -> Option<SideMaterial>;
+    /// Compacts the idle session's committed history now, as `thread/compact/start` does.
+    async fn compact(&self, _thread: &ThreadId) -> Result<(), String> {
+        Err("this session cannot be compacted here".to_owned())
+    }
 }
 
 /// A transport scope of one fork's own (`forkTransportScope(sessionId, label)`: `<session>#<label>:<uuid>`):
@@ -259,34 +315,88 @@ impl SideQuestions for SideQuestionService {
         }
     }
 
-    async fn send(&self, thread: &ThreadId, prompt: &str, tool_stub: &str, cancel: &CancellationToken) -> Result<SideReply, SideFailure> {
-        let (material, reply) = match self.store.side_request(thread) {
-            Some(saved) => saved,
+    async fn send(&self, thread: &ThreadId, prompt: &str, tool_stub: &str, idle: bool, cancel: &CancellationToken) -> Result<SideReply, SideFailure> {
+        use mixdog_core_api::domain::cache_tail::TailRefusal;
+        let (slot, mut material, mut reply) = match self.store.side_request(thread) {
+            Some((slot, material, reply)) => (Some(slot), material, reply),
             None => match self.next.next(thread).await {
-                Some(next) => (next, None),
+                Some(next) => (None, next, None),
                 None => return Err(SideFailure::Failed(SIDE_QUESTION_NO_REQUEST.to_owned())),
             },
         };
-        let mut fork = forked_request_stubbed(&material.request, reply.as_ref(), prompt, tool_stub);
-        let scope = ForkScope::new(thread, "side", &material.provider);
-        scope.apply(&mut fork);
-        // The send is accounted by the provider itself (the registry's accounted provider writes the
-        // fork's usage row under the session), as the main loop's sends are.
-        match send_forked(&material.provider, fork, cancel).await {
-            Ok(Some(response)) if !cancel.is_cancelled() => {
-                Ok(SideReply { content: response.content, tool_call: !response.tool_calls.is_empty() })
+        // The fork goes out once, or once more on the history a rewrite left: the compaction this question ran on the idle
+        // session, the rewrite another caller owned, or a rewrite after the saved request was taken.
+        let mut rebuilt = false;
+        // The rebuilt request is the compacted base's first write: this question compacted the idle session itself, or the
+        // idle session's history was compacted already and not sent since.
+        let mut compacted = false;
+        loop {
+            use mixdog_core_api::domain::cache_tail::Purpose;
+            let mut fork = forked_request_stubbed(&material.request, reply.as_ref(), prompt, tool_stub);
+            // Admitted on its own route like any attempt (the gate rides the request it forks, loaded from the session's
+            // header when the request was rebuilt); the side conversation never enters the session's history.
+            fork.options.tail_purpose = if compacted { Purpose::SideAfterCompaction } else { Purpose::SideQuestion };
+            let gate = fork.options.tail_gate.clone();
+            let scope = ForkScope::new(thread, "side", &material.provider);
+            scope.apply(&mut fork);
+            // The send is accounted by the provider itself (the registry's accounted provider writes the
+            // fork's usage row under the session), as the main loop's sends are.
+            let refusal = match send_forked(&material.provider, fork, cancel).await {
+                Ok(Some(response)) if !cancel.is_cancelled() => {
+                    return Ok(SideReply { content: response.content, tool_call: !response.tool_calls.is_empty() });
+                }
+                Ok(_) => return Err(SideFailure::Aborted),
+                Err(_) if cancel.is_cancelled() => return Err(SideFailure::Aborted),
+                Err(error) => match error.tail_refusal {
+                    Some(refusal) => (refusal, error.message),
+                    None => return Err(SideFailure::Failed(error.message)),
+                },
+            };
+            let decline = |message: &str| {
+                Err(SideFailure::Failed(format!(
+                    "Not asked: {message}, and a side question would resend the whole transcript. Ask it after the next turn, which compacts or rewrites the transcript first."
+                )))
+            };
+            if rebuilt {
+                return decline(&refusal.1);
             }
-            Ok(_) => Err(SideFailure::Aborted),
-            Err(_) if cancel.is_cancelled() => Err(SideFailure::Aborted),
-            Err(error) => Err(SideFailure::Failed(error.message)),
+            match refusal.0 {
+                TailRefusal::Wait(ticket) => match gate {
+                    Some(gate) => {
+                        tokio::select! {
+                            () = gate.0.wait_for(ticket) => {}
+                            () = cancel.cancelled() => return Err(SideFailure::Aborted),
+                        }
+                    }
+                    None => return decline(&refusal.1),
+                },
+                // The history was rewritten after this request was prepared: the question goes on the committed one.
+                TailRefusal::Stale => {}
+                // No send on record: the history is a compacted base nobody wrote yet. An idle session's committed history
+                // is that base, so the question is asked on it as it is; nothing has expired, and nothing is compacted.
+                TailRefusal::Skip(mixdog_core_api::domain::cache_tail::Cold::Unproven) if idle => compacted = true,
+                // Expired: an idle session is compacted now and asked on the rebuilt history; a busy one is declined.
+                TailRefusal::Skip(_) | TailRefusal::Rebuild(_) if idle => {
+                    if let Err(message) = self.next.compact(thread).await {
+                        return decline(&message);
+                    }
+                    compacted = true;
+                }
+                TailRefusal::Skip(_) | TailRefusal::Rebuild(_) => return decline(&refusal.1),
+                // The owner of the transcript on another host could not be reached: nothing was sent.
+                TailRefusal::Unjudged => return Err(SideFailure::Failed(refusal.1)),
+            }
+            rebuilt = true;
+            if let Some(slot) = &slot {
+                self.store.forget_if_current(thread, slot);
+            }
+            material = match self.next.next(thread).await {
+                Some(next) => next,
+                None => return Err(SideFailure::Failed(SIDE_QUESTION_NO_REQUEST.to_owned())),
+            };
+            reply = None;
         }
     }
-}
-
-/// A material on a provider that is never asked, for tests that only keep requests.
-#[cfg(test)]
-pub(crate) fn tests_material() -> SideMaterial {
-    tests::material(Arc::new(mixdog_core_api::domain::mock::MockProvider::new([])))
 }
 
 #[cfg(test)]
@@ -341,8 +451,8 @@ mod tests {
         ModelRequest { model: "mock-model".into(), messages: vec![Message::new(Role::User, Content::Text("hi".into()))], tools: Vec::new(), options }
     }
 
-    pub(super) fn material(provider: Arc<dyn ProviderAdapter>) -> SideMaterial {
-        SideMaterial { request: saved_model_request(), provider }
+    fn material(provider: Arc<dyn ProviderAdapter>) -> SideMaterial {
+        SideMaterial { request: Arc::new(saved_model_request()), provider }
     }
 
     /// A material whose provider has nothing scripted, for tests that only keep requests.
@@ -364,6 +474,109 @@ mod tests {
             Some(material(self.0.clone()))
         }
     }
+    /// A provider whose first attempt the cache owner refuses as cold; later attempts reach `inner`.
+    struct ColdOnce {
+        cold: std::sync::atomic::AtomicBool,
+        inner: Arc<Recording>,
+    }
+    #[async_trait]
+    impl ProviderAdapter for ColdOnce {
+        fn release_send(&self, _group: &str) {}
+        fn id(&self) -> &ProviderId {
+            self.inner.id()
+        }
+        fn codec(&self) -> &dyn WireCodec {
+            self.inner.codec()
+        }
+        fn retry_policy(&self) -> &RetryPolicy {
+            self.inner.retry_policy()
+        }
+        fn keepalive(&self) -> &KeepaliveSchedule {
+            self.inner.keepalive()
+        }
+        async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+            if self.cold.swap(false, Ordering::SeqCst) {
+                return Err(ProviderError::tail_refused(mixdog_core_api::domain::cache_tail::TailRefusal::Skip(mixdog_core_api::domain::cache_tail::Cold::Expired)));
+            }
+            self.inner.attempt(request).await
+        }
+    }
+    /// The next request on `provider`, and a compaction that is recorded.
+    struct Compacts(Arc<ColdOnce>, AtomicU64);
+    #[async_trait]
+    impl NextMainRequest for Compacts {
+        async fn next(&self, _: &ThreadId) -> Option<SideMaterial> {
+            Some(material(self.0.clone()))
+        }
+        async fn compact(&self, _: &ThreadId) -> Result<(), String> {
+            self.1.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    /// A cold transcript: an idle session is compacted and then asked, on the rebuilt request; a busy one is declined
+    /// with the reason and nothing is compacted or sent.
+    #[tokio::test]
+    async fn a_cold_side_question_compacts_an_idle_session_first_and_declines_on_a_busy_one() {
+        let store = Arc::new(SideQuestionStore::new());
+        let inner = Recording::new([MockAttempt::Body(b"t:answer\ndone\n".to_vec())]);
+        let next = Arc::new(Compacts(Arc::new(ColdOnce { cold: true.into(), inner: inner.clone() }), AtomicU64::new(0)));
+        let side = service(&store, next.clone());
+        assert_eq!(ask_side_question(&side, &thread(), "x", true).await.unwrap(), "answer");
+        assert_eq!((next.1.load(Ordering::SeqCst), inner.sent.lock().unwrap().len()), (1, 1), "compacted once, then asked once");
+
+        let inner = Recording::new([]);
+        let next = Arc::new(Compacts(Arc::new(ColdOnce { cold: true.into(), inner: inner.clone() }), AtomicU64::new(0)));
+        let side = service(&store, next.clone());
+        let declined = format!("{:?}", ask_side_question(&side, &thread(), "x", false).await.unwrap_err());
+        assert!(declined.contains("Not asked: the transcript's prompt cache expired"), "{declined}");
+        assert_eq!((next.1.load(Ordering::SeqCst), inner.sent.lock().unwrap().len()), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn a_side_question_retry_keeps_the_request_that_settled_while_it_waited() {
+        use tokio::sync::oneshot;
+
+        struct Rebuild {
+            provider: Arc<Recording>,
+            pause: Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
+        }
+        #[async_trait]
+        impl NextMainRequest for Rebuild {
+            async fn next(&self, _: &ThreadId) -> Option<SideMaterial> {
+                Some(material(self.provider.clone()))
+            }
+
+            async fn compact(&self, _: &ThreadId) -> Result<(), String> {
+                let (started, done) = self.pause.lock().unwrap().take().unwrap();
+                started.send(()).unwrap();
+                done.await.unwrap();
+                Ok(())
+            }
+        }
+
+        let store = Arc::new(SideQuestionStore::new());
+        let thread = thread();
+        let cold = Arc::new(ColdOnce { cold: true.into(), inner: Recording::new([]) });
+        let first = store.capture(&thread, request(1), Arc::new(Tagged("first")), material(cold), false);
+        store.settle(&first, Some(ModelResponse::default()));
+        let (started, waiting) = oneshot::channel();
+        let (resume, done) = oneshot::channel();
+        let rebuilt = Recording::new([MockAttempt::Body(b"t:answer from rebuilt history\ndone\n".to_vec())]);
+        let side = service(&store, Arc::new(Rebuild { provider: rebuilt, pause: Mutex::new(Some((started, done))) }));
+
+        let (answer, ()) = tokio::join!(ask_side_question(&side, &thread, "x", true), async {
+            waiting.await.unwrap();
+            let newer = store.capture(&thread, request(2), Arc::new(Tagged("newer")), idle_material(), false);
+            store.settle(&newer, Some(ModelResponse::default()));
+            resume.send(()).unwrap();
+        });
+
+        assert_eq!(answer.unwrap(), "answer from rebuilt history");
+        let (saved, _) = store.compaction_fork(&thread).expect("the next fold can still fork the newer request");
+        assert_eq!(saved.sent_at, 2);
+    }
+
     fn service(store: &Arc<SideQuestionStore>, next: Arc<dyn NextMainRequest>) -> SideQuestionService {
         SideQuestionService::new(store.clone(), next)
     }
@@ -385,7 +598,7 @@ mod tests {
         store.settle(&capture, Some(reply));
         let side = service(&store, Arc::new(NoNext));
 
-        let answer = ask_side_question(&side, &thread(), "  where?  ").await.unwrap();
+        let answer = ask_side_question(&side, &thread(), "  where?  ", true).await.unwrap();
         assert_eq!(answer, "in parser.rs");
 
         let sent = provider.sent.lock().unwrap();
@@ -408,11 +621,11 @@ mod tests {
         let provider = Recording::new([MockAttempt::Body(b"t:one\ndone\n".to_vec()), MockAttempt::Body(b"t:two\ndone\n".to_vec())]);
         store.capture(&thread(), request(1), Arc::new(Tagged("a")), material(provider.clone()), false);
         let side = service(&store, Arc::new(NoNext));
-        assert_eq!(ask_side_question(&side, &thread(), "first").await.unwrap(), "one");
-        assert_eq!(ask_side_question(&side, &thread(), "second").await.unwrap(), "two");
+        assert_eq!(ask_side_question(&side, &thread(), "first", true).await.unwrap(), "one");
+        assert_eq!(ask_side_question(&side, &thread(), "second", true).await.unwrap(), "two");
         let run = side.begin(&thread());
         run.cancel.cancel();
-        assert!(matches!(side.send(&thread(), "q", "stub", &run.cancel).await, Err(SideFailure::Aborted)));
+        assert!(matches!(side.send(&thread(), "q", "stub", true, &run.cancel).await, Err(SideFailure::Aborted)));
 
         let sent = provider.sent.lock().unwrap();
         let scopes: Vec<String> = sent.iter().map(|r| r.options.transport_scope.clone().unwrap()).collect();
@@ -430,13 +643,13 @@ mod tests {
         let store = Arc::new(SideQuestionStore::new());
         let none = service(&store, Arc::new(NoNext));
         assert!(!none.has_request(&thread()).await);
-        let err = ask_side_question(&none, &thread(), "x").await.unwrap_err();
+        let err = ask_side_question(&none, &thread(), "x", true).await.unwrap_err();
         assert!(format!("{err:?}").contains("Send a message first, then try /btw."));
 
         let provider = Recording::new([MockAttempt::Body(b"t:answer\ndone\n".to_vec())]);
         let rebuilt = service(&store, Arc::new(Rebuilt(provider.clone())));
         assert!(rebuilt.has_request(&thread()).await);
-        assert_eq!(ask_side_question(&rebuilt, &thread(), "x").await.unwrap(), "answer");
+        assert_eq!(ask_side_question(&rebuilt, &thread(), "x", true).await.unwrap(), "answer");
         assert_eq!(provider.sent.lock().unwrap()[0].messages.len(), 2, "the transcript, then the prompt: no reply to append");
         assert!(store.saved_request(&thread()).is_none(), "a rebuilt request is not kept");
     }
@@ -465,7 +678,7 @@ mod tests {
         let side = service(&store, Arc::new(NoNext));
         let run = side.begin(&thread());
         run.cancel.cancel();
-        let sent = side.send(&thread(), "q", "stub", &run.cancel).await;
+        let sent = side.send(&thread(), "q", "stub", true, &run.cancel).await;
         assert!(matches!(sent, Err(SideFailure::Aborted)));
     }
     struct Tagged(&'static str);

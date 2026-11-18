@@ -266,16 +266,6 @@ mod tests {
         assert!(flights.lock().is_idle(), "the slot is empty, so the next call starts again");
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn a_task_that_panics_rejects_its_callers_and_empties_the_slot() {
-        mixdog_rt::testing::tokens();
-        let flights = Flights::default();
-        let join = flights.start("test-flight", flights.lock(), 1, |_| Dies, abnormal);
-        let failure = join.await.unwrap_err();
-        assert!(failure.contains("panicked"), "{failure}");
-        assert!(flights.lock().is_idle());
-    }
-
     #[tokio::test]
     async fn a_waiter_that_drops_does_not_stop_the_work() {
         let flights = Flights::default();
@@ -300,6 +290,17 @@ mod tests {
         gate.notify_one();
         done.notified().await;
         assert_eq!(kept.await, Ok(3));
+        assert!(flights.lock().is_idle());
+    }
+
+
+    #[tokio::test(start_paused = true)]
+    async fn a_task_that_panics_rejects_its_callers_and_empties_the_slot() {
+        mixdog_rt::testing::tokens();
+        let flights = Flights::default();
+        let join = flights.start("test-flight", flights.lock(), 1, |_| Dies, abnormal);
+        let failure = join.await.unwrap_err();
+        assert!(failure.contains("panicked"), "{failure}");
         assert!(flights.lock().is_idle());
     }
 }

@@ -733,6 +733,7 @@
   "removeWorktree",
   "pruneWorktrees",
   "deleteWorktree",
-  "setArchivedSessionWorktrees"
+  "setArchivedSessionWorktrees",
+  "imageRecovery"
  ]
 }

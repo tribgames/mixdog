@@ -233,82 +233,6 @@ fn number_text(value: f64) -> String {
     mixdog_js::number_to_string(value)
 }
 
-/// The `file:` URL of `path` (`pathToFileURL`).
-pub fn file_url(path: &Path) -> Result<String, String> {
-    let absolute = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir().map_err(|error| error.to_string())?.join(path) };
-    url::Url::from_file_path(&absolute).map(|url| url.to_string()).map_err(|()| format!("{} is not a path a browser can open", absolute.display()))
-}
-
-/// Lays an HTML deck out in the shared render browser and measures it.
-///
-/// A deck without a `<section class="slide">`, a slide that is not exactly the canvas and an icon the set does not
-/// have are refused with the sentences Node threw. The browser is leased for the run and closed on every exit.
-pub async fn measure_html_deck(
-    endpoint: &dyn BrowserEndpoint,
-    lanes: &AuthorLanes,
-    note: &dyn WriteNote,
-    html: &str,
-    options: MeasureOptions<'_>,
-) -> Result<Measured, RunError> {
-    let MeasureOptions { source_path, shot_path, timeout, cancel, prepare } = options;
-    lanes.write_file(source_path, html.as_bytes().to_vec()).await?;
-    let browser = HtmlBrowser::launch(endpoint).await?;
-    let work = |browser: std::sync::Arc<HtmlBrowser>| async move {
-        let page = browser.new_page().await?;
-        page.set_viewport(viewport(HTML_CANVAS, 1.0)).await?;
-        page.goto(&file_url(source_path)?, WaitUntil::Load).await?;
-        let canvas = match prepare {
-            Some(prepare) => prepare(&page).await?,
-            None => HTML_CANVAS,
-        };
-        if canvas != HTML_CANVAS {
-            page.set_viewport(viewport(canvas, 1.0)).await?;
-        }
-        let missing = inject_icons(&page).await?;
-        if !missing.is_empty() {
-            return Err(unknown_icons_error(&missing));
-        }
-        let count = page.count("section.slide").await?;
-        if count == 0 {
-            return Err(format!(
-                "The HTML holds no <section class=\"slide\">; every page is one section.slide on a {}×{} canvas.",
-                canvas.width, canvas.height
-            ));
-        }
-        let (mut slides, mut shots, mut notes, mut geometry) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-        for index in 0..count {
-            call(&page, "showSlide", &[json!(index)]).await?;
-            page.evaluate_expression("document.fonts.ready.then(() => true)").await?;
-            let elements = page.query_all("section.slide").await?;
-            let element = elements.get(index).ok_or_else(|| "Cannot read properties of undefined (reading 'boundingBox')".to_string())?;
-            let slide_box = element.bounding_box().await?.ok_or_else(|| "Cannot read properties of null (reading 'width')".to_string())?;
-            if js_round(slide_box.width) != f64::from(canvas.width) || js_round(slide_box.height) != f64::from(canvas.height) {
-                return Err(slide_size_error(index + 1, slide_box.width, slide_box.height, canvas));
-            }
-            let shot = shot_path(index + 1);
-            note.note_write(&shot);
-            lanes.write_file(&shot, element.screenshot(false).await?).await?;
-            shots.push(shot);
-            let measured = call(&page, "extractSlide", &[json!(index)]).await?;
-            for line in measured["notes"].as_array().map(Vec::as_slice).unwrap_or_default() {
-                notes.push(format!("slide {}: {}", index + 1, line.as_str().unwrap_or_default()));
-            }
-            let findings = geometry::read_geometry(&page, index).await?;
-            geometry.extend(geometry::slide_findings(index + 1, findings));
-            let ids: Vec<String> = measured["captures"].as_array().map(|ids| ids.iter().filter_map(|id| id.as_str().map(str::to_string)).collect()).unwrap_or_default();
-            let drawn = capture_rich_paint(&page, lanes, slide_box, &ids, canvas).await?;
-            let items = place_captures(measured["items"].as_array().cloned().unwrap_or_default(), &drawn);
-            let mut slide = Map::new();
-            slide.insert("bg".into(), measured["bg"].clone());
-            slide.insert("items".into(), Value::Array(items));
-            slide.insert("notes".into(), measured["speakerNotes"].clone());
-            slides.push(Value::Object(slide));
-        }
-        Ok(Measured { canvas, slides, shots, notes, geometry })
-    };
-    run_in_browser(browser, &cancel, timeout, work).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,17 +312,94 @@ mod tests {
     }
 
     #[test]
-    fn a_path_becomes_a_file_url() {
-        let url = file_url(&std::env::temp_dir().join("deck source.html")).unwrap();
-        assert!(url.starts_with("file:///"), "{url}");
-        assert!(url.ends_with("/deck%20source.html"), "{url}");
-    }
-
-    #[test]
     fn the_page_script_holds_the_four_functions_the_measure_calls() {
         for name in ["function extractSlide(index)", "function isolateCapture(id)", "function showSlide(index)", "function injectIcons(table, viewBox)"] {
             assert!(PAGE_SCRIPT.contains(name), "{name}");
         }
         assert!(!PAGE_SCRIPT.contains("export "));
     }
+
+
+    #[test]
+    fn a_path_becomes_a_file_url() {
+        let url = file_url(&std::env::temp_dir().join("deck source.html")).unwrap();
+        assert!(url.starts_with("file:///"), "{url}");
+        assert!(url.ends_with("/deck%20source.html"), "{url}");
+    }
+}
+
+
+/// The `file:` URL of `path` (`pathToFileURL`).
+pub fn file_url(path: &Path) -> Result<String, String> {
+    let absolute = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir().map_err(|error| error.to_string())?.join(path) };
+    url::Url::from_file_path(&absolute).map(|url| url.to_string()).map_err(|()| format!("{} is not a path a browser can open", absolute.display()))
+}
+/// Lays an HTML deck out in the shared render browser and measures it.
+///
+/// A deck without a `<section class="slide">`, a slide that is not exactly the canvas and an icon the set does not
+/// have are refused with the sentences Node threw. The browser is leased for the run and closed on every exit.
+pub async fn measure_html_deck(
+    endpoint: &dyn BrowserEndpoint,
+    lanes: &AuthorLanes,
+    note: &dyn WriteNote,
+    html: &str,
+    options: MeasureOptions<'_>,
+) -> Result<Measured, RunError> {
+    let MeasureOptions { source_path, shot_path, timeout, cancel, prepare } = options;
+    lanes.write_file(source_path, html.as_bytes().to_vec()).await?;
+    let browser = HtmlBrowser::launch(endpoint).await?;
+    let work = |browser: std::sync::Arc<HtmlBrowser>| async move {
+        let page = browser.new_page().await?;
+        page.set_viewport(viewport(HTML_CANVAS, 1.0)).await?;
+        page.goto(&file_url(source_path)?, WaitUntil::Load).await?;
+        let canvas = match prepare {
+            Some(prepare) => prepare(&page).await?,
+            None => HTML_CANVAS,
+        };
+        if canvas != HTML_CANVAS {
+            page.set_viewport(viewport(canvas, 1.0)).await?;
+        }
+        let missing = inject_icons(&page).await?;
+        if !missing.is_empty() {
+            return Err(unknown_icons_error(&missing));
+        }
+        let count = page.count("section.slide").await?;
+        if count == 0 {
+            return Err(format!(
+                "The HTML holds no <section class=\"slide\">; every page is one section.slide on a {}×{} canvas.",
+                canvas.width, canvas.height
+            ));
+        }
+        let (mut slides, mut shots, mut notes, mut geometry) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        for index in 0..count {
+            call(&page, "showSlide", &[json!(index)]).await?;
+            page.evaluate_expression("document.fonts.ready.then(() => true)").await?;
+            let elements = page.query_all("section.slide").await?;
+            let element = elements.get(index).ok_or_else(|| "Cannot read properties of undefined (reading 'boundingBox')".to_string())?;
+            let slide_box = element.bounding_box().await?.ok_or_else(|| "Cannot read properties of null (reading 'width')".to_string())?;
+            if js_round(slide_box.width) != f64::from(canvas.width) || js_round(slide_box.height) != f64::from(canvas.height) {
+                return Err(slide_size_error(index + 1, slide_box.width, slide_box.height, canvas));
+            }
+            let shot = shot_path(index + 1);
+            note.note_write(&shot);
+            lanes.write_file(&shot, element.screenshot(false).await?).await?;
+            shots.push(shot);
+            let measured = call(&page, "extractSlide", &[json!(index)]).await?;
+            for line in measured["notes"].as_array().map(Vec::as_slice).unwrap_or_default() {
+                notes.push(format!("slide {}: {}", index + 1, line.as_str().unwrap_or_default()));
+            }
+            let findings = geometry::read_geometry(&page, index).await?;
+            geometry.extend(geometry::slide_findings(index + 1, findings));
+            let ids: Vec<String> = measured["captures"].as_array().map(|ids| ids.iter().filter_map(|id| id.as_str().map(str::to_string)).collect()).unwrap_or_default();
+            let drawn = capture_rich_paint(&page, lanes, slide_box, &ids, canvas).await?;
+            let items = place_captures(measured["items"].as_array().cloned().unwrap_or_default(), &drawn);
+            let mut slide = Map::new();
+            slide.insert("bg".into(), measured["bg"].clone());
+            slide.insert("items".into(), Value::Array(items));
+            slide.insert("notes".into(), measured["speakerNotes"].clone());
+            slides.push(Value::Object(slide));
+        }
+        Ok(Measured { canvas, slides, shots, notes, geometry })
+    };
+    run_in_browser(browser, &cancel, timeout, work).await
 }

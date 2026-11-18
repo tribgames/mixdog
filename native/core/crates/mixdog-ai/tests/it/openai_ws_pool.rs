@@ -17,6 +17,8 @@ use mixdog_ai::providers::openai::adapter::OpenAiAdapter;
 use mixdog_ai::providers::openai::adapter::SessionContext;
 use mixdog_ai::providers::openai::codec::OpenAiCodec;
 use mixdog_ai::providers::openai::config::CodexIdentity;
+use mixdog_ai::providers::openai::config::ModelFacts;
+use mixdog_ai::providers::openai::config::ModelFactsSource;
 use mixdog_ai::providers::openai::config::NoFacts;
 use mixdog_ai::providers::openai::config::OpenAiConfig;
 use mixdog_ai::providers::openai::switch::TransportMode;
@@ -99,6 +101,8 @@ impl TransportKeepalive for Alive {
 struct Socket {
     sent: Arc<Mutex<Vec<String>>>,
     frames: VecDeque<Result<Message, TransportFault>>,
+    /// After its frames the server stays silent (the link neither ends nor delivers) instead of ending.
+    silent: bool,
 }
 
 #[async_trait]
@@ -110,7 +114,10 @@ impl WsSocket for Socket {
         Ok(())
     }
     async fn recv(&mut self) -> Option<Result<Message, TransportFault>> {
-        self.frames.pop_front()
+        match self.frames.pop_front() {
+            None if self.silent => std::future::pending().await,
+            frame => frame,
+        }
     }
     fn link(&self) -> Arc<dyn TransportKeepalive> {
         Arc::new(Alive)
@@ -119,6 +126,8 @@ impl WsSocket for Socket {
 
 enum Dialed {
     Socket(Vec<Result<Message, TransportFault>>),
+    /// The upgrade completes, the server sends these frames and then nothing, for ever.
+    Silent(Vec<Result<Message, TransportFault>>),
     Rejected(u16),
     /// The upgrade is never answered.
     Stuck,
@@ -182,7 +191,11 @@ impl WsDial for Dial {
             Dialed::Stuck => std::future::pending().await,
             Dialed::Reset => Err(ConnectError::Transport(TransportFault::Reset)),
             Dialed::Socket(frames) => Ok((
-                Box::new(Socket { sent: self.sent.clone(), frames: frames.into() }),
+                Box::new(Socket { sent: self.sent.clone(), frames: frames.into(), silent: false }),
+                Response::builder().status(101).body(None).unwrap(),
+            )),
+            Dialed::Silent(frames) => Ok((
+                Box::new(Socket { sent: self.sent.clone(), frames: frames.into(), silent: true }),
                 Response::builder().status(101).body(None).unwrap(),
             )),
             Dialed::Rejected(status) => {
@@ -205,6 +218,10 @@ impl CredentialSource for Creds {
 }
 
 fn adapter(codex: bool, http: Arc<Http>, dial: Arc<Dial>) -> OpenAiAdapter {
+    adapter_with(codex, http, dial, Arc::new(NoFacts))
+}
+
+fn adapter_with(codex: bool, http: Arc<Http>, dial: Arc<Dial>, facts: Arc<dyn ModelFactsSource>) -> OpenAiAdapter {
     // Node's recorder advances the clock by each backoff, not by each clock read.
     let clock = dial.clone();
     let context = Arc::new(SessionContext::with_sources(move || clock.now.load(Ordering::Relaxed), || "request-id".into())
@@ -216,9 +233,9 @@ fn adapter(codex: bool, http: Arc<Http>, dial: Arc<Dial>) -> OpenAiAdapter {
             version: "1".into(),
             beta_features: "b".into(),
         };
-        OpenAiConfig::codex(false, false, identity, Arc::new(NoFacts), context.clone())
+        OpenAiConfig::codex(false, identity, facts, context.clone())
     } else {
-        OpenAiConfig::api_key(false, Arc::new(NoFacts), context.clone())
+        OpenAiConfig::api_key(false, facts, context.clone())
     };
     OpenAiAdapter::new(
         ProviderId::from(if codex { "openai-oauth" } else { "openai" }),
@@ -659,6 +676,266 @@ async fn the_pinned_modes_do_not_fall_back() {
     assert!(http.seen.lock().unwrap().is_empty());
 }
 
+// ---------------------------------------------------------------------------
+// The unknown-model refresh over the whole stream outcome (`openai-oauth.mjs:317-326`)
+// ---------------------------------------------------------------------------
+
+/// A roster that counts its refreshes and offers `access_programs` once it has been read again: a request encoded from
+/// the refreshed roster differs from one encoded before it.
+#[derive(Default)]
+struct Roster {
+    refreshed: std::sync::atomic::AtomicU32,
+}
+
+impl Roster {
+    fn refreshes(&self) -> u32 {
+        self.refreshed.load(Ordering::SeqCst)
+    }
+}
+
+impl ModelFactsSource for Roster {
+    fn facts(&self, _model: &str) -> ModelFacts {
+        ModelFacts {
+            access_programs: (self.refreshes() > 0).then(|| serde_json::json!(["cyber-fresh"])),
+            ..ModelFacts::default()
+        }
+    }
+
+    fn refresh<'a>(&'a self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            self.refreshed.fetch_add(1, Ordering::SeqCst);
+        })
+    }
+}
+
+fn text_frame(frame: &str) -> Result<Message, TransportFault> {
+    Ok(Message::text(frame))
+}
+
+const CREATED: &str = r#"{"type":"response.created","response":{"id":"resp_gone","model":"m"}}"#;
+const RETIRED: &str = r#"{"type":"response.failed","response":{"id":"resp_gone","status":"failed","error":{"code":"model_not_found","message":"Model not found: gpt-fixture"}}}"#;
+
+/// A socket that opens, accepts the response and then reports the model retired, after `output` frames.
+fn retired_after(output: &[&str]) -> Dialed {
+    let mut frames = vec![text_frame(CREATED)];
+    frames.extend(output.iter().map(|f| text_frame(f)));
+    frames.push(text_frame(RETIRED));
+    Dialed::Socket(frames)
+}
+
+async fn answer_text(adapter: &OpenAiAdapter) -> Result<String, ProviderError> {
+    let mut stream = adapter.attempt(request(vec![say(Role::User, "hi")])).await?;
+    let mut text = String::new();
+    while let Some(event) = stream.next().await {
+        if let StreamEvent::TextDelta(delta) = event? {
+            text.push_str(&delta);
+        }
+    }
+    Ok(text)
+}
+
+#[tokio::test]
+async fn a_model_not_found_inside_an_opened_stream_refreshes_the_roster_and_resends_once() {
+    let roster = Arc::new(Roster::default());
+    let http = Arc::new(Http::default());
+    let dial = Dial::with(vec![retired_after(&[]), Dialed::Socket(answer("resp_ok", "fresh"))]);
+    let adapter = adapter_with(true, http.clone(), dial.clone(), roster.clone());
+    assert_eq!(answer_text(&adapter).await.unwrap(), "fresh");
+    assert_eq!(roster.refreshes(), 1, "the roster was read again once");
+    assert_eq!(*dial.dials.lock().unwrap(), 2, "one resend, on a socket of its own");
+    assert!(http.seen.lock().unwrap().is_empty(), "no transport fallback");
+    let sent = frames(&dial);
+    assert_eq!(sent.len(), 2);
+    assert!(sent[0].get("access_programs").is_none(), "the first request came from the old roster");
+    assert_eq!(sent[1]["access_programs"], serde_json::json!(["cyber-fresh"]), "the resend is encoded anew from the refreshed roster");
+}
+
+/// `request` with `identity` as the send's identity, so its boundaries can be read.
+fn observed(identity: &mixdog_core_api::domain::provider::SendIdentity) -> Arc<ModelRequest> {
+    let mut built = (*request(vec![say(Role::User, "hi")])).clone();
+    built.options.send_identity = identity.clone();
+    Arc::new(built)
+}
+
+/// The attempts the send's boundaries name, in order of starting, and a lookup of what each saw.
+fn attempts(identity: &mixdog_core_api::domain::provider::SendIdentity) -> (Vec<u64>, impl Fn(u64, mixdog_core_api::domain::provider::Boundary) -> bool) {
+    use mixdog_core_api::domain::provider::Boundary;
+    let log = identity.take_boundaries();
+    let started = log.iter().filter(|(_, b)| *b == Boundary::AttemptStarted).map(|(id, ..)| *id).collect();
+    (started, move |id, boundary| log.iter().any(|(i, b)| *i == id && *b == boundary))
+}
+
+/// A socket that takes the request and then says nothing is bounded per operation: each operation's first-payload window
+/// counts from its own start (the earlier stall does not use it up), and the stall is the stream's (`ESTREAMSTALL`).
+#[tokio::test(start_paused = true)]
+async fn a_websocket_operation_is_bounded_per_operation() {
+    let identity = mixdog_core_api::domain::provider::SendIdentity::default();
+    let dial = Dial::with(vec![Dialed::Silent(vec![]), Dialed::Silent(vec![])]);
+    let adapter = adapter(false, Arc::default(), dial);
+    let mut windows = Vec::new();
+    for _ in 0..2 {
+        let began = tokio::time::Instant::now();
+        let mut stream = adapter.ws_attempt_once(observed(&identity)).await.unwrap();
+        let error = stream.next().await.unwrap().unwrap_err();
+        assert_eq!(error.code.as_deref(), Some("ESTREAMSTALL"));
+        assert!(error.timed_out);
+        let ms = began.elapsed().as_millis();
+        assert_eq!(error.message, format!("Responses WS stream timed out after {ms}ms of inactivity"), "expires at the window it names");
+        windows.push(ms);
+    }
+    assert_eq!(windows[0], windows[1], "the second operation got a whole window of its own");
+    let (started, seen) = attempts(&identity);
+    assert_eq!(started.len(), 2);
+    for id in &started {
+        assert!(seen(*id, mixdog_core_api::domain::provider::Boundary::HeadReceived), "the socket took each request");
+        assert!(!seen(*id, mixdog_core_api::domain::provider::Boundary::FirstProtocolPayload), "and answered nothing");
+    }
+}
+
+/// The first-output window of a socket runs from the first payload: `response.created` and then silence expires a whole
+/// first-output window after the payload, however long the payload took to come.
+#[tokio::test(start_paused = true)]
+async fn payload_then_silence_on_a_socket_expires_at_the_first_output_window() {
+    let identity = mixdog_core_api::domain::provider::SendIdentity::default();
+    let created = vec![Ok(Message::text(r#"{"type":"response.created","response":{"id":"resp_1","model":"m"}}"#))];
+    let adapter = adapter(false, Arc::default(), Dial::with(vec![Dialed::Silent(created)]));
+    let mut stream = adapter.ws_attempt_once(observed(&identity)).await.unwrap();
+    let began = tokio::time::Instant::now();
+    let error = loop {
+        match stream.next().await.expect("the window ends the stream") {
+            Ok(_) => continue,
+            Err(error) => break error,
+        }
+    };
+    let ms = began.elapsed().as_millis();
+    assert_eq!(error.code.as_deref(), Some("ESTREAMSTALL"));
+    assert_eq!(error.message, format!("Responses WS stream timed out after {ms}ms of inactivity"));
+    assert!(ms > 300_000, "the first-output window, not the payload one or the idle one, ran from the payload");
+}
+
+/// Every exchange the adapter issues itself is an attempt of its own: the WebSocket-to-HTTP fallback is a new exchange with
+/// a fresh clock, and the refused upgrade never reached a head.
+#[tokio::test]
+async fn a_fallback_exchange_is_an_attempt_of_its_own() {
+    use mixdog_core_api::domain::provider::Boundary;
+
+    let identity = mixdog_core_api::domain::provider::SendIdentity::default();
+    let http = Arc::new(Http::default());
+    let dial = Dial::with(vec![Dialed::Rejected(404)]);
+    let adapter = adapter(true, http.clone(), dial);
+    let mut stream = adapter.attempt(observed(&identity)).await.unwrap();
+    while let Some(event) = stream.next().await {
+        event.unwrap();
+    }
+    assert_eq!(http.seen.lock().unwrap().len(), 1);
+    let (started, seen) = attempts(&identity);
+    assert_eq!(started.len(), 2, "the socket attempt and the HTTP fallback");
+    assert_ne!(started[0], started[1]);
+    assert!(!seen(started[0], Boundary::HeadReceived), "the refused upgrade has no head");
+    assert!(seen(started[1], Boundary::HeadReceived));
+    assert!(seen(started[1], Boundary::FirstProtocolPayload), "the fallback's payload is its own");
+    assert!(!seen(started[0], Boundary::FirstProtocolPayload));
+}
+
+/// The in-stream roster-refresh resume is an exchange of its own: the resend gets a fresh clock, and what the refused
+/// stream saw stays with it.
+#[tokio::test]
+async fn the_refresh_resume_is_an_attempt_of_its_own() {
+    use mixdog_core_api::domain::provider::Boundary;
+
+    let identity = mixdog_core_api::domain::provider::SendIdentity::default();
+    let dial = Dial::with(vec![retired_after(&[]), Dialed::Socket(answer("resp_ok", "fresh"))]);
+    let adapter = adapter_with(true, Arc::new(Http::default()), dial, Arc::new(Roster::default()));
+    let mut stream = adapter.attempt(observed(&identity)).await.unwrap();
+    while let Some(event) = stream.next().await {
+        event.unwrap();
+    }
+    let (started, seen) = attempts(&identity);
+    assert_eq!(started.len(), 2, "the refused stream and the resend");
+    assert_ne!(started[0], started[1]);
+    for id in &started {
+        assert!(seen(*id, Boundary::HeadReceived), "each socket took its request");
+        assert!(seen(*id, Boundary::FirstProtocolPayload), "each stream's first payload");
+    }
+    assert!(seen(started[1], Boundary::FirstSemanticOutput) && !seen(started[0], Boundary::FirstSemanticOutput));
+}
+
+#[tokio::test]
+async fn a_second_unknown_model_refusal_surfaces() {
+    let roster = Arc::new(Roster::default());
+    let dial = Dial::with(vec![retired_after(&[]), retired_after(&[])]);
+    let adapter = adapter_with(true, Arc::new(Http::default()), dial.clone(), roster.clone());
+    let error = answer_text(&adapter).await.unwrap_err();
+    assert_eq!(error.message, "Model not found: gpt-fixture");
+    assert_eq!(roster.refreshes(), 1, "one refresh per send");
+    assert_eq!(*dial.dials.lock().unwrap(), 2);
+}
+
+/// One refresh over both paths: a refusal before the stream opens (an `error` frame first) spends it, so the refusal
+/// inside the resent stream surfaces.
+#[tokio::test]
+async fn the_refresh_is_shared_by_the_refusal_before_the_stream_and_the_one_inside_it() {
+    let roster = Arc::new(Roster::default());
+    let before_open = Dialed::Socket(vec![text_frame(r#"{"type":"error","status":404,"error":{"code":"model_not_found","message":"Model not found: gpt-fixture"}}"#)]);
+    let dial = Dial::with(vec![before_open, retired_after(&[])]);
+    let adapter = adapter_with(true, Arc::new(Http::default()), dial.clone(), roster.clone());
+    let error = answer_text(&adapter).await.unwrap_err();
+    assert_eq!(error.message, "Model not found: gpt-fixture");
+    assert_eq!(roster.refreshes(), 1);
+    assert_eq!(*dial.dials.lock().unwrap(), 2);
+}
+
+#[tokio::test]
+async fn exposed_output_blocks_the_unknown_model_recovery() {
+    let text = [
+        r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_1","role":"assistant","content":[]}}"#,
+        r#"{"type":"response.output_text.delta","output_index":0,"item_id":"msg_1","delta":"partial"}"#,
+    ];
+    let reasoning = [
+        r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[]}}"#,
+        r#"{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","delta":"thinking"}"#,
+    ];
+    let tool = [
+        r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":""}}"#,
+        r#"{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\"pa"}"#,
+    ];
+    let done_tool = [
+        r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":"{}"}}"#,
+        r#"{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":"{}"}}"#,
+    ];
+    for (what, output) in [("text", &text[..]), ("reasoning", &reasoning[..]), ("a tool call begun", &tool[..]), ("a tool call run", &done_tool[..])] {
+        let roster = Arc::new(Roster::default());
+        let dial = Dial::with(vec![retired_after(output), Dialed::Socket(answer("resp_ok", "fresh"))]);
+        let adapter = adapter_with(true, Arc::new(Http::default()), dial.clone(), roster.clone());
+        let error = answer_text(&adapter).await.unwrap_err();
+        assert_eq!(error.message, "Model not found: gpt-fixture", "{what}");
+        assert_eq!(roster.refreshes(), 0, "{what}: nothing is refreshed once output was shown");
+        assert_eq!(*dial.dials.lock().unwrap(), 1, "{what}: nothing is resent");
+    }
+}
+
+/// An upgrade the endpoint refuses with 404 is the route not doing WebSocket: the HTTP fallback answers it (or, pinned
+/// to the socket, the refusal surfaces); it is not a retired model and refreshes nothing.
+#[tokio::test]
+async fn a_handshake_404_is_not_taken_for_a_retired_model() {
+    let roster = Arc::new(Roster::default());
+    let http = Arc::new(Http::default());
+    let dial = Dial::with(vec![Dialed::Rejected(404)]);
+    let adapter = adapter_with(true, http.clone(), dial.clone(), roster.clone());
+    drain(&adapter, request(vec![say(Role::User, "hi")])).await.unwrap();
+    assert_eq!(roster.refreshes(), 0);
+    assert_eq!(*dial.dials.lock().unwrap(), 1);
+    assert_eq!(http.seen.lock().unwrap().len(), 1);
+
+    let roster = Arc::new(Roster::default());
+    let dial = Dial::with(vec![Dialed::Rejected(404)]);
+    let pinned = adapter_with(true, Arc::new(Http::default()), dial.clone(), roster.clone()).with_mode(TransportMode::WsDelta);
+    let error = answer_text(&pinned).await.unwrap_err();
+    assert_eq!(error.status, Some(404));
+    assert_eq!(roster.refreshes(), 0);
+    assert_eq!(*dial.dials.lock().unwrap(), 1, "no second dial for a refresh");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_spent_websocket_send_budget_switches_to_http_inside_the_send() {
     let http = Arc::new(Http::default());
@@ -687,8 +964,68 @@ async fn a_server_close_1009_keeps_the_session_on_http() {
     assert_eq!(http.seen.lock().unwrap().len(), 2);
 }
 
+#[allow(dead_code)]
+fn unused(_: StreamEvent) {}
+
+
+/// One acquire of a socket against the scripted dials, on the paused clock: what it ended in, when, and how many dials it made. A
+/// dial the script does not name never answers its upgrade.
+async fn acquire(mut script: Vec<Dialed>) -> (Result<(), ProviderError>, std::time::Duration, u32) {
+    script.extend((script.len()..8).map(|_| Dialed::Stuck));
+    let dial = Dial::with(script);
+    let adapter = adapter(false, Arc::default(), dial.clone()).with_mode(TransportMode::WsDelta);
+    let began = tokio::time::Instant::now();
+    let outcome = adapter.ws_attempt_once(request(vec![say(Role::User, "hi")])).await.map(|_| ());
+    let waited = began.elapsed();
+    let dials = *dial.dials.lock().unwrap();
+    (outcome, waited, dials)
+}
+
+/// A stuck upgrade is not waited out: a new dial starts every 3 s while none has opened, the first to open wins.
+#[tokio::test(start_paused = true)]
+async fn a_stuck_upgrade_is_hedged_by_a_second_dial_three_seconds_later() {
+    let (outcome, waited, dials) = acquire(vec![Dialed::Stuck, Dialed::Socket(answer("resp_1", "opened"))]).await;
+    outcome.expect("the second dial opens");
+    assert_eq!((waited, dials), (std::time::Duration::from_secs(3), 2));
+
+    let (outcome, waited, dials) = acquire(vec![Dialed::Stuck, Dialed::Stuck, Dialed::Socket(answer("resp_1", "opened"))]).await;
+    outcome.expect("the third dial opens");
+    assert_eq!((waited, dials), (std::time::Duration::from_secs(6), 3));
+}
+
+/// With nothing ever opening the dials start at 0, 3, 6, 9 and 12 s (a sixth would start no sooner than the deadline) and
+/// the acquire ends at 15 s with its own timeout.
+#[tokio::test(start_paused = true)]
+async fn an_acquire_that_never_opens_ends_at_fifteen_seconds_after_five_dials() {
+    let (outcome, waited, dials) = acquire(vec![]).await;
+    let error = outcome.expect_err("never opens");
+    assert_eq!((waited, dials), (std::time::Duration::from_secs(15), 5));
+    assert_eq!(error.code.as_deref(), Some("EWSACQUIRETIMEOUT"));
+    assert!(error.message.ends_with("acquire timed out before open (15000ms)"), "{}", error.message);
+    assert!(error.timed_out && error.transport == Some(TransportFault::Connect { os_code: None }), "{error:?}");
+}
+
+/// A reset ends the race only when no other dial is left connecting; an HTTP answer to the upgrade ends it at once.
+#[tokio::test(start_paused = true)]
+async fn a_reset_beside_a_stuck_dial_does_not_end_the_acquire_but_an_answered_upgrade_does() {
+    let (outcome, waited, dials) = acquire(vec![Dialed::Stuck, Dialed::Reset]).await;
+    let error = outcome.expect_err("nothing opens");
+    assert_eq!((waited, dials), (std::time::Duration::from_secs(15), 5), "the first dial is still stuck when the second resets");
+    assert_eq!(error.code.as_deref(), Some("EWSACQUIRETIMEOUT"));
+
+    let (outcome, waited, dials) = acquire(vec![Dialed::Reset]).await;
+    let error = outcome.expect_err("the lone dial resets");
+    assert_eq!((waited, dials), (std::time::Duration::ZERO, 1), "a lone reset ends the race at once");
+    assert_eq!(error.transport, Some(TransportFault::Reset));
+
+    let (outcome, waited, dials) = acquire(vec![Dialed::Stuck, Dialed::Rejected(403)]).await;
+    let error = outcome.expect_err("the server refuses the upgrade");
+    assert_eq!((waited, dials, error.status), (std::time::Duration::from_secs(3), 2, Some(403)));
+}
+
 /// Node's acquires of one socket (`fixtures/provider-ws-connect`, recorded by `record-ws-connect.mjs`): which dials
 /// began and when, and how the acquire ended, replayed through the adapter's real send path with only the dial scripted.
+#[cfg(node_twin)]
 const WS_CONNECT: [(&str, mixdog_testkit::Fixture); 7] = [
     ("all-stuck", mixdog_testkit::fixture_const!("../../fixtures/provider-ws-connect/all-stuck.json")),
     ("all-stuck-oauth", mixdog_testkit::fixture_const!("../../fixtures/provider-ws-connect/all-stuck-oauth.json")),
@@ -698,7 +1035,7 @@ const WS_CONNECT: [(&str, mixdog_testkit::Fixture); 7] = [
     ("stuck-then-open", mixdog_testkit::fixture_const!("../../fixtures/provider-ws-connect/stuck-then-open.json")),
     ("stuck-twice-then-open", mixdog_testkit::fixture_const!("../../fixtures/provider-ws-connect/stuck-twice-then-open.json")),
 ];
-
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn a_stuck_upgrade_is_hedged_and_an_acquire_ends_as_nodes_does() {
     for (id, text) in &WS_CONNECT {
@@ -787,7 +1124,3 @@ async fn a_stuck_upgrade_is_hedged_and_an_acquire_ends_as_nodes_does() {
         }
     }
 }
-
-#[allow(dead_code)]
-fn unused(_: StreamEvent) {}
-

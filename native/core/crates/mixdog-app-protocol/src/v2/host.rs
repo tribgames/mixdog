@@ -26,13 +26,15 @@ pub struct HostClaimParams {
 }
 
 /// Publishes desktop-owned state into section `hostState`: `{key, value}`, the value's shape
-/// picked by the key. Only `visualize` is typed; the others stay the desktop's own JSON.
+/// picked by the key.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "key", content = "value", rename_all = "camelCase")]
 pub enum HostStateSetParams {
     BrowserTabs(JsonValue),
     BrowserImport(JsonValue),
+    /// Session ids only, including an empty list when the last desktop browser dialog closes.
+    BrowserDialogApprovalSessions(Vec<String>),
     Visualize(VisualizeHostValue),
     DisplayPreferences(JsonValue),
     WindowFocus(crate::v2::connections::WindowFocusValue),
@@ -44,6 +46,7 @@ impl HostStateSetParams {
         match self {
             Self::BrowserTabs(value) => ("browserTabs", value),
             Self::BrowserImport(value) => ("browserImport", value),
+            Self::BrowserDialogApprovalSessions(value) => ("browserDialogApprovalSessions", serde_json::json!(value)),
             Self::Visualize(value) => ("visualize", serde_json::to_value(value).unwrap_or_default()),
             Self::DisplayPreferences(value) => ("displayPreferences", value),
             Self::WindowFocus(value) => ("windowFocus", serde_json::to_value(value).unwrap_or_default()),
@@ -61,6 +64,9 @@ impl HostStateSetParams {
 pub enum VisualizeHostValue {
     Snapshot(Vec<VisualizeHostState>),
     Event(VisualizeHostEvent),
+    /// Either of the two above as JSON text: a value over the inbound frame travels as a blob (`{"$blobRef", "as": "text"}`
+    /// at `/value`, expanded before the method runs) and arrives as this string; the handler parses it.
+    Text(String),
 }
 
 /// `VisualizeHostEvent` (`apps/desktop/src/shared/visualize.ts`), main → core: the change
@@ -107,6 +113,13 @@ pub struct VisualizeHostState {
     pub history: Option<Vec<VisualizeHistoryItem>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gone_opens: Option<Vec<VisualizeGoneOpen>>,
+    /// In the producer's snapshot: the session's agent turn is held now (the same fact an event states with `held`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held: Option<bool>,
+    /// With `held`: when the turn started (ms).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub held_since: Option<i64>,
 }
 
 /// `Some(None)` is a written `null`, `None` a missing key.
@@ -1004,6 +1017,17 @@ pub struct BrowserStreamAckParams {
 #[serde(transparent)]
 pub struct BrowserFrameParams(pub JsonValue);
 
+/// `visualize/changed` (core → one paired phone, in order): one change of the agent's visualize tabs as Node's relay pushed it
+/// (`remote-relay-push-lanes.ts`, the `visualize` desktop event): `{sessionId, state (path-free), reveal, tab, updated, held,
+/// heldSince, openUrl}`, the producer's effect fields exactly as it published them (`held` absent when the turn is released). An
+/// event too large for one control frame arrives as ordered parts of the same notification, `{part: {id, index, count, text}}`, whose
+/// texts joined are the event's JSON; the core queues all parts of an event to a phone together, so a phone has all of an event's
+/// parts or none.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(transparent)]
+pub struct VisualizeChangedParams(pub JsonValue);
+
 /// `host/browser/frame` (host → core notification, Node's `browserRemoteFrame` desktop operation): a frame of a viewed
 /// session (`DesktopRemoteBrowserStreamFrame`) without its picture bytes. When `frame.image` is present (`{mimeType:
 /// "image/jpeg"}`, no `data`), the picture is the next X17 frame of the session's stream on the same connection, and the
@@ -1418,6 +1442,18 @@ pub struct ModelProxyRunEventParams {
 #[serde(rename_all = "camelCase")]
 pub struct ModelProxyCancelParams {
     pub request_id: RequestId,
+}
+
+/// Server core → the connection running a `model/proxy/execute` session send: the owner's verdict on the POST its
+/// `model/proxy/event` `tailAsk` named `ask`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ModelProxyTailParams {
+    pub request_id: RequestId,
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub ask: u64,
+    pub verdict: crate::v2::model_proxy::ProxyVerdict,
 }
 
 /// Electron → its local core: stop the `modelProxy/run` run `run_id` (the abort of a

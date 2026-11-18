@@ -7,6 +7,7 @@ import { record } from '../record-utils';
 import { StudioRouteMenu, type StudioModelEntry, type StudioOptionRow } from '../StudioRouteMenu';
 import {
   callCapability,
+  errorText,
   laneCatalogStatus,
   listMediaLanes,
   MEDIA_CATALOG_POLL_MS,
@@ -34,15 +35,17 @@ type MediaPins = Record<MediaKind, MediaPin | null>;
 type AccountRow = { id: string; label: string };
 
 export interface MediaGenerationData {
-  /** Null until the first catalog read settles. */
+  /** Null until the first successful catalog read. */
   lanes: MediaLane[] | null;
   pins: MediaPins;
+  pinsReady: boolean;
   /** Connected accounts per account provider (signed-in OAuth lanes only). */
   accounts: Record<string, AccountRow[]>;
+  laneError: string;
+  pinError: string;
   error: string;
   save(kind: MediaKind, pin: MediaPin | null): Promise<void>;
-  /** Lists the provider catalogs again. */
-  retry(): Promise<void>;
+  retry(): void;
 }
 
 const NO_PINS: MediaPins = { image: null, video: null };
@@ -82,73 +85,100 @@ export function mediaGeneratorNames(lanes: MediaLane[] | null): string {
 export function useMediaGeneration(api: StudioApi | undefined, active: boolean): MediaGenerationData {
   const [lanes, setLanes] = useState<MediaLane[] | null>(null);
   const [pins, setPins] = useState<MediaPins>(NO_PINS);
+  const [pinsReady, setPinsReady] = useState(false);
   const [accounts, setAccounts] = useState<Record<string, AccountRow[]>>({});
+  const [laneError, setLaneError] = useState('');
+  const [pinError, setPinError] = useState('');
   const [error, setError] = useState('');
-  // Picks can outrun their saves: only the latest save of a kind may set or
-  // roll back its pin, and a rollback returns to the last value the host kept.
+  const [laneRevision, setLaneRevision] = useState(0);
+  const [pinRevision, setPinRevision] = useState(0);
+  // Only the latest edit is optimistic. Older saves can still confirm a pin
+  // but cannot display it while that newer edit is pending.
   const saveSeq = useRef<Record<MediaKind, number>>({ image: 0, video: 0 });
   const confirmedSeq = useRef<Record<MediaKind, number>>({ image: 0, video: 0 });
-  const outstanding = useRef<Record<MediaKind, number>>({ image: 0, video: 0 });
+  const optimistic = useRef<Record<MediaKind, boolean>>({ image: false, video: false });
   const confirmed = useRef<MediaPins>(NO_PINS);
 
   useEffect(() => {
     if (!active) return undefined;
     let live = true;
+    let timer: number | undefined;
+    const readLanes = async (withAccounts: boolean) => {
+      let rows: MediaLane[];
+      try {
+        rows = await listMediaLanes(api);
+      } catch (reason) {
+        if (live) setLaneError(errorText(reason));
+        return;
+      }
+      if (!live) return;
+      setLanes(rows);
+      setLaneError('');
+      // Catalog polls join the runtime's in-flight listing; they don't reread accounts or pins.
+      if (rows.some((lane) => lane.catalogPending)) {
+        timer = window.setTimeout(() => void readLanes(false), MEDIA_CATALOG_POLL_MS);
+      }
+      if (!withAccounts) return;
+      const providers = [
+        ...new Set(rows.filter((lane) => lane.authType === 'oauth' && lane.authenticated).map((lane) => lane.authProvider)),
+      ];
+      await Promise.all(
+        providers.map(async (provider) => {
+          try {
+            const rows = accountRows(await callCapability(api, 'getProviderAccounts', [provider]));
+            if (live) setAccounts((current) => ({ ...current, [provider]: rows }));
+          } catch {
+            // A failed read does not invalidate the last known accounts.
+          }
+        })
+      );
+    };
+    void readLanes(true);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [api, active, laneRevision]);
+
+  useEffect(() => {
+    if (!active) return undefined;
+    let live = true;
+    const confirmedAtStart = { ...confirmedSeq.current };
     void (async () => {
       try {
-        const [rows, pinRows] = await Promise.all([listMediaLanes(api), callCapability(api, 'getMediaPins')]);
+        const saved = pinsOf(await callCapability(api, 'getMediaPins'));
         if (!live) return;
-        setLanes(rows);
-        confirmed.current = pinsOf(pinRows);
-        setPins(confirmed.current);
-        const providers = [
-          ...new Set(rows.filter((lane) => lane.authType === 'oauth' && lane.authenticated).map((l) => l.authProvider)),
-        ];
-        const pools = await Promise.all(
-          providers.map(async (provider) => {
-            try {
-              return [provider, accountRows(await callCapability(api, 'getProviderAccounts', [provider]))] as const;
-            } catch {
-              return [provider, []] as const;
-            }
-          })
-        );
-        if (live) setAccounts(Object.fromEntries(pools));
+        for (const kind of MEDIA_KINDS) {
+          // Keep the host's rollback value during an optimistic edit, unless
+          // a successful save has already supplied a newer confirmation.
+          if (confirmedAtStart[kind] !== confirmedSeq.current[kind]) continue;
+          const pin = saved[kind];
+          confirmed.current = { ...confirmed.current, [kind]: pin };
+          if (!optimistic.current[kind]) setPins((current) => ({ ...current, [kind]: pin }));
+        }
+        setPinsReady(true);
+        setPinError('');
       } catch (reason) {
-        if (!live) return;
-        setLanes((current) => current ?? []);
-        setError(reason instanceof Error ? reason.message : String(reason));
+        if (live) setPinError(errorText(reason));
       }
     })();
     return () => {
       live = false;
     };
-  }, [api, active]);
+  }, [api, active, pinRevision]);
 
-  /** Lists the catalogs again (Retry, or a still-loading catalog's re-poll). */
-  const reload = useCallback(async () => {
-    try {
-      setLanes(await listMediaLanes(api));
-      setError('');
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+  const retry = useCallback(() => {
+    if (laneError || lanes?.some((lane) => lane.authenticated && lane.catalogError)) {
+      setLaneRevision((current) => current + 1);
     }
-  }, [api]);
-
-  // A catalog slower than the listing budget is asked again until it lands or
-  // fails; each ask joins the runtime's in-flight request.
-  const pending = Boolean(lanes?.some((lane) => lane.catalogPending));
-  useEffect(() => {
-    if (!active || !pending) return undefined;
-    const timer = window.setTimeout(() => void reload(), MEDIA_CATALOG_POLL_MS);
-    return () => window.clearTimeout(timer);
-  }, [active, pending, lanes, reload]);
+    if (pinError) setPinRevision((current) => current + 1);
+  }, [laneError, lanes, pinError]);
 
   const save = useCallback(
     async (kind: MediaKind, pin: MediaPin | null) => {
       saveSeq.current[kind] += 1;
       const seq = saveSeq.current[kind];
-      outstanding.current[kind] += 1;
+      optimistic.current[kind] = true;
       setPins((current) => ({ ...current, [kind]: pin }));
       setError('');
       try {
@@ -161,23 +191,20 @@ export function useMediaGeneration(api: StudioApi | undefined, active: boolean):
           confirmedSeq.current[kind] = seq;
           confirmed.current = { ...confirmed.current, [kind]: saved };
         }
-        if (saveSeq.current[kind] === seq) setPins((current) => ({ ...current, [kind]: saved }));
       } catch (reason) {
-        if (saveSeq.current[kind] === seq) {
-          setPins((current) => ({ ...current, [kind]: confirmed.current[kind] }));
-          setError(reason instanceof Error ? reason.message : String(reason));
-        }
+        if (saveSeq.current[kind] === seq) setError(errorText(reason));
       } finally {
-        // An older save that lands after a failed newer one still reached the
-        // host: once none is outstanding, show what the host kept.
-        outstanding.current[kind] -= 1;
-        if (outstanding.current[kind] === 0) setPins((current) => ({ ...current, [kind]: confirmed.current[kind] }));
+        if (saveSeq.current[kind] === seq) optimistic.current[kind] = false;
+        if (!optimistic.current[kind]) {
+          const pin = confirmed.current[kind];
+          setPins((current) => ({ ...current, [kind]: pin }));
+        }
       }
     },
     [api]
   );
 
-  return { lanes, pins, accounts, error, save, retry: reload };
+  return { lanes, pins, pinsReady, accounts, laneError, pinError, error, save, retry };
 }
 
 /** Every generator for the kind, ChatGPT first (the auto order); a provider
@@ -210,8 +237,10 @@ function GeneratorRow({ kind, data }: { kind: MediaKind; data: MediaGenerationDa
   const pinnedLane = pin ? lanes.find((lane) => lane.id === pin.lane) : undefined;
   const pinnedModel = pin ? pin.model || pinnedLane?.[kind]?.defaultModel || '' : '';
   const pinnedLabel = entries.find((entry) => entry.lane === pin?.lane && entry.model === pinnedModel)?.label;
-  const accounts = (pinnedLane?.authType === 'oauth' && data.accounts[pinnedLane.authProvider]) || [];
+  const accounts =
+    (pinnedLane?.authenticated && pinnedLane.authType === 'oauth' && data.accounts[pinnedLane.authProvider]) || [];
   const account = accounts.find((row) => row.id === pin?.account);
+  const accountLabel = account?.label ?? pin?.account ?? '';
   const accountRow: StudioOptionRow[] =
     pin && accounts.length >= 2
       ? [
@@ -222,13 +251,17 @@ function GeneratorRow({ kind, data }: { kind: MediaKind; data: MediaGenerationDa
               { value: '', label: t('Current account') },
               ...accounts.map((row) => ({ value: row.id, label: row.label })),
             ],
-            value: account?.id ?? '',
-            valueLabel: account?.label ?? t('Current account'),
+            value: pin.account,
+            valueLabel: accountLabel || t('Current account'),
             onPick: (value) => void data.save(kind, { ...pin, account: value }),
           },
         ]
       : [];
   const title = kind === 'image' ? t('Image') : t('Video');
+  const canPick = data.lanes !== null && data.pinsReady;
+  let triggerLabel = t('Auto');
+  if (pin) triggerLabel = pinnedLabel || pinnedModel || pinnedLane?.label || pin.lane;
+  else if (!data.pinsReady) triggerLabel = data.pinError ? t('Unavailable') : t('Loading…');
   return (
     <ExtensionItemRow
       icon={<CapabilityIcon name={kind} size={16} />}
@@ -242,11 +275,11 @@ function GeneratorRow({ kind, data }: { kind: MediaKind; data: MediaGenerationDa
           entries={entries}
           lane={pin?.lane ?? ''}
           model={pinnedModel}
-          disabled={data.lanes === null}
-          triggerLabel={pin ? pinnedLabel || pinnedModel : t('Auto')}
-          suffix={account?.label ?? ''}
+          disabled={!canPick}
+          triggerLabel={triggerLabel}
+          suffix={accountLabel}
           rows={accountRow}
-          auto={{ label: t('Auto'), selected: !pin, onSelect: () => void data.save(kind, null) }}
+          auto={canPick ? { label: t('Auto'), selected: !pin, onSelect: () => void data.save(kind, null) } : undefined}
           onSelect={(entry) =>
             void data.save(kind, {
               lane: entry.lane,
@@ -261,17 +294,15 @@ function GeneratorRow({ kind, data }: { kind: MediaKind; data: MediaGenerationDa
 }
 
 export function MediaGenerationSettings({ data }: { data: MediaGenerationData }) {
-  // A signed-in provider whose catalog failed: its reason, and one Retry.
   const catalogErrors = (data.lanes ?? [])
     .filter((lane) => lane.authenticated && lane.catalogError)
     .map((lane) => lane.catalogError as string);
+  const canRetry = data.laneError || data.pinError || catalogErrors.length > 0;
   return (
     <ExtensionSection
       title={t('Default generator')}
       dataAttributes={{ 'data-media-generation': '' }}
-      action={
-        catalogErrors.length ? <ExtensionAction onClick={() => void data.retry()}>{t('Retry')}</ExtensionAction> : null
-      }
+      action={canRetry ? <ExtensionAction onClick={data.retry}>{t('Retry')}</ExtensionAction> : null}
     >
       <ExtensionItemList>
         {MEDIA_KINDS.map((kind) => (
@@ -283,6 +314,8 @@ export function MediaGenerationSettings({ data }: { data: MediaGenerationData })
           {message}
         </ExtensionNote>
       ))}
+      {data.laneError ? <ExtensionNote tone="danger">{data.laneError}</ExtensionNote> : null}
+      {data.pinError ? <ExtensionNote tone="danger">{data.pinError}</ExtensionNote> : null}
       {data.error ? <ExtensionNote tone="danger">{data.error}</ExtensionNote> : null}
     </ExtensionSection>
   );

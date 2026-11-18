@@ -4,41 +4,15 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
-Diese Version fügt Aktionsfreigaben, Website-Berechtigungen im Browser und Netzwerk-Proxy-Einstellungen hinzu, stellt Sitzungen auf ein Append-only-Protokoll um und behebt Verlangsamungen bei vielen geöffneten Sitzungen.
+Mixdog 1.5.0 wechselt auf eine schnellere, schlankere Engine, die in Rust neu aufgebaut wurde. Das war ein großes Vorhaben, das wir langfristig für die Zukunft von Mixdog als notwendig erachtet haben.
 
-### Neue Funktionen
+Mit der neuen Engine sinkt der gesamte Speicherverbrauch deutlich, und das parallele Arbeiten mit vielen Sitzungen und Agenten läuft wesentlich besser. Dadurch fühlt sich die App spürbar schneller an und bleibt im Alltag deutlich stabiler.
 
-- **Aktionsfreigaben** — Freigabekarten um „Für diese Sitzung erlauben“ und in Coding-Chats um „Immer erlauben“ erweitert, widerrufbar über „Nochmals fragen“; Zahlungen und dauerhafte Löschungen fragen immer nach.
-- **Website-Berechtigungen im Browser** — Standardberechtigungen und Ausnahmen pro Website unter Einstellungen › Authentifizierung hinzugefügt, mit Abfragen, die Entscheidungen für eine Website, alle Websites oder bis zum Beenden der App speichern.
-- **Automatischer Import von Chrome-Cookies** — Unter Einstellungen › Authentifizierung hinzugefügt, um Cookies nach einem manuellen Erstimport mit Administratorfreigabe beim App-Start und nach dem Schließen von Chrome automatisch erneut zu importieren und Browser Use angemeldet zu halten; dort auch deaktivierbar.
-- **Automatische Bestätigungscodes** — Automatisches Ausfüllen einmaliger Anmeldecodes aus dem verbundenen Postfach sowie Smartphone-Abfragen für Passwörter und Codes hinzugefügt.
-- **Netzwerk-Proxy** — Proxy-Modi „System“, benutzerdefiniertes `http`/`https`/`socks5` und „Aus“ mit Ausnahmeregeln und Verbindungstest unter Einstellungen › System › Netzwerk-Proxy sowie in den Smartphone-Einstellungen hinzugefügt; Änderungen gelten bei allen Anbietern sofort ab der nächsten Anfrage (#317).
+Aufgrund des Umfangs dieser Umstellung hat das Update viel länger gedauert als geplant, und es tut uns aufrichtig leid, dass Sie so lange warten mussten. Direkt nach dem Wechsel können vereinzelt noch Fehler auftreten, auf die wir jedoch schnell reagieren werden, um sie zu beheben. Vielen Dank für Ihre Geduld beim Warten auf dieses verspätete Release.
 
-### Änderungen
+Wenn Sie nach dem Update auf 1.5.0 wieder zu 1.4.5 zurückkehren, bleiben angehängte Dateien erhalten, die Unterhaltungsliste kehrt jedoch nicht zurück. Falls Sie eventuell zurückkehren möchten, kopieren Sie vor dem Update Ihren Datenordner.
 
-- Speicherung von Sitzungen auf ein Append-only-Protokoll umgestellt, damit beim Schließen schneller und sicherer gespeichert wird; bestehende Sitzungen werden beim ersten Start automatisch im Hintergrund konvertiert, wobei die Originaldateien erhalten bleiben und der Status in `/doctor` angezeigt wird.
-- Browser-Aktionen so geändert, dass Schritte direkt angeklickt und zuerst bestehende Sitzungen oder gespeicherte Logins genutzt werden; nur Passwörter, Karten, Codes oder Identitätsprüfungen werden übergeben.
-- Android-App so geändert, dass sie einen Wiederverbindungsbildschirm zeigt, sich bei Rückkehr des Netzwerks oder beim erneuten Öffnen der App automatisch wieder verbindet und „Anderen PC wählen“ anbietet.
-- Entfernen von Worktrees so geändert, dass ein Branch nur gelöscht wird, wenn Mixdog ihn erstellt hat und Git ihn als zusammengeführt betrachtet, wobei seine Commits wiederherstellbar bleiben.
-- Support-Adresse auf support@mixdog.ai und Website-Link auf mixdog.ai geändert.
-
-### Fehlerbehebungen
-
-- Behoben, dass die App bei vielen geöffneten Sitzungen langsamer wurde oder stockte, und das Öffnen von Sitzungen nach dem Start beschleunigt (#316).
-- Behoben, dass Klicks von Computer Use auf skalierten HiDPI-Displays Ziele verfehlten, Hintergrundaktionen den Fokus entzogen und das aktive Fenster flackern ließen sowie eigene Maus- oder Tastatureingaben jeden Agenten statt nur des unterbrochenen pausierten, der nun bei Inaktivität oder über „Fortsetzen“ weiterläuft (#323).
-- Behoben, dass der Status von Workern und Unteragenten von Anfang bis Ende den tatsächlichen Zustand anzeigt und verdecktes Nachdenken als Fortschritt zählt, sodass arbeitende Agenten nicht mehr als hängend gelten (#319).
-- Behoben, dass sich Details zu Reset-Tickets im Nutzungs-Popup direkt an Ort und Stelle ausklappen, sodass das Ablaufdatum jedes Tickets lesbar bleibt (#324).
-- Behoben, dass sich der Text in der Live-Statuszeile unter einem laufenden Durchgang in schmalen Fenstern bei längerer Wartezeit überlagerte (#326).
-- Behoben, dass der Fensterrahmen unter Windows Mica beim Fokuswechsel zu einem anderen Fenster oder zurück kurz in die inaktive Darstellung flackerte.
-- Behoben, dass ein voller Datenträger den Hintergrunddienst beendete, statt Speichervorgänge erneut zu versuchen und Shell-Ergebnisse weiterhin zuzustellen.
-- Behoben, dass `/stop` bei Shell-Aufträgen bereits abgeschlossene Aufträge nicht mehr als „Konnte nicht gestoppt werden“ meldet und den Projektordner sofort freigibt.
-- Behoben, dass die Smartphone-App beim Öffnen von Seitenleisten auf große Inhalte wartete, Werte im Modellmenü des Routen-Editors abschnitt, nach einer einzelnen verpassten Bestätigung die Verbindung trennte und beim Starten der Spracheingabe hängen blieb.
-- Behoben, dass die Einführungstour und Willkommenskarten koreanische Wörter beim Zeilenumbruch trennten, Projektordner ohne Git-Repository einen Fehler statt eines leeren Branch-Menüs zeigten und Wiederholungsversuche bei Gemini-Ratenlimits fälschlich als Hänger gewertet wurden.
-- Behoben, dass im integrierten Browser ausgewählte HID-Geräte sich nicht mit der Website verbanden (#313).
-- Behoben, dass die HID-Geräteauswahl statt der Gerätenamen quer über die Zeile gestreckte flache Ovale anzeigte (#314).
-- Behoben, dass die Liste „Sitzungen“ beim Zurückkehren aus einem anderen Menü leere Zeilen zeigte oder beim Überschreiten von 40 Zeilen nach oben sprang (#315).
-- Behoben, dass die Codesuche unter Linux für über symbolische Links erreichte Dateien veraltete Ergebnisse anzeigte.
-- Behoben, dass sich die Modellauswahl im Agenten-Editor über den gesamten Dialog streckte.
+In Zukunft werden wir daran arbeiten, die Funktionen von Mixdog schneller zu verbessern und zu stabilisieren. Wenn Ihnen Probleme auffallen, melden Sie diese bitte unter [GitHub Issues](https://github.com/tribgames/mixdog/issues) oder in der App über Einstellungen › Über › Feedback geben.
 
 ## v1.4.5 - 2026-11-03
 

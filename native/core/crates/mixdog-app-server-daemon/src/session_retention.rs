@@ -6,9 +6,15 @@
 //! Node's timer is only unref'd; the Rust cycle is a task that ends with its token, and the stop
 //! procedure cancels it and awaits it before the session directory shuts down, so no pass is
 //! reading or deleting sessions while the directory closes.
+//!
+//! The same stop ends the user sessions' cycle (`with_auto`: Settings → General → Sessions, auto-archive and auto-delete,
+//! `mixdog_core_session::session::auto_retention`).
 
 use std::sync::Arc;
 
+use mixdog_core_session::session::archive_trees::AdmissionGate;
+use mixdog_core_session::session::auto_retention::AutoRetentionHost;
+use mixdog_core_session::session::auto_retention::start as auto_start;
 use mixdog_core_session::session::sub_agent_retention::RetentionHost;
 use mixdog_core_session::session::sub_agent_retention::start as start_cycle;
 use tokio_util::sync::CancellationToken;
@@ -16,22 +22,41 @@ use tokio_util::sync::CancellationToken;
 /// The running cycle.
 pub struct Running {
     stop: CancellationToken,
+    /// The archives' admission: closed first by [`Running::end`], so an archive the state writer reaches after it commits nothing.
+    gate: Arc<AdmissionGate>,
     task: tokio::task::JoinHandle<()>,
+    /// The user sessions' auto-archive and auto-delete cycle (`with_auto`), ended with this one.
+    auto: Option<tokio::task::JoinHandle<()>>,
 }
+
 
 /// Starts the cycle over `host`, judging idleness by `now` (epoch ms). A failed pass is written
 /// as Node writes it: `[session-sweep] sub-agent retention error: <message>`.
 pub fn start(host: Arc<dyn RetentionHost>, now: Arc<dyn Fn() -> f64 + Send + Sync>) -> Running {
     let stop = CancellationToken::new();
     let on_error: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(|line| mixdog_rt::node_stderr!("[session-sweep] {line}"));
-    Running { task: start_cycle(host, now, on_error, stop.clone()), stop }
+    Running { task: start_cycle(host, now, on_error, stop.clone()), stop, gate: Arc::default(), auto: None }
 }
 
 impl Running {
-    /// No pass is admitted from here; returns once the pass under way has finished what it admitted.
+    /// Starts the cycle that archives the user's idle sessions and deletes the long archived ones (Node's
+    /// `startSessionRetentionSchedule`, `session-auto-retention.ts`) under this one's stop: one pass now, one more each time
+    /// the options change (`changes`: the config's revision).
+    #[must_use]
+    pub fn with_auto(mut self, host: Arc<dyn AutoRetentionHost>, now: Arc<dyn Fn() -> f64 + Send + Sync>, changes: tokio::sync::watch::Receiver<u64>) -> Self {
+        self.auto = Some(auto_start(host, now, self.stop.clone(), self.gate.clone(), changes));
+        self
+    }
+
+    /// No pass is admitted from here: the archives' admission closes first, then the passes are told to stop; returns once the
+    /// pass under way has finished what it admitted (an archive admitted before the close commits whole).
     pub async fn end(self) {
+        self.gate.close();
         self.stop.cancel();
         let _ = self.task.await;
+        if let Some(auto) = self.auto {
+            let _ = auto.await;
+        }
     }
 }
 

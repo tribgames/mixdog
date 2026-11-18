@@ -474,17 +474,6 @@ mod tests {
         assert!(!state.enabled && state.error.is_some());
     }
 
-    #[tokio::test]
-    async fn the_packaged_extension_is_found_from_the_core_folder_of_the_resources() {
-        let resources = tempfile::tempdir().unwrap();
-        let bundled = resources.path().join("gnome-extension").join(GNOME_EXTENSION_UUID);
-        std::fs::create_dir_all(&bundled).unwrap();
-        std::fs::write(bundled.join("metadata.json"), meta(1)).unwrap();
-        let core = resources.path().join("core");
-        std::fs::create_dir_all(&core).unwrap();
-        assert_eq!(bundled_dir(mixdog_rt::testing::tokens().interactive_io, &Env::new(), &core).await, Some(bundled));
-    }
-
     #[test]
     fn the_extension_list_round_trips_gsettings_text() {
         assert!(parse_extension_list("@as []\n").is_empty());
@@ -497,5 +486,17 @@ mod tests {
     fn the_state_serializes_with_the_camel_case_name_and_no_empty_error() {
         let value = serde_json::to_value(GnomeExtensionState { installed: true, enabled: true, needs_relogin: true, error: None }).unwrap();
         assert_eq!(value, serde_json::json!({ "installed": true, "enabled": true, "needsRelogin": true }));
+    }
+
+
+    #[tokio::test]
+    async fn the_packaged_extension_is_found_from_the_core_folder_of_the_resources() {
+        let resources = tempfile::tempdir().unwrap();
+        let bundled = resources.path().join("gnome-extension").join(GNOME_EXTENSION_UUID);
+        std::fs::create_dir_all(&bundled).unwrap();
+        std::fs::write(bundled.join("metadata.json"), meta(1)).unwrap();
+        let core = resources.path().join("core");
+        std::fs::create_dir_all(&core).unwrap();
+        assert_eq!(bundled_dir(mixdog_rt::testing::tokens().interactive_io, &Env::new(), &core).await, Some(bundled));
     }
 }

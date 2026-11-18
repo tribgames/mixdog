@@ -14,7 +14,9 @@ import { showDesktopToast, useErrorToast } from '../notifications';
 import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
 import { record } from '../record-utils';
-import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
+import { REMOTE_CONNECTION_READY_EVENT } from '../remote-connection-state';
+import { draftModelSelectionFromSnapshot } from '../draft-pane-prefs-store';
+import { acknowledgeLeadRoute, invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
 import { invalidateSkillCatalogForMutation } from '../composer-skill-mentions';
 import { announceSetupChange, subscribeSetupChanges } from '../setup-change-refresh';
 import { SettingsConfirmDialog } from './capability-controls';
@@ -74,7 +76,6 @@ export const CapabilitySettings = memo(function CapabilitySettings({
   }, [active]);
   const [revision, setRevision] = useState(0);
   const loadSequence = useRef(0);
-  const updateChecked = useRef(false);
   // Tail of the in-flight mutation chain: capability calls run one after the
   // other so a burst of clicks lands in order instead of being dropped.
   const mutationChain = useRef<Promise<void>>(Promise.resolve());
@@ -120,6 +121,12 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       loadSequence.current += 1;
     };
   }, [active, api, load, refreshNonce, revision]);
+  useEffect(() => {
+    if (!active || (category !== 'plugins' && category !== 'builtins' && category !== 'git')) return;
+    const refresh = () => void load(true);
+    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, refresh);
+    return () => window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, refresh);
+  }, [active, category, load]);
   // A setup-tool change rewrites settings outside this panel: re-read now
   // while visible; a hidden panel refreshes on its next opening.
   useEffect(
@@ -311,17 +318,6 @@ export const CapabilitySettings = memo(function CapabilitySettings({
     [api, hydrating, pending, updaterState.status]
   );
 
-  useEffect(() => {
-    if (category !== 'system') {
-      updateChecked.current = false;
-      return;
-    }
-    if (serverWindow || hydrating || updateChecked.current) return;
-    updateChecked.current = true;
-    if (api.checkForDesktopUpdate) void checkDesktopUpdate();
-    else void run('checkForUpdate', [{}]);
-  }, [api.checkForDesktopUpdate, category, checkDesktopUpdate, hydrating, run]);
-
   const route = useCallback(
     async (model: DesktopModelOption) => {
       if (!api.setModelRoute || pending || hydrating) return;
@@ -346,13 +342,15 @@ export const CapabilitySettings = memo(function CapabilitySettings({
           if (isActiveRoute && typeof active.autoEffort === 'boolean') autoEffort = active.autoEffort;
           else autoEffort = model.savedAutoEffort ?? true;
         }
-        await api.setModelRoute({
+        const snapshot = await api.setModelRoute({
           provider: model.provider,
           model: model.model,
           ...(effort ? { effort } : {}),
           ...(fast === undefined ? {} : { fast }),
           ...(autoEffort === undefined ? {} : { autoEffort }),
         });
+        // As Workflows does: no older preset read may replace the answered Lead.
+        acknowledgeLeadRoute(api, { ...draftModelSelectionFromSnapshot(snapshot) });
         announceSetupChange('set_route');
         invalidateCapabilitySettings(api);
         setRevision((value) => value + 1);

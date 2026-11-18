@@ -1,17 +1,14 @@
 // Attachments recorded in the message metadata (`meta.transcript.attachments`):
 // derived once at the daemon intake for every kind, kept by the persisted and
-// restored transcript row, and counted by the store's census so a blob lives
-// exactly as long as a message names it.
+// restored transcript row.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 
 const dataDir = makeTempDirSync('message-attachments');
 process.env.MIXDOG_DATA_DIR = dataDir;
 
-const { attachmentsForIntake, collectPromptAttachments, materializePromptSubmission } = await import('./store.mjs');
+const { attachmentsForIntake, materializePromptSubmission } = await import('./store.mjs');
 
 
 
@@ -71,27 +68,4 @@ test('every attachment kind is recorded by content hash with name, type and size
 test('a plain long prompt is not an attachment', () => {
   const intake = materializePromptSubmission('long plain prompt '.repeat(100));
   assert.deepEqual(attachmentsForIntake(intake.prompt, intake.options), []);
-});
-
-
-test('the census keeps blobs a message record names and sweeps the unreferenced ones', async () => {
-  const intake = submit();
-  const attachments = attachmentsForIntake(intake.prompt, intake.options);
-  const orphan = materializePromptSubmission([{ type: 'file', data: b64('orphan'), mimeType: 'text/plain' }]).prompt[0];
-  const blob = (ref) => join(dataDir, 'prompt-attachments', 'sha256', ref.slice(0, 2), ref);
-  // The session keeps only the metadata: the content parts are gone (compaction).
-  mkdirSync(join(dataDir, 'sessions'), { recursive: true });
-  writeFileSync(
-    join(dataDir, 'sessions', 'sess_meta_only.json'),
-    JSON.stringify({
-      id: 'sess_meta_only',
-      messages: [{ role: 'user', content: 'summary', meta: { transcript: { messageId: 'm', attachments } } }],
-    })
-  );
-  const old = new Date(Date.now() - 120_000);
-  for (const entry of attachments) utimesSync(blob(entry.id), old, old);
-  utimesSync(blob(orphan.attachmentRef), old, old);
-  await collectPromptAttachments({ now: Date.now(), minAgeMs: 60_000 });
-  for (const entry of attachments) assert.equal(existsSync(blob(entry.id)), true, entry.name);
-  assert.equal(existsSync(blob(orphan.attachmentRef)), false);
 });

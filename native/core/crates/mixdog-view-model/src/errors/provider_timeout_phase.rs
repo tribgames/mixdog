@@ -16,7 +16,7 @@ pub const IDLE: &str = "idle";
 pub const AUTH: &str = "auth";
 
 /// The `timeoutPhase` stamp of a failure, when it is a string.
-pub fn timeout_phase(error: Js) -> Option<&str> {
+pub fn timeout_phase(error: Js<'_>) -> Option<&str> {
     get(error, "timeoutPhase").and_then(Value::as_str)
 }
 

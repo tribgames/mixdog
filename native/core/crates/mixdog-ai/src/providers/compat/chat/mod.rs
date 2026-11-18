@@ -29,6 +29,17 @@ use crate::providers::google::tool_accept::gemini_accepted_tools;
 use crate::providers::leak::{ToolNames, body_tool_names};
 use crate::providers::google::traits::is_gemini_family_model;
 
+/// Whether a request's model replays its reasoning (a custom provider's model row and the turn's effort).
+#[derive(Clone)]
+pub struct CustomReplay(pub Arc<dyn Fn(&ModelRequest) -> bool + Send + Sync>);
+
+impl std::fmt::Debug for CustomReplay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CustomReplay")
+    }
+}
+
+
 /// What differs between two instances of one profile.
 #[derive(Clone, Debug)]
 pub struct CompatConfig {
@@ -49,27 +60,14 @@ pub struct CompatConfig {
     /// alone decides whether reasoning is captured and sent back, with tool-call turns padded.
     pub custom_replay: Option<CustomReplay>,
 }
-
-/// Whether a request's model replays its reasoning (a custom provider's model row and the turn's effort).
-#[derive(Clone)]
-pub struct CustomReplay(pub Arc<dyn Fn(&ModelRequest) -> bool + Send + Sync>);
-
-impl std::fmt::Debug for CustomReplay {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("CustomReplay")
-    }
-}
-
 /// The injectable process environment (`registry::keys::Environment`).
 #[derive(Clone)]
 pub struct EnvSource(pub Arc<dyn crate::registry::keys::Environment>);
-
 impl std::fmt::Debug for EnvSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("EnvSource")
     }
 }
-
 impl Default for CompatConfig {
     fn default() -> Self {
         Self {
@@ -83,7 +81,6 @@ impl Default for CompatConfig {
         }
     }
 }
-
 impl CompatConfig {
     /// A config whose model table carries the profile's seed facts.
     pub fn for_profile(profile: &CompatProfile) -> Self {
@@ -93,23 +90,28 @@ impl CompatConfig {
         }
     }
 }
-
 #[derive(Clone, Debug)]
 pub struct CompatChatCodec {
     profile: CompatProfile,
     provider: ProviderId,
     config: CompatConfig,
     schemas: Arc<SchemaMemo>,
+    cache_control: bool,
 }
-
 impl CompatChatCodec {
     pub fn new(profile: CompatProfile, config: CompatConfig) -> Self {
         Self {
             schemas: Arc::new(SchemaMemo::default()),
             provider: ProviderId::from(profile.id),
+            cache_control: profile.id == "openrouter",
             profile,
             config,
         }
+    }
+
+    pub(crate) fn with_cache_control(mut self, enabled: Option<bool>) -> Self {
+        self.cache_control = enabled.unwrap_or(self.cache_control);
+        self
     }
 
     pub fn profile(&self) -> &CompatProfile {
@@ -191,10 +193,12 @@ impl CompatChatCodec {
         Ok(headers)
     }
 }
-
 impl WireCodec for CompatChatCodec {
     fn transport(&self) -> TransportKind {
         TransportKind::Http1
+    }
+    fn image_branch(&self, _: &ModelRequest) -> mixdog_image_egress::route::WireBranch {
+        mixdog_image_egress::route::WireBranch::CompatChat
     }
 
     fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
@@ -211,7 +215,7 @@ impl WireCodec for CompatChatCodec {
                 report_exclusion(&request.options, e)
             })
         };
-        let body = encode::build_body(&self.request_profile(request), &self.provider, request, info.as_deref(), &tools)?;
+        let body = encode::build_body(&self.request_profile(request), &self.provider, request, info.as_deref(), &tools, self.cache_control)?;
         Ok(WireRequest {
             transport: TransportKind::Http1,
             method: "POST".into(),

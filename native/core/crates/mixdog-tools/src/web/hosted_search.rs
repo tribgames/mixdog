@@ -18,6 +18,7 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+use super::search::NativeSearchError;
 use super::search::NativeSearchRequest;
 use super::search::NativeSearchResult;
 use super::search::NativeSource;
@@ -292,10 +293,10 @@ fn search_call(call: &Value) -> SearchCall {
 
 #[async_trait]
 impl NativeWebSearch for HostedWebSearch {
-    async fn search(&self, request: NativeSearchRequest, cancel: CancellationToken) -> Result<NativeSearchResult, String> {
-        let candidates = self.routes.candidates(&request.thread).await?;
+    async fn search(&self, request: NativeSearchRequest, cancel: CancellationToken) -> Result<NativeSearchResult, NativeSearchError> {
+        let candidates = self.routes.candidates(&request.thread).await.map_err(NativeSearchError::Failed)?;
         if candidates.is_empty() {
-            return Err(self.routes.no_candidate_message(&request.thread).await);
+            return Err(NativeSearchError::Unavailable(self.routes.no_candidate_message(&request.thread).await));
         }
         let mut errors: Vec<String> = Vec::new();
         for candidate in candidates {
@@ -326,13 +327,13 @@ impl NativeWebSearch for HostedWebSearch {
                 }
                 Err(error) => {
                     if !error.capacity || cancel.is_cancelled() {
-                        return Err(error.message);
+                        return Err(NativeSearchError::Failed(error.message));
                     }
                     let model = if candidate.model.is_empty() { String::new() } else { format!("/{}", candidate.model) };
                     errors.push(format!("{}{model}/{tool_type}: {}", candidate.provider, error.message));
                 }
             }
         }
-        Err(format!("native web search failed: {}", errors.join(" | ")))
+        Err(NativeSearchError::Failed(format!("native web search failed: {}", errors.join(" | "))))
     }
 }

@@ -3,9 +3,20 @@
 //! what adopting its result resets; the [`Compactor`](crate::env::Compactor)
 //! owns what the new transcript contains.
 
+use mixdog_core_api::domain::cache_tail::Resolution;
+use mixdog_core_api::domain::cache_tail::RewriteLease;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::provider::Usage;
+
+/// How a decided compaction stage ended.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Ran {
+    Changed,
+    Unchanged,
+    /// Agent mode's one quiet retry of a failed compaction: the send goes on with the transcript as it is.
+    QuietFailure,
+}
 
 use crate::env::CompactError;
 use crate::env::CompactEvent;
@@ -21,6 +32,7 @@ use crate::env::RunEvent;
 use crate::env::Rewrite;
 use crate::env::SessionPressure;
 use crate::env::Stage;
+use crate::env::Tone;
 use crate::env::or_cancelled;
 use crate::message::AgentMessage;
 use crate::repair::repair_before_send;
@@ -241,6 +253,140 @@ impl Baseline {
     }
 }
 
+/// A deferred or MCP definition: the part of the surface that changes while a run is going.
+fn is_dynamic_tool(tool: &ToolDefinition) -> bool {
+    tool.defer_loading || tool.name.starts_with("mcp__")
+}
+
+/// `adoptDynamicToolChanges` (`request-boundary.mjs:25`): the first request takes the candidate whole; later
+/// ones keep the frozen surface's eager prefix and adopt additions (at the end), schema updates (in place) and
+/// removals of its deferred / MCP definitions. An unchanged dynamic part leaves the surface as it was.
+pub(crate) fn adopt_dynamic_tool_changes(fixed: Option<Vec<ToolDefinition>>, candidate: Vec<ToolDefinition>) -> Vec<ToolDefinition> {
+    let Some(fixed) = fixed else {
+        return candidate;
+    };
+    if candidate.iter().filter(|t| is_dynamic_tool(t)).eq(fixed.iter().filter(|t| is_dynamic_tool(t))) {
+        return fixed;
+    }
+    // `new Map(...)`: a name keeps the position of its first definition and the value of its last.
+    let mut replacements: Vec<(String, ToolDefinition)> = Vec::new();
+    for tool in candidate.into_iter().filter(is_dynamic_tool) {
+        match replacements.iter_mut().find(|(name, _)| *name == tool.name) {
+            Some(slot) => slot.1 = tool,
+            None => replacements.push((tool.name.clone(), tool)),
+        }
+    }
+    let mut merged = Vec::with_capacity(fixed.len());
+    for tool in fixed {
+        if !is_dynamic_tool(&tool) {
+            merged.push(tool);
+        } else if let Some(at) = replacements.iter().position(|(name, _)| *name == tool.name) {
+            merged.push(replacements.remove(at).1);
+        }
+    }
+    merged.extend(replacements.into_iter().map(|(_, tool)| tool));
+    merged
+}
+
+impl Run {
+    /// The tools the session offers now, less those the provider rejected the schema of.
+    fn candidate_tools(&self) -> Vec<ToolDefinition> {
+        self.tools.definitions().into_iter().filter(|t| !self.dropped_tools.contains_key(&t.name)).collect()
+    }
+
+    /// The tools the request carries: the frozen surface once the boundary has taken it.
+    pub(crate) fn request_tools(&self) -> Vec<ToolDefinition> {
+        self.fixed_surface.clone().unwrap_or_else(|| self.candidate_tools())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings(window: u64) -> CompactSettings {
+        CompactSettings {
+            auto: true,
+            context_window: Some(window),
+            token_calibration: 1.0,
+            ..CompactSettings::default()
+        }
+    }
+
+    #[test]
+    fn full_window_trigger_and_quarter_target() {
+        let policy = CompactPolicy::resolve(&settings(200_000)).unwrap();
+        assert_eq!(policy.boundary_tokens, 200_000);
+        assert_eq!(policy.trigger_tokens, 200_000);
+        assert_eq!(policy.target_tokens, 50_000);
+        // below the trigger by the 1% margin (up to 1,024) above the target
+        assert!(policy.target_budget() < policy.trigger_tokens);
+        assert!(!policy.single_shot);
+    }
+
+    #[test]
+    fn explicit_limit_below_boundary_is_the_trigger() {
+        let mut s = settings(200_000);
+        s.auto_limit = Some(120_000);
+        let policy = CompactPolicy::resolve(&s).unwrap();
+        assert_eq!(policy.trigger_tokens, 120_000);
+    }
+
+    #[test]
+    fn reserve_at_the_trigger_means_one_shot() {
+        let mut s = settings(10_000);
+        s.request_reserve_tokens = 10_000;
+        let policy = CompactPolicy::resolve(&s).unwrap();
+        assert!(policy.single_shot);
+    }
+
+    #[test]
+    fn no_boundary_or_auto_off_resolves_to_none() {
+        assert!(CompactPolicy::resolve(&CompactSettings::default()).is_none());
+        let mut s = settings(1_000);
+        s.auto = false;
+        assert!(CompactPolicy::resolve(&s).is_none());
+    }
+
+
+    /// Replays the requests of `fixtures/request-tools/golden.json` (recorded from Node's `prepareProviderRequest`
+    /// over a session whose tools and connected MCP names change between requests): the surface each request
+    /// sent follows the candidate by `adoptDynamicToolChanges`.
+    #[cfg(node_twin)]
+    #[test]
+    fn the_request_tools_adopt_changes_as_node_does() {
+        let golden: serde_json::Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/request-tools/golden.json")).unwrap();
+        let tools = |list: &serde_json::Value| -> Vec<ToolDefinition> {
+            list.as_array()
+                .unwrap()
+                .iter()
+                .map(|t| ToolDefinition {
+                    name: t["name"].as_str().unwrap().to_owned(),
+                    description: t["description"].as_str().unwrap().to_owned(),
+                    input_schema: t["inputSchema"].clone(),
+                    defer_loading: false,
+                    freeform: None,
+                })
+                .collect()
+        };
+        let cases = golden["cases"].as_array().unwrap();
+        assert!(cases.iter().filter(|case| !case["steps"][0]["sent"].is_null()).count() >= 10);
+        for case in cases {
+            let mut fixed = None;
+            for (at, step) in case["steps"].as_array().unwrap().iter().enumerate() {
+                // A snapshot-only scenario (`fixtures/request-tools`) records the candidate alone.
+                if step["sent"].is_null() {
+                    continue;
+                }
+                let sent = adopt_dynamic_tool_changes(fixed.take(), tools(&step["candidate"]));
+                assert_eq!(sent, tools(&step["sent"]), "{} (request {at})", case["name"]);
+                fixed = Some(sent);
+            }
+        }
+    }
+}
+
+
 impl Run {
     /// Records the provider's reading of the request just sent.
     pub(crate) fn record_baseline(&mut self, usage: &Usage, input_excludes_cache: bool) {
@@ -291,6 +437,9 @@ impl Run {
                 self.fixed_surface = None;
                 self.provider_state = None;
                 self.baseline = None;
+                // `migrateToolExposureAtBoundary` synchronizes the prefix and then deletes the guard state (`markToolSurfaceMigrated`):
+                // the kept guard fingerprints the system messages just replaced, and a migration intent is no compaction intent.
+                self.carry.prefix_guard = None;
                 // The migration's tagged cache break (`TOOL_SURFACE_MIGRATION_INTENT`).
                 self.cache_break_intent = Some("tool_surface_bridge_migration".to_owned());
             }
@@ -310,7 +459,6 @@ impl Run {
             if repair_before_send(&mut self.messages) {
                 // Provider readings belong to the old transcript.
                 self.baseline = None;
-                self.cross_turn.clear();
                 self.cache_break_intent.get_or_insert_with(|| "transcript_rebuild".to_owned());
                 self.env.sink.replace(&self.messages, &Rewrite::default());
             }
@@ -364,8 +512,7 @@ impl Run {
         };
         let pressure = self.pressure_tokens(&policy, compactor.as_ref(), reactive, session.tokens);
         let trigger = policy.trigger_tokens.max(1);
-        // Cache expiry and tool-result media arm a pass whatever the pressure.
-        let cache_expired = compactor.cache_expired();
+        // Tool-result media arms a pass whatever the pressure.
         let media_pressure = compactor.request_media(&self.messages);
         // `shouldCompactForSession`: an unanchored transcript's pressure arms nothing until a provider send re-anchors it.
         // A one-shot policy that took its pass arms nothing more, and a transcript the provider already measured below the
@@ -373,19 +520,13 @@ impl Run {
         let estimate_only = session.tokens.is_none() && self.baseline.is_none();
         let measured_below = estimate_only && session.reading_count == Some(self.messages.len()) && session.reading.is_some_and(|reading| reading < trigger);
         let over = !session.unanchored && !(policy.single_shot && session.single_shot_consumed) && !measured_below && pressure >= trigger;
-        let mut should = !skip_proactive && (reactive || cache_expired || media_pressure || over);
+        let mut should = !skip_proactive && (reactive || media_pressure || over);
         let budget = if should {
             policy.target_budget()
         } else {
             policy.boundary_tokens
         };
-        let trigger_kind = if reactive {
-            CompactTrigger::Reactive
-        } else if cache_expired {
-            CompactTrigger::CacheExpired
-        } else {
-            CompactTrigger::Auto
-        };
+        let trigger_kind = if reactive { CompactTrigger::Reactive } else { CompactTrigger::Auto };
         // A proactive pass never replaces the transcript with an equal-sized
         // or larger one; media pressure compacts to drop bytes, not tokens.
         let require_reduction = !reactive && !media_pressure;
@@ -401,19 +542,90 @@ impl Run {
             };
             should = compactor.reduces(&request).await;
         }
+        // A send that compacts first reports no transcript (only a check of a send that compacts nothing reads one); the copy
+        // made is the one the round's usage report reuses.
+        let checked: std::sync::Arc<[AgentMessage]> = if should { std::sync::Arc::from(Vec::new()) } else { std::sync::Arc::from(self.messages.as_slice()) };
+        self.checked_transcript = (!should).then(|| checked.clone());
         self.emit(RunEvent::ContextPressure {
             used_tokens: pressure,
             trigger_tokens: policy.trigger_tokens,
             boundary_tokens: policy.boundary_tokens,
             context_window: policy.context_window,
             will_compact: should,
-            messages: self.messages.clone(),
+            messages: checked,
             tools,
             reactive,
         });
         if !should {
             return Ok(false);
         }
+        Ok(self.run_compaction(compactor, &policy, trigger_kind, pressure, budget, reactive, require_reduction).await? == Ran::Changed)
+    }
+
+    /// The loop's answer to the cache owner's cold decision for the attempt it refused: the transcript is compacted when
+    /// a smaller valid one exists (sized as a manual compaction is when automatic compaction is off), else the user is told
+    /// why it goes out unchanged. `lease` is the claimed rewrite: resolved with the outcome, or, on a cancelled or surfaced
+    /// failure (or this future dropped), released undecided so a waiter takes it over. A failed reduction, whose notice
+    /// this run gave, returns the leave of the request it was decided for: only this run holds it.
+    pub(crate) async fn cold_pass(&mut self, lease: RewriteLease) -> Result<Option<mixdog_core_api::domain::cache_tail::Unreduced>, AgentError> {
+        let resolution = self.cold_compaction().await?;
+        Ok(lease.resolve(resolution))
+    }
+
+    async fn cold_compaction(&mut self) -> Result<Resolution, AgentError> {
+        // A turn is offered a rewrite only for a lifetime that ran out: a history with no send on record is sent as it is.
+        let lead = "The transcript's prompt cache expired.";
+        let notice = |this: &mut Self, why: &str| {
+            this.emit(RunEvent::Stage(Stage::Notice { message: format!("{lead} {why}, so this request will resend the transcript unchanged."), tone: Tone::Info }));
+        };
+        let sized = self.env.compactor.clone().zip(self.config.compact.clone()).and_then(|(compactor, settings)| {
+            CompactPolicy::resolve(&CompactSettings { auto: true, ..settings }).map(|policy| (compactor, policy))
+        });
+        let Some((compactor, policy)) = sized else {
+            notice(self, "No context window is configured");
+            return Ok(Resolution::NoSizing);
+        };
+        compactor.prepare(&self.messages).await;
+        let budget = policy.target_budget();
+        let request = CompactRequest {
+            messages: &self.messages,
+            budget_tokens: budget,
+            trigger: CompactTrigger::CacheExpired,
+            require_reduction: true,
+            reference_latest_attachments: false,
+            active_turn: true,
+            latest_user_prefix: "",
+        };
+        if !compactor.reduces(&request).await {
+            notice(self, "No smaller valid transcript exists");
+            return Ok(Resolution::Irreducible);
+        }
+        let pressure = policy.estimate_with_reserve(compactor.estimate_tokens(&self.messages));
+        match self.run_compaction(compactor, &policy, CompactTrigger::CacheExpired, pressure, budget, false, true).await? {
+            Ran::Changed => Ok(Resolution::Compacted),
+            Ran::Unchanged => {
+                notice(self, "No smaller valid transcript exists");
+                Ok(Resolution::Irreducible)
+            }
+            Ran::QuietFailure => {
+                notice(self, "Compacting the transcript failed");
+                Ok(Resolution::Failed)
+            }
+        }
+    }
+
+    /// One decided compaction stage: its events, the pass, and the adoption of a changed transcript.
+    #[allow(clippy::too_many_arguments, reason = "the decided pass's own figures, each reported on its events")]
+    async fn run_compaction(
+        &mut self,
+        compactor: std::sync::Arc<dyn Compactor>,
+        policy: &CompactPolicy,
+        trigger_kind: CompactTrigger,
+        pressure: u64,
+        budget: u64,
+        reactive: bool,
+        require_reduction: bool,
+    ) -> Result<Ran, AgentError> {
         self.emit(RunEvent::Stage(Stage::Compacting));
         let request_messages = self.messages.clone();
         let request_tools = self.tools.definitions();
@@ -422,7 +634,9 @@ impl Run {
         };
         self.emit(pass(PassStage::Started));
         // The one-shot reactive flag is consumed by this pass.
-        self.reactive_overflow_retry_pending = false;
+        if reactive {
+            self.reactive_overflow_retry_pending = false;
+        }
         let before = self.messages.len();
         let started = self.env.clock.now_ms();
         let before_tokens = self.context.display_before(pressure);
@@ -471,9 +685,9 @@ impl Run {
                     && matches!(error, CompactError::Failed(_) | CompactError::RouteFailed(..))
                 {
                     self.quiet_compact_retry_used = true;
-                    return Ok(false);
+                    return Ok(Ran::QuietFailure);
                 }
-                return Err(self.compact_error(error, &policy, budget, pressure));
+                return Err(self.compact_error(error, policy, budget, pressure));
             }
         };
         if let Some(usage) = &output.usage {
@@ -487,7 +701,7 @@ impl Run {
         }
         if output.skipped {
             self.emit(pass(PassStage::Skipped));
-            return Ok(false);
+            return Ok(Ran::Unchanged);
         }
         // `freshContextResult.handoffSource`: the session's for a written summary, the rules' for a summary-less pass. Read
         // before the output's messages move.
@@ -496,6 +710,7 @@ impl Run {
         let rewrite = Rewrite { dropped_count: output.dropped_count, dropped: output.dropped, compaction: true };
         if changed {
             self.adopt_compacted(output.messages, &rewrite);
+            compactor.adopted(&self.messages).await;
         }
         // The gauge's scale: the compacted transcript's estimate plus the request reserve (the provider
         // baseline died with the old transcript).
@@ -504,7 +719,7 @@ impl Run {
         let status = if changed { CompactStatus::Compacted } else { CompactStatus::NoChange };
         self.emit(pass(PassStage::Done { changed, handoff_source, after_tokens, duration_ms: duration(&*self.env.clock), after: self.messages.clone() }));
         self.emit(RunEvent::Compact(event(status, self.messages.len(), after_tokens, duration(&*self.env.clock), rewrite.dropped_count, rewrite.dropped)));
-        Ok(changed)
+        Ok(if changed { Ran::Changed } else { Ran::Unchanged })
     }
 
     /// Replaces the live transcript and resets everything keyed to the old
@@ -514,20 +729,46 @@ impl Run {
         self.env.sink.replace(&self.messages, rewrite);
         // Provider readings and the request in flight described the old shape.
         self.baseline = None;
+        // The actor clears the saved continuation with the rewrite; the loop
+        // must also stop replaying anchors into the replaced transcript.
+        self.provider_state = None;
+        self.provider_state_changed = true;
         self.context.stale_after_compact = true;
         // `invalidateProviderContextBaseline` drops the session's unanchored mark with its reading.
         self.reanchored = true;
         // Receipts point at tool results compaction just removed from context.
-        self.cross_turn.clear();
         // Cached read results and the read snapshots would answer a read with a body or a receipt the model no longer holds.
         if let Some(reuse) = &self.env.reuse {
             reuse.after_compaction();
         }
         // The next send intentionally starts a new transcript shape: a tagged break, not an unexplained mismatch.
         self.cache_break_intent = Some("automatic_compaction".to_owned());
+        // The cache owner's evidence belongs to the retired history; the rebuilt base's first write is this compaction's.
+        if let Some(gate) = &self.config.options.tail_gate {
+            // The compacted transcript is the history of the generation the rewrite opened.
+            self.config.options.tail_generation = Some(gate.0.rebuilt());
+        }
         // Compaction starts a new loop epoch: iteration indices count from the
         // compacted transcript.
         self.iterations = 0;
+    }
+
+    /// The store's history replaces the run's transcript, which a rewrite this run did not make retired: what the old
+    /// transcript keyed is reset as after a compaction (the store already holds the rewrite, so nothing is written), and the
+    /// run's requests carry the generation of the reloaded history.
+    pub(crate) fn adopt_reloaded(&mut self, conversation: Vec<AgentMessage>, generation: u64) {
+        let system: Vec<AgentMessage> = self.messages.iter().take_while(|m| m.role() == Role::System).cloned().collect();
+        self.messages = system.into_iter().chain(conversation).collect();
+        self.baseline = None;
+        self.provider_state = None;
+        self.provider_state_changed = true;
+        self.context.stale_after_compact = true;
+        self.reanchored = true;
+        if let Some(reuse) = &self.env.reuse {
+            reuse.after_compaction();
+        }
+        self.cache_break_intent.get_or_insert_with(|| "transcript_rebuild".to_owned());
+        self.config.options.tail_generation = Some(generation);
     }
 
     fn compact_error(
@@ -566,136 +807,5 @@ impl Run {
                 cause,
             })),
         }
-    }
-}
-
-/// A deferred or MCP definition: the part of the surface that changes while a run is going.
-fn is_dynamic_tool(tool: &ToolDefinition) -> bool {
-    tool.defer_loading || tool.name.starts_with("mcp__")
-}
-
-/// `adoptDynamicToolChanges` (`request-boundary.mjs:25`): the first request takes the candidate whole; later
-/// ones keep the frozen surface's eager prefix and adopt additions (at the end), schema updates (in place) and
-/// removals of its deferred / MCP definitions. An unchanged dynamic part leaves the surface as it was.
-pub(crate) fn adopt_dynamic_tool_changes(fixed: Option<Vec<ToolDefinition>>, candidate: Vec<ToolDefinition>) -> Vec<ToolDefinition> {
-    let Some(fixed) = fixed else {
-        return candidate;
-    };
-    if candidate.iter().filter(|t| is_dynamic_tool(t)).eq(fixed.iter().filter(|t| is_dynamic_tool(t))) {
-        return fixed;
-    }
-    // `new Map(...)`: a name keeps the position of its first definition and the value of its last.
-    let mut replacements: Vec<(String, ToolDefinition)> = Vec::new();
-    for tool in candidate.into_iter().filter(is_dynamic_tool) {
-        match replacements.iter_mut().find(|(name, _)| *name == tool.name) {
-            Some(slot) => slot.1 = tool,
-            None => replacements.push((tool.name.clone(), tool)),
-        }
-    }
-    let mut merged = Vec::with_capacity(fixed.len());
-    for tool in fixed {
-        if !is_dynamic_tool(&tool) {
-            merged.push(tool);
-        } else if let Some(at) = replacements.iter().position(|(name, _)| *name == tool.name) {
-            merged.push(replacements.remove(at).1);
-        }
-    }
-    merged.extend(replacements.into_iter().map(|(_, tool)| tool));
-    merged
-}
-
-impl Run {
-    /// The tools the session offers now, less those the provider rejected the schema of.
-    fn candidate_tools(&self) -> Vec<ToolDefinition> {
-        self.tools.definitions().into_iter().filter(|t| !self.dropped_tools.contains_key(&t.name)).collect()
-    }
-
-    /// The tools the request carries: the frozen surface once the boundary has taken it.
-    pub(crate) fn request_tools(&self) -> Vec<ToolDefinition> {
-        self.fixed_surface.clone().unwrap_or_else(|| self.candidate_tools())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Replays the requests of `fixtures/request-tools/golden.json` (recorded from Node's `prepareProviderRequest`
-    /// over a session whose tools and connected MCP names change between requests): the surface each request
-    /// sent follows the candidate by `adoptDynamicToolChanges`.
-    #[test]
-    fn the_request_tools_adopt_changes_as_node_does() {
-        let golden: serde_json::Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/request-tools/golden.json")).unwrap();
-        let tools = |list: &serde_json::Value| -> Vec<ToolDefinition> {
-            list.as_array()
-                .unwrap()
-                .iter()
-                .map(|t| ToolDefinition {
-                    name: t["name"].as_str().unwrap().to_owned(),
-                    description: t["description"].as_str().unwrap().to_owned(),
-                    input_schema: t["inputSchema"].clone(),
-                    defer_loading: false,
-                    freeform: None,
-                })
-                .collect()
-        };
-        let cases = golden["cases"].as_array().unwrap();
-        assert!(cases.iter().filter(|case| !case["steps"][0]["sent"].is_null()).count() >= 10);
-        for case in cases {
-            let mut fixed = None;
-            for (at, step) in case["steps"].as_array().unwrap().iter().enumerate() {
-                // A snapshot-only scenario (`fixtures/request-tools`) records the candidate alone.
-                if step["sent"].is_null() {
-                    continue;
-                }
-                let sent = adopt_dynamic_tool_changes(fixed.take(), tools(&step["candidate"]));
-                assert_eq!(sent, tools(&step["sent"]), "{} (request {at})", case["name"]);
-                fixed = Some(sent);
-            }
-        }
-    }
-
-    fn settings(window: u64) -> CompactSettings {
-        CompactSettings {
-            auto: true,
-            context_window: Some(window),
-            token_calibration: 1.0,
-            ..CompactSettings::default()
-        }
-    }
-
-    #[test]
-    fn full_window_trigger_and_quarter_target() {
-        let policy = CompactPolicy::resolve(&settings(200_000)).unwrap();
-        assert_eq!(policy.boundary_tokens, 200_000);
-        assert_eq!(policy.trigger_tokens, 200_000);
-        assert_eq!(policy.target_tokens, 50_000);
-        // below the trigger by the 1% margin (up to 1,024) above the target
-        assert!(policy.target_budget() < policy.trigger_tokens);
-        assert!(!policy.single_shot);
-    }
-
-    #[test]
-    fn explicit_limit_below_boundary_is_the_trigger() {
-        let mut s = settings(200_000);
-        s.auto_limit = Some(120_000);
-        let policy = CompactPolicy::resolve(&s).unwrap();
-        assert_eq!(policy.trigger_tokens, 120_000);
-    }
-
-    #[test]
-    fn reserve_at_the_trigger_means_one_shot() {
-        let mut s = settings(10_000);
-        s.request_reserve_tokens = 10_000;
-        let policy = CompactPolicy::resolve(&s).unwrap();
-        assert!(policy.single_shot);
-    }
-
-    #[test]
-    fn no_boundary_or_auto_off_resolves_to_none() {
-        assert!(CompactPolicy::resolve(&CompactSettings::default()).is_none());
-        let mut s = settings(1_000);
-        s.auto = false;
-        assert!(CompactPolicy::resolve(&s).is_none());
     }
 }

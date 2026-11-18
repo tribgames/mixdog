@@ -181,7 +181,7 @@ test('a field that cannot be read never fails the action: expected losses are si
 });
 
 test('Google OIDC inside a site auth server: the state round trip records the account the agent clicked', async () => {
-  const { store, tab } = setup({ refs: { e7: '박재영 tempest1033@gmail.com', e9: 'Use another account' } });
+  const { store, tab } = setup({ refs: { e7: '홍길동 sample.user1@gmail.com', e9: 'Use another account' } });
   const guest = tab(1);
   guest.go(['https://chatgpt.com/'], { by: null });
   // chatgpt.com → its auth server's own authorization → Google's (a login_hint the site sent).
@@ -201,10 +201,10 @@ test('Google OIDC inside a site auth server: the state round trip records the ac
   await flush();
   // One sign-in, Google's: the auth server's wrapping round trip is no second one.
   assert.deepEqual(records(store), [
-    { site: 'chatgpt.com', redirectHost: 'auth.openai.com', provider: 'google.com', identity: 'tempest1033@gmail.com' },
+    { site: 'chatgpt.com', redirectHost: 'auth.openai.com', provider: 'google.com', identity: 'sample.user1@gmail.com' },
   ]);
   const saved = [...store.links.values()];
-  const line = 'Linked sign-in: chatgpt.com last signed in with Google as tempest1033@gmail.com';
+  const line = 'Linked sign-in: chatgpt.com last signed in with Google as sample.user1@gmail.com';
   assert.equal(linkedSignInLine(linkedSignInFor(saved, 'https://chatgpt.com/c/1')), line);
   // Another site's page, or a provider page with no verified flow from chatgpt.com: nothing.
   for (const url of [
@@ -422,7 +422,7 @@ test('X OAuth 1.0a: the same oauth_token with a verifier, back on the site; the 
   guest.go(['https://app.example.com/login'], { by: null });
   guest.go(['https://app.example.com/auth/x', 'https://api.x.com/oauth/authenticate?oauth_token=T0K']);
   await guest.act('type', { ref: 'pass', text: '@not_a_handle' });
-  await guest.act('type', { ref: 'user', text: '@tempest' });
+  await guest.act('type', { ref: 'user', text: '@sample' });
   guest.go([
     'https://api.x.com/oauth/authorize',
     'https://app.example.com/auth/x/callback?oauth_token=T0K&oauth_verifier=V3R',
@@ -430,9 +430,9 @@ test('X OAuth 1.0a: the same oauth_token with a verifier, back on the site; the 
   ]);
   await flush();
   assert.deepEqual(records(store), [
-    { site: 'example.com', redirectHost: 'app.example.com', provider: 'x.com', identity: '@tempest' },
+    { site: 'example.com', redirectHost: 'app.example.com', provider: 'x.com', identity: '@sample' },
   ]);
-  assert.equal(linkedSignInLine(records(store)[0]), 'Linked sign-in: example.com last signed in with X as @tempest');
+  assert.equal(linkedSignInLine(records(store)[0]), 'Linked sign-in: example.com last signed in with X as @sample');
 });
 
 test('Apple form_post: the state comes back in the posted form', async () => {
@@ -619,7 +619,7 @@ test('only a POST a form_post request waits for is read, its size counted before
 test('the account is only what the agent clicked or typed on the provider pages, as an email or @handle', async () => {
   const { store, tab } = setup({
     refs: {
-      stale: { name: '박재영 a@gmail.com', url: 'https://evil.example/look-alike' },
+      stale: { name: '홍길동 a@gmail.com', url: 'https://evil.example/look-alike' },
       two: 'a@gmail.com or b@gmail.com',
       field: 'Email or phone',
       secret: 'Secret',
@@ -642,7 +642,7 @@ test('the account is only what the agent clicked or typed on the provider pages,
   await guest.act('click', { ref: 'stale' }); // a snapshot of another page
   await guest.act('click', { ref: 'two' }); // two accounts named
   await guest.act('click', { target: { text: 'forged@gmail.com' } }); // the agent's own words
-  await guest.act('type', { ref: 'field', text: 'tempest' }); // no email, no @handle
+  await guest.act('type', { ref: 'field', text: 'sample' }); // no email, no @handle
   await guest.act('type', { ref: 'secret', text: 'secret@example.com' }); // not an identifier input
   await guest.act('fill', { fields: [{ ref: 'masked', text: 'pw@example.com' }] }); // a secret field
   await guest.act('type', { ref: 'unread', text: 'unknown@example.com' }); // its attributes unread
@@ -709,7 +709,7 @@ test('records persist sealed, one per site and provider, with nothing but the ac
   let clock = 5_000;
   const open = () => new LinkedSignInStore({ userDataDirectory: dir, seal, unseal, now: () => (clock += 1) });
   const store = open();
-  const { tab } = setup({ store, refs: { e7: '박재영 tempest1033@gmail.com' } });
+  const { tab } = setup({ store, refs: { e7: '홍길동 sample.user1@gmail.com' } });
   const guest = tab(50);
   guest.go(['https://chatgpt.com/'], { by: null });
   guest.go([googleAuthorize(OPENAI_CB, 'ST4TE', '&login_hint=hint%40gmail.com'), googleChooser(OPENAI_CB, 'ST4TE')]);
@@ -730,12 +730,12 @@ test('records persist sealed, one per site and provider, with nothing but the ac
         site: 'chatgpt.com',
         redirectHost: 'auth.openai.com',
         provider: 'google.com',
-        identity: 'tempest1033@gmail.com',
+        identity: 'sample.user1@gmail.com',
         lastUsedAt: 5_001,
       },
     ],
   });
-  assert.doesNotMatch(readFileSync(file, 'latin1'), /tempest1033/, 'sealed at rest');
+  assert.doesNotMatch(readFileSync(file, 'latin1'), /sample.user1/, 'sealed at rest');
 
   // Another instance reads it back; a new sign-in of the pair replaces it,
   // and one that named no account (or no valid one) keeps none.
@@ -746,19 +746,19 @@ test('records persist sealed, one per site and provider, with nothing but the ac
       site: 'chatgpt.com',
       redirectHost: 'auth.openai.com',
       provider: 'google.com',
-      identity: 'tempest1033@gmail.com',
+      identity: 'sample.user1@gmail.com',
       lastUsedAt: 5_001,
     },
   ]);
   await again.record({ site: 'chatgpt.com', redirectHost: 'auth.openai.com', provider: 'google.com', identity: '' });
-  await again.record({ site: 'example.com', redirectHost: 'app.example.com', provider: 'x.com', identity: '@tempest' });
+  await again.record({ site: 'example.com', redirectHost: 'app.example.com', provider: 'x.com', identity: '@sample' });
   await again.record({ site: 'x.dev', redirectHost: '', provider: 'kakao.com', identity: 'not an account' });
   await again.record({ site: 'bad site', redirectHost: '', provider: 'kakao.com', identity: '' });
   assert.deepEqual(
     (await open().list()).map(({ site, provider, identity, lastUsedAt }) => [site, provider, identity, lastUsedAt]),
     [
       ['chatgpt.com', 'google.com', '', 5_002],
-      ['example.com', 'x.com', '@tempest', 5_003],
+      ['example.com', 'x.com', '@sample', 5_003],
       ['x.dev', 'kakao.com', '', 5_004],
     ]
   );

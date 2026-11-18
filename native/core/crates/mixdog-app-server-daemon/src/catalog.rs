@@ -262,13 +262,16 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use async_trait::async_trait;
+    #[cfg(node_twin)]
     use mixdog_ai::service::admin_route::resolve_route_context_state;
     use mixdog_ai::transport::http::HttpResponse;
     use mixdog_core_api::domain::provider::DeliveryState;
     use mixdog_core_api::domain::provider::ErrorKind;
     use mixdog_core_api::domain::provider::ProviderError;
     use mixdog_core_api::domain::provider::WireRequest;
-    use serde_json::{Value, json};
+    use serde_json::Value;
+    #[cfg(node_twin)]
+    use serde_json::json;
 
     use super::*;
 
@@ -294,41 +297,6 @@ mod tests {
         assert_eq!(delay(&[(OFF, "maybe")]), Some(Duration::from_millis(200)), "a typo keeps the loop on");
     }
 
-    /// The roster file Node's OAuth listing left (recorded by `benchmarks/rust-core/recorders/oauth-model-cache`) in the
-    /// data directory: the composed catalog sizes routes from it as Node does, the moment it exists (the catalog was
-    /// built before the file, as when another process writes it).
-    #[tokio::test]
-    async fn the_composed_catalog_reads_the_roster_files_of_the_data_dir_on_every_call() {
-        let node: Value = serde_json::from_str(include_str!("../../../fixtures/oauth-model-cache/node-oauth-model-cache.json")).unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let tokens = mixdog_rt::testing::tokens();
-        let host = build_catalog(&tokens, dir.path(), Vec::new(), crate::compose_test_support::offline_http()).await.unwrap();
-        assert!(host.service().cached_windows("anthropic-oauth", "claude-opus-4-8").is_none(), "no file yet");
-
-        let path = dir.path().join("anthropic-oauth-models.json");
-        let text = node["cold"]["cacheFile"].to_string();
-        let job = tokens
-            .durability_io
-            .submit(&CancellationToken::new(), move |lane| {
-                mixdog_statefile::write_file(lane, &path, text.as_bytes(), &mixdog_statefile::Opts::default()).map(drop).map_err(std::io::Error::other)
-            })
-            .unwrap();
-        job.await.unwrap().unwrap();
-
-        for entry in node["cold"]["routeStates"].as_array().unwrap() {
-            let (provider, model) = (entry["route"]["provider"].as_str().unwrap(), entry["route"]["model"].as_str().unwrap());
-            let meta = host.service().cached_windows(provider, model).map(|w| json!({ "contextWindow": w.context_window, "maxContextWindow": w.max_context_window }));
-            let state = resolve_route_context_state(entry["route"].as_object().unwrap(), meta.as_ref());
-            let expected = &entry["state"];
-            assert_eq!(
-                (state.context_percent, state.context_default_percent, state.selected_context_window),
-                (expected["contextPercent"].as_f64(), expected["contextDefaultPercent"].as_f64(), expected["selectedContextWindow"].as_f64()),
-                "{provider} {model}"
-            );
-        }
-        host.stop();
-    }
-
     /// An HTTP port that counts the fetches the warm-up makes and cannot connect.
     #[derive(Default)]
     struct Counting(AtomicUsize);
@@ -339,15 +307,6 @@ mod tests {
             self.0.fetch_add(1, Ordering::SeqCst);
             Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent))
         }
-    }
-
-    async fn warmup_over(http: Arc<Counting>) -> (tempfile::TempDir, Arc<CatalogService>, Arc<CatalogWarmup>) {
-        let dir = tempfile::tempdir().unwrap();
-        let tokens = mixdog_rt::testing::tokens();
-        let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
-        let service = Arc::new(CatalogService::composed(CatalogSnapshot::default(), Vec::new(), http, dir.path().to_path_buf(), io).await);
-        let warmup = CatalogWarmup::new(Arc::new(MetadataRefresh(service.clone())));
-        (dir, service, warmup)
     }
 
     /// A runtime that is never closing, busy as `busy` says.
@@ -367,31 +326,6 @@ mod tests {
         fn closed(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
             Box::pin(std::future::pending())
         }
-    }
-
-    async fn settle() {
-        mixdog_rt::time::sleep(Duration::from_millis(1)).await;
-    }
-
-    /// `warmup/catalog-warmup.mjs` with `timer-arm.mjs`: a warm-up that finds a turn running or a session being created
-    /// parks (no polling) and runs once when the busy state changes.
-    #[tokio::test(start_paused = true)]
-    async fn a_busy_runtime_parks_the_catalog_warm_up_until_it_is_woken() {
-        let http = Arc::new(Counting::default());
-        let (_dir, _service, warmup) = warmup_over(http.clone()).await;
-        let busy = Arc::new(Mutex::new(Some("turn-active")));
-        warmup.bind_gates(Arc::new(Busy(busy.clone())));
-        warmup.arm(Duration::ZERO);
-        settle().await;
-        mixdog_rt::time::sleep(Duration::from_secs(60)).await;
-        assert_eq!(http.0.load(Ordering::SeqCst), 0, "deferred, not retried by polling");
-        *busy.lock().unwrap() = None;
-        warmup.wake();
-        settle().await;
-        assert_eq!(http.0.load(Ordering::SeqCst), 2, "the warm-up ran once: one fetch per price table");
-        warmup.wake();
-        settle().await;
-        assert_eq!(http.0.load(Ordering::SeqCst), 2, "a wake with nothing parked starts nothing");
     }
 
     /// A listing that counts the times it is asked.
@@ -420,6 +354,37 @@ mod tests {
         warmup.stop();
     }
 
+    async fn warmup_over(http: Arc<Counting>) -> (tempfile::TempDir, Arc<CatalogService>, Arc<CatalogWarmup>) {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+        let service = Arc::new(CatalogService::composed(CatalogSnapshot::default(), Vec::new(), http, dir.path().to_path_buf(), io).await);
+        let warmup = CatalogWarmup::new(Arc::new(MetadataRefresh(service.clone())));
+        (dir, service, warmup)
+    }
+    async fn settle() {
+        mixdog_rt::time::sleep(Duration::from_millis(1)).await;
+    }
+    /// `warmup/catalog-warmup.mjs` with `timer-arm.mjs`: a warm-up that finds a turn running or a session being created
+    /// parks (no polling) and runs once when the busy state changes.
+    #[tokio::test(start_paused = true)]
+    async fn a_busy_runtime_parks_the_catalog_warm_up_until_it_is_woken() {
+        let http = Arc::new(Counting::default());
+        let (_dir, _service, warmup) = warmup_over(http.clone()).await;
+        let busy = Arc::new(Mutex::new(Some("turn-active")));
+        warmup.bind_gates(Arc::new(Busy(busy.clone())));
+        warmup.arm(Duration::ZERO);
+        settle().await;
+        mixdog_rt::time::sleep(Duration::from_secs(60)).await;
+        assert_eq!(http.0.load(Ordering::SeqCst), 0, "deferred, not retried by polling");
+        *busy.lock().unwrap() = None;
+        warmup.wake();
+        settle().await;
+        assert_eq!(http.0.load(Ordering::SeqCst), 2, "the warm-up ran once: one fetch per price table");
+        warmup.wake();
+        settle().await;
+        assert_eq!(http.0.load(Ordering::SeqCst), 2, "a wake with nothing parked starts nothing");
+    }
     /// A stopped host starts no warm-up, a parked one included.
     #[tokio::test(start_paused = true)]
     async fn a_stopped_catalog_warm_up_does_not_run() {
@@ -435,4 +400,42 @@ mod tests {
         assert_eq!(http.0.load(Ordering::SeqCst), 0);
     }
 
+
+    #[cfg(node_twin)]
+    /// The roster file Node's OAuth listing left (recorded by `benchmarks/rust-core/recorders/oauth-model-cache`) in the
+    /// data directory: the composed catalog sizes routes from it as Node does, the moment it exists (the catalog was
+    /// built before the file, as when another process writes it).
+    #[tokio::test]
+    async fn the_composed_catalog_reads_the_roster_files_of_the_data_dir_on_every_call() {
+        let node: Value = serde_json::from_str(include_str!("../../../fixtures/oauth-model-cache/node-oauth-model-cache.json")).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let host = build_catalog(&tokens, dir.path(), Vec::new(), crate::compose_test_support::offline_http()).await.unwrap();
+        assert!(host.service().cached_windows("anthropic-oauth", "claude-opus-4-8").is_none(), "no file yet");
+
+        // Node's shared file as the core keeps it: the signed-in identity's own.
+        host.service().sign_in_roster("anthropic-oauth", "acct-1");
+        let (file, text) = mixdog_ai::catalog::keyed_from_shared("anthropic-oauth-models.json", &node["cold"]["cacheFile"].to_string(), "acct-1");
+        let path = dir.path().join(file);
+        let job = tokens
+            .durability_io
+            .submit(&CancellationToken::new(), move |lane| {
+                mixdog_statefile::write_file(lane, &path, text.as_bytes(), &mixdog_statefile::Opts::default()).map(drop).map_err(std::io::Error::other)
+            })
+            .unwrap();
+        job.await.unwrap().unwrap();
+
+        for entry in node["cold"]["routeStates"].as_array().unwrap() {
+            let (provider, model) = (entry["route"]["provider"].as_str().unwrap(), entry["route"]["model"].as_str().unwrap());
+            let meta = host.service().cached_windows(provider, model).map(|w| json!({ "contextWindow": w.context_window, "maxContextWindow": w.max_context_window }));
+            let state = resolve_route_context_state(entry["route"].as_object().unwrap(), meta.as_ref());
+            let expected = &entry["state"];
+            assert_eq!(
+                (state.context_percent, state.context_default_percent, state.selected_context_window),
+                (expected["contextPercent"].as_f64(), expected["contextDefaultPercent"].as_f64(), expected["selectedContextWindow"].as_f64()),
+                "{provider} {model}"
+            );
+        }
+        host.stop();
+    }
 }

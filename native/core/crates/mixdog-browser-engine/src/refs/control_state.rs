@@ -52,72 +52,6 @@ struct CheckedReport {
     radio: bool,
 }
 
-impl RefActions {
-    /// `listSelectOptions`: what a control offers, without choosing anything. A custom dropdown puts its options in the page
-    /// once it is open, where a snapshot already sees them.
-    pub async fn list_select_options(&self, ref_id: &str) -> Result<SelectOptions, RefError> {
-        let report = checked_ref_result(self.call(ref_id, READ_SELECT_OPTIONS, Vec::new()).await?, ref_id)?;
-        let report: OptionsReport = serde_json::from_value(report).unwrap_or_default();
-        if report.custom {
-            return Err(RefError::Failed(format!(
-                "ref {ref_id} is not a native <select>; click it to open the list, then read the options from the fresh snapshot"
-            )));
-        }
-        // `total` is present only when the list was cut short.
-        Ok(SelectOptions { options: report.options, total: report.total })
-    }
-
-    /// `checkedRefState`.
-    pub async fn checked_ref_state(&self, ref_id: &str) -> Result<CheckedState, RefError> {
-        let report = checked_ref_result(self.call(ref_id, READ_CHECKED, Vec::new()).await?, ref_id)?;
-        let report: CheckedReport = serde_json::from_value(report).unwrap_or_default();
-        Ok(CheckedState { checked: report.checked, radio: report.radio })
-    }
-
-    /// `resolveRefPoint`: where the ref sits right now, waiting for a blocker to clear and refusing when something still covers
-    /// it. A covered ref's refusal carries a fresh snapshot so the blocker can be dismissed by ref.
-    pub async fn resolve_ref_point(&self, ref_id: &str) -> Result<Point, RefError> {
-        let this = self;
-        let probe = move || async move {
-            match ref_point(&*this.host, &this.target(ref_id), this.cancel.token()).await {
-                Ok(point) => Ok(point),
-                Err(RefError::Refused { reason, message }) => Err(ProbeFailure::NotActionable(ActionabilityError::new(message, reason))),
-                Err(error) => Err(ProbeFailure::Other(error)),
-            }
-        };
-        let waited = timed(self.timer.as_deref(), Phase::Actionability, wait_for_actionable(probe, &self.cancel, ACTIONABILITY_TIMEOUT)).await;
-        let error = match waited {
-            Ok(point) => return Ok(point),
-            Err(ActionableError::Cancelled(_)) => return Err(crate::error::HostCallError::Cancelled.into()),
-            Err(ActionableError::Failed(error)) => return Err(error),
-            Err(ActionableError::NotActionable(blocker)) => RefError::Refused { reason: blocker.reason, message: blocker.message },
-        };
-        Err(with_covered_guidance(&*self.host, &self.page_id, error, &*self.format_snapshot, self.cancel.token()).await)
-    }
-
-    /// `setCheckedRef`: makes a checkbox or radio button checked or unchecked with one click, then reads it back. The click is
-    /// never repeated: a state that did not change is reported, not retried.
-    pub async fn set_checked_ref(&self, ref_id: &str, checked: bool) -> Result<(), RefError> {
-        let state = self.checked_ref_state(ref_id).await?;
-        if state.radio && !checked {
-            return Err(RefError::Failed("radio buttons cannot be unchecked directly; choose another option".into()));
-        }
-        if state.checked == checked {
-            return Ok(());
-        }
-        let point = self.resolve_ref_point(ref_id).await?;
-        self.click_guarded(ref_id, point.x, point.y).await?;
-        let after = self.checked_ref_state(ref_id).await?;
-        if after.checked != checked {
-            return Err(RefError::Failed(format!(
-                "check input was dispatched once but the element remained checked={}; the action was not retried",
-                after.checked
-            )));
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -209,5 +143,72 @@ mod tests {
         let failed = Arc::new(FakeHost::scripted(vec![call(json!({"error": "transformed-frame"}))]));
         let error = actions(failed).resolve_ref_point(REF).await.expect_err("not retried");
         assert!(error.to_string().contains("transformed parent frame"));
+    }
+}
+
+
+impl RefActions {
+    /// `listSelectOptions`: what a control offers, without choosing anything. A custom dropdown puts its options in the page
+    /// once it is open, where a snapshot already sees them.
+    pub async fn list_select_options(&self, ref_id: &str) -> Result<SelectOptions, RefError> {
+        let report = checked_ref_result(self.call(ref_id, READ_SELECT_OPTIONS, Vec::new()).await?, ref_id)?;
+        let report: OptionsReport = serde_json::from_value(report).unwrap_or_default();
+        if report.custom {
+            return Err(RefError::Failed(format!(
+                "ref {ref_id} is not a native <select>; click it to open the list, then read the options from the fresh snapshot"
+            )));
+        }
+        // `total` is present only when the list was cut short.
+        Ok(SelectOptions { options: report.options, total: report.total })
+    }
+
+    /// `checkedRefState`.
+    pub async fn checked_ref_state(&self, ref_id: &str) -> Result<CheckedState, RefError> {
+        let report = checked_ref_result(self.call(ref_id, READ_CHECKED, Vec::new()).await?, ref_id)?;
+        let report: CheckedReport = serde_json::from_value(report).unwrap_or_default();
+        Ok(CheckedState { checked: report.checked, radio: report.radio })
+    }
+
+    /// `resolveRefPoint`: where the ref sits right now, waiting for a blocker to clear and refusing when something still covers
+    /// it. A covered ref's refusal carries a fresh snapshot so the blocker can be dismissed by ref.
+    pub async fn resolve_ref_point(&self, ref_id: &str) -> Result<Point, RefError> {
+        let this = self;
+        let probe = move || async move {
+            match ref_point(&*this.host, &this.target(ref_id), this.cancel.token()).await {
+                Ok(point) => Ok(point),
+                Err(RefError::Refused { reason, message }) => Err(ProbeFailure::NotActionable(ActionabilityError::new(message, reason))),
+                Err(error) => Err(ProbeFailure::Other(error)),
+            }
+        };
+        let waited = timed(self.timer.as_deref(), Phase::Actionability, wait_for_actionable(probe, &self.cancel, ACTIONABILITY_TIMEOUT)).await;
+        let error = match waited {
+            Ok(point) => return Ok(point),
+            Err(ActionableError::Cancelled(_)) => return Err(crate::error::HostCallError::Cancelled.into()),
+            Err(ActionableError::Failed(error)) => return Err(error),
+            Err(ActionableError::NotActionable(blocker)) => RefError::Refused { reason: blocker.reason, message: blocker.message },
+        };
+        Err(with_covered_guidance(&*self.host, &self.page_id, error, &*self.format_snapshot, self.cancel.token()).await)
+    }
+
+    /// `setCheckedRef`: makes a checkbox or radio button checked or unchecked with one click, then reads it back. The click is
+    /// never repeated: a state that did not change is reported, not retried.
+    pub async fn set_checked_ref(&self, ref_id: &str, checked: bool) -> Result<(), RefError> {
+        let state = self.checked_ref_state(ref_id).await?;
+        if state.radio && !checked {
+            return Err(RefError::Failed("radio buttons cannot be unchecked directly; choose another option".into()));
+        }
+        if state.checked == checked {
+            return Ok(());
+        }
+        let point = self.resolve_ref_point(ref_id).await?;
+        self.click_guarded(ref_id, point.x, point.y).await?;
+        let after = self.checked_ref_state(ref_id).await?;
+        if after.checked != checked {
+            return Err(RefError::Failed(format!(
+                "check input was dispatched once but the element remained checked={}; the action was not retried",
+                after.checked
+            )));
+        }
+        Ok(())
     }
 }

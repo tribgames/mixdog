@@ -135,81 +135,6 @@ fn atomic_revision_guard_rejects_an_older_snapshot() {
     same(name, c.get("steps"), &Exact::Array(actual));
 }
 
-#[test]
-fn session_core_context_reads_the_file_without_starting_memory_runtime() {
-    let g = golden(SET);
-    let name = "session core context reads the file without starting memory runtime (test line 91)";
-    let c = case(&g, 2, name);
-    clock(&g);
-    assert_eq!(c.get("env").get("MIXDOG_BOOT_CORE_MEMORY").as_str(), "1", "{name}: the recording does not opt out");
-    let dir = tempfile::tempdir().expect("data dir");
-    let reserved = std::sync::atomic::AtomicU64::new(0);
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
-    runtime.block_on(async {
-        use crate::memory::boot::{MemoryBoot, MemoryStack, PgInstall, PgRuntimeSource};
-        let starts = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let install: PgInstall = {
-            let starts = starts.clone();
-            std::sync::Arc::new(move |_cancel: tokio_util::sync::CancellationToken| {
-                starts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                Box::pin(async { Err(crate::memory::error::MemoryError::Rejected("must not start".to_owned())) })
-            })
-        };
-        let stack = MemoryStack::start(MemoryBoot {
-            data_dir: dir.path().to_owned(),
-            pg_runtime: PgRuntimeSource::Install(install),
-            embedder: None,
-            embedding_provider: None,
-            flags: crate::memory::runtime::RuntimeFlags::default(),
-            progress: None,
-            sensitive: std::sync::Arc::new(crate::memory::sensitive::SensitiveStore::default()),
-            lane: lane(),
-            maintenance: mixdog_rt::testing::tokens().maintenance_io,
-            transcripts: None,
-            cycles: None,
-            backfill: None,
-            processes: crate::tidy::process::Processes::for_tests(),
-            cancel: tokio_util::sync::CancellationToken::new(),
-        })
-        .await
-        .unwrap_or_else(|e| panic!("{name}: stack: {}", e.message()));
-        let rows = vec![serde_json::json!({ "id": 1, "summary": "instant context", "project_id": null })];
-        let result = crate::memory::core::snapshot::write_snapshot(lane(), dir.path(), &rows, None, &reserved)
-            .await
-            .unwrap_or_else(|e| panic!("{name}: write: {e}"));
-        same(&format!("{name}: written"), c.get("written").get("result"), &written(result));
-        same(&format!("{name}: filesBefore"), c.get("filesBefore"), &files(dir.path()));
-        let context = crate::memory::core::context::CoreMemoryContext::new(
-            lane(),
-            dir.path().to_path_buf(),
-            std::sync::Arc::new(|| false),
-        );
-        let cwd = dir.path().to_string_lossy().into_owned();
-        crate::memory::core::context::BOOT_PROFILE.with(|seen| *seen.borrow_mut() = Some(Vec::new()));
-        let text = tokio::time::timeout(std::time::Duration::from_secs(30), context.load(&cwd, ""))
-            .await
-            .unwrap_or_else(|_| panic!("{name}: the context did not load within 30 s"));
-        let profiled = crate::memory::core::context::BOOT_PROFILE.with(|seen| seen.borrow_mut().take()).unwrap_or_default();
-        // The elapsed milliseconds are wall clock; the manifest writes them `<ms>` (declared normalisation).
-        let hook_calls = profiled
-            .into_iter()
-            .map(|(event, ms)| {
-                let mut args = vec![string(event)];
-                if ms.is_some() {
-                    args.push(object(vec![("ms", string("<ms>"))]));
-                }
-                object(vec![("hook", string("bootProfile")), ("args", Exact::Array(args))])
-            })
-            .collect();
-        same(&format!("{name}: hookCalls"), c.get("hookCalls"), &Exact::Array(hook_calls));
-        same(&format!("{name}: context"), c.get("context").get("result"), &string(text));
-        same(&format!("{name}: filesAfter"), c.get("filesAfter"), &files(dir.path()));
-        let observed = starts.load(std::sync::atomic::Ordering::SeqCst);
-        same(&format!("{name}: memoryStarts"), c.get("memoryStarts"), &int(observed as i64));
-        assert!(!stack.is_open(), "{name}: the memory stack opened");
-    });
-}
-
 mod pg {
     use super::*;
     use crate::memory::replays::pg::memory_db;
@@ -320,4 +245,81 @@ mod pg {
         label_uuids(&mut actual, &mut Vec::new());
         same(name, c.get("steps"), &actual);
     }
+}
+
+
+
+#[test]
+fn session_core_context_reads_the_file_without_starting_memory_runtime() {
+    let g = golden(SET);
+    let name = "session core context reads the file without starting memory runtime (test line 91)";
+    let c = case(&g, 2, name);
+    clock(&g);
+    assert_eq!(c.get("env").get("MIXDOG_BOOT_CORE_MEMORY").as_str(), "1", "{name}: the recording does not opt out");
+    let dir = tempfile::tempdir().expect("data dir");
+    let reserved = std::sync::atomic::AtomicU64::new(0);
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
+    runtime.block_on(async {
+        use crate::memory::boot::{MemoryBoot, MemoryStack, PgInstall, PgRuntimeSource};
+        let starts = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let install: PgInstall = {
+            let starts = starts.clone();
+            std::sync::Arc::new(move |_cancel: tokio_util::sync::CancellationToken| {
+                starts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Box::pin(async { Err(crate::memory::error::MemoryError::Rejected("must not start".to_owned())) })
+            })
+        };
+        let stack = MemoryStack::start(MemoryBoot {
+            data_dir: dir.path().to_owned(),
+            pg_runtime: PgRuntimeSource::Install(install),
+            embedder: None,
+            embedding_provider: None,
+            flags: crate::memory::runtime::RuntimeFlags::default(),
+            progress: None,
+            sensitive: std::sync::Arc::new(crate::memory::sensitive::SensitiveStore::default()),
+            lane: lane(),
+            maintenance: mixdog_rt::testing::tokens().maintenance_io,
+            transcripts: None,
+            cycles: None,
+            backfill: None,
+            processes: crate::tidy::process::Processes::for_tests(),
+            cancel: tokio_util::sync::CancellationToken::new(),
+        })
+        .await
+        .unwrap_or_else(|e| panic!("{name}: stack: {}", e.message()));
+        let rows = vec![serde_json::json!({ "id": 1, "summary": "instant context", "project_id": null })];
+        let result = crate::memory::core::snapshot::write_snapshot(lane(), dir.path(), &rows, None, &reserved)
+            .await
+            .unwrap_or_else(|e| panic!("{name}: write: {e}"));
+        same(&format!("{name}: written"), c.get("written").get("result"), &written(result));
+        same(&format!("{name}: filesBefore"), c.get("filesBefore"), &files(dir.path()));
+        let context = crate::memory::core::context::CoreMemoryContext::new(
+            lane(),
+            dir.path().to_path_buf(),
+            std::sync::Arc::new(|| false),
+        );
+        let cwd = dir.path().to_string_lossy().into_owned();
+        crate::memory::core::context::BOOT_PROFILE.with(|seen| *seen.borrow_mut() = Some(Vec::new()));
+        let text = tokio::time::timeout(std::time::Duration::from_secs(30), context.load(&cwd, ""))
+            .await
+            .unwrap_or_else(|_| panic!("{name}: the context did not load within 30 s"));
+        let profiled = crate::memory::core::context::BOOT_PROFILE.with(|seen| seen.borrow_mut().take()).unwrap_or_default();
+        // The elapsed milliseconds are wall clock; the manifest writes them `<ms>` (declared normalisation).
+        let hook_calls = profiled
+            .into_iter()
+            .map(|(event, ms)| {
+                let mut args = vec![string(event)];
+                if ms.is_some() {
+                    args.push(object(vec![("ms", string("<ms>"))]));
+                }
+                object(vec![("hook", string("bootProfile")), ("args", Exact::Array(args))])
+            })
+            .collect();
+        same(&format!("{name}: hookCalls"), c.get("hookCalls"), &Exact::Array(hook_calls));
+        same(&format!("{name}: context"), c.get("context").get("result"), &string(text));
+        same(&format!("{name}: filesAfter"), c.get("filesAfter"), &files(dir.path()));
+        let observed = starts.load(std::sync::atomic::Ordering::SeqCst);
+        same(&format!("{name}: memoryStarts"), c.get("memoryStarts"), &int(observed as i64));
+        assert!(!stack.is_open(), "{name}: the memory stack opened");
+    });
 }

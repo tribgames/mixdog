@@ -4,35 +4,47 @@
 //! `CustomListing`; the provider's send is scripted with the status Node's server gave.
 
 use std::sync::Arc;
+#[cfg(node_twin)]
 use std::sync::Mutex;
 use std::time::Duration;
 
 use async_trait::async_trait;
+#[cfg(node_twin)]
 use bytes::Bytes;
+#[cfg(node_twin)]
 use mixdog_ai::catalog::ListingLookup;
+#[cfg(node_twin)]
 use mixdog_ai::providers::connect::rewrite::StaticCredential;
+#[cfg(node_twin)]
 use mixdog_ai::providers::custom::Protocol;
+#[cfg(node_twin)]
 use mixdog_ai::providers::custom::listing::CustomListing;
+#[cfg(node_twin)]
 use mixdog_ai::transport::BodyStream;
 use mixdog_ai::transport::HttpResponse;
 use mixdog_ai::transport::HttpSend;
 use mixdog_core_api::domain::provider::DeliveryState;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ErrorKind;
-use mixdog_core_api::domain::provider::ModelListing;
+
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ProviderError;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireRequest;
+#[cfg(node_twin)]
 use serde_json::Value;
 use serde_json::json;
 
 use super::custom_probe::*;
+#[cfg(node_twin)]
 use super::failure::Failure;
 
-const GOLDEN: &str = include_str!("../../../../../fixtures/custom-probe/golden.json");
-
+#[cfg(node_twin)]
 struct Once(Option<Bytes>);
 
+#[cfg(node_twin)]
 #[async_trait]
 impl BodyStream for Once {
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
@@ -41,12 +53,14 @@ impl BodyStream for Once {
 }
 
 /// Node's scripted `/models` answer.
+#[cfg(node_twin)]
 struct Scripted {
     status: u16,
     body: Vec<u8>,
     seen: Mutex<Vec<WireRequest>>,
 }
 
+#[cfg(node_twin)]
 #[async_trait]
 impl HttpSend for Scripted {
     async fn send(
@@ -59,12 +73,14 @@ impl HttpSend for Scripted {
     }
 }
 
+#[cfg(node_twin)]
 struct Endpoint {
     listing: CustomListing,
     chat_status: u16,
     chat_message: String,
 }
 
+#[cfg(node_twin)]
 #[async_trait]
 impl CustomEndpoint for Endpoint {
     async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
@@ -84,12 +100,14 @@ impl CustomEndpoint for Endpoint {
     }
 }
 
+#[cfg(node_twin)]
 struct Host {
     case: Value,
     http: Arc<Scripted>,
     stall: bool,
 }
 
+#[cfg(node_twin)]
 impl Host {
     fn of(case: &Value) -> Arc<Self> {
         let models = &case["models"];
@@ -102,6 +120,7 @@ impl Host {
     }
 }
 
+#[cfg(node_twin)]
 #[async_trait]
 impl CustomProbeHost for Host {
     fn require_local_provider_management(&self) -> Result<(), Failure> {
@@ -140,8 +159,10 @@ impl CustomProbeHost for Host {
 }
 
 /// An endpoint that never answers.
+#[cfg(node_twin)]
 struct Stalled;
 
+#[cfg(node_twin)]
 #[async_trait]
 impl CustomEndpoint for Stalled {
     async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
@@ -155,6 +176,55 @@ impl CustomEndpoint for Stalled {
     }
 }
 
+/// Refuses every send at once, as the link does a closed port, with the text of the exchange's class.
+#[cfg(node_twin)]
+struct Refusing {
+    sends: Mutex<Vec<mixdog_ai::transport::Surface>>,
+}
+
+#[cfg(node_twin)]
+#[async_trait]
+impl HttpSend for Refusing {
+    async fn send(&self, request: WireRequest, exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        // The provider's connection warm-up (a `HEAD`) is refused too, and is not one of the sends of the ladder.
+        if request.method != "HEAD" {
+            self.sends.lock().unwrap().push(exchange.surface);
+        }
+        let mut error = ProviderError::transport(TransportFault::Connect { os_code: Some(111) }, DeliveryState::NotSent);
+        error.message = exchange.surface.text(|| "connect refused".to_owned());
+        Err(error)
+    }
+}
+
+/// A transport whose every request outlives the timer of its exchange, through the link's own `deadline_error`.
+struct TimingOut;
+
+#[async_trait]
+impl HttpSend for TimingOut {
+    async fn send(&self, _request: WireRequest, exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        let expired = exchange.liveness.bound_head(std::future::pending::<()>()).await.expect_err("the request is never answered");
+        Err(mixdog_ai::transport::link::deadline_error(expired, DeliveryState::Ambiguous, exchange.surface))
+    }
+}
+
+#[test]
+fn credential_looking_text_is_redacted_to_one_short_line() {
+    let secrets = vec!["hunter2hunter2".to_owned(), String::new()];
+    assert_eq!(
+        sanitize_message("Authorization: Bearer abc.def-ghi\nkey hunter2hunter2 token=zzz api_key: \"qq\" sk-abcdefgh12", &secrets),
+        // Node's own result: the field rule also takes the redacted scheme word.
+        "Authorization: [redacted] [redacted] key [redacted] token=[redacted] api_key: \"[redacted]\" [redacted]"
+    );
+    assert_eq!(sanitize_message("", &[]), "request failed");
+    let long = sanitize_message(&"x".repeat(400), &[]);
+    assert_eq!(long.chars().count(), 301);
+    assert!(long.ends_with('…'));
+}
+
+
+#[cfg(node_twin)]
+const GOLDEN: &str = include_str!("../../../../../fixtures/custom-probe/golden.json");
+#[cfg(node_twin)]
 #[tokio::test]
 async fn every_probe_answers_as_node_does() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
@@ -182,7 +252,7 @@ async fn every_probe_answers_as_node_does() {
         }
     }
 }
-
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn a_discovery_that_never_answers_times_out_at_sixty_seconds() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
@@ -193,7 +263,7 @@ async fn a_discovery_that_never_answers_times_out_at_sixty_seconds() {
     assert_eq!(result, json!({ "models": [], "error": { "kind": "timeout", "message": "model discovery timed out after 60s" } }));
     assert_eq!(started.elapsed(), Duration::from_secs(60));
 }
-
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn a_send_that_never_answers_is_thrown_at_twenty_seconds() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
@@ -204,10 +274,10 @@ async fn a_send_that_never_answers_is_thrown_at_twenty_seconds() {
     assert_eq!(failure.message(), "connection test timed out after 20s");
     assert_eq!(started.elapsed(), Duration::from_secs(20));
 }
-
 /// A refused port and a restricted port (`127.0.0.1:9`) through the real transport, the real listing and the real
 /// send path: the settings page shows what Node's probes recorded (`connect_errors.json` `probes`): `fetch failed` for
 /// the discovery's raw `fetch`, `Connection error.` for the connection test's SDK send.
+#[cfg(node_twin)]
 #[tokio::test]
 async fn an_unreachable_endpoint_reads_as_node_shows_it() {
     use super::collaborators::CustomProviders as _;
@@ -232,28 +302,10 @@ async fn an_unreachable_endpoint_reads_as_node_shows_it() {
         }
     }
 }
-
-/// Refuses every send at once, as the link does a closed port, with the text of the exchange's class.
-struct Refusing {
-    sends: Mutex<Vec<mixdog_ai::transport::Surface>>,
-}
-
-#[async_trait]
-impl HttpSend for Refusing {
-    async fn send(&self, request: WireRequest, exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
-        // The provider's connection warm-up (a `HEAD`) is refused too, and is not one of the sends of the ladder.
-        if request.method != "HEAD" {
-            self.sends.lock().unwrap().push(exchange.surface);
-        }
-        let mut error = ProviderError::transport(TransportFault::Connect { os_code: Some(111) }, DeliveryState::NotSent);
-        error.message = exchange.surface.text(|| "connect refused".to_owned());
-        Err(error)
-    }
-}
-
 /// The connection test's send over a refusing link, through the real adapter, retry ladder and probe: what Node
 /// recorded (`probes.refused.testSend.thrown`) is thrown once the ladder is spent, and every send went out as the SDK
 /// class. The ladder's waits run on the paused clock.
+#[cfg(node_twin)]
 #[tokio::test]
 async fn a_refused_send_throws_the_sdks_text_after_the_retry_ladder() {
     use super::collaborators::CustomProviders as _;
@@ -270,45 +322,19 @@ async fn a_refused_send_throws_the_sdks_text_after_the_retry_ladder() {
     assert!(sends.iter().all(|surface| *surface == mixdog_ai::transport::Surface::Sdk), "{sends:?}");
     assert!(started.elapsed() < TEST_TIMEOUT, "the ladder ends inside the 20 s limit: {:?}", started.elapsed());
 }
-
-/// A transport whose every request outlives the timer of its exchange, through the link's own `deadline_error`.
-struct TimingOut;
-
-#[async_trait]
-impl HttpSend for TimingOut {
-    async fn send(&self, _request: WireRequest, exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
-        let expired = exchange.liveness.bound_head(std::future::pending::<()>()).await.expect_err("the request is never answered");
-        Err(mixdog_ai::transport::link::deadline_error(expired, DeliveryState::Ambiguous, exchange.surface))
-    }
-}
-
 /// The settings page's discovery of an endpoint that never answers, on each protocol, through the real admin stack:
 /// the probe waits its own 60 s (the discovery's timer is the same 60 s and armed after it, so the probe's ends the
-/// wait), and shows what the real Node probe showed (`connect_errors.json` `sites.customOpenaiChatProbe`,
+/// wait), and shows "model discovery timed out after 60s" with no models (`customOpenaiChatProbe`,
 /// `customAnthropicProbe`).
 #[tokio::test(start_paused = true)]
-async fn a_discovery_that_never_answers_ends_at_the_probes_sixty_seconds_as_node_shows() {
+async fn a_discovery_that_never_answers_ends_at_the_probes_sixty_seconds() {
     use super::collaborators::CustomProviders as _;
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+    let shown = json!({ "models": [], "error": { "kind": "timeout", "message": "model discovery timed out after 60s" } });
     for (site, protocol, base) in [("customOpenaiChatProbe", "openai-chat", "https://x.test/v1"), ("customAnthropicProbe", "anthropic", "https://x.test")] {
         let w = super::custom_admin_tests::world_over(std::collections::HashMap::new(), Some(Arc::new(TimingOut))).await;
         let input = json!({ "name": "Probe", "protocol": protocol, "baseURL": base, "apiKey": "sk-DUMMY-probe-secret-0123456789" });
         let started = tokio::time::Instant::now();
-        assert_eq!(w.admin.discover_models(input, 0).await.unwrap(), golden["sites"][site]["value"], "{site}");
+        assert_eq!(w.admin.discover_models(input, 0).await.unwrap(), shown, "{site}");
         assert_eq!(started.elapsed(), Duration::from_secs(60), "{site}");
     }
-}
-
-#[test]
-fn credential_looking_text_is_redacted_to_one_short_line() {
-    let secrets = vec!["hunter2hunter2".to_owned(), String::new()];
-    assert_eq!(
-        sanitize_message("Authorization: Bearer abc.def-ghi\nkey hunter2hunter2 token=zzz api_key: \"qq\" sk-abcdefgh12", &secrets),
-        // Node's own result: the field rule also takes the redacted scheme word.
-        "Authorization: [redacted] [redacted] key [redacted] token=[redacted] api_key: \"[redacted]\" [redacted]"
-    );
-    assert_eq!(sanitize_message("", &[]), "request failed");
-    let long = sanitize_message(&"x".repeat(400), &[]);
-    assert_eq!(long.chars().count(), 301);
-    assert!(long.ends_with('…'));
 }

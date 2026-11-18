@@ -4,6 +4,7 @@
 //! [`ToolService`] behind `ServiceTool::media`; the graph it talks to is the [`MediaGraph`] seam
 //! (Node's injectable `deps`), [`StudioGraph`] over `MediaJobs` and `MediaStore` in production.
 
+use std::io::Read as _;
 use std::path::{Component, Path, PathBuf, Prefix};
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,14 +21,13 @@ use mixdog_tools::orch::util::PortError;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::jobs::{MediaFailure, MediaJobs};
+use super::jobs::{MAX_REFERENCE_BYTES, MediaFailure, MediaJobs};
 use super::lanes::MEDIA_KINDS;
 use super::store::MediaStore;
 use crate::lane::{io_on_lane, on_lane};
 
 pub const MEDIA_ACTIONS: [&str; 4] = ["list", "generate", "status", "cancel"];
 const DEFAULT_LANE: &str = "openai-oauth";
-const MAX_REFERENCE_BYTES: usize = 12 * 1024 * 1024;
 const GATEWAY_IMAGE_LANES: [&str; 2] = ["openrouter", "nano-gpt"];
 
 /// `OPENAI_SIZE`: the OpenAI image lane takes pixel sizes, the placement speaks in ratios.
@@ -36,16 +36,6 @@ fn openai_size(aspect: &str) -> Option<&'static str> {
         "16:9" | "4:3" | "3:2" => "1536x1024",
         "9:16" | "3:4" | "2:3" => "1024x1536",
         "1:1" => "1024x1024",
-        _ => return None,
-    })
-}
-
-fn image_mime(extension: &str) -> Option<&'static str> {
-    Some(match extension {
-        ".png" => "image/png",
-        ".jpg" | ".jpeg" => "image/jpeg",
-        ".webp" => "image/webp",
-        ".gif" => "image/gif",
         _ => return None,
     })
 }
@@ -201,7 +191,9 @@ pub(super) fn namespaced(path: &Path) -> PathBuf {
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
-    std::fs::read(namespaced(path))
+    let mut bytes = Vec::new();
+    std::fs::File::open(namespaced(path))?.take(MAX_REFERENCE_BYTES as u64 + 1).read_to_end(&mut bytes)?;
+    Ok(bytes)
 }
 
 /// `mkdir(dirname(to), { recursive: true })` then `copyFile(from, to)`.
@@ -497,9 +489,14 @@ fn job_view(job: &Value, now: i64) -> Map<String, Value> {
     view
 }
 
-/// The mime and bytes of each reference image (`readReferences`).
+/// The name and bytes of each reference image (`readReferences`).
 async fn read_references(paths: Option<&Value>, cwd: &Path, controls: &Value, io: DurabilityIo) -> Done<Vec<Value>> {
-    let list: Vec<String> = paths.and_then(Value::as_array).map(|a| a.iter().map(|p| clean(Some(p))).filter(|p| !p.is_empty()).collect()).unwrap_or_default();
+    let entries = match paths {
+        None => return Ok(Vec::new()),
+        Some(Value::Array(entries)) if entries.iter().all(Value::is_string) => entries,
+        Some(_) => return Err(ToolFailure::new("references must be an array of file paths")),
+    };
+    let list: Vec<&str> = entries.iter().filter_map(Value::as_str).map(js_trim).filter(|p| !p.is_empty()).collect();
     if list.is_empty() {
         return Ok(Vec::new());
     }
@@ -515,10 +512,7 @@ async fn read_references(paths: Option<&Value>, cwd: &Path, controls: &Value, io
     }
     let mut references = Vec::new();
     for entry in list {
-        let file = full_path(&entry, cwd);
-        let Some(mime) = image_mime(&extname(&file.to_string_lossy()).to_lowercase()) else {
-            return Err(ToolFailure::new(format!("reference \"{entry}\" is not a png/jpg/webp/gif image")));
-        };
+        let file = full_path(entry, cwd);
         let read = file.clone();
         // Node's `fs` on Windows reports the namespaced path, i.e. `path.resolve`d: `\` separators.
         let reported = mixdog_workspace::pathguard::lexical(&file);
@@ -526,7 +520,9 @@ async fn read_references(paths: Option<&Value>, cwd: &Path, controls: &Value, io
         if bytes.len() > MAX_REFERENCE_BYTES {
             return Err(ToolFailure::new(format!("reference \"{entry}\" exceeds {} MB", MAX_REFERENCE_BYTES / 1024 / 1024)));
         }
-        references.push(json!({ "base64": base64::engine::general_purpose::STANDARD.encode(&bytes), "mime": mime }));
+        // Admission inspects bytes, not extensions; the name identifies any refusal.
+        let name = file.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+        references.push(json!({ "base64": base64::engine::general_purpose::STANDARD.encode(&bytes), "name": name }));
     }
     Ok(references)
 }
@@ -561,6 +557,21 @@ pub struct MediaToolService {
     source_type: Arc<dyn Fn(&str) -> String + Send + Sync>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
     poll: Duration,
+}
+
+/// The tool wrapper may drop the waiting future as soon as cancellation fires.
+struct WaitingJob<'a> {
+    graph: &'a dyn MediaGraph,
+    id: &'a str,
+    cancel: &'a CancellationToken,
+}
+
+impl Drop for WaitingJob<'_> {
+    fn drop(&mut self) {
+        if self.cancel.is_cancelled() {
+            self.graph.cancel(self.id);
+        }
+    }
 }
 
 impl MediaToolService {
@@ -704,9 +715,9 @@ impl MediaToolService {
         let deadline = self.now() + timeout_ms;
         let mut job = started;
         let job_id = text(&job, "id");
+        let waiting = WaitingJob { graph: self.graph.as_ref(), id: &job_id, cancel };
         while job.get("status").and_then(Value::as_str) == Some("running") {
             if cancel.is_cancelled() {
-                self.graph.cancel(&job_id);
                 return Err(ToolFailure::new("generation canceled"));
             }
             if self.now() > deadline {
@@ -715,6 +726,7 @@ impl MediaToolService {
             mixdog_rt::time::sleep(self.poll).await;
             job = self.graph.get(&job_id).unwrap_or(job);
         }
+        drop(waiting);
         let asset_id = text(&job, "assetId");
         if job.get("status").and_then(Value::as_str) != Some("done") || !truthy(job.get("assetId")) {
             let why = if truthy(job.get("error")) { text(&job, "error") } else { text(&job, "status") };

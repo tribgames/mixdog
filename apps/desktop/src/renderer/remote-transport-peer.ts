@@ -94,6 +94,77 @@ export interface RemoteTransportPeerTimers {
   clearTimeout(handle: unknown): void;
 }
 
+/** How often a carrier's buffer is looked at while a claim waits and nothing else prompts a look (the plain WebSocket has no event). */
+export const REMOTE_TRANSPORT_DEPARTURE_LOOK_MS = 50;
+
+/** What one carrier's FIFO buffer says about a frame: it has left once the carrier's buffered amount is no greater than the bytes
+ *  handed to the carrier AFTER that frame. Traffic sent later therefore never postpones it, and a frame still behind earlier unsent
+ *  bytes has not left. It is a fact about this frame's bytes — local departure, never the far end's acknowledgement, which a dead link
+ *  does not give. A claim is re-evaluated whenever more is enqueued, whenever the carrier reports its buffer draining (`check`), and by
+ *  a local read while one waits (a plain WebSocket has no drain event, and a data channel's event fires only at its low mark, which
+ *  does not settle a frame sitting above it). It rejects when the carrier stops being usable first: the bytes then did not leave. */
+export class CarrierDeparture {
+  private enqueued = 0;
+  private waiters: Array<{ after: number; resolve(): void; reject(error: Error): void }> = [];
+  private timer: unknown = null;
+  constructor(
+    private readonly read: () => number,
+    private readonly usable: () => boolean,
+    private readonly timers: RemoteTransportPeerTimers,
+    private readonly everyMs: number = REMOTE_TRANSPORT_DEPARTURE_LOOK_MS
+  ) {}
+
+  /** Where the carrier's queue stands now: a frame enqueued up to here has everything after this behind it. */
+  position(): number {
+    return this.enqueued;
+  }
+
+  /** `bytes` were handed to the carrier. */
+  enqueue(bytes: number): void {
+    this.enqueued += bytes;
+    this.check();
+  }
+
+  /** Resolves once everything handed to the carrier up to `position` has left it. */
+  since(position: number): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.waiters.push({ after: position, resolve, reject });
+      this.check();
+    });
+  }
+
+  /** Looks at the carrier again (it enqueued, it reported draining, or the look timer ran). */
+  check(): void {
+    if (this.waiters.length === 0) return;
+    if (!this.usable()) {
+      this.stop();
+      for (const waiter of this.waiters.splice(0)) waiter.reject(new Error('The carrier closed before the frame left it.'));
+      return;
+    }
+    const buffered = this.read();
+    // Oldest first: a later frame has more behind it never, less always, so claims resolve in the order they were made.
+    while (this.waiters.length > 0 && buffered <= this.enqueued - this.waiters[0].after) this.waiters.shift()!.resolve();
+    if (this.waiters.length === 0) return this.stop();
+    if (this.timer === null) {
+      this.timer = this.timers.setTimeout(() => {
+        this.timer = null;
+        this.check();
+      }, this.everyMs);
+    }
+  }
+
+  private stop(): void {
+    if (this.timer !== null) this.timers.clearTimeout(this.timer);
+    this.timer = null;
+  }
+
+  /** The carrier or session is over: whoever waits is told it did not leave. */
+  end(): void {
+    this.stop();
+    for (const waiter of this.waiters.splice(0)) waiter.reject(new Error('Relay transport session ended.'));
+  }
+}
+
 export interface RemoteTransportPeerOptions {
   channel: RelayE2EEChannel;
   /** The E2EE challenge (the signals' `sessionId`, the media lane's `sid`). */
@@ -102,6 +173,11 @@ export interface RemoteTransportPeerOptions {
   /** One whole application message, in order. The first one of a session
    *  must be `e2ee-ready`; the caller confirms it and then calls `confirm()`. */
   deliver(payload: unknown): void;
+  /** One newly authenticated application record has arrived, before it is assembled into a message: called once per record when it
+   *  is accepted, and not again when a held fragment is retried. Never for the relay's pong, an acknowledgement or repair request,
+   *  a copy that failed authentication, or a record already accepted (a replay). The protocol client's health machine reads it as
+   *  proof that the peer is alive while a large message is still arriving. */
+  progress?(): void;
   /** The session must end (protocol error, expiry, stalled assembly). */
   fatal(error: Error): void;
   createPeer(configuration: RTCConfiguration): RTCPeerConnection;
@@ -129,6 +205,9 @@ export type RemoteTransportPeerDiagnostics = RemoteTransportDiagnostics & {
 export interface RemoteTransportPeer {
   /** One binary relay frame of this session. */
   receiveRelay(data: unknown): void;
+  /** Resolves once the receive work already accepted (authentication, assembly: the peer's own promise chain) has been processed;
+   *  work that arrives meanwhile is waited for too. */
+  settled(): Promise<void>;
   /** The host's `e2ee-ready` passed `confirmHandshake`: sending may start. */
   confirm(): void;
   /** Resolves true once every part is sealed and handed to the sender; false
@@ -140,6 +219,10 @@ export interface RemoteTransportPeer {
    *  (a message still queued ahead of it, no window room, no carrier room) —
    *  the message still goes when it can, nobody waits for it. */
   sendPromptly(payload: unknown): Promise<boolean>;
+  /** Sends like `send`; resolves at admission (sealed, pushed) with the promise of DEPARTURE: it resolves once every record of the
+   *  message was handed to a carrier and that carrier reports nothing of its app traffic still buffered (a local fact, never the far
+   *  end's acknowledgement), and rejects when the session or that carrier ended first. Admission alone is not departure. */
+  sendDeparting(payload: unknown): Promise<{ readonly departed: Promise<void> }>;
   /** The page went hidden: no timer runs from here until `wake`. */
   hidden(): void;
   /** Visible again (`visibilitychange`, `pageshow`, `resume`, `online`):
@@ -383,13 +466,29 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
     timer = timers.setTimeout(tick, delay);
   };
 
+  /** Per carrier, the bytes handed to its app queue (the relay's one buffer, or a data channel's app channel) and who waits on them. */
+  const departures = new Map<Path, CarrierDeparture>();
+  const departureOf = (path: Path): CarrierDeparture => {
+    let found = departures.get(path);
+    if (!found) {
+      found =
+        path === relayPath
+          ? new CarrierDeparture(() => options.relay.bufferedAmount(), () => !ended, timers)
+          : new CarrierDeparture(() => appQueued(path), () => !ended && isOpen((path as Direct).app), timers);
+      departures.set(path, found);
+    }
+    return found;
+  };
+
   const carrierSend = (path: Path, kind: 'app' | 'control', message: Uint8Array): void => {
     if (path === relayPath) {
       options.relay.send(message);
+      departureOf(path).enqueue(message.byteLength);
     } else {
       const target = kind === 'app' ? (path as Direct).app : (path as Direct).control;
       if (!isOpen(target)) throw new Error(`transport ${kind} channel is not open`);
       target.send(message as Uint8Array<ArrayBuffer>);
+      if (kind === 'app') departureOf(path).enqueue(message.byteLength);
       directBytesSent += message.byteLength;
       if (kind === 'app' && !directCarried) {
         directCarried = true;
@@ -513,10 +612,25 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
     return id;
   };
 
+  /** Departure claims on sequences not yet handed to a carrier; a claim lives only until its sequence is first handed. */
+  const handWaiters = new Map<number, { hand(at: { path: Path; position: number }): void; fail(error: Error): void }>();
   const handed = (sequence: number, path: Path, now: number): void => {
     sender.markSent(sequence, path.carrier, now);
     highestHanded = Math.max(highestHanded, sequence);
+    const waiter = handWaiters.get(sequence);
+    if (!waiter) return;
+    handWaiters.delete(sequence);
+    waiter.hand({ path, position: departureOf(path).position() });
   };
+  /** The record `sequence` has left: it is handed to a carrier, and everything handed to that carrier up to and including it has left
+   *  the carrier's buffer, whatever was queued behind it since. Claimed before the sequence can be handed. */
+  const departure = (sequence: number): Promise<void> =>
+    new Promise<void>((resolve, reject) => {
+      handWaiters.set(sequence, {
+        hand: ({ path, position }) => departureOf(path).since(position).then(resolve, reject),
+        fail: reject,
+      });
+    });
 
   const flush = (): void => {
     if (!confirmed || ended) return;
@@ -558,12 +672,19 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
     schedule();
   };
 
+  /** A direct channel's buffer fell: send on, then tell who waits on this carrier. The flush can close the carrier (a
+   *  send that throws), which ends and removes its departure book: it is only looked up, never made again here. */
+  const drained = (d: Direct): void => {
+    flush();
+    departures.get(d)?.check();
+  };
+
   /** A direct carrier is at its bound: resume when EITHER channel fires its
    *  low event. The listeners are attached FIRST and the buffers read again
    *  right after, so a drain that happened in between is not missed. */
   const awaitDrain = (d: Direct): void => {
     const before = channelsBuffered(d);
-    for (const ch of [d.app, d.control]) if (isOpen(ch)) ch.onbufferedamountlow = () => flush();
+    for (const ch of [d.app, d.control]) if (isOpen(ch)) ch.onbufferedamountlow = () => drained(d);
     if (channelsBuffered(d) < before) queueMicrotask(flush);
   };
 
@@ -622,6 +743,9 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
     d.coalesced.clear();
     channel.retireControlLane(d.lane);
     pings.dropCarrier(d.carrier);
+    // Nothing can still need this carrier's departure book but its own claims, which fail: its bytes did not leave.
+    departures.get(d)?.end();
+    departures.delete(d);
     closeDirectConnection(d);
   };
 
@@ -685,7 +809,7 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
     ch.onclose = () => failDirect(d, 'channel-failed');
     ch.onerror = () => failDirect(d, 'channel-failed');
     ch.onopen = () => maybeValidate(d);
-    ch.onbufferedamountlow = () => flush();
+    ch.onbufferedamountlow = () => drained(d);
     maybeValidate(d);
   };
 
@@ -851,6 +975,7 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
       receiver.commit(next.sequence, now);
       pathOf(carrier)?.monitor.inbound(now);
       ackPending = true;
+      options.progress?.();
       offerPayload(value, now);
       if (confirmed) ack(now);
     }
@@ -955,7 +1080,11 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
 
   /** Seals and pushes one message; the last sequence it took, or null when
    *  a droppable message found no room (nothing sealed). */
-  const admit = async (payload: unknown, sendOptions: RemoteTransportSendOptions): Promise<number | null> => {
+  const admit = async (
+    payload: unknown,
+    sendOptions: RemoteTransportSendOptions,
+    claim?: (sequence: number) => void
+  ): Promise<number | null> => {
     if (ended) throw new Error('Relay transport session ended.');
     fragmentId += 1;
     // Refuses an oversize message BEFORE anything is sealed.
@@ -982,16 +1111,21 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
       }
       if (ended) throw new Error('Relay transport session ended.');
       last = sender.push(box, admission());
+      claim?.(last);
       current.monitor.outstanding(outstanding(), now);
       flush();
     }
     return last;
   };
 
-  const enqueue = (payload: unknown, sendOptions: RemoteTransportSendOptions): Promise<number | null> => {
+  const enqueue = (
+    payload: unknown,
+    sendOptions: RemoteTransportSendOptions,
+    claim?: (sequence: number) => void
+  ): Promise<number | null> => {
     pendingSends += 1;
     const result = sending
-      .then(() => admit(payload, sendOptions))
+      .then(() => admit(payload, sendOptions, claim))
       .finally(() => {
         pendingSends -= 1;
       });
@@ -1002,6 +1136,9 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
   function close(): void {
     if (ended) return;
     ended = true;
+    for (const waiter of handWaiters.values()) waiter.fail(new Error('Relay transport session ended.'));
+    handWaiters.clear();
+    for (const carrier of departures.values()) carrier.end();
     if (timer !== null) timers.clearTimeout(timer);
     timer = null;
     if (direct) closePeer(direct, 'session-ended');
@@ -1029,6 +1166,18 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
     },
     send(payload, sendOptions = {}) {
       return enqueue(payload, sendOptions).then((last) => last !== null);
+    },
+    async sendDeparting(payload) {
+      // Every fragment is claimed as it is pushed, before it can be handed: each leaves on whichever carrier took it.
+      const fragments: Array<Promise<void>> = [];
+      await enqueue(payload, {}, (sequence) => {
+        const left = departure(sequence);
+        left.catch(() => {});
+        fragments.push(left);
+      });
+      const departed = Promise.all(fragments).then(() => undefined);
+      departed.catch(() => {});
+      return { departed };
     },
     sendPromptly(payload) {
       // Right away: nothing queued ahead of it (a fragmented upload, a
@@ -1083,6 +1232,12 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
         await sendControl({ ...target, t: 'close', reason: 'suspended' }, relayPath).catch(() => {});
       }
       close();
+    },
+    async settled() {
+      for (let chain = inbound; ; chain = inbound) {
+        await chain;
+        if (chain === inbound) return;
+      }
     },
     close,
     diagnostics() {

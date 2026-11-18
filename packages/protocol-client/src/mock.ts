@@ -9,14 +9,25 @@ export class MockConn {
   private waiter: ((t: string) => void) | undefined;
   private closedFlag = false;
   private readonly sink: TransportSink;
+  /** While set, a request's `sent` claim settles only at `releaseSent`: the frame has not left the page yet. */
+  /** What the writer does with a frame's departure claim: 'given' resolves it at once, 'held' waits for `releaseSent`, 'refused' rejects it,
+   *  'none' never calls it. */
+  claims: 'given' | 'held' | 'refused' | 'none' = 'given';
+  private leaving: Array<{ left: () => void; refuse: (error: Error) => void }> = [];
+  private chain: Promise<void> = Promise.resolve();
 
   constructor(sink: TransportSink) {
     this.sink = sink;
   }
 
   readonly writer: TransportWriter = {
-    send: (text) => {
+    send: (text, sent) => {
       if (this.closedFlag) throw new Error('send on closed mock connection');
+      // A frame's departure receipt: resolved at once (the in-memory write is complete), held until `releaseSent`, refused, or not
+      // given at all (a transport that cannot tell).
+      if (sent && this.claims === 'held') sent(new Promise<void>((left, refuse) => this.leaving.push({ left, refuse })));
+      else if (sent && this.claims === 'given') sent(Promise.resolve());
+      else if (sent && this.claims === 'refused') sent(Promise.reject(new Error('the write failed')));
       if (this.waiter) {
         const w = this.waiter;
         this.waiter = undefined;
@@ -31,7 +42,22 @@ export class MockConn {
       this.clientClose = { code, reason };
       queueMicrotask(() => this.serverClose(code, reason));
     },
+    settled: () => this.chain,
   };
+
+  /** The frames held back by `holdSent` have left. */
+  releaseSent(): void {
+    this.claims = 'given';
+    for (const { left } of this.leaving.splice(0)) left();
+  }
+  /** Receive work still in flight inside the transport (authentication, assembly): `settled` waits for it. */
+  receiveInFlight(work: Promise<void>): void {
+    this.chain = Promise.all([this.chain, work]).then(() => undefined);
+  }
+  /** The transport saw new authenticated progress from the core that is not a whole message. */
+  serverProgress(): void {
+    this.sink.progress?.();
+  }
 
   /** Next frame the client wrote. */
   nextSent(): Promise<string> {

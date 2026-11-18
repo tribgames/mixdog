@@ -28,6 +28,7 @@ fn update_usage(usage: &mut WarmUsage, raw: &Value) {
     }
     if let Some(v) = present(raw.get("output_tokens")) {
         usage.output = v;
+        usage.output_known = true;
     }
     if let Some(v) = present(raw.get("cache_read_input_tokens")) {
         usage.cached = v;
@@ -187,16 +188,25 @@ fn fault_text(fault: &TransportFault) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use std::collections::VecDeque;
 
+    #[cfg(node_twin)]
     use async_trait::async_trait;
+    #[cfg(node_twin)]
     use bytes::Bytes;
-    use serde_json::{Map, json};
+    #[cfg(node_twin)]
+    use serde_json::Map;
+    #[cfg(node_twin)]
+    use serde_json::json;
 
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     struct Chunks(VecDeque<Bytes>);
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl BodyStream for Chunks {
         async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
@@ -204,6 +214,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     /// The fields Node's snapshot carries, by its names.
     fn usage_json(usage: &WarmUsage) -> Value {
         let mut map = Map::new();
@@ -226,6 +237,7 @@ mod tests {
         Value::Object(map)
     }
 
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn every_recorded_stream_reads_as_nodes_does() {
         let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/cache-warm/golden.json")).unwrap();
@@ -249,3 +261,5 @@ mod tests {
         }
     }
 }
+
+

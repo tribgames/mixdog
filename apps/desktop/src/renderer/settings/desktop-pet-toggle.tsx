@@ -3,7 +3,7 @@
 // chat with the representative bot (Mixy's agent id, whatever it is named).
 // Every overlay option lives here, the same ones its right-click menu shows,
 // kept in sync through main.
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   HEARTBEAT_INTERVAL_CHOICES,
   normalizeHeartbeatIntervalMinutes,
@@ -39,15 +39,29 @@ function DesktopPetToggle() {
   const config = useDesktopPetConfig();
   // The same answer the Bots page and the overlay use (mixy-first.tsx).
   const created = useMixyCreated(window.mixdogDesktop);
-  // A placement write in flight: the next choice waits for main's answer, so
-  // it is always made against the placement actually in effect.
-  const [placing, setPlacing] = useState(false);
+  const inFlight = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+  async function save(action: () => Promise<void>) {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setSaving(true);
+    try {
+      await action();
+      setFailed(false);
+    } catch {
+      setFailed(true);
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
+  }
   if (!config) return null;
   // No representative bot: the overlay cannot appear, so nothing here can
   // change; the stored setting is left as it is.
   const missing = created === false;
-  const off = !config.enabled || missing;
-  const option = (name: DesktopPetOption) => (on: boolean) => void setDesktopPetOption(name, on).catch(() => {});
+  const off = !config.enabled || missing || saving;
+  const option = (name: DesktopPetOption) => (on: boolean) => void save(() => setDesktopPetOption(name, on));
   let position = 'free';
   if (config.pinned) position = 'pinned';
   else if (config.pinnedHere) position = 'pinnedHere';
@@ -61,21 +75,22 @@ function DesktopPetToggle() {
           : t('Always overlay the representative bot on your screen.')
       }
       actions={
-        <ActionButton disabled={off} onClick={() => void resetDesktopPetPosition().catch(() => {})}>
+        <ActionButton disabled={off} onClick={() => void save(resetDesktopPetPosition)}>
           {t('Reset position')}
         </ActionButton>
       }
     >
+      {failed && <p role="alert">{t('Could not save overlay settings. Try again.')}</p>}
       <ToggleRow
         title={t('Show on screen')}
         checked={config.enabled}
-        disabled={missing}
-        onChange={(enabled) => void setDesktopPetEnabled(enabled).catch(() => {})}
+        disabled={missing || saving}
+        onChange={(enabled) => void save(() => setDesktopPetEnabled(enabled))}
       />
       <SelectRow
         title={t('Position')}
         value={position}
-        disabled={off || placing}
+        disabled={off}
         options={[
           { value: 'pinned', label: t('Pin above the message box') },
           { value: 'pinnedHere', label: t('Pin here') },
@@ -85,10 +100,7 @@ function DesktopPetToggle() {
         onChange={(value) => {
           if (value === position) return;
           const name = (value === 'free' ? position : value) as DesktopPetOption;
-          setPlacing(true);
-          void setDesktopPetOption(name, value !== 'free')
-            .catch(() => {})
-            .finally(() => setPlacing(false));
+          option(name)(value !== 'free');
         }}
       />
       <ToggleRow
@@ -120,7 +132,7 @@ function DesktopPetToggle() {
         value={String(config.scale)}
         disabled={off}
         options={SCALE_OPTIONS}
-        onChange={(value) => void setDesktopPetScale(Number(value)).catch(() => {})}
+        onChange={(value) => void save(() => setDesktopPetScale(Number(value)))}
       />
     </Group>
   );

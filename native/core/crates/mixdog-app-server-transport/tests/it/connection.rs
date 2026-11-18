@@ -298,42 +298,6 @@ async fn any_received_frame_keeps_a_peer_alive() {
     assert!(!peer.connection.sink.is_closed());
 }
 
-#[tokio::test(start_paused = true)]
-async fn one_heartbeat_task_serves_every_connection() {
-    install_rt();
-    let hub = ConnectionHub::new(Limits {
-        heartbeat_tick_ms: 100,
-        ..small_limits()
-    })
-    .unwrap();
-    let heartbeat = hub.spawn_heartbeat();
-    let mut silent = connect(&hub, ConnectionOrigin::Loopback, true);
-    let mut quiet_too = connect(&hub, ConnectionOrigin::SshTunnel, true);
-    let live = connect(&hub, ConnectionOrigin::Loopback, true);
-
-    // Paused time advances by itself while everything waits: the silent peers are pinged and
-    // closed by the one interval; the live peer answers every tick.
-    let silent_wire = silent.until_closed();
-    let quiet_wire = quiet_too.until_closed();
-    let keep_alive = async {
-        for _ in 0..200 {
-            live.send.send(Incoming::Activity).unwrap();
-            mixdog_rt::time::sleep(Duration::from_millis(50)).await;
-        }
-    };
-    let (silent_wire, quiet_wire, ()) = tokio::join!(silent_wire, quiet_wire, keep_alive);
-    assert_eq!(
-        silent_wire,
-        [Wire::Ping, Wire::Close(CloseCode::PeerUnresponsive)]
-    );
-    assert_eq!(
-        quiet_wire,
-        [Wire::Ping, Wire::Close(CloseCode::PeerUnresponsive)]
-    );
-    assert!(!live.connection.sink.is_closed());
-    heartbeat.abort();
-}
-
 #[tokio::test]
 async fn the_hub_answers_each_connections_origin_until_it_closes() {
     let hub = hub();
@@ -373,4 +337,40 @@ async fn a_closed_connection_has_no_origin_right_after_close() {
     assert_eq!(hub.origin_of(id), None, "closing connections answer no origin");
     assert_eq!(hub.connection_origin(id), None);
     assert_eq!(hub.origin_of(ssh.connection.id), Some(mixdog_protocol::Origin::Ssh));
+}
+
+#[tokio::test(start_paused = true)]
+async fn one_heartbeat_task_serves_every_connection() {
+    install_rt();
+    let hub = ConnectionHub::new(Limits {
+        heartbeat_tick_ms: 100,
+        ..small_limits()
+    })
+    .unwrap();
+    let heartbeat = hub.spawn_heartbeat();
+    let mut silent = connect(&hub, ConnectionOrigin::Loopback, true);
+    let mut quiet_too = connect(&hub, ConnectionOrigin::SshTunnel, true);
+    let live = connect(&hub, ConnectionOrigin::Loopback, true);
+
+    // Paused time advances by itself while everything waits: the silent peers are pinged and
+    // closed by the one interval; the live peer answers every tick.
+    let silent_wire = silent.until_closed();
+    let quiet_wire = quiet_too.until_closed();
+    let keep_alive = async {
+        for _ in 0..200 {
+            live.send.send(Incoming::Activity).unwrap();
+            mixdog_rt::time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    let (silent_wire, quiet_wire, ()) = tokio::join!(silent_wire, quiet_wire, keep_alive);
+    assert_eq!(
+        silent_wire,
+        [Wire::Ping, Wire::Close(CloseCode::PeerUnresponsive)]
+    );
+    assert_eq!(
+        quiet_wire,
+        [Wire::Ping, Wire::Close(CloseCode::PeerUnresponsive)]
+    );
+    assert!(!live.connection.sink.is_closed());
+    heartbeat.abort();
 }

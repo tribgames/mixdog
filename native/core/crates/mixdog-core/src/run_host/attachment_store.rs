@@ -148,17 +148,14 @@ struct Rule {
     strict: bool,
 }
 
-/// `MIME_EXTENSIONS` (attachments/attachment-file-name.mjs).
+/// `MIME_EXTENSIONS` (attachments/attachment-file-name.mjs) for the types the image codec does not own: the formats it
+/// decodes (PNG, JPEG, GIF, WebP, TIFF, SVG, AVIF) take their media type and extensions from
+/// `mixdog_imaging::Format`, so the two cannot disagree. BMP and HEIC/HEIF are named here: they are recognised as
+/// attachments but are not decoded images.
 const RULES: &[(&str, Rule)] = &[
-    ("image/png", Rule { exts: &[".png"], strict: true }),
-    ("image/jpeg", Rule { exts: &[".jpg", ".jpeg", ".jpe", ".jfif"], strict: true }),
-    ("image/gif", Rule { exts: &[".gif"], strict: true }),
-    ("image/webp", Rule { exts: &[".webp"], strict: true }),
     ("image/bmp", Rule { exts: &[".bmp"], strict: true }),
-    ("image/tiff", Rule { exts: &[".tif", ".tiff"], strict: true }),
     ("image/heic", Rule { exts: &[".heic"], strict: true }),
     ("image/heif", Rule { exts: &[".heif"], strict: true }),
-    ("image/svg+xml", Rule { exts: &[".svg"], strict: true }),
     ("application/pdf", Rule { exts: &[".pdf"], strict: true }),
     ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", Rule { exts: &[".docx"], strict: true }),
     ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", Rule { exts: &[".xlsx"], strict: true }),
@@ -239,16 +236,18 @@ pub fn attachment_file_name(name: &str, mime_type: &str, fallback: &str) -> Stri
         base.insert(0, '_');
     }
     let mime = mixdog_js::js_to_lowercase(mixdog_js::js_trim(mime_type.split(';').next().unwrap_or("")));
-    let rule = RULES.iter().find(|(m, _)| *m == mime).map(|(_, rule)| rule);
+    let rule: Option<(&[&str], bool)> = mixdog_imaging::Format::from_media_type(&mime)
+        .map(|format| (format.extensions(), true))
+        .or_else(|| RULES.iter().find(|(m, _)| *m == mime).map(|(_, rule)| (rule.exts, rule.strict)));
     let mut keep = extname(&base);
     if mixdog_js::utf16_len(keep) > MAX_EXTENSION_LENGTH {
         keep = "";
     }
     let ext = mixdog_js::js_to_lowercase(keep);
-    if let Some(rule) = rule
-        && (ext.is_empty() || (rule.strict && !rule.exts.contains(&ext.as_str())))
+    if let Some((exts, strict)) = rule
+        && (ext.is_empty() || (strict && !exts.contains(&ext.as_str())))
     {
-        let keep = rule.exts[0];
+        let keep = exts[0];
         return mixdog_js::slice_utf16(&base, MAX_NAME_LENGTH - keep.len()) + keep;
     }
     if mixdog_js::utf16_len(&base) <= MAX_NAME_LENGTH {
@@ -335,28 +334,86 @@ fn named_copy(
 pub struct StoreFiles {
     blobs: BlobStore,
     files_dir: PathBuf,
+    data_dir: PathBuf,
     durability: DurabilityIo,
 }
 
+#[async_trait]
+impl mixdog_agent::offload::ImageIntake for StoreFiles {
+    /// A tool-result image enters the store as every other ingress does; the reference answers for a refused picture too.
+    async fn store(&self, base64: &str, name: &str) -> Option<String> {
+        Some(self.import_image(base64, name).await?.original)
+    }
+
+    async fn store_blob(&self, reference: &str, name: &str) -> Option<(String, String)> {
+        let vault = mixdog_image_vault::ImageVault::new(self.blobs.clone(), &self.data_dir);
+        let (reference, name) = (reference.to_owned(), name.to_owned());
+        let manifest = on_lane(self.durability, &CancellationToken::new(), move |lane| vault.import_blob_ref(lane, &reference, &name, &mixdog_image_egress::admission::Cancel::default()))
+            .await
+            .ok()?
+            .ok()?;
+        let mime = match &manifest.outcome {
+            mixdog_image_egress::Outcome::Accepted { kind, .. } => kind.mime(),
+            mixdog_image_egress::Outcome::Refused { .. } => "image/*",
+        };
+        Some((manifest.original, mime.to_owned()))
+    }
+}
+
 impl StoreFiles {
+    /// The one import of a base64 image: bounded decode and validation under the process admission, the verdict recorded.
+    /// `None` for what the store cannot take now (queue full, cancelled, storage failure, not base64).
+    async fn import_image(&self, base64: &str, name: &str) -> Option<mixdog_image_egress::Manifest> {
+        let vault = mixdog_image_vault::ImageVault::new(self.blobs.clone(), &self.data_dir);
+        let (base64, name) = (base64.to_owned(), name.to_owned());
+        on_lane(self.durability, &CancellationToken::new(), move |lane| vault.import_base64(lane, &base64, &name, &mixdog_image_egress::admission::Cancel::default()))
+            .await
+            .ok()?
+            .ok()
+    }
+
     pub fn new(blobs: BlobStore, data_dir: &Path, tokens: &LaneTokens) -> Self {
-        Self { blobs, files_dir: data_dir.join("prompt-attachments").join("files"), durability: tokens.durability_io }
+        Self { blobs, files_dir: data_dir.join("prompt-attachments").join("files"), data_dir: data_dir.to_path_buf(), durability: tokens.durability_io }
     }
 }
 
 #[async_trait]
 impl AttachmentFiles for StoreFiles {
-    /// `canonicalBase64Buffer` + `saveBuffer`. The write refreshes the mtime of a blob that was
-    /// already there (`put_fresh`), as Node does, so the GC's age window protects the reference
-    /// until the message that holds it is recorded. `None` for a payload that is not canonical
-    /// base64, is empty or too large, or whose write fails (Node throws, the caller reads null).
-    async fn store_inline(&self, base64: &str, _mime_type: &str, _filename: &str) -> Option<StoredFile> {
+    /// `canonicalBase64Buffer` + `saveBuffer`: the bytes published at their address (no ticket: the reference is answered
+    /// bare, and no claim of these attachments exists yet, so the store's collector stays refused while such references
+    /// can be in flight; mixdog-store FORMAT.md §4.4). `None` for a payload that is not canonical base64, is empty or too
+    /// large, or whose write fails (Node throws, the caller reads null).
+    async fn store_inline(&self, base64: &str, mime_type: &str, filename: &str) -> Option<StoredFile> {
+        if mime_type.starts_with("image/") {
+            // An image is judged by its bytes once, here, whatever the verdict: the reference names the stored original and its
+            // manifest (a refusal is a verdict a send reads and names), so a refused picture is never left inline nor turned into text.
+            let manifest = self.import_image(base64, filename).await?;
+            return Some(StoredFile { reference: manifest.original, size_bytes: manifest.encoded_len });
+        }
         let bytes = canonical_base64(base64)?;
         let size_bytes = bytes.len() as u64;
         let blobs = self.blobs.clone();
-        let pin = on_lane(self.durability, &CancellationToken::new(), move |lane| blobs.put_fresh(lane, &bytes)).await.ok()?.ok()?;
-        let reference = mixdog_store::blobs::hex(pin.digest()).to_owned();
+        if mime_type.starts_with("image/") {
+            // An image is judged by its bytes once, here: the vault keeps the original with its verdict and the rendition a
+            // destination may need; a refused one is not stored as a reference (it stays inline, where egress refuses it by name).
+            let (vault, name) = (mixdog_image_vault::ImageVault::new(blobs, &self.data_dir), filename.to_owned());
+            let manifest = on_lane(self.durability, &CancellationToken::new(), move |lane| vault.import(lane, &bytes, &name, &mixdog_image_egress::admission::Cancel::default())).await.ok()?.ok()?;
+            return matches!(manifest.outcome, mixdog_image_egress::Outcome::Accepted { .. }).then(|| StoredFile { reference: manifest.original, size_bytes });
+        }
+        let digest = on_lane(self.durability, &CancellationToken::new(), move |lane| blobs.put_with(lane, &bytes, mixdog_store::fsio::Access::Inherit)).await.ok()?.ok()?;
+        let reference = mixdog_store::blobs::hex(&digest).to_owned();
         Some(StoredFile { reference, size_bytes })
+    }
+
+    async fn refusal_of(&self, reference: &str) -> Option<String> {
+        let (vault, reference) = (mixdog_image_vault::ImageVault::new(self.blobs.clone(), &self.data_dir), reference.to_owned());
+        match on_lane(self.durability, &CancellationToken::new(), move |_| vault.lookup(&reference)).await.ok()? {
+            mixdog_image_vault::vault::Lookup::Found(manifest) => match manifest.outcome {
+                mixdog_image_egress::Outcome::Refused { text } => Some(text),
+                mixdog_image_egress::Outcome::Accepted { .. } => None,
+            },
+            _ => None,
+        }
     }
 
     async fn named_file(&self, reference: &str, filename: &str, mime_type: &str, original: Option<&OriginalFile>) -> Result<String, ()> {
@@ -376,30 +433,43 @@ impl AttachmentFiles for StoreFiles {
         Ok(self.blobs.path(&digest).to_string_lossy().into_owned())
     }
 }
+
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use base64::Engine;
+    #[cfg(node_twin)]
     use base64::engine::general_purpose::STANDARD;
+    #[cfg(node_twin)]
     use mixdog_agent::compact::blob_reads::with_blobs;
+    #[cfg(node_twin)]
     use mixdog_protocol::message_class::user_text::ReadError;
+    #[cfg(node_twin)]
     use mixdog_store::blobs::digest_of;
+    #[cfg(node_twin)]
     use serde_json::Value;
 
+    #[cfg(node_twin)]
     use super::*;
+    #[cfg(node_twin)]
     use crate::run_host::fixture_fs;
 
+    #[cfg(node_twin)]
     const GOLDEN: &str = include_str!("golden/attachment_store.json");
 
+    #[cfg(node_twin)]
     fn golden() -> Value {
         serde_json::from_str(GOLDEN).unwrap()
     }
 
+    #[cfg(node_twin)]
     fn bytes(value: &Value) -> Vec<u8> {
         STANDARD.decode(value.as_str().unwrap()).unwrap()
     }
 
     /// The store under a temp data dir with every recorded blob planted as the file Node had on disk
     /// (a tampered, empty or missing one included): the test backend runs the lane jobs inline.
+    #[cfg(node_twin)]
     fn world() -> (tempfile::TempDir, BlobStore, LaneTokens, Value) {
         let dir = tempfile::tempdir().unwrap();
         let store = BlobStore::new(dir.path());
@@ -412,6 +482,7 @@ mod tests {
         (dir, store, mixdog_rt::testing::tokens(), golden)
     }
 
+    #[cfg(node_twin)]
     fn shown(result: &Result<Option<String>, ReadError>) -> String {
         match result {
             Ok(Some(text)) => format!("text {text:?}"),
@@ -421,6 +492,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     async fn text_within(blobs: &StoreBlobs, reference: &str, max: u64) -> Result<Result<Option<String>, ReadError>, StoreUnavailable> {
         let reference = reference.to_owned();
         with_blobs(blobs, move |store| store.text_within(&reference, max)).await
@@ -429,6 +501,7 @@ mod tests {
     /// Node's `readAttachmentTextWithin` on every recorded blob state and limit: ENOENT is a
     /// missing blob, an invalid, empty or tampered one and a reference off the pattern are `Other`.
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(node_twin)]
     async fn text_within_answers_as_nodes_read_attachment_text_within() {
         let (_dir, store, tokens, golden) = world();
         let blobs = StoreBlobs::new(store, &tokens);
@@ -453,6 +526,7 @@ mod tests {
     /// The AttachmentReader port is the domains' `StoreAttachments` (one value, also the process's
     /// own): Node's `readAttachmentBuffer` + `isPermanentAttachmentError` on every recorded state.
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(node_twin)]
     async fn the_reader_answers_as_nodes_read_attachment_buffer() {
         use mixdog_ai::service::model_proxy_inline::{AttachmentReader, ReadError as Reader};
         use mixdog_core_domains::domains::ai_admin::model_proxy::StoreAttachments;
@@ -478,6 +552,34 @@ mod tests {
     }
 
     #[test]
+    fn a_stored_image_is_named_with_the_extension_of_its_media_type() {
+        use super::attachment_file_name as named;
+        for (mime, want) in [
+            ("image/png", "pic.png"),
+            ("image/jpeg", "pic.jpg"),
+            ("image/gif", "pic.gif"),
+            ("image/webp", "pic.webp"),
+            ("image/tiff", "pic.tif"),
+            ("image/svg+xml", "pic.svg"),
+            ("image/avif", "pic.avif"),
+            ("image/heic", "pic.heic"),
+            ("image/heif", "pic.heif"),
+            ("image/avif; charset=binary", "pic.avif"),
+        ] {
+            assert_eq!(named("pic", mime, "attachment"), want, "{mime}");
+        }
+        // A name that already carries one of the type's extensions keeps it; a foreign one gets the type's after it.
+        assert_eq!(named("photo.jpeg", "image/jpeg", "x"), "photo.jpeg");
+        assert_eq!(named("photo.png", "image/avif", "x"), "photo.png.avif");
+        // Every format the codec decodes agrees with its own table.
+        for format in mixdog_imaging::Format::ALL {
+            assert_eq!(mixdog_imaging::Format::from_media_type(format.media_type()), Some(format));
+            assert_eq!(named("n", format.media_type(), "x"), format!("n{}", format.extensions()[0]));
+        }
+    }
+
+    #[test]
+    #[cfg(node_twin)]
     fn file_names_are_nodes_attachment_file_names() {
         for case in golden()["fileNames"].as_array().unwrap() {
             let got = attachment_file_name(case["name"].as_str().unwrap_or(""), case["mime"].as_str().unwrap_or(""), case["fallback"].as_str().unwrap_or("attachment"));
@@ -486,6 +588,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(node_twin)]
     async fn an_inline_payload_is_stored_under_its_digest_or_refused_as_nodes_store_does() {
         let (dir, store, tokens, golden) = world();
         let files = StoreFiles::new(store.clone(), dir.path(), &tokens);
@@ -505,25 +608,25 @@ mod tests {
         }
     }
 
-    /// Node's `saveBuffer` touches a blob it reuses; the store does it on the lane, and the blob
-    /// stays intact and unpinned.
+    /// Node's `saveBuffer` touches a blob it reuses, so its collector's age window spares the reference about to be recorded.
+    /// 1.5.0 collects no blob, so the core reuses the blob as it is: the same reference, the file untouched.
     #[tokio::test(flavor = "current_thread")]
-    async fn a_reused_blob_has_its_mtime_refreshed() {
+    #[cfg(node_twin)]
+    async fn a_reused_blob_is_left_as_it_is() {
         let (dir, store, tokens, _) = world();
         let files = StoreFiles::new(store.clone(), dir.path(), &tokens);
         let first = files.store_inline("aGVsbG8=", "text/plain", "").await.unwrap();
         let path = store.path(&digest_of_reference(&first.reference).unwrap());
-        let before = std::time::SystemTime::now();
+        let cancel = CancellationToken::new();
+        let modified = |path: std::path::PathBuf| on_lane(tokens.interactive_io, &cancel, move |lane| mixdog_statefile::metadata(lane, &path).and_then(|meta| meta.modified()));
+        let before = modified(path.clone()).await.unwrap().unwrap();
         let again = files.store_inline("aGVsbG8=", "text/plain", "").await.unwrap();
         assert_eq!(again, first);
-        let modified = on_lane(tokens.interactive_io, &CancellationToken::new(), move |lane| mixdog_statefile::metadata(lane, &path).and_then(|meta| meta.modified()))
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(modified >= before, "{modified:?} < {before:?}");
+        assert_eq!(modified(path).await.unwrap().unwrap(), before, "the reused blob is not written again");
     }
 
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(node_twin)]
     async fn a_named_copy_is_made_reused_by_its_size_and_keyed_by_the_original() {
         let (dir, store, tokens, golden) = world();
         let files = StoreFiles::new(store.clone(), dir.path(), &tokens);
@@ -557,6 +660,7 @@ mod tests {
     /// `attachmentBlobSize(ref, 0)`: the file's size; a blob that is not there counts 0 (the claimed
     /// size) and has no facts, a reference off the pattern throws and has none either.
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(node_twin)]
     async fn the_facts_are_the_blobs_size_on_disk_as_node_stats_it() {
         let (_dir, store, tokens, golden) = world();
         let facts = StoreFacts::new(store, &tokens);
@@ -571,6 +675,7 @@ mod tests {
     /// An inline PDF is counted by the stored PDFs' inspector, once per payload; with no inspector, or for a payload the
     /// inspector rejects, it has no counts.
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(node_twin)]
     async fn an_inline_pdf_is_counted_once_by_the_inspector() {
         struct Inspector(std::sync::atomic::AtomicUsize);
         #[async_trait]
@@ -601,6 +706,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(node_twin)]
     fn a_blob_path_is_the_stores_and_a_reference_that_names_no_blob_is_an_error() {
         let (dir, store, tokens, golden) = world();
         let files = StoreFiles::new(store.clone(), dir.path(), &tokens);
@@ -611,6 +717,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(node_twin)]
     async fn a_refused_lane_job_is_an_error_not_a_wait() {
         let (_dir, store, tokens, golden) = world();
         let blobs = StoreBlobs::new(store, &tokens);
@@ -622,6 +729,7 @@ mod tests {
     /// A user row's commit classifies it through this read: a full interactive lane is waited out, not answered with
     /// "the attachment store is unavailable" (which failed a spawned worker's first turn under load).
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(node_twin)]
     async fn a_read_on_a_full_lane_waits_for_room_and_then_answers() {
         let (_dir, store, tokens, golden) = world();
         let blobs = StoreBlobs::new(store, &tokens);
@@ -634,3 +742,5 @@ mod tests {
         assert!(read.await.is_ok(), "the read runs once the lane has room");
     }
 }
+
+

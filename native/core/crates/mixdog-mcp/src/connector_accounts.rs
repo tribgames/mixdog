@@ -58,23 +58,53 @@ pub struct Health {
 
 /// Account name → [`Health`]. Account names share the server-name space, so one registry
 /// serves every connector.
+///
+/// An account name outlives the server generation that holds it (a replaced server's accounts keep their names), so each
+/// name belongs to the newest generation that claimed it ([`Self::claim`]) and only that generation writes it: the check and
+/// the write are one step under the table's lock, so an older generation's late report can never land over a newer one's.
 #[derive(Default)]
-pub struct AccountHealth(Mutex<HashMap<String, Health>>);
+pub struct AccountHealth(Mutex<HealthTable>);
+
+#[derive(Default)]
+struct HealthTable {
+    health: HashMap<String, Health>,
+    /// The newest generation that claimed each account name.
+    owner: HashMap<String, u64>,
+}
 
 impl AccountHealth {
     pub fn get(&self, name: &str) -> Option<Health> {
-        self.lock().get(name).cloned()
+        self.lock().health.get(name).cloned()
     }
 
     pub fn forget(&self, name: &str) {
-        self.lock().remove(name);
+        self.lock().health.remove(name);
     }
 
-    fn set(&self, name: &str, health: Health) {
-        self.lock().insert(name.to_owned(), health);
+    /// Generation `owner` takes `names`: what an older generation recorded for them goes, and none of them writes them again.
+    fn claim(&self, owner: u64, names: &[&str]) {
+        let mut table = self.lock();
+        for name in names {
+            if table.owner.get(*name).is_some_and(|held| *held > owner) {
+                continue;
+            }
+            table.owner.insert((*name).to_owned(), owner);
+            table.health.remove(*name);
+        }
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Health>> {
+    fn set(&self, owner: u64, name: &str, health: Health) {
+        let mut table = self.lock();
+        if table.owner.get(name).is_some_and(|held| *held != owner) {
+            return;
+        }
+        if !health.error.is_empty() && table.health.get(name).is_none_or(|before| before.error != health.error) {
+            crate::config::daemon_line(&format!("[mcp-account] account={name} health error: {}", health.error));
+        }
+        table.health.insert(name.to_owned(), health);
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, HealthTable> {
         self.0.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
@@ -124,7 +154,12 @@ pub struct ConnectorAccounts {
     health: Arc<AccountHealth>,
     data_dir: PathBuf,
     maintenance: MaintenanceIo,
+    /// The server generation these accounts belong to: the only writer of their health once a newer generation claims the names.
+    generation: u64,
 }
+
+/// Generations are numbered in creation order, across every connector.
+static NEXT_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 #[derive(Clone, PartialEq, Debug)]
 struct Remembered {
@@ -153,6 +188,8 @@ impl ConnectorAccounts {
         }
         let service = connectors::connector(connector).map_or(connector, |c| c.name).to_owned();
         let emails = accounts.iter().map(|a| a.email.clone()).collect();
+        let generation = NEXT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        health.claim(generation, &accounts.iter().map(|a| a.name.as_str()).collect::<Vec<_>>());
         Some(Arc::new(Self {
             connector: connector.to_owned(),
             service,
@@ -161,6 +198,7 @@ impl ConnectorAccounts {
             health,
             data_dir,
             maintenance,
+            generation,
         }))
     }
 
@@ -179,7 +217,7 @@ impl ConnectorAccounts {
             }
             inner.emails[at].clone()
         };
-        self.health.set(name, Health { email, error: report.error.clone(), auth_required: report.auth_required });
+        self.health.set(self.generation, name, Health { email, error: report.error.clone(), auth_required: report.auth_required });
     }
 
     /// The tools account `name` listed when it answered.

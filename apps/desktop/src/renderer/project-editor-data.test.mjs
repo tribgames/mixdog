@@ -132,11 +132,50 @@ test('one catalog read warms common, all projects and empty scopes without mixin
     },
   ]);
   assert.deepEqual([...catalog.keys()], [null, 'folder-a', 'folder-b', 'empty-folder']);
-  assert.equal(catalog.get(null)[0].summary, 'Common');
-  assert.equal(catalog.get('folder-a')[0].summary, summary);
-  assert.equal(catalog.get('folder-a')[0].element, 'Title');
-  assert.equal(catalog.get('folder-b')[0].indexRevision, 'beta-v1');
-  assert.deepEqual(catalog.get('empty-folder'), []);
+  assert.equal(catalog.get(null).entries[0].summary, 'Common');
+  assert.equal(catalog.get('folder-a').entries[0].summary, summary);
+  assert.equal(catalog.get('folder-a').entries[0].element, 'Title');
+  assert.equal(catalog.get('folder-b').entries[0].indexRevision, 'beta-v1');
+  assert.deepEqual(catalog.get('empty-folder'), { projectId: 'empty', entries: [] });
+});
+
+test('move readback keeps Common out of markerless projects and retains independent instructions with identical text', async () => {
+  const summary = 'Use the approved template.';
+  const selected = { id: 1, element: 'Selected', summary, project_id: 'alpha', index_revision: 'alpha-v1' };
+  const sourceTwin = { id: 2, element: 'Source twin', summary, project_id: 'alpha', index_revision: 'alpha-v1' };
+  const commonTwin = { id: 1, element: 'Common twin', summary, project_id: null, index_revision: 'common-v1' };
+  const read = (entries) =>
+    readProjectMemories(['folder-a', 'markerless'], async () => ({
+      entries,
+      projectScopes: [
+        { path: 'folder-a', projectId: 'alpha' },
+        { path: 'markerless', projectId: null },
+      ],
+      nextOffset: null,
+    }));
+  const before = await read([commonTwin, selected, sourceTwin]);
+  assert.equal(before.has('markerless'), false);
+  assert.equal(before.get('folder-a').projectId, 'alpha');
+  assert.deepEqual(before.get('folder-a').entries.map((row) => row.element), ['Selected', 'Source twin']);
+
+  const after = await read([
+    { ...commonTwin, index_revision: 'common-v2' },
+    { ...selected, id: 2, project_id: null, index_revision: 'common-v2' },
+    { id: 3, element: 'Concurrent entry', summary, project_id: null, index_revision: 'common-v2' },
+    { ...sourceTwin, id: 1, index_revision: 'alpha-v2' },
+  ]);
+  assert.deepEqual(
+    after.get(null).entries.map((row) => [row.id, row.element, row.summary]),
+    [
+      [1, 'Common twin', summary],
+      [2, 'Selected', summary],
+      [3, 'Concurrent entry', summary],
+    ]
+  );
+  assert.deepEqual(after.get('folder-a').entries.map((row) => [row.id, row.element, row.summary]), [
+    [1, 'Source twin', summary],
+  ]);
+  assert.equal(after.has('markerless'), false);
 });
 
 test('catalog pagination checks revisions per scope and retains every row', async () => {
@@ -161,9 +200,9 @@ test('catalog pagination checks revisions per scope and retains every row', asyn
     };
   });
   assert.deepEqual(offsets, [0, 100]);
-  assert.equal(catalog.get('folder-a').length, 101);
-  assert.equal(catalog.get('folder-a')[100].summary, 'Rule 101');
-  assert.equal(catalog.get('folder-b')[0].summary, 'Beta rule');
+  assert.equal(catalog.get('folder-a').entries.length, 101);
+  assert.equal(catalog.get('folder-a').entries[100].summary, 'Rule 101');
+  assert.equal(catalog.get('folder-b').entries[0].summary, 'Beta rule');
   await assert.rejects(
     readProjectMemories(['folder-a'], async ({ offset }) => ({
       projectScopes,

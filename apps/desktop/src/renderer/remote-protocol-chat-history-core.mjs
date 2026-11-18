@@ -122,10 +122,46 @@ export function nodeSide(recording) {
     h.othersOnly = previous !== null && differingFields(previous, h.value).every((f) => OTHER_BRANCH_FIELDS.has(f.field));
     previous = h.value;
   }
+  // The frame Node published for an approval alone (the request and the spinner's `tool-approval`, before the step's tokens, rows and
+  // `tool-use`) is an interim state: the core publishes each accepted change in order as it happens and holds no step back for a gate
+  // (a decision of this port, not a Node recording to match), so it need not publish that split. Its content is still compared where
+  // the core does publish it, and the next state (the same approval with the step's tokens, rows and `tool-use`) is compared exactly.
+  const states = history.filter((h) => h.kind === 'state');
+  states.forEach((h, i) => {
+    const next = states[i + 1];
+    h.interim = next !== undefined && h.value.toolApproval != null && h.value.spinner?.mode === 'tool-approval' && onlyTheStepFollows(h.value, next.value);
+  });
   // The thread list the phone heard: the host's catalog publications, each at its clock, less one that changes nothing since the last
   // (the relay sends none: remote-relay-catalog.ts:79-91 isNoListDelta; the phone's baseline is the empty list its join read).
   const roster = heard(recording.roster.map((p) => ({ clock: p.clock, sessions: norm(p.sessions) })));
   return { history, inputs: recording.inputs, roster };
+}
+
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const STEP_USAGE_FIELDS = /Tokens$|^usageReadout$|^currentContext(Source|UpdatedAt)$/;
+/** The context-limit fields the step's first usage reading fills in (as recorded); no other branch field rides along. */
+const STEP_CONTEXT_FIELDS = ['autoCompactTokenLimit', 'compactBoundaryTokens', 'displayContextWindow'];
+
+/**
+ * Whether `next` is `state` plus the step the approval stood in front of and nothing else: the same approval, the spinner at `tool-use`
+ * with its token counts, the usage figures of the stats, the context-limit fields of the first usage reading, and exactly one tool row
+ * appended to the items with the revision one higher. Any other difference (a toast the next state clears, a changed row, a
+ * field outside these) keeps `state` a required frame.
+ */
+export function onlyTheStepFollows(state, next) {
+  if (!same(state.toolApproval, next.toolApproval) || next.spinner?.mode !== 'tool-use') return false;
+  const { mode: _m, inputTokens: _i, outputTokens: _o, ...spinnerBefore } = state.spinner;
+  const { mode: _m2, inputTokens: _i2, outputTokens: _o2, ...spinnerAfter } = next.spinner;
+  if (!same(spinnerBefore, spinnerAfter)) return false;
+  const statKeys = Object.keys({ ...state.stats, ...next.stats }).filter((k) => !same(state.stats?.[k], next.stats?.[k]));
+  if (!statKeys.every((k) => STEP_USAGE_FIELDS.test(k))) return false;
+  const kept = state.items ?? [];
+  const added = (next.items ?? []).slice(kept.length);
+  const grew = added.length === 1 && added[0]?.kind === 'tool' && same(next.items.slice(0, kept.length), kept);
+  // The revision counts the one appended row.
+  if (!grew || next.structureRevision !== state.structureRevision + 1) return false;
+  const allowed = new Set(['spinner', 'stats', 'items', 'structureRevision', ...STEP_CONTEXT_FIELDS]);
+  return differingFields(state, next).every((d) => allowed.has(d.field));
 }
 
 /** The state fields branch hw-phone-worktree-args owns (the context window and compaction limits, the conversation's route and place). */
@@ -180,7 +216,7 @@ export function alignHistory(node, raw) {
   const step = Array.from({ length: node.length + 1 }, () => new Array(core.length + 1).fill(''));
   for (let i = 1; i <= node.length; i += 1) {
     for (let j = 1; j <= core.length; j += 1) {
-      const options = [['pair', pairs[i - 1][j - 1] ? cost[i - 1][j - 1] + pairCost(pairs[i - 1][j - 1]) : Infinity], ['skip', cost[i][j - 1]], ['missing', cost[i - 1][j] + (node[i - 1].othersOnly ? othersMissing : MISSING)]];
+      const options = [['pair', pairs[i - 1][j - 1] ? cost[i - 1][j - 1] + pairCost(pairs[i - 1][j - 1]) : Infinity], ['skip', cost[i][j - 1]], ['missing', cost[i - 1][j] + (node[i - 1].interim ? 0 : node[i - 1].othersOnly ? othersMissing : MISSING)]];
       const [move, value] = options.reduce((best, o) => (o[1] < best[1] ? o : best));
       cost[i][j] = value;
       step[i][j] = move;
@@ -192,7 +228,9 @@ export function alignHistory(node, raw) {
     const label = { entry: want.at, kind: want.kind, ...(want.input ? { input: want.input } : {}) };
     const move = j === 0 ? 'missing' : step[i][j];
     if (move === 'skip') j -= 1;
-    else if (move === 'missing') {
+    else if (move === 'missing' && want.interim) {
+      i -= 1;
+    } else if (move === 'missing') {
       differences.unshift({ ...label, path: want.othersOnly ? 'missing (hw-phone-worktree-args fields only)' : 'missing', node: want.value, core: null });
       i -= 1;
     } else {
@@ -200,6 +238,12 @@ export function alignHistory(node, raw) {
       i -= 1;
       j -= 1;
     }
+  }
+  // The liveness the interim frame stood for: the approval itself reached the phone (its content equal to Node's), whichever frame of
+  // the core carried it first.
+  for (const want of node.filter((h) => h.interim)) {
+    const published = core.some((e) => e.kind === 'state' && JSON.stringify(e.value.toolApproval) === JSON.stringify(want.value.toolApproval));
+    if (!published) differences.push({ entry: want.at, kind: 'state', path: 'the approval was never published', node: want.value.toolApproval, core: null });
   }
   return differences;
 }
@@ -518,7 +562,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     // clock move's) effect is out before the next input, however many frames Node split it into.
     const owe = async (owed, what) => {
       const want = kinds(owed);
-      const windows = new Set(owed.filter((h) => h.kind === 'state' && !h.othersOnly).map((h) => node.inputs.filter((i) => i.at <= h.at).length)).size;
+      const windows = new Set(owed.filter((h) => h.kind === 'state' && !h.othersOnly && !h.interim).map((h) => node.inputs.filter((i) => i.at <= h.at).length)).size;
       await until(() => kinds(log).reply >= want.reply && kinds(log).state >= windows, what);
       reached.matched = owed.length;
     };
@@ -557,7 +601,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       // What the submitting phone's thread list hears after its join read, each at the clock it came at (normalized once the thread's id
       // is known).
       const ctx = { phone: { start: async () => undefined }, sessionsCatalog: { publish: (rows) => { if (viewing && joined) roster.push({ clock: clockAt, sessions: plain(rows) }); wake(); } } };
-      const router = createProtocolRouter([adapter], { host: { ctx, client: () => client, declareLane() {} }, started: async () => undefined, synced: async () => undefined, probe() {}, silentSince: () => false });
+      const router = createProtocolRouter([adapter], { host: { ctx, client: () => client, declareLane() {} }, started: async () => undefined, synced: async () => undefined, appSynced: async () => undefined, probe() {}, silentSince: () => false });
       router.install();
       await deadline.race(client.subscribeApp(), `the app feed of ${title}`);
       await deadline.race(router.call('listSessions', []), `the first list read of ${title}`);

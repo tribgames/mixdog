@@ -1,6 +1,4 @@
-//! The socket diagnostics line and the scheduling-lag probe: the four cases of `lib/relay-diagnostics.test.mjs`, on tokio's
-//! paused clock (the watch tick is armed through `mixdog_rt::time`, which is tokio's own timer without a replay's clock),
-//! and the probe's own window.
+//! The socket diagnostics line and the scheduling-lag probe, on tokio's paused clock (the watch tick is armed through `mixdog_rt::time`) and the probe's own window.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -76,83 +74,8 @@ async fn settle() {
     }
 }
 
-/// `count` watch ticks: each moves the clock 5 s and lets the report task run.
-async fn watch_ticks(count: usize) {
-    for _ in 0..count {
-        tokio::time::advance(Duration::from_secs(5)).await;
-        settle().await;
-    }
-}
-
 fn calls_of(calls: &Calls) -> Vec<&'static str> {
     lock(&calls.0).clone()
-}
-
-#[tokio::test(start_paused = true)]
-async fn logs_every_interval_while_a_phone_is_connected_with_each_socket_buffer_and_the_loop_delay() {
-    let live: Live = Arc::new(Mutex::new(desktops(&[0, 2048], 10)));
-    let calls = Calls::default();
-    let (_diagnostics, lines) = running(&live, &calls);
-    assert_eq!(watch_interval(SOCKET_REPORT_INTERVAL), Duration::from_secs(5), "a cheap watch tick, six of which make one 30s report");
-    watch_ticks(5).await;
-    assert!(lock(&lines).is_empty(), "nothing is written before the first interval");
-    watch_ticks(1).await;
-    assert_eq!(lock(&lines).len(), 1);
-    watch_ticks(6).await;
-    let lines = lock(&lines).clone();
-    assert_eq!(lines.len(), 2);
-    assert!(lines[0].starts_with("[relay] sockets 30s phones=2 buffered "), "{}", lines[0]);
-    assert!(lines[0].contains("phone:phone-1-=2.0KB"), "{}", lines[0]);
-    assert!(lines[0].contains("desktop:desktop-=10B"), "{}", lines[0]);
-    assert!(lines[0].ends_with("loop-p50=1.0ms loop-p99=4.3ms loop-max=12.0ms"), "{}", lines[0]);
-    assert!(!lines[0].contains("idle-des"), "a desktop with no phone is not listed");
-}
-
-#[tokio::test(start_paused = true)]
-async fn the_lag_probe_runs_only_while_a_pc_or_phone_is_connected() {
-    let live: Live = Arc::default();
-    let calls = Calls::default();
-    let (diagnostics, lines) = running(&live, &calls);
-    assert!(calls_of(&calls).is_empty(), "an idle relay starts no probe");
-    watch_ticks(20).await;
-    assert!(calls_of(&calls).is_empty());
-    // A desktop alone is a connection: sampled, but nothing is logged without a phone.
-    *lock(&live) = vec![desktop("desktop-id-1", Some(0), &[])];
-    watch_ticks(6).await;
-    assert_eq!(calls_of(&calls), ["start", "take"]);
-    assert!(lock(&lines).is_empty());
-    lock(&live)[0].phones.push(PhoneSocket { client_id: "late-phone".into(), buffered: 5 });
-    watch_ticks(6).await;
-    assert_eq!(lock(&lines).len(), 1);
-    assert!(lock(&lines)[0].contains("phones=1 "));
-    // The last connection leaves: the probe stops at the next watch tick.
-    lock(&live).clear();
-    watch_ticks(1).await;
-    assert_eq!(calls_of(&calls).last(), Some(&"stop"));
-    let stopped = calls_of(&calls).len();
-    watch_ticks(20).await;
-    assert_eq!(calls_of(&calls).len(), stopped);
-    // And starts again for the next one.
-    *lock(&live) = vec![desktop("desktop-id-2", Some(0), &[])];
-    watch_ticks(1).await;
-    assert_eq!(calls_of(&calls).last(), Some(&"start"));
-    diagnostics.stop();
-    assert_eq!(calls_of(&calls).last(), Some(&"stop"));
-}
-
-#[tokio::test(start_paused = true)]
-async fn stop_ends_the_watch_tick_and_the_probe() {
-    let live: Live = Arc::new(Mutex::new(desktops(&[0], 0)));
-    let calls = Calls::default();
-    let (diagnostics, lines) = running(&live, &calls);
-    watch_ticks(1).await;
-    assert_eq!(calls_of(&calls), ["start"]);
-    diagnostics.stop();
-    assert_eq!(calls_of(&calls).last(), Some(&"stop"));
-    let stopped = calls_of(&calls).len();
-    watch_ticks(12).await;
-    assert_eq!(calls_of(&calls).len(), stopped, "no tick runs after stop");
-    assert!(lock(&lines).is_empty());
 }
 
 #[test]
@@ -189,6 +112,78 @@ fn a_window_reports_nearest_rank_percentiles_and_opens_a_fresh_one() {
     assert_eq!((again.p50, again.p99, again.max), (0.0, 0.0, 0.0));
 }
 
+
+/// `count` watch ticks: each moves the clock 5 s and lets the report task run.
+async fn watch_ticks(count: usize) {
+    for _ in 0..count {
+        tokio::time::advance(Duration::from_secs(5)).await;
+        settle().await;
+    }
+}
+#[tokio::test(start_paused = true)]
+async fn logs_every_interval_while_a_phone_is_connected_with_each_socket_buffer_and_the_loop_delay() {
+    let live: Live = Arc::new(Mutex::new(desktops(&[0, 2048], 10)));
+    let calls = Calls::default();
+    let (_diagnostics, lines) = running(&live, &calls);
+    assert_eq!(watch_interval(SOCKET_REPORT_INTERVAL), Duration::from_secs(5), "a cheap watch tick, six of which make one 30s report");
+    watch_ticks(5).await;
+    assert!(lock(&lines).is_empty(), "nothing is written before the first interval");
+    watch_ticks(1).await;
+    assert_eq!(lock(&lines).len(), 1);
+    watch_ticks(6).await;
+    let lines = lock(&lines).clone();
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0].starts_with("[relay] sockets 30s phones=2 buffered "), "{}", lines[0]);
+    assert!(lines[0].contains("phone:phone-1-=2.0KB"), "{}", lines[0]);
+    assert!(lines[0].contains("desktop:desktop-=10B"), "{}", lines[0]);
+    assert!(lines[0].ends_with("loop-p50=1.0ms loop-p99=4.3ms loop-max=12.0ms"), "{}", lines[0]);
+    assert!(!lines[0].contains("idle-des"), "a desktop with no phone is not listed");
+}
+#[tokio::test(start_paused = true)]
+async fn the_lag_probe_runs_only_while_a_pc_or_phone_is_connected() {
+    let live: Live = Arc::default();
+    let calls = Calls::default();
+    let (diagnostics, lines) = running(&live, &calls);
+    assert!(calls_of(&calls).is_empty(), "an idle relay starts no probe");
+    watch_ticks(20).await;
+    assert!(calls_of(&calls).is_empty());
+    // A desktop alone is a connection: sampled, but nothing is logged without a phone.
+    *lock(&live) = vec![desktop("desktop-id-1", Some(0), &[])];
+    watch_ticks(6).await;
+    assert_eq!(calls_of(&calls), ["start", "take"]);
+    assert!(lock(&lines).is_empty());
+    lock(&live)[0].phones.push(PhoneSocket { client_id: "late-phone".into(), buffered: 5 });
+    watch_ticks(6).await;
+    assert_eq!(lock(&lines).len(), 1);
+    assert!(lock(&lines)[0].contains("phones=1 "));
+    // The last connection leaves: the probe stops at the next watch tick.
+    lock(&live).clear();
+    watch_ticks(1).await;
+    assert_eq!(calls_of(&calls).last(), Some(&"stop"));
+    let stopped = calls_of(&calls).len();
+    watch_ticks(20).await;
+    assert_eq!(calls_of(&calls).len(), stopped);
+    // And starts again for the next one.
+    *lock(&live) = vec![desktop("desktop-id-2", Some(0), &[])];
+    watch_ticks(1).await;
+    assert_eq!(calls_of(&calls).last(), Some(&"start"));
+    diagnostics.stop();
+    assert_eq!(calls_of(&calls).last(), Some(&"stop"));
+}
+#[tokio::test(start_paused = true)]
+async fn stop_ends_the_watch_tick_and_the_probe() {
+    let live: Live = Arc::new(Mutex::new(desktops(&[0], 0)));
+    let calls = Calls::default();
+    let (diagnostics, lines) = running(&live, &calls);
+    watch_ticks(1).await;
+    assert_eq!(calls_of(&calls), ["start"]);
+    diagnostics.stop();
+    assert_eq!(calls_of(&calls).last(), Some(&"stop"));
+    let stopped = calls_of(&calls).len();
+    watch_ticks(12).await;
+    assert_eq!(calls_of(&calls).len(), stopped, "no tick runs after stop");
+    assert!(lock(&lines).is_empty());
+}
 #[tokio::test(start_paused = true)]
 async fn the_probe_records_how_late_its_tick_ran() {
     let mut probe = LagProbe::new();

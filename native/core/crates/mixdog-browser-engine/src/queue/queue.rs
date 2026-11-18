@@ -68,8 +68,6 @@ impl fmt::Display for QueueError {
     }
 }
 
-impl std::error::Error for QueueError {}
-
 /// The ceiling of one command and how its timeout reads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Deadline {
@@ -283,20 +281,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn after_the_person_lets_go_the_page_is_open_again_once_quiet() {
-        let queue = CommandQueue::new(Arc::new(UserHold::with_quiet(Duration::from_millis(40))));
-        let key = lane("foreground", Some("p1"));
-        queue.hold().on_user_input(input("p1", true));
-        let refused = queue.run(&key, Kind::Read, &deadline(), &CancelSource::new(), |_| async {}).await;
-        assert_eq!(refused, Err(QueueError::LocalInput));
-        queue.hold().on_user_input(input("p1", false));
-        let refused = queue.run(&key, Kind::Write, &deadline(), &CancelSource::new(), |_| async {}).await;
-        assert_eq!(refused, Err(QueueError::LocalInput));
-        time::sleep(Duration::from_millis(60)).await;
-        assert_eq!(queue.run(&key, Kind::Read, &deadline(), &CancelSource::new(), |_| async { 3 }).await, Ok(3));
-    }
-
-    #[tokio::test]
     async fn releasing_the_page_ends_its_hold_at_once() {
         let queue = CommandQueue::default();
         let key = lane("foreground", Some("p1"));
@@ -345,25 +329,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_ceiling_stops_at_its_limit_and_stands_still_while_the_person_is_asked() {
-        let queue = CommandQueue::default();
-        let key = lane("foreground", None);
-        let short = Deadline { label: "browser click".into(), ceiling: Duration::from_millis(40) };
-        let stuck = queue.run(&key, Kind::Write, &short, &CancelSource::new(), |_| std::future::pending::<()>()).await;
-        assert_eq!(stuck, Err(QueueError::TimedOut { label: "browser click".into(), millis: 40 }));
-        assert!(!queue.is_busy(&key), "the key is free once the command ended");
-        let asked = queue
-            .run(&key, Kind::Write, &short, &CancelSource::new(), |context| async move {
-                let asking = context.user_wait.begin();
-                time::sleep(Duration::from_millis(90)).await;
-                drop(asking);
-                "answered"
-            })
-            .await;
-        assert_eq!(asked, Ok("answered"));
-    }
-
-    #[tokio::test]
     async fn the_timeout_cancels_the_work_it_was_waiting_on() {
         let queue = CommandQueue::default();
         let short = Deadline { label: "browser wait".into(), ceiling: Duration::from_millis(30) };
@@ -388,4 +353,40 @@ mod tests {
         assert_eq!(Deadline::command("").label, "browser command");
         assert_eq!(Deadline::command("click").ceiling, COMMAND_TIMEOUT);
     }
+
+
+    #[tokio::test]
+    async fn after_the_person_lets_go_the_page_is_open_again_once_quiet() {
+        let queue = CommandQueue::new(Arc::new(UserHold::with_quiet(Duration::from_millis(40))));
+        let key = lane("foreground", Some("p1"));
+        queue.hold().on_user_input(input("p1", true));
+        let refused = queue.run(&key, Kind::Read, &deadline(), &CancelSource::new(), |_| async {}).await;
+        assert_eq!(refused, Err(QueueError::LocalInput));
+        queue.hold().on_user_input(input("p1", false));
+        let refused = queue.run(&key, Kind::Write, &deadline(), &CancelSource::new(), |_| async {}).await;
+        assert_eq!(refused, Err(QueueError::LocalInput));
+        time::sleep(Duration::from_millis(60)).await;
+        assert_eq!(queue.run(&key, Kind::Read, &deadline(), &CancelSource::new(), |_| async { 3 }).await, Ok(3));
+    }
+    #[tokio::test]
+    async fn the_ceiling_stops_at_its_limit_and_stands_still_while_the_person_is_asked() {
+        let queue = CommandQueue::default();
+        let key = lane("foreground", None);
+        let short = Deadline { label: "browser click".into(), ceiling: Duration::from_millis(40) };
+        let stuck = queue.run(&key, Kind::Write, &short, &CancelSource::new(), |_| std::future::pending::<()>()).await;
+        assert_eq!(stuck, Err(QueueError::TimedOut { label: "browser click".into(), millis: 40 }));
+        assert!(!queue.is_busy(&key), "the key is free once the command ended");
+        let asked = queue
+            .run(&key, Kind::Write, &short, &CancelSource::new(), |context| async move {
+                let asking = context.user_wait.begin();
+                time::sleep(Duration::from_millis(90)).await;
+                drop(asking);
+                "answered"
+            })
+            .await;
+        assert_eq!(asked, Ok("answered"));
+    }
 }
+
+
+impl std::error::Error for QueueError {}

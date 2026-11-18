@@ -13,7 +13,7 @@ export const ACTION_NAMESPACES = Object.freeze({
     'revertTurnReview', 'revertTurnReviewFile', 'revertTurnChanges', 'reapplyTurnChanges',
     'clearSessionChangeHistory', 'restoreNewerTranscript', 'restoreOlderTranscript', 'decideRoomTurn',
     'appendRoomRows', 'stageAttachmentOriginal', 'resizeImage', 'rememberPromptHistory', 'pushNotice', 'removeNotice',
-    'requestWorktree', 'mergeWorkspace', 'selectBranch',
+    'requestWorktree', 'mergeWorkspace', 'selectBranch', 'imageRecovery',
   ],
   project: [
     'inspectProjectBranch', 'getProjectBranchMenu', 'getProjectConnectors', 'listWorktrees', 'previewWorktreeCleanup',

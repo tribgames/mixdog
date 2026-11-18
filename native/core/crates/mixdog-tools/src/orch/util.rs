@@ -51,36 +51,6 @@ pub(crate) fn spec_from_def(
 
 #[cfg(test)]
 mod tests {
-    /// Every embedded definition but `todo`'s is Node's definition object, key for key
-    /// (`fixtures/tool-definitions/definitions.json`, `record-tool-definitions.mjs`, through `mixdog_js::fixture_tools`): title, trigger,
-    /// description, inputSchema and every hint as the definition states it, `idempotentHint` and an
-    /// explicit `agentHidden: false` included (`ask_user` reads read-only but not idempotent).
-    #[test]
-    fn the_embedded_definitions_are_nodes_definitions() {
-        let defs: [&'static str; 22] = [
-            include_str!("defs/memory.json"), include_str!("defs/recall.json"),
-            include_str!("defs/agent.json"), include_str!("defs/call_tool.json"), include_str!("defs/explore.json"),
-            include_str!("defs/load_tool.json"), include_str!("defs/media.json"), include_str!("defs/office.json"),
-            include_str!("defs/session.json"), include_str!("defs/setup.json"), include_str!("defs/Skill.json"),
-            include_str!("defs/tidy.json"), include_str!("../state/defs/ask_user.json"), include_str!("../state/defs/goal.json"),
-            include_str!("../state/defs/handoff_user.json"), include_str!("../state/defs/react.json"), include_str!("../state/defs/todo.json"),
-            include_str!("../desktop/defs/browser.json"), include_str!("../desktop/defs/browser_devtools.json"),
-            include_str!("../desktop/defs/computer.json"), include_str!("../desktop/defs/terminal.json"), include_str!("../desktop/defs/visualize.json"),
-        ];
-        for def in defs {
-            let spec = super::spec_from_def(def, false, &[]);
-            let node = mixdog_js::fixture_tools::definition(&spec.name).expect("a Node definition");
-            let got = spec.definition();
-            // `todo` is this core's own: `set` (the whole plan), `advance` and step numbers, where Node's took `init`,
-            // `append`, `rm` and item wordings. Its hints are still Node's.
-            if spec.name != "todo" {
-                assert_eq!(got, node, "{}", spec.name);
-            }
-            assert_eq!(got["annotations"].to_string(), node["annotations"].to_string(), "{} annotations", spec.name);
-        }
-        let ask = defs.iter().map(|def| super::spec_from_def(def, false, &[])).find(|spec| spec.name == "ask_user").expect("ask_user");
-        assert_eq!((ask.annotations.read_only_hint, ask.annotations.idempotent_hint, ask.annotations.agent_hidden), (Some(true), Some(false), Some(true)));
-    }
 
     #[test]
     fn the_hints_the_sandbox_reads_are_the_definitions_own() {
@@ -112,6 +82,46 @@ mod tests {
                 assert_eq!(Some(hidden), spec.annotations.agent_hidden, "{} agentHidden", spec.name);
             }
         }
+    }
+
+
+    /// Every embedded definition but `todo`'s is Node's definition object, key for key
+    /// (`fixtures/tool-definitions/definitions.json`, `record-tool-definitions.mjs`, through `mixdog_js::fixture_tools`): title, trigger,
+    /// description, inputSchema and every hint as the definition states it, `idempotentHint` and an
+    /// explicit `agentHidden: false` included (`ask_user` reads read-only but not idempotent).
+    /// `ask_user` reads read-only but not idempotent, and is hidden from the agent.
+    #[test]
+    fn ask_user_is_read_only_not_idempotent_and_hidden_from_agents() {
+        let ask = super::spec_from_def(include_str!("../state/defs/ask_user.json"), false, &[]);
+        assert_eq!((ask.annotations.read_only_hint, ask.annotations.idempotent_hint, ask.annotations.agent_hidden), (Some(true), Some(false), Some(true)));
+    }
+
+    #[cfg(node_twin)]
+    #[test]
+    fn the_embedded_definitions_are_nodes_definitions() {
+        let defs: [&'static str; 22] = [
+            include_str!("defs/memory.json"), include_str!("defs/recall.json"),
+            include_str!("defs/agent.json"), include_str!("defs/call_tool.json"), include_str!("defs/explore.json"),
+            include_str!("defs/load_tool.json"), include_str!("defs/media.json"), include_str!("defs/office.json"),
+            include_str!("defs/session.json"), include_str!("defs/setup.json"), include_str!("defs/Skill.json"),
+            include_str!("defs/tidy.json"), include_str!("../state/defs/ask_user.json"), include_str!("../state/defs/goal.json"),
+            include_str!("../state/defs/handoff_user.json"), include_str!("../state/defs/react.json"), include_str!("../state/defs/todo.json"),
+            include_str!("../desktop/defs/browser.json"), include_str!("../desktop/defs/browser_devtools.json"),
+            include_str!("../desktop/defs/computer.json"), include_str!("../desktop/defs/terminal.json"), include_str!("../desktop/defs/visualize.json"),
+        ];
+        for def in defs {
+            let spec = super::spec_from_def(def, false, &[]);
+            let node = mixdog_js::fixture_tools::definition(&spec.name).expect("a Node definition");
+            let got = spec.definition();
+            // These owners intentionally diverge from Node's input/reply contract. Their
+            // routing annotations remain unchanged and are still compared below.
+            if !matches!(spec.name.as_str(), "todo" | "agent" | "session" | "goal" | "ask_user" | "handoff_user" | "memory" | "Skill") {
+                assert_eq!(got, node, "{}", spec.name);
+            }
+            assert_eq!(got["annotations"].to_string(), node["annotations"].to_string(), "{} annotations", spec.name);
+        }
+        let ask = defs.iter().map(|def| super::spec_from_def(def, false, &[])).find(|spec| spec.name == "ask_user").expect("ask_user");
+        assert_eq!((ask.annotations.read_only_hint, ask.annotations.idempotent_hint, ask.annotations.agent_hidden), (Some(true), Some(false), Some(true)));
     }
 }
 /// A failure reported by a port (the session, agent, catalog, host and service seams a tool

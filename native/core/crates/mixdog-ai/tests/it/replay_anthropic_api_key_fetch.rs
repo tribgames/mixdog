@@ -105,8 +105,10 @@ fn gzip_sync(raw: &[u8]) -> Vec<u8> {
     encoder.finish().expect("gzip")
 }
 
+#[cfg(node_twin)]
 pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "anthropic-api-key-fetch-rest", run: every_case_replays_as_nodes }];
 
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load("anthropic-api-key-fetch-rest");

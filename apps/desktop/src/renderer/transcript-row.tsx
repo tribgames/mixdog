@@ -1,7 +1,20 @@
 import { ChevronDown, GitCommitHorizontal, GitPullRequest, SlidersHorizontal, Upload } from 'lucide-react';
 import { parseIslandGitRequestText } from './island-git-request';
-import { Suspense, createContext, memo, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import {
+  Suspense,
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { useAttachmentContextMenu } from './attachment-context-menu';
+import { createBlockParking, MarkdownBlockParkingContext } from './markdown-block-parking';
 import { MarkdownOpenFileContext, MarkdownSessionContext, MarkdownTranscriptItemContext } from './MarkdownLink';
 import type { TranscriptItem } from './desktop-types';
 import { isOtherDevice } from '../shared/session-devices';
@@ -18,17 +31,12 @@ import {
   resolveStreamingMarkdownChunks,
 } from './streaming-markdown';
 import StreamingMarkdownBody from './StreamingMarkdownBody';
-import {
-  dropStreamFadeTimeline,
-  STREAM_FADE_SETTLE_MS,
-  settleStreamFades,
-  streamFadeTimeline,
-} from './markdown-stream-fade';
-import { preloadSyncMarkdownParser } from './markdown-worker-client';
+import { dropStreamFadeTimeline, type StreamFadeTimeline, streamFadeTimeline } from './markdown-stream-fade';
+import { preloadSyncMarkdownParser, subscribeSyncMarkdownParser, syncMarkdownParserLoad } from './markdown-worker-client';
 import { CopyControl } from './transcript-primitives';
 import { noteStreamCommit } from './transcript-stream-metrics';
-import { useTranscriptTextReveal } from './use-transcript-text-reveal';
-import { type BackgroundWorkCounts, CompletionStatus } from './transcript-status';
+import { REVEAL_JOIN_CHARS, useTranscriptTextReveal } from './use-transcript-text-reveal';
+import { type BackgroundWorkCounts, CompletionStatus, ModelSwitchDivider } from './transcript-status';
 import { shouldSuppressFullyFailedToolItem } from './transcript-tool-model';
 import { ToolCard } from './transcript-tool-ui';
 import { SteerStatus } from './transcript-steer-status';
@@ -101,50 +109,74 @@ const StableMarkdownBody = memo(function StableMarkdownBody({ text }: { text: st
   return <MarkdownBody text={text} copyControl={CopyControl} />;
 });
 
+/** The fade of the paced reply row `key` showing `text` (markdown-stream-fade):
+ *  the timeline its body fades on, and whether the row is live: streaming,
+ *  text not on screen yet (a parse still to land: it fades in when it shows),
+ *  or a body showing a fade (exactly until the last one ends; the row renders
+ *  again then, and its timeline goes). `streaming` false with text that had
+ *  not shown: that rest becomes the last phrase. What the bodies bring on
+ *  screen and show fading is recorded as they commit, before this row's
+ *  layout effect: a row with nothing left to show or fading settles before
+ *  that commit paints. The render's pass is read while rendering and
+ *  recorded when it commits. */
+function useStreamFade(
+  key: string,
+  text: string,
+  streaming: boolean,
+  revision: number
+): { timeline: StreamFadeTimeline | null; live: boolean } {
+  // A first text past REVEAL_JOIN_CHARS showed at once: it opens unfaded.
+  const timeline = key ? streamFadeTimeline(key, streaming, text.length > REVEAL_JOIN_CHARS ? text : undefined) : null;
+  const subscribe = useCallback(
+    (listener: () => void) => (timeline ? timeline.subscribe(listener) : () => {}),
+    [timeline]
+  );
+  const version = useCallback(() => timeline?.version ?? 0, [timeline]);
+  useSyncExternalStore(subscribe, version, version);
+  const now = performance.now();
+  const pass = timeline ? timeline.read(text, now, revision, !streaming) : null;
+  const live =
+    streaming || (timeline ? timeline.owes(text.length) || timeline.visibleUntil(now) > 0 : false);
+  const [, fadeEnded] = useState(0);
+  useLayoutEffect(() => {
+    if (timeline && pass) timeline.commit(pass);
+  });
+  useEffect(() => {
+    const until = timeline && !streaming && live ? timeline.visibleUntil(performance.now()) : 0;
+    if (!until) return;
+    const timer = setTimeout(() => fadeEnded((count) => count + 1), Math.max(0, until - performance.now()));
+    return () => clearTimeout(timer);
+  });
+  useEffect(() => {
+    if (timeline && !live) dropStreamFadeTimeline(key);
+  }, [timeline, live, key]);
+  return { timeline: live ? timeline : null, live };
+}
+
 const MarkdownResponse = memo(function MarkdownResponse({
   text,
   streaming,
-  fadeKey,
-  fadeRevision = 0,
+  fadeTimeline = null,
 }: {
   text: string;
   streaming: boolean;
-  /** Row identity of the reply's word-fade timeline (markdown-stream-fade);
-   *  empty: nothing fades. */
-  fadeKey: string;
-  /** The reveal's last rewrite of `text` (use-transcript-text-reveal). */
-  fadeRevision?: number;
+  /** The reply's fade timeline (useStreamFade); null: nothing fades. */
+  fadeTimeline?: StreamFadeTimeline | null;
 }) {
   const markdownCache = useRef(createStreamingMarkdownCache());
   const workerPipeline = useRef(streaming);
-  // Every chunk, frozen ones included, fades on the reply's one timeline. As
-  // the reply settles its running fades speed up to end within
-  // STREAM_FADE_SETTLE_FADE_MS and the rest it then shows at once fades as one
-  // phrase; STREAM_FADE_SETTLE_MS later its words show unwrapped.
-  const [fadeSettled, setFadeSettled] = useState(false);
-  const fadeTimeline = fadeKey && !fadeSettled ? streamFadeTimeline(fadeKey, streaming) : null;
-  fadeTimeline?.sync(text, performance.now(), fadeRevision, !streaming);
   const markdownRef = useRef<HTMLDivElement>(null);
-  // The settle commits before paint: phrases still running end within
-  // STREAM_FADE_SETTLE_FADE_MS, on screen and in elements created later.
-  useLayoutEffect(() => {
-    if (streaming || !fadeTimeline) return;
-    fadeTimeline.settle(performance.now());
-    const node = markdownRef.current;
-    // getAnimations is missing only in test DOMs.
-    if (node?.getAnimations) settleStreamFades(node);
-  }, [streaming, fadeTimeline]);
-  useEffect(() => {
-    if (streaming || !fadeTimeline) return;
-    const timer = setTimeout(() => {
-      dropStreamFadeTimeline(fadeKey);
-      setFadeSettled(true);
-    }, STREAM_FADE_SETTLE_MS);
-    return () => clearTimeout(timer);
-  }, [streaming, fadeTimeline, fadeKey]);
   useLayoutEffect(() => {
     if (streaming) noteStreamCommit(text.length);
   }, [streaming, text]);
+  // A reply at rest keeps only the blocks near the reader in the DOM; one
+  // still arriving or fading keeps them all.
+  const [parking] = useState(createBlockParking);
+  const parkable = !streaming && !fadeTimeline;
+  useLayoutEffect(() => {
+    parking.attach(markdownRef.current, parkable);
+  }, [parking, parkable]);
+  useEffect(() => () => parking.attach(null, false), [parking]);
   if (streaming) workerPipeline.current = true;
   // Every reply loads the main-thread parser: a reply that arrives whole, or
   // the next settled row, then paints parsed in its first commit.
@@ -152,21 +184,31 @@ const MarkdownResponse = memo(function MarkdownResponse({
     void preloadSyncMarkdownParser();
   }, []);
   const markdownParts = resolveStreamingMarkdownChunks(text, streaming, markdownCache.current);
-  const renderedChunks = markdownParts.stableChunks.map((chunk, index) => (
-    <Suspense fallback={<span hidden data-transcript-pending />} key={markdownParts.stableChunkKeys[index]}>
-      {workerPipeline.current ? (
-        <StreamingMarkdownBody
-          text={chunk}
-          sync
-          fadeTimeline={fadeTimeline}
-          fadeChunk={markdownParts.stableChunkKeys[index]}
-          copyControl={CopyControl}
-        />
-      ) : (
-        <StableMarkdownBody text={chunk} />
-      )}
-    </Suspense>
-  ));
+  // A reply that streamed here and ended: its text parses in the commit that
+  // ends it, so the rest shows at once.
+  const final = !streaming && workerPipeline.current;
+  // The chunks cut `text` in order: each starts where the ones before end.
+  let chunkOffset = 0;
+  const renderedChunks = markdownParts.stableChunks.map((chunk, index) => {
+    const offset = chunkOffset;
+    chunkOffset += chunk.length;
+    return (
+      <Suspense fallback={<span hidden data-transcript-pending />} key={markdownParts.stableChunkKeys[index]}>
+        {workerPipeline.current ? (
+          <StreamingMarkdownBody
+            text={chunk}
+            sync
+            final={final}
+            fadeTimeline={fadeTimeline}
+            fadeOffset={offset}
+            copyControl={CopyControl}
+          />
+        ) : (
+          <StableMarkdownBody text={chunk} />
+        )}
+      </Suspense>
+    );
+  });
   if (markdownParts.unstableText) {
     const unstableParseText = streaming
       ? healStreamingMarkdownTail(markdownParts.unstableText)
@@ -179,8 +221,9 @@ const MarkdownResponse = memo(function MarkdownResponse({
             parseText={unstableParseText}
             parse={markdownParts.parseUnstable}
             sync
+            final={final}
             fadeTimeline={fadeTimeline}
-            fadeChunk={markdownParts.unstableKey}
+            fadeOffset={chunkOffset}
             copyControl={CopyControl}
           />
         ) : (
@@ -192,12 +235,14 @@ const MarkdownResponse = memo(function MarkdownResponse({
   // `streamed`: this mount watched the reply arrive (22-markdown.css keeps its
   // line breaks greedy, also once it settles).
   return (
-    <div
-      ref={markdownRef}
-      className={`markdown ${streaming ? 'streaming' : ''}${workerPipeline.current ? ' streamed' : ''}`}
-    >
-      {renderedChunks}
-    </div>
+    <MarkdownBlockParkingContext.Provider value={parking}>
+      <div
+        ref={markdownRef}
+        className={`markdown ${streaming ? 'streaming' : ''}${workerPipeline.current ? ' streamed' : ''}`}
+      >
+        {renderedChunks}
+      </div>
+    </MarkdownBlockParkingContext.Provider>
   );
 });
 
@@ -219,8 +264,20 @@ function shortTimeText(at: number): string {
   return shortTimeFormat.format.format(at);
 }
 
+/** The note under a sent message that lost the full-size original of some images (`originalImagesMissing`, the count the core
+ *  recorded on the message itself): the same sentence on every reload and device, in the reader's language. Null when the
+ *  message lost none. */
+export function originalImagesMissingText(count: unknown): string | null {
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 1) return null;
+  return count === 1
+    ? t('The full-size original of an image could not be found, so it was sent at its smaller size.')
+    : t('The full-size originals of {{count}} images could not be found, so they were sent at their smaller size.', {
+        count,
+      });
+}
+
 /** A runtime notice in the reader's language: the fixed notices by their
- *  English text, a route fallback or the heartbeat's breaker warning by its
+ *  English text, the heartbeat's breaker warning by its
  *  pattern, anything else as sent. */
 function noticeText(text: string | undefined) {
   if (text === 'The model refused to respond (safety refusal) — retry or rephrase your prompt.') {
@@ -230,7 +287,7 @@ function noticeText(text: string | undefined) {
     return t('Allowed this once. The setting could not be saved.');
   }
   const value = String(text || '');
-  return localizeRouteFallbackNotice(value) ?? localizeHeartbeatBreakerNotice(value) ?? text;
+  return localizeHeartbeatBreakerNotice(value) ?? text;
 }
 
 function gitRequestIcon(action: string) {
@@ -401,13 +458,29 @@ export const TranscriptRow = memo(
     const sessionScope = useContext(MarkdownSessionContext);
     const { texts: pastedTexts, records: pastedTokenRecords } = useSentPastedTexts(item, sessionScope);
     const assistant = item.kind === 'assistant';
+    // A reply that streamed here ends with its final text parsed in the
+    // commit that ends it (MarkdownResponse `final`), which needs the
+    // main-thread parser: until its import resolved, the row keeps its
+    // streaming presentation, then ends in one commit.
+    const streamedHere = useRef(false);
+    if (assistant && item.streaming) streamedHere.current = true;
+    const parserLoad = useSyncExternalStore(subscribeSyncMarkdownParser, syncMarkdownParserLoad, syncMarkdownParserLoad);
+    const ending = streamedHere.current && !item.streaming;
+    if (ending && typeof parserLoad === 'object') throw parserLoad.error;
+    const streaming = Boolean(item.streaming) || (ending && parserLoad !== 'ready');
+    useEffect(() => {
+      if (streaming && !item.streaming) void preloadSyncMarkdownParser();
+    }, [streaming, item.streaming]);
     const revealed = useTranscriptTextReveal({
       key: assistant ? revealKey : '',
       text: assistant ? String(item.text || '') : '',
-      streaming: Boolean(item.streaming),
+      streaming,
       paced,
     });
-    const streaming = Boolean(item.streaming);
+    // A paced reply that ended shows the rest at once, fading in, and stays a
+    // live row exactly while a fade runs.
+    const fade = useStreamFade(assistant && paced ? revealKey : '', revealed.text, streaming, revealed.revision);
+    const live = assistant && fade.live;
     const previousStreaming = useRef(streaming);
     const announceSettled = previousStreaming.current && !streaming;
     useEffect(() => {
@@ -439,6 +512,8 @@ export const TranscriptRow = memo(
       if (task?.kind === 'task') return <AgentTaskLine routine={task} />;
       const tone = item.tone === 'error' || item.tone === 'warn' ? item.tone : '';
       const routine = routineNoticeText(item.routine);
+      const fallback = routine == null ? localizeRouteFallbackNotice(item.text ?? '') : null;
+      if (fallback) return <ModelSwitchDivider label={fallback} />;
       return (
         <div className={`notice ${tone}`} role={item.tone === 'error' ? 'alert' : 'status'}>
           {routine ?? noticeText(item.text)}
@@ -482,10 +557,11 @@ export const TranscriptRow = memo(
     // marked, so `$HOME` or a skill that was off stays prose.
     const appliedSkills = user ? appliedSkillsOf(item) : [];
     const reactions = user ? messageReactionsOf(item) : [];
+    const originalMissingNote = user ? originalImagesMissingText(item.originalImagesMissing) : null;
     return (
       <>
         <article
-          className={`message ${user ? 'user' : 'assistant'} ${sourceLabel || (user && item.fromAgent) ? 'sourced-message' : ''} ${streaming ? 'streaming' : 'settled'} ${item.pending ? 'pending' : ''} ${user && attachedUser ? 'attached-user' : ''}`}
+          className={`message ${user ? 'user' : 'assistant'} ${sourceLabel || (user && item.fromAgent) ? 'sourced-message' : ''} ${streaming || live ? 'streaming' : 'settled'} ${item.pending ? 'pending' : ''} ${user && attachedUser ? 'attached-user' : ''}`}
           aria-live={streaming || announceSettled ? 'off' : undefined}
           aria-busy={item.pending === true ? 'true' : undefined}
         >
@@ -536,9 +612,10 @@ export const TranscriptRow = memo(
                 <MarkdownTranscriptItemContext.Provider value={streaming ? '' : String(item.id ?? '')}>
                   <MarkdownResponse
                     text={revealed.text}
+                    // Ended, its text parses as final even while the row
+                    // stays live for a parse to land or a fade to run.
                     streaming={streaming}
-                    fadeKey={paced ? revealKey : ''}
-                    fadeRevision={revealed.revision}
+                    fadeTimeline={fade.timeline}
                   />
                 </MarkdownTranscriptItemContext.Provider>
               )}
@@ -550,6 +627,11 @@ export const TranscriptRow = memo(
             <small className="message-device">{t('from {{device}}', { device: item.device })}</small>
           )}
           {user && <SteerStatus item={item} />}
+          {user && originalMissingNote ? (
+            <small className="message-original-missing" role="status">
+              {originalMissingNote}
+            </small>
+          ) : null}
           {showFooter && completion && !footerAfterCards && (
             <TranscriptResponseFooter
               item={item}

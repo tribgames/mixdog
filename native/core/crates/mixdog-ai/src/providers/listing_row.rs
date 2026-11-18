@@ -55,7 +55,9 @@ pub fn record(row: Map<String, Value>) -> ModelRecord {
 pub(crate) mod testing {
     use std::sync::Mutex;
 
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::provider::ModelRecord;
+    #[cfg(node_twin)]
     use serde_json::Value;
 
     use async_trait::async_trait;
@@ -101,12 +103,7 @@ pub(crate) mod testing {
         }
     }
 
-    #[allow(clippy::disallowed_methods, reason = "test: reads a recorded fixture synchronously")]
-    pub(crate) fn fixture(relative: &str) -> serde_json::Value {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/providers").join(relative);
-        serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{relative}: {e}"))).unwrap()
-    }
-
+    #[cfg(node_twin)]
     /// The record states every `model/list` fact the Node row states, and none the row leaves out.
     pub(crate) fn assert_row_facts(record: &ModelRecord, row: &Value, what: &str) {
         let text = |key: &str| row.get(key).and_then(Value::as_str).map(str::to_owned);
@@ -131,7 +128,16 @@ pub(crate) mod testing {
         assert_eq!(record.supports_reasoning_effort_updates, flag("supportsReasoningEffortUpdates"), "{what}: supportsReasoningEffortUpdates");
     }
 
+    #[cfg(node_twin)]
     pub(crate) fn unhex(text: &str) -> Vec<u8> {
         (0..text.len()).step_by(2).map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap()).collect()
+    }
+
+
+    #[cfg(node_twin)]
+    #[allow(clippy::disallowed_methods, reason = "test: reads a recorded fixture synchronously")]
+    pub(crate) fn fixture(relative: &str) -> serde_json::Value {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/providers").join(relative);
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{relative}: {e}"))).unwrap()
     }
 }

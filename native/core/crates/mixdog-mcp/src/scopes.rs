@@ -278,7 +278,121 @@ mod tests {
         assert!(scopes.allowed_for_cwd(ScopeKind::Mcp, "x", Path::new("/anywhere")));
     }
 
-    /// The scope rules against real Node's (`fixtures/extension-scopes/golden.json`, from `record-extension-scopes.mjs`): the
+    /// `extension-scopes.test.mjs` "MCP tools filter by server scope intersected with the owning plugin scope".
+    #[test]
+    fn a_plugin_servers_scope_is_its_own_intersected_with_its_plugins() {
+        let (a, b) = (std::env::temp_dir().join("work").join("alpha"), std::env::temp_dir().join("work").join("beta"));
+        let (a_text, b_text) = (a.to_string_lossy(), b.to_string_lossy());
+        let scopes = ExtensionScopes::from_config(&json!({
+            "mcp": { "UnityMCP": [b_text], "plugin-unity-editor": [a_text, b_text] },
+            "plugins": { "unity": [a_text] },
+        }));
+        assert!(!scopes.mcp_server_allowed_for_cwd("UnityMCP", None, &a));
+        assert!(scopes.mcp_server_allowed_for_cwd("UnityMCP", None, &b));
+        assert!(!scopes.mcp_server_allowed_for_cwd("plugin-unity-editor", Some("unity"), &b));
+        assert!(scopes.mcp_server_allowed_for_cwd("plugin-unity-editor", Some("unity"), &a));
+        // Owner metadata, not the name, decides: a look-alike server of no plugin is free.
+        assert!(scopes.mcp_server_allowed_for_cwd("plugin-unity-tools", None, &b));
+    }
+
+
+    fn base() -> String {
+        std::env::temp_dir().join("scope-base").to_string_lossy().into_owned()
+    }
+
+    fn in_base(rel: &str) -> String {
+        Path::new(&base()).join(rel).to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn an_empty_root_list_matches_every_directory_and_a_root_matches_itself_and_what_is_below_it() {
+        let root = in_base("a");
+        assert!(within_projects(Path::new("/anywhere"), &[]));
+        assert!(within_projects(Path::new(&root), std::slice::from_ref(&root)));
+        assert!(within_projects(Path::new(&in_base("a/b/c")), std::slice::from_ref(&root)));
+        assert!(!within_projects(Path::new(&in_base("ab")), std::slice::from_ref(&root)), "a sibling that shares the name's start is outside");
+        assert!(!within_projects(Path::new(&in_base("")), std::slice::from_ref(&root)), "the parent is outside");
+        assert!(within_projects(Path::new(&in_base("a/b/../c")), std::slice::from_ref(&root)), "`..` is folded");
+        assert!(within_projects(Path::new(&in_base("a")), &[format!("{root}{}", std::path::MAIN_SEPARATOR)]), "a trailing separator is not part of the root");
+    }
+
+    #[test]
+    fn the_stored_map_keeps_sorted_distinct_resolved_roots_and_drops_empty_entries() {
+        let (b, a) = (in_base("b"), in_base("a"));
+        let scopes = ExtensionScopes::from_config(&json!({"skills": {" deploy ": [b, a, in_base("a/../a"), " ", null], "empty": [], "blank ": ["", "  "]}}));
+        assert_eq!(scopes.projects(ScopeKind::Skills, "deploy"), Some(&[a.clone(), b][..]), "sorted, resolved and without duplicates");
+        assert_eq!(scopes.projects(ScopeKind::Skills, "empty"), None);
+        assert_eq!(scopes.projects(ScopeKind::Skills, "blank"), None);
+        assert_eq!(scopes.to_config()["skills"], json!({"deploy": scopes.projects(ScopeKind::Skills, "deploy").unwrap()}));
+    }
+
+    #[test]
+    fn a_plugin_scope_limits_its_skills_as_well_as_the_skill_own_scope() {
+        let (a, b) = (in_base("a"), in_base("b"));
+        let skill = |name: &str, plugin: Option<&str>| Skill {
+            name: name.to_owned(),
+            description: String::new(),
+            when_to_use: String::new(),
+            file_path: std::path::PathBuf::new(),
+            source: crate::skills::SkillSource::Global,
+            plugin: plugin.map(str::to_owned),
+            requires: Vec::new(),
+            tool_dependencies: crate::skill_deps::SkillToolDependencies::none(),
+        };
+        let scopes = ExtensionScopes::from_config(&json!({"skills": {"own": [a]}, "plugins": {"p": [b]}}));
+        assert!(scopes.skill_allowed_for_cwd(&skill("own", None), Path::new(&a)));
+        assert!(!scopes.skill_allowed_for_cwd(&skill("own", None), Path::new(&b)));
+        assert!(scopes.skill_allowed_for_cwd(&skill("free", Some("p")), Path::new(&b)));
+        assert!(!scopes.skill_allowed_for_cwd(&skill("free", Some("p")), Path::new(&a)), "the plugin's scope excludes it");
+        assert!(!scopes.skill_allowed_for_cwd(&skill("own", Some("p")), Path::new(&a)), "both scopes must admit");
+    }
+
+    #[test]
+    fn a_scope_change_is_refused_for_an_unknown_kind_an_mcp_server_or_a_missing_name() {
+        let plan = |kind: Value, name: Value| plan_extension_scope(&json!({}), &kind, &name, &json!([in_base("a")]), &[]).unwrap_err();
+        assert_eq!(plan(json!("themes"), json!("x")), ScopeError::BadKind);
+        assert_eq!(plan(json!("mcp"), json!("x")), ScopeError::McpNotScopable);
+        assert_eq!(plan(json!("skills"), json!("  ")), ScopeError::NameRequired);
+        assert_eq!(plan(json!("skills"), Value::Null), ScopeError::NameRequired);
+        assert_eq!(plan(json!("plugins"), json!("ghost")), ScopeError::PluginNotRegistered("ghost".into()));
+    }
+
+    #[test]
+    fn a_scope_change_sets_replaces_or_clears_one_entry_and_keeps_the_others() {
+        let (a, b) = (in_base("a"), in_base("b"));
+        let config = json!({"theme": "dark", "extensionScopes": {"skills": {"keep": [a]}}});
+        let set = plan_extension_scope(&config, &json!("skills"), &json!("deploy"), &json!([b]), &[]).unwrap();
+        assert_eq!(set.kind, ScopeKind::Skills);
+        assert_eq!(set.config["theme"], "dark");
+        assert_eq!(set.config["extensionScopes"]["skills"], json!({"keep": [a], "deploy": [b]}), "a new entry goes last");
+        let single = plan_extension_scope(&set.config, &json!("skills"), &json!("deploy"), &json!(a), &[]).unwrap();
+        assert_eq!(single.config["extensionScopes"]["skills"]["deploy"], json!([a]), "a single value is a one-item list");
+        for none in [Value::Null, json!([])] {
+            let cleared = plan_extension_scope(&set.config, &json!("skills"), &json!("deploy"), &none, &[]).unwrap();
+            assert_eq!(cleared.config["extensionScopes"]["skills"], json!({"keep": [a]}), "{none}: no roots is global");
+        }
+    }
+
+    #[test]
+    fn a_plugin_is_found_by_id_name_or_title_and_stored_under_its_id() {
+        let plugins = [json!({"id": "reg-1", "name": "unity", "title": "Unity Tools"})];
+        for asked in ["reg-1", "unity", "Unity Tools"] {
+            let change = plan_extension_scope(&json!({}), &json!("plugins"), &json!(asked), &json!([in_base("a")]), &plugins).unwrap();
+            assert_eq!(change.config["extensionScopes"]["plugins"], json!({"reg-1": [in_base("a")]}), "{asked}");
+        }
+    }
+
+    #[test]
+    fn integer_like_names_are_written_first_in_ascending_order() {
+        let a = in_base("a");
+        let scopes = ExtensionScopes::from_config(&json!({"skills": {"b": [a], "10": [a], "2": [a], "01": [a]}}));
+        let order: Vec<String> = scopes.to_config()["skills"].as_object().unwrap().keys().cloned().collect();
+        assert_eq!(order[..2], ["2", "10"], "canonical integers first, ascending by value");
+        assert_eq!(order.len(), 4);
+    }
+
+    #[cfg(node_twin)]
+    /// The scope rules against the recorded answers of the reference runtime (`fixtures/extension-scopes/golden.json`): the
     /// normalized map, the roots of an entry, `cwd` within roots, a skill's own and its plugin's scope, a server's own and its
     /// plugin's, and one entry replaced or cleared in a config. The golden's <BASE> is this run's own folder; answers are compared
     /// with it written back as <BASE> and every separator as "/".
@@ -330,22 +444,5 @@ mod tests {
             let change = plan_extension_scope(&case["config"], &case["kind"], &case["entry"], &case["projects"], &plugins).unwrap();
             assert_eq!(back(&change.config), back(&case["result"]), "{}", case["name"]);
         }
-    }
-
-    /// `extension-scopes.test.mjs` "MCP tools filter by server scope intersected with the owning plugin scope".
-    #[test]
-    fn a_plugin_servers_scope_is_its_own_intersected_with_its_plugins() {
-        let (a, b) = (std::env::temp_dir().join("work").join("alpha"), std::env::temp_dir().join("work").join("beta"));
-        let (a_text, b_text) = (a.to_string_lossy(), b.to_string_lossy());
-        let scopes = ExtensionScopes::from_config(&json!({
-            "mcp": { "UnityMCP": [b_text], "plugin-unity-editor": [a_text, b_text] },
-            "plugins": { "unity": [a_text] },
-        }));
-        assert!(!scopes.mcp_server_allowed_for_cwd("UnityMCP", None, &a));
-        assert!(scopes.mcp_server_allowed_for_cwd("UnityMCP", None, &b));
-        assert!(!scopes.mcp_server_allowed_for_cwd("plugin-unity-editor", Some("unity"), &b));
-        assert!(scopes.mcp_server_allowed_for_cwd("plugin-unity-editor", Some("unity"), &a));
-        // Owner metadata, not the name, decides: a look-alike server of no plugin is free.
-        assert!(scopes.mcp_server_allowed_for_cwd("plugin-unity-tools", None, &b));
     }
 }

@@ -18,6 +18,7 @@ import {
   type BridgeAnswer,
 } from './bridge-server-request';
 import type { ComputerCommand } from '../shared/types';
+import type { CommandEndpoint } from './command-fence';
 
 export type { BridgeServerHost } from './bridge-server-contract';
 
@@ -166,10 +167,11 @@ export function createBridgeServer(host: BridgeServerHost) {
     );
   }
 
-  /** The host protocol's capture: the HTTP command's own allowance, refusal and abort handling. */
-  async function answerCommand(command: ComputerCommand, signal: AbortSignal): Promise<BridgeAnswer> {
+  /** The host protocol's command and capture: the HTTP command's own allowance, refusal and abort handling, every worker
+   *  request admitted through `endpoint`. */
+  async function answerCommand(command: ComputerCommand, endpoint: CommandEndpoint): Promise<BridgeAnswer> {
     return (
-      (await answerAdmittedCommand(host, state, command, signal)) ?? { ok: false, error: CAPACITY_REFUSAL }
+      (await answerAdmittedCommand(host, state, command, endpoint)) ?? { ok: false, error: CAPACITY_REFUSAL }
     );
   }
 

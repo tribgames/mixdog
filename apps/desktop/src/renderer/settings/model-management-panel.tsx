@@ -1,5 +1,5 @@
 import { ChevronRight, RefreshCw, Search, Star, X } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { DesktopModelOption } from '../../shared/contract';
 import { errorMessage } from '../editor-pane-session-errors';
@@ -12,7 +12,11 @@ import {
   providerCatalogFailure,
   resolveProviderDisplayName,
 } from '../model-catalog';
-import { fetchProviderModels } from '../model-catalog-cache';
+import {
+  heldModelManagementCatalog,
+  readModelManagementCatalog,
+  subscribeModelManagementCatalog,
+} from '../model-catalog-cache';
 import {
   autoHiddenModelKeys,
   customModelHiddenFlags,
@@ -49,6 +53,7 @@ export interface ManagedProvider {
   shown: number;
   /** Why the provider's model list failed (ErrorNotice's input); null when it did not. */
   catalogError: unknown;
+  clientManagedVisibility?: boolean;
 }
 
 function providerKind(entry: RecordValue): string {
@@ -75,24 +80,50 @@ export function modelManagementProviders(data: Record<string, unknown>): Managed
   const connected = connectedProviderEntries(setup).sort((a, b) => rank(a) - rank(b));
   return connected.map((entry) => {
     const id = String(entry.id || entry.provider || '');
+    const hiddenFavorites = new Set(Array.isArray(entry.hiddenFavoriteModels) ? entry.hiddenFavoriteModels : []);
+    const hiddenModels = new Map<string, string>();
+    if (entry.custom === true) {
+      for (const raw of Array.isArray(entry.models) ? entry.models : []) {
+        const row = record(raw);
+        if (typeof row.id === 'string' && row.hidden === true) {
+          hiddenModels.set(row.id, String(row.name || row.id));
+        }
+      }
+      for (const [model, raw] of Object.entries(record(entry.modelOverrides))) {
+        const over = record(raw);
+        if (over.hidden === true) {
+          hiddenModels.set(model, String(over.name || hiddenModels.get(model) || model).trim() || model);
+        }
+        if (over.hidden === false) hiddenModels.delete(model);
+      }
+    }
     const models: ManagedModel[] = catalog
       .filter((option) => option.provider === id)
-      .map((option) => ({
-        model: option.model,
-        name: modelDisplayName(option.model, option.provider, option.display),
-        autoHidden:
-          autoHidden.has(modelKey(option.provider, option.model)) &&
-          explicitModelHidden(option, customFlags) === undefined,
-        saved: { shown: modelListed(option, autoHidden, customFlags), favorite: option.favorite === true },
-      }));
+      .map((option) => {
+        const hidden = hiddenModels.has(option.model);
+        return {
+          model: option.model,
+          name: modelDisplayName(option.model, option.provider, option.display),
+          autoHidden:
+            !hidden &&
+            autoHidden.has(modelKey(option.provider, option.model)) &&
+            explicitModelHidden(option, customFlags) === undefined,
+          saved: {
+            shown: !hidden && modelListed(option, autoHidden, customFlags),
+            favorite: hidden ? hiddenFavorites.has(option.model) : option.favorite === true,
+          },
+        };
+      });
     // A hidden custom model leaves the runtime catalog; its override still
     // names it, so it can be checked again here.
-    if (entry.custom === true) {
-      for (const [model, override] of Object.entries(record(entry.modelOverrides))) {
-        if (record(override).hidden !== true || models.some((row) => row.model === model)) continue;
-        const name = String(record(override).name || '').trim();
-        models.push({ model, name: name || model, autoHidden: false, saved: { shown: false, favorite: false } });
-      }
+    for (const [model, name] of hiddenModels) {
+      if (models.some((row) => row.model === model)) continue;
+      models.push({
+        model,
+        name,
+        autoHidden: false,
+        saved: { shown: false, favorite: hiddenFavorites.has(model) },
+      });
     }
     return {
       id,
@@ -101,23 +132,8 @@ export function modelManagementProviders(data: Record<string, unknown>): Managed
       models,
       shown: models.filter((row) => row.saved.shown).length,
       catalogError: providerCatalogFailure(entry),
+      clientManagedVisibility: entry.custom === true && record(setup).managedByClient === true,
     };
-  });
-}
-
-/** A provider that comes back with no models and no failure is a sweep still
- *  in flight (a deadline or partial answer), not a real empty list: it keeps
- *  its last good rows. A real failure carries `catalogError` and is shown. */
-function holdLastGoodModels(
-  next: ManagedProvider[],
-  previous: ReadonlyMap<string, ManagedProvider>
-): ManagedProvider[] {
-  return next.map((provider) => {
-    const last = previous.get(provider.id);
-    if (provider.models.length > 0 || provider.catalogError != null || !last || last.models.length === 0) {
-      return provider;
-    }
-    return { ...provider, models: last.models, shown: last.shown };
   });
 }
 
@@ -126,26 +142,31 @@ function shownLabel(shown: number, total: number): string {
 }
 
 export function ModelManagementPanel({ api, data, snapshot, run }: PanelContext) {
-  // "Refresh models" re-reads the catalog for this page until the next sweep.
-  const [refreshed, setRefreshed] = useState<DesktopModelOption[] | null>(null);
+  const subscribe = useCallback((listener: () => void) => subscribeModelManagementCatalog(api, listener), [api]);
+  const getModels = useCallback(() => heldModelManagementCatalog(api), [api]);
+  const models = useSyncExternalStore(subscribe, getModels) ?? data.models;
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<unknown>(null);
   const [openId, setOpenId] = useState(takeRequestedModelManagementProvider);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a new sweep (data.models) supersedes the page's own refresh.
-  useEffect(() => setRefreshed(null), [data.models]);
   const setup = record(data.providerSetup);
-  const ready = sectionLoaded(data, 'providerSetup') && setup.pendingSecrets !== true && sectionLoaded(data, 'models');
+  const ready =
+    sectionLoaded(data, 'providerSetup') &&
+    setup.unavailable !== true &&
+    [setup.api, setup.oauth, setup.local].some(Array.isArray) &&
+    Array.isArray(models);
+  const pendingSetup = setup.pendingSecrets === true;
   const lastProviders = useRef(new Map<string, ManagedProvider>());
   const providers = useMemo(() => {
     // While the data reloads, the list (and any open card) stays as it was.
     if (!ready) return [...lastProviders.current.values()];
-    const next = holdLastGoodModels(
-      modelManagementProviders(refreshed ? { ...data, models: refreshed } : data),
-      lastProviders.current
-    );
+    const next = modelManagementProviders({ ...data, models });
+    if (pendingSetup) {
+      const seen = new Set(next.map((provider) => provider.id));
+      next.push(...[...lastProviders.current.values()].filter((provider) => !seen.has(provider.id)));
+    }
     lastProviders.current = new Map(next.map((provider) => [provider.id, provider]));
     return next;
-  }, [data, refreshed, ready]);
+  }, [data, models, ready, pendingSetup]);
   const found = providers.find((provider) => provider.id === openId) || null;
   const openSnapshot = useRef<ManagedProvider | null>(null);
   if (found) openSnapshot.current = found;
@@ -163,7 +184,7 @@ export function ModelManagementPanel({ api, data, snapshot, run }: PanelContext)
     setRefreshing(true);
     setRefreshError(null);
     try {
-      setRefreshed(await fetchProviderModels(api, { force: true }));
+      await readModelManagementCatalog(api, true);
     } catch (error) {
       setRefreshError(error);
     } finally {
@@ -250,11 +271,11 @@ export function ModelManagementCard({
   const titleId = useId();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<ModelFilter>('all');
-  const [edits, setEdits] = useState<ReadonlyMap<string, ModelPreferenceState>>(new Map());
+  const [edits, setEdits] = useState<ReadonlyMap<string, Partial<ModelPreferenceState>>>(new Map());
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const stateOf = (row: ManagedModel) => edits.get(row.model) ?? row.saved;
+  const stateOf = (row: ManagedModel) => ({ ...row.saved, ...edits.get(row.model) });
   const changes = modelPreferenceChanges(
     new Map(provider.models.map((row) => [row.model, row.saved])),
     new Map(provider.models.map((row) => [row.model, stateOf(row)]))
@@ -272,7 +293,12 @@ export function ModelManagementCard({
   const edit = (targets: readonly ManagedModel[], patch: Partial<ModelPreferenceState>) =>
     setEdits((current) => {
       const next = new Map(current);
-      for (const row of targets) next.set(row.model, { ...(current.get(row.model) ?? row.saved), ...patch });
+      for (const row of targets) {
+        const draft = { ...current.get(row.model), ...patch };
+        if (patch.shown === row.saved.shown) delete draft.shown;
+        if (patch.favorite === row.saved.favorite) delete draft.favorite;
+        next.set(row.model, draft);
+      }
       return next;
     });
   const save = async () => {
@@ -355,10 +381,16 @@ export function ModelManagementCard({
             </fieldset>
             <div className="model-mgmt-bulk">
               <span>{t('{{count}} items', { count: rows.length })}</span>
-              <ActionButton disabled={saving || rows.length === 0} onClick={() => edit(rows, { shown: true })}>
+              <ActionButton
+                disabled={saving || provider.clientManagedVisibility || rows.length === 0}
+                onClick={() => edit(rows, { shown: true })}
+              >
                 {t('Select all')}
               </ActionButton>
-              <ActionButton disabled={saving || rows.length === 0} onClick={() => edit(rows, { shown: false })}>
+              <ActionButton
+                disabled={saving || provider.clientManagedVisibility || rows.length === 0}
+                onClick={() => edit(rows, { shown: false })}
+              >
                 {t('Deselect all')}
               </ActionButton>
             </div>
@@ -392,7 +424,7 @@ export function ModelManagementCard({
                     <input
                       type="checkbox"
                       checked={state.shown}
-                      disabled={saving}
+                      disabled={saving || provider.clientManagedVisibility}
                       aria-label={t('Show {{name}} in /model', { name: row.name })}
                       onChange={(event) => edit([row], { shown: event.target.checked })}
                     />

@@ -273,6 +273,7 @@ fn contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_do
     }
 }
 
+
 // The authoring loop re-authors the same target over and over, and starting PowerPoint again costs seconds every pass. Re-authoring
 // keeps the hidden process and swaps only the document: the session survives, what it reads is the new deck, and a failed source
 // leaves the live deck untouched. The decks are authored from HTML slides (the pptxgenjs script runtime is not part of the build),

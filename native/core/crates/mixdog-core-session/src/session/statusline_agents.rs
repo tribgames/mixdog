@@ -95,18 +95,6 @@ fn or_null(value: &Value, key: &str) -> Option<Value> {
     value.get(key).filter(|member| truthy(Some(member))).cloned()
 }
 
-/// `timeMs(value)`: epoch ms from a positive number or a date string; 0 when neither parses.
-fn time_ms(value: Option<&Value>) -> f64 {
-    if let Some(Value::Number(number)) = value
-        && let Some(n) = number.as_f64().filter(|n| n.is_finite() && *n > 0.0)
-    {
-        return n;
-    }
-    let text = value.filter(|v| truthy(Some(v))).map(value_to_string).unwrap_or_default();
-    let parsed = mixdog_js::time::date_parse(&text);
-    if parsed.is_finite() { parsed } else { 0.0 }
-}
-
 /// `agentStatusValues(value)`: the distinct non-empty `stage` and `status`.
 fn status_values(value: &Value) -> Vec<String> {
     let mut seen: Vec<String> = Vec::new();
@@ -164,103 +152,6 @@ fn is_active(statuses: &[String]) -> bool {
 
 fn is_queued(statuses: &[String]) -> bool {
     is_active(statuses) && statuses.iter().all(|status| matches!(js_to_lowercase(status).as_str(), "queued" | "pending" | "starting"))
-}
-
-/// `normalizeAgentWorkerForStatusline`.
-fn normalize_worker(worker: &Value) -> Option<AgentRow> {
-    let tag = first_text(worker, &["tag", "agent", "name"]);
-    if tag.is_empty() {
-        return None;
-    }
-    let started = ["startedAt", "startTime", "createdAt"].iter().find_map(|key| worker.get(*key).filter(|v| truthy(Some(v))));
-    Some(AgentRow {
-        tag,
-        task_id: None,
-        status: if is_active(&lifecycle_statuses(worker)) { "running" } else { "idle" },
-        final_status: None,
-        started_at_ms: time_ms(started),
-        finished_at_ms: None,
-        agent: or_null(worker, "agent"),
-        stage: or_null(worker, "stage").or_else(|| or_null(worker, "status")),
-        session_id: or_null(worker, "sessionId"),
-        provider: or_null(worker, "provider"),
-        model: or_null(worker, "model"),
-    })
-}
-
-/// `normalizeAgentJobForStatusline`: a finished job (terminal with a finish time), a running or a queued one, else none.
-fn normalize_job(job: &Value) -> Option<AgentRow> {
-    let statuses = status_values(job);
-    let first = statuses.first()?;
-    let task_id = first_text(job, &["task_id", "taskId"]);
-    let tag = first_text(job, &["tag", "agent", "type"]);
-    let tag = if tag.is_empty() { task_id.clone() } else { tag };
-    if tag.is_empty() && task_id.is_empty() {
-        return None;
-    }
-    let started = time_ms(job.get("startedAt"));
-    let finished = time_ms(job.get("finishedAt"));
-    let stage = or_null(job, "stage").or_else(|| or_null(job, "workerStatus")).or_else(|| or_null(job, "status"));
-    let mut row = AgentRow {
-        tag,
-        task_id: Some(task_id),
-        status: "running",
-        final_status: None,
-        started_at_ms: started,
-        finished_at_ms: None,
-        agent: or_null(job, "agent"),
-        stage,
-        session_id: or_null(job, "sessionId"),
-        provider: or_null(job, "provider"),
-        model: or_null(job, "model"),
-    };
-    if is_terminal(&statuses) && finished > 0.0 {
-        row.status = "finished";
-        row.final_status = Some(js_to_lowercase(first));
-        row.finished_at_ms = Some(finished);
-        return Some(row);
-    }
-    let lifecycle = lifecycle_statuses(job);
-    if !is_active(&lifecycle) {
-        return None;
-    }
-    row.status = if is_queued(&lifecycle) { "queued" } else { "running" };
-    Some(row)
-}
-
-/// `agentStatuslinePayload(agentWorkers, agentJobs)`: a worker is authoritative over its spawn job: an active worker
-/// already represents the work and an inactive one suppresses a lagging running job; only a genuinely queued reuse
-/// replaces an inactive worker until the new one starts.
-pub fn agent_statusline_payload(workers: &[Value], jobs: &[Value]) -> AgentPayload {
-    let mut order: Vec<String> = Vec::new();
-    let mut by_tag: HashMap<String, AgentRow> = HashMap::new();
-    let mut worker_by_tag: HashMap<String, AgentRow> = HashMap::new();
-    let mut finished: Vec<AgentRow> = Vec::new();
-    let mut put = |by_tag: &mut HashMap<String, AgentRow>, row: AgentRow| {
-        if !by_tag.contains_key(&row.tag) {
-            order.push(row.tag.clone());
-        }
-        by_tag.insert(row.tag.clone(), row);
-    };
-    for row in workers.iter().filter_map(normalize_worker) {
-        worker_by_tag.insert(row.tag.clone(), row.clone());
-        put(&mut by_tag, row);
-    }
-    for row in jobs.iter().filter_map(normalize_job) {
-        if row.status == "finished" {
-            finished.push(row);
-            continue;
-        }
-        if let Some(worker) = worker_by_tag.get(&row.tag)
-            && (worker.status == "running" || row.status != "queued")
-        {
-            continue;
-        }
-        put(&mut by_tag, row);
-    }
-    finished.sort_by(|a, b| b.finished_at_ms.unwrap_or(0.0).partial_cmp(&a.finished_at_ms.unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal));
-    let workers = order.into_iter().filter_map(|tag| by_tag.remove(&tag)).collect();
-    AgentPayload { workers, finished_jobs: finished }
 }
 
 /// The colours the maintenance label is drawn with.
@@ -452,53 +343,6 @@ mod tests {
         rows.iter().map(|row| (row.tag.as_str(), row.status)).collect()
     }
 
-    #[test]
-    fn a_worker_is_authoritative_over_its_spawn_job_unless_the_job_is_a_queued_reuse() {
-        let workers = [json!({ "tag": "scout", "status": "running" }), json!({ "agent": "writer", "status": "done" }), json!({ "name": " ", "status": "running" })];
-        let jobs = [
-            json!({ "tag": "scout", "status": "running" }),
-            json!({ "tag": "writer", "status": "queued" }),
-            json!({ "tag": "fresh", "stage": "streaming", "status": "running", "startedAt": 5 }),
-            json!({ "task_id": "t-9", "status": "pending" }),
-            json!({ "tag": "gone", "status": "completed", "finishedAt": 100 }),
-            json!({ "tag": "later", "status": "error", "finishedAt": "1970-01-01T00:00:01Z" }),
-            json!({ "tag": "stale", "status": "completed" }),
-        ];
-        let payload = agent_statusline_payload(&workers, &jobs);
-        assert_eq!(tags(&payload.workers), vec![("scout", "running"), ("writer", "queued"), ("fresh", "running"), ("t-9", "queued")]);
-        assert_eq!(payload.finished_jobs.iter().map(|job| (job.tag.as_str(), job.final_status.clone(), job.finished_at_ms)).collect::<Vec<_>>(), vec![("later", Some("error".to_owned()), Some(1000.0)), ("gone", Some("completed".to_owned()), Some(100.0))]);
-        let json = payload.json();
-        assert_eq!(json["sessions"]["roles"], json!(["scout", "writer", "fresh", "t-9"]));
-        assert_eq!(json["workers"][2]["startedAtMs"], 5);
-    }
-
-    #[test]
-    fn a_stage_that_reads_idle_mid_work_does_not_end_a_workers_status_but_a_cancel_does() {
-        let working = normalize_worker(&json!({ "tag": "a", "stage": "idle", "status": "running" })).unwrap();
-        assert_eq!(working.status, "running");
-        let cancelled = normalize_worker(&json!({ "tag": "b", "stage": "cancelled", "status": "running" })).unwrap();
-        assert_eq!(cancelled.status, "idle");
-        let by_stage = normalize_worker(&json!({ "tag": "c", "stage": "tool running" })).unwrap();
-        assert_eq!(by_stage.status, "running");
-        assert!(is_active_word("Tool-Running") && is_active_word("tool_running") && is_active_word("toolrunning") && !is_active_word("tool--running"));
-    }
-
-    #[test]
-    fn maintenance_workers_leave_the_list_and_show_as_a_label_once() {
-        let rows = [
-            normalize_worker(&json!({ "tag": "cycle1-agent", "status": "running" })).unwrap(),
-            normalize_worker(&json!({ "tag": "x", "agent": "cycle1-agent", "status": "running" })).unwrap(),
-            normalize_worker(&json!({ "tag": "cycle1-agent#2", "agent": "cycle1-agent", "status": "running" })).unwrap(),
-            normalize_worker(&json!({ "tag": "scout", "status": "running" })).unwrap(),
-            normalize_worker(&json!({ "tag": "scout", "status": "running" })).unwrap(),
-            normalize_worker(&json!({ "tag": "napping", "status": "done" })).unwrap(),
-        ];
-        let colours = LabelColours { green: "<g>", reset: "</>", bold: "<b>" };
-        let classified = classify_agent_workers(&rows, &colours);
-        assert_eq!(classified.maintenance, vec!["<g>↻</> <b>cycle1</>".to_owned()]);
-        assert_eq!(classified.running_workers.iter().map(|worker| worker.tag.as_str()).collect::<Vec<_>>(), vec!["scout"]);
-    }
-
     fn runtime(id: &str, stage: &str, session: RuntimeSession) -> RuntimeEntry {
         RuntimeEntry { runtime_session_id: id.into(), stage: stage.into(), session: Some(session), ..RuntimeEntry::default() }
     }
@@ -543,4 +387,157 @@ mod tests {
         assert_eq!(agent_web_search_status(&runtimes, owner), (2, 200.0));
         assert_eq!(agent_web_search_status(&[], owner), (0, 0.0));
     }
+
+
+    #[test]
+    fn a_worker_is_authoritative_over_its_spawn_job_unless_the_job_is_a_queued_reuse() {
+        let workers = [json!({ "tag": "scout", "status": "running" }), json!({ "agent": "writer", "status": "done" }), json!({ "name": " ", "status": "running" })];
+        let jobs = [
+            json!({ "tag": "scout", "status": "running" }),
+            json!({ "tag": "writer", "status": "queued" }),
+            json!({ "tag": "fresh", "stage": "streaming", "status": "running", "startedAt": 5 }),
+            json!({ "task_id": "t-9", "status": "pending" }),
+            json!({ "tag": "gone", "status": "completed", "finishedAt": 100 }),
+            json!({ "tag": "later", "status": "error", "finishedAt": "1970-01-01T00:00:01Z" }),
+            json!({ "tag": "stale", "status": "completed" }),
+        ];
+        let payload = agent_statusline_payload(&workers, &jobs);
+        assert_eq!(tags(&payload.workers), vec![("scout", "running"), ("writer", "queued"), ("fresh", "running"), ("t-9", "queued")]);
+        assert_eq!(payload.finished_jobs.iter().map(|job| (job.tag.as_str(), job.final_status.clone(), job.finished_at_ms)).collect::<Vec<_>>(), vec![("later", Some("error".to_owned()), Some(1000.0)), ("gone", Some("completed".to_owned()), Some(100.0))]);
+        let json = payload.json();
+        assert_eq!(json["sessions"]["roles"], json!(["scout", "writer", "fresh", "t-9"]));
+        assert_eq!(json["workers"][2]["startedAtMs"], 5);
+    }
+    #[test]
+    fn a_stage_that_reads_idle_mid_work_does_not_end_a_workers_status_but_a_cancel_does() {
+        let working = normalize_worker(&json!({ "tag": "a", "stage": "idle", "status": "running" })).unwrap();
+        assert_eq!(working.status, "running");
+        let cancelled = normalize_worker(&json!({ "tag": "b", "stage": "cancelled", "status": "running" })).unwrap();
+        assert_eq!(cancelled.status, "idle");
+        let by_stage = normalize_worker(&json!({ "tag": "c", "stage": "tool running" })).unwrap();
+        assert_eq!(by_stage.status, "running");
+        assert!(is_active_word("Tool-Running") && is_active_word("tool_running") && is_active_word("toolrunning") && !is_active_word("tool--running"));
+    }
+    #[test]
+    fn maintenance_workers_leave_the_list_and_show_as_a_label_once() {
+        let rows = [
+            normalize_worker(&json!({ "tag": "cycle1-agent", "status": "running" })).unwrap(),
+            normalize_worker(&json!({ "tag": "x", "agent": "cycle1-agent", "status": "running" })).unwrap(),
+            normalize_worker(&json!({ "tag": "cycle1-agent#2", "agent": "cycle1-agent", "status": "running" })).unwrap(),
+            normalize_worker(&json!({ "tag": "scout", "status": "running" })).unwrap(),
+            normalize_worker(&json!({ "tag": "scout", "status": "running" })).unwrap(),
+            normalize_worker(&json!({ "tag": "napping", "status": "done" })).unwrap(),
+        ];
+        let colours = LabelColours { green: "<g>", reset: "</>", bold: "<b>" };
+        let classified = classify_agent_workers(&rows, &colours);
+        assert_eq!(classified.maintenance, vec!["<g>↻</> <b>cycle1</>".to_owned()]);
+        assert_eq!(classified.running_workers.iter().map(|worker| worker.tag.as_str()).collect::<Vec<_>>(), vec!["scout"]);
+    }
+}
+
+
+/// `timeMs(value)`: epoch ms from a positive number or a date string; 0 when neither parses.
+fn time_ms(value: Option<&Value>) -> f64 {
+    if let Some(Value::Number(number)) = value
+        && let Some(n) = number.as_f64().filter(|n| n.is_finite() && *n > 0.0)
+    {
+        return n;
+    }
+    let text = value.filter(|v| truthy(Some(v))).map(value_to_string).unwrap_or_default();
+    let parsed = mixdog_js::time::date_parse(&text);
+    if parsed.is_finite() { parsed } else { 0.0 }
+}
+/// `normalizeAgentWorkerForStatusline`.
+fn normalize_worker(worker: &Value) -> Option<AgentRow> {
+    let tag = first_text(worker, &["tag", "agent", "name"]);
+    if tag.is_empty() {
+        return None;
+    }
+    let started = ["startedAt", "startTime", "createdAt"].iter().find_map(|key| worker.get(*key).filter(|v| truthy(Some(v))));
+    Some(AgentRow {
+        tag,
+        task_id: None,
+        status: if is_active(&lifecycle_statuses(worker)) { "running" } else { "idle" },
+        final_status: None,
+        started_at_ms: time_ms(started),
+        finished_at_ms: None,
+        agent: or_null(worker, "agent"),
+        stage: or_null(worker, "stage").or_else(|| or_null(worker, "status")),
+        session_id: or_null(worker, "sessionId"),
+        provider: or_null(worker, "provider"),
+        model: or_null(worker, "model"),
+    })
+}
+/// `normalizeAgentJobForStatusline`: a finished job (terminal with a finish time), a running or a queued one, else none.
+fn normalize_job(job: &Value) -> Option<AgentRow> {
+    let statuses = status_values(job);
+    let first = statuses.first()?;
+    let task_id = first_text(job, &["task_id", "taskId"]);
+    let tag = first_text(job, &["tag", "agent", "type"]);
+    let tag = if tag.is_empty() { task_id.clone() } else { tag };
+    if tag.is_empty() && task_id.is_empty() {
+        return None;
+    }
+    let started = time_ms(job.get("startedAt"));
+    let finished = time_ms(job.get("finishedAt"));
+    let stage = or_null(job, "stage").or_else(|| or_null(job, "workerStatus")).or_else(|| or_null(job, "status"));
+    let mut row = AgentRow {
+        tag,
+        task_id: Some(task_id),
+        status: "running",
+        final_status: None,
+        started_at_ms: started,
+        finished_at_ms: None,
+        agent: or_null(job, "agent"),
+        stage,
+        session_id: or_null(job, "sessionId"),
+        provider: or_null(job, "provider"),
+        model: or_null(job, "model"),
+    };
+    if is_terminal(&statuses) && finished > 0.0 {
+        row.status = "finished";
+        row.final_status = Some(js_to_lowercase(first));
+        row.finished_at_ms = Some(finished);
+        return Some(row);
+    }
+    let lifecycle = lifecycle_statuses(job);
+    if !is_active(&lifecycle) {
+        return None;
+    }
+    row.status = if is_queued(&lifecycle) { "queued" } else { "running" };
+    Some(row)
+}
+/// `agentStatuslinePayload(agentWorkers, agentJobs)`: a worker is authoritative over its spawn job: an active worker
+/// already represents the work and an inactive one suppresses a lagging running job; only a genuinely queued reuse
+/// replaces an inactive worker until the new one starts.
+pub fn agent_statusline_payload(workers: &[Value], jobs: &[Value]) -> AgentPayload {
+    let mut order: Vec<String> = Vec::new();
+    let mut by_tag: HashMap<String, AgentRow> = HashMap::new();
+    let mut worker_by_tag: HashMap<String, AgentRow> = HashMap::new();
+    let mut finished: Vec<AgentRow> = Vec::new();
+    let mut put = |by_tag: &mut HashMap<String, AgentRow>, row: AgentRow| {
+        if !by_tag.contains_key(&row.tag) {
+            order.push(row.tag.clone());
+        }
+        by_tag.insert(row.tag.clone(), row);
+    };
+    for row in workers.iter().filter_map(normalize_worker) {
+        worker_by_tag.insert(row.tag.clone(), row.clone());
+        put(&mut by_tag, row);
+    }
+    for row in jobs.iter().filter_map(normalize_job) {
+        if row.status == "finished" {
+            finished.push(row);
+            continue;
+        }
+        if let Some(worker) = worker_by_tag.get(&row.tag)
+            && (worker.status == "running" || row.status != "queued")
+        {
+            continue;
+        }
+        put(&mut by_tag, row);
+    }
+    finished.sort_by(|a, b| b.finished_at_ms.unwrap_or(0.0).partial_cmp(&a.finished_at_ms.unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal));
+    let workers = order.into_iter().filter_map(|tag| by_tag.remove(&tag)).collect();
+    AgentPayload { workers, finished_jobs: finished }
 }

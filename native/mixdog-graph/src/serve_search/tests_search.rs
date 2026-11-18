@@ -277,9 +277,9 @@ fn broad_search_mtime_deadline_and_cancellation_are_not_complete_results() {
 #[cfg(windows)]
 #[test]
 fn root_search_windows_paths_are_relative_without_device_prefixes() {
-    let normal = Path::new(r"C:\Project\mixdog\한글.mjs");
-    let verbatim = Path::new(r"\\?\C:\Project\mixdog\한글.mjs");
-    let root = Path::new(r"c:\project\mixdog");
+    let normal = Path::new(r"C:\Project\sample\한글.mjs");
+    let verbatim = Path::new(r"\\?\C:\Project\sample\한글.mjs");
+    let root = Path::new(r"c:\project\sample");
     assert_eq!(
         relative_inventory_path(normal, root),
         Some("한글.mjs".to_string())

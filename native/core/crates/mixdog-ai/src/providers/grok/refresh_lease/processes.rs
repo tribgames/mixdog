@@ -4,9 +4,9 @@
 //! whole with Node's. The coordinator is the recorder itself, which runs no product code: each process keeps its own
 //! virtual clock and steps only when the coordinator says so.
 //!
-//! The Node side of the interoperation cases and the coordinator run on the reference Node runtime
-//! (`MIXDOG_REFERENCE_NODE`, the recording's Electron by default, run as Node) over the exact b6f10295a export
-//! (`MIXDOG_REFERENCE_TREE`).
+//! The coordinator runs on `node` from the PATH (`MIXDOG_REFERENCE_NODE` names another runtime, run as Node); the core-only
+//! replay needs nothing else and runs everywhere. The Node side of the interoperation cases runs over the exact b6f10295a
+//! export (`MIXDOG_REFERENCE_TREE`, with its node_modules): that test is #[ignore]d, run by the `reference-node` nextest profile.
 #![cfg(test)]
 
 use std::io::BufRead;
@@ -24,13 +24,14 @@ const CHILD_TEST: &str = "providers::grok::auth::refresh_lease_tests::processes:
 const REPLAY_DEADLINE: Duration = Duration::from_secs(300);
 
 fn reference_node() -> PathBuf {
-    std::env::var_os("MIXDOG_REFERENCE_NODE").map_or_else(|| PathBuf::from(r"C:\Users\tempe\side\dcr\apps\desktop\node_modules\electron\dist\electron.exe"), PathBuf::from)
+    std::env::var_os("MIXDOG_REFERENCE_NODE").map_or_else(|| PathBuf::from("node"), PathBuf::from)
 }
 
 fn reference_tree() -> PathBuf {
-    std::env::var_os("MIXDOG_REFERENCE_TREE").map_or_else(|| PathBuf::from(r"D:\mixdog-build\tmp\b6f-tree"), PathBuf::from)
+    std::env::var_os("MIXDOG_REFERENCE_TREE").map(PathBuf::from).expect("MIXDOG_REFERENCE_TREE names the b6f10295a export with its node_modules")
 }
 
+#[cfg(node_twin)]
 fn recording() -> Value {
     let dir = repo().join("native/core/fixtures/grok-refresh-lease-processes");
     let manifest = fixture_manifest::verify_dir(&repo(), &dir, COORDINATOR);
@@ -100,6 +101,7 @@ fn replay(kinds: &str, only: Option<&str>) -> Vec<Value> {
 /// Two core processes do in every case what two Node processes did: the same token requests from the same process at
 /// the same instants, the same waits, the same kill and takeover, each caller the same result, and the credential file
 /// and its directory left the same.
+#[cfg(node_twin)]
 #[test]
 fn two_core_processes_do_what_two_node_processes_did() {
     let recording = recording();
@@ -113,20 +115,6 @@ fn two_core_processes_do_what_two_node_processes_did() {
         .map(|(n, c)| format!("{}:\n  node {}\n  core {}", n["name"], observed(n), observed(c)))
         .collect();
     assert!(differing.is_empty(), "{} of {} cases differ from Node:\n{}", differing.len(), node.len(), differing.join("\n"));
-}
-
-/// A Node and a core process share the lease as two Node processes do, whichever holds it: Node holds and the core waits
-/// (A is Node), and the core holds and Node waits (A is the core). One token request, both read the new generation, and
-/// the file and directory end as Node's two processes left them.
-#[test]
-fn a_node_and_a_core_process_share_the_lease_as_two_node_processes_do() {
-    let recording = recording();
-    let case = recording["cases"].as_array().unwrap().iter().find(|c| c["name"] == "both-want-a-refresh").unwrap();
-    for kinds in ["node,core", "core,node"] {
-        let replayed = replay(kinds, Some("both-want-a-refresh"));
-        assert_eq!(replayed.len(), 1);
-        assert_eq!(observed(&replayed[0]), observed(case), "{kinds}: the processes did otherwise than Node's two");
-    }
 }
 
 /// The token endpoint of a process the coordinator steps: the request is reported, and the coordinator's reply arrives
@@ -267,5 +255,22 @@ async fn lease_child() {
             (state.timers.iter().map(|t| t.due).min(), std::mem::take(&mut state.events))
         };
         say(json!({ "status": { "next": next, "events": events } }));
+    }
+}
+
+
+/// A Node and a core process share the lease as two Node processes do, whichever holds it: Node holds and the core waits
+/// (A is Node), and the core holds and Node waits (A is the core). One token request, both read the new generation, and
+/// the file and directory end as Node's two processes left them.
+#[cfg(node_twin)]
+#[test]
+#[ignore = "needs the b6f10295a export with node_modules (MIXDOG_REFERENCE_TREE)"]
+fn a_node_and_a_core_process_share_the_lease_as_two_node_processes_do() {
+    let recording = recording();
+    let case = recording["cases"].as_array().unwrap().iter().find(|c| c["name"] == "both-want-a-refresh").unwrap();
+    for kinds in ["node,core", "core,node"] {
+        let replayed = replay(kinds, Some("both-want-a-refresh"));
+        assert_eq!(replayed.len(), 1);
+        assert_eq!(observed(&replayed[0]), observed(case), "{kinds}: the processes did otherwise than Node's two");
     }
 }

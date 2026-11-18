@@ -347,6 +347,8 @@ pub struct VertexPlace {
     pub configured: Option<String>,
     /// The environment's region ([`env_location`]); used only when nothing is configured.
     pub environment: Option<String>,
+    /// Who a gcloud login signs in as (`principalOf`): set only for the gcloud (ADC) mode, whose 403s are reworded.
+    pub gcloud_principal: Option<String>,
 }
 
 fn valid_location(location: &str) -> bool {
@@ -357,7 +359,16 @@ fn valid_location(location: &str) -> bool {
 
 impl VertexPlace {
     pub fn express() -> Self {
-        Self { account: VertexAccount::Express, configured: None, environment: None }
+        Self::express_at(None)
+    }
+
+    pub fn express_at(configured: Option<&str>) -> Self {
+        Self { account: VertexAccount::Express, configured: configured.map(str::to_owned), environment: None, gcloud_principal: None }
+    }
+
+    pub fn with_gcloud_principal(mut self, principal: impl Into<String>) -> Self {
+        self.gcloud_principal = Some(principal.into());
+        self
     }
 
     pub fn project(project: impl Into<String>, configured: Option<&str>, environment: Option<&str>) -> Self {
@@ -365,6 +376,7 @@ impl VertexPlace {
             account: VertexAccount::Project(project.into()),
             configured: configured.map(str::to_owned),
             environment: environment.map(str::to_owned),
+            gcloud_principal: None,
         }
     }
 

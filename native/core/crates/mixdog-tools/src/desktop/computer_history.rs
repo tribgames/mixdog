@@ -348,15 +348,6 @@ fn session_key(session: &str) -> String {
     Sha256::digest(session.as_bytes())[..8].iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// `process.platform`.
-fn platform() -> &'static str {
-    match std::env::consts::OS {
-        "windows" => "win32",
-        "macos" => "darwin",
-        other => other,
-    }
-}
-
 #[derive(Default)]
 struct BundleState {
     /// Each session's records, least recently recorded first.
@@ -368,133 +359,6 @@ struct BundleState {
 pub struct FailureBundles {
     directory: PathBuf,
     state: Mutex<BundleState>,
-}
-
-impl FailureBundles {
-    pub fn new(data_dir: &Path) -> Self {
-        Self { directory: data_dir.join(FAILURE_DIRECTORY), state: Mutex::new(BundleState::default()) }
-    }
-
-    fn state(&self) -> std::sync::MutexGuard<'_, BundleState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// The bundle files, newest first.
-    #[allow(clippy::disallowed_methods, reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job")]
-    fn files(&self) -> std::io::Result<Vec<String>> {
-        let mut files: Vec<(String, SystemTime)> = fs::read_dir(&self.directory)?
-            .filter_map(Result::ok)
-            .filter_map(|entry| {
-                let name = entry.file_name().into_string().ok()?;
-                bundle_file(&name).then_some(())?;
-                Some((name, entry.metadata().ok()?.modified().ok()?))
-            })
-            .collect();
-        files.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
-        Ok(files.into_iter().map(|(name, _)| name).collect())
-    }
-
-    /// Records one command outcome of `session`; a failed one (or the cleanup that follows a failed one) writes the session's
-    /// bundle. A diagnostic failure never alters an action's outcome, so none is reported.
-    pub fn record(&self, session: &str, input: &Map<String, Value>) {
-        let key = session_key(session);
-        let history = {
-            let mut state = self.state();
-            let mut history = match state.histories.iter().position(|(k, _)| *k == key) {
-                Some(at) => state.histories.remove(at).1,
-                None => Vec::new(),
-            };
-            let mut row = Map::new();
-            row.insert("at".into(), json!(now_iso()));
-            row.extend(diagnostic_record(input));
-            history.push(row);
-            if history.len() > MAX_RECORDS {
-                history.remove(0);
-            }
-            state.histories.push((key.clone(), history.clone()));
-            if state.histories.len() > MAX_SESSIONS {
-                let (oldest, _) = state.histories.remove(0);
-                state.bundle_ids.remove(&oldest);
-            }
-            history
-        };
-        let failed = input.get("ok") == Some(&Value::Bool(false));
-        let cleanup_after_failure =
-            input.get("stage").and_then(Value::as_str) == Some("cleanup") && history.iter().any(|row| row.get("ok") == Some(&Value::Bool(false)));
-        if failed || cleanup_after_failure {
-            let _ = self.write(session, json!({ "records": history }));
-        }
-    }
-
-    /// Writes `session`'s bundle (`bundle.records`): a pending file first, renamed into place, then the oldest bundles beyond 20
-    /// are removed. One session keeps one bundle id, so its later failures replace its file.
-    #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "Called by record in the awaited backend InteractiveIo diagnostic job; file creation and retention stay one synchronous operation")]
-    pub fn write(&self, session: &str, bundle: Value) -> Result<(), ComputerError> {
-        let key = session_key(session);
-        fs::create_dir_all(&self.directory).map_err(|e| failure("computer_failure_bundle_failed", e))?;
-        let id = self.state().bundle_ids.entry(key.clone()).or_insert_with(|| uuid::Uuid::new_v4().to_string()).clone();
-        let body = json!({
-            "version": 1,
-            "id": id,
-            "session": key,
-            "createdAt": now_iso(),
-            "platform": platform(),
-            "screenshots": "excluded",
-            "records": bundle.get("records").cloned().unwrap_or_else(|| json!([])),
-        });
-        let text = body.to_string();
-        if text.len() > MAX_BYTES {
-            return Err(failure("computer_failure_bundle_too_large", text.len()));
-        }
-        let pending = self.directory.join(format!("pending-{id}.json"));
-        let save = || -> std::io::Result<()> {
-            let mut options = fs::OpenOptions::new();
-            options.write(true).create(true).truncate(true);
-            #[cfg(unix)]
-            let _ = std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-            options.open(&pending)?.write_all(text.as_bytes())?;
-            fs::rename(&pending, self.directory.join(format!("failure-{id}.json")))
-        };
-        save().map_err(|e| failure("computer_failure_bundle_failed", e))?;
-        if let Ok(files) = self.files() {
-            for name in files.into_iter().skip(MAX_BUNDLES) {
-                let _ = fs::remove_file(self.directory.join(name));
-            }
-        }
-        Ok(())
-    }
-
-    /// The newest bundles, the boundary reapplied to what the files hold.
-    #[cfg(test)]
-    pub fn read(&self) -> Vec<Value> {
-        let Ok(files) = self.files() else { return Vec::new() };
-        files
-            .into_iter()
-            .take(MAX_BUNDLES)
-            .filter_map(|name| {
-                let path = self.directory.join(name);
-                if usize::try_from(fs::metadata(&path).ok()?.len()).ok()? > MAX_BYTES {
-                    return None;
-                }
-                let value: Value = serde_json::from_str(&fs::read_to_string(&path).ok()?).ok()?;
-                let mut out = Map::new();
-                out.insert("version".into(), json!(1));
-                out.insert("screenshots".into(), json!("excluded"));
-                if let Some(id) = value.get("id").and_then(Value::as_str).filter(|id| id.len() == 36 && hex_id(id)) {
-                    out.insert("id".into(), json!(id));
-                }
-                if let Some(at) = value.get("createdAt").filter(|at| iso_timestamp(at)) {
-                    out.insert("createdAt".into(), at.clone());
-                }
-                let records = value.get("records").and_then(Value::as_array).map(|rows| {
-                    let skip = rows.len().saturating_sub(MAX_RECORDS);
-                    rows[skip..].iter().map(|row| Value::Object(diagnostic_record(&object(Some(row))))).collect::<Vec<_>>()
-                });
-                out.insert("records".into(), Value::Array(records.unwrap_or_default()));
-                Some(Value::Object(out))
-            })
-            .collect()
-    }
 }
 
 // ---------------------------------------------------------------- run-log.ts
@@ -970,5 +834,141 @@ mod tests {
         bundles.record("one", &map(json!({"action": "release", "ok": true, "stage": "cleanup"})));
         assert_eq!(bundles.read()[0]["records"].as_array().unwrap().len(), 3);
         assert_eq!(fs::read_dir(dir.path().join("computer-failures")).unwrap().count(), 1);
+    }
+}
+
+
+/// `process.platform`.
+fn platform() -> &'static str {
+    match std::env::consts::OS {
+        "windows" => "win32",
+        "macos" => "darwin",
+        other => other,
+    }
+}
+impl FailureBundles {
+    pub fn new(data_dir: &Path) -> Self {
+        Self { directory: data_dir.join(FAILURE_DIRECTORY), state: Mutex::new(BundleState::default()) }
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, BundleState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The bundle files, newest first.
+    #[allow(clippy::disallowed_methods, reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job")]
+    fn files(&self) -> std::io::Result<Vec<String>> {
+        let mut files: Vec<(String, SystemTime)> = fs::read_dir(&self.directory)?
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                let name = entry.file_name().into_string().ok()?;
+                bundle_file(&name).then_some(())?;
+                Some((name, entry.metadata().ok()?.modified().ok()?))
+            })
+            .collect();
+        files.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
+        Ok(files.into_iter().map(|(name, _)| name).collect())
+    }
+
+    /// Records one command outcome of `session`; a failed one (or the cleanup that follows a failed one) writes the session's
+    /// bundle. A diagnostic failure never alters an action's outcome, so none is reported.
+    pub fn record(&self, session: &str, input: &Map<String, Value>) {
+        let key = session_key(session);
+        let history = {
+            let mut state = self.state();
+            let mut history = match state.histories.iter().position(|(k, _)| *k == key) {
+                Some(at) => state.histories.remove(at).1,
+                None => Vec::new(),
+            };
+            let mut row = Map::new();
+            row.insert("at".into(), json!(now_iso()));
+            row.extend(diagnostic_record(input));
+            history.push(row);
+            if history.len() > MAX_RECORDS {
+                history.remove(0);
+            }
+            state.histories.push((key.clone(), history.clone()));
+            if state.histories.len() > MAX_SESSIONS {
+                let (oldest, _) = state.histories.remove(0);
+                state.bundle_ids.remove(&oldest);
+            }
+            history
+        };
+        let failed = input.get("ok") == Some(&Value::Bool(false));
+        let cleanup_after_failure =
+            input.get("stage").and_then(Value::as_str) == Some("cleanup") && history.iter().any(|row| row.get("ok") == Some(&Value::Bool(false)));
+        if failed || cleanup_after_failure {
+            let _ = self.write(session, json!({ "records": history }));
+        }
+    }
+
+    /// Writes `session`'s bundle (`bundle.records`): a pending file first, renamed into place, then the oldest bundles beyond 20
+    /// are removed. One session keeps one bundle id, so its later failures replace its file.
+    #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "Called by record in the awaited backend InteractiveIo diagnostic job; file creation and retention stay one synchronous operation")]
+    pub fn write(&self, session: &str, bundle: Value) -> Result<(), ComputerError> {
+        let key = session_key(session);
+        fs::create_dir_all(&self.directory).map_err(|e| failure("computer_failure_bundle_failed", e))?;
+        let id = self.state().bundle_ids.entry(key.clone()).or_insert_with(|| uuid::Uuid::new_v4().to_string()).clone();
+        let body = json!({
+            "version": 1,
+            "id": id,
+            "session": key,
+            "createdAt": now_iso(),
+            "platform": platform(),
+            "screenshots": "excluded",
+            "records": bundle.get("records").cloned().unwrap_or_else(|| json!([])),
+        });
+        let text = body.to_string();
+        if text.len() > MAX_BYTES {
+            return Err(failure("computer_failure_bundle_too_large", text.len()));
+        }
+        let pending = self.directory.join(format!("pending-{id}.json"));
+        let save = || -> std::io::Result<()> {
+            let mut options = fs::OpenOptions::new();
+            options.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            let _ = std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+            options.open(&pending)?.write_all(text.as_bytes())?;
+            fs::rename(&pending, self.directory.join(format!("failure-{id}.json")))
+        };
+        save().map_err(|e| failure("computer_failure_bundle_failed", e))?;
+        if let Ok(files) = self.files() {
+            for name in files.into_iter().skip(MAX_BUNDLES) {
+                let _ = fs::remove_file(self.directory.join(name));
+            }
+        }
+        Ok(())
+    }
+
+    /// The newest bundles, the boundary reapplied to what the files hold.
+    #[cfg(test)]
+    pub fn read(&self) -> Vec<Value> {
+        let Ok(files) = self.files() else { return Vec::new() };
+        files
+            .into_iter()
+            .take(MAX_BUNDLES)
+            .filter_map(|name| {
+                let path = self.directory.join(name);
+                if usize::try_from(fs::metadata(&path).ok()?.len()).ok()? > MAX_BYTES {
+                    return None;
+                }
+                let value: Value = serde_json::from_str(&fs::read_to_string(&path).ok()?).ok()?;
+                let mut out = Map::new();
+                out.insert("version".into(), json!(1));
+                out.insert("screenshots".into(), json!("excluded"));
+                if let Some(id) = value.get("id").and_then(Value::as_str).filter(|id| id.len() == 36 && hex_id(id)) {
+                    out.insert("id".into(), json!(id));
+                }
+                if let Some(at) = value.get("createdAt").filter(|at| iso_timestamp(at)) {
+                    out.insert("createdAt".into(), at.clone());
+                }
+                let records = value.get("records").and_then(Value::as_array).map(|rows| {
+                    let skip = rows.len().saturating_sub(MAX_RECORDS);
+                    rows[skip..].iter().map(|row| Value::Object(diagnostic_record(&object(Some(row))))).collect::<Vec<_>>()
+                });
+                out.insert("records".into(), Value::Array(records.unwrap_or_default()));
+                Some(Value::Object(out))
+            })
+            .collect()
     }
 }

@@ -86,6 +86,47 @@ test('every press asks the shared read again: no per-row success suppresses a la
   assert.deepEqual(calls, ['s1', 's1'], 'an acknowledged row is asked for again by the next intent');
 });
 
+test('an enabled sidebar warms nothing on a pointer device and the first two rows on a touch surface; press is unchanged', async (t) => {
+  const agent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
+  t.after(() => {
+    if (agent) Object.defineProperty(window.navigator, 'userAgent', agent);
+    else delete window.navigator.userAgent;
+  });
+  const rows = ['r1', 'r2', 'r3'].map((id) => ({ id }));
+  async function scenario(userAgent) {
+    Object.defineProperty(window.navigator, 'userAgent', { configurable: true, get: () => userAgent });
+    const calls = [];
+    let handle;
+    function Probe() {
+      handle = useSessionPrefetch(
+        async (id) => {
+          calls.push(id);
+          return true;
+        },
+        true,
+        true,
+        rows
+      );
+      return null;
+    }
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(React.createElement(Probe)));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 1000)));
+    const idle = [...calls];
+    handle('r3');
+    await act(async () => root.unmount());
+    return { idle, all: calls };
+  }
+  const pointer = await scenario('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120');
+  assert.deepEqual(pointer.idle, [], 'a pointer device warms nothing unasked');
+  assert.deepEqual(pointer.all, ['r3'], 'a press still asks for its row');
+  const touch = await scenario('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148');
+  assert.deepEqual(touch.idle, ['r1', 'r2'], 'a touch surface warms the first two rows');
+  assert.deepEqual(touch.all, ['r1', 'r2', 'r3'], 'a press still asks for its row');
+});
+
 async function tabScenario(t, id, onSelectTab = () => {}) {
   defaultSessionLaneStore.clear();
   const open = [];

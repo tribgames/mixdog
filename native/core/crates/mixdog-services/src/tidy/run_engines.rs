@@ -119,10 +119,14 @@ async fn run_one(engine: &Resolved, o: &SuiteOptions) -> Value {
     if check.thrown {
         return thrown(engine, check.error.as_deref().unwrap_or_default());
     }
+    let checked = check.files_checked.unwrap_or(if check.error.is_some() { 0 } else { scope.len() });
     let mut result = with(json!({
-        "filesChecked": scope.len(), "filesChanged": check.changed_files,
+        "filesChecked": checked, "filesChanged": check.changed_files,
         "diagnostics": check.diagnostics.iter().map(|d| d.to_json()).collect::<Vec<_>>(),
     }));
+    if !check.ignored.is_empty() {
+        put(&mut result, "ignored", json!(check.ignored));
+    }
     if !check.stderr_tail.is_empty() {
         put(&mut result, "stderrTail", json!(check.stderr_tail));
     }
@@ -321,6 +325,35 @@ mod tests {
         assert!(spawn.calls.lock().unwrap().is_empty());
     }
 
+    #[test]
+    fn fix_candidates_are_changed_files_plus_fixable_findings_without_duplicates() {
+        use super::super::runners::shared::{DiagnosticInit, diagnostic};
+        let fixable = diagnostic(DiagnosticInit { file: "b.ts", fixable: true, ..Default::default() });
+        let manual = diagnostic(DiagnosticInit { file: "c.ts", ..Default::default() });
+        let again = diagnostic(DiagnosticInit { file: "a.ts", fixable: true, ..Default::default() });
+        let result = RunnerResult { changed_files: vec!["a.ts".into()], diagnostics: vec![fixable, manual, again], ..Default::default() };
+        assert_eq!(fix_candidates(&result), ["a.ts", "b.ts"]);
+    }
+
+    #[cfg(node_twin)]
+    /// A fake `dotnet`: writes the empty report it was asked for.
+    struct FakeDotnet;
+
+    #[cfg(node_twin)]
+    #[async_trait]
+    impl Spawn for FakeDotnet {
+        async fn run(&self, _: &str, args: &[String], _: &Path, _: Duration, _: Option<&CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> ProcessResult {
+            let at = args.iter().position(|a| a == "--report").expect("a report path");
+            std::fs::write(&args[at + 1], "[]").unwrap();
+            ProcessResult::default()
+        }
+    }
+
+    #[cfg(node_twin)]
+    fn recorded_engine() -> Resolved {
+        Resolved { id: "dotnet-format".into(), source: "recorded".into(), command: "dotnet".into(), languages: vec!["csharp".into()], ..Default::default() }
+    }
+
     /// A read that never ran is an error: an empty map would make a rewritten file look unchanged.
     #[tokio::test]
     async fn a_file_read_that_never_ran_is_an_error_not_an_empty_digest() {
@@ -332,38 +365,14 @@ mod tests {
         assert!(read_files(lane, vec![dir.path().join("a.sh")]).await.is_err());
     }
 
-    #[test]
-    fn fix_candidates_are_changed_files_plus_fixable_findings_without_duplicates() {
-        use super::super::runners::shared::{DiagnosticInit, diagnostic};
-        let fixable = diagnostic(DiagnosticInit { file: "b.ts", fixable: true, ..Default::default() });
-        let manual = diagnostic(DiagnosticInit { file: "c.ts", ..Default::default() });
-        let again = diagnostic(DiagnosticInit { file: "a.ts", fixable: true, ..Default::default() });
-        let result = RunnerResult { changed_files: vec!["a.ts".into()], diagnostics: vec![fixable, manual, again], ..Default::default() };
-        assert_eq!(fix_candidates(&result), ["a.ts", "b.ts"]);
-    }
 
-    /// A fake `dotnet`: writes the empty report it was asked for.
-    struct FakeDotnet;
-
-    #[async_trait]
-    impl Spawn for FakeDotnet {
-        async fn run(&self, _: &str, args: &[String], _: &Path, _: Duration, _: Option<&CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> ProcessResult {
-            let at = args.iter().position(|a| a == "--report").expect("a report path");
-            std::fs::write(&args[at + 1], "[]").unwrap();
-            ProcessResult::default()
-        }
-    }
-
-    fn recorded_engine() -> Resolved {
-        Resolved { id: "dotnet-format".into(), source: "recorded".into(), command: "dotnet".into(), languages: vec!["csharp".into()], ..Default::default() }
-    }
-
+    #[cfg(node_twin)]
     fn cleanup_golden() -> Value {
         serde_json::from_str(include_str!("../../../../fixtures/dotnet-format-cleanup/golden.json")).unwrap()
     }
-
     /// Node's real engine suite over its real dotnet-format runner (`record-dotnet-format-cleanup.mjs`): a clean
     /// check, and a runner that threw out of its `finally`: no files checked, only the error.
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn a_runner_that_threw_is_the_engines_error_alone_as_nodes_wrapper_reports_it() {
         let golden = cleanup_golden();

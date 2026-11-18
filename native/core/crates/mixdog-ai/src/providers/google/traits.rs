@@ -107,23 +107,35 @@ impl ModelTraits for CatalogGoogleTraits {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::provider::Content;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::provider::Message;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::provider::ModelRequest;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::provider::RequestOptions;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::provider::Role;
+    #[cfg(node_twin)]
     use mixdog_protocol::ProviderId;
+    #[cfg(node_twin)]
     use serde_json::Value;
 
+    #[cfg(node_twin)]
     use super::*;
+    #[cfg(node_twin)]
     use crate::providers::google::request::Dialect;
+    #[cfg(node_twin)]
     use crate::providers::google::request::build_request;
 
+    #[cfg(node_twin)]
     fn golden() -> Value {
         serde_json::from_str(include_str!("../../../../../fixtures/google-traits/golden.json")).expect("fixture")
     }
 
     /// Node's real `isGeminiFamilyModel` over ids the catalog never describes.
+    #[cfg(node_twin)]
     #[test]
     fn the_family_is_the_wire_ids_and_not_the_catalogs() {
         let traits = CatalogGoogleTraits(Vec::new());
@@ -136,6 +148,7 @@ mod tests {
     /// Node's real `geminiThinkingConfig`: a 2.5 model is budget-only with an empty catalog
     /// (`gemini-2.5-pro` at effort `low` is `{"thinkingBudget":1024}`, never a `thinkingLevel`),
     /// and every other case gives Node's config or Node's error text.
+    #[cfg(node_twin)]
     #[test]
     fn a_gemini_2_5_model_takes_the_budget_only_contract() {
         let traits = CatalogGoogleTraits(Vec::new());
@@ -180,3 +193,4 @@ mod tests {
         }
     }
 }
+

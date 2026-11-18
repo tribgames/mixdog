@@ -21,15 +21,6 @@ use super::registry::{Registry, lock};
 
 pub use crate::snapshot::read_com_saved_copy;
 
-/// `fullPath(path, cwd)`: an absolute path stays itself, a relative one is taken against the call's folder (the process's
-/// when the call names none).
-pub fn full_path(path: &str, cwd: &str) -> Result<String, String> {
-    if path.is_empty() {
-        return Err("path is required".to_owned());
-    }
-    Ok(nodepath::resolve_host(&[cwd, path]))
-}
-
 /// The file name of a path and the folder it is in (`basename` and `dirname`).
 fn split(path: &str) -> (String, String) {
     let location = Path::new(path);
@@ -116,33 +107,6 @@ pub fn assert_document_output<P: ReadProof>(
     ))
 }
 
-/// `editableTarget(args, cwd, source)`: the file an edit lands in. It is never the source itself.
-pub fn editable_target<P: ReadProof>(
-    proof: &P,
-    args: &Value,
-    cwd: &str,
-    source: &str,
-) -> Result<String, String> {
-    let output = args
-        .get("output")
-        .filter(|output| mixdog_office_base::values::truthy(output));
-    let target = match output {
-        Some(output) => assert_document_output(
-            proof,
-            full_path(&mixdog_js::value_to_string(output), cwd)?,
-            source,
-        )?,
-        None => default_output(source),
-    };
-    if js_to_lowercase(&target) == js_to_lowercase(source) {
-        return Err(
-            "background/portable editing requires an output path different from the source"
-                .to_owned(),
-        );
-    }
-    Ok(target)
-}
-
 /// `materializeWorkingCopy(session)`: a session opened for reading holds the user's own file. Before the first edit it takes the
 /// working copy it would have had, so the edit lands beside the document instead of inside it. Answers the file the edit
 /// writes.
@@ -204,6 +168,7 @@ mod tests {
         assert_eq!(dirname("report.docx"), ".");
     }
 
+
     #[test]
     fn a_path_is_required_and_a_relative_one_follows_the_call_folder() {
         assert_eq!(full_path("", "x"), Err("path is required".to_owned()));
@@ -213,4 +178,40 @@ mod tests {
             nodepath::resolve_host(&[&base, "a/b.docx"])
         );
     }
+}
+
+
+/// `fullPath(path, cwd)`: an absolute path stays itself, a relative one is taken against the call's folder (the process's
+/// when the call names none).
+pub fn full_path(path: &str, cwd: &str) -> Result<String, String> {
+    if path.is_empty() {
+        return Err("path is required".to_owned());
+    }
+    Ok(nodepath::resolve_host(&[cwd, path]))
+}
+/// `editableTarget(args, cwd, source)`: the file an edit lands in. It is never the source itself.
+pub fn editable_target<P: ReadProof>(
+    proof: &P,
+    args: &Value,
+    cwd: &str,
+    source: &str,
+) -> Result<String, String> {
+    let output = args
+        .get("output")
+        .filter(|output| mixdog_office_base::values::truthy(output));
+    let target = match output {
+        Some(output) => assert_document_output(
+            proof,
+            full_path(&mixdog_js::value_to_string(output), cwd)?,
+            source,
+        )?,
+        None => default_output(source),
+    };
+    if js_to_lowercase(&target) == js_to_lowercase(source) {
+        return Err(
+            "background/portable editing requires an output path different from the source"
+                .to_owned(),
+        );
+    }
+    Ok(target)
 }

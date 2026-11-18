@@ -1016,6 +1016,7 @@ impl ContextTarget for GaugeTarget {
     }
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "thread_switches_home_replay.rs"]
 mod home_replay;

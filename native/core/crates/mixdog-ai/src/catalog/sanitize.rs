@@ -182,16 +182,16 @@ fn is_rolling_alias(id: &str) -> bool {
 }
 
 /// The provider's models.dev rows (`getModelsDevProviderModelsSync`).
-fn provider_models<'a>(models_dev: Option<&'a Value>, provider: &str) -> Option<&'a serde_json::Map<String, Value>> {
+fn provider_models(models_dev: Option<&super::Overlay>, provider: &str) -> Option<serde_json::Map<String, Value>> {
     let pid = models_dev_provider_id(provider)?;
-    models_dev?.get(&pid)?.get("models")?.as_object()
+    models_dev?.provider_models(&pid)
 }
 
 /// What the passes read besides the rows.
 #[derive(Clone, Copy)]
 pub struct Context<'a> {
     /// The projected models.dev document; `None` while it is cold.
-    pub models_dev: Option<&'a Value>,
+    pub models_dev: Option<&'a super::Overlay>,
     /// `Date.now()`.
     pub now_ms: i64,
     /// `MIXDOG_MODEL_STALE_MONTHS`, as [`stale_months`] reads it.
@@ -209,10 +209,88 @@ pub fn stale_months(raw: Option<&str>) -> f64 {
     }
 }
 
+/// `_preferRow`: the undated alias; of two dated rows the newest `created`,
+/// else the lexically latest id.
+fn prefer(a: usize, b: usize, rows: &[ModelRecord]) -> usize {
+    let (ra, rb) = (&rows[a], &rows[b]);
+    let (a_dated, b_dated) = (is_dated(&ra.id), is_dated(&rb.id));
+    if a_dated != b_dated {
+        return if a_dated { b } else { a };
+    }
+    if !a_dated && !b_dated {
+        return a;
+    }
+    let (ac, bc) = (ra.created.unwrap_or(0), rb.created.unwrap_or(0));
+    if ac != bc {
+        return if ac > bc { a } else { b };
+    }
+    // JS compares strings by UTF-16 code unit.
+    if rb.id.encode_utf16().cmp(ra.id.encode_utf16()) == Ordering::Greater { b } else { a }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[cfg(node_twin)]
+    /// A listed row as the golden's JSON states it.
+    fn row(value: &Value) -> ModelRecord {
+        let mut record = ModelRecord::new(value["id"].as_str().unwrap());
+        record.mode = value.get("mode").map(|m| m.as_str().unwrap().to_owned());
+        record.context_window = value.get("contextWindow").and_then(Value::as_u64).filter(|n| *n > 0);
+        record.max_output_tokens =value.get("outputTokens").and_then(Value::as_u64).filter(|n| *n > 0);
+        record.created = value.get("created").and_then(Value::as_i64);
+        record
+    }
+
+    #[test]
+    fn javascript_dates_and_month_settings() {
+        assert_eq!(date_utc(2026, 5, 1), 1_780_272_000_000);
+        assert_eq!(date_utc(50, 0, 1), date_utc(1950, 0, 1), "two-digit years are 19xx");
+        assert_eq!(date_utc(2026, 12, 1), date_utc(2027, 0, 1), "month overflow rolls the year");
+        assert_eq!(release_epoch(&json!({"release_date": " 2026-03 "})), Some(date_utc(2026, 2, 1)));
+        assert_eq!(release_epoch(&json!({"release_date": "2026-3"})), None);
+        assert_eq!((stale_months(None), stale_months(Some("")), stale_months(Some("x")), stale_months(Some("12"))), (9.0, 9.0, 9.0, 12.0));
+    }
+
+
+    #[cfg(node_twin)]
+    fn golden() -> Value {
+        serde_json::from_str(mixdog_testkit::fixture!("fixtures/sanitize/golden.json")).expect("golden parses")
+    }
+    #[cfg(node_twin)]
+    #[test]
+    fn every_sanitized_list_equals_node() {
+        let golden = golden();
+        let now = golden["now"].as_i64().unwrap();
+        let catalog = &crate::catalog::Overlay::from_projected_models_dev(&golden["catalog"]);
+        let variants: Vec<Vec<ModelRecord>> =
+            golden["variants"].as_array().unwrap().iter().map(|v| v.as_array().unwrap().iter().map(row).collect()).collect();
+        let cases = golden["cases"].as_array().unwrap();
+        assert!(cases.len() > 400);
+        for case in cases {
+            let rows = variants[case["variant"].as_u64().unwrap() as usize].clone();
+            let ctx = Context {
+                models_dev: (!case["cold"].as_bool().unwrap()).then_some(catalog),
+                now_ms: now,
+                stale_months: stale_months(case["months"].as_str()),
+            };
+            let kept = sanitize_model_list(rows.clone(), case["provider"].as_str().unwrap(), &ctx);
+            let got: Vec<usize> = kept.iter().map(|k| rows.iter().position(|r| r.id == k.id).unwrap()).collect();
+            let want: Vec<usize> = case["kept"].as_array().unwrap().iter().map(|i| i.as_u64().unwrap() as usize).collect();
+            assert_eq!(got, want, "{} variant {} cold {} months {}", case["provider"], case["variant"], case["cold"], case["months"]);
+        }
+    }
+}
+
+
 /// `_applyAutoStaleness`: family supersession and the absolute age cut, by
 /// models.dev release dates. `kept` holds indexes into `rows`.
 fn apply_auto_staleness(rows: &[ModelRecord], kept: Vec<usize>, provider: &str, ctx: &Context<'_>) -> Vec<usize> {
     let Some(catalog) = provider_models(ctx.models_dev, provider) else { return kept };
+    let catalog = &catalog;
 
     struct Meta<'a> {
         index: usize,
@@ -310,12 +388,12 @@ fn apply_auto_staleness(rows: &[ModelRecord], kept: Vec<usize>, provider: &str, 
     }
     kept.into_iter().filter(|i| !dropped.contains(i)).collect()
 }
-
 /// `_applyCodingUnfit`: hosted providers only. A catalog row that does not
 /// call tools, or emits no text, is dropped; without a catalog row the id
 /// fallback applies.
 fn apply_coding_unfit(rows: &[ModelRecord], kept: Vec<usize>, provider: &str, ctx: &Context<'_>) -> Vec<usize> {
     let catalog = provider_models(ctx.models_dev, provider);
+    let catalog = catalog.as_ref();
     kept.into_iter()
         .filter(|&i| {
             let id = &rows[i].id;
@@ -339,26 +417,6 @@ fn apply_coding_unfit(rows: &[ModelRecord], kept: Vec<usize>, provider: &str, ct
         })
         .collect()
 }
-
-/// `_preferRow`: the undated alias; of two dated rows the newest `created`,
-/// else the lexically latest id.
-fn prefer(a: usize, b: usize, rows: &[ModelRecord]) -> usize {
-    let (ra, rb) = (&rows[a], &rows[b]);
-    let (a_dated, b_dated) = (is_dated(&ra.id), is_dated(&rb.id));
-    if a_dated != b_dated {
-        return if a_dated { b } else { a };
-    }
-    if !a_dated && !b_dated {
-        return a;
-    }
-    let (ac, bc) = (ra.created.unwrap_or(0), rb.created.unwrap_or(0));
-    if ac != bc {
-        return if ac > bc { a } else { b };
-    }
-    // JS compares strings by UTF-16 code unit.
-    if rb.id.encode_utf16().cmp(ra.id.encode_utf16()) == Ordering::Greater { b } else { a }
-}
-
 /// `sanitizeModelList`.
 pub fn sanitize_model_list(rows: Vec<ModelRecord>, provider: &str, ctx: &Context<'_>) -> Vec<ModelRecord> {
     let provider = lower(js_trim(provider));
@@ -412,58 +470,4 @@ pub fn sanitize_model_list(rows: Vec<ModelRecord>, provider: &str, ctx: &Context
 
     let keep: BTreeSet<usize> = coding_fit.into_iter().filter(|i| winners.contains(i)).collect();
     rows.into_iter().enumerate().filter(|(i, _)| keep.contains(i)).map(|(_, row)| row).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    fn golden() -> Value {
-        serde_json::from_str(mixdog_testkit::fixture!("fixtures/sanitize/golden.json")).expect("golden parses")
-    }
-
-    /// A listed row as the golden's JSON states it.
-    fn row(value: &Value) -> ModelRecord {
-        let mut record = ModelRecord::new(value["id"].as_str().unwrap());
-        record.mode = value.get("mode").map(|m| m.as_str().unwrap().to_owned());
-        record.context_window = value.get("contextWindow").and_then(Value::as_u64).filter(|n| *n > 0);
-        record.max_output_tokens =value.get("outputTokens").and_then(Value::as_u64).filter(|n| *n > 0);
-        record.created = value.get("created").and_then(Value::as_i64);
-        record
-    }
-
-    #[test]
-    fn every_sanitized_list_equals_node() {
-        let golden = golden();
-        let now = golden["now"].as_i64().unwrap();
-        let catalog = &golden["catalog"];
-        let variants: Vec<Vec<ModelRecord>> =
-            golden["variants"].as_array().unwrap().iter().map(|v| v.as_array().unwrap().iter().map(row).collect()).collect();
-        let cases = golden["cases"].as_array().unwrap();
-        assert!(cases.len() > 400);
-        for case in cases {
-            let rows = variants[case["variant"].as_u64().unwrap() as usize].clone();
-            let ctx = Context {
-                models_dev: (!case["cold"].as_bool().unwrap()).then_some(catalog),
-                now_ms: now,
-                stale_months: stale_months(case["months"].as_str()),
-            };
-            let kept = sanitize_model_list(rows.clone(), case["provider"].as_str().unwrap(), &ctx);
-            let got: Vec<usize> = kept.iter().map(|k| rows.iter().position(|r| r.id == k.id).unwrap()).collect();
-            let want: Vec<usize> = case["kept"].as_array().unwrap().iter().map(|i| i.as_u64().unwrap() as usize).collect();
-            assert_eq!(got, want, "{} variant {} cold {} months {}", case["provider"], case["variant"], case["cold"], case["months"]);
-        }
-    }
-
-    #[test]
-    fn javascript_dates_and_month_settings() {
-        assert_eq!(date_utc(2026, 5, 1), 1_780_272_000_000);
-        assert_eq!(date_utc(50, 0, 1), date_utc(1950, 0, 1), "two-digit years are 19xx");
-        assert_eq!(date_utc(2026, 12, 1), date_utc(2027, 0, 1), "month overflow rolls the year");
-        assert_eq!(release_epoch(&json!({"release_date": " 2026-03 "})), Some(date_utc(2026, 2, 1)));
-        assert_eq!(release_epoch(&json!({"release_date": "2026-3"})), None);
-        assert_eq!((stale_months(None), stale_months(Some("")), stale_months(Some("x")), stale_months(Some("12"))), (9.0, 9.0, 9.0, 12.0));
-    }
 }

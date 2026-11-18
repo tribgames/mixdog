@@ -15,6 +15,10 @@ registerHooks({
 });
 const { typingTargetProbe, waitForElectronTypingTarget } = await import('./electron-text-target.ts');
 
+const { underEndpoint } = await import('./command-fence.ts');
+/** The endpoint of the relayed command these inputs belong to, admitting everything. */
+const fenced = (run) => underEndpoint({ signal: new AbortController().signal, commit() {}, track() {} }, run);
+
 test('typing requires an editable focus and refuses a different editable target, including shadow DOM', () => {
   const field = { tagName: 'INPUT', type: 'text', contains: () => false };
   const document = { activeElement: field, elementFromPoint: () => field };
@@ -125,12 +129,12 @@ test('observation-only enabled during focus confirmation prevents text after the
   );
   try {
     await assert.rejects(
-      dispatch({ action: 'type', text: 'fixture' }, 'type', {
+      fenced(() => dispatch({ action: 'type', text: 'fixture' }, 'type', {
         targetWindowId: 'hwnd:0x1',
         physicalX: 2,
         physicalY: 2,
         allowedWindowIds: ['hwnd:0x1'],
-      }),
+      })),
       /observation_only/
     );
     assert.equal(clicks, 1);
@@ -176,12 +180,12 @@ test('a failed preparatory click retains uncertainty and never sends app-owned t
       { assertAction() {}, dispatchAuthority: () => ({}) }
     );
     try {
-      const response = await dispatch({ action: 'type', text: 'must not be typed' }, 'type', {
+      const response = await fenced(() => dispatch({ action: 'type', text: 'must not be typed' }, 'type', {
         targetWindowId: 'hwnd:0x1',
         physicalX: 2,
         physicalY: 2,
         allowedWindowIds: ['hwnd:0x1'],
-      });
+      }));
       assert.equal(response.result.action, 'type');
       assert.equal(response.result.code, 'background_unsupported');
       assert.equal(response.result.input_may_have_executed, uncertain);

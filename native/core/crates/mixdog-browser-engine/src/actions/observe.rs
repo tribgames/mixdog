@@ -121,8 +121,6 @@ impl fmt::Display for ActionError {
     }
 }
 
-impl std::error::Error for ActionError {}
-
 /// The page a command works on: the host to ask, the page's id, the guard its mutating calls carry, and the command's cancel.
 #[derive(Clone, Copy)]
 pub struct PageCall<'a> {
@@ -1066,3 +1064,6 @@ mod tests {
         assert_eq!([js_round(2.5), js_round(-2.5), js_round(2.4)], [3.0, -2.0, 2.0]);
     }
 }
+
+
+impl std::error::Error for ActionError {}

@@ -357,10 +357,11 @@ fn the_server_runtimes_are_read_from_the_folder_a_claim_that_arrives_later_names
     let payloads = LocalPayloads::new(test_env(spawner, None), claims.resources());
     let platform = ServerPlatform { os: ServerOs::Linux, arch: ServerArch::X64 };
     let before = payloads.binary(platform).err().expect("nothing is staged");
-    assert!(before.message.contains("no staged"), "no folder is named yet: {}", before.message);
+    let no_folder = mixdog_ssh::said::APP_LACKS_FILES.english;
+    assert_eq!(before.message, no_folder, "no folder is named yet");
     let folder = tempfile::tempdir().expect("a folder");
     let _claim = claims.attach(claim(&folder.path().to_string_lossy()));
     let after = payloads.binary(platform).err().expect("the named folder holds no release");
     assert_eq!(after.code, "local-payload");
-    assert!(!after.message.contains("no staged"), "the claimed folder was read: {}", after.message);
+    assert_ne!(after.message, no_folder, "the claimed folder was read: {}", after.message);
 }

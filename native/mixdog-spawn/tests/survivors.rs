@@ -99,6 +99,43 @@ async fn kill_ends_the_survivors_and_a_second_look_finds_none() {
     assert!(confirmed);
 }
 
+#[cfg(any(windows, target_os = "linux"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn replay_limit_does_not_discard_live_survivor_ownership() {
+    use mixdog_core_api::domain::process::ProcessManager;
+    use mixdog_spawn::ProcessConfig;
+
+    let m = manager_with(ProcessConfig { retained_exits: 1, ..ProcessConfig::default() });
+    let watch = ProcessSurvivors::new(m.clone());
+    let old = handle("survivor-without-replay");
+    let sleeper = run_and_find_sleeper(&m, &old).await;
+    // Multiple survivor records exceed the old ownership cap as well as the
+    // replay cap. A subsequent admission also prunes the full replay slots.
+    let newer = handle("newer-survivor");
+    let newer_sleeper = run_and_find_sleeper(&m, &newer).await;
+    let last = handle("after-survivors");
+    m.spawn(request(&last, shell("echo done", "echo done"))).await.unwrap();
+    tokio::time::timeout(WAIT, collect(&m, &last)).await.unwrap();
+
+    let old_replay_discarded = m.info(&old).is_err();
+    let still_owned = watch.survivors(&old).is_some_and(|report| report.reachable);
+    let killed = tokio::time::timeout(WAIT, watch.kill(&old)).await;
+    // Clean up even if the manager lost ownership.
+    if (!still_owned || !matches!(&killed, Ok(true))) && pid_alive(sleeper) {
+        end_externally(sleeper);
+    }
+    let newer_owned = watch.survivors(&newer).is_some_and(|report| report.reachable);
+    let newer_killed = tokio::time::timeout(WAIT, watch.kill(&newer)).await;
+    if (!newer_owned || !matches!(&newer_killed, Ok(true))) && pid_alive(newer_sleeper) {
+        end_externally(newer_sleeper);
+    }
+
+    assert!(old_replay_discarded);
+    assert!(still_owned);
+    assert!(killed.unwrap());
+    assert!(watch.survivors(&old).is_none());
+}
+
 /// An abort ends the wait with `false` (`waitForShellDescendants`), not with a confirmation: the survivor is still there.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_abort_ends_the_wait_unconfirmed_and_leaves_the_survivor_running() {

@@ -1,4 +1,5 @@
 import { useMemo, useRef } from 'react';
+import { paneComposerRouteView } from './desktop-snapshot-store';
 import { HandoffQuestionsContext } from './agent-task-line';
 import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { useAgentChatSession, useDeletedBotSession } from './agent-chat-mode';
@@ -212,6 +213,8 @@ export function Conversation(props: ConversationProps) {
         {!readOnly && (
           <ConversationComposerDock
             {...props}
+            snapshot={paneComposerRouteView(snapshot)}
+            routeSnapshot={paneComposerRouteView(routeSnapshot)}
             draftMode={draftMode}
             draftId={draftId}
             agentMode={agentMode}

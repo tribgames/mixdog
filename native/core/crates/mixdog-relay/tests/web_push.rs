@@ -1,8 +1,4 @@
-//! Relay-owned Web Push: the tests of `apps/relay/lib/web-push.test.mjs` that concern this area (identity, endpoint policy,
-//! sender; the HTTP routes and the desktop-leg wiring of that file are tested where those areas are), the registry's persistence
-//! and quotas, the send validation and the `webpush-send` flow, and the files the Node module wrote read, rewritten and
-//! compared byte for byte with what Node itself writes. No test starts a process or a real push service: the HTTP client is the
-//! trait seam.
+//! Relay-owned Web Push: identity, endpoint policy, sender, registry persistence and quotas, send validation, the `webpush-send` flow and the files the relay writes. The HTTP client is a trait seam; no process or real push service is started.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU16, Ordering};
@@ -122,7 +118,7 @@ fn the_relay_mints_its_vapid_identity_once_keeps_it_and_signs_with_it() {
     let text = read(&dir.path().join(VAPID_FILE));
     let stored: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(stored["publicKey"], json!(public));
-    // The file is the layout of the Node module: version, publicKey, privateKeyJwk{kty,x,y,crv,d}.
+    // The file layout: version, publicKey, privateKeyJwk{kty,x,y,crv,d}.
     let keys: Vec<&String> = stored.as_object().unwrap().keys().collect();
     assert_eq!(keys, ["version", "publicKey", "privateKeyJwk"]);
     let jwk_keys: Vec<&String> = stored["privateKeyJwk"].as_object().unwrap().keys().collect();
@@ -304,7 +300,7 @@ async fn the_post_carries_the_vapid_header_the_options_and_the_ciphertext() {
 }
 
 #[tokio::test]
-async fn the_push_services_answer_is_read_as_node_reads_it() {
+async fn the_push_services_answer_is_read_by_its_status() {
     let dir = tempfile::tempdir().unwrap();
     let service = PushService::new();
     let sender = Sender::new(Arc::new(VapidKeys::load_or_create(dir.path()).unwrap()), service.clone());
@@ -516,9 +512,9 @@ fn a_corrupt_or_foreign_file_starts_an_empty_registry_and_keeps_what_is_valid() 
     assert!(Registry::open(dir.path()).list_for("pc-a").is_empty());
 }
 
-// ---- files written by the Node module ----
+// ---- files as the relay lays them out ----
 
-// Recorded by `node tests/web_push_record.mjs <apps/relay/lib> <scratch>` against the Node module (commit 0bf8fe045).
+// Literal file contents in the layout the relay persists.
 const NODE_PUBLIC_KEY: &str = r#"BBluyeml-8QDy-0RmD1Qgyev-EhumZNT0lU-kPXBCc4bsjiSm4S28DPhfyd7QgmuQOKnPlED3zFkVTu5ZGMdRYc"#;
 const NODE_VAPID_FILE: &str = r#"{
   "version": 1,
@@ -535,7 +531,7 @@ const NODE_SUBSCRIPTIONS_FILE: &str = r#"{"version":1,"devices":["pc-a"],"subscr
 const NODE_REWRITTEN_FILE: &str = r#"{"version":1,"devices":["pc-a","pc-b"],"subscriptions":[{"endpoint":"https://fcm.googleapis.com/fcm/send/subscription-1","associations":[{"deviceId":"pc-a","clientId":"aaaaaaaa","sealed":{"version":1,"ephemeralPublicKey":"Baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","nonce":"nnnnnnnnnnnnnnnn","ciphertext":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"createdAt":1794715228134},{"deviceId":"pc-b","clientId":"bbbbbbbb","sealed":{"version":1,"ephemeralPublicKey":"Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","nonce":"nnnnnnnnnnnnnnnn","ciphertext":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"createdAt":1794715228135}]},{"endpoint":"https://updates.push.services.mozilla.com/wpush/v2/subscription-2","associations":[{"deviceId":"pc-a","clientId":"aaaaaaaa","sealed":{"version":1,"ephemeralPublicKey":"Bcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","nonce":"nnnnnnnnnnnnnnnn","ciphertext":"cccccccccccccccccccccccccccccccccccccccc"},"createdAt":1794715228135}]}]}"#;
 
 #[test]
-fn the_vapid_file_node_minted_is_read_unchanged_and_signs_with_the_same_key() {
+fn the_vapid_file_is_read_unchanged_and_signs_with_the_same_key() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(VAPID_FILE);
     write(&path, NODE_VAPID_FILE);
@@ -551,7 +547,7 @@ fn the_vapid_file_node_minted_is_read_unchanged_and_signs_with_the_same_key() {
 }
 
 #[test]
-fn the_subscriptions_file_node_wrote_is_loaded_and_rewritten_as_node_rewrites_it() {
+fn the_subscriptions_file_is_loaded_and_rewritten_in_its_layout() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(SUBSCRIPTIONS_FILE);
     write(&path, NODE_SUBSCRIPTIONS_FILE);
@@ -566,7 +562,7 @@ fn the_subscriptions_file_node_wrote_is_loaded_and_rewritten_as_node_rewrites_it
     assert_eq!(registry.list_for("pc-b")[0].sealed, sealed("b"));
     // Loading writes nothing.
     assert_eq!(read(&path), NODE_SUBSCRIPTIONS_FILE);
-    // The write Node makes after the same load and the same change, byte for byte: so Node reads it back as it read its own.
+    // The write after the same load and the same change, byte for byte.
     assert_eq!(registry.mark_capable("pc-b"), Capable::Ok);
     assert_eq!(read(&path), NODE_REWRITTEN_FILE);
     // And Rust reads what it wrote.
@@ -666,7 +662,7 @@ async fn a_send_that_is_not_well_formed_is_refused_before_anything_is_posted() {
         assert_eq!(result["type"], json!("webpush-result"));
         assert_eq!((result["ok"].clone(), result["error"].clone()), (json!(false), json!("invalid-message")), "{message}");
     }
-    // The echoed endpoint and client id are clipped as the Node frame clips them.
+    // The echoed endpoint and client id are clipped to the frame's limits.
     let result = webpush.send_from_desktop(PC_A, &json!({ "endpoint": long_endpoint, "clientId": "c".repeat(300), "payload": good }), knows_every_client, |_| {}).await;
     assert_eq!(result["endpoint"].as_str().unwrap().len(), 2048);
     assert_eq!(result["clientId"].as_str().unwrap().len(), 128);

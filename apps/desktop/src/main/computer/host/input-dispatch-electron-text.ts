@@ -5,6 +5,7 @@ import type { electronWindowForNativeId } from '../observation/window-handles';
 import { dipToNative } from '../shared/native-coordinates';
 import type { ComputerCommand, PowerShellResponse } from '../shared/types';
 import type { CommandRouterHost } from './command-router';
+import { runRendererInput, type ScopeEndpoint } from './electron-input-port';
 import { waitForElectronTypingTarget } from './electron-text-target';
 import type { ComputerExecutionPolicy } from './execution-policy';
 import type { ResolvedInputTarget } from './input-resolution';
@@ -31,8 +32,11 @@ export interface ElectronTextDispatch {
   command: ComputerCommand;
   target: ResolvedInputTarget;
   renderer: ElectronTextRenderer;
-  /** Runs the abort, coordinator and policy checks; resolves to the dispatch authority fields. */
+  /** Runs the abort, coordinator and policy checks; resolves to the dispatch authority fields. An early refusal only: the
+   *  binding arbitration is the scope's, at each hand-over. */
   authorizeDispatch(): Promise<DispatchAuthority>;
+  /** The scope every event to the renderer is arbitrated against by its effect port (`electron-input-port`). */
+  scope: ScopeEndpoint;
   /** Shows the arrow at the input's point. The caller owns the presence overlay: this file does not import it. */
   showCursor?(cursor: ElectronCursor): void;
 }
@@ -121,7 +125,7 @@ export async function dispatchElectronText(input: ElectronTextDispatch): Promise
       y: Math.round(bounds.y + bounds.height / 2),
     });
   showCursor?.({ sessionId: host.sessionIdFor(command), windowId: targetWindowId, ...feedbackPoint, action: 'type' });
-  await renderer.webContents.insertText(text);
+  await runRendererInput(renderer.webContents, input.scope, (typed) => typed.insertText(text));
   return {
     id: 0,
     ok: true,

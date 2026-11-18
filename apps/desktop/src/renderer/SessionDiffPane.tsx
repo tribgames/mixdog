@@ -17,8 +17,9 @@ import {
   type SessionChangesSource,
 } from './session-changes-store';
 import { gitRowOpenPath } from './session-diff-model';
+import { rowListIndex } from './session-diff-row-index';
 import { SessionDiffScope } from './session-diff-scope';
-import { SessionDiffStack, sessionDiffBodyPending } from './session-diff-section';
+import { SessionDiffStack } from './session-diff-section';
 import { SessionDiffTabStrip } from './session-diff-tab-strip';
 import { useSessionDiffCollapse } from './use-session-diff-collapse';
 import { useSessionDiffRequests } from './use-session-diff-requests';
@@ -200,10 +201,7 @@ export function SessionDiffPane({
     [paneKey, sessionId, selectedPath]
   );
   const bodyRef = useRef<HTMLDivElement | null>(null);
-  // The (session, source, folder) whose list was already drawn: later reads of
-  // it never hold the list back again.
-  const listDrawnFor = useRef('');
-  const { collapsed, toggleCollapsed, expandPath, resetCollapsed, collapseActions } = useSessionDiffCollapse(rows);
+  const { isFolded, toggleCollapsed, expandRow, resetCollapsed, collapseActions } = useSessionDiffCollapse(rows);
   const tabs = useSessionDiffTabs({
     sessionId,
     active,
@@ -224,7 +222,7 @@ export function SessionDiffPane({
     error,
     refresh,
     adoptions,
-    expandPath,
+    expandRow,
     showAllFiles: tabs.showAllFiles,
     openDiffTab: tabs.openDiffTab,
     setChangesOpen: tabs.setChangesOpen,
@@ -258,22 +256,16 @@ export function SessionDiffPane({
     rows: visibleRows,
     selectedId: selectedRow?.id ?? '',
   });
-  // Capped: every file but the selected one lists its header only.
-  const shownCollapsed = useMemo(
-    () =>
-      capped
-        ? new Set([...collapsed, ...visibleRows.filter((row) => row !== selectedRow).map((row) => row.path)])
-        : collapsed,
-    [capped, collapsed, visibleRows, selectedRow]
-  );
   // Capped: a header selects its file (unfolded); the selected one folds as usual.
-  const onToggleFile = (path: string) => {
-    if (!capped || path === selectedRow?.path) {
-      toggleCollapsed(path);
+  const onToggleFile = (id: string) => {
+    if (!capped || id === selectedRow?.id) {
+      toggleCollapsed(id);
       return;
     }
-    setSelectedPath(path);
-    expandPath(path);
+    const row = visibleRows[rowListIndex(visibleRows).byId.get(id) ?? -1];
+    if (!row) return;
+    setSelectedPath(row.path);
+    expandRow(id);
   };
   const tabStrip = (
     <SessionDiffTabStrip
@@ -330,32 +322,24 @@ export function SessionDiffPane({
       </p>
     );
   } else {
-    const drawnRows = visibleRows.map(withPatch);
-    const drawnFocus = focusRow && withPatch(focusRow);
-    // The list is first drawn once the unfolded files have their diffs: a
-    // section that grows from "Loading diff…" to the whole diff pushes every
-    // header below it out of view (a layout shift of the entire list).
-    const listKey = `${sessionId}\0${source}\0${cwd ?? ''}`;
-    const awaitingPatches =
-      listDrawnFor.current !== listKey &&
-      drawnRows.some((row) => sessionDiffBodyPending(row, row !== drawnFocus && shownCollapsed.has(row.path)));
-    if (awaitingPatches) body = <InitialSurface />;
-    else {
-      listDrawnFor.current = listKey;
-      body = (
-        <SessionDiffStack
-          stackRef={bodyRef}
-          rows={drawnRows}
-          focusRow={drawnFocus}
-          mode={viewMode}
-          collapsed={shownCollapsed}
-          onToggle={onToggleFile}
-          canRevertPath={canRevertPath}
-          onRevert={revertFile}
-          onOpenFile={onOpenFile}
-        />
-      );
-    }
+    // The list draws at once: a file whose patch is still being read shows
+    // its header with "Loading diff…" until the patch lands.
+    body = (
+      <SessionDiffStack
+        stackRef={bodyRef}
+        rows={visibleRows}
+        withPatch={withPatch}
+        focusRow={focusRow}
+        mode={viewMode}
+        isFolded={isFolded}
+        // Capped: every file but the selected one lists its header only.
+        selectedRow={capped ? selectedRow : undefined}
+        onToggle={onToggleFile}
+        canRevertPath={canRevertPath}
+        onRevert={revertFile}
+        onOpenFile={onOpenFile}
+      />
+    );
   }
   return (
     <SessionDiffFrame>

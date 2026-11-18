@@ -2,6 +2,7 @@
 //! integrity, and the window's own rendering.
 
 use crate::platform::{Integrity, Surface, Wid, WindowInfo};
+use crate::port::windows::{Posted, Refusal, WinPort};
 use std::ffi::c_void;
 use std::time::Duration;
 use windows::core::{BOOL, PWSTR};
@@ -20,19 +21,13 @@ use windows::Win32::Security::{
     TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
 };
 use windows::Win32::System::Threading::{
-    AttachThreadInput, GetCurrentProcess, GetCurrentThreadId, OpenProcess, OpenProcessToken,
-    QueryFullProcessImageNameW, TerminateProcess, WaitForSingleObject, PROCESS_BASIC_INFORMATION,
-    PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
-    PROCESS_TERMINATE,
+    GetCurrentProcess, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW, WaitForSingleObject,
+    PROCESS_BASIC_INFORMATION, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
 };
-use windows::Win32::UI::Input::KeyboardAndMouse::{keybd_event, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP};
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, ChildWindowFromPointEx, EnumChildWindows, EnumWindows, GetAncestor,
-    GetClassNameW, GetClientRect, GetCursorPos, GetForegroundWindow, GetGUIThreadInfo, GetWindow,
-    GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsHungAppWindow,
-    IsIconic, IsWindow, IsWindowVisible, IsZoomed, MoveWindow, PostMessageW,
-    SetForegroundWindow, ShowWindow, WindowFromPoint, GA_ROOT,
-    GUITHREADINFO, GW_OWNER, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, WM_CLOSE,
+    ChildWindowFromPointEx, EnumChildWindows, EnumWindows, GetAncestor, GetClassNameW, GetClientRect, GetCursorPos,
+    GetForegroundWindow, GetGUIThreadInfo, GetWindow, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
+    IsHungAppWindow, IsIconic, IsWindow, IsWindowVisible, IsZoomed, WindowFromPoint, GA_ROOT, GUITHREADINFO, GW_OWNER,
 };
 
 pub fn hwnd(handle: Wid) -> HWND {
@@ -220,13 +215,15 @@ pub fn parent_pid(pid: u32) -> u32 {
     }
 }
 
-pub fn terminate(pid: u32) -> Result<(), String> {
-    let process = Process::open(pid, PROCESS_TERMINATE.0 | PROCESS_SYNCHRONIZE.0)
-        .ok_or_else(|| format!("could not open pid {pid}: {}", std::io::Error::last_os_error()))?;
-    // SAFETY: the handle carries PROCESS_TERMINATE.
-    unsafe { TerminateProcess(process.0, 1) }.map_err(|error| error.to_string())?;
-    // SAFETY: the handle carries SYNCHRONIZE.
-    unsafe { WaitForSingleObject(process.0, 2000) };
+/// Ends `pid` through the port, then waits for its exit holding nothing.
+pub fn terminate(port: &WinPort, pid: u32) -> Result<(), String> {
+    // Opened before the kill, so the wait is on this process and not on a successor that reused the id.
+    let process = Process::open(pid, PROCESS_SYNCHRONIZE.0);
+    port.terminate(pid)?;
+    if let Some(process) = process {
+        // SAFETY: the handle carries SYNCHRONIZE.
+        unsafe { WaitForSingleObject(process.0, 2000) };
+    }
     Ok(())
 }
 
@@ -501,41 +498,19 @@ pub fn is_responding(handle: Wid) -> bool {
     is_window(handle) && !unsafe { IsHungAppWindow(hwnd(handle)) }.as_bool()
 }
 
-pub fn move_window(handle: Wid, x: i32, y: i32, width: i32, height: i32) -> Result<(), String> {
-    // SAFETY: plain value arguments.
-    unsafe {
-        let _ = ShowWindow(hwnd(handle), SW_RESTORE);
-        MoveWindow(hwnd(handle), x, y, width, height, true)
-    }
-    .map_err(|_| format!("could not move window: {}", crate::platform::window_id(handle)))
-}
-
-pub fn show(handle: Wid, command: crate::platform::WinState) {
-    use crate::platform::WinState;
-    let command = match command {
-        WinState::Minimize => SW_MINIMIZE,
-        WinState::Maximize => SW_MAXIMIZE,
-        WinState::Restore => SW_RESTORE,
-    };
-    // SAFETY: plain value arguments.
-    let _ = unsafe { ShowWindow(hwnd(handle), command) };
-}
-
 /// Queues the close request; the caller observes closure separately, since a
 /// save dialog can hold the real close for a long time.
-pub fn close(handle: Wid) -> Result<bool, String> {
+pub fn close(port: &WinPort, handle: Wid) -> Result<bool, String> {
     if !is_window(handle) {
         return Ok(false);
     }
-    // SAFETY: plain value arguments.
-    match unsafe { PostMessageW(Some(hwnd(handle)), WM_CLOSE, Default::default(), Default::default()) } {
+    match port.post(handle, Posted::Close) {
         Ok(()) => Ok(true),
-        Err(error) if error.code().0 as u32 & 0xFFFF == 5 => Err(
-            "background_blocked_uipi|Windows integrity isolation blocked the close request".into(),
-        ),
-        Err(error) => Err(format!(
-            "background_message_rejected|close request failed: {error}"
-        )),
+        Err(Refusal::Revoked) => Err(crate::port::REVOKED.into()),
+        Err(Refusal::Isolated) => {
+            Err("background_blocked_uipi|Windows integrity isolation blocked the close request".into())
+        }
+        Err(refusal) => Err(format!("background_message_rejected|close request failed: {refusal:?}")),
     }
 }
 
@@ -543,86 +518,28 @@ fn in_front(handle: Wid, foreground: Wid) -> bool {
     foreground == handle && !is_iconic(handle)
 }
 
-fn restore_if_minimized(handle: Wid) {
-    if is_iconic(handle) {
-        // SAFETY: plain value arguments.
-        let _ = unsafe { ShowWindow(hwnd(handle), SW_RESTORE) };
-    }
-}
-
-/// One activation try through the input queues of the current foreground and
-/// the target; the foreground lock refuses a plain `SetForegroundWindow`.
-pub fn try_focus_attached(handle: Wid) -> bool {
-    let current_foreground = foreground();
-    if in_front(handle, current_foreground) {
-        return true;
-    }
-    let foreground_thread = pid_thread(current_foreground).1;
-    let target_thread = pid_thread(handle).1;
-    // SAFETY: plain call.
-    let this_thread = unsafe { GetCurrentThreadId() };
-    let attached_foreground = foreground_thread != 0
-        && foreground_thread != this_thread
-        && unsafe { AttachThreadInput(this_thread, foreground_thread, true) }.as_bool();
-    let attached_target = target_thread != 0
-        && target_thread != this_thread
-        && target_thread != foreground_thread
-        && unsafe { AttachThreadInput(this_thread, target_thread, true) }.as_bool();
-    restore_if_minimized(handle);
-    // SAFETY: plain value arguments.
-    unsafe {
-        let _ = BringWindowToTop(hwnd(handle));
-        let _ = SetForegroundWindow(hwnd(handle));
-        let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetActiveWindow(hwnd(handle));
-        let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(Some(hwnd(handle)));
-    }
-    let landed = foreground() == handle;
-    // SAFETY: undoes the attachments made above.
-    unsafe {
-        if attached_target {
-            let _ = AttachThreadInput(this_thread, target_thread, false);
-        }
-        if attached_foreground {
-            let _ = AttachThreadInput(this_thread, foreground_thread, false);
-        }
-    }
-    landed
-}
-
-/// Presses and releases the system's reserved no-name key, which no
-/// application reads: the system counts it as this process's latest input, and
-/// a process that has just had input may take the foreground. Nothing global
-/// is changed, so there is nothing to put back (the foreground lock timeout is
-/// left alone).
-fn grant_foreground_by_input(marker: i64) {
-    const VK_NONAME: u8 = 0xFC;
-    // SAFETY: plain value arguments; the marker (the one the observer was
-    // started with) lets it count the event as this host's own input.
-    unsafe {
-        keybd_event(VK_NONAME, 0, KEYBD_EVENT_FLAGS(0), marker as usize);
-        keybd_event(VK_NONAME, 0, KEYEVENTF_KEYUP, marker as usize);
-    }
-}
-
 /// The foreground lock refuses a plain `SetForegroundWindow` to a process
 /// without recent input: one no-name key from this process, sent with this
-/// host's input `marker`, lifts that for a few bounded tries.
-pub fn focus(handle: Wid, marker: i64) -> bool {
+/// host's input marker, lifts that for a few bounded tries. Each try is a
+/// submission of its own; the pauses between them hold nothing.
+pub fn focus(port: &WinPort, handle: Wid) -> bool {
     if !is_window(handle) {
         return false;
     }
     if in_front(handle, foreground()) {
         return true;
     }
-    restore_if_minimized(handle);
-    // SAFETY: plain value argument.
-    let _ = unsafe { SetForegroundWindow(hwnd(handle)) };
-    if foreground() == handle || try_focus_attached(handle) {
+    if port.restore(handle).is_err() || port.set_foreground(handle).is_err() {
+        return false;
+    }
+    if foreground() == handle || port.focus_try(handle) {
         return true;
     }
-    grant_foreground_by_input(marker);
+    if port.grant_foreground().is_err() {
+        return false;
+    }
     for _ in 0..3 {
-        if try_focus_attached(handle) {
+        if port.focus_try(handle) {
             return true;
         }
         std::thread::sleep(Duration::from_millis(25));

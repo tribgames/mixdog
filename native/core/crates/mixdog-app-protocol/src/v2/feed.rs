@@ -127,6 +127,29 @@ pub struct AppSubscribeResponse {
     pub subscription: Subscription,
 }
 
+/// The live subscriptions whose heads the client needs to check after waking.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct FeedHeadsParams {
+    /// If omitted, check every live subscription on this connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feed_ids: Option<Vec<FeedId>>,
+}
+
+/// A head for each requested subscription, in request order; null if not live on this connection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct FeedHeadsResponse {
+    /// The corresponding feed ids when the request did not specify any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feed_ids: Option<Vec<FeedId>>,
+    pub positions: Vec<Option<FeedPosition>>,
+}
+
 /// Generic subscription to a scoped feed whose id the client already knows
 /// (`login:<flowId>`, `media:<jobId>`, `lsp:<root>`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

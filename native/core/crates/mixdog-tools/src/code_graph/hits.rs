@@ -6,7 +6,7 @@ use std::cmp::Ordering;
 
 use mixdog_graph::outline::{SymbolInfo, identifier_hits};
 
-use super::graph::{Graph, MAX_FILES, Node};
+use super::graph::{Graph, Node};
 use super::outline::{parent_index, symbol_path};
 use super::util::{head_chars, name_cmp};
 
@@ -430,9 +430,6 @@ pub(super) fn find_symbol_across_graph(
                 .map(|l| format!(", language={l}"))
                 .unwrap_or_default()
         ));
-        if graph.truncated {
-            lines.push(format!("WARN: graph truncated at CODE_GRAPH_MAX_FILES={MAX_FILES} — symbol may exist in an un-indexed file. Re-run with a narrower cwd."));
-        }
         let variants = graph.casing_variants(symbol);
         if !variants.is_empty() {
             lines.push(format!("hint: indexed under different casing: {}", variants.join(", ")));
@@ -472,11 +469,7 @@ pub(super) fn find_symbol_across_graph(
         lines.push(String::new());
     }
     if primary.declaration_like && decl_count <= 1 {
-        lines.push(if graph.truncated {
-            "# best declaration candidate (GRAPH TRUNCATED — may not be canonical; re-run with a narrower cwd to confirm)".to_string()
-        } else {
-            "# best declaration candidate".to_string()
-        });
+        lines.push("# best declaration candidate".to_string());
         let name_path = primary
             .name_path
             .as_ref()
@@ -600,11 +593,6 @@ pub(super) fn find_symbol_across_graph(
             )
         });
     }
-    if graph.truncated && (!primary.declaration_like || decl_count > 1) {
-        lines.push(format!(
-            "WARN: graph truncated at CODE_GRAPH_MAX_FILES={MAX_FILES} — some files not indexed"
-        ));
-    }
     if hits.len() > 1
         && let Some(note) = opts.scope_note
     {
@@ -624,18 +612,13 @@ pub(super) fn augment_no_hit(
     if result.trim() != empty_token {
         return result;
     }
-    let trunc = if graph.truncated {
-        format!(", graph truncated at {MAX_FILES} files")
-    } else {
-        String::new()
-    };
     match find_hits(graph, symbol, None).first() {
         Some(decl) => format!(
-            "{empty_token}\n# '{symbol}' IS defined ({}) but is genuinely unreferenced in this graph — present, not missing. No re-scope / grep needed.",
+            "{empty_token}\n# '{symbol}' is declared ({}); no matches were found in the searched scope. This does not establish that it is unused; verify with grep/read.",
             decl.location()
         ),
         None => format!(
-            "{empty_token}\n# '{symbol}' not present in graph rooted at {cwd} ({} files indexed{trunc}). If it should exist, the target is likely outside this cwd — pass an explicit 'cwd' (repo root) or 'file' anchor, or switch Project with the session tool (set-project).",
+            "{empty_token}\n# '{symbol}' not present in graph rooted at {cwd} ({} files indexed). If it should exist, the target is likely outside this cwd — pass an explicit 'cwd' (repo root) or 'file' anchor, or switch Project with the session tool (set-project).",
             graph.nodes.len()
         ),
     }

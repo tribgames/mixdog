@@ -218,6 +218,16 @@ mod tests {
     }
 
     #[test]
+    fn a_reveal_no_window_took_is_not_shown_though_the_phones_are_told() {
+        let sent = Arc::new(Sent::default());
+        let table = Table(vec![member(2, true, false), member(9, false, true)]);
+        let reveal = AudienceReveal::new(Arc::new(table), sent.clone());
+        assert!(!reveal.publish_reveal(json!({ "kind": "terminal" }), json!({ "kind": "terminal" })), "a window that is gone took nothing");
+        assert_eq!(sent.0.lock().unwrap().len(), 1, "the phone is still told");
+    }
+
+
+    #[test]
     fn paired_phones_get_the_reveal_without_any_path_or_ack_id_while_the_window_keeps_the_full_request() {
         let sent = Arc::new(Sent::default());
         let table = Table(vec![member(1, false, true), member(2, true, false), member(3, false, false)]);
@@ -230,14 +240,6 @@ mod tests {
         assert!(!sent[1].1.to_string().contains("secret") && sent[1].1.get("requestId").is_none());
     }
 
-    #[test]
-    fn a_reveal_no_window_took_is_not_shown_though_the_phones_are_told() {
-        let sent = Arc::new(Sent::default());
-        let table = Table(vec![member(2, true, false), member(9, false, true)]);
-        let reveal = AudienceReveal::new(Arc::new(table), sent.clone());
-        assert!(!reveal.publish_reveal(json!({ "kind": "terminal" }), json!({ "kind": "terminal" })), "a window that is gone took nothing");
-        assert_eq!(sent.0.lock().unwrap().len(), 1, "the phone is still told");
-    }
 
     /// The whole reveal: the host sends the request to the connections of the app feed, a window's
     /// `ui/terminalRun/claimed` reaches the one `PendingWaits`, and the run is shown.

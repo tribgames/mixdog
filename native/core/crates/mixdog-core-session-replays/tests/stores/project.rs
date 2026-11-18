@@ -11,7 +11,9 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+#[cfg(node_twin)]
 use std::path::Path;
+#[cfg(node_twin)]
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -33,7 +35,9 @@ use mixdog_scm::error::ScmFailure;
 use mixdog_scm::worktree::maintenance::SessionActivity;
 use mixdog_scm::worktree::maintenance::SessionSource;
 use mixdog_scm::worktree::maintenance::ShellJob;
+#[cfg(node_twin)]
 use mixdog_scm::worktree::manager::CreateRequest;
+#[cfg(node_twin)]
 use mixdog_scm::worktree::ownership::Owner;
 use serde_json::Map;
 use serde_json::Value;
@@ -43,13 +47,18 @@ use mixdog_core_agents::agents::ConnectorCatalog;
 use mixdog_core_session::project::connectors::ProjectConnectors;
 use mixdog_core_session::project::service::ProjectService;
 use mixdog_core_session::project::service::Registry;
+#[cfg(node_twin)]
 use mixdog_core_session::session::worktree::LiveSession;
 use mixdog_core_session::session::worktree::LiveSessions;
+#[cfg(node_twin)]
 use mixdog_core_session::session::worktree::worktree_tests::enter;
+#[cfg(node_twin)]
 use mixdog_core_session::session::worktree::worktree_tests::git;
 use mixdog_core_session::session::worktree::worktree_tests::rig;
+#[cfg(node_twin)]
 use mixdog_core_session::session::worktree::worktree_tests::run;
 
+#[cfg(node_twin)]
 /// A process id no process has (above every platform's pid range): a lease on it is proven dead.
 const DEAD_PID: u32 = 2_000_000_000;
 
@@ -107,11 +116,7 @@ impl SessionSource for Sessions {
     }
 }
 
-fn goldens() -> Vec<Value> {
-    let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/project-methods/golden.json")).expect("golden.json parses");
-    all["steps"].as_array().expect("steps").clone()
-}
-
+#[cfg(node_twin)]
 /// The recorder's `mask`: paths, commit ids, folder sizes and times.
 struct Mask {
     roots: Vec<(String, String)>,
@@ -120,11 +125,14 @@ struct Mask {
     time: regex::Regex,
 }
 
+#[cfg(node_twin)]
 fn slashes(path: impl AsRef<Path>) -> String {
     path.as_ref().to_string_lossy().replace('\\', "/")
 }
 
+#[cfg(node_twin)]
 impl Mask {
+    #[cfg(node_twin)]
     fn text(&self, text: &str) -> String {
         let mut out = text.replace('\\', "/");
         for (root, label) in &self.roots {
@@ -179,6 +187,7 @@ fn answer(result: Result<Value, CoreError>) -> Value {
     }
 }
 
+#[cfg(node_twin)]
 struct Replay {
     service: ProjectService,
     golden: Vec<Value>,
@@ -192,6 +201,7 @@ struct Replay {
     probing: bool,
 }
 
+#[cfg(node_twin)]
 impl Replay {
     async fn run(&mut self, method: &'static str, mut params: Value, mutation: bool) -> Value {
         if mutation {
@@ -276,6 +286,7 @@ impl Replay {
 }
 
 /// The lease file of managed worktree `id`, wherever the managed root put it.
+#[cfg(node_twin)]
 fn lease_file(dir: &Path, id: &str) -> Option<PathBuf> {
     let name = format!("{id}.json");
     for entry in std::fs::read_dir(dir).unwrap() {
@@ -292,18 +303,80 @@ fn lease_file(dir: &Path, id: &str) -> Option<PathBuf> {
 }
 
 /// The owning process is gone: the lease names a proven-dead pid.
+#[cfg(node_twin)]
 fn orphan(data: &Path, id: &str, session: &str) {
     let file = lease_file(data, id).expect("the worktree has a lease");
     let lease = json!({ "sessionId": session, "runtimeToken": "gone", "pid": DEAD_PID, "entryId": id, "claimedAt": 1 });
     std::fs::write(file, serde_json::to_vec(&lease).unwrap()).unwrap();
 }
 
+#[cfg(node_twin)]
 fn commit_in(dir: &Path, file: &str) {
     std::fs::write(dir.join(file), format!("{file}\n")).unwrap();
     git(dir, &["add", "."]);
     git(dir, &["commit", "-q", "-m", &format!("work {file}")]);
 }
 
+/// A connector switch as `origin` (and, for a window, its scope) sends it: the same call `testing::request` builds, with the context of that connection.
+fn switch_as(ops: &mut u64, origin: Origin, window: Option<WindowScope>, repo: &str, connector: &str, enabled: bool) -> CoreRequest {
+    *ops += 1;
+    let params = testing::with_op(json!({ "projectPath": repo, "connectorId": connector, "enabled": enabled }), *ops);
+    let mut request = testing::request("project/setProjectConnectorEnabled", params, Some(*ops));
+    request.ctx = CallContext::connection(ConnectionId(1), origin, CancellationToken::new()).with_window(window);
+    request
+}
+
+async fn switched(service: &ProjectService, request: CoreRequest) -> Value {
+    answer(match service.call(request).await {
+        Ok(Reply::Value(value)) => Ok(value),
+        Ok(_) => panic!("never subscribes"),
+        Err(error) => Err(error),
+    })
+}
+
+/// Widening what the bot may do (switching a connector on that is off) answers a desktop window as it answers a connection with no
+/// window: Node's main process made the call without `noWiden`, and the window took its place. Only a relay origin is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_window_widens_a_project_connector_as_main_does() {
+    let rig = rig();
+    let repo = rig.repo.to_string_lossy().into_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let io = PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io };
+    let registry = Arc::new(One(repo.clone()));
+    let connector_data = dir.path().join("connector-data");
+    std::fs::create_dir_all(&connector_data).unwrap();
+    let connectors = ProjectConnectors::new(registry.clone(), Arc::new(Installed), &connector_data, io);
+    let ops = testing::scopes(dir.path(), "project").await;
+    let live: LiveSessions = Arc::new(HashSet::new);
+    let service = ProjectService::new(registry, rig.worktrees.clone(), rig.ws.clone(), Arc::new(Sessions::default()), live, connectors, ops);
+    let window = || Some(WindowScope { id: Arc::from("w-1"), role: WindowRole::Main });
+    let mut n = 0;
+
+    // Each connection kind widens from the same state: the connector off, then switched on.
+    let mut answers = Vec::new();
+    for (origin, scope) in [(Origin::Local, None), (Origin::Local, window())] {
+        let off = switched(&service, switch_as(&mut n, Origin::Local, None, &repo, "gmail", false)).await;
+        assert!(off.get("ok").is_some(), "switching off: {off}");
+        let on = switched(&service, switch_as(&mut n, origin, scope, &repo, "gmail", true)).await;
+        assert!(on.get("ok").is_some(), "a local connection widens: {on}");
+        answers.push(on);
+    }
+    assert_eq!(answers[1], answers[0], "the window's answer is the answer of a connection with no window");
+
+    let off = switched(&service, switch_as(&mut n, Origin::Local, None, &repo, "gmail", false)).await;
+    assert!(off.get("ok").is_some(), "{off}");
+    let relayed = switched(&service, switch_as(&mut n, Origin::Relay, None, &repo, "gmail", true)).await;
+    assert!(relayed.get("error").is_some(), "a relay origin cannot widen: {relayed}");
+}
+
+
+#[cfg(node_twin)]
+fn goldens() -> Vec<Value> {
+    let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/project-methods/golden.json")).expect("golden.json parses");
+    all["steps"].as_array().expect("steps").clone()
+}
+#[cfg(node_twin)]
 #[tokio::test(flavor = "multi_thread")]
 async fn every_recorded_step_equals_nodes_over_real_state() {
     let rig = rig();
@@ -554,57 +627,4 @@ async fn every_recorded_step_equals_nodes_over_real_state() {
     r.step("connectors: unreadable file is never overwritten", set, switch(&repo, "gmail", json!(false), false), true).await;
 
     r.finish();
-}
-
-/// A connector switch as `origin` (and, for a window, its scope) sends it: the same call `testing::request` builds, with the context of that connection.
-fn switch_as(ops: &mut u64, origin: Origin, window: Option<WindowScope>, repo: &str, connector: &str, enabled: bool) -> CoreRequest {
-    *ops += 1;
-    let params = testing::with_op(json!({ "projectPath": repo, "connectorId": connector, "enabled": enabled }), *ops);
-    let mut request = testing::request("project/setProjectConnectorEnabled", params, Some(*ops));
-    request.ctx = CallContext::connection(ConnectionId(1), origin, CancellationToken::new()).with_window(window);
-    request
-}
-
-async fn switched(service: &ProjectService, request: CoreRequest) -> Value {
-    answer(match service.call(request).await {
-        Ok(Reply::Value(value)) => Ok(value),
-        Ok(_) => panic!("never subscribes"),
-        Err(error) => Err(error),
-    })
-}
-
-/// Widening what the bot may do (switching a connector on that is off) answers a desktop window as it answers a connection with no
-/// window: Node's main process made the call without `noWiden`, and the window took its place. Only a relay origin is refused.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_window_widens_a_project_connector_as_main_does() {
-    let rig = rig();
-    let repo = rig.repo.to_string_lossy().into_owned();
-    let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let io = PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io };
-    let registry = Arc::new(One(repo.clone()));
-    let connector_data = dir.path().join("connector-data");
-    std::fs::create_dir_all(&connector_data).unwrap();
-    let connectors = ProjectConnectors::new(registry.clone(), Arc::new(Installed), &connector_data, io);
-    let ops = testing::scopes(dir.path(), "project").await;
-    let live: LiveSessions = Arc::new(HashSet::new);
-    let service = ProjectService::new(registry, rig.worktrees.clone(), rig.ws.clone(), Arc::new(Sessions::default()), live, connectors, ops);
-    let window = || Some(WindowScope { id: Arc::from("w-1"), role: WindowRole::Main });
-    let mut n = 0;
-
-    // Each connection kind widens from the same state: the connector off, then switched on.
-    let mut answers = Vec::new();
-    for (origin, scope) in [(Origin::Local, None), (Origin::Local, window())] {
-        let off = switched(&service, switch_as(&mut n, Origin::Local, None, &repo, "gmail", false)).await;
-        assert!(off.get("ok").is_some(), "switching off: {off}");
-        let on = switched(&service, switch_as(&mut n, origin, scope, &repo, "gmail", true)).await;
-        assert!(on.get("ok").is_some(), "a local connection widens: {on}");
-        answers.push(on);
-    }
-    assert_eq!(answers[1], answers[0], "the window's answer is the answer of a connection with no window");
-
-    let off = switched(&service, switch_as(&mut n, Origin::Local, None, &repo, "gmail", false)).await;
-    assert!(off.get("ok").is_some(), "{off}");
-    let relayed = switched(&service, switch_as(&mut n, Origin::Relay, None, &repo, "gmail", true)).await;
-    assert!(relayed.get("error").is_some(), "a relay origin cannot widen: {relayed}");
 }

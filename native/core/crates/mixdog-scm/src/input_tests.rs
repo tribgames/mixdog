@@ -65,12 +65,6 @@ impl ProcessManager for NoPrograms {
     }
 }
 
-const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../apps/desktop/src/renderer/fixtures/phone-scm/golden.json");
-
-fn golden() -> Value {
-    serde_json::from_str(&std::fs::read_to_string(GOLDEN).expect("the phone-scm recording")).expect("json")
-}
-
 /// The core request of a phone call: the page's translation (shared/scm-operation-route.ts) of the raw arguments. A missing argument
 /// leaves its param out and `null` is sent as `null`, as the page's `positional` does, except in an optional argument the adapter
 /// takes as omitted (`omitted` below). `None`: the call is not one Node's host
@@ -214,6 +208,32 @@ fn carried(operation: &str, args: &[Value]) -> Vec<Value> {
     }
 }
 
+/// JSON values as the JavaScript values they read as: every number is the double it parses to, written as `JSON.stringify` writes it.
+fn js_values(values: &[Value]) -> Vec<Value> {
+    fn js(value: &Value) -> Value {
+        match value {
+            Value::Number(number) => mixdog_js::json_number(number.as_f64().unwrap_or(f64::NAN)),
+            Value::Array(items) => Value::Array(items.iter().map(js).collect()),
+            Value::Object(fields) => Value::Object(fields.iter().map(|(key, item)| (key.clone(), js(item))).collect()),
+            other => other.clone(),
+        }
+    }
+    values.iter().map(js).collect()
+}
+
+/// `requiredGitRevision` answers the revision rebuilt from its checked hash (git-contract.mjs: the hash before `^` is trimmed again).
+#[test]
+fn a_revision_is_rebuilt_from_its_checked_hash() {
+    assert_eq!(crate::input::revision(" abcd ^ ").expect("a hash and its parent mark"), "abcd^");
+    assert_eq!(crate::input::revision(" HEAD ").expect("HEAD"), "HEAD");
+    assert_eq!(crate::input::revision("ABCDEF12").expect("a hash"), "ABCDEF12");
+}
+
+
+const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../apps/desktop/src/renderer/fixtures/phone-scm/golden.json");
+fn golden() -> Value {
+    serde_json::from_str(&std::fs::read_to_string(GOLDEN).expect("the phone-scm recording")).expect("json")
+}
 /// The recorded cases `pick` selects, sent to the core: every one Node's host refused is refused by the core with Node's text
 /// (alone, a plain error with no code) and no program started; every one it acted on is acted on by the core with the arguments
 /// Node passed on. The server's decode of the request lets each through to the owner. Answers how many of each it compared, and
@@ -270,20 +290,6 @@ async fn compare(pick: impl Fn(&str) -> bool) -> (usize, usize, usize) {
     }
     (refused, acted, picked)
 }
-
-/// JSON values as the JavaScript values they read as: every number is the double it parses to, written as `JSON.stringify` writes it.
-fn js_values(values: &[Value]) -> Vec<Value> {
-    fn js(value: &Value) -> Value {
-        match value {
-            Value::Number(number) => mixdog_js::json_number(number.as_f64().unwrap_or(f64::NAN)),
-            Value::Array(items) => Value::Array(items.iter().map(js).collect()),
-            Value::Object(fields) => Value::Object(fields.iter().map(|(key, item)| (key.clone(), js(item))).collect()),
-            other => other.clone(),
-        }
-    }
-    values.iter().map(js).collect()
-}
-
 /// A group of cases: each one compared, some refused and some acted on as the recording has them.
 async fn compare_group(prefixes: &[&str]) -> (usize, usize) {
     let (refused, acted, picked) = compare(|name| prefixes.iter().any(|prefix| name.starts_with(prefix))).await;
@@ -291,14 +297,12 @@ async fn compare_group(prefixes: &[&str]) -> (usize, usize) {
     assert_eq!(refused + acted, picked, "every case of {prefixes:?} is compared");
     (refused, acted)
 }
-
 /// Every case of the recording whose call Node's host checked.
 #[tokio::test]
 async fn every_checked_call_is_refused_or_acted_on_as_nodes_host_did() {
     let (refused, acted, _) = compare(|_| true).await;
     assert!(refused > 0 && acted > 0, "{refused} refused and {acted} acted on");
 }
-
 /// An explicit `null` where Node's shared checks take only a missing argument as the default: the request base's `null` is refused;
 /// the optional arguments the app leaves out (discard mode, ignore scope, review source, a status's options, a message) are acted on
 /// as left out, by Node's fixed relay methods and by the page's adapter, whose request then does not carry them; a missing one is the
@@ -307,19 +311,16 @@ async fn every_checked_call_is_refused_or_acted_on_as_nodes_host_did() {
 async fn a_null_or_missing_argument_is_taken_as_nodes_relay_took_it() {
     compare_group(&["input-null-", "input-missing-"]).await;
 }
-
 /// A number is `Number(value)` and then the integer and range checks: `"1"`, `true`, `[1]`, `1.0` are 1, `"0x10"` is 16.
 #[tokio::test]
 async fn a_history_page_is_counted_with_javascripts_number() {
     compare_group(&["input-number-"]).await;
 }
-
 /// Each argument of another JSON type alone, and two invalid arguments at once: the first argument Node's call evaluated answers.
 #[tokio::test]
 async fn the_first_argument_node_checked_answers() {
     compare_group(&["input-wrong-type-", "input-two-invalid-"]).await;
 }
-
 /// A repository-scoped request (a write the server serializes per repository) is keyed by the directory Node's host acted on, the
 /// trimmed `cwd`; a request whose directory Node refused joins no repository's queue.
 #[test]
@@ -352,25 +353,21 @@ fn a_repository_request_is_keyed_by_the_directory_node_acted_on() {
     }
     assert!(keyed > 0 && unkeyed > 0, "{keyed} keyed and {unkeyed} refused for their directory");
 }
-
 /// The global config key is one of three exact strings, checked after the value, with Node's text.
 #[tokio::test]
 async fn a_global_config_key_is_refused_with_nodes_text() {
     compare_group(&["input-config-key-"]).await;
 }
-
 /// The directory is trimmed of JavaScript's white space and absolute by Windows' `path.isAbsolute`.
 #[tokio::test]
 async fn a_directory_is_absolute_by_nodes_rule() {
     compare_group(&["input-cwd-"]).await;
 }
-
 /// A sign-in's flow id is trimmed before it is looked up; a GitHub request is checked before the Git & GitHub gate.
 #[tokio::test]
 async fn githubs_arguments_are_checked_as_nodes_host_did() {
     compare_group(&["input-flow-id-", "input-githubRequest-", "githubCliLoginStatus-padded-flow-id"]).await;
 }
-
 /// Node took a lone surrogate in a string (`"\ud800"`) as any other string and acted on it, and its spawn wrote it on git's command
 /// line as U+FFFD. The core's frame decoder reads it as U+FFFD (decisions.md "frame-lone-surrogate"), so the call acts on what
 /// git got from Node.
@@ -400,7 +397,6 @@ fn a_lone_surrogate_node_acted_on_is_acted_on_as_git_got_it() {
     let node = recorded["ops"][0]["args"].as_array().expect("args");
     assert_eq!((core.operation, js_values(&core.args)), (recorded["ops"][0]["name"].as_str().expect("operation"), js_values(node)));
 }
-
 /// What Node put on gh's command line and fed it on stdin for an argument it read through a coercion is what the core builds:
 /// the head sha that passed `/^[a-f0-9]{40}$/i.test` as a list goes into the REST body as that list, the merge method
 /// (`String(method ?? 'merge')`) and the pull request's number (`Number(value)`, then `String(...)`) go on the command line as
@@ -454,12 +450,4 @@ fn a_coerced_argument_reaches_github_as_node_sent_it() {
         checked += 1;
     }
     assert!(checked >= 7, "{checked} coerced cases acted on");
-}
-
-/// `requiredGitRevision` answers the revision rebuilt from its checked hash (git-contract.mjs: the hash before `^` is trimmed again).
-#[test]
-fn a_revision_is_rebuilt_from_its_checked_hash() {
-    assert_eq!(crate::input::revision(" abcd ^ ").expect("a hash and its parent mark"), "abcd^");
-    assert_eq!(crate::input::revision(" HEAD ").expect("HEAD"), "HEAD");
-    assert_eq!(crate::input::revision("ABCDEF12").expect("a hash"), "ABCDEF12");
 }

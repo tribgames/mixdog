@@ -69,6 +69,7 @@ pub struct SettingsSources {
     pub heartbeats: Arc<dyn HeartbeatMarks>,
     pub ceilings: Arc<dyn OutputCeilingSource>,
     pub auto_effort: Arc<dyn AutoEffortSource>,
+    pub first_auto_effort: Option<Arc<super::auto_effort::TurnAutoEffort>>,
     /// Whether a route's model sees images (`pdfReadModes`); `None` takes every model as one that does.
     pub vision: Option<Arc<dyn mixdog_agent::env::ModelVision>>,
 }
@@ -94,10 +95,13 @@ fn text<'a>(header: &'a Header, key: &str) -> &'a str {
 }
 
 /// `base` with the fields only the turn knows filled in.
-pub fn merge_settings(mut base: RunSettings, sources: &SettingsSources, turn: &TurnFacts<'_>) -> RunSettings {
+pub fn merge_settings(mut base: RunSettings, sources: &SettingsSources, turn: &TurnFacts<'_>, effort: Option<&str>) -> RunSettings {
     let (provider, model) = (text(turn.header, "provider"), text(turn.header, "model"));
     // Effort and the text-only check: the route's wiring over the session row (header and stored messages).
     let mut updated = turn.header.clone();
+    if let Some(effort) = effort {
+        updated.insert("effort".into(), Value::String(effort.to_owned()));
+    }
     updated.insert("messages".into(), Value::Array(turn.prior.to_vec()));
     let (effort, text_only) = sources.wiring.wiring(&Value::Object(updated), turn.provider);
     base.effort = effort;
@@ -146,12 +150,6 @@ mod tests {
     use serde_json::json;
 
     struct Wiring;
-    impl HopWiring for Wiring {
-        fn wiring(&self, updated: &Value, _: &Arc<dyn ProviderAdapter>) -> (Option<mixdog_agent::effort::EffortWiring>, Option<mixdog_agent::text_only::TextOnlyInput>) {
-            assert_eq!(updated["messages"], json!([{ "role": "user" }]), "the stored rows ride the session row");
-            (None, None)
-        }
-    }
     struct Marks(&'static str);
     impl HeartbeatMarks for Marks {
         fn is_heartbeat(&self, id: &str) -> bool {
@@ -236,11 +234,12 @@ mod tests {
             attachments: None,
             file_text: None,
             model_max_output_tokens: None,
+            auto_clear: None,
         }
     }
 
     fn sources(heartbeat: &'static str) -> SettingsSources {
-        SettingsSources { wiring: Arc::new(Wiring), attachments: Arc::new(NoText), media: None, heartbeats: Arc::new(Marks(heartbeat)), ceilings: Arc::new(Ceilings), auto_effort: Arc::new(Auto), vision: None }
+        SettingsSources { wiring: Arc::new(Wiring), attachments: Arc::new(NoText), media: None, heartbeats: Arc::new(Marks(heartbeat)), ceilings: Arc::new(Ceilings), auto_effort: Arc::new(Auto), first_auto_effort: None, vision: None }
     }
 
     #[test]
@@ -251,14 +250,14 @@ mod tests {
         let prior = [json!({ "role": "user" })];
         let turn = |injected| TurnFacts { thread: &thread, header: &header, provider: &provider, prior: &prior, request: "fix it", injected, tools: &[], now_ms: 1_000 };
 
-        let merged = merge_settings(base(), &sources("other"), &turn(false));
+        let merged = merge_settings(base(), &sources("other"), &turn(false), None);
         assert!(merged.hidden_agent && merged.agent_mode && merged.read_body_required, "the config's fields are kept");
         assert_eq!((merged.escalated_max_output_tokens, merged.model_max_output_tokens), (Some(64_000), Some(32_000)));
         assert!(merged.attachments.is_some() && merged.limits.is_none());
         // No effort configuration on the route: no step judging, whatever the setting says.
         assert!(merged.step_auto_effort.is_none());
 
-        let heartbeat = merge_settings(base(), &sources("t1"), &turn(false));
+        let heartbeat = merge_settings(base(), &sources("t1"), &turn(false), None);
         assert_eq!(heartbeat.limits, Some(TurnLimits { max_tool_calls: Some(8), wrap_up_at_ms: Some(61_000), max_tool_rounds: None }));
     }
 
@@ -273,11 +272,19 @@ mod tests {
         let marks = mixdog_services::bots::HeartbeatSessions::new();
         let sources = SettingsSources { heartbeats: marks.clone(), ..sources("") };
 
-        assert!(merge_settings(base(), &sources, &turn).limits.is_none());
+        assert!(merge_settings(base(), &sources, &turn, None).limits.is_none());
         marks.mark("t1");
-        let limits = merge_settings(base(), &sources, &turn).limits;
+        let limits = merge_settings(base(), &sources, &turn, None).limits;
         assert_eq!(limits, Some(TurnLimits { max_tool_calls: Some(8), wrap_up_at_ms: Some(65_000), max_tool_rounds: None }));
         marks.unmark("t1");
-        assert!(merge_settings(base(), &sources, &turn).limits.is_none());
+        assert!(merge_settings(base(), &sources, &turn, None).limits.is_none());
+    }
+
+
+    impl HopWiring for Wiring {
+        fn wiring(&self, updated: &Value, _: &Arc<dyn ProviderAdapter>) -> (Option<mixdog_agent::effort::EffortWiring>, Option<mixdog_agent::text_only::TextOnlyInput>) {
+            assert_eq!(updated["messages"], json!([{ "role": "user" }]), "the stored rows ride the session row");
+            (None, None)
+        }
     }
 }

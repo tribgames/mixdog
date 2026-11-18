@@ -1,5 +1,5 @@
-//! Node's offload-prune recording (`fixtures/offload-prune-order`, `record-offload-prune-order.mjs`) stored in the core:
-//! the recorded session, its sidecars aged as Node's, and what is on disk at each point Node observed (its
+//! A recorded offload-prune scenario stored in the core:
+//! the recorded session, its sidecars aged as the scenario's, and what is on disk at each point the scenario observed (its
 //! tool-result directory whole and its stored transcript whole). Used by the session crate's replay
 //! (`offload_prune_order_tests.rs`) and by the host's, whose turns run through the product run host.
 
@@ -39,18 +39,18 @@ pub async fn within<T>(what: &str, wait: impl Future<Output = T>) -> T {
     mixdog_rt::time::timeout(Duration::from_secs(10), wait).await.unwrap_or_else(|_| panic!("no answer within 10s: {what}"))
 }
 
-/// The recording (`fixtures/offload-prune-order/golden.json`), whose text the calling test reads at run time
+/// The scenario document, whose text the calling test reads at run time
 /// (`mixdog_testkit::fixture!`).
 pub fn golden(text: &str) -> Value {
-    serde_json::from_str(text).expect("golden.json parses")
+    serde_json::from_str(text).expect("the scenario document parses")
 }
 
-/// Node's case `name` of the recording `golden`.
+/// the scenario's case `name` of the recording `golden`.
 pub fn node_case(golden: &Value, name: &str) -> Value {
-    golden["cases"].as_array().expect("cases").iter().find(|case| case["name"] == name).cloned().unwrap_or_else(|| panic!("no Node case {name}"))
+    golden["cases"].as_array().expect("cases").iter().find(|case| case["name"] == name).cloned().unwrap_or_else(|| panic!("no scenario case {name}"))
 }
 
-/// The recorded session, stored in the core: its transcript, its sidecars aged as Node's, the rig's scripted turns
+/// The recorded session, stored in the core: its transcript, its sidecars aged as the scenario's, the rig's scripted turns
 /// waiting for `release`.
 pub struct World {
     pub rig: Rig,
@@ -86,8 +86,8 @@ pub fn unmask(data: &Path, value: &Value) -> Value {
     serde_json::from_str(&serde_json::to_string(value).expect("json").replace("<DATA>", &escaped[1..escaped.len() - 1])).expect("unmasked")
 }
 
-/// The data dir `data` named `<DATA>`, as the recording names Node's, a turn completion's `attemptId` (a random UUID on
-/// both sides) named `<ATTEMPT>` and its `verb` (the client's label, which Node's runtime has none of) `<VERB>`.
+/// The data dir `data` named `<DATA>`, as the recording names the scenario's, a turn completion's `attemptId` (a random UUID on
+/// both sides) named `<ATTEMPT>` and its `verb` (the client's label, which the scenario's runtime has none of) `<VERB>`.
 fn mask(data: &Path, value: &Value) -> Value {
     let escaped = serde_json::to_string(&data.to_string_lossy()).expect("path");
     let mut masked: Value = serde_json::from_str(&serde_json::to_string(value).expect("json").replace(&escaped[1..escaped.len() - 1], "<DATA>")).expect("masked");
@@ -111,7 +111,7 @@ fn mask_attempts(value: &mut Value) {
     }
 }
 
-/// The compaction Node adopted, committed as the host commits its compactor's output.
+/// The compaction the scenario adopted, committed as the host commits its compactor's output.
 pub fn compaction_of(data: &Path, case: &Value, clock_ms: i64) -> Compaction {
     let compacted = unmask(data, &case["compacted"]);
     // The compacted transcript's system prompt stays in the header, as the session's own does (`migrated`).
@@ -120,12 +120,12 @@ pub fn compaction_of(data: &Path, case: &Value, clock_ms: i64) -> Compaction {
     Compaction { replacement, at: clock_ms, dropped_count: 0, dropped: None }
 }
 
-/// A session Node stored as `transcript` (its whole `messages`), as the migration stores it: the leading system
+/// A session the scenario stored as `transcript` (its whole `messages`), as the migration stores it: the leading system
 /// messages become the header's prompt blocks (`migrate_system_messages`), the rows the rest. The header and the rows.
 pub fn migrated(transcript: Value) -> (Header, Value) {
     let messages = transcript.as_array().cloned().expect("transcript");
     let mut header = json!({ "cwd": "/ws" }).as_object().cloned().expect("object");
-    let system = mixdog_core_prompt::prompt::migrate::migrate_system_messages(&messages, &header).expect("Node's system prefix");
+    let system = mixdog_core_prompt::prompt::migrate::migrate_system_messages(&messages, &header).expect("the scenario's system prefix");
     system.apply(&mut header);
     (header, Value::Array(messages[system.rows_from..].to_vec()))
 }
@@ -137,7 +137,7 @@ pub fn header() -> CompactionHeader {
 }
 
 impl World {
-    /// Node's case `name` of the recording `golden` (its text) stored over `rig`, its session opened by a directory
+    /// the scenario's case `name` of the recording `golden` (its text) stored over `rig`, its session opened by a directory
     /// over `deps()` (the rig's, or the rig's with the host's run factory). The opens (the creator's and the
     /// session's) list nothing: the sidecars are written once both listed.
     pub async fn new(name: &str, golden: &str, rig: Rig, deps: impl Fn(&Rig) -> Arc<SessionDeps>) -> World {
@@ -155,7 +155,7 @@ impl World {
         let golden = self::golden(golden);
         let mut case = node_case(&golden, name);
         // The core holds the system prompt in the header's prompt blocks, which carry no message meta: the transcript
-        // id Node's compaction stamps on its system message is not compared (manifest `systemMessageMeta`).
+        // id the scenario's compaction stamps on its system message is not compared (manifest `systemMessageMeta`).
         for point in case["points"].as_array_mut().into_iter().flatten() {
             for message in point["transcript"].as_array_mut().into_iter().flatten() {
                 if message["role"] == "system" {
@@ -206,7 +206,7 @@ impl World {
         self.sidecars.iter().find(|(name, _)| name == role).map(|(_, path)| path.as_str()).expect("a role")
     }
 
-    /// The compaction Node adopted, committed on the context it was planned on.
+    /// The compaction the scenario adopted, committed on the context it was planned on.
     pub async fn commit(&self) -> Result<CompactionCommit, CoreError> {
         let snapshot = within("the context is read", self.directory.model_context(&self.handle.id).read()).await.expect("context").into_iter().map(|(iid, _)| iid).collect();
         within("the commit answers", self.directory.commit_compaction(&self.handle.id, snapshot, compaction_of(self.data.path(), &self.case, self.clock_ms), Some(header()))).await
@@ -215,9 +215,12 @@ impl World {
     /// The running turn has ended.
     pub async fn ended(&self) {
         within("the turn ends", crate::eventually_on!(&[&self.handle.cell.stepped], || self.handle.cell.run.load().is_none().then_some(()))).await;
+        // The run is gone when its close is accepted; a failed turn's completion (an amend of its prompt) is on disk once the
+        // store has acked it, which is what the scenario's `point` reads.
+        within("the turn's close is on disk", self.directory.durability_settled().wait()).await.expect("settled");
     }
 
-    /// What is on disk now, as Node's `point`: the tool-result directory in listing order with each entry's text (null
+    /// What is on disk now, as the scenario's `point`: the tool-result directory in listing order with each entry's text (null
     /// for a directory; with `mtimes`, each file's mtime), and the stored transcript.
     #[allow(clippy::disallowed_methods, reason = "test reads the sidecar dir")]
     pub async fn point(&self, at: &str, mtimes: bool) -> Value {
@@ -236,8 +239,8 @@ impl World {
             })
             .collect();
         let rows = within("the context is read", self.directory.model_context(&self.handle.id).read()).await.expect("context");
-        // Node's `messages`: the system prompt (the header's prompt blocks) and the rows. The environment a clear writes
-        // for the next request (`sessionStartMetaInjected: false`) Node keeps outside `messages` until that request
+        // the scenario's `messages`: the system prompt (the header's prompt blocks) and the rows. The environment a clear writes
+        // for the next request (`sessionStartMetaInjected: false`) the scenario keeps outside `messages` until that request
         // (`resetSessionBp3Environment`, session-crud.mjs:361): it is not part of them (manifest `clearedEnvironment`).
         let header = within("the header is read", self.directory.try_stored_header(&self.handle.id)).await.expect("header").expect("the session");
         let mut blocks = mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(&header);
@@ -249,7 +252,7 @@ impl World {
         json!({ "at": at, "toolResults": mask(self.data.path(), &json!(tool_results)), "transcript": mask(self.data.path(), &json!(transcript)) })
     }
 
-    /// Node's case with the core's answer and points in place of Node's.
+    /// the scenario's case with the core's answer and points in place of the scenario's.
     pub fn got(&self, changed: Value, error: Value, points: Vec<Value>) -> Value {
         let mut got = self.case.clone();
         got["changed"] = changed;

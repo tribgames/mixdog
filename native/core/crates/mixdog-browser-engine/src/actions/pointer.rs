@@ -502,14 +502,6 @@ mod tests {
         TestPage::with(|state| state.ref_set = Some(refs("p1-s1")))
     }
 
-    fn grounded(page: &TestPage) {
-        let set = refs("p1-s2").with_document("p1:1", 7);
-        page.set(|state| {
-            state.grounding = Some(VisualGrounding::bind(&set, 640.0, 450.0, std::time::Instant::now()));
-            state.revision = Some(7);
-        });
-    }
-
     fn probe(x: f64, y: f64) -> Expect {
         Expect::ok("host/browser/ref/call", json!({"value": {"x": x, "y": y, "via": "control"}, "facts": page_facts("p1", 2)}))
     }
@@ -607,21 +599,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_screenshot_coordinate_hovers_without_a_hit_guard() {
-        let host = FakeHost::scripted(vec![
-            geometry(),
-            batch("completed").with_params(json!({"steps": [{"op": "pointer", "kind": "hover", "x": 640.0, "y": 450.0}], "expect": {"documentId": "p1:1"}})),
-        ]);
-        let page = page();
-        grounded(&page);
-        let output = run!(&page, &host, json!({"snapshotId": "p1-s2", "x": 320, "y": 225}), hover).await.expect("hovered");
-        assert!(!output.decorate_recovery);
-        let calls = host.calls();
-        assert!(calls[1].params["steps"][0].get("hitGuard").is_none());
-        host.finish().expect("geometry and one batch");
-    }
-
-    #[tokio::test]
     async fn the_outcome_of_the_batch_decides_whether_the_gesture_counts() {
         let cases: [(&str, Value, Result<(), &str>); 5] = [
             ("dialog", page_facts("p1", 3), Ok(())),
@@ -665,20 +642,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_coordinate_drag_by_touch_is_a_swipe() {
-        let host = FakeHost::scripted(vec![
-            geometry(),
-            geometry(),
-            batch("completed").with_params(json!({"steps": [{"op": "pointer", "kind": "swipe", "x": 64.0, "y": 90.0, "toX": 128.0, "toY": 180.0}]})),
-        ]);
-        let page = page();
-        grounded(&page);
-        let command = json!({"pointer": "touch", "snapshotId": "p1-s2", "x": 32, "y": 45, "targetX": 64, "targetY": 90});
-        run!(&page, &host, command, drag).await.expect("swiped");
-        host.finish().expect("two coordinates and one batch");
-    }
-
-    #[tokio::test]
     async fn a_key_press_is_one_press_step() {
         let host = FakeHost::scripted(vec![batch("completed").with_params(json!({"steps": [{"op": "press", "key": "Control+A"}], "expect": {"documentId": "p1:1"}}))]);
         let page = page();
@@ -703,18 +666,6 @@ mod tests {
         let second = calls[1].params["expression"].as_str().expect("expression");
         assert!(second.contains("left: 40,") && second.contains("top: 0,"), "dx alone does not scroll down: {second}");
         assert_eq!(page.get(|state| state.invalidated), 2);
-    }
-
-    #[tokio::test]
-    async fn a_coordinate_scroll_is_a_wheel_step_at_the_point() {
-        let host = FakeHost::scripted(vec![
-            geometry(),
-            batch("completed").with_params(json!({"steps": [{"op": "pointer", "kind": "wheel", "x": 640.0, "y": 450.0, "deltaX": 0.0, "deltaY": 720.0}]})),
-        ]);
-        let page = page();
-        grounded(&page);
-        run!(&page, &host, json!({"snapshotId": "p1-s2", "x": 320, "y": 225}), scroll).await.expect("wheeled");
-        host.finish().expect("done");
     }
 
     #[tokio::test]
@@ -818,5 +769,52 @@ mod tests {
         let declaration = scroll_within_ref_declaration(0, None);
         assert!(declaration.contains("const wantsY = true;") && declaration.contains("const wantsX = false;") && declaration.contains("Math.round(scroller.clientHeight * 0.8)"));
         assert!(scroll_within_ref_declaration(5, Some(0)).contains("const wantsY = false;"));
+    }
+
+
+    fn grounded(page: &TestPage) {
+        let set = refs("p1-s2").with_document("p1:1", 7);
+        page.set(|state| {
+            state.grounding = Some(VisualGrounding::bind(&set, 640.0, 450.0, std::time::Instant::now()));
+            state.revision = Some(7);
+        });
+    }
+    #[tokio::test]
+    async fn a_screenshot_coordinate_hovers_without_a_hit_guard() {
+        let host = FakeHost::scripted(vec![
+            geometry(),
+            batch("completed").with_params(json!({"steps": [{"op": "pointer", "kind": "hover", "x": 640.0, "y": 450.0}], "expect": {"documentId": "p1:1"}})),
+        ]);
+        let page = page();
+        grounded(&page);
+        let output = run!(&page, &host, json!({"snapshotId": "p1-s2", "x": 320, "y": 225}), hover).await.expect("hovered");
+        assert!(!output.decorate_recovery);
+        let calls = host.calls();
+        assert!(calls[1].params["steps"][0].get("hitGuard").is_none());
+        host.finish().expect("geometry and one batch");
+    }
+    #[tokio::test]
+    async fn a_coordinate_drag_by_touch_is_a_swipe() {
+        let host = FakeHost::scripted(vec![
+            geometry(),
+            geometry(),
+            batch("completed").with_params(json!({"steps": [{"op": "pointer", "kind": "swipe", "x": 64.0, "y": 90.0, "toX": 128.0, "toY": 180.0}]})),
+        ]);
+        let page = page();
+        grounded(&page);
+        let command = json!({"pointer": "touch", "snapshotId": "p1-s2", "x": 32, "y": 45, "targetX": 64, "targetY": 90});
+        run!(&page, &host, command, drag).await.expect("swiped");
+        host.finish().expect("two coordinates and one batch");
+    }
+    #[tokio::test]
+    async fn a_coordinate_scroll_is_a_wheel_step_at_the_point() {
+        let host = FakeHost::scripted(vec![
+            geometry(),
+            batch("completed").with_params(json!({"steps": [{"op": "pointer", "kind": "wheel", "x": 640.0, "y": 450.0, "deltaX": 0.0, "deltaY": 720.0}]})),
+        ]);
+        let page = page();
+        grounded(&page);
+        run!(&page, &host, json!({"snapshotId": "p1-s2", "x": 320, "y": 225}), scroll).await.expect("wheeled");
+        host.finish().expect("done");
     }
 }

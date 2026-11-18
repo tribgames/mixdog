@@ -1221,12 +1221,7 @@ impl Parser {
 mod tests {
     use super::*;
 
-    /// `[pattern, flags, message]` rows written by Node 22 (`new RegExp(pattern, flags)`): every
-    /// hand-picked case across 22 flag sets plus up to 14 rows from each (message, flags) bucket
-    /// of an exhaustive sweep (all strings up to three characters over 38 pattern characters,
-    /// four over 16, five over 16 with `u`). `null` is a pattern V8 accepts.
-    const ROWS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("testdata/regex_errors.json");
-
+    #[cfg(node_twin)]
     fn mismatches(rows: impl Iterator<Item = (String, String, Option<String>)>, limit: usize) -> (usize, usize, Vec<String>) {
         let (mut total, mut count, mut bad) = (0, 0, Vec::new());
         for (pattern, flags, expected) in rows {
@@ -1252,16 +1247,9 @@ mod tests {
         assert_eq!(js_regex_error(&format!("{}{}", "[".repeat(100), "]".repeat(100)), "v"), None);
     }
 
-    #[test]
-    fn error_text_matches_node_on_the_corpus() {
-        let rows: Vec<(String, String, Option<String>)> = serde_json::from_str(&ROWS).expect("fixture");
-        let (total, count, bad) = mismatches(rows.into_iter(), 40);
-        assert!(total > 5000, "{total}");
-        assert!(bad.is_empty(), "{count} of {total} differ:\n{}", bad.join("\n"));
-    }
-
     /// The full sweep (millions of rows): set `MIXDOG_JS_REGEX_CORPUS` to the JSONL file the
     /// generator writes.
+    #[cfg(node_twin)]
     #[test]
     #[allow(clippy::disallowed_methods, reason = "developer-run sweep reads a scratch file; no lane in a unit test")]
     fn error_text_matches_node_on_the_full_sweep() {
@@ -1272,5 +1260,65 @@ mod tests {
         let rows = text.lines().map(|l| serde_json::from_str::<(String, String, Option<String>)>(l).expect("row"));
         let (total, count, bad) = mismatches(rows, 60);
         assert!(bad.is_empty(), "{count} of {total} rows differ:\n{}", bad.join("\n"));
+    }
+
+
+    /// `[pattern, flags, message]` rows recorded from the reference runtime; `null` is a pattern it accepts.
+    #[cfg(node_twin)]
+    const ROWS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("testdata/regex_errors.json");
+
+    #[cfg(node_twin)]
+    #[test]
+    fn error_text_matches_the_recorded_corpus() {
+        let rows: Vec<(String, String, Option<String>)> = serde_json::from_str(&ROWS).expect("fixture");
+        let (total, count, bad) = mismatches(rows.into_iter(), 40);
+        assert!(total > 5000, "{total}");
+        assert!(bad.is_empty(), "{count} of {total} differ:\n{}", bad.join("\n"));
+    }
+
+    fn message(pattern: &str, flags: &str) -> Option<String> {
+        js_regex_error(pattern, flags)
+    }
+
+    #[test]
+    fn a_syntax_error_reads_as_the_engine_words_it() {
+        for (pattern, reason) in [
+            ("(", "Unterminated group"),
+            ("[", "Unterminated character class"),
+            (")", "Unmatched ')'"),
+            ("*", "Nothing to repeat"),
+            ("a**", "Nothing to repeat"),
+            ("a{2,1}", "numbers out of order in {} quantifier"),
+            ("\\", "\\ at end of pattern"),
+            ("[b-a]", "Range out of order in character class"),
+            ("(?<a>.)(?<a>.)", "Duplicate capture group name"),
+        ] {
+            assert_eq!(message(pattern, "").as_deref(), Some(format!("Invalid regular expression: /{pattern}/: {reason}").as_str()), "{pattern}");
+        }
+    }
+
+    #[test]
+    fn the_flags_are_shown_after_the_pattern_and_a_bad_flag_set_is_its_own_error() {
+        assert_eq!(message("(", "gi").as_deref(), Some("Invalid regular expression: /(/gi: Unterminated group"));
+        assert_eq!(message("a", "gg").as_deref(), Some("Invalid flags supplied to RegExp constructor 'gg'"));
+        assert_eq!(message("a", "uv").as_deref(), Some("Invalid flags supplied to RegExp constructor 'uv'"));
+        assert_eq!(message("a", "x").as_deref(), Some("Invalid flags supplied to RegExp constructor 'x'"));
+    }
+
+    #[test]
+    fn unicode_mode_rejects_what_legacy_mode_tolerates() {
+        for pattern in ["{", "}", "\\-", "\\k<a>", "[\\d-a]", "\\p{Foo}", "\\u{110000}", "a{1"] {
+            assert_eq!(message(pattern, ""), None, "{pattern} without u");
+            assert!(message(pattern, "u").is_some(), "{pattern} with u");
+        }
+    }
+
+    #[test]
+    fn valid_patterns_have_no_error() {
+        for pattern in ["a+b?", "(?:x)|y", "(?<n>.)\\k<n>", "(?<=a)b", "[^\\]]", "\\p{L}", "a{2,3}", "^$", "\\1(a)"] {
+            assert_eq!(message(pattern, ""), None, "{pattern}");
+        }
+        assert_eq!(message("[\\p{L}--[a-z]]", "v"), None);
+        assert_eq!(message("\\p{L}", "u"), None);
     }
 }

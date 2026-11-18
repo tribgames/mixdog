@@ -42,9 +42,6 @@ struct Gate {
 
 type Done = Shared<BoxFuture<'static, ()>>;
 
-/// The 24 h catalog timer (`CATALOG_REFRESH_INTERVAL_MS`, registry.mjs:92).
-pub const CATALOG_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
-
 /// One startup catalog refresh (`_startupCatalogRefreshPromise`): it belongs to the registry's catalog epoch it began in.
 #[derive(Clone)]
 struct Startup {
@@ -53,6 +50,354 @@ struct Startup {
     done: Done,
 }
 
+/// What else invalidateProviderCaches drops: the caches built over what the providers list (the cached
+/// provider setup, the usage dashboard), which live above this crate.
+pub trait CacheDrop: Send + Sync {
+    fn drop_caches(&self);
+
+    /// The drop a settled startup catalog refresh makes. Node tells its clients nothing then (no `provider-models-changed`
+    /// hint): a client keeps the list it holds until its next read. By default the same drop.
+    fn drop_caches_after_refresh(&self) {
+        self.drop_caches();
+    }
+}
+
+impl<F: Fn() + Send + Sync> CacheDrop for F {
+    fn drop_caches(&self) {
+        self()
+    }
+}
+
+/// The points where a thread of the refresh can be overtaken by another, at which a test runs the other side's steps
+/// (`ProviderReadiness::at`). Absent from a normal build.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Point {
+    /// A startup refresh is asked for; the refresh state is not locked yet.
+    StartupBeforeLock,
+    /// An observed startup refresh completed; its completion has not settled the pending flag yet.
+    CompletionBeforeSettle,
+    /// The 24 h timer's sleep ended; it has not locked the refresh state yet.
+    TimerBeforeLock,
+}
+
+fn closing() -> RegistryError {
+    RegistryError { message: "runtime is closing".into(), code: None }
+}
+
+/// The providers a request turned on that the runtime's config has off.
+fn forced_providers(requested: &Map<String, Value>, base: &Map<String, Value>) -> Vec<String> {
+    let enabled = |entry: Option<&Value>| entry.and_then(|e| e.get("enabled")) == Some(&Value::Bool(true));
+    requested.iter().filter(|(name, entry)| enabled(Some(entry)) && !enabled(base.get(*name))).map(|(n, _)| n.clone()).collect()
+}
+
+const API_PROVIDER_IDS: [&str; 8] = ["openrouter", "openai", "anthropic", "gemini", "vertex-ai", "deepseek", "xai", "mixdog-local"];
+
+const OAUTH_PROVIDER_IDS: [&str; 10] = [
+    "openai-oauth",
+    "anthropic-oauth",
+    "grok-oauth",
+    "muse-code-oauth",
+    "command-code-oauth",
+    "opencode-go-oauth",
+    "mimo-oauth",
+    "cursor-oauth",
+    "devin-oauth",
+    "antigravity-oauth",
+];
+
+/// `custom-` and a lowercase UUID.
+fn is_custom_provider_id(id: &str) -> bool {
+    let Some(uuid) = id.strip_prefix("custom-") else { return false };
+    let groups: Vec<&str> = uuid.split('-').collect();
+    groups.len() == 5
+        && groups.iter().zip([8, 4, 4, 4, 12]).all(|(g, n)| g.len() == n && g.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+}
+
+/// `isKnownProvider(provider, config)`: a built-in API provider, `mixdog-local`,
+/// an OAuth provider (a dev-gated one only while `available` says it is on),
+/// or an enabled custom provider the config defines.
+pub fn is_known_provider(provider: &str, config: &Value, available: &dyn Fn(&str) -> bool) -> bool {
+    let id = mixdog_js::js_trim(provider);
+    if id.is_empty() {
+        return false;
+    }
+    if API_PROVIDER_IDS.contains(&id) || (OAUTH_PROVIDER_IDS.contains(&id) && available(id)) {
+        return true;
+    }
+    let entry = config.get("providers").and_then(|p| p.get(id));
+    is_custom_provider_id(id)
+        && entry.is_some_and(|e| e.get("type").and_then(Value::as_str) == Some("custom"))
+        && entry.and_then(|e| e.get("enabled")) != Some(&Value::Bool(false))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use async_trait::async_trait;
+    use mixdog_core_api::domain::mock::MockProvider;
+    use mixdog_core_api::domain::provider::ProviderAdapter;
+    use serde_json::json;
+
+    use super::*;
+    use crate::catalog::CatalogSnapshot;
+    use crate::catalog::ModelsDevSource;
+    use crate::registry::providers::ProviderBuilder;
+    use crate::transport::http::HttpResponse;
+    use crate::transport::http::HttpSend;
+    use mixdog_core_api::domain::provider::DeliveryState;
+    use mixdog_core_api::domain::provider::ErrorKind;
+    use mixdog_core_api::domain::provider::ProviderError;
+    use mixdog_core_api::domain::provider::WireRequest;
+
+    struct Offline;
+    #[async_trait]
+    impl HttpSend for Offline {
+        async fn send(
+            &self,
+            _: WireRequest,
+            _exchange: crate::transport::Exchange,
+        ) -> Result<HttpResponse, ProviderError> {
+            Err(ProviderError::new(
+                ErrorKind::Transient,
+                DeliveryState::NotSent,
+            ))
+        }
+    }
+
+    #[derive(Default)]
+    struct Counting {
+        builds: AtomicUsize,
+        fail: Mutex<bool>,
+    }
+    #[async_trait]
+    impl ProviderBuilder for Counting {
+        async fn build(&self, _: &str, _: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            self.builds.fetch_add(1, Ordering::SeqCst);
+            if *self.fail.lock().unwrap() {
+                return Err("boom".into());
+            }
+            Ok(Arc::new(MockProvider::new([])))
+        }
+        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+            Ok(true)
+        }
+    }
+
+    /// A provider whose model listing fails with `message`.
+    struct FailingListing(MockProvider, String);
+    #[async_trait]
+    impl mixdog_core_api::domain::provider::ModelListing for FailingListing {
+        async fn list_models(&self) -> Result<Vec<mixdog_core_api::domain::provider::ModelRecord>, ProviderError> {
+            let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
+            error.message = self.1.clone();
+            Err(error)
+        }
+    }
+    #[async_trait]
+    impl ProviderAdapter for FailingListing {
+        fn release_send(&self, _group: &str) {}
+        fn id(&self) -> &mixdog_protocol::ProviderId {
+            self.0.id()
+        }
+        fn codec(&self) -> &dyn mixdog_core_api::domain::provider::WireCodec {
+            self.0.codec()
+        }
+        fn retry_policy(&self) -> &mixdog_core_api::domain::retry::RetryPolicy {
+            self.0.retry_policy()
+        }
+        fn keepalive(&self) -> &mixdog_core_api::domain::keepalive::KeepaliveSchedule {
+            self.0.keepalive()
+        }
+        async fn attempt(
+            &self,
+            request: Arc<mixdog_core_api::domain::provider::ModelRequest>,
+        ) -> Result<Box<dyn mixdog_core_api::domain::provider::ModelStream>, ProviderError> {
+            self.0.attempt(request).await
+        }
+        fn models(&self) -> Option<&dyn mixdog_core_api::domain::provider::ModelListing> {
+            Some(self)
+        }
+    }
+    struct FailingBuilder(String);
+    #[async_trait]
+    impl ProviderBuilder for FailingBuilder {
+        async fn build(&self, _: &str, _: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            Ok(Arc::new(FailingListing(MockProvider::new([]), self.0.clone())))
+        }
+        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+            Ok(true)
+        }
+    }
+
+    fn config(value: Value) -> Map<String, Value> {
+        value.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn forced_providers_are_those_the_request_turned_on() {
+        let requested = config(json!({"a": {"enabled": true}, "b": {"enabled": true}, "c": {"enabled": false}}));
+        let base = config(json!({"a": {"enabled": true}}));
+        assert_eq!(forced_providers(&requested, &base), vec!["b".to_owned()]);
+    }
+
+    #[test]
+    fn known_providers_follow_node() {
+        let uuid = "custom-0123abcd-0123-4567-89ab-0123456789ab";
+        let config = json!({"providers": {
+            uuid: {"type": "custom", "enabled": true},
+            "custom-ffffffff-ffff-ffff-ffff-ffffffffffff": {"type": "custom", "enabled": false},
+            "custom-00000000-0000-0000-0000-000000000000": {"type": "api"}
+        }});
+        let on = |_: &str| true;
+        let off = |_: &str| false;
+        for id in ["openai", "xai", "vertex-ai", "mixdog-local", " anthropic ", "anthropic-oauth", "cursor-oauth", uuid] {
+            assert!(is_known_provider(id, &config, &on), "{id}");
+        }
+        assert!(!is_known_provider("cursor-oauth", &config, &off));
+        assert!(is_known_provider("openai", &config, &off));
+        for id in ["", "  ", "nope", "custom-ffffffff-ffff-ffff-ffff-ffffffffffff", "custom-00000000-0000-0000-0000-000000000000", "custom-0123ABCD-0123-4567-89ab-0123456789ab"] {
+            assert!(!is_known_provider(id, &config, &on), "{id}");
+        }
+    }
+
+
+    async fn readiness_over(builder: Arc<dyn ProviderBuilder>) -> Arc<ProviderReadiness> {
+        let tokens = mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let io = crate::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
+        let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
+        ProviderReadiness::new(Arc::new(ProviderRegistry::new(builder)), catalog)
+    }
+    async fn readiness() -> (Arc<ProviderReadiness>, Arc<Counting>) {
+        let builder = Arc::new(Counting::default());
+        (readiness_over(builder.clone()).await, builder)
+    }
+    /// The Node stderr lines written while `body` runs over a provider whose listing fails echoing `secret`, a credential
+    /// the process carries.
+    async fn refresh_lines(secret: &str, full: bool) -> Vec<String> {
+        crate::oauth::carried::keep("config the-refresh-line-test", &[secret]);
+        let ready = readiness_over(Arc::new(FailingBuilder(format!("listing refused: key {secret} rejected")))).await;
+        let (lines, _capture) = mixdog_rt::node_log::capture();
+        ready.ensure_providers_ready(Some(config(json!({"xai": {"enabled": true}})))).await.unwrap();
+        if full {
+            ready.refresh_catalogs().await;
+        } else {
+            ready.join_startup_refresh().await;
+        }
+        ready.settle_refreshes().await;
+        let lines = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
+        lines
+    }
+    #[tokio::test]
+    async fn the_startup_refresh_line_redacts_a_credential_the_listing_error_echoes() {
+        let secret = "startup-line-key-5b1e90d4";
+        let lines = refresh_lines(secret, false).await;
+        let line = lines.iter().find(|l| l.starts_with("[provider:xai] startup catalog refresh failed: ")).unwrap_or_else(|| panic!("{lines:?}"));
+        assert!(line.contains("[REDACTED]") && !line.contains(secret), "{line}");
+    }
+    #[tokio::test]
+    async fn the_full_refresh_line_redacts_a_credential_the_listing_error_echoes() {
+        let secret = "full-line-key-7c2d41a8";
+        let lines = refresh_lines(secret, true).await;
+        let line = lines.iter().find(|l| l.starts_with("[provider:xai] catalog refresh failed: ")).unwrap_or_else(|| panic!("{lines:?}"));
+        assert!(line.contains("[REDACTED]") && !line.contains(secret), "{line}");
+    }
+    #[tokio::test]
+    async fn an_equal_config_initializes_once_whatever_its_key_order() {
+        let (ready, builder) = readiness().await;
+        let a = config(json!({"anthropic": {"enabled": true, "k": 1, "j": 2}}));
+        let b = config(json!({"anthropic": {"j": 2, "k": 1, "enabled": true}}));
+        ready.ensure_providers_ready(Some(a)).await.unwrap();
+        // The settled flight is kept.
+        ready.ensure_providers_ready(Some(b)).await.unwrap();
+        assert_eq!(builder.builds.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn a_failed_init_is_not_kept() {
+        let (ready, builder) = readiness().await;
+        *builder.fail.lock().unwrap() = true;
+        let cfg = config(json!({"anthropic": {"enabled": true}}));
+        let err = ready.ensure_providers_ready(Some(cfg.clone())).await.unwrap_err();
+        assert!(err.message.contains("boom"));
+        *builder.fail.lock().unwrap() = false;
+        ready.ensure_providers_ready(Some(cfg)).await.unwrap();
+        assert_eq!(builder.builds.load(Ordering::SeqCst), 2);
+    }
+    #[tokio::test]
+    async fn invalidation_drops_the_flights_and_close_refuses() {
+        let (ready, builder) = readiness().await;
+        let cfg = config(json!({"anthropic": {"enabled": true}}));
+        ready.ensure_providers_ready(Some(cfg.clone())).await.unwrap();
+        ready.invalidate_provider_caches(true);
+        ready.ensure_providers_ready(Some(cfg.clone())).await.unwrap();
+        assert_eq!(builder.builds.load(Ordering::SeqCst), 1);
+        // A rebuilt flight finds the provider already registered: no second build.
+        ready.invalidate_provider_caches(false);
+        ready.ensure_providers_ready(Some(cfg.clone())).await.unwrap();
+        assert_eq!(builder.builds.load(Ordering::SeqCst), 1);
+        ready.close();
+        assert_eq!(ready.ensure_providers_ready(Some(cfg)).await.unwrap_err().message, "runtime is closing");
+    }
+    /// `reinitProviders` syncs the registry to the runtime's providers with the stored decisions
+    /// (`syncProviders(providerRecord(), { decisions })`): a registered provider whose config changed is built again, a
+    /// custom provider the decisions no longer hold (a deleted one) leaves, and one only the record turns on is not added.
+    #[tokio::test]
+    async fn a_reinit_rebuilds_an_edited_provider_and_removes_a_deleted_custom_one_without_adding() {
+        let (ready, builder) = readiness().await;
+        ready.set_providers(config(json!({
+            "anthropic": {"enabled": true, "k": 1},
+            "custom-0123abcd-0123-4567-89ab-0123456789ab": {"type": "custom", "enabled": true}
+        })));
+        ready.ensure_providers_ready(None).await.unwrap();
+        assert_eq!(builder.builds.load(Ordering::SeqCst), 2);
+        let before = ready.registry.generation("anthropic");
+        assert!(before.is_some());
+        // The custom provider was deleted (gone from the record and from the stored section), the other one was edited,
+        // and a third is turned on in the record only.
+        ready.set_providers(config(json!({"anthropic": {"enabled": true, "k": 2}, "xai": {"enabled": true}})));
+        ready.reinit_providers(Some(config(json!({"anthropic": {"enabled": true}})))).await.unwrap();
+        assert_eq!(builder.builds.load(Ordering::SeqCst), 3, "only the edited provider is built again");
+        assert_ne!(ready.registry.generation("anthropic"), before, "the edited provider is a new registration");
+        assert_eq!(ready.registry.names().into_iter().collect::<Vec<_>>(), ["anthropic"]);
+    }
+    #[tokio::test]
+    async fn every_invalidation_drops_the_caches_above_the_catalog() {
+        use std::sync::atomic::AtomicUsize;
+        let (ready, _) = readiness().await;
+        assert!(!ready.invalidation_bound());
+        ready.invalidate_provider_caches(true); // unbound: nothing else to drop
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&dropped);
+        assert!(ready.bind_invalidation(Arc::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        })).is_ok());
+        assert!(ready.invalidation_bound());
+        ready.invalidate_provider_caches(true);
+        ready.invalidate_provider_caches(false);
+        assert_eq!(dropped.load(Ordering::SeqCst), 2, "both kinds of invalidation drop them");
+        assert!(ready.bind_invalidation(Arc::new(|| {})).is_err(), "a second bind is refused");
+    }
+}
+
+
+/// The 24 h catalog timer (`CATALOG_REFRESH_INTERVAL_MS`, registry.mjs:92).
+pub const CATALOG_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 /// The catalog refresh state. Node changes it in single synchronous steps: whatever a step checks still holds when it
 /// acts. Here other threads run in between, so every change is decided from what is read in the same critical section
 /// of this lock that makes it, and a task that acts later acts only while the identity it was made for still holds:
@@ -80,25 +425,6 @@ struct Refreshes {
     /// How many times the 24 h timer has fired.
     timer_fires: u64,
 }
-
-/// What else invalidateProviderCaches drops: the caches built over what the providers list (the cached
-/// provider setup, the usage dashboard), which live above this crate.
-pub trait CacheDrop: Send + Sync {
-    fn drop_caches(&self);
-
-    /// The drop a settled startup catalog refresh makes. Node tells its clients nothing then (no `provider-models-changed`
-    /// hint): a client keeps the list it holds until its next read. By default the same drop.
-    fn drop_caches_after_refresh(&self) {
-        self.drop_caches();
-    }
-}
-
-impl<F: Fn() + Send + Sync> CacheDrop for F {
-    fn drop_caches(&self) {
-        self()
-    }
-}
-
 pub struct ProviderReadiness {
     registry: Arc<ProviderRegistry>,
     catalog: Arc<CatalogService>,
@@ -111,20 +437,6 @@ pub struct ProviderReadiness {
     #[cfg(any(test, feature = "test-support"))]
     points: Mutex<HashMap<Point, Box<dyn FnOnce() + Send>>>,
 }
-
-/// The points where a thread of the refresh can be overtaken by another, at which a test runs the other side's steps
-/// (`ProviderReadiness::at`). Absent from a normal build.
-#[cfg(any(test, feature = "test-support"))]
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum Point {
-    /// A startup refresh is asked for; the refresh state is not locked yet.
-    StartupBeforeLock,
-    /// An observed startup refresh completed; its completion has not settled the pending flag yet.
-    CompletionBeforeSettle,
-    /// The 24 h timer's sleep ended; it has not locked the refresh state yet.
-    TimerBeforeLock,
-}
-
 #[cfg(any(test, feature = "test-support"))]
 impl ProviderReadiness {
     /// Runs `steps` the next time the product reaches `point`, on the thread that reaches it, before that thread goes on.
@@ -139,17 +451,6 @@ impl ProviderReadiness {
         }
     }
 }
-
-fn closing() -> RegistryError {
-    RegistryError { message: "runtime is closing".into(), code: None }
-}
-
-/// The providers a request turned on that the runtime's config has off.
-fn forced_providers(requested: &Map<String, Value>, base: &Map<String, Value>) -> Vec<String> {
-    let enabled = |entry: Option<&Value>| entry.and_then(|e| e.get("enabled")) == Some(&Value::Bool(true));
-    requested.iter().filter(|(name, entry)| enabled(Some(entry)) && !enabled(base.get(*name))).map(|(n, _)| n.clone()).collect()
-}
-
 impl ProviderReadiness {
     pub fn new(registry: Arc<ProviderRegistry>, catalog: Arc<CatalogService>) -> Arc<Self> {
         let revision = registry.clone();
@@ -175,6 +476,10 @@ impl ProviderReadiness {
     /// `reg.disableProvider(id)`: the immediate form of a stored decision that a provider is gone or off.
     pub fn disable_provider(&self, id: &str) {
         self.registry.disable(id);
+    }
+
+    pub fn provider_registered(&self, id: &str) -> bool {
+        self.registry.registered(id).is_some()
     }
 
     fn refreshes(&self) -> MutexGuard<'_, Refreshes> {
@@ -481,6 +786,12 @@ impl ProviderReadiness {
         self.invalidation.get().is_some()
     }
 
+    /// The forced half of a catalog load in the model-proxy client mode: the PC's provider set read afresh and applied, even
+    /// when readiness already settled on the old one. Nothing to do outside that mode.
+    pub async fn reread_remote(&self) -> Result<(), RegistryError> {
+        self.registry.reread_remote().await
+    }
+
     /// `reinitProviders`: provider config or secrets changed. Everything keyed to the old ones is dropped and the
     /// registry is synced to the runtime's providers (`syncProviders(providerRecord(), { decisions })`): a registered
     /// provider whose config changed is rebuilt, one the stored `decisions` turned off (a deleted custom provider among
@@ -507,318 +818,6 @@ impl ProviderReadiness {
         full.await;
         if !self.gate().closed {
             self.invalidate_provider_caches(true);
-        }
-    }
-}
-
-const API_PROVIDER_IDS: [&str; 8] = ["openrouter", "openai", "anthropic", "gemini", "vertex-ai", "deepseek", "xai", "mixdog-local"];
-
-const OAUTH_PROVIDER_IDS: [&str; 10] = [
-    "openai-oauth",
-    "anthropic-oauth",
-    "grok-oauth",
-    "muse-code-oauth",
-    "command-code-oauth",
-    "opencode-go-oauth",
-    "mimo-oauth",
-    "cursor-oauth",
-    "devin-oauth",
-    "antigravity-oauth",
-];
-
-/// `custom-` and a lowercase UUID.
-fn is_custom_provider_id(id: &str) -> bool {
-    let Some(uuid) = id.strip_prefix("custom-") else { return false };
-    let groups: Vec<&str> = uuid.split('-').collect();
-    groups.len() == 5
-        && groups.iter().zip([8, 4, 4, 4, 12]).all(|(g, n)| g.len() == n && g.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
-}
-
-/// `isKnownProvider(provider, config)`: a built-in API provider, `mixdog-local`,
-/// an OAuth provider (a dev-gated one only while `available` says it is on),
-/// or an enabled custom provider the config defines.
-pub fn is_known_provider(provider: &str, config: &Value, available: &dyn Fn(&str) -> bool) -> bool {
-    let id = mixdog_js::js_trim(provider);
-    if id.is_empty() {
-        return false;
-    }
-    if API_PROVIDER_IDS.contains(&id) || (OAUTH_PROVIDER_IDS.contains(&id) && available(id)) {
-        return true;
-    }
-    let entry = config.get("providers").and_then(|p| p.get(id));
-    is_custom_provider_id(id)
-        && entry.is_some_and(|e| e.get("type").and_then(Value::as_str) == Some("custom"))
-        && entry.and_then(|e| e.get("enabled")) != Some(&Value::Bool(false))
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
-
-    use async_trait::async_trait;
-    use mixdog_core_api::domain::mock::MockProvider;
-    use mixdog_core_api::domain::provider::ProviderAdapter;
-    use serde_json::json;
-
-    use super::*;
-    use crate::catalog::CatalogSnapshot;
-    use crate::catalog::ModelsDevSource;
-    use crate::registry::providers::ProviderBuilder;
-    use crate::transport::http::HttpResponse;
-    use crate::transport::http::HttpSend;
-    use mixdog_core_api::domain::provider::DeliveryState;
-    use mixdog_core_api::domain::provider::ErrorKind;
-    use mixdog_core_api::domain::provider::ProviderError;
-    use mixdog_core_api::domain::provider::WireRequest;
-
-    struct Offline;
-    #[async_trait]
-    impl HttpSend for Offline {
-        async fn send(
-            &self,
-            _: WireRequest,
-            _exchange: crate::transport::Exchange,
-        ) -> Result<HttpResponse, ProviderError> {
-            Err(ProviderError::new(
-                ErrorKind::Transient,
-                DeliveryState::NotSent,
-            ))
-        }
-    }
-
-    #[derive(Default)]
-    struct Counting {
-        builds: AtomicUsize,
-        fail: Mutex<bool>,
-    }
-    #[async_trait]
-    impl ProviderBuilder for Counting {
-        async fn build(&self, _: &str, _: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-            self.builds.fetch_add(1, Ordering::SeqCst);
-            if *self.fail.lock().unwrap() {
-                return Err("boom".into());
-            }
-            Ok(Arc::new(MockProvider::new([])))
-        }
-        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
-            Ok(Vec::new())
-        }
-        fn available(&self, _: &str) -> bool {
-            true
-        }
-        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
-            Ok(true)
-        }
-    }
-
-    async fn readiness_over(builder: Arc<dyn ProviderBuilder>) -> Arc<ProviderReadiness> {
-        let tokens = mixdog_rt::testing::tokens();
-        let dir = tempfile::tempdir().unwrap();
-        let io = crate::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
-        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
-        let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
-        ProviderReadiness::new(Arc::new(ProviderRegistry::new(builder)), catalog)
-    }
-
-    async fn readiness() -> (Arc<ProviderReadiness>, Arc<Counting>) {
-        let builder = Arc::new(Counting::default());
-        (readiness_over(builder.clone()).await, builder)
-    }
-
-    /// A provider whose model listing fails with `message`.
-    struct FailingListing(MockProvider, String);
-    #[async_trait]
-    impl mixdog_core_api::domain::provider::ModelListing for FailingListing {
-        async fn list_models(&self) -> Result<Vec<mixdog_core_api::domain::provider::ModelRecord>, ProviderError> {
-            let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
-            error.message = self.1.clone();
-            Err(error)
-        }
-    }
-    #[async_trait]
-    impl ProviderAdapter for FailingListing {
-        fn release_send(&self, _group: &str) {}
-        fn id(&self) -> &mixdog_protocol::ProviderId {
-            self.0.id()
-        }
-        fn codec(&self) -> &dyn mixdog_core_api::domain::provider::WireCodec {
-            self.0.codec()
-        }
-        fn retry_policy(&self) -> &mixdog_core_api::domain::retry::RetryPolicy {
-            self.0.retry_policy()
-        }
-        fn keepalive(&self) -> &mixdog_core_api::domain::keepalive::KeepaliveSchedule {
-            self.0.keepalive()
-        }
-        async fn attempt(
-            &self,
-            request: Arc<mixdog_core_api::domain::provider::ModelRequest>,
-        ) -> Result<Box<dyn mixdog_core_api::domain::provider::ModelStream>, ProviderError> {
-            self.0.attempt(request).await
-        }
-        fn models(&self) -> Option<&dyn mixdog_core_api::domain::provider::ModelListing> {
-            Some(self)
-        }
-    }
-    struct FailingBuilder(String);
-    #[async_trait]
-    impl ProviderBuilder for FailingBuilder {
-        async fn build(&self, _: &str, _: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-            Ok(Arc::new(FailingListing(MockProvider::new([]), self.0.clone())))
-        }
-        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
-            Ok(Vec::new())
-        }
-        fn available(&self, _: &str) -> bool {
-            true
-        }
-        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
-            Ok(true)
-        }
-    }
-
-    /// The Node stderr lines written while `body` runs over a provider whose listing fails echoing `secret`, a credential
-    /// the process carries.
-    async fn refresh_lines(secret: &str, full: bool) -> Vec<String> {
-        crate::oauth::carried::keep("config the-refresh-line-test", &[secret]);
-        let ready = readiness_over(Arc::new(FailingBuilder(format!("listing refused: key {secret} rejected")))).await;
-        let (lines, _capture) = mixdog_rt::node_log::capture();
-        ready.ensure_providers_ready(Some(config(json!({"xai": {"enabled": true}})))).await.unwrap();
-        if full {
-            ready.refresh_catalogs().await;
-        } else {
-            ready.join_startup_refresh().await;
-        }
-        ready.settle_refreshes().await;
-        let lines = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
-        lines
-    }
-
-    #[tokio::test]
-    async fn the_startup_refresh_line_redacts_a_credential_the_listing_error_echoes() {
-        let secret = "startup-line-key-5b1e90d4";
-        let lines = refresh_lines(secret, false).await;
-        let line = lines.iter().find(|l| l.starts_with("[provider:xai] startup catalog refresh failed: ")).unwrap_or_else(|| panic!("{lines:?}"));
-        assert!(line.contains("[REDACTED]") && !line.contains(secret), "{line}");
-    }
-
-    #[tokio::test]
-    async fn the_full_refresh_line_redacts_a_credential_the_listing_error_echoes() {
-        let secret = "full-line-key-7c2d41a8";
-        let lines = refresh_lines(secret, true).await;
-        let line = lines.iter().find(|l| l.starts_with("[provider:xai] catalog refresh failed: ")).unwrap_or_else(|| panic!("{lines:?}"));
-        assert!(line.contains("[REDACTED]") && !line.contains(secret), "{line}");
-    }
-
-    fn config(value: Value) -> Map<String, Value> {
-        value.as_object().unwrap().clone()
-    }
-
-    #[tokio::test]
-    async fn an_equal_config_initializes_once_whatever_its_key_order() {
-        let (ready, builder) = readiness().await;
-        let a = config(json!({"anthropic": {"enabled": true, "k": 1, "j": 2}}));
-        let b = config(json!({"anthropic": {"j": 2, "k": 1, "enabled": true}}));
-        ready.ensure_providers_ready(Some(a)).await.unwrap();
-        // The settled flight is kept.
-        ready.ensure_providers_ready(Some(b)).await.unwrap();
-        assert_eq!(builder.builds.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn a_failed_init_is_not_kept() {
-        let (ready, builder) = readiness().await;
-        *builder.fail.lock().unwrap() = true;
-        let cfg = config(json!({"anthropic": {"enabled": true}}));
-        let err = ready.ensure_providers_ready(Some(cfg.clone())).await.unwrap_err();
-        assert!(err.message.contains("boom"));
-        *builder.fail.lock().unwrap() = false;
-        ready.ensure_providers_ready(Some(cfg)).await.unwrap();
-        assert_eq!(builder.builds.load(Ordering::SeqCst), 2);
-    }
-
-    #[tokio::test]
-    async fn invalidation_drops_the_flights_and_close_refuses() {
-        let (ready, builder) = readiness().await;
-        let cfg = config(json!({"anthropic": {"enabled": true}}));
-        ready.ensure_providers_ready(Some(cfg.clone())).await.unwrap();
-        ready.invalidate_provider_caches(true);
-        ready.ensure_providers_ready(Some(cfg.clone())).await.unwrap();
-        assert_eq!(builder.builds.load(Ordering::SeqCst), 1);
-        // A rebuilt flight finds the provider already registered: no second build.
-        ready.invalidate_provider_caches(false);
-        ready.ensure_providers_ready(Some(cfg.clone())).await.unwrap();
-        assert_eq!(builder.builds.load(Ordering::SeqCst), 1);
-        ready.close();
-        assert_eq!(ready.ensure_providers_ready(Some(cfg)).await.unwrap_err().message, "runtime is closing");
-    }
-
-    /// `reinitProviders` syncs the registry to the runtime's providers with the stored decisions
-    /// (`syncProviders(providerRecord(), { decisions })`): a registered provider whose config changed is built again, a
-    /// custom provider the decisions no longer hold (a deleted one) leaves, and one only the record turns on is not added.
-    #[tokio::test]
-    async fn a_reinit_rebuilds_an_edited_provider_and_removes_a_deleted_custom_one_without_adding() {
-        let (ready, builder) = readiness().await;
-        ready.set_providers(config(json!({
-            "anthropic": {"enabled": true, "k": 1},
-            "custom-0123abcd-0123-4567-89ab-0123456789ab": {"type": "custom", "enabled": true}
-        })));
-        ready.ensure_providers_ready(None).await.unwrap();
-        assert_eq!(builder.builds.load(Ordering::SeqCst), 2);
-        let before = ready.registry.generation("anthropic");
-        assert!(before.is_some());
-        // The custom provider was deleted (gone from the record and from the stored section), the other one was edited,
-        // and a third is turned on in the record only.
-        ready.set_providers(config(json!({"anthropic": {"enabled": true, "k": 2}, "xai": {"enabled": true}})));
-        ready.reinit_providers(Some(config(json!({"anthropic": {"enabled": true}})))).await.unwrap();
-        assert_eq!(builder.builds.load(Ordering::SeqCst), 3, "only the edited provider is built again");
-        assert_ne!(ready.registry.generation("anthropic"), before, "the edited provider is a new registration");
-        assert_eq!(ready.registry.names().into_iter().collect::<Vec<_>>(), ["anthropic"]);
-    }
-
-    #[tokio::test]
-    async fn every_invalidation_drops_the_caches_above_the_catalog() {
-        use std::sync::atomic::AtomicUsize;
-        let (ready, _) = readiness().await;
-        assert!(!ready.invalidation_bound());
-        ready.invalidate_provider_caches(true); // unbound: nothing else to drop
-        let dropped = Arc::new(AtomicUsize::new(0));
-        let counter = Arc::clone(&dropped);
-        assert!(ready.bind_invalidation(Arc::new(move || {
-            counter.fetch_add(1, Ordering::SeqCst);
-        })).is_ok());
-        assert!(ready.invalidation_bound());
-        ready.invalidate_provider_caches(true);
-        ready.invalidate_provider_caches(false);
-        assert_eq!(dropped.load(Ordering::SeqCst), 2, "both kinds of invalidation drop them");
-        assert!(ready.bind_invalidation(Arc::new(|| {})).is_err(), "a second bind is refused");
-    }
-
-    #[test]
-    fn forced_providers_are_those_the_request_turned_on() {
-        let requested = config(json!({"a": {"enabled": true}, "b": {"enabled": true}, "c": {"enabled": false}}));
-        let base = config(json!({"a": {"enabled": true}}));
-        assert_eq!(forced_providers(&requested, &base), vec!["b".to_owned()]);
-    }
-
-    #[test]
-    fn known_providers_follow_node() {
-        let uuid = "custom-0123abcd-0123-4567-89ab-0123456789ab";
-        let config = json!({"providers": {
-            uuid: {"type": "custom", "enabled": true},
-            "custom-ffffffff-ffff-ffff-ffff-ffffffffffff": {"type": "custom", "enabled": false},
-            "custom-00000000-0000-0000-0000-000000000000": {"type": "api"}
-        }});
-        let on = |_: &str| true;
-        let off = |_: &str| false;
-        for id in ["openai", "xai", "vertex-ai", "mixdog-local", " anthropic ", "anthropic-oauth", "cursor-oauth", uuid] {
-            assert!(is_known_provider(id, &config, &on), "{id}");
-        }
-        assert!(!is_known_provider("cursor-oauth", &config, &off));
-        assert!(is_known_provider("openai", &config, &off));
-        for id in ["", "  ", "nope", "custom-ffffffff-ffff-ffff-ffff-ffffffffffff", "custom-00000000-0000-0000-0000-000000000000", "custom-0123ABCD-0123-4567-89ab-0123456789ab"] {
-            assert!(!is_known_provider(id, &config, &on), "{id}");
         }
     }
 }

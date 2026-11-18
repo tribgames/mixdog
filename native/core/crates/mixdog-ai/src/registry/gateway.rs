@@ -45,8 +45,12 @@ use serde_json::json;
 use crate::transport::BodyStream;
 
 use crate::providers::compat::adapter::CompatAdapter;
+use crate::providers::compat::error::opencode_inference_reauth;
+use crate::providers::compat::creds::OpenCodeGoCredentials;
+use crate::providers::compat::login::opencode_go::{GATEWAY_AUTH_RECOVERY, GATEWAY_CREDENTIAL, OpenCodeGoAuth, RefreshError};
 use crate::providers::compat::profile::Wire;
 use crate::providers::compat::responses::CompatResponsesCodec;
+use crate::providers::compat::xai_transport::{self, XaiSocket};
 use crate::transport::Exchange;
 use crate::transport::HttpResponse;
 use crate::transport::HttpSend;
@@ -63,6 +67,7 @@ tokio::task_local! {
 #[derive(Clone)]
 struct Refusal {
     status: u16,
+    headers: Vec<(String, String)>,
     body: Value,
 }
 
@@ -163,12 +168,20 @@ impl BodyStream for Replayed {
 /// Responses codec.
 pub struct ResponsesEngine {
     account: Arc<CompatAdapter>,
-    codec: CompatResponsesCodec,
+    codec: Arc<CompatResponsesCodec>,
+    xai_socket: Option<XaiSocket>,
 }
 
 impl ResponsesEngine {
     pub fn new(account: Arc<CompatAdapter>, codec: CompatResponsesCodec) -> Self {
-        Self { account, codec }
+        Self { account, codec: Arc::new(codec), xai_socket: None }
+    }
+
+    /// Only the public xAI provider gets the opt-in socket. The Grok OAuth proxy stays on HTTP.
+    pub fn with_xai_websocket(mut self, dial: Arc<dyn crate::transport::WsDial>, configured: Option<String>, env: Arc<dyn super::keys::Environment>) -> Self {
+        debug_assert_eq!(self.account.id().as_str(), "xai");
+        self.xai_socket = Some(XaiSocket::new(&self.codec, dial, configured, env));
+        self
     }
 }
 
@@ -177,11 +190,17 @@ impl ProviderAdapter for ResponsesEngine {
     fn release_send(&self, group: &str) {
         self.account.release_send(group);
     }
+    fn release_session(&self, session_id: &str) {
+        if let Some(socket) = self.xai_socket.as_ref() {
+            socket.release_session(session_id);
+        }
+        self.account.release_session(session_id);
+    }
     fn id(&self) -> &ProviderId {
         self.account.id()
     }
     fn codec(&self) -> &dyn WireCodec {
-        &self.codec
+        self.codec.as_ref()
     }
     fn retry_policy(&self) -> &RetryPolicy {
         self.account.retry_policy()
@@ -195,7 +214,259 @@ impl ProviderAdapter for ResponsesEngine {
         Some(RetryLine { tag: format!("[{}:responses]", self.account.id()), delay: true, style: RetryLineStyle::Attempt })
     }
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        self.account.attempt_with(&self.codec, request).await
+        let request = self.account.with_default_effort(request);
+        if !request.options.send_identity.xai_http_fallback()
+            && let Some(socket) = self.xai_socket.as_ref()
+            && let Some(fallback) = socket.selection(request.options.xai_responses_transport.as_deref())
+        {
+            let first = socket.open(&self.account, &request).await;
+            let replay = GatewayReplay::XaiHttp { account: self.account.clone(), codec: self.codec.clone(), enabled: fallback };
+            return BeforeOutput::open(first, request, replay).await;
+        }
+        self.account.attempt_with(self.codec.as_ref(), request).await
+    }
+    /// The account's endpoint and key, the Responses wire's image form.
+    async fn image_route(&self, request: &ModelRequest) -> mixdog_image_egress::route::RouteFacts {
+        let mut facts = self.account.image_route(request).await;
+        facts.branch = mixdog_image_egress::route::WireBranch::OpenAiResponses;
+        facts
+    }
+}
+
+enum GatewayReplay {
+    XaiHttp { account: Arc<CompatAdapter>, codec: Arc<CompatResponsesCodec>, enabled: bool },
+    OpenCode { pin: Option<Arc<GoPin>>, engine: Arc<dyn ProviderAdapter>, headers: Vec<(String, String)>, inclusive: bool },
+}
+
+struct GoPin {
+    auth: OpenCodeGoAuth,
+    credentials: Mutex<Arc<OpenCodeGoCredentials>>,
+}
+
+impl GoPin {
+    fn credential(&self) -> Arc<OpenCodeGoCredentials> {
+        self.credentials.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+}
+
+fn go_auth_error(failure: RefreshError) -> ProviderError {
+    let (kind, status, message) = match failure {
+        RefreshError::Reauth(message, status) => (ErrorKind::Auth, Some(status), format!("OpenCode sign-in expired: {message}")),
+        RefreshError::Failed(message, status) => (ErrorKind::Transient, status, message),
+    };
+    let mut error = ProviderError::new(kind, DeliveryState::NotSent);
+    error.status = status;
+    error.reauth_required = kind == ErrorKind::Auth;
+    error.message = message;
+    error
+}
+
+async fn go_scope<T>(credential: Option<Arc<OpenCodeGoCredentials>>, future: impl std::future::Future<Output = T>) -> T {
+    match credential {
+        Some(credential) => GATEWAY_CREDENTIAL.scope(credential, GATEWAY_AUTH_RECOVERY.scope((), future)).await,
+        None => GATEWAY_AUTH_RECOVERY.scope((), future).await,
+    }
+}
+
+fn preserve_bill(error: &mut ProviderError, request: &ModelRequest) -> bool {
+    crate::registry::accounted::attach_observed_usage(error);
+    if error.partial_usage.as_deref().is_some_and(|usage| crate::registry::accounting::Facts::from(usage).recordable()) {
+        crate::registry::accounted::handoff_abandoned_usage(error, &request.options.send_identity)
+    } else {
+        true
+    }
+}
+
+impl GatewayReplay {
+    fn is_opencode(&self) -> bool {
+        matches!(self, Self::OpenCode { .. })
+    }
+
+    fn permits(&self, error: &mut ProviderError, request: &ModelRequest) -> bool {
+        if error.unsafe_to_retry || error.reauth_required || error.exposure != Default::default()
+            || !error.partial_tool_calls.is_empty()
+        {
+            return false;
+        }
+        let eligible = match self {
+            Self::XaiHttp { enabled, .. } => *enabled && xai_transport::can_fallback(error),
+            Self::OpenCode { pin, .. } => pin.is_some() && error.status == Some(401) && error.kind == ErrorKind::Auth
+                && request.options.send_identity.claim_refresh(format!("opencode-go:{}", request.options.send_identity.account().map_or_else(|| "default".into(), |sent| sent.account))),
+        };
+        eligible && preserve_bill(error, request)
+    }
+
+    async fn resend(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        request.options.send_identity.reissue();
+        request.options.send_identity.note_dispatched_speed_tier("");
+        match self {
+            Self::XaiHttp { account, codec, .. } => {
+                request.options.send_identity.use_xai_http_fallback();
+                account.attempt_with(codec.as_ref(), request).await
+            }
+            Self::OpenCode { pin, engine, headers, inclusive } => {
+                let pin = pin.as_ref().expect("only a pinned sign-in may replay");
+                let credential = pin.auth.refresh_pinned(&pin.credential()).await.map_err(go_auth_error)?;
+                *pin.credentials.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Arc::new(credential);
+                Self::open_opencode(engine.as_ref(), headers.clone(), request, Some(pin), *inclusive).await.map_err(opencode_inference_reauth)
+            }
+        }
+    }
+
+    async fn open_opencode(engine: &dyn ProviderAdapter, headers: Vec<(String, String)>, request: Arc<ModelRequest>, pin: Option<&Arc<GoPin>>, inclusive: bool) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let attempted = go_scope(pin.map(|pin| pin.credential()), SEND_HEADERS.scope(headers, engine.attempt(request))).await;
+        if inclusive { crate::registry::inclusive::inclusive_attempt(attempted) } else { attempted }
+    }
+}
+
+/// Either gateway can replace a failed stream once, but never after any output or tool event escaped it.
+struct BeforeOutput {
+    inner: Option<Box<dyn ModelStream>>,
+    replay: Option<GatewayReplay>,
+    request: Arc<ModelRequest>,
+    opencode: bool,
+    retried: bool,
+    exposed: bool,
+    pin: Option<Arc<GoPin>>,
+    headers: Vec<(String, String)>,
+    pending_usage: Option<mixdog_core_api::domain::provider::Usage>,
+    pending_model: Option<String>,
+    pending: VecDeque<Result<StreamEvent, ProviderError>>,
+    left: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl BeforeOutput {
+    async fn open(first: Result<Box<dyn ModelStream>, ProviderError>, request: Arc<ModelRequest>, replay: GatewayReplay) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let opencode = replay.is_opencode();
+        let (pin, headers) = match &replay {
+            GatewayReplay::OpenCode { pin, headers, .. } => (pin.clone(), headers.clone()),
+            GatewayReplay::XaiHttp { .. } => (None, Vec::new()),
+        };
+        let (inner, replay, retried) = match first {
+            Ok(stream) => (stream, Some(replay), false),
+            Err(mut error) => {
+                if !replay.permits(&mut error, &request) {
+                    return Err(Self::surface(opencode, error));
+                }
+                (replay.resend(request.clone()).await?, None, true)
+            }
+        };
+        Ok(Box::new(Self { inner: Some(inner), replay, request, opencode, retried, exposed: false, pin, headers, pending_usage: None, pending_model: None, pending: VecDeque::new(), left: None }))
+    }
+
+    fn surface(opencode: bool, error: ProviderError) -> ProviderError {
+        if opencode { opencode_inference_reauth(error) } else { error }
+    }
+
+    fn publish_usage(&mut self) {
+        if let Some(model) = self.pending_model.take() {
+            self.pending.push_back(Ok(StreamEvent::ServedModel(model)));
+        }
+        if let Some(usage) = self.pending_usage.take() {
+            self.pending.push_back(Ok(StreamEvent::Usage(usage)));
+        }
+    }
+}
+
+fn exposes_output(event: &StreamEvent) -> bool {
+    match event {
+        StreamEvent::TextDelta(text) | StreamEvent::ReasoningDelta(text) | StreamEvent::ProgressDelta(text) => !text.is_empty(),
+        StreamEvent::ToolCallStart { .. } | StreamEvent::ToolCallArgsDelta { .. } | StreamEvent::ToolCallDone(_) => true,
+        StreamEvent::ReturnedCalls(calls) => !calls.is_empty(),
+        _ => false,
+    }
+}
+
+#[async_trait]
+impl ModelStream for BeforeOutput {
+    async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+        loop {
+            if let Some(event) = self.pending.pop_front() {
+                return Some(event);
+            }
+            let inner = self.inner.as_mut()?;
+            let step = if self.opencode {
+                go_scope(self.pin.as_ref().map(|pin| pin.credential()), SEND_HEADERS.scope(self.headers.clone(), inner.next())).await
+            } else {
+                inner.next().await
+            };
+            match step {
+                Some(Ok(event)) => {
+                    if self.replay.is_some() {
+                        match event {
+                            StreamEvent::Usage(usage) => {
+                                crate::registry::accounted::observe_attempt_usage(usage.clone(), self.pending_model.clone());
+                                self.pending_usage = Some(usage);
+                                continue;
+                            }
+                            StreamEvent::ServedModel(model) => {
+                                if let Some(usage) = self.pending_usage.as_ref() {
+                                    crate::registry::accounted::observe_attempt_usage(usage.clone(), Some(model.clone()));
+                                }
+                                self.pending_model = Some(model);
+                                continue;
+                            }
+                            _ => {}
+                        }
+                    }
+                    if exposes_output(&event) {
+                        self.exposed = true;
+                        self.replay = None;
+                    }
+                    if self.exposed || matches!(event, StreamEvent::Completed { .. }) {
+                        self.publish_usage();
+                    }
+                    self.pending.push_back(Ok(event));
+                }
+                Some(Err(mut error)) => {
+                    error.unsafe_to_retry |= self.exposed;
+                    let replay = self.replay.take();
+                    let before_output = replay.is_some();
+                    if error.partial_usage.is_none() {
+                        error.partial_usage = self.pending_usage.take().map(Box::new);
+                    }
+                    crate::registry::accounted::attach_observed_usage(&mut error);
+                    if error.partial_model.is_none() && error.partial_usage.is_some() {
+                        error.partial_model = self.pending_model.take().map(String::into_boxed_str);
+                    }
+                    if let Some(replay) = replay.filter(|replay| replay.permits(&mut error, &self.request)) {
+                        self.pending_usage = None;
+                        self.pending_model = None;
+                        drop(self.inner.take());
+                        self.retried = true;
+                        match replay.resend(self.request.clone()).await {
+                            Ok(mut stream) => {
+                                if let Some(left) = self.left.as_ref() {
+                                    stream.on_wire_left(left.clone());
+                                }
+                                self.inner = Some(stream);
+                                continue;
+                            }
+                            Err(error) => return Some(Err(error)),
+                        }
+                    }
+                    return Some(Err(Self::surface(self.opencode && (self.retried || before_output), error)));
+                }
+                None if self.pending_usage.is_some() => {
+                    let mut error = ProviderError::transport(TransportFault::TruncatedStream, inner.delivery());
+                    error.partial_usage = self.pending_usage.take().map(Box::new);
+                    error.partial_model = self.pending_model.take().map(String::into_boxed_str);
+                    return Some(Err(error));
+                }
+                None => return None,
+            }
+        }
+    }
+
+    fn delivery(&self) -> DeliveryState {
+        self.inner.as_ref().map_or(DeliveryState::Accepted, |inner| inner.delivery())
+    }
+
+    fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>) {
+        if let Some(inner) = self.inner.as_mut() {
+            inner.on_wire_left(left.clone());
+        }
+        self.left = Some(left);
     }
 }
 
@@ -217,112 +488,6 @@ pub struct GatewayAdapter {
     /// The Messages wire's output ceiling for a model (`config.modelMaxOutputTokens(model)`), handed to the Anthropic
     /// request builder when the caller named none (`gatewayMessagesOpts`).
     messages_ceiling: Option<Arc<MessagesCeilingLookup>>,
-}
-
-impl GatewayAdapter {
-    /// `engines` serve the wires other than Chat, which is `account` itself.
-    pub fn new(account: Arc<CompatAdapter>, engines: Vec<(Wire, Arc<dyn ProviderAdapter>)>, pick: WirePick) -> Self {
-        Self { account, engines, pick, session_header: false, messages_ceiling: None }
-    }
-
-    /// The wire the send's last attempt went out on: carried by the send's own identity, never shared between sends.
-    fn wire_of(&self, request: &ModelRequest) -> Option<Wire> {
-        request.options.send_identity.wire().and_then(Wire::parse)
-    }
-
-    pub fn with_messages_ceiling(mut self, ceiling: Arc<MessagesCeilingLookup>) -> Self {
-        self.messages_ceiling = Some(ceiling);
-        self
-    }
-
-    pub fn with_session_header(mut self) -> Self {
-        self.session_header = true;
-        self
-    }
-
-    fn not_routable(&self, model: &str) -> ProviderError {
-        let mut err = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::NotSent);
-        err.code = Some("MODEL_NOT_ROUTABLE".into());
-        err.message = format!("[{}] model {model} is not routable: no wire it is served on is offered", self.account.id());
-        err
-    }
-
-    /// `sendWireRoute`: the session's pin when it names this provider and model and the model is still offered on
-    /// it, else a fresh resolution (a send carrying tools counts as an agent/tool request). With the route, the
-    /// rerouted pin it stands on, if any; `None` for a fixed wire.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn route_of(&self, request: &ModelRequest) -> Result<(Wire, Option<Value>, Option<WireRoute>), ProviderError> {
-        let routing = match self.pick {
-            WirePick::Fixed(wire) => return Ok((wire, None, None)),
-            WirePick::Routed => self.account.wire_routing(),
-        };
-        let Some(routing) = routing else { return Ok((self.account.profile().default_wire, None, None)) };
-        let id = self.account.id().to_string();
-        let pin = request.options.wire_pin.as_ref().filter(|pin| pin.provider == id && pin.model == request.model);
-        let context = WireRouteContext { agent: !request.tools.is_empty(), keep: pin.map(|p| p.wire.clone()), ..WireRouteContext::default() };
-        let route = routing.resolve_wire_route(&request.model, &context).await?;
-        let wire = route.as_ref().and_then(|r| Wire::parse(&r.wire)).ok_or_else(|| self.not_routable(&request.model))?;
-        let rerouted = match (pin, &route) {
-            (Some(pin), Some(route)) if route.source == "pinned" => pin.reroute.clone(),
-            _ => None,
-        };
-        Ok((wire, rerouted, route))
-    }
-
-    /// `config.modelMaxOutputTokens(model)` on the Messages wire when the caller named no ceiling.
-    fn with_ceiling(&self, wire: Wire, request: Arc<ModelRequest>) -> Arc<ModelRequest> {
-        match (&self.messages_ceiling, wire) {
-            (Some(ceiling), Wire::Messages) if request.options.model_max_output_tokens.is_none() => match ceiling(&request.model) {
-                Some(limit) => {
-                    let mut owned = (*request).clone();
-                    owned.options.model_max_output_tokens = Some(limit);
-                    Arc::new(owned)
-                }
-                None => request,
-            },
-            _ => request,
-        }
-    }
-
-    /// One attempt on `wire`, with the send's own headers.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn attempt_on(&self, wire: Wire, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let engine = self.engine(wire).ok_or_else(|| self.not_routable(&request.model))?;
-        request.options.send_identity.set_wire(wire.as_str());
-        let request = self.with_ceiling(wire, request);
-        let result = match self.session_headers(&request) {
-            Some(headers) => SEND_HEADERS.scope(headers, engine.attempt(request)).await,
-            None => engine.attempt(request).await,
-        };
-        // The Messages wire reports input without its cache; this provider's own convention is the declared one.
-        if wire == Wire::Messages && !crate::registry::accounted::adapter_input_excludes_cache(self) {
-            return crate::registry::inclusive::inclusive_attempt(result);
-        }
-        result
-    }
-
-    /// OpenCode Go names the conversation on every request: its id, else one id for this send (`opencode-go.mjs`
-    /// `send`).
-    fn session_headers(&self, request: &ModelRequest) -> Option<Vec<(String, String)>> {
-        if !self.session_header {
-            return None;
-        }
-        let session = request
-            .options
-            .session_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map_or_else(|| request.options.send_identity.get_or_mint(random_uuid), str::to_owned);
-        Some(vec![("x-opencode-session".into(), session)])
-    }
-
-    fn engine(&self, wire: Wire) -> Option<Arc<dyn ProviderAdapter>> {
-        if wire == Wire::Chat {
-            return Some(self.account.clone());
-        }
-        self.engines.iter().find(|(w, _)| *w == wire).map(|(_, e)| e.clone())
-    }
 }
 
 #[async_trait]
@@ -380,6 +545,15 @@ impl ProviderAdapter for GatewayAdapter {
     fn wire_routing(&self) -> Option<&dyn WireRouting> {
         self.account.wire_routing()
     }
+    /// The images of a send take the form of the wire its model is routed on, as that wire's engine declares it.
+    async fn image_route(&self, request: &ModelRequest) -> mixdog_image_egress::route::RouteFacts {
+        if let Ok((wire, ..)) = self.route_of(request).await
+            && let Some(engine) = self.engine(wire)
+        {
+            return engine.image_route(request).await;
+        }
+        mixdog_image_egress::route::RouteFacts::undeclared(self.account.id().as_str(), &request.model)
+    }
     /// Every gateway lowers a PDF to text (`WireGatewayProvider.nativePdf`, `OpenCodeGoProvider.nativePdf`).
     fn native_pdf(&self) -> bool {
         false
@@ -412,11 +586,15 @@ impl ProviderAdapter for GatewayAdapter {
     /// `canFallbackNonStreaming` of the Chat Completions engine, which every send of this gateway may have gone out on:
     /// the non-streaming re-issue exists on that wire only ([`Self::recover_spent`] refuses any other).
     fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {
-        self.account.recovers_spent(model, failure)
+        // A standalone Chat recovery cannot prove which org the failed Go send used.
+        self.account.id().as_str() != "opencode-go-oauth" && self.account.recovers_spent(model, failure)
     }
     /// `recoverCompatNonStreaming` for a send whose last attempt went out on the Chat wire; a send that went out on
     /// another wire ends with its own ladder's failure.
     async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        if self.account.id().as_str() == "opencode-go-oauth" {
+            return Err(ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent));
+        }
         match self.wire_of(&request) {
             Some(Wire::Chat) => match self.session_headers(&request) {
                 Some(headers) => SEND_HEADERS.scope(headers, self.account.recover_spent(request)).await,
@@ -449,23 +627,28 @@ impl ProviderAdapter for GatewayAdapter {
             .and_then(|r| r.get("loweredAssistantCount"))
             .and_then(Value::as_u64)
             .unwrap_or(0) as usize;
+        let go = self.pin_go().await?;
         let Some(routing) = route.as_ref().and(self.account.wire_routing()) else {
-            return self.attempt_on(wire, lowered(request, lowered_count)).await;
+            return self.attempt_on(wire, lowered(request, lowered_count), go).await;
         };
         let refusal = Arc::new(Mutex::new(None));
-        let first = REFUSAL.scope(refusal.clone(), self.attempt_on(wire, lowered(request.clone(), lowered_count))).await;
+        let first = REFUSAL.scope(refusal.clone(), self.attempt_on(wire, lowered(request.clone(), lowered_count), go.clone())).await;
         let error = match first {
             // A send on a rerouted pin reports that route back, as the refusal's send did.
             Ok(inner) => return Ok(Box::new(Rerouted { route: pinned_reroute, inner })),
             Err(error) => error,
         };
         let refused = refusal.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        let mut error = self.classify_messages_refusal(wire, error, refused.as_ref());
         if !wire_unsupported(&error, refused.as_ref()) {
             return Err(error);
         }
         let context = WireRouteContext { agent: !request.tools.is_empty(), exclude: vec![wire.as_str().to_owned()], ..WireRouteContext::default() };
         let Some(next) = routing.resolve_wire_route(&request.model, &context).await? else { return Err(error) };
         let Some(next_wire) = Wire::parse(&next.wire).filter(|w| *w != wire) else { return Err(error) };
+        if !preserve_bill(&mut error, &request) {
+            return Err(error);
+        }
         let count = request.messages.iter().filter(|m| m.role == Role::Assistant).count();
         let rerouted = json!({
             "provider": self.account.id().as_str(),
@@ -477,7 +660,10 @@ impl ProviderAdapter for GatewayAdapter {
             "reroutedReason": "unsupported",
             "loweredAssistantCount": count,
         });
-        let inner = self.attempt_on(next_wire, lowered(request, count)).await?;
+        let inner = REFUSAL.scope(refusal.clone(), self.attempt_on(next_wire, lowered(request, count), go)).await.map_err(|error| {
+            let refused = refusal.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+            self.classify_messages_refusal(next_wire, error, refused.as_ref())
+        })?;
         Ok(Box::new(Rerouted { route: Some(rerouted), inner }))
     }
 }
@@ -689,6 +875,14 @@ impl HttpSend for GatewayHttp {
         {
             request.headers = sdk_order(*sdk, defaults, std::mem::take(&mut request.headers));
         }
+        if let Ok(org) = GATEWAY_CREDENTIAL.try_with(|credential| credential.org_id.clone()) {
+            let mut org = org.filter(|org| !org.is_empty());
+            request.headers.retain_mut(|(name, value)| {
+                if !name.eq_ignore_ascii_case("x-org-id") { return true; }
+                if let Some(pinned) = org.take() { *value = pinned; true } else { false }
+            });
+            if let Some(org) = org { request.headers.push(("x-org-id".to_owned(), org)); }
+        }
         let guarded = self.refuse_redirects && request.method == "POST";
         let exchange = if guarded { Exchange { redirect: crate::transport::Redirect::Manual, ..exchange } } else { exchange };
         let host = request.url.split("://").nth(1).and_then(|rest| rest.split('/').next()).unwrap_or_default().to_owned();
@@ -718,11 +912,14 @@ impl HttpSend for GatewayHttp {
             parts.push_back(part);
         }
         let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-        *slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Refusal { status: response.status, body });
+        *slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Refusal { status: response.status, headers: response.headers.clone(), body });
         response.body = Box::new(Replayed(parts));
         Ok(response)
     }
 }
+
+#[cfg(test)]
+mod rules_tests;
 
 #[cfg(test)]
 mod tests {
@@ -775,6 +972,128 @@ mod tests {
         Arc::new(CompatAdapter::new(codec, Arc::new(Nothing), Some(Arc::new(Key))))
     }
 
+    #[test]
+    fn xai_configured_effort_is_identical_on_http_and_the_socket() {
+        use crate::providers::compat::{CompatChatCodec, CompatConfig, CompatProfile};
+        use mixdog_core_api::domain::keepalive::TransportKind;
+
+        let profile = CompatProfile::xai();
+        let config = CompatConfig::for_profile(&profile);
+        let chat = CompatChatCodec::new(profile.clone(), config.clone());
+        let account = CompatAdapter::new(chat, Arc::new(Nothing), None).with_configured_effort(Some("high".into()));
+        let http = CompatResponsesCodec::new(profile, config, TransportKind::Http1);
+        let socket = http.xai_websocket();
+        for (requested, expected) in [(None, "high"), (Some("low"), "low")] {
+            let request = account.with_default_effort(Arc::new(ModelRequest {
+                model: "grok-4.5".into(), messages: Vec::new(), tools: Vec::new(),
+                options: mixdog_core_api::domain::provider::RequestOptions { effort: requested.map(str::to_owned), ..Default::default() },
+            }));
+            for codec in [&http, &socket] {
+                let body: Value = serde_json::from_slice(&codec.encode(&request).unwrap().body).unwrap();
+                assert_eq!(body["reasoning"]["effort"], expected);
+            }
+        }
+    }
+
+    #[test]
+    fn xai_only_replays_an_unaccounted_pre_output_failure_if_it_was_not_billed() {
+        use crate::providers::compat::{CompatConfig, CompatProfile};
+        use mixdog_core_api::domain::keepalive::TransportKind;
+        use mixdog_core_api::domain::provider::{Usage, UsdTicks};
+
+        let profile = CompatProfile::xai();
+        let codec = CompatResponsesCodec::new(profile.clone(), CompatConfig::for_profile(&profile), TransportKind::Http1);
+        let replay = GatewayReplay::XaiHttp { account: engine(profile), codec: Arc::new(codec), enabled: true };
+        let request = ModelRequest { model: "grok-4.5".into(), messages: Vec::new(), tools: Vec::new(), options: Default::default() };
+        let mut failure = ProviderError::transport(TransportFault::Reset, DeliveryState::Accepted);
+        assert!(replay.permits(&mut failure, &request));
+        failure.partial_usage = Some(Box::new(Usage { cost: Some(UsdTicks(100)), ..Default::default() }));
+        assert!(!replay.permits(&mut failure, &request));
+        assert_eq!(failure.partial_usage.as_ref().unwrap().cost, Some(UsdTicks(100)));
+    }
+
+    #[tokio::test]
+    async fn opencode_reissues_each_wire_once_even_when_refresh_returns_the_same_key() {
+        use crate::providers::compat::{CompatChatCodec, CompatConfig, CompatProfile};
+        use crate::providers::key_source::ApiKeySource;
+        use std::sync::atomic::AtomicUsize;
+
+        struct Refusing { requests: AtomicUsize, reloads: AtomicUsize, auth: OpenCodeGoAuth }
+        #[async_trait]
+        impl HttpSend for Refusing {
+            async fn send(&self, _: WireRequest, _: Exchange) -> Result<HttpResponse, ProviderError> {
+                self.requests.fetch_add(1, Ordering::SeqCst);
+                Ok(HttpResponse { status: 401, headers: Vec::new(), body: Box::new(Replayed(VecDeque::new())) })
+            }
+        }
+        #[async_trait]
+        impl ApiKeySource for Refusing {
+            async fn key(&self) -> Result<String, ProviderError> {
+                Ok(GATEWAY_CREDENTIAL.with(|credential| credential.access_token.clone()))
+            }
+            async fn reload(&self) -> Result<String, ProviderError> {
+                self.reloads.fetch_add(1, Ordering::SeqCst);
+                self.key().await
+            }
+            fn opencode_auth(&self) -> Option<&OpenCodeGoAuth> { Some(&self.auth) }
+        }
+
+        for wire in [Wire::Chat, Wire::Responses, Wire::Messages, Wire::Gemini] {
+            let dir = tempfile::tempdir().unwrap();
+            let lanes = mixdog_rt::testing::tokens();
+            let file = crate::oauth::CredentialFile::new(dir.path().join("go.json"), crate::oauth::CredentialIo { read: lanes.interactive_io, write: lanes.durability_io });
+            file.save(&json!({"access_token":"fixture", "refresh_token":"fixture-refresh", "org_id":"fixture-org"})).await.unwrap();
+            let refresh = crate::oauth::http::testing::Scripted::new(&[(200, r#"{"access_token":"fixture", "refresh_token":"updated"}"#)]);
+            let auth = OpenCodeGoAuth::new(refresh.clone(), Arc::new(crate::oauth::pace::FakePace::default()), file);
+            let boundary = Arc::new(Refusing { requests: AtomicUsize::new(0), reloads: AtomicUsize::new(0), auth });
+            let codec = CompatChatCodec::new(CompatProfile::opencode_go(), CompatConfig::default());
+            let account = Arc::new(CompatAdapter::new(codec, boundary.clone(), Some(boundary.clone())));
+            let gateway = GatewayAdapter::new(account.clone(), vec![(wire, account)], WirePick::Fixed(wire)).with_session_header();
+            let request = Arc::new(ModelRequest { model: "m".into(), messages: Vec::new(), tools: Vec::new(), options: Default::default() });
+            let error = gateway.attempt(request).await.err().expect("second refusal");
+            assert_eq!(error.code.as_deref(), Some("invalid_grant"), "{wire:?}");
+            assert!(error.reauth_required, "{wire:?}");
+            assert_eq!(boundary.requests.load(Ordering::SeqCst), 2, "{wire:?}");
+            assert_eq!(boundary.reloads.load(Ordering::SeqCst), 0, "{wire:?}");
+            assert_eq!(refresh.seen.lock().unwrap().len(), 1, "{wire:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn open_code_auth_refusal_does_not_reissue_after_a_tool_is_emitted() {
+        use crate::providers::compat::CompatProfile;
+        struct ToolThen401(VecDeque<Result<StreamEvent, ProviderError>>);
+        #[async_trait]
+        impl ModelStream for ToolThen401 {
+            async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> { self.0.pop_front() }
+            fn delivery(&self) -> DeliveryState { DeliveryState::Accepted }
+            fn on_wire_left(&mut self, _: Arc<dyn Fn() + Send + Sync>) {}
+        }
+        let mut unauthorized = ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted);
+        unauthorized.status = Some(401);
+        let inner = Box::new(ToolThen401(VecDeque::from([
+            Ok(StreamEvent::ToolCallDone(mixdog_core_api::domain::provider::ToolCall {
+                id: "once".into(), name: "record".into(), arguments: json!({}), native_type: None,
+            })),
+            Err(unauthorized),
+        ])));
+        let account = engine(CompatProfile::opencode_go());
+        let dir = tempfile::tempdir().unwrap();
+        let lanes = mixdog_rt::testing::tokens();
+        let file = crate::oauth::CredentialFile::new(dir.path().join("go.json"), crate::oauth::CredentialIo { read: lanes.interactive_io, write: lanes.durability_io });
+        let credentials = serde_json::from_value(json!({"access_token":"fixture", "refresh_token":"fixture-refresh", "org_id":"fixture-org"})).unwrap();
+        let pin = Arc::new(GoPin {
+            auth: OpenCodeGoAuth::new(Arc::new(Nothing), Arc::new(crate::oauth::pace::FakePace::default()), file),
+            credentials: Mutex::new(Arc::new(credentials)),
+        });
+        let request = Arc::new(ModelRequest { model: "m".into(), messages: Vec::new(), tools: Vec::new(), options: Default::default() });
+        let mut stream = BeforeOutput::open(Ok(inner), request, GatewayReplay::OpenCode { pin: Some(pin), engine: account, headers: Vec::new(), inclusive: false }).await.unwrap();
+        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::ToolCallDone(_)))));
+        let error = stream.next().await.unwrap().unwrap_err();
+        assert_eq!(error.status, Some(401));
+        assert!(!error.reauth_required);
+    }
+
     /// Two sends of one model, one on the Messages wire and one on the Gemini wire, each keep their own ladder, stages
     /// and retry line whichever attempt went out last: the wire is the send's, not the model's.
     #[tokio::test]
@@ -808,7 +1127,7 @@ mod tests {
     async fn a_spent_chat_ladder_is_recovered_on_the_chat_wire_only() {
         use crate::providers::compat::profile::CompatProfile;
         let gateway = GatewayAdapter::new(
-            engine(CompatProfile::opencode_go()),
+            engine(CompatProfile::openrouter()),
             vec![(Wire::Messages, engine(CompatProfile::deepseek()) as Arc<dyn ProviderAdapter>)],
             WirePick::Routed,
         );
@@ -838,5 +1157,146 @@ mod tests {
         let left = handed.lock().unwrap().take().expect("the wrapped stream was handed the callback");
         left();
         assert!(called.load(Ordering::SeqCst), "the callback handed on is the consumer's");
+    }
+}
+
+
+impl GatewayAdapter {
+    /// `engines` serve the wires other than Chat, which is `account` itself.
+    pub fn new(account: Arc<CompatAdapter>, engines: Vec<(Wire, Arc<dyn ProviderAdapter>)>, pick: WirePick) -> Self {
+        Self { account, engines, pick, session_header: false, messages_ceiling: None }
+    }
+
+    /// The wire the send's last attempt went out on: carried by the send's own identity, never shared between sends.
+    fn wire_of(&self, request: &ModelRequest) -> Option<Wire> {
+        request.options.send_identity.wire().and_then(Wire::parse)
+    }
+
+    pub fn with_messages_ceiling(mut self, ceiling: Arc<MessagesCeilingLookup>) -> Self {
+        self.messages_ceiling = Some(ceiling);
+        self
+    }
+
+    pub fn with_session_header(mut self) -> Self {
+        self.session_header = true;
+        self
+    }
+
+    fn not_routable(&self, model: &str) -> ProviderError {
+        let mut err = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::NotSent);
+        err.code = Some("MODEL_NOT_ROUTABLE".into());
+        err.message = format!("[{}] model {model} is not routable: no wire it is served on is offered", self.account.id());
+        err
+    }
+
+    fn classify_messages_refusal(&self, wire: Wire, mut error: ProviderError, refusal: Option<&Refusal>) -> ProviderError {
+        if self.account.id().as_str() == "openrouter" && wire == Wire::Messages
+            && let Some(refusal) = refusal.filter(|refusal| refusal.status == 402)
+        {
+            // The gateway's 402 envelope still applies when the model speaks Anthropic Messages.
+            let classified = crate::providers::compat::error::classify_parts(self.account.profile(), Some(402), &refusal.headers, &refusal.body, std::time::SystemTime::now());
+            error.kind = classified.kind;
+            error.retry_after = classified.retry_after;
+        }
+        error
+    }
+
+    /// `sendWireRoute`: the session's pin when it names this provider and model and the model is still offered on
+    /// it, else a fresh resolution (a send carrying tools counts as an agent/tool request). With the route, the
+    /// rerouted pin it stands on, if any; `None` for a fixed wire.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn route_of(&self, request: &ModelRequest) -> Result<(Wire, Option<Value>, Option<WireRoute>), ProviderError> {
+        let routing = match self.pick {
+            WirePick::Fixed(wire) => {
+                let wire = if self.account.id().as_str() == "xai" {
+                    xai_transport::request_wire(request.options.xai_api_mode.as_deref(), wire)
+                } else {
+                    wire
+                };
+                return Ok((wire, None, None));
+            }
+            WirePick::Routed => self.account.wire_routing(),
+        };
+        let Some(routing) = routing else { return Ok((self.account.profile().default_wire, None, None)) };
+        let id = self.account.id().to_string();
+        let pin = request.options.wire_pin.as_ref().filter(|pin| pin.provider == id && pin.model == request.model);
+        let context = WireRouteContext { agent: !request.tools.is_empty(), keep: pin.map(|p| p.wire.clone()), ..WireRouteContext::default() };
+        let route = routing.resolve_wire_route(&request.model, &context).await?;
+        let wire = route.as_ref().and_then(|r| Wire::parse(&r.wire)).ok_or_else(|| self.not_routable(&request.model))?;
+        let rerouted = match (pin, &route) {
+            (Some(pin), Some(route)) if route.source == "pinned" => pin.reroute.clone(),
+            _ => None,
+        };
+        Ok((wire, rerouted, route))
+    }
+
+    /// `config.modelMaxOutputTokens(model)` on the Messages wire when the caller named no ceiling.
+    fn with_ceiling(&self, wire: Wire, request: Arc<ModelRequest>) -> Arc<ModelRequest> {
+        match (&self.messages_ceiling, wire) {
+            (Some(ceiling), Wire::Messages) if request.options.model_max_output_tokens.is_none() => match ceiling(&request.model) {
+                Some(limit) => {
+                    let mut owned = (*request).clone();
+                    owned.options.model_max_output_tokens = Some(limit);
+                    Arc::new(owned)
+                }
+                None => request,
+            },
+            _ => request,
+        }
+    }
+
+    /// One attempt on `wire`, with the send's own headers.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn attempt_on(&self, wire: Wire, request: Arc<ModelRequest>, go: Option<Arc<GoPin>>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let engine = self.engine(wire).ok_or_else(|| self.not_routable(&request.model))?;
+        request.options.send_identity.set_wire(wire.as_str());
+        // A reroute is a new route: the images are prepared again for the wire this attempt actually takes.
+        let request = crate::registry::egress::prepare(engine.as_ref(), request).await?;
+        let request = self.with_ceiling(wire, request);
+        let inclusive = wire == Wire::Messages && !crate::registry::accounted::adapter_input_excludes_cache(self);
+        if self.account.id().as_str() == "opencode-go-oauth" {
+            let headers = self.session_headers(&request).unwrap_or_default();
+            let first = GatewayReplay::open_opencode(engine.as_ref(), headers.clone(), request.clone(), go.as_ref(), inclusive).await;
+            let replay = GatewayReplay::OpenCode { pin: go, engine, headers, inclusive };
+            return BeforeOutput::open(first, request, replay).await;
+        }
+        let result = match self.session_headers(&request) {
+            Some(headers) => SEND_HEADERS.scope(headers, engine.attempt(request)).await,
+            None => engine.attempt(request).await,
+        };
+        // The Messages wire reports input without its cache; this provider's own convention is the declared one.
+        if inclusive {
+            return crate::registry::inclusive::inclusive_attempt(result);
+        }
+        result
+    }
+
+    async fn pin_go(&self) -> Result<Option<Arc<GoPin>>, ProviderError> {
+        let Some(auth) = self.account.opencode_auth() else { return Ok(None) };
+        let (auth, credential) = auth.pin().await.map_err(go_auth_error)?;
+        Ok(Some(Arc::new(GoPin { auth, credentials: Mutex::new(Arc::new(credential)) })))
+    }
+
+    /// OpenCode Go names the conversation on every request: its id, else one id for this send (`opencode-go.mjs`
+    /// `send`).
+    fn session_headers(&self, request: &ModelRequest) -> Option<Vec<(String, String)>> {
+        if !self.session_header {
+            return None;
+        }
+        let session = request
+            .options
+            .session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map_or_else(|| request.options.send_identity.get_or_mint(random_uuid), str::to_owned);
+        Some(vec![("x-opencode-session".into(), session)])
+    }
+
+    fn engine(&self, wire: Wire) -> Option<Arc<dyn ProviderAdapter>> {
+        if wire == Wire::Chat {
+            return Some(self.account.clone());
+        }
+        self.engines.iter().find(|(w, _)| *w == wire).map(|(_, e)| e.clone())
     }
 }

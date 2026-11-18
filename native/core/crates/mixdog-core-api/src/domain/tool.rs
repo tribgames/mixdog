@@ -122,6 +122,91 @@ impl ToolSpec {
     }
 }
 
+/// Who published a stored tool definition.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Provenance {
+    /// A connected MCP server (a plugin's included) published it: `server` is the server's configured name at publication, `tool`
+    /// the server's own name for it where it is a tool of the server (a resources or prompts request has none).
+    Mcp { server: String, tool: Option<String> },
+    /// A definition of the core's own.
+    Builtin,
+    /// Stored before provenance was recorded, or by a writer that recorded none: the publisher is unknown, and nothing (a name,
+    /// today's tool of that name) tells it. Never withdrawn.
+    LegacyUnknown,
+}
+
+/// The stored catalog entry of a tool: the definition payload exactly as stored, and who published it, travelling together.
+/// It is the unit a session's `tools` and deferred catalogs hold, a replacement replaces the whole entry, and an execution
+/// [`ToolSpec`] is only a view derived from it, never the source a stored definition is rewritten from. The provenance is part
+/// of the payload's durable form (`mcpServerName`, `mcpToolName`, right after `name`); the provider projection of a definition
+/// reads provider fields only, so ownership never reaches a request.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct StoredTool {
+    stored: JsonValue,
+    provenance: Provenance,
+}
+
+impl StoredTool {
+    /// The entry of a core-owned definition.
+    pub fn builtin(definition: JsonValue) -> Self {
+        Self { stored: definition, provenance: Provenance::Builtin }
+    }
+
+    /// The entry of a tool `server` published: `server` (its configured name) is required, `tool` is the server's own name for it.
+    pub fn mcp(definition: JsonValue, server: &str, tool: Option<&str>) -> Self {
+        let mut stored = serde_json::Map::new();
+        if let JsonValue::Object(fields) = definition {
+            for (key, value) in fields {
+                if key == "mcpToolName" || key == "mcpServerName" {
+                    continue;
+                }
+                let is_name = key == "name";
+                stored.insert(key, value);
+                if is_name {
+                    if let Some(tool) = tool {
+                        stored.insert("mcpToolName".to_owned(), JsonValue::String(tool.to_owned()));
+                    }
+                    stored.insert("mcpServerName".to_owned(), JsonValue::String(server.to_owned()));
+                }
+            }
+        }
+        Self { stored: JsonValue::Object(stored), provenance: Provenance::Mcp { server: server.to_owned(), tool: tool.map(str::to_owned) } }
+    }
+
+    /// The one decoder of a stored entry: a non-empty `mcpServerName` is a known MCP publisher, anything else is legacy-unknown.
+    /// The stored value is kept as it is.
+    pub fn decode(stored: &JsonValue) -> Self {
+        let text = |key: &str| stored.get(key).and_then(JsonValue::as_str).map(str::trim).filter(|text| !text.is_empty()).map(str::to_owned);
+        let provenance = match text("mcpServerName") {
+            Some(server) => Provenance::Mcp { server, tool: text("mcpToolName") },
+            None => Provenance::LegacyUnknown,
+        };
+        Self { stored: stored.clone(), provenance }
+    }
+
+    /// The one encoder: the stored value, whole.
+    pub fn encode(&self) -> JsonValue {
+        self.stored.clone()
+    }
+
+    /// The stored value as it stands.
+    pub fn stored(&self) -> &JsonValue {
+        &self.stored
+    }
+
+    pub fn provenance(&self) -> &Provenance {
+        &self.provenance
+    }
+
+    /// The publishing server's configured name, where it is known.
+    pub fn publisher(&self) -> Option<&str> {
+        match &self.provenance {
+            Provenance::Mcp { server, .. } => Some(server),
+            Provenance::Builtin | Provenance::LegacyUnknown => None,
+        }
+    }
+}
+
 /// A definition's `freeformDescription` and `freeform` (`{ type: "grammar", syntax, definition }`).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Freeform {
@@ -214,6 +299,10 @@ pub enum ToolPart {
     /// A document the model reads whole (Node's `{ type: 'document', source: { type: 'base64', media_type, data } }`
     /// block: `read`'s answer for a short PDF when the model takes PDFs natively).
     Document { mime: String, data: Vec<u8> },
+    /// A file the tool hands over whole, as an attached file is (Node's `{ type: 'file', data, mimeType, filename }` block: a
+    /// downloaded text or Office file of the `browser` tool). It renders as the same inline file content part an attachment is, so
+    /// the media lowering turns it into the file's text or its Office extraction, by the one classifier (`inline_file_kind`).
+    File { mime: String, data: Vec<u8>, filename: Option<String> },
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -438,6 +527,18 @@ pub trait Tool: Send + Sync {
             keys.insert("freeform".to_owned(), freeform.grammar.clone());
         }
         definition
+    }
+
+    /// The stored catalog entry this tool publishes: its definition payload with the publisher's identity. A core-owned tool is a
+    /// built-in; a connected server's tool overrides this with its server.
+    fn stored(&self) -> StoredTool {
+        StoredTool::builtin(self.spec().definition())
+    }
+
+    /// Whether a call of this tool can run now. Read live, never cached: a tool whose backend depends on a switch or on a helper
+    /// that may come and go (`computer`) answers for the moment it is asked.
+    fn runnable(&self) -> bool {
+        true
     }
 
     /// Typed outbound classification for the policy (replaces the name list):

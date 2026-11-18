@@ -3,6 +3,7 @@
 mod actor;
 mod admission;
 mod approvals;
+#[cfg(node_twin)]
 mod call_lanes;
 mod closing;
 mod control;
@@ -10,20 +11,33 @@ mod dispatch;
 mod errors;
 mod handshake;
 mod host;
+#[cfg(node_twin)]
 mod inventory_rule;
 mod lane_pushes;
+mod lane_rules;
+mod model_proxy_calls;
+#[cfg(node_twin)]
 mod model_proxy_wire;
+#[cfg(node_twin)]
 mod phone_chat;
+mod phone_stop;
 mod queues;
 mod relay_answer;
 mod routing;
-mod sample;
+mod samples;
+mod surrogate_inventory;
+#[cfg(node_twin)]
 mod session_transport;
+mod settings_announcement;
+mod thread_transport;
 mod wire;
+#[cfg(node_twin)]
 mod settings_change_feed;
 mod storm;
 mod subscriptions;
 mod two_windows;
+mod upload_chunks;
+mod visualize_order;
 
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -356,6 +370,96 @@ fn domain_methods() -> &'static [&'static str] {
     namespace_methods(&namespaces.into_iter().collect::<Vec<_>>())
 }
 
+type Hook = Box<dyn FnOnce() + Send>;
+
+struct HookedSink {
+    inner: Arc<MockConnection>,
+    hook: Mutex<Option<Hook>>,
+}
+
+impl ConnectionSink for HookedSink {
+    fn id(&self) -> ConnectionId {
+        self.inner.id()
+    }
+
+    fn send_control(&self, frame: Bytes) -> Result<(), SinkClosed> {
+        let hook = crate::sharded::lock(&self.hook).take();
+        if let Some(hook) = hook {
+            hook();
+        }
+        self.inner.send_control(frame)
+    }
+
+    fn send_control_release(&self, frame: Bytes, release: LaneRelease) -> Result<(), SinkClosed> {
+        self.inner.send_control_release(frame, release)
+    }
+
+    fn open_lane(
+        &self,
+        sub: SubscriptionId,
+        recovery: Arc<dyn LaneRecovery>,
+    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+        self.inner.open_lane(sub, recovery)
+    }
+}
+
+struct WatchedSink {
+    inner: Arc<MockConnection>,
+    watch: Box<dyn Fn(&Bytes) + Send + Sync>,
+}
+
+impl ConnectionSink for WatchedSink {
+    fn id(&self) -> ConnectionId {
+        self.inner.id()
+    }
+
+    fn send_control(&self, frame: Bytes) -> Result<(), SinkClosed> {
+        (self.watch)(&frame);
+        self.inner.send_control(frame)
+    }
+
+    fn send_control_release(&self, frame: Bytes, release: LaneRelease) -> Result<(), SinkClosed> {
+        (self.watch)(&frame);
+        self.inner.send_control_release(frame, release)
+    }
+
+    fn open_lane(
+        &self,
+        sub: SubscriptionId,
+        recovery: Arc<dyn LaneRecovery>,
+    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+        self.inner.open_lane(sub, recovery)
+    }
+}
+
+/// The control frames of a [`Rig::connect_watched`] connection as its sink queues them, each with what the watch saw.
+pub(crate) struct Arrivals<T>(tokio::sync::mpsc::UnboundedReceiver<(Value, T)>);
+
+#[derive(Debug)]
+pub(crate) struct Wire {
+    /// The subscription lane, `None` for the control lane.
+    pub(crate) lane: Option<String>,
+    pub(crate) body: Value,
+}
+
+pub(crate) struct Client {
+    pub(crate) handle: ConnectionHandle,
+    pub(crate) wire: Arc<MockConnection>,
+}
+
+/// `error.data.reason` of an error frame.
+pub(crate) fn reason(frame: &Value) -> &str {
+    frame["error"]["data"]["reason"].as_str().unwrap_or_else(|| panic!("no error in {frame}"))
+}
+
+/// Lets spawned tasks run to their next await point.
+pub(crate) async fn settle() {
+    for _ in 0..200 {
+        tokio::task::yield_now().await;
+    }
+}
+
+
 impl Rig {
     pub(crate) fn new() -> Self {
         Self::gated(&[])
@@ -509,72 +613,6 @@ impl Rig {
         client
     }
 }
-
-type Hook = Box<dyn FnOnce() + Send>;
-
-struct HookedSink {
-    inner: Arc<MockConnection>,
-    hook: Mutex<Option<Hook>>,
-}
-
-impl ConnectionSink for HookedSink {
-    fn id(&self) -> ConnectionId {
-        self.inner.id()
-    }
-
-    fn send_control(&self, frame: Bytes) -> Result<(), SinkClosed> {
-        let hook = crate::sharded::lock(&self.hook).take();
-        if let Some(hook) = hook {
-            hook();
-        }
-        self.inner.send_control(frame)
-    }
-
-    fn send_control_release(&self, frame: Bytes, release: LaneRelease) -> Result<(), SinkClosed> {
-        self.inner.send_control_release(frame, release)
-    }
-
-    fn open_lane(
-        &self,
-        sub: SubscriptionId,
-        recovery: Arc<dyn LaneRecovery>,
-    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
-        self.inner.open_lane(sub, recovery)
-    }
-}
-
-struct WatchedSink {
-    inner: Arc<MockConnection>,
-    watch: Box<dyn Fn(&Bytes) + Send + Sync>,
-}
-
-impl ConnectionSink for WatchedSink {
-    fn id(&self) -> ConnectionId {
-        self.inner.id()
-    }
-
-    fn send_control(&self, frame: Bytes) -> Result<(), SinkClosed> {
-        (self.watch)(&frame);
-        self.inner.send_control(frame)
-    }
-
-    fn send_control_release(&self, frame: Bytes, release: LaneRelease) -> Result<(), SinkClosed> {
-        (self.watch)(&frame);
-        self.inner.send_control_release(frame, release)
-    }
-
-    fn open_lane(
-        &self,
-        sub: SubscriptionId,
-        recovery: Arc<dyn LaneRecovery>,
-    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
-        self.inner.open_lane(sub, recovery)
-    }
-}
-
-/// The control frames of a [`Rig::connect_watched`] connection as its sink queues them, each with what the watch saw.
-pub(crate) struct Arrivals<T>(tokio::sync::mpsc::UnboundedReceiver<(Value, T)>);
-
 impl<T> Arrivals<T> {
     /// The next frame queued to the connection; `awaited` names it in the failure when none comes within `deadline`.
     pub(crate) async fn next(&mut self, deadline: std::time::Duration, awaited: &str) -> (Value, T) {
@@ -584,19 +622,6 @@ impl<T> Arrivals<T> {
             .unwrap_or_else(|| panic!("the connection closed: awaited {awaited}"))
     }
 }
-
-#[derive(Debug)]
-pub(crate) struct Wire {
-    /// The subscription lane, `None` for the control lane.
-    pub(crate) lane: Option<String>,
-    pub(crate) body: Value,
-}
-
-pub(crate) struct Client {
-    pub(crate) handle: ConnectionHandle,
-    pub(crate) wire: Arc<MockConnection>,
-}
-
 impl Client {
     pub(crate) fn send(&self, message: Value) -> Inbound {
         let message: JsonRpcMessage = serde_json::from_value(message).unwrap();
@@ -668,22 +693,9 @@ impl Client {
         panic!("no response to {id}; saw {seen:?}");
     }
 }
-
 /// One step of waiting: other runtime workers run the request tasks on multi-thread tests, so
 /// a bare yield may return before they have done anything.
 async fn pause() {
     tokio::task::yield_now().await;
     mixdog_rt::time::sleep(std::time::Duration::from_millis(1)).await;
-}
-
-/// `error.data.reason` of an error frame.
-pub(crate) fn reason(frame: &Value) -> &str {
-    frame["error"]["data"]["reason"].as_str().unwrap_or_else(|| panic!("no error in {frame}"))
-}
-
-/// Lets spawned tasks run to their next await point.
-pub(crate) async fn settle() {
-    for _ in 0..200 {
-        tokio::task::yield_now().await;
-    }
 }

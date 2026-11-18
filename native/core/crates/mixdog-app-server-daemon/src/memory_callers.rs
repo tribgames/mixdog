@@ -52,7 +52,7 @@ impl MemoryCallers for ThreadMemoryCallers {
         let Some(header) = self.sessions.header(thread).await else { return caller("headless", "") };
         match self.scopes.scope(thread).await {
             CallerScope::Human => caller("human", MIXY_AGENT_ID),
-            CallerScope::Agent { agent_id, .. } => caller("agent", &agent_id),
+            CallerScope::Agent { agent_id, unattended } => caller(if unattended { "headless" } else { "agent" }, &agent_id),
             CallerScope::RoomMember => {
                 let agent_id = match room_member_of_session(thread.as_str()) {
                     Some(member) => member.agent_id,
@@ -157,11 +157,21 @@ mod tests {
     async fn each_scope_names_the_agent_node_gives_it() {
         let header = || Some(json!({}));
         assert_eq!(caller_of("t", header(), CallerScope::Human, None).await, json!({ "kind": "human", "agentId": "lead" }));
-        let agent = CallerScope::Agent { agent_id: "ana".into(), unattended: true };
-        assert_eq!(caller_of("t", header(), agent, None).await, json!({ "kind": "agent", "agentId": "ana" }));
+        let attended = CallerScope::Agent { agent_id: "ana".into(), unattended: false };
+        assert_eq!(caller_of("t", header(), attended, None).await, json!({ "kind": "agent", "agentId": "ana" }));
         let run = RunInfo { kind: HeldRunKind::Room, agent_id: "bo".into(), name: "room1".into() };
         assert_eq!(caller_of("t", header(), CallerScope::RoomMember, Some(run)).await, json!({ "kind": "room-member", "agentId": "bo" }));
         assert_eq!(caller_of("t", None, CallerScope::Human, None).await, json!({ "kind": "headless", "agentId": "" }));
+    }
+
+    #[tokio::test]
+    async fn an_unattended_agent_keeps_its_own_pool_but_cannot_write_shared_memory() {
+        use mixdog_services::memory::core::access::{MemoryCaller, Pool};
+        let scope = CallerScope::Agent { agent_id: "ana".into(), unattended: true };
+        let wire = caller_of("t", Some(json!({})), scope, None).await;
+        let caller = MemoryCaller::from_value(Some(&wire));
+        assert!(caller.assert_write("add", &Pool { agent_id: Some("ana"), project_id: None }).is_ok());
+        assert!(caller.assert_write("add", &Pool::default()).is_err());
     }
 
     #[tokio::test]

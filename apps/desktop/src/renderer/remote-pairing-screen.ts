@@ -100,7 +100,7 @@ const PAIRING_CSS =
 const PAIRING_OVERLAY_CSS = '#mixdog-remote-pairing{z-index:9999}';
 
 interface PairingAction {
-  role: 'ask' | 'cancel' | 'back';
+  role: 'ask' | 'cancel' | 'back' | 'reload';
   label: string;
   primary: boolean;
   hidden?: boolean;
@@ -389,10 +389,15 @@ const requestApproval = async (
  */
 export const createRemotePairingScreen = (
   deps: RemotePairingScreenDeps
-): ((message: string, autoAsk?: boolean, title?: string) => void) => {
+): ((message: string, autoAsk?: boolean, title?: string, recovery?: 'reload') => void) => {
   takeTicketFromAddress();
-  return (message: string, autoAsk = true, title?: string): void => {
-    if (document.getElementById('mixdog-remote-pairing')) return;
+  return (message: string, autoAsk = true, title?: string, recovery?: 'reload'): void => {
+    const existing = document.getElementById('mixdog-remote-pairing');
+    if (existing) {
+      if (!recovery) return;
+      abortRun(existing);
+      existing.remove();
+    }
     const installed = isInstalledMobileWebAppSurface();
     const mount = () => {
       const preview = pairingPreviewState();
@@ -427,7 +432,9 @@ export const createRemotePairingScreen = (
         sub,
         steps: [],
         actions: [
-          { role: 'ask', label: earlyUiT('Connect again'), primary: true },
+          recovery === 'reload'
+            ? { role: 'reload', label: earlyUiT('Reload page'), primary: true }
+            : { role: 'ask', label: earlyUiT('Connect again'), primary: true },
           ...(canGoBack ? [{ role: 'back' as const, label: earlyUiT('Cancel'), primary: false }] : []),
         ],
       });
@@ -531,6 +538,17 @@ export const createRemotePairingScreen = (
       function onAction(role: PairingAction['role']): void {
         if (preview) return;
         if (role === 'ask') start();
+        else if (role === 'reload') {
+          // Shipped workers cache the route root, even on reload, but never its explicit index URL.
+          const url = new URL(location.href);
+          const route = /^\/d\/[^/]+(?:\/|$)/.exec(url.pathname)?.[0].replace(/\/?$/, '/') ?? '/';
+          const index = `${route}index.html`;
+          if (url.pathname === index) location.reload();
+          else {
+            url.pathname = index;
+            location.replace(url.href);
+          }
+        }
         else if (role === 'back') location.assign('/connect');
         else cancel();
       }

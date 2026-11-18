@@ -74,6 +74,14 @@ use crate::retry::advice;
 pub const API_URL: &str = "https://api2.cursor.sh";
 pub const RUN_PATH: &str = "/agent.v1.AgentService/Run";
 pub const AVAILABLE_MODELS_PATH: &str = "/aiserver.v1.AiService/AvailableModels";
+pub const MODELS_PATH: &str = "/agent.v1.AgentService/GetUsableModels";
+
+fn pb_error(detail: &str) -> ProviderError {
+    let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+    error.message = format!("Cursor protobuf: {detail}");
+    error
+}
+
 /// The release the endpoint is known to accept; a newer one is configured,
 /// never scraped from a web page.
 pub const CLIENT_VERSION_FLOOR: &str = "cli-2026.10.22-27dcf5f";
@@ -113,19 +121,6 @@ pub(crate) fn rpc_headers(access_token: &str, client_version: &str, unary: bool)
     headers
 }
 
-/// A failed HTTP status without a Connect body.
-pub fn http_status_error(status: u16, headers: &[(String, String)]) -> ProviderError {
-    provider_error(
-        ConnectFailure {
-            code: String::new(),
-            message: format!("Cursor request failed ({status})"),
-            http_status: Some(status),
-            retry_after: advice::from_headers(headers, std::time::SystemTime::now()),
-        },
-        DeliveryState::Accepted,
-    )
-}
-
 /// Codec of one attempt: the run request is built when the codec is.
 pub struct CursorCodec {
     target: CursorTarget,
@@ -145,30 +140,6 @@ impl CursorCodec {
         CursorDecoder::new(self.run.blobs.clone(), self.run.tools.clone(), self.run.cloud_rule.clone())
             .with_pricing_model(self.target.selection.pricing_model.clone())
             .with_known_tools(self.run.tools.iter().map(|tool| tool.name.clone()).collect())
-    }
-}
-
-impl WireCodec for CursorCodec {
-    fn transport(&self) -> TransportKind {
-        TransportKind::Http2
-    }
-
-    fn encode(&self, _request: &ModelRequest) -> Result<WireRequest, ProviderError> {
-        Ok(WireRequest {
-            transport: TransportKind::Http2,
-            method: "POST".to_owned(),
-            url: format!("{}{RUN_PATH}", self.target.api_url.trim_end_matches('/')),
-            headers: rpc_headers(&self.target.access_token, &self.target.client_version.get(), false),
-            body: frame::encode(&self.run.message, 0),
-        })
-    }
-
-    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
-        Box::new(self.cursor_decoder())
-    }
-
-    fn classify(&self, response: &ErrorResponse) -> ProviderError {
-        http_status_error(response.status.unwrap_or(0), &response.headers)
     }
 }
 
@@ -192,6 +163,333 @@ pub fn retry_policy() -> RetryPolicy {
     policy
 }
 
+/// `codec()` of the trait needs a stable codec; the run codec is per attempt.
+struct CursorCodecStub;
+
+/// Connect framing of a unary `application/proto` answer: some replies are
+/// wrapped in one envelope.
+pub(crate) fn unwrap_unary_body(body: &[u8]) -> &[u8] {
+    if body.len() >= 5 {
+        let length = u32::from_be_bytes(body[1..5].try_into().expect("4 bytes")) as usize;
+        if body[0] & (frame::COMPRESSED | frame::END_STREAM) == 0 && body.len() >= length + 5 {
+            return &body[5..length + 5];
+        }
+    }
+    body
+}
+
+/// Rejected credentials are worth one forced refresh before giving up.
+fn is_auth_failure(error: &ProviderError) -> bool {
+    matches!(error.kind, mixdog_core_api::domain::provider::ErrorKind::Auth | mixdog_core_api::domain::provider::ErrorKind::Permission) || matches!(error.status, Some(401 | 403))
+}
+
+/// The server's own detail of a Connect failure the protocol-drift check reads: the message after `Cursor <code>: `.
+fn failure_detail(error: &ProviderError) -> &str {
+    error.message.split_once(": ").map_or("", |(_, detail)| detail)
+}
+
+/// `isCursorProtocolDrift` (cursor-wire-guards.mjs:293): a protocol error, or a detail that names a wire mismatch.
+fn is_protocol_drift(error: &ProviderError) -> bool {
+    static DRIFT: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)(?-u:\b)(protocol|protobuf|wire drift|invalid argument|failed_precondition)(?-u:\b)").expect("constant pattern"));
+    error.code.as_deref() == Some("protocol_error") || DRIFT.is_match(failure_detail(error))
+}
+
+/// `withCursorFailureHint`: the guidance a final Cursor failure ends with, once.
+fn with_failure_hint(mut error: ProviderError) -> ProviderError {
+    let hint = if matches!(error.code.as_deref(), Some("unauthenticated" | "permission_denied")) {
+        auth::REAUTH_GUIDANCE
+    } else if is_protocol_drift(&error) {
+        "Cursor may have changed its wire protocol; update Mixdog or set MIXDOG_CURSOR_CLIENT_VERSION if this persists."
+    } else {
+        return error;
+    };
+    error.message = format!("{} {hint}", error.message);
+    error
+}
+
+
+// ---------------------------------------------------------------------------
+// Adapter
+// ---------------------------------------------------------------------------
+
+pub struct CursorAdapter {
+    id: ProviderId,
+    api_url: String,
+    client_version: crate::client_versions::Live,
+    http: Arc<dyn HttpSend>,
+    bidi: Arc<dyn BidiOpen>,
+    tokens: Arc<dyn AccessToken>,
+    policy: RetryPolicy,
+    keepalive: KeepaliveSchedule,
+    catalog: ArcSwapOption<Vec<CursorModel>>,
+    /// The rows the last listing stored, which `getCachedModelInfo` answers.
+    rows: crate::catalog::RowStore,
+    placeholder: CursorCodecStub,
+}
+impl CursorAdapter {
+    pub fn new(
+        provider: &str,
+        api_url: Option<String>,
+        client_version: Option<crate::client_versions::Live>,
+        http: Arc<dyn HttpSend>,
+        bidi: Arc<dyn BidiOpen>,
+        tokens: Arc<dyn AccessToken>,
+    ) -> Self {
+        #[cfg(feature = "count-work")]
+        crate::work::provider_built();
+        Self {
+            id: ProviderId::from(provider),
+            api_url: api_url.unwrap_or_else(|| API_URL.to_owned()),
+            client_version: client_version.unwrap_or_else(|| CLIENT_VERSION_FLOOR.into()),
+            http,
+            bidi,
+            tokens,
+            policy: retry_policy(),
+            keepalive: KeepaliveSchedule::SPEC,
+            catalog: ArcSwapOption::empty(),
+            rows: crate::catalog::RowStore::default(),
+            placeholder: CursorCodecStub,
+        }
+    }
+
+    /// The parameterized models of the account, fetched once for the turns
+    /// that resolve their variant from it; an empty answer is not kept.
+    pub async fn cached_models(&self, access_token: &str) -> Result<Vec<CursorModel>, ProviderError> {
+        if let Some(models) = self.catalog.load_full() {
+            return Ok((*models).clone());
+        }
+        let (models, fallback) = self.discover_models(access_token).await;
+        if !fallback {
+            self.catalog.store(Some(Arc::new(models.clone())));
+        }
+        Ok(models)
+    }
+
+    /// The live catalog with Node's backoff (`getCursorModels`): three attempts after 0.5, 1.5 and 3 s, each
+    /// `AvailableModels` then the legacy `GetUsableModels`; the static list answers when none gave a row, flagged so
+    /// it is never kept.
+    pub async fn discover_models(&self, access_token: &str) -> (Vec<CursorModel>, bool) {
+        for delay in [None, Some(Duration::from_millis(500)), Some(Duration::from_millis(1_500)), Some(Duration::from_millis(3_000))] {
+            if let Some(delay) = delay {
+                mixdog_rt::time::sleep(delay).await;
+            }
+            if let Ok(models) = self.discover_once(access_token).await
+                && !models.is_empty()
+            {
+                return (models, false);
+            }
+        }
+        (models::fallback_models(), true)
+    }
+
+    async fn discover_once(&self, access_token: &str) -> Result<Vec<CursorModel>, ProviderError> {
+        if let Ok(models) = self.fetch_models(access_token).await
+            && !models.is_empty()
+        {
+            return Ok(models);
+        }
+        let body = self.unary(MODELS_PATH, Vec::new(), access_token).await?;
+        models::decode_usable_models(unwrap_unary_body(&body)).map_err(|e| pb_error(&e.to_string()))
+    }
+
+    async fn unary(&self, path: &str, body: Vec<u8>, access_token: &str) -> Result<Vec<u8>, ProviderError> {
+        let head = self
+            .http
+            .send(
+                WireRequest {
+                    transport: TransportKind::Http2,
+                    method: "POST".to_owned(),
+                    url: format!("{}{path}", self.api_url.trim_end_matches('/')),
+                    headers: rpc_headers(access_token, &self.client_version.get(), true),
+                    body,
+                },
+                CURSOR_MODELS,
+            )
+            .await?;
+        let success = head.is_success();
+        let response = head.read_all().await?;
+        if !success {
+            return Err(http_status_error(response.status.unwrap_or(0), &response.headers));
+        }
+        Ok(response.body)
+    }
+
+    /// One `AvailableModels` request: no cache.
+    pub async fn fetch_models(&self, access_token: &str) -> Result<Vec<CursorModel>, ProviderError> {
+        let body = self.unary(AVAILABLE_MODELS_PATH, models::available_models_request(), access_token).await?;
+        models::decode_available_models(unwrap_unary_body(&body)).map_err(|e| pb_error(&e.to_string()))
+    }
+
+    fn selection(&self, catalog: &[CursorModel], request: &ModelRequest) -> Result<ModelSelection, ProviderError> {
+        let route = request.options.model_parameters.as_ref().and_then(Value::as_object);
+        models::resolve_selection(
+            catalog,
+            &request.model,
+            &ParameterAsk {
+                effort: request.options.effort.as_deref(),
+                fast: request.options.fast,
+                route,
+                selected_context_window: None,
+            },
+        )
+    }
+
+    async fn open(&self, request: &Arc<ModelRequest>, token: &str) -> Result<Box<CursorStream>, ProviderError> {
+        // A catalog failure never blocks a turn: the id is then sent as it is.
+        let catalog = self.cached_models(token).await.unwrap_or_default();
+        let selection = self.selection(&catalog, request)?;
+        // `_dispatchChat` raises `requesting` once, ahead of the run's in-place retries and after the catalog was read
+        // and the model chosen (cursor.mjs:656).
+        request.options.send_identity.raise_requesting_once();
+        let scope = request
+            .options
+            .transport_scope
+            .clone()
+            .or_else(|| request.options.session_id.clone())
+            .or_else(|| request.options.prompt_cache_key.clone())
+            .unwrap_or_else(|| format!("cursor-call:{}", random_uuid()));
+        let codec = CursorCodec::new(
+            request,
+            CursorTarget {
+                api_url: self.api_url.clone(),
+                access_token: token.to_owned(),
+                client_version: self.client_version.clone(),
+                selection,
+                conversation_id: conversation_id(&scope),
+            },
+        )?;
+        let wire = codec.encode(request)?;
+        let first = wire.body.clone();
+        let (head, sink) = self.bidi.open(wire, first, CURSOR_RUN).await?;
+        if !head.is_success() {
+            let response = head.read_all().await?;
+            return Err(codec.classify(&response));
+        }
+        Ok(Box::new(CursorStream::new(head.body, sink, codec.cursor_decoder(), token.to_owned())))
+    }
+}
+#[async_trait]
+impl ModelListing for CursorAdapter {
+    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+        let token = self.tokens.access_token(false).await?;
+        let (models, fallback) = self.discover_models(&token).await;
+        let rows: Vec<ModelRecord> = listing::rows(&models, self.id.as_str()).into_iter().map(listing_row::record).collect();
+        // The static list answers this call only: `_loadCursorCatalog` keeps no catalog from it, so `getCachedModelInfo`
+        // has nothing of it either.
+        if !fallback {
+            self.rows.replace(rows.iter().map(|row| std::sync::Arc::new(crate::catalog::stored_row(&self.id, row.clone()))).collect());
+        }
+        Ok(rows)
+    }
+}
+#[async_trait]
+impl ProviderAdapter for CursorAdapter {
+    fn release_send(&self, _group: &str) {}
+    fn id(&self) -> &ProviderId {
+        &self.id
+    }
+
+    fn models(&self) -> Option<&dyn ModelListing> {
+        Some(self)
+    }
+
+    fn native_pdf(&self) -> bool {
+        false
+    }
+
+    fn codec(&self) -> &dyn WireCodec {
+        &self.placeholder
+    }
+
+    fn retry_policy(&self) -> &RetryPolicy {
+        &self.policy
+    }
+
+    fn keepalive(&self) -> &KeepaliveSchedule {
+        &self.keepalive
+    }
+
+    async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        // Every in-place retry of Node's bridge force-refreshes the credentials and keeps the previous token when the
+        // refresh fails (`createCursorCredentialRefresher`, cursor-wire-guards.mjs:315).
+        let mut token = if request.options.send_identity.next_attempt() > 0 {
+            match self.tokens.access_token(true).await {
+                Ok(next) => next,
+                Err(_) => self.tokens.access_token(false).await?,
+            }
+        } else {
+            self.tokens.access_token(false).await?
+        };
+        let mut refreshed = false;
+        loop {
+            let error = match self.open(&request, &token).await {
+                Ok(mut stream) => {
+                    stream.prime().await;
+                    match stream.queue.front() {
+                        Some(Err(error)) => error.clone(),
+                        _ => return Ok(stream),
+                    }
+                }
+                Err(error) => error,
+            };
+            if !refreshed && is_auth_failure(&error) {
+                refreshed = true;
+                let next = self.tokens.access_token(true).await?;
+                // The same rejected credential is not sent again.
+                if next != token {
+                    token = next;
+                    continue;
+                }
+            }
+            return Err(with_failure_hint(error));
+        }
+    }
+}
+impl crate::catalog::CachedModelInfo for CursorAdapter {
+    fn cached_row(&self, model: &str) -> Option<std::sync::Arc<serde_json::Value>> {
+        self.rows.find(model)
+    }
+}
+
+/// A failed HTTP status without a Connect body.
+pub fn http_status_error(status: u16, headers: &[(String, String)]) -> ProviderError {
+    provider_error(
+        ConnectFailure {
+            code: String::new(),
+            message: format!("Cursor request failed ({status})"),
+            http_status: Some(status),
+            retry_after: advice::from_headers(headers, std::time::SystemTime::now()),
+        },
+        DeliveryState::Accepted,
+    )
+}
+impl WireCodec for CursorCodec {
+    fn transport(&self) -> TransportKind {
+        TransportKind::Http2
+    }
+    fn image_branch(&self, _: &ModelRequest) -> mixdog_image_egress::route::WireBranch {
+        mixdog_image_egress::route::WireBranch::InlineOnly
+    }
+
+    fn encode(&self, _request: &ModelRequest) -> Result<WireRequest, ProviderError> {
+        Ok(WireRequest {
+            transport: TransportKind::Http2,
+            method: "POST".to_owned(),
+            url: format!("{}{RUN_PATH}", self.target.api_url.trim_end_matches('/')),
+            headers: rpc_headers(&self.target.access_token, &self.target.client_version.get(), false),
+            body: frame::encode(&self.run.message, 0),
+        })
+    }
+
+    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
+        Box::new(self.cursor_decoder())
+    }
+
+    fn classify(&self, response: &ErrorResponse) -> ProviderError {
+        http_status_error(response.status.unwrap_or(0), &response.headers)
+    }
+}
 // ---------------------------------------------------------------------------
 // The open run
 // ---------------------------------------------------------------------------
@@ -208,6 +506,48 @@ struct CursorStream {
     /// The access token the run was opened with: a server error that echoes it is redacted.
     secret: String,
 }
+#[async_trait]
+impl ModelStream for CursorStream {
+    async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+        loop {
+            if let Some(item) = self.queue.pop_front() {
+                return Some(item);
+            }
+            if self.ended {
+                return None;
+            }
+            self.step().await;
+        }
+    }
+
+    fn delivery(&self) -> DeliveryState {
+        DeliveryState::Accepted
+    }
+
+    /// A leaf: `next` awaits nothing after the wire's terminal event.
+    fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
+}
+impl WireCodec for CursorCodecStub {
+    fn transport(&self) -> TransportKind {
+        TransportKind::Http2
+    }
+
+    fn encode(&self, _request: &ModelRequest) -> Result<WireRequest, ProviderError> {
+        Err(ProviderError::new(
+            mixdog_core_api::domain::provider::ErrorKind::Unknown,
+            DeliveryState::NotSent,
+        ))
+    }
+
+    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
+        Box::new(CursorDecoder::new(request::BlobStore::default(), Vec::new(), None))
+    }
+
+    fn classify(&self, response: &ErrorResponse) -> ProviderError {
+        http_status_error(response.status.unwrap_or(0), &response.headers)
+    }
+}
+
 
 impl CursorStream {
     fn new(body: Box<dyn BodyStream>, sink: Arc<dyn FrameSink>, decoder: CursorDecoder, secret: String) -> Self {
@@ -275,6 +615,7 @@ impl CursorStream {
                 Some(Err(fault)) => {
                     let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
                     err.exposure = self.decoder.exposure();
+                    err.connection = self.body.connection();
                     self.fail(err);
                 }
                 None => {
@@ -288,320 +629,5 @@ impl CursorStream {
                 self.rearm_heartbeat();
             }
         }
-    }
-}
-
-#[async_trait]
-impl ModelStream for CursorStream {
-    async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
-        loop {
-            if let Some(item) = self.queue.pop_front() {
-                return Some(item);
-            }
-            if self.ended {
-                return None;
-            }
-            self.step().await;
-        }
-    }
-
-    fn delivery(&self) -> DeliveryState {
-        DeliveryState::Accepted
-    }
-
-    /// A leaf: `next` awaits nothing after the wire's terminal event.
-    fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
-}
-
-// ---------------------------------------------------------------------------
-// Adapter
-// ---------------------------------------------------------------------------
-
-pub struct CursorAdapter {
-    id: ProviderId,
-    api_url: String,
-    client_version: crate::client_versions::Live,
-    http: Arc<dyn HttpSend>,
-    bidi: Arc<dyn BidiOpen>,
-    tokens: Arc<dyn AccessToken>,
-    policy: RetryPolicy,
-    keepalive: KeepaliveSchedule,
-    catalog: ArcSwapOption<Vec<CursorModel>>,
-    /// The rows the last listing stored, which `getCachedModelInfo` answers.
-    rows: crate::catalog::RowStore,
-    placeholder: CursorCodecStub,
-}
-
-/// `codec()` of the trait needs a stable codec; the run codec is per attempt.
-struct CursorCodecStub;
-
-impl WireCodec for CursorCodecStub {
-    fn transport(&self) -> TransportKind {
-        TransportKind::Http2
-    }
-
-    fn encode(&self, _request: &ModelRequest) -> Result<WireRequest, ProviderError> {
-        Err(ProviderError::new(
-            mixdog_core_api::domain::provider::ErrorKind::Unknown,
-            DeliveryState::NotSent,
-        ))
-    }
-
-    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
-        Box::new(CursorDecoder::new(request::BlobStore::default(), Vec::new(), None))
-    }
-
-    fn classify(&self, response: &ErrorResponse) -> ProviderError {
-        http_status_error(response.status.unwrap_or(0), &response.headers)
-    }
-}
-
-/// Connect framing of a unary `application/proto` answer: some replies are
-/// wrapped in one envelope.
-pub(crate) fn unwrap_unary_body(body: &[u8]) -> &[u8] {
-    if body.len() >= 5 {
-        let length = u32::from_be_bytes(body[1..5].try_into().expect("4 bytes")) as usize;
-        if body[0] & (frame::COMPRESSED | frame::END_STREAM) == 0 && body.len() >= length + 5 {
-            return &body[5..length + 5];
-        }
-    }
-    body
-}
-
-impl CursorAdapter {
-    pub fn new(
-        provider: &str,
-        api_url: Option<String>,
-        client_version: Option<crate::client_versions::Live>,
-        http: Arc<dyn HttpSend>,
-        bidi: Arc<dyn BidiOpen>,
-        tokens: Arc<dyn AccessToken>,
-    ) -> Self {
-        #[cfg(feature = "count-work")]
-        crate::work::provider_built();
-        Self {
-            id: ProviderId::from(provider),
-            api_url: api_url.unwrap_or_else(|| API_URL.to_owned()),
-            client_version: client_version.unwrap_or_else(|| CLIENT_VERSION_FLOOR.into()),
-            http,
-            bidi,
-            tokens,
-            policy: retry_policy(),
-            keepalive: KeepaliveSchedule::SPEC,
-            catalog: ArcSwapOption::empty(),
-            rows: crate::catalog::RowStore::default(),
-            placeholder: CursorCodecStub,
-        }
-    }
-
-    /// The parameterized models of the account, fetched once for the turns
-    /// that resolve their variant from it; an empty answer is not kept.
-    pub async fn cached_models(&self, access_token: &str) -> Result<Vec<CursorModel>, ProviderError> {
-        if let Some(models) = self.catalog.load_full() {
-            return Ok((*models).clone());
-        }
-        let models = self.fetch_models(access_token).await?;
-        if !models.is_empty() {
-            self.catalog.store(Some(Arc::new(models.clone())));
-        }
-        Ok(models)
-    }
-
-    /// One `AvailableModels` request: no cache.
-    pub async fn fetch_models(&self, access_token: &str) -> Result<Vec<CursorModel>, ProviderError> {
-        let head = self
-            .http
-            .send(
-                WireRequest {
-                    transport: TransportKind::Http2,
-                    method: "POST".to_owned(),
-                    url: format!(
-                        "{}{AVAILABLE_MODELS_PATH}",
-                        self.api_url.trim_end_matches('/')
-                    ),
-                    headers: rpc_headers(access_token, &self.client_version.get(), true),
-                    body: models::available_models_request(),
-                },
-                CURSOR_MODELS,
-            )
-            .await?;
-        let success = head.is_success();
-        let response = head.read_all().await?;
-        if !success {
-            return Err(http_status_error(response.status.unwrap_or(0), &response.headers));
-        }
-        let models = models::decode_available_models(unwrap_unary_body(&response.body)).map_err(|e| {
-            let mut error = ProviderError::new(
-                mixdog_core_api::domain::provider::ErrorKind::Unknown,
-                DeliveryState::Accepted,
-            );
-            error.message = format!("Cursor protobuf: {e}");
-            error
-        })?;
-        Ok(models)
-    }
-
-    fn selection(&self, catalog: &[CursorModel], request: &ModelRequest) -> Result<ModelSelection, ProviderError> {
-        let route = request.options.model_parameters.as_ref().and_then(Value::as_object);
-        models::resolve_selection(
-            catalog,
-            &request.model,
-            &ParameterAsk {
-                effort: request.options.effort.as_deref(),
-                fast: request.options.fast,
-                route,
-                selected_context_window: None,
-            },
-        )
-    }
-
-    async fn open(&self, request: &Arc<ModelRequest>, token: &str) -> Result<Box<CursorStream>, ProviderError> {
-        // A catalog failure never blocks a turn: the id is then sent as it is.
-        let catalog = self.cached_models(token).await.unwrap_or_default();
-        let selection = self.selection(&catalog, request)?;
-        // `_dispatchChat` raises `requesting` once, ahead of the run's in-place retries and after the catalog was read
-        // and the model chosen (cursor.mjs:656).
-        request.options.send_identity.raise_requesting_once();
-        let scope = request
-            .options
-            .transport_scope
-            .clone()
-            .or_else(|| request.options.session_id.clone())
-            .or_else(|| request.options.prompt_cache_key.clone())
-            .unwrap_or_else(|| format!("cursor-call:{}", random_uuid()));
-        let codec = CursorCodec::new(
-            request,
-            CursorTarget {
-                api_url: self.api_url.clone(),
-                access_token: token.to_owned(),
-                client_version: self.client_version.clone(),
-                selection,
-                conversation_id: conversation_id(&scope),
-            },
-        )?;
-        let wire = codec.encode(request)?;
-        let first = wire.body.clone();
-        let (head, sink) = self.bidi.open(wire, first, CURSOR_RUN).await?;
-        if !head.is_success() {
-            let response = head.read_all().await?;
-            return Err(codec.classify(&response));
-        }
-        Ok(Box::new(CursorStream::new(head.body, sink, codec.cursor_decoder(), token.to_owned())))
-    }
-}
-
-/// Rejected credentials are worth one forced refresh before giving up.
-fn is_auth_failure(error: &ProviderError) -> bool {
-    matches!(error.kind, mixdog_core_api::domain::provider::ErrorKind::Auth | mixdog_core_api::domain::provider::ErrorKind::Permission) || matches!(error.status, Some(401 | 403))
-}
-
-#[async_trait]
-impl ModelListing for CursorAdapter {
-    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
-        let token = self.tokens.access_token(false).await?;
-        let models = self.fetch_models(&token).await?;
-        if models.is_empty() {
-            let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
-            error.message = "Cursor listed no parameterized models".to_owned();
-            return Err(error);
-        }
-        let rows: Vec<ModelRecord> = listing::rows(&models, self.id.as_str()).into_iter().map(listing_row::record).collect();
-        self.rows.replace(rows.iter().map(|row| std::sync::Arc::new(crate::catalog::stored_row(&self.id, row.clone()))).collect());
-        Ok(rows)
-    }
-}
-
-#[async_trait]
-impl ProviderAdapter for CursorAdapter {
-    fn release_send(&self, _group: &str) {}
-    fn id(&self) -> &ProviderId {
-        &self.id
-    }
-
-    fn models(&self) -> Option<&dyn ModelListing> {
-        Some(self)
-    }
-
-    fn native_pdf(&self) -> bool {
-        false
-    }
-
-    fn codec(&self) -> &dyn WireCodec {
-        &self.placeholder
-    }
-
-    fn retry_policy(&self) -> &RetryPolicy {
-        &self.policy
-    }
-
-    fn keepalive(&self) -> &KeepaliveSchedule {
-        &self.keepalive
-    }
-
-    async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        // Every in-place retry of Node's bridge force-refreshes the credentials and keeps the previous token when the
-        // refresh fails (`createCursorCredentialRefresher`, cursor-wire-guards.mjs:315).
-        let mut token = if request.options.send_identity.next_attempt() > 0 {
-            match self.tokens.access_token(true).await {
-                Ok(next) => next,
-                Err(_) => self.tokens.access_token(false).await?,
-            }
-        } else {
-            self.tokens.access_token(false).await?
-        };
-        let mut refreshed = false;
-        loop {
-            let error = match self.open(&request, &token).await {
-                Ok(mut stream) => {
-                    stream.prime().await;
-                    match stream.queue.front() {
-                        Some(Err(error)) => error.clone(),
-                        _ => return Ok(stream),
-                    }
-                }
-                Err(error) => error,
-            };
-            if !refreshed && is_auth_failure(&error) {
-                refreshed = true;
-                let next = self.tokens.access_token(true).await?;
-                // The same rejected credential is not sent again.
-                if next != token {
-                    token = next;
-                    continue;
-                }
-            }
-            return Err(with_failure_hint(error));
-        }
-    }
-}
-
-/// The server's own detail of a Connect failure the protocol-drift check reads: the message after `Cursor <code>: `.
-fn failure_detail(error: &ProviderError) -> &str {
-    error.message.split_once(": ").map_or("", |(_, detail)| detail)
-}
-
-/// `isCursorProtocolDrift` (cursor-wire-guards.mjs:293): a protocol error, or a detail that names a wire mismatch.
-fn is_protocol_drift(error: &ProviderError) -> bool {
-    static DRIFT: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)(?-u:\b)(protocol|protobuf|wire drift|invalid argument|failed_precondition)(?-u:\b)").expect("constant pattern"));
-    error.code.as_deref() == Some("protocol_error") || DRIFT.is_match(failure_detail(error))
-}
-
-/// `withCursorFailureHint`: the guidance a final Cursor failure ends with, once.
-fn with_failure_hint(mut error: ProviderError) -> ProviderError {
-    let hint = if matches!(error.code.as_deref(), Some("unauthenticated" | "permission_denied")) {
-        auth::REAUTH_GUIDANCE
-    } else if is_protocol_drift(&error) {
-        "Cursor may have changed its wire protocol; update Mixdog or set MIXDOG_CURSOR_CLIENT_VERSION if this persists."
-    } else {
-        return error;
-    };
-    error.message = format!("{} {hint}", error.message);
-    error
-}
-
-impl crate::catalog::CachedModelInfo for CursorAdapter {
-    fn cached_row(&self, model: &str) -> Option<std::sync::Arc<serde_json::Value>> {
-        self.rows.find(model)
     }
 }

@@ -13,6 +13,7 @@ import puppeteer from 'puppeteer-core';
 
 const css = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const registered = (css('./font-faces.css').match(/@property[^}]*\}/g) ?? []).join('\n');
+// @test-input ./desktop/15-approval-prompt.css
 const STYLES = [
   registered,
   css('./desktop/01-tokens.css'),

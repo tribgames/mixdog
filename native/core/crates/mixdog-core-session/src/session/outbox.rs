@@ -1,9 +1,16 @@
 //! The actor's ordered outbox: every accepted change in accept order. A durable entry is
-//! encoded on cpu-interactive (completions arrive in any order), handed to the
-//! `DurabilityTask` strictly in order (the reorder buffer, RL §5.6), and released — applied to
-//! the acked state, published, its replies sent — only when it and every entry before it are
-//! acked. View-only entries (sections, deltas) are released in the same order, so the feed
-//! never shows an event before one it follows.
+//! encoded on cpu-interactive (completions arrive in any order) and handed to the
+//! `DurabilityTask` strictly in order (the reorder buffer, RL §5.6).
+//!
+//! The show rule (Node's: an item is shown when it exists; durability decides only what survives a failure). An entry
+//! goes out in two steps, each in accept order. It is *shown* (applied to the acked state, its notes published) once it
+//! exists in its final form (a view-only entry at once, a record once encoded) and every entry before it is shown,
+//! unless a failure of its save would withdraw it ([`withdrawn_on_failure`]: its caller hears the failure and its change
+//! is undone), in which case it is shown only once durable. It is *settled* (its rows numbered, its effects run: replies,
+//! acks, a draft's removal) once it and every entry before it are durable, or held by a failed barrier, as before the
+//! rule. So the feed never shows an event before one it follows; a failed save withdraws nothing it showed (what was
+//! shown is held, shown, and written again by the next save, as Node keeps its session in memory); and the log, a prefix
+//! of the accepted sequence, is a prefix of what was shown, which is what a crash replays.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -15,6 +22,7 @@ use mixdog_core_api::ids::OpId;
 use mixdog_core_api::ids::TurnId;
 use mixdog_core_api::server_request::PendingServerRequest;
 use mixdog_protocol::ApprovalResolution;
+use mixdog_store::schema::record::{ApprovalPhase, QueueAction};
 use mixdog_store::schema::record::Record;
 use serde_json::Value;
 use tokio::sync::oneshot;
@@ -32,6 +40,34 @@ pub(crate) enum Class {
     Normal,
     /// Run status, approval records, steer dequeues: the control reserve.
     Control,
+}
+
+/// The record's kind as the log tags it.
+fn record_kind(record: &Record) -> &'static str {
+    match record {
+        Record::Session(_) => "session",
+        Record::Meta(_) => "meta",
+        Record::Item(_) => "item",
+        Record::Amend(_) => "amend",
+        Record::Rewind(_) => "rewind",
+        Record::Compacted(_) => "compacted",
+        Record::Run(_) => "run",
+        Record::Approval(_) => "approval",
+        Record::Queue(_) => "queue",
+        Record::Op(_) => "op",
+        Record::Checkpoint(_) => "checkpoint",
+        Record::ModelSwitch(_) => "model_switch",
+        Record::Draft(_) => "draft",
+        Record::WorkStop(_) => "work_stop",
+    }
+}
+
+fn conversation_record(record: &Record) -> bool {
+    match record {
+        Record::Item(_) | Record::Amend(_) | Record::Rewind(_) | Record::Compacted(_) | Record::Run(_) | Record::Queue(_) => true,
+        Record::Approval(approval) => approval.phase == ApprovalPhase::Requested,
+        _ => false,
+    }
 }
 
 pub(crate) enum Stage {
@@ -101,13 +137,18 @@ pub(crate) enum Effect {
     /// A conditional header patch, decided against these header keys as projected: when a record ahead of it fails its
     /// barrier, its caller hears `conflict` and computes it again instead of the failure.
     Decided(Vec<String>),
+    /// A write of the run's draft file, in order with its records: it starts once every record before it is durable (or
+    /// held), and no record after it is handed on before it ([`Outbox::handoff`]), so the draft and the log together hold a
+    /// prefix of what the run produced, as when each waited for the one before. `Some`: the run's own step, told once written.
+    Draft(super::turn_draft::DraftWrite, Option<oneshot::Sender<Result<(), RunError>>>),
 }
 
 pub(crate) struct Entry {
     pub id: u64,
     pub durable: Option<Durable>,
     pub change: Change,
-    /// Notes known at accept or encode time; release adds the ones derived from acked state.
+    /// Notes known at accept time; release adds the ones derived from acked state, an item record's `item/completed` among
+    /// them (built from the item as the state holds it once the entry is applied, never before).
     pub notes: Vec<Note>,
     pub effects: Vec<Effect>,
     /// The entry this view-only one stands on: it is dropped with that entry when the record fails to encode.
@@ -115,6 +156,35 @@ pub(crate) struct Entry {
     /// Released before it was durable (its barrier failed, [`Outbox::hold`]): its change is in the acked state and its
     /// effects ran; it stays only to be written, in order, by a retry.
     pub held: bool,
+    /// Shown before it was settled (the show rule): its change is in the acked state and its notes are published; it
+    /// stays, with its effects, until it settles.
+    pub shown: bool,
+}
+
+/// An outbox entry whose failure a client hears: a request's own record, a close's mark, a toast its caller waits on, or
+/// a queued prompt (refused, so a retry is a new submission).
+pub(crate) fn answers_a_client(entry: &Entry) -> bool {
+    entry.effects.iter().any(|effect| matches!(effect, Effect::Reply { op, tx, .. } if op.is_some() || tx.is_some()) || matches!(effect, Effect::MarkAck(_) | Effect::AfterPublish(_)))
+        || matches!(&entry.change, Change::Record { record, .. } if matches!(&**record, Record::Queue(queue) if queue.action == QueueAction::Enqueue))
+}
+
+/// A failure of the entry's save withdraws it rather than holding it: its caller hears the failure (a client's request, a
+/// turn's start, a conditional patch), or its unit is kept unreleased for the next write (`retain`). Such an entry is
+/// shown only once durable; any other is shown as soon as it exists.
+fn withdrawn_on_failure(entry: &Entry) -> bool {
+    answers_a_client(entry)
+        || entry.effects.iter().any(|effect| matches!(effect, Effect::InputDurable | Effect::Decided(_)))
+        || entry.durable.as_ref().is_some_and(|durable| durable.retain)
+}
+
+/// What [`Outbox::pop_ready`] gives the actor next.
+pub(crate) enum Ready {
+    /// Shown and settled at once: applied and published, its effects run, at its ordinal if it holds a record.
+    Release(Entry, Option<u64>),
+    /// Shown now, before it settles: its change and notes (no effects); the entry stays in its place.
+    Show(Entry),
+    /// Shown earlier (or held by a failed barrier) and settled now: its rows get the ordinal, its remaining effects run.
+    Settle(Entry, Option<u64>),
 }
 
 #[derive(Default)]
@@ -131,6 +201,8 @@ pub(crate) struct Outbox {
     reserve: Usage,
     /// The unit records pushed now join ([`Self::begin_unit`]), and whether it is retained on a failed write.
     unit: Option<(u64, bool)>,
+    /// A drained prompt's dequeue and the start record it shows with ([`Self::pair`]): `None` while the start is not accepted yet.
+    paired: Option<(u64, Option<u64>)>,
     /// Every durable record numbered as it is accepted ([`Self::push`]) and reported once: written when the store acked it
     /// ([`Self::acked`]), failed when it left uncommitted ([`Self::note_failed`], or the outbox dropped with it still open).
     /// The replay barrier reads these without the actor ([`super::SessionDirectory::durability_settled`]).
@@ -147,6 +219,7 @@ impl Outbox {
             normal: Usage::default(),
             reserve: Usage::default(),
             unit: None,
+            paired: None,
             #[cfg(any(test, feature = "test-support"))]
             marks: Arc::new(mixdog_rt::WriteMarks::new("the thread's records")),
         }
@@ -159,6 +232,46 @@ impl Outbox {
 
     pub fn end_unit(&mut self) {
         self.unit = None;
+    }
+
+    /// The entry `id` (a drained prompt's dequeue) is shown with its turn's start, not before: it waits until [`Self::pair_with`]
+    /// names the start record and that record is shown or acked, or until [`Self::unpair_pending`]. Only its showing waits (the
+    /// projected queue changed at its accept); everything accepted after it is shown after it, as always.
+    pub fn pair(&mut self, id: u64) {
+        self.paired = Some((id, None));
+    }
+
+    /// The waiting dequeue's start record is `start`.
+    pub fn pair_with(&mut self, start: u64) {
+        if let Some((_, partner @ None)) = &mut self.paired {
+            *partner = Some(start);
+        }
+    }
+
+    /// The waiting dequeue's start is not coming (refused, or deferred behind other work): it is shown on its own.
+    pub fn unpair_pending(&mut self) {
+        if matches!(self.paired, Some((_, None))) {
+            self.paired = None;
+        }
+    }
+
+    /// Entry `id` went out: a pairing of it is over.
+    fn unpaired(&mut self, id: u64) {
+        if self.paired.is_some_and(|(paired, _)| paired == id) {
+            self.paired = None;
+        }
+    }
+
+    /// Entry `id` waits for its paired start: not accepted yet, or still neither showable nor acked. A start that is gone (its
+    /// unit failed) holds nothing.
+    fn paired_waits(&self, id: u64) -> bool {
+        match self.paired {
+            Some((paired, None)) => paired == id,
+            Some((paired, Some(start))) if paired == id => self.index(start).is_some_and(|index| {
+                !matches!(self.entries[index].durable, Some(Durable { stage: Stage::Acked(_), .. })) && !self.showable(index)
+            }),
+            _ => false,
+        }
     }
 
     /// An outbox numbering its durable records on `marks`: the thread's [`super::control::ControlCell::record_marks`].
@@ -212,6 +325,27 @@ impl Outbox {
         self.entries.iter().any(|entry| entry.held)
     }
 
+    /// Accepted conversation records left by a failure, including retained units that have not been shown yet.
+    /// Both held and retained records leave the window but keep their place until acknowledged.
+    pub fn unsaved_conversation(&self) -> impl Iterator<Item = u64> + '_ {
+        self.entries.iter().filter_map(|entry| {
+            let durable = entry.durable.as_ref()?;
+            (!durable.counted
+                && !matches!(durable.stage, Stage::Acked(_))
+                && conversation_record(&durable.record)).then_some(entry.id)
+        })
+    }
+
+    /// Capture attempted records that represent accepted data before failure handling removes entries. Retained units
+    /// (room posts/imports) are accepted even if they have not been published. Refused turn starts are neither.
+    pub fn attempted_conversation<'a>(&'a self, entries: &'a [u64]) -> impl Iterator<Item = u64> + 'a {
+        entries.iter().copied().filter(|&id| {
+            self.get(id).is_some_and(|entry| {
+                entry.durable.as_ref().is_some_and(|durable| (durable.retain || entry.shown || entry.held) && conversation_record(&durable.record))
+            })
+        })
+    }
+
     /// Some record a failed barrier left, held or kept, waits for a retry.
     pub fn awaits_retry(&self) -> bool {
         self.entries.iter().any(|entry| matches!(entry.durable, Some(Durable { stage: Stage::Held(_), .. })))
@@ -236,8 +370,9 @@ impl Outbox {
     }
 
     /// The handed entry `id` failed its barrier: it waits for a retry, out of the window. The first time, it is
-    /// released unsaved: its change, notes and effects are returned for the caller to apply.
-    pub fn hold(&mut self, id: u64) -> Option<(Change, Vec<Note>, Vec<Effect>)> {
+    /// released unsaved: what it shows (none when it was shown already, a view-only copy: its change and notes)
+    /// and its effects are returned for the caller to apply.
+    pub fn hold(&mut self, id: u64) -> Option<(Option<Entry>, Vec<Effect>)> {
         let index = self.index(id)?;
         let entry = &mut self.entries[index];
         let durable = entry.durable.as_mut()?;
@@ -249,7 +384,17 @@ impl Outbox {
             return None;
         }
         let (class, bytes, counted) = (durable.class, durable.bytes, std::mem::replace(&mut durable.counted, false));
-        let released = (entry.change.clone(), std::mem::take(&mut entry.notes), std::mem::take(&mut entry.effects));
+        let unshown = (!entry.shown).then(|| Entry {
+            id: entry.id,
+            durable: None,
+            change: entry.change.clone(),
+            notes: std::mem::take(&mut entry.notes),
+            effects: Vec::new(),
+            needs: None,
+            held: false,
+            shown: false,
+        });
+        let released = (unshown, std::mem::take(&mut entry.effects));
         if counted {
             let usage = self.usage(class);
             usage.records -= 1;
@@ -334,6 +479,7 @@ impl Outbox {
             effects,
             needs: None,
             held: false,
+            shown: false,
         });
         id
     }
@@ -420,6 +566,14 @@ impl Outbox {
         let mut index = 0;
         while index < self.entries.len() {
             let Some(durable) = &self.entries[index].durable else {
+                // A run's own draft step still to start: what follows it waits for it (`Effect::Draft` with its ack, as
+                // `SessionActor::draft_fenced` holds it once queued); the units before it are whole. A committed-row marker
+                // (no ack) keeps its place among the draft writes but holds back no record.
+                if self.entries[index].effects.iter().any(|effect| matches!(effect, Effect::Draft(_, Some(_)))) {
+                    end = index;
+                    current = None;
+                    break;
+                }
                 index += 1;
                 continue;
             };
@@ -512,29 +666,72 @@ impl Outbox {
         ids.into_iter().filter_map(|id| self.remove(id)).collect()
     }
 
-    /// The front entry if it can be released: view-only, or acked. Behind entries released unsaved and not yet
-    /// durable, the first other entry is released when it is view-only: it shows after them, as it was accepted.
-    pub fn pop_ready(&mut self) -> Option<(Entry, Option<u64>)> {
-        let ordinal = match &self.entries.front()?.durable {
-            None => None,
-            Some(Durable {
-                stage: Stage::Acked(ordinal),
-                ..
-            }) => Some(*ordinal),
-            Some(_) if self.entries[0].held => {
-                let index = self.entries.iter().position(|entry| !entry.held)?;
-                if self.entries[index].durable.is_some() {
-                    return None;
-                }
-                return self.entries.remove(index).map(|entry| (entry, None));
+    /// The next step of the show rule (the module doc), if one can be taken now.
+    ///
+    /// Settling first: an acked front entry settles, held or shown or neither; else the first entry whose effects have not
+    /// run (the held ones before it ran theirs at the failure) settles once it is view-only or acked. Then showing: the
+    /// first entry neither shown nor held is shown once it exists in its final form (view-only, or every record of its unit
+    /// encoded) and no failure would withdraw it or its unit ([`withdrawn_on_failure`]).
+    pub fn pop_ready(&mut self) -> Option<Ready> {
+        let front = self.entries.front()?;
+        if let Some(Durable { stage: Stage::Acked(ordinal), .. }) = &front.durable
+            && !self.paired_waits(front.id)
+        {
+            let ordinal = Some(*ordinal);
+            let entry = self.entries.pop_front()?;
+            self.unpaired(entry.id);
+            return Some(if entry.held || entry.shown { Ready::Settle(entry, ordinal) } else { Ready::Release(entry, ordinal) });
+        }
+        if let Some(index) = self.entries.iter().position(|entry| !entry.held)
+            && !self.paired_waits(self.entries[index].id)
+        {
+            let settles = match &self.entries[index].durable {
+                None => Some(None),
+                Some(Durable { stage: Stage::Acked(ordinal), .. }) => Some(Some(*ordinal)),
+                Some(_) => None,
+            };
+            if let Some(ordinal) = settles {
+                let entry = self.entries.remove(index)?;
+                self.unpaired(entry.id);
+                return Some(if entry.shown { Ready::Settle(entry, ordinal) } else { Ready::Release(entry, ordinal) });
             }
-            Some(_) => return None,
+        }
+        let index = self.entries.iter().position(|entry| !entry.held && !entry.shown)?;
+        if !self.showable(index) || self.paired_waits(self.entries[index].id) {
+            return None;
+        }
+        let id = self.entries[index].id;
+        self.unpaired(id);
+        let entry = &mut self.entries[index];
+        entry.shown = true;
+        Some(Ready::Show(Entry {
+            id: entry.id,
+            durable: None,
+            change: entry.change.clone(),
+            notes: std::mem::take(&mut entry.notes),
+            effects: Vec::new(),
+            needs: None,
+            held: false,
+            shown: false,
+        }))
+    }
+
+    /// The entry at `index` exists in its final form and no failure would withdraw it: it is view-only, or every record of its
+    /// unit is encoded (its rows are known) and none of them is withdrawn on failure (a unit is written, failed or held whole).
+    fn showable(&self, index: usize) -> bool {
+        let entry = &self.entries[index];
+        let Some(unit) = entry.durable.as_ref().map(|durable| durable.unit) else {
+            return !withdrawn_on_failure(entry);
         };
-        self.entries.pop_front().map(|entry| (entry, ordinal))
+        self.entries
+            .iter()
+            .filter(|other| other.durable.as_ref().is_some_and(|durable| durable.unit == unit))
+            .all(|other| !withdrawn_on_failure(other) && !matches!(other.durable, Some(Durable { stage: Stage::Encoding, .. })))
     }
 
     /// A barrier failed: every unreleased entry fails with it (RL §6.1).
     pub fn fail_all(&mut self) -> Vec<Entry> {
+        self.paired = None;
         self.normal = Usage::default();
         self.reserve = Usage::default();
         self.entries.drain(..).collect()
@@ -562,6 +759,20 @@ impl Outbox {
         gone
     }
 
+    /// What the attempted batch holds, for the diagnostic log: its units and each record's kind, in accept order
+    /// (never a body).
+    pub fn batch_summary(&self, entries: &[u64]) -> (Vec<u64>, Vec<&'static str>) {
+        let mut units: Vec<u64> = Vec::new();
+        let mut kinds = Vec::new();
+        for durable in entries.iter().filter_map(|&id| self.get(id)?.durable.as_ref()) {
+            if units.last() != Some(&durable.unit) {
+                units.push(durable.unit);
+            }
+            kinds.push(record_kind(&durable.record));
+        }
+        (units, kinds)
+    }
+
     /// The records not yet stored, in accept order.
     pub fn unsaved_records(&self) -> impl Iterator<Item = &Arc<Record>> {
         self.entries.iter().filter_map(|entry| entry.durable.as_ref()).filter(|durable| !matches!(durable.stage, Stage::Acked(_))).map(|durable| &durable.record)
@@ -572,9 +783,24 @@ impl Outbox {
         self.entries.iter().filter_map(|entry| entry.durable.as_ref().map(|durable| &*durable.record))
     }
 
-    /// The unreleased changes in accept order (a held entry's is released).
+    /// The run `rid`'s draft steps still waiting for their turn are covered by a whole write of its draft that goes now (a
+    /// redaction): they write nothing, so no clear value lands after it; their waiters are told when they would have been.
+    pub fn drop_drafts(&mut self, rid: &str) {
+        use super::turn_draft::DraftWrite;
+        for entry in &mut self.entries {
+            entry.effects = std::mem::take(&mut entry.effects)
+                .into_iter()
+                .filter_map(|effect| match effect {
+                    Effect::Draft(DraftWrite::Append { rid: run, .. } | DraftWrite::Replace { rid: run, .. }, ack) if run == rid => ack.map(Effect::ItemAck),
+                    effect => Some(effect),
+                })
+                .collect();
+        }
+    }
+
+    /// The changes not yet in the acked state, in accept order (a held or shown entry's is there already).
     pub fn changes(&self) -> impl Iterator<Item = &Change> {
-        self.entries.iter().filter(|entry| !entry.held).map(|entry| &entry.change)
+        self.entries.iter().filter(|entry| !entry.held && !entry.shown).map(|entry| &entry.change)
     }
 }
 

@@ -75,6 +75,23 @@ fn tool_mode_resolved(spec: Option<&Value>) -> bool {
     }
 }
 
+/// Node's `SETTING_GATED_TOOL_NAMES` (`builtin-features.mjs`): the tools a user setting turns off. The desktop-bridge tools
+/// (`browser`, `browser_devtools`, `computer`, `terminal`) are gated by bridge presence, not by this list, and `react` answers for itself.
+pub const SETTING_GATED_TOOL_NAMES: [&str; 11] =
+    ["web_search", "web_fetch", "memory", "recall", "git", "github", "office", "media", "tidy", "visualize", "explore"];
+
+/// `settingDisabledIn`'s gate name for `name`: `web_fetch` keeps its gate under the transports it is routed to
+/// (`local_fetch`, `image_fetch`); `None` when no setting gates the tool.
+pub fn setting_gated(name: &str) -> Option<&'static str> {
+    let gated = if matches!(name, "local_fetch" | "image_fetch") { "web_fetch" } else { name };
+    SETTING_GATED_TOOL_NAMES.iter().copied().find(|tool| *tool == gated)
+}
+
+/// `settingDisabledIn(name, denied)`: the setting of the live gate list `denied` that turns off `name`, if any.
+pub fn setting_disabled_in(name: &str, denied: &[String]) -> Option<&'static str> {
+    setting_gated(name).filter(|gated| denied.iter().any(|tool| tool == gated))
+}
+
 /// The session's tool policy as the session actor holds it.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct SessionSurface {
@@ -118,6 +135,11 @@ pub struct SessionSurface {
     /// name, a connector card and a nested call resolve against, as Node reads `sessionRef.mcpScopeId`
     /// (`tool-exec/dispatch.mjs:57-59`). None: the session holds no scope, so no MCP server resolves.
     pub mcp_scope: Option<String>,
+    /// The tools the user's settings switch off right now, read from the in-memory config for this call (Node's live gate list
+    /// given to `settingDisabledTool`, `tool-exec/dispatch.mjs:125`, minus the machine facts: whether git is installed or a
+    /// desktop bridge is up is decided at turn start for the surface, not at dispatch). The header's `featureDeniedTools` moves
+    /// only at a turn start; this covers a turn already running when a setting changed. Set per call by the gate; `None`: none read.
+    pub live_feature_denied: Option<Vec<String>>,
 }
 
 const COMPACTED_PATCH_REFUSAL: &str = "Error: [tool-input-validation] apply_patch received a compacted-history placeholder, not executable patch content. Re-read the current target files and submit a fresh full patch; do not replay or reconstruct the stored marker.";
@@ -237,7 +259,20 @@ impl SessionSurface {
                 ),
             ));
         }
-        None
+        // Node's dispatch check (`tool-exec/dispatch.mjs:125`) runs after `preDispatchDenyForSession` has passed the call: a tool
+        // the session does not hold at all is refused above as "not available in this session", never as a user's setting.
+        self.live_refusal(name, schema)
+    }
+
+    /// `settingDisabledTool`: the refusal for a tool the live gate list reports as switched off by a setting.
+    fn live_refusal(&self, name: &str, schema: &str) -> Option<ToolError> {
+        let denied = self.live_feature_denied.as_ref()?;
+        setting_disabled_in(name, denied).or_else(|| setting_disabled_in(schema, denied)).map(|off| {
+            refused(
+                "disabled-in-settings",
+                format!("Error: tool \"{off}\" is disabled in settings by the user; do not retry unless the user turns it back on"),
+            )
+        })
     }
 
     /// The session's surface from its persisted header (`schemaAllowedTools`,
@@ -301,6 +336,7 @@ impl SessionSurface {
             route_excluded,
             connector_disabled: false,
             project_disabled: false,
+            live_feature_denied: None,
             mcp_scope: Some(mixdog_js::js_trim(text("mcpScopeId")).to_owned()).filter(|scope| !scope.is_empty()),
         }
     }
@@ -425,6 +461,25 @@ mod tests {
             text(surface.refusal("react", None)),
             "Error: tool \"react\" is not available in this session."
         );
+    }
+
+    #[test]
+    fn a_live_gate_list_refuses_a_setting_gated_tool_with_nodes_dispatch_text() {
+        let live = |list: &[&str]| SessionSurface { live_feature_denied: Some(names(list)), ..SessionSurface::default() };
+        for gated in SETTING_GATED_TOOL_NAMES {
+            assert_eq!(
+                text(live(&[gated]).refusal(gated, None)),
+                format!("Error: tool \"{gated}\" is disabled in settings by the user; do not retry unless the user turns it back on")
+            );
+            assert!(live(&[]).refusal(gated, None).is_none(), "{gated}: back on");
+        }
+        // The transports of web_fetch answer to its gate and are named by it.
+        assert!(text(live(&["web_fetch"]).refusal("local_fetch", Some("web_fetch"))).contains("tool \"web_fetch\" is disabled"));
+        assert!(live(&["web_fetch"]).refusal("image_fetch", None).is_some());
+        // Bridge-presence tools and everything else are not a setting's to refuse.
+        for other in ["browser", "computer", "terminal", "read", "react"] {
+            assert!(live(&[other]).refusal(other, None).is_none(), "{other}");
+        }
     }
 
     #[test]

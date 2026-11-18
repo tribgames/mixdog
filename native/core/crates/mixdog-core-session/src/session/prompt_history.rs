@@ -108,15 +108,6 @@ impl Drop for Marks {
 }
 
 #[cfg(any(test, feature = "test-support"))]
-impl AppendQueue {
-    /// A queue numbering its appends on `marks`: the thread's [`super::control::ControlCell::prompt_marks`], which the
-    /// replay barrier reads as it arrives, without waiting for the actor.
-    pub fn numbered_on(marks: std::sync::Arc<mixdog_rt::WriteMarks>) -> Self {
-        Self { marks: Marks(marks), ..Self::default() }
-    }
-}
-
-#[cfg(any(test, feature = "test-support"))]
 impl std::fmt::Debug for Marks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Marks(accepted {}, committed {})", self.0.accepted(), self.0.committed())
@@ -395,63 +386,6 @@ impl CwdCache {
     }
 }
 
-impl FilePromptHistory {
-    pub fn new(data_dir: &Path) -> Self {
-        let limit = std::env::var("MIXDOG_PROMPT_HISTORY_CACHE_LIMIT").ok().and_then(|raw| raw.trim().parse::<f64>().ok()).filter(|n| !n.is_nan() && *n != 0.0).map_or(DEFAULT_CACHE_LIMIT, |n| n.max(0.0) as usize);
-        Self::with_cache_limit(data_dir, limit)
-    }
-
-    /// `new` holding at most `limit` cwds in memory (at least 8).
-    pub fn with_cache_limit(data_dir: &Path, limit: usize) -> Self {
-        Self { dir: data_dir.join("tui-prompt-history"), cache: std::sync::Mutex::new(CwdCache::new(limit)) }
-    }
-
-    fn cache(&self) -> std::sync::MutexGuard<'_, CwdCache> {
-        self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    pub(crate) fn file(&self, cwd: &str) -> Option<PathBuf> {
-        let key = cwd_key(cwd);
-        if key.is_empty() {
-            return None;
-        }
-        let digest = Sha256::digest(key.as_bytes());
-        let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-        Some(self.dir.join(format!("{}.json", &hex[..32])))
-    }
-}
-
-/// `promptHistoryCwdKey`: trimmed, `path.resolve`d, trailing separators dropped; lowercased
-/// on Windows.
-fn cwd_key(raw: &str) -> String {
-    let text = trim(raw);
-    if text.is_empty() {
-        return String::new();
-    }
-    let path = Path::new(text);
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir().unwrap_or_default().join(path)
-    };
-    let mut out = PathBuf::new();
-    for component in absolute.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    let resolved = out.to_string_lossy().into_owned();
-    if cfg!(windows) {
-        resolved.trim_end_matches(['\\', '/']).to_lowercase()
-    } else {
-        resolved.trim_end_matches('/').to_owned()
-    }
-}
-
 /// `String(entry || '').trim()` of one stored entry.
 fn entry_text(value: &Value) -> String {
     let text = match value {
@@ -602,32 +536,6 @@ mod tests {
         items.iter().map(|t| (*t).to_owned()).collect()
     }
 
-    fn recovered(path: &Path) -> Vec<String> {
-        use mixdog_rt::LaneToken;
-        let path = path.to_owned();
-        tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
-            mixdog_rt::testing::tokens()
-                .durability_io
-                .submit(&tokio_util::sync::CancellationToken::new(), move |lane| recover_entries(lane, &path))
-                .unwrap()
-                .await
-                .unwrap()
-        })
-    }
-
-    fn peeked(path: &Path) -> Vec<String> {
-        use mixdog_rt::LaneToken;
-        let path = path.to_owned();
-        tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
-            mixdog_rt::testing::tokens()
-                .interactive_io
-                .submit(&tokio_util::sync::CancellationToken::new(), move |lane| peek_entries(lane, &path))
-                .unwrap()
-                .await
-                .unwrap()
-        })
-    }
-
     #[test]
     fn session_part_is_newest_first_deduped_by_collapsed_key_and_capped() {
         let mut session = Vec::new();
@@ -649,124 +557,11 @@ mod tests {
         assert_eq!(without(&merged, " a "), s(&["b", "y", "x"]));
     }
 
-    #[test]
-    #[allow(clippy::disallowed_methods, reason = "test setup writes and inspects the history files")]
-    fn files_keep_todays_format_and_a_damaged_one_is_set_aside() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = FilePromptHistory::new(dir.path());
-        let path = store.file("/ws/").expect("a cwd has a file");
-        assert_eq!(store.file("/ws"), Some(path.clone()));
-        assert_eq!(store.file("  "), None);
-        let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        assert_eq!(name.len(), 32 + ".json".len());
-
-        let bytes = mixdog_statefile::json_bytes(&history_doc(&s(&["a", "b"])), &Opts::default());
-        assert_eq!(
-            String::from_utf8(bytes.clone()).unwrap(),
-            "{\n  \"version\": 1,\n  \"entries\": [\n    \"a\",\n    \"b\"\n  ]\n}\n"
-        );
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, br#"{"entries": [" x ", "", null, 0, 7, true]}"#).unwrap();
-        assert_eq!(recovered(&path), s(&["x", "7", "true"]));
-
-        std::fs::write(&path, b"{torn").unwrap();
-        let bak = backup_of(&path);
-        std::fs::write(&bak, &bytes).unwrap();
-        // A read lane answers from the copy and moves nothing.
-        assert_eq!(peeked(&path), s(&["a", "b"]));
-        assert_eq!(std::fs::read(&path).unwrap(), b"{torn");
-        assert_eq!(recovered(&path), s(&["a", "b"]));
-        assert_eq!(std::fs::read(&path).unwrap(), bytes);
-        let kept = std::fs::read_dir(path.parent().unwrap())
-            .unwrap()
-            .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains(".corrupt-"))
-            .count();
-        assert_eq!(kept, 1);
-    }
-
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/prompt-history-retry/golden.json")).expect("golden.json")
-    }
-
+    #[cfg(node_twin)]
     fn wait(next: Next) -> (u64, u64) {
         match next {
             Next::Wait { epoch, delay } => (epoch, delay.as_millis() as u64),
             other => panic!("a wait was expected, got {other:?}"),
-        }
-    }
-
-    /// Recorded from Node's own `writeRetryDelayMs` (`record-prompt-history-retry.mjs`).
-    #[test]
-    fn the_retry_delay_is_nodes() {
-        for (failures, ms) in golden()["retryDelaysMs"].as_object().unwrap() {
-            assert_eq!(write_retry_delay(failures.parse().unwrap()), Duration::from_millis(ms.as_u64().unwrap()), "failures {failures}");
-        }
-        assert_eq!(write_retry_delay(u32::MAX), Duration::from_millis(WRITE_RETRY_MAX_MS));
-        assert_eq!(golden()["windowMs"].as_u64().unwrap(), WRITE_BEHIND_MS);
-    }
-
-    /// Node's real `appendPromptHistory` with an unwritable directory, under a fake clock: when its
-    /// flush attempts come.
-    #[test]
-    fn a_failed_flush_waits_as_nodes_does() {
-        let golden = golden();
-        let recorded: Vec<u64> = golden["scenarioA"]["gapsMs"].as_array().unwrap().iter().map(|g| g.as_u64().unwrap()).collect();
-        let mut queue = AppendQueue::default();
-        let (mut epoch, first) = wait(queue.push("first".into()));
-        assert_eq!(first, golden["scenarioA"]["firstAttemptAtMs"].as_u64().unwrap(), "the first flush waits the window");
-        let mut waits = Vec::new();
-        for _ in &recorded {
-            let batch = queue.due(epoch).expect("the wait ends in a flush");
-            assert_eq!(batch, s(&["first"]), "the same append is retried");
-            let (next, delay) = wait(queue.flushed(batch));
-            epoch = next;
-            waits.push(delay);
-        }
-        assert_eq!(waits, recorded);
-        let batch = queue.due(epoch).unwrap();
-        assert_eq!(queue.flushed(Vec::new()), Next::Idle, "a landed flush ends it");
-        assert_eq!(batch, s(&["first"]));
-        assert_eq!(wait(queue.push("again".into())).1, WRITE_BEHIND_MS);
-        let batch = queue.due(7 + 1).expect("a new append waits the window again");
-        assert_eq!(wait(queue.flushed(batch)).1, write_retry_delay(1).as_millis() as u64, "and the failure count starts over");
-    }
-
-    /// An append during a backoff wait re-arms the window (Node `scheduleWriteBehind`, :269): the next
-    /// attempt came 350 ms after the second one against a 1000 ms backoff.
-    #[test]
-    fn an_append_during_a_backoff_wait_re_arms_the_window_as_nodes_does() {
-        let golden = golden()["scenarioB"].clone();
-        let mut queue = AppendQueue::default();
-        let (epoch, _) = wait(queue.push("first".into()));
-        let batch = queue.due(epoch).unwrap();
-        let (epoch, delay) = wait(queue.flushed(batch));
-        let batch = queue.due(epoch).unwrap();
-        let (backoff_epoch, backoff) = wait(queue.flushed(batch));
-        assert_eq!(WRITE_BEHIND_MS + delay, golden["secondAttemptAtMs"].as_u64().unwrap(), "the second attempt: the window, then the first backoff");
-        assert_eq!(backoff, golden["backoffWouldHaveBeenMs"].as_u64().unwrap());
-        // 100 ms into the wait a second prompt arrives.
-        let (window_epoch, window) = wait(queue.push("second".into()));
-        assert_eq!(golden["arrivedAfterSecondAttemptMs"].as_u64().unwrap() + window, golden["thirdAttemptAfterSecondAttemptMs"].as_u64().unwrap());
-        assert_eq!(queue.due(backoff_epoch), None, "the backoff wait it replaced wakes nothing");
-        assert_eq!(queue.due(window_epoch), Some(s(&["first", "second"])), "the retry goes with the new prompt, oldest first");
-    }
-
-    /// `FLUSH_CAP` appends flush at once, fewer at the window (the recording of 4 and of 5).
-    #[test]
-    fn the_cap_flushes_at_once_and_fewer_wait_the_window() {
-        let recorded = golden()["scenarioC"].clone();
-        for run in recorded.as_array().unwrap() {
-            let count = run["appends"].as_u64().unwrap() as usize;
-            let mut queue = AppendQueue::default();
-            let mut last = Next::Idle;
-            for n in 0..count {
-                last = queue.push(format!("p{n}"));
-            }
-            match (run["firstAttemptAtMs"].as_u64().unwrap(), last) {
-                (0, Next::Flush(batch)) => assert_eq!(batch.len(), count),
-                (ms, Next::Wait { delay, .. }) => assert_eq!(delay.as_millis() as u64, ms),
-                (ms, other) => panic!("{count} appends flushed at {ms} ms in Node, got {other:?}"),
-            }
         }
     }
 
@@ -789,66 +584,6 @@ mod tests {
         assert!(matches!(queue.flushed(s(&["after"])), Next::Wait { .. }), "the failed append is retried");
         assert_eq!(queue.marks().check(later), Some(Err("the prompt history: write 2, accepted before the barrier, failed: the append was not written".to_owned())));
         assert_eq!(queue.marks().check(mark), Some(Ok(())), "a failure after a barrier is not its error");
-    }
-
-    struct Flaky {
-        fail: std::sync::atomic::AtomicU32,
-        stamps: std::sync::Mutex<Vec<tokio::time::Instant>>,
-        landed: std::sync::Mutex<Vec<String>>,
-        /// Woken after every attempted write, landed or not.
-        attempted: tokio::sync::Notify,
-    }
-
-    impl PromptHistoryStore for Flaky {
-        fn load(&self, _: &InLane<InteractiveIo>, _: &str) -> Vec<String> {
-            Vec::new()
-        }
-        fn append(&self, _: &InLane<DurabilityIo>, _: &str, text: &str) -> Appended {
-            use std::sync::atomic::Ordering::SeqCst;
-            self.stamps.lock().unwrap().push(tokio::time::Instant::now());
-            let failing = self.fail.try_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok();
-            if !failing {
-                self.landed.lock().unwrap().push(text.to_owned());
-            }
-            self.attempted.notify_waiters();
-            Appended { list: s(&[text]), written: !failing }
-        }
-        fn redact(&self, _: &InLane<DurabilityIo>, _: &str, _: &dyn Fn(&str) -> String) {}
-    }
-
-    /// A prompt whose write failed is not lost: the thread flushes it after the window and retries on
-    /// Node's backoff. The clock is paused and held, so it moves only by the advances below: each follows the actor's arming of the
-    /// timer it brings to its end, and is followed by the write it brings.
-    #[tokio::test(start_paused = true)]
-    async fn a_prompt_whose_write_failed_is_retried_on_nodes_backoff_until_it_lands() {
-        use std::sync::atomic::Ordering::SeqCst;
-
-        use crate::eventually_on;
-        use crate::session::SessionDirectory;
-        use crate::session::testing::{HeldClock, Rig};
-        use crate::session::tests::{start_thread, turn};
-
-        let _held = HeldClock::hold();
-        let rig = Rig::new();
-        let flaky = std::sync::Arc::new(Flaky { fail: 2.into(), stamps: Default::default(), landed: Default::default(), attempted: Default::default() });
-        let mut deps = rig.deps_parts(rig.store.clone());
-        deps.prompts = flaky.clone();
-        let directory = SessionDirectory::new(std::sync::Arc::new(deps));
-        let handle = start_thread(&directory).await;
-        let asked = tokio::time::Instant::now();
-        turn(&handle, "remember me", "op-1").await;
-        for (armed, wait) in [(1, Duration::from_millis(WRITE_BEHIND_MS)), (2, write_retry_delay(1)), (3, write_retry_delay(2))] {
-            eventually_on!(&[&handle.cell.stepped], || (handle.cell.prompt_timers.load(SeqCst) == armed).then_some(())).await;
-            assert_eq!(flaky.stamps.lock().unwrap().len(), armed as usize - 1, "no write before its timer has ended");
-            tokio::time::advance(wait).await;
-            eventually_on!(&[&flaky.attempted], || (flaky.stamps.lock().unwrap().len() == armed as usize).then_some(())).await;
-        }
-        let stamps = flaky.stamps.lock().unwrap().clone();
-        assert_eq!(stamps.len(), 3);
-        assert_eq!(stamps[0] - asked, Duration::from_millis(WRITE_BEHIND_MS), "the first flush waits the window");
-        assert_eq!(stamps[1] - stamps[0], write_retry_delay(1));
-        assert_eq!(stamps[2] - stamps[1], write_retry_delay(2));
-        assert_eq!(*flaky.landed.lock().unwrap(), s(&["remember me"]));
     }
 
     #[test]
@@ -916,5 +651,268 @@ mod tests {
         assert_eq!(cache.touch(&paths[0]), Some(s(&["replaced"])));
         cache.forget(&paths[0]);
         assert_eq!((cache.touch(&paths[0]), cache.lists.len(), cache.order.len()), (None, 7, 7));
+    }
+
+    fn recovered(path: &Path) -> Vec<String> {
+        use mixdog_rt::LaneToken;
+        let path = path.to_owned();
+        tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
+            mixdog_rt::testing::tokens()
+                .durability_io
+                .submit(&tokio_util::sync::CancellationToken::new(), move |lane| recover_entries(lane, &path))
+                .unwrap()
+                .await
+                .unwrap()
+        })
+    }
+    fn peeked(path: &Path) -> Vec<String> {
+        use mixdog_rt::LaneToken;
+        let path = path.to_owned();
+        tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
+            mixdog_rt::testing::tokens()
+                .interactive_io
+                .submit(&tokio_util::sync::CancellationToken::new(), move |lane| peek_entries(lane, &path))
+                .unwrap()
+                .await
+                .unwrap()
+        })
+    }
+    #[test]
+    #[allow(clippy::disallowed_methods, reason = "test setup writes and inspects the history files")]
+    fn files_keep_todays_format_and_a_damaged_one_is_set_aside() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FilePromptHistory::new(dir.path());
+        let path = store.file("/ws/").expect("a cwd has a file");
+        assert_eq!(store.file("/ws"), Some(path.clone()));
+        assert_eq!(store.file("  "), None);
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(name.len(), 32 + ".json".len());
+
+        let bytes = mixdog_statefile::json_bytes(&history_doc(&s(&["a", "b"])), &Opts::default());
+        assert_eq!(
+            String::from_utf8(bytes.clone()).unwrap(),
+            "{\n  \"version\": 1,\n  \"entries\": [\n    \"a\",\n    \"b\"\n  ]\n}\n"
+        );
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, br#"{"entries": [" x ", "", null, 0, 7, true]}"#).unwrap();
+        assert_eq!(recovered(&path), s(&["x", "7", "true"]));
+
+        std::fs::write(&path, b"{torn").unwrap();
+        let bak = backup_of(&path);
+        std::fs::write(&bak, &bytes).unwrap();
+        // A read lane answers from the copy and moves nothing.
+        assert_eq!(peeked(&path), s(&["a", "b"]));
+        assert_eq!(std::fs::read(&path).unwrap(), b"{torn");
+        assert_eq!(recovered(&path), s(&["a", "b"]));
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        let kept = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains(".corrupt-"))
+            .count();
+        assert_eq!(kept, 1);
+    }
+    struct Flaky {
+        fail: std::sync::atomic::AtomicU32,
+        stamps: std::sync::Mutex<Vec<tokio::time::Instant>>,
+        landed: std::sync::Mutex<Vec<String>>,
+        /// Woken after every attempted write, landed or not.
+        attempted: tokio::sync::Notify,
+    }
+    impl PromptHistoryStore for Flaky {
+        fn load(&self, _: &InLane<InteractiveIo>, _: &str) -> Vec<String> {
+            Vec::new()
+        }
+        fn append(&self, _: &InLane<DurabilityIo>, _: &str, text: &str) -> Appended {
+            use std::sync::atomic::Ordering::SeqCst;
+            self.stamps.lock().unwrap().push(tokio::time::Instant::now());
+            let failing = self.fail.try_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok();
+            if !failing {
+                self.landed.lock().unwrap().push(text.to_owned());
+            }
+            self.attempted.notify_waiters();
+            Appended { list: s(&[text]), written: !failing }
+        }
+        fn redact(&self, _: &InLane<DurabilityIo>, _: &str, _: &dyn Fn(&str) -> String) {}
+    }
+
+
+    #[cfg(node_twin)]
+    fn golden() -> Value {
+        serde_json::from_str(include_str!("../../../../fixtures/prompt-history-retry/golden.json")).expect("golden.json")
+    }
+    #[cfg(node_twin)]
+    /// Recorded from Node's own `writeRetryDelayMs` (`record-prompt-history-retry.mjs`).
+    #[test]
+    fn the_retry_delay_is_nodes() {
+        for (failures, ms) in golden()["retryDelaysMs"].as_object().unwrap() {
+            assert_eq!(write_retry_delay(failures.parse().unwrap()), Duration::from_millis(ms.as_u64().unwrap()), "failures {failures}");
+        }
+        assert_eq!(write_retry_delay(u32::MAX), Duration::from_millis(WRITE_RETRY_MAX_MS));
+        assert_eq!(golden()["windowMs"].as_u64().unwrap(), WRITE_BEHIND_MS);
+    }
+    #[cfg(node_twin)]
+    /// Node's real `appendPromptHistory` with an unwritable directory, under a fake clock: when its
+    /// flush attempts come.
+    #[test]
+    fn a_failed_flush_waits_as_nodes_does() {
+        let golden = golden();
+        let recorded: Vec<u64> = golden["scenarioA"]["gapsMs"].as_array().unwrap().iter().map(|g| g.as_u64().unwrap()).collect();
+        let mut queue = AppendQueue::default();
+        let (mut epoch, first) = wait(queue.push("first".into()));
+        assert_eq!(first, golden["scenarioA"]["firstAttemptAtMs"].as_u64().unwrap(), "the first flush waits the window");
+        let mut waits = Vec::new();
+        for _ in &recorded {
+            let batch = queue.due(epoch).expect("the wait ends in a flush");
+            assert_eq!(batch, s(&["first"]), "the same append is retried");
+            let (next, delay) = wait(queue.flushed(batch));
+            epoch = next;
+            waits.push(delay);
+        }
+        assert_eq!(waits, recorded);
+        let batch = queue.due(epoch).unwrap();
+        assert_eq!(queue.flushed(Vec::new()), Next::Idle, "a landed flush ends it");
+        assert_eq!(batch, s(&["first"]));
+        assert_eq!(wait(queue.push("again".into())).1, WRITE_BEHIND_MS);
+        let batch = queue.due(7 + 1).expect("a new append waits the window again");
+        assert_eq!(wait(queue.flushed(batch)).1, write_retry_delay(1).as_millis() as u64, "and the failure count starts over");
+    }
+    #[cfg(node_twin)]
+    /// An append during a backoff wait re-arms the window (Node `scheduleWriteBehind`, :269): the next
+    /// attempt came 350 ms after the second one against a 1000 ms backoff.
+    #[test]
+    fn an_append_during_a_backoff_wait_re_arms_the_window_as_nodes_does() {
+        let golden = golden()["scenarioB"].clone();
+        let mut queue = AppendQueue::default();
+        let (epoch, _) = wait(queue.push("first".into()));
+        let batch = queue.due(epoch).unwrap();
+        let (epoch, delay) = wait(queue.flushed(batch));
+        let batch = queue.due(epoch).unwrap();
+        let (backoff_epoch, backoff) = wait(queue.flushed(batch));
+        assert_eq!(WRITE_BEHIND_MS + delay, golden["secondAttemptAtMs"].as_u64().unwrap(), "the second attempt: the window, then the first backoff");
+        assert_eq!(backoff, golden["backoffWouldHaveBeenMs"].as_u64().unwrap());
+        // 100 ms into the wait a second prompt arrives.
+        let (window_epoch, window) = wait(queue.push("second".into()));
+        assert_eq!(golden["arrivedAfterSecondAttemptMs"].as_u64().unwrap() + window, golden["thirdAttemptAfterSecondAttemptMs"].as_u64().unwrap());
+        assert_eq!(queue.due(backoff_epoch), None, "the backoff wait it replaced wakes nothing");
+        assert_eq!(queue.due(window_epoch), Some(s(&["first", "second"])), "the retry goes with the new prompt, oldest first");
+    }
+    #[cfg(node_twin)]
+    /// `FLUSH_CAP` appends flush at once, fewer at the window (the recording of 4 and of 5).
+    #[test]
+    fn the_cap_flushes_at_once_and_fewer_wait_the_window() {
+        let recorded = golden()["scenarioC"].clone();
+        for run in recorded.as_array().unwrap() {
+            let count = run["appends"].as_u64().unwrap() as usize;
+            let mut queue = AppendQueue::default();
+            let mut last = Next::Idle;
+            for n in 0..count {
+                last = queue.push(format!("p{n}"));
+            }
+            match (run["firstAttemptAtMs"].as_u64().unwrap(), last) {
+                (0, Next::Flush(batch)) => assert_eq!(batch.len(), count),
+                (ms, Next::Wait { delay, .. }) => assert_eq!(delay.as_millis() as u64, ms),
+                (ms, other) => panic!("{count} appends flushed at {ms} ms in Node, got {other:?}"),
+            }
+        }
+    }
+
+    /// A prompt whose write failed is not lost: the thread flushes it after the window and retries on
+    /// Node's backoff. The clock is paused and held, so it moves only by the advances below: each follows the actor's arming of the
+    /// timer it brings to its end, and is followed by the write it brings.
+    #[tokio::test(start_paused = true)]
+    async fn a_prompt_whose_write_failed_is_retried_on_nodes_backoff_until_it_lands() {
+        use std::sync::atomic::Ordering::SeqCst;
+
+        use crate::eventually_on;
+        use crate::session::SessionDirectory;
+        use crate::session::testing::{HeldClock, Rig};
+        use crate::session::tests::{start_thread, turn};
+
+        let _held = HeldClock::hold();
+        let rig = Rig::new();
+        let flaky = std::sync::Arc::new(Flaky { fail: 2.into(), stamps: Default::default(), landed: Default::default(), attempted: Default::default() });
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.prompts = flaky.clone();
+        let directory = SessionDirectory::new(std::sync::Arc::new(deps));
+        let handle = start_thread(&directory).await;
+        let asked = tokio::time::Instant::now();
+        turn(&handle, "remember me", "op-1").await;
+        for (armed, wait) in [(1, Duration::from_millis(WRITE_BEHIND_MS)), (2, write_retry_delay(1)), (3, write_retry_delay(2))] {
+            eventually_on!(&[&handle.cell.stepped], || (handle.cell.prompt_timers.load(SeqCst) == armed).then_some(())).await;
+            assert_eq!(flaky.stamps.lock().unwrap().len(), armed as usize - 1, "no write before its timer has ended");
+            tokio::time::advance(wait).await;
+            eventually_on!(&[&flaky.attempted], || (flaky.stamps.lock().unwrap().len() == armed as usize).then_some(())).await;
+        }
+        let stamps = flaky.stamps.lock().unwrap().clone();
+        assert_eq!(stamps.len(), 3);
+        assert_eq!(stamps[0] - asked, Duration::from_millis(WRITE_BEHIND_MS), "the first flush waits the window");
+        assert_eq!(stamps[1] - stamps[0], write_retry_delay(1));
+        assert_eq!(stamps[2] - stamps[1], write_retry_delay(2));
+        assert_eq!(*flaky.landed.lock().unwrap(), s(&["remember me"]));
+    }
+}
+
+
+#[cfg(any(test, feature = "test-support"))]
+impl AppendQueue {
+    /// A queue numbering its appends on `marks`: the thread's [`super::control::ControlCell::prompt_marks`], which the
+    /// replay barrier reads as it arrives, without waiting for the actor.
+    pub fn numbered_on(marks: std::sync::Arc<mixdog_rt::WriteMarks>) -> Self {
+        Self { marks: Marks(marks), ..Self::default() }
+    }
+}
+impl FilePromptHistory {
+    pub fn new(data_dir: &Path) -> Self {
+        let limit = std::env::var("MIXDOG_PROMPT_HISTORY_CACHE_LIMIT").ok().and_then(|raw| raw.trim().parse::<f64>().ok()).filter(|n| !n.is_nan() && *n != 0.0).map_or(DEFAULT_CACHE_LIMIT, |n| n.max(0.0) as usize);
+        Self::with_cache_limit(data_dir, limit)
+    }
+
+    /// `new` holding at most `limit` cwds in memory (at least 8).
+    pub fn with_cache_limit(data_dir: &Path, limit: usize) -> Self {
+        Self { dir: data_dir.join("tui-prompt-history"), cache: std::sync::Mutex::new(CwdCache::new(limit)) }
+    }
+
+    fn cache(&self) -> std::sync::MutexGuard<'_, CwdCache> {
+        self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub(crate) fn file(&self, cwd: &str) -> Option<PathBuf> {
+        let key = cwd_key(cwd);
+        if key.is_empty() {
+            return None;
+        }
+        let digest = Sha256::digest(key.as_bytes());
+        let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+        Some(self.dir.join(format!("{}.json", &hex[..32])))
+    }
+}
+/// `promptHistoryCwdKey`: trimmed, `path.resolve`d, trailing separators dropped; lowercased
+/// on Windows.
+fn cwd_key(raw: &str) -> String {
+    let text = trim(raw);
+    if text.is_empty() {
+        return String::new();
+    }
+    let path = Path::new(text);
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap_or_default().join(path)
+    };
+    let mut out = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    let resolved = out.to_string_lossy().into_owned();
+    if cfg!(windows) {
+        resolved.trim_end_matches(['\\', '/']).to_lowercase()
+    } else {
+        resolved.trim_end_matches('/').to_owned()
     }
 }

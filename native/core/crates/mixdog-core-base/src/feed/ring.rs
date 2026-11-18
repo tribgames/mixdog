@@ -62,6 +62,14 @@ impl Ring {
         }
     }
 
+    /// Drops the frames up to `seq`: nothing will ask for them.
+    pub fn drop_through(&mut self, seq: u64) {
+        while self.entries.front().is_some_and(|entry| entry.frame.seq <= seq) {
+            let dropped = self.entries.pop_front().expect("the front was just seen");
+            self.held -= dropped.frame.bytes.len();
+        }
+    }
+
     /// The frames `(after, head]` when every one of them is still held (P §6.3 condition 2):
     /// `after ≤ head` and `after + 1 ≥ firstSeq`. `head` is the feed's last seq; the ring's
     /// newest frame, if any, is `head`.

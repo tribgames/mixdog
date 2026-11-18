@@ -21,6 +21,7 @@ use crate::v2::browser_engine::HostBrowserLeaseReleaseParams;
 use crate::v2::feed::AppSnapshotParams;
 use crate::v2::feed::FeedSnapshotParams;
 use crate::v2::host::BrowserFrameParams;
+use crate::v2::host::VisualizeChangedParams;
 use crate::v2::host::BrowserWebrtcSignalParams;
 use crate::v2::host::HostBrowserViewFramesParams;
 use crate::v2::host::CoreDrainParams;
@@ -29,6 +30,7 @@ use crate::v2::host_notification::HostNotificationCloseParams;
 use crate::v2::relay_payload::UiRelayPayloadRefusedParams;
 use crate::v2::host::ModelProxyCancelParams;
 use crate::v2::host::ModelProxyRunEventParams;
+use crate::v2::host::ModelProxyTailParams;
 use crate::v2::host::RemotePointerParams;
 use crate::v2::host::UiOpenRequestedParams;
 use crate::v2::config::UiProviderModelsChangedParams;
@@ -189,8 +191,13 @@ crate::notification_definitions! {
     BrowserWebrtcSignal => "browser/webrtcSignal" (BrowserWebrtcSignalParams) @connection,
     /// A JPEG-view frame of a browser session the phone streams (Node's `browserRemoteFrame` push): one in flight until `browser/streamAck`.
     BrowserFrame => "browser/frame" (BrowserFrameParams) @connection,
+    /// One change of the agent's visualize tabs for a phone that views the session (Node's `visualize` push): the state it announces and
+    /// its own effect fields, queued to the connection in order, never merged or dropped.
+    VisualizeChanged => "visualize/changed" (VisualizeChangedParams) @connection,
     ModelProxyRunEvent => "modelProxy/run/event" (ModelProxyRunEventParams) @connection,
     ModelProxyCancel => "model/proxy/cancel" (ModelProxyCancelParams) @connection,
+    /// The session owner's verdict on one POST of a `model/proxy/execute` session send, to the connection running it.
+    ModelProxyTail => "model/proxy/tail" (ModelProxyTailParams) @connection,
     /// A question from ssh for the user, to the connection that owns the attempt.
     ConnectionsSshAskpass => "connections/ssh/askpass" (SshAskpass) @connection,
     /// Where a connect attempt is, to the connection that owns it.
@@ -384,6 +391,11 @@ pub enum ClientNotification {
     #[serde(rename = "computer/pointerReleased")]
     #[cfg_attr(feature = "codegen", ts(rename = "computer/pointerReleased"))]
     ComputerPointerReleased(crate::v2::computer_host::ComputerPointerReleasedParams),
+    /// A revoked automation scope's report changed at the desktop (a release or compensation returned, an executor ended): the
+    /// report with its per-scope revision, so the core applies only a newer one than the snapshot or report it holds.
+    #[serde(rename = "host/computer/scopeReport")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/computer/scopeReport"))]
+    HostComputerScopeReport(crate::v2::computer_host::HostComputerScopeReportParams),
     /// One streamed event of a `model/proxy/execute` request.
     #[serde(rename = "model/proxy/event")]
     #[cfg_attr(feature = "codegen", ts(rename = "model/proxy/event"))]
@@ -513,6 +525,11 @@ pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
     crate::common::NotificationSpec {
         method: "computer/pointerReleased",
         params: "ComputerPointerReleasedParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "host/computer/scopeReport",
+        params: "HostComputerScopeReportParams",
         delivery: None,
     },
     crate::common::NotificationSpec {

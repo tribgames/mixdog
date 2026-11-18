@@ -2,8 +2,11 @@
 //! `invalidateForToolSurfaceMigration`, `markToolSurfaceMigrated`, `hasUnansweredToolCalls`).
 //!
 //! The surface itself is rebuilt by `route_surface` / `tool_surface`; this is what a
-//! changed request prefix invalidates besides: provider state, the prefix guard, the context
-//! baseline and the cache-break tag. Historical tool calls are never rewritten.
+//! changed request prefix invalidates besides: provider state, the context baseline and the
+//! cache-break tag. Historical tool calls are never rewritten. Node also deletes its in-memory
+//! `_providerPrefixGuardState` here; 1.4.5 never writes that key to a stored header (it strips it
+//! on every save and load, `serialize.mjs`), and here the guard lives in the session actor and no
+//! header read looks for it.
 
 use mixdog_agent::compact::pressure::invalidate_provider_context_baseline;
 use mixdog_agent::env::Clock;
@@ -29,7 +32,6 @@ fn unset(change: &mut HeaderChange, key: &str) {
 pub fn invalidate_for_tool_surface_migration(clock: &dyn Clock) -> HeaderChange {
     let mut change = HeaderChange { set: Map::new(), unset: Vec::new() };
     unset(&mut change, "providerState");
-    unset(&mut change, "_providerPrefixGuardState");
     let baseline = invalidate_provider_context_baseline();
     for (key, value) in baseline.set {
         set(&mut change, &key, value);
@@ -86,22 +88,27 @@ pub fn has_unanswered_tool_calls(messages: &[Value]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     struct Fixed;
+    #[cfg(node_twin)]
     impl Clock for Fixed {
         fn now_ms(&self) -> i64 {
             1_793_939_969_114
         }
     }
 
+    #[cfg(node_twin)]
     fn golden() -> Value {
         serde_json::from_str(include_str!("golden/tool_migration.json")).expect("fixture")
     }
 
+    #[cfg(node_twin)]
     fn header() -> Map<String, Value> {
         json!({
-            "id": "s", "provider": "xai", "providerState": { "a": 1 }, "_providerPrefixGuardState": { "b": 1 },
+            "id": "s", "provider": "xai", "providerState": { "a": 1 },
             "contextPressureBaselineTokens": 5, "contextPressureBaselineSource": "usage",
             "contextPressureUnanchoredReason": "r", "lastContextTokensStaleAfterCompact": false,
         })
@@ -110,6 +117,7 @@ mod tests {
         .clone()
     }
 
+    #[cfg(node_twin)]
     fn transcript() -> Vec<Value> {
         let think = json!({ "type": "thinking", "thinking": "hm", "signature": "s" });
         vec![
@@ -121,6 +129,7 @@ mod tests {
 
     /// Node's `markToolSurfaceMigrated`: outside a turn, during one, and with another intent.
     #[test]
+    #[cfg(node_twin)]
     fn marking_a_migration_follows_node() {
         let golden = golden();
         for (name, intent, rebind) in [("outside_turn", None, true), ("during_turn", None, false), ("custom_intent", Some("custom_intent"), true)] {
@@ -137,7 +146,6 @@ mod tests {
             // Node's golden folds an unset and a nulled field into one marker.
             let field = |key: &str| applied.get(key).filter(|v| !v.is_null()).cloned().unwrap_or_else(|| json!("__deleted__"));
             assert_eq!(field("providerState"), want["providerState"], "{name}");
-            assert_eq!(field("_providerPrefixGuardState"), want["guard"], "{name}");
             assert_eq!(field("contextPressureBaselineTokens"), want["baselineTokens"], "{name}");
             assert_eq!(field("contextPressureBaselineSource"), want["baselineSource"], "{name}");
             assert_eq!(field("contextPressureUnanchoredReason"), want["unanchored"], "{name}");
@@ -150,6 +158,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(node_twin)]
     fn an_unanswered_tool_call_is_not_a_boundary() {
         let cases = golden()["unansweredCases"].clone();
         assert!(has_unanswered_tool_calls(cases["open"].as_array().unwrap()));
@@ -158,3 +167,5 @@ mod tests {
         }
     }
 }
+
+

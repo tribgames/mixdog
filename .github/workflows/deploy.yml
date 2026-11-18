@@ -42,8 +42,8 @@ jobs:
     timeout-minutes: 180
     permissions:
       contents: read
-      actions: read # gh run list / gh run watch for the Release Gate
     outputs:
+      sha: ${{ steps.head.outputs.sha }}
       app_version: ${{ steps.plan.outputs.app_version }}
       app_tag: ${{ steps.plan.outputs.app_tag }}
       graph_build: ${{ steps.plan.outputs.graph_build }}
@@ -54,14 +54,13 @@ jobs:
       native_changed: ${{ steps.plan.outputs.native_changed }}
       runtime_needed: ${{ steps.plan.outputs.runtime_needed }}
       voice_runtime_needed: ${{ steps.plan.outputs.voice_runtime_needed }}
-      critical_changed: ${{ steps.plan.outputs.critical_changed }}
-      run_critical: ${{ steps.plan.outputs.run_critical }}
+      native_sinks: ${{ steps.plan.outputs.native_sinks }}
       mobile_release: ${{ steps.mobile.outputs.mobile_release }}
       mobile_version: ${{ steps.mobile.outputs.mobile_version }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -71,9 +70,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH"
+          test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git fetch --tags --force origin
-          test "$(git rev-parse HEAD)" = "$(git rev-parse "origin/${DEFAULT_BRANCH}")"
           # Retried for a transient registry failure; a deterministic one
           # fails all three attempts.
           for attempt in 1 2 3; do
@@ -84,36 +83,12 @@ jobs:
           done
           node --test scripts/workflow-refs.test.mjs scripts/verify-release-assets.test.mjs scripts/set-core-version.test.mjs
 
-      # A release ships only a commit the gate passed. The gate starts on the
-      # same push this dispatch usually follows, so wait for its verdict instead
-      # of racing it. Strict: a commit with no Release Gate run (a push that
-      # touched no gated path, or an infra failure that never started it) is
-      # NOT released. Start the gate for it with
-      #   gh workflow run release-gate.yml --ref main
-      # and re-run Deploy once it is green. A manual gate run counts.
-      - name: Require a green Release Gate for the release commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          sha=$(git rev-parse HEAD)
-          run_id=""
-          for attempt in $(seq 1 12); do
-            run_id=$(gh run list --workflow release-gate.yml --commit "$sha" --limit 20 \
-              --json databaseId,event --jq '[.[] | select(.event == "push" or .event == "workflow_dispatch")][0].databaseId // empty')
-            if [[ -n "$run_id" ]]; then break; fi
-            sleep 5
-          done
-          if [[ -z "$run_id" ]]; then
-            echo "::error::No Release Gate run exists for ${sha}; refusing to release an ungated commit. Run 'gh workflow run release-gate.yml --ref ${GITHUB_REF_NAME}' and re-run Deploy once it passes."
-            exit 1
-          fi
-          echo "Waiting for Release Gate run ${run_id} on ${sha}"
-          if ! gh run watch "$run_id" --exit-status --interval 15 > /dev/null; then
-            echo "::error::Release Gate run ${run_id} did not pass for ${sha}; fix or re-run it before releasing."
-            exit 1
-          fi
+      # The commit this deploy starts from, resolved once: every later commit of the deploy descends from it and the default branch is
+      # moved from exactly it (release.yml `push-release-refs`, a lease on this commit). Nothing is pushed to a branch or a tag before
+      # the full gate has verified the commit the push names; a run of the gate found in history is never taken for that proof.
+      - name: Resolve the commit of this deploy
+        id: head
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Resolve app version and changed native components
         id: plan
@@ -126,16 +101,12 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import { appendFileSync, readFileSync } from 'node:fs';
-          import { execFileSync, spawnSync } from 'node:child_process';
+          import { spawnSync } from 'node:child_process';
           import { checkChangelogLocales } from './scripts/check-changelog-locales.mjs';
           import { NATIVE_RELEASE_TOOLS, nativeReleaseStatuses, unreleasedProblems } from './scripts/native-release-status.mjs';
 
           const output = process.env.GITHUB_OUTPUT;
           const mode = process.env.NATIVE_MODE;
-          // Paths whose change since the published release tag marks the default
-          // lane as unverified (release-gate.yml selects its runtime gate from the
-          // same roots).
-          const RELEASE_CRITICAL_PATHS = ['native', 'scripts', 'src', 'package.json', 'package-lock.json'];
           const strict = /^\d+\.\d+\.\d+$/;
           const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
           const cargoVersion = path => {
@@ -150,13 +121,10 @@ jobs:
             return `${parts[0]}.${parts[1]}.${parts[2] + 1}`;
           };
           const tagExists = tag => spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`]).status === 0;
-          const releaseExists = tag => {
-            const result = spawnSync(
-              'gh', ['release', 'view', tag, '--json', 'isDraft', '--jq', '.isDraft'],
-              { encoding: 'utf8', env: process.env },
-            );
-            return result.status === 0 && result.stdout.trim() === 'false';
-          };
+          // one full listing of the releases: a failed lookup stops the run, and only a listing that lacks the tag says there is none
+          const { releaseState, listReleases } = await import(`${process.cwd()}/scripts/ci/release-state.mjs`);
+          const releases = listReleases(process.env.GITHUB_REPOSITORY);
+          const releaseExists = tag => releaseState(releases, tag).state === 'public';
           const changedBetween = (base, paths) => {
             const result = spawnSync('git', ['diff', '--quiet', `${base}..HEAD`, '--', ...paths]);
             if (result.status === 0) return false;
@@ -250,10 +218,15 @@ jobs:
           const nativeChanged = mode !== 'skip' && graph.build;
           const runtimeNeeded = mode !== 'skip' && (mode === 'force' || changedSince(currentTag, [
             '.github/workflows/build-runtime.yml',
+            'scripts/ci/release-assets.mjs',
+            'scripts/ci/release-state.mjs',
             'scripts/build-runtime-linux.sh',
             'scripts/build-runtime-macos.sh',
             'scripts/build-runtime-windows.ps1',
             'scripts/generate-runtime-manifest.mjs',
+            'scripts/plan-runtime-release-tag.mjs',
+            'scripts/smoke-runtime-negative.sh',
+            'scripts/smoke-runtime-negative.ps1',
             'src/runtime/memory/data/runtime-manifest.json',
           ]));
           const voiceRuntimeNeeded = mode !== 'skip' && (mode === 'force' || changedSince(currentTag, [
@@ -267,41 +240,6 @@ jobs:
             'scripts/verify-voice-runtime-release.mjs',
             'scripts/sync-voice-runtime-manifest.mjs',
           ]));
-          const criticalChanged = changedSince(currentTag, RELEASE_CRITICAL_PATHS);
-          // The release gate already ran the identical critical lane
-          // (the default test lane) on every gated main push. When every gate
-          // run covering commits since the published release succeeded and no
-          // critical path changed after the newest gated commit, the release
-          // validate step would only re-verify an already verified state, so
-          // it may skip the lane. Any uncertainty (missing runs, failed or
-          // in-flight runs, gh errors) falls back to re-running it.
-          const gateVerifiedCritical = () => {
-            if (!criticalChanged || !currentTagExists) return false;
-            try {
-              const shas = execFileSync('git', ['rev-list', `${currentTag}..HEAD`], { encoding: 'utf8' })
-                .split(/\s+/).filter(Boolean); // newest first
-              if (!shas.length) return false;
-              const list = spawnSync('gh', [
-                'run', 'list', '--workflow', 'release-gate.yml',
-                '--branch', process.env.DEFAULT_BRANCH || 'main',
-                '--limit', '200', '--json', 'headSha,status,conclusion',
-              ], { encoding: 'utf8', env: process.env });
-              if (list.status !== 0) return false;
-              const runs = JSON.parse(list.stdout || '[]');
-              const range = new Set(shas);
-              const covering = runs.filter((run) => range.has(run.headSha));
-              if (!covering.length) return false;
-              if (!covering.every((run) => run.status === 'completed' && run.conclusion === 'success')) {
-                return false;
-              }
-              const newestGated = shas.find((sha) => covering.some((run) => run.headSha === sha));
-              return !changedBetween(newestGated, RELEASE_CRITICAL_PATHS);
-            } catch {
-              return false;
-            }
-          };
-          const gateVerified = gateVerifiedCritical();
-
           const values = {
             app_version: appVersion,
             app_tag: `v${appVersion}`,
@@ -313,8 +251,7 @@ jobs:
             native_changed: String(nativeChanged),
             runtime_needed: String(runtimeNeeded),
             voice_runtime_needed: String(voiceRuntimeNeeded),
-            critical_changed: String(criticalChanged),
-            run_critical: String(criticalChanged && !gateVerified),
+            native_sinks: String(runtimeNeeded || voiceRuntimeNeeded || (mode !== 'skip' && graph.build)),
           };
           for (const [key, value] of Object.entries(values)) appendFileSync(output, `${key}=${value}\n`);
           console.log(JSON.stringify({ mode, resume, preBumped, ...values }, null, 2));
@@ -329,34 +266,35 @@ jobs:
           MOBILE_BUMP: ${{ inputs.mobile_bump }}
         run: node scripts/mobile-release.mjs plan
 
-  prepare-native:
-    name: prepare-native-tags
+  # The commit the native release workers publish from: the deploy's commit with the native version bump, made here and written to no
+  # branch and no tag. When it differs from the deploy's commit it is pushed to refs/mixdog-candidates/<run>/native only, a ref no
+  # workflow, release or update feed reads, so the gate and the workers can check it out by SHA. The commit is deterministic (the bot
+  # identity and the deploy commit's date), so a deploy re-run from the same commit makes the same SHA and finds its own graph tag.
+  native-commit:
+    name: prepare-native-commit
     needs: plan
-    if: ${{ needs.plan.outputs.native_changed == 'true' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     permissions:
-      contents: write # version commit and tag pushes
+      contents: write # the candidate ref only (scripts/ci/coverage/wiring.mjs: a candidate writer pushes refs/mixdog-candidates/ and nothing else)
     outputs:
       sha: ${{ steps.bump.outputs.sha }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ needs.plan.outputs.sha }}
           fetch-depth: 0
 
-      - name: Bump changed native components and create immutable tags
+      - name: Commit the changed native components' versions
         id: bump
         env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          GRAPH_BUILD: ${{ needs.plan.outputs.graph_build }}
+          BASE: ${{ needs.plan.outputs.sha }}
           GRAPH_BUMP: ${{ needs.plan.outputs.graph_bump }}
           GRAPH_VERSION: ${{ needs.plan.outputs.graph_version }}
-          GRAPH_TAG: ${{ needs.plan.outputs.graph_tag }}
         shell: bash
         run: |
           set -euo pipefail
-          git pull --ff-only origin "$DEFAULT_BRANCH"
+          test "$(git rev-parse HEAD)" = "$BASE"
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -387,39 +325,33 @@ jobs:
           }
           NODE
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add native/mixdog-graph/Cargo.toml native/mixdog-graph/Cargo.lock \
             native/core/crates/mixdog-graph/Cargo.toml native/core/Cargo.lock
           if ! git diff --cached --quiet; then
-            git commit -m "chore(native): prepare incremental release assets"
-            git push origin "HEAD:${DEFAULT_BRANCH}"
+            DATE=$(git show -s --format=%cI "$BASE")
+            GIT_AUTHOR_DATE="$DATE" GIT_COMMITTER_DATE="$DATE" \
+              git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "chore(native): prepare incremental release assets"
           fi
+          SHA=$(git rev-parse HEAD)
+          if [[ "$SHA" != "$BASE" ]]; then git push origin "${SHA}:refs/mixdog-candidates/${GITHUB_RUN_ID}/native"; fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
-          create_tag() {
-            local enabled="$1" tag="$2"
-            if [[ "$enabled" != true ]]; then return; fi
-            if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
-              local remote release_state
-              remote=$(git ls-remote --tags origin "refs/tags/${tag}" | awk 'NR == 1 { print $1 }')
-              release_state=$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null || echo missing)
-              if [[ "$remote" == "$(git rev-parse HEAD)" ]]; then
-                echo "${tag} already points at the release commit; resuming its worker."
-              elif [[ "$release_state" == "false" ]]; then
-                echo "::error::Published tag ${tag} is immutable and does not match the release commit."
-                exit 1
-              else
-                echo "Moving unpublished recovery tag ${tag} to the release commit."
-                git tag --force "$tag"
-                git push --force origin "refs/tags/${tag}"
-              fi
-            else
-              git tag "$tag"
-              git push origin "refs/tags/${tag}"
-            fi
-          }
-          create_tag "$GRAPH_BUILD" "$GRAPH_TAG"
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+  # The full-release gate for the commit the incremental asset workers publish from (native-commit): every lane of release-gate.yml and
+  # the reconciliation of what that commit's source defines with what the lanes executed. Only when a native worker runs: runtime,
+  # voice and graph list it in `needs` with the default success semantics, so a skipped or red gate leaves every one of them, their
+  # tags and their releases unwritten. The app's own commit is gated again inside release.yml, before any branch or tag push.
+  coverage-gate:
+    name: native-assets-coverage
+    needs: [plan, native-commit]
+    if: ${{ needs.plan.outputs.native_sinks == 'true' }}
+    uses: ./.github/workflows/release-gate.yml
+    permissions:
+      contents: read
+      actions: read
+    with:
+      ref: ${{ needs.native-commit.outputs.sha }}
+      gate: native-assets
 
   # The native version bump above changes the native sources the old-glibc
   # Linux tools are cached by, so release.yml's linux-native-tools missed its
@@ -432,95 +364,128 @@ jobs:
   # here only costs the release its own build.
   linux-native-tools-warm:
     name: prebuild-linux-native-tools
-    needs: [plan, prepare-native]
+    needs: [plan, native-commit]
     if: ${{ needs.plan.outputs.native_changed == 'true' }}
     uses: ./.github/workflows/linux-native-tools.yml
     permissions:
       contents: read
     with:
-      ref: ${{ needs.prepare-native.outputs.sha }}
+      ref: ${{ needs.native-commit.outputs.sha }}
       upload_artifact: false
 
+  # The native workers publish from the gated commit: each checks it out by SHA, creates or verifies its tag at it (never moving one),
+  # and leaves the manifest the app bundles as an artifact of this run; none of them writes a branch. prepare-app commits the manifests.
   runtime:
     name: incremental-runtime
-    needs: plan
+    needs: [plan, native-commit, coverage-gate]
     if: ${{ needs.plan.outputs.runtime_needed == 'true' }}
     uses: ./.github/workflows/build-runtime.yml
     permissions:
-      contents: write # callee build/aggregate upload releases and push the manifest
+      contents: write # only the callee's post-smoke aggregate publishes
     with:
       tag: ${{ needs.plan.outputs.runtime_tag }}
+      sha: ${{ needs.native-commit.outputs.sha }}
       force_rebuild: ${{ inputs.native == 'force' }}
       refresh_manifest: false
 
-  runtime-smoke:
-    name: verify-built-runtime
-    needs: runtime
-    if: ${{ needs.runtime.result == 'success' && needs.runtime.outputs.has_builds == 'true' }}
-    uses: ./.github/workflows/smoke-runtime.yml
-    permissions:
-      contents: read
-    with:
-      tag: ${{ needs.runtime.outputs.tag }}
-
   voice:
     name: incremental-voice-runtime
-    needs: plan
+    needs: [plan, native-commit, coverage-gate]
     if: ${{ needs.plan.outputs.voice_runtime_needed == 'true' }}
     uses: ./.github/workflows/build-voice-runtime.yml
     permissions:
-      contents: write # callee prepares/uploads/publishes releases and pushes the manifest
+      contents: write # callee prepares/uploads/publishes releases
+    with:
+      sha: ${{ needs.native-commit.outputs.sha }}
 
   graph:
     name: incremental-graph
-    needs: [plan, prepare-native]
+    needs: [plan, native-commit, coverage-gate]
     if: ${{ needs.plan.outputs.graph_build == 'true' }}
     uses: ./.github/workflows/graph-release.yml
     permissions:
-      contents: write # callee prepare/sync create releases and push the manifest
+      contents: write # callee creates the graph tag at the gated commit and its release
     with:
       tag: ${{ needs.plan.outputs.graph_tag }}
+      sha: ${{ needs.native-commit.outputs.sha }}
 
+  # The app's release commit: the native commit with the manifests the workers left, the synchronized app version and the stamped
+  # changelogs. Like native-commit it writes no branch and no tag: it is pushed to refs/mixdog-candidates/<run>/app only, and
+  # release.yml gates exactly this SHA before it moves the default branch and creates the app tag (push-release-refs). A worker is
+  # accepted as skipped only when the plan did not ask for it.
   prepare-app:
-    name: prepare-app-release
-    needs: [plan, prepare-native, runtime, runtime-smoke, voice, graph]
+    name: prepare-app-commit
+    needs: [plan, native-commit, coverage-gate, runtime, voice, graph]
     if: >-
       ${{
         always()
         && needs.plan.result == 'success'
-        && (needs.prepare-native.result == 'success' || needs.prepare-native.result == 'skipped')
-        && (needs.runtime.result == 'success' || needs.runtime.result == 'skipped')
-        && (needs.runtime-smoke.result == 'success' || needs.runtime-smoke.result == 'skipped')
-        && (needs.voice.result == 'success' || needs.voice.result == 'skipped')
-        && (needs.graph.result == 'success' || needs.graph.result == 'skipped')
+        && needs.native-commit.result == 'success'
+        && (needs.coverage-gate.result == 'success' || (needs.plan.outputs.native_sinks != 'true' && needs.coverage-gate.result == 'skipped'))
+        && (needs.runtime.result == 'success' || (needs.plan.outputs.runtime_needed != 'true' && needs.runtime.result == 'skipped'))
+        && (needs.voice.result == 'success' || (needs.plan.outputs.voice_runtime_needed != 'true' && needs.voice.result == 'skipped'))
+        && (needs.graph.result == 'success' || (needs.plan.outputs.graph_build != 'true' && needs.graph.result == 'skipped'))
       }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     permissions:
-      contents: write # version commit and tag pushes
+      contents: write # the candidate ref only (scripts/ci/coverage/wiring.mjs: a candidate writer pushes refs/mixdog-candidates/ and nothing else)
     outputs:
       sha: ${{ steps.release.outputs.sha }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ needs.native-commit.outputs.sha }}
           fetch-depth: 0
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
 
-      - name: Commit synchronized app version and tag
-        id: release
+      # The manifests the native workers of this run generated from what they published (artifacts of this run, never a branch).
+      - name: Download the runtime manifest
+        if: needs.runtime.outputs.manifest_id != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.runtime.outputs.manifest_id }}
+          digest-mismatch: error
+          path: _manifests/runtime
+      - name: Download the voice runtime manifest
+        if: needs.voice.outputs.bundled_manifest == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: voice-runtime-manifest-${{ github.run_id }}
+          path: _manifests/voice
+      - name: Download the graph manifest
+        if: needs.plan.outputs.graph_build == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: supply-records-${{ github.run_id }}
+          path: _manifests/graph
+      - name: Bundle the manifests of the published native assets
         env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          VERSION: ${{ needs.plan.outputs.app_version }}
-          TAG: ${{ needs.plan.outputs.app_tag }}
-          GH_TOKEN: ${{ github.token }}
+          RUNTIME_TAG: ${{ needs.runtime.outputs.tag }}
+          RUNTIME_MANIFEST_ID: ${{ needs.runtime.outputs.manifest_id }}
         shell: bash
         run: |
           set -euo pipefail
-          git pull --ff-only origin "$DEFAULT_BRANCH"
+          if [[ -n "$RUNTIME_MANIFEST_ID" ]]; then
+            test "$(node -p "require('./_manifests/runtime/runtime-manifest.json').release_tag")" = "$RUNTIME_TAG"
+            cp _manifests/runtime/runtime-manifest.json src/runtime/memory/data/runtime-manifest.json
+          fi
+          if [[ -d _manifests/voice ]]; then node scripts/sync-voice-runtime-manifest.mjs _manifests/voice/voice-runtime-manifest.json; fi
+          if [[ -d _manifests/graph ]]; then cp _manifests/graph/graph-manifest.json src/runtime/agent/orchestrator/tools/graph-manifest.json; fi
+          rm -rf _manifests
+
+      - name: Commit synchronized app version and manifests
+        id: release
+        env:
+          BASE: ${{ needs.plan.outputs.sha }}
+          VERSION: ${{ needs.plan.outputs.app_version }}
+          TAG: ${{ needs.plan.outputs.app_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
           CURRENT=$(node -p "require('./package.json').version")
           if [[ "$CURRENT" != "$VERSION" ]]; then
             npm version "$VERSION" --no-git-tag-version --ignore-scripts
@@ -531,10 +496,12 @@ jobs:
           # the server manifest); one script sets it and the check proves the three agree.
           node scripts/set-core-version.mjs "$VERSION"
           node scripts/check-release-version.mjs
+          BASE_COMMIT_DATE=$(git show -s --format=%cI "$BASE")
+          export BASE_COMMIT_DATE
           node --input-type=module <<'NODE'
           import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
           const version = process.env.VERSION;
-          const date = new Date().toISOString().slice(0, 10);
+          const date = new Date(process.env.BASE_COMMIT_DATE).toISOString().slice(0, 10);
           // CHANGELOG.md and every translated changelog/<lang>.md are stamped alike.
           const files = [
             'CHANGELOG.md',
@@ -561,43 +528,40 @@ jobs:
             }
           }
           NODE
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json CHANGELOG.md changelog \
             apps/desktop/package.json apps/desktop/package-lock.json \
             apps/relay/package.json apps/relay/package-lock.json \
-            native/core/Cargo.toml native/core/Cargo.lock
+            native/core/Cargo.toml native/core/Cargo.lock \
+            src/runtime/memory/data/runtime-manifest.json \
+            src/runtime/channels/data/voice-runtime-manifest.json \
+            src/runtime/agent/orchestrator/tools/graph-manifest.json
           if ! git diff --cached --quiet; then
-            git commit -m "mixdog ${TAG}"
-            git push origin "HEAD:${DEFAULT_BRANCH}"
+            DATE=$(git show -s --format=%cI "$BASE")
+            GIT_AUTHOR_DATE="$DATE" GIT_COMMITTER_DATE="$DATE" \
+              git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "mixdog ${TAG}"
           fi
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-            REMOTE=$(git ls-remote --tags origin "refs/tags/${TAG}" | awk 'NR == 1 { print $1 }')
-            if [[ "$REMOTE" != "$(git rev-parse HEAD)" ]]; then
-              IS_DRAFT=$(gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null || true)
-              if [[ "$IS_DRAFT" == "false" ]]; then
-                echo "::error::Published tag ${TAG} is immutable and does not match main."
-                exit 1
-              fi
-              echo "Moving unpublished recovery tag ${TAG} to the synchronized release commit."
-              git tag --force "$TAG"
-              git push --force origin "refs/tags/${TAG}"
-            fi
-          else
-            git tag "$TAG"
-            git push origin "refs/tags/${TAG}"
+          test -z "$(git status --porcelain)"
+          SHA=$(git rev-parse HEAD)
+          # A pushed release tag is never moved: a tag left by an earlier run must already name this commit (a re-run of the same
+          # deploy), otherwise the release cannot be made under it.
+          REMOTE=$(git ls-remote --tags origin "refs/tags/${TAG}" | awk 'NR == 1 { print $1 }')
+          if [[ -n "$REMOTE" && "$REMOTE" != "$SHA" ]]; then
+            echo "::error::${TAG} already names ${REMOTE}, not this release commit ${SHA}; a release tag is never moved. Release the next version instead."
+            exit 1
           fi
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [[ "$SHA" != "$BASE" ]]; then git push origin "${SHA}:refs/mixdog-candidates/${GITHUB_RUN_ID}/app"; fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
-  # iOS ships beside the release, not inside it: a failed upload or beta-review
-  # submission fails this job (and the run) loudly but holds back neither the
-  # desktop publish nor the relay, and TestFlight review is never awaited.
-  # Android ships inside release.yml because the relay deploy waits for it.
+  # iOS ships after the release: a TestFlight upload is an external mutation, so it runs only once the release call (whose
+  # `coverage-gate` covered this exact commit, and whose publish needs it) has succeeded. A failed upload or beta-review submission
+  # fails this job (and the run) loudly but holds back neither the desktop publish nor the relay, and TestFlight review is never
+  # awaited. Android ships inside release.yml because the relay deploy waits for it.
   mobile-ios:
     name: release-mobile-ios
-    needs: [plan, prepare-app]
+    needs: [plan, prepare-app, release]
     # prepare-app's transitive skips would fail the implicit success().
-    if: ${{ !cancelled() && needs.prepare-app.result == 'success' && needs.plan.outputs.mobile_release == 'true' }}
+    if: ${{ !cancelled() && needs.prepare-app.result == 'success' && needs.release.result == 'success' && needs.plan.outputs.mobile_release == 'true' }}
     uses: ./.github/workflows/mobile-ios.yml
     permissions:
       contents: read
@@ -627,9 +591,33 @@ jobs:
     with:
       tag: ${{ needs.plan.outputs.app_tag }}
       ref: ${{ needs.prepare-app.outputs.sha }}
-      run_critical: ${{ needs.plan.outputs.run_critical == 'true' }}
+      base: ${{ needs.plan.outputs.sha }}
       mobile_version: ${{ needs.plan.outputs.mobile_version }} # empty: no mobile release
     secrets: inherit
+
+  # Failed attempts retain their candidate refs so successful producers can
+  # be reused by a retry. A successful release is reachable from public refs.
+  candidate-cleanup:
+    name: remove-candidate-refs
+    needs: [native-commit, prepare-app, release]
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # deletes refs/mixdog-candidates/<run>/* only
+    steps:
+      - name: Delete this run's candidate refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/mixdog-candidates/${GITHUB_RUN_ID}/" --jq '.[].ref' > /tmp/candidates
+          while IFS= read -r ref; do
+            name=${ref#"refs/mixdog-candidates/${GITHUB_RUN_ID}/"}
+            [[ "$name" != "$ref" && "$name" != */* ]]
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/mixdog-candidates/${GITHUB_RUN_ID}/${name}"
+          done < /tmp/candidates
 
   # Last job: confirm what users will actually see once publish and the relay
   # deploy are done (Latest pointer, update feeds, npm, relay /app link).

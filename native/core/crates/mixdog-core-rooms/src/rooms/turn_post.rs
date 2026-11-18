@@ -15,6 +15,12 @@ use super::turn_answer::{SessionAnswer, empty_finished_turn, session_final_answe
 use super::turn_host::{MemberLabel, RoomRecord, RoomTurnHost, TurnState};
 
 #[cfg(test)]
+mod feature_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(test)]
 mod tests;
 
 /// How a turn was halted while it waited (`HaltOutcome`).
@@ -163,7 +169,8 @@ pub async fn post_speech(host: &dyn RoomTurnHost, state: &TurnState, room: &Mute
         row.insert("tools".into(), Value::Array(tools.into_iter().map(|(name, summary)| json!({ "name": name, "summary": summary })).collect()));
     }
     post_failures(host, state).await?;
-    host.post(vec![Value::Object(row)]).await?;
+    // The words and the end of the speaker's turn are one update: no revision shows the words with the speaker still typing.
+    host.post_ending_turn(vec![Value::Object(row)], state).await?;
     state.set_waiting(false);
     // The cursor stays on the last row this turn was handed: a message that landed while the member
     // spoke sits after it and reaches the next turn.

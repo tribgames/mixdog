@@ -3,7 +3,9 @@ import test from 'node:test';
 import React, { act } from 'react';
 
 import { installTestDom } from '../test-support/test-dom.mjs';
+import { BROWSER_PERMISSION_KINDS } from '../../shared/browser-permission-policy.ts';
 import { AuthPanel } from './auth-panel.tsx';
+import { BrowserPermissionsGroup } from './browser-permissions.tsx';
 
 const DOM = {
   rootId: 'root',
@@ -17,7 +19,7 @@ function makeApi() {
       {
         id: 'a'.repeat(24),
         origin: 'https://github.com',
-        username: 'tempest',
+        username: 'sample',
         hasPassword: true,
         hasTotp: true,
         source: 'chrome',
@@ -51,7 +53,7 @@ test('the page renders one row per site from the vault and cookies, with no secr
   const text = main.textContent;
   // Vault logins and the cookie-only site all appear, one row each.
   assert.ok(text.includes('github.com'), 'github row');
-  assert.ok(text.includes('tempest'), 'the username from the vault');
+  assert.ok(text.includes('sample'), 'the username from the vault');
   assert.ok(text.includes('me@example.com'), 'the second vault login');
   assert.ok(!text.includes('naver.com'), 'the cookie-only site sits behind the second option');
   const rows = main.querySelectorAll('.auth-row');
@@ -161,6 +163,136 @@ test('with no logins: primary Import, an import hint, no switch or search, setti
   assert.equal(doc.querySelectorAll('.mixdog-settings__row').length, 3, 'the toggles remain');
 });
 
+test('a failed first settings read hides the toggles and site permissions until an announcement reads them', async (t) => {
+  let read = () => Promise.reject(new Error('core not ready'));
+  const listeners = new Set();
+  const defaults = Object.fromEntries(BROWSER_PERMISSION_KINDS.map((kind) => [kind, 'ask']));
+  const api = {
+    ...makeApi(),
+    readSettings: () => read(),
+    setBrowserPermissions: async () => undefined,
+    subscribeSettingsChanged: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const dom = await mount(t, api);
+  const doc = dom.window.document;
+  assert.equal(doc.querySelectorAll('.mixdog-settings__row').length, 0, 'unknown toggles are not shown off');
+  assert.ok(!doc.body.textContent.includes('Site permissions'));
+  read = async () => ({ saveChatLogins: false, browserPermissions: { defaults, sites: [] } });
+  await act(async () => {
+    for (const listener of [...listeners]) listener({ scope: 'desktop' });
+  });
+  await settle();
+  const toggles = [...doc.querySelectorAll('input[type="checkbox"]')].map((input) => input.checked);
+  assert.deepEqual(toggles, [true, false, false], 'auto sign-in on by default, chat save off as stored, HID off');
+  assert.ok(doc.body.textContent.includes('Site permissions'));
+});
+
+test('a toggle write answering after a newer announcement read never restores the older settings', async (t) => {
+  let stored = { browserAutoSignIn: true, saveChatLogins: true };
+  const write = Promise.withResolvers();
+  const listeners = new Set();
+  const api = {
+    ...makeApi(),
+    readSettings: async () => stored,
+    updateSetting: () => write.promise,
+    subscribeSettingsChanged: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const dom = await mount(t, api);
+  const doc = dom.window.document;
+  const toggles = () => [...doc.querySelectorAll('input[type="checkbox"]')].map((input) => input.checked);
+  assert.deepEqual(toggles(), [true, true, false]);
+  await act(async () => doc.querySelector('input[type="checkbox"]').click());
+  assert.deepEqual(toggles(), [false, true, false], 'the choice shows at once');
+  // Chat saving was turned off elsewhere; the announcement's read answers before the auto-sign-in write does.
+  stored = { browserAutoSignIn: false, saveChatLogins: false };
+  await act(async () => {
+    for (const listener of [...listeners]) listener({ scope: 'desktop' });
+  });
+  await settle();
+  assert.deepEqual(toggles(), [false, false, false]);
+  await act(async () => write.resolve({ browserAutoSignIn: false, saveChatLogins: true }));
+  await settle();
+  assert.deepEqual(toggles(), [false, false, false], 'the late write answer does not turn chat saving back on');
+});
+
+test('two toggle writes that both fail leave the stored settings: chat saving never comes back on', async (t) => {
+  const writes = [];
+  const api = {
+    ...makeApi(),
+    readSettings: async () => ({ browserAutoSignIn: true, saveChatLogins: false }),
+    updateSetting: () => {
+      const answer = Promise.withResolvers();
+      writes.push(answer);
+      return answer.promise;
+    },
+  };
+  const dom = await mount(t, api);
+  const doc = dom.window.document;
+  const boxes = () => [...doc.querySelectorAll('input[type="checkbox"]')];
+  assert.deepEqual(
+    boxes().map((input) => input.checked),
+    [true, false, false]
+  );
+  await act(async () => boxes()[1].click());
+  await act(async () => boxes()[2].click());
+  assert.deepEqual(
+    boxes().map((input) => input.checked),
+    [true, true, true],
+    'both choices show while in flight'
+  );
+  await act(async () => writes[0].reject(new Error('disk')));
+  await settle();
+  await act(async () => writes[1].reject(new Error('disk')));
+  await settle();
+  assert.deepEqual(
+    boxes().map((input) => input.checked),
+    [true, false, false]
+  );
+});
+
+test('a site-permission write answering after a newer announcement read never restores the older policy', async (t) => {
+  const defaults = Object.fromEntries(BROWSER_PERMISSION_KINDS.map((kind) => [kind, 'ask']));
+  const camera = { origin: 'https://a.example', permission: 'media:video', setting: 'allow' };
+  const microphone = { origin: 'https://b.example', permission: 'media:audio', setting: 'block' };
+  let stored = { browserPermissions: { defaults, sites: [camera] } };
+  const write = Promise.withResolvers();
+  const listeners = new Set();
+  const api = {
+    readSettings: async () => stored,
+    setBrowserPermissions: () => write.promise,
+    subscribeSettingsChanged: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const dom = installTestDom(t, DOM);
+  await act(async () => dom.root.render(React.createElement(BrowserPermissionsGroup, { api, active: true })));
+  await settle();
+  const doc = dom.window.document;
+  const sites = () => [...doc.querySelectorAll('.browser-permission-sites li')].map((row) => row.textContent);
+  assert.equal(sites().length, 1);
+  const remove = [...doc.querySelectorAll('.browser-permission-sites button')].find((b) => b.textContent === 'Remove');
+  await act(async () => remove.click());
+  assert.equal(sites().length, 0, 'the removal shows at once');
+  // Another device added a microphone rule; the announcement's read answers before the removal does.
+  stored = { browserPermissions: { defaults, sites: [microphone] } };
+  await act(async () => {
+    for (const listener of [...listeners]) listener({ scope: 'desktop' });
+  });
+  await settle();
+  assert.equal(sites().length, 0, 'the pending removal (the whole policy it sends) still shows on top');
+  await act(async () => write.resolve({ browserPermissions: { defaults, sites: [] } }));
+  await settle();
+  assert.equal(sites().length, 1, 'the late write answer does not drop the newer rule');
+  assert.match(sites()[0], /b\.example/);
+});
+
 test('with logins Import is not primary, and the text button opens the clear-all confirm', async (t) => {
   const api = { ...makeApi(), browserClearSignIns: async () => undefined };
   const dom = await mount(t, api);
@@ -179,7 +311,7 @@ test('linked sign-ins list with the cookie-only logins: provider pill, identity,
       site: 'chatgpt.com',
       redirectHost: 'auth.openai.com',
       provider: 'google.com',
-      identity: 'tempest1033@gmail.com',
+      identity: 'sample.user1@gmail.com',
       lastUsedAt: 2,
     },
     {
@@ -218,7 +350,7 @@ test('linked sign-ins list with the cookie-only logins: provider pill, identity,
     [...doc.querySelectorAll('.auth-row')].find((entry) => entry.querySelector('b').textContent === host);
   const chatgpt = row('chatgpt.com');
   assert.equal(chatgpt.querySelector('.auth-pill-linked').textContent, 'Google');
-  assert.equal(chatgpt.querySelector('.auth-user').textContent, 'tempest1033@gmail.com');
+  assert.equal(chatgpt.querySelector('.auth-user').textContent, 'sample.user1@gmail.com');
   assert.match(chatgpt.querySelector('.auth-source').textContent, /Linked sign-in/);
   assert.equal(row('vercel.com').querySelector('.auth-pill-linked').textContent, 'GitHub');
   assert.equal(row('vercel.com').querySelector('.auth-user'), null, 'no account named: none shown');
@@ -232,7 +364,7 @@ test('linked sign-ins list with the cookie-only logins: provider pill, identity,
       setNativeValue.call(search, value);
       search.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
     });
-  await type('TEMPEST1033');
+  await type('SAMPLE.USER1');
   assert.deepEqual(rowHosts(doc), ['chatgpt.com']);
   await type('github');
   assert.deepEqual(rowHosts(doc), ['vercel.com']);

@@ -68,8 +68,6 @@ impl std::fmt::Display for GuardError {
     }
 }
 
-impl std::error::Error for GuardError {}
-
 impl From<io::Error> for GuardError {
     fn from(error: io::Error) -> Self {
         GuardError::Io(error)
@@ -100,6 +98,83 @@ pub struct Env {
 
 type GuardEnvLookup = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
+/// `path.normalize`: `.` and `..` folded, one separator, `\` on Windows.
+fn fold(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    let mut depth = 0_usize;
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if depth > 0 {
+                    out.pop();
+                    depth -= 1;
+                } else if !out.has_root() {
+                    out.push("..");
+                }
+            }
+            Component::Normal(name) => {
+                out.push(name);
+                depth += 1;
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// `path.join(base, ...parts)`.
+fn join(base: &Path, parts: &[&str]) -> PathBuf {
+    let mut joined = base.to_path_buf();
+    joined.extend(parts);
+    fold(&joined)
+}
+
+/// The first sixteen hex digits of the SHA-256 of `text`.
+pub(crate) fn hash16(text: &str) -> String {
+    Sha256::digest(text.as_bytes()).iter().take(8).map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// `JSON.parse(readFileSync(path, 'utf8'))`: a missing file is `NotFound`, text that is not JSON a `Syntax` error.
+fn read_json(path: &Path) -> Result<Value, GuardError> {
+    let bytes = mixdog_statefile::read_content(path)?.ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+    mixdog_js::json_parse(&String::from_utf8_lossy(&bytes)).map_err(|error| GuardError::Syntax(error.to_string()))
+}
+
+/// What the guard keeps between calls in a process (module-level state in Node).
+#[derive(Default)]
+struct State {
+    counter: names::Counter,
+    /// Data dirs whose first scoped snapshot is known to exist (`ensuredDataDirs`).
+    ensured: HashSet<String>,
+    /// `restoreLookupCache`: keyed by data dir.
+    restore: HashMap<String, RestoreHit>,
+    /// `legacyEvidenceCache`: keyed by data dir.
+    legacy: HashMap<String, LegacyHit>,
+}
+
+struct RestoreHit {
+    root: PathBuf,
+    instance_id: String,
+    config: Option<Value>,
+}
+
+struct LegacyHit {
+    roots: String,
+    evidence: Option<LegacyEvidence>,
+}
+
+/// The guard of one process: its environment, clock, id source and log, and what it remembers.
+pub struct UserData {
+    env: Env,
+    clock: Box<dyn Fn() -> i64 + Send + Sync>,
+    new_id: Box<dyn Fn() -> String + Send + Sync>,
+    log: Box<dyn Fn(&str) + Send + Sync>,
+    state: Mutex<State>,
+}
+
+
+impl std::error::Error for GuardError {}
 impl Env {
     /// The process environment and its home directory.
     pub fn process() -> Self {
@@ -155,94 +230,16 @@ impl Env {
         (self.var)("MIXDOG_SETUP_QUIET").as_deref() == Some("1")
     }
 }
-
-/// `path.normalize`: `.` and `..` folded, one separator, `\` on Windows.
-fn fold(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    let mut depth = 0_usize;
-    for part in path.components() {
-        match part {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if depth > 0 {
-                    out.pop();
-                    depth -= 1;
-                } else if !out.has_root() {
-                    out.push("..");
-                }
-            }
-            Component::Normal(name) => {
-                out.push(name);
-                depth += 1;
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
-}
-
-/// `path.join(base, ...parts)`.
-fn join(base: &Path, parts: &[&str]) -> PathBuf {
-    let mut joined = base.to_path_buf();
-    joined.extend(parts);
-    fold(&joined)
-}
-
 /// `path.resolve(p)`: absolute against the working directory, folded.
 fn resolve(path: &Path) -> PathBuf {
     let joined = std::env::current_dir().unwrap_or_default().join(path);
     fold(&std::path::absolute(&joined).unwrap_or(joined))
 }
-
 /// `normalizeDataDir(dataDir)`: resolved, and lower-cased where paths are case-insensitive (Windows).
 pub(crate) fn normalize_data_dir(data_dir: &Path) -> String {
     let full = resolve(data_dir).to_string_lossy().into_owned();
     if cfg!(windows) { mixdog_js::js_to_lowercase(&full) } else { full }
 }
-
-/// The first sixteen hex digits of the SHA-256 of `text`.
-pub(crate) fn hash16(text: &str) -> String {
-    Sha256::digest(text.as_bytes()).iter().take(8).map(|byte| format!("{byte:02x}")).collect()
-}
-
-/// `JSON.parse(readFileSync(path, 'utf8'))`: a missing file is `NotFound`, text that is not JSON a `Syntax` error.
-fn read_json(path: &Path) -> Result<Value, GuardError> {
-    let bytes = mixdog_statefile::read_content(path)?.ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
-    mixdog_js::json_parse(&String::from_utf8_lossy(&bytes)).map_err(|error| GuardError::Syntax(error.to_string()))
-}
-
-/// What the guard keeps between calls in a process (module-level state in Node).
-#[derive(Default)]
-struct State {
-    counter: names::Counter,
-    /// Data dirs whose first scoped snapshot is known to exist (`ensuredDataDirs`).
-    ensured: HashSet<String>,
-    /// `restoreLookupCache`: keyed by data dir.
-    restore: HashMap<String, RestoreHit>,
-    /// `legacyEvidenceCache`: keyed by data dir.
-    legacy: HashMap<String, LegacyHit>,
-}
-
-struct RestoreHit {
-    root: PathBuf,
-    instance_id: String,
-    config: Option<Value>,
-}
-
-struct LegacyHit {
-    roots: String,
-    evidence: Option<LegacyEvidence>,
-}
-
-/// The guard of one process: its environment, clock, id source and log, and what it remembers.
-pub struct UserData {
-    env: Env,
-    clock: Box<dyn Fn() -> i64 + Send + Sync>,
-    new_id: Box<dyn Fn() -> String + Send + Sync>,
-    log: Box<dyn Fn(&str) + Send + Sync>,
-    state: Mutex<State>,
-}
-
 impl UserData {
     /// The process's guard: the process environment, the wall clock, random ids, and the log of the daemon. Every
     /// `Config` of the process shares it, as the Node module's state is shared.

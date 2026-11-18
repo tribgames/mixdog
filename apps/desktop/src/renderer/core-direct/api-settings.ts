@@ -5,8 +5,7 @@
 //
 // Every call that was a desktop operation runs through the shared operation lane (shared/core-lanes), so the request is the one
 // the main process sent for the same IPC call. Input checks live in the core, not here. Settings > Notifications' write is the
-// one exception to the lane: it follows main/ipc-notifications.ts (the preference key `notifications.devices.<id>` with the
-// write's own `announce: 'notifications'`), which the lane's operation does not carry.
+// one exception to the lane: the core announces changes to `notifications.devices.<id>` when it saves the preference.
 //
 // The two announcements the core sends (`ui/settings/changed`, `ui/providerModels/changed`) arrive as notifications
 // (watchAnnouncements). The other events are what the held sections show changing: the `config` subtrees (`desktop` pins,
@@ -16,7 +15,8 @@ import { remoteAccessInfoFromDescriptor } from '../../main/remote-access-window.
 import type { ConnectionStoreChange } from '../../main/protocol/connection';
 import type { DesktopApi } from '../../shared/contract';
 import { NOTIFICATION_PC_DEVICE_ID, type NotificationPreferencesState } from '../../shared/contract-notifications';
-import { readOrchestrationModeChange, type OrchestrationModeChange } from '../../shared/orchestration-mode';
+import type { DesktopRemoteConnectionState } from '../../shared/contract-workspace';
+import { configuredOrchestrationMode } from '../../shared/orchestration-mode';
 import { notificationPreferencesStateOf, notificationWriteMode } from '../../shared/notification-state';
 import { PROVIDER_MODELS_EVENT } from '../../shared/provider-models';
 import { SETTINGS_CHANGED_EVENT } from '../../shared/settings-changed';
@@ -35,9 +35,6 @@ import type { DirectContext } from './context.ts';
 import { withDirectErrors } from './errors.ts';
 
 type SettingsApi = Pick<DesktopApi, DirectKey<'settings'>>;
-
-/** The orchestration default when the `agent` subtree names none or an unknown one (configured_orchestration_mode). */
-const DEFAULT_ORCHESTRATION_MODE: OrchestrationModeChange['mode'] = 'balanced';
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -116,9 +113,7 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
       // A tell, not state: one the window was not there for (a snapshot) is not delivered.
       if (change.type === 'section' && change.section === 'reviewDiff' && !announcingSnapshot()) listener();
     });
-  const configuredMode = (): OrchestrationModeChange['mode'] =>
-    readOrchestrationModeChange({ mode: record(held('config', 'agent')).orchestrationMode })?.mode ??
-    DEFAULT_ORCHESTRATION_MODE;
+  const configuredMode = () => configuredOrchestrationMode(held('config', 'agent'));
   const subscribeOrchestration: NonNullable<SettingsApi['subscribeOrchestrationModeChanged']> = (listener) => {
     let told = configuredMode();
     return followSection('config', 'agent', (change) => {
@@ -201,7 +196,6 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
             path: `notifications.devices.${deviceId}`,
             value: patch,
             mode,
-            announce: 'notifications',
           });
           return preferencesState();
         })()
@@ -241,6 +235,8 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
       (await op('remoteAccessResolveClaim', [claimId, approved])) === true,
     getRemotePairCode: (action) => op('remoteAccessPairCode', [action]),
     getRemoteAccessInfo: (options) => access('remoteAccessInfo', [options?.activate !== false]),
+    getRemoteConnectionState: () =>
+      withDirectErrors(ctx.call('remoteAccess/state', {}) as Promise<DesktopRemoteConnectionState>),
     subscribeRemoteClientClaim: subscribeRemoteClaims,
     getRemoteAccessSettings: () => op('remoteAccessSettings'),
     subscribeRemoteAccessSettings: subscribeRemoteSettings,

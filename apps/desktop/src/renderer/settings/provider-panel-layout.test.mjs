@@ -36,7 +36,7 @@ const SETUP = {
   ],
 };
 
-async function mountPanel(t, setup = SETUP) {
+async function mountPanel(t, setup = SETUP, saveKey = async () => true) {
   window.mixdogDesktop = { getQuotaAutoResume: async () => true, setQuotaAutoResume: async (next) => next };
   const runs = [];
   let root = null;
@@ -61,9 +61,9 @@ async function mountPanel(t, setup = SETUP) {
           api,
           data: { providerSetup: setup, __loadedSections: ['providerSetup'] },
           pending: '',
-          run: async (...args) => {
-            runs.push(args);
-            return undefined;
+          run: async (capability, args, key) => {
+            runs.push([capability, args, key]);
+            return capability === 'saveProviderApiKey' ? saveKey() : undefined;
           },
           confirm: () => {},
         })
@@ -168,6 +168,29 @@ test('an API-key row reveals its form after Connect, one row at a time, and focu
   assert.deepEqual(saves, [['saveProviderApiKey', ['deepseek', 'sk-test'], 'provider-key-deepseek']]);
   assert.equal(api.querySelector('input[type="password"]'), null);
   assert.equal(document.activeElement, buttonIn(deepseek, 'Connect'));
+});
+
+test('a rejected API-key save keeps the draft in the open form for retry', async (t) => {
+  let rejectSave = true;
+  await mountPanel(t, SETUP, async () => {
+    if (rejectSave) throw new Error('rejected: sk-test-draft');
+    return true;
+  });
+  const connect = document.querySelector('[data-provider-connect="deepseek"]');
+  const row = connect.closest('.settings-resource');
+  await click(connect);
+  const input = row.querySelector('input[type="password"]');
+  input.value = 'sk-test-draft';
+  const submit = () => act(async () => input.form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+  await submit();
+  assert.equal(row.querySelector('input[type="password"]')?.value, 'sk-test-draft');
+  const alert = row.querySelector('[role="alert"]');
+  assert.ok(alert?.textContent.trim(), 'the save failure is shown');
+  assert.doesNotMatch(alert.textContent, /sk-test-draft/);
+
+  rejectSave = false;
+  await submit();
+  assert.equal(row.querySelector('input[type="password"]'), null, 'confirmed save closes the form');
 });
 
 test('Vertex AI switches to gcloud login, shows the detected login and saves without a key', async (t) => {

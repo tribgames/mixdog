@@ -142,15 +142,19 @@ impl AgentEffects for DaemonAgentEffects {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use std::sync::Mutex;
 
     use serde_json::json;
 
+    #[cfg(node_twin)]
     use super::super::profile_changes::ProfileListener;
     use super::*;
 
+    #[cfg(node_twin)]
     type Log = Arc<Mutex<Vec<Value>>>;
 
+    #[cfg(node_twin)]
     struct Channels {
         log: Log,
         owned: Mutex<Vec<OwnedRoutines>>,
@@ -158,6 +162,7 @@ mod tests {
         reload_failure: Option<String>,
     }
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl RoutineChannels for Channels {
         async fn delete_owned(&self, agent_id: &str) -> Result<OwnedRoutines, String> {
@@ -177,8 +182,10 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Routes(Log);
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl AgentRouteSetting for Routes {
         async fn set(&self, agent_id: &str, route: &Obj) -> Result<(), String> {
@@ -187,8 +194,10 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Listener(Log);
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl ProfileListener for Listener {
         async fn changed(&self) -> Result<(), String> {
@@ -197,10 +206,21 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_route_spreads_as_javascript_spreads_it() {
+        assert_eq!(Value::Object(spread(&json!({ "provider": "openai" })).unwrap()), json!({ "provider": "openai" }));
+        assert_eq!(Value::Object(spread(&json!("abc")).unwrap()), json!({ "0": "a", "1": "b", "2": "c" }));
+        assert_eq!(Value::Object(spread(&json!(["x", "y"])).unwrap()), json!({ "0": "x", "1": "y" }));
+        assert_eq!(Value::Object(spread(&json!(5)).unwrap()), json!({}));
+        assert!(spread(&json!("😀")).is_err());
+    }
+
+
+    #[cfg(node_twin)]
     fn golden() -> Value {
         serde_json::from_str(include_str!("../../../../fixtures/agent-effects/golden.json")).expect("the golden is JSON")
     }
-
+    #[cfg(node_twin)]
     /// Replays the effect calls of every recorded Node scene (`calls`, in Node's order, with the
     /// route Node handed to `setAgentRoute`) and compares what reached the sinks, the `*Soon`
     /// reload included, with what Node's sinks saw; the outcome is the recorded one.
@@ -259,14 +279,5 @@ mod tests {
                 (recorded, got) => panic!("scene {scene}: recorded {recorded}, got {got:?}"),
             }
         }
-    }
-
-    #[test]
-    fn a_route_spreads_as_javascript_spreads_it() {
-        assert_eq!(Value::Object(spread(&json!({ "provider": "openai" })).unwrap()), json!({ "provider": "openai" }));
-        assert_eq!(Value::Object(spread(&json!("abc")).unwrap()), json!({ "0": "a", "1": "b", "2": "c" }));
-        assert_eq!(Value::Object(spread(&json!(["x", "y"])).unwrap()), json!({ "0": "x", "1": "y" }));
-        assert_eq!(Value::Object(spread(&json!(5)).unwrap()), json!({}));
-        assert!(spread(&json!("😀")).is_err());
     }
 }

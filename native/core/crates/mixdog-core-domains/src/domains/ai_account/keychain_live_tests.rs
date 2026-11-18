@@ -1,5 +1,4 @@
-//! `HolderLive` over the keychain health: what `status()` shows, and the retry rules (Linux only,
-//! interactive only, answering whether the keyring is `ok` afterwards).
+//! `HolderLive` over keyring health, including passive focus checks and explicit unlocks.
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -16,17 +15,22 @@ use mixdog_secrets::TrackedStore;
 use super::keychain_live::HolderLive;
 use super::setup_cache::KeychainLive;
 
-/// Answers each lookup from a script and counts them.
+/// Answers collection health probes without supplying credential values.
 struct Keyring {
-    answers: Mutex<Vec<Result<Option<String>, SecretError>>>,
+    answers: Mutex<Vec<Result<(), SecretError>>>,
     asked: AtomicUsize,
+    interactive: Mutex<Vec<bool>>,
 }
 
 #[async_trait]
 impl SecretStore for Keyring {
-    async fn get(&self, _: &str) -> Result<Option<String>, SecretError> {
+    async fn probe_keychain(&self, interactive: bool) -> Result<(), SecretError> {
         self.asked.fetch_add(1, Ordering::SeqCst);
+        self.interactive.lock().unwrap().push(interactive);
         self.answers.lock().unwrap().remove(0)
+    }
+    async fn get(&self, _: &str) -> Result<Option<String>, SecretError> {
+        unreachable!("keyring health does not read credentials")
     }
     async fn set(&self, _: &str, _: &str) -> Result<(), SecretError> {
         unreachable!("the retry only looks up")
@@ -36,9 +40,9 @@ impl SecretStore for Keyring {
     }
 }
 
-fn live(linux: bool, answers: Vec<Result<Option<String>, SecretError>>) -> (HolderLive, Arc<StatusTracker>, Arc<Keyring>) {
+fn live(linux: bool, answers: Vec<Result<(), SecretError>>) -> (HolderLive, Arc<StatusTracker>, Arc<Keyring>) {
     let tracker = StatusTracker::new(linux, Arc::new(|| {}));
-    let keyring = Arc::new(Keyring { answers: Mutex::new(answers), asked: AtomicUsize::new(0) });
+    let keyring = Arc::new(Keyring { answers: Mutex::new(answers), asked: AtomicUsize::new(0), interactive: Mutex::new(Vec::new()) });
     let tracked = Arc::new(TrackedStore::new(keyring.clone(), Arc::clone(&tracker)));
     let tokens = mixdog_rt::testing::tokens();
     let live = HolderLive::new(Arc::clone(&tracker), tracked, tokens.durability_io, std::env::temp_dir());
@@ -72,29 +76,26 @@ fn live_ok() -> (HolderLive, Arc<StatusTracker>, Arc<Keyring>) {
     (live, tracker, keyring)
 }
 
-/// The retry's one lookup goes straight to a `SecretStore`, not through the vault: the store counts it, once.
 #[tokio::test]
-async fn an_interactive_retry_is_one_credential_read_and_a_refused_one_reads_nothing() {
-    let tracker = StatusTracker::new(true, Arc::new(|| {}));
-    let tracked = Arc::new(TrackedStore::new(Arc::new(mixdog_secrets::MemoryStore::default()), Arc::clone(&tracker)));
-    let live = HolderLive::new(Arc::clone(&tracker), tracked, mixdog_rt::testing::tokens().durability_io, std::env::temp_dir());
-    tracker.note_failure("the keyring is locked", FailureCode::Other);
-    let before = mixdog_ai::work::credential_reads();
-    assert!(!live.retry(false).await);
-    assert_eq!(mixdog_ai::work::credential_reads() - before, 0, "a retry that may not prompt asks nothing");
-    assert!(live.retry(true).await, "the lookup answered");
-    assert_eq!(mixdog_ai::work::credential_reads() - before, 1, "one lookup, one read");
+async fn a_focus_check_reports_external_lock_and_unlock_without_asking_to_unlock() {
+    let (live, tracker, keyring) = live(true, vec![Err(SecretError::new("the keyring is locked")), Ok(())]);
+    tracker.note_ok();
+    assert!(live.refresh(true).await);
+    assert_eq!(live.status().state, "locked");
+    assert!(live.refresh(true).await);
+    assert_eq!(live.status().state, "ok");
+    assert_eq!(*keyring.interactive.lock().unwrap(), vec![false, false]);
 }
 
 #[tokio::test]
 async fn an_interactive_retry_asks_the_keyring_again_and_reports_whether_it_recovered() {
-    let (live, tracker, keyring) = live(true, vec![Err(SecretError::new("the keyring is locked")), Ok(None)]);
+    let (live, tracker, keyring) = live(true, vec![Err(SecretError::new("the keyring is locked")), Ok(())]);
     tracker.note_failure("the keyring is locked", FailureCode::Other);
     assert!(!live.retry(false).await, "a retry that may not prompt changes nothing");
     assert_eq!(keyring.asked.load(Ordering::SeqCst), 0);
     assert!(!live.retry(true).await, "still locked");
     assert_eq!(live.status().state, "locked");
-    assert!(live.retry(true).await, "unlocked: the lookup answered");
+    assert!(live.retry(true).await, "the collection is unlocked");
     assert_eq!(live.status().state, "ok");
-    assert!(!live.refresh(true).await, "no cache to re-snapshot");
+    assert_eq!(*keyring.interactive.lock().unwrap(), vec![true, true]);
 }

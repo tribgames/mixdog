@@ -15,7 +15,7 @@ use mixdog_core_api::domain::provider::StreamEvent;
 /// stream progress of a visible kind (`isVisibleStreamProgress`: text, reasoning, tool).
 fn shows_output(event: &StreamEvent) -> bool {
     match event {
-        StreamEvent::TextDelta(_) | StreamEvent::ReasoningDelta(_) | StreamEvent::ToolCallDone(_) => true,
+        StreamEvent::TextDelta(_) | StreamEvent::ReasoningDelta(_) | StreamEvent::ProgressDelta(_) | StreamEvent::ToolCallDone(_) => true,
         StreamEvent::Progress(kind) | StreamEvent::ChunkProgress(Some(kind)) => kind.is_visible(),
         _ => false,
     }

@@ -10,13 +10,6 @@ use std::sync::LazyLock;
 use serde_json::Map;
 use serde_json::Value;
 
-/// `GITHUB_OUTPUT_MAX_BYTES` (`shared/tool-output-limit.mjs`): `positiveEnvInt('MIXDOG_GITHUB_OUTPUT_MAX_BYTES', 10 * 1024)`,
-/// read once as Node reads it when the module loads.
-pub fn output_max_bytes() -> usize {
-    static MAX: LazyLock<usize> = LazyLock::new(|| positive_env_int(std::env::var("MIXDOG_GITHUB_OUTPUT_MAX_BYTES").ok().as_deref(), 10 * 1024));
-    *MAX
-}
-
 /// `positiveEnvInt`: `parseInt(value, 10)` when it is finite and above 0, else `fallback`. `parseInt` reads the leading
 /// (optionally signed) digits after leading white space; a value past the double range is Infinity, not finite.
 pub fn positive_env_int(value: Option<&str>, fallback: usize) -> usize {
@@ -437,11 +430,6 @@ pub fn rows_were_cut(rows: &[Value]) -> bool {
     rows.iter().any(|row| row.as_object().is_some_and(|row| row.values().any(|value| value.as_str().is_some_and(|text| text.ends_with('…')))))
 }
 
-/// `Buffer.byteLength(text) <= GITHUB_OUTPUT_MAX_BYTES`; `text` is JSON, whose lone surrogates are escapes.
-pub fn fits(text: &str) -> bool {
-    text.len() <= output_max_bytes()
-}
-
 fn stringify(value: &Map<String, Value>) -> String {
     stringify_value(&Value::Object(value.clone()))
 }
@@ -477,21 +465,6 @@ fn longest_string(value: &Value) -> usize {
     }
 }
 
-/// `clampToFit`: the largest uniform string length that fits; long bodies shrink before structure.
-fn clamp_to_fit(build: impl Fn(Value) -> String, data: &Value, result: &Map<String, Value>) -> String {
-    let (mut lo, mut hi) = (MIN_CLAMPED_STRING, MIN_CLAMPED_STRING.max(longest_string(data)));
-    while lo < hi {
-        let mid = (lo + hi).div_ceil(2);
-        if fits(&build(clamp_strings(data, mid))) {
-            lo = mid;
-        } else {
-            hi = mid - 1;
-        }
-    }
-    let text = build(clamp_strings(data, lo));
-    if fits(&text) { text } else { structural_view(result, data) }
-}
-
 fn bounded_view(value: &Value, count: usize, depth: usize) -> Value {
     match value {
         Value::String(_) => clamp_strings(value, MIN_CLAMPED_STRING),
@@ -516,6 +489,59 @@ fn longest_array(value: &Value) -> usize {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Node: `JSON.stringify(('a'.repeat(199) + '😀').slice(0, 200))` keeps the high surrogate as `\ud83d`, six bytes.
+    #[test]
+    fn a_cut_inside_a_pair_keeps_the_lone_surrogate_and_counts_its_escape() {
+        let text = parsed(&Value::String(format!("{}😀", "a".repeat(199))));
+        let clamped = stringify_value(&clamp_strings(&text, 200));
+        assert_eq!(clamped, format!("\"{}\\ud83d… [1 more chars in raw]\"", "a".repeat(199)));
+        assert_eq!(clamped.len(), 1 + 199 + 6 + "… [1 more chars in raw]".len() + 1);
+    }
+
+    /// `positiveEnvInt`: `parseInt(value, 10)` when finite and positive, else the fallback.
+    #[test]
+    fn the_output_cap_reads_its_variable_as_parse_int_does() {
+        let read = |value: Option<&str>| positive_env_int(value, 10 * 1024);
+        assert_eq!(read(Some("512")), 512);
+        assert_eq!(read(Some("  512bytes")), 512);
+        assert_eq!(read(Some("+7")), 7);
+        assert_eq!(read(Some("1e3")), 1);
+        for fallback in [None, Some(""), Some("0"), Some("-5"), Some("abc"), Some("0x200")] {
+            assert_eq!(read(fallback), 10 * 1024, "{fallback:?}");
+        }
+        assert_eq!(read(Some(&"9".repeat(400))), 10 * 1024, "Infinity is not finite");
+    }
+}
+
+
+/// `GITHUB_OUTPUT_MAX_BYTES` (`shared/tool-output-limit.mjs`): `positiveEnvInt('MIXDOG_GITHUB_OUTPUT_MAX_BYTES', 10 * 1024)`,
+/// read once as Node reads it when the module loads.
+pub fn output_max_bytes() -> usize {
+    static MAX: LazyLock<usize> = LazyLock::new(|| positive_env_int(std::env::var("MIXDOG_GITHUB_OUTPUT_MAX_BYTES").ok().as_deref(), 10 * 1024));
+    *MAX
+}
+/// `Buffer.byteLength(text) <= GITHUB_OUTPUT_MAX_BYTES`; `text` is JSON, whose lone surrogates are escapes.
+pub fn fits(text: &str) -> bool {
+    text.len() <= output_max_bytes()
+}
+/// `clampToFit`: the largest uniform string length that fits; long bodies shrink before structure.
+fn clamp_to_fit(build: impl Fn(Value) -> String, data: &Value, result: &Map<String, Value>) -> String {
+    let (mut lo, mut hi) = (MIN_CLAMPED_STRING, MIN_CLAMPED_STRING.max(longest_string(data)));
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if fits(&build(clamp_strings(data, mid))) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    let text = build(clamp_strings(data, lo));
+    if fits(&text) { text } else { structural_view(result, data) }
+}
 /// `structuralView`: the largest per-array item count whose structural view fits; the minimal form only points at raw.
 fn structural_view(result: &Map<String, Value>, data: &Value) -> String {
     let build = |count: usize| {
@@ -548,7 +574,6 @@ fn structural_view(result: &Map<String, Value>, data: &Value) -> String {
     }
     build(lo)
 }
-
 /// `capRecords`: long bodies shrink first so the page overview stays complete; only then are trailing records left to raw.
 fn cap_records(result: &Map<String, Value>, data: &[Value]) -> String {
     let total = data.len();
@@ -575,7 +600,6 @@ fn cap_records(result: &Map<String, Value>, data: &[Value]) -> String {
     let shown = Value::Array(data[..lo.min(total)].to_vec());
     clamp_to_fit(|records| build(records, lo), &shown, result)
 }
-
 /// `capText`: the tail of a log, from a line start, with the line range stated.
 fn cap_text(result: &Map<String, Value>, text: &str, args: &Value) -> String {
     let code = mixdog_js::json_parsed_utf16(text);
@@ -611,7 +635,6 @@ fn cap_text(result: &Map<String, Value>, text: &str, args: &Value) -> String {
     }
     build(start)
 }
-
 /// `capGithubResult`.
 pub fn cap_result(result: &Map<String, Value>, args: &Value) -> String {
     match result.get("data") {
@@ -621,33 +644,5 @@ pub fn cap_result(result: &Map<String, Value>, args: &Value) -> String {
             let data = data.cloned().unwrap_or(Value::Null);
             clamp_to_fit(|value| with_data(result, value, &[]), &data, result)
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Node: `JSON.stringify(('a'.repeat(199) + '😀').slice(0, 200))` keeps the high surrogate as `\ud83d`, six bytes.
-    #[test]
-    fn a_cut_inside_a_pair_keeps_the_lone_surrogate_and_counts_its_escape() {
-        let text = parsed(&Value::String(format!("{}😀", "a".repeat(199))));
-        let clamped = stringify_value(&clamp_strings(&text, 200));
-        assert_eq!(clamped, format!("\"{}\\ud83d… [1 more chars in raw]\"", "a".repeat(199)));
-        assert_eq!(clamped.len(), 1 + 199 + 6 + "… [1 more chars in raw]".len() + 1);
-    }
-
-    /// `positiveEnvInt`: `parseInt(value, 10)` when finite and positive, else the fallback.
-    #[test]
-    fn the_output_cap_reads_its_variable_as_parse_int_does() {
-        let read = |value: Option<&str>| positive_env_int(value, 10 * 1024);
-        assert_eq!(read(Some("512")), 512);
-        assert_eq!(read(Some("  512bytes")), 512);
-        assert_eq!(read(Some("+7")), 7);
-        assert_eq!(read(Some("1e3")), 1);
-        for fallback in [None, Some(""), Some("0"), Some("-5"), Some("abc"), Some("0x200")] {
-            assert_eq!(read(fallback), 10 * 1024, "{fallback:?}");
-        }
-        assert_eq!(read(Some(&"9".repeat(400))), 10 * 1024, "Infinity is not finite");
     }
 }

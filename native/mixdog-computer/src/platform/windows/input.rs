@@ -4,14 +4,15 @@
 //! stopped session releases exactly what this host holds and nothing a
 //! person is holding.
 
-mod receipt;
+pub(crate) mod receipt;
 
 use crate::keys::{glyph_key, Key, Mod, Named};
 use crate::platform::Button;
-use receipt::{deliver_with, Event, Receipt};
+use crate::port::windows::WinPort;
+use receipt::{Event, Receipt};
 use std::os::windows::io::AsRawHandle;
 use std::sync::atomic::AtomicU8;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{
@@ -30,12 +31,10 @@ use windows::Win32::System::Threading::{
     PROCESS_DUP_HANDLE,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
-    KEYBD_EVENT_FLAGS, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE,
-    MOUSEEVENTF_ABSOLUTE,
-    MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
-    MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
-    MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, MOUSE_EVENT_FLAGS, MAPVK_VK_TO_VSC, VIRTUAL_KEY,
+    GetAsyncKeyState, MapVirtualKeyW, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE,
+    MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
+    MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK,
+    MOUSEEVENTF_WHEEL, MAPVK_VK_TO_VSC,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
@@ -119,7 +118,7 @@ fn wide(text: &str) -> Vec<u16> {
 
 /// The receipt's named mutex (OwnershipLock): one second to take it, and an
 /// owner that died holding it counts as gone.
-struct NamedMutex(HANDLE);
+pub(crate) struct NamedMutex(HANDLE);
 
 impl NamedMutex {
     fn open(name: &str) -> Option<NamedMutex> {
@@ -162,7 +161,7 @@ fn backing_file(create: bool) -> Option<std::fs::File> {
 
 /// The receipt's shared memory (InitializeOwnership), named by the input
 /// marker so the next helper and the abort cleanup reopen it by name.
-struct Section {
+pub(crate) struct Section {
     marker: i64,
     mapping: HANDLE,
     view: MEMORY_MAPPED_VIEW_ADDRESS,
@@ -191,7 +190,7 @@ impl Section {
 
     /// Reopens an existing section; when no process holds it any more, the file it was backed by
     /// (a crashed core's) brings it back.
-    fn open(marker: i64) -> Option<Section> {
+    pub(crate) fn open(marker: i64) -> Option<Section> {
         Section::map(marker, &Section::name(marker), false).or_else(|| {
             let file = backing_file(false)?;
             let section = Section::map_backed(marker, &Section::name(marker), true, Some(file))?;
@@ -278,7 +277,7 @@ impl Section {
         }
     }
 
-    fn receipt(&self) -> Receipt<'_, NamedMutex> {
+    pub(crate) fn receipt(&self) -> Receipt<'_, NamedMutex> {
         // SAFETY: the view maps SIZE bytes for the life of self, and AtomicU8
         // has the layout of u8.
         let bytes = unsafe { &*(self.view.Value as *const [AtomicU8; receipt::SIZE]) };
@@ -307,50 +306,33 @@ pub fn note_foreign(vk: u32, held: bool) {
     }
 }
 
-// --- sending -----------------------------------------------------------------
-
-fn key_down(vk: u16) -> bool {
-    // SAFETY: a plain key-state read.
-    (unsafe { GetAsyncKeyState(vk as i32) }) as u16 & 0x8000 != 0
+/// The receipt this host's input is tracked in, created on first use (and kept by the parent process when this one created
+/// it), or why there is none.
+pub(crate) fn section(marker: i64) -> Result<&'static Section, &'static str> {
+    if SECTION.get().is_none() {
+        if let Some(section) = Section::create(marker) {
+            // A section another process already holds is kept by it.
+            if section.fresh {
+                if let Err(error) = section.keep_in_parent() {
+                    eprintln!("mixdog-computer: input ownership receipt will not outlive this helper: {error}");
+                }
+            }
+            section.receipt().begin_observation(&key_down);
+            let _ = SECTION.set(section);
+        }
+    }
+    match SECTION.get() {
+        Some(section) if section.marker == marker => Ok(section),
+        Some(_) => Err("input_cleanup_unconfirmed: input ownership changed"),
+        None => Err("input_cleanup_unconfirmed: input ownership receipt is unavailable; no input was sent"),
+    }
 }
 
-/// Send: hands events to `SendInput` with the marker in their extra info.
-fn send_input(events: &[Event], marker: usize) -> Result<u32, String> {
-    if events.is_empty() {
-        return Ok(0);
-    }
-    let inputs: Vec<INPUT> = events
-        .iter()
-        .map(|event| match *event {
-            Event::Key { vk, scan, flags } => INPUT {
-                r#type: INPUT_KEYBOARD,
-                Anonymous: INPUT_0 {
-                    ki: KEYBDINPUT {
-                        wVk: VIRTUAL_KEY(vk),
-                        wScan: scan,
-                        dwFlags: KEYBD_EVENT_FLAGS(flags),
-                        time: 0,
-                        dwExtraInfo: marker,
-                    },
-                },
-            },
-            Event::Mouse { flags, dx, dy, data } => INPUT {
-                r#type: INPUT_MOUSE,
-                Anonymous: INPUT_0 {
-                    mi: MOUSEINPUT {
-                        dx,
-                        dy,
-                        mouseData: data as u32,
-                        dwFlags: MOUSE_EVENT_FLAGS(flags),
-                        time: 0,
-                        dwExtraInfo: marker,
-                    },
-                },
-            },
-        })
-        .collect();
-    // SAFETY: the slice and the struct size describe the same allocation.
-    Ok(unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) })
+// --- sending -----------------------------------------------------------------
+
+pub(crate) fn key_down(vk: u16) -> bool {
+    // SAFETY: a plain key-state read.
+    (unsafe { GetAsyncKeyState(vk as i32) }) as u16 & 0x8000 != 0
 }
 
 /// The scan code the keyboard sends for `vk` under this thread's layout, 0
@@ -381,46 +363,19 @@ fn button_event(button: Button, down: bool) -> Event {
     Event::mouse(flags.0)
 }
 
+/// The real keyboard and pointer, through the executor's port.
 pub struct Sender {
-    marker: usize,
-    /// The receipt this host's input is tracked in, or why there is none.
-    section: Result<&'static Section, &'static str>,
+    port: Arc<WinPort>,
 }
 
 impl Sender {
-    pub fn new(marker: i64) -> Sender {
-        if SECTION.get().is_none() {
-            if let Some(section) = Section::create(marker) {
-                // A section another process already holds is kept by it.
-                if section.fresh {
-                    if let Err(error) = section.keep_in_parent() {
-                        eprintln!(
-                            "mixdog-computer: input ownership receipt will not outlive this helper: {error}"
-                        );
-                    }
-                }
-                section.receipt().begin_observation(&key_down);
-                let _ = SECTION.set(section);
-            }
-        }
-        let section = match SECTION.get() {
-            Some(section) if section.marker == marker => Ok(section),
-            Some(_) => Err("input_cleanup_unconfirmed: input ownership changed"),
-            None => Err("input_cleanup_unconfirmed: input ownership receipt is unavailable; no input was sent"),
-        };
-        Sender {
-            marker: marker as usize,
-            section,
-        }
+    pub fn new(port: Arc<WinPort>) -> Sender {
+        Sender { port }
     }
 
-    /// Deliver through DeliverTracked: checked, and recorded in the receipt.
+    /// One batch through the port, which tracks it in the receipt.
     fn deliver(&self, events: &[Event]) -> Result<(), String> {
-        let receipt = self.section.map_err(String::from)?.receipt();
-        let marker = self.marker;
-        deliver_with(events, &mut |batch| {
-            receipt.deliver_tracked(batch, &mut |batch| send_input(batch, marker), &key_down)
-        })
+        self.port.input(events)
     }
 
     pub fn key(&self, key: Key, down: bool) -> Result<(), String> {
@@ -457,6 +412,7 @@ impl Sender {
             self.deliver(&events)?;
             // Chromium and WinUI can drop a tight Unicode batch that SendInput
             // accepted; brief pacing keeps literal order across async queues.
+            // The pause holds nothing: the next glyph is arbitrated again.
             std::thread::sleep(Duration::from_millis(4));
         }
         Ok(())
@@ -549,17 +505,12 @@ pub fn desktop_ready() -> bool {
 /// ReleaseOwned: lets go of every key and button the named host left down
 /// and still owns. What the person holds is untouched.
 pub fn release_owned(marker: i64) -> Result<(), String> {
-    match Section::open(marker) {
-        Some(section) => section
-            .receipt()
-            .release_owned(&mut |events| send_input(events, marker as usize), &key_down),
-        None => release_without_receipt(&key_down),
-    }
+    crate::port::windows::release_recorded(marker)
 }
 
 /// With the host's receipt gone nothing says what it held, so nothing is sent:
 /// the keys may all come up within two seconds, or the release is unconfirmed.
-fn release_without_receipt(keys: &receipt::KeyState<'_>) -> Result<(), String> {
+pub(crate) fn release_without_receipt(keys: &receipt::KeyState<'_>) -> Result<(), String> {
     if receipt::settle(keys) {
         Ok(())
     } else {
@@ -734,7 +685,7 @@ mod tests {
     #[ignore = "live: injects real keystrokes into the desktop"]
     fn cleanup_releases_a_key_the_host_held() {
         let _keyboard = KEYBOARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let sender = Sender::new(MARKER);
+        let sender = Sender::new(WinPort::new(&crate::port::Scope::open(1), MARKER));
         sender.key(Key::Named(Named::F(24)), true).unwrap();
         assert!(down(F24), "the host holds the key");
         release_owned(MARKER).unwrap();
@@ -746,12 +697,12 @@ mod tests {
     #[ignore = "live: injects real keystrokes into the desktop"]
     fn cleanup_leaves_a_key_the_host_never_held() {
         let _keyboard = KEYBOARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let sender = Sender::new(MARKER);
-        assert_eq!(send_input(&[key_event(F23, true)], 0), Ok(1));
+        let sender = Sender::new(WinPort::new(&crate::port::Scope::open(1), MARKER));
+        assert_eq!(crate::port::windows::send_unmarked(&[key_event(F23, true)]), 1);
         assert!(down(F23));
         release_owned(MARKER).unwrap();
         assert!(down(F23), "a key the host never held stays down");
-        assert_eq!(send_input(&[key_event(F23, false)], 0), Ok(1));
+        assert_eq!(crate::port::windows::send_unmarked(&[key_event(F23, false)]), 1);
         sender.key(Key::Named(Named::F(23)), false).unwrap();
         assert!(!down(F23));
     }

@@ -26,8 +26,6 @@ impl std::fmt::Display for AlreadyBound {
     }
 }
 
-impl std::error::Error for AlreadyBound {}
-
 enum Call {
     Publish(PendingServerRequest),
     Resolved(ServerRequestId, Bytes),
@@ -159,3 +157,6 @@ mod tests {
         assert!(second.events().is_empty());
     }
 }
+
+
+impl std::error::Error for AlreadyBound {}

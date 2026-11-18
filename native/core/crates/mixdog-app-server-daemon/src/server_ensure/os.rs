@@ -144,7 +144,7 @@ impl EnsureHost for OsHost {
 
 pub struct OsAccess {
     paths: RemotePaths,
-    launched: RefCell<Option<Child>>,
+    launched: RefCell<Option<Launched>>,
     /// The inactivity limit of every request to the core.
     idle: Arc<IdleWatch>,
 }
@@ -318,27 +318,152 @@ impl CoreAccess for OsAccess {
         std::os::unix::process::CommandExt::process_group(&mut command, 0);
         #[cfg(windows)]
         std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0000_0008 | 0x0000_0200);
-        *self.launched.borrow_mut() = Some(command.spawn().map_err(failed)?);
+        let from = fs::metadata(&launch.log).map_or(0, |m| m.len());
+        let at = std::time::Instant::now();
+        *self.launched.borrow_mut() = Some(Launched { child: command.spawn().map_err(failed)?, log: launch.log.clone(), from, at });
         Ok(())
     }
 
     fn await_core(&self) -> Result<CoreReport, EnsureError> {
-        loop {
-            let pid = {
-                let mut launched = self.launched.borrow_mut();
-                let child = launched.as_mut().ok_or_else(|| EnsureError::Core("no core was launched".to_owned()))?;
-                if let Some(status) = child.try_wait().map_err(|e| EnsureError::Core(e.to_string()))? {
-                    return Ok(CoreReport::Exited { status: status.code() });
-                }
-                child.id()
-            };
-            if let Some(core) = self.discovery()?.filter(|c| c.pid == pid && c.state != DiscoveryPhase::Booting) {
-                return Ok(CoreReport::Reached(core));
-            }
-            std::thread::sleep(BOOT_LOOK);
-        }
+        let at = self.launched.borrow().as_ref().map(|launched| launched.at).ok_or_else(|| EnsureError::Core("no core was launched".to_owned()))?;
+        wait_for_core(&mut OsBoot { access: self, started: at, adopted: None }, READY_BOUND)
+    }
+
+    fn await_serving(&self, core: &ServerCore, since: std::time::Instant) -> Result<CoreReport, EnsureError> {
+        let adopted = Some((core.pid, core.instance_id.clone()));
+        wait_for_core(&mut OsBoot { access: self, started: since, adopted }, READY_BOUND)
     }
 }
+
+/// The core this run launched, where its log began and when it was launched.
+struct Launched {
+    child: Child,
+    log: PathBuf,
+    from: u64,
+    at: std::time::Instant,
+}
+
+/// How long the launched core may take to reach `serving`: 1.4.5's `ensureDaemon` gave a started daemon 45 s
+/// (`Date.now() - startedAt > 45000`, then `daemon-timeout`). Only a core that reaches a state ends the wait with
+/// success; the bound only ends it with a failure.
+pub(super) const READY_BOUND: Duration = Duration::from_secs(45);
+
+/// Whether a launched core has said what it is: the core's own ready signal is `serving`, and booting and migrating are
+/// still on the way (a first start migrates its data, and a slow core takes long over it). A blocked or draining core
+/// will not serve by itself, so it is reported as it is.
+fn has_settled(state: DiscoveryPhase) -> bool {
+    !matches!(state, DiscoveryPhase::Booting | DiscoveryPhase::Migrating)
+}
+
+/// What the wait for a launched core observes and does, so that the wait itself runs against a scripted core in tests.
+pub(super) trait BootWatch {
+    /// The launched process ended: its exit status.
+    fn exited(&mut self) -> Result<Option<Option<i32>>, EnsureError>;
+    /// What discovery says about the launched process.
+    fn core(&mut self) -> Result<Option<ServerCore>, EnsureError>;
+    /// The session that runs this program is gone: nobody will read its result.
+    fn controller_gone(&mut self) -> bool;
+    fn elapsed(&self) -> Duration;
+    fn pause(&mut self);
+    /// The core's log and its lines since the launch, for a failure to name.
+    fn log(&mut self) -> (String, String);
+}
+
+/// Blocks until the launched core has settled (success, by its own state only), exited, the controlling session is gone,
+/// or `bound` passed without it settling (failure).
+pub(super) fn wait_for_core(watch: &mut dyn BootWatch, bound: Duration) -> Result<CoreReport, EnsureError> {
+    let mut last = DiscoveryPhase::Booting;
+    loop {
+        if let Some(status) = watch.exited()? {
+            return Ok(CoreReport::Exited { status });
+        }
+        if let Some(core) = watch.core()? {
+            if has_settled(core.state) {
+                return Ok(CoreReport::Reached(core));
+            }
+            last = core.state;
+        }
+        if watch.controller_gone() {
+            return Err(EnsureError::ControllerGone);
+        }
+        if watch.elapsed() > bound {
+            let (log, tail) = watch.log();
+            return Err(EnsureError::CoreNotReady { seconds: bound.as_secs(), state: format!("{last:?}").to_lowercase(), log, tail });
+        }
+        watch.pause();
+    }
+}
+
+struct OsBoot<'a> {
+    access: &'a OsAccess,
+    started: std::time::Instant,
+    /// A core of an earlier run (pid and instance) that this run did not launch and waits for instead.
+    adopted: Option<(u32, String)>,
+}
+
+impl BootWatch for OsBoot<'_> {
+    fn exited(&mut self) -> Result<Option<Option<i32>>, EnsureError> {
+        if let Some((pid, instance)) = &self.adopted {
+            let alive = self.access.discovery()?.is_some_and(|core| core.pid == *pid && core.instance_id == *instance);
+            return Ok((!alive).then_some(None));
+        }
+        let mut launched = self.access.launched.borrow_mut();
+        let launched = launched.as_mut().ok_or_else(|| EnsureError::Core("no core was launched".to_owned()))?;
+        Ok(launched.child.try_wait().map_err(|e| EnsureError::Core(e.to_string()))?.map(|status| status.code()))
+    }
+
+    fn core(&mut self) -> Result<Option<ServerCore>, EnsureError> {
+        if let Some((pid, instance)) = &self.adopted {
+            return Ok(self.access.discovery()?.filter(|core| core.pid == *pid && core.instance_id == *instance));
+        }
+        let pid = self.access.launched.borrow().as_ref().map(|launched| launched.child.id());
+        Ok(self.access.discovery()?.filter(|core| Some(core.pid) == pid))
+    }
+
+    fn controller_gone(&mut self) -> bool {
+        #[cfg(unix)]
+        return peer_closed(1);
+        #[cfg(not(unix))]
+        false
+    }
+
+    fn elapsed(&self) -> Duration {
+        self.started.elapsed()
+    }
+
+    fn pause(&mut self) {
+        std::thread::sleep(BOOT_LOOK);
+    }
+
+    fn log(&mut self) -> (String, String) {
+        if self.adopted.is_some() {
+            let log = self.access.paths.log.clone();
+            let tail = super::flow::log_tail(&log, 0);
+            return (log.display().to_string(), tail);
+        }
+        self.access.launched.borrow().as_ref().map_or_else(Default::default, |launched| {
+            (launched.log.display().to_string(), super::flow::log_tail(&launched.log, launched.from))
+        })
+    }
+}
+
+/// Whether the peer of the output `fd` has closed. This program's stdout is the ssh session's channel: when the session
+/// ends its reader closes, which `poll` reports as `POLLERR` or `POLLHUP` without a byte written (stdout carries only the
+/// result lines). The watch asks for `POLLOUT`, not an empty mask: Darwin registers its kernel filters from the
+/// requested bits, so a zero mask watches nothing there. `POLLOUT` itself is only ordinary writability and never counts;
+/// so a regular file, `/dev/null` and a live terminal (a manual run) are not a lost controller. The desktop ends stdin
+/// right after the upload, so stdin cannot say it.
+#[cfg(unix)]
+fn peer_closed(fd: std::os::fd::RawFd) -> bool {
+    let mut watched = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+    // SAFETY: one valid pollfd, a zero timeout.
+    let ready = unsafe { libc::poll(&mut watched, 1, 0) };
+    ready > 0 && watched.revents & (libc::POLLERR | libc::POLLHUP) != 0
+}
+
+#[cfg(test)]
+#[path = "wait_tests.rs"]
+mod wait_tests;
 
 /// `mixdogd server-ensure <argument>`: prints the result lines; the exit status is 0 or 3.
 pub fn main(argument: &str) -> i32 {

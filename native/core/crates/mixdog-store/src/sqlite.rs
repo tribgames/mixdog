@@ -46,7 +46,6 @@ use crate::fold::LookupError;
 use crate::projection::FrameKind;
 use crate::projection::ProjectedFrame;
 use crate::projection::Projection;
-use crate::schema::bounded::Digest;
 use crate::schema::checkpoint::FramePos;
 use crate::schema::record::ApprovalPhase;
 use crate::schema::record::Form;
@@ -108,17 +107,27 @@ pub(crate) fn open_connection(path: &Path) -> Result<Connection, DbError> {
     conn.pragma_update(None, "synchronous", crate::fsio::sqlite_synchronous())?;
     conn.pragma_update(None, "wal_autocheckpoint", 0)?;
     conn.pragma_update(None, "foreign_keys", "OFF")?;
+    // Page reads come from the OS page cache by mapping, not by a read call and a copy into the connection's 2 MB cache:
+    // a scan of the index costs no private memory and no I/O syscalls (the mapping is shared with the page cache).
+    conn.pragma_update(None, "mmap_size", MMAP_BYTES)?;
     conn.busy_timeout(std::time::Duration::ZERO)?;
     Ok(conn)
 }
 
+/// How much of a database file a connection maps ([`open_connection`]).
+pub(crate) const MMAP_BYTES: i64 = 256 * 1024 * 1024;
+
 /// Opens the writer connection, running the DDL on an empty file and checking the ids.
 pub(crate) fn open_schema(path: &Path, ddl: &str, app_id: i32, user_version: i32) -> Result<Connection, DbError> {
-    let mut conn = open_connection(path)?;
+    let conn = open_connection(path)?;
     let tables: i64 = conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0))?;
     if tables == 0 {
         conn.execute_batch(ddl)?;
     }
+    check_schema(conn, app_id, user_version)
+}
+
+fn check_schema(mut conn: Connection, app_id: i32, user_version: i32) -> Result<Connection, DbError> {
     let app: i32 = conn.pragma_query_value(None, "application_id", |r| r.get(0))?;
     let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     if app != app_id || version != user_version {
@@ -152,8 +161,22 @@ fn truncate_wal(conn: &Connection) -> Result<(), String> {
 /// The writer overwrites what it deletes (`secure_delete`): a row a sensitive rewrite replaces leaves no readable page.
 /// Measured on a turn's index writes (one transaction: session row, 8 message rows, the search row replaced), its cost
 /// was within the run-to-run noise (median 0.163-0.175 ms per turn either way).
-fn open_writer(path: &Path, ddl: &str) -> Result<Connection, DbError> {
-    let conn = open_schema(path, ddl, INDEX_APPLICATION_ID, INDEX_USER_VERSION)?;
+fn open_writer(path: &Path, ddl: Option<&str>) -> Result<Connection, DbError> {
+    let conn = match ddl {
+        Some(ddl) => open_schema(path, ddl, INDEX_APPLICATION_ID, INDEX_USER_VERSION)?,
+        // An empty file at the published path is not a valid empty projection. Rebuild
+        // it from the logs just like a missing file, rather than installing DDL here.
+        None => {
+            let conn = check_schema(open_connection(path)?, INDEX_APPLICATION_ID, INDEX_USER_VERSION)?;
+            let has_sessions = conn.query_row(
+                "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'sessions'", [], |_| Ok(()),
+            ).optional()?.is_some();
+            if !has_sessions {
+                return Err(DbError::Rebuild("missing sessions table".to_owned()));
+            }
+            conn
+        }
+    };
     conn.pragma_update(None, "secure_delete", "ON").map_err(|e| DbError::Write(e.to_string()))?;
     Ok(conn)
 }
@@ -181,17 +204,62 @@ pub(crate) fn needs_rebuild(e: &DbError) -> bool {
     }
 }
 
+/// How far one boot's index rebuild has come, in sessions. The boot makes one and hands it to its discovery publication (which
+/// reads it) and to its store open (whose readers advance it as each session's log is read); no other open reports into it.
+/// Absent (`None`) until a rebuild has begun, and so on a start that needs none.
+#[derive(Default)]
+pub struct RebuildProgress {
+    done: std::sync::atomic::AtomicU64,
+    total: std::sync::atomic::AtomicU64,
+    /// Told after every change; set once by whoever publishes. It must not block: it runs on the rebuild's reader threads.
+    changed: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
+}
+
+impl RebuildProgress {
+    /// `(done, total)` sessions while a rebuild has begun; `None` before. It ends at `(total, total)`.
+    pub fn snapshot(&self) -> Option<(u64, u64)> {
+        use std::sync::atomic::Ordering::SeqCst;
+        let total = self.total.load(SeqCst);
+        (total > 0).then(|| (self.done.load(SeqCst).min(total), total))
+    }
+
+    /// Sets what is told after every change (the first call only).
+    pub fn on_change(&self, changed: Box<dyn Fn() + Send + Sync>) {
+        let _ = self.changed.set(changed);
+    }
+
+    pub fn begin(&self, total: usize) {
+        use std::sync::atomic::Ordering::SeqCst;
+        self.done.store(0, SeqCst);
+        self.total.store(total as u64, SeqCst);
+        self.tell();
+    }
+
+    pub fn advance(&self) {
+        self.done.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.tell();
+    }
+
+    fn tell(&self) {
+        if let Some(changed) = self.changed.get() {
+            changed();
+        }
+    }
+}
 /// Projects every session of `data` into a staged database and publishes it over `path`.
 /// The old file's WAL and shared memory go first, so they never pair with the new file; a
 /// crash before the publish leaves a file that still fails its open and rebuilds again.
 #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
-fn rebuild(_lane: &InLane<MaintenanceIo>, data: &Path, path: &Path) -> Result<(), DbError> {
+fn rebuild(_lane: &InLane<MaintenanceIo>, data: &Path, path: &Path, sessions: &[String], progress: Option<&RebuildProgress>) -> Result<(), DbError> {
     let failed = |e: String| DbError::Write(format!("index rebuild: {e}"));
     let dir = path.parent().expect("index file in a directory");
     crate::fsio::create_dir_durable(dir).map_err(|e| failed(e.to_string()))?;
     crate::fsio::sweep_tmp_unlaned(dir).map_err(|e| failed(e.to_string()))?;
     let staged = crate::fsio::tmp_path(path);
-    project_into(data, &staged, &session_ids(&data.join("sessions")).map_err(failed)?, &runtime_ddl()).map_err(failed)?;
+    project_into(data, &staged, sessions, &runtime_ddl(), progress).map_err(failed)?;
+    let whole = std::fs::OpenOptions::new().read(true).write(true).open(&staged).map_err(|e| failed(e.to_string()))?;
+    crate::fsio::sync_file(&whole, &staged).map_err(|e| failed(e.to_string()))?;
+    drop(whole);
     for suffix in ["-wal", "-shm", "-journal"] {
         let mut side = path.as_os_str().to_owned();
         side.push(suffix);
@@ -201,26 +269,6 @@ fn rebuild(_lane: &InLane<MaintenanceIo>, data: &Path, path: &Path) -> Result<()
         }
     }
     crate::fsio::durable_rename(&staged, path).map_err(|e| failed(e.to_string()))
-}
-
-/// Every session directory holding its first log file, in name order.
-#[allow(clippy::disallowed_methods, reason = "called from the rebuild's maintenance lane job")]
-fn session_ids(sessions: &Path) -> Result<Vec<String>, String> {
-    let entries = match std::fs::read_dir(sessions) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(format!("{}: {e}", sessions.display())),
-    };
-    let mut ids = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("{}: {e}", sessions.display()))?;
-        let Ok(name) = entry.file_name().into_string() else { continue };
-        if entry.path().join(crate::log::log_name(0)).is_file() {
-            ids.push(name);
-        }
-    }
-    ids.sort();
-    Ok(ids)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -262,6 +310,8 @@ pub struct CatalogRow {
     pub deleted: bool,
     /// The header's `title` when its `titleSource` is `user`.
     pub user_name: Option<String>,
+    /// The header members a listing reads (`worker::listed_row`).
+    pub listed: Option<String>,
 }
 
 /// FORMAT.md §8.2 `fold(x)`: Unicode default lowercase, no normalization.
@@ -332,6 +382,10 @@ pub trait RowSink: Send + Sync {
 /// The sink of a store, set once after the store opens.
 pub type RowSinkCell = Arc<std::sync::OnceLock<Arc<dyn RowSink>>>;
 
+/// The archive authority's published snapshot, bound once after the store opens ([`SqliteStore::bind_archive`]).
+type ArchiveCell = Arc<std::sync::OnceLock<crate::archive_state::ArchiveView>>;
+use crate::archive_state::ArchiveSnapshot;
+
 /// What an upsert does to the RL §9.2 dirty mark.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DirtyMark {
@@ -399,10 +453,10 @@ const PURGE_TABLES: [(&str, &str); 19] = [
     ("message_views", "session, valid_from"),
     ("turns", "session, rid"),
     ("approvals", "session, aid"),
-    ("blob_refs", "digest, session, ordinal"),
     ("prompt_occurrences", "session, ordinal"),
     ("prompt_history", "session, key"),
     ("thread_ops", "session, op_id"),
+    ("submissions", "session, submission_id"),
 ];
 
 /// The folder of a deleted session, gone: the first log file first, so a rebuild never
@@ -410,6 +464,7 @@ const PURGE_TABLES: [(&str, &str); 19] = [
 #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
 fn remove_session_dir(_lane: &InLane<MaintenanceIo>, dir: &Path) -> Result<(), DbError> {
     use crate::fsio::IoOp;
+    let _writing = crate::log_epoch::writing_dir(dir);
     let gone = |r: std::io::Result<()>, op: IoOp, path: &Path| match r {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
             Err(DbError::Write(crate::fsio::err(op, path)(e).to_string()))
@@ -426,28 +481,36 @@ fn remove_session_dir(_lane: &InLane<MaintenanceIo>, dir: &Path) -> Result<(), D
     crate::fsio::sync_dir(parent).map_err(|e| DbError::Write(e.to_string()))
 }
 
-/// Removes every folder under `sessions` without its first log file; their ids, in name order.
+/// Removes folders without a first log. Only a rebuild needs the ids of the complete folders;
+/// gather those during this same walk rather than repeating the directory and log-file probes.
 #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
-fn remove_incomplete_dirs(lane: &InLane<MaintenanceIo>, sessions: &Path) -> Result<Vec<String>, DbError> {
+fn scan_session_dirs(lane: &InLane<MaintenanceIo>, sessions: &Path, rebuilding: bool) -> Result<(Vec<String>, Vec<String>), DbError> {
     let entries = match std::fs::read_dir(sessions) {
         Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((Vec::new(), Vec::new())),
         Err(e) => return Err(DbError::Write(format!("{}: {e}", sessions.display()))),
     };
-    let mut ids = Vec::new();
+    let mut incomplete = Vec::new();
+    let mut complete = Vec::new();
+    let first_log = crate::log::log_name(0);
     for entry in entries {
         let entry = entry.map_err(|e| DbError::Write(format!("{}: {e}", sessions.display())))?;
         let Ok(name) = entry.file_name().into_string() else { continue };
         let dir = entry.path();
-        if dir.is_dir() && !dir.join(crate::log::log_name(0)).is_file() {
-            ids.push(name);
+        if dir.join(&first_log).is_file() {
+            if rebuilding {
+                complete.push(name);
+            }
+        } else if dir.is_dir() {
+            incomplete.push(name);
         }
     }
-    ids.sort();
-    for id in &ids {
+    incomplete.sort();
+    for id in &incomplete {
         remove_session_dir(lane, &sessions.join(id))?;
     }
-    Ok(ids)
+    complete.sort();
+    Ok((incomplete, complete))
 }
 
 /// The agent-only sessions in list order (`sessions_visibility_recent`).
@@ -460,10 +523,10 @@ INSERT INTO sessions (id, dirty, status, damage, deleted, base_session, log_id, 
     activity, created_at, updated_at, closed, archived_at, cwd, visibility, owner_session_id,
     parent_session_id, agent, source_type, classification, archived, title_kind, id_key,
     title_fold, preview_fold, cwd_fold, project_fold, id_fold, model_fold, source_fold, summary,
-    title, worker, worker_tag, worker_owner, worker_host_pid, agent_tag, agent_owner, user_name)
+    title, worker, worker_tag, worker_owner, worker_host_pid, agent_tag, agent_owner, user_name, listed)
 VALUES (?1, ?2, 'ok', NULL, ?36, ?3, ?4, 0, 0, 0, 0, 0, 0, 0,
     ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
-    ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?37)
+    ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?37, ?38)
 ON CONFLICT(id) DO UPDATE SET
     dirty = CASE WHEN ?28 THEN dirty ELSE excluded.dirty END,
     deleted = max(deleted, excluded.deleted),
@@ -480,12 +543,38 @@ ON CONFLICT(id) DO UPDATE SET
     summary = excluded.summary, title = excluded.title, worker = excluded.worker,
     worker_tag = excluded.worker_tag, worker_owner = excluded.worker_owner,
     worker_host_pid = excluded.worker_host_pid, agent_tag = excluded.agent_tag,
-    agent_owner = excluded.agent_owner, user_name = excluded.user_name";
+    agent_owner = excluded.agent_owner, user_name = excluded.user_name, listed = excluded.listed";
 
 /// Writes the catalog row of `head` with the message state projected so far; the bytes
 /// of the list row.
-fn upsert(tx: &Transaction<'_>, head: &CatalogHead, dirty: DirtyMark, labels: &PlaceholderLabels) -> rusqlite::Result<usize> {
-    upsert_edge(tx, head, dirty, labels, false).map(|(written, _)| written)
+/// `sessions.listed` of each session the index can answer for, in order ([`SqliteStore::listed`]).
+fn listed_on(c: &Connection, sessions: &[String]) -> Result<Vec<Option<Option<String>>>, DbError> {
+    // A fork whose inherited state is still being computed keeps the row it had (`upsert_edge`): that row does not hold
+    // what its log says since.
+    let mut row = c.prepare_cached(
+        "SELECT listed FROM sessions WHERE id = ?1 AND log_id <> '' AND deleted = 0 AND dirty = 0 AND status = 'ok'
+         AND coalesce((SELECT state FROM message_views v WHERE v.session = sessions.id ORDER BY valid_from DESC LIMIT 1), '') <> 'pending'",
+    )?;
+    sessions.iter().map(|session| Ok(row.query_row([session], |r| r.get::<_, Option<String>>(0)).optional()?)).collect()
+}
+
+fn upsert(tx: &Transaction<'_>, head: &CatalogHead, dirty: DirtyMark, labels: &PlaceholderLabels, archive: Option<&ArchiveSnapshot>) -> rusqlite::Result<usize> {
+    upsert_edge(tx, head, dirty, labels, false, archive).map(|(written, _)| written)
+}
+
+/// The archive state of `row` as the archive authority resolves it ([`crate::archive_state`]): an entry overrides the header's
+/// stamp. Without an authority bound (a rebuild before the core binds it, a store of a test) the header's stamp stands; the
+/// binding projects every entry afterwards.
+fn resolve_archive(row: &mut CatalogRow, archive: Option<&ArchiveSnapshot>) {
+    if let Some(entry) = archive.and_then(|archive| archive.entry(&row.id)) {
+        row.archived_at = entry.archived_at();
+        row.archived = row.archived_at.is_some();
+    }
+}
+
+/// The snapshot the index resolves through, once bound.
+fn bound_archive(cell: &ArchiveCell) -> Option<Arc<ArchiveSnapshot>> {
+    cell.get().map(crate::archive_state::current)
 }
 
 /// [`upsert`], and with `watch` the change it made to the row.
@@ -495,6 +584,7 @@ fn upsert_edge(
     dirty: DirtyMark,
     labels: &PlaceholderLabels,
     watch: bool,
+    archive: Option<&ArchiveSnapshot>,
 ) -> rusqlite::Result<(usize, Option<RowEdge>)> {
     write_offload_refs(tx, head)?;
     // A fork whose inherited state is still being computed keeps its row until it is done.
@@ -503,7 +593,8 @@ fn upsert_edge(
     }
     let with_incoming = crate::agent_mode::wants_incoming_tail(&head.session);
     let stats = crate::message_index::read_stats(tx, &head.session, with_incoming)?.into_stats(&head.session);
-    let row = crate::summary::catalog_row(head, &stats, now_ms());
+    let mut row = crate::summary::catalog_row(head, &stats, now_ms());
+    resolve_archive(&mut row, archive);
     let before = if watch {
         tx.prepare_cached("SELECT summary, archived, deleted, user_name FROM sessions WHERE id = ?1")?
             .query_row([&row.id], |r| Ok(StoredRow { summary: r.get(0)?, archived: r.get(1)?, deleted: r.get(2)?, user_name: r.get(3)? }))
@@ -607,6 +698,7 @@ fn write_row(tx: &Transaction<'_>, row: &CatalogRow, dirty: DirtyMark, labels: &
         row.agent_tag.as_ref().map(|t| &t.owner),
         row.deleted,
         row.user_name,
+        row.listed,
     ])?;
     Ok(())
 }
@@ -619,14 +711,12 @@ type Ack = oneshot::Sender<Result<(), DbError>>;
 /// The wait for the writer's answer to a projection already queued at it ([`SqliteStore::queue_projection`]).
 pub type Committed = std::pin::Pin<Box<dyn Future<Output = Result<(), DbError>> + Send>>;
 
-/// A session whose log a sensitive rewrite replaced (`log_rewrite`'s step 6): its rows to rebuild under `<data>/sessions`,
-/// then the blobs the old log named and the new one does not, deleted once no row names them (`blobs` holds the pins).
+/// A session whose log a sensitive rewrite replaced (`log_rewrite`'s step 6): its rows to rebuild under `<data>/sessions`.
+/// The rewrite deletes no blob (the ownership ledger's roots change, `log_rewrite::finish`).
 pub struct Rewritten {
     pub data: PathBuf,
     pub session: String,
     pub dirty: DirtyMark,
-    pub superseded: Vec<Digest>,
-    pub blobs: crate::blobs::BlobStore,
 }
 
 enum Command {
@@ -641,6 +731,8 @@ enum Command {
     Arrived { session: String, log_id: String, base_session: Option<String>, ack: Ack },
     /// The list rows of the sessions still to be converted ([`SqliteStore::list_pending`]).
     Pending { sessions: Vec<(CatalogHead, crate::summary::MessageStats)>, ack: Ack },
+    /// The rows of these sessions take their archive entries ([`SqliteStore::project_archive`]).
+    Archive { sessions: Vec<String>, read: Arc<std::sync::atomic::AtomicU64>, ack: Ack },
     /// Drop the index rows of a deleted session whose folder is gone.
     Purge { session: String, ack: Ack },
     /// Rebuild a session's rows from its rewritten log ([`Writer::reproject`]).
@@ -698,6 +790,10 @@ struct Writer {
     step_rows: usize,
     /// Told of the rows an append transaction changed, once it committed.
     sink: RowSinkCell,
+    /// The archive authority every row written resolves through.
+    archive: ArchiveCell,
+    /// Moves each time a transaction reads the archive snapshot: the sequence an archive projection read its state at.
+    archive_reads: Arc<std::sync::atomic::AtomicU64>,
 }
 
 const LABELS_KEY: &str = "ui:placeholder_labels";
@@ -767,7 +863,7 @@ fn send(acks: Vec<Ack>, result: &Result<(), String>) {
 
 impl Writer {
     fn start(path: &Path) -> Result<Writer, DbError> {
-        let conn = open_writer(path, &runtime_ddl())?;
+        let conn = open_writer(path, None)?;
         let stored: Option<String> = conn
             .query_row("SELECT value FROM meta WHERE key = ?1", [LABELS_KEY], |r| r.get(0))
             .optional()?;
@@ -799,9 +895,11 @@ impl Writer {
             purges: VecDeque::new(),
             reprojects: VecDeque::new(),
             seq: 0,
+            archive_reads: Arc::default(),
             append_rows: APPEND_ROWS,
             step_rows: STEP_ROWS,
             sink: RowSinkCell::default(),
+            archive: ArchiveCell::default(),
         })
     }
 
@@ -848,9 +946,9 @@ impl Writer {
     /// The rows of `session` rebuilt from its log, as a rebuild projects them (`project_session`), after its log was
     /// rewritten to take a value out (`log_rewrite`): the old rows go with the writer's `secure_delete`, so their content
     /// is overwritten in the pages that held it, and the WAL is checkpointed and truncated after, so no older page image
-    /// of them is left in it either. Then each superseded blob no row names any more is deleted (`log_rewrite`'s step 6).
+    /// of them is left in it either.
     fn reproject(&mut self, rewrite: &Rewritten) -> Result<(), String> {
-        let Rewritten { data, session, dirty, superseded, blobs } = rewrite;
+        let Rewritten { data, session, dirty } = rewrite;
         let (data, session, dirty) = (data.as_path(), session.as_str(), *dirty);
         let labels = self.labels.clone();
         let rows = (|| -> Result<(), String> {
@@ -861,8 +959,9 @@ impl Writer {
                 .err()
                 .map(|(error, at)| damage_text(&dir, at, &error));
             let head = fold.as_ref().map_or_else(|| unreadable_head(session), CatalogHead::of);
+            let archive = bound_archive(&self.archive);
             let tx = self.conn.transaction().map_err(|e| e.to_string())?;
-            upsert(&tx, &head, dirty, &labels).map_err(|e| e.to_string())?;
+            upsert(&tx, &head, dirty, &labels, archive.as_deref()).map_err(|e| e.to_string())?;
             if let Some(damage) = damage {
                 set_status_on(&tx, session, SessionStatus::Damaged, Some(&damage)).map_err(|e| e.to_string())?;
             }
@@ -870,11 +969,7 @@ impl Writer {
         })();
         // A fork view over these rows settles in the maintenance steps.
         self.views = true;
-        rows.and_then(|()| truncate_wal(&self.conn))?;
-        for digest in superseded {
-            blobs.remove_unreferenced(digest, &mut |d| blob_referenced_on(&self.conn, d)).map_err(|e| e.to_string())?;
-        }
-        Ok(())
+        rows.and_then(|()| truncate_wal(&self.conn))
     }
 
     /// Every queued rebuild, once no projection is queued before it. Projections queued after it (other threads' writes go on
@@ -917,7 +1012,7 @@ impl Writer {
 
     /// The boot purge, run by `SqliteStore::open` before the writer thread starts (so before
     /// any thread opens or is created): the index rows of `incomplete` (folders
-    /// `remove_incomplete_dirs` removed), then every deleted session no fork reads, folder
+    /// `scan_session_dirs` removed), then every deleted session no fork reads, folder
     /// first (`purge_deleted`'s order), in bounded steps.
     fn boot_purge(&mut self, lane: &InLane<MaintenanceIo>, data: &Path, incomplete: &[String]) -> Result<(), DbError> {
         for session in incomplete {
@@ -941,8 +1036,9 @@ impl Writer {
     ) -> Result<(), DbError> {
         apply_all(&mut self.conn, session, frames)?;
         let Some((head, damage)) = finish else { return Ok(()) };
+        let archive = bound_archive(&self.archive);
         let tx = self.conn.transaction()?;
-        upsert(&tx, &head, DirtyMark::Clear, &self.labels)?;
+        upsert(&tx, &head, DirtyMark::Clear, &self.labels, archive.as_deref())?;
         if let Some(damage) = damage {
             set_status_on(&tx, session, SessionStatus::Damaged, Some(&damage))?;
         }
@@ -1045,6 +1141,9 @@ impl Writer {
         // The edges the sink was told are about to commit.
         let mut told = 0usize;
         let watch = self.sink.get().is_some();
+        // One snapshot for the whole transaction: a commit of the authority after it is projected by its own command, queued after.
+        let archive = bound_archive(&self.archive);
+        let read_seq = self.archive_reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let result = (|| -> rusqlite::Result<()> {
             let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             // Small commands (dirty marks, status): one row each.
@@ -1090,7 +1189,28 @@ impl Writer {
                         for (head, stats) in &sessions {
                             // A row there is (taken in already, or listed by an earlier start) is left as it is.
                             if !tx.prepare_cached("SELECT 1 FROM sessions WHERE id = ?1")?.exists([&head.session])? {
-                                write_row(&tx, &crate::summary::catalog_row(head, stats, now_ms()), DirtyMark::Clear, &self.labels)?;
+                                let mut row = crate::summary::catalog_row(head, stats, now_ms());
+                                resolve_archive(&mut row, archive.as_deref());
+                                write_row(&tx, &row, DirtyMark::Clear, &self.labels)?;
+                            }
+                        }
+                        acks.push(ack);
+                    }
+                    Command::Archive { sessions, read, ack } => {
+                        read.store(read_seq, std::sync::atomic::Ordering::SeqCst);
+                        for session in &sessions {
+                            let Some(entry) = archive.as_deref().and_then(|archive| archive.entry(session)) else { continue };
+                            let archived_at = entry.archived_at();
+                            let before = tx
+                                .prepare_cached("SELECT summary, archived, deleted, user_name FROM sessions WHERE id = ?1")?
+                                .query_row([session], |r| Ok(StoredRow { summary: r.get(0)?, archived: r.get(1)?, deleted: r.get(2)?, user_name: r.get(3)? }))
+                                .optional()?;
+                            let changed = tx
+                                .prepare_cached("UPDATE sessions SET archived = ?2, archived_at = ?3 WHERE id = ?1 AND (archived <> ?2 OR archived_at IS NOT ?3)")?
+                                .execute(params![session, archived_at.is_some(), archived_at])?;
+                            if let Some(before) = before.filter(|before| watch && changed > 0 && before.archived != archived_at.is_some()) {
+                                let after = StoredRow { archived: archived_at.is_some(), ..before.clone() };
+                                edges.push(RowEdge { id: session.clone(), before: Some(before), after });
                             }
                         }
                         acks.push(ack);
@@ -1165,7 +1285,7 @@ impl Writer {
                 }
                 let (head, dirty, waiters, seq) = self.upserts.remove(&id).expect("listed");
                 rows += 1;
-                let (written, edge) = upsert_edge(&tx, &head, dirty, &self.labels, watch)?;
+                let (written, edge) = upsert_edge(&tx, &head, dirty, &self.labels, watch, archive.as_deref())?;
                 edges.extend(edge);
                 if written == 0 {
                     waiting.push((id.clone(), ((*head).clone(), seq)));
@@ -1189,7 +1309,7 @@ impl Writer {
             sink.dropped(told);
         }
         debug_assert!(result.is_ok(), "append transaction failed: {result:?}");
-        // Projections: finished ones leave the queue (their blob pins released). On a failure the frames this transaction
+        // Projections: finished ones leave the queue. On a failure the frames this transaction
         // applied are rolled back: the projections it reached (the front one at least, so a transaction that fails before
         // any frame still leaves fewer queued) are dropped with every later one of their sessions (applied past a dropped
         // one, it would leave a gap), to be reconciled from their cursor; the others stay queued, as the rows and requests
@@ -1259,6 +1379,7 @@ impl Writer {
             self.refold = false;
         }
     }
+
 }
 
 fn pos_params(pos: &FramePos) -> (i64, i64, i64) {
@@ -1287,13 +1408,6 @@ fn apply_frame(
     }
     let (ordinal, file_no, offset) = pos_params(&frame.pos);
     let len = frame.frame_len as i64;
-    let refs = |refs: &[Digest]| -> rusqlite::Result<()> {
-        let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO blob_refs (digest, session, ordinal) VALUES (?1, ?2, ?3)")?;
-        for d in refs {
-            stmt.execute(params![d.as_str(), session, ordinal])?;
-        }
-        Ok(())
-    };
     let mut used = need;
     match &frame.kind {
         FrameKind::Session { base } => {
@@ -1304,7 +1418,7 @@ fn apply_frame(
                 crate::message_index::open_view(tx, session, ordinal, base.session.as_str(), end, end)?;
             }
         }
-        FrameKind::Item { iid, turn, form, model, visible, refs: r, prompt, msg, facets, aliases } => {
+        FrameKind::Item { iid, turn, form, model, visible, prompt, msg, facets, aliases } => {
             if let Some(msg) = msg {
                 crate::message_index::add_item(tx, session, ordinal, (file_no, offset, len), iid, msg)?;
             }
@@ -1343,9 +1457,8 @@ fn apply_frame(
                 tx.prepare_cached("INSERT OR IGNORE INTO history_alias (session, alias, ordinal) VALUES (?1, ?2, ?3)")?
                     .execute(params![session, alias, ordinal])?;
             }
-            refs(r)?;
         }
-        FrameKind::Amend { iid, refs: r, msg, aliases } => {
+        FrameKind::Amend { iid, msg, aliases } => {
             if let Some(msg) = msg {
                 crate::message_index::amend(tx, session, iid, ordinal, (file_no, offset, len), msg)?;
             }
@@ -1369,7 +1482,6 @@ fn apply_frame(
                         .execute(params![session, alias, target])?;
                 }
             }
-            refs(r)?;
         }
         FrameKind::Rewind { to_ordinal } => {
             let to = *to_ordinal as i64;
@@ -1524,6 +1636,12 @@ fn apply_frame(
         )?
         .execute(params![session, op.id, op.method, op.digest, serde_name(&op.state), ordinal, file_no, offset, len])?;
     }
+    // The first acceptance of a submission is its receipt: a later frame naming the id (the queued prompt's start, a requeue)
+    // leaves it. A rewind or clear does not take it out: the send was accepted whatever the history shows now.
+    if let Some(receipt) = &frame.receipt {
+        tx.prepare_cached("INSERT OR IGNORE INTO submissions (session, submission_id, ordinal, answer) VALUES (?1, ?2, ?3, ?4)")?
+            .execute(params![session, receipt.submission, ordinal, receipt.answer.to_string()])?;
+    }
     tx.prepare_cached(
         "UPDATE sessions SET projected_file_no = ?2, projected_offset = ?3, projected_ordinal = ?4,
          newest_file_no = max(newest_file_no, ?2), history_rev = ?5, row_count = ?6, visible_count = ?7
@@ -1566,6 +1684,20 @@ struct Shared {
     /// The read pool and the writer channel, behind the boot reconcile.
     gate: gate::Gate,
     rows: RowSinkCell,
+    /// The archive authority's snapshot, which the writer resolves each row through and the lead listing reads.
+    archive: ArchiveCell,
+    /// The sessions whose archive projection failed ([`SqliteStore::project_archive`]), each with the writer's read sequence when
+    /// the failure was noted: owed until a projection that read its state after that commits. A reader of the projected
+    /// `archived` column settles them first ([`SqliteStore::search`]), so it never reads a row the authority disagrees with.
+    archive_owed: Mutex<HashMap<String, u64>>,
+    /// The writer's read sequence ([`Writer::archive_reads`]).
+    archive_reads: Arc<std::sync::atomic::AtomicU64>,
+    /// Projections a test makes fail.
+    #[cfg(any(test, feature = "test-support"))]
+    archive_faults: std::sync::atomic::AtomicUsize,
+    /// The next projection's bookkeeping a test holds once its write answered: `arrived` is told, then `go` is awaited.
+    #[cfg(any(test, feature = "test-support"))]
+    archive_ack_hold: Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
     /// The writer thread, joined by [`SqliteStore::close`].
     writer: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
@@ -1671,26 +1803,41 @@ impl SqliteStore {
     /// create publishes `log.000000` before anything else, and a purge unlinks it first, so
     /// such a folder is a half-finished create or purge, which no rebuild indexes), with its
     /// id's index rows; then every deleted session no fork reads (`purge_deleted`).
-    #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
     pub fn open(
         lane: &InLane<MaintenanceIo>,
         thread: SqliteWriterThread,
         read_lane: InteractiveIo,
         data: &Path,
     ) -> Result<SqliteStore, DbError> {
+        Self::open_reporting(lane, thread, read_lane, data, None)
+    }
+
+    /// [`Self::open`], reporting a rebuild's sessions done and total to `progress` as it runs.
+    #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
+    pub fn open_reporting(
+        lane: &InLane<MaintenanceIo>,
+        thread: SqliteWriterThread,
+        read_lane: InteractiveIo,
+        data: &Path,
+        progress: Option<&RebuildProgress>,
+    ) -> Result<SqliteStore, DbError> {
         // A log rewrite a stop cut short is settled first (`log_rewrite`'s step table); one past its swap gets its rows
         // rebuilt and its superseded blobs deleted below, before any session opens. No writer exists yet, so a store
         // of its own holds every pin there is (none).
         let blobs = crate::blobs::BlobStore::new(data);
         let rewritten = crate::log_rewrite::recover(lane, data, &crate::log::OsIo, &blobs).map_err(|e| DbError::Write(e.to_string()))?;
-        let incomplete = remove_incomplete_dirs(lane, &data.join("sessions"))?;
         let path = data.join(INDEX_FILE);
         let path = path.as_path();
-        let mut writer = match path.exists().then(|| Writer::start(path)) {
-            Some(Ok(writer)) => writer,
+        let existing = match path.exists().then(|| Writer::start(path)) {
+            Some(Ok(writer)) => Some(writer),
             Some(Err(e)) if !needs_rebuild(&e) => return Err(e),
-            _ => {
-                rebuild(lane, data, path)?;
+            _ => None,
+        };
+        let (incomplete, complete) = scan_session_dirs(lane, &data.join("sessions"), existing.is_none())?;
+        let mut writer = match existing {
+            Some(writer) => writer,
+            None => {
+                rebuild(lane, data, path, &complete, progress)?;
                 Writer::start(path).map_err(|e| match e {
                     DbError::Rebuild(why) => DbError::Write(format!("rebuilt index refused: {why}")),
                     e => e,
@@ -1699,8 +1846,8 @@ impl SqliteStore {
         };
         writer.boot_purge(lane, data, &incomplete)?;
         for session in rewritten {
-            crate::log_rewrite::finish(lane, data, &session, &mut |superseded| {
-                let rewrite = Rewritten { data: data.to_path_buf(), session: session.clone(), dirty: DirtyMark::Clear, superseded, blobs: blobs.clone() };
+            crate::log_rewrite::finish(lane, data, &session, &mut || {
+                let rewrite = Rewritten { data: data.to_path_buf(), session: session.clone(), dirty: DirtyMark::Clear };
                 writer.reproject(&rewrite)
             })
             .map_err(|e| DbError::Write(e.to_string()))?;
@@ -1711,6 +1858,8 @@ impl SqliteStore {
             .query_map([], |r| r.get(0))?
             .collect::<Result<_, _>>()?;
         let rows = writer.sink.clone();
+        let archive = writer.archive.clone();
+        let archive_reads = writer.archive_reads.clone();
         let (sender, rx) = mpsc::channel();
         let handle = thread
             .spawn_thread("mixdog-index-writer", move |_| writer.run(rx))
@@ -1721,6 +1870,13 @@ impl SqliteStore {
                 path: path.to_path_buf(),
                 gate,
                 rows,
+                archive,
+                archive_owed: Mutex::default(),
+                archive_reads,
+                #[cfg(any(test, feature = "test-support"))]
+                archive_faults: std::sync::atomic::AtomicUsize::new(0),
+                #[cfg(any(test, feature = "test-support"))]
+                archive_ack_hold: Mutex::default(),
                 writer: Mutex::new(Some(handle)),
             }),
         };
@@ -1775,6 +1931,89 @@ impl SqliteStore {
         self.shared.gate.ask(make).await
     }
 
+    /// Binds the archive authority's snapshot ([`crate::archive_state::ArchiveStates::bind_index`]). Set once.
+    pub fn bind_archive(&self, view: crate::archive_state::ArchiveView) -> Result<(), &'static str> {
+        self.shared.archive.set(view).map_err(|_| "the archive authority is already bound")
+    }
+
+    /// The archive snapshot the listings resolve through; none before the authority is bound.
+    pub(crate) fn archive_snapshot(&self) -> Option<Arc<ArchiveSnapshot>> {
+        bound_archive(&self.shared.archive)
+    }
+
+    /// The rows of `sessions` take their archive entries as the authority holds them when the writer gets to them; each row that
+    /// changed is told to the row sink. Resolves once committed. The sessions a failed projection left owed go with it. A debt is
+    /// settled only by a projection that read its state after the failure was noted (its read sequence is past the debt's), so an
+    /// older projection answered late never clears a newer failure; a failure leaves every one of them owed.
+    pub async fn project_archive(&self, sessions: Vec<String>) -> Result<(), DbError> {
+        let mut all: Vec<String> = self.owed().keys().cloned().collect();
+        for id in sessions {
+            if !all.contains(&id) {
+                all.push(id);
+            }
+        }
+        if all.is_empty() {
+            return Ok(());
+        }
+        let read = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let projected = self.project_archive_once(all.clone(), read.clone()).await;
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            let held = self.shared.archive_ack_hold.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+            if let Some((arrived, go)) = held {
+                let _ = arrived.send(());
+                let _ = go.await;
+            }
+        }
+        let mut owed = self.owed();
+        match &projected {
+            Ok(()) => {
+                let read = read.load(std::sync::atomic::Ordering::SeqCst);
+                owed.retain(|id, debt| !(all.contains(id) && *debt < read));
+            }
+            Err(_) => {
+                let noted = self.shared.archive_reads.load(std::sync::atomic::Ordering::SeqCst);
+                for id in all {
+                    let debt = owed.entry(id).or_insert(noted);
+                    *debt = (*debt).max(noted);
+                }
+            }
+        }
+        projected
+    }
+
+    fn owed(&self) -> std::sync::MutexGuard<'_, HashMap<String, u64>> {
+        self.shared.archive_owed.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    async fn project_archive_once(&self, sessions: Vec<String>, read: Arc<std::sync::atomic::AtomicU64>) -> Result<(), DbError> {
+        #[cfg(any(test, feature = "test-support"))]
+        if self.shared.archive_faults.try_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
+            return Err(DbError::Write("the test's injected archive projection failure".into()));
+        }
+        self.ask(|ack| Command::Archive { sessions, read, ack }).await
+    }
+
+    /// The next archive projection holds its bookkeeping once its write answered (a test's): `.0` tells it arrived, `.1` lets it go.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn hold_archive_ack(&self) -> (oneshot::Receiver<()>, oneshot::Sender<()>) {
+        let (arrived_tx, arrived) = oneshot::channel();
+        let (go, go_rx) = oneshot::channel();
+        *self.shared.archive_ack_hold.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((arrived_tx, go_rx));
+        (arrived, go)
+    }
+
+    /// The next `n` archive projections fail (a test's).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn fail_archive_projections(&self, n: usize) {
+        self.shared.archive_faults.store(n, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Whether a failed archive projection is still owed.
+    pub fn archive_owed(&self) -> bool {
+        !self.owed().is_empty()
+    }
+
     /// Catalog row write, coalesced per session; resolves once committed.
     /// The row is built by `summary::catalog_row` from `head` and the session's projected
     /// message state when it is written.
@@ -1813,7 +2052,7 @@ impl SqliteStore {
     }
 
     /// The rows of `session` (under `<data>/sessions`) rebuilt from its rewritten log, the replaced rows overwritten in
-    /// the database and gone from the WAL, then its superseded blobs no row names deleted; resolves once that is done.
+    /// the database and gone from the WAL; resolves once that is done.
     pub async fn reproject(&self, rewrite: Rewritten) -> Result<(), DbError> {
         self.ask(|ack| Command::Reproject { rewrite, ack }).await
     }
@@ -1846,9 +2085,18 @@ impl SqliteStore {
         self.read(move |c| projected_on(c, &session)).await
     }
 
-    pub async fn blob_referenced(&self, digest: &Digest) -> Result<bool, DbError> {
-        let digest = digest.clone();
-        self.read(move |c| blob_referenced_on(c, &digest)).await
+    /// Whether the projection has reached this exact durable log end, including its identity.
+    pub fn history_projected_through_on_lane(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        session: &str,
+        log_id: &str,
+        end: FramePos,
+    ) -> Result<bool, DbError> {
+        self.shared.gate.with(|c| Ok(c.prepare_cached(
+            "SELECT EXISTS (SELECT 1 FROM sessions WHERE id = ?1 AND log_id = ?2
+             AND projected_ordinal = ?3 AND projected_file_no = ?4 AND projected_offset = ?5)",
+        )?.query_row(params![session, log_id, end.ordinal as i64, end.file_no, end.offset as i64], |r| r.get(0))?))
     }
 
     /// The session's prompt history (`OpenedLog.prompts`): the newest 50 distinct prompts
@@ -1893,12 +2141,6 @@ impl SqliteStore {
         })
     }
 
-    /// GC condition 3 (SM §9) for `BlobStore::collect_shard`, which runs on the
-    /// maintenance lane: answered on that lane's thread.
-    pub fn blob_referenced_on_lane(&self, _lane: &InLane<MaintenanceIo>, digest: &Digest) -> Result<bool, DbError> {
-        self.shared.gate.with(|c| blob_referenced_on(c, digest))
-    }
-
     /// P §9.2 thread-scope lookup: the indexed op of `session` (records not yet projected
     /// are the session actor's to check).
     pub async fn thread_op(&self, session: &str, op_id: &str) -> Result<Option<ThreadOp>, DbError> {
@@ -1906,10 +2148,21 @@ impl SqliteStore {
         self.read(move |c| thread_op_on(c, &session, &op_id)).await
     }
 
+    /// The receipt of submission `submission` of `session` as projected so far ([`Self::submission_on_lane`]).
+    pub async fn submission(&self, session: &str, submission: &str) -> Result<Option<serde_json::Value>, DbError> {
+        let (session, submission) = (session.to_owned(), submission.to_owned());
+        self.read(move |c| submission_on(c, &session, &submission)).await
+    }
+
     /// `thread_op` inside a job already on the read lane: answered on the job's thread, so the job never waits for a lane slot
     /// behind itself.
     pub fn thread_op_on_lane(&self, _lane: &InLane<InteractiveIo>, session: &str, op_id: &str) -> Result<Option<ThreadOp>, DbError> {
         self.shared.gate.with(|c| thread_op_on(c, session, op_id))
+    }
+
+    /// The answer the first acceptance of submission `submission` of `session` got (`submissions`), on the read lane.
+    pub fn submission_on_lane(&self, _lane: &InLane<InteractiveIo>, session: &str, submission: &str) -> Result<Option<serde_json::Value>, DbError> {
+        self.shared.gate.with(|c| submission_on(c, session, submission))
     }
 
     /// The ops of `session` that `op/status{fence}` fenced (P §9.4): an actor refuses them at
@@ -1968,6 +2221,21 @@ impl SqliteStore {
                 .optional()?)
         })
         .await
+    }
+
+    /// The header members a listing reads of a session (`worker::LISTED_FIELDS`), from its catalog row. The outer `None`:
+    /// the index cannot answer for the session (no row, a row behind its log, or a deleted one) and its record is the
+    /// source; the inner `None`: a session kept only to host a worker row.
+    pub async fn listed(&self, session: &str) -> Result<Option<Option<String>>, DbError> {
+        let sessions = vec![session.to_owned()];
+        Ok(self.read(move |c| listed_on(c, &sessions)).await?.pop().flatten())
+    }
+
+    /// [`listed`](Self::listed) of every session of a listing, in order and in one read, on the calling thread (a job of
+    /// the read lane): a listing names hundreds of sessions, and a read each filled the lane's queue. The caller queues
+    /// the one job, so a full queue is waited out there and never answered as "the index cannot say".
+    pub fn listed_many(&self, _lane: &InLane<InteractiveIo>, sessions: &[String]) -> Result<Vec<Option<Option<String>>>, DbError> {
+        self.shared.gate.with(|c| listed_on(c, sessions))
     }
 
     /// What the index knows of the sessions that may name the sidecars of session `own` (no session log is opened):
@@ -2049,6 +2317,15 @@ impl SqliteStore {
             Ok(c.prepare_cached("SELECT deleted FROM sessions WHERE id = ?1")?
                 .query_row([&session], |r| r.get(0))
                 .optional()?)
+        })
+        .await
+    }
+
+    /// Every session the index holds as deleted, in one read ([`deleted`](Self::deleted) for all of them).
+    pub async fn deleted_ids(&self) -> Result<std::collections::HashSet<String>, DbError> {
+        self.read(move |c| {
+            let mut stmt = c.prepare_cached("SELECT id FROM sessions WHERE deleted = 1")?;
+            Ok(stmt.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?)
         })
         .await
     }
@@ -2218,6 +2495,10 @@ impl SqliteStore {
 
     /// Session search (FORMAT.md §8.2): summaries in result order.
     pub async fn search(&self, query: &str, limit: usize, after: Option<SearchCursor>) -> Result<Vec<String>, DbError> {
+        // It filters and orders by the projected `archived` column: an owed projection is settled first, or the search fails.
+        if self.archive_owed() {
+            self.project_archive(Vec::new()).await?;
+        }
         let (sql, arg, limit) = search_statement(query, limit);
         self.read(move |c| {
             let mut stmt = c.prepare_cached(&sql)?;
@@ -2444,24 +2725,16 @@ pub fn project_index(
     db: &Path,
     sessions: &[String],
 ) -> Result<(), String> {
-    project_into(data, db, sessions, INDEX_DDL)
+    project_into(data, db, sessions, INDEX_DDL, None)
 }
 
-/// [`project_index`] with the DDL the new database is created by (the generation it sets).
-fn project_into(data: &Path, db: &Path, sessions: &[String], ddl: &str) -> Result<(), String> {
-    let mut conn = open_writer(db, ddl).map_err(|e| e.to_string())?;
-    let blobs = crate::blobs::BlobStore::new(data);
-    let mut heads = Vec::new();
-    for id in sessions {
-        let dir = data.join("sessions").join(id);
-        let mut fold = None;
-        let damage = project_session(&mut conn, &dir, &blobs, &mut fold, None)
-            .map_err(|e| format!("{id}: {e}"))?
-            .err()
-            .map(|(error, at)| damage_text(&dir, at, &error));
-        let head = fold.as_ref().map_or_else(|| unreadable_head(id), CatalogHead::of);
-        heads.push((head, damage));
-    }
+/// [`project_index`] with the DDL the new database is created by (the generation it sets), and the progress it reports.
+fn project_into(data: &Path, db: &Path, sessions: &[String], ddl: &str, progress: Option<&RebuildProgress>) -> Result<(), String> {
+    let mut conn = open_writer(db, Some(ddl)).map_err(|e| e.to_string())?;
+    // The database is used only once it is whole (its caller flushes the file, then publishes it), so no commit before the
+    // last has to outlive a power loss. Flushed at every commit, a quarter of a rebuild was the wait for the device.
+    conn.pragma_update(None, "synchronous", "OFF").map_err(|e| e.to_string())?;
+    let heads = project_sessions(&mut conn, data, sessions, progress)?;
     // Forks projected before their base wait on it: finish their views, then rebuild the
     // rows that were held back.
     loop {
@@ -2475,7 +2748,7 @@ fn project_into(data: &Path, db: &Path, sessions: &[String], ddl: &str) -> Resul
     let labels = PlaceholderLabels::default();
     for (head, damage) in heads {
         let tx = conn.transaction().map_err(|e| e.to_string())?;
-        upsert(&tx, &head, DirtyMark::Clear, &labels).map_err(|e| e.to_string())?;
+        upsert(&tx, &head, DirtyMark::Clear, &labels, None).map_err(|e| e.to_string())?;
         if let Some(damage) = damage {
             set_status_on(&tx, &head.session, SessionStatus::Damaged, Some(&damage)).map_err(|e| e.to_string())?;
         }
@@ -2484,6 +2757,96 @@ fn project_into(data: &Path, db: &Path, sessions: &[String], ddl: &str) -> Resul
     conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).map_err(|e| e.to_string())?;
     conn.pragma_update(None, "journal_mode", "DELETE").map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// What the reader of one session's log hands the index writer, in the order `project_session` makes it.
+enum Projected {
+    Started(CatalogHead),
+    Frames(String, Vec<ProjectedFrame>),
+    /// The log is read as far as it goes: the session's row, and its damage.
+    Read(CatalogHead, Option<String>),
+}
+
+/// How many messages of one session wait for the index writer: a reader ahead of it holds this many read chunks.
+const HANDOFF_DEPTH: usize = 2;
+
+/// A log reader's way to the index writer of a rebuild.
+struct Handoff(mpsc::SyncSender<Projected>);
+
+impl Handoff {
+    /// The writer left only by failing, and its error is the rebuild's.
+    fn send(&self, message: Projected) -> Result<(), String> {
+        self.0.send(message).map_err(|_| "the index writer stopped".to_owned())
+    }
+}
+
+impl ProjectTo for Handoff {
+    fn started(&mut self, head: &CatalogHead) -> Result<(), String> {
+        self.send(Projected::Started(head.clone()))
+    }
+
+    fn frames(&mut self, session: &str, frames: Vec<ProjectedFrame>) -> Result<(), String> {
+        self.send(Projected::Frames(session.to_owned(), frames))
+    }
+}
+
+/// Projects the logs of `sessions` into `conn`, and answers each one's row and damage. The logs are read, folded and
+/// projected on every core at once, and written by this thread alone in the order of `sessions`, one session whole
+/// before the next: the database is the one a single reader makes. Read one after another, the logs of a thousand
+/// sessions held a start for over a minute. The readers are threads of this call, not lane jobs: the caller's job holds
+/// its lane for the whole projection and waits for them here, and they end before it returns.
+#[allow(clippy::disallowed_methods, reason = "blocking by contract: the caller is a maintenance lane job or the migration's own thread")]
+fn project_sessions(
+    conn: &mut Connection,
+    data: &Path,
+    sessions: &[String],
+    progress: Option<&RebuildProgress>,
+) -> Result<Vec<(CatalogHead, Option<String>)>, String> {
+    if let Some(progress) = progress {
+        progress.begin(sessions.len());
+    }
+    let (senders, receivers): (Vec<_>, Vec<_>) = sessions.iter().map(|_| mpsc::sync_channel(HANDOFF_DEPTH)).unzip();
+    let work = Mutex::new(sessions.iter().zip(senders));
+    let cores = std::thread::available_parallelism().map_err(|e| format!("the number of cores could not be read: {e}"))?;
+    let readers = usize::from(cores).min(sessions.len());
+    std::thread::scope(|scope| {
+        for _ in 0..readers {
+            scope.spawn(|| {
+                let blobs = crate::blobs::BlobStore::new(data);
+                loop {
+                    let Some((id, sender)) = work.lock().unwrap_or_else(std::sync::PoisonError::into_inner).next() else { return };
+                    let dir = data.join("sessions").join(id);
+                    let mut to = Handoff(sender);
+                    let mut fold = None;
+                    let Ok(read) = project_session(&mut to, &dir, &blobs, &mut fold, None) else { return };
+                    let damage = read.err().map(|(error, at)| damage_text(&dir, at, &error));
+                    let head = fold.as_ref().map_or_else(|| unreadable_head(id), CatalogHead::of);
+                    if to.send(Projected::Read(head, damage)).is_err() {
+                        return;
+                    }
+                    if let Some(progress) = progress {
+                        progress.advance();
+                    }
+                }
+            });
+        }
+        let mut heads = Vec::with_capacity(sessions.len());
+        for (id, receiver) in sessions.iter().zip(receivers) {
+            loop {
+                let message = receiver.recv().map_err(|_| format!("{id}: its log's reader stopped"))?;
+                match message {
+                    Projected::Started(head) => ProjectTo::started(&mut *conn, &head),
+                    Projected::Frames(session, frames) => ProjectTo::frames(&mut *conn, &session, frames),
+                    Projected::Read(head, damage) => {
+                        heads.push((head, damage));
+                        break;
+                    }
+                }
+                .map_err(|e| format!("{id}: {e}"))?;
+            }
+        }
+        Ok(heads)
+    })
 }
 
 /// Why a log stopped before its end, and the damaged frame when the reader names it.
@@ -2500,7 +2863,7 @@ trait ProjectTo {
 impl ProjectTo for Connection {
     fn started(&mut self, head: &CatalogHead) -> Result<(), String> {
         let tx = self.transaction().map_err(|e| e.to_string())?;
-        upsert(&tx, head, DirtyMark::Clear, &PlaceholderLabels::default()).map_err(|e| e.to_string())?;
+        upsert(&tx, head, DirtyMark::Clear, &PlaceholderLabels::default(), None).map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())
     }
 
@@ -2699,6 +3062,14 @@ fn reconcile(
 /// an index write failure; the inner one is the log's own failure, after which the frames
 /// before it stay projected. `from`: the index already holds every frame before this one
 /// (the reconcile), so those are folded only.
+/// A record whose body is a session's header or state (the `session` header, a checkpoint's state, a header change): it
+/// holds no rows, so a loss of it is no row loss; the fold accounts for it ([`crate::fold::fold_salvaging`]) and clears it
+/// when a later checkpoint restores what it made.
+fn fold_owned(record: &crate::schema::record::Record) -> bool {
+    use crate::schema::record::Record;
+    matches!(record, Record::Session(_) | Record::Checkpoint(_) | Record::Meta(_))
+}
+
 fn project_session(
     to: &mut impl ProjectTo,
     dir: &Path,
@@ -2706,40 +3077,50 @@ fn project_session(
     fold: &mut Option<crate::fold::Fold>,
     from: Option<FramePos>,
 ) -> Result<Result<(), LogFailure>, String> {
-    use crate::fold::Fold;
-    use crate::fold::NoIndex;
     use crate::log::ForwardEnd;
-    use crate::schema::record::Record;
     let log = |e: String| (e, None);
+    // The end of the read: the log's own failure with the losses.
+    let finish = |losses: &crate::fold::Losses, failure: Option<LogFailure>| -> Result<Result<(), LogFailure>, String> {
+        Ok(match failure {
+            None if losses.is_empty() => Ok(()),
+            None => Err((losses.describe(), None)),
+            Some((error, at)) if losses.is_empty() => Err((error, at)),
+            Some((error, at)) => Err((format!("{error}; {}", losses.describe()), at)),
+        })
+    };
     let first = match crate::log::first_ordinal_unlaned(dir) {
         Ok(first) => first,
-        Err(e) => return Ok(Err(log(e.to_string()))),
+        Err(e) => return finish(&crate::fold::Losses::default(), Some(log(e.to_string()))),
     };
     let mut pos = FramePos { ordinal: first, file_no: 0, offset: 0 };
-    let mut resolve = |b: &crate::schema::blob::BodyBlob| {
-        blobs.read_unlaned(&b.descriptor().digest).map_err(|e| e.to_string())
-    };
+    // A body whose blob is missing or corrupt stops nothing (FORMAT.md §4.5): its record is folded and projected as far
+    // as it can be, every later frame is projected with its references, and the losses become the session's damage.
+    let gone = std::cell::RefCell::new(Vec::new());
+    let mut resolve = crate::fold::noting(blobs, &gone);
+    let mut losses = crate::fold::Losses::default();
+    // A reconcile needs the frames from `from` on and the fold at the end: it starts at the newest anchor before `from`
+    // (a checkpoint every MiB, or the session frame), as an open does, instead of folding the whole log from its first
+    // frame. After an unclean exit every session that was active is reconciled at the next start, and the index's reads
+    // wait for it: folded from the start, a hundred long logs held the start for a minute.
+    if let Some(from) = from
+        && fold.is_none()
+        && let Some((anchor, anchored, next)) = crate::log::newest_anchor_fold_unlaned(dir, &mut resolve)
+        && anchor.ordinal < from.ordinal
+    {
+        *fold = Some(anchored);
+        pos = next;
+    }
+    // An anchor that did not read is no loss: the fold starts at the `session` frame instead.
+    crate::fold::take_lost(&gone);
     loop {
         let read = match crate::log::read_forward_unlaned(dir, pos, APPEND_BYTES as u64) {
             Ok(read) => read,
-            Err(e) => return Ok(Err(log(e.to_string()))),
+            Err(e) => return finish(&losses, Some(log(e.to_string()))),
         };
         let mut frames = Vec::with_capacity(read.frames.len());
         let mut failure = None;
         for (record, at, frame_len) in &read.frames {
-            let folded = match fold.as_mut() {
-                None => match record {
-                    Record::Session(s) => crate::fold::resolve_slot(&s.header, &mut resolve).map(|header| {
-                        *fold = Some(Fold::from_session(s, header, *at));
-                        true
-                    }),
-                    _ => Err("the first frame is not a session frame".to_owned()),
-                },
-                Some(f) => f.prepare([record], &NoIndex, &mut resolve).map_err(|e| e.to_string()).map(|mut effects| {
-                    f.apply(effects.pop().expect("one effect"), *at);
-                    false
-                }),
-            };
+            let folded = crate::fold::fold_salvaging(fold, record, *at, &mut resolve, &gone, &mut losses);
             let started = match folded {
                 Ok(started) => started,
                 Err(e) => {
@@ -2754,33 +3135,73 @@ fn project_session(
             if from.is_some_and(|from| at.ordinal < from.ordinal) {
                 continue;
             }
+            // A record whose body is lost keeps its references and op, and no rows of its own.
             let (kind, op) = match crate::projection::project(record, &mut resolve) {
                 Ok(projected) => projected,
-                Err(e) => {
-                    failure = Some(log(e));
-                    break;
-                }
+                Err(e) => match crate::fold::take_lost(&gone) {
+                    Some(digests) => {
+                        if !fold_owned(record) {
+                            losses.row(at.ordinal, digests);
+                        }
+                        (crate::projection::FrameKind::Other, crate::projection::record_op(record))
+                    }
+                    None => {
+                        failure = Some(log(e));
+                        break;
+                    }
+                },
             };
+            let receipt = match crate::projection::receipt(record, &mut resolve) {
+                Ok(receipt) => receipt,
+                Err(e) => match crate::fold::take_lost(&gone) {
+                    Some(digests) => {
+                        if !fold_owned(record) {
+                            losses.row(at.ordinal, digests);
+                        }
+                        None
+                    }
+                    None => {
+                        failure = Some(log(e));
+                        break;
+                    }
+                },
+            };
+            for blob in crate::projection::unread_bodies(record) {
+                if let Err(e) = resolve(blob) {
+                    match crate::fold::take_lost(&gone) {
+                        Some(digests) => losses.row(at.ordinal, digests),
+                        // Not a loss (an I/O error that may pass): the read ends here, as it does for a row body.
+                        None => {
+                            failure = Some(log(e));
+                            break;
+                        }
+                    }
+                }
+            }
+            if failure.is_some() {
+                break;
+            }
             frames.push(ProjectedFrame {
                 pos: *at,
                 frame_len: *frame_len,
                 kind,
                 op,
+                receipt,
                 history_rev: f.history_rev,
                 rows: f.rows,
                 visible_rows: f.visible_rows,
             });
         }
-        let session = fold.as_ref().map(|f| f.session.clone()).unwrap_or_default();
-        to.frames(&session, frames)?;
+        let folded_session = fold.as_ref().map(|f| f.session.clone()).unwrap_or_default();
+        to.frames(&folded_session, frames)?;
         if let Some(failure) = failure {
-            return Ok(Err(failure));
+            return finish(&losses, Some(failure));
         }
         match read.next {
             ForwardEnd::More(next) => pos = next,
-            ForwardEnd::Done { .. } if fold.is_some() => return Ok(Ok(())),
-            ForwardEnd::Done { .. } => return Ok(Err(log("the log holds no frame".into()))),
-            ForwardEnd::Damaged(d) => return Ok(Err(("a frame fails its check".into(), Some(d)))),
+            ForwardEnd::Done { .. } if fold.is_some() => return finish(&losses, None),
+            ForwardEnd::Done { .. } => return finish(&losses, Some(log("the log holds no frame".into()))),
+            ForwardEnd::Damaged(d) => return finish(&losses, Some(("a frame fails its check".into(), Some(d)))),
         }
     }
 }
@@ -3139,7 +3560,6 @@ pub(crate) const PAGE_SQL: &str =
 pub(crate) const PROJECTED_SQL: &str =
     "SELECT projected_ordinal, projected_file_no, projected_offset FROM sessions WHERE id = ?1";
 
-pub(crate) const BLOB_REF_SQL: &str = "SELECT 1 FROM blob_refs WHERE digest = ?1 LIMIT 1";
 
 pub(crate) const THREAD_OP_SQL: &str = "SELECT method, payload_digest, state, ordinal, file_no, frame_offset,
      frame_len FROM thread_ops WHERE session = ?1 AND op_id = ?2";
@@ -3230,18 +3650,21 @@ fn thread_op_on(c: &Connection, session: &str, op_id: &str) -> Result<Option<Thr
         .optional()?)
 }
 
+fn submission_on(c: &Connection, session: &str, submission: &str) -> Result<Option<serde_json::Value>, DbError> {
+    let answer: Option<String> = c
+        .prepare_cached("SELECT answer FROM submissions WHERE session = ?1 AND submission_id = ?2")?
+        .query_row([session, submission], |r| r.get(0))
+        .optional()?;
+    answer
+        .map(|answer| serde_json::from_str(&answer).map_err(|e| DbError::Rebuild(format!("a stored submission answer does not parse: {e}"))))
+        .transpose()
+}
+
 fn fenced_ops_on(c: &Connection, session: &str) -> Result<Vec<String>, DbError> {
     let fenced = serde_name(&crate::schema::record::OpState::Fenced);
     let mut rows = c.prepare_cached("SELECT op_id FROM thread_ops WHERE session = ?1 AND state = ?2")?;
     let ids = rows.query_map([session, fenced.as_str()], |r| r.get::<_, String>(0))?;
     Ok(ids.collect::<Result<Vec<_>, _>>()?)
-}
-
-pub(crate) fn blob_referenced_on(c: &Connection, digest: &Digest) -> Result<bool, DbError> {
-    Ok(c.prepare_cached(BLOB_REF_SQL)?
-        .query_row([digest.as_str()], |_| Ok(()))
-        .optional()?
-        .is_some())
 }
 
 /// Read connections of one database. `run` executes a read as a job on the read lane,

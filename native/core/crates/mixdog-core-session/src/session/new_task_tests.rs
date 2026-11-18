@@ -28,16 +28,6 @@ use super::testing::Rig;
 
 const REUSED: &str = "Submission id was reused for different content.";
 
-/// The bound of every wait in this file, in real time. The tests run on a paused clock, which moves only when a test advances it,
-/// so a deadline taken on it never fires for a wait that stalls: the bound is a thread's, outside the runtime.
-const BOUND: std::time::Duration = std::time::Duration::from_secs(60);
-
-/// `work`, or a failure naming `what` once `BOUND` of real time has passed without it. The deadline is a thread that waits on a
-/// channel for the work's end: it ends with the work, and when the bound passes first it wakes the test, which then fails.
-async fn within<T>(what: &str, work: impl std::future::Future<Output = T>) -> T {
-    bounded(|| what.to_owned(), work).await
-}
-
 /// The step a test has reached, named in its deadline's failure.
 #[derive(Clone)]
 struct Steps(Arc<std::sync::Mutex<&'static str>>);
@@ -45,36 +35,6 @@ struct Steps(Arc<std::sync::Mutex<&'static str>>);
 impl Steps {
     fn at(&self, step: &'static str) {
         *self.0.lock().unwrap() = step;
-    }
-}
-
-/// A test's whole body under one real-time deadline (`BOUND`), whose failure names the test and the step it reached: the awaits
-/// inside need none of their own.
-async fn whole<F, Fut>(test: &str, body: F)
-where
-    F: FnOnce(Steps) -> Fut,
-    Fut: std::future::Future<Output = ()>,
-{
-    let steps = Steps(Arc::new(std::sync::Mutex::new("its start")));
-    let reached = steps.clone();
-    bounded(move || format!("{test}, at {}", reached.0.lock().unwrap()), body(steps)).await;
-}
-
-async fn bounded<T>(what: impl FnOnce() -> String, work: impl std::future::Future<Output = T>) -> T {
-    let (done, waiting) = std::sync::mpsc::channel::<()>();
-    let (expire, expired) = tokio::sync::oneshot::channel::<()>();
-    std::thread::spawn(move || {
-        if waiting.recv_timeout(BOUND) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
-            expire.send(()).ok();
-        }
-    });
-    tokio::select! {
-        biased;
-        out = work => {
-            drop(done);
-            out
-        }
-        _ = expired => panic!("{}: not within {BOUND:?}", what()),
     }
 }
 
@@ -152,141 +112,6 @@ impl super::NewThreadRoute for RefusesDraftRoute {
 }
 
 const REFUSED_ROUTE: fn() -> Value = || json!({ "route": { "provider": "p", "model": "m" } });
-
-/// The dedupe itself: a retry (a new `opId`, the same submission id and content) answers the first task and sends no second prompt.
-#[tokio::test(start_paused = true)]
-async fn a_retried_request_starts_one_task() {
-    let rig = Rig::new();
-    let runs = counting(&rig);
-    let (directory, receipts) = directory_over(&rig);
-    let first = within("the first request's answer", submit(&directory, "op-1", "sub-a", "write the report", json!({}))).await.expect("first");
-    let retry = within("the retry's answer", submit(&directory, "op-2", "sub-a", "write the report", json!({}))).await.expect("retry");
-    assert_eq!(first, derived("sub-a"), "the address is derived from the submission id");
-    assert_eq!(retry, first);
-    assert_eq!(directory.loaded_ids().len(), 1, "one task");
-    assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
-    let receipt = stored(&rig, "sub-a").expect("a receipt");
-    assert_eq!((receipt.phase(), receipt.session_id(), receipt.refused()), (Phase::Accepted, first.as_str(), false));
-    // The phases are written as Node writes them: only `accepted` is flushed before it is reported.
-    let writes = receipts.writes.lock().unwrap().clone();
-    assert_eq!(writes, vec![("reserved".to_owned(), false), ("configured".to_owned(), false), ("accepted".to_owned(), true)]);
-}
-
-/// The durability order for `accepted`: the receipt is not `accepted` while the prompt is being sent, and is flushed once it is.
-#[tokio::test(start_paused = true)]
-async fn the_accepted_receipt_follows_the_prompt_and_is_flushed() {
-    let rig = Rig::new();
-    let seen = Arc::new(std::sync::Mutex::new(None));
-    let (path, at_run) = (receipt_path(&rig, "sub-order"), seen.clone());
-    rig.set_script(Arc::new(move |_run| {
-        *at_run.lock().unwrap() = Receipt::parse(&std::fs::read(&path).expect("the receipt exists when the prompt is sent")).map(|receipt| receipt.phase());
-        Box::pin(async { RunOutcome::Completed(Default::default()) })
-    }));
-    let (directory, receipts) = directory_over(&rig);
-    within("the request's answer", submit(&directory, "op-1", "sub-order", "write the report", json!({}))).await.expect("first");
-    assert_eq!(*seen.lock().unwrap(), Some(Phase::Configured), "the prompt is sent before the receipt says accepted");
-    let writes = receipts.writes.lock().unwrap().clone();
-    assert_eq!(writes.last(), Some(&("accepted".to_owned(), true)), "accepted is flushed before it is reported");
-    assert!(writes[..writes.len() - 1].iter().all(|(_, flushed)| !flushed), "reserved and configured are atomic renames only");
-}
-
-/// The changed-content rule: the same id with other content is refused, and nothing is created or changed.
-#[tokio::test(start_paused = true)]
-async fn the_same_id_with_other_content_is_refused_and_creates_nothing() {
-    let rig = Rig::new();
-    let runs = counting(&rig);
-    let (directory, _) = directory_over(&rig);
-    within("the first request's answer", submit(&directory, "op-1", "sub-b", "write the report", json!({}))).await.expect("first");
-    let before = std::fs::read(receipt_path(&rig, "sub-b")).expect("receipt");
-    let changed = within("the changed request's answer", submit(&directory, "op-2", "sub-b", "write another report", json!({}))).await;
-    assert!(matches!(&changed, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == REUSED), "{changed:?}");
-    assert_eq!(directory.loaded_ids().len(), 1);
-    assert_eq!(runs.load(Ordering::SeqCst), 1);
-    assert_eq!(std::fs::read(receipt_path(&rig, "sub-b")).expect("receipt"), before, "the receipt is as it was");
-}
-
-/// The phase resumed after a crash: a `configured` receipt over a thread that holds the prompt sends no second prompt and ends `accepted`.
-#[tokio::test(start_paused = true)]
-async fn a_retry_after_a_crash_resumes_at_configured_without_a_second_prompt() {
-    let rig = Rig::new();
-    let runs = counting(&rig);
-    let (directory, _) = directory_over(&rig);
-    within("the first request's answer", submit(&directory, "op-1", "sub-c", "write the report", json!({}))).await.expect("first");
-    // The process ended after the prompt was accepted and before `accepted` was written.
-    let receipt = stored(&rig, "sub-c").expect("receipt");
-    std::fs::write(receipt_path(&rig, "sub-c"), receipt.with_phase(Phase::Configured).to_bytes()).expect("rewind");
-    let (restarted, receipts) = directory_over(&rig);
-    let retry = within("the retry's answer", submit(&restarted, "op-2", "sub-c", "write the report", json!({}))).await.expect("retry");
-    assert_eq!(retry, derived("sub-c"));
-    assert_eq!(runs.load(Ordering::SeqCst), 1, "the prompt the thread holds is not sent again");
-    assert_eq!(stored(&rig, "sub-c").expect("receipt").phase(), Phase::Accepted);
-    assert_eq!(*receipts.writes.lock().unwrap(), vec![("accepted".to_owned(), true)], "the attempt resumes at configured: nothing is reserved or configured again");
-}
-
-/// The phase resumed after a crash: a `reserved` receipt with no thread behind it starts the task at the reserved address.
-#[tokio::test(start_paused = true)]
-async fn a_retry_after_a_crash_at_reserved_creates_the_task_at_the_reserved_address() {
-    let first = Rig::new();
-    counting(&first);
-    let (directory, _) = directory_over(&first);
-    within("the first request's answer", submit(&directory, "op-1", "sub-d", "write the report", json!({}))).await.expect("first");
-    let reserved = stored(&first, "sub-d").expect("receipt").with_phase(Phase::Reserved);
-    // A core that never made the thread: another store, the receipt as the interrupted attempt left it.
-    let rig = Rig::new();
-    let runs = counting(&rig);
-    std::fs::create_dir_all(receipt_path(&rig, "sub-d").parent().unwrap()).expect("folder");
-    std::fs::write(receipt_path(&rig, "sub-d"), reserved.to_bytes()).expect("seed");
-    let (restarted, receipts) = directory_over(&rig);
-    let retry = within("the retry's answer", submit(&restarted, "op-2", "sub-d", "write the report", json!({}))).await.expect("retry");
-    assert_eq!(retry, derived("sub-d"));
-    assert_eq!(runs.load(Ordering::SeqCst), 1);
-    assert_eq!(stored(&rig, "sub-d").expect("receipt").phase(), Phase::Accepted);
-    assert_eq!(*receipts.writes.lock().unwrap(), vec![("configured".to_owned(), false), ("accepted".to_owned(), true)], "the attempt resumes at reserved: the reservation is not made again");
-}
-
-/// The refusal reset: an attempt refused before the prompt leaves a marked receipt on a fresh address, flushed; the id may then be
-/// sent with other content, which starts there on a fresh address of its own, the mark cleared.
-#[tokio::test(start_paused = true)]
-async fn a_refused_attempt_marks_its_receipt_and_frees_the_id() {
-    let rig = Rig::new();
-    let runs = counting(&rig);
-    let mut deps = rig.deps_parts(rig.store.clone());
-    deps.new_route = Arc::new(RefusesDraftRoute);
-    let deps = Arc::new(deps);
-    let (receipts, directory) = (deps.new_tasks.clone(), SessionDirectory::new(deps));
-    let refused = within("the refusal", submit(&directory, "op-1", "sub-e", "write the report", REFUSED_ROUTE())).await;
-    assert!(matches!(&refused, Err(CoreError::DomainError { message: Some(message), .. }) if message.contains("route refused")), "{refused:?}");
-    let mark = stored(&rig, "sub-e").expect("receipt");
-    assert!(mark.refused() && mark.phase() == Phase::Reserved);
-    assert_ne!(mark.session_id(), derived("sub-e"), "the refused reservation is not resumed");
-    assert_eq!(receipts.writes.lock().unwrap().last(), Some(&("reserved+refused".to_owned(), true)));
-    let other = within("the other content's answer", submit(&directory, "op-2", "sub-e", "write something else", json!({}))).await.expect("other content");
-    assert_ne!(other, mark.session_id());
-    assert_ne!(other, derived("sub-e"));
-    let receipt = stored(&rig, "sub-e").expect("receipt");
-    assert_eq!((receipt.phase(), receipt.refused(), receipt.session_id()), (Phase::Accepted, false, other.as_str()));
-    assert_eq!(runs.load(Ordering::SeqCst), 1);
-    // The write that frees the id is flushed too.
-    assert!(receipts.writes.lock().unwrap().contains(&("reserved".to_owned(), true)));
-}
-
-/// A receipt that is already on disk when the core starts (the one Node wrote, carried over by the migration under the same name and
-/// bytes) is answered as Node answers it: `accepted` replays the session and sends nothing.
-#[tokio::test(start_paused = true)]
-async fn an_accepted_receipt_found_at_start_answers_the_session_and_sends_nothing() {
-    let rig = Rig::new();
-    let runs = counting(&rig);
-    let (directory, _) = directory_over(&rig);
-    let first = within("the first request's answer", submit(&directory, "op-1", "sub-m", "write the report", json!({}))).await.expect("first");
-    let on_disk = std::fs::read(receipt_path(&rig, "sub-m")).expect("receipt");
-    assert_eq!(on_disk, stored(&rig, "sub-m").expect("receipt").to_bytes(), "the file is the receipt's own bytes");
-    let (restarted, receipts) = directory_over(&rig);
-    let replay = within("the replayed answer", submit(&restarted, "op-2", "sub-m", "write the report", json!({}))).await.expect("replay");
-    assert_eq!(replay, first);
-    assert_eq!(runs.load(Ordering::SeqCst), 1);
-    assert_eq!(std::fs::read(receipt_path(&rig, "sub-m")).expect("receipt"), on_disk, "nothing is written for a replay");
-    assert!(receipts.writes.lock().unwrap().is_empty());
-}
 /// The first route adoption is held until released and says when it is entered: an attempt stopped between `reserved` and
 /// `configured`.
 struct HeldRoute {
@@ -314,6 +139,363 @@ impl super::NewThreadRoute for HeldRoute {
     }
 }
 
+/// The route is seated on the created session, the last step of its creation (the record is written, `begin_thread` has not
+/// returned), and held there until released, saying when it is entered.
+struct HeldSeat {
+    entered: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Semaphore>,
+    held: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait::async_trait]
+impl super::NewThreadRoute for HeldSeat {
+    async fn adopt(&self, _: &mixdog_core_api::ids::ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
+        Ok(serde_json::Map::new())
+    }
+
+    async fn adopt_control(&self, _: &mixdog_core_api::ids::ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+        Ok(serde_json::Map::new())
+    }
+
+    async fn seat(&self, _: &mixdog_core_api::ids::ThreadId) -> Result<(), String> {
+        if !self.held.swap(true, Ordering::SeqCst) {
+            self.entered.notify_one();
+            self.release.acquire().await.expect("open").forget();
+        }
+        Ok(())
+    }
+}
+
+#[cfg(node_twin)]
+/// The draft's worktree is entered and held there until released, saying when it is entered.
+struct HeldPlace {
+    entered: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Semaphore>,
+    held: std::sync::atomic::AtomicBool,
+}
+
+#[cfg(node_twin)]
+#[async_trait::async_trait]
+impl super::NewThreadPlace for HeldPlace {
+    async fn projects(&self) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
+
+    async fn touch_project(&self, _: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    async fn enter_worktree(&self, _: &mixdog_core_api::ids::ThreadId, _: &Value, _: Option<&Value>, _: &CancellationToken) -> Result<(), CoreError> {
+        if !self.held.swap(true, Ordering::SeqCst) {
+            self.entered.notify_one();
+            self.release.acquire().await.expect("open").forget();
+        }
+        Ok(())
+    }
+}
+
+#[cfg(node_twin)]
+fn unsigned(text: &str) -> Value {
+    let mut receipt: Value = serde_json::from_str(text).expect("a receipt");
+    receipt.as_object_mut().expect("an object").remove("signature");
+    receipt
+}
+
+#[cfg(node_twin)]
+/// The core's addresses in the recording's terms: the derived one kept, every other numbered `<fresh:N>` by first appearance.
+#[derive(Default)]
+struct Names(Vec<String>);
+
+#[cfg(node_twin)]
+impl Names {
+    #[cfg(node_twin)]
+    fn of(&mut self, id: &str, address: &str) -> String {
+        if address == derived(id) {
+            return address.to_owned();
+        }
+        if !self.0.iter().any(|seen| seen == address) {
+            self.0.push(address.to_owned());
+        }
+        format!("<fresh:{}>", self.0.iter().position(|seen| seen == address).expect("named") + 1)
+    }
+}
+
+#[cfg(node_twin)]
+/// The core's state in the recording's terms: the receipt of `id` (less its signature, its address named) and the stored sessions
+/// among `addresses` (Node's `<data>/sessions/<id>.log.jsonl`, listed by id), each read as the replay reads one (`thread/items/list`,
+/// `threadNotFound` for one that is not there).
+async fn core_state(rig: &Rig, directory: &SessionDirectory, id: &str, names: &mut Names, addresses: &[String]) -> (Value, Value) {
+    let mut receipt = unsigned(&String::from_utf8(std::fs::read(receipt_path(rig, id)).expect("the receipt")).expect("text"));
+    let address = receipt["sessionId"].as_str().expect("an address").to_owned();
+    receipt["sessionId"] = Value::String(names.of(id, &address));
+    let mut stored = Vec::new();
+    let deleted = rig.deletes.0.lock().unwrap().clone();
+    let mut addresses = addresses.to_vec();
+    addresses.sort();
+    addresses.dedup();
+    for address in &addresses {
+        // A deleted session's files are purged with its delete (`delete.rs` `remove`); the test store keeps its rows, so the delete is read.
+        if deleted.contains(&format!("thread/deleted:{address}")) {
+            continue;
+        }
+        let listed = directory
+            .request(CoreRequest {
+                method: Method("thread/items/list"),
+                params: json!({ "threadId": address }),
+                op: None,
+                ctx: CallContext::internal("test"),
+            })
+            .await;
+        match listed {
+            Ok(Reply::Value(_)) => stored.push(Value::String(names.of(id, address))),
+            Err(CoreError::ThreadNotFound { .. }) => continue,
+            other => panic!("thread/items/list of {address}: {:?}", other.map(|_| ())),
+        }
+    }
+    // A set of ids, sorted once named (cases.mjs `numberFresh`).
+    stored.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+    (receipt, Value::Array(stored))
+}
+
+#[cfg(node_twin)]
+/// The draft settings as the attempt applies them: what it asked of the workflow and mode service, in order.
+#[derive(Default)]
+struct RecordingSettings(std::sync::Mutex<Vec<(String, String)>>);
+
+#[cfg(node_twin)]
+#[async_trait::async_trait]
+impl super::DraftSettings for RecordingSettings {
+    async fn set_workflow(&self, _: &mixdog_core_api::ids::ThreadId, workflow_id: &str) -> Result<(), CoreError> {
+        self.0.lock().unwrap().push(("workflow".into(), workflow_id.into()));
+        // The built-in packs (src/workflows: default, headless); any other id is Node's `workflow "<id>" not found`.
+        if ["default", "headless"].contains(&workflow_id) {
+            Ok(())
+        } else {
+            Err(mixdog_core_base::support::failed("workflow", format!("workflow \"{workflow_id}\" not found")))
+        }
+    }
+
+    async fn set_orchestration_mode(&self, _: &mixdog_core_api::ids::ThreadId, mode: &str) -> Result<(), CoreError> {
+        self.0.lock().unwrap().push(("mode".into(), mode.into()));
+        Ok(())
+    }
+}
+
+/// The refusal's fresh address is `sess_desktop_` and 32 random bytes in hex (`freshSessionId`): every hex digit takes any value.
+/// Two joined UUID v4 values would fix digit 12 of each half to `4` and digit 16 to one of `8`-`b`; over 64 addresses each of those
+/// digits takes a value outside `4`, `8`-`b` unless the bytes are not uniformly random (a chance of (5/16)^64, about 10^-32, each).
+#[test]
+fn the_fresh_address_is_32_random_bytes() {
+    let addresses: Vec<String> = (0..64).map(|_| super::new_task::fresh_session_id()).collect();
+    for address in &addresses {
+        let hex = address.strip_prefix("sess_desktop_").expect("the prefix");
+        assert!(hex.len() == 64 && hex.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')), "{address}");
+    }
+    for at in [12, 16, 44, 48] {
+        let digits: std::collections::BTreeSet<u8> = addresses.iter().map(|address| address.as_bytes()["sess_desktop_".len() + at]).collect();
+        assert!(digits.iter().any(|digit| !matches!(digit, b'4' | b'8'..=b'9' | b'a'..=b'b')), "hex digit {at} only ever took {digits:?}");
+    }
+}
+
+#[cfg(node_twin)]
+/// The snapshot fields the set's MANIFEST `exclusions` declare: host-side, with no counterpart in the core's thread summary.
+const EXCLUDED_SNAPSHOT_FIELDS: [&str; 4] = ["items", "queued", "remoteEnabled", "remoteSessionId"];
+
+#[cfg(node_twin)]
+/// `<root>` of a recording written as the per-run folder, in every string of `value`.
+fn rooted(value: &Value, root: &str) -> Value {
+    match value {
+        Value::String(text) => Value::String(text.replace("<root>", root)),
+        Value::Array(items) => Value::Array(items.iter().map(|item| rooted(item, root)).collect()),
+        Value::Object(members) => Value::Object(members.iter().map(|(key, member)| (key.clone(), rooted(member, root))).collect()),
+        other => other.clone(),
+    }
+}
+
+#[cfg(node_twin)]
+/// The new-thread place over the real Project registry: the recency write is `Catalog::touch`, the call the daemon's place
+/// makes (`WorkspaceFolders::touch_selected`).
+struct RegistryPlace(Arc<mixdog_workspace::catalog::Catalog>);
+#[cfg(node_twin)]
+#[async_trait::async_trait]
+impl super::NewThreadPlace for RegistryPlace {
+    async fn projects(&self) -> Result<Vec<String>, String> {
+        self.0.list().await.map(|rows| rows.into_iter().map(|row| row.path).collect()).map_err(|error| error.message)
+    }
+
+    async fn touch_project(&self, path: &str) -> Result<(), String> {
+        self.0.touch(path, None).await.map(drop).map_err(|error| error.message)
+    }
+
+    async fn enter_worktree(&self, _: &mixdog_core_api::ids::ThreadId, _: &Value, _: Option<&Value>, _: &CancellationToken) -> Result<(), CoreError> {
+        Ok(())
+    }
+}
+
+/// The bound of every wait in this file, in real time. The tests run on a paused clock, which moves only when a test advances it,
+/// so a deadline taken on it never fires for a wait that stalls: the bound is a thread's, outside the runtime.
+const BOUND: std::time::Duration = std::time::Duration::from_secs(60);
+/// `work`, or a failure naming `what` once `BOUND` of real time has passed without it. The deadline is a thread that waits on a
+/// channel for the work's end: it ends with the work, and when the bound passes first it wakes the test, which then fails.
+async fn within<T>(what: &str, work: impl std::future::Future<Output = T>) -> T {
+    bounded(|| what.to_owned(), work).await
+}
+/// A test's whole body under one real-time deadline (`BOUND`), whose failure names the test and the step it reached: the awaits
+/// inside need none of their own.
+async fn whole<F, Fut>(test: &str, body: F)
+where
+    F: FnOnce(Steps) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let steps = Steps(Arc::new(std::sync::Mutex::new("its start")));
+    let reached = steps.clone();
+    bounded(move || format!("{test}, at {}", reached.0.lock().unwrap()), body(steps)).await;
+}
+async fn bounded<T>(what: impl FnOnce() -> String, work: impl std::future::Future<Output = T>) -> T {
+    let (done, waiting) = std::sync::mpsc::channel::<()>();
+    let (expire, expired) = tokio::sync::oneshot::channel::<()>();
+    std::thread::spawn(move || {
+        if waiting.recv_timeout(BOUND) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+            expire.send(()).ok();
+        }
+    });
+    tokio::select! {
+        biased;
+        out = work => {
+            drop(done);
+            out
+        }
+        _ = expired => panic!("{}: not within {BOUND:?}", what()),
+    }
+}
+/// The dedupe itself: a retry (a new `opId`, the same submission id and content) answers the first task and sends no second prompt.
+#[tokio::test(start_paused = true)]
+async fn a_retried_request_starts_one_task() {
+    let rig = Rig::new();
+    let runs = counting(&rig);
+    let (directory, receipts) = directory_over(&rig);
+    let first = within("the first request's answer", submit(&directory, "op-1", "sub-a", "write the report", json!({}))).await.expect("first");
+    let retry = within("the retry's answer", submit(&directory, "op-2", "sub-a", "write the report", json!({}))).await.expect("retry");
+    assert_eq!(first, derived("sub-a"), "the address is derived from the submission id");
+    assert_eq!(retry, first);
+    assert_eq!(directory.loaded_ids().len(), 1, "one task");
+    assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
+    let receipt = stored(&rig, "sub-a").expect("a receipt");
+    assert_eq!((receipt.phase(), receipt.session_id(), receipt.refused()), (Phase::Accepted, first.as_str(), false));
+    // The phases are written as Node writes them: only `accepted` is flushed before it is reported.
+    let writes = receipts.writes.lock().unwrap().clone();
+    assert_eq!(writes, vec![("reserved".to_owned(), false), ("configured".to_owned(), false), ("accepted".to_owned(), true)]);
+}
+/// The durability order for `accepted`: the receipt is not `accepted` while the prompt is being sent, and is flushed once it is.
+#[tokio::test(start_paused = true)]
+async fn the_accepted_receipt_follows_the_prompt_and_is_flushed() {
+    let rig = Rig::new();
+    let seen = Arc::new(std::sync::Mutex::new(None));
+    let (path, at_run) = (receipt_path(&rig, "sub-order"), seen.clone());
+    rig.set_script(Arc::new(move |_run| {
+        *at_run.lock().unwrap() = Receipt::parse(&std::fs::read(&path).expect("the receipt exists when the prompt is sent")).map(|receipt| receipt.phase());
+        Box::pin(async { RunOutcome::Completed(Default::default()) })
+    }));
+    let (directory, receipts) = directory_over(&rig);
+    within("the request's answer", submit(&directory, "op-1", "sub-order", "write the report", json!({}))).await.expect("first");
+    assert_eq!(*seen.lock().unwrap(), Some(Phase::Configured), "the prompt is sent before the receipt says accepted");
+    let writes = receipts.writes.lock().unwrap().clone();
+    assert_eq!(writes.last(), Some(&("accepted".to_owned(), true)), "accepted is flushed before it is reported");
+    assert!(writes[..writes.len() - 1].iter().all(|(_, flushed)| !flushed), "reserved and configured are atomic renames only");
+}
+/// The changed-content rule: the same id with other content is refused, and nothing is created or changed.
+#[tokio::test(start_paused = true)]
+async fn the_same_id_with_other_content_is_refused_and_creates_nothing() {
+    let rig = Rig::new();
+    let runs = counting(&rig);
+    let (directory, _) = directory_over(&rig);
+    within("the first request's answer", submit(&directory, "op-1", "sub-b", "write the report", json!({}))).await.expect("first");
+    let before = std::fs::read(receipt_path(&rig, "sub-b")).expect("receipt");
+    let changed = within("the changed request's answer", submit(&directory, "op-2", "sub-b", "write another report", json!({}))).await;
+    assert!(matches!(&changed, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == REUSED), "{changed:?}");
+    assert_eq!(directory.loaded_ids().len(), 1);
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+    assert_eq!(std::fs::read(receipt_path(&rig, "sub-b")).expect("receipt"), before, "the receipt is as it was");
+}
+/// The phase resumed after a crash: a `configured` receipt over a thread that holds the prompt sends no second prompt and ends `accepted`.
+#[tokio::test(start_paused = true)]
+async fn a_retry_after_a_crash_resumes_at_configured_without_a_second_prompt() {
+    let rig = Rig::new();
+    let runs = counting(&rig);
+    let (directory, _) = directory_over(&rig);
+    within("the first request's answer", submit(&directory, "op-1", "sub-c", "write the report", json!({}))).await.expect("first");
+    // The process ended after the prompt was accepted and before `accepted` was written.
+    let receipt = stored(&rig, "sub-c").expect("receipt");
+    std::fs::write(receipt_path(&rig, "sub-c"), receipt.with_phase(Phase::Configured).to_bytes()).expect("rewind");
+    let (restarted, receipts) = directory_over(&rig);
+    let retry = within("the retry's answer", submit(&restarted, "op-2", "sub-c", "write the report", json!({}))).await.expect("retry");
+    assert_eq!(retry, derived("sub-c"));
+    assert_eq!(runs.load(Ordering::SeqCst), 1, "the prompt the thread holds is not sent again");
+    assert_eq!(stored(&rig, "sub-c").expect("receipt").phase(), Phase::Accepted);
+    assert_eq!(*receipts.writes.lock().unwrap(), vec![("accepted".to_owned(), true)], "the attempt resumes at configured: nothing is reserved or configured again");
+}
+/// The phase resumed after a crash: a `reserved` receipt with no thread behind it starts the task at the reserved address.
+#[tokio::test(start_paused = true)]
+async fn a_retry_after_a_crash_at_reserved_creates_the_task_at_the_reserved_address() {
+    let first = Rig::new();
+    counting(&first);
+    let (directory, _) = directory_over(&first);
+    within("the first request's answer", submit(&directory, "op-1", "sub-d", "write the report", json!({}))).await.expect("first");
+    let reserved = stored(&first, "sub-d").expect("receipt").with_phase(Phase::Reserved);
+    // A core that never made the thread: another store, the receipt as the interrupted attempt left it.
+    let rig = Rig::new();
+    let runs = counting(&rig);
+    std::fs::create_dir_all(receipt_path(&rig, "sub-d").parent().unwrap()).expect("folder");
+    std::fs::write(receipt_path(&rig, "sub-d"), reserved.to_bytes()).expect("seed");
+    let (restarted, receipts) = directory_over(&rig);
+    let retry = within("the retry's answer", submit(&restarted, "op-2", "sub-d", "write the report", json!({}))).await.expect("retry");
+    assert_eq!(retry, derived("sub-d"));
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+    assert_eq!(stored(&rig, "sub-d").expect("receipt").phase(), Phase::Accepted);
+    assert_eq!(*receipts.writes.lock().unwrap(), vec![("configured".to_owned(), false), ("accepted".to_owned(), true)], "the attempt resumes at reserved: the reservation is not made again");
+}
+/// The refusal reset: an attempt refused before the prompt leaves a marked receipt on a fresh address, flushed; the id may then be
+/// sent with other content, which starts there on a fresh address of its own, the mark cleared.
+#[tokio::test(start_paused = true)]
+async fn a_refused_attempt_marks_its_receipt_and_frees_the_id() {
+    let rig = Rig::new();
+    let runs = counting(&rig);
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_route = Arc::new(RefusesDraftRoute);
+    let deps = Arc::new(deps);
+    let (receipts, directory) = (deps.new_tasks.clone(), SessionDirectory::new(deps));
+    let refused = within("the refusal", submit(&directory, "op-1", "sub-e", "write the report", REFUSED_ROUTE())).await;
+    assert!(matches!(&refused, Err(CoreError::DomainError { message: Some(message), .. }) if message.contains("route refused")), "{refused:?}");
+    let mark = stored(&rig, "sub-e").expect("receipt");
+    assert!(mark.refused() && mark.phase() == Phase::Reserved);
+    assert_ne!(mark.session_id(), derived("sub-e"), "the refused reservation is not resumed");
+    assert_eq!(receipts.writes.lock().unwrap().last(), Some(&("reserved+refused".to_owned(), true)));
+    let other = within("the other content's answer", submit(&directory, "op-2", "sub-e", "write something else", json!({}))).await.expect("other content");
+    assert_ne!(other, mark.session_id());
+    assert_ne!(other, derived("sub-e"));
+    let receipt = stored(&rig, "sub-e").expect("receipt");
+    assert_eq!((receipt.phase(), receipt.refused(), receipt.session_id()), (Phase::Accepted, false, other.as_str()));
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+    // The write that frees the id is flushed too.
+    assert!(receipts.writes.lock().unwrap().contains(&("reserved".to_owned(), true)));
+}
+/// A receipt that is already on disk when the core starts (the one Node wrote, carried over by the migration under the same name and
+/// bytes) is answered as Node answers it: `accepted` replays the session and sends nothing.
+#[tokio::test(start_paused = true)]
+async fn an_accepted_receipt_found_at_start_answers_the_session_and_sends_nothing() {
+    let rig = Rig::new();
+    let runs = counting(&rig);
+    let (directory, _) = directory_over(&rig);
+    let first = within("the first request's answer", submit(&directory, "op-1", "sub-m", "write the report", json!({}))).await.expect("first");
+    let on_disk = std::fs::read(receipt_path(&rig, "sub-m")).expect("receipt");
+    assert_eq!(on_disk, stored(&rig, "sub-m").expect("receipt").to_bytes(), "the file is the receipt's own bytes");
+    let (restarted, receipts) = directory_over(&rig);
+    let replay = within("the replayed answer", submit(&restarted, "op-2", "sub-m", "write the report", json!({}))).await.expect("replay");
+    assert_eq!(replay, first);
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+    assert_eq!(std::fs::read(receipt_path(&rig, "sub-m")).expect("receipt"), on_disk, "nothing is written for a replay");
+    assert!(receipts.writes.lock().unwrap().is_empty());
+}
 /// A lost reply: the client's connection ends while its request runs, and the client retries. The attempt does not end with its
 /// caller (Node's promise runs without it), so the reply lost after any phase leaves the attempt running on to `accepted` (or to a
 /// refusal): the retry joins it or reads its receipt. One task, one prompt.
@@ -364,7 +546,6 @@ async fn a_request_whose_reply_is_lost_runs_on_and_the_retry_gets_its_task() {
     })
     .await;
 }
-
 /// An attempt that panics gives up its place: the callers it had get no answer, and the next request for the id starts afresh
 /// instead of joining an attempt that will never answer.
 #[tokio::test(start_paused = true)]
@@ -381,7 +562,6 @@ async fn an_attempt_that_panics_frees_its_id() {
     .await;
     assert!(matches!(&next, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == "the next attempt ran"), "{next:?}");
 }
-
 /// At shutdown an attempt in flight is cut where it stands, as a process ending there: shutdown returns with nothing in flight,
 /// the receipt keeps the phase it had (not marked refused by the closed directory's refusal), and the next start resumes it. As in
 /// Node's quit, neither the caller in flight nor a request after shutdown gets an answer or a refusal: the request ends with its
@@ -429,34 +609,6 @@ async fn shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it() {
     })
     .await;
 }
-
-/// The route is seated on the created session, the last step of its creation (the record is written, `begin_thread` has not
-/// returned), and held there until released, saying when it is entered.
-struct HeldSeat {
-    entered: Arc<tokio::sync::Notify>,
-    release: Arc<tokio::sync::Semaphore>,
-    held: std::sync::atomic::AtomicBool,
-}
-
-#[async_trait::async_trait]
-impl super::NewThreadRoute for HeldSeat {
-    async fn adopt(&self, _: &mixdog_core_api::ids::ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
-        Ok(serde_json::Map::new())
-    }
-
-    async fn adopt_control(&self, _: &mixdog_core_api::ids::ThreadId) -> Result<serde_json::Map<String, Value>, String> {
-        Ok(serde_json::Map::new())
-    }
-
-    async fn seat(&self, _: &mixdog_core_api::ids::ThreadId) -> Result<(), String> {
-        if !self.held.swap(true, Ordering::SeqCst) {
-            self.entered.notify_one();
-            self.release.acquire().await.expect("open").forget();
-        }
-        Ok(())
-    }
-}
-
 /// A shutdown while the session's creation has written its record and not returned (Node: `client.create` pending, its daemon
 /// having made the session) ends the attempt before the `try` that refuses (session-host-lifecycle.ts:824-835): the receipt stays
 /// `reserved` at its address, unmarked. The caller gets no answer; the retry after the restart opens the session there and starts
@@ -502,235 +654,6 @@ async fn shutdown_while_the_creation_has_not_returned_keeps_the_reservation() {
     })
     .await;
 }
-
-/// The draft's worktree is entered and held there until released, saying when it is entered.
-struct HeldPlace {
-    entered: Arc<tokio::sync::Notify>,
-    release: Arc<tokio::sync::Semaphore>,
-    held: std::sync::atomic::AtomicBool,
-}
-
-#[async_trait::async_trait]
-impl super::NewThreadPlace for HeldPlace {
-    async fn projects(&self) -> Result<Vec<String>, String> {
-        Ok(Vec::new())
-    }
-
-    async fn touch_project(&self, _: &str) -> Result<(), String> {
-        Ok(())
-    }
-
-    async fn enter_worktree(&self, _: &mixdog_core_api::ids::ThreadId, _: &Value, _: Option<&Value>, _: &CancellationToken) -> Result<(), CoreError> {
-        if !self.held.swap(true, Ordering::SeqCst) {
-            self.entered.notify_one();
-            self.release.acquire().await.expect("open").forget();
-        }
-        Ok(())
-    }
-}
-
-/// Node's recording of the app's quit (new-task-quit golden.json, with Node's real daemon): a case's steps.
-fn recorded_case(case: &str) -> Value {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/new-task-quit/golden.json")).expect("golden");
-    golden["cases"][case]["recorded"].clone()
-}
-
-/// What Node recorded for a quit case: after the quit, the receipt and the stored sessions; after the retry, its address, the receipt
-/// and the stored sessions. A receipt is its file's JSON less `signature`, the hash of the content, which here is the test's own (the
-/// replay compares the content Node sent, signature included).
-fn recorded_quit(case: &str) -> Value {
-    let recorded = recorded_case(case);
-    let receipt = |step: &Value| {
-        let files = step["receipts"].as_object().expect("the receipts");
-        assert_eq!(files.len(), 1, "one receipt");
-        unsigned(files.values().next().and_then(Value::as_str).expect("a receipt's text"))
-    };
-    json!({
-        "quit": { "receipt": receipt(&recorded[0]), "stored": recorded[0]["stored"] },
-        "retry": { "address": recorded[1]["reply"]["sessionId"], "receipt": receipt(&recorded[1]), "stored": recorded[1]["stored"] },
-    })
-}
-
-fn unsigned(text: &str) -> Value {
-    let mut receipt: Value = serde_json::from_str(text).expect("a receipt");
-    receipt.as_object_mut().expect("an object").remove("signature");
-    receipt
-}
-
-/// The core's addresses in the recording's terms: the derived one kept, every other numbered `<fresh:N>` by first appearance.
-#[derive(Default)]
-struct Names(Vec<String>);
-
-impl Names {
-    fn of(&mut self, id: &str, address: &str) -> String {
-        if address == derived(id) {
-            return address.to_owned();
-        }
-        if !self.0.iter().any(|seen| seen == address) {
-            self.0.push(address.to_owned());
-        }
-        format!("<fresh:{}>", self.0.iter().position(|seen| seen == address).expect("named") + 1)
-    }
-}
-
-/// The core's state in the recording's terms: the receipt of `id` (less its signature, its address named) and the stored sessions
-/// among `addresses` (Node's `<data>/sessions/<id>.log.jsonl`, listed by id), each read as the replay reads one (`thread/items/list`,
-/// `threadNotFound` for one that is not there).
-async fn core_state(rig: &Rig, directory: &SessionDirectory, id: &str, names: &mut Names, addresses: &[String]) -> (Value, Value) {
-    let mut receipt = unsigned(&String::from_utf8(std::fs::read(receipt_path(rig, id)).expect("the receipt")).expect("text"));
-    let address = receipt["sessionId"].as_str().expect("an address").to_owned();
-    receipt["sessionId"] = Value::String(names.of(id, &address));
-    let mut stored = Vec::new();
-    let deleted = rig.deletes.0.lock().unwrap().clone();
-    let mut addresses = addresses.to_vec();
-    addresses.sort();
-    addresses.dedup();
-    for address in &addresses {
-        // A deleted session's files are purged with its delete (`delete.rs` `remove`); the test store keeps its rows, so the delete is read.
-        if deleted.contains(&format!("thread/deleted:{address}")) {
-            continue;
-        }
-        let listed = directory
-            .request(CoreRequest {
-                method: Method("thread/items/list"),
-                params: json!({ "threadId": address }),
-                op: None,
-                ctx: CallContext::internal("test"),
-            })
-            .await;
-        match listed {
-            Ok(Reply::Value(_)) => stored.push(Value::String(names.of(id, address))),
-            Err(CoreError::ThreadNotFound { .. }) => continue,
-            other => panic!("thread/items/list of {address}: {:?}", other.map(|_| ())),
-        }
-    }
-    // A set of ids, sorted once named (cases.mjs `numberFresh`).
-    stored.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
-    (receipt, Value::Array(stored))
-}
-
-/// The app's quit while the attempt awaits a call of its draft step (`quit-in-set-route`: the draft's route, which the core adopts
-/// inside its creation call; `quit-in-request-worktree`: the draft's worktree): the call is held, the stop request cuts the attempts,
-/// the held call is let go (as the recording lets Node's go once the daemon answered the stop request), and the directory shuts down.
-/// The attempt is refused on a fresh address (session-host-lifecycle.ts:955: the next call fails inside the `try` while unsent), and
-/// the sessions stored are Node's. The caller in flight gets no answer. Returns the directory over the same store after a restart.
-async fn quit_inside(step: &Steps, case: &str, id: &str, draft: fn() -> Value, held: impl FnOnce(&mut super::SessionDeps, Arc<tokio::sync::Notify>, Arc<tokio::sync::Semaphore>)) -> (Rig, Arc<AtomicUsize>, Names, Vec<String>) {
-    let rig = Rig::new();
-    // The index lists a written record (its summary), which the discard of an unclaimed one reads as the store does.
-    rig.store.listed.store(true, Ordering::SeqCst);
-    let runs = counting(&rig);
-    let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
-    let mut deps = rig.deps_parts(rig.store.clone());
-    held(&mut deps, entered.clone(), release.clone());
-    let directory = SessionDirectory::new(Arc::new(deps));
-    let caller = submit(&directory, "op-1", id, "write the report", draft());
-    tokio::pin!(caller);
-    step.at("the attempt reaching its held call");
-    tokio::select! {
-        () = entered.notified() => {}
-        answered = &mut caller => panic!("answered while held: {answered:?}"),
-    }
-    step.at("the stop request's cut, the held call let go and the directory's shutdown");
-    directory.cut_new_tasks();
-    release.add_permits(1);
-    directory.shutdown().await;
-    let polled = caller.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
-    assert!(polled.is_pending(), "the caller in flight got an answer at shutdown: {polled:?}");
-    let node = recorded_quit(case);
-    let mut names = Names::default();
-    let fresh = stored(&rig, id).expect("receipt").session_id().to_owned();
-    let addresses = vec![derived(id), fresh];
-    let (receipt, sessions) = core_state(&rig, &directory, id, &mut names, &addresses).await;
-    assert_eq!(json!({ "receipt": receipt, "stored": sessions }), node["quit"], "after the quit");
-    (rig, runs, names, addresses)
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_quit_inside_the_draft_route_refuses_the_attempt_as_node_recorded() {
-    whole("a_quit_inside_the_draft_route_refuses_the_attempt_as_node_recorded", |step| async move {
-        let id = "s-quit-route";
-        let (rig, runs, mut names, addresses) = quit_inside(&step, "quit-in-set-route", id, REFUSED_ROUTE, |deps, entered, release| {
-            deps.new_route = Arc::new(HeldRoute { entered, release, held: false.into() });
-        })
-        .await;
-        let (restarted, _) = directory_over(&rig);
-        step.at("the retry's answer after the restart");
-        let retry = submit(&restarted, "op-2", id, "write the report", REFUSED_ROUTE()).await.expect("retry");
-        let address = names.of(id, &retry);
-        let (receipt, sessions) = core_state(&rig, &restarted, id, &mut names, &addresses).await;
-        assert_eq!(json!({ "address": address, "receipt": receipt, "stored": sessions }), recorded_quit("quit-in-set-route")["retry"], "after the retry");
-        assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
-    })
-    .await;
-}
-
-/// The worktree's call runs to its end (Node's `requestWorktree` binds and stores the session, recorded: the derived address is stored
-/// after the quit). The retry's refusal (`WORKTREE_REVISION_CONFLICT` for the transaction the stored session's worktree holds) is the
-/// worktree manager's (mixdog-scm `a_transaction_of_another_session_is_refused`) and the replay's.
-#[tokio::test(start_paused = true)]
-async fn a_quit_inside_the_draft_worktree_refuses_the_attempt_as_node_recorded() {
-    whole("a_quit_inside_the_draft_worktree_refuses_the_attempt_as_node_recorded", |step| async move {
-        quit_inside(&step, "quit-in-request-worktree", "s-quit-worktree", || json!({ "route": { "provider": "p", "model": "m" }, "worktree": {} }), |deps, entered, release| {
-            deps.new_place = Arc::new(HeldPlace { entered, release, held: false.into() });
-        })
-        .await;
-    })
-    .await;
-}
-
-/// The draft settings as the attempt applies them: what it asked of the workflow and mode service, in order.
-#[derive(Default)]
-struct RecordingSettings(std::sync::Mutex<Vec<(String, String)>>);
-
-#[async_trait::async_trait]
-impl super::DraftSettings for RecordingSettings {
-    async fn set_workflow(&self, _: &mixdog_core_api::ids::ThreadId, workflow_id: &str) -> Result<(), CoreError> {
-        self.0.lock().unwrap().push(("workflow".into(), workflow_id.into()));
-        // The built-in packs (src/workflows: default, headless); any other id is Node's `workflow "<id>" not found`.
-        if ["default", "headless"].contains(&workflow_id) {
-            Ok(())
-        } else {
-            Err(mixdog_core_base::support::failed("workflow", format!("workflow \"{workflow_id}\" not found")))
-        }
-    }
-
-    async fn set_orchestration_mode(&self, _: &mixdog_core_api::ids::ThreadId, mode: &str) -> Result<(), CoreError> {
-        self.0.lock().unwrap().push(("mode".into(), mode.into()));
-        Ok(())
-    }
-}
-
-/// The draft's workflow and orchestration mode are applied before its route (`configureDraft`, :765-779); a workflow that is not
-/// there falls back to `default` (:770-772). The workflow and mode the task ends with are Node's (new-task-quit `draft-settings`,
-/// `draft-missing-workflow`: `settings`, the snapshot of the accepted answer).
-#[tokio::test(start_paused = true)]
-async fn the_drafts_workflow_and_mode_are_applied_as_node_applies_them() {
-    whole("the_drafts_workflow_and_mode_are_applied_as_node_applies_them", |step| async move {
-        for (case, id, draft) in [
-            ("draft-settings", "s-settings", json!({ "workflowId": "headless", "orchestrationMode": "focused", "route": { "provider": "p", "model": "m" } })),
-            ("draft-missing-workflow", "s-missing-workflow", json!({ "workflowId": "gone", "orchestrationMode": "balanced", "route": { "provider": "p", "model": "m" } })),
-        ] {
-            let rig = Rig::new();
-            let _runs = counting(&rig);
-            let settings = Arc::new(RecordingSettings::default());
-            let mut deps = rig.deps_parts(rig.store.clone());
-            deps.draft_settings = settings.clone();
-            let directory = SessionDirectory::new(Arc::new(deps));
-            step.at("the task's answer");
-            submit(&directory, "op-1", id, "write the report", draft).await.expect("accepted");
-            let asked = settings.0.lock().unwrap().clone();
-            let last = |kind: &str| asked.iter().rev().find(|(of, _)| of == kind).map(|(_, value)| value.clone());
-            let node = &recorded_case(case)[0]["settings"];
-            assert_eq!(
-                json!({ "workflow": last("workflow"), "orchestrationMode": last("mode") }),
-                json!({ "workflow": node["workflow"]["id"], "orchestrationMode": node["orchestrationMode"] }),
-                "{case}"
-            );
-        }
-    })
-    .await;
-}
-
 /// A receipt write that does not end (stalled on durability) holds shutdown only up to its bound: shutdown is still waiting one tick
 /// before it, and at the bound it ends, reporting the overrun.
 #[tokio::test(start_paused = true)]
@@ -764,7 +687,6 @@ async fn shutdown_waits_for_a_stalled_receipt_write_only_up_to_its_bound() {
     }
     stall.release.add_permits(1);
 }
-
 /// Two identical requests at once start one task; two with other content, the first holds the id.
 #[tokio::test(start_paused = true)]
 async fn requests_at_once_join_or_are_refused() {
@@ -791,7 +713,6 @@ async fn requests_at_once_join_or_are_refused() {
     assert!(matches!(&d, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == REUSED), "{d:?}");
     assert_eq!(runs.load(Ordering::SeqCst), 2);
 }
-
 /// A file that is no receipt binds nothing: the id starts on its derived address and the file is replaced.
 #[tokio::test(start_paused = true)]
 async fn a_file_that_is_no_receipt_binds_nothing() {
@@ -805,47 +726,6 @@ async fn a_file_that_is_no_receipt_binds_nothing() {
     assert_eq!(runs.load(Ordering::SeqCst), 1);
     assert_eq!(stored(&rig, "sub-h").expect("receipt").phase(), Phase::Accepted);
 }
-
-/// An I/O error reading the receipt fails the request (a directory where the file should be), with the error Node's read gives on
-/// every system (its recording's `io-error` reply: `EISDIR` and its text, where Windows refuses the open as access denied).
-#[tokio::test(start_paused = true)]
-async fn an_io_error_reading_the_receipt_fails_the_request() {
-    let rig = Rig::new();
-    let runs = counting(&rig);
-    let (directory, _) = directory_over(&rig);
-    std::fs::create_dir_all(receipt_path(&rig, "sub-i")).expect("obstruction");
-    let failed = within("the request's refusal", submit(&directory, "op-1", "sub-i", "write the report", json!({}))).await.expect_err("refused");
-    let CoreError::DomainError { code: Some(code), message: Some(message), .. } = &failed else { panic!("a coded failure: {failed:?}") };
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/new-task-dedupe/golden.json")).expect("golden");
-    let manifest: Value = serde_json::from_str(include_str!("../../../../fixtures/new-task-dedupe/MANIFEST.json")).expect("manifest");
-    let mut node = golden["scenarios"]["io-error"]["recorded"][1]["reply"].clone();
-    // Less only the reply fields the manifest declares not compared (fields of Node's in-process fs error that no caller receives).
-    for path in manifest["comparison"]["notCompared"].as_object().expect("declared").keys() {
-        if let Some(field) = path.strip_prefix("recorded[].reply.") {
-            node.as_object_mut().expect("a reply").remove(field);
-        }
-    }
-    assert_eq!(json!({ "ok": false, "error": message.as_ref(), "code": code.as_ref() }), node);
-    assert_eq!(runs.load(Ordering::SeqCst), 0);
-    assert_eq!(directory.loaded_ids().len(), 0);
-}
-
-/// The refusal's fresh address is `sess_desktop_` and 32 random bytes in hex (`freshSessionId`): every hex digit takes any value.
-/// Two joined UUID v4 values would fix digit 12 of each half to `4` and digit 16 to one of `8`-`b`; over 64 addresses each of those
-/// digits takes a value outside `4`, `8`-`b` unless the bytes are not uniformly random (a chance of (5/16)^64, about 10^-32, each).
-#[test]
-fn the_fresh_address_is_32_random_bytes() {
-    let addresses: Vec<String> = (0..64).map(|_| super::new_task::fresh_session_id()).collect();
-    for address in &addresses {
-        let hex = address.strip_prefix("sess_desktop_").expect("the prefix");
-        assert!(hex.len() == 64 && hex.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')), "{address}");
-    }
-    for at in [12, 16, 44, 48] {
-        let digits: std::collections::BTreeSet<u8> = addresses.iter().map(|address| address.as_bytes()["sess_desktop_".len() + at]).collect();
-        assert!(digits.iter().any(|digit| !matches!(digit, b'4' | b'8'..=b'9' | b'a'..=b'b')), "hex digit {at} only ever took {digits:?}");
-    }
-}
-
 /// At most 128 requests are in flight; the next is refused with Node's message, and a finished one frees its place.
 #[tokio::test(start_paused = true)]
 async fn the_129th_request_in_flight_is_refused() {
@@ -882,6 +762,154 @@ async fn the_129th_request_in_flight_is_refused() {
     }
 }
 
+
+#[cfg(node_twin)]
+/// Node's recording of the app's quit (new-task-quit golden.json, with Node's real daemon): a case's steps.
+fn recorded_case(case: &str) -> Value {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/new-task-quit/golden.json")).expect("golden");
+    golden["cases"][case]["recorded"].clone()
+}
+#[cfg(node_twin)]
+/// What Node recorded for a quit case: after the quit, the receipt and the stored sessions; after the retry, its address, the receipt
+/// and the stored sessions. A receipt is its file's JSON less `signature`, the hash of the content, which here is the test's own (the
+/// replay compares the content Node sent, signature included).
+fn recorded_quit(case: &str) -> Value {
+    let recorded = recorded_case(case);
+    let receipt = |step: &Value| {
+        let files = step["receipts"].as_object().expect("the receipts");
+        assert_eq!(files.len(), 1, "one receipt");
+        unsigned(files.values().next().and_then(Value::as_str).expect("a receipt's text"))
+    };
+    json!({
+        "quit": { "receipt": receipt(&recorded[0]), "stored": recorded[0]["stored"] },
+        "retry": { "address": recorded[1]["reply"]["sessionId"], "receipt": receipt(&recorded[1]), "stored": recorded[1]["stored"] },
+    })
+}
+#[cfg(node_twin)]
+/// The app's quit while the attempt awaits a call of its draft step (`quit-in-set-route`: the draft's route, which the core adopts
+/// inside its creation call; `quit-in-request-worktree`: the draft's worktree): the call is held, the stop request cuts the attempts,
+/// the held call is let go (as the recording lets Node's go once the daemon answered the stop request), and the directory shuts down.
+/// The attempt is refused on a fresh address (session-host-lifecycle.ts:955: the next call fails inside the `try` while unsent), and
+/// the sessions stored are Node's. The caller in flight gets no answer. Returns the directory over the same store after a restart.
+async fn quit_inside(step: &Steps, case: &str, id: &str, draft: fn() -> Value, held: impl FnOnce(&mut super::SessionDeps, Arc<tokio::sync::Notify>, Arc<tokio::sync::Semaphore>)) -> (Rig, Arc<AtomicUsize>, Names, Vec<String>) {
+    let rig = Rig::new();
+    // The index lists a written record (its summary), which the discard of an unclaimed one reads as the store does.
+    rig.store.listed.store(true, Ordering::SeqCst);
+    let runs = counting(&rig);
+    let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    held(&mut deps, entered.clone(), release.clone());
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let caller = submit(&directory, "op-1", id, "write the report", draft());
+    tokio::pin!(caller);
+    step.at("the attempt reaching its held call");
+    tokio::select! {
+        () = entered.notified() => {}
+        answered = &mut caller => panic!("answered while held: {answered:?}"),
+    }
+    step.at("the stop request's cut, the held call let go and the directory's shutdown");
+    directory.cut_new_tasks();
+    release.add_permits(1);
+    directory.shutdown().await;
+    let polled = caller.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
+    assert!(polled.is_pending(), "the caller in flight got an answer at shutdown: {polled:?}");
+    let node = recorded_quit(case);
+    let mut names = Names::default();
+    let fresh = stored(&rig, id).expect("receipt").session_id().to_owned();
+    let addresses = vec![derived(id), fresh];
+    let (receipt, sessions) = core_state(&rig, &directory, id, &mut names, &addresses).await;
+    assert_eq!(json!({ "receipt": receipt, "stored": sessions }), node["quit"], "after the quit");
+    (rig, runs, names, addresses)
+}
+#[cfg(node_twin)]
+#[tokio::test(start_paused = true)]
+async fn a_quit_inside_the_draft_route_refuses_the_attempt_as_node_recorded() {
+    whole("a_quit_inside_the_draft_route_refuses_the_attempt_as_node_recorded", |step| async move {
+        let id = "s-quit-route";
+        let (rig, runs, mut names, addresses) = quit_inside(&step, "quit-in-set-route", id, REFUSED_ROUTE, |deps, entered, release| {
+            deps.new_route = Arc::new(HeldRoute { entered, release, held: false.into() });
+        })
+        .await;
+        let (restarted, _) = directory_over(&rig);
+        step.at("the retry's answer after the restart");
+        let retry = submit(&restarted, "op-2", id, "write the report", REFUSED_ROUTE()).await.expect("retry");
+        let address = names.of(id, &retry);
+        let (receipt, sessions) = core_state(&rig, &restarted, id, &mut names, &addresses).await;
+        assert_eq!(json!({ "address": address, "receipt": receipt, "stored": sessions }), recorded_quit("quit-in-set-route")["retry"], "after the retry");
+        assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
+    })
+    .await;
+}
+#[cfg(node_twin)]
+/// The worktree's call runs to its end (Node's `requestWorktree` binds and stores the session, recorded: the derived address is stored
+/// after the quit). The retry's refusal (`WORKTREE_REVISION_CONFLICT` for the transaction the stored session's worktree holds) is the
+/// worktree manager's (mixdog-scm `a_transaction_of_another_session_is_refused`) and the replay's.
+#[tokio::test(start_paused = true)]
+async fn a_quit_inside_the_draft_worktree_refuses_the_attempt_as_node_recorded() {
+    whole("a_quit_inside_the_draft_worktree_refuses_the_attempt_as_node_recorded", |step| async move {
+        quit_inside(&step, "quit-in-request-worktree", "s-quit-worktree", || json!({ "route": { "provider": "p", "model": "m" }, "worktree": {} }), |deps, entered, release| {
+            deps.new_place = Arc::new(HeldPlace { entered, release, held: false.into() });
+        })
+        .await;
+    })
+    .await;
+}
+#[cfg(node_twin)]
+/// The draft's workflow and orchestration mode are applied before its route (`configureDraft`, :765-779); a workflow that is not
+/// there falls back to `default` (:770-772). The workflow and mode the task ends with are Node's (new-task-quit `draft-settings`,
+/// `draft-missing-workflow`: `settings`, the snapshot of the accepted answer).
+#[tokio::test(start_paused = true)]
+async fn the_drafts_workflow_and_mode_are_applied_as_node_applies_them() {
+    whole("the_drafts_workflow_and_mode_are_applied_as_node_applies_them", |step| async move {
+        for (case, id, draft) in [
+            ("draft-settings", "s-settings", json!({ "workflowId": "headless", "orchestrationMode": "focused", "route": { "provider": "p", "model": "m" } })),
+            ("draft-missing-workflow", "s-missing-workflow", json!({ "workflowId": "gone", "orchestrationMode": "balanced", "route": { "provider": "p", "model": "m" } })),
+        ] {
+            let rig = Rig::new();
+            let _runs = counting(&rig);
+            let settings = Arc::new(RecordingSettings::default());
+            let mut deps = rig.deps_parts(rig.store.clone());
+            deps.draft_settings = settings.clone();
+            let directory = SessionDirectory::new(Arc::new(deps));
+            step.at("the task's answer");
+            submit(&directory, "op-1", id, "write the report", draft).await.expect("accepted");
+            let asked = settings.0.lock().unwrap().clone();
+            let last = |kind: &str| asked.iter().rev().find(|(of, _)| of == kind).map(|(_, value)| value.clone());
+            let node = &recorded_case(case)[0]["settings"];
+            assert_eq!(
+                json!({ "workflow": last("workflow"), "orchestrationMode": last("mode") }),
+                json!({ "workflow": node["workflow"]["id"], "orchestrationMode": node["orchestrationMode"] }),
+                "{case}"
+            );
+        }
+    })
+    .await;
+}
+#[cfg(node_twin)]
+/// An I/O error reading the receipt fails the request (a directory where the file should be), with the error Node's read gives on
+/// every system (its recording's `io-error` reply: `EISDIR` and its text, where Windows refuses the open as access denied).
+#[tokio::test(start_paused = true)]
+async fn an_io_error_reading_the_receipt_fails_the_request() {
+    let rig = Rig::new();
+    let runs = counting(&rig);
+    let (directory, _) = directory_over(&rig);
+    std::fs::create_dir_all(receipt_path(&rig, "sub-i")).expect("obstruction");
+    let failed = within("the request's refusal", submit(&directory, "op-1", "sub-i", "write the report", json!({}))).await.expect_err("refused");
+    let CoreError::DomainError { code: Some(code), message: Some(message), .. } = &failed else { panic!("a coded failure: {failed:?}") };
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/new-task-dedupe/golden.json")).expect("golden");
+    let manifest: Value = serde_json::from_str(include_str!("../../../../fixtures/new-task-dedupe/MANIFEST.json")).expect("manifest");
+    let mut node = golden["scenarios"]["io-error"]["recorded"][1]["reply"].clone();
+    // Less only the reply fields the manifest declares not compared (fields of Node's in-process fs error that no caller receives).
+    for path in manifest["comparison"]["notCompared"].as_object().expect("declared").keys() {
+        if let Some(field) = path.strip_prefix("recorded[].reply.") {
+            node.as_object_mut().expect("a reply").remove(field);
+        }
+    }
+    assert_eq!(json!({ "ok": false, "error": message.as_ref(), "code": code.as_ref() }), node);
+    assert_eq!(runs.load(Ordering::SeqCst), 0);
+    assert_eq!(directory.loaded_ids().len(), 0);
+}
+#[cfg(node_twin)]
 /// Node's recording `fixtures/project-recency-failure-cases` ("an accepted submission commits its receipt and stays subscribed after
 /// ${cause} breaks recency"): the recency write after the accepted prompt fails, the task is still accepted with its receipt
 /// committed, and a retry of the same submission answers the same task without a second prompt. The recency write is the real
@@ -1000,36 +1028,4 @@ async fn an_accepted_task_stays_accepted_when_only_the_recency_write_fails() {
         assert_eq!(state.projects().await.expect("rows"), registered, "{id}: the registry is as it was");
     }
     assert_eq!(replayed, runs.len() - excluded.len(), "every run the manifest does not exclude is replayed");
-}
-
-/// The snapshot fields the set's MANIFEST `exclusions` declare: host-side, with no counterpart in the core's thread summary.
-const EXCLUDED_SNAPSHOT_FIELDS: [&str; 4] = ["items", "queued", "remoteEnabled", "remoteSessionId"];
-
-/// `<root>` of a recording written as the per-run folder, in every string of `value`.
-fn rooted(value: &Value, root: &str) -> Value {
-    match value {
-        Value::String(text) => Value::String(text.replace("<root>", root)),
-        Value::Array(items) => Value::Array(items.iter().map(|item| rooted(item, root)).collect()),
-        Value::Object(members) => Value::Object(members.iter().map(|(key, member)| (key.clone(), rooted(member, root))).collect()),
-        other => other.clone(),
-    }
-}
-
-/// The new-thread place over the real Project registry: the recency write is `Catalog::touch`, the call the daemon's place
-/// makes (`WorkspaceFolders::touch_selected`).
-struct RegistryPlace(Arc<mixdog_workspace::catalog::Catalog>);
-
-#[async_trait::async_trait]
-impl super::NewThreadPlace for RegistryPlace {
-    async fn projects(&self) -> Result<Vec<String>, String> {
-        self.0.list().await.map(|rows| rows.into_iter().map(|row| row.path).collect()).map_err(|error| error.message)
-    }
-
-    async fn touch_project(&self, path: &str) -> Result<(), String> {
-        self.0.touch(path, None).await.map(drop).map_err(|error| error.message)
-    }
-
-    async fn enter_worktree(&self, _: &mixdog_core_api::ids::ThreadId, _: &Value, _: Option<&Value>, _: &CancellationToken) -> Result<(), CoreError> {
-        Ok(())
-    }
 }

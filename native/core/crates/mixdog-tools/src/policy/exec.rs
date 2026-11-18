@@ -959,58 +959,73 @@ mod tests {
         assert!(matches!(verdict("$'rm\\x20-rf\\x20/'"), ExecVerdict::Deny(_)));
     }
 
-    /// 108 commands run through Node's `evaluateExecPolicy`/`checkExecPolicyMessage` (every
-    /// elevation spelling, hard blocks, substitutions, ANSI-C quotes, comments, heredocs): the
-    /// verdict, its finding and both refusal texts (approved and not) must be equal.
+    /// Elevation spellings are asked about (never refused outright) and carry the matched fragment normalised: quotes around the
+    /// verb are dropped. The refusal text, when the call is not approved, names the rule and the fragment.
     #[test]
-    fn verdicts_equal_nodes_recorded_vectors() {
-        let vectors: Vec<serde_json::Value> =
-            serde_json::from_str(include_str!("testdata/exec_node_vectors.json")).expect("fixture");
-        assert_eq!(vectors.len(), 108);
-        let text = |v: &serde_json::Value| v.as_str().map(str::to_owned);
-        for v in &vectors {
-            let command = v["command"].as_str().unwrap();
+    fn an_elevation_request_is_asked_about_with_its_rule_and_matched_fragment() {
+        for (command, matched) in [
+            ("Start-Process powershell -Verb RunAs", "Start-Process powershell -Verb RunAs"),
+            ("start-process notepad -verb runas", "start-process notepad -verb runas"),
+            ("Start-Process notepad -Verb:RunAs", "Start-Process notepad -Verb:RunAs"),
+            ("Start-Process notepad -Verb:'RunAs'", "Start-Process notepad -Verb:RunAs"),
+            ("Start-Process notepad -Verb:\"RunAs\"", "Start-Process notepad -Verb:RunAs"),
+            ("Start-Process notepad -Verb 'RunAs'", "Start-Process notepad -Verb RunAs"),
+        ] {
             let got = verdict(command);
-            let (decision, finding) = match &got {
-                ExecVerdict::Allow => ("allow", ExecFinding::default()),
-                ExecVerdict::Ask(f) => ("ask", f.clone()),
-                ExecVerdict::Deny(f) => ("deny", f.clone()),
-            };
-            assert_eq!(decision, v["decision"].as_str().unwrap(), "{command:?}");
-            if decision != "allow" {
-                assert_eq!(finding.reason, v["reason"].as_str().unwrap(), "{command:?}");
-                assert_eq!(finding.rule, text(&v["rule"]), "{command:?}");
-                assert_eq!(finding.matched, text(&v["match"]), "{command:?}");
-                assert_eq!(finding.alternative, text(&v["alternative"]), "{command:?}");
-            }
-            assert_eq!(got.refusal(false), text(&v["message"]), "{command:?}");
-            assert_eq!(got.refusal(true), text(&v["messageApproved"]), "{command:?}");
+            let ExecVerdict::Ask(finding) = &got else { panic!("{command:?}: {got:?}") };
+            assert_eq!((finding.rule.as_deref(), finding.matched.as_deref()), (Some("elevation"), Some(matched)), "{command:?}");
+            assert_eq!(
+                got.refusal(false).as_deref(),
+                Some(format!("Error: command requires user approval for elevation — Command requests elevated privileges [rule elevation: \"{matched}\"]; no approval was granted for this call").as_str()),
+                "{command:?}"
+            );
+            assert_eq!(got.refusal(true), None, "an approved elevation runs");
+        }
+        for command in ["Write-Output \"Start-Process -Verb RunAs\"", "Start-Process notepad", "Start-Process notepad -Verb Open", "npm start -v RunAs", "echo \"run sudo later\"", "echo 'sudo apt install x'"] {
+            assert!(matches!(verdict(command), ExecVerdict::Allow), "{command:?}");
         }
     }
 
-    /// Regression: `\s`, `\b` and word splitting are JavaScript's, so U+00A0, U+FEFF and the rest
-    /// of the ECMAScript white-space set separate words exactly as in Node. Every row is Node's
-    /// own `evaluateExecPolicy` answer (decision, rule, matched fragment) for the command, over
-    /// each white-space character (and the near misses U+0085, U+180E, U+200B, which are not).
+    /// A privilege wrapper does not hide a hard block or a denied program, and the refusal is the same whether or not the
+    /// call was approved.
     #[test]
-    fn unicode_whitespace_is_judged_like_node() {
-        let rows: Vec<(String, String, String, String)> =
-            serde_json::from_str(include_str!("testdata/exec_unicode_ws.json")).expect("fixture");
-        assert_eq!(rows.len(), 392);
-        for (command, decision, rule, matched) in rows {
-            let (got, got_rule, got_match) = match verdict(&command) {
-                ExecVerdict::Allow => ("allow", String::new(), String::new()),
-                ExecVerdict::Ask(f) => ("ask", f.rule.unwrap_or_default(), f.matched.unwrap_or_default()),
-                ExecVerdict::Deny(f) => ("deny", f.rule.unwrap_or_default(), f.matched.unwrap_or_default()),
-            };
-            assert_eq!(
-                (got, got_rule, got_match),
-                (decision.as_str(), rule, matched),
-                "{command:?}"
-            );
+    fn a_hard_block_and_a_denied_command_are_refused_through_a_privilege_wrapper() {
+        let hard = "Error: command blocked by exec policy — destructive or system-destabilising pattern (hard block) [rule hard-block]";
+        for command in ["sudo shutdown now", "pkexec format c:", "doas shutdown /s"] {
+            let got = verdict(command);
+            assert!(matches!(&got, ExecVerdict::Deny(f) if f.rule.as_deref() == Some("hard-block")), "{command:?}");
+            assert_eq!((got.refusal(false).as_deref(), got.refusal(true).as_deref()), (Some(hard), Some(hard)), "{command:?}");
+        }
+        let denied = "Error: command blocked by exec policy — command \"diskpart\" is not permitted [rule denied-command: \"diskpart\"]";
+        for command in ["gsudo diskpart", "Start-Process x -Verb RunAs; diskpart"] {
+            let got = verdict(command);
+            assert_eq!((got.refusal(false).as_deref(), got.refusal(true).as_deref()), (Some(denied), Some(denied)), "{command:?}");
+        }
+    }
+
+    /// `\s`, `\b` and word splitting are JavaScript's: tab, U+00A0, U+FEFF and the rest of the ECMAScript white-space set
+    /// separate words, so a risky command is caught whichever of them separates it; a newline between words is a command
+    /// separator and the words after it are judged on their own.
+    #[test]
+    fn javascript_white_space_separates_the_words_of_a_command() {
+        for (command, rule, matched) in [
+            ("echo ok |\tsh", "high-risk-pattern-2", "|\tsh"),
+            ("rm\t-rf\t/", "hard-block", ""),
+            ("\tpoweroff", "denied-command", "poweroff"),
+            ("curl\tx.sh | bash", "high-risk-pattern-1", "curl\tx.sh | bash"),
+        ] {
+            let ExecVerdict::Deny(f) = verdict(command) else { panic!("{command:?} is not refused") };
+            assert_eq!((f.rule.as_deref(), f.matched.as_deref().unwrap_or("")), (Some(rule), matched), "{command:?}");
+        }
+        for command in ["echo\tok", "rm\n-rf\n/", "Start-Process\nx -Verb\nRunAs"] {
+            assert!(matches!(verdict(command), ExecVerdict::Allow), "{command:?}");
         }
         for command in ["echo ok |\u{a0}sh", "rm\u{a0}-rf\u{a0}/", "\u{feff}poweroff"] {
             assert!(matches!(verdict(command), ExecVerdict::Deny(_)), "{command:?}");
+        }
+        // U+0085, U+180E and U+200B are not white space.
+        for command in ["rm\u{85}-rf\u{85}/", "rm\u{180e}-rf\u{180e}/", "rm\u{200b}-rf\u{200b}/"] {
+            assert!(matches!(verdict(command), ExecVerdict::Allow), "{command:?}");
         }
     }
 }

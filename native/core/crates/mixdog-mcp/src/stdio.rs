@@ -48,6 +48,7 @@ pub struct StdioSpec<'a> {
 pub struct StdioTransport {
     outgoing: mpsc::UnboundedSender<Vec<u8>>,
     shutdown: CancellationToken,
+    stopped: CancellationToken,
     tail: Arc<Mutex<String>>,
 }
 
@@ -165,20 +166,22 @@ impl StdioTransport {
         let stderr_reader = stderr.map(|err| {
             mixdog_rt::spawn("mcp.stdio.stderr", TaskClass::Work, stderr_loop(err, tail.clone()))
         });
-        mixdog_rt::spawn(
-            "mcp.stdio.supervise",
-            TaskClass::Work,
-            supervise(
-                child,
-                containment,
-                shutdown.clone(),
-                spec.shutdown_grace,
-                (reader, stderr_reader),
-                tail.clone(),
-                incoming_tx,
-            ),
+        let stopped = CancellationToken::new();
+        let stopped_on_exit = stopped.clone().drop_guard();
+        let supervising = supervise(
+            child,
+            containment,
+            shutdown.clone(),
+            spec.shutdown_grace,
+            (reader, stderr_reader),
+            tail.clone(),
+            incoming_tx,
         );
-        Ok((Self { outgoing, shutdown, tail }, incoming_rx))
+        mixdog_rt::spawn("mcp.stdio.supervise", TaskClass::Work, async move {
+            let _stopped_on_exit = stopped_on_exit;
+            supervising.await;
+        });
+        Ok((Self { outgoing, shutdown, stopped, tail }, incoming_rx))
     }
 }
 
@@ -301,6 +304,7 @@ impl Transport for StdioTransport {
 
     async fn close(&self) {
         self.shutdown.cancel();
+        self.stopped.cancelled().await;
     }
 
     fn stderr_tail(&self) -> String {

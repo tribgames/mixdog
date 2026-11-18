@@ -15,6 +15,10 @@ use serde_json::Value;
 
 /// `NO_WIDEN_MESSAGE`.
 pub const NO_WIDEN: &str = "This change would widen what the bot may do without asking; make it on the desktop.";
+/// `CONNECTOR_TOOL_NARROWED`: an approved change met a restriction newer than its request.
+pub const TOOL_NARROWED: &str = "A newer restriction on this tool landed meanwhile; it was kept.";
+/// `CONNECTOR_TOOL_ALREADY`: an approved change found the tool already at that level or more.
+pub const TOOL_ALREADY: &str = "The tool already has this permission or more; nothing changed.";
 
 fn clean(value: &Value) -> String {
     value.as_str().map_or_else(String::new, |s| mixdog_js::js_trim(s).to_owned())
@@ -218,7 +222,7 @@ pub(super) fn tool_entries(tools: &Map<String, Value>, group: &str, tool: &str) 
     found.into_iter().map(|(_, permission)| permission).collect()
 }
 
-fn rank(permission: Permission) -> u8 {
+pub(super) fn rank(permission: Permission) -> u8 {
     match permission {
         Permission::Disabled => 0,
         Permission::NeedsApproval => 1,
@@ -330,13 +334,14 @@ fn widens(before: Option<&Value>, after: Option<&Value>) -> bool {
 }
 
 /// The one change a person approved on a card (`withApprovedConnectorToolChange`): this tool of
-/// this connector goes from `from` to `to`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ApprovedToolChange {
-    pub server: String,
-    pub tool: String,
-    pub from: Permission,
-    pub to: Permission,
+/// this connector goes from `from` to `to`. Only [`super::AgentConnectors::set_approved_tool_permission`]
+/// takes one, and only from a [`crate::setup::Approval`], which a card answer alone makes.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct ApprovedToolChange {
+    pub(super) server: String,
+    pub(super) tool: String,
+    pub(super) from: Permission,
+    pub(super) to: Permission,
 }
 
 /// `pinTool(policy, group, tool)`: the approved tool's entries (the connector's, and any
@@ -402,10 +407,10 @@ fn assert_approved(before: Option<&Value>, after: Option<&Value>, change: &Appro
     // No override: it asks at least (as `connectorPolicyWidens` reads it).
     let was = View::of_stored(&old, before).account_rank(&change.server, &group, &change.tool, 1);
     if was < rank(change.from) {
-        return Err("A newer restriction on this tool landed meanwhile; it was kept.".into());
+        return Err(TOOL_NARROWED.into());
     }
     if was >= rank(change.to) {
-        return Err("The tool already has this permission or more; nothing changed.".into());
+        return Err(TOOL_ALREADY.into());
     }
     Ok(())
 }

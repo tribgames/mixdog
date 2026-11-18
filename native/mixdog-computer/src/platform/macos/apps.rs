@@ -3,7 +3,6 @@
 use super::appkit;
 use crate::platform::{AppEntry, Launched};
 use std::path::PathBuf;
-use std::process::Command;
 
 fn roots() -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = [
@@ -82,9 +81,8 @@ pub fn launch(target: &str, app: Option<&AppEntry>) -> Result<Launched, String> 
             String::new(),
         ),
     };
-    let output = Command::new("/usr/bin/open")
-        .args(&arguments)
-        .output()
+    // `open` hands the launch to Launch Services: handed over by the executor's port.
+    let output = crate::port::macos::open(&arguments)?
         .map_err(|error| {
             format!("launch failed [shell_launch_failed/0] for '{target}': {error}")
         })?;
@@ -109,6 +107,7 @@ pub fn launch(target: &str, app: Option<&AppEntry>) -> Result<Launched, String> 
                 launched.app_hint = name;
                 break;
             }
+            // The launch is done; looking for its process holds nothing.
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
     }

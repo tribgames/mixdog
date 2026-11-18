@@ -24,9 +24,6 @@ use mixdog_core_review::turn_review::TurnReview;
 use mixdog_core_review::turn_review::signal_replay::ReplayHost;
 use mixdog_core_review::turn_review::signal_replay::replay;
 use mixdog_core_session::session::testing::awaiting_for;
-
-/// A composition brings up a Postgres cluster and a stop shuts it down: minutes on a loaded disk, never unbounded.
-const LIMIT: std::time::Duration = std::time::Duration::from_secs(180);
 use serde_json::Value;
 
 use super::*;
@@ -43,31 +40,6 @@ struct Held {
     stopping: Option<tokio::task::JoinHandle<()>>,
 }
 
-impl Held {
-    async fn stop(&mut self) {
-        let core = self.core.clone().expect("a core is running");
-        let stopping = self.stopping.get_or_insert_with(|| tokio::spawn(async move { core.stop("test").await }));
-        awaiting_for(LIMIT, || "the core to stop".to_owned(), &mut *stopping).await.expect("the stop ran to its end");
-        self.stopping = None;
-        self.core = None;
-    }
-
-    /// Ends whatever is still running: a composition is interrupted and waited for (a core it produced is stopped), then a running core is stopped.
-    async fn end(&mut self) {
-        if let Some((task, interrupt)) = self.starting.as_mut() {
-            interrupt.cancel();
-            let outcome = awaiting_for(LIMIT, || "the interrupted composition to end".to_owned(), task).await;
-            self.starting = None;
-            if let Ok(Ok(core)) = outcome {
-                self.core = Some(std::sync::Arc::new(core));
-            }
-        }
-        if self.core.is_some() {
-            self.stop().await;
-        }
-    }
-}
-
 /// The daemon's composed core, as the replay's host.
 struct Composed {
     /// The directory both compositions share (its data holds the runtime and the core's data), inside the test's own, which the parent process
@@ -76,38 +48,6 @@ struct Composed {
     held: Held,
     /// The epoch of every app feed this host composed, oldest first.
     epochs: Vec<String>,
-}
-
-impl Composed {
-    async fn start(dir: &Path) -> Self {
-        let mut host = Self { dir: dir.to_owned(), held: Held::default(), epochs: Vec::new() };
-        host.compose().await;
-        host
-    }
-
-    async fn compose(&mut self) {
-        let dir = self.dir.clone();
-        let tokens = mixdog_rt::testing::tokens();
-        let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new());
-        let config = tests::config_in(&dir.join("data"), &dir, log, mixdog_rt::CancellationToken::new());
-        let interrupt = mixdog_rt::CancellationToken::new();
-        let task = tokio::spawn({
-            let interrupt = interrupt.clone();
-            async move { compose_interruptible(&tokens, config, interrupt).await }
-        });
-        let (task, _) = self.held.starting.insert((task, interrupt));
-        let outcome = awaiting_for(LIMIT, || "the core to compose over the data directory".to_owned(), task).await;
-        self.held.starting = None;
-        let core = outcome.expect("the composition ran to its end").expect("the core composes");
-        let epoch = core.app_feed_core().position().epoch.to_string();
-        self.held.core = Some(std::sync::Arc::new(core));
-        assert!(!self.epochs.contains(&epoch), "a core composed again over the same data directory drew the epoch of an earlier one: {epoch}");
-        self.epochs.push(epoch);
-    }
-
-    fn core(&self) -> &ComposedCore {
-        self.held.core.as_ref().expect("a core is running")
-    }
 }
 
 /// Whatever a failed replay (or a deadline) left running is ended here; a core that does not end fails the test with what happened.
@@ -126,6 +66,85 @@ impl Drop for Composed {
             }
         }
     }
+}
+
+/// The Node packages the windows' replay loads (`test-env.mjs`/`test-tsx.mjs`: react, react-dom, tsx; `review-reread-replay.mjs`: esbuild; `review-windows.mjs`:
+/// jsdom), each found where Node resolves it from `apps/desktop`: its own `node_modules`, then the checkout's. A pool checkout has them only when its
+/// `node_modules` (and `apps/desktop/node_modules`) were installed or linked from the integration checkout.
+#[allow(clippy::disallowed_methods, reason = "test setup: probes the checkout's installed packages")]
+fn windows_replay_packages(checkout: &Path) -> Result<(), String> {
+    let homes = [checkout.join("apps/desktop/node_modules"), checkout.join("node_modules")];
+    let missing: Vec<&str> = ["react", "react-dom", "tsx", "esbuild", "jsdom"].into_iter().filter(|package| !homes.iter().any(|home| home.join(package).is_dir())).collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "this test replays the review windows in Node and needs the packages {missing:?} installed in the checkout {}: found in neither {} nor {}. Run `npm ci` at the checkout's root, or link its \
+         `node_modules` and `apps/desktop/node_modules` from a checkout that has them",
+        checkout.display(),
+        homes[0].display(),
+        homes[1].display()
+    ))
+}
+
+#[test]
+fn a_checkout_without_the_windows_replays_packages_is_told_which_and_where() {
+    let checkout = tempfile::tempdir().unwrap();
+    let message = windows_replay_packages(checkout.path()).unwrap_err();
+    for package in ["react", "react-dom", "tsx", "esbuild", "jsdom"] {
+        assert!(message.contains(package), "{message}");
+    }
+    assert!(message.contains("node_modules"), "{message}");
+    // Each package may be in either home.
+    for (home, package) in [("apps/desktop/node_modules", "react"), ("node_modules", "react-dom"), ("node_modules", "tsx"), ("apps/desktop/node_modules", "esbuild"), ("node_modules", "jsdom")] {
+        std::fs::create_dir_all(checkout.path().join(home).join(package)).unwrap();
+    }
+    assert_eq!(windows_replay_packages(checkout.path()), Ok(()));
+}
+
+/// A composition brings up a Postgres cluster and a stop shuts it down: minutes on a loaded disk, never unbounded.
+const LIMIT: std::time::Duration = std::time::Duration::from_secs(180);
+
+
+#[cfg(node_twin)]
+/// The cores are composed and replayed in a child process of the test's own, over a directory of its own (`compose_test_support::in_child`: a
+/// child that fails or runs over its limit, a cluster left running in a scenario's data directory and a directory that cannot be removed are each
+/// handled and reported by the parent).
+#[test]
+#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+fn a_core_composed_again_tells_and_answers_as_node_does() {
+    // The windows' replay (`review-reread-replay.mjs`) runs in Node over this checkout's desktop sources: without its packages the test fails only after the
+    // cores were composed and replayed, with a module-resolution error. Said at the start, in the parent as in the child.
+    let checkout = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
+    if let Err(missing) = windows_replay_packages(&checkout) {
+        panic!("{missing}");
+    }
+    let mut runtime = tokio::runtime::Builder::new_multi_thread();
+    runtime.worker_threads(4);
+    crate::compose_test_support::in_child(module_path!(), "a_core_composed_again_tells_and_answers_as_node_does", runtime, |dir| async move {
+        replay_scenarios_with_restarts(&dir).await;
+    });
+}
+#[cfg(node_twin)]
+async fn replay_scenarios_with_restarts(root: &Path) {
+    let golden: Value = serde_json::from_slice(&std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/turn-review-signal/scenarios.json")).unwrap()).unwrap();
+    let platform = std::env::consts::OS.replace("windows", "win32");
+    let mut replayed = 0;
+    for scenario in golden.as_array().unwrap() {
+        if scenario["platform"] != platform || !scenario["ops"].as_array().unwrap().iter().any(|op| op["coreRestart"] == true) {
+            continue;
+        }
+        let dir = root.join(format!("scenario-{replayed}"));
+        std::fs::create_dir_all(dir.join("data")).unwrap();
+        crate::compose_test_support::install(&dir.join("data"));
+        let mut host = Composed::start(&dir).await;
+        replay(scenario, &mut host).await;
+        let restarts = scenario["ops"].as_array().unwrap().iter().filter(|op| op["coreRestart"] == true).count();
+        assert_eq!(host.epochs.len(), restarts + 1, "a composition per start");
+        assert!(host.held.core.is_none(), "the replay ended the last core");
+        replayed += 1;
+    }
+    assert!(replayed > 0, "no recorded scenario with a restart for {platform}");
 }
 
 #[async_trait]
@@ -172,76 +191,58 @@ impl ReplayHost for Composed {
     }
 }
 
-/// The cores are composed and replayed in a child process of the test's own, over a directory of its own (`compose_test_support::in_child`: a
-/// child that fails or runs over its limit, a cluster left running in a scenario's data directory and a directory that cannot be removed are each
-/// handled and reported by the parent).
-#[test]
-#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
-fn a_core_composed_again_tells_and_answers_as_node_does() {
-    // The windows' replay (`review-reread-replay.mjs`) runs in Node over this checkout's desktop sources: without its packages the test fails only after the
-    // cores were composed and replayed, with a module-resolution error. Said at the start, in the parent as in the child.
-    let checkout = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
-    if let Err(missing) = windows_replay_packages(&checkout) {
-        panic!("{missing}");
+impl Held {
+    async fn stop(&mut self) {
+        let core = self.core.clone().expect("a core is running");
+        let stopping = self.stopping.get_or_insert_with(|| tokio::spawn(async move { core.stop("test").await }));
+        awaiting_for(LIMIT, || "the core to stop".to_owned(), &mut *stopping).await.expect("the stop ran to its end");
+        self.stopping = None;
+        self.core = None;
     }
-    let mut runtime = tokio::runtime::Builder::new_multi_thread();
-    runtime.worker_threads(4);
-    crate::compose_test_support::in_child(module_path!(), "a_core_composed_again_tells_and_answers_as_node_does", runtime, |dir| async move {
-        replay_scenarios_with_restarts(&dir).await;
-    });
-}
 
-/// The Node packages the windows' replay loads (`test-env.mjs`/`test-tsx.mjs`: react, react-dom, tsx; `review-reread-replay.mjs`: esbuild; `review-windows.mjs`:
-/// jsdom), each found where Node resolves it from `apps/desktop`: its own `node_modules`, then the checkout's. A pool checkout has them only when its
-/// `node_modules` (and `apps/desktop/node_modules`) were installed or linked from the integration checkout.
-#[allow(clippy::disallowed_methods, reason = "test setup: probes the checkout's installed packages")]
-fn windows_replay_packages(checkout: &Path) -> Result<(), String> {
-    let homes = [checkout.join("apps/desktop/node_modules"), checkout.join("node_modules")];
-    let missing: Vec<&str> = ["react", "react-dom", "tsx", "esbuild", "jsdom"].into_iter().filter(|package| !homes.iter().any(|home| home.join(package).is_dir())).collect();
-    if missing.is_empty() {
-        return Ok(());
-    }
-    Err(format!(
-        "this test replays the review windows in Node and needs the packages {missing:?} installed in the checkout {}: found in neither {} nor {}. Run `npm ci` at the checkout's root, or link its \
-         `node_modules` and `apps/desktop/node_modules` from a checkout that has them",
-        checkout.display(),
-        homes[0].display(),
-        homes[1].display()
-    ))
-}
-
-#[test]
-fn a_checkout_without_the_windows_replays_packages_is_told_which_and_where() {
-    let checkout = tempfile::tempdir().unwrap();
-    let message = windows_replay_packages(checkout.path()).unwrap_err();
-    for package in ["react", "react-dom", "tsx", "esbuild", "jsdom"] {
-        assert!(message.contains(package), "{message}");
-    }
-    assert!(message.contains("node_modules"), "{message}");
-    // Each package may be in either home.
-    for (home, package) in [("apps/desktop/node_modules", "react"), ("node_modules", "react-dom"), ("node_modules", "tsx"), ("apps/desktop/node_modules", "esbuild"), ("node_modules", "jsdom")] {
-        std::fs::create_dir_all(checkout.path().join(home).join(package)).unwrap();
-    }
-    assert_eq!(windows_replay_packages(checkout.path()), Ok(()));
-}
-
-async fn replay_scenarios_with_restarts(root: &Path) {
-    let golden: Value = serde_json::from_slice(&std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/turn-review-signal/scenarios.json")).unwrap()).unwrap();
-    let platform = std::env::consts::OS.replace("windows", "win32");
-    let mut replayed = 0;
-    for scenario in golden.as_array().unwrap() {
-        if scenario["platform"] != platform || !scenario["ops"].as_array().unwrap().iter().any(|op| op["coreRestart"] == true) {
-            continue;
+    /// Ends whatever is still running: a composition is interrupted and waited for (a core it produced is stopped), then a running core is stopped.
+    async fn end(&mut self) {
+        if let Some((task, interrupt)) = self.starting.as_mut() {
+            interrupt.cancel();
+            let outcome = awaiting_for(LIMIT, || "the interrupted composition to end".to_owned(), task).await;
+            self.starting = None;
+            if let Ok(Ok(core)) = outcome {
+                self.core = Some(std::sync::Arc::new(core));
+            }
         }
-        let dir = root.join(format!("scenario-{replayed}"));
-        std::fs::create_dir_all(dir.join("data")).unwrap();
-        crate::compose_test_support::install(&dir.join("data"));
-        let mut host = Composed::start(&dir).await;
-        replay(scenario, &mut host).await;
-        let restarts = scenario["ops"].as_array().unwrap().iter().filter(|op| op["coreRestart"] == true).count();
-        assert_eq!(host.epochs.len(), restarts + 1, "a composition per start");
-        assert!(host.held.core.is_none(), "the replay ended the last core");
-        replayed += 1;
+        if self.core.is_some() {
+            self.stop().await;
+        }
     }
-    assert!(replayed > 0, "no recorded scenario with a restart for {platform}");
+}
+impl Composed {
+    async fn start(dir: &Path) -> Self {
+        let mut host = Self { dir: dir.to_owned(), held: Held::default(), epochs: Vec::new() };
+        host.compose().await;
+        host
+    }
+
+    async fn compose(&mut self) {
+        let dir = self.dir.clone();
+        let tokens = mixdog_rt::testing::tokens();
+        let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new());
+        let config = tests::config_in(&dir.join("data"), &dir, log, mixdog_rt::CancellationToken::new());
+        let interrupt = mixdog_rt::CancellationToken::new();
+        let task = tokio::spawn({
+            let interrupt = interrupt.clone();
+            async move { compose_interruptible(&tokens, config, interrupt).await }
+        });
+        let (task, _) = self.held.starting.insert((task, interrupt));
+        let outcome = awaiting_for(LIMIT, || "the core to compose over the data directory".to_owned(), task).await;
+        self.held.starting = None;
+        let core = outcome.expect("the composition ran to its end").expect("the core composes");
+        let epoch = core.app_feed_core().position().epoch.to_string();
+        self.held.core = Some(std::sync::Arc::new(core));
+        assert!(!self.epochs.contains(&epoch), "a core composed again over the same data directory drew the epoch of an earlier one: {epoch}");
+        self.epochs.push(epoch);
+    }
+
+    fn core(&self) -> &ComposedCore {
+        self.held.core.as_ref().expect("a core is running")
+    }
 }

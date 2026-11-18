@@ -582,9 +582,7 @@ pub fn resolve_and_link<R: ImportRecord + Sync>(
     link_records(records, root, file_set);
 }
 
-/// [`resolve_and_link`], returning every path the manifest loaders looked at: the files read (missing ones too)
-/// and the directories listed or probed, each with its stamp from just before it was looked at. A caller that keeps
-/// the edges compares these with the paths' stamps later to know when they are stale (or were while linking).
+/// [`resolve_and_link`], returning the paths probed and their stamps just before each probe.
 pub fn resolve_and_link_reporting<R: ImportRecord + Sync>(
     records: &mut [R],
     root: &Path,
@@ -593,6 +591,17 @@ pub fn resolve_and_link_reporting<R: ImportRecord + Sync>(
     // The loaders run in `build_graph_index`, sequentially on this thread, before the parallel resolve.
     let ((), inputs) = manifests::recording(|| link_records(records, root, file_set));
     inputs
+}
+
+pub use manifests::ObservedInput;
+
+/// Same resolution, with the observations needed to revalidate the edges rather than just path stamps.
+pub fn resolve_and_link_observing<R: ImportRecord + Sync>(
+    records: &mut [R],
+    root: &Path,
+    file_set: &HashSet<String>,
+) -> Vec<ObservedInput> {
+    manifests::observing(|| link_records(records, root, file_set)).1
 }
 
 fn link_records<R: ImportRecord + Sync>(records: &mut [R], root: &Path, file_set: &HashSet<String>) {

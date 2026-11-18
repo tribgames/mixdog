@@ -255,21 +255,6 @@ impl ColdEmbed for RecallEmbedder {
     }
 }
 
-#[async_trait]
-impl QueryEmbedder for RecallEmbedder {
-    /// `embedQuery(retrievalQuery, signal, …)` (`query-hybrid-search.mjs:39-52`): the request's signal ends the cold wait at once and the
-    /// recall with it (`abortReason(signal)`); the warmup goes on. An embed failure leaves the recall lexical, as Node's `embedText` answers.
-    async fn query_vector(&self, text: &str, cancel: &CancellationToken) -> crate::memory::error::Result<Option<Vec<f32>>> {
-        let embedder = Arc::new(self.clone());
-        let aborted = || crate::memory::recall::aborted().message();
-        match embed_recall_query(&embedder, Some(text), cold_embed_wait(), cancel, aborted).await {
-            Ok(embedding) => Ok(embedding.into_vector().filter(|vector| !vector.is_empty())),
-            Err(_) if cancel.is_cancelled() => Err(crate::memory::recall::aborted()),
-            Err(_) => Ok(None),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -349,5 +334,21 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn an_embedding_panic_after_the_cancel_is_reported() {
         assert_eq!(cancelled_embedding(Some("boom"), Ok(vec![])).await, "panicked: boom");
+    }
+}
+
+
+#[async_trait]
+impl QueryEmbedder for RecallEmbedder {
+    /// `embedQuery(retrievalQuery, signal, …)` (`query-hybrid-search.mjs:39-52`): the request's signal ends the cold wait at once and the
+    /// recall with it (`abortReason(signal)`); the warmup goes on. An embed failure leaves the recall lexical, as Node's `embedText` answers.
+    async fn query_vector(&self, text: &str, cancel: &CancellationToken) -> crate::memory::error::Result<Option<Vec<f32>>> {
+        let embedder = Arc::new(self.clone());
+        let aborted = || crate::memory::recall::aborted().message();
+        match embed_recall_query(&embedder, Some(text), cold_embed_wait(), cancel, aborted).await {
+            Ok(embedding) => Ok(embedding.into_vector().filter(|vector| !vector.is_empty())),
+            Err(_) if cancel.is_cancelled() => Err(crate::memory::recall::aborted()),
+            Err(_) => Ok(None),
+        }
     }
 }

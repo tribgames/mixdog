@@ -294,7 +294,7 @@ impl UplinkFlow {
 
     /// One of the phone's frames was flushed (or failed): lift the stop once the backlog is small again.
     fn settled(&self, size: usize) {
-        let before = match self.bytes.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |held| Some(held.saturating_sub(size))) {
+        let before = match self.bytes.try_update(Ordering::SeqCst, Ordering::SeqCst, |held| Some(held.saturating_sub(size))) {
             Ok(before) | Err(before) => before,
         };
         let left = before.saturating_sub(size);

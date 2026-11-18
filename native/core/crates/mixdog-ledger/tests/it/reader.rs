@@ -32,47 +32,6 @@ use mixdog_ledger::stats::UsageStatsOptions;
 use mixdog_ledger::sums::build_sums_step;
 use rusqlite::types::Null;
 
-const CORPUS: &str =
-    r"C:\Users\tempe\.mixdog\data\scratch\rust-core\migration-corpus\v145\usage\ledger.sqlite";
-
-fn upgraded(dir: &Path) -> std::path::PathBuf {
-    let path = dir.join("ledger.sqlite");
-    std::fs::copy(CORPUS, &path).unwrap();
-    let mut conn = Connection::open(&path).unwrap();
-    conn.pragma_update(None, "journal_mode", "WAL").unwrap();
-    prepare(&mut conn).unwrap();
-    while !build_sums_step(&mut conn, 500).unwrap() {}
-    path
-}
-
-#[tokio::test]
-async fn every_lane_serves_its_queries() {
-    let tokens = mixdog_rt::testing::tokens();
-    let dir = tempfile::tempdir().unwrap();
-    let path = upgraded(dir.path());
-    let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
-    let now = 1_793_890_000_000_i64;
-
-    // The answers' content is pinned by the Node goldens (`stats_parity`); this checks that every
-    // lane serves its queries, and that a repeated read on the pooled connection agrees.
-    for options in [r#"{"view":"day"}"#, r#"{"view":"hour"}"#, r#"{"days":7}"#] {
-        let options: UsageStatsOptions = serde_json::from_str(options).unwrap();
-        let first = reader.usage_stats(options.clone(), now).await.unwrap();
-        let again = reader.usage_stats(options, now).await.unwrap();
-        assert_eq!(
-            mixdog_js::json_stringify(&first),
-            mixdog_js::json_stringify(&again)
-        );
-    }
-    let history = reader
-        .quota_history(QuotaHistoryOptions::default(), BTreeMap::new(), now)
-        .await
-        .unwrap();
-    assert!(history.is_object());
-    let day = reader.rollup(RollupQuery::default()).await.unwrap();
-    assert!(day["days"].as_object().is_some_and(|d| !d.is_empty()));
-}
-
 #[test]
 fn event_reading_queries_take_the_maintenance_lane() {
     let timed = RollupQuery {
@@ -119,6 +78,42 @@ fn scans(conn: &Connection, sql: &str) -> Vec<String> {
         .collect()
 }
 
+
+fn upgraded(dir: &Path) -> std::path::PathBuf {
+    let path = dir.join("ledger.sqlite");
+    crate::v145::write_v145(&path);
+    let mut conn = Connection::open(&path).unwrap();
+    conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+    prepare(&mut conn).unwrap();
+    while !build_sums_step(&mut conn, 500).unwrap() {}
+    path
+}
+#[tokio::test]
+async fn every_lane_serves_its_queries() {
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let path = upgraded(dir.path());
+    let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
+    let now = 1_793_890_000_000_i64;
+
+    // This checks that every lane serves its queries, and that a repeated read on the pooled connection agrees.
+    for options in [r#"{"view":"day"}"#, r#"{"view":"hour"}"#, r#"{"days":7}"#] {
+        let options: UsageStatsOptions = serde_json::from_str(options).unwrap();
+        let first = reader.usage_stats(options.clone(), now).await.unwrap();
+        let again = reader.usage_stats(options, now).await.unwrap();
+        assert_eq!(
+            mixdog_js::json_stringify(&first),
+            mixdog_js::json_stringify(&again)
+        );
+    }
+    let history = reader
+        .quota_history(QuotaHistoryOptions::default(), BTreeMap::new(), now)
+        .await
+        .unwrap();
+    assert!(history.is_object());
+    let day = reader.rollup(RollupQuery::default()).await.unwrap();
+    assert!(day["days"].as_object().is_some_and(|d| !d.is_empty()));
+}
 #[test]
 fn interactive_statements_do_not_scan_a_table() {
     let dir = tempfile::tempdir().unwrap();
@@ -163,7 +158,6 @@ fn interactive_statements_do_not_scan_a_table() {
         failed.join("\n")
     );
 }
-
 /// A later page is an interactive, index-bounded read. The first page also lists the models,
 /// which visits every route, so the whole first page is one maintenance job (one snapshot).
 #[test]

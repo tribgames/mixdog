@@ -7,6 +7,7 @@ import { createHostApi } from './host-api.ts';
 const EXTRAS = [
   'enableAllowAllActions',
   'observeSignIn',
+  'previewConvertedDocument',
   'invokePcQuotaCapability',
   'readPcQuotaCapabilities',
 ];

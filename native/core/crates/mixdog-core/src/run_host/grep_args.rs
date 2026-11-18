@@ -1,6 +1,6 @@
 //! `prepareGrepArgs` (`tools/builtin/arg-guard.mjs`, `path-utils.mjs`): the private copy of a
-//! grep request after the builtin guard and alias normalization. The result cache keys grep on
-//! it, so two spellings of one search share an entry and an invalid request never hits one.
+//! grep request after the Node builtin guard and alias normalization. Retained
+//! for source parity fixtures; the native result cache uses executor arguments.
 
 use std::sync::LazyLock;
 
@@ -319,7 +319,8 @@ fn guard_grep(a: &mut Args) -> Option<String> {
             return Some(format!("Error: grep arg \"{k}\" must be string or string[] (got {})", describe_type(&a[k])));
         }
     }
-    for k in ["head_limit", "offset"] {
+    // `section` is the fan-out cursor (`fs/specs/grep.json`): a non-negative integer like `offset`.
+    for k in ["head_limit", "offset", "section"] {
         if let Some(err) = check_int_in_range(a, k, 0.0, MAX_INT, false) {
             return Some(err);
         }

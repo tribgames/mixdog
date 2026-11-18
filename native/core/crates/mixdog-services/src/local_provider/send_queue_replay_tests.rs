@@ -31,13 +31,6 @@ use serde_json::json;
 use super::installed_models::ManagedRuntime;
 use super::provider::LocalProvider;
 
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/local-send-queue/golden.json");
-
-fn recorded(case: &str) -> Value {
-    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-    golden["cases"].as_array().unwrap().iter().find(|c| c["case"] == case).unwrap_or_else(|| panic!("{case} is recorded"))["observed"].clone()
-}
-
 /// The managed runtime but for the server start: a fixed endpoint, as the recording's injected `ensureServer`.
 struct Injected(ManagedRuntime);
 
@@ -50,7 +43,7 @@ impl InstalledModels for Injected {
 
 #[async_trait]
 impl LocalRuntime for Injected {
-    async fn ensure_server(&self, _: &str) -> Result<Endpoint, p::ProviderError> {
+    async fn ensure_server(&self, _: &str, _: Option<tokio_util::sync::CancellationToken>) -> Result<Endpoint, p::ProviderError> {
         Ok(Endpoint { base_url: "http://127.0.0.1:12345/v1".into(), api_key: "k".into() })
     }
     async fn begin(&self, model: &str) -> Result<Box<dyn Inference>, p::ProviderError> {
@@ -58,6 +51,9 @@ impl LocalRuntime for Injected {
     }
     fn installed_now(&self) -> Option<Vec<Value>> {
         self.0.installed_now()
+    }
+    fn supports_tools(&self, model: &str) -> Option<bool> {
+        self.0.supports_tools(model)
     }
 }
 
@@ -71,32 +67,6 @@ enum Step {
     /// The request is answered with this status and an error body.
     Status(u16),
     Result { input: u64, output: u64 },
-}
-
-fn steps_of(recorded: &Value) -> Vec<Step> {
-    recorded
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|step| {
-            if let Some(ms) = step.get("advance") {
-                Step::Advance(ms.as_u64().unwrap())
-            } else if let Some(status) = step.get("status") {
-                Step::Status(status.as_u64().unwrap() as u16)
-            } else if let Some(kind) = step.get("progress") {
-                Step::Progress(kind.as_str().unwrap().into())
-            } else if let Some(name) = step.get("snapshot") {
-                Step::Snapshot(name.as_str().unwrap().into())
-            } else if step.get("hold").is_some() {
-                Step::Hold
-            } else if step.get("fail").is_some() {
-                Step::Fail
-            } else {
-                let usage = &step["result"];
-                Step::Result { input: usage["inputTokens"].as_u64().unwrap(), output: usage["outputTokens"].as_u64().unwrap() }
-            }
-        })
-        .collect()
 }
 
 /// What the scripted wire shares with the test.
@@ -258,68 +228,6 @@ fn recorded_inference(observed: &Value) -> Value {
     state
 }
 
-#[tokio::test(start_paused = true)]
-async fn a_streamed_send_is_measured() {
-    let node = recorded("a streamed send is measured: first response, duration, tokens per second");
-    let world = world("local-streamed", vec![("only", steps_of(&node["steps"]))]);
-    assert_eq!(send(&world.adapter, "local-streamed").await, Ok(()));
-    let state = world.shared.runtime.catalog.state.get("local-streamed");
-    assert_eq!(settled(&state["inference"], None), recorded_inference(&node));
-    assert_eq!(Value::Object(world.shared.snapshots.lock().unwrap().clone()), node["snapshots"]);
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_failed_send_is_measured_as_failed_and_rethrown() {
-    let node = recorded("a failed send is measured as failed and its error is rethrown");
-    let world = world("local-failed", vec![("only", steps_of(&node["steps"]))]);
-    let failure = send(&world.adapter, "local-failed").await.expect_err("the send fails");
-    assert!(node["outcome"].get("threw").is_some());
-    let state = world.shared.runtime.catalog.state.get("local-failed");
-    assert_eq!(settled(&state["inference"], Some(&failure)), recorded_inference(&node));
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_send_that_shows_no_output_has_no_first_response() {
-    let node = recorded("a send that shows no output has no first response and no speed");
-    let world = world("local-silent", vec![("only", steps_of(&node["steps"]))]);
-    assert_eq!(send(&world.adapter, "local-silent").await, Ok(()));
-    let state = world.shared.runtime.catalog.state.get("local-silent");
-    assert_eq!(settled(&state["inference"], None), recorded_inference(&node));
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_second_send_waits_for_the_first_and_its_queue_wait_is_measured() {
-    let node = recorded("a second send waits for the first, and its queue wait is measured");
-    let [first, second] = [&node["scripts"][0], &node["scripts"][1]];
-    let model = node["model"].as_str().unwrap();
-    let world = world(model, vec![("A", steps_of(first)), ("B", steps_of(second))]);
-    let mut a = tokio::spawn({
-        let adapter = world.adapter.clone();
-        let model = model.to_owned();
-        async move { send(&adapter, &model).await }
-    });
-    let b = tokio::spawn({
-        let adapter = world.adapter.clone();
-        let model = model.to_owned();
-        async move { send(&adapter, &model).await }
-    });
-    // No timer here: the clock is paused and the installed-models reads the provider keeps run on blocking threads, during
-    // which a pending timer would be fired early. The wait ends when the first send holds the slot or can no longer do so.
-    tokio::select! {
-        () = world.shared.held.notified() => {}
-        ended = &mut a => panic!("the first send ended before it held the slot: {ended:?}"),
-    }
-    let during = world.shared.runtime.catalog.state.get(model)["inference"].clone();
-    assert_eq!((world.shared.reached.lock().unwrap().clone(), during), (node["reachedWhileHeld"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>(), node["duringHold"].clone()));
-    assert_eq!(world.shared.snapshots.lock().unwrap().len(), 0, "the second send has not started");
-    tokio::time::advance(Duration::from_millis(node["elapsedWhileHeld"].as_u64().unwrap())).await;
-    world.shared.release.notify_one();
-    assert_eq!((a.await.unwrap(), b.await.unwrap()), (Ok(()), Ok(())));
-    assert_eq!(Value::Object(world.shared.snapshots.lock().unwrap().clone()), node["secondSaw"]);
-    let state = world.shared.runtime.catalog.state.get(model);
-    assert_eq!(settled(&state["inference"], None), recorded_inference(&node));
-}
-
 /// One logical send as the loop makes it: every attempt carries the send's group; a failed attempt is retried after the
 /// backoff `delay_ms` (the clock moves by it), and a send that ends on a failure settles its group. Returns the send's end and
 /// what the wire had seen, and the inference showed, when the first backoff was over.
@@ -349,44 +257,6 @@ async fn send_retrying(adapter: &RegisteredAdapter, shared: &Shared, model: &str
     }
 }
 
-#[tokio::test(start_paused = true)]
-async fn a_retry_keeps_the_slot_while_a_second_send_waits() {
-    let node = recorded("a retry keeps the slot while a second send waits");
-    let model = node["model"].as_str().unwrap();
-    let delay = node["retryDelayMs"].as_u64().unwrap();
-    let world = world(model, Vec::new());
-    for (name, steps) in node["scripts"].as_object().unwrap() {
-        world.wire.named.lock().unwrap().insert(name.clone(), steps_of(steps));
-    }
-    let spawn = |who: &'static str| {
-        let (adapter, shared, model) = (world.adapter.clone(), world.shared.clone(), model.to_owned());
-        tokio::spawn(async move { send_retrying(&adapter, &shared, &model, who, delay).await })
-    };
-    let mut a = spawn("A");
-    let b = spawn("B");
-    // No timer here (see the queued test): the wait ends when A's retry holds the slot or A can no longer do so.
-    tokio::select! {
-        () = world.shared.held.notified() => {}
-        ended = &mut a => panic!("the first send ended before its retry held the slot: {ended:?}"),
-    }
-    let strings = |value: &Value| value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>();
-    assert_eq!(*world.shared.order.lock().unwrap(), strings(&node["reachedWhileHeld"]));
-    assert_eq!(world.shared.runtime.catalog.state.get(model)["inference"], node["duringHold"]);
-    tokio::time::advance(Duration::from_millis(node["elapsedWhileHeld"].as_u64().unwrap())).await;
-    world.shared.release.notify_one();
-    let ((a_end, backoff_over), (b_end, _)) = (a.await.unwrap(), b.await.unwrap());
-    assert_eq!((a_end, b_end), (Ok(()), Ok(())));
-    let (reached, state) = backoff_over.expect("the first request failed and was retried");
-    assert_eq!((reached, state), (strings(&node["reachedBeforeBackoffEnds"]), node["stateInBackoff"].clone()));
-    assert_eq!(*world.shared.order.lock().unwrap(), strings(&node["wireOrder"]));
-    // Node's measurement clock does not move with its timers, Rust's is the one clock: the wait of the send that queued
-    // behind the retry also holds the backoff.
-    let mut expected = recorded_inference(&node);
-    expected["queueWaitMs"] = json!(node["inference"]["queueWaitMs"].as_u64().unwrap() + delay);
-    let state = world.shared.runtime.catalog.state.get(model);
-    assert_eq!(settled(&state["inference"], None), expected);
-}
-
 /// The model proxy's send: the PC's broker sends once through the registered adapter, the retries of the send are its own.
 struct Discard(Option<tokio_util::sync::CancellationToken>);
 
@@ -414,46 +284,6 @@ fn broker() -> ModelBroker {
 async fn next_send_is_admitted(world: &World, model: &str) {
     let next = tokio::time::timeout(Duration::from_secs(5), send(&world.adapter, model)).await;
     assert_eq!(next.expect("the next local send to be admitted"), Ok(()));
-}
-
-/// Node's proxy calls the queue-wrapped provider send, which holds the slot across the inner retries. The recorded retry case
-/// ("a retry keeps the slot while a second send waits"), through the broker the model proxy sends with: its own retry decides
-/// the attempts, and the second send, on another lane, waits in the local queue behind the whole send.
-#[tokio::test(start_paused = true)]
-async fn a_retry_through_the_broker_keeps_the_slot_while_a_second_send_waits() {
-    let node = recorded("a retry keeps the slot while a second send waits");
-    let model = node["model"].as_str().unwrap();
-    let world = world(model, Vec::new());
-    for (name, steps) in node["scripts"].as_object().unwrap() {
-        world.wire.named.lock().unwrap().insert(name.clone(), steps_of(steps));
-    }
-    let broker = Arc::new(broker());
-    let spawn = |who: &'static str| {
-        let (adapter, broker, model) = (world.adapter.clone(), broker.clone(), model.to_owned());
-        tokio::spawn(async move { broker_send(&broker, &adapter, &model, who, who, &tokio_util::sync::CancellationToken::new(), false).await })
-    };
-    let mut a = spawn("A");
-    let b = spawn("B");
-    tokio::select! {
-        () = world.shared.held.notified() => {}
-        ended = &mut a => panic!("the first send ended before its retry held the slot: {ended:?}"),
-    }
-    let strings = |value: &Value| value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>();
-    assert_eq!(*world.shared.order.lock().unwrap(), strings(&node["reachedWhileHeld"]));
-    tokio::time::advance(Duration::from_millis(node["elapsedWhileHeld"].as_u64().unwrap())).await;
-    world.shared.release.notify_one();
-    let (a_end, b_end) = (a.await.unwrap(), b.await.unwrap());
-    assert_eq!((a_end.is_ok(), b_end.is_ok()), (true, true), "{a_end:?} {b_end:?}");
-    assert_eq!(*world.shared.order.lock().unwrap(), strings(&node["wireOrder"]));
-    // The broker's backoff is its own (jittered), Node's retry delay is the recording's: the wait of the send that queued
-    // behind the retry holds whichever backoff the first send took.
-    let times = world.shared.times.lock().unwrap().clone();
-    let at = |name: &str| times.iter().find(|(n, _)| n == name).unwrap().1;
-    let backoff = (at("A#2") - at("A#1")).as_millis() as u64;
-    let mut expected = recorded_inference(&node);
-    expected["queueWaitMs"] = json!(node["inference"]["queueWaitMs"].as_u64().unwrap() + backoff);
-    let state = world.shared.runtime.catalog.state.get(model);
-    assert_eq!(settled(&state["inference"], None), expected);
 }
 
 /// A send group that ends on its last error lets the next send in.
@@ -522,41 +352,6 @@ async fn a_broker_send_dropped_while_it_holds_the_slot_lets_the_next_send_in() {
     next_send_is_admitted(&world, "local-broker-drop").await;
 }
 
-/// `getCachedModelInfo` is `installedLocalProviderModels().find(id) || null`, read now (Node reads the disk on every call): at each
-/// moment the adapter answers the row the runtime lists for the id, or nothing, for a model installed, not downloaded, removed
-/// and one that was never registered.
-#[tokio::test]
-async fn the_cached_model_info_is_the_installed_models_row_at_every_moment() {
-    let node = recorded("the cached model info is the installed model's row at every moment");
-    // The recording's relation, which is the contract: every moment's cached row is the listing's row of that id, else null.
-    for moment in node["moments"].as_array().unwrap() {
-        for (id, cached) in moment["cached"].as_object().unwrap() {
-            let listed = moment["listed"].as_array().unwrap().iter().find(|row| row["id"] == json!(id)).cloned().unwrap_or(Value::Null);
-            assert_eq!(&listed, cached, "{} / {id}", moment["name"]);
-        }
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let provider = super::provider::tests::provider(dir.path());
-    let adapter = RegisteredAdapter::new(Arc::new(Wire { shared: Arc::new(Shared { model: String::new(), runtime: provider.clone(), reached: Mutex::default(), snapshots: Mutex::default(), held: tokio::sync::Notify::new(), release: tokio::sync::Notify::new(), order: Mutex::default(), times: Mutex::default() }), scripts: Mutex::default(), named: Mutex::default(), counts: Mutex::default() }), Arc::new(Injected(ManagedRuntime(provider.clone()))));
-    let mut rows = provider.installed_rows();
-    let (first, second) = (install(&provider, 1, b"first weights").await, install(&provider, 2, b"second weights").await);
-    let ids = [first.as_str(), second.as_str(), "never-registered"];
-    // Installing finishes and a context change ticks the provider's change signal, after which the row is there.
-    provider.set_context(&first, Some(16_384)).await.unwrap();
-    wait_for_rows(&mut rows, &[&first, &second]).await;
-    let answers = |adapter: &RegisteredAdapter| ids.map(|id| adapter.cached_row(id).map(|row| row["id"].clone()));
-    assert_eq!(answers(&adapter), [Some(json!(first)), Some(json!(second)), None]);
-    let listed = provider.catalog.installed_models().await.unwrap();
-    for id in ids {
-        assert_eq!(adapter.cached_row(id).as_deref(), listed.iter().find(|row| row["id"] == json!(id)), "{id}");
-    }
-    // A deletion ticks it as well: the removed model has no row from then on.
-    let token = provider.model_details(&first).await.unwrap()["confirmationToken"].as_str().unwrap().to_owned();
-    provider.delete_model(&token).await.unwrap();
-    wait_for_rows(&mut rows, &[&second]).await;
-    assert_eq!(answers(&adapter), [None, Some(json!(second)), None]);
-}
-
 /// A read after an operation on the models has completed sees it, with no wait on the change signal: Node reads the catalog on
 /// every call, and the refreshed rows are published before the operation returns.
 #[tokio::test]
@@ -602,4 +397,204 @@ async fn wait_for_rows(rows: &mut tokio::sync::watch::Receiver<Option<Vec<Value>
         .await
         .unwrap_or_else(|_| panic!("the installed rows to become {ids:?}"))
         .expect("the provider to live");
+}
+
+
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/local-send-queue/golden.json");
+fn recorded(case: &str) -> Value {
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
+    golden["cases"].as_array().unwrap().iter().find(|c| c["case"] == case).unwrap_or_else(|| panic!("{case} is recorded"))["observed"].clone()
+}
+fn steps_of(recorded: &Value) -> Vec<Step> {
+    recorded
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|step| {
+            if let Some(ms) = step.get("advance") {
+                Step::Advance(ms.as_u64().unwrap())
+            } else if let Some(status) = step.get("status") {
+                Step::Status(status.as_u64().unwrap() as u16)
+            } else if let Some(kind) = step.get("progress") {
+                Step::Progress(kind.as_str().unwrap().into())
+            } else if let Some(name) = step.get("snapshot") {
+                Step::Snapshot(name.as_str().unwrap().into())
+            } else if step.get("hold").is_some() {
+                Step::Hold
+            } else if step.get("fail").is_some() {
+                Step::Fail
+            } else {
+                let usage = &step["result"];
+                Step::Result { input: usage["inputTokens"].as_u64().unwrap(), output: usage["outputTokens"].as_u64().unwrap() }
+            }
+        })
+        .collect()
+}
+#[tokio::test(start_paused = true)]
+async fn a_streamed_send_is_measured() {
+    let node = recorded("a streamed send is measured: first response, duration, tokens per second");
+    let world = world("local-streamed", vec![("only", steps_of(&node["steps"]))]);
+    assert_eq!(send(&world.adapter, "local-streamed").await, Ok(()));
+    let state = world.shared.runtime.catalog.state.get("local-streamed");
+    assert_eq!(settled(&state["inference"], None), recorded_inference(&node));
+    assert_eq!(Value::Object(world.shared.snapshots.lock().unwrap().clone()), node["snapshots"]);
+}
+#[tokio::test(start_paused = true)]
+async fn a_failed_send_is_measured_as_failed_and_rethrown() {
+    let node = recorded("a failed send is measured as failed and its error is rethrown");
+    let world = world("local-failed", vec![("only", steps_of(&node["steps"]))]);
+    let failure = send(&world.adapter, "local-failed").await.expect_err("the send fails");
+    assert!(node["outcome"].get("threw").is_some());
+    let state = world.shared.runtime.catalog.state.get("local-failed");
+    assert_eq!(settled(&state["inference"], Some(&failure)), recorded_inference(&node));
+}
+#[tokio::test(start_paused = true)]
+async fn a_send_that_shows_no_output_has_no_first_response() {
+    let node = recorded("a send that shows no output has no first response and no speed");
+    let world = world("local-silent", vec![("only", steps_of(&node["steps"]))]);
+    assert_eq!(send(&world.adapter, "local-silent").await, Ok(()));
+    let state = world.shared.runtime.catalog.state.get("local-silent");
+    assert_eq!(settled(&state["inference"], None), recorded_inference(&node));
+}
+#[tokio::test(start_paused = true)]
+async fn a_second_send_waits_for_the_first_and_its_queue_wait_is_measured() {
+    let node = recorded("a second send waits for the first, and its queue wait is measured");
+    let [first, second] = [&node["scripts"][0], &node["scripts"][1]];
+    let model = node["model"].as_str().unwrap();
+    let world = world(model, vec![("A", steps_of(first)), ("B", steps_of(second))]);
+    let mut a = tokio::spawn({
+        let adapter = world.adapter.clone();
+        let model = model.to_owned();
+        async move { send(&adapter, &model).await }
+    });
+    let b = tokio::spawn({
+        let adapter = world.adapter.clone();
+        let model = model.to_owned();
+        async move { send(&adapter, &model).await }
+    });
+    // No timer here: the clock is paused and the installed-models reads the provider keeps run on blocking threads, during
+    // which a pending timer would be fired early. The wait ends when the first send holds the slot or can no longer do so.
+    tokio::select! {
+        () = world.shared.held.notified() => {}
+        ended = &mut a => panic!("the first send ended before it held the slot: {ended:?}"),
+    }
+    let during = world.shared.runtime.catalog.state.get(model)["inference"].clone();
+    assert_eq!((world.shared.reached.lock().unwrap().clone(), during), (node["reachedWhileHeld"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>(), node["duringHold"].clone()));
+    assert_eq!(world.shared.snapshots.lock().unwrap().len(), 0, "the second send has not started");
+    tokio::time::advance(Duration::from_millis(node["elapsedWhileHeld"].as_u64().unwrap())).await;
+    world.shared.release.notify_one();
+    assert_eq!((a.await.unwrap(), b.await.unwrap()), (Ok(()), Ok(())));
+    assert_eq!(Value::Object(world.shared.snapshots.lock().unwrap().clone()), node["secondSaw"]);
+    let state = world.shared.runtime.catalog.state.get(model);
+    assert_eq!(settled(&state["inference"], None), recorded_inference(&node));
+}
+#[tokio::test(start_paused = true)]
+async fn a_retry_keeps_the_slot_while_a_second_send_waits() {
+    let node = recorded("a retry keeps the slot while a second send waits");
+    let model = node["model"].as_str().unwrap();
+    let delay = node["retryDelayMs"].as_u64().unwrap();
+    let world = world(model, Vec::new());
+    for (name, steps) in node["scripts"].as_object().unwrap() {
+        world.wire.named.lock().unwrap().insert(name.clone(), steps_of(steps));
+    }
+    let spawn = |who: &'static str| {
+        let (adapter, shared, model) = (world.adapter.clone(), world.shared.clone(), model.to_owned());
+        tokio::spawn(async move { send_retrying(&adapter, &shared, &model, who, delay).await })
+    };
+    let mut a = spawn("A");
+    let b = spawn("B");
+    // No timer here (see the queued test): the wait ends when A's retry holds the slot or A can no longer do so.
+    tokio::select! {
+        () = world.shared.held.notified() => {}
+        ended = &mut a => panic!("the first send ended before its retry held the slot: {ended:?}"),
+    }
+    let strings = |value: &Value| value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>();
+    assert_eq!(*world.shared.order.lock().unwrap(), strings(&node["reachedWhileHeld"]));
+    assert_eq!(world.shared.runtime.catalog.state.get(model)["inference"], node["duringHold"]);
+    tokio::time::advance(Duration::from_millis(node["elapsedWhileHeld"].as_u64().unwrap())).await;
+    world.shared.release.notify_one();
+    let ((a_end, backoff_over), (b_end, _)) = (a.await.unwrap(), b.await.unwrap());
+    assert_eq!((a_end, b_end), (Ok(()), Ok(())));
+    let (reached, state) = backoff_over.expect("the first request failed and was retried");
+    assert_eq!((reached, state), (strings(&node["reachedBeforeBackoffEnds"]), node["stateInBackoff"].clone()));
+    assert_eq!(*world.shared.order.lock().unwrap(), strings(&node["wireOrder"]));
+    // Node's measurement clock does not move with its timers, Rust's is the one clock: the wait of the send that queued
+    // behind the retry also holds the backoff.
+    let mut expected = recorded_inference(&node);
+    expected["queueWaitMs"] = json!(node["inference"]["queueWaitMs"].as_u64().unwrap() + delay);
+    let state = world.shared.runtime.catalog.state.get(model);
+    assert_eq!(settled(&state["inference"], None), expected);
+}
+/// Node's proxy calls the queue-wrapped provider send, which holds the slot across the inner retries. The recorded retry case
+/// ("a retry keeps the slot while a second send waits"), through the broker the model proxy sends with: its own retry decides
+/// the attempts, and the second send, on another lane, waits in the local queue behind the whole send.
+#[tokio::test(start_paused = true)]
+async fn a_retry_through_the_broker_keeps_the_slot_while_a_second_send_waits() {
+    let node = recorded("a retry keeps the slot while a second send waits");
+    let model = node["model"].as_str().unwrap();
+    let world = world(model, Vec::new());
+    for (name, steps) in node["scripts"].as_object().unwrap() {
+        world.wire.named.lock().unwrap().insert(name.clone(), steps_of(steps));
+    }
+    let broker = Arc::new(broker());
+    let spawn = |who: &'static str| {
+        let (adapter, broker, model) = (world.adapter.clone(), broker.clone(), model.to_owned());
+        tokio::spawn(async move { broker_send(&broker, &adapter, &model, who, who, &tokio_util::sync::CancellationToken::new(), false).await })
+    };
+    let mut a = spawn("A");
+    let b = spawn("B");
+    tokio::select! {
+        () = world.shared.held.notified() => {}
+        ended = &mut a => panic!("the first send ended before its retry held the slot: {ended:?}"),
+    }
+    let strings = |value: &Value| value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>();
+    assert_eq!(*world.shared.order.lock().unwrap(), strings(&node["reachedWhileHeld"]));
+    tokio::time::advance(Duration::from_millis(node["elapsedWhileHeld"].as_u64().unwrap())).await;
+    world.shared.release.notify_one();
+    let (a_end, b_end) = (a.await.unwrap(), b.await.unwrap());
+    assert_eq!((a_end.is_ok(), b_end.is_ok()), (true, true), "{a_end:?} {b_end:?}");
+    assert_eq!(*world.shared.order.lock().unwrap(), strings(&node["wireOrder"]));
+    // The broker's backoff is its own (jittered), Node's retry delay is the recording's: the wait of the send that queued
+    // behind the retry holds whichever backoff the first send took.
+    let times = world.shared.times.lock().unwrap().clone();
+    let at = |name: &str| times.iter().find(|(n, _)| n == name).unwrap().1;
+    let backoff = (at("A#2") - at("A#1")).as_millis() as u64;
+    let mut expected = recorded_inference(&node);
+    expected["queueWaitMs"] = json!(node["inference"]["queueWaitMs"].as_u64().unwrap() + backoff);
+    let state = world.shared.runtime.catalog.state.get(model);
+    assert_eq!(settled(&state["inference"], None), expected);
+}
+/// `getCachedModelInfo` is `installedLocalProviderModels().find(id) || null`, read now (Node reads the disk on every call): at each
+/// moment the adapter answers the row the runtime lists for the id, or nothing, for a model installed, not downloaded, removed
+/// and one that was never registered.
+#[tokio::test]
+async fn the_cached_model_info_is_the_installed_models_row_at_every_moment() {
+    let node = recorded("the cached model info is the installed model's row at every moment");
+    // The recording's relation, which is the contract: every moment's cached row is the listing's row of that id, else null.
+    for moment in node["moments"].as_array().unwrap() {
+        for (id, cached) in moment["cached"].as_object().unwrap() {
+            let listed = moment["listed"].as_array().unwrap().iter().find(|row| row["id"] == json!(id)).cloned().unwrap_or(Value::Null);
+            assert_eq!(&listed, cached, "{} / {id}", moment["name"]);
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let provider = super::provider::tests::provider(dir.path());
+    let adapter = RegisteredAdapter::new(Arc::new(Wire { shared: Arc::new(Shared { model: String::new(), runtime: provider.clone(), reached: Mutex::default(), snapshots: Mutex::default(), held: tokio::sync::Notify::new(), release: tokio::sync::Notify::new(), order: Mutex::default(), times: Mutex::default() }), scripts: Mutex::default(), named: Mutex::default(), counts: Mutex::default() }), Arc::new(Injected(ManagedRuntime(provider.clone()))));
+    let mut rows = provider.installed_rows();
+    let (first, second) = (install(&provider, 1, b"first weights").await, install(&provider, 2, b"second weights").await);
+    let ids = [first.as_str(), second.as_str(), "never-registered"];
+    // Installing finishes and a context change ticks the provider's change signal, after which the row is there.
+    provider.set_context(&first, Some(16_384)).await.unwrap();
+    wait_for_rows(&mut rows, &[&first, &second]).await;
+    let answers = |adapter: &RegisteredAdapter| ids.map(|id| adapter.cached_row(id).map(|row| row["id"].clone()));
+    assert_eq!(answers(&adapter), [Some(json!(first)), Some(json!(second)), None]);
+    let listed = provider.catalog.installed_models().await.unwrap();
+    for id in ids {
+        assert_eq!(adapter.cached_row(id).as_deref(), listed.iter().find(|row| row["id"] == json!(id)), "{id}");
+    }
+    // A deletion ticks it as well: the removed model has no row from then on.
+    let token = provider.model_details(&first).await.unwrap()["confirmationToken"].as_str().unwrap().to_owned();
+    provider.delete_model(&token).await.unwrap();
+    wait_for_rows(&mut rows, &[&second]).await;
+    assert_eq!(answers(&adapter), [None, Some(json!(second)), None]);
 }

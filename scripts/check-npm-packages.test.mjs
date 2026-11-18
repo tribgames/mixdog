@@ -17,6 +17,8 @@ const mainEntries = (overrides = {}, extra = []) => [
   { path: 'package/package.json', mode: 0o644, data: json({ name: 'mixdog', version: VERSION, optionalDependencies: Object.fromEntries(PLATFORMS.map(({ key }) => [platformPackageName(key), VERSION])), ...overrides }) },
   { path: 'package/bin/mixdog.mjs', mode: 0o644, data: Buffer.from('x') },
   { path: 'package/bin/native-layout.mjs', mode: 0o644, data: Buffer.from('x') },
+  { path: 'package/bin/staged-swap.mjs', mode: 0o644, data: Buffer.from('x') },
+  { path: 'package/bin/invocation.mjs', mode: 0o644, data: Buffer.from('x') },
   ...extra.map((path) => ({ path, mode: 0o644, data: Buffer.from('x') })),
 ];
 
@@ -57,4 +59,6 @@ test('the main package lists every platform package at the release version and c
   assert.match(mainProblems({ entries: mainEntries({ version: '1.0.0' }), version: VERSION }).join('\n'), /is version 1\.0\.0/);
   const noLauncher = mainEntries().filter((entry) => !entry.path.endsWith('native-layout.mjs'));
   assert.match(mainProblems({ entries: noLauncher, version: VERSION }).join('\n'), /lacks package\/bin\/native-layout\.mjs/);
+  const noSwap = mainEntries().filter((entry) => !entry.path.endsWith('staged-swap.mjs'));
+  assert.match(mainProblems({ entries: noSwap, version: VERSION }).join('\n'), /lacks package\/bin\/staged-swap\.mjs/);
 });

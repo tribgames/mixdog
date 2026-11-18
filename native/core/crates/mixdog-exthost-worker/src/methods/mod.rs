@@ -4,6 +4,7 @@ pub mod document;
 pub use skill_office::SkillOfficeEngine;
 mod document_engine;
 mod image;
+mod legacy_office;
 mod media_office;
 mod office_browser;
 mod office_journal;
@@ -30,6 +31,7 @@ use crate::registry::Registry;
 pub fn register_document_methods(registry: &mut Registry) {
     ooxml::register(registry);
     media_office::register(registry);
+    legacy_office::register(registry);
     office_journal::register(registry);
     office_run::register(registry);
     image::register(registry);

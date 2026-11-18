@@ -4,14 +4,17 @@
 //! renewed from its refresh token, and sign-out.
 
 use std::collections::HashMap;
+use std::future::{Future, poll_fn};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
+use std::task::Poll;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use mixdog_core_api::domain::login::LoginFlow;
+use mixdog_core_api::domain::login::LoginSession;
 use mixdog_core_api::domain::login::LoginState;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_mcp::McpHub;
@@ -21,6 +24,7 @@ use mixdog_mcp::oauth::AccountMode;
 use mixdog_mcp::oauth::MemoryStore;
 use mixdog_mcp::oauth::OAuthEnv;
 use mixdog_mcp::oauth::SecretStore;
+use mixdog_mcp::oauth::session::{McpOAuth, account_of};
 use mixdog_mcp::result::OutputPolicy;
 use mixdog_mcp::transport::Authorizer;
 use mixdog_mcp::server::ServerState;
@@ -32,6 +36,7 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -64,6 +69,14 @@ struct Auth {
     valid: String,
     grants: Vec<String>,
     registrations: usize,
+    refresh_pause: Option<Arc<RefreshPause>>,
+    rotated_again: bool,
+}
+
+#[derive(Default)]
+struct RefreshPause {
+    received: Notify,
+    release: Notify,
 }
 
 type Shared = Arc<Mutex<Auth>>;
@@ -155,28 +168,39 @@ async fn serve(listener: TcpListener, shared: Shared) {
                 }
                 ("POST", "/token") => {
                     let fields = form(&body);
-                    let reply = {
+                    let (reply, pause) = {
                     let mut auth = shared.lock().unwrap();
                     auth.grants.push(fields["grant_type"].clone());
-                    match fields["grant_type"].as_str() {
+                    let reply = match fields["grant_type"].as_str() {
                         "authorization_code" => {
                             let challenge = auth.challenge.clone().unwrap();
                             let computed = URL_SAFE_NO_PAD.encode(Sha256::digest(fields["code_verifier"].as_bytes()));
                             if fields["code"] != "the-code" || computed != challenge || fields["client_id"] != "cid" {
                                 json!({"error": "invalid_grant"})
                             } else {
-                                auth.valid = "t1".into();
-                                json!({"access_token": "t1", "refresh_token": "r1", "token_type": "Bearer",
+                                auth.valid = if auth.grants.len() == 1 { "t1" } else { "switched" }.into();
+                                json!({"access_token": auth.valid, "refresh_token": "r1", "token_type": "Bearer",
                                        "team": {"name": "Acme"}})
                             }
                         }
                         _ if fields["refresh_token"] == "r1" => {
                             auth.valid = "t2".into();
-                            json!({"access_token": "t2", "token_type": "Bearer"})
+                            json!({"access_token": "t2", "refresh_token": "r2", "token_type": "Bearer"})
+                        }
+                        _ if fields["refresh_token"] == "r2" && !auth.rotated_again => {
+                            auth.rotated_again = true;
+                            auth.valid = "t3".into();
+                            json!({"access_token": "t3", "refresh_token": "r3", "token_type": "Bearer"})
                         }
                         _ => json!({"error": "invalid_grant"}),
-                    }
                     };
+                    let pause = (reply["access_token"] == "t3").then(|| auth.refresh_pause.take()).flatten();
+                    (reply, pause)
+                    };
+                    if let Some(pause) = pause {
+                        pause.received.notify_one();
+                        pause.release.notified().await;
+                    }
                     let status = if reply.get("error").is_some() { "400 Bad Request" } else { "200 OK" };
                     respond(&mut stream, status, &json_header, &reply.to_string()).await;
                 }
@@ -198,35 +222,7 @@ async fn browser_get(url: &Url) -> String {
     out
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn sign_in_connect_refresh_and_sign_out() {
-    let _seams = crate::oauth_seams().await;
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let shared: Shared = Arc::default();
-    tokio::spawn(serve(listener, Arc::clone(&shared)));
-
-    let tokens = mixdog_rt::testing::tokens();
-    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
-    let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(MemoryStore::default());
-    let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());
-    hub.set_oauth_env(OAuthEnv { store: store.clone(), plugin_data: dir.path().to_path_buf(), io: io.durability });
-    let entry = json!({"url": format!("http://127.0.0.1:{port}/mcp")});
-    hub.apply(vec![McpServerConfig::from_entry("acme", &entry, &Default::default()).unwrap()]);
-
-    // Not signed in: the connect fails on the fact, and no browser is opened by itself.
-    let server = hub.server("acme").unwrap();
-    let mut states = server.subscribe();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. })))
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(server.state().describe().contains("reauthenticationRequired"), "{}", server.state().describe());
-    assert!(!hub.oauth("acme").unwrap().has_stored_tokens().await.unwrap());
-
-    // The explicit sign-in: the flow hands out the authorization URL; the "browser" follows it.
-    let session = hub.login_flow("acme", AccountMode::Connect).unwrap().start().await.unwrap();
+async fn finish_authorization(session: &dyn LoginSession, shared: &Shared, port: u16) -> (LoginState, String) {
     let authorize = loop {
         match session.next().await.expect("an authorize state") {
             LoginState::Authorize { url, .. } => break Url::parse(&url).unwrap(),
@@ -248,13 +244,61 @@ async fn sign_in_connect_refresh_and_sign_out() {
             _ => {}
         }
     };
-    assert!(matches!(done, LoginState::Done { .. }), "{done:?}");
-    assert!(page.await.unwrap().starts_with("HTTP/1.1 200"), "the browser page reports success");
     assert!(session.next().await.is_none(), "nothing follows the terminal state");
+    (done, page.await.unwrap())
+}
+
+async fn authorize(session: &dyn LoginSession, shared: &Shared, port: u16) {
+    let (done, page) = finish_authorization(session, shared, port).await;
+    assert!(matches!(done, LoginState::Done { .. }), "{done:?}");
+    assert!(page.starts_with("HTTP/1.1 200"), "the browser page reports success");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sign_in_connect_refresh_and_sign_out() {
+    let _seams = crate::oauth_seams().await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let shared: Shared = Arc::default();
+    tokio::spawn(serve(listener, Arc::clone(&shared)));
+
+    let tokens = mixdog_rt::testing::tokens();
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(MemoryStore::default());
+    let env = OAuthEnv { store: store.clone(), plugin_data: dir.path().to_path_buf(), io: io.durability };
+    let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());
+    hub.set_oauth_env(env.clone());
+    let entry = json!({"url": format!("http://127.0.0.1:{port}/mcp")});
+    hub.apply(vec![McpServerConfig::from_entry("acme", &entry, &Default::default()).unwrap()]);
+
+    // Not signed in: the connect fails on the fact, and no browser is opened by itself.
+    let server = hub.server("acme").unwrap();
+    let mut states = server.subscribe();
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. })))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(server.state().describe().contains("reauthenticationRequired"), "{}", server.state().describe());
+    assert!(!hub.oauth("acme").unwrap().has_stored_tokens().await.unwrap());
+
+    let session = hub.login_flow("acme", AccountMode::Connect).unwrap().start().await.unwrap();
+    authorize(session.as_ref(), &shared, port).await;
 
     let oauth = hub.oauth("acme").unwrap();
     assert!(oauth.has_stored_tokens().await.unwrap());
-    assert!(store.get(&mixdog_mcp::oauth::session::account_of(oauth.binding().credential_key.as_str())).await.unwrap().is_some());
+    let stored = store.get(&account_of(oauth.binding().credential_key.as_str())).await.unwrap().unwrap();
+    let alias_env = OAuthEnv { plugin_data: dir.path().join("other-markers"), ..env.clone() };
+    let alias = McpOAuth::new(oauth.binding().clone(), &alias_env).unwrap();
+    let mut separate_binding = oauth.binding().clone();
+    separate_binding.credential_key = "mcp-account:separate".to_owned();
+    store.set(&account_of(&separate_binding.credential_key), &stored).await.unwrap();
+    let separate_store = Arc::new(Flaky { inner: store.clone(), unrun: AtomicBool::new(false) });
+    let separate_env = OAuthEnv { store: separate_store.clone(), ..env };
+    let separate = McpOAuth::new(separate_binding, &separate_env).unwrap();
+    assert_eq!(alias.token().await.unwrap().as_deref(), Some("t1"));
+    assert_eq!(separate.token().await.unwrap().as_deref(), Some("t1"));
+    separate_store.unrun.store(true, Ordering::SeqCst);
 
     // Signed in: the connect works and a call goes through.
     hub.reconnect("acme").await.unwrap();
@@ -269,6 +313,7 @@ async fn sign_in_connect_refresh_and_sign_out() {
     assert_eq!(call("two").await.unwrap().parts, vec![ToolPart::Text("two".into())]);
     assert_eq!(shared.lock().unwrap().grants, ["authorization_code", "refresh_token"]);
     assert_eq!(shared.lock().unwrap().registrations, 1);
+    assert_eq!(alias.token().await.unwrap().as_deref(), Some("t2"));
 
     // A store read that never ran is neither "reauthentication required" nor a reason to erase the
     // sign-in: a second hub over the same entries, whose reads never run, renews with an error.
@@ -284,8 +329,54 @@ async fn sign_in_connect_refresh_and_sign_out() {
     assert!(oauth.has_stored_tokens().await.unwrap(), "the stored sign-in is untouched");
     other.close_all().await;
 
-    assert!(!oauth.secrets().is_empty());
-    assert!(!oauth.sign_out(false).await.unwrap(), "no revocation endpoint: nothing was revoked");
+    let switch = oauth.login_flow("acme", AccountMode::Switch).start().await.unwrap();
+    authorize(switch.as_ref(), &shared, port).await;
+    assert_eq!(alias.token().await.unwrap().as_deref(), Some("switched"));
+    oauth.rollback_switch().await.unwrap();
+    assert_eq!(alias.token().await.unwrap().as_deref(), Some("t2"));
+
+    // A failure in the second marker must leave the old grant in the shared store.
+    let who = alias_env.plugin_data.join("mcp-oauth").join(format!("{}.who", account_of(&oauth.binding().credential_key)));
+    std::fs::create_dir_all(&who).unwrap();
+    let failed_switch = alias.login_flow("alias", AccountMode::Switch).start().await.unwrap();
+    let (done, _) = finish_authorization(failed_switch.as_ref(), &shared, port).await;
+    assert!(matches!(done, LoginState::Failed(_)), "{done:?}");
+    std::fs::remove_dir(&who).unwrap();
+    let cold_holder = McpOAuth::new(oauth.binding().clone(), &alias_env).unwrap();
+    assert_eq!(cold_holder.token().await.unwrap().as_deref(), Some("t2"));
+
+    // The provider consumes r2 while explicit login owns the gate. A transport
+    // renewing the same token must adopt the rotation even if its marker write fails.
+    assert_eq!(alias.token().await.unwrap().as_deref(), Some("t2"));
+    std::fs::create_dir_all(&who).unwrap();
+    let pause = Arc::new(RefreshPause::default());
+    shared.lock().unwrap().refresh_pause = Some(pause.clone());
+    let login = alias.login_flow("alias", AccountMode::Reauth).start().await.unwrap();
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), pause.received.notified()).await.unwrap();
+    let mut renew = std::pin::pin!(oauth.renew(Some("t2".into()), None));
+    poll_fn(|cx| {
+        assert!(renew.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    }).await;
+    pause.release.notify_one();
+    renew.await.unwrap();
+    loop {
+        let state = login.next().await.unwrap();
+        if state.is_terminal() {
+            assert!(matches!(state, LoginState::Done { .. }), "{state:?}");
+            break;
+        }
+    }
+    assert_eq!(alias.token().await.unwrap().as_deref(), Some("t3"));
+    assert_eq!(oauth.token().await.unwrap().as_deref(), Some("t3"));
+    assert_eq!(shared.lock().unwrap().grants.iter().filter(|grant| grant.as_str() == "refresh_token").count(), 2);
+    std::fs::remove_dir(&who).unwrap();
+
+    assert!(!alias.secrets().is_empty());
+    assert!(!alias.sign_out(false).await.unwrap(), "no revocation endpoint: nothing was revoked");
+    assert_eq!(oauth.token().await.unwrap(), None);
+    assert_eq!(alias.token().await.unwrap(), None);
     assert!(!oauth.has_stored_tokens().await.unwrap());
+    assert_eq!(separate.token().await.unwrap().as_deref(), Some("t1"));
     hub.close_all().await;
 }

@@ -307,6 +307,12 @@ crate::server_request_definitions! {
         result: HostComputerPermissionsResult,
         requires: Some("host.computer"),
     },
+    /// Revokes automation scopes Computer Use switched off revoked; answered once the desktop refuses their effects.
+    HostComputerRevokeScopes => "host/computer/revokeScopes" {
+        params: HostComputerRevokeScopesParams,
+        result: HostComputerRevokeScopesResult,
+        requires: Some("host.computer"),
+    },
     /// A whole bridge command for the legacy Windows PowerShell host (dual path only).
     HostComputerCommand => "host/computer/command" {
         params: HostComputerCommandParams,

@@ -223,6 +223,23 @@ fn parse_tokens(argv: &[String], strict: bool) -> Result<Tokens<'_>, String> {
     Ok(tokens)
 }
 
+/// Writes the exec's answer and errors to this process's stdout and stderr.
+pub struct StdSink;
+
+impl Sink for StdSink {
+    fn out(&self, text: &str) {
+        use std::io::Write;
+        let mut out = std::io::stdout().lock();
+        let _ = out.write_all(text.as_bytes());
+        let _ = out.flush();
+    }
+    fn err(&self, text: &str) {
+        use std::io::Write;
+        let _ = std::io::stderr().lock().write_all(text.as_bytes());
+    }
+}
+
+
 impl ExecArgs {
     /// What the command line asks for (`classifyCliInvocation`, `execFromPositional`), else the refusal (printed as
     /// `mixdog: <text>`).
@@ -283,23 +300,6 @@ impl ExecArgs {
         }))
     }
 }
-
-/// Writes the exec's answer and errors to this process's stdout and stderr.
-pub struct StdSink;
-
-impl Sink for StdSink {
-    fn out(&self, text: &str) {
-        use std::io::Write;
-        let mut out = std::io::stdout().lock();
-        let _ = out.write_all(text.as_bytes());
-        let _ = out.flush();
-    }
-    fn err(&self, text: &str) {
-        use std::io::Write;
-        let _ = std::io::stderr().lock().write_all(text.as_bytes());
-    }
-}
-
 /// Refuses an unusable explicit route as Node does before anything starts (`validateExplicitPristineRoute`, printed as
 /// `mixdog: <text>`, exit 1), then runs the exec on its own core on this thread (`runHeadlessExec`) and returns its exit code.
 pub fn run_command(options: ExecOptions) -> i32 {

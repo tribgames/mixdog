@@ -4,21 +4,39 @@
 
 use std::sync::Arc;
 
+#[cfg(node_twin)]
 use async_trait::async_trait;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::login::LoginFailure;
-use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError, WireRequest};
+#[cfg(node_twin)]
+use mixdog_core_api::domain::provider::DeliveryState;
+#[cfg(node_twin)]
+use mixdog_core_api::domain::provider::ErrorKind;
+#[cfg(node_twin)]
+use mixdog_core_api::domain::provider::ProviderError;
+#[cfg(node_twin)]
+use mixdog_core_api::domain::provider::WireRequest;
+#[cfg(node_twin)]
 use serde_json::Value;
 
 use super::login::DevinLogin;
 use crate::oauth::http::testing::Scripted;
-use crate::oauth::{AuthorizeRequest, CredentialFile, CredentialIo, PkceProvider, Probe};
-use crate::transport::{Exchange, HttpResponse, HttpSend};
+use crate::oauth::{CredentialFile, CredentialIo, PkceProvider};
+#[cfg(node_twin)]
+use crate::oauth::AuthorizeRequest;
+#[cfg(node_twin)]
+use crate::oauth::Probe;
+use crate::transport::{HttpSend};
+#[cfg(node_twin)]
+use crate::transport::Exchange;
+#[cfg(node_twin)]
+use crate::transport::HttpResponse;
 
-const GOLDEN: &str = include_str!("../../../../../fixtures/devin-login/golden.json");
-
+#[cfg(node_twin)]
 /// A request that gets no answer.
 struct NoAnswer;
 
+#[cfg(node_twin)]
 #[async_trait]
 impl HttpSend for NoAnswer {
     async fn send(&self, _: WireRequest, _: Exchange) -> Result<HttpResponse, ProviderError> {
@@ -35,6 +53,17 @@ fn login(file: CredentialFile, http: Arc<dyn HttpSend>, now: u64) -> DevinLogin 
     DevinLogin::new(file, http).with_clock(Arc::new(move || now))
 }
 
+/// The token Devin's sign-in keeps (`token`, a field no OAuth grant names) is a credential from the moment it is kept:
+/// a later text that repeats it is redacted (review 1124e).
+#[tokio::test]
+async fn the_token_a_sign_in_keeps_is_a_credential_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let scripted = Scripted::new(&[(200, r#"{"token":"devin-login-token-7a31c9e0"}"#)]);
+    let provider = login(CredentialFile::new(dir.path().join("devin-oauth.json"), io()), scripted, 0);
+    provider.exchange("the-code", "the-verifier", "unused").await.expect("signed in");
+    assert_eq!(crate::oauth::carried::remembered().redact_str("echo devin-login-token-7a31c9e0 end"), "echo [REDACTED] end");
+}
+
 /// The code exchange that outlives its timer reads as the real Node function did (`sites.devinExchange`): a coded failure
 /// naming the cause, "timed out".
 #[tokio::test(start_paused = true)]
@@ -49,17 +78,10 @@ async fn an_exchange_that_outlives_its_timer_reads_as_nodes() {
     assert_thrown("devinExchange", login_message(&failure));
 }
 
-/// The token Devin's sign-in keeps (`token`, a field no OAuth grant names) is a credential from the moment it is kept:
-/// a later text that repeats it is redacted (review 1124e).
-#[tokio::test]
-async fn the_token_a_sign_in_keeps_is_a_credential_at_once() {
-    let dir = tempfile::tempdir().unwrap();
-    let scripted = Scripted::new(&[(200, r#"{"token":"devin-login-token-7a31c9e0"}"#)]);
-    let provider = login(CredentialFile::new(dir.path().join("devin-oauth.json"), io()), scripted, 0);
-    provider.exchange("the-code", "the-verifier", "unused").await.expect("signed in");
-    assert_eq!(crate::oauth::carried::remembered().redact_str("echo devin-login-token-7a31c9e0 end"), "echo [REDACTED] end");
-}
 
+#[cfg(node_twin)]
+const GOLDEN: &str = include_str!("../../../../../fixtures/devin-login/golden.json");
+#[cfg(node_twin)]
 #[test]
 fn the_authorize_url_is_nodes_for_its_state_and_challenge() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
@@ -75,7 +97,7 @@ fn the_authorize_url_is_nodes_for_its_state_and_challenge() {
     });
     assert_eq!(url, authorize["url"].as_str().unwrap());
 }
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn every_exchange_sends_and_stores_what_node_does() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();

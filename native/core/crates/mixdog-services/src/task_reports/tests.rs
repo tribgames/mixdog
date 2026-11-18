@@ -1,5 +1,5 @@
 //! The report chain reads against `fixtures/memory-jobs/golden.json` (recorded from the Node
-//! product) and the follow and re-attach behavior over a scripted host and a paused clock.
+//! product; only with the `node_twin` cfg) and the follow and re-attach behavior over a scripted host and a paused clock.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -14,12 +14,7 @@ use super::follow::*;
 use super::rearm::*;
 use super::{progress_run_id, turn_report_run_id};
 
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/memory-jobs/golden.json");
-
-fn golden() -> Value {
-    serde_json::from_str(&GOLDEN).expect("golden parses")
-}
-
+#[cfg(node_twin)]
 fn outcome_json(outcome: &Outcome) -> Value {
     match outcome {
         Outcome::Open => json!("open"),
@@ -27,25 +22,7 @@ fn outcome_json(outcome: &Outcome) -> Value {
     }
 }
 
-#[test]
-fn the_chain_reads_equal_node() {
-    for (name, case) in golden()["chain"].as_object().unwrap() {
-        let messages: Vec<Value> = case["messages"].as_array().unwrap().clone();
-        let run_id = case["runId"].as_str().unwrap();
-        let outcome = submission_outcome(&messages, run_id).as_ref().map_or(Value::Null, outcome_json);
-        assert_eq!(outcome, case["outcome"], "{name} outcome");
-        let latest = latest_turn_outcome(&messages, run_id).map_or(Value::Null, |(id, outcome, at, ambiguous)| {
-            json!({"id": id, "outcome": outcome.as_ref().map_or(Value::Null, outcome_json), "at": mixdog_js::json_number(at), "ambiguous": ambiguous})
-        });
-        assert_eq!(latest, case["latest"], "{name} latest");
-        if let Some(expected) = case.get("submissionIds") {
-            let ids: Vec<Vec<String>> = messages.iter().map(submission_ids_of).collect();
-            let expected: Vec<Vec<String>> = expected.as_array().unwrap().iter().map(|a| a.as_array().unwrap().iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).collect();
-            assert_eq!(ids, expected, "{name} submission ids");
-        }
-    }
-}
-
+#[cfg(node_twin)]
 fn pending_of(state: &Value) -> Pending {
     let set = |key: &str| -> HashSet<String> { state[key].as_array().map(|a| a.iter().map(|v| v.as_str().unwrap().to_owned()).collect()).unwrap_or_default() };
     Pending {
@@ -58,31 +35,6 @@ fn pending_of(state: &Value) -> Pending {
             .as_array()
             .map(|a| a.iter().map(|t| AgentTask { task_id: t["taskId"].as_str().unwrap().into(), session_id: t["sessionId"].as_str().map(str::to_owned), running: t["running"].as_bool().unwrap() }).collect())
             .unwrap_or_default(),
-    }
-}
-
-#[test]
-fn pending_agent_work_equals_node() {
-    let g = golden();
-    for case in g["rowStatus"].as_array().unwrap() {
-        assert_eq!(has_pending_agent_work(&case["row"]), case["pending"].as_bool().unwrap(), "{}", case["row"]);
-    }
-    for case in g["pending"].as_array().unwrap() {
-        let state = &case["state"];
-        let task_ids: Option<HashSet<String>> = state["taskIds"].as_array().map(|a| a.iter().map(|v| v.as_str().unwrap().to_owned()).collect());
-        let got = pending_work_of(case["sessionId"].as_str().unwrap(), &pending_of(state), task_ids.as_ref());
-        assert_eq!(got, case["pending"].as_bool().unwrap(), "{state}");
-    }
-    let pool = g["pending"][4]["state"]["pool"].as_array().unwrap().clone();
-    let mut owners: Vec<String> = sessions_with_pending_work(&pool).into_iter().collect();
-    owners.sort();
-    assert_eq!(json!(owners), g["sessionsPending"]);
-    for case in g["closure"].as_array().unwrap() {
-        let task_ids: HashSet<String> = case["taskIds"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect();
-        let pending = Pending { pool: pool.clone(), ..Pending::default() };
-        let mut sessions: Vec<String> = closure_sessions("lead", &task_ids, &pending).into_iter().collect();
-        sessions.sort();
-        assert_eq!(json!(sessions), case["sessions"], "{}", case["taskIds"]);
     }
 }
 
@@ -179,6 +131,36 @@ impl RearmHost for Mock {
 type Finished = Arc<Mutex<Vec<(String, String, String)>>>;
 type Interims = Arc<Mutex<Vec<Answer>>>;
 
+struct Busy(Mutex<bool>);
+
+impl RuntimeView for Busy {
+    fn busy(&self) -> bool {
+        *self.0.lock().unwrap()
+    }
+    fn queued_ids(&self) -> Vec<String> {
+        Vec::new()
+    }
+    fn subscribe(&self) -> tokio::sync::mpsc::UnboundedReceiver<()> {
+        tokio::sync::mpsc::unbounded_channel().1
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn failed_reports_are_retried_after_each_delay_and_the_last_failure_is_returned() {
+    let host = Arc::new(Mock::default());
+    *host.failures.lock().unwrap() = 2;
+    deliver_with_retries(host.as_ref(), &REPORT_RETRY_DELAYS, "agent", "task-1", json!({"runId": "x"})).await.unwrap();
+    assert_eq!(host.delivered.lock().unwrap().len(), 1);
+    *host.failures.lock().unwrap() = 9;
+    let error = deliver_with_retries(host.as_ref(), &REPORT_RETRY_DELAYS, "agent", "task-1", json!({"runId": "y"})).await.unwrap_err();
+    assert_eq!(error, "home unavailable");
+    assert_eq!(*host.failures.lock().unwrap(), 5, "one try and three retries");
+}
+
+fn watch(run_id: &str, session: &str, owner: &str) -> Value {
+    json!({"runId": run_id, "agentId": "mixy", "homeSessionId": "room:home", "taskSessionId": session, "title": "Fix it", "target": "session", "hop": 2, "owner": owner, "at": 1})
+}
+
 fn follow_of(host: Arc<Mock>, run_id: &str, wake_owed: bool, runtime: Option<Arc<dyn RuntimeView>>) -> (Arc<Follow>, Finished, Interims) {
     mixdog_rt::testing::tokens();
     let (finished, interims): (Finished, Interims) = Default::default();
@@ -201,11 +183,6 @@ fn follow_of(host: Arc<Mock>, run_id: &str, wake_owed: bool, runtime: Option<Arc
     };
     (Follow::new(host, args, FINAL_SETTLE, FINAL_POLL), finished, interims)
 }
-
-fn conversation(name: &str) -> Vec<Value> {
-    golden()["chain"][name]["messages"].as_array().unwrap().clone()
-}
-
 async fn settle(time: Duration) {
     mixdog_rt::time::sleep(time).await;
     // Let the spawned timer task run its check.
@@ -213,7 +190,109 @@ async fn settle(time: Duration) {
         tokio::task::yield_now().await;
     }
 }
+#[tokio::test(start_paused = true)]
+async fn a_vanished_session_is_reported_cancelled() {
+    let host = Arc::new(Mock::default());
+    let (follow, finished, _) = follow_of(host, "r1", false, None);
+    follow.check().await;
+    settle(Duration::from_millis(2600)).await;
+    assert_eq!(*finished.lock().unwrap(), vec![("cancelled".to_owned(), GONE_TEXT.to_owned(), String::new())]);
+}
+#[tokio::test(start_paused = true)]
+async fn recovery_reports_a_gone_session_once_and_skips_this_process_s_own_watches() {
+    mixdog_rt::testing::tokens();
+    let host = Arc::new(Mock::default());
+    *host.watches.lock().unwrap() = vec![watch("w1", "task-9", "old-process"), watch("w2", "task-8", "this-process")];
+    *host.owned.lock().unwrap() = vec![json!({"runId": "q1", "agentId": "mixy", "taskSessionId": "task-7", "owner": "old-process"})];
+    let count = recover_task_watches(host.clone(), "this-process").await;
+    assert_eq!(count, 2);
+    let delivered = host.delivered.lock().unwrap().clone();
+    assert_eq!(delivered.len(), 1, "quiet work reports nothing");
+    assert_eq!(
+        delivered[0],
+        (
+            "mixy".to_owned(),
+            json!({
+                "runId": "w1_end", "taskSessionId": "task-9", "title": "Fix it", "status": "cancelled", "text": GONE_TEXT,
+                "target": "session", "hop": 2, "from": "room:home", "watchId": "w1",
+            })
+        )
+    );
+    assert_eq!(*host.disowned.lock().unwrap(), vec!["q1".to_owned()]);
+    assert_eq!(*host.ended.lock().unwrap(), vec!["w1".to_owned(), "q1".to_owned()]);
+}
 
+
+#[cfg(node_twin)]
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/memory-jobs/golden.json");
+#[cfg(node_twin)]
+fn golden() -> Value {
+    serde_json::from_str(&GOLDEN).expect("golden parses")
+}
+#[cfg(node_twin)]
+#[test]
+fn the_chain_reads_equal_node() {
+    for (name, case) in golden()["chain"].as_object().unwrap() {
+        let messages: Vec<Value> = case["messages"].as_array().unwrap().clone();
+        let run_id = case["runId"].as_str().unwrap();
+        let outcome = submission_outcome(&messages, run_id).as_ref().map_or(Value::Null, outcome_json);
+        assert_eq!(outcome, case["outcome"], "{name} outcome");
+        let latest = latest_turn_outcome(&messages, run_id).map_or(Value::Null, |(id, outcome, at, ambiguous)| {
+            json!({"id": id, "outcome": outcome.as_ref().map_or(Value::Null, outcome_json), "at": mixdog_js::json_number(at), "ambiguous": ambiguous})
+        });
+        assert_eq!(latest, case["latest"], "{name} latest");
+        if let Some(expected) = case.get("submissionIds") {
+            let ids: Vec<Vec<String>> = messages.iter().map(submission_ids_of).collect();
+            let expected: Vec<Vec<String>> = expected.as_array().unwrap().iter().map(|a| a.as_array().unwrap().iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).collect();
+            assert_eq!(ids, expected, "{name} submission ids");
+        }
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn pending_agent_work_equals_node() {
+    let g = golden();
+    for case in g["rowStatus"].as_array().unwrap() {
+        assert_eq!(has_pending_agent_work(&case["row"]), case["pending"].as_bool().unwrap(), "{}", case["row"]);
+    }
+    for case in g["pending"].as_array().unwrap() {
+        let state = &case["state"];
+        let task_ids: Option<HashSet<String>> = state["taskIds"].as_array().map(|a| a.iter().map(|v| v.as_str().unwrap().to_owned()).collect());
+        let got = pending_work_of(case["sessionId"].as_str().unwrap(), &pending_of(state), task_ids.as_ref());
+        assert_eq!(got, case["pending"].as_bool().unwrap(), "{state}");
+    }
+    let pool = g["pending"][4]["state"]["pool"].as_array().unwrap().clone();
+    let mut owners: Vec<String> = sessions_with_pending_work(&pool).into_iter().collect();
+    owners.sort();
+    assert_eq!(json!(owners), g["sessionsPending"]);
+    for case in g["closure"].as_array().unwrap() {
+        let task_ids: HashSet<String> = case["taskIds"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect();
+        let pending = Pending { pool: pool.clone(), ..Pending::default() };
+        let mut sessions: Vec<String> = closure_sessions("lead", &task_ids, &pending).into_iter().collect();
+        sessions.sort();
+        assert_eq!(json!(sessions), case["sessions"], "{}", case["taskIds"]);
+    }
+}
+/// A stored task session: a request and its one final answer, "all done" (`simple`), or an answer that hands work off, the handed-off
+/// task's result and the final answer after it, "final answer" (`handedOff`).
+fn conversation(name: &str) -> Vec<Value> {
+    let messages = match name {
+        "simple" => json!([
+            {"content": "do it", "meta": {"transcript": {"checkpointId": "r1"}}, "role": "user"},
+            {"content": "all done", "meta": {"transcript": {"at": 100, "completion": {"status": "done"}}}, "role": "assistant"}
+        ]),
+        "handedOff" => json!([
+            {"content": "go", "meta": {"transcript": {"checkpointId": "r1"}}, "role": "user"},
+            {"content": "", "role": "assistant", "toolCalls": [{"arguments": {"type": "send"}, "id": "c1", "name": "agent"}]},
+            {"agentTaskIds": ["t1"], "content": "started", "role": "tool", "toolCallId": "c1"},
+            {"content": "handing off", "meta": {"transcript": {"at": 50, "completion": {"status": "done"}}}, "role": "assistant"},
+            {"content": "result", "meta": {"source": "task-notification", "transcript": {"checkpointId": "r2", "consumedExecutionIds": ["t1"]}}, "role": "user"},
+            {"content": "final answer", "meta": {"transcript": {"at": 90, "completion": {"status": "done"}}}, "role": "assistant"}
+        ]),
+        other => panic!("no conversation {other}"),
+    };
+    messages.as_array().unwrap().clone()
+}
 /// The final report is delivered by the timer task that found the answer final: stopping the
 /// follow from there must not cancel the delivery when it yields.
 #[tokio::test(start_paused = true)]
@@ -248,7 +327,6 @@ async fn a_final_delivery_that_yields_is_not_cancelled_by_the_stop_it_follows() 
     settle(Duration::from_millis(100)).await;
     assert_eq!(*finished.lock().unwrap(), vec![("completed".to_owned(), "all done".to_owned(), "r1".to_owned())]);
 }
-
 #[tokio::test(start_paused = true)]
 async fn a_final_answer_is_reported_after_the_quiet_period() {
     let host = Arc::new(Mock { messages: Mutex::new(Some(conversation("simple"))), ..Mock::default() });
@@ -258,7 +336,6 @@ async fn a_final_answer_is_reported_after_the_quiet_period() {
     settle(Duration::from_millis(2600)).await;
     assert_eq!(*finished.lock().unwrap(), vec![("completed".to_owned(), "all done".to_owned(), "r1".to_owned())]);
 }
-
 #[tokio::test(start_paused = true)]
 async fn earlier_answers_of_the_chain_go_out_as_progress_and_pending_work_holds_the_report() {
     let host = Arc::new(Mock { messages: Mutex::new(Some(conversation("handedOff"))), ..Mock::default() });
@@ -275,21 +352,6 @@ async fn earlier_answers_of_the_chain_go_out_as_progress_and_pending_work_holds_
     assert_eq!(*finished.lock().unwrap(), vec![("completed".to_owned(), "final answer".to_owned(), "r2".to_owned())]);
     assert_eq!(interims.lock().unwrap().len(), 2, "no answer is reported twice");
 }
-
-struct Busy(Mutex<bool>);
-
-impl RuntimeView for Busy {
-    fn busy(&self) -> bool {
-        *self.0.lock().unwrap()
-    }
-    fn queued_ids(&self) -> Vec<String> {
-        Vec::new()
-    }
-    fn subscribe(&self) -> tokio::sync::mpsc::UnboundedReceiver<()> {
-        tokio::sync::mpsc::unbounded_channel().1
-    }
-}
-
 #[tokio::test(start_paused = true)]
 async fn a_busy_session_holds_the_report_until_it_idles() {
     let host = Arc::new(Mock { messages: Mutex::new(Some(conversation("simple"))), ..Mock::default() });
@@ -303,7 +365,6 @@ async fn a_busy_session_holds_the_report_until_it_idles() {
     settle(Duration::from_millis(2600)).await;
     assert_eq!(finished.lock().unwrap().len(), 1);
 }
-
 #[tokio::test(start_paused = true)]
 async fn a_restarted_watch_fails_once_its_results_are_never_taken() {
     let owed = Owed { text: "result".into(), meta: json!({"type": "agent_task_result"}) };
@@ -315,53 +376,4 @@ async fn a_restarted_watch_fails_once_its_results_are_never_taken() {
     }
     assert_eq!(host.completions.lock().unwrap().len(), 3, "delivered a poll apart, at most three times");
     assert_eq!(*finished.lock().unwrap(), vec![("failed".to_owned(), RESUME_FAILED_TEXT.to_owned(), String::new())]);
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_vanished_session_is_reported_cancelled() {
-    let host = Arc::new(Mock::default());
-    let (follow, finished, _) = follow_of(host, "r1", false, None);
-    follow.check().await;
-    settle(Duration::from_millis(2600)).await;
-    assert_eq!(*finished.lock().unwrap(), vec![("cancelled".to_owned(), GONE_TEXT.to_owned(), String::new())]);
-}
-
-#[tokio::test(start_paused = true)]
-async fn failed_reports_are_retried_after_each_delay_and_the_last_failure_is_returned() {
-    let host = Arc::new(Mock::default());
-    *host.failures.lock().unwrap() = 2;
-    deliver_with_retries(host.as_ref(), &REPORT_RETRY_DELAYS, "agent", "task-1", json!({"runId": "x"})).await.unwrap();
-    assert_eq!(host.delivered.lock().unwrap().len(), 1);
-    *host.failures.lock().unwrap() = 9;
-    let error = deliver_with_retries(host.as_ref(), &REPORT_RETRY_DELAYS, "agent", "task-1", json!({"runId": "y"})).await.unwrap_err();
-    assert_eq!(error, "home unavailable");
-    assert_eq!(*host.failures.lock().unwrap(), 5, "one try and three retries");
-}
-
-fn watch(run_id: &str, session: &str, owner: &str) -> Value {
-    json!({"runId": run_id, "agentId": "mixy", "homeSessionId": "room:home", "taskSessionId": session, "title": "Fix it", "target": "session", "hop": 2, "owner": owner, "at": 1})
-}
-
-#[tokio::test(start_paused = true)]
-async fn recovery_reports_a_gone_session_once_and_skips_this_process_s_own_watches() {
-    mixdog_rt::testing::tokens();
-    let host = Arc::new(Mock::default());
-    *host.watches.lock().unwrap() = vec![watch("w1", "task-9", "old-process"), watch("w2", "task-8", "this-process")];
-    *host.owned.lock().unwrap() = vec![json!({"runId": "q1", "agentId": "mixy", "taskSessionId": "task-7", "owner": "old-process"})];
-    let count = recover_task_watches(host.clone(), "this-process").await;
-    assert_eq!(count, 2);
-    let delivered = host.delivered.lock().unwrap().clone();
-    assert_eq!(delivered.len(), 1, "quiet work reports nothing");
-    assert_eq!(
-        delivered[0],
-        (
-            "mixy".to_owned(),
-            json!({
-                "runId": "w1_end", "taskSessionId": "task-9", "title": "Fix it", "status": "cancelled", "text": GONE_TEXT,
-                "target": "session", "hop": 2, "from": "room:home", "watchId": "w1",
-            })
-        )
-    );
-    assert_eq!(*host.disowned.lock().unwrap(), vec!["q1".to_owned()]);
-    assert_eq!(*host.ended.lock().unwrap(), vec!["w1".to_owned(), "q1".to_owned()]);
 }

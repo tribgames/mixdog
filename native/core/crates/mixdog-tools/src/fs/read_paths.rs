@@ -258,7 +258,7 @@ pub(super) fn redact(raw: &str, cwd: Option<&str>) -> String {
     fwd
 }
 /// `normalizeErrorMessage`'s pass over quoted absolute paths: each is redacted as `redact` does.
-pub(super) fn normalize_error_message(msg: &str, cwd: Option<&str>) -> String {
+pub(crate) fn normalize_error_message(msg: &str, cwd: Option<&str>) -> String {
     static QUOTED: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let quoted = QUOTED.get_or_init(|| {
         regex::Regex::new(r#"'([A-Za-z]:[\\/][^'"]+|/[^'"]+)'|"([A-Za-z]:[\\/][^'"]+|/[^'"]+)""#).expect("a fixed pattern")

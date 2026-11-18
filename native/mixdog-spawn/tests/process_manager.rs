@@ -19,6 +19,7 @@ use mixdog_core_api::domain::process::ProcessQueue;
 use mixdog_core_api::domain::process::PtySize;
 use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_spawn::ProcessConfig;
+use mixdog_spawn::ShutdownOutcome;
 use mixdog_spawn::tasks::TaskOutcome;
 use mixdog_spawn::tasks::TaskStatus;
 
@@ -668,4 +669,155 @@ async fn input_larger_than_the_queue_is_written_in_pieces() {
     let (output, _) = collect(&m, &h).await;
     let got: Vec<String> = String::from_utf8_lossy(&output).lines().map(str::to_owned).collect();
     assert_eq!(got, lines);
+}
+
+/// A scope a computer helper is launched under: revoked or not, the handles it launched, and a signal when a launch asks for its
+/// commit.
+#[derive(Default)]
+struct TestScope {
+    state: std::sync::Mutex<(bool, Vec<mixdog_protocol::ProcessHandle>)>,
+    asked: std::sync::Mutex<Option<std::sync::mpsc::Sender<()>>>,
+}
+
+struct TestCommit<'a>(std::sync::MutexGuard<'a, (bool, Vec<mixdog_protocol::ProcessHandle>)>);
+
+impl mixdog_core_api::domain::process::LaunchCommit for TestCommit<'_> {
+    fn launched(&mut self, handle: &mixdog_protocol::ProcessHandle) {
+        self.0.1.push(handle.clone());
+    }
+}
+
+impl mixdog_core_api::domain::process::LaunchAuthority for TestScope {
+    fn begin(&self) -> Option<Box<dyn mixdog_core_api::domain::process::LaunchCommit + '_>> {
+        if let Some(asked) = self.asked.lock().unwrap().take() {
+            let _ = asked.send(());
+        }
+        let state = self.state.lock().unwrap();
+        (!state.0).then(|| Box::new(TestCommit(state)) as Box<dyn mixdog_core_api::domain::process::LaunchCommit>)
+    }
+}
+
+fn scoped(h: &mixdog_protocol::ProcessHandle, scope: &std::sync::Arc<TestScope>) -> SpawnRequest {
+    let owner = mixdog_core_api::domain::process::ProcessOwner::ComputerHelper {
+        scope: Some(mixdog_core_api::domain::process::LaunchScope(scope.clone())),
+    };
+    SpawnRequest { owner, ..request(h, long_sleep()) }
+}
+
+/// A launch queued before its scope's revocation and reaching its creation while the revocation holds the scope is refused when the
+/// revocation completes: nothing is created. The revocation is held with the scope's own lock (a barrier), not timed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_queued_helper_launch_whose_scope_is_revoked_meanwhile_creates_nothing() {
+    let m = manager();
+    let scope = std::sync::Arc::new(TestScope::default());
+    let (told, asked) = std::sync::mpsc::channel();
+    *scope.asked.lock().unwrap() = Some(told);
+    let revoking = scope.state.lock().unwrap();
+    let h = handle("revoked-meanwhile");
+    let (manager, request) = (m.clone(), scoped(&h, &scope));
+    let launch = tokio::spawn(async move { manager.spawn(request).await });
+    tokio::task::spawn_blocking(move || asked.recv()).await.unwrap().expect("the launch asked for its commit");
+    let mut revoking = revoking;
+    revoking.0 = true;
+    drop(revoking);
+    assert_eq!(launch.await.unwrap(), Err(ProcessError::Revoked));
+    assert!(m.info(&h).is_err(), "no process was created");
+    assert!(scope.state.lock().unwrap().1.is_empty());
+}
+
+/// A launch whose scope holds is registered with the scope by its handle before the commit is let go: a revocation that follows
+/// finds it and can stop it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_helper_launched_under_a_scope_is_registered_with_it() {
+    let m = manager();
+    let scope = std::sync::Arc::new(TestScope::default());
+    let h = handle("registered");
+    m.spawn(scoped(&h, &scope)).await.unwrap();
+    let launched = {
+        let mut state = scope.state.lock().unwrap();
+        state.0 = true;
+        state.1.clone()
+    };
+    assert_eq!(launched, vec![h.clone()]);
+    m.kill(&launched[0]).unwrap();
+    wait_exit(&m, &h).await;
+    let again = handle("registered-again");
+    assert_eq!(m.spawn(scoped(&again, &scope)).await, Err(ProcessError::Revoked), "a revoked scope starts nothing");
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shutdown_reaps_its_own_children_and_closes_admission() {
+    let m = manager();
+    let other = manager();
+    let h = handle("shutdown-live");
+    let natural = handle("shutdown-natural");
+    let queued = handle("shutdown-queued");
+    let blocked = || SpawnRequest {
+        stdin_piped: true,
+        ..request(&h, shell("sort.exe", "exec cat"))
+    };
+    let owned = m.spawn(blocked()).await.unwrap();
+    // Even the same handle in another manager isn't owned by this shutdown.
+    let unrelated = other.spawn(blocked()).await.unwrap();
+    #[cfg(unix)]
+    unsafe {
+        assert_eq!(libc::getsid(owned.pid as libc::pid_t), owned.pid as libc::pid_t);
+        assert_eq!(libc::getsid(unrelated.pid as libc::pid_t), unrelated.pid as libc::pid_t);
+    }
+    m.spawn(request(&natural, shell("exit /b 7", "exit 7"))).await.unwrap();
+    let (_, natural_exit) = tokio::time::timeout(WAIT, collect(&m, &natural)).await.unwrap();
+
+    let scope = std::sync::Arc::new(TestScope::default());
+    let (told, asked) = std::sync::mpsc::channel();
+    *scope.asked.lock().unwrap() = Some(told);
+    let hold = scope.state.lock().unwrap();
+    let (manager, req) = (m.clone(), scoped(&queued, &scope));
+    let launch = tokio::spawn(async move { manager.spawn(req).await });
+    tokio::task::spawn_blocking(move || asked.recv_timeout(WAIT)).await.unwrap().unwrap();
+    let mut stop = Box::pin(m.shutdown());
+    let pending = poll_once(&mut stop).await.is_pending();
+    drop(hold);
+
+    let launched = tokio::time::timeout(WAIT, launch).await.unwrap().unwrap();
+    let stopped = tokio::time::timeout(WAIT, stop).await.unwrap();
+    let unrelated_alive = pid_alive(unrelated.pid);
+    let expected = if cfg!(windows) { ShutdownOutcome::Clean } else { ShutdownOutcome::Unverified };
+    assert_eq!(tokio::time::timeout(WAIT, other.shutdown()).await.unwrap(), expected);
+
+    assert!(pending, "shutdown waits for an admission that could still create a child");
+    assert_eq!(launched, Err(ProcessError::Revoked));
+    assert_eq!(stopped, expected, "Unix cannot prove no descendant escaped");
+    assert_eq!(tokio::time::timeout(WAIT, m.shutdown()).await.unwrap(), stopped);
+    assert_eq!(m.live(), 0);
+    assert!(!pid_alive(owned.pid));
+    assert!(unrelated_alive);
+    let exit = m.info(&h).unwrap().exit.unwrap();
+    #[cfg(unix)]
+    assert_eq!(exit.status, ExitStatus::Signal(libc::SIGKILL));
+    #[cfg(windows)]
+    assert_eq!(exit.status, ExitStatus::Code(137));
+    assert_eq!(exit.killed, None, "the OS status does not prove who caused the exit");
+    assert_eq!(natural_exit.status, ExitStatus::Code(7));
+    assert_eq!(m.info(&natural).unwrap().exit, Some(natural_exit));
+    assert_eq!(natural_exit.killed, None);
+    assert_eq!(m.spawn(request(&queued, long_sleep())).await, Err(ProcessError::Revoked));
+}
+
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shutdown_confirms_an_older_windows_job_after_its_handle_is_reused() {
+    let m = manager_with(ProcessConfig { output_drain: Duration::ZERO, ..ProcessConfig::default() });
+    let h = handle("shutdown-reused-job");
+    let mut command = orphan_pipe_script();
+    let CommandSpec::Shell { script, .. } = &mut command else { unreachable!() };
+    script.push_str("; [Console]::ReadLine() | Out-Null");
+    m.spawn(SpawnRequest { stdin_piped: true, ..request(&h, command) }).await.unwrap();
+    let child = tokio::time::timeout(WAIT, child_pid(&m, &h)).await.unwrap();
+    m.close_stdin(&h).unwrap();
+    tokio::time::timeout(WAIT, collect(&m, &h)).await.unwrap();
+    assert!(pid_alive(child), "the first job still has a descendant");
+    m.spawn(request(&h, long_sleep())).await.unwrap();
+    assert_eq!(tokio::time::timeout(WAIT, m.shutdown()).await.unwrap(), ShutdownOutcome::Clean);
+    assert!(!pid_alive(child), "the first job was confirmed empty, not just the current one");
 }

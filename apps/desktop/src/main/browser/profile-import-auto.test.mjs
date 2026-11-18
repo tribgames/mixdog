@@ -62,6 +62,11 @@ function memoryState(initial = {}) {
       state = { ...state, ...patch };
       for (const key of Object.keys(state)) if (state[key] === undefined || state[key] === false) delete state[key];
     },
+    updateProfile: async (profileId, patch) => {
+      const profileStatus = { ...state.profileStatus };
+      profileStatus[profileId] = { ...profileStatus[profileId], ...patch };
+      state = { ...state, profileStatus };
+    },
     peek: () => state,
   };
 }
@@ -372,14 +377,14 @@ test('legacy state without a bound, imported profile shows no warning or error',
   }
   // Once the profile did work, the same flags are real and shown.
   const { importer, state } = setup({ saved: ON });
-  await state.update({ needsManualImport: true, lastError: 'real failure' });
+  await state.updateProfile('Default', { needsManualImport: true, lastError: 'real failure' });
   await importer.start();
   const status = await importer.status();
   assert.equal(status.needsManualImport, true);
   assert.equal(status.lastError, 'real failure');
 });
 
-test('legacy state with only an import time shows no status line until a ready import', async () => {
+test('a ready profile does not show an unattributed import time from a legacy state', async () => {
   const { importer, state, world } = setup({ saved: ON, ready: [] });
   world.keySaved = false;
   await state.update({ lastImportAt: 1_700_000_000_000, lastCount: 9 });
@@ -389,6 +394,8 @@ test('legacy state with only an import time shows no status line until a ready i
   assert.equal(quiet.lastCount, undefined);
   await state.update({ readyProfiles: ['Default'] });
   world.keySaved = true;
+  assert.equal((await importer.status()).lastImportAt, undefined);
+  await state.updateProfile('Default', { lastImportAt: 1_700_000_000_000, lastCount: 9 });
   const shown = await importer.status();
   assert.equal(shown.lastImportAt, 1_700_000_000_000);
   assert.equal(shown.lastCount, 9);
@@ -479,7 +486,7 @@ test('after "needs one manual import" exits do not run until that is cleared', a
   const { importer, clock, calls, state, chromeExits } = setup({
     saved: ON,
     runOutcome: async () => {
-      await state.update({ needsManualImport: true });
+      await state.updateProfile('Default', { needsManualImport: true });
       return { state: 'needs-manual-import' };
     },
   });
@@ -489,7 +496,7 @@ test('after "needs one manual import" exits do not run until that is cleared', a
   assert.equal((await importer.status()).needsManualImport, true);
   await chromeExits();
   assert.equal(calls.run.length, 1, 'no further attempts, so no repeated work');
-  await state.update({ needsManualImport: false });
+  await state.updateProfile('Default', { needsManualImport: false });
   await chromeExits();
   assert.equal(calls.run.length, 2);
 });
@@ -501,7 +508,7 @@ test('turning it on persists the setting and runs at once; a failure in a run is
     },
   });
   await importer.start();
-  await state.update({ needsManualImport: true });
+  await state.updateProfile('Default', { needsManualImport: true });
   const status = await importer.configure(ON);
   assert.deepEqual(calls.settingsWrites, [ON]);
   assert.equal(status.enabled, true);
@@ -564,7 +571,7 @@ test('forgetting the key closes the watch and asks for one manual import only if
 test('the status shows the setting, the key, the last import and the last error', async () => {
   const { importer, state, world } = setup({ saved: ON });
   await importer.start();
-  await state.update({ lastImportAt: 1_700_000_000_000, lastCount: 42, lastError: 'Chrome data decryption failed.' });
+  await state.updateProfile('Default', { lastImportAt: 1_700_000_000_000, lastCount: 42, lastError: 'Chrome data decryption failed.' });
   world.keyAvailable = false;
   assert.deepEqual(await importer.status(), {
     enabled: true,
@@ -584,17 +591,14 @@ test('the state file keeps only the status fields and the ready profiles, and su
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const store = new CookieAutoImportStateStore(join(dir, 'state.json'));
   assert.deepEqual(await store.read(), {});
-  await store.update({ lastImportAt: 5, lastCount: 3, needsManualImport: true });
-  await store.update({ needsManualImport: false, lastError: 'x' });
+  await store.updateProfile('Work', { lastImportAt: 5, lastCount: 3, needsManualImport: true });
+  await store.updateProfile('Work', { needsManualImport: false, lastError: 'x' });
   await store.markReady('Work');
   await store.markReady('Work');
   await store.markReady('Personal');
-  assert.deepEqual(await store.read(), {
-    lastImportAt: 5,
-    lastCount: 3,
-    lastError: 'x',
-    readyProfiles: ['Work', 'Personal'],
-  });
+  const reopened = await store.read();
+  assert.deepEqual({ ...reopened.profileStatus }, { Work: { lastImportAt: 5, lastCount: 3, lastError: 'x' } });
+  assert.deepEqual(reopened.readyProfiles, ['Work', 'Personal']);
   await store.clear();
   assert.deepEqual(await store.read(), {});
 });

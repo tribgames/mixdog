@@ -133,20 +133,27 @@ pub struct McpServerConfig {
     pub accounts: Vec<McpAccountConfig>,
 }
 
-/// `mcpLog` (mcp/client.mjs:147): the client's own log lines are dropped while `MIXDOG_QUIET_MCP_LOG` is set to
-/// anything but the empty string.
-pub fn log_quiet() -> bool {
-    quiet(std::env::var_os("MIXDOG_QUIET_MCP_LOG").as_deref())
-}
-
 fn quiet(value: Option<&std::ffi::OsStr>) -> bool {
     value.is_some_and(|v| !v.is_empty())
 }
 
-/// One line of the MCP client's log (`mcpLog`), unless it is quiet.
-pub(crate) fn mcp_log(line: &str) {
-    if !log_quiet() {
-        tracing::warn!("{line}");
+/// One `daemon.log` line about a server's connection (the route of the core's other daemon-log lines, not `tracing` alone).
+/// Names and ids only: any word with an `@` (a mail address) is replaced. A record is one line: white space runs, newlines of a
+/// stderr tail included, become one space (`oneLine`, as the core's other daemon-log writers do).
+pub(crate) fn daemon_line(line: &str) {
+    mixdog_rt::node_stderr!("{}", one_line_redacted(line));
+}
+
+fn one_line_redacted(line: &str) -> String {
+    line.split(mixdog_js::is_js_space).filter(|word| !word.is_empty()).map(|word| if word.contains('@') { "<address>" } else { word }).collect::<Vec<_>>().join(" ")
+}
+
+#[cfg(test)]
+mod daemon_line_tests {
+    #[test]
+    fn a_diagnostic_with_a_stderr_tail_is_one_line_without_an_address() {
+        let line = super::one_line_redacted("[mcp-server] name=gmail connect failed: boom\r\nstderr tail:\n  user@example.com refused\n");
+        assert_eq!(line, "[mcp-server] name=gmail connect failed: boom stderr tail: <address> refused");
     }
 }
 
@@ -372,12 +379,12 @@ fn stdio_environment(entry: &Value, env: &Env, missing: &mut Vec<String>) -> BTr
 fn http_headers(entry: &Value, env: &Env, missing: &mut Vec<String>) -> BTreeMap<String, String> {
     let mut headers = BTreeMap::new();
     for (header, env_name) in string_map(entry.get("env_http_headers")) {
-        if let Some(value) = env.get(&env_name).filter(|v| !v.is_empty()) {
-            headers.insert(header, value.clone());
+        if let Some(value) = env_lookup(env, &env_name).filter(|v| !v.is_empty()) {
+            headers.insert(header, value.to_owned());
         }
     }
     if let Some(name) = entry.get("bearer_token_env_var").and_then(Value::as_str)
-        && let Some(value) = env.get(js_trim(name)).filter(|v| !v.is_empty())
+        && let Some(value) = env_lookup(env, js_trim(name)).filter(|v| !v.is_empty())
     {
         headers.insert("Authorization".to_owned(), format!("Bearer {value}"));
     }
@@ -923,5 +930,32 @@ mod tests {
         assert_eq!(headers.get("Authorization").map(String::as_str), Some("Bearer abc"));
         assert_eq!(headers.get("X-H").map(String::as_str), Some("hv"));
         assert_eq!(headers.get("A").map(String::as_str), Some("b"));
+    }
+
+    /// `process.env` ignores case on Windows: the variable names of the bearer token and the env headers match that way there.
+    #[test]
+    fn env_variable_names_of_http_auth_ignore_case_only_on_windows() {
+        let e = env(&[("Tok", "abc"), ("h", "hv")]);
+        let cfg = McpServerConfig::from_entry(
+            "s",
+            &json!({"url": "https://x", "bearer_token_env_var": "TOK", "env_http_headers": {"X-H": "H"}}),
+            &e,
+        )
+        .unwrap();
+        let TransportConfig::Http { headers, .. } = cfg.transport else { panic!() };
+        assert_eq!(headers.get("Authorization").map(String::as_str), cfg!(windows).then_some("Bearer abc"));
+        assert_eq!(headers.get("X-H").map(String::as_str), cfg!(windows).then_some("hv"));
+    }
+}
+
+/// `mcpLog` (mcp/client.mjs:147): the client's own log lines are dropped while `MIXDOG_QUIET_MCP_LOG` is set to
+/// anything but the empty string.
+pub fn log_quiet() -> bool {
+    quiet(std::env::var_os("MIXDOG_QUIET_MCP_LOG").as_deref())
+}
+/// One line of the MCP client's log (`mcpLog`), unless it is quiet.
+pub(crate) fn mcp_log(line: &str) {
+    if !log_quiet() {
+        tracing::warn!("{line}");
     }
 }

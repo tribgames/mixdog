@@ -11,6 +11,8 @@ use serde_json::Value;
 
 use crate::bootstrap::{base_args, Remote, ServerPayloads, REMOTE_PROBE_TIMEOUT};
 use crate::command::SshTarget;
+use crate::said;
+use mixdog_app_protocol::message::Said;
 use crate::connect_failure::ConnectError;
 use crate::context::{AttemptContext, SshEnv};
 use crate::install_wire::{CleanupPhase, Mode, ProgramArgs, ServerPlatform};
@@ -22,9 +24,9 @@ const REMOTE_CLEANUP_TIMEOUT: Duration = Duration::from_secs(330);
 pub enum CleanupProgress {
     Connect,
     /// The core is stopped (or none ran): what became of it.
-    Stop { detail: String },
+    Stop { detail: Said },
     /// The files are removed: what went and what stayed.
-    Remove { detail: String },
+    Remove { detail: Said },
     Done,
 }
 
@@ -69,18 +71,22 @@ fn cleanup_result_of(result: &serde_json::Map<String, Value>) -> CleanupReport {
     CleanupReport { stopped, removed: names("removed"), kept: names("kept") }
 }
 
-fn describe_stop(stopped: Option<&StoppedCore>) -> String {
+fn describe_stop(stopped: Option<&StoppedCore>) -> Said {
     match stopped {
-        None => "no core running".to_owned(),
-        Some(core) if core.stopped => format!("stopped pid {}", core.pid),
-        Some(core) => format!("left pid {} running (not proven to be the desktop's core)", core.pid),
+        None => said::CLEANUP_NOTHING_RUNNING.plain(),
+        Some(core) if core.stopped => said::CLEANUP_STOPPED.said([("pid", core.pid)]),
+        Some(core) => said::CLEANUP_LEFT_RUNNING.said([("pid", core.pid)]),
     }
 }
 
-fn describe_removal(removal: &CleanupReport) -> String {
-    let removed = if removal.removed.is_empty() { "nothing".to_owned() } else { removal.removed.join(", ") };
-    let kept = if removal.kept.is_empty() { String::new() } else { format!("; kept {}", removal.kept.join(", ")) };
-    format!("removed {removed}{kept}")
+fn describe_removal(removal: &CleanupReport) -> Said {
+    let (removed, kept) = (removal.removed.join(", "), removal.kept.join(", "));
+    match (removal.removed.is_empty(), removal.kept.is_empty()) {
+        (true, true) => said::CLEANUP_REMOVED_NOTHING.plain(),
+        (true, false) => said::CLEANUP_REMOVED_NOTHING_KEPT.said([("kept", kept)]),
+        (false, true) => said::CLEANUP_REMOVED.said([("removed", removed)]),
+        (false, false) => said::CLEANUP_REMOVED_KEPT.said([("removed", removed), ("kept", kept)]),
+    }
 }
 
 /// Stops the core on the server, then removes what the desktop installed. The server refuses with `daemon-unproven`

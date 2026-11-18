@@ -30,7 +30,6 @@ export function usePaneConversationRenderer(options: RendererOptions) {
       options.paneSubmitFor,
       options.paneDraftSubmitFor,
       options.submit,
-      options.applySessionLaneResult,
       options.applySnapshot,
       options.composerFocusRequest,
       options.conversationNewTask,

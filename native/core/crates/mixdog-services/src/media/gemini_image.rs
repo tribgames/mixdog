@@ -11,7 +11,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::adapter_http::JsonPost;
 use super::download::{AdapterError, parse_json_body};
-use super::image_api::{GeneratedImage, ImageReference, truthy};
+use super::image_api::{GeneratedImage, truthy};
+use super::references::{ImageReference, References, Target, key_account};
 use super::lanes::LaneError;
 use super::upstream::{decode_base64_media, upstream_error};
 use super::usage::{gemini_usage, reported_usage};
@@ -36,7 +37,7 @@ pub(super) fn encode_uri_component(text: &str) -> String {
 pub fn gemini_image_request_body(prompt: &str, options: &Value, references: &[ImageReference]) -> Value {
     let mut parts: Vec<Value> = references
         .iter()
-        .map(|r| json!({ "inlineData": { "mimeType": if r.mime.is_empty() { "image/png" } else { r.mime.as_str() }, "data": r.base64 } }))
+        .map(|r| json!({ "inlineData": { "mimeType": r.mime(), "data": r.base64() } }))
         .collect();
     parts.push(json!({ "text": prompt }));
     let mut config = Map::new();
@@ -70,10 +71,12 @@ pub fn pick_gemini_image_part(parts: &[Value], label: &str, failure: Option<Stri
 
 /// `generateImage({ model, prompt, options, references, signal })`; `key` is the Gemini API key.
 #[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
-pub async fn generate_image(http: &dyn JsonPost, key: &str, model: &str, prompt: &str, options: &Value, references: &[ImageReference], cancel: &CancellationToken) -> Result<GeneratedImage, AdapterError> {
+pub async fn generate_image(http: &dyn JsonPost, key: &str, model: &str, prompt: &str, options: &Value, references: &References, cancel: &CancellationToken) -> Result<GeneratedImage, AdapterError> {
     let url = format!("{BASE_URL}/{}:generateContent", encode_uri_component(model));
+    let account = key_account(key);
+    let references = references.prepare(&Target { endpoint: &url, account: &account, model, operation: "image-generation" }).await?;
     let headers = [("Content-Type".to_owned(), "application/json".to_owned()), ("x-goog-api-key".to_owned(), key.to_owned())];
-    let body = gemini_image_request_body(prompt, options, references);
+    let body = gemini_image_request_body(prompt, options, &references);
     let reply = http.post(&url, &headers, &body, REQUEST_TIMEOUT, cancel).await.map_err(|failure| AdapterError::plain(failure.message))?;
     if !(200..300).contains(&reply.status) {
         return Err(upstream_error("Gemini image", reply.status, &reply.body).into());

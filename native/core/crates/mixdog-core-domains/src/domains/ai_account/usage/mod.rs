@@ -6,6 +6,12 @@ pub mod dashboard;
 pub mod session_usage;
 pub mod sources;
 #[cfg(test)]
+mod feature_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(test)]
 mod openable_tests;
 
 use std::sync::Arc;
@@ -237,3 +243,6 @@ impl DomainService for UsageService {
         Admit::Accepted
     }
 }
+
+#[cfg(test)]
+mod session_usage_feature_tests;

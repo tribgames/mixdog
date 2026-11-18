@@ -8,8 +8,13 @@
 
 use crate::transport::deadlines::compat_model_list;
 use crate::transport::deadlines::MODEL_STREAM;
-use crate::providers::idle::IdleWatch;
-use crate::providers::idle::Stalled;
+use crate::transport::model_driver::Expiry;
+use crate::transport::model_driver::ModelCall;
+use crate::transport::model_driver::ModelDriver;
+use mixdog_core_api::domain::provider::AttemptPhase;
+use mixdog_core_api::domain::provider::Exposure;
+use mixdog_core_api::domain::provider::PhaseWindows;
+use mixdog_core_api::domain::provider::StreamTimeoutPhase;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
@@ -63,12 +68,312 @@ pub fn redact_key(value: &str, key: &str) -> String {
     out
 }
 
+/// What the router is told about a model that the profile cannot know: the
+/// user's per-model wires (`modelWires`) and the catalog's wire for a model.
+#[derive(Clone, Default)]
+pub struct RouteInputs {
+    pub model_wires: HashMap<String, Wire>,
+    pub catalog: Option<Arc<dyn ModelTraits>>,
+}
+
+/// `GET {url}` as JSON. A refused request keeps the provider's own reason
+/// with the request key redacted from it; a reachable endpoint that answers
+/// something else is `null`, except in the plain model-list fetch, where a body
+/// that is not JSON is the request's error.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+pub(super) async fn fetch_json(
+    http: &dyn HttpSend,
+    profile: &CompatProfile,
+    url: String,
+    extra_headers: &[(String, String)],
+    key: Option<&str>,
+) -> Result<serde_json::Value, ProviderError> {
+    if profile.listing.plain_fetch {
+        // `fetchCompatModelItems`: the bearer, then the client's default headers; the fetch adds its own `accept`.
+        let mut headers: Vec<(String, String)> = key.map(|key| ("authorization".to_owned(), format!("Bearer {key}"))).into_iter().collect();
+        headers.extend(profile.headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
+        headers.extend(extra_headers.iter().cloned());
+        return fetch_listing(http, profile, url, headers, key).await;
+    }
+    // `Accept` first, then the gateway's own headers (`fetchRoster`, `opencode-go-oauth-tokens.mjs` `request`).
+    let accept = profile.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("accept")).map_or("application/json", |(_, v)| *v);
+    let mut headers: Vec<(String, String)> = vec![("accept".into(), accept.into())];
+    headers.extend(profile.headers.iter().filter(|(k, _)| !k.eq_ignore_ascii_case("accept")).map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
+    headers.extend(extra_headers.iter().cloned());
+    if let Some(key) = key {
+        headers.push(("authorization".into(), format!("Bearer {key}")));
+    }
+    fetch_listing(http, profile, url, headers, key).await
+}
+
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+async fn fetch_listing(
+    http: &dyn HttpSend,
+    profile: &CompatProfile,
+    url: String,
+    headers: Vec<(String, String)>,
+    key: Option<&str>,
+) -> Result<serde_json::Value, ProviderError> {
+    let final_url = url.clone();
+    let response = http
+        .send(
+            WireRequest {
+                transport: mixdog_core_api::domain::keepalive::TransportKind::Http1,
+                method: "GET".into(),
+                url,
+                headers,
+                body: Vec::new(),
+            },
+            compat_model_list(profile.id),
+        )
+        .await?;
+    let ok = response.is_success();
+    let body = response.read_all().await?;
+    if !ok {
+        let mut err = super::error::classify(profile, &body);
+        if let Some(key) = key {
+            err.message = redact_key(&err.message, key);
+        }
+        return Err(err);
+    }
+    // Every listing path Node throws on, each with its own text.
+    let path = || url::Url::parse(&final_url).map(|u| u.path().to_owned()).unwrap_or_default();
+    match serde_json::from_slice::<serde_json::Value>(&body.body) {
+        // Command Code's `requestCommandCodeJson`: a body that does not parse names the path.
+        Err(_) if profile.id == "command-code-oauth" => {
+            let mut err = ProviderError::new(ErrorKind::Unknown, mixdog_core_api::domain::provider::DeliveryState::Accepted);
+            err.message = format!("[command-code-oauth] {} returned invalid JSON", path());
+            Err(err)
+        }
+        // OpenCode Go's `consoleGetJson`: a body that does not parse, or is `null`, is a failure naming the status.
+        Err(_) | Ok(serde_json::Value::Null) if profile.id == "opencode-go-oauth" => {
+            let text = String::from_utf8_lossy(&body.body);
+            let secrets: Vec<&str> = key.into_iter().collect();
+            let scrubbed = crate::oauth::scrub::scrub_oauth_secrets(&text, &secrets);
+            let detail = mixdog_js::slice_utf16(mixdog_js::js_trim(&scrubbed), 300);
+            let mut err = ProviderError::new(ErrorKind::Unknown, mixdog_core_api::domain::provider::DeliveryState::Accepted);
+            err.status = Some(200);
+            err.message = format!("[opencode-go-oauth] {} 200{}", path(), if detail.is_empty() { String::new() } else { format!(": {detail}") });
+            Err(err)
+        }
+        // `fetchCompatModelItems` (every other gateway, MiMo and Muse Code included) awaits `res.json()`.
+        Err(_) => super::listing::json_answer(&body.body),
+        Ok(value) => Ok(value),
+    }
+}
+
+/// The failure of `expiry` for this provider's stream: the first-byte phases are the gate's (counted against the send, once: the
+/// driver calls this once per expiry); the first-output and idle windows are the stream stall (`streamStalledError`,
+/// `stall-policy.mjs:161`: `ESTREAMSTALL`, transient, phase `idle`, unsafe to retry once a tool call was dispatched); the
+/// recovery's generation total is the re-issue's own timeout.
+fn expired(label: &str, gate: Option<&crate::providers::head_wait::FirstByteGate>, expiry: Expiry, delivery: DeliveryState, exposure: Exposure) -> ProviderError {
+    let ms = expiry.window.as_millis();
+    let mut err = ProviderError::new(ErrorKind::Transient, delivery);
+    err.timed_out = true;
+    err.exposure = exposure;
+    match expiry.phase {
+        AttemptPhase::Connect | AttemptPhase::Head | AttemptPhase::Payload => {
+            let phase = if expiry.phase == AttemptPhase::Payload { StreamTimeoutPhase::FirstChunk } else { StreamTimeoutPhase::Headers };
+            match gate {
+                Some(gate) => return gate.expired(phase, delivery, exposure),
+                None => {
+                    err.code = Some("EPROVIDERTIMEOUT".into());
+                    err.message = format!("{label} first byte timed out after {ms}ms");
+                    err.timeout_phase = Some(phase);
+                }
+            }
+        }
+        AttemptPhase::Recovery => {
+            err.code = Some("EPROVIDERTIMEOUT".into());
+            err.message = format!("{label} non-streaming fallback timed out after {ms}ms");
+        }
+        AttemptPhase::FirstOutput | AttemptPhase::Idle | AttemptPhase::Retired => {
+            err.code = Some("ESTREAMSTALL".into());
+            err.message = format!("{label} SSE idle stream timed out after {ms}ms of inactivity");
+            mixdog_rt::node_stderr!("[provider-stall] {} (tool dispatched: {})", err.message, exposure.tool_dispatched);
+            err.timeout_phase = Some(StreamTimeoutPhase::Idle);
+            err.unsafe_to_retry = exposure.tool_dispatched;
+        }
+    }
+    err
+}
+
+struct CompatStream {
+    body: Option<Box<dyn BodyStream>>,
+    decoder: Box<dyn WireDecoder>,
+    queue: VecDeque<StreamEvent>,
+    failed: Option<ProviderError>,
+    /// The attempt this stream answers: the first payload and the semantic progress are reported on it, and the driver follows
+    /// the deadlines they install.
+    attempt: Option<mixdog_core_api::domain::provider::AttemptHandle>,
+    /// Output has come: later item boundaries are semantic progress that renews the idle window.
+    had_output: bool,
+}
+
+impl CompatStream {
+    fn new(body: Box<dyn BodyStream>, decoder: Box<dyn WireDecoder>) -> Self {
+        Self { body: Some(body), decoder, queue: VecDeque::new(), failed: None, attempt: None, had_output: false }
+    }
+
+    fn with_attempt(mut self, attempt: mixdog_core_api::domain::provider::AttemptHandle) -> Self {
+        self.attempt = Some(attempt);
+        self
+    }
+
+    /// What a read's events say about the attempt: a whole protocol record is the first payload (a decoder that reports none, the
+    /// Responses wire, is taken at its first event that is not a keepalive); output starts the idle window and later output, or an
+    /// item boundary after it, renews it; keepalives and metadata do neither.
+    fn report(&mut self, events: &[StreamEvent]) {
+        let Some(attempt) = &self.attempt else { return };
+        if self.decoder.payload_seen() || events.iter().any(|e| !matches!(e, StreamEvent::ProviderKeepalive)) {
+            attempt.observe(mixdog_core_api::domain::provider::Boundary::FirstProtocolPayload);
+        }
+        let produced = events.iter().any(crate::providers::idle::output);
+        if produced || (self.had_output && events.iter().any(crate::providers::idle::boundary)) {
+            attempt.observe(mixdog_core_api::domain::provider::Boundary::FirstSemanticOutput);
+        }
+        self.had_output |= produced;
+    }
+}
+
+#[async_trait]
+impl ModelStream for CompatStream {
+    async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+        loop {
+            if let Some(event) = self.queue.pop_front() {
+                return Some(Ok(event));
+            }
+            if let Some(err) = self.failed.take() {
+                return Some(Err(err));
+            }
+            let body = self.body.as_mut()?;
+            // The terminal event ends the attempt; anything after it is dropped.
+            if self.decoder.terminal_seen() {
+                self.body = None;
+                return None;
+            }
+            match body.next().await {
+                Some(Ok(chunk)) => match self.decoder.feed(&chunk) {
+                    Ok(events) => {
+                        self.report(&events);
+                        self.queue.extend(events);
+                        // A failure the decoder holds behind this read's events surfaces after them, not after the next read: a
+                        // timeout must not replace a refusal that was already decoded.
+                        if let Err(err) = self.decoder.feed(&[]) {
+                            self.body = None;
+                            self.failed = Some(err);
+                        }
+                    }
+                    Err(err) => {
+                        self.body = None;
+                        self.failed = Some(err);
+                    }
+                },
+                Some(Err(fault)) => {
+                    // A phase deadline of the driver ended the body: its one failure, as classified above.
+                    let timed = body.expired(self.decoder.exposure());
+                    let connection = body.connection();
+                    self.body = None;
+                    let mut failure = timed.unwrap_or_else(|| {
+                        let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
+                        err.connection = connection;
+                        // Node reads the body through the OpenAI SDK's `fetch` (`consumeCompatChatCompletionStream`), whose
+                        // socket failure mid-body is undici's `TypeError: terminated`.
+                        err.message = crate::transport::link::TERMINATED.to_owned();
+                        err.exposure = self.decoder.exposure();
+                        err
+                    });
+                    self.decoder.attach_observed_usage(&mut failure);
+                    self.failed = Some(failure);
+                }
+                None => {
+                    self.body = None;
+                    match self.decoder.finish() {
+                        Ok(events) => self.queue.extend(events),
+                        Err(err) => self.failed = Some(err),
+                    }
+                }
+            }
+        }
+    }
+
+    fn delivery(&self) -> DeliveryState {
+        DeliveryState::Accepted
+    }
+
+    /// A leaf: `next` awaits nothing after the wire's terminal event.
+    fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
+}
+#[cfg(test)]
+mod site_tests {
+    use super::*;
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_thrown;
+    use crate::transport::site_probe::assert_transport;
+
+    /// A model list whose endpoint never answers ends in a failure after its own timer, never hangs and never lists
+    /// nothing.
+    #[tokio::test(start_paused = true)]
+    async fn a_model_list_that_outlives_its_timer_fails() {
+        let transport = crate::transport::timeout_probe::NeverAnswers::new();
+        let profile = CompatProfile::plain("groq", "http://x.test/v1", CredentialKind::Keyless);
+        let error = fetch_json(transport.as_ref(), &profile, "http://x.test/v1/models".to_owned(), &[], None)
+            .await
+            .expect_err("the endpoint never answers");
+        assert!(!error.message.is_empty());
+        transport.assert_each_request_was_bounded(1);
+    }
+
+    /// A model list that outlives its timer reads as the real Node function did (`sites.compatModelList`): the
+    /// labelled `"<provider> model list"` timer.
+    #[tokio::test(start_paused = true)]
+    async fn a_model_list_that_outlives_its_timer_reads_as_nodes() {
+        let transport = TimingOut::new();
+        let profile = CompatProfile::plain("groq", "http://x.test/v1", CredentialKind::Keyless);
+        let error = fetch_json(transport.as_ref(), &profile, "http://x.test/v1/models".to_owned(), &[], None)
+            .await
+            .expect_err("the endpoint never answers");
+        assert_transport("compatModelList", &transport);
+        assert_thrown("compatModelList", &error.message);
+    }
+
+    /// A 200 that is not JSON is a thrown error on every listing path Node has, each in its own words: Command Code's
+    /// `requestCommandCodeJson` names the path, OpenCode Go's `consoleGetJson` the status, the rest `res.json()`'s
+    /// `SyntaxError`; none lists nothing.
+    #[tokio::test]
+    async fn a_listing_body_that_is_not_json_throws_on_every_path_with_nodes_text() {
+        use crate::providers::listing_row::testing::Replay;
+        let page = Replay::new(|_| (200, b"<html>no</html>".to_vec()));
+        let fetch = |profile: CompatProfile, url: &str| {
+            let url = url.to_owned();
+            let page = &page;
+            async move { fetch_json(page, &profile, url, &[], Some("k")).await.expect_err("not JSON").message }
+        };
+        assert_eq!(
+            fetch(CompatProfile::command_code_oauth(), "https://api.commandcode.ai/provider/v1/models").await,
+            "[command-code-oauth] /provider/v1/models returned invalid JSON"
+        );
+        assert_eq!(
+            fetch(CompatProfile::opencode_go(), "https://opencode.ai/api/config").await,
+            "[opencode-go-oauth] /api/config 200: <html>no</html>"
+        );
+        for profile in [CompatProfile::mimo_oauth(), CompatProfile::muse_code_oauth()] {
+            let message = fetch(profile, "https://x.test/v1/models").await;
+            assert!(message.contains("Unexpected token '<', \"<html>no</html>\" is not valid JSON"), "{message}");
+        }
+    }
+}
+
+
 pub struct CompatAdapter {
     id: ProviderId,
     pub(super) codec: CompatChatCodec,
     policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
+    /// The transport of everything that is not a model attempt (listings, pairing): timed by each call's own `Exchange`.
     pub(super) http: Arc<dyn HttpSend>,
+    /// The transport of every model exchange: its phase deadlines are the driver's.
+    driver: ModelDriver,
     /// `None` for a keyless endpoint: no credential header at all.
     pub(super) key: Option<Arc<dyn ApiKeySource>>,
     routing: RouteInputs,
@@ -85,15 +390,6 @@ pub struct CompatAdapter {
     /// config.reasoningEffort`, on the Chat and Responses wires).
     configured_effort: Option<String>,
 }
-
-/// What the router is told about a model that the profile cannot know: the
-/// user's per-model wires (`modelWires`) and the catalog's wire for a model.
-#[derive(Clone, Default)]
-pub struct RouteInputs {
-    pub model_wires: HashMap<String, Wire>,
-    pub catalog: Option<Arc<dyn ModelTraits>>,
-}
-
 impl CompatAdapter {
     pub fn profile(&self) -> &CompatProfile {
         self.codec.profile()
@@ -122,6 +418,7 @@ impl CompatAdapter {
             policy: profile.retry_policy(),
             keepalive: KeepaliveSchedule::SPEC,
             codec,
+            driver: ModelDriver::new(http.clone()),
             http,
             key,
             routing: RouteInputs::default(),
@@ -161,10 +458,37 @@ impl CompatAdapter {
         request
     }
 
+    pub(super) async fn routed_key(&self) -> Result<(Option<String>, Option<String>), ProviderError> {
+        match &self.key {
+            Some(source) => source.routed_key(true).await.map(|(key, base)| (Some(key), base)),
+            None => Ok((None, None)),
+        }
+    }
+
+    pub(super) fn route_url(&self, url: &mut String, base: Option<&str>) {
+        if let Some(base) = base
+            && let Some(path) = url.strip_prefix(self.codec.base_url()).filter(|path| path.starts_with('/'))
+        {
+            *url = format!("{}{path}", base.trim_end_matches('/'));
+        }
+    }
+
     /// Whether a rejected key may change under us (a static config key can be
     /// edited; a login-issued key needs a new login instead).
     fn reloadable(profile: &CompatProfile) -> bool {
         profile.credential == CredentialKind::StaticKey { reauth_on_401: false }
+            && !super::login::opencode_go::gateway_owns_auth_recovery()
+    }
+
+    pub(crate) fn opencode_auth(&self) -> Option<&super::login::opencode_go::OpenCodeGoAuth> {
+        self.key.as_ref()?.opencode_auth()
+    }
+
+    pub(crate) async fn gateway_key(&self) -> Result<Option<String>, ProviderError> {
+        match &self.key {
+            Some(key) => key.key().await.map(Some),
+            None => Ok(None),
+        }
     }
 
     /// The refusal of the request whose body was `sent`.
@@ -182,7 +506,6 @@ impl CompatAdapter {
         err
     }
 }
-
 #[async_trait]
 impl ProviderAdapter for CompatAdapter {
     fn release_send(&self, _group: &str) {}
@@ -212,11 +535,12 @@ impl ProviderAdapter for CompatAdapter {
         false
     }
 
-    /// `compatFirstResponseBudget(this.name, chatProfile)`: a profile with a first-byte window of its own states the
-    /// worst case over its retry ladder; one on the shared window leaves the watchdog's default.
+    /// `compatFirstResponseBudget(this.name, chatProfile)`: a profile with a first-byte window of its own (Mimo's 285 s) declares it:
+    /// one attempt's head wait and the same window again for its first payload, never Node's sum over the retry ladder (the
+    /// watchdog's clock restarts with every attempt); one on the shared window leaves the watchdog's default.
     fn first_response_budget(&self, _model: &str, _parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
         let policy = self.first_byte.compat(self.profile().chat.first_byte?);
-        Some(crate::providers::first_byte::first_byte_budget(&policy, &self.policy.request.schedule))
+        Some(crate::providers::first_byte::attempt_budget(&policy))
     }
 
     fn wire_routing(&self) -> Option<&dyn WireRouting> {
@@ -249,7 +573,7 @@ impl ProviderAdapter for CompatAdapter {
         let transient = matches!(failure.kind, ErrorKind::Transient | ErrorKind::Overloaded)
             || failure.timed_out
             || failure.transport == Some(mixdog_core_api::domain::provider::TransportFault::TruncatedStream);
-        !exposed && transient
+        !exposed && !failure.recovery_terminal && transient
     }
 
     /// `recoverCompatNonStreaming` (openai-compat-chat-send.mjs:268): the same Chat Completions body once more with
@@ -270,12 +594,15 @@ impl ProviderAdapter for CompatAdapter {
             return Err(ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent));
         }
         wire.body = super::nonstream::body(&wire.body).ok_or_else(failed)?;
-        let key = match &self.key {
-            Some(source) => Some(source.key().await?),
-            None => None,
-        };
+        let (key, base) = self.routed_key().await?;
+        self.route_url(&mut wire.url, base.as_deref());
         request.options.send_identity.raise_stage("requesting");
-        let response = self.http.send(Self::with_key(&wire, key.as_deref()), MODEL_STREAM).await?;
+        // A non-streaming call answers only when the generation is done, so the first-byte windows would cut it falsely: its
+        // one bound is `PROVIDER_GENERATE_TOTAL_TIMEOUT_MS` over the head and the body together (`perAttemptTimeoutMs`,
+        // openai-compat-chat-send.mjs:291), which the driver's recovery attempt starts in and a head arriving does not reset.
+        // A request that outlives it fails the re-issue, as any other failure of it does.
+        let call = self.model_call(&request, None, true);
+        let (response, _) = self.driver.send(&call, Self::with_key(&wire, key.as_deref()), MODEL_STREAM).await?;
         if !response.is_success() {
             return Err(Self::failure(&self.codec, response, key.as_deref(), &wire.body).await);
         }
@@ -284,7 +611,7 @@ impl ProviderAdapter for CompatAdapter {
         let mut decoder = self.codec.decoder(&request);
         let mut events = decoder.feed(&chunk)?;
         events.extend(decoder.finish()?);
-        Ok(Box::new(CompatStream { body: None, decoder, queue: super::nonstream::whole(events).into(), failed: None, idle: IdleWatch::off() }))
+        Ok(Box::new(CompatStream { body: None, decoder, queue: super::nonstream::whole(events).into(), failed: None, attempt: None, had_output: false }))
     }
 
     /// `[<provider>] stream failed (<code, else message, else unknown>); recovered via non-streaming request`. The
@@ -295,27 +622,58 @@ impl ProviderAdapter for CompatAdapter {
         Some(format!("[{}] stream failed ({cause}); recovered via non-streaming request", self.id))
     }
 }
-
 impl CompatAdapter {
-    /// One attempt of this provider's key and transport on another of its wires (`codec`): the gateway's
-    /// Responses wire rides the same account as its Chat wire.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    pub async fn attempt_with(&self, codec: &dyn WireCodec, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let request = match &self.configured_effort {
+    /// The first-byte window of the next attempt of the send (`compatFirstByteWindowMs(provider.name, firstByteTimeoutMs,
+    /// firstByteTimeouts)`): the chat profile's own window, else the shared one; a profile that caps its first-byte retries
+    /// (`firstByteRetries`) doubles it after each and ends the ladder past the cap.
+    fn first_byte_gate(&self, identity: &mixdog_core_api::domain::provider::SendIdentity) -> crate::providers::head_wait::FirstByteGate {
+        let policy = match self.profile().chat.first_byte {
+            Some(policy) => self.first_byte.compat(policy),
+            None => crate::providers::first_byte::FirstBytePolicy { timeout_ms: self.first_byte.provider_ms, max_ms: self.first_byte.max_before_warn_ms, retries: None },
+        };
+        crate::providers::head_wait::FirstByteGate::of(&policy, identity, self.profile().id.to_string())
+    }
+
+    /// The model submission of `request`: the windows this provider declares (the chat profile's first-byte window for the head and
+    /// the first payload, its first-output and idle windows; the common fallback policy fills what it leaves, and
+    /// `MIXDOG_ENABLE_STREAM_WATCHDOG=0` drops the idle policy to it) and how an expiry of each phase reads. A non-streaming
+    /// `recovery` is one generation total over head and body.
+    fn model_call(&self, request: &ModelRequest, gate: Option<crate::providers::head_wait::FirstByteGate>, recovery: bool) -> ModelCall {
+        let millis = |ms: i64| std::time::Duration::from_millis(u64::try_from(ms).unwrap_or(0));
+        let windows = PhaseWindows {
+            head: gate.as_ref().map(crate::providers::head_wait::FirstByteGate::window),
+            payload: None,
+            first_output: self.first_byte.first_output_ms.map(|ms| std::time::Duration::from_millis(ms as u64)),
+            idle: self.first_byte.semantic_idle_ms.map(|ms| std::time::Duration::from_millis(ms as u64)),
+            recovery: Some(millis(self.first_byte.generate_total_ms)),
+        };
+        let label = self.profile().id.to_string();
+        let call = ModelCall::new(&request.options.send_identity, windows, Arc::new(move |expiry, delivery, exposure| expired(&label, gate.as_ref(), expiry, delivery, exposure)));
+        if recovery { call.recovery() } else { call }
+    }
+
+    pub(crate) fn with_default_effort(&self, request: Arc<ModelRequest>) -> Arc<ModelRequest> {
+        match &self.configured_effort {
             Some(effort) if request.options.effort.is_none() => {
                 let mut owned = (*request).clone();
                 owned.options.effort = Some(effort.clone());
                 Arc::new(owned)
             }
             _ => request,
-        };
-        let wire = codec.encode(&request)?;
-        let mut key = match &self.key {
-            Some(source) => Some(source.key().await?),
-            None => None,
-        };
+        }
+    }
+
+    /// One attempt of this provider's key and transport on another of its wires (`codec`): the gateway's
+    /// Responses wire rides the same account as its Chat wire.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    pub async fn attempt_with(&self, codec: &dyn WireCodec, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let request = self.with_default_effort(request);
+        let mut wire = codec.encode(&request)?;
+        let (mut key, base) = self.routed_key().await?;
+        self.route_url(&mut wire.url, base.as_deref());
         let mut reloaded = false;
         loop {
+            let gate = wire.url.ends_with("/chat/completions").then(|| self.first_byte_gate(&request.options.send_identity));
             // Chat Completions raises `requesting` for every attempt of its ladder (openai-compat-chat-send.mjs:276),
             // Responses once before it (openai-compat-xai-send.mjs:103).
             if wire.url.ends_with("/chat/completions") {
@@ -323,13 +681,18 @@ impl CompatAdapter {
             } else {
                 request.options.send_identity.raise_requesting_once();
             }
-            let response = self
-                .http
-                .send(Self::with_key(&wire, key.as_deref()), MODEL_STREAM)
-                .await?;
+            // Every real exchange is an attempt of the driver: it waits for its head under this attempt's window (the Chat
+            // Completions request's first-byte window, `perAttemptTimeoutMs`, openai-compat-chat-send.mjs:174-181), then for the
+            // first decoded `data:` record under the same window again (a timeout of either counts as one first-byte timeout of
+            // the send), then for the first output, then idle. The head also raises the transport mark
+            // (`openai-compat-stream.mjs:65`, `stream-state.mjs:61`).
+            let call = self.model_call(&request, gate, false);
+            let (response, attempt) = self.driver.send(&call, Self::with_key(&wire, key.as_deref()), MODEL_STREAM).await?;
             if response.is_success() {
-                let idle = IdleWatch::new(self.first_byte.semantic_idle_ms.map(|ms| ms as f64), format!("{} SSE idle", self.profile().id));
-                return Ok(Box::new(CompatStream::new(response.body, codec.decoder(&request)).with_idle(idle)));
+                // `onStreamDelta('transport')` as the stream opens, for an accepted response only: a refusal is the SDK's
+                // thrown error.
+                request.options.send_identity.raise_stage("transport");
+                return Ok(Box::new(CompatStream::new(response.body, codec.decoder(&request)).with_attempt(attempt)));
             }
             let err = Self::failure(codec, response, key.as_deref(), &wire.body).await;
             if err.status == Some(401)
@@ -352,7 +715,6 @@ impl CompatAdapter {
         }
     }
 }
-
 #[async_trait]
 impl WireRouting for CompatAdapter {
     async fn resolve_wire_route(
@@ -387,203 +749,5 @@ impl WireRouting for CompatAdapter {
         }
         facts.endpoints = endpoints.as_deref();
         Ok(route_for(profile, profile.id, model, facts, context))
-    }
-}
-
-/// `GET {url}` as JSON. A refused request keeps the provider's own reason
-/// with the request key redacted from it; a reachable endpoint that answers
-/// something else is `null`.
-#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-pub(super) async fn fetch_json(
-    http: &dyn HttpSend,
-    profile: &CompatProfile,
-    url: String,
-    extra_headers: &[(String, String)],
-    key: Option<&str>,
-) -> Result<serde_json::Value, ProviderError> {
-    if profile.listing.plain_fetch {
-        // `fetchCompatModelItems`: the bearer, then the client's default headers; the fetch adds its own `accept`.
-        let mut headers: Vec<(String, String)> = key.map(|key| ("authorization".to_owned(), format!("Bearer {key}"))).into_iter().collect();
-        headers.extend(profile.headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
-        headers.extend(extra_headers.iter().cloned());
-        return fetch_listing(http, profile, url, headers, key).await;
-    }
-    // `Accept` first, then the gateway's own headers (`fetchRoster`, `opencode-go-oauth-tokens.mjs` `request`).
-    let accept = profile.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("accept")).map_or("application/json", |(_, v)| *v);
-    let mut headers: Vec<(String, String)> = vec![("accept".into(), accept.into())];
-    headers.extend(profile.headers.iter().filter(|(k, _)| !k.eq_ignore_ascii_case("accept")).map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
-    headers.extend(extra_headers.iter().cloned());
-    if let Some(key) = key {
-        headers.push(("authorization".into(), format!("Bearer {key}")));
-    }
-    fetch_listing(http, profile, url, headers, key).await
-}
-
-#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-async fn fetch_listing(
-    http: &dyn HttpSend,
-    profile: &CompatProfile,
-    url: String,
-    headers: Vec<(String, String)>,
-    key: Option<&str>,
-) -> Result<serde_json::Value, ProviderError> {
-    let response = http
-        .send(
-            WireRequest {
-                transport: mixdog_core_api::domain::keepalive::TransportKind::Http1,
-                method: "GET".into(),
-                url,
-                headers,
-                body: Vec::new(),
-            },
-            compat_model_list(profile.id),
-        )
-        .await?;
-    let ok = response.is_success();
-    let body = response.read_all().await?;
-    if !ok {
-        let mut err = super::error::classify(profile, &body);
-        if let Some(key) = key {
-            err.message = redact_key(&err.message, key);
-        }
-        return Err(err);
-    }
-    Ok(serde_json::from_slice(&body.body).unwrap_or(serde_json::Value::Null))
-}
-
-struct CompatStream {
-    body: Option<Box<dyn BodyStream>>,
-    decoder: Box<dyn WireDecoder>,
-    queue: VecDeque<StreamEvent>,
-    failed: Option<ProviderError>,
-    /// The semantic idle window (`nextAsyncWithWatchdog`, `semanticIdleDeadlineAt`): started by the first output and again
-    /// by each later progress; a keepalive does not ([`IdleWatch::note`]).
-    idle: IdleWatch,
-}
-
-impl CompatStream {
-    fn new(body: Box<dyn BodyStream>, decoder: Box<dyn WireDecoder>) -> Self {
-        Self {
-            body: Some(body),
-            decoder,
-            queue: VecDeque::new(),
-            failed: None,
-            idle: IdleWatch::off(),
-        }
-    }
-
-    fn with_idle(mut self, idle: IdleWatch) -> Self {
-        self.idle = idle;
-        self
-    }
-}
-
-#[async_trait]
-impl ModelStream for CompatStream {
-    async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
-        loop {
-            if let Some(event) = self.queue.pop_front() {
-                return Some(Ok(event));
-            }
-            if let Some(err) = self.failed.take() {
-                return Some(Err(err));
-            }
-            let body = self.body.as_mut()?;
-            // The terminal event ends the attempt; anything after it is dropped.
-            if self.decoder.terminal_seen() {
-                self.body = None;
-                return None;
-            }
-            let read = match self.idle.read(body.next()).await {
-                Ok(read) => read,
-                Err(Stalled) => {
-                    self.body = None;
-                    self.failed = Some(self.idle.stalled(self.decoder.exposure()));
-                    continue;
-                }
-            };
-            match read {
-                Some(Ok(chunk)) => match self.decoder.feed(&chunk) {
-                    Ok(events) => {
-                        self.idle.note(&events);
-                        self.queue.extend(events);
-                    }
-                    Err(err) => {
-                        self.body = None;
-                        self.failed = Some(err);
-                    }
-                },
-                Some(Err(fault)) => {
-                    self.body = None;
-                    let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
-                    // Node reads the body through the OpenAI SDK's `fetch` (`consumeCompatChatCompletionStream`), whose
-                    // socket failure mid-body is undici's `TypeError: terminated`.
-                    err.message = crate::transport::link::TERMINATED.to_owned();
-                    err.exposure = self.decoder.exposure();
-                    self.failed = Some(err);
-                }
-                None => {
-                    self.body = None;
-                    match self.decoder.finish() {
-                        Ok(events) => self.queue.extend(events),
-                        Err(err) => self.failed = Some(err),
-                    }
-                }
-            }
-        }
-    }
-
-    fn delivery(&self) -> DeliveryState {
-        DeliveryState::Accepted
-    }
-
-    /// A leaf: `next` awaits nothing after the wire's terminal event.
-    fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
-}
-
-#[cfg(test)]
-mod site_tests {
-    use super::*;
-    use crate::transport::site_probe::TimingOut;
-    use crate::transport::site_probe::assert_thrown;
-    use crate::transport::site_probe::assert_transport;
-
-    /// A model list that outlives its timer reads as the real Node function did (`sites.compatModelList`): the
-    /// labelled `"<provider> model list"` timer.
-    #[tokio::test(start_paused = true)]
-    async fn a_model_list_that_outlives_its_timer_reads_as_nodes() {
-        let transport = TimingOut::new();
-        let profile = CompatProfile::plain("groq", "http://x.test/v1", CredentialKind::Keyless);
-        let error = fetch_json(transport.as_ref(), &profile, "http://x.test/v1/models".to_owned(), &[], None)
-            .await
-            .expect_err("the endpoint never answers");
-        assert_transport("compatModelList", &transport);
-        assert_thrown("compatModelList", &error.message);
-    }
-}
-
-#[cfg(test)]
-mod idle_tests {
-    use super::*;
-    use crate::providers::idle::testing::Echo;
-    use crate::providers::idle::testing::Timetable;
-
-    /// The window runs from the last progress: a keepalive does not move it (`semanticIdleDeadlineAt`).
-    #[tokio::test(start_paused = true)]
-    async fn a_keepalive_does_not_hold_the_semantic_window() {
-        let idle = IdleWatch::new(Some(20_000.0), "deepseek SSE idle");
-        let mut stream = CompatStream::new(Timetable::of(&[(0, "a"), (15, "k"), (15, "k")]), Box::new(Echo)).with_idle(idle);
-        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::TextDelta(_)))));
-        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::ProviderKeepalive))));
-        let err = stream.next().await.expect("the stall").expect_err("a stall");
-        assert_eq!(err.code.as_deref(), Some("ESTREAMSTALL"));
-        assert_eq!(err.message, "deepseek SSE idle stream timed out after 20000ms of inactivity");
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn the_watchdog_switched_off_leaves_the_read_unbounded() {
-        let mut stream = CompatStream::new(Timetable::of(&[(0, "a")]), Box::new(Echo)).with_idle(IdleWatch::new(None, "deepseek SSE idle"));
-        assert!(stream.next().await.is_some());
-        assert!(mixdog_rt::time::timeout(std::time::Duration::from_secs(100_000), stream.next()).await.is_err());
     }
 }

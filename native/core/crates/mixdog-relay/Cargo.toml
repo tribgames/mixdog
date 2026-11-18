@@ -21,24 +21,9 @@ path = "src/main.rs"
 # The scripted host the twin tests drive (`relay_twin_host`) and the helpers a replay package needs.
 test-support = []
 
-[[bin]]
-name = "relay_twin_host"
-path = "src/bin/relay_twin_host.rs"
-required-features = ["test-support"]
-
-[[test]]
-name = "twin"
-path = "tests/twin/main.rs"
-required-features = ["test-support"]
-
 [[test]]
 name = "smtp"
 path = "tests/smtp.rs"
-required-features = ["test-support"]
-
-[[test]]
-name = "smtp_twin"
-path = "tests/smtp_twin.rs"
 required-features = ["test-support"]
 
 [[test]]
@@ -107,11 +92,11 @@ mixdog-testkit = { workspace = true }
 rcgen = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "io-util", "sync", "time", "test-util", "process"] }
-
-[[test]]
-name = "twin_perf"
-path = "tests/twin_perf.rs"
-required-features = ["test-support"]
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (<build-tools>\unify-test-features.py).
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-relay = { path = ".", features = ["test-support"] }
 
 [[test]]
 name = "legs_phone"

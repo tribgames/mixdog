@@ -11,6 +11,8 @@ import type {
   HostUpdateReportParams,
   JsonValue,
 } from '../../../../../packages/protocol/src/index.ts';
+import { BROWSER_DIALOG_APPROVAL_SESSIONS_KEY } from '../../shared/browser-approval-sessions';
+import { sendHostState } from './browser-tabs';
 import { HOST_METHOD, type HostConnection, HostRpcError, HOST_INVALID_PARAMS, objectParams } from './connection';
 
 export type PowerEvent = HostPowerParams['event'];
@@ -38,6 +40,10 @@ export function createHostReports(
 ) {
   let target: RemoteTarget | null = null;
   let updaterState: JsonValue | undefined;
+  let browserApprovalSessions: string[] = [];
+  const sendBrowserApprovalSessions = (): void => {
+    void sendHostState(connection, { key: BROWSER_DIALOG_APPROVAL_SESSIONS_KEY, value: browserApprovalSessions }).catch(() => undefined);
+  };
 
   if (updater) {
     connection.handleRequest('host/update/command', async (params) => {
@@ -76,6 +82,11 @@ export function createHostReports(
       updaterState = state;
       connection.notify(HOST_METHOD.updateReport, { state } satisfies HostUpdateReportParams);
     },
+    /** Only the ids of sessions with a PC dialog open; `[]` clears the last mark. */
+    browserApprovalSessions(sessionIds: string[]): void {
+      browserApprovalSessions = sessionIds;
+      sendBrowserApprovalSessions();
+    },
     /** The SSH tunnel to a server core, or null for the local core. */
     setRemoteTarget(next: RemoteTarget | null): Promise<unknown> {
       target = next;
@@ -87,6 +98,7 @@ export function createHostReports(
         connection.notify(HOST_METHOD.updateReport, { state: updaterState } satisfies HostUpdateReportParams);
       }
       if (target) void sendTarget().catch(() => undefined);
+      sendBrowserApprovalSessions();
     },
   };
 }

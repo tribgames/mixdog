@@ -6,7 +6,12 @@
  */
 import type { WebContents } from 'electron';
 
-import { normalizeModifierMask, type SendBrowserInput, SHIFT_MODIFIER } from './input-primitives';
+import {
+  type BrowserInputOutcome,
+  normalizeModifierMask,
+  type SendBrowserInput,
+  SHIFT_MODIFIER,
+} from './input-primitives';
 
 interface KeySpec {
   key: string;
@@ -205,10 +210,15 @@ export function createKeyboardInput(send: SendBrowserInput, options: { allowClip
       return;
     // Control+Enter is a shortcut, not a newline: a shortcut never types.
     if (spec.text && typesText) {
-      if (
-        (await send(guest, 'Input.dispatchKeyEvent', { ...base, type: 'char', text: spec.text }, signal)) === 'dialog'
-      )
-        return;
+      let typed: BrowserInputOutcome;
+      try {
+        typed = await send(guest, 'Input.dispatchKeyEvent', { ...base, type: 'char', text: spec.text }, signal);
+      } catch (error) {
+        // The key is down: its release is still sent (the sender decides whether it may go out), then the failure stands.
+        await send(guest, 'Input.dispatchKeyEvent', { ...base, type: 'keyUp' }, signal).catch(() => undefined);
+        throw error;
+      }
+      if (typed === 'dialog') return;
     }
     await send(guest, 'Input.dispatchKeyEvent', { ...base, type: 'keyUp' }, signal);
   }

@@ -92,6 +92,7 @@ async fn the_barrier_waits_for_the_writes_before_it_and_not_the_later_ones() {
     assert_eq!(workers.marks().committed(), mark, "the later write was still open when the barrier answered");
 }
 
+#[cfg(node_twin)]
 /// What a replayed scenario's store saw, in ms since `started` (the write): the header patch attempts, the rows it took, and the
 /// flushes that settled; `left` is how many more attempts it refuses.
 struct Scene {
@@ -103,7 +104,9 @@ struct Scene {
     moved: tokio::sync::Notify,
 }
 
+#[cfg(node_twin)]
 impl Scene {
+    #[cfg(node_twin)]
     fn now(&self) -> u64 {
         self.started.elapsed().as_millis() as u64
     }
@@ -160,9 +163,11 @@ impl Scene {
     }
 }
 
+#[cfg(node_twin)]
 /// Headers whose patches are refused for the first `left` attempts of the scene.
 struct Flaky(Arc<Scene>);
 
+#[cfg(node_twin)]
 #[async_trait::async_trait]
 impl ThreadState for Flaky {
     async fn header(&self, _: &ThreadId) -> Result<mixdog_store::schema::record::Header, PortError> {
@@ -188,6 +193,7 @@ impl ThreadState for Flaky {
     }
 }
 
+#[cfg(node_twin)]
 /// A flush the replay started: its barrier is sent before this returns (the first poll), and its answer is stamped on the scene.
 async fn start_flush(workers: &Arc<StoreWorkers>, scene: &Arc<Scene>, id: &str) {
     let (workers, scene, id) = (workers.clone(), scene.clone(), id.to_owned());
@@ -200,10 +206,12 @@ async fn start_flush(workers: &Arc<StoreWorkers>, scene: &Arc<Scene>, id: &str) 
     drop(tokio::spawn(flush));
 }
 
+#[cfg(node_twin)]
 /// The warnings the replay's thread logs, as the product's subscriber writes them.
 #[derive(Clone, Default)]
 struct Logged(Arc<Mutex<Vec<u8>>>);
 
+#[cfg(node_twin)]
 impl std::io::Write for Logged {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.0.lock().unwrap().extend_from_slice(bytes);
@@ -214,6 +222,17 @@ impl std::io::Write for Logged {
     }
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_failed_write_before_the_barrier_is_its_error() {
+    let (_dir, workers) = workers(Arc::new(GatedHeaders::default())).await;
+    workers.write("bad", None);
+    let answer = tokio::time::timeout(DEADLINE, workers.marks().reached(workers.marks().accepted())).await.expect("the barrier did not answer within 10 s");
+    let error = answer.expect_err("the failed patch is the barrier's error");
+    assert!(error.starts_with("the agent index: write 1, accepted before the barrier, failed: the worker row of bad"), "{error}");
+}
+
+
+#[cfg(node_twin)]
 /// `fixtures/agent-index-retry` (record-agent-index-retry.mjs): Node's index write queue tries a refused persist four times, after
 /// 50, 250 and 1000 ms, stops at the first success, rejects its flush after the fourth refusal and keeps the batch for a later
 /// flush or the 15 s retry; a flush that arrives during a round the retry timer started ends with that round; a write that
@@ -304,13 +323,4 @@ async fn a_refused_header_write_is_retried_as_nodes_index_queue_retries_it() {
         }
     }
     assert_eq!(armed.into_iter().collect::<Vec<_>>(), { let mut all = product.clone(); all.sort_unstable(); all }, "the recorded delays are the product's");
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_failed_write_before_the_barrier_is_its_error() {
-    let (_dir, workers) = workers(Arc::new(GatedHeaders::default())).await;
-    workers.write("bad", None);
-    let answer = tokio::time::timeout(DEADLINE, workers.marks().reached(workers.marks().accepted())).await.expect("the barrier did not answer within 10 s");
-    let error = answer.expect_err("the failed patch is the barrier's error");
-    assert!(error.starts_with("the agent index: write 1, accepted before the barrier, failed: the worker row of bad"), "{error}");
 }

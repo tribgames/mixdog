@@ -951,6 +951,85 @@ test('resolveToolApproval answers the server request the card shows with the cor
   assert.equal(calls.length, 2);
 });
 
+// The core's card shows its own id (`params.card.id`, room_approval.rs `card_id`), not the request's: an answer naming the card's id
+// reaches the request, which `thread/approval/answer` names by its own id.
+test('resolveToolApproval finds the request by the id its card shows', async () => {
+  const { emit, lane, calls } = recordingLane(async () => ({ accepted: true }));
+  emit({
+    type: 'serverRequest',
+    request: {
+      id: 12,
+      method: 'item/tool/requestApproval',
+      params: { threadId: 'bot-1', turnId: 't', itemId: 'i12', order: 1, request: { name: 'mcp__gmail__send' }, card: { id: 'itm_abc', kind: 'outbound' } },
+    },
+  });
+  assert.equal(await lane.resolveToolApproval('bot-1', 'itm_abc', { approved: true, response: 'edit-and-approve', editedArgs: { body: 'x' } }), true);
+  assert.deepEqual(calls, [
+    { method: 'thread/approval/answer', params: { threadId: 'bot-1', approvalId: '12', result: { approved: true, response: 'edit-and-approve', editedArgs: { body: 'x' } } } },
+  ]);
+});
+
+const askWithCard = (id, thread, cardId, surface) => ({
+  type: 'serverRequest',
+  request: {
+    id,
+    method: 'item/tool/requestApproval',
+    params: { threadId: thread, ...(surface ? { surfaceThreadId: surface } : {}), turnId: 't', itemId: `i${id}`, order: Number(id), request: { name: 'shell' }, card: { id: cardId } },
+  },
+});
+
+test('with two derived-id approvals pending on one surface, answering the second answers the second', async () => {
+  const { emit, lane, calls } = recordingLane(async () => ({ accepted: true }));
+  emit(askWithCard(1, 'pane-1', 'itm_a'));
+  emit(askWithCard(2, 'pane-1', 'itm_b'));
+  assert.equal(await lane.resolveToolApproval('pane-1', 'itm_b', { approved: true }), true);
+  assert.deepEqual(calls, [{ method: 'thread/approval/answer', params: { threadId: 'pane-1', approvalId: '2', result: { approved: true } } }]);
+});
+
+test('an answer from the wrong surface is refused and sends nothing', async () => {
+  const { emit, lane, calls } = recordingLane(async () => ({ accepted: true }));
+  emit(askWithCard(1, 'pane-1', 'itm_a'));
+  emit(askWithCard(2, 'pane-2', 'itm_b'));
+  assert.equal(await lane.resolveToolApproval('pane-2', 'itm_a', { approved: true }), false);
+  assert.equal(await lane.resolveToolApproval('pane-1', 'itm_b', { approved: true }), false);
+  assert.equal(calls.length, 0);
+});
+
+test('a derived-id request of a child thread is answered from its surface only, and sent to the owning thread', async () => {
+  const { emit, lane, calls } = recordingLane(async () => ({ accepted: true }));
+  emit(askWithCard(3, 'sub-1', 'itm_c', 'pane-1'));
+  assert.equal(await lane.resolveToolApproval('sub-1', 'itm_c', { approved: true }), false);
+  assert.equal(calls.length, 0);
+  assert.equal(await lane.resolveToolApproval('pane-1', 'itm_c', { approved: true }), true);
+  assert.deepEqual(calls, [{ method: 'thread/approval/answer', params: { threadId: 'sub-1', approvalId: '3', result: { approved: true } } }]);
+});
+
+test('the raw request id still resolves a request that carries a card id, and is refused once it settled', async () => {
+  const { emit, lane, calls } = recordingLane(async () => ({ accepted: true }));
+  emit(askWithCard(4, 'pane-1', 'itm_d'));
+  assert.equal(await lane.resolveToolApproval('pane-1', '4', { approved: true }), true);
+  assert.equal(calls[0].params.approvalId, '4');
+  emit({ type: 'serverRequestResolved', params: { requestId: 4 } });
+  assert.equal(await lane.resolveToolApproval('pane-1', '4', { approved: true }), false);
+  assert.equal(await lane.resolveToolApproval('pane-1', 'itm_d', { approved: true }), false);
+  assert.equal(calls.length, 1);
+});
+
+test('every decision kind is delivered unchanged when the answer names the derived card id', async () => {
+  const decisions = [
+    { approved: true, remember: 'once' },
+    { approved: true, remember: 'session' },
+    { approved: true, remember: 'always' },
+    { approved: false, reason: 'no' },
+  ];
+  for (const [index, decision] of decisions.entries()) {
+    const { emit, lane, calls } = recordingLane(async () => ({ accepted: true }));
+    emit(askWithCard(10 + index, 'pane-1', `itm_${index}`));
+    assert.equal(await lane.resolveToolApproval('pane-1', `itm_${index}`, { ...decision, device: 'PC' }), true);
+    assert.deepEqual(calls, [{ method: 'thread/approval/answer', params: { threadId: 'pane-1', approvalId: String(10 + index), result: decision } }]);
+  }
+});
+
 // A request this connection holds under another surface (a sub-agent's, shown on its parent chat) is not answered from the child's
 // own session id, and a request it does not hold is not sent at all: the answer would otherwise reach whatever the core asks under
 // that thread and id.

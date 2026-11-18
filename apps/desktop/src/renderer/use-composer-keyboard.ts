@@ -103,7 +103,11 @@ interface ComposerKeyboardOptions {
   };
   actions: {
     send(slashOverride?: string, source?: DesktopRendererComposerActionDiagnostic['source']): Promise<void>;
-    stop(preserveDraft?: boolean, submissionId?: string): Promise<void>;
+    stop(
+      preserveDraft?: boolean,
+      submissionId?: string,
+      source?: DesktopRendererComposerActionDiagnostic['source']
+    ): Promise<void>;
     clearAttachments(): void;
   };
 }
@@ -354,7 +358,8 @@ export function useComposerKeyboard({
         event.preventDefault();
         void actions.stop(
           Boolean(draft.value || runtime.attachments.length),
-          runtime.turnBusy ? '' : runtime.pendingSubmissionId
+          runtime.turnBusy ? '' : runtime.pendingSubmissionId,
+          'escape'
         );
       } else if (escapeIntent.action === 'collapse-selection') {
         event.preventDefault();

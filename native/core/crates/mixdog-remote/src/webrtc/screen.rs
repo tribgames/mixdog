@@ -159,41 +159,6 @@ fn checked_size(size: LockedSize) -> Result<(usize, usize), MediaError> {
     Ok((size.width as usize, size.height as usize))
 }
 
-fn bgrx_frame(pixels: Vec<u8>, size: LockedSize, seq: u64, captured_at: std::time::Duration) -> VideoFrame {
-    VideoFrame { width: size.width, height: size.height, stride: size.width * 4, format: PixelFormat::Bgrx, data: Bytes::from(pixels), seq, captured_at }
-}
-
-/// `frame` as a picture of exactly `size`: itself when it already is one, otherwise scaled whole onto it.
-pub fn lock_frame(frame: &VideoFrame, size: LockedSize) -> Result<VideoFrame, MediaError> {
-    let (width, height) = checked_size(size)?;
-    if frame.width == size.width && frame.height == size.height {
-        return Ok(frame.clone());
-    }
-    let mut pixels = vec![0u8; width * height * 4];
-    let whole = |raster: &Raster<'_>| Area { x: 0.0, y: 0.0, width: raster.width as f64, height: raster.height as f64 };
-    let target = Area { x: 0.0, y: 0.0, width: width as f64, height: height as f64 };
-    match frame.format {
-        PixelFormat::Bgra | PixelFormat::Bgrx => {
-            let raster = Raster::bgrx(&frame.data, frame.stride as usize, frame.width as usize, frame.height as usize)?;
-            draw(&mut pixels, width, height, &raster, whole(&raster), target);
-        }
-        PixelFormat::Jpeg => {
-            let mut decoder = jpeg_decoder::Decoder::new(&frame.data[..]);
-            let decoded = decoder.decode().map_err(|error| invalid(format!("jpeg: {error}")))?;
-            let info = decoder.info().ok_or_else(|| invalid("jpeg: no header"))?;
-            let (picture_width, picture_height) = (usize::from(info.width), usize::from(info.height));
-            let raster = match info.pixel_format {
-                jpeg_decoder::PixelFormat::RGB24 => Raster::rgb(&decoded, picture_width, picture_height)?,
-                jpeg_decoder::PixelFormat::L8 => Raster::gray(&decoded, picture_width, picture_height)?,
-                other => return Err(invalid(format!("jpeg pixel format {other:?}"))),
-            };
-            draw(&mut pixels, width, height, &raster, whole(&raster), target);
-        }
-        PixelFormat::I420 => return Err(invalid("an I420 picture of another size cannot be scaled")),
-    }
-    Ok(bgrx_frame(pixels, size, frame.seq, frame.captured_at))
-}
-
 /// A display's capture as the encoder reads it: every picture of the locked size. A picture that cannot be scaled (a torn JPEG) is
 /// skipped, as a junk frame is anywhere else.
 pub struct LockedCapture {
@@ -206,29 +171,6 @@ pub struct LockedCapture {
 impl LockedCapture {
     pub fn new(inner: Box<dyn MediaFrameSource>, size: LockedSize, first: Box<dyn FnOnce() + Send>) -> Self {
         Self { inner, size, first: Some(first) }
-    }
-}
-
-#[async_trait]
-impl MediaFrameSource for LockedCapture {
-    fn kind(&self) -> FrameSourceKind {
-        self.inner.kind()
-    }
-
-    /// Cancel-safe when the capture is: a picture is taken from it only in the poll that returns it (a skipped one is gone).
-    async fn next_frame(&mut self) -> Result<Option<VideoFrame>, MediaError> {
-        loop {
-            let Some(frame) = self.inner.next_frame().await? else { return Ok(None) };
-            match lock_frame(&frame, self.size) {
-                Ok(locked) => {
-                    if let Some(first) = self.first.take() {
-                        first();
-                    }
-                    return Ok(Some(locked));
-                }
-                Err(error) => tracing::debug!(?error, "a screen picture was skipped"),
-            }
-        }
     }
 }
 
@@ -296,32 +238,6 @@ fn compose(drawn: &DrawnPicture) -> Result<(Vec<u8>, LockedSize), MediaError> {
     Ok((pixels, drawn.size))
 }
 
-#[async_trait]
-impl MediaFrameSource for DrawnSource {
-    fn kind(&self) -> FrameSourceKind {
-        FrameSourceKind::SecureDesktop
-    }
-
-    /// Cancel-safe: a picture is taken only in the poll that returns it.
-    async fn next_frame(&mut self) -> Result<Option<VideoFrame>, MediaError> {
-        loop {
-            if self.rx.changed().await.is_err() {
-                return Ok(None);
-            }
-            let Some(drawn) = self.rx.borrow_and_update().clone() else { continue };
-            match compose(&drawn) {
-                Ok((pixels, size)) => {
-                    let frame = bgrx_frame(pixels, size, self.seq, self.origin.elapsed());
-                    self.seq += 1;
-                    (self.delivered)(drawn.epoch);
-                    return Ok(Some(frame));
-                }
-                Err(error) => tracing::debug!(?error, "a helper picture was skipped"),
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -339,51 +255,6 @@ mod tests {
     fn pixel(frame: &VideoFrame, x: usize, y: usize) -> [u8; 3] {
         let at = y * frame.stride as usize + x * 4;
         [frame.data[at], frame.data[at + 1], frame.data[at + 2]]
-    }
-
-    #[test]
-    fn a_picture_of_another_size_is_scaled_onto_the_locked_one() {
-        let locked = lock_frame(&solid(8, 6, [10, 20, 30]), LockedSize { width: 4, height: 2 }).unwrap();
-        assert_eq!((locked.width, locked.height, locked.stride, locked.format), (4, 2, 16, PixelFormat::Bgrx));
-        assert_eq!((locked.seq, locked.captured_at), (3, Duration::from_millis(7)));
-        for y in 0..2 {
-            for x in 0..4 {
-                assert_eq!(pixel(&locked, x, y), [10, 20, 30]);
-            }
-        }
-    }
-
-    #[test]
-    fn a_picture_of_the_locked_size_passes_untouched() {
-        let frame = solid(4, 4, [1, 2, 3]);
-        let locked = lock_frame(&frame, LockedSize { width: 4, height: 4 }).unwrap();
-        assert_eq!(locked, frame);
-    }
-
-    #[test]
-    fn scaling_keeps_where_things_are() {
-        // Left half white, right half black, 8 pixels wide, scaled to 4.
-        let mut data = Vec::new();
-        for _ in 0..2 {
-            for x in 0..8 {
-                let value = if x < 4 { 255 } else { 0 };
-                data.extend_from_slice(&[value, value, value, 0]);
-            }
-        }
-        let frame = VideoFrame { width: 8, height: 2, stride: 32, format: PixelFormat::Bgrx, data: Bytes::from(data), seq: 0, captured_at: Duration::ZERO };
-        let locked = lock_frame(&frame, LockedSize { width: 4, height: 2 }).unwrap();
-        assert_eq!(pixel(&locked, 0, 0), [255, 255, 255]);
-        assert_eq!(pixel(&locked, 3, 1), [0, 0, 0]);
-    }
-
-    #[test]
-    fn a_torn_picture_and_a_size_out_of_bounds_are_refused() {
-        let torn = VideoFrame { width: 8, height: 8, stride: 32, format: PixelFormat::Bgrx, data: Bytes::from_static(&[0; 10]), seq: 0, captured_at: Duration::ZERO };
-        assert!(lock_frame(&torn, LockedSize { width: 4, height: 4 }).is_err());
-        assert!(lock_frame(&solid(2, 2, [0; 3]), LockedSize { width: 0, height: 4 }).is_err());
-        assert!(lock_frame(&solid(2, 2, [0; 3]), LockedSize { width: MAX_DIMENSION + 2, height: 4 }).is_err());
-        let jpeg = VideoFrame { width: 4, height: 4, stride: 0, format: PixelFormat::Jpeg, data: Bytes::from_static(&[1, 2, 3]), seq: 0, captured_at: Duration::ZERO };
-        assert!(lock_frame(&jpeg, LockedSize { width: 2, height: 2 }).is_err());
     }
 
     struct Scripted {
@@ -480,5 +351,130 @@ mod tests {
         assert!(source.next_frame().now_or_never().is_none());
         sink.push(DrawnPicture { epoch: 2, size: LockedSize { width: 2, height: 2 }, picture: helper_picture(2, 2, [1, 1, 1], area, area) });
         assert!(source.next_frame().await.unwrap().is_some());
+    }
+
+
+    #[test]
+    fn a_picture_of_another_size_is_scaled_onto_the_locked_one() {
+        let locked = lock_frame(&solid(8, 6, [10, 20, 30]), LockedSize { width: 4, height: 2 }).unwrap();
+        assert_eq!((locked.width, locked.height, locked.stride, locked.format), (4, 2, 16, PixelFormat::Bgrx));
+        assert_eq!((locked.seq, locked.captured_at), (3, Duration::from_millis(7)));
+        for y in 0..2 {
+            for x in 0..4 {
+                assert_eq!(pixel(&locked, x, y), [10, 20, 30]);
+            }
+        }
+    }
+    #[test]
+    fn a_picture_of_the_locked_size_passes_untouched() {
+        let frame = solid(4, 4, [1, 2, 3]);
+        let locked = lock_frame(&frame, LockedSize { width: 4, height: 4 }).unwrap();
+        assert_eq!(locked, frame);
+    }
+    #[test]
+    fn scaling_keeps_where_things_are() {
+        // Left half white, right half black, 8 pixels wide, scaled to 4.
+        let mut data = Vec::new();
+        for _ in 0..2 {
+            for x in 0..8 {
+                let value = if x < 4 { 255 } else { 0 };
+                data.extend_from_slice(&[value, value, value, 0]);
+            }
+        }
+        let frame = VideoFrame { width: 8, height: 2, stride: 32, format: PixelFormat::Bgrx, data: Bytes::from(data), seq: 0, captured_at: Duration::ZERO };
+        let locked = lock_frame(&frame, LockedSize { width: 4, height: 2 }).unwrap();
+        assert_eq!(pixel(&locked, 0, 0), [255, 255, 255]);
+        assert_eq!(pixel(&locked, 3, 1), [0, 0, 0]);
+    }
+    #[test]
+    fn a_torn_picture_and_a_size_out_of_bounds_are_refused() {
+        let torn = VideoFrame { width: 8, height: 8, stride: 32, format: PixelFormat::Bgrx, data: Bytes::from_static(&[0; 10]), seq: 0, captured_at: Duration::ZERO };
+        assert!(lock_frame(&torn, LockedSize { width: 4, height: 4 }).is_err());
+        assert!(lock_frame(&solid(2, 2, [0; 3]), LockedSize { width: 0, height: 4 }).is_err());
+        assert!(lock_frame(&solid(2, 2, [0; 3]), LockedSize { width: MAX_DIMENSION + 2, height: 4 }).is_err());
+        let jpeg = VideoFrame { width: 4, height: 4, stride: 0, format: PixelFormat::Jpeg, data: Bytes::from_static(&[1, 2, 3]), seq: 0, captured_at: Duration::ZERO };
+        assert!(lock_frame(&jpeg, LockedSize { width: 2, height: 2 }).is_err());
+    }
+}
+
+
+fn bgrx_frame(pixels: Vec<u8>, size: LockedSize, seq: u64, captured_at: std::time::Duration) -> VideoFrame {
+    VideoFrame { width: size.width, height: size.height, stride: size.width * 4, format: PixelFormat::Bgrx, data: Bytes::from(pixels), seq, captured_at }
+}
+/// `frame` as a picture of exactly `size`: itself when it already is one, otherwise scaled whole onto it.
+pub fn lock_frame(frame: &VideoFrame, size: LockedSize) -> Result<VideoFrame, MediaError> {
+    let (width, height) = checked_size(size)?;
+    if frame.width == size.width && frame.height == size.height {
+        return Ok(frame.clone());
+    }
+    let mut pixels = vec![0u8; width * height * 4];
+    let whole = |raster: &Raster<'_>| Area { x: 0.0, y: 0.0, width: raster.width as f64, height: raster.height as f64 };
+    let target = Area { x: 0.0, y: 0.0, width: width as f64, height: height as f64 };
+    match frame.format {
+        PixelFormat::Bgra | PixelFormat::Bgrx => {
+            let raster = Raster::bgrx(&frame.data, frame.stride as usize, frame.width as usize, frame.height as usize)?;
+            draw(&mut pixels, width, height, &raster, whole(&raster), target);
+        }
+        PixelFormat::Jpeg => {
+            let mut decoder = jpeg_decoder::Decoder::new(&frame.data[..]);
+            let decoded = decoder.decode().map_err(|error| invalid(format!("jpeg: {error}")))?;
+            let info = decoder.info().ok_or_else(|| invalid("jpeg: no header"))?;
+            let (picture_width, picture_height) = (usize::from(info.width), usize::from(info.height));
+            let raster = match info.pixel_format {
+                jpeg_decoder::PixelFormat::RGB24 => Raster::rgb(&decoded, picture_width, picture_height)?,
+                jpeg_decoder::PixelFormat::L8 => Raster::gray(&decoded, picture_width, picture_height)?,
+                other => return Err(invalid(format!("jpeg pixel format {other:?}"))),
+            };
+            draw(&mut pixels, width, height, &raster, whole(&raster), target);
+        }
+        PixelFormat::I420 => return Err(invalid("an I420 picture of another size cannot be scaled")),
+    }
+    Ok(bgrx_frame(pixels, size, frame.seq, frame.captured_at))
+}
+#[async_trait]
+impl MediaFrameSource for LockedCapture {
+    fn kind(&self) -> FrameSourceKind {
+        self.inner.kind()
+    }
+
+    /// Cancel-safe when the capture is: a picture is taken from it only in the poll that returns it (a skipped one is gone).
+    async fn next_frame(&mut self) -> Result<Option<VideoFrame>, MediaError> {
+        loop {
+            let Some(frame) = self.inner.next_frame().await? else { return Ok(None) };
+            match lock_frame(&frame, self.size) {
+                Ok(locked) => {
+                    if let Some(first) = self.first.take() {
+                        first();
+                    }
+                    return Ok(Some(locked));
+                }
+                Err(error) => tracing::debug!(?error, "a screen picture was skipped"),
+            }
+        }
+    }
+}
+#[async_trait]
+impl MediaFrameSource for DrawnSource {
+    fn kind(&self) -> FrameSourceKind {
+        FrameSourceKind::SecureDesktop
+    }
+
+    /// Cancel-safe: a picture is taken only in the poll that returns it.
+    async fn next_frame(&mut self) -> Result<Option<VideoFrame>, MediaError> {
+        loop {
+            if self.rx.changed().await.is_err() {
+                return Ok(None);
+            }
+            let Some(drawn) = self.rx.borrow_and_update().clone() else { continue };
+            match compose(&drawn) {
+                Ok((pixels, size)) => {
+                    let frame = bgrx_frame(pixels, size, self.seq, self.origin.elapsed());
+                    self.seq += 1;
+                    (self.delivered)(drawn.epoch);
+                    return Ok(Some(frame));
+                }
+                Err(error) => tracing::debug!(?error, "a helper picture was skipped"),
+            }
+        }
     }
 }

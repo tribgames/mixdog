@@ -33,6 +33,8 @@ struct FakeProcesses {
     limited: Mutex<std::collections::HashSet<ProcessHandle>>,
     /// Every spawn request, in order.
     seen: Mutex<Vec<(CommandSpec, EnvSpec)>>,
+    spawn_limits: Mutex<Vec<Option<std::time::Duration>>>,
+    promotion_limits: Mutex<Vec<(ProcessHandle, std::time::Duration)>>,
     /// Every script fed on stdin, in order.
     fed: Mutex<Vec<String>>,
     /// The `echo X; Start-Sleep 30` command prints nothing at spawn; the test prints later.
@@ -101,6 +103,7 @@ impl ProcessManager for FakeProcesses {
         let (tx, rx) = mpsc::unbounded_channel();
         let mut seq = 0;
         self.seen.lock().unwrap().push((request.command.clone(), request.env.clone()));
+        self.spawn_limits.lock().unwrap().push(request.time_limit);
         self.cwds.lock().unwrap().push(request.cwd.clone());
         self.read_hoisted(script);
         // A script fed on stdin acts when it arrives.
@@ -158,6 +161,11 @@ impl ProcessManager for FakeProcesses {
     }
     fn list(&self) -> Vec<ProcessInfo> {
         Vec::new()
+    }
+
+    fn arm_time_limit(&self, handle: &ProcessHandle, limit: std::time::Duration) -> Result<(), ProcessError> {
+        self.promotion_limits.lock().unwrap().push((handle.clone(), limit));
+        Ok(())
     }
 }
 
@@ -276,10 +284,6 @@ pub(super) struct Rig {
     tokens: mixdog_rt::LaneTokens,
 }
 
-fn rig() -> Rig {
-    rig_with(Arc::new(OsPromptElevation))
-}
-
 struct RefuseElevation;
 impl ElevationGate for RefuseElevation {
     fn approved(&self, _: &ToolContext, _: &str) -> bool {
@@ -287,18 +291,348 @@ impl ElevationGate for RefuseElevation {
     }
 }
 
+pub(super) fn body(outcome: ToolOutcome) -> String {
+    match outcome {
+        Ok(out) => match &out.parts[0] {
+            ToolPart::Text(t) => t.clone(),
+            _ => panic!("not text"),
+        },
+        Err(e) => e.message_for_model,
+    }
+}
+
+/// Replaces what differs per run: the task id, timestamps and log paths.
+fn normalize(text: &str) -> String {
+    let id = regex::Regex::new(r"task-[A-Za-z0-9_]+").unwrap().replace_all(text, "JOB").into_owned();
+    let ts = regex::Regex::new(r"\d{4}-\d\d-\d\dT[\d:.]+Z").unwrap().replace_all(&id, "TS").into_owned();
+    regex::Regex::new(r"logs: .*").unwrap().replace_all(&ts, "logs: LOGS").into_owned()
+}
+
+struct FakeSurvivors {
+    gone: tokio::sync::Notify,
+    kill_works: std::sync::atomic::AtomicBool,
+    kills: std::sync::atomic::AtomicUsize,
+    /// A kill that has signalled holds here (when set) until the test lets it report its outcome.
+    after_kill: Option<Arc<tokio::sync::Notify>>,
+}
+
+impl FakeSurvivors {
+    fn new(kill_works: bool) -> Arc<Self> {
+        Arc::new(Self { gone: tokio::sync::Notify::new(), kill_works: kill_works.into(), kills: 0.into(), after_kill: None })
+    }
+
+    fn holding(kill_works: bool, after_kill: Arc<tokio::sync::Notify>) -> Arc<Self> {
+        Arc::new(Self { gone: tokio::sync::Notify::new(), kill_works: kill_works.into(), kills: 0.into(), after_kill: Some(after_kill) })
+    }
+}
+
+#[async_trait]
+impl SurvivorWatch for FakeSurvivors {
+    fn survivors(&self, _: &ProcessHandle) -> Option<Survivors> {
+        Some(Survivors { reachable: true })
+    }
+    async fn wait_gone(&self, _: &ProcessHandle, _: &CancellationToken) -> bool {
+        self.gone.notified().await;
+        true
+    }
+    async fn kill(&self, _: &ProcessHandle) -> bool {
+        use std::sync::atomic::Ordering::SeqCst;
+        self.kills.fetch_add(1, SeqCst);
+        let works = self.kill_works.load(SeqCst);
+        if works {
+            self.gone.notify_one();
+        }
+        if let Some(hold) = &self.after_kill {
+            hold.notified().await;
+        }
+        works
+    }
+}
+
+fn node_view(text: &str, id: &str) -> String {
+    text.replace(id, "<TASK>")
+        .lines()
+        .map(|line| match line.split_once(": ") {
+            Some((key @ ("started" | "finished"), _)) => format!("{key}: <TIME>"),
+            _ => line.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The owner's default delivery: what reached `TaskNotifier::finished`.
+#[derive(Default)]
+struct OwnerNotices(std::sync::Mutex<Vec<(String, String)>>);
+
+#[async_trait]
+impl TaskNotifier for OwnerNotices {
+    async fn finished(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, _: String) {
+        self.0.lock().unwrap().push((owner.as_str().to_owned(), format!("{surface}/{task_id}/{status}")));
+    }
+}
+
+
+// ---- invocation plan ----
+
+fn skill_runtime() -> SkillRuntime {
+    SkillRuntime {
+        platform: "win32".into(),
+        interpreter: "C:\\Mixdog\\Mixdog.exe".into(),
+        entry: "C:\\Mixdog\\entry.mjs".into(),
+        electron: true,
+    }
+}
+
+/// The bootstrap runs a script only when all of it arrived: an input that ends after half of the script (a pipe that broke
+/// part way) runs nothing of it, not even the statement the half carries whole, and exits 1; the whole script runs.
+#[cfg(windows)]
+#[test]
+fn the_bootstrap_runs_nothing_of_a_script_that_arrived_in_part() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let dir = tempfile::tempdir().unwrap();
+    let marker = dir.path().join("first-half-ran");
+    let script = format!("New-Item -ItemType File -Path '{}' | Out-Null\n# {}\nWrite-Output whole", marker.display(), "x".repeat(400));
+    let framed = super::invocation::frame_powershell_script(&script);
+    let run = |input: &str| {
+        let mut child = std::process::Command::new("powershell.exe")
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", super::invocation::POWERSHELL_BOOTSTRAP])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+        child.wait_with_output().unwrap()
+    };
+    let half = &framed[..framed.len() / 2];
+    assert!(half.contains("Out-Null\n# x"), "the half carries the first statement whole");
+    let cut = run(half);
+    assert!(!marker.exists(), "the first half of a script that arrived in part ran");
+    assert_eq!(cut.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&cut.stderr).trim(), "the command arrived incomplete and was not run");
+    assert_eq!(String::from_utf8_lossy(&cut.stdout), "");
+    let whole = run(&framed);
+    assert!(marker.exists(), "the whole script ran");
+    assert_eq!((whole.status.code(), String::from_utf8_lossy(&whole.stdout).trim()), (Some(0), "whole"));
+}
+
+/// A shell source like the daemon's: the default is probed when first needed, kept, and dropped by
+/// a setting change (`setConfiguredShell`). Each probe finds the next installation in `installs`.
+#[derive(Default)]
+struct ChangingShell {
+    state: std::sync::Mutex<(String, Option<String>)>,
+    probes: std::sync::atomic::AtomicUsize,
+}
+
+impl ChangingShell {
+    fn set(&self, value: &str) {
+        let mut state = self.state.lock().unwrap();
+        if state.0 != value {
+            *state = (value.to_owned(), None);
+        }
+    }
+}
+
+impl ShellSource for ChangingShell {
+    fn configured(&self) -> String {
+        self.state.lock().unwrap().0.clone()
+    }
+    fn kept_default(&self) -> Option<String> {
+        self.state.lock().unwrap().1.clone()
+    }
+    fn resolve_default(&self) -> String {
+        let n = self.probes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        format!("C:\\Host\\pwsh{n}.exe")
+    }
+    fn keep_default(&self, configured: &str, program: String) {
+        let mut state = self.state.lock().unwrap();
+        if state.0 == configured {
+            state.1 = Some(program);
+        }
+    }
+}
+
+const LONG_SLEEP: &str = if cfg!(windows) { "Start-Sleep 30" } else { "sleep 30" };
+
+/// Delegates to the real process manager and reports the first spawned process's exit. With
+/// `hold_caller`, the spawning caller is held after the spawn until the child has filled its
+/// replay ring (its reader is parked behind a subscriber) or has exited: the schedule where the
+/// job's task runs only after the child wrote more than the ring holds.
+struct ExitSignal {
+    inner: mixdog_spawn::LocalProcessManager,
+    exited: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    hold_caller: bool,
+}
+
+#[async_trait]
+impl ProcessManager for ExitSignal {
+    async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
+        let (options, ended) = self.options();
+        let spawned = self.inner.spawn_with(request, options).await?;
+        self.hold(&spawned.handle, ended).await;
+        Ok(spawned)
+    }
+    async fn spawn_subscribed(
+        &self,
+        request: SpawnRequest,
+    ) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
+        let (options, ended) = self.options();
+        let spawned = self.inner.spawn_subscribed_with(request, options).await?;
+        self.hold(&spawned.0.handle, ended).await;
+        Ok(spawned)
+    }
+    fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+        self.inner.subscribe(handle, from_seq)
+    }
+    async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+        self.inner.write_stdin(handle, bytes).await
+    }
+    fn close_stdin(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+        self.inner.close_stdin(handle)
+    }
+    fn resize_pty(&self, handle: &ProcessHandle, size: PtySize) -> Result<(), ProcessError> {
+        self.inner.resize_pty(handle, size)
+    }
+    fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+        self.inner.kill(handle)
+    }
+    fn list(&self) -> Vec<ProcessInfo> {
+        self.inner.list()
+    }
+}
+// ---- the shell's refusal of a command the built-in tools cover: recorded from Node ----
+
+/// A workspace file's bytes from its recipe: hex, or text (repeated, with a trailing piece, in UTF-16 with a BOM).
+#[cfg(node_twin)]
+fn recipe_bytes(f: &JsonValue) -> Vec<u8> {
+    if let Some(h) = f.get("hex").and_then(JsonValue::as_str) {
+        return (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap()).collect();
+    }
+    let mut text = f["text"].as_str().unwrap().to_owned();
+    if let Some(times) = f.get("repeat").and_then(JsonValue::as_u64) {
+        text = text.repeat(times as usize);
+    }
+    if let Some(tail) = f.get("tail").and_then(JsonValue::as_str) {
+        text.push_str(tail);
+    }
+    if f.get("enc").and_then(JsonValue::as_str) == Some("utf16le") {
+        let mut out = vec![0xff, 0xfe];
+        for unit in text.encode_utf16() {
+            out.extend_from_slice(&unit.to_le_bytes());
+        }
+        return out;
+    }
+    text.into_bytes()
+}
+
+/// The recorded workspace under `dir`, and its path as Node spells it (no verbatim prefix).
+#[cfg(node_twin)]
+fn recorded_files(dir: &std::path::Path, files: &serde_json::Map<String, JsonValue>) -> std::path::PathBuf {
+    let root = dir.join("ws");
+    for (rel, f) in files {
+        let path = root.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        if f.get("remove").is_none() {
+            std::fs::write(path, recipe_bytes(f)).unwrap();
+        }
+    }
+    std::path::PathBuf::from(std::fs::canonicalize(&root).unwrap().to_string_lossy().trim_start_matches(r"\\?\"))
+}
+
+/// Every completion the owner's default delivery took, with its text.
+#[derive(Default)]
+struct Told(std::sync::Mutex<Vec<(String, String, String)>>);
+
+#[async_trait]
+impl TaskNotifier for Told {
+    async fn finished(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, notification: String) {
+        self.0.lock().unwrap().push((owner.as_str().to_owned(), format!("{surface}/{task_id}/{status}"), notification));
+    }
+}
+
+#[cfg(node_twin)]
+mod node_cases;
+
+mod unconfirmed_foreground;
+
+/// `guardShell` (`arg-guard.mjs`): the texts Node refuses a malformed shell call with, and the over-long `wait_ms`
+/// it cuts to the maximum instead of refusing.
+#[test]
+fn the_shell_argument_guard_answers_with_the_texts_of_the_argument_guard() {
+    let refusal = |args: JsonValue| shell::guard_shell_args(args).unwrap_err();
+    assert_eq!(
+        refusal(serde_json::json!({"command": "ls", "shell": "bash"})),
+        "Error: shell arg \"shell\" is unsupported; use only command, cwd, timeout_ms, wait_ms, and background"
+    );
+    assert_eq!(refusal(serde_json::json!({"command": "ls", "cwd": " "})), "Error: shell arg \"cwd\" must be a non-empty string (got string)");
+    assert_eq!(refusal(serde_json::json!({"command": "ls", "background": "yes"})), "Error: shell arg \"background\" must be a boolean (got string)");
+    assert_eq!(
+        refusal(serde_json::json!({"command": "ls", "wait_ms": 999})),
+        "Error: shell arg \"wait_ms\" must be an integer from 1000 to 600000, e.g. wait_ms:120000 (got 999)"
+    );
+    assert_eq!(
+        refusal(serde_json::json!({"command": "ls", "wait_ms": 1500.5})),
+        "Error: shell arg \"wait_ms\" must be an integer from 1000 to 600000, e.g. wait_ms:120000 (got 1500.5)"
+    );
+    assert!(refusal(serde_json::json!({"command": "ls", "wait_ms": 0})).contains("must be an integer from 1000"));
+    assert_eq!(refusal(serde_json::json!({})), "Error: shell requires \"command\"");
+    assert_eq!(refusal(serde_json::json!({"command": 3})), "Error: shell arg \"command\" must be a string (got number)");
+    assert_eq!(refusal(serde_json::json!({"command": ""})), "Error: shell arg \"command\" must be a non-empty string");
+    assert_eq!(refusal(serde_json::json!({"command": "ls", "timeout_ms": -1})), "Error: shell arg \"timeout_ms\" must be a non-negative integer (got number)");
+    assert_eq!(refusal(serde_json::json!([1])), "Error: shell arguments must be an object (got array)");
+    assert_eq!(refusal(JsonValue::Null), "Error: shell requires arguments object (got null)");
+
+    // An empty list is left as sent (`normalizeStringListArgs` keeps it) and so is refused as an unknown key.
+    assert_eq!(
+        refusal(serde_json::json!({"command": "ls", "path": []})),
+        "Error: shell arg \"path\" is unsupported; use only command, cwd, timeout_ms, wait_ms, and background"
+    );
+    // Nulls mean "not sent", a list of blanks is dropped before the key is checked, and a long wait is clamped.
+    let ok = shell::guard_shell_args(serde_json::json!({"command": "ls", "cwd": null, "path": ["", null], "wait_ms": 9_999_999, "timeout_ms": 5000})).unwrap();
+    assert_eq!(ok, serde_json::json!({"command": "ls", "wait_ms": 600000, "timeout_ms": 5000}));
+}
+
+/// The agent tool's one task as the `task` tool reaches it.
+struct FakeAgentTasks {
+    status: std::sync::Mutex<String>,
+    changed: tokio::sync::Notify,
+    cancelled: std::sync::Mutex<Vec<String>>,
+    acknowledged: std::sync::Mutex<Vec<String>>,
+}
+
+impl FakeAgentTasks {
+    fn running() -> Arc<Self> {
+        Arc::new(Self {
+            status: std::sync::Mutex::new("running".into()),
+            changed: tokio::sync::Notify::new(),
+            cancelled: Default::default(),
+            acknowledged: Default::default(),
+        })
+    }
+
+    fn end(&self, status: &str) {
+        *self.status.lock().unwrap() = status.into();
+        self.changed.notify_waiters();
+    }
+
+    fn status(&self) -> String {
+        self.status.lock().unwrap().clone()
+    }
+}
+
+fn rig() -> Rig {
+    rig_with(Arc::new(OsPromptElevation))
+}
 fn rig_with(elevation: Arc<dyn ElevationGate>) -> Rig {
     rig_full(elevation, None)
 }
-
 fn rig_full(elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNotifier>>) -> Rig {
     rig_on(mixdog_rt::testing::tokens(), elevation, notifier)
 }
-
 fn rig_on(tokens: mixdog_rt::LaneTokens, elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNotifier>>) -> Rig {
     rig_shell(tokens, elevation, notifier, false)
 }
-
 /// The rig of a session whose shell is PowerShell (`powershell`) or a POSIX one.
 fn rig_shell(tokens: mixdog_rt::LaneTokens, elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNotifier>>, powershell: bool) -> Rig {
     let review = Arc::new(super::settle::RecordingReview::default());
@@ -343,7 +677,6 @@ fn rig_shell(tokens: mixdog_rt::LaneTokens, elevation: Arc<dyn ElevationGate>, n
         tokens,
     }
 }
-
 pub(super) fn ctx(rig: &Rig, call: &str) -> ToolContext {
     let tokens = rig.tokens;
     ToolContext {
@@ -368,79 +701,6 @@ pub(super) fn ctx(rig: &Rig, call: &str) -> ToolContext {
         review: Some(rig.review.clone()),
     }
 }
-
-pub(super) fn body(outcome: ToolOutcome) -> String {
-    match outcome {
-        Ok(out) => match &out.parts[0] {
-            ToolPart::Text(t) => t.clone(),
-            _ => panic!("not text"),
-        },
-        Err(e) => e.message_for_model,
-    }
-}
-
-fn fixture(dir: &str, name: &str) -> JsonValue {
-    let path = format!("{}/../../fixtures/tools/{dir}/{name}.json", env!("CARGO_MANIFEST_DIR"));
-    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
-}
-
-#[tokio::test]
-async fn echo_matches_the_golden_fixture() {
-    let rig = rig();
-    let golden = fixture("shell", "shell-echo");
-    let text = body(rig.shell.call(&ctx(&rig, "c1"), golden["input"].clone()).await);
-    assert_eq!(text, golden["text"].as_str().unwrap());
-}
-
-/// The first job of a runtime removes the logs of ended jobs older than a week (`sweepExpiredShellOutput`), beside
-/// the command and never on its path: the command completes while the sweep is held. Only logs whose ownership
-/// record shows their job ended are taken: a running job's week-silent logs (another process's) and a user's file named
-/// like a log stay. Later jobs sweep nothing, and a job's own record shows it ended once it has.
-#[tokio::test]
-async fn the_first_job_sweeps_the_ended_jobs_logs_older_than_a_week_once_beside_the_command() {
-    let rig = rig();
-    let logs = rig.dir.path().join("l");
-    std::fs::create_dir_all(&logs).unwrap();
-    let day = std::time::Duration::from_secs(24 * 60 * 60);
-    let now = std::time::SystemTime::now();
-    let aged_with = |name: &str, body: &str, age: std::time::Duration| {
-        let path = logs.join(name);
-        std::fs::write(&path, body).unwrap();
-        std::fs::File::options().write(true).open(&path).unwrap().set_modified(now - age).unwrap();
-        path
-    };
-    let aged = |name: &str, age| aged_with(name, "", age);
-    let job = |id: &str, state: &str, age| {
-        [
-            aged(&format!("{id}.stdout.log"), age),
-            aged(&format!("{id}.stderr.log"), age),
-            aged_with(&format!("{id}.owner.json"), &format!(r#"{{"pid":1,"state":"{state}"}}"#), age),
-        ]
-    };
-    let expired = job("task-old", "finished", day * 8);
-    let recent = job("task-recent", "finished", day * 6);
-    let live = job("task-live-elsewhere", "running", day * 8);
-    let users = aged("task-my-personal-notes.stdout.log", day * 8);
-    let foreign = aged("notes.txt", day * 8);
-    let gate = super::spill::sweep_gate::hold(&logs);
-    let golden = fixture("shell", "shell-echo");
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(60), rig.shell.call(&ctx(&rig, "c1"), golden["input"].clone()))
-        .await
-        .expect("the command completes while the log sweep is held")
-        .unwrap();
-    assert!(expired.iter().all(|p| p.exists()), "the held sweep has removed nothing yet");
-    gate.notify_one();
-    rig.runtime.drain_snapshots(&CancellationToken::new()).await;
-    assert!(expired.iter().all(|p| !p.exists()), "the ended job's week-old logs and record went");
-    assert!(recent.iter().all(|p| p.exists()), "the newer ones stayed");
-    assert!(live.iter().all(|p| p.exists()), "a running job's silent logs stay");
-    assert!(users.exists() && foreign.exists(), "files with no ownership record stay");
-    let later = job("task-later", "finished", day * 8);
-    rig.shell.call(&ctx(&rig, "c2"), golden["input"].clone()).await.unwrap();
-    rig.runtime.drain_snapshots(&CancellationToken::new()).await;
-    assert!(later.iter().all(|p| p.exists()), "the sweep runs once per runtime");
-}
-
 /// A job's logs are created after their ownership record, which shows the job running until it is marked ended.
 #[tokio::test]
 async fn a_jobs_log_record_shows_it_running_until_it_ends() {
@@ -461,7 +721,6 @@ async fn a_jobs_log_record_shows_it_running_until_it_ends() {
     assert_eq!((written["pid"].clone(), written["clientHostPid"].clone()), (serde_json::json!(4242), serde_json::json!(std::process::id())));
     assert!(record().contains(r#""state":"finished""#), "{}", record());
 }
-
 /// A job's first drain is held before it creates the logs (a stalled disk) while the job ends: the close gives the
 /// writer up and the end is marked with no record to mark yet. The held creation, when it runs, records the job as
 /// ended: a record left saying running after the job's end would keep its logs from every sweep. Real io-pty threads.
@@ -485,7 +744,6 @@ async fn a_log_creation_held_past_the_jobs_end_records_the_job_as_ended() {
     let record = std::fs::read_to_string(&owner).unwrap();
     assert!(record.contains(r#""state":"finished""#), "{record}");
 }
-
 /// The end of a job is marked on its logs' own lane and within a deadline: with the only io-pty thread held, the mark
 /// waits in io-pty's queue, the marking returns at its deadline with the record unchanged, and the mark is written
 /// once a thread is free.
@@ -523,7 +781,6 @@ async fn marking_a_jobs_end_waits_on_the_logs_lane_and_returns_at_its_deadline()
     mixdog_rt::time::timeout(minute, writer.mark_finished(minute, serde_json::Map::new())).await.expect("the marks run once a thread is free");
     assert!(record().contains(r#""state":"finished""#), "{}", record());
 }
-
 /// A running job whose log another process's sweep removed keeps spilling: its next append recreates the log.
 #[tokio::test]
 async fn an_append_recreates_a_log_another_sweep_removed() {
@@ -537,7 +794,6 @@ async fn an_append_recreates_a_log_another_sweep_removed() {
     assert_eq!(writer.close(super::spill::LOG_STALL).await, super::spill::LogsClosed::Complete, "the stream still spills");
     assert_eq!(std::fs::read_to_string(&log).unwrap(), "later\n");
 }
-
 /// A hoisted script stays while its command runs; one whose tree never settled is removed when
 /// the runtime shuts down (Node's exit hook, `foreground-artifact-lifecycle.test.mjs:66`).
 #[tokio::test]
@@ -556,163 +812,6 @@ async fn a_hoisted_script_of_a_tree_that_never_settled_is_removed_at_shutdown() 
     rig.runtime.drain_snapshots(&CancellationToken::new()).await;
     assert!(!path.exists(), "the shutdown removed {}", path.display());
 }
-
-/// The `task` goldens were recorded from today's Node product (`executeTaskTool`); every text is
-/// asserted byte-equal.
-#[tokio::test]
-async fn task_matches_the_golden_twins_recorded_from_node() {
-    let rig = rig();
-    let c = ctx(&rig, "c0");
-    for name in [
-        "task-list-empty",
-        "task-no-action",
-        "task-no-task-id",
-        "task-session-id",
-        "task-bad-action",
-        "task-read-missing",
-        "task-wait-missing",
-        "task-cancel-missing",
-    ] {
-        let golden = fixture("task", name);
-        assert_eq!(body(rig.task.execute(&c, golden["input"].clone()).await), golden["text"].as_str().unwrap(), "{name}");
-    }
-    // The task Node registered: a running shell `sleep 100`, id task-gold.
-    let started = body(
-        rig.shell
-            .call(&ctx(&rig, "gold"), serde_json::json!({"command": "sleep 100", "background": true}))
-            .await,
-    );
-    assert!(started.starts_with("background task\ntask_id: task-gold\nlabel: sleep 100\nstatus: running\nstarted: 2026-01-02T03:04:05.678Z\n"), "{started}");
-    let golden = fixture("task", "task-list-running");
-    assert_eq!(body(rig.task.call(&c, golden["input"].clone()).await), golden["text"].as_str().unwrap());
-    // `task read` of a running task Node holds no result for renders the bare header.
-    let golden = fixture("task", "task-read-running");
-    let job = rig.runtime.get(&ThreadId::from("t"), "task-gold").unwrap();
-    let shown = job.render(false, Some("")).replace(&super::jobs::shown_path(&rig.dir.path().join("l")), "/l");
-    assert_eq!(shown, golden["text"].as_str().unwrap());
-}
-
-/// What Node's `executeBuiltinTool` answers a `task` call whose arguments are wrong (the guard, then the handler):
-/// every case of `fixtures/tool-arg-answers/answers.json` (`record-tool-arg-answers.mjs`), text for text.
-#[tokio::test]
-async fn task_arguments_are_answered_as_nodes_guard_answers_them() {
-    let rig = rig();
-    let c = ctx(&rig, "c0");
-    let answers: JsonValue = serde_json::from_str(&std::fs::read_to_string(format!("{}/../../fixtures/tool-arg-answers/answers.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
-    let mut failures = Vec::new();
-    let mut compared = 0;
-    for case in answers["cases"].as_array().unwrap().iter().filter(|c| c["tool"] == "task") {
-        let got = body(rig.task.call(&c, case["input"].clone()).await);
-        if got != case["text"].as_str().unwrap() {
-            failures.push(format!("{}: want {:?}, got {got:?}", case["name"], case["text"]));
-        }
-        compared += 1;
-    }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert!(compared >= 37, "{compared}");
-}
-
-/// Replaces what differs per run: the task id, timestamps and log paths.
-fn normalize(text: &str) -> String {
-    let id = regex::Regex::new(r"task-[A-Za-z0-9_]+").unwrap().replace_all(text, "JOB").into_owned();
-    let ts = regex::Regex::new(r"\d{4}-\d\d-\d\dT[\d:.]+Z").unwrap().replace_all(&id, "TS").into_owned();
-    regex::Regex::new(r"logs: .*").unwrap().replace_all(&ts, "logs: LOGS").into_owned()
-}
-
-/// Texts recorded from today's Node product for a timeout, a cancelled foreground command, a
-/// hold that ran out, an explicit background start and the cancel of a running and an ended task.
-#[tokio::test]
-async fn shell_and_task_goldens_recorded_from_node() {
-    let mut rig = rig();
-    // A clock that moves, as the hold text counts real seconds.
-    let begun = std::time::Instant::now();
-    let mut config = rig.runtime.config.clone_for_test();
-    config.now_ms = Arc::new(move || golden_ms() + begun.elapsed().as_millis() as u64);
-    rig.runtime = ExecRuntime::new(config);
-    rig.shell = ShellTool::new(rig.runtime.clone());
-    rig.task = TaskTool::new(rig.runtime.clone());
-    let golden = fixture("shell", "shell-timeout");
-    let err = rig.shell.call(&ctx(&rig, "g1"), golden["input"].clone()).await.unwrap_err();
-    assert_eq!(normalize(&err.message_for_model), golden["text"].as_str().unwrap());
-
-    // Aborted once the command is running: the kill arrives, the text names the cancellation.
-    let golden = fixture("shell", "shell-cancelled-foreground");
-    let c = ctx(&rig, "g2");
-    let cancel = c.cancel.clone();
-    let call = rig.shell.call(&c, golden["input"].clone());
-    let abort = async {
-        while rig.processes.senders.lock().unwrap().is_empty() {
-            tokio::task::yield_now().await;
-        }
-        cancel.cancel();
-    };
-    let (outcome, ()) = tokio::join!(call, abort);
-    assert_eq!(normalize(&body(outcome)), golden["text"].as_str().unwrap());
-
-    let golden = fixture("shell", "shell-hold-expiry");
-    let held = body(rig.shell.call(&ctx(&rig, "g3"), golden["input"].clone()).await);
-    assert_eq!(normalize(&held), golden["text"].as_str().unwrap());
-
-    let golden = fixture("shell", "shell-background-start");
-    let started = body(rig.shell.call(&ctx(&rig, "g4"), golden["input"].clone()).await);
-    // The fake prints at once; Node's process had printed nothing yet.
-    let expected = golden["text"].as_str().unwrap().replace(
-        "[progress] no new output since you last saw it — still running, not an error\n\n(no new output)",
-        "[progress] +0.0 KB, +1 lines since you last saw it · last line: \"tick\" — still running, not an error\n\n[stdout]\ntick\n",
-    );
-    assert_eq!(normalize(&started), expected);
-
-    let c = ctx(&rig, "g5");
-    for name in ["task-cancel-running", "task-cancel-again"] {
-        let golden = fixture("shell", name);
-        let mut input = golden["input"].clone();
-        input["task_id"] = "task-g4".into();
-        assert_eq!(normalize(&body(rig.task.call(&c, input).await)), golden["text"].as_str().unwrap(), "{name}");
-    }
-}
-
-/// `task read`/`wait` of a finished task, `wait` that reaches its ceiling and `list` of both, as
-/// recorded from Node (`fixtures/tools/task/task-*-completed|expiry|after`).
-#[tokio::test]
-async fn task_read_wait_and_list_match_the_goldens_recorded_from_node() {
-    let rig = rig();
-    rig.shell.call(&ctx(&rig, "a"), serde_json::json!({"command": "echo done-out", "background": true})).await.unwrap();
-    {
-        let mut senders = rig.processes.senders.lock().unwrap();
-        let (tx, seq) = senders.values_mut().next().unwrap();
-        send(tx, seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: b"done-out\n".to_vec() });
-        send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
-    }
-    let owner = ThreadId::from("t");
-    rig.runtime.get(&owner, "task-a").unwrap().settled().await;
-    let c = ctx(&rig, "x");
-    for name in ["task-read-completed", "task-wait-completed"] {
-        let golden = fixture("task", name);
-        let mut input = golden["input"].clone();
-        input["task_id"] = "task-a".into();
-        let output = rig.task.call(&c, input).await.unwrap();
-        assert_eq!(output.meta, Some(serde_json::json!({
-            "code": "task-completion", "executionId": "task-a", "status": "completed"
-        })));
-        assert_eq!(normalize(&body(Ok(output))), golden["text"].as_str().unwrap(), "{name}");
-    }
-    rig.processes.quiet.store(true, std::sync::atomic::Ordering::SeqCst);
-    rig.shell.call(&ctx(&rig, "b"), serde_json::json!({"command": "echo tick; Start-Sleep 30", "background": true})).await.unwrap();
-    {
-        let mut senders = rig.processes.senders.lock().unwrap();
-        let (tx, seq) = senders.values_mut().find(|(tx, _)| !tx.is_closed()).unwrap();
-        send(tx, seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: b"tick\n".to_vec() });
-    }
-    let golden = fixture("task", "task-wait-running-expiry");
-    let mut input = golden["input"].clone();
-    input["task_id"] = "task-b".into();
-    let output = rig.task.call(&c, input).await.unwrap();
-    assert!(output.meta.is_none(), "a running read cannot consume a future completion");
-    assert_eq!(normalize(&body(Ok(output))), golden["text"].as_str().unwrap());
-    let golden = fixture("task", "task-list-after");
-    assert_eq!(normalize(&body(rig.task.call(&c, golden["input"].clone()).await)), golden["text"].as_str().unwrap());
-}
-
 /// Output past what memory holds of a stream (8 MiB) reads as Node reads it from the log: from its first line, with the
 /// omission counts of the whole stream, in the foreground result (`shellLogPiece`), a background task's completion and its
 /// tail replay, and a read resuming where an earlier one stopped (`readShellTaskOutput`). The counts are the ones Node's own
@@ -757,7 +856,6 @@ async fn output_past_what_memory_holds_reads_as_its_log_does_in_node() {
     let resumed = body(rig.task.call(&ctx(&rig, "r3"), serde_json::json!({"action": "read", "task_id": "task-r1"})).await);
     assert!(resumed.contains("[stdout]\nline 1000 x") && resumed.contains(&omitted("198959", "12135.2")), "{resumed:.600}");
 }
-
 /// A tail replay leaves a task's read cursor where the last read stopped (`readShellTaskOutput`: an explicit tail read never
 /// changes the incremental cursor), so the next `new` read still shows what no earlier one delivered.
 #[tokio::test]
@@ -788,7 +886,6 @@ async fn a_tail_replay_leaves_the_next_read_where_the_last_one_stopped() {
     let next = body(rig.task.call(&ctx(&rig, "r3"), read("new")).await);
     assert!(next.contains("[stdout]\nbeta-out") && !next.contains("alpha-out"), "{next}");
 }
-
 /// Every finished shell call — failed or refused included — tells the turn review the folder it
 /// ran in (Node `noteCommandToolSettled(effectiveToolCwd(...))` → `noteTurnWorktreeChange([cwd])`),
 /// and the end of a background task does too (`completeBackgroundTask`).
@@ -820,27 +917,6 @@ async fn a_settled_shell_command_notes_its_folder_for_the_turn_review() {
     assert_eq!(notes().len(), 6);
     assert_eq!(notes()[5], Some(vec![session]));
 }
-
-/// A call dropped mid-run (cancelled) still notes its folder, as Node's `finally` does.
-#[tokio::test]
-async fn a_cancelled_shell_call_still_notes_its_folder() {
-    let rig = rig();
-    let context = ctx(&rig, "x1");
-    let call = rig.shell.call(&context, fixture("shell", "shell-cancelled-foreground")["input"].clone());
-    let running = async {
-        while rig.processes.senders.lock().unwrap().is_empty() {
-            tokio::task::yield_now().await;
-        }
-    };
-    // The command is running when the future is dropped.
-    tokio::select! {
-        _ = call => panic!("the call finished"),
-        () = running => {}
-    }
-    assert_eq!(rig.review.notes.lock().unwrap().len(), 1);
-    assert_eq!(*rig.review.notes.lock().unwrap(), vec![Some(vec![rig.dir.path().to_string_lossy().into_owned()])]);
-}
-
 /// A promoted command that hits its run limit says how much of the limit was left at promotion
 /// (Node: `error: timed out after 985 ms`, counted from the process start).
 #[tokio::test]
@@ -863,7 +939,6 @@ async fn a_promoted_command_that_hits_its_limit_reports_the_remainder() {
     let left = regex::Regex::new(r"error: timed out after (\d+) ms").unwrap().captures(&read).unwrap()[1].parse::<u64>().unwrap();
     assert!((2900..=3000).contains(&left), "{left}: {read}");
 }
-
 /// A running task quiet past the threshold says so on read, in the digest and in the list; any
 /// output resets the clock. Derived from the last output on read — no timer.
 #[tokio::test]
@@ -885,14 +960,12 @@ async fn a_quiet_running_task_carries_the_silence_warning() {
     let listed = body(task.call(&c, serde_json::json!({"action": "list"})).await);
     assert!(listed.ends_with("[output silence]\n- task-q1 no output for 10m — may be hung; inspect or cancel"), "{listed}");
 }
-
 #[tokio::test]
 async fn non_zero_exit_keeps_output_and_code() {
     let rig = rig();
     let text = body(rig.shell.call(&ctx(&rig, "c1"), serde_json::json!({"command": "fail"})).await);
     assert_eq!(text, "[exit code: 3]\n\nboom\n");
 }
-
 #[tokio::test]
 async fn time_limit_is_a_deadline_error_with_node_status_text() {
     let rig = rig();
@@ -907,7 +980,6 @@ async fn time_limit_is_a_deadline_error_with_node_status_text() {
         "Error: [shell-run-failed] [timeout: 5ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\n\n(no output)"
     );
 }
-
 #[tokio::test]
 async fn wmic_is_rewritten_for_powershell_with_a_hard_30s_cap_and_refused_without_get() {
     let rig = rig();
@@ -929,47 +1001,6 @@ async fn wmic_is_rewritten_for_powershell_with_a_hard_30s_cap_and_refused_withou
         .unwrap();
     let listed = body(task.call(&ctx(&rig, "w3"), serde_json::json!({"action": "list"})).await);
     assert!(listed.contains("shell/shell running label=powershell.exe -NoProfile -EncodedCommand "), "{listed}");
-}
-
-struct FakeSurvivors {
-    gone: tokio::sync::Notify,
-    kill_works: std::sync::atomic::AtomicBool,
-    kills: std::sync::atomic::AtomicUsize,
-    /// A kill that has signalled holds here (when set) until the test lets it report its outcome.
-    after_kill: Option<Arc<tokio::sync::Notify>>,
-}
-
-impl FakeSurvivors {
-    fn new(kill_works: bool) -> Arc<Self> {
-        Arc::new(Self { gone: tokio::sync::Notify::new(), kill_works: kill_works.into(), kills: 0.into(), after_kill: None })
-    }
-
-    fn holding(kill_works: bool, after_kill: Arc<tokio::sync::Notify>) -> Arc<Self> {
-        Arc::new(Self { gone: tokio::sync::Notify::new(), kill_works: kill_works.into(), kills: 0.into(), after_kill: Some(after_kill) })
-    }
-}
-
-#[async_trait]
-impl SurvivorWatch for FakeSurvivors {
-    fn survivors(&self, _: &ProcessHandle) -> Option<Survivors> {
-        Some(Survivors { reachable: true })
-    }
-    async fn wait_gone(&self, _: &ProcessHandle, _: &CancellationToken) -> bool {
-        self.gone.notified().await;
-        true
-    }
-    async fn kill(&self, _: &ProcessHandle) -> bool {
-        use std::sync::atomic::Ordering::SeqCst;
-        self.kills.fetch_add(1, SeqCst);
-        let works = self.kill_works.load(SeqCst);
-        if works {
-            self.gone.notify_one();
-        }
-        if let Some(hold) = &self.after_kill {
-            hold.notified().await;
-        }
-        works
-    }
 }
 /// A command that finished but left processes running hands them over as a tracked task.
 #[tokio::test]
@@ -993,7 +1024,6 @@ async fn surviving_descendants_become_a_tracked_task_that_cancels_and_completes(
     let read = body(task.call(&c, serde_json::json!({"action": "read", "task_id": "task-s1"})).await);
     assert!(read.contains("status: cancelled") && read.ends_with("error: cancelled by task control"), "{read}");
 }
-
 #[tokio::test]
 async fn survivors_that_resist_the_kill_keep_the_task_pending() {
     let rig = rig();
@@ -1006,24 +1036,6 @@ async fn survivors_that_resist_the_kill_keep_the_task_pending() {
     let out = body(task.call(&ctx(&rig, "s2"), serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await);
     assert_eq!(out, "status: cancel-pending\ntask_id: task-s1\nthe kill was sent and the command itself exited, but processes it started are still alive. They keep being terminated and stay tracked (the folder stays held) until they are gone; re-run task cancel or task read to check again.");
 }
-
-/// What Node's agent reads of a survivors task (`fixtures/shell-survivors/golden.json`, recorded from Node b6f10295a by
-/// `record-shell-survivors.mjs`): the recording's task id and timestamps are placeholders.
-fn survivors_golden() -> JsonValue {
-    serde_json::from_str(include_str!("../../../../fixtures/shell-survivors/golden.json")).unwrap()
-}
-
-fn node_view(text: &str, id: &str) -> String {
-    text.replace(id, "<TASK>")
-        .lines()
-        .map(|line| match line.split_once(": ") {
-            Some((key @ ("started" | "finished"), _)) => format!("{key}: <TIME>"),
-            _ => line.to_owned(),
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 /// A runtime over `watch` and the survivors task `task-s1` an `echo hi` left behind.
 async fn survivors_rig(rig: &Rig, watch: Arc<FakeSurvivors>) -> (ShellTool, TaskTool, Arc<ExecRuntime>, Arc<Job>) {
     let mut config = rig.runtime.config.clone_for_test();
@@ -1034,56 +1046,9 @@ async fn survivors_rig(rig: &Rig, watch: Arc<FakeSurvivors>) -> (ShellTool, Task
     let tracked = runtime.get(&ThreadId::from("t"), "task-s1").unwrap();
     (shell, task, runtime, tracked)
 }
-
 async fn view(task: &TaskTool, rig: &Rig, call: &str, args: JsonValue) -> String {
     node_view(&body(task.call(&ctx(rig, call), args).await), "task-s1")
 }
-
-/// A survivors task that ends on its own reads as Node's does at every step: running without a body, completed with the
-/// result's `(no new output)` (`(no output)` for an explicit tail), and nothing left to cancel afterwards.
-#[tokio::test]
-async fn a_survivors_task_that_ends_on_its_own_reads_as_nodes_does() {
-    let rig = rig();
-    let want = survivors_golden();
-    let watch = FakeSurvivors::new(true);
-    let (_, task, _, tracked) = survivors_rig(&rig, watch.clone()).await;
-    let read = |call: &'static str| view(&task, &rig, call, serde_json::json!({"action": "read", "task_id": "task-s1"}));
-    assert_eq!(read("r1").await, want["natural"]["readRunning"].as_str().unwrap());
-    watch.gone.notify_one();
-    tracked.settled().await;
-    assert_eq!(view(&task, &rig, "w", serde_json::json!({"action": "wait", "task_id": "task-s1", "timeout_ms": 1000})).await, want["natural"]["wait"].as_str().unwrap());
-    assert_eq!(read("r2").await, want["natural"]["read"].as_str().unwrap());
-    assert_eq!(view(&task, &rig, "t", serde_json::json!({"action": "read", "task_id": "task-s1", "output": "tail"})).await, want["natural"]["tail"].as_str().unwrap());
-    assert_eq!(view(&task, &rig, "c", serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await, want["natural"]["cancelAfterEnd"].as_str().unwrap());
-}
-
-/// A cancel ends the task as cancelled with no body, a second cancel finds no task, and the observer's own exit event
-/// arriving while the kill is still reporting cannot make it completed (the cancel is latched before anything is signalled).
-#[tokio::test]
-async fn a_cancelled_survivors_task_stays_cancelled_whichever_exit_event_comes_first() {
-    let rig = rig();
-    let want = survivors_golden();
-    let hold = Arc::new(tokio::sync::Notify::new());
-    let watch = FakeSurvivors::holding(true, hold.clone());
-    let (_, task, _, tracked) = survivors_rig(&rig, watch).await;
-    let cancel = view(&task, &rig, "c1", serde_json::json!({"action": "cancel", "task_id": "task-s1"}));
-    // The kill has signalled; the observer sees the survivors go and finishes before the kill reports.
-    let observer_first = async {
-        tracked.settled().await;
-        hold.notify_one();
-    };
-    let (cancelled, ()) = tokio::join!(cancel, observer_first);
-    assert_eq!(cancelled, want["cancelled"]["cancel"].as_str().unwrap());
-    let got = |call: &'static str, extra: JsonValue| {
-        let mut args = serde_json::json!({"action": "read", "task_id": "task-s1"});
-        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-        view(&task, &rig, call, args)
-    };
-    assert_eq!(got("r1", serde_json::json!({})).await, want["cancelled"]["read"].as_str().unwrap());
-    assert_eq!(got("r2", serde_json::json!({"output": "tail"})).await, want["cancelled"]["tail"].as_str().unwrap());
-    assert_eq!(view(&task, &rig, "c2", serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await, want["cancelled"]["cancelAgain"].as_str().unwrap());
-}
-
 /// A cancel whose kill could not confirm the survivors gone holds the row and keeps terminating on every observation pass,
 /// until a re-observation finds none: then the hold ends.
 #[tokio::test]
@@ -1105,7 +1070,6 @@ async fn an_unconfirmed_cancel_keeps_terminating_on_every_pass_until_the_survivo
     assert_eq!(watch.kills.load(std::sync::atomic::Ordering::SeqCst), 2);
     assert!(!held(&runtime).termination_unconfirmed, "confirmed gone ends the hold");
 }
-
 /// A survivors task cancelled through `task` ends without a notice to its owner (Node's `cancelBackgroundTask` of a task
 /// registered without `notifyOnCancel`); one whose processes end on their own tells its owner that it completed.
 #[tokio::test]
@@ -1125,7 +1089,6 @@ async fn only_a_survivors_task_that_ends_on_its_own_notifies_its_owner() {
         assert_eq!(*owner.0.lock().unwrap(), want, "cancelled: {cancel}");
     }
 }
-
 /// The tracked task started with the command, not when its survivors were observed (`trackSurvivingDescendants` passes
 /// the command's `startedAtMs`): a clock that moves a second per reading shows the first reading, not a later one.
 #[tokio::test]
@@ -1143,46 +1106,6 @@ async fn a_survivors_task_starts_when_its_command_started() {
     assert!(started.contains("\nstarted: 2026-01-02T03:04:05.678Z\n"), "{started}");
     assert!(clock.load(std::sync::atomic::Ordering::SeqCst) > golden_ms() + 1000, "the clock moved on before the survivors were observed");
 }
-/// `shell` and `task`, built through their runtime constructors, are the definitions Node sends
-/// (`fixtures/tool-definitions/definitions.json`, through `mixdog_js::fixture_tools`): the shell text of the
-/// runtime's shell kind, with and without background tasks, and the task tool for the Lead and for a delegated agent.
-#[test]
-fn the_shell_and_task_tools_are_nodes_definitions() {
-    let node = |key: &str| mixdog_js::fixture_tools::definition(key).expect("a recorded Node definition");
-    let same = |got: &ToolSpec, node: &serde_json::Value, what: &str| {
-        assert_eq!(&got.definition(), node, "{what}");
-        assert_eq!(got.annotations.to_json().to_string(), node["annotations"].to_string(), "{what} annotations");
-    };
-    let rig = rig();
-    for powershell in [false, true] {
-        for background in [true, false] {
-            let mut config = rig.runtime.config.clone_for_test();
-            config.windows = powershell;
-            let shell = ShellTool::with_background(ExecRuntime::new(config), background);
-            let kind = if powershell { "powershell" } else { "posix" };
-            let recorded = node(&format!("shell@{kind}{}", if background { "" } else { "-foreground" }));
-            same(shell.spec(), &recorded, &format!("shell {kind} background {background}"));
-        }
-    }
-    same(rig.task.spec(), &node("task"), "task");
-    same(rig.task.agent_spec().expect("task has an agent text"), &node("task@agent"), "agent task");
-}
-
-/// Node binds the shell text from the kind of the shell it resolves; in every recorded combination of
-/// platform, "system shell" setting and `MIXDOG_SHELL` that kind is the platform's, so the text a
-/// session is sent is the platform's whatever the setting says (and a changed setting changes no text).
-#[test]
-fn the_shell_text_follows_the_platform_for_every_recorded_setting() {
-    let golden: serde_json::Value = serde_json::from_str(include_str!("testdata/shell_choice.json")).expect("the recording is JSON");
-    let text_of = |kind: &str| mixdog_js::fixture_tools::definition(&format!("shell@{kind}")).expect("a shell");
-    for case in golden["cases"].as_array().expect("cases") {
-        let kind = case["shellType"].as_str().expect("kind");
-        let windows = case["platform"] == "win32";
-        let spec = super::shell::shell_spec(super::shell::ShellKind::of(windows), true);
-        assert_eq!(spec.definition(), text_of(kind), "{case}");
-    }
-}
-
 /// Legacy programs write in the OEM code page; on a CP949 host the bytes are decoded, not garbled.
 #[tokio::test]
 async fn cp949_output_is_decoded_with_the_oem_page() {
@@ -1196,18 +1119,13 @@ async fn cp949_output_is_decoded_with_the_oem_page() {
     let text = body(rig.shell.call(&ctx(&rig, "k2"), serde_json::json!({"command": "korean"})).await);
     assert!(text.contains('\u{FFFD}'), "{text}");
 }
-
 #[tokio::test]
 async fn a_search_that_found_nothing_is_marked_no_match() {
     let rig = rig();
     let text = body(rig.shell.call(&ctx(&rig, "c1"), serde_json::json!({"command": "grep x f"})).await);
-    // `grep x f` is a shell file read: the guard adds its pointer to the read / grep / list tools.
-    assert_eq!(
-        text,
-        "[exit code: 1]\n[outcome: no-match]\nNote: use the read / grep / list tools for files instead of the shell.\n\n(no output)"
-    );
+    // The guard adds no pointer to the grep tool: this session offers no tool information, so nothing is proven covered.
+    assert_eq!(text, "[exit code: 1]\n[outcome: no-match]\n\n(no output)");
 }
-
 #[tokio::test]
 async fn repeated_output_is_compacted_and_the_full_capture_is_archived() {
     let rig = rig();
@@ -1217,7 +1135,6 @@ async fn repeated_output_is_compacted_and_the_full_capture_is_archived() {
     let archived = std::fs::read_dir(rig.dir.path().join("data/tool-results/t")).unwrap().next().unwrap().unwrap();
     assert_eq!(std::fs::read_to_string(archived.path()).unwrap(), "tick\n".repeat(200));
 }
-
 #[tokio::test]
 async fn a_destructive_command_gets_its_warning_after_the_status_line() {
     let rig = rig();
@@ -1228,7 +1145,6 @@ async fn a_destructive_command_gets_its_warning_after_the_status_line() {
     );
     assert_eq!(text, "[exit code: 0]\n⚠️ may discard uncommitted changes\n\nhi; git reset --hard\n");
 }
-
 #[tokio::test]
 async fn the_exec_policy_refuses_before_anything_is_spawned() {
     let rig = rig();
@@ -1242,6 +1158,31 @@ async fn the_exec_policy_refuses_before_anything_is_spawned() {
         "Error: [shell-tool-failed] command blocked by exec policy — destructive or system-destabilising pattern (hard block) [rule hard-block]"
     );
     assert!(rig.processes.senders.lock().unwrap().is_empty());
+}
+#[tokio::test]
+async fn promotion_arms_the_background_limit_without_setting_a_foreground_deadline() {
+    let rig = rig();
+    let shell = ShellTool::with_background(rig.runtime.clone(), true);
+    let env = |key: &str| (key == "MIXDOG_SHELL_BACKGROUND_MAX_MS").then(|| "5000".to_owned());
+    let out = shell.run(&ctx(&rig, "promo"), serde_json::json!({"command": "node fixture.js", "background": true}), false, &env).await;
+    assert!(body(out).contains("task_id: task-promo"));
+    assert_eq!(*rig.processes.spawn_limits.lock().unwrap(), [None]);
+    let limits = rig.processes.promotion_limits.lock().unwrap();
+    assert!(matches!(&limits[..], [(handle, limit)] if handle.0 == "task-promo" && !limit.is_zero() && limit.as_millis() <= 5000));
+}
+
+#[tokio::test]
+async fn a_foreground_only_shell_rejects_background_options_before_starting() {
+    let rig = rig();
+    let shell = ShellTool::with_background(rig.runtime.clone(), false);
+    for (field, value) in [("background", serde_json::json!(true)), ("wait_ms", serde_json::json!(1000))] {
+        let mut args = serde_json::json!({"command": "echo hi"});
+        args[field] = value;
+        let error = shell.call(&ctx(&rig, "foreground"), args).await.unwrap_err();
+        assert!(matches!(error.code, ToolErrorCode::InvalidArgs { field: actual, .. } if actual == field));
+        assert!(shell.spec().input_schema["properties"].get(field).is_none());
+    }
+    assert!(rig.processes.seen.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -1260,43 +1201,19 @@ async fn held_command_moves_to_background_and_task_cancels_it() {
     assert!(read.contains("status: cancelled\nexit_code: 137\n"), "{read}");
     assert!(read.ends_with("\n\n(no new output)"), "{read}");
 }
-
-struct FixedCycle(u64);
-impl OwnerCycles for FixedCycle {
-    fn current(&self, _: &ThreadId) -> u64 {
-        self.0
-    }
-}
-
-/// `hasActiveBackgroundTasks({ surface: 'shell', awaitedOnly, match })` of `background-wait.mjs`:
-/// a command moved to the background is work its owner waits on, in the user cycle it started in;
-/// another owner's, and an ended one, are not.
+/// A command moved to the background is work its owner waits on until it ends; another owner's, and an ended one, are not.
 #[tokio::test]
-async fn a_background_command_is_work_its_owner_waits_on_in_the_cycle_it_started() {
+async fn a_background_command_is_work_its_owner_waits_on_until_it_ends() {
     let rig = rig();
-    rig.runtime.set_cycles(Arc::new(FixedCycle(3)));
     let owner = ThreadId::from("t");
-    assert!(!rig.runtime.has_active(&owner, false, None), "nothing is running yet");
+    assert!(!rig.runtime.has_active(&owner, false), "nothing is running yet");
     rig.shell.call(&ctx(&rig, "c1"), serde_json::json!({"command": "sleep 100", "background": true})).await.unwrap();
-    assert!(rig.runtime.has_active(&owner, true, Some(3)));
-    assert!(rig.runtime.has_active(&owner, false, None));
-    assert!(!rig.runtime.has_active(&owner, true, Some(4)), "it started in an earlier cycle than 4");
-    assert!(!rig.runtime.has_active(&ThreadId::from("other"), false, None));
+    assert!(rig.runtime.has_active(&owner, true));
+    assert!(rig.runtime.has_active(&owner, false));
+    assert!(!rig.runtime.has_active(&ThreadId::from("other"), false));
     rig.task.call(&ctx(&rig, "c2"), serde_json::json!({"action": "cancel", "task_id": "task-c1"})).await.unwrap();
-    assert!(!rig.runtime.has_active(&owner, false, None), "an ended task is not work");
+    assert!(!rig.runtime.has_active(&owner, false), "an ended task is not work");
 }
-
-/// The owner's default delivery: what reached `TaskNotifier::finished`.
-#[derive(Default)]
-struct OwnerNotices(std::sync::Mutex<Vec<(String, String)>>);
-
-#[async_trait]
-impl TaskNotifier for OwnerNotices {
-    async fn finished(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, _: String) {
-        self.0.lock().unwrap().push((owner.as_str().to_owned(), format!("{surface}/{task_id}/{status}")));
-    }
-}
-
 /// Starts a background command with `notify` in its call options and cancels it through `task`,
 /// the end the detached job reports.
 async fn background_end(notify: Option<ToolNotify>, owner: &Arc<OwnerNotices>) {
@@ -1313,53 +1230,6 @@ async fn background_end(notify: Option<ToolNotify>, owner: &Arc<OwnerNotices>) {
     }
     mixdog_rt::time::sleep(std::time::Duration::from_millis(50)).await;
 }
-
-/// Node `notifyToolCompletion`: the launching call's `notifyFn` takes the completion first, with
-/// the meta that files it; the owner's default delivery is not used when it accepts.
-#[tokio::test(start_paused = true)]
-async fn a_background_end_goes_to_the_calls_notify_hook_first() {
-    let owner = Arc::new(OwnerNotices::default());
-    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let hook = {
-        let seen = seen.clone();
-        ToolNotify(Arc::new(move |text: &str, meta: &JsonValue| {
-            seen.lock().unwrap().push((text.to_owned(), meta.clone()));
-            true
-        }))
-    };
-    background_end(Some(hook), &owner).await;
-    let seen = seen.lock().unwrap();
-    assert_eq!(seen.len(), 1);
-    assert!(seen[0].0.contains("task-c1"), "{}", seen[0].0);
-    assert_eq!(seen[0].1["execution_surface"], "shell");
-    assert_eq!(seen[0].1["execution_id"], "task-c1");
-    assert_eq!(seen[0].1["status"], "cancelled");
-    assert_eq!(seen[0].1["type"], "shell_task_result");
-    assert!(owner.0.lock().unwrap().is_empty());
-    // The whole meta is the one Node handed its hook for a cancelled job.
-    let golden = completion_meta_golden();
-    let cancelled = golden["cases"].as_array().unwrap().iter().find(|c| c["name"] == "cancelled").unwrap();
-    assert_eq!(seen[0].1, cancelled["received"]["meta"]);
-}
-
-fn completion_meta_golden() -> JsonValue {
-    serde_json::from_str(include_str!("testdata/shell_completion_meta.json")).unwrap()
-}
-
-/// `shellCompletionInstruction` for every end Node recorded (completed, a non-zero exit that stays
-/// completed, cancelled, timed out, a signal death, no exit status).
-#[test]
-fn the_completion_instruction_is_nodes_for_each_kind_of_end() {
-    let golden = completion_meta_golden();
-    for case in golden["cases"].as_array().unwrap() {
-        let meta = &case["received"]["meta"];
-        let code = case["detail"]["exitCode"].as_i64().map(|c| c as i32);
-        // A signal death leaves no exit code in the job's facts, whatever the detail says.
-        let code = if case["detail"]["signal"].is_null() { code } else { None };
-        assert_eq!(super::jobs::completion_instruction(meta["status"].as_str().unwrap(), code), meta["instruction"], "{}", case["name"]);
-    }
-}
-
 /// A hook that declines (`false`) falls through to the owner, as Node's `enqueueFallback` does; a
 /// call without a hook goes straight to the owner.
 #[tokio::test(start_paused = true)]
@@ -1370,7 +1240,6 @@ async fn a_declined_or_missing_hook_falls_back_to_the_owner() {
     background_end(None, &owner).await;
     assert_eq!(*owner.0.lock().unwrap(), vec![("t".to_owned(), "shell/task-c1/cancelled".to_owned()); 2]);
 }
-
 #[tokio::test]
 async fn a_wait_ends_the_moment_the_session_reports_user_input() {
     let rig = rig();
@@ -1392,51 +1261,6 @@ async fn a_wait_ends_the_moment_the_session_reports_user_input() {
         "\n\nWait ended by new user input; task still running in the background. Handle the new message first."
     ));
 }
-
-fn elevation_commands() -> Vec<(String, String)> {
-    let vectors: Vec<JsonValue> = serde_json::from_str(include_str!(
-        "../policy/testdata/exec_node_vectors.json"
-    ))
-    .unwrap();
-    vectors
-        .iter()
-        .filter(|v| v["decision"] == "ask")
-        .map(|v| (v["command"].as_str().unwrap().to_owned(), v["message"].as_str().unwrap().to_owned()))
-        .collect()
-}
-
-/// Every elevation spelling Node classifies as `ask` is refused with Node's exact text when the
-/// runtime does not approve the call, and runs when it does (Node's default: the OS prompt).
-#[tokio::test]
-async fn an_unapproved_elevation_is_refused_with_nodes_text_and_never_spawned() {
-    let commands = elevation_commands();
-    assert_eq!(commands.len(), 31);
-    let rig = rig_with(Arc::new(RefuseElevation));
-    // A leading `cd x && …` is moved into `cwd` by the guard and then needs `x` to exist; it is
-    // covered by the policy vectors.
-    let commands: Vec<_> = commands.into_iter().filter(|(c, _)| !c.starts_with("cd ")).collect();
-    for (i, (command, message)) in commands.iter().enumerate() {
-        let err = rig
-            .shell
-            .call(&ctx(&rig, &format!("e{i}")), serde_json::json!({"command": command, "background": true}))
-            .await
-            .unwrap_err();
-        assert_eq!(err.message_for_model, message.replacen("Error: ", "Error: [shell-tool-failed] ", 1), "{command:?}");
-    }
-    assert!(rig.processes.senders.lock().unwrap().is_empty());
-
-    let rig = rig_with(Arc::new(OsPromptElevation));
-    for (i, (command, _)) in commands.iter().enumerate() {
-        let out = body(
-            rig.shell
-                .call(&ctx(&rig, &format!("e{i}")), serde_json::json!({"command": command, "background": true}))
-                .await,
-        );
-        assert!(!out.contains("requires user approval"), "{command:?}: {out}");
-        assert!(out.contains("still running") || out.starts_with("[exit code: 0]"), "{command:?}: {out}");
-    }
-}
-
 #[tokio::test]
 async fn cwd_must_be_an_existing_directory() {
     let rig = rig();
@@ -1449,19 +1273,20 @@ async fn cwd_must_be_an_existing_directory() {
     assert!(err.message_for_model.starts_with("Error: [shell-tool-failed] shell cwd \""));
     assert!(err.message_for_model.ends_with("missing-dir\" does not exist"));
 }
-
-
-// ---- invocation plan ----
-
-fn skill_runtime() -> SkillRuntime {
-    SkillRuntime {
-        platform: "win32".into(),
-        interpreter: "C:\\Mixdog\\Mixdog.exe".into(),
-        entry: "C:\\Mixdog\\entry.mjs".into(),
-        electron: true,
-    }
+/// Node resolves the `cwd` argument (`resolve(sessionCwd, cwd)`), so `.` and `..` fold: the folder the
+/// command runs in, the one a job is recorded under and the one the error names are one spelling.
+#[tokio::test]
+async fn cwd_is_folded_like_a_resolved_path() {
+    let rig = rig();
+    let err = rig
+        .shell
+        .call(&ctx(&rig, "c2"), serde_json::json!({"command": "echo x", "cwd": "a/../b/./missing-dir"}))
+        .await
+        .unwrap_err();
+    let named = err.message_for_model.rsplit_once("shell cwd \"").expect("names the folder").1;
+    assert!(!named.contains("..") && !named.contains("/./") && !named.contains("\\.\\"), "{named}");
+    assert!(named.ends_with(&format!("b{}missing-dir\" does not exist", std::path::MAIN_SEPARATOR)), "{named}");
 }
-
 /// A rig on a Windows PowerShell host: the run goes with the UTF-8 console preamble and the
 /// `mixdog-skill-node` function, and the skill launchers are written for the installation.
 fn windows_powershell_rig() -> (Rig, ShellTool) {
@@ -1474,7 +1299,6 @@ fn windows_powershell_rig() -> (Rig, ShellTool) {
     let shell = ShellTool::new(ExecRuntime::new(config));
     (rig, shell)
 }
-
 /// A script whose write to PowerShell's input fails is never run in part: its input is left open (the bootstrap reads
 /// to the end before it compiles, so it runs nothing), the tree is ended, and the call fails.
 #[tokio::test]
@@ -1490,41 +1314,6 @@ async fn a_script_that_could_not_be_written_whole_is_ended_unrun_and_the_call_fa
     assert!(rig.processes.closed.lock().unwrap().is_empty(), "the input of a part-written script is never closed");
     assert_eq!(*rig.processes.killed.lock().unwrap(), [handle]);
 }
-
-/// The bootstrap runs a script only when all of it arrived: an input that ends after half of the script (a pipe that broke
-/// part way) runs nothing of it, not even the statement the half carries whole, and exits 1; the whole script runs.
-#[cfg(windows)]
-#[test]
-fn the_bootstrap_runs_nothing_of_a_script_that_arrived_in_part() {
-    use std::io::Write;
-    use std::process::Stdio;
-    let dir = tempfile::tempdir().unwrap();
-    let marker = dir.path().join("first-half-ran");
-    let script = format!("New-Item -ItemType File -Path '{}' | Out-Null\n# {}\nWrite-Output whole", marker.display(), "x".repeat(400));
-    let framed = super::invocation::frame_powershell_script(&script);
-    let run = |input: &str| {
-        let mut child = std::process::Command::new("powershell.exe")
-            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", super::invocation::POWERSHELL_BOOTSTRAP])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
-        child.wait_with_output().unwrap()
-    };
-    let half = &framed[..framed.len() / 2];
-    assert!(half.contains("Out-Null\n# x"), "the half carries the first statement whole");
-    let cut = run(half);
-    assert!(!marker.exists(), "the first half of a script that arrived in part ran");
-    assert_eq!(cut.status.code(), Some(1));
-    assert_eq!(String::from_utf8_lossy(&cut.stderr).trim(), "the command arrived incomplete and was not run");
-    assert_eq!(String::from_utf8_lossy(&cut.stdout), "");
-    let whole = run(&framed);
-    assert!(marker.exists(), "the whole script ran");
-    assert_eq!((whole.status.code(), String::from_utf8_lossy(&whole.stdout).trim()), (Some(0), "whole"));
-}
-
 #[tokio::test]
 async fn a_powershell_command_gets_the_utf8_preamble_and_the_skill_function() {
     let (rig, shell) = windows_powershell_rig();
@@ -1550,43 +1339,6 @@ async fn a_powershell_command_gets_the_utf8_preamble_and_the_skill_function() {
     let name = installed.file_name().unwrap().to_string_lossy().into_owned();
     assert!(path.1.starts_with(&format!("{}skill-launchers\\{name};", &path.1[..path.1.find("skill-launchers").unwrap()])), "{}", path.1);
 }
-
-/// A shell source like the daemon's: the default is probed when first needed, kept, and dropped by
-/// a setting change (`setConfiguredShell`). Each probe finds the next installation in `installs`.
-#[derive(Default)]
-struct ChangingShell {
-    state: std::sync::Mutex<(String, Option<String>)>,
-    probes: std::sync::atomic::AtomicUsize,
-}
-
-impl ChangingShell {
-    fn set(&self, value: &str) {
-        let mut state = self.state.lock().unwrap();
-        if state.0 != value {
-            *state = (value.to_owned(), None);
-        }
-    }
-}
-
-impl ShellSource for ChangingShell {
-    fn configured(&self) -> String {
-        self.state.lock().unwrap().0.clone()
-    }
-    fn kept_default(&self) -> Option<String> {
-        self.state.lock().unwrap().1.clone()
-    }
-    fn resolve_default(&self) -> String {
-        let n = self.probes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        format!("C:\\Host\\pwsh{n}.exe")
-    }
-    fn keep_default(&self, configured: &str, program: String) {
-        let mut state = self.state.lock().unwrap();
-        if state.0 == configured {
-            state.1 = Some(program);
-        }
-    }
-}
-
 /// The default program is probed once and kept; a setting change drops it, so the next spawn
 /// probes again (Node's `setConfiguredShell` clearing `_resolvedShell`); an unchanged value keeps it.
 #[tokio::test]
@@ -1619,7 +1371,6 @@ async fn a_setting_change_makes_the_next_spawn_resolve_the_default_again() {
         assert_eq!(program, expected, "spawn {n}");
     }
 }
-
 /// The "system shell" setting is read on every spawn: a change reaches the next command, and a
 /// POSIX shell named on Windows leaves the default PowerShell (Node's `resolveShell`; the recorded
 /// choices themselves are checked in `shell_choice`).
@@ -1652,7 +1403,6 @@ async fn a_changed_system_shell_setting_reaches_the_next_spawn() {
         assert_eq!(program, expected, "setting {value:?}");
     }
 }
-
 /// The producer failed and the trailing filter matched nothing: the visible output is empty, so
 /// the unfiltered tail from the tee is attached in the same call.
 #[tokio::test]
@@ -1671,7 +1421,6 @@ async fn a_swallowing_filter_pipeline_gets_the_rescue_tail_and_its_tee_is_consum
     let tee = script.split("-FilePath '").nth(1).and_then(|r| r.split('\'').next()).unwrap().to_owned();
     assert!(!std::path::Path::new(&tee).exists(), "the tee file is deleted");
 }
-
 /// A POSIX bash command travels through the environment, not argv.
 #[tokio::test]
 async fn a_bash_command_is_delivered_through_the_environment() {
@@ -1686,7 +1435,6 @@ async fn a_bash_command_is_delivered_through_the_environment() {
     assert_eq!(script, "eval \"${MIXDOG_SHELL_SCRIPT?mixdog: shell script was not delivered to the child}\"");
     assert!(env.set.contains(&("MIXDOG_SHELL_SCRIPT".to_owned(), "echo hi".to_owned())));
 }
-
 // ---- real processes through `mixdog_spawn::LocalProcessManager` ----
 
 pub(super) fn real_rig() -> Rig {
@@ -1697,9 +1445,6 @@ pub(super) fn real_rig() -> Rig {
     ));
     rig
 }
-
-const LONG_SLEEP: &str = if cfg!(windows) { "Start-Sleep 30" } else { "sleep 30" };
-
 /// Both io-maintenance threads are held by jobs that do not return (two long searches or tree
 /// walks): 30 shell calls still start, run and record their output to their logs. The lanes are
 /// the real pooled ones (the test backend runs every lane job inline on the submitting thread)
@@ -1740,7 +1485,6 @@ async fn thirty_shell_calls_start_and_record_while_io_maintenance_is_held() {
     }
     drop(releases);
 }
-
 /// A job's log writes are held (a stalled disk): the writer takes chunks until it holds its cap of
 /// unwritten bytes, the collector then waits, and once the writes resume nothing is lost or
 /// reordered and the logs are complete when the writer closes. The drain runs on a real io-pty
@@ -1800,7 +1544,6 @@ async fn a_held_log_writer_keeps_within_its_cap_and_loses_or_reorders_nothing() 
         assert!(std::fs::read(log).unwrap() == expected[stream], "log {stream} holds every chunk in order");
     }
 }
-
 /// The launchers are written by the first call and their stamps kept; a launcher removed or
 /// rewritten since is written again by the next call.
 #[tokio::test]
@@ -1829,7 +1572,6 @@ async fn a_launcher_changed_on_disk_is_written_again_by_the_next_call() {
     shell.call(&ctx(&rig, "k3"), serde_json::json!({"command": "echo three"})).await.unwrap();
     assert_eq!(std::fs::read_to_string(&file).unwrap(), written, "a removed launcher is written again");
 }
-
 /// A launcher replaced by one of the same length, its modification time put back, is still found
 /// out and written again: the next call runs the installation's launcher, not the replacement.
 #[tokio::test]
@@ -1856,7 +1598,6 @@ async fn a_launcher_replaced_with_the_same_length_and_time_is_written_again() {
     shell.call(&ctx(&rig, "s2"), serde_json::json!({"command": "echo two"})).await.unwrap();
     assert_eq!(std::fs::read_to_string(&file).unwrap(), written, "the replacement is overwritten");
 }
-
 /// The log drain panics: the writer still ends, so closing it (the job's end) returns and later
 /// output does not hang either. The drain runs on a real io-pty thread (process-wide executors:
 /// nextest).
@@ -1879,7 +1620,6 @@ async fn a_log_drain_that_panics_leaves_the_writer_ended_not_hung() {
     assert_eq!(closed, super::spill::LogsClosed::Incomplete);
     assert_eq!(writer.gaps(), [Some(0), Some(0)]);
 }
-
 /// The lane refuses the log drain (the test backend refuses this thread's jobs): the writer ends
 /// and closing it returns.
 #[tokio::test]
@@ -1898,7 +1638,6 @@ async fn a_refused_log_drain_leaves_the_writer_ended_not_hung() {
     assert_eq!(writer.close(super::spill::LOG_STALL).await, super::spill::LogsClosed::Incomplete);
     assert_eq!(writer.gaps(), [Some(0), None], "the refused output is recorded as missing from byte 0");
 }
-
 /// The io-pty lane stays saturated (a one-job cap, held for good): admission has a deadline, so
 /// the collector's `open` and `push` return, and the job's close reports the output incomplete.
 #[tokio::test(start_paused = true)]
@@ -1936,7 +1675,6 @@ async fn a_log_drain_the_saturated_lane_never_admits_ends_with_the_output_incomp
     assert_eq!(writer.gaps(), [Some(0), None]);
     assert_eq!(writer.unwritten(), 0);
 }
-
 /// Every io-pty thread is taken (a one-job cap, held): the writer waits for a thread instead of
 /// dropping the output, and the log holds it once the thread frees.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1970,17 +1708,6 @@ async fn a_saturated_io_pty_lane_delays_the_log_and_drops_nothing() {
     mixdog_rt::time::timeout(std::time::Duration::from_secs(60), run).await.expect("the log is written once the thread frees");
     assert_eq!(std::fs::read_to_string(&logs[0]).unwrap(), "kept\n");
 }
-
-/// Delegates to the real process manager and reports the first spawned process's exit. With
-/// `hold_caller`, the spawning caller is held after the spawn until the child has filled its
-/// replay ring (its reader is parked behind a subscriber) or has exited: the schedule where the
-/// job's task runs only after the child wrote more than the ring holds.
-struct ExitSignal {
-    inner: mixdog_spawn::LocalProcessManager,
-    exited: Mutex<Option<std::sync::mpsc::Sender<()>>>,
-    hold_caller: bool,
-}
-
 impl ExitSignal {
     fn options(&self) -> (mixdog_spawn::SpawnOptions, tokio::sync::oneshot::Receiver<()>) {
         let (ended, ended_rx) = tokio::sync::oneshot::channel();
@@ -2006,44 +1733,6 @@ impl ExitSignal {
             .expect("the child fills its replay ring or exits while the caller is held");
     }
 }
-
-#[async_trait]
-impl ProcessManager for ExitSignal {
-    async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
-        let (options, ended) = self.options();
-        let spawned = self.inner.spawn_with(request, options).await?;
-        self.hold(&spawned.handle, ended).await;
-        Ok(spawned)
-    }
-    async fn spawn_subscribed(
-        &self,
-        request: SpawnRequest,
-    ) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
-        let (options, ended) = self.options();
-        let spawned = self.inner.spawn_subscribed_with(request, options).await?;
-        self.hold(&spawned.0.handle, ended).await;
-        Ok(spawned)
-    }
-    fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
-        self.inner.subscribe(handle, from_seq)
-    }
-    async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
-        self.inner.write_stdin(handle, bytes).await
-    }
-    fn close_stdin(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
-        self.inner.close_stdin(handle)
-    }
-    fn resize_pty(&self, handle: &ProcessHandle, size: PtySize) -> Result<(), ProcessError> {
-        self.inner.resize_pty(handle, size)
-    }
-    fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
-        self.inner.kill(handle)
-    }
-    fn list(&self) -> Vec<ProcessInfo> {
-        self.inner.list()
-    }
-}
-
 /// The job's log creation is held while the child writes twelve times what its replay ring holds
 /// (three merged output events) and exits: the output is already being taken (into the writer's
 /// queue, whose cap it stays under), so none of it is lost and the log holds all of it in order
@@ -2084,7 +1773,6 @@ async fn output_written_while_the_log_creation_is_held_is_not_lost() {
     let log = std::fs::read_to_string(rig.dir.path().join("l").join("task-ring.stdout.log")).unwrap();
     assert!(log == expected, "the log holds all {BYTES} bytes in order ({} read)", log.len());
 }
-
 /// The job's task is held after the spawn until the child has written more than its replay ring
 /// holds (or exited): no schedule loses the start of the output, because the job's subscription
 /// exists before the child's first byte. Real executors and processes (nextest).
@@ -2115,7 +1803,6 @@ async fn output_written_before_the_job_is_scheduled_is_not_lost() {
     let log = std::fs::read_to_string(rig.dir.path().join("l").join("task-late.stdout.log")).unwrap();
     assert!(log == expected, "the log holds all {BYTES} bytes in order ({} read)", log.len());
 }
-
 /// A log drain is held inside a write (a stalled disk) when the job ends: closing the writer
 /// returns at its deadline instead of waiting for the write, names the outcome, and records that
 /// the stdout log lacks the output from its first byte. Real io-pty thread (nextest).
@@ -2138,7 +1825,6 @@ async fn closing_a_stalled_log_writer_returns_at_its_deadline_and_names_the_miss
     assert_eq!(writer.gaps(), [Some(0), None]);
     gate.open();
 }
-
 /// Every io-pty thread is taken, so the job's drain waits in the lane's queue; the job is then
 /// given up (its close passes the deadline): the waiting drain leaves the queue unrun, the close
 /// returns, and nothing is written to the log afterwards.
@@ -2179,22 +1865,12 @@ async fn a_log_drain_waiting_for_a_thread_leaves_the_queue_when_the_writer_is_gi
     mixdog_rt::time::timeout(std::time::Duration::from_secs(60), holder).await.expect("the holder ends").unwrap();
     assert_eq!(std::fs::read_to_string(&logs[0]).unwrap(), "", "nothing is written after the writer was given up");
 }
-
-#[tokio::test]
-async fn a_real_echo_matches_the_golden_fixture() {
-    let rig = real_rig();
-    let golden = fixture("shell", "shell-echo");
-    let text = body(rig.shell.call(&ctx(&rig, "r1"), golden["input"].clone()).await);
-    assert_eq!(text, golden["text"].as_str().unwrap());
-}
-
 #[tokio::test]
 async fn a_real_non_zero_exit_keeps_its_code() {
     let rig = real_rig();
     let text = body(rig.shell.call(&ctx(&rig, "r2"), serde_json::json!({"command": "exit 3"})).await);
     assert_eq!(text, "[exit code: 3]\n\n(no output)");
 }
-
 #[tokio::test]
 async fn a_real_command_over_its_time_limit_is_killed_with_nodes_text() {
     let rig = real_rig();
@@ -2213,7 +1889,6 @@ async fn a_real_command_over_its_time_limit_is_killed_with_nodes_text() {
         err.message_for_model
     );
 }
-
 #[tokio::test]
 async fn a_real_background_command_is_cancelled_through_the_task_tool() {
     let rig = real_rig();
@@ -2229,14 +1904,12 @@ async fn a_real_background_command_is_cancelled_through_the_task_tool() {
     let read = body(rig.task.call(&c, serde_json::json!({"action": "read", "task_id": "task-r4"})).await);
     assert!(read.contains("status: cancelled\nexit_code: 137\n"), "{read}");
 }
-
 /// Starts a background `command` of `thread` under the task id `task-<call>`.
 async fn background_of(rig: &Rig, call: &str, thread: &str, command: &str) {
     let mut c = ctx(rig, call);
     c.thread_id = ThreadId::from(thread);
     rig.shell.call(&c, serde_json::json!({"command": command, "background": true})).await.unwrap();
 }
-
 /// `task-tool-stop-all-shells.test.mjs` and `task-tool-stop-shell-job.test.mjs`: a session lists
 /// and stops its own background shells only; the answers are the structured ones the surfaces read.
 #[tokio::test]
@@ -2273,43 +1946,6 @@ async fn a_session_stops_only_its_own_background_shells_with_the_structured_answ
     assert!(rig.runtime.get(&other, "task-f").unwrap().is_running(), "another session keeps its job");
     assert!(control.list_stoppable(&owner).is_empty());
 }
-
-/// A shell that has completed leaves the stoppable list, and stopping it answers how it ended and
-/// cancels nothing: the same lists and answer Node recorded for a task completed through
-/// `completeBackgroundTask` (`record-shell-job-actions.mjs`, `completed`).
-#[tokio::test]
-async fn a_completed_shell_leaves_the_stoppable_list_and_its_stop_says_how_it_ended() {
-    let golden: JsonValue =
-        serde_json::from_str(include_str!("../../../../fixtures/shell-job-actions/shell-job-actions.json")).unwrap();
-    let want = &golden["completed"];
-    let rig = rig();
-    let control = ShellControl::new(rig.runtime.clone(), rig.manager.clone());
-    let owner = ThreadId::from("sess_b");
-    background_of(&rig, "b", owner.as_str(), "sleep 100").await;
-    rig.shell.call(&{
-        let mut c = ctx(&rig, "d");
-        c.thread_id = owner.clone();
-        c
-    }, serde_json::json!({"command": "echo done-out", "background": true})).await.unwrap();
-    let ids = |control: &ShellControl| control.list_stoppable(&owner).into_iter().map(|job| job.task_id).collect::<Vec<_>>();
-    // Node's ids are `job_b1` and `job_done`; the order (start, then id) is the same.
-    assert_eq!(ids(&control), ["task-b", "task-d"]);
-    assert_eq!(want["stoppableBefore"], serde_json::json!(["job_b1", "job_done"]));
-    let handle = rig.runtime.get(&owner, "task-d").unwrap().handle.clone();
-    {
-        let mut senders = rig.processes.senders.lock().unwrap();
-        let (tx, seq) = senders.get_mut(&handle).unwrap();
-        send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
-    }
-    rig.runtime.get(&owner, "task-d").unwrap().settled().await;
-    assert_eq!(ids(&control), ["task-b"]);
-    assert_eq!(want["stoppableAfter"], serde_json::json!(["job_b1"]));
-    let answer = control.stop_job(&owner, "task-d").await;
-    let mut expected = want["answer"].clone();
-    expected["error"] = JsonValue::String(want["answer"]["error"].as_str().unwrap().replace("job_done", "task-d"));
-    assert_eq!(answer, expected);
-}
-
 /// `cancelOwnedShellTrees` + `noteShellOwnerSessionClosed` (`session-close.mjs:184`): a closing
 /// session's shells are killed, another session's are not, and what remains is flagged as
 /// closed-owner work.
@@ -2328,7 +1964,6 @@ async fn a_closing_session_kills_its_shells_and_flags_the_owner_closed() {
     assert!(control.tasks().get("task-x").unwrap().owner_closed);
     assert!(!control.tasks().get("task-y").unwrap().owner_closed);
 }
-
 /// `otherSessionShellHolders` (`task-tool.mjs`): a task list names, by count only, the shell work other sessions of the
 /// runtime hold, and nothing when there is none.
 #[tokio::test]
@@ -2345,7 +1980,6 @@ async fn a_task_list_counts_the_shell_work_other_sessions_hold() {
     assert!(!listed.contains("sleep 100"));
     assert_eq!(rig.runtime.other_owner_shell_work(&ThreadId::from("sess_elsewhere")), (0, 0));
 }
-
 /// A stop that cannot confirm the processes gone answers `unconfirmed` and records it: the row is
 /// held (`terminationUnconfirmed`), `/release` finds it, and a closed owner's hold is found by the
 /// sessions that see its folder. The hold ends with the job (confirmed gone) or with the release.
@@ -2387,7 +2021,6 @@ async fn an_unconfirmed_stop_holds_the_row_until_the_job_ends_or_is_released() {
     control.release("task-s2");
     assert!(control.hold("task-s2").is_none() && control.tasks().get("task-s2").is_none());
 }
-
 /// A kill the process manager refuses is the same unconfirmed stop; a later stop that lands ends
 /// the job and with it the hold. A closing session whose kill cannot be sent leaves the same hold.
 #[tokio::test]
@@ -2416,100 +2049,8 @@ async fn a_kill_that_cannot_be_sent_holds_the_row_and_a_later_kill_clears_it() {
     assert!(control.hold("task-x").is_none());
     assert!(control.hold("task-y").is_some(), "the other job is still held");
 }
-
-/// `turn-reap.mjs` over background shells (`record-agent-watchdog.mjs`, `reaps`): the watchdog's
-/// stop of a turn ends the shells the turn started (at or after its ask, its own session's only)
-/// without waiting, and the handoff splits them into confirmed gone and still stopping, exactly
-/// as real Node did. A kill that cannot be sent is Node's unconfirmed kill.
-#[tokio::test]
-async fn a_stalled_turns_reap_stops_and_splits_the_shells_as_node_did() {
-    use std::sync::atomic::Ordering::SeqCst;
-    let golden: JsonValue =
-        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-watchdog/golden.json")).unwrap();
-    let names = |value: &JsonValue| -> std::collections::BTreeSet<String> {
-        value.as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect()
-    };
-    for case in golden["reaps"].as_array().unwrap() {
-        let name = case["name"].as_str().unwrap();
-        let rig = rig();
-        let clock = Arc::new(std::sync::atomic::AtomicU64::new(0));
-        let mut config = rig.runtime.config.clone_for_test();
-        config.now_ms = {
-            let clock = clock.clone();
-            Arc::new(move || clock.load(SeqCst))
-        };
-        let runtime = ExecRuntime::new(config);
-        let shell = ShellTool::new(runtime.clone());
-        let control = ShellControl::new(runtime.clone(), rig.manager.clone());
-        let owner = ThreadId::from(case["session"].as_str().unwrap());
-        let now = 1_000_000_i64;
-        for job in case["jobs"].as_array().unwrap() {
-            clock.store((now + job["startedOffset"].as_i64().unwrap()) as u64, SeqCst);
-            let mut call = ctx(&rig, job["id"].as_str().unwrap());
-            call.thread_id = ThreadId::from(job["session"].as_str().unwrap_or(owner.as_str()));
-            shell.call(&call, serde_json::json!({"command": "sleep 100", "background": true})).await.unwrap();
-        }
-        rig.processes.refuse_kill.store(case["kill"] == "unconfirmed", SeqCst);
-        control.reap_since(&owner, (now + case["askOffset"].as_i64().unwrap()) as u64);
-        let reaped = names(&case["cancelled"]);
-        if case["kill"] != "unconfirmed" {
-            for id in &reaped {
-                let job = runtime.get(&owner, &format!("task-{id}")).unwrap();
-                job.settled().await;
-            }
-        }
-        for job in case["jobs"].as_array().unwrap() {
-            let id = job["id"].as_str().unwrap();
-            let session = ThreadId::from(job["session"].as_str().unwrap_or(owner.as_str()));
-            let running = runtime.get(&session, &format!("task-{id}")).unwrap().is_running();
-            let held = control.tasks().get(&format!("task-{id}")).unwrap().termination_unconfirmed;
-            assert_eq!(!(running && !held), reaped.contains(id), "{name}: {id} stopped or held");
-        }
-        let (stopped, stopping) = control.take_reaped(&owner);
-        let strip = |ids: Vec<String>| ids.into_iter().map(|id| id.trim_start_matches("task-").to_owned()).collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(strip(stopped), names(&case["stopped"]), "{name}: stopped");
-        assert_eq!(strip(stopping), names(&case["stopping"]), "{name}: stopping");
-        assert!(control.take_reaped(&owner).0.is_empty(), "{name}: the list is handed out once");
-    }
-}
-// ---- the shell's refusal of a command the built-in tools cover: recorded from Node ----
-
-/// A workspace file's bytes from its recipe: hex, or text (repeated, with a trailing piece, in UTF-16 with a BOM).
-fn recipe_bytes(f: &JsonValue) -> Vec<u8> {
-    if let Some(h) = f.get("hex").and_then(JsonValue::as_str) {
-        return (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap()).collect();
-    }
-    let mut text = f["text"].as_str().unwrap().to_owned();
-    if let Some(times) = f.get("repeat").and_then(JsonValue::as_u64) {
-        text = text.repeat(times as usize);
-    }
-    if let Some(tail) = f.get("tail").and_then(JsonValue::as_str) {
-        text.push_str(tail);
-    }
-    if f.get("enc").and_then(JsonValue::as_str) == Some("utf16le") {
-        let mut out = vec![0xff, 0xfe];
-        for unit in text.encode_utf16() {
-            out.extend_from_slice(&unit.to_le_bytes());
-        }
-        return out;
-    }
-    text.into_bytes()
-}
-
-/// The recorded workspace under `dir`, and its path as Node spells it (no verbatim prefix).
-fn recorded_files(dir: &std::path::Path, files: &serde_json::Map<String, JsonValue>) -> std::path::PathBuf {
-    let root = dir.join("ws");
-    for (rel, f) in files {
-        let path = root.join(rel);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        if f.get("remove").is_none() {
-            std::fs::write(path, recipe_bytes(f)).unwrap();
-        }
-    }
-    std::path::PathBuf::from(std::fs::canonicalize(&root).unwrap().to_string_lossy().trim_start_matches(r"\\?\"))
-}
-
 /// A call's context over the recorded workspace, offering the tools the case names (null: no session information).
+#[cfg(node_twin)]
 fn cover_ctx(rig: &Rig, root: &std::path::Path, offers: &JsonValue, call: &str) -> ToolContext {
     let mut c = ctx(rig, call);
     c.files = Arc::new(mixdog_workspace::localfs::LocalFileService::new());
@@ -2517,92 +2058,6 @@ fn cover_ctx(rig: &Rig, root: &std::path::Path, offers: &JsonValue, call: &str) 
     c.options.offered_tools = offers.as_array().map(|tools| Arc::new(tools.iter().map(|t| t.as_str().unwrap().to_owned()).collect()));
     c
 }
-
-/// Node's recorded table (`record-shell-cover.mjs`) through the shell tool itself, every command under both shell families:
-/// the tools the session offers, and either the refusal (an error with Node's text, nothing runs) or the run, which starts
-/// the command the guard handed on, in the folder it named, with its notes in the answer. Path rules differ per platform,
-/// so the table is replayed on the platform it was recorded on.
-///
-/// Outcomes are compared whole, by equality: the answer's note lines (the lines between its status line and the blank line
-/// after it) equal the recording's `notes` in order, and the command started equals the recording's `args.command`, in the
-/// recording's folder. Two representations differ for a reason that is not behaviour, normalised before comparing:
-/// (1) PowerShell receives its script framed on stdin (`<utf-16 length>\n<command>`): the length line is checked and
-/// removed; (2) an inline `node -e` command is moved by the tool into a file and started as
-/// `node "<file>"`: that form stands for the recorded command only when the file the tool wrote held exactly the recorded script
-/// (read when the command reached the process manager).
-#[cfg(windows)]
-#[tokio::test]
-async fn the_shell_tool_answers_the_whole_cover_table_as_node_does() {
-    use std::sync::atomic::Ordering::SeqCst;
-    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-cover/cases.json")).unwrap();
-    assert_eq!(doc["platform"], "win32");
-    let dir = tempfile::tempdir().unwrap();
-    let root = recorded_files(dir.path(), doc["files"].as_object().unwrap());
-    let forward = root.to_string_lossy().replace('\\', "/");
-    let back = root.to_string_lossy().into_owned();
-    let fix = |s: &str| s.replace(&forward, "<WS>").replace(&back, "<WS>");
-    let spelled = |p: &str| p.replace('\\', "/").trim_start_matches("//?/").to_ascii_lowercase();
-    let rigs = [("posix", rig_shell(mixdog_rt::testing::tokens(), Arc::new(OsPromptElevation), None, false)), ("powershell", rig_shell(mixdog_rt::testing::tokens(), Arc::new(OsPromptElevation), None, true))];
-    for (_, rig) in &rigs {
-        rig.processes.exit_at_once.store(true, SeqCst);
-    }
-    let mut failures = Vec::new();
-    let cases = doc["cases"].as_array().unwrap();
-    for (n, case) in cases.iter().enumerate() {
-        let rig = &rigs.iter().find(|(shell, _)| case["shellType"] == *shell).unwrap().1;
-        let c = cover_ctx(rig, &root, &case["offers"], &format!("cover{n}"));
-        let mut args = serde_json::json!({ "command": case["args"]["command"].as_str().unwrap().replace("<WS>", &forward) });
-        if let Some(cwd) = case["args"]["cwd"].as_str() {
-            args["cwd"] = cwd.replace("<WS>", &forward).into();
-        }
-        let spawned = rig.processes.cwds.lock().unwrap().len();
-        let spawned_seen = rig.processes.seen.lock().unwrap().len();
-        let fed_before = rig.processes.fed.lock().unwrap().len();
-        let outcome = rig.shell.call(&c, args).await;
-        let want = &case["result"];
-        let mut got = String::new();
-        let same = match (&outcome, want["failure"].as_str()) {
-            (Err(e), Some(failure)) => fix(&e.message_for_model) == failure && rig.processes.cwds.lock().unwrap().len() == spawned,
-            (Ok(_), None) => {
-                let started = rig.processes.cwds.lock().unwrap().iter().skip(spawned).map(|c| c.as_path().to_string_lossy().into_owned()).collect::<Vec<_>>();
-                let command = want["args"]["command"].as_str().unwrap().replace("<WS>", &forward);
-                // An inline `node -e "<body>"` script is the one command the tool itself moves into a file before it starts.
-                let inline_body = command.strip_prefix("node -e \"").and_then(|b| b.strip_suffix('"'));
-                // The command the process manager was handed, as a recorded command (rules in the test's header): a
-                // `node "<file>"` whose file held exactly the recorded script stands for the recorded command.
-                let unhoist = |script: &str| match (inline_body, script.strip_prefix("node \"").and_then(|p| p.strip_suffix('"'))) {
-                    (Some(want_body), Some(file)) if rig.processes.hoisted.lock().unwrap().get(file).is_some_and(|contents| contents == want_body) => command.clone(),
-                    _ => script.to_owned(),
-                };
-                let handed = if case["shellType"] == "posix" {
-                    let seen = rig.processes.seen.lock().unwrap();
-                    match (seen.len() - spawned_seen, seen.last()) {
-                        (1, Some((CommandSpec::Shell { script, .. }, _))) => Some(unhoist(script)),
-                        _ => None,
-                    }
-                } else {
-                    let fed = rig.processes.fed.lock().unwrap();
-                    let framed = if fed.len() - fed_before == 1 { fed.last().unwrap().as_str() } else { "" };
-                    framed.split_once('\n').filter(|(len, script)| len.parse::<usize>().ok() == Some(script.encode_utf16().count())).map(|(_, script)| unhoist(script))
-                };
-                let folder = want["args"]["cwd"].as_str().map_or(root.clone(), |cwd| root.join(cwd.replace("<WS>", &forward))).to_string_lossy().into_owned();
-                // The answer is `<status>\n<notes, one per line>\n\n<output>`: its notes, in order, are the recording's.
-                let text = fix(&body(outcome));
-                let header = text.split("\n\n").next().unwrap();
-                let notes: Vec<&str> = header.split('\n').skip(1).collect();
-                let want_notes: Vec<&str> = want["notes"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).collect();
-                got.push_str(&format!("{handed:?} {notes:?}"));
-                handed.as_deref() == Some(command.as_str()) && started.len() == 1 && spelled(&started[0]) == spelled(&folder) && notes == want_notes
-            }
-            _ => false,
-        };
-        if !same {
-            failures.push(format!("{} {} offers {}\n  want {want}\n  got {got}", case["shellType"], case["args"], case["offers"]));
-        }
-    }
-    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n"));
-}
-
 /// The ownership record and logs of a job another runtime ran, as it left them in `rig`'s log folder.
 fn kept_job(rig: &Rig, id: &str, record: serde_json::Value, stdout: &str) {
     let jobs = rig.dir.path().join("l");
@@ -2611,7 +2066,6 @@ fn kept_job(rig: &Rig, id: &str, record: serde_json::Value, stdout: &str) {
     std::fs::write(jobs.join(format!("{id}.stdout.log")), stdout).unwrap();
     std::fs::write(jobs.join(format!("{id}.stderr.log")), "").unwrap();
 }
-
 /// A background job this runtime does not hold (another one ran it before a restart) is answered from its kept record
 /// (`task-tool.mjs:411-444`, `stopJobKnownByRecord`): an ended one reads as recovered with its logs' output, one left
 /// running can be neither read nor controlled, a foreground command's record and another thread's job are unknown, and
@@ -2680,18 +2134,6 @@ async fn a_background_job_another_runtime_ran_answers_from_its_kept_record() {
         serde_json::json!({ "stopped": false, "error": "task process control is unavailable after restart: task-live" })
     );
 }
-
-/// Every completion the owner's default delivery took, with its text.
-#[derive(Default)]
-struct Told(std::sync::Mutex<Vec<(String, String, String)>>);
-
-#[async_trait]
-impl TaskNotifier for Told {
-    async fn finished(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, notification: String) {
-        self.0.lock().unwrap().push((owner.as_str().to_owned(), format!("{surface}/{task_id}/{status}"), notification));
-    }
-}
-
 /// `reconcileRecoveredShellJobCompletions`: a background job whose record a process that is gone left running ends as
 /// failed, its record says so, and its owner is told once with the output its log kept; a job a live process runs and
 /// one that ended stay as they are.
@@ -2729,44 +2171,684 @@ async fn a_background_job_a_gone_runtime_left_running_ends_as_failed_and_its_own
     rig.runtime.reconcile_lost_jobs(&alive).await;
     assert_eq!(told.0.lock().unwrap().len(), 1, "an ended job is told once");
 }
+#[async_trait::async_trait]
+impl crate::exec::AgentTasks for FakeAgentTasks {
+    fn list(&self, owner: &ThreadId) -> Vec<crate::exec::AgentTaskRow> {
+        if owner.as_str() != "t" {
+            return Vec::new();
+        }
+        vec![crate::exec::AgentTaskRow { task_id: "task_agent_1".into(), operation: "spawn".into(), label: Some("w1".into()), status: self.status(), error: None }]
+    }
 
-mod node_cases;
+    fn view(&self, owner: &ThreadId, task_id: &str) -> Option<crate::exec::AgentTaskView> {
+        (owner.as_str() == "t" && task_id == "task_agent_1").then(|| crate::exec::AgentTaskView {
+            operation: "spawn".into(),
+            status: self.status(),
+            text: format!("background task\ntask_id: task_agent_1\nstatus: {}", self.status()),
+        })
+    }
 
-mod unconfirmed_foreground;
+    async fn settled(&self, _: &str) {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self.status() != "running" {
+                return;
+            }
+            changed.await;
+        }
+    }
 
-/// `guardShell` (`arg-guard.mjs`): the texts Node refuses a malformed shell call with, and the over-long `wait_ms`
-/// it cuts to the maximum instead of refusing.
+    fn cancel(&self, owner: &ThreadId, task_id: &str, reason: &str) -> Option<AgentTaskCancellation> {
+        let view = self.view(owner, task_id)?;
+        if view.status != "running" {
+            return Some(AgentTaskCancellation::AlreadySettled { status: view.status });
+        }
+        self.cancelled.lock().unwrap().push(reason.into());
+        self.end("cancelled");
+        Some(AgentTaskCancellation::Cancelled { operation: view.operation })
+    }
+
+    fn acknowledge(&self, task_id: &str) {
+        self.acknowledged.lock().unwrap().push(task_id.into());
+    }
+}
+/// `task-tool.mjs:113-116`, `:466-514`: `task` lists the agent tasks beside the shell jobs and reads, waits for and cancels
+/// one by the id `agent` returned; an id nothing holds is still not found.
+#[tokio::test]
+async fn task_lists_reads_waits_for_and_cancels_agent_tasks() {
+    let rig = rig();
+    let agents = FakeAgentTasks::running();
+    let task = TaskTool::new(rig.runtime.clone()).with_agent_tasks(agents.clone());
+    rig.shell.call(&ctx(&rig, "l1"), serde_json::json!({"command": "sleep 100", "background": true})).await.unwrap();
+    let c = ctx(&rig, "t1");
+
+    let listed = body(task.call(&c, serde_json::json!({"action": "list"})).await);
+    assert!(listed.starts_with("background tasks: 2\n- task-l1 shell/shell running"), "{listed}");
+    assert!(listed.contains("\n- task_agent_1 agent/spawn running label=w1"), "{listed}");
+
+    let read = body(task.call(&c, serde_json::json!({"action": " READ ", "task_id": "\u{feff}task_agent_1 "})).await);
+    assert_eq!(read, "background task\ntask_id: task_agent_1\nstatus: running");
+    assert!(agents.acknowledged.lock().unwrap().is_empty(), "a running task is not acknowledged");
+
+    // A wait ends when the task does, and the finished read is acknowledged.
+    let ending = agents.clone();
+    let end = tokio::spawn(async move {
+        tokio::task::yield_now().await;
+        ending.end("completed");
+    });
+    let waited = body(task.call(&c, serde_json::json!({"action": "wait", "task_id": "task_agent_1", "timeout_ms": 10_000})).await);
+    end.await.unwrap();
+    assert_eq!(waited, "background task\ntask_id: task_agent_1\nstatus: completed");
+    assert_eq!(*agents.acknowledged.lock().unwrap(), ["task_agent_1"]);
+    let late_cancel = task.call(&c, serde_json::json!({"action": "cancel", "task_id": "task_agent_1"})).await.unwrap_err();
+    assert_eq!(late_cancel.message_for_model, "Error: task already completed: task_agent_1");
+    assert!(agents.cancelled.lock().unwrap().is_empty());
+
+    let other = FakeAgentTasks::running();
+    let task = TaskTool::new(rig.runtime.clone()).with_agent_tasks(other.clone());
+    let cancelled = body(task.call(&c, serde_json::json!({"action": "cancel", "task_id": "task_agent_1"})).await);
+    assert_eq!(cancelled, "status: completed\ntask_id: task_agent_1\ncancelled: agent/spawn");
+    assert_eq!(*other.cancelled.lock().unwrap(), ["cancelled by task control"]);
+
+    let unknown = body(task.call(&c, serde_json::json!({"action": "read", "task_id": "task_nope"})).await);
+    assert_eq!(unknown, "Error: task not found: task_nope");
+}
+
+
+#[tokio::test]
+async fn a_finished_command_answers_its_exit_code_and_its_output() {
+    let rig = rig();
+    let text = body(rig.shell.call(&ctx(&rig, "c1"), serde_json::json!({"command": "echo golden-out"})).await);
+    assert_eq!(text, "[exit code: 0]\n\ngolden-out\n");
+}
+/// The first job of a runtime removes the logs of ended jobs older than a week (`sweepExpiredShellOutput`), beside
+/// the command and never on its path: the command completes while the sweep is held. Only logs whose ownership
+/// record shows their job ended are taken: a running job's week-silent logs (another process's) and a user's file named
+/// like a log stay. Later jobs sweep nothing, and a job's own record shows it ended once it has.
+#[tokio::test]
+async fn the_first_job_sweeps_the_ended_jobs_logs_older_than_a_week_once_beside_the_command() {
+    let rig = rig();
+    let logs = rig.dir.path().join("l");
+    std::fs::create_dir_all(&logs).unwrap();
+    let day = std::time::Duration::from_secs(24 * 60 * 60);
+    let now = std::time::SystemTime::now();
+    let aged_with = |name: &str, body: &str, age: std::time::Duration| {
+        let path = logs.join(name);
+        std::fs::write(&path, body).unwrap();
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(now - age).unwrap();
+        path
+    };
+    let aged = |name: &str, age| aged_with(name, "", age);
+    let job = |id: &str, state: &str, age| {
+        [
+            aged(&format!("{id}.stdout.log"), age),
+            aged(&format!("{id}.stderr.log"), age),
+            aged_with(&format!("{id}.owner.json"), &format!(r#"{{"pid":1,"state":"{state}"}}"#), age),
+        ]
+    };
+    let expired = job("task-old", "finished", day * 8);
+    let recent = job("task-recent", "finished", day * 6);
+    let live = job("task-live-elsewhere", "running", day * 8);
+    let users = aged("task-my-personal-notes.stdout.log", day * 8);
+    let foreign = aged("notes.txt", day * 8);
+    let gate = super::spill::sweep_gate::hold(&logs);
+    let echo = serde_json::json!({"command": "echo golden-out"});
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(60), rig.shell.call(&ctx(&rig, "c1"), echo.clone()))
+        .await
+        .expect("the command completes while the log sweep is held")
+        .unwrap();
+    assert!(expired.iter().all(|p| p.exists()), "the held sweep has removed nothing yet");
+    gate.notify_one();
+    rig.runtime.drain_snapshots(&CancellationToken::new()).await;
+    assert!(expired.iter().all(|p| !p.exists()), "the ended job's week-old logs and record went");
+    assert!(recent.iter().all(|p| p.exists()), "the newer ones stayed");
+    assert!(live.iter().all(|p| p.exists()), "a running job's silent logs stay");
+    assert!(users.exists() && foreign.exists(), "files with no ownership record stay");
+    let later = job("task-later", "finished", day * 8);
+    rig.shell.call(&ctx(&rig, "c2"), echo).await.unwrap();
+    rig.runtime.drain_snapshots(&CancellationToken::new()).await;
+    assert!(later.iter().all(|p| p.exists()), "the sweep runs once per runtime");
+}
+/// What the task tool answers for an empty list, a call with no or a wrong action, a missing id and an id of no task.
+#[tokio::test]
+async fn the_task_tool_answers_a_bad_call_with_the_rule_it_broke() {
+    let rig = rig();
+    let c = ctx(&rig, "c0");
+    for (input, text) in [
+        (serde_json::json!({"action": "list"}), "background tasks: 0"),
+        (serde_json::json!({}), "Error: task action is required"),
+        (serde_json::json!({"action": "read"}), "Error: task_id is required"),
+        (
+            serde_json::json!({"action": "read", "task_id": "sess_abc"}),
+            "Error: \"sess_abc\" is an agent/session id, not a background task_id. Agent tasks deliver completion notifications; use agent list/read only for manual recovery.",
+        ),
+        (serde_json::json!({"action": "poke", "task_id": "x"}), "Error: task action must be one of list|read|wait|cancel (got \"poke\")"),
+        (serde_json::json!({"action": "read", "task_id": "task-missing"}), "Error: task not found: task-missing"),
+        (serde_json::json!({"action": "wait", "task_id": "task-missing"}), "Error: task not found: task-missing"),
+        (serde_json::json!({"action": "cancel", "task_id": "task-missing"}), "Error: task not found: task-missing"),
+    ] {
+        assert_eq!(body(rig.task.execute(&c, input.clone()).await), text, "{input}");
+    }
+}
+/// A running background shell is listed and read as a bare header with its log paths.
+#[tokio::test]
+async fn a_running_background_shell_is_listed_and_read_as_its_header() {
+    let rig = rig();
+    let c = ctx(&rig, "c0");
+    // A running shell `sleep 100`, id task-gold.
+    let started = body(
+        rig.shell
+            .call(&ctx(&rig, "gold"), serde_json::json!({"command": "sleep 100", "background": true}))
+            .await,
+    );
+    assert!(started.starts_with("background task\ntask_id: task-gold\nlabel: sleep 100\nstatus: running\nstarted: 2026-01-02T03:04:05.678Z\n"), "{started}");
+    assert_eq!(body(rig.task.call(&c, serde_json::json!({"action": "list"})).await), "background tasks: 1\n- task-gold shell/shell running label=sleep 100");
+    // `task read` of a running task that holds no result renders the bare header.
+    let job = rig.runtime.get(&ThreadId::from("t"), "task-gold").unwrap();
+    let shown = job.render(false, Some("")).replace(&super::jobs::shown_path(&rig.dir.path().join("l")), "/l");
+    assert_eq!(
+        shown,
+        "background task\ntask_id: task-gold\nsurface: shell\nstatus: running\nstarted: 2026-01-02T03:04:05.678Z\nlogs: /l/task-gold.{stdout,stderr}.log"
+    );
+}
+/// The recorded answers to every wrong `task` argument (the guard, then the handler), text for text.
+#[cfg(node_twin)]
+#[tokio::test]
+async fn task_arguments_are_answered_as_nodes_guard_answers_them() {
+    let rig = rig();
+    let c = ctx(&rig, "c0");
+    let answers: JsonValue = serde_json::from_str(&std::fs::read_to_string(format!("{}/../../fixtures/tool-arg-answers/answers.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
+    let mut failures = Vec::new();
+    let mut compared = 0;
+    for case in answers["cases"].as_array().unwrap().iter().filter(|c| c["tool"] == "task") {
+        let got = body(rig.task.call(&c, case["input"].clone()).await);
+        if got != case["text"].as_str().unwrap() {
+            failures.push(format!("{}: want {:?}, got {got:?}", case["name"], case["text"]));
+        }
+        compared += 1;
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert!(compared >= 37, "{compared}");
+}
+/// What the model reads for a timeout, a cancelled foreground command, a hold that ran out, an explicit background start
+/// and the cancel of a running and an ended task.
+#[tokio::test]
+async fn a_timeout_a_cancel_a_hold_and_a_background_start_each_answer_with_their_own_text() {
+    let mut rig = rig();
+    // A clock that moves, as the hold text counts real seconds.
+    let begun = std::time::Instant::now();
+    let mut config = rig.runtime.config.clone_for_test();
+    config.now_ms = Arc::new(move || golden_ms() + begun.elapsed().as_millis() as u64);
+    rig.runtime = ExecRuntime::new(config);
+    rig.shell = ShellTool::new(rig.runtime.clone());
+    rig.task = TaskTool::new(rig.runtime.clone());
+    let err = rig.shell.call(&ctx(&rig, "g1"), serde_json::json!({"command": "echo begin; Start-Sleep 30", "timeout_ms": 1500})).await.unwrap_err();
+    assert_eq!(
+        normalize(&err.message_for_model),
+        "Error: [shell-run-failed] [timeout: 1500ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\n\nbegin\n"
+    );
+
+    // Aborted once the command is running: the kill arrives, the text names the cancellation.
+    let c = ctx(&rig, "g2");
+    let cancel = c.cancel.clone();
+    let call = rig.shell.call(&c, serde_json::json!({"command": "echo started; Start-Sleep 30"}));
+    let abort = async {
+        while rig.processes.senders.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+        cancel.cancel();
+    };
+    let (outcome, ()) = tokio::join!(call, abort);
+    assert_eq!(normalize(&body(outcome)), "Error: [shell-run-failed] [signal: SIGKILL cause: cancellation]\n\nstarted\n");
+
+    let held = body(rig.shell.call(&ctx(&rig, "g3"), serde_json::json!({"command": "echo tick; Start-Sleep 30", "wait_ms": 1000})).await);
+    assert_eq!(
+        normalize(&held),
+        "background task\ntask_id: JOB\nlabel: echo tick; Start-Sleep 30\nstatus: running\nstarted: TS\nlogs: LOGS\nmoved to background after the 1s hold; still running. Its result is delivered automatically when it finishes; use task wait only if no other work remains.\n\n[progress] +0.0 KB, +1 lines since you last saw it · last line: \"tick\" — still running, not an error\n\n[stdout]\ntick\n"
+    );
+
+    let started = body(rig.shell.call(&ctx(&rig, "g4"), serde_json::json!({"command": "echo tick; Start-Sleep 30", "background": true})).await);
+    assert_eq!(
+        normalize(&started),
+        "background task\ntask_id: JOB\nlabel: echo tick; Start-Sleep 30\nstatus: running\nstarted: TS\nlogs: LOGS\nstarted in the background; still running. Its result is delivered automatically when it finishes; use task wait only if no other work remains.\n\n[progress] +0.0 KB, +1 lines since you last saw it · last line: \"tick\" — still running, not an error\n\n[stdout]\ntick\n"
+    );
+
+    let c = ctx(&rig, "g5");
+    // Cancelling a task twice answers the same: it is completed and was cancelled.
+    for _ in 0..2 {
+        let input = serde_json::json!({"action": "cancel", "task_id": "task-g4"});
+        assert_eq!(normalize(&body(rig.task.call(&c, input).await)), "status: completed\ntask_id: JOB\ncancelled: shell/shell");
+    }
+}
+/// `task read`/`wait` of a finished task, `wait` that reaches its ceiling and `list` of both.
+#[tokio::test]
+async fn task_read_wait_and_list_report_a_finished_and_a_running_task() {
+    let rig = rig();
+    rig.shell.call(&ctx(&rig, "a"), serde_json::json!({"command": "echo done-out", "background": true})).await.unwrap();
+    {
+        let mut senders = rig.processes.senders.lock().unwrap();
+        let (tx, seq) = senders.values_mut().next().unwrap();
+        send(tx, seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: b"done-out\n".to_vec() });
+        send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+    }
+    let owner = ThreadId::from("t");
+    rig.runtime.get(&owner, "task-a").unwrap().settled().await;
+    let c = ctx(&rig, "x");
+    for (action, tail) in [("read", "[stdout]\ndone-out\n"), ("wait", "(no new output)")] {
+        let output = rig.task.call(&c, serde_json::json!({"action": action, "task_id": "task-a"})).await.unwrap();
+        assert_eq!(output.meta, Some(serde_json::json!({
+            "code": "task-completion", "executionId": "task-a", "status": "completed"
+        })));
+        assert_eq!(
+            normalize(&body(Ok(output))),
+            format!("background task\ntask_id: JOB\nsurface: shell\nstatus: completed\nexit_code: 0\nstarted: TS\nfinished: TS\nlogs: LOGS\n\n{tail}"),
+            "{action}"
+        );
+    }
+    rig.processes.quiet.store(true, std::sync::atomic::Ordering::SeqCst);
+    rig.shell.call(&ctx(&rig, "b"), serde_json::json!({"command": "echo tick; Start-Sleep 30", "background": true})).await.unwrap();
+    {
+        let mut senders = rig.processes.senders.lock().unwrap();
+        let (tx, seq) = senders.values_mut().find(|(tx, _)| !tx.is_closed()).unwrap();
+        send(tx, seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: b"tick\n".to_vec() });
+    }
+    let output = rig.task.call(&c, serde_json::json!({"action": "wait", "task_id": "task-b", "timeout_ms": 1000})).await.unwrap();
+    assert!(output.meta.is_none(), "a running read cannot consume a future completion");
+    assert_eq!(
+        normalize(&body(Ok(output))),
+        "background task\ntask_id: JOB\nsurface: shell\nstatus: running\nstarted: TS\nlogs: LOGS\n\n[progress] +0.0 KB, +1 lines since you last saw it · last line: \"tick\" — still running, not an error\n\n[stdout]\ntick\n\n\nWait ceiling reached; task still running and its result is delivered automatically. If periodic reports were requested, write the user-facing report now; otherwise continue independent work or end the turn."
+    );
+    assert_eq!(
+        normalize(&body(rig.task.call(&c, serde_json::json!({"action": "list"})).await)),
+        "background tasks: 2\n- JOB shell/shell completed label=echo done-out\n- JOB shell/shell running label=echo tick; Start-Sleep 30"
+    );
+}
+/// A call dropped mid-run (cancelled) still notes its folder.
+#[tokio::test]
+async fn a_cancelled_shell_call_still_notes_its_folder() {
+    let rig = rig();
+    let context = ctx(&rig, "x1");
+    let call = rig.shell.call(&context, serde_json::json!({"command": "echo started; Start-Sleep 30"}));
+    let running = async {
+        while rig.processes.senders.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    };
+    // The command is running when the future is dropped.
+    tokio::select! {
+        _ = call => panic!("the call finished"),
+        () = running => {}
+    }
+    assert_eq!(rig.review.notes.lock().unwrap().len(), 1);
+    assert_eq!(*rig.review.notes.lock().unwrap(), vec![Some(vec![rig.dir.path().to_string_lossy().into_owned()])]);
+}
+/// The header a survivors task reads under, with its task id and timestamps as placeholders.
+fn survivors_header(status: &str, finished: bool) -> String {
+    let finished = if finished { "\nfinished: <TIME>" } else { "" };
+    format!("background task\ntask_id: <TASK>\nsurface: shell\nstatus: {status}\nstarted: <TIME>{finished}")
+}
+/// A survivors task that ends on its own reads at every step: running without a body, completed with the
+/// result's `(no new output)` (`(no output)` for an explicit tail), and nothing left to cancel afterwards.
+#[tokio::test]
+async fn a_survivors_task_that_ends_on_its_own_reads_as_running_then_completed() {
+    let rig = rig();
+    let watch = FakeSurvivors::new(true);
+    let (_, task, _, tracked) = survivors_rig(&rig, watch.clone()).await;
+    let read = |call: &'static str| view(&task, &rig, call, serde_json::json!({"action": "read", "task_id": "task-s1"}));
+    assert_eq!(read("r1").await, survivors_header("running", false));
+    watch.gone.notify_one();
+    tracked.settled().await;
+    let completed = format!("{}\n\n(no new output)", survivors_header("completed", true));
+    assert_eq!(view(&task, &rig, "w", serde_json::json!({"action": "wait", "task_id": "task-s1", "timeout_ms": 1000})).await, completed);
+    assert_eq!(read("r2").await, completed);
+    assert_eq!(
+        view(&task, &rig, "t", serde_json::json!({"action": "read", "task_id": "task-s1", "output": "tail"})).await,
+        format!("{}\n\n(no output)", survivors_header("completed", true))
+    );
+    assert_eq!(view(&task, &rig, "c", serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await, "Error: task not found: <TASK>");
+}
+/// A cancel ends the task as cancelled with no body, a second cancel finds no task, and the observer's own exit event
+/// arriving while the kill is still reporting cannot make it completed (the cancel is latched before anything is signalled).
+#[tokio::test]
+async fn a_cancelled_survivors_task_stays_cancelled_whichever_exit_event_comes_first() {
+    let rig = rig();
+    let hold = Arc::new(tokio::sync::Notify::new());
+    let watch = FakeSurvivors::holding(true, hold.clone());
+    let (_, task, _, tracked) = survivors_rig(&rig, watch).await;
+    let cancel = view(&task, &rig, "c1", serde_json::json!({"action": "cancel", "task_id": "task-s1"}));
+    // The kill has signalled; the observer sees the survivors go and finishes before the kill reports.
+    let observer_first = async {
+        tracked.settled().await;
+        hold.notify_one();
+    };
+    let (cancelled, ()) = tokio::join!(cancel, observer_first);
+    assert_eq!(cancelled, "status: completed\ntask_id: <TASK>\ncancelled: shell/shell");
+    let got = |call: &'static str, extra: JsonValue| {
+        let mut args = serde_json::json!({"action": "read", "task_id": "task-s1"});
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        view(&task, &rig, call, args)
+    };
+    let cancelled_read = format!("{}\nerror: cancelled by task control", survivors_header("cancelled", true));
+    assert_eq!(got("r1", serde_json::json!({})).await, cancelled_read);
+    assert_eq!(got("r2", serde_json::json!({"output": "tail"})).await, cancelled_read);
+    assert_eq!(view(&task, &rig, "c2", serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await, "Error: task not found: <TASK>");
+}
+/// The shell text a session is sent follows the platform's shell family, whatever shell the setting names.
 #[test]
-fn the_shell_argument_guard_answers_with_the_texts_of_the_argument_guard() {
-    let refusal = |args: JsonValue| shell::guard_shell_args(args).unwrap_err();
+fn the_shell_text_follows_the_platform_and_not_the_setting() {
+    let windows = super::shell::shell_spec(super::shell::ShellKind::of(true), true).definition();
+    let posix = super::shell::shell_spec(super::shell::ShellKind::of(false), true).definition();
+    assert_ne!(windows, posix);
+    assert_eq!(windows, super::shell::shell_spec(super::shell::ShellKind::of(true), true).definition());
+}
+/// Node `notifyToolCompletion`: the launching call's `notifyFn` takes the completion first, with
+/// the meta that files it; the owner's default delivery is not used when it accepts.
+#[tokio::test(start_paused = true)]
+async fn a_background_end_goes_to_the_calls_notify_hook_first() {
+    let owner = Arc::new(OwnerNotices::default());
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let hook = {
+        let seen = seen.clone();
+        ToolNotify(Arc::new(move |text: &str, meta: &JsonValue| {
+            seen.lock().unwrap().push((text.to_owned(), meta.clone()));
+            true
+        }))
+    };
+    background_end(Some(hook), &owner).await;
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert!(seen[0].0.contains("task-c1"), "{}", seen[0].0);
+    assert_eq!(seen[0].1["execution_surface"], "shell");
+    assert_eq!(seen[0].1["execution_id"], "task-c1");
+    assert_eq!(seen[0].1["status"], "cancelled");
+    assert_eq!(seen[0].1["type"], "shell_task_result");
+    assert!(owner.0.lock().unwrap().is_empty());
+    // The whole meta of a cancelled job.
     assert_eq!(
-        refusal(serde_json::json!({"command": "ls", "shell": "bash"})),
-        "Error: shell arg \"shell\" is unsupported; use only command, cwd, timeout_ms, wait_ms, and background"
+        seen[0].1,
+        serde_json::json!({
+            "caller_session_id": "t", "execution_id": "task-c1", "execution_surface": "shell",
+            "instruction": "Shell task was cancelled (exit 137)", "status": "cancelled", "type": "shell_task_result"
+        })
     );
-    assert_eq!(refusal(serde_json::json!({"command": "ls", "cwd": " "})), "Error: shell arg \"cwd\" must be a non-empty string (got string)");
-    assert_eq!(refusal(serde_json::json!({"command": "ls", "background": "yes"})), "Error: shell arg \"background\" must be a boolean (got string)");
-    assert_eq!(
-        refusal(serde_json::json!({"command": "ls", "wait_ms": 999})),
-        "Error: shell arg \"wait_ms\" must be an integer from 1000 to 600000, e.g. wait_ms:120000 (got 999)"
-    );
-    assert_eq!(
-        refusal(serde_json::json!({"command": "ls", "wait_ms": 1500.5})),
-        "Error: shell arg \"wait_ms\" must be an integer from 1000 to 600000, e.g. wait_ms:120000 (got 1500.5)"
-    );
-    assert!(refusal(serde_json::json!({"command": "ls", "wait_ms": 0})).contains("must be an integer from 1000"));
-    assert_eq!(refusal(serde_json::json!({})), "Error: shell requires \"command\"");
-    assert_eq!(refusal(serde_json::json!({"command": 3})), "Error: shell arg \"command\" must be a string (got number)");
-    assert_eq!(refusal(serde_json::json!({"command": ""})), "Error: shell arg \"command\" must be a non-empty string");
-    assert_eq!(refusal(serde_json::json!({"command": "ls", "timeout_ms": -1})), "Error: shell arg \"timeout_ms\" must be a non-negative integer (got number)");
-    assert_eq!(refusal(serde_json::json!([1])), "Error: shell arguments must be an object (got array)");
-    assert_eq!(refusal(JsonValue::Null), "Error: shell requires arguments object (got null)");
+}
+/// The instruction a completion notice carries for each kind of end: completed, a non-zero exit that stays completed,
+/// cancelled, timed out, a signal death and no exit status.
+#[test]
+fn the_completion_instruction_names_how_the_task_ended() {
+    for (status, code, want) in [
+        ("completed", Some(0), "Shell task completed (exit 0)"),
+        ("completed", Some(3), "Shell task completed (exit 3)"),
+        ("cancelled", Some(137), "Shell task was cancelled (exit 137)"),
+        ("failed", Some(124), "Shell task failed (exit 124)"),
+        ("failed", None, "Shell task failed (exit n/a)"),
+    ] {
+        assert_eq!(super::jobs::completion_instruction(status, code), want, "{status} {code:?}");
+    }
+}
+fn elevation_commands() -> Vec<(String, String)> {
+    let message = |rule: &str| format!("Error: command requires user approval for elevation — Command requests elevated privileges [rule elevation: \"{rule}\"]; no approval was granted for this call");
+    [
+        ("Start-Process powershell -Verb RunAs", "Start-Process powershell -Verb RunAs"),
+        ("start-process notepad -verb runas", "start-process notepad -verb runas"),
+        ("Start-Process notepad -Verb:RunAs", "Start-Process notepad -Verb:RunAs"),
+        ("Start-Process notepad -Verb:'RunAs'", "Start-Process notepad -Verb:RunAs"),
+        ("Start-Process notepad -Verb:\"RunAs\"", "Start-Process notepad -Verb:RunAs"),
+        ("Start-Process notepad -Verb 'RunAs'", "Start-Process notepad -Verb RunAs"),
+    ]
+    .into_iter()
+    .map(|(command, matched)| (command.to_owned(), message(matched)))
+    .collect()
+}
+/// An elevation request is refused with its rule when the runtime does not approve the call, and runs when it does
+/// (the default: the OS prompt).
+#[tokio::test]
+async fn an_unapproved_elevation_is_refused_with_its_rule_and_never_spawned() {
+    let commands = elevation_commands();
+    assert_eq!(commands.len(), 6);
+    let rig = rig_with(Arc::new(RefuseElevation));
+    for (i, (command, message)) in commands.iter().enumerate() {
+        let err = rig
+            .shell
+            .call(&ctx(&rig, &format!("e{i}")), serde_json::json!({"command": command, "background": true}))
+            .await
+            .unwrap_err();
+        assert_eq!(err.message_for_model, message.replacen("Error: ", "Error: [shell-tool-failed] ", 1), "{command:?}");
+    }
+    assert!(rig.processes.senders.lock().unwrap().is_empty());
 
-    // An empty list is left as sent (`normalizeStringListArgs` keeps it) and so is refused as an unknown key.
-    assert_eq!(
-        refusal(serde_json::json!({"command": "ls", "path": []})),
-        "Error: shell arg \"path\" is unsupported; use only command, cwd, timeout_ms, wait_ms, and background"
-    );
-    // Nulls mean "not sent", a list of blanks is dropped before the key is checked, and a long wait is clamped.
-    let ok = shell::guard_shell_args(serde_json::json!({"command": "ls", "cwd": null, "path": ["", null], "wait_ms": 9_999_999, "timeout_ms": 5000})).unwrap();
-    assert_eq!(ok, serde_json::json!({"command": "ls", "wait_ms": 600000, "timeout_ms": 5000}));
+    let rig = rig_with(Arc::new(OsPromptElevation));
+    for (i, (command, _)) in commands.iter().enumerate() {
+        let out = body(
+            rig.shell
+                .call(&ctx(&rig, &format!("e{i}")), serde_json::json!({"command": command, "background": true}))
+                .await,
+        );
+        assert!(!out.contains("requires user approval"), "{command:?}: {out}");
+        assert!(out.contains("still running") || out.starts_with("[exit code: 0]"), "{command:?}: {out}");
+    }
+}
+#[tokio::test]
+async fn a_real_echo_answers_its_exit_code_and_its_output() {
+    let rig = real_rig();
+    let text = body(rig.shell.call(&ctx(&rig, "r1"), serde_json::json!({"command": "echo golden-out"})).await);
+    assert_eq!(text, "[exit code: 0]\n\ngolden-out\n");
+}
+/// A shell that has completed leaves the stoppable list, and stopping it answers how it ended and
+/// cancels nothing.
+#[tokio::test]
+async fn a_completed_shell_leaves_the_stoppable_list_and_its_stop_says_how_it_ended() {
+    let rig = rig();
+    let control = ShellControl::new(rig.runtime.clone(), rig.manager.clone());
+    let owner = ThreadId::from("sess_b");
+    background_of(&rig, "b", owner.as_str(), "sleep 100").await;
+    rig.shell.call(&{
+        let mut c = ctx(&rig, "d");
+        c.thread_id = owner.clone();
+        c
+    }, serde_json::json!({"command": "echo done-out", "background": true})).await.unwrap();
+    let ids = |control: &ShellControl| control.list_stoppable(&owner).into_iter().map(|job| job.task_id).collect::<Vec<_>>();
+    // Listed in the order they started.
+    assert_eq!(ids(&control), ["task-b", "task-d"]);
+    let handle = rig.runtime.get(&owner, "task-d").unwrap().handle.clone();
+    {
+        let mut senders = rig.processes.senders.lock().unwrap();
+        let (tx, seq) = senders.get_mut(&handle).unwrap();
+        send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+    }
+    rig.runtime.get(&owner, "task-d").unwrap().settled().await;
+    assert_eq!(ids(&control), ["task-b"]);
+    let answer = control.stop_job(&owner, "task-d").await;
+    assert_eq!(answer, serde_json::json!({"error": "task already completed: task-d", "finished": true, "stopped": false}));
+}
+/// The watchdog's stop of a turn ends the shells the turn started (at or after its ask, its own session's only)
+/// without waiting, and the handoff splits them into confirmed gone and still stopping. A kill that cannot be sent is an
+/// unconfirmed kill.
+#[tokio::test]
+async fn a_stalled_turns_reap_stops_and_splits_the_shells_of_the_turn() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let names = |value: &JsonValue| -> std::collections::BTreeSet<String> {
+        value.as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect()
+    };
+    // Four jobs of the turn's session started 20 s, 3 s, 1 s and 0 s before the clock's reading, and one of another session.
+    let jobs = serde_json::json!([
+        {"id": "old", "startedOffset": -20000}, {"id": "mine-a", "startedOffset": -3000}, {"id": "mine-b", "startedOffset": -1000},
+        {"id": "mine-c", "startedOffset": 0}, {"id": "theirs", "startedOffset": -1000, "session": "sess_other"}
+    ]);
+    let cases = serde_json::json!([
+        {"name": "a confirmed kill is stopped", "kill": "confirmed", "askOffset": -5000, "stopped": ["mine-a", "mine-b", "mine-c"], "stopping": [], "cancelled": ["mine-a", "mine-b", "mine-c"]},
+        {"name": "an unconfirmed kill is still stopping", "kill": "unconfirmed", "askOffset": -5000, "stopped": [], "stopping": ["mine-a", "mine-b", "mine-c"], "cancelled": ["mine-a", "mine-b", "mine-c"]},
+        {"name": "a job without a kill outcome is stopped once gone", "kill": "none", "askOffset": -5000, "stopped": ["mine-a", "mine-b", "mine-c"], "stopping": [], "cancelled": ["mine-a", "mine-b", "mine-c"]},
+        {"name": "a turn that started after every job stops none", "kill": "confirmed", "askOffset": 1000, "stopped": [], "stopping": [], "cancelled": []},
+        {"name": "a turn that started before every job stops all of its session", "kill": "confirmed", "askOffset": -100000, "stopped": ["old", "mine-a", "mine-b", "mine-c"], "stopping": [], "cancelled": ["old", "mine-a", "mine-b", "mine-c"]},
+    ]);
+    for case in cases.as_array().unwrap() {
+        let case = &{
+            let mut case = case.clone();
+            case["session"] = "sess_turn".into();
+            case["jobs"] = jobs.clone();
+            case
+        };
+        let name = case["name"].as_str().unwrap();
+        let rig = rig();
+        let clock = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let mut config = rig.runtime.config.clone_for_test();
+        config.now_ms = {
+            let clock = clock.clone();
+            Arc::new(move || clock.load(SeqCst))
+        };
+        let runtime = ExecRuntime::new(config);
+        let shell = ShellTool::new(runtime.clone());
+        let control = ShellControl::new(runtime.clone(), rig.manager.clone());
+        let owner = ThreadId::from(case["session"].as_str().unwrap());
+        let now = 1_000_000_i64;
+        for job in case["jobs"].as_array().unwrap() {
+            clock.store((now + job["startedOffset"].as_i64().unwrap()) as u64, SeqCst);
+            let mut call = ctx(&rig, job["id"].as_str().unwrap());
+            call.thread_id = ThreadId::from(job["session"].as_str().unwrap_or(owner.as_str()));
+            shell.call(&call, serde_json::json!({"command": "sleep 100", "background": true})).await.unwrap();
+        }
+        rig.processes.refuse_kill.store(case["kill"] == "unconfirmed", SeqCst);
+        control.reap_since(&owner, (now + case["askOffset"].as_i64().unwrap()) as u64);
+        let reaped = names(&case["cancelled"]);
+        if case["kill"] != "unconfirmed" {
+            for id in &reaped {
+                let job = runtime.get(&owner, &format!("task-{id}")).unwrap();
+                job.settled().await;
+            }
+        }
+        for job in case["jobs"].as_array().unwrap() {
+            let id = job["id"].as_str().unwrap();
+            let session = ThreadId::from(job["session"].as_str().unwrap_or(owner.as_str()));
+            let running = runtime.get(&session, &format!("task-{id}")).unwrap().is_running();
+            let held = control.tasks().get(&format!("task-{id}")).unwrap().termination_unconfirmed;
+            assert_eq!(!(running && !held), reaped.contains(id), "{name}: {id} stopped or held");
+        }
+        let (stopped, stopping) = control.take_reaped(&owner);
+        let strip = |ids: Vec<String>| ids.into_iter().map(|id| id.trim_start_matches("task-").to_owned()).collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(strip(stopped), names(&case["stopped"]), "{name}: stopped");
+        assert_eq!(strip(stopping), names(&case["stopping"]), "{name}: stopping");
+        assert!(control.take_reaped(&owner).0.is_empty(), "{name}: the list is handed out once");
+    }
+}
+/// Node's recorded table (`record-shell-cover.mjs`) through the shell tool itself, every command under both shell families:
+/// the tools the session offers, and either the refusal (an error with Node's text, nothing runs) or the run, which starts
+/// the command the guard handed on, in the folder it named, with its notes in the answer. Path rules differ per platform,
+/// so the table is replayed on the platform it was recorded on.
+///
+/// Outcomes are compared whole, by equality: the answer's note lines (the lines between its status line and the blank line
+/// after it) equal the recording's `notes` in order, and the command started equals the recording's `args.command`, in the
+/// recording's folder. Two representations differ for a reason that is not behaviour, normalised before comparing:
+/// (1) PowerShell receives its script framed on stdin (`<utf-16 length>\n<command>`): the length line is checked and
+/// removed; (2) an inline `node -e` command is moved by the tool into a file and started as
+/// `node "<file>"`: that form stands for the recorded command only when the file the tool wrote held exactly the recorded script
+/// (read when the command reached the process manager).
+#[cfg(node_twin)]
+#[cfg(windows)]
+#[tokio::test]
+async fn the_shell_tool_answers_the_whole_cover_table_as_node_does() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-cover/cases.json")).unwrap();
+    assert_eq!(doc["platform"], "win32");
+    let dir = tempfile::tempdir().unwrap();
+    let root = recorded_files(dir.path(), doc["files"].as_object().unwrap());
+    let forward = root.to_string_lossy().replace('\\', "/");
+    let back = root.to_string_lossy().into_owned();
+    let fix = |s: &str| s.replace(&forward, "<WS>").replace(&back, "<WS>");
+    let spelled = |p: &str| p.replace('\\', "/").trim_start_matches("//?/").to_ascii_lowercase();
+    let rigs = [("posix", rig_shell(mixdog_rt::testing::tokens(), Arc::new(OsPromptElevation), None, false)), ("powershell", rig_shell(mixdog_rt::testing::tokens(), Arc::new(OsPromptElevation), None, true))];
+    for (_, rig) in &rigs {
+        rig.processes.exit_at_once.store(true, SeqCst);
+    }
+    let mut failures = Vec::new();
+    let cases = doc["cases"].as_array().unwrap();
+    // The recording is Node's; the cases the Rust guard decided to answer differently are marked in `departures.json`.
+    let departed = super::guard::departed(cases, mixdog_testkit::fixture!("../../fixtures/shell-cover/departures.json"));
+    for (n, case) in cases.iter().enumerate() {
+        let rig = &rigs.iter().find(|(shell, _)| case["shellType"] == *shell).unwrap().1;
+        let c = cover_ctx(rig, &root, &case["offers"], &format!("cover{n}"));
+        let mut args = serde_json::json!({ "command": case["args"]["command"].as_str().unwrap().replace("<WS>", &forward) });
+        if let Some(cwd) = case["args"]["cwd"].as_str() {
+            args["cwd"] = cwd.replace("<WS>", &forward).into();
+        }
+        let spawned = rig.processes.cwds.lock().unwrap().len();
+        let spawned_seen = rig.processes.seen.lock().unwrap().len();
+        let fed_before = rig.processes.fed.lock().unwrap().len();
+        let outcome = rig.shell.call(&c, args).await;
+        let want = departed.get(&n).unwrap_or(&case["result"]);
+        let mut got = String::new();
+        let same = match (&outcome, want["failure"].as_str()) {
+            (Err(e), Some(failure)) => fix(&e.message_for_model) == failure && rig.processes.cwds.lock().unwrap().len() == spawned,
+            (Ok(_), None) => {
+                let started = rig.processes.cwds.lock().unwrap().iter().skip(spawned).map(|c| c.as_path().to_string_lossy().into_owned()).collect::<Vec<_>>();
+                let command = want["args"]["command"].as_str().unwrap().replace("<WS>", &forward);
+                // An inline `node -e "<body>"` script is the one command the tool itself moves into a file before it starts.
+                let inline_body = command.strip_prefix("node -e \"").and_then(|b| b.strip_suffix('"'));
+                // The command the process manager was handed, as a recorded command (rules in the test's header): a
+                // `node "<file>"` whose file held exactly the recorded script stands for the recorded command.
+                let unhoist = |script: &str| match (inline_body, script.strip_prefix("node \"").and_then(|p| p.strip_suffix('"'))) {
+                    (Some(want_body), Some(file)) if rig.processes.hoisted.lock().unwrap().get(file).is_some_and(|contents| contents == want_body) => command.clone(),
+                    _ => script.to_owned(),
+                };
+                let handed = if case["shellType"] == "posix" {
+                    let seen = rig.processes.seen.lock().unwrap();
+                    match (seen.len() - spawned_seen, seen.last()) {
+                        (1, Some((CommandSpec::Shell { script, .. }, _))) => Some(unhoist(script)),
+                        _ => None,
+                    }
+                } else {
+                    let fed = rig.processes.fed.lock().unwrap();
+                    let framed = if fed.len() - fed_before == 1 { fed.last().unwrap().as_str() } else { "" };
+                    framed.split_once('\n').filter(|(len, script)| len.parse::<usize>().ok() == Some(script.encode_utf16().count())).map(|(_, script)| unhoist(script))
+                };
+                let folder = want["args"]["cwd"].as_str().map_or(root.clone(), |cwd| root.join(cwd.replace("<WS>", &forward))).to_string_lossy().into_owned();
+                // The answer is `<status>\n<notes, one per line>\n\n<output>`: its notes, in order, are the recording's.
+                let text = fix(&body(outcome));
+                let header = text.split("\n\n").next().unwrap();
+                let notes: Vec<&str> = header.split('\n').skip(1).collect();
+                let want_notes: Vec<&str> = want["notes"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).collect();
+                got.push_str(&format!("{handed:?} {notes:?}"));
+                handed.as_deref() == Some(command.as_str()) && started.len() == 1 && spelled(&started[0]) == spelled(&folder) && notes == want_notes
+            }
+            _ => false,
+        };
+        if !same {
+            failures.push(format!("{} {} offers {}\n  want {want}\n  got {got}", case["shellType"], case["args"], case["offers"]));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n"));
+}
+
+/// `shell` and `task`, built through their runtime constructors, are the definitions Node sends
+/// (`fixtures/tool-definitions/definitions.json`, through `mixdog_js::fixture_tools`): the shell text of the
+/// runtime's shell kind, with and without background tasks, and the task tool for the Lead and for a delegated agent.
+#[cfg(node_twin)]
+#[test]
+fn the_shell_and_task_tools_are_nodes_definitions() {
+    let node = |key: &str| mixdog_js::fixture_tools::definition(key).expect("a recorded Node definition");
+    let same = |got: &ToolSpec, node: &serde_json::Value, what: &str| {
+        assert_eq!(&got.definition(), node, "{what}");
+        assert_eq!(got.annotations.to_json().to_string(), node["annotations"].to_string(), "{what} annotations");
+    };
+    let rig = rig();
+    for powershell in [false, true] {
+        for background in [true, false] {
+            let mut config = rig.runtime.config.clone_for_test();
+            config.windows = powershell;
+            let shell = ShellTool::with_background(ExecRuntime::new(config), background);
+            let kind = if powershell { "powershell" } else { "posix" };
+            let mut recorded = node(&format!("shell@{kind}{}", if background { "" } else { "-foreground" }));
+            if !background {
+                // v1.4.5 advertised these even in foreground-only mode.
+                let properties = recorded["inputSchema"]["properties"].as_object_mut().unwrap();
+                properties.shift_remove("wait_ms");
+                properties.shift_remove("background");
+            }
+            same(shell.spec(), &recorded, &format!("shell {kind} background {background}"));
+        }
+    }
+    same(rig.task.spec(), &node("task"), "task");
+    same(rig.task.agent_spec().expect("task has an agent text"), &node("task@agent"), "agent task");
 }

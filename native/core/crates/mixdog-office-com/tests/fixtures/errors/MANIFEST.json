@@ -1,8 +1,0 @@
-{
-  "recorded": false,
-  "powershell": null,
-  "office": null,
-  "corpus": "corpus.json",
-  "corpusSha256": "aa2277fd70d82ad69e94acc1b600d31bd87c70b29f38acfe7c2d7c8b0d90dbf9",
-  "note": "corpus.json holds hand-written seed entries until recorder/errors-corpus.ps1 is run in Windows PowerShell 5.1 with Microsoft Office; the recorder rewrites this manifest with the PowerShell version, the Office build numbers and the sha256 of the corpus it wrote"
-}

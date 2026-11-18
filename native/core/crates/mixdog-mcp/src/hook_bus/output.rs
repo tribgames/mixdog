@@ -202,7 +202,15 @@ pub fn parse_handler_output(run: &HandlerRun, event: &str) -> Parsed {
     let specific = json
         .get("hookSpecificOutput")
         .filter(|h| h.is_object())
-        .filter(|h| h.get("hookEventName").is_none_or(|n| n.is_null() || n.as_str() == Some(event)));
+        // `!hso.hookEventName`: a falsy name (absent, null, "", false, 0) names no event, so the block applies to any.
+        .filter(|h| {
+            h.get("hookEventName").is_none_or(|n| match n {
+                Value::Null | Value::Bool(false) => true,
+                Value::String(name) => name.is_empty() || name == event,
+                Value::Number(number) => number.as_f64() == Some(0.0),
+                _ => false,
+            })
+        });
     if let Some(hso) = specific {
         if let Some(text) = hso.get("additionalContext").and_then(Value::as_str) {
             out.additional_context = Some(limit_text(text.to_owned()));
@@ -401,6 +409,14 @@ mod tests {
         assert!(parse_handler_output(&run(2, "", ""), "Stop").reason.is_none());
         assert_eq!(parse_handler_output(&run(0, r#"{"decision":"block","reason":"r"}"#, ""), "Stop").reason.as_deref(), Some("r"));
         assert_eq!(parse_handler_output(&run(0, r#"{"decision":"block"}"#, ""), "PreToolUse").reason.as_deref(), Some("blocked by PreToolUse hook"));
+    }
+
+    #[test]
+    fn a_hook_specific_block_with_an_empty_event_name_applies() {
+        let out = r#"{"hookSpecificOutput":{"hookEventName":"","additionalContext":"ctx"}}"#;
+        assert_eq!(parse_handler_output(&run(0, out, ""), "PreToolUse").additional_context.as_deref(), Some("ctx"));
+        let other = r#"{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"ctx"}}"#;
+        assert!(parse_handler_output(&run(0, other, ""), "PreToolUse").additional_context.is_none());
     }
 
     #[test]

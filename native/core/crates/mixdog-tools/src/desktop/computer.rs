@@ -101,10 +101,15 @@ impl Tool for ComputerTool {
         &self.spec
     }
 
+    fn runnable(&self) -> bool {
+        self.sessions.available()
+    }
+
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let request = request(&args).map_err(|m| invalid("action", m))?;
-        // The calling session's own helper state, as Node sends the session id with the request.
-        let backend = self.sessions.backend(ctx.thread_id.as_str());
+        // The calling session's own helper state, as Node sends the session id with the request, under this call's own availability
+        // decision (a helper placed or removed since the last call or listing is what this one finds).
+        let backend = self.sessions.backend_now(ctx.thread_id.as_str()).await;
         // The recovery names its target from the resolved input, whichever shape the call arrived in.
         let resolved = serde_json::json!({ "action": request.action.wire_name(), "input": request.input.clone() });
         let parts = backend.run(request, ctx.cancel.clone()).await.map_err(|error| map_error(error, &resolved))?;
@@ -118,6 +123,36 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    /// Whether `computer` can run is the sessions' answer at the moment of the ask, never one taken at registration.
+    #[test]
+    fn the_tool_runs_exactly_when_its_sessions_say_they_can_serve() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::atomic::Ordering;
+
+        use mixdog_core_api::domain::computer::ComputerBackend;
+        use mixdog_core_api::domain::mock::MockComputerBackend;
+
+        struct Toggle(AtomicBool);
+
+        impl ComputerSessions for Toggle {
+            fn backend(&self, _: &str) -> Arc<dyn ComputerBackend> {
+                Arc::new(MockComputerBackend::default())
+            }
+
+            fn available(&self) -> bool {
+                self.0.load(Ordering::SeqCst)
+            }
+        }
+
+        let sessions = Arc::new(Toggle(AtomicBool::new(false)));
+        let tool = ComputerTool::new(sessions.clone());
+        assert!(!tool.runnable());
+        sessions.0.store(true, Ordering::SeqCst);
+        assert!(tool.runnable());
+        sessions.0.store(false, Ordering::SeqCst);
+        assert!(!tool.runnable());
+    }
 
     #[test]
     fn action_is_resolved_and_input_defaults_to_empty() {

@@ -74,6 +74,10 @@ pub trait SecretStore: Send + Sync {
     async fn set(&self, account: &str, value: &str) -> Result<(), SecretError>;
     /// Removes the account; nothing stored is not an error.
     async fn delete(&self, account: &str) -> Result<(), SecretError>;
+    /// Check the keyring itself without reading a credential. Only an explicit retry may unlock it.
+    async fn probe_keychain(&self, _interactive: bool) -> Result<(), SecretError> {
+        Err(SecretError::unrun("this store does not expose keyring health"))
+    }
     /// Whether the account holds a value (`hasSecret`): on Windows only the file's existence is
     /// checked, elsewhere a read that FAILED counts as "no" (Node's `catch`). `Err` only when the
     /// check never ran ([`SecretError::unrun`]), which must not read as "not signed in".

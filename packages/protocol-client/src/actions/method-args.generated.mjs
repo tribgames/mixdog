@@ -214,6 +214,7 @@ export const METHOD_ARGS = Object.freeze({
   'thread/getBranchMenu': { thread: true, args: [] },
   'thread/getSessionUsage': { thread: true, args: ["options"] },
   'thread/getSessionWorktreeWork': { thread: true, args: ["input"] },
+  'thread/imageRecovery': { thread: true, args: ["action"] },
   'thread/inheritancePreflight': { thread: true, args: ["sourceThreadId","selection"] },
   'thread/listShellJobs': { thread: true, args: [] },
   'thread/listStoppableShellJobs': { thread: true, args: [] },

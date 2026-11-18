@@ -3,7 +3,9 @@
 //! while a request is still running, and request lines queue for the request
 //! loop, which reads them in order.
 
+use super::authority::{revoke_and_acknowledge, REVOKE_LINE};
 use super::lease;
+use crate::port::Scope as Authority;
 use crate::protocol::FGLOCK_REPLY_MARKER;
 use std::io::BufRead;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -13,21 +15,29 @@ pub(super) struct Router {
 }
 
 impl Router {
-    pub(super) fn stdin() -> Router {
-        Router::new(std::io::BufReader::new(std::io::stdin()))
+    pub(super) fn stdin(authority: Authority) -> Router {
+        Router::new(std::io::BufReader::new(std::io::stdin()), authority)
     }
 
-    /// Routes lease answers to this process's lease channel.
-    pub(super) fn new(input: impl BufRead + Send + 'static) -> Router {
-        Router::routed(input, lease::receive, lease::input_ended)
+    /// Routes lease answers to this process's lease channel, and the core's
+    /// revocation to `authority`; the end of the input revokes it too (the
+    /// core that held the scope is gone).
+    pub(super) fn new(input: impl BufRead + Send + 'static, authority: Authority) -> Router {
+        let revoked = authority.clone();
+        Router::routed(input, lease::receive, move || revoke_and_acknowledge(&revoked), move || {
+            authority.revoke();
+            lease::input_ended();
+        })
     }
 
     /// Reads `input` on a thread of its own: `answer` gets each lease answer
-    /// without its marker, and `ended` runs once nothing more can arrive,
-    /// before the request lines end.
+    /// without its marker, `revoke` runs at the revocation line, as it is read
+    /// and whatever the request loop is running, and `ended` runs once nothing
+    /// more can arrive, before the request lines end.
     fn routed(
         input: impl BufRead + Send + 'static,
         answer: impl Fn(&str) + Send + 'static,
+        revoke: impl Fn() + Send + 'static,
         ended: impl FnOnce() + Send + 'static,
     ) -> Router {
         let (queue, requests) = channel();
@@ -36,7 +46,7 @@ impl Router {
         let _ = std::thread::Builder::new()
             .name("mixdog-computer stdin".into())
             .spawn(move || {
-                pump(input, &queue, answer);
+                pump(input, &queue, answer, revoke);
                 ended();
             });
         Router { requests }
@@ -45,11 +55,13 @@ impl Router {
 
 /// Reads until the input ends, a line cannot be read (a broken pipe, or bytes
 /// that are not UTF-8), or the request loop has gone.
-fn pump(input: impl BufRead, queue: &Sender<String>, answer: impl Fn(&str)) {
+fn pump(input: impl BufRead, queue: &Sender<String>, answer: impl Fn(&str), revoke: impl Fn()) {
     for line in input.lines() {
         let Ok(line) = line else { break };
         if let Some(body) = line.strip_prefix(FGLOCK_REPLY_MARKER) {
             answer(body);
+        } else if line == REVOKE_LINE {
+            revoke();
         } else if !line.trim().is_empty() && queue.send(line).is_err() {
             break;
         }
@@ -75,10 +87,11 @@ mod tests {
     /// order: each lease answer, then "ended".
     fn route(input: &[u8]) -> (Vec<String>, Vec<String>) {
         let seen = Arc::new(Mutex::new(Vec::new()));
-        let (answers, end) = (seen.clone(), seen.clone());
+        let (answers, revokes, end) = (seen.clone(), seen.clone(), seen.clone());
         let router = Router::routed(
             std::io::Cursor::new(input.to_vec()),
             move |body| answers.lock().unwrap().push(body.to_string()),
+            move || revokes.lock().unwrap().push("revoked".to_string()),
             move || end.lock().unwrap().push("ended".to_string()),
         );
         let requests: Vec<String> = router.collect();
@@ -120,6 +133,15 @@ mod tests {
         assert_eq!(seen, ["ack 7 2 5 locked 1.000", "", "released 7 1 12 released", "ended"]);
     }
 
+    /// The revocation is taken as it is read, ahead of the requests queued
+    /// before it, which the request loop has not run yet.
+    #[test]
+    fn the_revocation_is_taken_on_the_input_thread_and_never_queued() {
+        let (requests, seen) = route(b"{\"id\":1}\n@@MIXDOG_REVOKE@@\n{\"id\":2}\n");
+        assert_eq!(requests, ["{\"id\":1}", "{\"id\":2}"]);
+        assert_eq!(seen, ["revoked", "ended"]);
+    }
+
     #[test]
     fn an_empty_input_ends_at_once() {
         assert_eq!(route(b""), (Vec::new(), vec!["ended".to_string()]));
@@ -131,6 +153,7 @@ mod tests {
         let router = Router::routed(
             std::io::Cursor::new(b"a\nb\nc\n".to_vec()),
             |_| {},
+            || {},
             move || told.send(()).unwrap(),
         );
         drop(router);

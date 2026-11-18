@@ -3,7 +3,7 @@
 // needs answered: where the server's core listens (`connections/endpoint`, asked of this PC's core on every dial, so a
 // tunnel the core re-opened is followed). Nothing else of the old per-server connection object lives in this process.
 import type { ConnectionEndpoint, ConnectionIdParams, SshOpenEphemeralParams } from '../../../../../packages/protocol/src/index.ts';
-import type { CoreEndpoint } from '../core-port/relay';
+import type { CoreEndpoint, CoreSlot } from '../core-port/relay';
 import { LOCAL_CONNECTION_ID } from './contract';
 
 /** The calls main makes of this PC's core (`ProtocolConnection.call`). */
@@ -52,46 +52,45 @@ export interface ServerWindowsDeps {
 }
 
 export interface ServerWindows {
-  /** The `windows.open` of the host role (host/window/open): true once the window is up; rejects (no record kept) when it
-   *  could not be made, which the window host answers as `opened: false`. */
+  /** The `windows.open` of the host role (host/window/open): true once the window is up; rejects on refusal and drops only
+   *  a record it made for this request. The window host answers the refusal as `opened: false`. */
   open(params: { connectionId: string; kind: 'ssh'; name: string }): Promise<boolean>;
   get(connectionId: string): ServerWindowRecord | undefined;
   /** The window is gone (or never came up): the record is dropped. */
   release(connectionId: string): void;
-  /** The relay's endpoints for a window of this connection: `primary` the server's core (host claimant only) and, for a
+  /** The relay's endpoint for one slot: `primary` the server's core (host claimant only) and, for a
    *  server window, `pc` this PC's, both under the role `server:<id>`; the main window only has its own. */
-  endpointsFor(connectionId: string): Promise<CoreEndpoint[]>;
+  endpointFor(connectionId: string, slot: CoreSlot): Promise<CoreEndpoint | undefined>;
 }
 
 export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
   const records = new Map<string, ServerWindowRecord>();
   return {
     open: async ({ connectionId, kind, name }) => {
-      const record = records.get(connectionId) ?? createServerWindowRecord({ id: connectionId, kind, name }, deps.core);
+      const existing = records.get(connectionId);
+      const record = existing ?? createServerWindowRecord({ id: connectionId, kind, name }, deps.core);
       records.set(connectionId, record);
       try {
         await deps.showWindow(record);
         return true;
       } catch (error) {
-        if (records.get(connectionId) === record) records.delete(connectionId);
+        if (!existing && records.get(connectionId) === record) records.delete(connectionId);
         throw error;
       }
     },
     get: (connectionId) => records.get(connectionId),
     release: (connectionId) => void records.delete(connectionId),
-    endpointsFor: async (connectionId) => {
+    endpointFor: async (connectionId, slot) => {
       if (connectionId === LOCAL_CONNECTION_ID) {
-        const local = await deps.localEndpoint();
-        return [{ slot: 'primary', ...local, target: 'local', role: 'main' }];
+        if (slot !== 'primary') return undefined;
+        return { slot, ...(await deps.localEndpoint()), target: 'local', role: 'main' };
       }
       const record = records.get(connectionId);
       if (!record) throw new Error(`The server window "${connectionId}" is not open.`);
       const role = `server:${connectionId}` as const;
-      const [server, local] = await Promise.all([record.endpoint(), deps.localEndpoint()]);
-      return [
-        { slot: 'primary', ...server, target: 'server', role },
-        { slot: 'pc', ...local, target: 'local', role },
-      ];
+      // A window reloading during an outage still needs its PC port to read link state and Retry.
+      if (slot === 'pc') return { slot, ...(await deps.localEndpoint()), target: 'local', role };
+      return { slot, ...(await record.endpoint()), target: 'server', role };
     },
   };
 }

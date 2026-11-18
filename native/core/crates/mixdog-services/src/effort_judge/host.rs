@@ -109,6 +109,7 @@ pub(crate) fn serve_resident(
 }
 
 /// The core's process id, handed to the host so it can watch for the core's exit.
+#[cfg(target_os = "macos")]
 const PARENT_ENV: &str = "MIXDOG_EFFORT_JUDGE_PARENT";
 
 /// How long a host may take to say it is ready (the model's load included), on the judge's clock.

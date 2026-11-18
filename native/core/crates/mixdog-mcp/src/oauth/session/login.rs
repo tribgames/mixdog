@@ -9,6 +9,7 @@
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::Ordering;
 
 use serde_json::Value;
 use serde_json::json;
@@ -17,6 +18,7 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+use super::Cache;
 use super::Control;
 use super::Entry;
 use super::McpOAuth;
@@ -245,6 +247,8 @@ struct Run<'a> {
     abort: Abort,
     /// Node's `creds`: the stored entry as this login sees it, with the changes not written yet.
     creds: Entry,
+    generation: Option<u64>,
+    login_version: u64,
     verifier: Option<String>,
     state: String,
     browser_opened: bool,
@@ -258,32 +262,6 @@ struct Run<'a> {
 }
 
 impl McpOAuth {
-    /// Writes the entry as it is now, with a fresh revision, and makes it the cached one.
-    async fn store_creds(&self, creds: &mut Entry) -> Result<(), OAuthError> {
-        let mut cache = self.lock_cache().await;
-        creds.revision = rand::random::<[u8; 16]>().iter().map(|b| format!("{b:02x}")).collect();
-        self.write_entry(creds).await?;
-        self.hold(Some(creds));
-        cache.entry = Some(creds.clone());
-        cache.loaded = true;
-        self.sign_in_required.store(false, std::sync::atomic::Ordering::SeqCst);
-        Ok(())
-    }
-
-    /// Removes the stored entry (the delete only when there is one).
-    async fn remove_creds(&self) -> Result<(), OAuthError> {
-        use super::store_error;
-        let mut cache = self.lock_cache().await;
-        self.files.write_revision(&self.account, None, false).await.map_err(store_error)?;
-        if cache.entry.is_some() {
-            self.store.delete(&self.account).await.map_err(store_error)?;
-        }
-        self.files.write_identity(&self.account, None).await.map_err(store_error)?;
-        cache.entry = None;
-        cache.loaded = true;
-        Ok(())
-    }
-
     pub(super) async fn run_login(
         self: &Arc<Self>,
         mode: AccountMode,
@@ -296,7 +274,10 @@ impl McpOAuth {
         let abort = Abort { cancel: ctl.cancel.clone(), deadline: Arc::new(Deadline::start()) };
         let in_memory = mode == AccountMode::Switch || transactional;
         let server = &self.binding.url;
-        let stored = self.load().await?.entry.clone();
+        let (stored, generation, login_version) = {
+            let cache = abort.guard(self.load()).await??;
+            (cache.entry.clone(), cache.generation, self.credential.login_version.load(Ordering::Relaxed))
+        };
         let mut creds = Entry { url: server.to_string(), ..Entry::default() };
         if let Some(stored) = &stored {
             creds.revision = stored.revision.clone();
@@ -340,6 +321,8 @@ impl McpOAuth {
             in_memory,
             abort,
             creds,
+            generation,
+            login_version,
             verifier: None,
             state,
             browser_opened: false,
@@ -365,7 +348,11 @@ impl McpOAuth {
                 // A server that no longer knows our client_id answers the browser with an HTTP error nobody here
                 // sees: register again next time.
                 if run.browser_opened && !code_received && self.binding.client.is_none() {
-                    let _ = run.invalidate(Invalidate::Client).await;
+                    if let Ok(mut cache) = self.load().await
+                        && run.require_current(cache.generation).is_ok()
+                    {
+                        let _ = run.invalidate(&mut cache, Invalidate::Client).await;
+                    }
                 }
                 Err(stop)
             }
@@ -402,10 +389,6 @@ impl Run<'_> {
             *code_received = true;
             self.abort.check()?;
             self.ctl.emit(LoginState::Waiting);
-            // The entry this login registered in is gone only after a log-out since it began, which wins.
-            if !self.in_memory && self.oauth.lock_cache().await.entry.is_none() {
-                return Err(OAuthError::LoginFailed.into());
-            }
             if !matches!(self.auth(Some(&code)).await.map_err(AuthError::into_stop)?, Authorized::Tokens) {
                 return Err(OAuthError::LoginFailed.into());
             }
@@ -414,7 +397,6 @@ impl Run<'_> {
         if self.in_memory {
             self.commit().await?;
         }
-        self.abort.check()?;
         if let Some(flush) = held.settle(PageOutcome::Done).await {
             flush.wait().await;
         }
@@ -425,27 +407,52 @@ impl Run<'_> {
     async fn commit(&mut self) -> Result<(), Stop> {
         let mut entry = self.creds.clone();
         entry.url = self.oauth.binding.url.to_string();
-        let cache = self.oauth.lock_cache().await;
-        *self.oauth.switched_from.lock().unwrap_or_else(|e| e.into_inner()) = Some(cache.entry.clone());
-        drop(cache);
-        self.oauth.store_creds(&mut entry).await?;
+        let mut cache = self.oauth.load().await?;
+        self.require_current(cache.generation)?;
+        self.abort.check()?;
+        let previous = cache.entry.clone();
+        let version = self.oauth.credential.login_version.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+        self.oauth.replace(&mut cache, entry, false).await?;
+        // A switch that was cancelled during its write must not escape the gate as a new grant.
+        if let Err(stop) = self.abort.check() {
+            match previous {
+                Some(entry) => self.oauth.replace(&mut cache, entry, true).await?,
+                None => self.oauth.erase(&mut cache).await?,
+            }
+            return Err(stop);
+        }
+        *self.oauth.switched_from.lock().unwrap_or_else(|e| e.into_inner()) = Some((version, previous));
+        Ok(())
+    }
+
+    fn require_current(&self, generation: Option<u64>) -> Result<(), OAuthError> {
+        // A switch can replace a grant that refreshed while the browser was open. It must not
+        // replace a newer explicit sign-in or undo sign-out. A non-transactional login carries the
+        // whole previous entry, so it must not overwrite even a concurrent refresh.
+        if self.login_version != self.oauth.credential.login_version.load(Ordering::Relaxed)
+            || (!self.in_memory && self.generation != generation)
+        {
+            return Err(OAuthError::LoginFailed);
+        }
         Ok(())
     }
 
     /// Node's `provider.save`: the change reaches the stored entry now, unless the sign-in is in memory.
-    async fn save(&mut self, change: impl FnOnce(&mut Entry)) -> Result<(), AuthError> {
+    async fn save(&mut self, cache: &mut Cache, rotated: bool, change: impl FnOnce(&mut Entry)) -> Result<(), AuthError> {
         change(&mut self.creds);
         if self.in_memory {
             return Ok(());
         }
-        let mut entry = self.creds.clone();
-        self.oauth.store_creds(&mut entry).await?;
-        self.creds.revision = entry.revision;
+        if !rotated {
+            self.login_version = self.oauth.credential.login_version.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+        }
+        self.oauth.replace(cache, self.creds.clone(), rotated).await?;
+        self.generation = cache.generation;
         Ok(())
     }
 
     /// Node's `provider.invalidateCredentials(scope)`.
-    async fn invalidate(&mut self, scope: Invalidate) -> Result<(), AuthError> {
+    async fn invalidate(&mut self, cache: &mut Cache, scope: Invalidate) -> Result<(), AuthError> {
         if scope == Invalidate::All {
             self.verifier = None;
         }
@@ -461,23 +468,40 @@ impl Run<'_> {
         if scope == Invalidate::All {
             change(&mut self.creds);
             if !self.in_memory {
-                self.oauth.remove_creds().await?;
+                self.login_version = self.oauth.credential.login_version.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+                self.oauth.erase(cache).await?;
+                self.generation = cache.generation;
             }
             return Ok(());
         }
-        self.save(change).await
+        self.save(cache, false, change).await
     }
 
     /// The SDK's `auth()`: a refused client or grant is invalidated and the attempt made once more.
     async fn auth(&mut self, code: Option<&str>) -> Result<Authorized, AuthError> {
-        match self.auth_internal(code).await {
+        // Transport and explicit login share this gate from the read of the refresh token
+        // through its exchange and storage. Never hold it while waiting for the browser.
+        let oauth = Arc::clone(self.oauth);
+        let mut cache = self.abort.guard(oauth.load()).await??;
+        if code.is_none()
+            && !self.in_memory
+            && self.login_version == oauth.credential.login_version.load(Ordering::Relaxed)
+            && self.generation != cache.generation
+        {
+            self.creds = cache.entry.clone().unwrap_or_else(|| Entry { url: oauth.binding.url.to_string(), ..Entry::default() });
+            self.creds.redirect_url = Some(self.redirect_url.clone());
+            self.generation = cache.generation;
+        }
+        self.require_current(cache.generation)?;
+        self.abort.check()?;
+        match self.auth_internal(&mut cache, code).await {
             Err(AuthError::Rejected(rejected)) if matches!(rejected.as_str(), "invalid_client" | "unauthorized_client") => {
-                self.invalidate(Invalidate::All).await?;
-                self.auth_internal(code).await
+                self.invalidate(&mut cache, Invalidate::All).await?;
+                self.auth_internal(&mut cache, code).await
             }
             Err(AuthError::Rejected(rejected)) if rejected == "invalid_grant" => {
-                self.invalidate(Invalidate::Tokens).await?;
-                self.auth_internal(code).await
+                self.invalidate(&mut cache, Invalidate::Tokens).await?;
+                self.auth_internal(&mut cache, code).await
             }
             other => other,
         }
@@ -495,7 +519,7 @@ impl Run<'_> {
         Ok(self.creds.client_information.clone())
     }
 
-    async fn auth_internal(&mut self, code: Option<&str>) -> Result<Authorized, AuthError> {
+    async fn auth_internal(&mut self, cache: &mut Cache, code: Option<&str>) -> Result<Authorized, AuthError> {
         let oauth = Arc::clone(self.oauth);
         let server = oauth.binding.url.clone();
         let static_client = oauth.binding.client.clone();
@@ -545,7 +569,7 @@ impl Run<'_> {
                 let mut registered = registered;
                 registered["issuer"] = Value::String(issuer.clone());
                 let stored = registered.clone();
-                self.save(|c| c.client_information = Some(stored)).await?;
+                self.save(cache, false, |c| c.client_information = Some(stored)).await?;
                 registered
             }
         };
@@ -560,8 +584,7 @@ impl Run<'_> {
                 ("redirect_uri", self.redirect_url.clone()),
             ];
             let tokens = self.token(&discovery, &credentials, form, resource).await?;
-            self.bind(unstamped, &issuer).await;
-            self.save_tokens(tokens, &issuer).await?;
+            self.save_tokens(cache, tokens, &issuer, unstamped, false).await?;
             return Ok(Authorized::Tokens);
         }
 
@@ -573,14 +596,17 @@ impl Run<'_> {
             .filter(|t| t.get("issuer").and_then(Value::as_str).is_none_or(|i| same_issuer(i, &issuer)))
             .and_then(|t| t.get("refresh_token").and_then(Value::as_str).map(str::to_owned));
         if let Some(refresh) = refresh {
+            self.abort.check()?;
             let form = vec![("grant_type", "refresh_token".to_owned()), ("refresh_token", refresh.clone())];
-            match self.token(&discovery, &credentials, form, resource).await {
+            // After issuing a refresh, finish the bounded exchange even if the dialog closes:
+            // the provider may already have invalidated the previous refresh token.
+            match oauth.protocol.token(&discovery, &credentials, form, resource).await.map_err(token_failure) {
                 Ok(mut tokens) => {
                     if tokens.get("refresh_token").is_none_or(Value::is_null) {
                         tokens["refresh_token"] = Value::String(refresh);
                     }
-                    self.bind(unstamped, &issuer).await;
-                    self.save_tokens(tokens, &issuer).await?;
+                    self.identity = identity_from_token_response(&tokens);
+                    self.save_tokens(cache, tokens, &issuer, unstamped, true).await?;
                     return Ok(Authorized::Tokens);
                 }
                 // A server error, an unknown answer or a network failure: the browser is the way on.
@@ -590,6 +616,7 @@ impl Run<'_> {
         }
 
         // Start a new authorization.
+        self.abort.check()?;
         let authorization_endpoint = discovery.authorization_endpoint().ok_or(OAuthError::LoginFailed)?;
         if !discovery.supports_s256() {
             return Err(OAuthError::LoginFailed.into());
@@ -631,7 +658,7 @@ impl Run<'_> {
         }
         if static_client.is_some() {
             // The configured client is stored with this login's redirect, as a registration would be.
-            self.save(|c| c.client_information = Some(info)).await?;
+            self.save(cache, false, |c| c.client_information = Some(info)).await?;
         }
         self.browser_opened = true;
         *self.ctl.pending.lock().unwrap_or_else(|e| e.into_inner()) = Some(Pending {
@@ -661,18 +688,14 @@ impl Run<'_> {
         Ok(tokens)
     }
 
-    /// A configured client is bound to the authorization server after its first use.
-    async fn bind(&mut self, unstamped: Option<Value>, issuer: &str) {
-        if let Some(mut info) = unstamped {
-            info["issuer"] = Value::String(issuer.to_owned());
-            let _ = self.save(|c| c.client_information = Some(info)).await;
-        }
-    }
-
     /// Node's `provider.saveTokens`.
-    async fn save_tokens(&mut self, mut tokens: Value, issuer: &str) -> Result<(), AuthError> {
+    async fn save_tokens(
+        &mut self, cache: &mut Cache, mut tokens: Value, issuer: &str, mut unstamped: Option<Value>, rotated: bool,
+    ) -> Result<(), AuthError> {
         tokens["issuer"] = Value::String(issuer.to_owned());
-        self.abort.check()?;
+        if !rotated {
+            self.abort.check()?;
+        }
         // A sign-in of a client with its own scopes must be granted all of them (a granular consent screen
         // lets the user uncheck some): nothing is stored, so the next connect asks again.
         if self.browser_opened
@@ -683,11 +706,17 @@ impl Run<'_> {
                 return Err(OAuthError::ScopeNotGranted(missing).into());
             }
         }
-        let prior = (self.creds.tokens.clone(), self.creds.identity.clone());
+        let prior = self.creds.clone();
+        if let Some(info) = &mut unstamped {
+            info["issuer"] = Value::String(issuer.to_owned());
+        }
         let identity = self.identity.clone();
         let browser_opened = self.browser_opened;
-        self.save(move |c| {
+        self.save(cache, rotated, move |c| {
             c.tokens = Some(tokens);
+            if let Some(info) = unstamped {
+                c.client_information = Some(info);
+            }
             // A browser sign-in may be another account: its identity replaces the stored one (null when the server
             // named nobody). A refresh keeps it unless the answer names the account again.
             if browser_opened || identity.is_some() {
@@ -697,8 +726,8 @@ impl Run<'_> {
         .await?;
         // The login was reported failed while this write was outstanding: roll it back (same save path), so no
         // tokens outlive the reported failure.
-        if let Err(stop) = self.abort.check() {
-            self.save(move |c| (c.tokens, c.identity) = prior).await?;
+        if !rotated && let Err(stop) = self.abort.check() {
+            self.save(cache, false, move |c| *c = prior).await?;
             return Err(stop.into());
         }
         Ok(())

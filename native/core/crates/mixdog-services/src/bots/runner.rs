@@ -15,6 +15,7 @@ use crate::channels::running::RunningWork;
 use crate::scheduler::{RunOutcome, Schedule, ScheduleRunner, SkipReason};
 use crate::webhooks::prompt::{prompt_headers, webhook_event_summary, webhook_run_prompt};
 use crate::webhooks::signature::Headers;
+use crate::webhooks::handler::WebhookRoute;
 use crate::webhooks::{EndpointRecords, HttpReply, WebhookDispatch};
 
 /// A schedule fire as a visible turn in its owner's home thread.
@@ -44,9 +45,12 @@ impl ScheduleRunner for HomeScheduleRunner {
 }
 
 /// Where a webhook that has no endpoint row goes: the parser-only event pipeline.
+#[async_trait]
 pub trait WebhookEvents: Send + Sync {
-    /// Whether the pipeline took the event.
-    fn handle_webhook(&self, name: &str, body: &Value, headers: &Headers) -> bool;
+    fn matches(&self, name: &str) -> bool;
+    /// `Ok(true)` means the rule filtered the event or durably enqueued it. `Ok(false)` means
+    /// no rule matched, and `Err` means the handoff failed and can be retried.
+    async fn handle_webhook(&self, name: &str, body: &Value, headers: &Headers, delivery_id: &str) -> Result<bool, String>;
 }
 
 pub struct HomeWebhookDispatch {
@@ -117,29 +121,50 @@ impl HomeWebhookDispatch {
 
 #[async_trait]
 impl WebhookDispatch for HomeWebhookDispatch {
-    async fn handle(
+    async fn route(
         &self,
         name: &str,
         payload: Value,
         headers: &Headers,
         delivery_id: &str,
         endpoint_in_table: bool,
-    ) -> Result<HttpReply, String> {
-        if endpoint_in_table {
+    ) -> Result<WebhookRoute, String> {
+        let resumed = self.store.resuming_rule_handoff(name, delivery_id).await?;
+        if endpoint_in_table && !resumed {
             match self.dispatch_endpoint(name, &payload, headers, delivery_id).await {
-                Ok(reply) => return Ok(reply),
+                Ok(reply) => return Ok(WebhookRoute::Reply(reply)),
                 Err(error) => {
-                    self.store.update_delivery_status(name, delivery_id, "failed", Some(&error)).await?;
+                    // `failed` is what lets the sender's retry claim the delivery again, so it is written only once the
+                    // attempt has ended: the event fallback below can still run it and settles the status itself.
                     mixdog_rt::node_stderr!("mixdog webhook: {name}: folder handler error: {error}");
                 }
             }
         }
-        if self.events.as_ref().is_some_and(|e| e.handle_webhook(name, &payload, headers)) {
-            self.store.update_delivery_status(name, delivery_id, "done", None).await?;
-            return Ok(HttpReply { status: 200, body: json!({"status": "accepted", "id": delivery_id}) });
+        if let Some(events) = self.events.as_ref().filter(|events| resumed || events.matches(name)).cloned() {
+            let (store, name, id, headers) = (self.store.clone(), name.to_owned(), delivery_id.to_owned(), headers.clone());
+            return Ok(WebhookRoute::Rule(Box::pin(async move {
+                if events.handle_webhook(&name, &payload, &headers, &id).await? {
+                    // The real queue records its file receipt before it is runnable.
+                    // A filtered delivery has no file and is settled here.
+                    store.update_delivery_status(&name, &id, "done", None).await?;
+                    return Ok(HttpReply { status: 200, body: json!({"status": "accepted", "id": id}) });
+                }
+                unknown_endpoint(&*store, &name, &id).await
+            })));
         }
-        self.store.update_delivery_status(name, delivery_id, "failed", Some("unknown endpoint")).await?;
-        mixdog_rt::node_stderr!("mixdog webhook: unknown endpoint: {name}");
-        Ok(HttpReply { status: 404, body: json!({"error": "unknown endpoint"}) })
+        unknown_endpoint(&*self.store, name, delivery_id).await.map(WebhookRoute::Reply)
     }
+
+    async fn handle(&self, name: &str, payload: Value, headers: &Headers, delivery_id: &str, endpoint_in_table: bool) -> Result<HttpReply, String> {
+        match self.route(name, payload, headers, delivery_id, endpoint_in_table).await? {
+            WebhookRoute::Reply(reply) => Ok(reply),
+            WebhookRoute::Rule(handoff) => handoff.await,
+        }
+    }
+}
+
+async fn unknown_endpoint(store: &dyn EndpointRecords, name: &str, id: &str) -> Result<HttpReply, String> {
+    store.update_delivery_status(name, id, "failed", Some("unknown endpoint")).await?;
+    mixdog_rt::node_stderr!("mixdog webhook: unknown endpoint: {name}");
+    Ok(HttpReply { status: 404, body: json!({"error": "unknown endpoint"}) })
 }

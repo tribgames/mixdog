@@ -327,27 +327,41 @@ impl ProviderLookup for PcProviderConfig {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use std::collections::HashSet;
+    #[cfg(node_twin)]
     use std::sync::atomic::AtomicBool;
+    #[cfg(node_twin)]
     use std::sync::atomic::AtomicI64;
+    #[cfg(node_twin)]
     use std::sync::atomic::AtomicUsize;
+    #[cfg(node_twin)]
     use std::sync::atomic::Ordering;
 
+    #[cfg(node_twin)]
     use mixdog_ai::registry::keys::MemoryVault;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::mock::MockAttempt;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::mock::MockProvider;
+    #[cfg(node_twin)]
     use serde_json::json;
+    #[cfg(node_twin)]
     use tokio::sync::Notify;
 
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/model-proxy-pc/model-proxy-pc-twin.json");
 
+    #[cfg(node_twin)]
     fn twin() -> Value {
         serde_json::from_str(&TWIN).unwrap()
     }
 
     /// A provider that is the mock but for what the case sets.
+    #[cfg(node_twin)]
     struct Fake {
         inner: MockProvider,
         native_pdf: bool,
@@ -355,13 +369,16 @@ mod tests {
         routing: Option<Arc<Routing>>,
     }
 
+    #[cfg(node_twin)]
     impl Fake {
+        #[cfg(node_twin)]
         fn new(native_pdf: bool, budget: Option<p::FirstResponseBudget>, routing: Option<Arc<Routing>>) -> Arc<dyn p::ProviderAdapter> {
             Arc::new(Self { inner: MockProvider::new(Vec::<MockAttempt>::new()), native_pdf, budget, routing })
         }
     }
 
     #[async_trait]
+    #[cfg(node_twin)]
     impl p::ProviderAdapter for Fake {
         fn release_send(&self, _group: &str) {}
         fn id(&self) -> &mixdog_protocol::ProviderId {
@@ -390,12 +407,14 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Routing {
         answer: Result<Option<p::WireRoute>, String>,
         seen: Mutex<Vec<(String, p::WireRouteContext)>>,
     }
 
     #[async_trait]
+    #[cfg(node_twin)]
     impl p::WireRouting for Routing {
         async fn resolve_wire_route(&self, model: &str, context: &p::WireRouteContext) -> Result<Option<p::WireRoute>, p::ProviderError> {
             self.seen.lock().unwrap().push((model.to_owned(), context.clone()));
@@ -407,12 +426,14 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Registry {
         apply: Result<(), String>,
         live: Vec<(String, Arc<dyn p::ProviderAdapter>)>,
     }
 
     #[async_trait]
+    #[cfg(node_twin)]
     impl PcRegistry for Registry {
         async fn apply(&self, _: &Map<String, Value>) -> Result<(), String> {
             self.apply.clone()
@@ -425,9 +446,11 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Builder(HashMap<String, String>);
 
     #[async_trait]
+    #[cfg(node_twin)]
     impl ProviderBuilder for Builder {
         async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn p::ProviderAdapter>, String> {
             Err(format!("unknown enabled provider: {name}"))
@@ -450,14 +473,17 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Vars(HashSet<String>);
 
+    #[cfg(node_twin)]
     impl Environment for Vars {
         fn var(&self, name: &str) -> Option<String> {
             self.0.contains(name).then(|| "value".to_owned())
         }
     }
 
+    #[cfg(node_twin)]
     fn strings(value: &Value) -> Vec<String> {
         value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect()
     }
@@ -465,6 +491,7 @@ mod tests {
     /// The one function the accounting, the context metrics and this advertisement read equals each adapter
     /// class's own `static inputExcludesCache`.
     #[test]
+    #[cfg(node_twin)]
     fn the_usage_convention_is_each_adapter_classes_own() {
         let twin = twin();
         let classes = twin["inputExcludesCache"].as_object().unwrap();
@@ -475,6 +502,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn the_advertised_providers_are_what_nodes_pc_runtime_answers() {
         let twin = twin();
         let cases = twin["providerConfigCases"].as_array().unwrap();
@@ -518,6 +546,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn the_adapter_answers_a_wire_route_and_is_told_only_agent_and_legacy() {
         let twin = twin();
         for case in twin["wireRouteCases"].as_array().unwrap() {
@@ -554,6 +583,7 @@ mod tests {
     }
 
     /// Counts measurements; a gated one waits for the release; a failing one fails.
+    #[cfg(node_twin)]
     struct Counting {
         measurements: AtomicUsize,
         fail: AtomicBool,
@@ -564,6 +594,7 @@ mod tests {
     }
 
     #[async_trait]
+    #[cfg(node_twin)]
     impl QuotaMeasure for Counting {
         async fn measure(&self, _: &str) -> Result<Measured, String> {
             self.measurements.fetch_add(1, Ordering::SeqCst);
@@ -583,6 +614,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn outcome(result: &Result<bool, String>) -> Value {
         match result {
             Ok(value) => json!(value),
@@ -590,11 +622,13 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn recorded(result: &Value) -> Value {
         result.get("error").map_or_else(|| result["value"].clone(), |error| json!({ "error": error["message"] }))
     }
 
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn one_measurement_serves_a_window_as_nodes_pc_runtime_shares_it() {
         let twin = twin();
         for scenario in twin["quotaScenarios"].as_array().unwrap() {
@@ -640,5 +674,86 @@ mod tests {
                 assert_eq!(counting.measurements.load(Ordering::SeqCst) as u64, step["measurements"].as_u64().unwrap(), "{} / {step}", scenario["name"]);
             }
         }
+    }
+}
+
+
+
+#[cfg(test)]
+mod quota_window_tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::AtomicI64;
+    use std::sync::atomic::Ordering;
+
+    use super::*;
+
+    /// Counts the measurements it is asked for per provider; the first one fails when `fail_first` is set. A model is served when
+    /// its name is `served`.
+    #[derive(Default)]
+    struct Counting {
+        measured: Mutex<Vec<String>>,
+        fail_first: AtomicBool,
+    }
+
+    #[async_trait]
+    impl QuotaMeasure for Counting {
+        async fn measure(&self, provider: &str) -> Result<Measured, String> {
+            self.measured.lock().unwrap().push(provider.to_owned());
+            if self.fail_first.swap(false, Ordering::SeqCst) {
+                return Err("usage unavailable".into());
+            }
+            Ok(Measured::None)
+        }
+        async fn serves(&self, _: &str, _: &Measured, model: &str, _: i64) -> Result<bool, String> {
+            Ok(model == "served")
+        }
+    }
+
+    fn probe(measure: &Arc<Counting>, clock: &Arc<AtomicI64>) -> PcQuotaProbe {
+        let clock = clock.clone();
+        PcQuotaProbe::new(measure.clone(), Arc::new(move || clock.load(Ordering::SeqCst)))
+    }
+
+    #[tokio::test]
+    async fn a_providers_quota_is_measured_once_per_minute_and_every_model_is_judged_against_it() {
+        let (measure, clock) = (Arc::new(Counting::default()), Arc::new(AtomicI64::new(1_000)));
+        let probe = probe(&measure, &clock);
+        assert_eq!(probe.usable("openai", "served").await, Ok(true));
+        assert_eq!(probe.usable("openai", "other").await, Ok(false), "judged on the one measurement, never retained");
+        clock.store(1_000 + QUOTA_WINDOW_MS - 1, Ordering::SeqCst);
+        assert_eq!(probe.usable("openai", "served").await, Ok(true));
+        assert_eq!(measure.measured.lock().unwrap().len(), 1, "one measurement inside the window");
+        clock.store(1_000 + QUOTA_WINDOW_MS, Ordering::SeqCst);
+        assert_eq!(probe.usable("openai", "served").await, Ok(true));
+        assert_eq!(measure.measured.lock().unwrap().len(), 2, "a new one once the window has passed");
+    }
+
+    #[tokio::test]
+    async fn each_provider_has_its_own_measurement() {
+        let (measure, clock) = (Arc::new(Counting::default()), Arc::new(AtomicI64::new(0)));
+        let probe = probe(&measure, &clock);
+        probe.usable("openai", "served").await.unwrap();
+        probe.usable("anthropic", "served").await.unwrap();
+        probe.usable("openai", "served").await.unwrap();
+        assert_eq!(*measure.measured.lock().unwrap(), vec!["openai".to_owned(), "anthropic".to_owned()]);
+    }
+
+    #[tokio::test]
+    async fn two_runs_asking_at_once_share_the_measurement_in_flight() {
+        let (measure, clock) = (Arc::new(Counting::default()), Arc::new(AtomicI64::new(0)));
+        let probe = probe(&measure, &clock);
+        let (a, b) = tokio::join!(probe.usable("openai", "served"), probe.usable("openai", "other"));
+        assert_eq!((a, b), (Ok(true), Ok(false)));
+        assert_eq!(measure.measured.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_failed_measurement_is_reported_and_not_kept() {
+        let (measure, clock) = (Arc::new(Counting::default()), Arc::new(AtomicI64::new(0)));
+        measure.fail_first.store(true, Ordering::SeqCst);
+        let probe = probe(&measure, &clock);
+        assert_eq!(probe.usable("openai", "served").await, Err("usage unavailable".to_owned()));
+        assert_eq!(probe.usable("openai", "served").await, Ok(true), "the next ask measures again");
+        assert_eq!(measure.measured.lock().unwrap().len(), 2);
     }
 }

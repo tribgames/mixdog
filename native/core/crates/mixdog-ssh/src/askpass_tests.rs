@@ -48,21 +48,6 @@ impl Scripted {
     }
 }
 
-#[async_trait]
-impl AskpassPrompter for Scripted {
-    async fn ask(&self, question: AskpassQuestion) -> Option<String> {
-        let now = self.running.fetch_add(1, Ordering::SeqCst) + 1;
-        self.peak.fetch_max(now, Ordering::SeqCst);
-        if !self.delay.is_zero() {
-            mixdog_rt::time::sleep(self.delay).await;
-        }
-        let secret = (self.answer)(&question);
-        self.asked.lock().unwrap().push(question);
-        self.running.fetch_sub(1, Ordering::SeqCst);
-        secret
-    }
-}
-
 /// Never answers; records that its question was dropped.
 struct Silent(Arc<AtomicBool>);
 
@@ -83,84 +68,18 @@ impl AskpassPrompter for Silent {
     }
 }
 
-fn lane() -> DurabilityIo {
-    mixdog_rt::testing::tokens().durability_io
-}
-
-fn server(prompter: Arc<dyn AskpassPrompter>) -> AskpassServer {
-    AskpassServer::new(prompter, lane(), Platform::current())
-}
-
-/// File-system steps of a test go through the durability lane, as the tree's other tests do.
-async fn fs<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {
-    on_lane(lane(), job).await.unwrap()
-}
-
-async fn is_dir(path: &Path) -> bool {
-    let path = path.to_path_buf();
-    fs(move |lane| mixdog_fsio::is_dir(lane, path)).await
-}
-
-async fn exists(path: &Path) -> bool {
-    let path = path.to_path_buf();
-    fs(move |lane| mixdog_fsio::exists(lane, path).unwrap()).await
-}
-
-async fn write_file(path: &Path, body: &'static [u8]) {
-    let path = path.to_path_buf();
-    fs(move |lane| mixdog_fsio::write(lane, path, body).unwrap()).await;
-}
-
 fn env_value(session: &AskpassSession, name: &str) -> String {
     session.env().into_iter().find(|(key, _)| key == name).map(|(_, value)| value).unwrap()
-}
-
-/// What the helper does: the request line out, the reply line in. `None` for a refusal or a closed endpoint.
-async fn ask_over(endpoint: &str, request: &[u8]) -> Option<String> {
-    let mut reply = Vec::new();
-    #[cfg(unix)]
-    {
-        let mut stream = tokio::net::UnixStream::connect(endpoint).await.ok()?;
-        stream.write_all(request).await.ok()?;
-        stream.read_to_end(&mut reply).await.ok()?;
-    }
-    #[cfg(windows)]
-    {
-        use tokio::net::windows::named_pipe::ClientOptions;
-        let mut stream = loop {
-            match ClientOptions::new().open(endpoint) {
-                Err(error) if error.raw_os_error() == Some(231) => mixdog_rt::time::sleep(Duration::from_millis(10)).await,
-                other => break other.ok()?,
-            }
-        };
-        stream.write_all(request).await.ok()?;
-        stream.flush().await.ok()?;
-        // The helper reads one line and leaves.
-        let mut byte = [0u8; 1];
-        while stream.read(&mut byte).await.ok()? == 1 {
-            reply.push(byte[0]);
-            if byte[0] == b'\n' {
-                break;
-            }
-        }
-    }
-    let value: serde_json::Value = serde_json::from_slice(&reply).ok()?;
-    (value["ok"] == true).then(|| value["secret"].as_str().map(str::to_owned)).flatten()
 }
 
 fn request(token: &str, prompt: &str) -> Vec<u8> {
     format!("{}\n", serde_json::json!({ "token": token, "prompt": prompt })).into_bytes()
 }
 
-async fn run_helper(session: &AskpassSession, prompt: &str) -> Option<String> {
-    ask_over(&env_value(session, "MIXDOG_ASKPASS_ENDPOINT"), &request(&env_value(session, "MIXDOG_ASKPASS_TOKEN"), prompt)).await
-}
-
 #[test]
 fn constants_match_the_desktop() {
-    assert_eq!((ASKPASS_TIMEOUT_MS, RETRY_WINDOW_MS, MAX_REQUEST_BYTES), (120_000, 2_000, 65_536));
-    let timings = AskpassTimings::default();
-    assert_eq!((timings.timeout, timings.retry_window), (Duration::from_secs(120), Duration::from_secs(2)));
+    assert_eq!((ASKPASS_TIMEOUT_MS, MAX_REQUEST_BYTES), (120_000, 65_536));
+    assert_eq!(AskpassTimings::default().timeout, Duration::from_secs(120));
 }
 
 #[test]
@@ -198,6 +117,78 @@ fn a_plain_path_is_printable_ascii_without_spaces() {
     assert!(!is_plain_path(Path::new("")));
 }
 
+
+#[async_trait]
+impl AskpassPrompter for Scripted {
+    async fn ask(&self, question: AskpassQuestion) -> Option<String> {
+        let now = self.running.fetch_add(1, Ordering::SeqCst) + 1;
+        self.peak.fetch_max(now, Ordering::SeqCst);
+        if !self.delay.is_zero() {
+            mixdog_rt::time::sleep(self.delay).await;
+        }
+        let secret = (self.answer)(&question);
+        self.asked.lock().unwrap().push(question);
+        self.running.fetch_sub(1, Ordering::SeqCst);
+        secret
+    }
+}
+fn lane() -> DurabilityIo {
+    mixdog_rt::testing::tokens().durability_io
+}
+fn server(prompter: Arc<dyn AskpassPrompter>) -> AskpassServer {
+    AskpassServer::new(prompter, lane(), Platform::current())
+}
+/// File-system steps of a test go through the durability lane, as the tree's other tests do.
+async fn fs<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {
+    on_lane(lane(), job).await.unwrap()
+}
+async fn is_dir(path: &Path) -> bool {
+    let path = path.to_path_buf();
+    fs(move |lane| mixdog_fsio::is_dir(lane, path)).await
+}
+async fn exists(path: &Path) -> bool {
+    let path = path.to_path_buf();
+    fs(move |lane| mixdog_fsio::exists(lane, path).unwrap()).await
+}
+async fn write_file(path: &Path, body: &'static [u8]) {
+    let path = path.to_path_buf();
+    fs(move |lane| mixdog_fsio::write(lane, path, body).unwrap()).await;
+}
+/// What the helper does: the request line out, the reply line in. `None` for a refusal or a closed endpoint.
+async fn ask_over(endpoint: &str, request: &[u8]) -> Option<String> {
+    let mut reply = Vec::new();
+    #[cfg(unix)]
+    {
+        let mut stream = tokio::net::UnixStream::connect(endpoint).await.ok()?;
+        stream.write_all(request).await.ok()?;
+        stream.read_to_end(&mut reply).await.ok()?;
+    }
+    #[cfg(windows)]
+    {
+        use tokio::net::windows::named_pipe::ClientOptions;
+        let mut stream = loop {
+            match ClientOptions::new().open(endpoint) {
+                Err(error) if error.raw_os_error() == Some(231) => mixdog_rt::time::sleep(Duration::from_millis(10)).await,
+                other => break other.ok()?,
+            }
+        };
+        stream.write_all(request).await.ok()?;
+        stream.flush().await.ok()?;
+        // The helper reads one line and leaves.
+        let mut byte = [0u8; 1];
+        while stream.read(&mut byte).await.ok()? == 1 {
+            reply.push(byte[0]);
+            if byte[0] == b'\n' {
+                break;
+            }
+        }
+    }
+    let value: serde_json::Value = serde_json::from_slice(&reply).ok()?;
+    (value["ok"] == true).then(|| value["secret"].as_str().map(str::to_owned)).flatten()
+}
+async fn run_helper(session: &AskpassSession, prompt: &str) -> Option<String> {
+    ask_over(&env_value(session, "MIXDOG_ASKPASS_ENDPOINT"), &request(&env_value(session, "MIXDOG_ASKPASS_TOKEN"), prompt)).await
+}
 #[tokio::test]
 async fn helper_roundtrip_presents_the_token_and_gets_the_answer() {
     let prompter = Scripted::new(|_| Some("pa ss\u{e9}w\u{f6}rd".to_owned()));
@@ -216,7 +207,6 @@ async fn helper_roundtrip_presents_the_token_and_gets_the_answer() {
     }
     session.close().await;
 }
-
 #[tokio::test]
 async fn token_mismatch_refused() {
     let prompter = Scripted::new(|_| Some("secret".to_owned()));
@@ -233,7 +223,6 @@ async fn token_mismatch_refused() {
     assert!(session.closed());
     assert_eq!(run_helper(&session, "password: ").await, None, "a closed session serves nobody");
 }
-
 #[tokio::test]
 async fn a_request_over_the_cap_is_dropped_without_asking() {
     let prompter = Scripted::new(|_| Some("secret".to_owned()));
@@ -248,7 +237,6 @@ async fn a_request_over_the_cap_is_dropped_without_asking() {
     assert_eq!(prompter.questions().len(), 1);
     session.close().await;
 }
-
 #[tokio::test]
 async fn a_cancelled_question_fails_the_helper_and_marks_the_session() {
     let session = server(Scripted::new(|_| None)).start(Path::new("h")).await.unwrap();
@@ -256,18 +244,16 @@ async fn a_cancelled_question_fails_the_helper_and_marks_the_session() {
     assert!(session.cancelled());
     session.close().await;
 }
-
 #[tokio::test]
 async fn a_question_that_times_out_is_dropped_and_marks_the_session_cancelled() {
     let dropped = Arc::new(AtomicBool::new(false));
-    let timings = AskpassTimings { timeout: Duration::from_millis(80), retry_window: Duration::from_millis(RETRY_WINDOW_MS) };
+    let timings = AskpassTimings { timeout: Duration::from_millis(80) };
     let session = server(Arc::new(Silent(dropped.clone()))).with_timings(timings).start(Path::new("h")).await.unwrap();
     assert_eq!(run_helper(&session, "Verification code: ").await, None);
     assert!(dropped.load(Ordering::SeqCst), "the dialog is told to close");
     assert!(session.cancelled());
     session.close().await;
 }
-
 #[tokio::test]
 async fn closing_the_session_drops_a_question_in_flight() {
     let dropped = Arc::new(AtomicBool::new(false));
@@ -283,40 +269,23 @@ async fn closing_the_session_drops_a_question_in_flight() {
     assert_eq!(waiting.await.unwrap(), None);
     assert!(dropped.load(Ordering::SeqCst));
 }
-
 #[tokio::test]
-async fn reuse_within_retry_window() {
-    let clock = Arc::new(AtomicUsize::new(0));
+async fn a_helper_asking_the_same_question_again_is_a_refusal_whatever_the_time() {
     let counter = Arc::new(AtomicUsize::new(0));
     let prompter = {
         let counter = counter.clone();
         Scripted::new(move |_| Some(format!("answer-{}", counter.fetch_add(1, Ordering::SeqCst) + 1)))
     };
-    let timings = AskpassTimings { timeout: Duration::from_secs(120), retry_window: Duration::from_millis(1000) };
-    let session = {
-        let clock = clock.clone();
-        server(prompter.clone())
-            .with_timings(timings)
-            .with_clock(Arc::new(move || clock.load(Ordering::SeqCst) as u64))
-            .start(Path::new("h"))
-            .await
-            .unwrap()
-    };
-    let set = |ms: usize| clock.store(ms, Ordering::SeqCst);
+    let session = server(prompter.clone()).start(Path::new("h")).await.unwrap();
+    // A helper that names neither invocation nor process is one identity: asking again means the answer was refused.
     assert_eq!(run_helper(&session, "root@h's password: ").await.as_deref(), Some("answer-1"));
-    set(5000); // a later handshake of the same attempt: reused
-    assert_eq!(run_helper(&session, "root@h's password: ").await.as_deref(), Some("answer-1"));
-    assert_eq!(prompter.questions().len(), 1);
-    set(5400); // asked again right after it was served: the server refused it
     assert_eq!(run_helper(&session, "root@h's password: ").await.as_deref(), Some("answer-2"));
     assert_eq!(prompter.questions().iter().map(|q| q.retry).collect::<Vec<_>>(), [false, true]);
-    set(20_000);
     assert_eq!(run_helper(&session, "Verification code: ").await.as_deref(), Some("answer-3"));
     assert_eq!(run_helper(&session, "Verification code: ").await.as_deref(), Some("answer-4"));
     assert_eq!(prompter.questions().iter().filter(|q| q.kind == AskpassKind::Otp).count(), 2, "one-time codes are never reused");
     session.close().await;
 }
-
 #[tokio::test]
 async fn concurrent_questions_are_put_to_the_user_one_after_the_other() {
     let prompter = Scripted::slow(Duration::from_millis(40));
@@ -330,7 +299,6 @@ async fn concurrent_questions_are_put_to_the_user_one_after_the_other() {
     assert_eq!(prompter.peak.load(Ordering::SeqCst), 1);
     session.close().await;
 }
-
 #[tokio::test]
 async fn close_removes_the_session_folders_and_is_idempotent() {
     let session = server(Scripted::new(|_| None)).start(Path::new("h")).await.unwrap();
@@ -345,7 +313,6 @@ async fn close_removes_the_session_folders_and_is_idempotent() {
     session.close().await;
     assert!(session.closed());
 }
-
 #[tokio::test]
 async fn two_sessions_have_their_own_endpoint_and_token() {
     let prompter = Scripted::new(|_| Some("x".to_owned()));
@@ -360,7 +327,6 @@ async fn two_sessions_have_their_own_endpoint_and_token() {
     first.close().await;
     second.close().await;
 }
-
 #[tokio::test]
 async fn a_helper_with_a_plain_path_is_used_where_it_is_and_one_without_is_copied() {
     let prompter = Scripted::new(|_| None);

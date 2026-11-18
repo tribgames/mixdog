@@ -644,6 +644,7 @@ impl SecureDesktopInstaller {
     }
 
     /// Whether a request or a key op (and so possibly a prompt) is in progress.
+    #[cfg(node_twin)]
     #[cfg(test)]
     pub(super) fn pending(&self) -> bool {
         let state = self.core.state();

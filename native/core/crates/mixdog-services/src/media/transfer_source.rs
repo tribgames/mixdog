@@ -19,7 +19,7 @@ use mixdog_workspace::fsops::mime_type;
 use mixdog_workspace::ident::{file_id, path_id};
 use mixdog_workspace::pathguard::canonical;
 use mixdog_workspace::transfer::{SourceFile, TransferSource};
-#[cfg(test)]
+#[cfg(all(test, node_twin))]
 use mixdog_workspace::transfer::Transfers;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -28,16 +28,6 @@ use super::store::{Located, MediaStore};
 
 /// Largest downloadable file, inclusive (`FILE_DOWNLOAD_MAX_BYTES`).
 const MAX_BYTES: u64 = 256 * 1024 * 1024;
-
-pub struct MediaAssetSource {
-    store: Arc<MediaStore>,
-}
-
-impl MediaAssetSource {
-    pub fn new(store: Arc<MediaStore>) -> Self {
-        Self { store }
-    }
-}
 
 fn error(reason: Reason, message: &str) -> WsError {
     WsError::new(reason, message)
@@ -73,16 +63,6 @@ fn asset_id(source: &Value) -> WsResult<String> {
         return Err(invalid());
     }
     Ok(id.to_owned())
-}
-
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
-fn open_asset(store: &MediaStore, id: &str) -> WsResult<SourceFile> {
-    match store.locate_file(id).map_err(|e| WsError::new(Reason::Io, e.to_string()))? {
-        Some(Located::Readable(entry)) => open_entry(Some(&entry)),
-        // Node would open it; the guard refuses without touching it, with Node's own text for a non-regular file.
-        Some(Located::Special(_)) => Err(not_local()),
-        None => open_entry(None),
-    }
 }
 
 /// `authorizeMediaAsset` over the host's answer for the asset: `None` is Node's `null`.
@@ -122,31 +102,21 @@ fn open_entry(entry: Option<&Value>) -> WsResult<SourceFile> {
     Ok(SourceFile { file, name, mime_type: mime, cleanup: None })
 }
 
-#[async_trait::async_trait]
-impl TransferSource for MediaAssetSource {
-    fn kind(&self) -> &'static str {
-        "mediaAsset"
-    }
-
-    async fn open(&self, source: &Value, cancel: &CancellationToken) -> WsResult<SourceFile> {
-        let id = asset_id(source)?;
-        let job = self.store.run(move |store| open_asset(store, &id));
-        tokio::select! {
-            biased;
-            () = cancel.cancelled() => Err(error(Reason::Cancelled, "The request was cancelled.")),
-            done = job => done.map_err(|e| WsError::new(Reason::Io, e.to_string()))?,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn network_paths_are_not_local_files() {
+        assert!(is_network(Path::new(r"\\host\share\a.png")));
+        assert!(is_network(Path::new("//host/share/a.png")));
+        assert!(!is_network(Path::new(r"C:\a\b.png")));
+        assert!(!is_network(Path::new("/a/b.png")));
+    }
+
     fn store(dir: &Path) -> Arc<MediaStore> {
         Arc::new(MediaStore::new(dir, mixdog_rt::testing::tokens().durability_io))
     }
-
     async fn saved(store: &Arc<MediaStore>, bytes: &'static [u8]) -> String {
         let value = store
             .run(move |s| s.save_asset("image", "gemini", "m", "p", serde_json::json!({}), "image/png", bytes, serde_json::Map::new()))
@@ -155,7 +125,6 @@ mod tests {
             .unwrap();
         value["id"].as_str().unwrap().to_owned()
     }
-
     #[tokio::test]
     async fn serves_an_asset_with_its_stored_name_and_mime_and_refuses_what_node_refuses() {
         let dir = tempfile::tempdir().unwrap();
@@ -190,10 +159,12 @@ mod tests {
         assert_eq!(err.reason, Reason::Cancelled);
     }
 
+
     /// `fixtures/services/media-download-twin.json`
     /// (`benchmarks/rust-core/recorders/record-media-download.mjs`): Node's real download service
     /// over the same files. Every offer (name, type, size) and every refusal (kind and text) must
     /// match. `MIXDOG_FIXTURES_ROOT` overrides the fixture location.
+    #[cfg(node_twin)]
     #[test]
     fn offers_and_refusals_match_the_recorded_node_download() {
         let root = std::env::var("MIXDOG_FIXTURES_ROOT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").to_owned());
@@ -252,12 +223,39 @@ mod tests {
         }
         assert!(differences.is_empty(), "{} differences:\n{}", differences.len(), differences.join("\n"));
     }
+}
 
-    #[test]
-    fn network_paths_are_not_local_files() {
-        assert!(is_network(Path::new(r"\\host\share\a.png")));
-        assert!(is_network(Path::new("//host/share/a.png")));
-        assert!(!is_network(Path::new(r"C:\a\b.png")));
-        assert!(!is_network(Path::new("/a/b.png")));
+
+pub struct MediaAssetSource {
+    store: Arc<MediaStore>,
+}
+impl MediaAssetSource {
+    pub fn new(store: Arc<MediaStore>) -> Self {
+        Self { store }
+    }
+}
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
+fn open_asset(store: &MediaStore, id: &str) -> WsResult<SourceFile> {
+    match store.locate_file(id).map_err(|e| WsError::new(Reason::Io, e.to_string()))? {
+        Some(Located::Readable(entry)) => open_entry(Some(&entry)),
+        // Node would open it; the guard refuses without touching it, with Node's own text for a non-regular file.
+        Some(Located::Special(_)) => Err(not_local()),
+        None => open_entry(None),
+    }
+}
+#[async_trait::async_trait]
+impl TransferSource for MediaAssetSource {
+    fn kind(&self) -> &'static str {
+        "mediaAsset"
+    }
+
+    async fn open(&self, source: &Value, cancel: &CancellationToken) -> WsResult<SourceFile> {
+        let id = asset_id(source)?;
+        let job = self.store.run(move |store| open_asset(store, &id));
+        tokio::select! {
+            biased;
+            () = cancel.cancelled() => Err(error(Reason::Cancelled, "The request was cancelled.")),
+            done = job => done.map_err(|e| WsError::new(Reason::Io, e.to_string()))?,
+        }
     }
 }

@@ -15,6 +15,7 @@ use serde_json::Map;
 use serde_json::Value;
 
 use super::body::build_with;
+use super::body::build_with_tool_outputs;
 use super::client_meta::Metadata;
 use super::delta;
 use super::config::CODEX_HTTP_BETA;
@@ -111,6 +112,9 @@ impl WireCodec for OpenAiCodec {
     fn transport(&self) -> TransportKind {
         self.transport
     }
+    fn image_branch(&self, _: &ModelRequest) -> mixdog_image_egress::route::WireBranch {
+        mixdog_image_egress::route::WireBranch::OpenAiResponses
+    }
 
     fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
         self.encode_with(request, None)
@@ -119,6 +123,16 @@ impl WireCodec for OpenAiCodec {
     /// Reports no provider-state slot: Node's first-party routes keep none,
     /// and the ordered replay already carries the reasoning forward.
     fn decoder(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
+        Box::new(self.responses_decoder(request))
+    }
+
+    fn classify(&self, response: &ErrorResponse) -> ProviderError {
+        classify_http(response, self.config.context.now_unix_ms())
+    }
+}
+
+impl OpenAiCodec {
+    pub(super) fn responses_decoder(&self, request: &ModelRequest) -> ResponsesDecoder {
         let framing = if self.transport == TransportKind::WebSocket {
             Framing::WebSocket
         } else {
@@ -129,21 +143,18 @@ impl WireCodec for OpenAiCodec {
             Framing::WebSocket => self.ws_label(),
             Framing::Sse => self.http_label(),
         };
-        Box::new(
-            ResponsesDecoder::new(framing, self.config.context.clone(), ProviderId::from(REPLAY_OWNER))
-                .with_label(label)
-                .with_known_tools(body_tool_names(self, request, ToolNames::Named)),
-        )
+        ResponsesDecoder::new(framing, self.config.context.clone(), ProviderId::from(REPLAY_OWNER))
+            .with_label(label)
+            .with_known_tools(body_tool_names(self, request, ToolNames::Named))
     }
 
-    fn classify(&self, response: &ErrorResponse) -> ProviderError {
-        classify_http(response, self.config.context.now_unix_ms())
-    }
-}
-
-impl OpenAiCodec {
     pub fn route(&self) -> Route {
         self.config.route()
+    }
+
+    /// The facts source the request bodies are shaped from.
+    pub fn facts(&self) -> &std::sync::Arc<dyn super::config::ModelFactsSource> {
+        &self.config.facts
     }
 
     /// `_wsErrLabel`: how a WebSocket failure of this route names itself.
@@ -201,7 +212,9 @@ impl OpenAiCodec {
         request: &ModelRequest,
         effort: Option<&EffortProjection>,
     ) -> (Map<String, Value>, Option<&'static str>) {
-        let built = build_with(&self.config, request, effort);
+        // A pooled socket can strip the source from the input after lowering.
+        // Keep the body in every frame so the chain can compare exact prefixes.
+        let built = build_with_tool_outputs(&self.config, request, effort, true);
         (built.map.into_iter().filter(|(key, _)| key != "stream").collect(), built.service_tier)
     }
 

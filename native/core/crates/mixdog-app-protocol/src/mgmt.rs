@@ -54,6 +54,9 @@ pub enum StopMode {
     WhenIdle,
     /// Cancel the running work. Needs the `confirmToken` the drain's status shows.
     AbortConfirmed,
+    /// Commit the drain and cancel the running work in one request, with no token: the desktop's quit, whose clients are gone before it
+    /// asks, so no drain notice reaches anyone to confirm (1.4.5's `POST /stop {force:true}`).
+    Force,
 }
 
 /// What a registered unit of work is. The first five make a stop wait; the last three only

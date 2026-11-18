@@ -95,13 +95,15 @@ pub struct Completion {
     /// The rendered body, when the result alone does not read as one.
     pub result_text: Option<String>,
     pub error: Option<String>,
+    /// Sentences the owner reads after the presented `error` (they are not part of what is presented).
+    pub error_notes: Vec<String>,
     pub notify: bool,
     pub terminal_reason: Option<String>,
 }
 
 impl Completion {
     pub fn new(status: &str) -> Self {
-        Self { status: status.to_owned(), result: None, result_text: None, error: None, notify: true, terminal_reason: None }
+        Self { status: status.to_owned(), result: None, result_text: None, error: None, error_notes: Vec::new(), notify: true, terminal_reason: None }
     }
 }
 
@@ -195,7 +197,10 @@ struct Record {
     cancel: Option<Arc<dyn Fn() + Send + Sync>>,
     cancel_state: Option<CancelState>,
     cancel_timer: Option<TimerHandle>,
-    appendix: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+    /// The bot-chain hop of the turn that started the job; its completion returns at it (0: none).
+    hop: u32,
+    /// Given the session the job's meta names when the report is built (a spawn gets it while it runs).
+    appendix: Option<Arc<dyn Fn(Option<&str>) -> String + Send + Sync>>,
     cwd: Option<String>,
     terminal_reason: Option<String>,
     render: Option<RenderFn>,
@@ -292,12 +297,10 @@ fn body_of(task: &Record) -> String {
 /// `renderBackgroundTaskNotification` for the agent surface.
 fn notification_of(task: &Record) -> String {
     // An agent's authored `content` is the notification's body; the renderer serves views only.
-    let authored = match &task.result {
-        Some(TaskResult::Json(value)) => value.get("content").and_then(Value::as_str).map(str::to_owned),
-        _ => None,
-    };
+    let authored =
+        task.result.as_ref().filter(|result| matches!(result, TaskResult::Json(_))).and_then(TaskResult::content).map(str::to_owned);
     let body = authored.unwrap_or_else(|| body_of(task));
-    let appendix = task.appendix.as_ref().map(|f| f()).unwrap_or_default();
+    let appendix = task.appendix.as_ref().map(|f| f(task.meta.session_id.as_deref())).unwrap_or_default();
     let result = if appendix.is_empty() { body } else { [body, appendix].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n\n") };
     let tag = task.meta.tag.clone().filter(|t| !t.is_empty()).or_else(|| task.label.clone()).unwrap_or_default();
     let error = task.error.as_deref().unwrap_or_default();
@@ -310,6 +313,7 @@ struct Outgoing {
     task_id: String,
     status: String,
     text: String,
+    hop: u32,
 }
 
 #[derive(Default)]
@@ -444,7 +448,7 @@ impl JobBoard {
         for out in effects.send {
             let Some(notifier) = self.inner.notifier.clone() else { continue };
             drop(mixdog_rt::spawn("agent-job-notify", TaskClass::Work, async move {
-                notifier.finished(&ThreadId::from(out.session.as_str()), "agent", &out.task_id, &out.status, out.text).await;
+                notifier.finished_at_hop(&ThreadId::from(out.session.as_str()), "agent", &out.task_id, &out.status, out.text, out.hop).await;
             }));
         }
     }
@@ -527,6 +531,7 @@ impl JobBoard {
             cancel: job.cancel,
             cancel_state: None,
             cancel_timer: None,
+            hop: 0,
             appendix: None,
             cwd: job.cwd.filter(|c| !c.is_empty()),
             terminal_reason: None,
@@ -675,7 +680,14 @@ impl JobBoard {
         self.lock().lost.remove(session_id);
     }
 
-    pub fn set_report_appendix(&self, task_id: &str, appendix: Arc<dyn Fn() -> String + Send + Sync>) {
+    /// The bot-chain hop the job was started at (`notifyContext.hop`): its completion is delivered at it.
+    pub fn set_hop(&self, task_id: &str, hop: u32) {
+        if let Some(task) = self.lock().tasks.iter_mut().find(|t| t.task_id == task_id) {
+            task.hop = hop;
+        }
+    }
+
+    pub fn set_report_appendix(&self, task_id: &str, appendix: Arc<dyn Fn(Option<&str>) -> String + Send + Sync>) {
         if let Some(task) = self.lock().tasks.iter_mut().find(|t| t.task_id == task_id) {
             task.appendix = Some(appendix);
         }
@@ -705,7 +717,7 @@ impl JobBoard {
             return false;
         }
         let (Some(session), Some(_)) = (task.notify_session.clone(), &self.inner.notifier) else { return false };
-        effects.send.push(Outgoing { session, task_id: task.task_id.clone(), status: task.status.clone(), text: notification_of(task) });
+        effects.send.push(Outgoing { session, task_id: task.task_id.clone(), status: task.status.clone(), text: notification_of(task), hop: task.hop });
         task.notified = true;
         task.notified_with_body |= has_body;
         true
@@ -725,7 +737,7 @@ impl JobBoard {
             task.result_text = Some(text);
         }
         if let Some(error) = completion.error {
-            task.error = Some(self.present(&error));
+            task.error = Some(completion.error_notes.iter().fold(self.present(&error), |text, note| format!("{text} {note}")));
         }
         effects.changed.push(task.session_id.clone().unwrap_or_default());
         if let Some(cwd) = task.cwd.clone() {
@@ -803,7 +815,7 @@ impl JobBoard {
 
     /// `cancelBackgroundTask`: stops the run, marks the row `cancelled` with `reason`.
     pub fn cancel(&self, task_id: &str, reason: &str, notice: CancelNotice) {
-        self.cancel_with(task_id, reason, notice, None);
+        let _ = self.cancel_with(task_id, reason, notice, None, None);
     }
 
     /// `cancelBackgroundTasks`: every running job the selection names is cancelled (its owner
@@ -841,20 +853,30 @@ impl JobBoard {
             }
         }
         for id in &running {
-            self.cancel_with(id, &reason, options.notice, options.terminal_reason.clone());
+            let _ = self.cancel_with(id, &reason, options.notice, options.terminal_reason.clone(), None);
         }
         running
     }
 
-    fn cancel_with(&self, task_id: &str, reason: &str, notice: CancelNotice, terminal_reason: Option<String>) {
+    fn cancel_with(
+        &self,
+        task_id: &str,
+        reason: &str,
+        notice: CancelNotice,
+        terminal_reason: Option<String>,
+        scope: Option<&Scope>,
+    ) -> Option<mixdog_tools::exec::AgentTaskCancellation> {
+        use mixdog_tools::exec::AgentTaskCancellation;
+
+        let selected = |task: &&mut Record| task.task_id == task_id && scope.is_none_or(|scope| matches_scope(task, scope, true));
         let hook = {
             let mut state = self.lock();
-            let Some(task) = state.tasks.iter_mut().find(|t| t.task_id == task_id) else { return };
+            let task = state.tasks.iter_mut().find(selected)?;
             if is_terminal(&task.status) {
                 if notice == CancelNotice::Never {
                     Self::resolve_pending(task, CancelState::Silent);
                 }
-                return;
+                return Some(AgentTaskCancellation::AlreadySettled { status: task.status.clone() });
             }
             task.cancel.clone()
         };
@@ -863,17 +885,17 @@ impl JobBoard {
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hook()));
         }
         let mut effects = Effects::default();
-        {
+        let result = {
             let mut state = self.lock();
-            let Some(task) = state.tasks.iter_mut().find(|t| t.task_id == task_id) else { return };
+            let task = state.tasks.iter_mut().find(selected)?;
             let completion = Completion {
                 error: Some(reason.to_owned()),
                 notify: notice == CancelNotice::Now,
                 terminal_reason,
                 ..Completion::new("cancelled")
             };
-            self.complete_locked(task, completion, &mut effects);
-            if task.notify_on_cancel && notice != CancelNotice::Now && task.status == "cancelled" && task.cancel_state.is_none() {
+            let transitioned = self.complete_locked(task, completion, &mut effects);
+            if transitioned && task.notify_on_cancel && notice != CancelNotice::Now && task.cancel_state.is_none() {
                 if notice == CancelNotice::Never {
                     task.cancel_state = Some(CancelState::Silent);
                 } else {
@@ -885,8 +907,14 @@ impl JobBoard {
                     }));
                 }
             }
-        }
+            if transitioned {
+                AgentTaskCancellation::Cancelled { operation: task.operation.clone() }
+            } else {
+                AgentTaskCancellation::AlreadySettled { status: task.status.clone() }
+            }
+        };
         self.run(effects);
+        Some(result)
     }
 
     /// `settleCancelledBackgroundTask`: the cancelled run stopped; its deferred report goes out
@@ -930,5 +958,93 @@ impl Tasks for JobBoard {
     }
     fn forget_lost(&self, session_id: &str) {
         JobBoard::forget_lost(self, session_id);
+    }
+}
+
+/// `renderBackgroundTask(task, { includeResult: true })` of an agent row: the header, the identity meta the row carries
+/// (`publicTaskMeta`: unset values are left out) and the run's report.
+fn render_agent_task(task: &JobSnapshot) -> String {
+    use super::stamp::iso_from_ms;
+    let mut lines = vec!["background task".to_owned(), format!("task_id: {}", task.task_id), "surface: agent".to_owned()];
+    if !task.operation.is_empty() && task.operation != "agent" {
+        lines.push(format!("operation: {}", task.operation));
+    }
+    if let Some(label) = task.label.as_deref().filter(|l| !l.is_empty()) {
+        lines.push(format!("label: {label}"));
+    }
+    lines.push(format!("status: {}", task.status));
+    lines.push(format!("started: {}", iso_from_ms(task.started_ms)));
+    if let Some(finished) = task.finished_ms {
+        lines.push(format!("finished: {}", iso_from_ms(finished)));
+    }
+    if let Some(error) = task.error.as_deref().filter(|e| !e.is_empty()) {
+        lines.push(format!("error: {error}"));
+    }
+    let meta = &task.meta;
+    for (key, value) in [
+        ("tag", &meta.tag),
+        ("sessionId", &meta.session_id),
+        ("agent", &meta.agent),
+        ("provider", &meta.provider),
+        ("model", &meta.model),
+        ("preset", &meta.preset),
+        ("effort", &meta.effort),
+    ] {
+        if let Some(value) = value.as_deref().filter(|v| !v.is_empty()) {
+            lines.push(format!("{key}: {value}"));
+        }
+    }
+    if let Some(fast) = meta.fast {
+        lines.push(format!("fast: {fast}"));
+    }
+    for (key, on) in [("respawned", meta.respawned), ("resumed", meta.resumed)] {
+        if on {
+            lines.push(format!("{key}: true"));
+        }
+    }
+    let body = task.result.as_ref().and_then(TaskResult::content).filter(|c| !c.is_empty());
+    match body {
+        Some(body) => {
+            lines.push(String::new());
+            lines.push(body.to_owned());
+        }
+        None if task.status == "completed" && task.error.as_deref().is_none_or(str::is_empty) => {
+            lines.push(String::new());
+            lines.push("(no result body — use read for full output)".to_owned());
+        }
+        None => {}
+    }
+    lines.join("\n")
+}
+
+/// The agent tool's rows as the `task` tool lists, reads, waits for and cancels them (Node `task-tool.mjs` over the
+/// `surface: 'agent'` rows of `background-tasks.mjs`).
+#[async_trait::async_trait]
+impl mixdog_tools::exec::AgentTasks for JobBoard {
+    fn list(&self, owner: &ThreadId) -> Vec<mixdog_tools::exec::AgentTaskRow> {
+        let scope = Scope { caller_session_id: Some(owner.as_str().to_owned()), host_pid: None };
+        self.list_jobs(&scope)
+            .into_iter()
+            .map(|t| mixdog_tools::exec::AgentTaskRow { task_id: t.task_id, operation: t.operation, label: t.label, status: t.status, error: t.error })
+            .collect()
+    }
+
+    fn view(&self, owner: &ThreadId, task_id: &str) -> Option<mixdog_tools::exec::AgentTaskView> {
+        let scope = Scope { caller_session_id: Some(owner.as_str().to_owned()), host_pid: None };
+        let task = JobBoard::get(self, task_id, &scope)?;
+        Some(mixdog_tools::exec::AgentTaskView { text: render_agent_task(&task), operation: task.operation, status: task.status })
+    }
+
+    async fn settled(&self, task_id: &str) {
+        self.wait_terminal(task_id).await;
+    }
+
+    fn cancel(&self, owner: &ThreadId, task_id: &str, reason: &str) -> Option<mixdog_tools::exec::AgentTaskCancellation> {
+        let scope = Scope { caller_session_id: Some(owner.as_str().to_owned()), host_pid: None };
+        self.cancel_with(task_id, reason, CancelNotice::Default, None, Some(&scope))
+    }
+
+    fn acknowledge(&self, task_id: &str) {
+        JobBoard::acknowledge(self, task_id);
     }
 }

@@ -147,6 +147,28 @@ async fn a_client_prompt_under_the_hold_is_refused_and_the_release_lets_it_start
     assert!(!rows(&handle).contains(&user("refused")), "the refused prompt never runs");
 }
 
+/// Node's work gate refuses a client's `retryFailedTurn` while it holds (`callRefusal`: `HOLD_ALLOWED_CALLS` lacks it), as the retry
+/// starts a model turn at once; once the drain commit dropped the hold it is refused as admission refuses a start, and an open hold
+/// lets it through to its own checks.
+#[tokio::test(start_paused = true)]
+async fn a_client_retry_is_refused_while_the_core_holds_turn_starts() {
+    let rig = Rig::new();
+    let (hold, directory) = held(&rig);
+    let handle = start_thread(&directory).await;
+    let retry = |op: &str| request("turn/retryFailed", json!({ "threadId": handle.id, "opId": op, "turnKey": "attempt:none" }), op);
+
+    hold.send_replace(StartHold::Held);
+    let refused = handle.request(retry("r-1")).await.err();
+    assert_eq!(refused, Some(mixdog_core_base::support::failed("session", "daemon is holding new work for an update install")));
+    hold.send_replace(StartHold::Closed(DrainReason::Update));
+    assert_eq!(handle.request(retry("r-2")).await.err(), Some(CoreError::ServerShuttingDown { drain_reason: DrainReason::Update }));
+
+    hold.send_replace(StartHold::Open);
+    let Reply::Value(answer) = handle.request(retry("r-3")).await.expect("answered") else { panic!("turn/retryFailed answers a value") };
+    assert_eq!(answer, json!(false), "no failed turn to retry");
+}
+
+
 /// An in-core start (a routine's, a channel's) waits out the hold before it is admitted, as Node's `deferring` waits before
 /// `admitted` enters the turn gate, so an idle delete is not held off meanwhile. The drain commit that drops the hold refuses it
 /// with admission's refusal and refuses the starts that follow; a cancelled drain opens the hold again.
@@ -176,28 +198,6 @@ async fn the_drain_commit_refuses_the_start_the_hold_kept_waiting() {
     let started = answer(&handle, submit(&handle, "op-3", "again", "")).await.expect("a cancelled drain opens the hold again");
     assert_eq!(started["kind"], "started", "{started}");
 }
-
-/// Node's work gate refuses a client's `retryFailedTurn` while it holds (`callRefusal`: `HOLD_ALLOWED_CALLS` lacks it), as the retry
-/// starts a model turn at once; once the drain commit dropped the hold it is refused as admission refuses a start, and an open hold
-/// lets it through to its own checks.
-#[tokio::test(start_paused = true)]
-async fn a_client_retry_is_refused_while_the_core_holds_turn_starts() {
-    let rig = Rig::new();
-    let (hold, directory) = held(&rig);
-    let handle = start_thread(&directory).await;
-    let retry = |op: &str| request("turn/retryFailed", json!({ "threadId": handle.id, "opId": op, "turnKey": "attempt:none" }), op);
-
-    hold.send_replace(StartHold::Held);
-    let refused = handle.request(retry("r-1")).await.err();
-    assert_eq!(refused, Some(mixdog_core_base::support::failed("session", "daemon is holding new work for an update install")));
-    hold.send_replace(StartHold::Closed(DrainReason::Update));
-    assert_eq!(handle.request(retry("r-2")).await.err(), Some(CoreError::ServerShuttingDown { drain_reason: DrainReason::Update }));
-
-    hold.send_replace(StartHold::Open);
-    let Reply::Value(answer) = handle.request(retry("r-3")).await.expect("answered") else { panic!("turn/retryFailed answers a value") };
-    assert_eq!(answer, json!(false), "no failed turn to retry");
-}
-
 /// An in-core start waiting out the hold keeps its thread loaded: the idle deadline coming meanwhile leaves the thread nobody
 /// watches in memory (Node's start opens its session only after the wait; here the caller's start is on the thread's cell), and
 /// the release starts it.

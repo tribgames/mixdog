@@ -12,6 +12,7 @@ pub mod agent_tool;
 pub mod attachments;
 mod barriers;
 mod batch;
+mod cache_observation;
 pub mod cache_scope;
 pub mod coerce;
 pub mod boundary;
@@ -45,6 +46,7 @@ pub use send::assemble_request;
 pub use send::wire_request;
 pub use send::with_tail_reminder;
 pub use send::without_tail_reminder;
+pub use send::kept_messages;
 pub mod step_effort;
 pub mod steer;
 pub mod tail_rules;
@@ -54,11 +56,6 @@ pub mod text;
 pub mod todo;
 pub mod tools;
 pub mod web_route;
-
-/// The text that replaces a stripped image.
-pub fn recovery_placeholder() -> &'static str {
-    recovery::IMAGE_STRIP_PLACEHOLDER
-}
 
 pub use run::AgentError;
 pub use run::CompactFailure;

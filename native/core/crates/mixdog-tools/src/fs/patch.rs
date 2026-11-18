@@ -945,7 +945,7 @@ async fn run_batch(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>, op
     finish_batch(ctx, &mut tx, outcome, dry, &mut notices).await
 }
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>, opts: &Options, mode: Sequence) -> R<String> {
+async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>, opts: &Options, mode: Sequence) -> R<(String, Vec<Section>)> {
     let (fuzzy, dry) = (opts.fuzzy, opts.dry);
     let mut notices = Notices::default();
     let units = if mode.coalesce { coalesce(ctx, base, sections).await.map_err(prepare_failed)? } else { sections };
@@ -1041,7 +1041,7 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
     outcome?;
     let report = sequence_report(units.len(), &applied, &failures, &skipped, mode.continue_after_failure, dry);
     let tail = notices.rejected_tail();
-    Ok(wrap(&format!("{report}{tail}"), &mut notices))
+    Ok((wrap(&format!("{report}{tail}"), &mut notices), units))
 }
 
 /// The report of a multi-section run: all applied, stopped at the first failure, or file-level partial.
@@ -1112,12 +1112,10 @@ fn strip_error_prefix(error: &str) -> &str {
 impl ApplyPatchTool {
     /// The changed span of a file this thread patched before, as it is on disk now. The first patch
     /// of a file adds nothing; only a repeat pays for the excerpt.
-    async fn append_excerpts(&self, ctx: &ToolContext, base: &AbsPath, patch: &str, output: String) -> String {
+    async fn append_excerpts(&self, ctx: &ToolContext, base: &AbsPath, sections: &[Section], output: String) -> String {
         if is_error_text(&output) {
             return output;
         }
-        let Ok(sections) = parse_v4a(patch) else { return output };
-        let sections: Vec<Section> = sections.into_iter().filter(|s| s.kind == Kind::Update && !s.hunks.is_empty()).collect();
         let mut repeats: Vec<&Section> = Vec::new();
         {
             let mut seen = self.seen.lock().unwrap_or_else(|p| p.into_inner());
@@ -1132,7 +1130,7 @@ impl ApplyPatchTool {
                     seen.len() - 1
                 }
             };
-            for section in &sections {
+            for section in sections.iter().filter(|s| s.kind == Kind::Update && !s.hunks.is_empty()) {
                 let target = section.move_path.as_deref().unwrap_or(&section.path);
                 let Ok(abs) = resolve_path(base, target) else { continue };
                 let key = path_key(&abs);
@@ -1355,16 +1353,15 @@ impl Tool for ApplyPatchTool {
         // sections per file; the explicit ordered mode does neither.
         let file_partial = coalesce_sections && !any_rename && keys.len() > 1;
         let sequence = (ordered || file_partial) && !rename_only;
-        let outcome = if sequence {
+        let text = if sequence {
             let mode = Sequence { continue_after_failure: file_partial && !ordered, coalesce: file_partial && !ordered };
-            run_sequence(ctx, &base, sections, &opts, mode).await
+            match run_sequence(ctx, &base, sections, &opts, mode).await {
+                Ok((text, units)) if !dry_run && coalesce_sections => self.append_excerpts(ctx, &base, &units, text).await,
+                result => into_text(result.map(|(text, _)| text))?,
+            }
         } else {
-            run_batch(ctx, &base, sections, &opts, coalesce_sections).await
+            into_text(run_batch(ctx, &base, sections, &opts, coalesce_sections).await)?
         };
-        let mut text = into_text(outcome)?;
-        if sequence && !dry_run {
-            text = self.append_excerpts(ctx, &base, patch, text).await;
-        }
         if is_error_text(&text) {
             return Err(fail(error_code(&text), text));
         }

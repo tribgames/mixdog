@@ -75,8 +75,9 @@ test('shortcuts: grouped in order, every key its own kbd joined by "or"', async 
           ['New task', ['Ctrl+N']],
           ['New task without a project', ['Ctrl+Alt+N']],
           ['Close tab', ['Ctrl+W']],
-          ['Next tab', ['Ctrl+Tab', 'Ctrl+Shift+]']],
-          ['Previous tab', ['Ctrl+Shift+Tab', 'Ctrl+Shift+[']],
+          ['Switch recently used tabs', ['Ctrl+Tab', 'Ctrl+Shift+Tab']],
+          ['Next tab', ['Ctrl+Shift+]']],
+          ['Previous tab', ['Ctrl+Shift+[']],
           ['Go to tab / last tab', ['Ctrl+1–8', 'Ctrl+9']],
           ['Go back / forward', ['Ctrl+[', 'Ctrl+]']],
         ],
@@ -96,7 +97,7 @@ test('shortcuts: grouped in order, every key its own kbd joined by "or"', async 
         [
           ['Toggle left side bar', ['Ctrl+Shift+B']],
           ['Toggle right utility panel', ['Ctrl+B']],
-          ['Toggle terminal panel', ['Ctrl+`', 'Ctrl+T']],
+          ['Toggle bottom panel', ['Ctrl+J']],
           ['Open settings', ['Ctrl+,']],
           ['Close menus and popovers', ['Esc']],
         ],
@@ -105,7 +106,7 @@ test('shortcuts: grouped in order, every key its own kbd joined by "or"', async 
         'Composer',
         [
           ['Send message', ['Enter']],
-          ['Insert new line', ['Shift+Enter', 'Ctrl+Enter', 'Ctrl+J']],
+          ['Insert new line', ['Shift+Enter', 'Ctrl+Enter', 'Alt+Enter']],
           ['Delete to line start', ['Ctrl+U']],
           ['Prompt history (empty draft)', ['↑', '↓']],
           ['Command palette', ['/']],
@@ -164,6 +165,37 @@ test('system: one version row with state text; install row only while an update 
     } finally {
       await cleanup();
     }
+  }
+});
+
+test('system: a failed first settings read hides Power until an announcement reads the stored values', async () => {
+  const previous = window.mixdogDesktop;
+  let read = () => Promise.reject(new Error('core not ready'));
+  const listeners = new Set();
+  window.mixdogDesktop = {
+    ...previous,
+    readSettings: () => read(),
+    updateSetting: async () => undefined,
+    subscribeSettingsChanged: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const data = { update: { currentVersion: '1.0.0', latestVersion: '', autoUpdate: true } };
+  const cleanup = await render('system', { updaterState: { status: 'idle' } }, data);
+  try {
+    assert.ok(!groupTitles().includes('Power'), 'unknown is not shown as a default');
+    read = async () => ({ keepAwake: false, runInBackground: true });
+    await act(async () => {
+      for (const listener of [...listeners]) listener({ scope: 'desktop' });
+      await new Promise((done) => setTimeout(done, 0));
+    });
+    assert.ok(groupTitles().includes('Power'));
+    const power = [...document.querySelectorAll('.settings-group')].find((group) => group.textContent.includes('Keep system awake'));
+    assert.equal(power.querySelector('input[type="checkbox"]').checked, false, 'the stored keepAwake');
+  } finally {
+    await cleanup();
+    window.mixdogDesktop = previous;
   }
 });
 

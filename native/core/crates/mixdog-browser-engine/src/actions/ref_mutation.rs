@@ -70,6 +70,11 @@ where
     match operation(ref_id).await {
         Ok(value) => Ok(value),
         Err(RefError::Host(HostCallError::Cancelled)) => Err(ActionError::Host(HostCallError::Cancelled)),
+        // The operation's request was handed to the host and its connection was lost: typed, not worded into the text below.
+        Err(RefError::Host(HostCallError::ConnectionLost)) => {
+            page.invalidate_interaction();
+            Err(ActionError::Host(HostCallError::ConnectionLost))
+        }
         Err(error) => {
             page.invalidate_interaction();
             Err(ActionError::Failed(format!("{error}; {NOT_REPLAYED}")))

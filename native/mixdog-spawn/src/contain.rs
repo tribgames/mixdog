@@ -4,6 +4,17 @@
 use mixdog_core_api::domain::process::ExitStatus;
 use mixdog_core_api::domain::process::ProcessOwner;
 
+/// What the normal shutdown drain established about this manager's children.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum ShutdownOutcome {
+    /// Every root was reaped and all closed containments were confirmed empty.
+    Clean,
+    /// No live owned process was confirmed, but exit or containment coverage is incomplete.
+    Unverified,
+    /// At least one live owned process was positively observed at the final check.
+    ConfirmedFailure,
+}
+
 /// How a wait for a tree to end finished.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Waited {
@@ -59,6 +70,7 @@ mod imp {
     use windows_sys::Win32::System::JobObjects::TerminateJobObject;
     use windows_sys::Win32::System::Threading::INFINITE;
 
+    use super::ShutdownOutcome;
     use super::Waited;
 
     /// `JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO` (winnt.h), which windows-sys does not export: the
@@ -158,6 +170,7 @@ mod imp {
         /// Null once the job was seen empty and closed ([`Self::release_if_empty`]). Never passed on null: a null job
         /// handle names the job this process itself runs in.
         job: RwLock<HANDLE>,
+        breakaway_ok: bool,
         /// Set when the job first reports to the port: its key and the signal for "no members".
         watch: OnceLock<(usize, Arc<Notify>)>,
     }
@@ -188,6 +201,7 @@ mod imp {
             }
             Ok(Self {
                 job: RwLock::new(job),
+                breakaway_ok,
                 watch: OnceLock::new(),
             })
         }
@@ -355,6 +369,32 @@ mod imp {
             }
         }
 
+        pub(crate) fn covers_all_descendants(&self) -> bool {
+            !self.breakaway_ok
+        }
+
+        pub(crate) fn shutdown_outcome(&self) -> ShutdownOutcome {
+            match self.active() {
+                Some(0) if !self.breakaway_ok => ShutdownOutcome::Clean,
+                Some(1..) => ShutdownOutcome::ConfirmedFailure,
+                _ => ShutdownOutcome::Unverified,
+            }
+        }
+
+        pub(crate) fn shutdown_idle(&self) -> bool {
+            self.release_if_empty()
+        }
+
+        pub(crate) async fn shutdown_descendants(&self) {
+            for _ in 0..KILL_ROUNDS {
+                if self.shutdown_idle() {
+                    return;
+                }
+                self.kill();
+                let _ = tokio::time::timeout(KILL_WAIT, self.until_gone()).await;
+            }
+        }
+
         /// Ends the job and waits, woken by the job's own message, for it to empty (`KILL_ROUNDS` times at most): there
         /// is no gentle first stop and no grace to give, only the operating system's time to end the processes.
         pub(crate) async fn cancel(&self) -> bool {
@@ -413,9 +453,10 @@ mod imp {
     use crate::tree::Tree;
     use tokio_util::sync::CancellationToken;
 
+    use super::ShutdownOutcome;
     use super::Waited;
 
-    /// The tree of a child started as its own group leader (`setsid` or `process_group(0)`): one
+    /// The tree of a child started as its own group leader (`setsid`): one
     /// [`Tree`] follows it by identity, whether the group still has members or not.
     pub(crate) struct Containment {
         tree: OnceLock<Tree<OsReader, OsSignals, TokioClock>>,
@@ -445,6 +486,37 @@ mod imp {
             }
         }
 
+        /// The caller holds the lock that excludes reaping the root.
+        pub(crate) fn shutdown_signal(&self) {
+            if let Some(tree) = self.tree.get() {
+                tree.shutdown_private_group();
+            }
+        }
+
+        pub(crate) fn covers_all_descendants(&self) -> bool {
+            // A process can leave its group and be reparented between scans.
+            false
+        }
+
+        pub(crate) fn shutdown_outcome(&self) -> ShutdownOutcome {
+            if self.tree.get().is_some_and(Tree::shutdown_survivor_confirmed) {
+                ShutdownOutcome::ConfirmedFailure
+            } else {
+                // A private session excludes outsiders but not escapees.
+                ShutdownOutcome::Unverified
+            }
+        }
+
+        pub(crate) fn shutdown_idle(&self) -> bool {
+            self.tree.get().is_none_or(Tree::shutdown_idle)
+        }
+
+        pub(crate) async fn shutdown_descendants(&self) {
+            if let Some(tree) = self.tree.get() {
+                tree.shutdown_descendants().await;
+            }
+        }
+
         /// A process group has no console host to wait for.
         pub(crate) fn settle_exit(&self) {}
 
@@ -455,10 +527,10 @@ mod imp {
             }
         }
 
-        /// Whether the group might still have a member, for how long a record is kept. It proves
-        /// nothing about who owns the group.
-        pub(crate) fn occupied(&self) -> bool {
-            self.tree.get().is_some_and(Tree::group_may_be_occupied)
+        /// Whether the group might still have a live member. This concerns
+        /// record retention, not ownership.
+        fn occupied(&self) -> bool {
+            self.tree.get().is_some_and(Tree::group_has_live_members)
         }
 
         /// A process group holds no handle of its own to close: true once nothing of it may be left.
@@ -503,7 +575,7 @@ pub(crate) use imp::Containment;
 /// Whether a process's job lets a member start a child outside it. Only the computer helper's does: its
 /// cursor watchdog must survive the helper, and the helper itself stays in the job and dies with the core.
 pub(crate) fn breakaway_ok(owner: &ProcessOwner) -> bool {
-    matches!(owner, ProcessOwner::ComputerHelper)
+    matches!(owner, ProcessOwner::ComputerHelper { .. })
 }
 
 #[cfg(test)]
@@ -512,7 +584,7 @@ mod breakaway_tests {
 
     #[test]
     fn only_the_computer_helper_may_break_away() {
-        assert!(breakaway_ok(&ProcessOwner::ComputerHelper));
+        assert!(breakaway_ok(&ProcessOwner::ComputerHelper { scope: None }));
         assert!(!breakaway_ok(&ProcessOwner::Internal));
     }
 }

@@ -267,6 +267,63 @@ async fn thread_ops_are_looked_up_by_session_and_id() {
     assert_eq!(env.store.thread_op("s2", op).await.unwrap(), None);
 }
 
+/// A user prompt row of turn `turn` that a send of `submission` started.
+fn prompt_of(iid: &str, turn: &str, submission: &str) -> Encoded {
+    rec(json!({"k":"item","iid":iid,"turn":turn,"role":"user","form":"message","model":true,"visible":true,"refs":[],
+        "body":{"inline":{"content":iid,"role":"user","meta":{"transcript":{"clientSubmissionId":submission}}}}}))
+}
+
+/// A queue entry a send of `submission` queued.
+fn enqueue_of(qid: &str, submission: &str) -> Encoded {
+    rec(json!({"k":"queue","qid":qid,"action":"enqueue","entry":{"inline":{"message":qid,"options":{"clientSubmissionId":submission}}}}))
+}
+
+/// A submission's receipt is its first acceptance, kept for the session's life: a queued prompt that later starts keeps its
+/// queued receipt, a rewind leaves receipts, a row of no turn (a carried copy) is no acceptance, a fork does not inherit its
+/// base's, and a checkpoint and an index rebuilt from the logs keep them all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn submission_receipts_are_first_acceptances_kept_for_the_sessions_life() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let carried = rec(json!({"k":"item","iid":"c1","role":"user","form":"message","model":true,"visible":true,"refs":[],
+        "body":{"inline":{"content":"c1","role":"user","meta":{"transcript":{"clientSubmissionId":"subC"}}}}}));
+    let (w, _) = env.commit(w, vec![enqueue_of("q1", "subA"), prompt_of("p1", "t1", "subA"), prompt_of("p2", "t2", "subB"), carried]).await;
+    let queued = json!({"kind":"queued","queuedId":"q1"});
+    let started = json!({"kind":"started","turnId":"t2"});
+    assert_eq!(env.store.submission("s1", "subA").await.unwrap(), Some(queued.clone()), "the first acceptance stays");
+    assert_eq!(env.store.submission("s1", "subB").await.unwrap(), Some(started.clone()));
+    assert_eq!(env.store.submission("s1", "subC").await.unwrap(), None, "a carried row accepted nothing");
+    let (w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":1,"reason":"edit"}))]).await;
+    assert_eq!(env.store.submission("s1", "subB").await.unwrap(), Some(started.clone()), "a rewind leaves it");
+    // The session frame, four acceptances and the rewind: ordinals 0 to 5.
+    let fork = env.create("f1", Some(("s1", 6))).await;
+    drop(fork);
+    assert_eq!(env.store.submission("f1", "subA").await.unwrap(), None, "a fork does not inherit it");
+    // Past a checkpoint (`CHECKPOINT_EVERY` bytes of frames), and one more acceptance after it.
+    let mut w = w;
+    for batch in 0..4 {
+        (w, _) = env.commit(w, (0..2500).map(|n| item(&format!("x{batch}-{n}"))).collect()).await;
+    }
+    let (w, _) = env.commit(w, vec![enqueue_of("q9", "subD")]).await;
+    drop(w);
+    assert_eq!(env.store.submission("s1", "subD").await.unwrap(), Some(json!({"kind":"queued","queuedId":"q9"})));
+    // An index of version 16 (before `submissions`) is rebuilt from the logs, receipts included.
+    let other = tempfile::tempdir().unwrap();
+    copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
+    let db = other.path().join(INDEX_FILE);
+    std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+    let old = rusqlite::Connection::open(&db).unwrap();
+    old.execute_batch(crate::schema::sql::INDEX_DDL).unwrap();
+    old.execute_batch("DROP TABLE submissions; PRAGMA user_version = 16;").unwrap();
+    drop(old);
+    let rebuilt = open_index(other.path()).unwrap();
+    assert_eq!(rebuilt.submission("s1", "subA").await.unwrap(), Some(queued));
+    assert_eq!(rebuilt.submission("s1", "subB").await.unwrap(), Some(started));
+    assert_eq!(rebuilt.submission("s1", "subD").await.unwrap(), Some(json!({"kind":"queued","queuedId":"q9"})));
+    assert_eq!(rebuilt.submission("s1", "subC").await.unwrap(), None);
+    drop(rebuilt);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fenced_ops_are_listed_by_session() {
     let env = Env::new();
@@ -355,178 +412,10 @@ async fn fork_rewind_into_the_base_cuts_the_lineage_view() {
     assert_eq!((opened.fold.base_cut, opened.fold.rows), (Some(2), 1));
 }
 
-const GC_MIN_AGE: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 3600);
-const DAY_8: std::time::Duration = std::time::Duration::from_secs(8 * 24 * 3600);
-
-/// One GC pass over `digest`'s shard at day 8, on the maintenance lane.
-async fn gc_at_day_8(env: &Env, digest: &crate::schema::bounded::Digest) -> Vec<String> {
-    let (blobs, store) = (BlobStore::new(&env.data), env.store.clone());
-    let shard = u8::from_str_radix(&digest.as_str()["sha256:".len()..][..2], 16).unwrap();
-    tokens()
-        .maintenance_io
-        .submit(&CancellationToken::new(), move |l| {
-            let now = std::time::SystemTime::now() + DAY_8;
-            blobs
-                .collect_shard(l, shard, now, GC_MIN_AGE, &mut |d| store.blob_referenced_on_lane(l, d))
-                .unwrap()
-                .into_iter()
-                .map(|d| d.as_str().to_owned())
-                .collect()
-        })
-        .unwrap()
-        .await
-        .unwrap()
-}
-
-fn attachment(bytes: &[u8]) -> crate::encode::PendingBlob {
-    crate::encode::PendingBlob { digest: crate::blobs::digest_of(bytes), bytes: bytes.to_vec() }
-}
-
-fn item_with_ref(iid: &str, blob: &crate::encode::PendingBlob) -> Encoded {
-    let record = json!({"k":"item","iid":iid,"role":"user","form":"message","model":true,"visible":true,
-        "refs":[blob.digest.as_str()],"body":{"inline":{"content":iid,"role":"user"}}});
-    Encoded::new(serde_json::from_value(record).unwrap(), vec![blob.clone()]).unwrap()
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn gc_keeps_a_blob_referenced_only_by_a_migrated_session() {
-    let env = Env::new();
-    // A session written once and never activated again (as migration leaves it).
-    let blob = attachment(b"migrated attachment bytes");
-    let w = env.create("migrated", None).await;
-    let (w, _) = env.commit(w, vec![item_with_ref("a", &blob)]).await;
-    drop(w);
-    assert!(gc_at_day_8(&env, &blob.digest).await.is_empty());
-    assert!(BlobStore::new(&env.data).path(&blob.digest).is_file());
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn gc_collects_a_blob_whose_frame_was_rolled_back() {
-    let env = Env::new();
-    let blob = attachment(b"rolled back attachment");
-    let w = env.create("s1", None).await;
-    env.io.0.lock().unwrap().write = 1;
-    let (w, r) = env.append(w, vec![item_with_ref("a", &blob)]).await;
-    assert!(matches!(r, Err(AppendError::BarrierFailed(_))));
-    drop(w);
-    let path = BlobStore::new(&env.data).path(&blob.digest);
-    assert!(path.is_file(), "published before the barrier");
-    assert_eq!(gc_at_day_8(&env, &blob.digest).await, [blob.digest.as_str().to_owned()]);
-    assert!(!path.is_file());
-}
-
-/// GC asks whether a blob is referenced only while it holds the digest's pin lock, so a writer
-/// that pins, references and unpins it between an earlier answer and the unlink cannot lose its
-/// blob. While GC asks, the pin of that digest cannot be taken; a pin already held is skipped
-/// without asking at all.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn gc_checks_references_under_the_pin_lock() {
-    let env = Env::new();
-    let bytes = b"raced attachment bytes";
-    let digest = crate::blobs::digest_of(bytes);
-    let blobs = BlobStore::new(&env.data);
-    let path = blobs.path(&digest);
-    let shard = u8::from_str_radix(&digest.as_str()["sha256:".len()..][..2], 16).unwrap();
-    let (store, pinned) = (blobs.clone(), blobs.clone());
-    let (writer_digest, asked_digest) = (digest.clone(), digest.clone());
-    let (collected, writer_blocked) = tokens()
-        .maintenance_io
-        .submit(&CancellationToken::new(), move |l| {
-            crate::fsio::publish_file(l, &path, bytes).unwrap();
-            let now = std::time::SystemTime::now() + DAY_8;
-            // A writer arrives: it pins the digest, then releases it at once.
-            let (done, finished) = std::sync::mpsc::channel();
-            let mut writer = None;
-            let mut blocked = false;
-            let mut asked = 0;
-            let deleted = store
-                .collect_shard(l, shard, now, GC_MIN_AGE, &mut |d| {
-                    assert_eq!(d, &asked_digest);
-                    asked += 1;
-                    let (pinned, digest, done) = (pinned.clone(), writer_digest.clone(), done.clone());
-                    writer = Some(std::thread::spawn(move || {
-                        drop(pinned.pin(&digest));
-                        done.send(()).unwrap();
-                    }));
-                    blocked = finished.recv_timeout(std::time::Duration::from_millis(200)).is_err();
-                    Ok(false)
-                })
-                .unwrap();
-            writer.expect("the answer was asked once").join().unwrap();
-            assert_eq!(asked, 1);
-            (deleted, blocked)
-        })
-        .unwrap()
-        .await
-        .unwrap();
-    assert!(writer_blocked, "the pin could be taken while GC was asking: the answer can go stale");
-    assert_eq!(collected, [digest.clone()], "unreferenced and unpinned, it went");
-
-    // A pin held beforehand: skipped, and never asked.
-    let held = blobs.pin(&digest);
-    let (store, asked_digest) = (blobs.clone(), digest.clone());
-    let path = blobs.path(&digest);
-    let kept = tokens()
-        .maintenance_io
-        .submit(&CancellationToken::new(), move |l| {
-            crate::fsio::publish_file(l, &path, bytes).unwrap();
-            let now = std::time::SystemTime::now() + DAY_8;
-            store
-                .collect_shard(l, shard, now, GC_MIN_AGE, &mut |_| panic!("asked about {asked_digest:?} while it is pinned"))
-                .unwrap()
-        })
-        .unwrap()
-        .await
-        .unwrap();
-    assert!(kept.is_empty());
-    drop(held);
-}
-
 fn big_item(iid: &str) -> Encoded {
     let body = "x".repeat(200 * 1024);
     rec(json!({"k":"item","iid":iid,"role":"user","form":"message","model":true,"visible":true,"refs":[],
         "body":{"inline":{"content":body,"role":"user"}}}))
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn open_reads_a_bounded_tail_and_rotation_starts_with_a_checkpoint() {
-    use crate::schema::frame::*;
-    let env = Env::new();
-    let mut w = env.create("s1", None).await;
-    // ~70 MiB of history in ~2 MiB batches: checkpoints every 1 MiB and one rotation.
-    let (mut n, mut built, mut committed) = (0, std::time::Duration::ZERO, std::time::Duration::ZERO);
-    while env.dir("s1").join(log_name(1)).metadata().is_err() || n < 340 {
-        let at = std::time::Instant::now();
-        let batch = (0..10).map(|i| big_item(&format!("i{}", n + i))).collect();
-        built += at.elapsed();
-        n += 10;
-        let at = std::time::Instant::now();
-        w = env.commit(w, batch).await.0;
-        committed += at.elapsed();
-    }
-    eprintln!("{n} items: built in {built:?}, committed in {committed:?}");
-    drop(w);
-    let files = list_logs(&env.dir("s1")).unwrap();
-    assert_eq!(files, [0, 1]);
-    assert!(std::fs::metadata(env.dir("s1").join(log_name(0))).unwrap().len() <= ROTATE_AT);
-    // The rotated file starts with a checkpoint frame (its header names the ordinal).
-    let bytes = std::fs::read(env.dir("s1").join(log_name(1))).unwrap();
-    let ordinal = u64::from_str_radix(std::str::from_utf8(&bytes[..ORDINAL_DIGITS]).unwrap(), 16).unwrap();
-    let first = read_forward_unlaned(
-        &env.dir("s1"),
-        crate::schema::checkpoint::FramePos { ordinal, file_no: 1, offset: 0 },
-        1,
-    )
-    .unwrap();
-    assert!(matches!(first.frames[0].0, crate::schema::record::Record::Checkpoint(_)));
-
-    let at = std::time::Instant::now();
-    let opened = env.reopen("s1").await;
-    eprintln!("reopened in {:?}", at.elapsed());
-    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, n as u64));
-    // Independent of history length: the reverse scan window plus the frame before it.
-    assert!(opened.bytes_read <= REVERSE_SCAN_MAX + MAX_FRAME_LEN as u64 + 1, "{}", opened.bytes_read);
-    assert!(opened.bytes_read <= 5 * 1024 * 1024 + MAX_FRAME_LEN as u64, "SM §11.8: ≤ 5 MiB + state");
 }
 
 // ───────────── groups (FORMAT.md §3.6): recovery takes a write whole or not at all ─────────────
@@ -1278,70 +1167,6 @@ async fn an_old_reader_never_misreads_a_log_with_groups() {
     }
 }
 
-#[test]
-fn the_codec_moves_large_bodies_to_blobs_and_refs_them() {
-    let small = crate::encode::encode_record(item("a").record().clone()).unwrap();
-    assert!(small.blobs().is_empty());
-    // Above INLINE_MAX (256 KiB): the size rule moves the body out of line.
-    let mut over = big_item("b").record().clone();
-    if let crate::schema::record::Record::Item(r) = &mut over {
-        r.body = crate::schema::blob::Slot::Inline(json!({"content": "x".repeat(300 << 10)}));
-    }
-    let big = crate::encode::encode_record(over).unwrap();
-    let Some(blob) = big.blobs().first() else { panic!("no blob") };
-    let crate::schema::record::Record::Item(r) = big.record() else { panic!() };
-    assert!(matches!(r.body, crate::schema::blob::Slot::Blob(_)));
-    assert_eq!(r.refs.as_slice(), std::slice::from_ref(&blob.digest));
-    let mut huge = big_item("c").record().clone();
-    if let crate::schema::record::Record::Item(r) = &mut huge {
-        r.body = crate::schema::blob::Slot::Inline(json!({"content": "x".repeat(mixdog_protocol::MAX_BLOB_BYTES as usize)}));
-    }
-    assert!(matches!(crate::encode::encode_record(huge), Err(crate::encode::EncodeError::ItemTooLarge { .. })));
-}
-
-/// A prompt over what the inline body leaves of `INLINE_MAX` moves to a blob of its own,
-/// listed in `refs`; the log and the index give back the text.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_large_prompt_moves_to_a_blob_and_round_trips() {
-    use crate::schema::blob::Slot;
-    use crate::schema::record::Record;
-    let with_prompt = |body: usize, prompt: &str| {
-        let Record::Item(mut r) = user("u1", "x").record().clone() else { panic!() };
-        r.body = Slot::Inline(json!({"content": "b".repeat(body), "role": "user"}));
-        r.prompt = Some(Slot::Inline(prompt.to_owned()));
-        crate::encode::encode_record(Record::Item(r)).unwrap()
-    };
-    // Each fits INLINE_MAX alone, together they do not: the prompt moves.
-    let shared = with_prompt(200 << 10, &"q".repeat(100 << 10));
-    let Record::Item(r) = shared.record() else { panic!() };
-    assert!(matches!((&r.body, &r.prompt), (Slot::Inline(_), Some(Slot::Blob(_)))));
-    assert!(shared.payload().len() <= crate::schema::frame::MAX_FRAME_PAYLOAD);
-
-    let env = Env::new();
-    let text = format!("ask {}", "p".repeat(300 << 10));
-    let encoded = with_prompt(10, &text);
-    let Record::Item(r) = encoded.record() else { panic!() };
-    let Some(Slot::Blob(blob)) = &r.prompt else { panic!("inline prompt") };
-    let digest = blob.descriptor().digest.clone();
-    assert_eq!(r.refs.as_slice(), std::slice::from_ref(&digest));
-    let w = env.create("s1", None).await;
-    let (w, _) = env.commit(w, vec![encoded]).await;
-    drop(w);
-    assert_eq!(prompts(&env, "s1").await, vec![text.clone()]);
-
-    let dir = env.dir("s1");
-    let first = first_ordinal_unlaned(&dir).unwrap();
-    let start = crate::schema::checkpoint::FramePos { ordinal: first, file_no: 0, offset: 0 };
-    let read = read_forward_unlaned(&dir, start, 1 << 20).unwrap();
-    let logged = read.frames.iter().find_map(|(record, ..)| match record {
-        Record::Item(item) => item.prompt.clone(),
-        _ => None,
-    });
-    let Some(Slot::Blob(logged)) = logged else { panic!("logged prompt") };
-    let bytes = BlobStore::new(&env.data).read_unlaned(&logged.descriptor().digest).unwrap();
-    assert_eq!(serde_json::from_slice::<String>(&bytes).unwrap(), text);
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn migration_projection_matches_the_logs() {
     let env = Env::new();
@@ -1476,7 +1301,6 @@ fn every_interactive_query_is_index_backed() {
     check("live rows", crate::sqlite::LIVE_ROWS_SQL, false);
     check("previous compaction", crate::sqlite::LIVE_COMPACTION_SQL, false);
     check("projected", crate::sqlite::PROJECTED_SQL, false);
-    check("blob ref", crate::sqlite::BLOB_REF_SQL, false);
     check("thread op", crate::sqlite::THREAD_OP_SQL, false);
     check("prompt history", crate::sqlite::PROMPTS_SQL, false);
     check("base prompts", crate::sqlite::BASE_PROMPTS_SQL, false);
@@ -1550,6 +1374,45 @@ async fn torn_tail_is_truncated_at_open_for_append() {
     assert_eq!(std::fs::metadata(&path).unwrap().len(), good);
 }
 
+/// A log whose torn tail its writer's open cut off and whose next frame grew it back to the length it had is the same
+/// files at the same lengths, and another version (`log_epoch`): what a reader folded from it before is not kept. An
+/// open that only reads leaves the version.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_log_truncated_and_grown_back_to_its_length_is_another_version() {
+    use crate::log_epoch::settled;
+    let id = "epoch-truncated-and-grown-back";
+    let env = Env::new();
+    let w = env.create(id, None).await;
+    let (w, _) = env.commit(w, vec![item("a")]).await;
+    drop(w);
+    let path = env.dir(id).join(log_name(0));
+    let good = std::fs::metadata(&path).unwrap().len();
+    // The frame the next append writes, and a longer one cut to its length: a tail torn exactly as long.
+    let mut next = Vec::new();
+    crate::framing::encode_into(&mut next, 2, &item("c").payload);
+    let mut longer = Vec::new();
+    crate::framing::encode_into(&mut longer, 2, &item("a-longer-item-id").payload);
+    assert!(longer.len() > next.len());
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes.extend_from_slice(&longer[..next.len()]);
+    std::fs::write(&path, &bytes).unwrap();
+    let torn = std::fs::metadata(&path).unwrap().len();
+
+    let read = settled(id).expect("nothing writes the log");
+    let opened = env.reopen(id).await;
+    assert_eq!(opened.status, LogStatus::Torn { offset: good });
+    assert_eq!(settled(id), Some(read), "an open that only reads");
+
+    let deps = env.deps();
+    let w = on_lane(move |l| LogWriter::open(l, opened, deps).unwrap()).await;
+    let truncated = settled(id).expect("nothing writes the log");
+    assert_ne!(truncated, read, "the writer's open cut the tail off");
+    let (_w, _) = env.commit(w, vec![item("c")]).await;
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), torn, "grown back to the length it had");
+    let grown = settled(id).expect("nothing writes the log");
+    assert!(grown != read && grown != truncated);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn large_projection_spans_bounded_transactions() {
     let env = Env::new();
@@ -1590,188 +1453,6 @@ fn session_rows(data: &Path) -> Vec<Vec<rusqlite::types::Value>> {
     let mut stmt = conn.prepare("SELECT * FROM sessions ORDER BY id").unwrap();
     let width = stmt.column_count();
     stmt.query_map([], |r| (0..width).map(|i| r.get(i)).collect()).unwrap().collect::<Result<_, _>>().unwrap()
-}
-
-/// A process that ends after the boot reconcile projected a crash-cut tail but before it wrote
-/// the session's row leaves the cursor at the log's end and the row stale: the next boot
-/// still reconciles the session, and its row is the one a rebuild from the log writes.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_boot_ended_between_the_projection_and_the_row_reconciles_again() {
-    let env = Env::new();
-    // A header with its own `updatedAt`: the row does not take the clock of its write.
-    let header = json!({"k":"session","v":2,"id":"s1","log_id":LOG_ID,"header":{"inline":{"title":"t","updatedAt":5}}});
-    let w = env.create_from("s1", rec(header)).await;
-    let (w, _) = env.commit(w, vec![item("a")]).await;
-    let (_w, acked) = env.append(w, vec![item("b"), item("c")]).await;
-    let end = acked.unwrap().positions.last().unwrap().ordinal + 1;
-    crate::sqlite::reconcile_seam::arm(&env.data);
-    let ended = open_index(&env.data).unwrap();
-    let outcome = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), ended.reconciled())
-        .await
-        .expect("the reconcile the seam ended answered within 60 s");
-    assert!(matches!(outcome, Err(DbError::Stopped)));
-    drop(ended);
-    let reopened = open_index(&env.data).unwrap();
-    let projected = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), reopened.projected("s1"))
-        .await
-        .expect("the reconciled cursor answered within 60 s");
-    assert_eq!(projected.unwrap().unwrap().ordinal, end);
-    drop(reopened);
-    let rebuilt = tempfile::tempdir().unwrap();
-    copy_tree(&env.dir("s1"), &rebuilt.path().join("sessions").join("s1"));
-    drop(open_index(rebuilt.path()).unwrap());
-    assert_eq!(session_rows(&env.data), session_rows(rebuilt.path()));
-}
-
-/// A reconcile that fails to write the index fails every way into it with its reason: a read,
-/// a write, a read from inside a read-lane job and the wait for the reconcile itself. None
-/// answers from the index the crash left.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_failed_reconcile_fails_every_access() {
-    let step = Arc::new(std::sync::Mutex::new("its start"));
-    let reached = step.clone();
-    let at = move |name: &'static str| *step.lock().unwrap() = name;
-    let body = async move {
-        let env = Env::new();
-        at("its setup");
-        let w = env.create("s1", None).await;
-        let (w, _) = env.commit(w, vec![item("a")]).await;
-        let (_w, acked) = env.append(w, vec![item("b")]).await;
-        acked.unwrap();
-        crate::sqlite::reconcile_seam::fail(&env.data);
-        let failed = open_index(&env.data).unwrap();
-        let why = "s1: the test seam failed the index write";
-        at("the read");
-        let read = failed.history_page(lineage(&[("s1", None)]), None, None, 10).await;
-        assert!(matches!(&read, Err(DbError::Write(w)) if w == why), "{read:?}");
-        at("the write");
-        let write = failed.mark_dirty("s1").await;
-        assert!(matches!(&write, Err(DbError::Write(w)) if w == why), "{write:?}");
-        let laned = failed.clone();
-        at("the lane read");
-        let on_lane = tokens()
-            .interactive_io
-            .submit(&CancellationToken::new(), move |lane| laned.history_page_on_lane(lane, &lineage(&[("s1", None)]), None, None, 10).map(drop))
-            .expect("lane");
-        let on_lane = on_lane.await.expect("job ran");
-        assert!(matches!(&on_lane, Err(DbError::Write(w)) if w == why), "{on_lane:?}");
-        at("the reconcile's outcome");
-        let settled = failed.reconciled().await;
-        assert!(matches!(&settled, Err(DbError::Write(w)) if w == why), "{settled:?}");
-    };
-    // The whole body under one real-time deadline (a thread's, so it fires on a paused clock too), naming the step reached.
-    let (done, waiting) = std::sync::mpsc::channel::<()>();
-    let (expire, expired) = tokio::sync::oneshot::channel::<()>();
-    std::thread::spawn(move || {
-        if waiting.recv_timeout(std::time::Duration::from_secs(60)) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
-            expire.send(()).ok();
-        }
-    });
-    tokio::select! {
-        biased;
-        () = body => drop(done),
-        _ = expired => panic!("a_failed_reconcile_fails_every_access, at {}: not within 60 s", reached.lock().unwrap()),
-    }
-}
-
-/// On the production lanes (not the inline test backend): the open returns while the
-/// reconcile of a crash-cut session still waits to start, and every way into the index waits
-/// for it (a read, a write, and a read from inside a read-lane job, which the open's callers
-/// make while the store is fresh), then sees the rows it projected. Each access is seen
-/// waiting at the gate before the test releases the reconcile, and answers only after.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
-    const BOUND: std::time::Duration = std::time::Duration::from_secs(60);
-    let (_exec, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("production lanes");
-    let tmp = tempfile::tempdir().unwrap();
-    let data = tmp.path().to_path_buf();
-    let open = |data: PathBuf| {
-        let job = tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| {
-            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &data)
-        });
-        async move { job.expect("lane").await.expect("job ran") }
-    };
-    let durable = |f: Box<dyn FnOnce(&InLane<DurabilityIo>) + Send>| {
-        let job = tokens.durability_io.submit(&CancellationToken::new(), move |lane| f(lane));
-        async move { job.expect("lane").await.expect("job ran") }
-    };
-    let store = open(data.clone()).await.unwrap();
-    store.upsert(head("s1", "task", "Title"), DirtyMark::Set).await.unwrap();
-    let deps = WriterDeps {
-        io: Arc::new(OsIo),
-        blobs: BlobStore::new(&data),
-        ownership: Arc::new(MockOwnership::default()),
-        index: Arc::new(store.clone()),
-    };
-    let (dir, (tx, rx)) = (data.join("sessions").join("s1"), std::sync::mpsc::channel());
-    durable(Box::new(move |lane| {
-        let (mut w, created) = LogWriter::create(lane, &dir, session("s1", None), deps).unwrap();
-        let first = w.append_barrier(lane, vec![item("a")]).unwrap();
-        // Acked on disk, never projected: the process ended.
-        w.append_barrier(lane, vec![item("b"), item("c")]).unwrap();
-        tx.send((created.projection, first.projection)).unwrap();
-    }))
-    .await;
-    let (created, first) = rx.recv().unwrap();
-    store.project(created).await.unwrap();
-    store.project(first).await.unwrap();
-    drop(store);
-    let release = crate::sqlite::reconcile_seam::hold(&data);
-    let reopened = mixdog_rt::time::timeout(BOUND, open(data.clone()))
-        .await
-        .expect("the open returned within 60 s while its reconcile was held")
-        .unwrap();
-    let events = Arc::new(Mutex::new(Vec::<&str>::new()));
-    let note = |event: &'static str| {
-        let events = events.clone();
-        move || events.lock().unwrap().push(event)
-    };
-    let (reader, writer, laned) = (reopened.clone(), reopened.clone(), reopened.clone());
-    let read = tokio::spawn({
-        let noted = note("read");
-        async move {
-            let page = reader.history_page(lineage(&[("s1", None)]), None, None, 10).await;
-            noted();
-            page
-        }
-    });
-    let write = tokio::spawn({
-        let noted = note("write");
-        async move {
-            let written = writer.mark_dirty("s1").await;
-            noted();
-            written
-        }
-    });
-    let on_lane = tokens
-        .interactive_io
-        .submit(&CancellationToken::new(), {
-            let noted = note("read on the lane");
-            move |lane| {
-                let page = laned.history_page_on_lane(lane, &lineage(&[("s1", None)]), None, None, 10);
-                noted();
-                page
-            }
-        })
-        .expect("lane");
-    let mut waiters = reopened.reconcile_waiters();
-    mixdog_rt::time::timeout(BOUND, waiters.wait_for(|n| *n == 3))
-        .await
-        .expect("the read, the write and the lane read waited at the gate within 60 s")
-        .unwrap();
-    note("released")();
-    release.send(()).unwrap();
-    let ((rows, _), (laned_rows, _)) = mixdog_rt::time::timeout(BOUND, async {
-        let read = read.await.unwrap().unwrap();
-        write.await.unwrap().unwrap();
-        (read, on_lane.await.expect("job ran").unwrap())
-    })
-    .await
-    .expect("the read, the write and the lane read answered within 60 s of the release");
-    assert_eq!(iids(&rows), ["c", "b", "a"]);
-    assert_eq!(iids(&laned_rows), ["c", "b", "a"]);
-    let events = events.lock().unwrap().clone();
-    assert_eq!((events.len(), events[0]), (4, "released"), "{events:?}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1826,15 +1507,7 @@ async fn placeholder_titles_refold_on_language_change() {
     assert_eq!(title_fold, "영상");
 }
 
-// ---------------------------------------------------------------------------------------
-// Catalog rows against Node's `_sessionSummary` on the migration corpus.
-
-fn corpus_root() -> PathBuf {
-    std::env::var_os("MIXDOG_MIGRATION_CORPUS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(r"C:\Users\tempe\.mixdog\data\scratch\rust-core\migration-corpus"))
-}
-
+#[cfg(node_twin)]
 fn differing_fields(key: &str, want: &serde_json::Value, got: &serde_json::Value) -> Vec<String> {
     let (want, got) = (want.as_object().unwrap(), got.as_object().unwrap());
     let mut names: Vec<&String> = want.keys().chain(got.keys()).collect();
@@ -1846,101 +1519,9 @@ fn differing_fields(key: &str, want: &serde_json::Value, got: &serde_json::Value
         .map(|k| format!("{key}: {k}: node {:?} rust {:?}", want.get(k), got.get(k)))
         .collect()
 }
-
-/// Every corpus session written through the log writer (live) and projected again by
-/// `project_index` (reprojection) has the row Node's `_sessionSummary` builds.
-const SUMMARIES: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/migration/session-summary/summaries.json");
 /// Corpus sessions per test: each is written through its own log writer and projected again.
+#[cfg(node_twin)]
 const SESSION_CHUNK: usize = 4;
-
-mixdog_rt::replay_chunks!(CATALOG_TESTS, #[tokio::test(flavor = "multi_thread", worker_threads = 2)] async catalog_rows_chunk; [
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_00 = 0,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_01 = 1,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_02 = 2,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_03 = 3,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_04 = 4,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_05 = 5,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_06 = 6,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_07 = 7,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_08 = 8,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_09 = 9,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_10 = 10,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_11 = 11,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_12 = 12,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_13 = 13,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_14 = 14,
-]);
-
-#[test]
-fn every_corpus_session_has_its_catalog_test() {
-    let fixture: serde_json::Value = serde_json::from_str(&SUMMARIES).unwrap();
-    let entries = fixture["sessions"].as_array().unwrap();
-    assert!(entries.len() > 50);
-    mixdog_rt::testing::assert_chunks_registered(CATALOG_TESTS, entries.len(), SESSION_CHUNK);
-}
-
-async fn catalog_rows_chunk(chunk: usize) {
-    let fixture: serde_json::Value = serde_json::from_str(&SUMMARIES).unwrap();
-    let root = corpus_root();
-    assert!(root.join("v145").is_dir(), "the migration corpus is missing at {}; set MIXDOG_MIGRATION_CORPUS", root.display());
-    let mut bad = Vec::new();
-    let entries = fixture["sessions"].as_array().unwrap();
-    for entry in &entries[mixdog_rt::testing::chunk_range(entries.len(), chunk, SESSION_CHUNK)] {
-        let key = entry["key"].as_str().unwrap();
-        let want = &entry["summary"];
-        let source: serde_json::Value = serde_json::from_slice(&std::fs::read(root.join(key)).unwrap()).unwrap();
-        let mut header = source.as_object().unwrap().clone();
-        let messages = header.remove("messages").unwrap();
-        let id = source["id"].as_str().unwrap().to_owned();
-
-        let env = Env::new();
-        let first = crate::encode::encode_record(
-            serde_json::from_value(json!({"k":"session","v":2,"id":id,"log_id":LOG_ID,"header":{"inline":header}})).unwrap(),
-        )
-        .unwrap();
-        env.store
-            .upsert(
-                CatalogHead { session: id.clone(), log_id: LOG_ID.into(), base_session: None, header: header.clone() },
-                DirtyMark::Set,
-            )
-            .await
-            .unwrap();
-        let (dir, deps) = (env.dir(&id), env.deps());
-        let (mut w, ack) = on_lane(move |l| LogWriter::create(l, &dir, first, deps).unwrap()).await;
-        env.store.project(ack.projection).await.unwrap();
-        let mut batch = Vec::new();
-        let mut bytes = 0;
-        let messages = messages.as_array().unwrap();
-        for (i, m) in messages.iter().enumerate() {
-            let e = crate::encode::encode_record(
-                serde_json::from_value(json!({"k":"item","iid":format!("m{i}"),"form":"message","model":true,
-                    "visible":true,"refs":[],"body":{"inline":m}}))
-                .unwrap(),
-            )
-            .unwrap();
-            bytes += e.frame_len();
-            batch.push(e);
-            if bytes > (256 << 10) || i + 1 == messages.len() {
-                w = env.commit(w, std::mem::take(&mut batch)).await.0;
-                bytes = 0;
-            }
-        }
-        let live: serde_json::Value = serde_json::from_str(&env.store.summary(&id).await.unwrap().unwrap()).unwrap();
-        bad.extend(differing_fields(&format!("live {key}"), want, &live));
-
-        let db = env.data.join("reprojected.sqlite");
-        let (data, db2, ids) = (env.data.clone(), db.clone(), vec![id.clone()]);
-        tokio::task::spawn_blocking(move || crate::sqlite::project_index(&data, &db2, &ids)).await.unwrap().unwrap();
-        let text: String = rusqlite::Connection::open(&db)
-            .unwrap()
-            .query_row("SELECT summary FROM sessions WHERE id = ?1", [&id], |r| r.get(0))
-            .unwrap();
-        let again: serde_json::Value = serde_json::from_str(&text).unwrap();
-        bad.extend(differing_fields(&format!("reprojected {key}"), want, &again));
-        drop(w);
-    }
-    assert!(bad.is_empty(), "{} differences:\n{}", bad.len(), bad.iter().take(40).cloned().collect::<Vec<_>>().join("\n"));
-}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn compaction_keeps_history_marks_dropped_rows_and_places_the_divider() {
@@ -2354,42 +1935,6 @@ async fn context_bodies(
     }
 }
 
-/// A 1.4.5 media reference part (`attachment-reference.mjs` `mediaPartToReference`: the
-/// part carries the reference `info` object) and a plain text part (no key) keep Node's
-/// `JSON.stringify` bytes through the log, a body blob and the model-context read.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn attachment_reference_parts_keep_their_stored_bytes() {
-    let env = Env::new();
-    let w = env.create("s1", None).await;
-    let node = |pad: usize| {
-        format!(
-            concat!(
-                r#"{{"role":"user","content":[{{"type":"text","text":"see{}"}},"#,
-                r#"{{"type":"text","text":"[Attachment kept on disk]","attachmentReference":{{"attachmentRef":"{}","#,
-                r#""kind":"pdf","filename":"a.pdf","mimeType":"application/pdf","sizeBytes":12,"pageCount":1,"textPages":1}}}}]}}"#
-            ),
-            "x".repeat(pad),
-            "a".repeat(64)
-        )
-    };
-    let (small, large) = (node(0), node(300 << 10));
-    let item = |iid: &str, bytes: &str| {
-        let body: serde_json::Value = serde_json::from_str(bytes).unwrap();
-        let record = json!({"k":"item","iid":iid,"role":"user","form":"message","model":true,"visible":true,"refs":[],
-            "body":{"inline":body}});
-        crate::encode::encode_record(serde_json::from_value(record).unwrap()).unwrap()
-    };
-    let (inline, blob) = (item("a", &small), item("b", &large));
-    assert_eq!((inline.blobs().len(), blob.blobs().len()), (0, 1), "the large body is a blob");
-    assert_eq!(&blob.blobs()[0].bytes, large.as_bytes(), "the blob holds Node's bytes");
-    let (_w, _) = env.commit(w, vec![inline, blob]).await;
-    let log = std::fs::read(env.dir("s1").join(log_name(0))).unwrap();
-    assert!(log.windows(small.len()).any(|w| w == small.as_bytes()), "the log holds Node's bytes");
-    let got = context_bodies(&env, lineage(&[("s1", None)]), None, 10).await;
-    let got: Vec<String> = got.iter().map(|(_, body)| serde_json::to_string(body).unwrap()).collect();
-    assert_eq!(got, [small, large]);
-}
-
 /// A deleted session is hidden at once but keeps its files while a fork reads them; the
 /// mark is in the log, so a rebuild keeps it. Deleting the last fork removes the fork and
 /// then the base in one purge, files and index rows alike.
@@ -2486,47 +2031,6 @@ async fn opening_the_store_removes_what_a_crash_left_before_any_thread_opens() {
 
 fn pairs(v: &[(&str, &str)]) -> Vec<(String, String)> {
     v.iter().map(|(a, b)| ((*a).to_owned(), (*b).to_owned())).collect()
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_model_context_starts_at_the_newest_compaction_with_amends_applied() {
-    let env = Env::new();
-    let own = || lineage(&[("s1", None)]);
-    let w = env.create("s1", None).await;
-    // A hidden model row (a skill row) is part of the context; a display row is not.
-    let hidden = rec(json!({"k":"item","iid":"h","role":"user","form":"message","model":true,"visible":false,"refs":[],
-        "body":{"inline":{"content":"skill","role":"user"}}}));
-    let display = rec(json!({"k":"item","iid":"x","form":"display","model":false,"visible":true,"refs":[],
-        "body":{"inline":{"content":"shown"}}}));
-    let (w, _) = env.commit(w, vec![user("a", "one"), hidden, display, answer("b")]).await;
-    assert_eq!(model_context(&env, own(), None, 10).await, pairs(&[("a", "one"), ("h", "skill"), ("b", "b")]));
-    // Compaction at 5 keeps b; c follows. Amends reach a replacement entry and an item.
-    let compacted = rec(json!({"k":"compacted","cid":"k1","replacement":{"inline":[
-        {"iid":"sum","body":{"role":"user","content":"summary"}},
-        {"iid":"b","body":{"role":"assistant","content":"b kept"}}]}}));
-    let (w, _) = env.commit(w, vec![compacted, user("c", "two")]).await;
-    let amend = |iid: &str, text: &str| {
-        rec(json!({"k":"amend","iid":iid,"refs":[],"body":{"inline":{"role":"user","content":text}}}))
-    };
-    let (w, _) = env.commit(w, vec![amend("sum", "summary 2"), amend("c", "two 2")]).await;
-    let want = pairs(&[("sum", "summary 2"), ("b", "b kept"), ("c", "two 2")]);
-    for limit in [1, 2, 10] {
-        assert_eq!(model_context(&env, own(), None, limit).await, want, "pages of {limit}");
-    }
-    // An out-of-line body is read from its blob.
-    let mut big = user("d", "").record().clone();
-    if let crate::schema::record::Record::Item(r) = &mut big {
-        r.body = crate::schema::blob::Slot::Inline(json!({"role":"user","content":"y".repeat(300 << 10)}));
-    }
-    let (w, _) = env.commit(w, vec![crate::encode::encode_record(big).unwrap()]).await;
-    let got = model_context(&env, own(), None, 10).await;
-    assert_eq!((got.len(), got[3].0.as_str(), got[3].1.len()), (4, "d", 300 << 10));
-    // A rewind before the amends (frame 7) restores the earlier versions; one before the
-    // compaction (frame 5) restores the earlier context.
-    let (w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":7,"reason":"edit"}))]).await;
-    assert_eq!(model_context(&env, own(), None, 10).await, pairs(&[("sum", "summary"), ("b", "b kept"), ("c", "two")]));
-    let (_w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":5,"reason":"edit"}))]).await;
-    assert_eq!(model_context(&env, own(), None, 10).await, pairs(&[("a", "one"), ("h", "skill"), ("b", "b")]));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2630,67 +2134,6 @@ fn aliases_in(db: &Path) -> Vec<(String, String, i64)> {
     let conn = rusqlite::Connection::open(db).unwrap();
     let mut stmt = conn.prepare("SELECT session, alias, ordinal FROM history_alias ORDER BY session, alias, ordinal").unwrap();
     stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap().collect::<Result<_, _>>().unwrap()
-}
-
-/// The aliases the incremental writer keeps are the aliases a fresh rebuild from the same logs holds, after frames of every
-/// kind (items under submission ids, display rows, amends that name another submission id, an amend of an item of the base,
-/// a compaction, a model switch, runs, approvals, a rewind over amended rows, a fork), and a purge takes a session's aliases
-/// with its rows. Frame kinds that touch ids a cursor names: `item` (adds), `amend` (adds the amended body's ids to the
-/// amended row); the others leave `history_alias` alone, and a rewind keeps the rows it supersedes (the reader joins `history`).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_aliases_kept_incrementally_equal_those_of_a_rebuild_from_the_logs() {
-    let named = |kind: &str, iid: &str, submission: &str| {
-        let body = json!({"content":iid,"role":"user","meta":{"transcript":{"clientSubmissionId":submission}}});
-        match kind {
-            "item" => rec(json!({"k":"item","iid":iid,"role":"user","form":"message","model":true,"visible":true,"refs":[],"body":{"inline":body}})),
-            _ => rec(json!({"k":"amend","iid":iid,"refs":[],"body":{"inline":body}})),
-        }
-    };
-    let shown = |iid: &str, id: &str, submission: &str| {
-        rec(json!({"k":"item","iid":iid,"form":"display","model":false,"visible":true,"refs":[],
-            "body":{"inline":{"kind":"user","id":id,"text":"t","clientSubmissionId":submission}}}))
-    };
-    let run = |phase: &str| rec(json!({"k":"run","rid":"r1","phase":phase,"at":1}));
-    let approval = |phase: &str| rec(json!({"k":"approval","aid":"p1","rid":"r1","phase":phase,"at":1}));
-    let meta = rec(json!({"k":"meta","change":{"inline":{"set":{"updatedAt":1700000000000u64},"unset":[]}}}));
-    let env = Env::new();
-    let w = env.create("s1", None).await;
-    let (w, o) = env
-        .commit(w, vec![named("item", "u1", "S1"), shown("d1", "bid", "cs"), run("started"), approval("requested"), answer("a1"), named("item", "u2", "S1")])
-        .await;
-    let compacted = rec(json!({"k":"compacted","cid":"k1","replacement":{"inline":[
-        {"iid":"sum","body":{"role":"user","content":"summary"}},{"iid":"a1","body":{"role":"assistant","content":"kept"}}]}}));
-    let (w, _) = env
-        .commit(
-            w,
-            vec![named("amend", "u1", "S2"), named("amend", "u2", "S3"), named("amend", "ghost", "G"), compacted, model_switch("a1", o[4], "m1", 5), run("completed"), approval("decided"), meta],
-        )
-        .await;
-    // The amends are over the rewind's reach; new rows reuse the ids they named.
-    let (w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":o[5],"reason":"edit"}))]).await;
-    let (w, after) = env.commit(w, vec![named("item", "u3", "S2"), shown("d2", "bid", "cs"), named("amend", "u1", "S4"), named("amend", "u3", "S5")]).await;
-    let end = after[3] + 1;
-    let child = env.create("c1", Some(("s1", end))).await;
-    let (child, _) = env.commit(child, vec![named("item", "c2", "S2"), named("amend", "c2", "S6"), named("amend", "u3", "S7")]).await;
-    drop((w, child));
-
-    let live = aliases_in(&env.data.join(INDEX_FILE));
-    let fresh = env.data.join("fresh.sqlite");
-    project_index(&env.data, &fresh, &["s1".to_owned(), "c1".to_owned()]).unwrap();
-    assert_eq!(live, aliases_in(&fresh));
-    // Not vacuous: each row is reachable by every id its bodies name, the amended ones included.
-    let has = |session: &str, alias: &str, ordinal: u64| live.contains(&(session.to_owned(), alias.to_owned(), ordinal as i64));
-    for (session, alias, ordinal) in [
-        ("s1", "S1", o[0]), ("s1", "S2", o[0]), ("s1", "S4", o[0]), ("s1", "S1", o[5]), ("s1", "S3", o[5]), ("s1", "S2", after[0]),
-        ("s1", "S5", after[0]), ("s1", "bid", o[1]), ("s1", "cs", o[1]), ("s1", "bid", after[1]), ("c1", "S6", after[3] + 2),
-    ] {
-        assert!(has(session, alias, ordinal), "{session} {alias} {ordinal}: {live:?}");
-    }
-    assert!(!live.iter().any(|(_, alias, _)| alias == "G" || alias == "S7"), "an amend that reaches no row names nothing: {live:?}");
-
-    env.store.mark_deleted("c1").await.unwrap();
-    env.store.purge_deleted(tokens().maintenance_io, env.data.clone()).await.unwrap();
-    assert!(aliases_in(&env.data.join(INDEX_FILE)).iter().all(|(session, _, _)| session == "s1"));
 }
 
 /// The worker index revision: a load from a revision reads every session whose worker map or listing was committed since,
@@ -2843,7 +2286,7 @@ async fn a_projected_index_has_a_fixed_generation_and_a_runtime_built_one_a_fres
     project_index(tmp.path(), &b, &[]).unwrap();
     assert_eq!((generation(&a), generation(&b)), (0, 0));
 
-    let mut store = open_index(tmp.path()).unwrap();
+    let store = open_index(tmp.path()).unwrap();
     store.close();
     let first = generation(&tmp.path().join(INDEX_FILE));
     assert_eq!(first & 1, 1, "a runtime-built index is numbered, not left at the migration's 0");
@@ -3125,7 +2568,7 @@ async fn agent_only_sessions_are_listed_and_a_rebuild_fills_the_worker_index() {
         "DROP INDEX sessions_worker_tag; DROP INDEX sessions_worker_owner; DROP INDEX sessions_worker_pid;
          DROP INDEX sessions_workers; ALTER TABLE sessions DROP COLUMN worker_tag;
          PRAGMA user_version = {};",
-        crate::schema::sql::INDEX_USER_VERSION - 1
+        5 // before the worker index: rebuilt (only 17 is upgraded in place)
     ))
     .unwrap();
     drop(old);
@@ -3160,7 +2603,7 @@ async fn the_raw_title_is_kept_and_an_index_without_it_is_rebuilt_with_it() {
     old.execute_batch(crate::schema::sql::INDEX_DDL).unwrap();
     old.execute_batch(&format!(
         "ALTER TABLE sessions DROP COLUMN title; PRAGMA user_version = {};",
-        crate::schema::sql::INDEX_USER_VERSION - 1
+        3 // before `sessions.title`: rebuilt (only 17 is upgraded in place)
     ))
     .unwrap();
     drop(old);
@@ -3235,8 +2678,7 @@ async fn an_index_without_the_user_name_is_rebuilt_with_it() {
     std::fs::create_dir_all(db.parent().unwrap()).unwrap();
     let old = rusqlite::Connection::open(&db).unwrap();
     old.execute_batch(crate::schema::sql::INDEX_DDL).unwrap();
-    old.execute_batch(&format!("ALTER TABLE sessions DROP COLUMN user_name; PRAGMA user_version = {};", crate::schema::sql::INDEX_USER_VERSION - 1))
-        .unwrap();
+    old.execute_batch("ALTER TABLE sessions DROP COLUMN user_name; PRAGMA user_version = 8;").unwrap();
     drop(old);
     let store = open_index(other.path()).unwrap();
     let conn = rusqlite::Connection::open(&db).unwrap();
@@ -3244,6 +2686,33 @@ async fn an_index_without_the_user_name_is_rebuilt_with_it() {
     assert_eq!(version, crate::schema::sql::INDEX_USER_VERSION);
     let name: Option<String> = conn.query_row("SELECT user_name FROM sessions WHERE id = 's1'", [], |r| r.get(0)).unwrap();
     assert_eq!(name.as_deref(), Some("Mine"));
+    drop(store);
+}
+
+/// A listing reads a session's listed header members from its catalog row (FORMAT.md §8.2 `sessions.listed`), so it opens
+/// no log: the row holds those members and nothing else of the header, and a row behind its log is not an answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_catalog_row_holds_the_header_members_a_listing_reads() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let set = json!({"title":"Mine","agentTag":"t1","totalToolCalls":7,"archivedAt":5,"systemPrompt":"a long prompt"});
+    let (w, _) = env.commit(w, vec![rec(json!({"k":"meta","change":{"inline":{"set":set,"unset":[]}}}))]).await;
+    drop(w);
+    let other = tempfile::tempdir().unwrap();
+    copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
+    let store = open_index(other.path()).unwrap();
+    let row = store.listed("s1").await.unwrap().expect("a row level with its log answers").expect("a session with a record");
+    let listed: serde_json::Value = serde_json::from_str(&row).unwrap();
+    assert_eq!(listed["title"], json!("Mine"));
+    assert_eq!(listed["agentTag"], json!("t1"));
+    assert_eq!(listed["totalToolCalls"], json!(7));
+    assert_eq!(listed["archivedAt"], json!(5));
+    assert!(listed.get("systemPrompt").is_none(), "{listed}");
+    assert_eq!(store.listed("s2").await.unwrap(), None);
+    let conn = rusqlite::Connection::open(other.path().join(INDEX_FILE)).unwrap();
+    conn.execute("UPDATE sessions SET dirty = 1 WHERE id = 's1'", []).unwrap();
+    drop(conn);
+    assert_eq!(store.listed("s1").await.unwrap(), None);
     drop(store);
 }
 
@@ -3356,13 +2825,6 @@ async fn a_rebuild_marks_unreadable_logs_damaged_and_indexes_the_rest() {
     drop(store);
 }
 
-/// Through the writer's codec, so a long entry moves to a blob.
-fn model_switch(iid: &str, ordinal: u64, model: &str, at: i64) -> Encoded {
-    let record = json!({"k":"model_switch","anchor":{"iid":iid,"ordinal":ordinal},
-        "entry":{"inline":{"provider":"openai","modelId":model,"at":at}}});
-    crate::encode::encode_record(serde_json::from_value(record).unwrap()).unwrap()
-}
-
 /// The model ids of the boundaries on every divider of the lineage's display history.
 async fn divider_switches(store: &SqliteStore, levels: Vec<LineageLevel>) -> Vec<(String, Vec<String>)> {
     let mut out = Vec::new();
@@ -3374,219 +2836,11 @@ async fn divider_switches(store: &SqliteStore, levels: Vec<LineageLevel>) -> Vec
     out
 }
 
-/// 1.4.5 anchors a switch on whatever message `modelSwitchAnchorIndex` picks, a compaction's
-/// summary or context ack included, and bounds no model id. A boundary on a replacement
-/// entry is the divider's: by entry position, then oldest level first, then record order;
-/// it lives while the compaction does. A 300 KiB model id goes to a blob and reads back.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn model_switches_anchor_on_a_compaction_entry_and_hold_any_model_id() {
-    let env = Env::new();
-    let w = env.create("s1", None).await;
-    let (w, _) = env.commit(w, vec![user("a", "one"), user("b", "two")]).await;
-    // The compaction at 3 replaces the context with a summary and an ack and keeps b.
-    let compacted = rec(json!({"k":"compacted","cid":"k1","summary_iid":"sum","replacement":{"inline":[
-        {"iid":"sum","body":{"role":"user","content":"summary"}},
-        {"iid":"ack","body":{"role":"assistant","content":"."}},
-        {"iid":"b","body":{"role":"user","content":"two"}}]}}));
-    let (w, _) = env.commit(w, vec![compacted]).await;
-    let long = "m".repeat(1000);
-    let huge = "h".repeat(300 << 10);
-    let big = model_switch("ack", 3, &huge, 80);
-    assert_eq!(big.blobs().len(), 1, "a 300 KiB entry is a blob");
-    let (w, _) = env.commit(
-        w,
-        vec![
-            model_switch("ack", 3, "m1", 40),
-            model_switch("sum", 3, "m2", 50),
-            model_switch("zz", 3, "never", 60),
-            model_switch("ack", 3, &long, 70),
-            big,
-        ],
-    )
-    .await;
-    let base = || lineage(&[("s1", None)]);
-    // The anchor ordinal of a replacement entry is its frame's; a plain row has none.
-    let entry = |levels: Vec<LineageLevel>, iid: &str| {
-        let (store, iid) = (env.store.clone(), iid.to_owned());
-        async move { store.compaction_entry(levels, None, iid).await.unwrap().map(|e| (e.ordinal, e.cid)) }
-    };
-    let k1 = Some((3, "k1".to_owned()));
-    assert_eq!(
-        (entry(base(), "sum").await, entry(base(), "ack").await, entry(base(), "a").await, entry(base(), "zz").await),
-        (k1.clone(), k1.clone(), None, None)
-    );
-    let all = |first: &[&str]| first.iter().map(|m| m.to_string()).chain([long.clone(), huge.clone()]).collect::<Vec<_>>();
-    assert_eq!(divider_switches(&env.store, base()).await, [("k1".to_owned(), all(&["m2", "m1"]))]);
-    // A replacement entry has no history row: no row carries these boundaries.
-    let (rows, _) = env.store.history_page(base(), None, None, 50).await.unwrap();
-    assert!(rows.iter().all(|r| r.model_switches.is_empty()));
-    // A fork at 9 sees the base's up to its fork point, then its own; the base's later one
-    // (9) is not the fork's.
-    let (w, _) = env.commit(w, vec![model_switch("sum", 3, "m5", 90)]).await;
-    let child = env.create("c0", Some(("s1", 9))).await;
-    let (child, _) = env.commit(child, vec![model_switch("sum", 3, "m4", 100)]).await;
-    let fork = || lineage(&[("c0", None), ("s1", Some(9))]);
-    assert_eq!(divider_switches(&env.store, fork()).await, [("k1".to_owned(), all(&["m2", "m4", "m1"]))]);
-    assert_eq!(entry(fork(), "sum").await, k1, "a fork finds its base's summary");
-    assert_eq!(divider_switches(&env.store, base()).await, [("k1".to_owned(), all(&["m2", "m5", "m1"]))]);
-    // A rebuild from the logs reads the same, the blob entry included.
-    let expected = (divider_switches(&env.store, base()).await, divider_switches(&env.store, fork()).await);
-    let other = tempfile::tempdir().unwrap();
-    copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
-    let blobs = crate::schema::blob::BLOB_DIR;
-    copy_tree(&env.data.join(blobs), &other.path().join(blobs));
-    let rebuilt = open_index(other.path()).unwrap();
-    assert_eq!((divider_switches(&rebuilt, base()).await, divider_switches(&rebuilt, fork()).await), expected);
-    // A rewind before the compaction removes its divider and its boundaries.
-    let (w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":3,"reason":"edit"}))]).await;
-    assert!(divider_switches(&env.store, base()).await.is_empty());
-    assert_eq!(entry(base(), "sum").await, None, "a rewound compaction holds no entry");
-    drop((w, child));
-}
-
 /// Each page row with the model ids of its boundaries.
 fn switched(rows: &[HistoryRow]) -> Vec<(String, Vec<String>)> {
     rows.iter()
         .map(|r| (r.iid.clone(), r.model_switches.iter().map(|m| m.model_id.as_str().to_owned()).collect()))
         .collect()
-}
-
-/// A `model_switch` belongs to its anchor row (the 1.4.5 anchor message's
-/// `meta.modelSwitches`): shown on that row while it is live, through a rewind that covers
-/// the record but keeps the anchor (a retry), in a fork up to its fork point and past a cut
-/// that keeps the anchor; gone with the anchor. It is no history row, and a rebuild from the
-/// logs gives the same pages.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn model_switches_follow_their_anchor_row() {
-    let env = Env::new();
-    let page = |levels: Vec<LineageLevel>, cut: Option<u64>| {
-        let store = env.store.clone();
-        async move { switched(&store.history_page(levels, cut, None, 50).await.unwrap().0) }
-    };
-    let row = |iid: &str, models: &[&str]| (iid.to_owned(), models.iter().map(|m| m.to_string()).collect::<Vec<_>>());
-    let base = || lineage(&[("b0", None)]);
-    let w = env.create("b0", None).await;
-    // a1 (1) answered; p1 (2) the trailing prompt: the switches (3, 4) anchor on a1.
-    let (w, _) = env.commit(w, vec![item("a1"), item("p1")]).await;
-    let (w, _) = env.commit(w, vec![model_switch("a1", 1, "m1", 10), model_switch("a1", 1, "m2", 20)]).await;
-    let rows = env.store.history_page(base(), None, None, 50).await.unwrap().0;
-    assert_eq!(
-        serde_json::to_value(&rows[1].model_switches).unwrap(),
-        json!([{"provider":"openai","modelId":"m1","at":10}, {"provider":"openai","modelId":"m2","at":20}])
-    );
-    // A retry rewinds the prompt (5) over the switch records; the anchor and its boundaries stay.
-    let rewind = rec(json!({"k":"rewind","to_ordinal":2,"reason":"rewind"}));
-    let (w, _) = env.commit(w, vec![rewind, item("p2")]).await;
-    assert_eq!((w.fold().rows, w.fold().visible_rows), (2, 2));
-    // 7 names an iid that is not row 6's: never shown. 8 anchors on p2.
-    let (w, _) = env.commit(w, vec![model_switch("zz", 6, "m3", 30), model_switch("p2", 6, "m5", 50)]).await;
-    assert_eq!(page(base(), None).await, [row("p2", &["m5"]), row("a1", &["m1", "m2"])]);
-    // A fork at 9; the base's later switch (9) is not the fork's, the fork's own (11) not the base's.
-    let (w, _) = env.commit(w, vec![model_switch("a1", 1, "m6", 60)]).await;
-    let child = env.create("c0", Some(("b0", 9))).await;
-    let (child, _) = env.commit(child, vec![item("c1"), model_switch("a1", 1, "m7", 70)]).await;
-    let fork = || lineage(&[("c0", None), ("b0", Some(9))]);
-    assert_eq!(page(fork(), None).await, [row("c1", &[]), row("p2", &["m5"]), row("a1", &["m1", "m2", "m7"])]);
-    assert_eq!(page(base(), None).await, [row("p2", &["m5"]), row("a1", &["m1", "m2", "m6"])]);
-    // The fork rewinds into the base range (12): p2 is cut, a1 keeps every boundary.
-    let rewind = rec(json!({"k":"rewind","to_ordinal":6,"reason":"edit"}));
-    let (child, _) = env.commit(child, vec![rewind]).await;
-    let cut = child.fold().base_cut;
-    assert_eq!(page(fork(), cut).await, [row("a1", &["m1", "m2", "m7"])]);
-    // A rewind that removes the anchor removes its boundaries; a new row with its iid has none.
-    let rewind = rec(json!({"k":"rewind","to_ordinal":1,"reason":"edit"}));
-    let (w, _) = env.commit(w, vec![rewind, item("a1")]).await;
-    assert_eq!(page(base(), None).await, [row("a1", &[])]);
-    assert_eq!(page(fork(), cut).await, [row("a1", &["m1", "m2", "m7"])], "the fork's view is its own");
-    // A boundary must anchor on an earlier row.
-    let (w, refused) = env.append(w, vec![model_switch("a1", 12, "m8", 80)]).await;
-    assert!(refused.is_err(), "anchor at its own ordinal");
-    let expected = (page(base(), None).await, page(fork(), cut).await);
-    drop((w, child));
-    // A rebuild from the logs projects the same boundaries.
-    let other = tempfile::tempdir().unwrap();
-    copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
-    let rebuilt = open_index(other.path()).unwrap();
-    let pages = (
-        switched(&rebuilt.history_page(base(), None, None, 50).await.unwrap().0),
-        switched(&rebuilt.history_page(fork(), cut, None, 50).await.unwrap().0),
-    );
-    assert_eq!(pages, expected);
-}
-
-fn session_list_golden() -> serde_json::Value {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-list/golden.json");
-    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
-}
-
-/// `isLeadVisibleRow` over the list rows Node's `_sessionSummary` built (preview and message
-/// count included).
-#[test]
-fn the_lead_visibility_predicate_equals_nodes() {
-    use crate::sqlite::lead::is_lead_visible_row;
-    let golden = session_list_golden();
-    for entry in golden["sessions"].as_array().unwrap() {
-        let summary = entry["summary"].as_object().unwrap();
-        assert_eq!(is_lead_visible_row(summary), entry["leadVisible"], "{}", entry["record"]["id"]);
-    }
-}
-
-/// `decodeCatalogCursor` / `encodeCatalogCursor`: accepted and refused cursors, and the cursor Node
-/// names after a row.
-#[test]
-fn catalog_cursors_equal_nodes() {
-    use crate::sqlite::lead::{decode_catalog_cursor, encode_catalog_cursor};
-    let golden = session_list_golden();
-    for case in golden["cursors"].as_array().unwrap() {
-        let got = decode_catalog_cursor(case["cursor"].as_str());
-        match case.get("error") {
-            Some(_) => assert!(got.is_err(), "{}", case["cursor"]),
-            None => {
-                let want = case["decoded"].as_object().map(|d| (d["activity"].as_f64().unwrap(), d["id"].as_str().unwrap().to_owned()));
-                assert_eq!(got.unwrap().map(|c| (c.activity, c.id)), want, "{}", case["cursor"]);
-            }
-        }
-    }
-    for walk in golden["walks"].as_array().unwrap() {
-        for page in walk["pages"].as_array().unwrap() {
-            let Some(next) = page["nextCursor"].as_str() else { continue };
-            let after = decode_catalog_cursor(Some(next)).unwrap().unwrap();
-            let last = golden["sessions"].as_array().unwrap().iter().find(|s| s["record"]["id"].as_str() == Some(after.id.as_str()));
-            let row = last.unwrap()["summary"].as_object().unwrap();
-            assert_eq!(encode_catalog_cursor(row), next);
-        }
-    }
-}
-
-/// The pages `listStoredSessionSummaryPage` answers: order, the limit rules, `nextCursor`.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn lead_pages_equal_nodes() {
-    use crate::sqlite::lead::decode_catalog_cursor;
-    use crate::sqlite::lead::encode_catalog_cursor;
-    let env = Env::new();
-    let golden = session_list_golden();
-    for entry in golden["sessions"].as_array().unwrap() {
-        let mut header = entry["record"].as_object().unwrap().clone();
-        header.remove("messages");
-        let id = header["id"].as_str().unwrap().to_owned();
-        env.store.upsert(CatalogHead { session: id, log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.unwrap();
-    }
-    for walk in golden["walks"].as_array().unwrap() {
-        // `listStoredSessionSummaryPage`: `floor(Number(limit))`, 1..=1000, else 50.
-        let size = match walk["limit"].as_f64().map(f64::floor) {
-            Some(n) if n > 0.0 => n.min(1000.0) as usize,
-            _ => 50,
-        };
-        for page in walk["pages"].as_array().unwrap() {
-            let after = decode_catalog_cursor(page["cursor"].as_str()).unwrap();
-            let got = env.store.lead_page(after, crate::sqlite::lead::LeadFilter::default(), size).await.unwrap();
-            let ids: Vec<&str> = got.rows.iter().map(|r| r.row["id"].as_str().unwrap()).collect();
-            let want: Vec<&str> = page["ids"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
-            assert_eq!(ids, want, "limit {} cursor {}", walk["limit"], page["cursor"]);
-            let next = got.more.then(|| encode_catalog_cursor(&got.rows.last().unwrap().row));
-            assert_eq!(next.as_deref(), page["nextCursor"].as_str());
-        }
-    }
 }
 /// `thread/list`'s `archived` and `cwd` filters apply before the page is cut.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -3620,57 +2874,6 @@ fn listed_head(id: &str, fields: serde_json::Value) -> CatalogHead {
     let mut header = fields.as_object().unwrap().clone();
     header.insert("id".into(), json!(id));
     CatalogHead { session: id.into(), log_id: LOG_ID.into(), base_session: None, header }
-}
-
-/// One query lists every session with the fields the idle sweep decides from (its owner, status,
-/// timestamps, activity baseline, message count) and its newest log file's mtime; the heartbeat's
-/// catalog reads the same listing without the agent-only sessions, in pages.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn one_listing_serves_the_idle_sweep_and_the_heartbeat_catalog() {
-    use crate::sqlite::listing::RecordStamp;
-    use crate::sqlite::lead::{decode_catalog_cursor, encode_catalog_cursor};
-    let env = Env::new();
-    let w = env.create("l1", None).await;
-    let (w, _) = env.commit(w, vec![user("a", "one"), answer("b")]).await;
-    drop(w);
-    drop(env.create("l2", None).await);
-    drop(env.create("l3", None).await);
-    env.store
-        .upsert(
-            listed_head("l1", json!({"owner": "cli", "status": "running", "createdAt": 100, "updatedAt": 200, "lastHeartbeatAt": 300, "sourceName": "agent:mixy@run"})),
-            DirtyMark::Keep,
-        )
-        .await
-        .unwrap();
-    env.store
-        .upsert(listed_head("l2", json!({"owner": "agent", "visibility": "agent-only", "createdAt": 120, "updatedAt": 150})), DirtyMark::Keep)
-        .await
-        .unwrap();
-    env.store.upsert(listed_head("l3", json!({"createdAt": 90, "updatedAt": 100, "closed": true})), DirtyMark::Keep).await.unwrap();
-    let log = |id: &str| env.dir(id).join(log_name(0));
-    std::fs::File::options().write(true).open(log("l1")).unwrap().set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(5000)).unwrap();
-    std::fs::remove_file(log("l3")).unwrap();
-
-    let swept = env.store.sweep_sessions(env.data.join("sessions")).await.unwrap();
-    let by = |id: &str| swept.iter().find(|s| s.id == id).unwrap().clone();
-    assert_eq!(swept.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["l1", "l2", "l3"], "agent-only sessions are swept too");
-    let l1 = by("l1");
-    assert_eq!(
-        (l1.owner.as_str(), l1.status.as_str(), l1.closed, l1.created_at, l1.updated_at, l1.last_heartbeat_at, l1.activity, l1.message_count, l1.record),
-        ("cli", "running", false, 100, 200, 300, 300, 2, RecordStamp::At(5_000_000)),
-    );
-    assert_eq!(by("l2").owner, "agent");
-    let l3 = by("l3");
-    assert_eq!((l3.owner.as_str(), l3.status.as_str(), l3.closed, l3.record), ("user", "closed", true, RecordStamp::Absent), "no owner lists as the summary row's 'user'");
-
-    let ids = |rows: Vec<crate::sqlite::listing::Listed>| rows.iter().map(|r| r.row["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
-    let first = env.store.list_sessions(false, None, Some(1)).await.unwrap();
-    assert_eq!(first[0].row["sourceName"], "agent:mixy@run");
-    let cursor = encode_catalog_cursor(&first[0].row);
-    assert_eq!(ids(first), ["l1"]);
-    let rest = env.store.list_sessions(false, decode_catalog_cursor(Some(&cursor)).unwrap(), None).await.unwrap();
-    assert_eq!(ids(rest), ["l3"], "agent-only l2 is left out of the catalog");
-    assert_eq!(ids(env.store.list_sessions(true, None, None).await.unwrap()), ["l1", "l2", "l3"]);
 }
 /// The sweep's conversation count is Node's `conversationCountOf`: user and assistant messages only
 /// (`message_rows.counted`, the rule `messageCount` is kept by), never tool or system ones.
@@ -3785,4 +2988,838 @@ async fn a_context_read_from_a_row_is_the_tail_of_the_whole_read() {
     let (_fork, _) = env.commit(fork, vec![user("f", "own")]).await;
     same(&env, lineage(&[("f1", None), ("s1", Some(6))]), None).await;
     drop(w);
+}
+
+fn attachment(bytes: &[u8]) -> crate::encode::PendingBlob {
+    crate::encode::PendingBlob { digest: crate::blobs::digest_of(bytes), bytes: bytes.to_vec() }
+}
+fn item_with_ref(iid: &str, blob: &crate::encode::PendingBlob) -> Encoded {
+    let record = json!({"k":"item","iid":iid,"role":"user","form":"message","model":true,"visible":true,
+        "refs":[blob.digest.as_str()],"body":{"inline":{"content":iid,"role":"user"}}});
+    Encoded::new(serde_json::from_value(record).unwrap(), vec![blob.clone()]).unwrap()
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_blob_whose_frame_was_rolled_back_stays_published() {
+    let env = Env::new();
+    let blob = attachment(b"rolled back attachment");
+    let w = env.create("s1", None).await;
+    env.io.0.lock().unwrap().write = 1;
+    let (w, r) = env.append(w, vec![item_with_ref("a", &blob)]).await;
+    assert!(matches!(r, Err(AppendError::BarrierFailed(_))));
+    drop(w);
+    let path = BlobStore::new(&env.data).path(&blob.digest);
+    assert!(path.is_file(), "published before the barrier");
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn open_reads_a_bounded_tail_and_rotation_starts_with_a_checkpoint() {
+    use crate::schema::frame::*;
+    let env = Env::new();
+    let mut w = env.create("s1", None).await;
+    // ~70 MiB of history in ~2 MiB batches: checkpoints every 1 MiB and one rotation.
+    let (mut n, mut built, mut committed) = (0, std::time::Duration::ZERO, std::time::Duration::ZERO);
+    while env.dir("s1").join(log_name(1)).metadata().is_err() || n < 340 {
+        let at = std::time::Instant::now();
+        let batch = (0..10).map(|i| big_item(&format!("i{}", n + i))).collect();
+        built += at.elapsed();
+        n += 10;
+        let at = std::time::Instant::now();
+        w = env.commit(w, batch).await.0;
+        committed += at.elapsed();
+    }
+    eprintln!("{n} items: built in {built:?}, committed in {committed:?}");
+    drop(w);
+    let files = list_logs(&env.dir("s1")).unwrap();
+    assert_eq!(files, [0, 1]);
+    assert!(std::fs::metadata(env.dir("s1").join(log_name(0))).unwrap().len() <= ROTATE_AT);
+    // The rotated file starts with a checkpoint frame (its header names the ordinal).
+    let bytes = std::fs::read(env.dir("s1").join(log_name(1))).unwrap();
+    let ordinal = u64::from_str_radix(std::str::from_utf8(&bytes[..ORDINAL_DIGITS]).unwrap(), 16).unwrap();
+    let first = read_forward_unlaned(
+        &env.dir("s1"),
+        crate::schema::checkpoint::FramePos { ordinal, file_no: 1, offset: 0 },
+        1,
+    )
+    .unwrap();
+    assert!(matches!(first.frames[0].0, crate::schema::record::Record::Checkpoint(_)));
+
+    let at = std::time::Instant::now();
+    let opened = env.reopen("s1").await;
+    eprintln!("reopened in {:?}", at.elapsed());
+    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, n as u64));
+    // Independent of history length: the reverse scan window plus the frame before it.
+    assert!(opened.bytes_read <= REVERSE_SCAN_MAX + MAX_FRAME_LEN as u64 + 1, "{}", opened.bytes_read);
+    assert!(opened.bytes_read <= 5 * 1024 * 1024 + MAX_FRAME_LEN as u64, "SM §11.8: ≤ 5 MiB + state");
+}
+#[test]
+fn the_codec_moves_large_bodies_to_blobs_and_refs_them() {
+    let small = crate::encode::encode_record(item("a").record().clone()).unwrap();
+    assert!(small.blobs().is_empty());
+    // Above INLINE_MAX (256 KiB): the size rule moves the body out of line.
+    let mut over = big_item("b").record().clone();
+    if let crate::schema::record::Record::Item(r) = &mut over {
+        r.body = crate::schema::blob::Slot::Inline(json!({"content": "x".repeat(300 << 10)}));
+    }
+    let big = crate::encode::encode_record(over).unwrap();
+    let Some(blob) = big.blobs().first() else { panic!("no blob") };
+    let crate::schema::record::Record::Item(r) = big.record() else { panic!() };
+    assert!(matches!(r.body, crate::schema::blob::Slot::Blob(_)));
+    assert_eq!(r.refs.as_slice(), std::slice::from_ref(&blob.digest));
+    let mut huge = big_item("c").record().clone();
+    if let crate::schema::record::Record::Item(r) = &mut huge {
+        r.body = crate::schema::blob::Slot::Inline(json!({"content": "x".repeat(mixdog_protocol::MAX_BLOB_BYTES as usize)}));
+    }
+    assert!(matches!(crate::encode::encode_record(huge), Err(crate::encode::EncodeError::ItemTooLarge { .. })));
+}
+/// A prompt over what the inline body leaves of `INLINE_MAX` moves to a blob of its own,
+/// listed in `refs`; the log and the index give back the text.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_large_prompt_moves_to_a_blob_and_round_trips() {
+    use crate::schema::blob::Slot;
+    use crate::schema::record::Record;
+    let with_prompt = |body: usize, prompt: &str| {
+        let Record::Item(mut r) = user("u1", "x").record().clone() else { panic!() };
+        r.body = Slot::Inline(json!({"content": "b".repeat(body), "role": "user"}));
+        r.prompt = Some(Slot::Inline(prompt.to_owned()));
+        crate::encode::encode_record(Record::Item(r)).unwrap()
+    };
+    // Each fits INLINE_MAX alone, together they do not: the prompt moves.
+    let shared = with_prompt(200 << 10, &"q".repeat(100 << 10));
+    let Record::Item(r) = shared.record() else { panic!() };
+    assert!(matches!((&r.body, &r.prompt), (Slot::Inline(_), Some(Slot::Blob(_)))));
+    assert!(shared.payload().len() <= crate::schema::frame::MAX_FRAME_PAYLOAD);
+
+    let env = Env::new();
+    let text = format!("ask {}", "p".repeat(300 << 10));
+    let encoded = with_prompt(10, &text);
+    let Record::Item(r) = encoded.record() else { panic!() };
+    let Some(Slot::Blob(blob)) = &r.prompt else { panic!("inline prompt") };
+    let digest = blob.descriptor().digest.clone();
+    assert_eq!(r.refs.as_slice(), std::slice::from_ref(&digest));
+    let w = env.create("s1", None).await;
+    let (w, _) = env.commit(w, vec![encoded]).await;
+    drop(w);
+    assert_eq!(prompts(&env, "s1").await, vec![text.clone()]);
+
+    let dir = env.dir("s1");
+    let first = first_ordinal_unlaned(&dir).unwrap();
+    let start = crate::schema::checkpoint::FramePos { ordinal: first, file_no: 0, offset: 0 };
+    let read = read_forward_unlaned(&dir, start, 1 << 20).unwrap();
+    let logged = read.frames.iter().find_map(|(record, ..)| match record {
+        Record::Item(item) => item.prompt.clone(),
+        _ => None,
+    });
+    let Some(Slot::Blob(logged)) = logged else { panic!("logged prompt") };
+    let bytes = BlobStore::new(&env.data).read_unlaned(&logged.descriptor().digest).unwrap();
+    assert_eq!(serde_json::from_slice::<String>(&bytes).unwrap(), text);
+}
+/// A process that ends after the boot reconcile projected a crash-cut tail but before it wrote
+/// the session's row leaves the cursor at the log's end and the row stale: the next boot
+/// still reconciles the session, and its row is the one a rebuild from the log writes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_boot_ended_between_the_projection_and_the_row_reconciles_again() {
+    let env = Env::new();
+    // A header with its own `updatedAt`: the row does not take the clock of its write.
+    let header = json!({"k":"session","v":2,"id":"s1","log_id":LOG_ID,"header":{"inline":{"title":"t","updatedAt":5}}});
+    let w = env.create_from("s1", rec(header)).await;
+    let (w, _) = env.commit(w, vec![item("a")]).await;
+    let (_w, acked) = env.append(w, vec![item("b"), item("c")]).await;
+    let end = acked.unwrap().positions.last().unwrap().ordinal + 1;
+    crate::sqlite::reconcile_seam::arm(&env.data);
+    let ended = open_index(&env.data).unwrap();
+    let outcome = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), ended.reconciled())
+        .await
+        .expect("the reconcile the seam ended answered within 60 s");
+    assert!(matches!(outcome, Err(DbError::Stopped)));
+    drop(ended);
+    let reopened = open_index(&env.data).unwrap();
+    let projected = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), reopened.projected("s1"))
+        .await
+        .expect("the reconciled cursor answered within 60 s");
+    assert_eq!(projected.unwrap().unwrap().ordinal, end);
+    drop(reopened);
+    let rebuilt = tempfile::tempdir().unwrap();
+    copy_tree(&env.dir("s1"), &rebuilt.path().join("sessions").join("s1"));
+    drop(open_index(rebuilt.path()).unwrap());
+    assert_eq!(session_rows(&env.data), session_rows(rebuilt.path()));
+}
+/// A reconcile that fails to write the index fails every way into it with its reason: a read,
+/// a write, a read from inside a read-lane job and the wait for the reconcile itself. None
+/// answers from the index the crash left.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_reconcile_fails_every_access() {
+    let step = Arc::new(std::sync::Mutex::new("its start"));
+    let reached = step.clone();
+    let at = move |name: &'static str| *step.lock().unwrap() = name;
+    let body = async move {
+        let env = Env::new();
+        at("its setup");
+        let w = env.create("s1", None).await;
+        let (w, _) = env.commit(w, vec![item("a")]).await;
+        let (_w, acked) = env.append(w, vec![item("b")]).await;
+        acked.unwrap();
+        crate::sqlite::reconcile_seam::fail(&env.data);
+        let failed = open_index(&env.data).unwrap();
+        let why = "s1: the test seam failed the index write";
+        at("the read");
+        let read = failed.history_page(lineage(&[("s1", None)]), None, None, 10).await;
+        assert!(matches!(&read, Err(DbError::Write(w)) if w == why), "{read:?}");
+        at("the write");
+        let write = failed.mark_dirty("s1").await;
+        assert!(matches!(&write, Err(DbError::Write(w)) if w == why), "{write:?}");
+        let laned = failed.clone();
+        at("the lane read");
+        let on_lane = tokens()
+            .interactive_io
+            .submit(&CancellationToken::new(), move |lane| laned.history_page_on_lane(lane, &lineage(&[("s1", None)]), None, None, 10).map(drop))
+            .expect("lane");
+        let on_lane = on_lane.await.expect("job ran");
+        assert!(matches!(&on_lane, Err(DbError::Write(w)) if w == why), "{on_lane:?}");
+        at("the reconcile's outcome");
+        let settled = failed.reconciled().await;
+        assert!(matches!(&settled, Err(DbError::Write(w)) if w == why), "{settled:?}");
+    };
+    // The whole body under one real-time deadline (a thread's, so it fires on a paused clock too), naming the step reached.
+    let (done, waiting) = std::sync::mpsc::channel::<()>();
+    let (expire, expired) = tokio::sync::oneshot::channel::<()>();
+    std::thread::spawn(move || {
+        if waiting.recv_timeout(std::time::Duration::from_secs(60)) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+            expire.send(()).ok();
+        }
+    });
+    tokio::select! {
+        biased;
+        () = body => drop(done),
+        _ = expired => panic!("a_failed_reconcile_fails_every_access, at {}: not within 60 s", reached.lock().unwrap()),
+    }
+}
+/// On the production lanes (not the inline test backend): the open returns while the
+/// reconcile of a crash-cut session still waits to start, and every way into the index waits
+/// for it (a read, a write, and a read from inside a read-lane job, which the open's callers
+/// make while the store is fresh), then sees the rows it projected. Each access is seen
+/// waiting at the gate before the test releases the reconcile, and answers only after.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
+    const BOUND: std::time::Duration = std::time::Duration::from_secs(60);
+    let (_exec, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("production lanes");
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tmp.path().to_path_buf();
+    let open = |data: PathBuf| {
+        let job = tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &data)
+        });
+        async move { job.expect("lane").await.expect("job ran") }
+    };
+    let durable = |f: Box<dyn FnOnce(&InLane<DurabilityIo>) + Send>| {
+        let job = tokens.durability_io.submit(&CancellationToken::new(), move |lane| f(lane));
+        async move { job.expect("lane").await.expect("job ran") }
+    };
+    let store = open(data.clone()).await.unwrap();
+    store.upsert(head("s1", "task", "Title"), DirtyMark::Set).await.unwrap();
+    let deps = WriterDeps {
+        io: Arc::new(OsIo),
+        blobs: BlobStore::new(&data),
+        ownership: Arc::new(MockOwnership::default()),
+        index: Arc::new(store.clone()),
+    };
+    let (dir, (tx, rx)) = (data.join("sessions").join("s1"), std::sync::mpsc::channel());
+    durable(Box::new(move |lane| {
+        let (mut w, created) = LogWriter::create(lane, &dir, session("s1", None), deps).unwrap();
+        let first = w.append_barrier(lane, vec![item("a")]).unwrap();
+        // Acked on disk, never projected: the process ended.
+        w.append_barrier(lane, vec![item("b"), item("c")]).unwrap();
+        tx.send((created.projection, first.projection)).unwrap();
+    }))
+    .await;
+    let (created, first) = rx.recv().unwrap();
+    store.project(created).await.unwrap();
+    store.project(first).await.unwrap();
+    drop(store);
+    let release = crate::sqlite::reconcile_seam::hold(&data);
+    let reopened = mixdog_rt::time::timeout(BOUND, open(data.clone()))
+        .await
+        .expect("the open returned within 60 s while its reconcile was held")
+        .unwrap();
+    let events = Arc::new(Mutex::new(Vec::<&str>::new()));
+    let note = |event: &'static str| {
+        let events = events.clone();
+        move || events.lock().unwrap().push(event)
+    };
+    let (reader, writer, laned) = (reopened.clone(), reopened.clone(), reopened.clone());
+    let read = tokio::spawn({
+        let noted = note("read");
+        async move {
+            let page = reader.history_page(lineage(&[("s1", None)]), None, None, 10).await;
+            noted();
+            page
+        }
+    });
+    let write = tokio::spawn({
+        let noted = note("write");
+        async move {
+            let written = writer.mark_dirty("s1").await;
+            noted();
+            written
+        }
+    });
+    let on_lane = tokens
+        .interactive_io
+        .submit(&CancellationToken::new(), {
+            let noted = note("read on the lane");
+            move |lane| {
+                let page = laned.history_page_on_lane(lane, &lineage(&[("s1", None)]), None, None, 10);
+                noted();
+                page
+            }
+        })
+        .expect("lane");
+    let mut waiters = reopened.reconcile_waiters();
+    mixdog_rt::time::timeout(BOUND, waiters.wait_for(|n| *n == 3))
+        .await
+        .expect("the read, the write and the lane read waited at the gate within 60 s")
+        .unwrap();
+    note("released")();
+    release.send(()).unwrap();
+    let ((rows, _), (laned_rows, _)) = mixdog_rt::time::timeout(BOUND, async {
+        let read = read.await.unwrap().unwrap();
+        write.await.unwrap().unwrap();
+        (read, on_lane.await.expect("job ran").unwrap())
+    })
+    .await
+    .expect("the read, the write and the lane read answered within 60 s of the release");
+    assert_eq!(iids(&rows), ["c", "b", "a"]);
+    assert_eq!(iids(&laned_rows), ["c", "b", "a"]);
+    let events = events.lock().unwrap().clone();
+    assert_eq!((events.len(), events[0]), (4, "released"), "{events:?}");
+}
+// ---------------------------------------------------------------------------------------
+// Catalog rows against Node's `_sessionSummary` on the migration corpus.
+
+#[cfg(node_twin)]
+fn corpus_root() -> PathBuf {
+    std::env::var_os("MIXDOG_MIGRATION_CORPUS").map(PathBuf::from).expect("MIXDOG_MIGRATION_CORPUS names the migration corpus")
+}
+/// A 1.4.5 media reference part (`attachment-reference.mjs` `mediaPartToReference`: the
+/// part carries the reference `info` object) and a plain text part (no key) keep Node's
+/// `JSON.stringify` bytes through the log, a body blob and the model-context read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn attachment_reference_parts_keep_their_stored_bytes() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let node = |pad: usize| {
+        format!(
+            concat!(
+                r#"{{"role":"user","content":[{{"type":"text","text":"see{}"}},"#,
+                r#"{{"type":"text","text":"[Attachment kept on disk]","attachmentReference":{{"attachmentRef":"{}","#,
+                r#""kind":"pdf","filename":"a.pdf","mimeType":"application/pdf","sizeBytes":12,"pageCount":1,"textPages":1}}}}]}}"#
+            ),
+            "x".repeat(pad),
+            "a".repeat(64)
+        )
+    };
+    let (small, large) = (node(0), node(300 << 10));
+    let item = |iid: &str, bytes: &str| {
+        let body: serde_json::Value = serde_json::from_str(bytes).unwrap();
+        let record = json!({"k":"item","iid":iid,"role":"user","form":"message","model":true,"visible":true,"refs":[],
+            "body":{"inline":body}});
+        crate::encode::encode_record(serde_json::from_value(record).unwrap()).unwrap()
+    };
+    let (inline, blob) = (item("a", &small), item("b", &large));
+    assert_eq!((inline.blobs().len(), blob.blobs().len()), (0, 1), "the large body is a blob");
+    assert_eq!(&blob.blobs()[0].bytes, large.as_bytes(), "the blob holds Node's bytes");
+    let (_w, _) = env.commit(w, vec![inline, blob]).await;
+    let log = std::fs::read(env.dir("s1").join(log_name(0))).unwrap();
+    assert!(log.windows(small.len()).any(|w| w == small.as_bytes()), "the log holds Node's bytes");
+    let got = context_bodies(&env, lineage(&[("s1", None)]), None, 10).await;
+    let got: Vec<String> = got.iter().map(|(_, body)| serde_json::to_string(body).unwrap()).collect();
+    assert_eq!(got, [small, large]);
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_model_context_starts_at_the_newest_compaction_with_amends_applied() {
+    let env = Env::new();
+    let own = || lineage(&[("s1", None)]);
+    let w = env.create("s1", None).await;
+    // A hidden model row (a skill row) is part of the context; a display row is not.
+    let hidden = rec(json!({"k":"item","iid":"h","role":"user","form":"message","model":true,"visible":false,"refs":[],
+        "body":{"inline":{"content":"skill","role":"user"}}}));
+    let display = rec(json!({"k":"item","iid":"x","form":"display","model":false,"visible":true,"refs":[],
+        "body":{"inline":{"content":"shown"}}}));
+    let (w, _) = env.commit(w, vec![user("a", "one"), hidden, display, answer("b")]).await;
+    assert_eq!(model_context(&env, own(), None, 10).await, pairs(&[("a", "one"), ("h", "skill"), ("b", "b")]));
+    // Compaction at 5 keeps b; c follows. Amends reach a replacement entry and an item.
+    let compacted = rec(json!({"k":"compacted","cid":"k1","replacement":{"inline":[
+        {"iid":"sum","body":{"role":"user","content":"summary"}},
+        {"iid":"b","body":{"role":"assistant","content":"b kept"}}]}}));
+    let (w, _) = env.commit(w, vec![compacted, user("c", "two")]).await;
+    let amend = |iid: &str, text: &str| {
+        rec(json!({"k":"amend","iid":iid,"refs":[],"body":{"inline":{"role":"user","content":text}}}))
+    };
+    let (w, _) = env.commit(w, vec![amend("sum", "summary 2"), amend("c", "two 2")]).await;
+    let want = pairs(&[("sum", "summary 2"), ("b", "b kept"), ("c", "two 2")]);
+    for limit in [1, 2, 10] {
+        assert_eq!(model_context(&env, own(), None, limit).await, want, "pages of {limit}");
+    }
+    // An out-of-line body is read from its blob.
+    let mut big = user("d", "").record().clone();
+    if let crate::schema::record::Record::Item(r) = &mut big {
+        r.body = crate::schema::blob::Slot::Inline(json!({"role":"user","content":"y".repeat(300 << 10)}));
+    }
+    let (w, _) = env.commit(w, vec![crate::encode::encode_record(big).unwrap()]).await;
+    let got = model_context(&env, own(), None, 10).await;
+    assert_eq!((got.len(), got[3].0.as_str(), got[3].1.len()), (4, "d", 300 << 10));
+    // A rewind before the amends (frame 7) restores the earlier versions; one before the
+    // compaction (frame 5) restores the earlier context.
+    let (w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":7,"reason":"edit"}))]).await;
+    assert_eq!(model_context(&env, own(), None, 10).await, pairs(&[("sum", "summary"), ("b", "b kept"), ("c", "two")]));
+    let (_w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":5,"reason":"edit"}))]).await;
+    assert_eq!(model_context(&env, own(), None, 10).await, pairs(&[("a", "one"), ("h", "skill"), ("b", "b")]));
+}
+/// The aliases the incremental writer keeps are the aliases a fresh rebuild from the same logs holds, after frames of every
+/// kind (items under submission ids, display rows, amends that name another submission id, an amend of an item of the base,
+/// a compaction, a model switch, runs, approvals, a rewind over amended rows, a fork), and a purge takes a session's aliases
+/// with its rows. Frame kinds that touch ids a cursor names: `item` (adds), `amend` (adds the amended body's ids to the
+/// amended row); the others leave `history_alias` alone, and a rewind keeps the rows it supersedes (the reader joins `history`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_aliases_kept_incrementally_equal_those_of_a_rebuild_from_the_logs() {
+    let named = |kind: &str, iid: &str, submission: &str| {
+        let body = json!({"content":iid,"role":"user","meta":{"transcript":{"clientSubmissionId":submission}}});
+        match kind {
+            "item" => rec(json!({"k":"item","iid":iid,"role":"user","form":"message","model":true,"visible":true,"refs":[],"body":{"inline":body}})),
+            _ => rec(json!({"k":"amend","iid":iid,"refs":[],"body":{"inline":body}})),
+        }
+    };
+    let shown = |iid: &str, id: &str, submission: &str| {
+        rec(json!({"k":"item","iid":iid,"form":"display","model":false,"visible":true,"refs":[],
+            "body":{"inline":{"kind":"user","id":id,"text":"t","clientSubmissionId":submission}}}))
+    };
+    let run = |phase: &str| rec(json!({"k":"run","rid":"r1","phase":phase,"at":1}));
+    let approval = |phase: &str| rec(json!({"k":"approval","aid":"p1","rid":"r1","phase":phase,"at":1}));
+    let meta = rec(json!({"k":"meta","change":{"inline":{"set":{"updatedAt":1700000000000u64},"unset":[]}}}));
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let (w, o) = env
+        .commit(w, vec![named("item", "u1", "S1"), shown("d1", "bid", "cs"), run("started"), approval("requested"), answer("a1"), named("item", "u2", "S1")])
+        .await;
+    let compacted = rec(json!({"k":"compacted","cid":"k1","replacement":{"inline":[
+        {"iid":"sum","body":{"role":"user","content":"summary"}},{"iid":"a1","body":{"role":"assistant","content":"kept"}}]}}));
+    let (w, _) = env
+        .commit(
+            w,
+            vec![named("amend", "u1", "S2"), named("amend", "u2", "S3"), named("amend", "ghost", "G"), compacted, model_switch("a1", o[4], "m1", 5), run("completed"), approval("decided"), meta],
+        )
+        .await;
+    // The amends are over the rewind's reach; new rows reuse the ids they named.
+    let (w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":o[5],"reason":"edit"}))]).await;
+    let (w, after) = env.commit(w, vec![named("item", "u3", "S2"), shown("d2", "bid", "cs"), named("amend", "u1", "S4"), named("amend", "u3", "S5")]).await;
+    let end = after[3] + 1;
+    let child = env.create("c1", Some(("s1", end))).await;
+    let (child, _) = env.commit(child, vec![named("item", "c2", "S2"), named("amend", "c2", "S6"), named("amend", "u3", "S7")]).await;
+    drop((w, child));
+
+    let live = aliases_in(&env.data.join(INDEX_FILE));
+    let fresh = env.data.join("fresh.sqlite");
+    project_index(&env.data, &fresh, &["s1".to_owned(), "c1".to_owned()]).unwrap();
+    assert_eq!(live, aliases_in(&fresh));
+    // Not vacuous: each row is reachable by every id its bodies name, the amended ones included.
+    let has = |session: &str, alias: &str, ordinal: u64| live.contains(&(session.to_owned(), alias.to_owned(), ordinal as i64));
+    for (session, alias, ordinal) in [
+        ("s1", "S1", o[0]), ("s1", "S2", o[0]), ("s1", "S4", o[0]), ("s1", "S1", o[5]), ("s1", "S3", o[5]), ("s1", "S2", after[0]),
+        ("s1", "S5", after[0]), ("s1", "bid", o[1]), ("s1", "cs", o[1]), ("s1", "bid", after[1]), ("c1", "S6", after[3] + 2),
+    ] {
+        assert!(has(session, alias, ordinal), "{session} {alias} {ordinal}: {live:?}");
+    }
+    assert!(!live.iter().any(|(_, alias, _)| alias == "G" || alias == "S7"), "an amend that reaches no row names nothing: {live:?}");
+
+    env.store.mark_deleted("c1").await.unwrap();
+    env.store.purge_deleted(tokens().maintenance_io, env.data.clone()).await.unwrap();
+    assert!(aliases_in(&env.data.join(INDEX_FILE)).iter().all(|(session, _, _)| session == "s1"));
+}
+/// Through the writer's codec, so a long entry moves to a blob.
+fn model_switch(iid: &str, ordinal: u64, model: &str, at: i64) -> Encoded {
+    let record = json!({"k":"model_switch","anchor":{"iid":iid,"ordinal":ordinal},
+        "entry":{"inline":{"provider":"openai","modelId":model,"at":at}}});
+    crate::encode::encode_record(serde_json::from_value(record).unwrap()).unwrap()
+}
+/// 1.4.5 anchors a switch on whatever message `modelSwitchAnchorIndex` picks, a compaction's
+/// summary or context ack included, and bounds no model id. A boundary on a replacement
+/// entry is the divider's: by entry position, then oldest level first, then record order;
+/// it lives while the compaction does. A 300 KiB model id goes to a blob and reads back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn model_switches_anchor_on_a_compaction_entry_and_hold_any_model_id() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let (w, _) = env.commit(w, vec![user("a", "one"), user("b", "two")]).await;
+    // The compaction at 3 replaces the context with a summary and an ack and keeps b.
+    let compacted = rec(json!({"k":"compacted","cid":"k1","summary_iid":"sum","replacement":{"inline":[
+        {"iid":"sum","body":{"role":"user","content":"summary"}},
+        {"iid":"ack","body":{"role":"assistant","content":"."}},
+        {"iid":"b","body":{"role":"user","content":"two"}}]}}));
+    let (w, _) = env.commit(w, vec![compacted]).await;
+    let long = "m".repeat(1000);
+    let huge = "h".repeat(300 << 10);
+    let big = model_switch("ack", 3, &huge, 80);
+    assert_eq!(big.blobs().len(), 1, "a 300 KiB entry is a blob");
+    let (w, _) = env.commit(
+        w,
+        vec![
+            model_switch("ack", 3, "m1", 40),
+            model_switch("sum", 3, "m2", 50),
+            model_switch("zz", 3, "never", 60),
+            model_switch("ack", 3, &long, 70),
+            big,
+        ],
+    )
+    .await;
+    let base = || lineage(&[("s1", None)]);
+    // The anchor ordinal of a replacement entry is its frame's; a plain row has none.
+    let entry = |levels: Vec<LineageLevel>, iid: &str| {
+        let (store, iid) = (env.store.clone(), iid.to_owned());
+        async move { store.compaction_entry(levels, None, iid).await.unwrap().map(|e| (e.ordinal, e.cid)) }
+    };
+    let k1 = Some((3, "k1".to_owned()));
+    assert_eq!(
+        (entry(base(), "sum").await, entry(base(), "ack").await, entry(base(), "a").await, entry(base(), "zz").await),
+        (k1.clone(), k1.clone(), None, None)
+    );
+    let all = |first: &[&str]| first.iter().map(|m| m.to_string()).chain([long.clone(), huge.clone()]).collect::<Vec<_>>();
+    assert_eq!(divider_switches(&env.store, base()).await, [("k1".to_owned(), all(&["m2", "m1"]))]);
+    // A replacement entry has no history row: no row carries these boundaries.
+    let (rows, _) = env.store.history_page(base(), None, None, 50).await.unwrap();
+    assert!(rows.iter().all(|r| r.model_switches.is_empty()));
+    // A fork at 9 sees the base's up to its fork point, then its own; the base's later one
+    // (9) is not the fork's.
+    let (w, _) = env.commit(w, vec![model_switch("sum", 3, "m5", 90)]).await;
+    let child = env.create("c0", Some(("s1", 9))).await;
+    let (child, _) = env.commit(child, vec![model_switch("sum", 3, "m4", 100)]).await;
+    let fork = || lineage(&[("c0", None), ("s1", Some(9))]);
+    assert_eq!(divider_switches(&env.store, fork()).await, [("k1".to_owned(), all(&["m2", "m4", "m1"]))]);
+    assert_eq!(entry(fork(), "sum").await, k1, "a fork finds its base's summary");
+    assert_eq!(divider_switches(&env.store, base()).await, [("k1".to_owned(), all(&["m2", "m5", "m1"]))]);
+    // A rebuild from the logs reads the same, the blob entry included.
+    let expected = (divider_switches(&env.store, base()).await, divider_switches(&env.store, fork()).await);
+    let other = tempfile::tempdir().unwrap();
+    copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
+    let blobs = crate::schema::blob::BLOB_DIR;
+    copy_tree(&env.data.join(blobs), &other.path().join(blobs));
+    let rebuilt = open_index(other.path()).unwrap();
+    assert_eq!((divider_switches(&rebuilt, base()).await, divider_switches(&rebuilt, fork()).await), expected);
+    // A rewind before the compaction removes its divider and its boundaries.
+    let (w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":3,"reason":"edit"}))]).await;
+    assert!(divider_switches(&env.store, base()).await.is_empty());
+    assert_eq!(entry(base(), "sum").await, None, "a rewound compaction holds no entry");
+    drop((w, child));
+}
+/// A `model_switch` belongs to its anchor row (the 1.4.5 anchor message's
+/// `meta.modelSwitches`): shown on that row while it is live, through a rewind that covers
+/// the record but keeps the anchor (a retry), in a fork up to its fork point and past a cut
+/// that keeps the anchor; gone with the anchor. It is no history row, and a rebuild from the
+/// logs gives the same pages.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn model_switches_follow_their_anchor_row() {
+    let env = Env::new();
+    let page = |levels: Vec<LineageLevel>, cut: Option<u64>| {
+        let store = env.store.clone();
+        async move { switched(&store.history_page(levels, cut, None, 50).await.unwrap().0) }
+    };
+    let row = |iid: &str, models: &[&str]| (iid.to_owned(), models.iter().map(|m| m.to_string()).collect::<Vec<_>>());
+    let base = || lineage(&[("b0", None)]);
+    let w = env.create("b0", None).await;
+    // a1 (1) answered; p1 (2) the trailing prompt: the switches (3, 4) anchor on a1.
+    let (w, _) = env.commit(w, vec![item("a1"), item("p1")]).await;
+    let (w, _) = env.commit(w, vec![model_switch("a1", 1, "m1", 10), model_switch("a1", 1, "m2", 20)]).await;
+    let rows = env.store.history_page(base(), None, None, 50).await.unwrap().0;
+    assert_eq!(
+        serde_json::to_value(&rows[1].model_switches).unwrap(),
+        json!([{"provider":"openai","modelId":"m1","at":10}, {"provider":"openai","modelId":"m2","at":20}])
+    );
+    // A retry rewinds the prompt (5) over the switch records; the anchor and its boundaries stay.
+    let rewind = rec(json!({"k":"rewind","to_ordinal":2,"reason":"rewind"}));
+    let (w, _) = env.commit(w, vec![rewind, item("p2")]).await;
+    assert_eq!((w.fold().rows, w.fold().visible_rows), (2, 2));
+    // 7 names an iid that is not row 6's: never shown. 8 anchors on p2.
+    let (w, _) = env.commit(w, vec![model_switch("zz", 6, "m3", 30), model_switch("p2", 6, "m5", 50)]).await;
+    assert_eq!(page(base(), None).await, [row("p2", &["m5"]), row("a1", &["m1", "m2"])]);
+    // A fork at 9; the base's later switch (9) is not the fork's, the fork's own (11) not the base's.
+    let (w, _) = env.commit(w, vec![model_switch("a1", 1, "m6", 60)]).await;
+    let child = env.create("c0", Some(("b0", 9))).await;
+    let (child, _) = env.commit(child, vec![item("c1"), model_switch("a1", 1, "m7", 70)]).await;
+    let fork = || lineage(&[("c0", None), ("b0", Some(9))]);
+    assert_eq!(page(fork(), None).await, [row("c1", &[]), row("p2", &["m5"]), row("a1", &["m1", "m2", "m7"])]);
+    assert_eq!(page(base(), None).await, [row("p2", &["m5"]), row("a1", &["m1", "m2", "m6"])]);
+    // The fork rewinds into the base range (12): p2 is cut, a1 keeps every boundary.
+    let rewind = rec(json!({"k":"rewind","to_ordinal":6,"reason":"edit"}));
+    let (child, _) = env.commit(child, vec![rewind]).await;
+    let cut = child.fold().base_cut;
+    assert_eq!(page(fork(), cut).await, [row("a1", &["m1", "m2", "m7"])]);
+    // A rewind that removes the anchor removes its boundaries; a new row with its iid has none.
+    let rewind = rec(json!({"k":"rewind","to_ordinal":1,"reason":"edit"}));
+    let (w, _) = env.commit(w, vec![rewind, item("a1")]).await;
+    assert_eq!(page(base(), None).await, [row("a1", &[])]);
+    assert_eq!(page(fork(), cut).await, [row("a1", &["m1", "m2", "m7"])], "the fork's view is its own");
+    // A boundary must anchor on an earlier row.
+    let (w, refused) = env.append(w, vec![model_switch("a1", 12, "m8", 80)]).await;
+    assert!(refused.is_err(), "anchor at its own ordinal");
+    let expected = (page(base(), None).await, page(fork(), cut).await);
+    drop((w, child));
+    // A rebuild from the logs projects the same boundaries.
+    let other = tempfile::tempdir().unwrap();
+    copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
+    let rebuilt = open_index(other.path()).unwrap();
+    let pages = (
+        switched(&rebuilt.history_page(base(), None, None, 50).await.unwrap().0),
+        switched(&rebuilt.history_page(fork(), cut, None, 50).await.unwrap().0),
+    );
+    assert_eq!(pages, expected);
+}
+/// One query lists every session with the fields the idle sweep decides from (its owner, status,
+/// timestamps, activity baseline, message count) and its newest log file's mtime; the heartbeat's
+/// catalog reads the same listing without the agent-only sessions, in pages.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_listing_serves_the_idle_sweep_and_the_heartbeat_catalog() {
+    use crate::sqlite::listing::RecordStamp;
+    use crate::sqlite::lead::{decode_catalog_cursor, encode_catalog_cursor};
+    let env = Env::new();
+    let w = env.create("l1", None).await;
+    let (w, _) = env.commit(w, vec![user("a", "one"), answer("b")]).await;
+    drop(w);
+    drop(env.create("l2", None).await);
+    drop(env.create("l3", None).await);
+    env.store
+        .upsert(
+            listed_head("l1", json!({"owner": "cli", "status": "running", "createdAt": 100, "updatedAt": 200, "lastHeartbeatAt": 300, "sourceName": "agent:mixy@run"})),
+            DirtyMark::Keep,
+        )
+        .await
+        .unwrap();
+    env.store
+        .upsert(listed_head("l2", json!({"owner": "agent", "visibility": "agent-only", "createdAt": 120, "updatedAt": 150})), DirtyMark::Keep)
+        .await
+        .unwrap();
+    env.store.upsert(listed_head("l3", json!({"createdAt": 90, "updatedAt": 100, "closed": true})), DirtyMark::Keep).await.unwrap();
+    let log = |id: &str| env.dir(id).join(log_name(0));
+    std::fs::File::options().write(true).open(log("l1")).unwrap().set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(5000)).unwrap();
+    std::fs::remove_file(log("l3")).unwrap();
+
+    let swept = env.store.sweep_sessions(env.data.join("sessions")).await.unwrap();
+    let by = |id: &str| swept.iter().find(|s| s.id == id).unwrap().clone();
+    assert_eq!(swept.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["l1", "l2", "l3"], "agent-only sessions are swept too");
+    let l1 = by("l1");
+    assert_eq!(
+        (l1.owner.as_str(), l1.status.as_str(), l1.closed, l1.created_at, l1.updated_at, l1.last_heartbeat_at, l1.activity, l1.message_count, l1.record),
+        ("cli", "running", false, 100, 200, 300, 300, 2, RecordStamp::At(5_000_000)),
+    );
+    assert_eq!(by("l2").owner, "agent");
+    let l3 = by("l3");
+    assert_eq!((l3.owner.as_str(), l3.status.as_str(), l3.closed, l3.record), ("user", "closed", true, RecordStamp::Absent), "no owner lists as the summary row's 'user'");
+
+    let ids = |rows: Vec<crate::sqlite::listing::Listed>| rows.iter().map(|r| r.row["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
+    let first = env.store.list_sessions(false, None, Some(1)).await.unwrap();
+    assert_eq!(first[0].row["sourceName"], "agent:mixy@run");
+    let cursor = encode_catalog_cursor(&first[0].row);
+    assert_eq!(ids(first), ["l1"]);
+    let rest = env.store.list_sessions(false, decode_catalog_cursor(Some(&cursor)).unwrap(), None).await.unwrap();
+    assert_eq!(ids(rest), ["l3"], "agent-only l2 is left out of the catalog");
+    assert_eq!(ids(env.store.list_sessions(true, None, None).await.unwrap()), ["l1", "l2", "l3"]);
+}
+
+
+/// Every corpus session written through the log writer (live) and projected again by
+/// `project_index` (reprojection) has the row Node's `_sessionSummary` builds.
+#[cfg(node_twin)]
+const SUMMARIES: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/migration/session-summary/summaries.json");
+#[cfg(node_twin)]
+mixdog_rt::replay_chunks!(CATALOG_TESTS, #[cfg_attr(all(), tokio::test(flavor = "multi_thread", worker_threads = 2), ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)")] async catalog_rows_chunk; [
+    catalog_rows_equal_nodes_session_summary_on_the_corpus_00 = 0,
+    catalog_rows_equal_nodes_session_summary_on_the_corpus_01 = 1,
+    catalog_rows_equal_nodes_session_summary_on_the_corpus_02 = 2,
+    catalog_rows_equal_nodes_session_summary_on_the_corpus_03 = 3,
+    catalog_rows_equal_nodes_session_summary_on_the_corpus_04 = 4,
+    catalog_rows_equal_nodes_session_summary_on_the_corpus_05 = 5,
+    catalog_rows_equal_nodes_session_summary_on_the_corpus_06 = 6,
+    catalog_rows_equal_nodes_session_summary_on_the_corpus_07 = 7,
+    catalog_rows_equal_nodes_session_summary_on_the_corpus_08 = 8,
+    catalog_rows_equal_nodes_session_summary_on_the_corpus_09 = 9,
+    catalog_rows_equal_nodes_session_summary_on_the_corpus_10 = 10,
+    catalog_rows_equal_nodes_session_summary_on_the_corpus_11 = 11,
+    catalog_rows_equal_nodes_session_summary_on_the_corpus_12 = 12,
+    catalog_rows_equal_nodes_session_summary_on_the_corpus_13 = 13,
+    catalog_rows_equal_nodes_session_summary_on_the_corpus_14 = 14,
+]);
+#[cfg(node_twin)]
+#[test]
+fn every_corpus_session_has_its_catalog_test() {
+    let fixture: serde_json::Value = serde_json::from_str(&SUMMARIES).unwrap();
+    let entries = fixture["sessions"].as_array().unwrap();
+    assert!(entries.len() > 50);
+    mixdog_rt::testing::assert_chunks_registered(CATALOG_TESTS, entries.len(), SESSION_CHUNK);
+}
+#[cfg(node_twin)]
+async fn catalog_rows_chunk(chunk: usize) {
+    let fixture: serde_json::Value = serde_json::from_str(&SUMMARIES).unwrap();
+    let root = corpus_root();
+    assert!(root.join("v145").is_dir(), "the migration corpus is missing at {}; set MIXDOG_MIGRATION_CORPUS", root.display());
+    let mut bad = Vec::new();
+    let entries = fixture["sessions"].as_array().unwrap();
+    for entry in &entries[mixdog_rt::testing::chunk_range(entries.len(), chunk, SESSION_CHUNK)] {
+        let key = entry["key"].as_str().unwrap();
+        let want = &entry["summary"];
+        let source: serde_json::Value = serde_json::from_slice(&std::fs::read(root.join(key)).unwrap()).unwrap();
+        let mut header = source.as_object().unwrap().clone();
+        let messages = header.remove("messages").unwrap();
+        let id = source["id"].as_str().unwrap().to_owned();
+
+        let env = Env::new();
+        let first = crate::encode::encode_record(
+            serde_json::from_value(json!({"k":"session","v":2,"id":id,"log_id":LOG_ID,"header":{"inline":header}})).unwrap(),
+        )
+        .unwrap();
+        env.store
+            .upsert(
+                CatalogHead { session: id.clone(), log_id: LOG_ID.into(), base_session: None, header: header.clone() },
+                DirtyMark::Set,
+            )
+            .await
+            .unwrap();
+        let (dir, deps) = (env.dir(&id), env.deps());
+        let (mut w, ack) = on_lane(move |l| LogWriter::create(l, &dir, first, deps).unwrap()).await;
+        env.store.project(ack.projection).await.unwrap();
+        let mut batch = Vec::new();
+        let mut bytes = 0;
+        let messages = messages.as_array().unwrap();
+        for (i, m) in messages.iter().enumerate() {
+            let e = crate::encode::encode_record(
+                serde_json::from_value(json!({"k":"item","iid":format!("m{i}"),"form":"message","model":true,
+                    "visible":true,"refs":[],"body":{"inline":m}}))
+                .unwrap(),
+            )
+            .unwrap();
+            bytes += e.frame_len();
+            batch.push(e);
+            if bytes > (256 << 10) || i + 1 == messages.len() {
+                w = env.commit(w, std::mem::take(&mut batch)).await.0;
+                bytes = 0;
+            }
+        }
+        let live: serde_json::Value = serde_json::from_str(&env.store.summary(&id).await.unwrap().unwrap()).unwrap();
+        bad.extend(differing_fields(&format!("live {key}"), want, &live));
+
+        let db = env.data.join("reprojected.sqlite");
+        let (data, db2, ids) = (env.data.clone(), db.clone(), vec![id.clone()]);
+        tokio::task::spawn_blocking(move || crate::sqlite::project_index(&data, &db2, &ids)).await.unwrap().unwrap();
+        let text: String = rusqlite::Connection::open(&db)
+            .unwrap()
+            .query_row("SELECT summary FROM sessions WHERE id = ?1", [&id], |r| r.get(0))
+            .unwrap();
+        let again: serde_json::Value = serde_json::from_str(&text).unwrap();
+        bad.extend(differing_fields(&format!("reprojected {key}"), want, &again));
+        drop(w);
+    }
+    assert!(bad.is_empty(), "{} differences:\n{}", bad.len(), bad.iter().take(40).cloned().collect::<Vec<_>>().join("\n"));
+}
+#[cfg(node_twin)]
+fn session_list_golden() -> serde_json::Value {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-list/golden.json");
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+/// `isLeadVisibleRow` over the list rows Node's `_sessionSummary` built (preview and message
+/// count included).
+#[cfg(node_twin)]
+#[test]
+fn the_lead_visibility_predicate_equals_nodes() {
+    use crate::sqlite::lead::is_lead_visible_row;
+    let golden = session_list_golden();
+    for entry in golden["sessions"].as_array().unwrap() {
+        let summary = entry["summary"].as_object().unwrap();
+        assert_eq!(is_lead_visible_row(summary), entry["leadVisible"], "{}", entry["record"]["id"]);
+    }
+}
+/// `decodeCatalogCursor` / `encodeCatalogCursor`: accepted and refused cursors, and the cursor Node
+/// names after a row.
+#[cfg(node_twin)]
+#[test]
+fn catalog_cursors_equal_nodes() {
+    use crate::sqlite::lead::{decode_catalog_cursor, encode_catalog_cursor};
+    let golden = session_list_golden();
+    for case in golden["cursors"].as_array().unwrap() {
+        let got = decode_catalog_cursor(case["cursor"].as_str());
+        match case.get("error") {
+            Some(_) => assert!(got.is_err(), "{}", case["cursor"]),
+            None => {
+                let want = case["decoded"].as_object().map(|d| (d["activity"].as_f64().unwrap(), d["id"].as_str().unwrap().to_owned()));
+                assert_eq!(got.unwrap().map(|c| (c.activity, c.id)), want, "{}", case["cursor"]);
+            }
+        }
+    }
+    for walk in golden["walks"].as_array().unwrap() {
+        for page in walk["pages"].as_array().unwrap() {
+            let Some(next) = page["nextCursor"].as_str() else { continue };
+            let after = decode_catalog_cursor(Some(next)).unwrap().unwrap();
+            let last = golden["sessions"].as_array().unwrap().iter().find(|s| s["record"]["id"].as_str() == Some(after.id.as_str()));
+            let row = last.unwrap()["summary"].as_object().unwrap();
+            assert_eq!(encode_catalog_cursor(row), next);
+        }
+    }
+}
+/// The pages `listStoredSessionSummaryPage` answers: order, the limit rules, `nextCursor`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lead_pages_walk_by_activity_then_id_and_name_the_cursor_of_the_last_row() {
+    use crate::sqlite::lead::LeadFilter;
+    use crate::sqlite::lead::decode_catalog_cursor;
+    use crate::sqlite::lead::encode_catalog_cursor;
+    let env = Env::new();
+    // A row is listed when it is the user's own (no owner, no source) and not previewless scratch: the list row's preview and
+    // message count come from the session's messages, so a header with no messages needs a title to be more than scratch.
+    // Activity is the last use, else the last update: e 40, then b and c at 30 (by id), d 20, a 10.
+    for (id, updated, used) in [("a", 10, 0), ("b", 30, 0), ("c", 30, 0), ("d", 20, 0), ("e", 1, 40)] {
+        let header = serde_json::json!({"id": id, "title": format!("title {id}"), "updatedAt": updated, "lastUsedAt": used});
+        let header = header.as_object().unwrap().clone();
+        env.store.upsert(CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.unwrap();
+    }
+    // The complements are never listed: an exec run, and a titleless session with no messages (scratch), however recent.
+    for (id, extra) in [("x1", serde_json::json!({"sourceType": "exec", "title": "run"})), ("x2", serde_json::json!({}))] {
+        let mut header = serde_json::json!({"id": id, "updatedAt": 99, "lastUsedAt": 99}).as_object().unwrap().clone();
+        header.extend(extra.as_object().unwrap().clone());
+        env.store.upsert(CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.unwrap();
+    }
+    let mut after = None;
+    let mut pages = Vec::new();
+    loop {
+        let got = env.store.lead_page(after.clone(), LeadFilter::default(), 2).await.unwrap();
+        pages.push(got.rows.iter().map(|r| r.row["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>());
+        if !got.more {
+            break;
+        }
+        after = decode_catalog_cursor(Some(&encode_catalog_cursor(&got.rows.last().unwrap().row))).unwrap();
+    }
+    assert_eq!(pages, [vec!["e", "b"], vec!["c", "d"], vec!["a"]]);
+}
+
+#[cfg(node_twin)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lead_pages_equal_nodes() {
+    use crate::sqlite::lead::decode_catalog_cursor;
+    use crate::sqlite::lead::encode_catalog_cursor;
+    let env = Env::new();
+    let golden = session_list_golden();
+    for entry in golden["sessions"].as_array().unwrap() {
+        let mut header = entry["record"].as_object().unwrap().clone();
+        header.remove("messages");
+        let id = header["id"].as_str().unwrap().to_owned();
+        env.store.upsert(CatalogHead { session: id, log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.unwrap();
+    }
+    for walk in golden["walks"].as_array().unwrap() {
+        // `listStoredSessionSummaryPage`: `floor(Number(limit))`, 1..=1000, else 50.
+        let size = match walk["limit"].as_f64().map(f64::floor) {
+            Some(n) if n > 0.0 => n.min(1000.0) as usize,
+            _ => 50,
+        };
+        for page in walk["pages"].as_array().unwrap() {
+            let after = decode_catalog_cursor(page["cursor"].as_str()).unwrap();
+            let got = env.store.lead_page(after, crate::sqlite::lead::LeadFilter::default(), size).await.unwrap();
+            let ids: Vec<&str> = got.rows.iter().map(|r| r.row["id"].as_str().unwrap()).collect();
+            let want: Vec<&str> = page["ids"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+            assert_eq!(ids, want, "limit {} cursor {}", walk["limit"], page["cursor"]);
+            let next = got.more.then(|| encode_catalog_cursor(&got.rows.last().unwrap().row));
+            assert_eq!(next.as_deref(), page["nextCursor"].as_str());
+        }
+    }
 }

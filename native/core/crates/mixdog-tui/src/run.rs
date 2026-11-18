@@ -136,56 +136,6 @@ fn held<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Runs the terminal UI until it exits and returns the process exit code.
-pub fn run_tui(options: TuiOptions) -> ExitCode {
-    let start = Instant::now();
-    let profile = BootProfile::from_vars(|name| std::env::var(name).ok(), start);
-    profile.log(
-        "run:start",
-        &[("provider", options.provider.clone()), ("model", options.model.clone()), ("remote", options.remote.then(|| "true".to_owned()))],
-    );
-    if !stdin().is_terminal() {
-        eprint!("{NO_TTY_MESSAGE}");
-        return ExitCode::from(1);
-    }
-    let settings = ExitSettings::from_process();
-    let mut stderr_guard = StderrGuard::install();
-    let env = ModeEnv::from_process();
-    let modes = TerminalModes::new(env);
-    let raw = match RawConsole::enable() {
-        Ok(raw) => raw,
-        Err(error) => {
-            stderr_guard.restore();
-            eprintln!("mixdog: {error}");
-            return ExitCode::from(1);
-        }
-    };
-    let guard = TerminalGuard::new(Arc::clone(&modes), Some(raw));
-    let restorer = guard.restorer();
-    install_panic_hook(restorer.clone());
-    // The alternate screen and the modes come first: no stale shell rows show while the session boots.
-    let _ = restorer.write(&format!("{}{BRACKETED_PASTE_ON}", screen_entry_sequence()));
-
-    let shared: SharedStore = Arc::new(Mutex::new(None));
-    let cleanup = install_cleanup(&settings, &restorer, &shared);
-    let code = match Builder::new_multi_thread().enable_all().build() {
-        Ok(runtime) => run_session(&options, &profile, &settings, &env, &restorer, &cleanup, &shared, &runtime),
-        Err(error) => {
-            restorer.restore();
-            eprintln!("mixdog: {error}");
-            1
-        }
-    };
-    cleanup.uninstall();
-    restorer.restore();
-    drop(guard);
-    stderr_guard.restore();
-    if code == 0 {
-        schedule_hard_exit(&settings, 0);
-    }
-    ExitCode::from(u8::try_from(code).unwrap_or(1))
-}
-
 /// The signal and stdio-death cleanup: the terminal is restored first, then the session is disposed within the exit wait.
 fn install_cleanup(settings: &ExitSettings, restorer: &TerminalRestorer, shared: &SharedStore) -> SignalCleanup {
     let mut config = CleanupConfig::new("mixdog-tui");
@@ -214,104 +164,6 @@ fn boot_error_line(error: &StoreError) -> String {
 /// `Date`-free elapsed milliseconds with one decimal, as the boot profile prints them.
 fn elapsed_ms(since: Instant) -> Option<String> {
     Some(format!("{:.1}", since.elapsed().as_secs_f64() * 1000.0))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn run_session(
-    options: &TuiOptions,
-    profile: &BootProfile,
-    settings: &ExitSettings,
-    env: &ModeEnv,
-    restorer: &TerminalRestorer,
-    cleanup: &SignalCleanup,
-    shared: &SharedStore,
-    runtime: &Runtime,
-) -> i32 {
-    let started = Instant::now();
-    let (columns, rows) = terminal_size().unwrap_or((80, 24));
-    let cwd = options
-        .cwd
-        .clone()
-        .filter(|cwd| !cwd.is_empty())
-        .unwrap_or_else(|| std::env::current_dir().map(|dir| dir.display().to_string()).unwrap_or_default());
-    let version = env!("CARGO_PKG_VERSION");
-    // The splash keeps the seconds between the alternate screen and the first frame from being a blank void; the first frame
-    // overprints it in place.
-    let windows_like = windows_like_terminal(|name| std::env::var(name).ok());
-    let _ = restorer.write(&boot_splash(usize::from(columns), windows_like, &cwd, version, Styler::process()));
-
-    let store_options = StoreOptions {
-        provider: options.provider.clone(),
-        model: options.model.clone(),
-        tool_mode: options.tool_mode.clone(),
-        remote: options.remote,
-        worktree: Some(options.worktree.clone().unwrap_or_else(|| json!({ "mode": "default" }))),
-        cwd: Some(cwd.clone()),
-        resume: options.resume.clone(),
-    };
-    let connecting = runtime.spawn(async move {
-        ensure_core(EnsureOptions::default()).await.map_err(|error| format!("mixdog: {error}"))?;
-        SessionStore::connect(store_options).await.map_err(|error| boot_error_line(&error))
-    });
-    let store = match runtime.block_on(connecting) {
-        Ok(Ok(store)) => Arc::new(store),
-        Ok(Err(line)) => {
-            restorer.restore();
-            eprintln!("{line}");
-            return 1;
-        }
-        Err(error) => {
-            restorer.restore();
-            eprintln!("mixdog: {error}");
-            return 1;
-        }
-    };
-    *held(shared) = Some((Arc::clone(&store), runtime.handle().clone()));
-    let mut io = SessionStoreIo::new(Arc::clone(&store), runtime.handle().clone());
-    // The persisted theme is applied before the first frame, and the terminal's background follows the palette.
-    if let Ok(Value::String(id)) = io.call("getTheme", &[]) {
-        set_theme(&id);
-    }
-    let _ = restorer.write(&terminal_background_sequence(&current_palette()));
-    // Launching inside a registered folder is an "open" too: best-effort recency.
-    let _ = io.call("touchProjectSelected", &[json!(cwd)]);
-    if let Some(effort) = &options.effort {
-        let _ = io.call("setEffort", &[json!(effort)]);
-    }
-    profile.log("store:ready", &[("ms", elapsed_ms(started))]);
-    // The verdict is read once, here: an unreadable status counts as completed.
-    let onboarding_completed = io.onboarding_completed();
-
-    let clock = Clock::new(0);
-    let mut app = AppState::new(
-        Box::new(io),
-        clock.clone(),
-        AppOptions { cwd, version: version.to_owned(), force_onboarding: options.force_onboarding, onboarding_completed: Some(onboarding_completed) },
-    );
-    let (tx, rx) = mpsc::channel::<LoopEvent>();
-    spawn_store_forwarder(runtime, &store, tx.clone());
-    let reader = start_reader(tx.clone());
-    app.chrome.update(usize::from(columns), usize::from(rows));
-    app.set_terminal(restorer.clone());
-    let wake_tx = tx.clone();
-    app.set_wake(Arc::new(move || {
-        let _ = wake_tx.send(LoopEvent::Wake);
-    }));
-    app.mount();
-    if let Some(renderer) = options.statusline.clone() {
-        app.set_statusline(renderer, None);
-    }
-    profile.log("render:mounted", &[("ms", elapsed_ms(started))]);
-
-    let mut driver = Driver::new(app, clock, env, restorer.clone(), Arc::clone(&store), runtime.handle().clone(), tx, (columns, rows), cleanup.clone());
-    // Mouse tracking comes on once the session is ready, unless the environment turned it off.
-    let _ = restorer.write(&env.mouse_on());
-    let code = driver.run(&rx);
-
-    // Teardown: the reader stops, the store is released within the exit wait, then the terminal and stderr are given back.
-    drop(reader);
-    driver.shutdown(&rx, settings);
-    code
 }
 
 /// Forwards the store's events into the loop's channel.
@@ -640,4 +492,152 @@ mod tests {
         assert!(NO_TTY_MESSAGE.starts_with("mixdog: the TUI needs an interactive terminal (TTY).\n"));
         assert!(NO_TTY_MESSAGE.ends_with("use --plain for the readline REPL.\n"));
     }
+}
+
+
+/// Runs the terminal UI until it exits and returns the process exit code.
+pub fn run_tui(options: TuiOptions) -> ExitCode {
+    let start = Instant::now();
+    let profile = BootProfile::from_vars(|name| std::env::var(name).ok(), start);
+    profile.log(
+        "run:start",
+        &[("provider", options.provider.clone()), ("model", options.model.clone()), ("remote", options.remote.then(|| "true".to_owned()))],
+    );
+    if !stdin().is_terminal() {
+        eprint!("{NO_TTY_MESSAGE}");
+        return ExitCode::from(1);
+    }
+    let settings = ExitSettings::from_process();
+    let mut stderr_guard = StderrGuard::install();
+    let env = ModeEnv::from_process();
+    let modes = TerminalModes::new(env);
+    let raw = match RawConsole::enable() {
+        Ok(raw) => raw,
+        Err(error) => {
+            stderr_guard.restore();
+            eprintln!("mixdog: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let guard = TerminalGuard::new(Arc::clone(&modes), Some(raw));
+    let restorer = guard.restorer();
+    install_panic_hook(restorer.clone());
+    // The alternate screen and the modes come first: no stale shell rows show while the session boots.
+    let _ = restorer.write(&format!("{}{BRACKETED_PASTE_ON}", screen_entry_sequence()));
+
+    let shared: SharedStore = Arc::new(Mutex::new(None));
+    let cleanup = install_cleanup(&settings, &restorer, &shared);
+    let code = match Builder::new_multi_thread().enable_all().build() {
+        Ok(runtime) => run_session(&options, &profile, &settings, &env, &restorer, &cleanup, &shared, &runtime),
+        Err(error) => {
+            restorer.restore();
+            eprintln!("mixdog: {error}");
+            1
+        }
+    };
+    cleanup.uninstall();
+    restorer.restore();
+    drop(guard);
+    stderr_guard.restore();
+    if code == 0 {
+        schedule_hard_exit(&settings, 0);
+    }
+    ExitCode::from(u8::try_from(code).unwrap_or(1))
+}
+#[allow(clippy::too_many_arguments)]
+fn run_session(
+    options: &TuiOptions,
+    profile: &BootProfile,
+    settings: &ExitSettings,
+    env: &ModeEnv,
+    restorer: &TerminalRestorer,
+    cleanup: &SignalCleanup,
+    shared: &SharedStore,
+    runtime: &Runtime,
+) -> i32 {
+    let started = Instant::now();
+    let (columns, rows) = terminal_size().unwrap_or((80, 24));
+    let cwd = options
+        .cwd
+        .clone()
+        .filter(|cwd| !cwd.is_empty())
+        .unwrap_or_else(|| std::env::current_dir().map(|dir| dir.display().to_string()).unwrap_or_default());
+    let version = env!("CARGO_PKG_VERSION");
+    // The splash keeps the seconds between the alternate screen and the first frame from being a blank void; the first frame
+    // overprints it in place.
+    let windows_like = windows_like_terminal(|name| std::env::var(name).ok());
+    let _ = restorer.write(&boot_splash(usize::from(columns), windows_like, &cwd, version, Styler::process()));
+
+    let store_options = StoreOptions {
+        provider: options.provider.clone(),
+        model: options.model.clone(),
+        tool_mode: options.tool_mode.clone(),
+        remote: options.remote,
+        worktree: Some(options.worktree.clone().unwrap_or_else(|| json!({ "mode": "default" }))),
+        cwd: Some(cwd.clone()),
+        resume: options.resume.clone(),
+    };
+    let connecting = runtime.spawn(async move {
+        ensure_core(EnsureOptions::default()).await.map_err(|error| format!("mixdog: {error}"))?;
+        SessionStore::connect(store_options).await.map_err(|error| boot_error_line(&error))
+    });
+    let store = match runtime.block_on(connecting) {
+        Ok(Ok(store)) => Arc::new(store),
+        Ok(Err(line)) => {
+            restorer.restore();
+            eprintln!("{line}");
+            return 1;
+        }
+        Err(error) => {
+            restorer.restore();
+            eprintln!("mixdog: {error}");
+            return 1;
+        }
+    };
+    *held(shared) = Some((Arc::clone(&store), runtime.handle().clone()));
+    let mut io = SessionStoreIo::new(Arc::clone(&store), runtime.handle().clone());
+    // The persisted theme is applied before the first frame, and the terminal's background follows the palette.
+    if let Ok(Value::String(id)) = io.call("getTheme", &[]) {
+        set_theme(&id);
+    }
+    let _ = restorer.write(&terminal_background_sequence(&current_palette()));
+    // Launching inside a registered folder is an "open" too: best-effort recency.
+    let _ = io.call("touchProjectSelected", &[json!(cwd)]);
+    if let Some(effort) = &options.effort {
+        let _ = io.call("setEffort", &[json!(effort)]);
+    }
+    profile.log("store:ready", &[("ms", elapsed_ms(started))]);
+    // The verdict is read once, here: an unreadable status counts as completed.
+    let onboarding_completed = io.onboarding_completed();
+
+    let clock = Clock::new(0);
+    let mut app = AppState::new(
+        Box::new(io),
+        clock.clone(),
+        AppOptions { cwd, version: version.to_owned(), force_onboarding: options.force_onboarding, onboarding_completed: Some(onboarding_completed) },
+    );
+    let (tx, rx) = mpsc::channel::<LoopEvent>();
+    spawn_store_forwarder(runtime, &store, tx.clone());
+    let reader = start_reader(tx.clone());
+    app.chrome.update(usize::from(columns), usize::from(rows));
+    app.set_terminal(restorer.clone());
+    let wake_tx = tx.clone();
+    app.set_wake(Arc::new(move || {
+        let _ = wake_tx.send(LoopEvent::Wake);
+    }));
+    app.mount();
+    if let Some(renderer) = options.statusline.clone() {
+        app.set_statusline(renderer, None);
+    }
+    profile.log("render:mounted", &[("ms", elapsed_ms(started))]);
+
+    let mut driver = Driver::new(app, clock, env, restorer.clone(), Arc::clone(&store), runtime.handle().clone(), tx, (columns, rows), cleanup.clone());
+    // Mouse tracking comes on once the session is ready, unless the environment turned it off.
+    let _ = restorer.write(&env.mouse_on());
+    let code = driver.run(&rx);
+
+    // Teardown: the reader stops, the store is released within the exit wait, then the terminal and stderr are given back.
+    drop(reader);
+    driver.shutdown(&rx, settings);
+    code
 }

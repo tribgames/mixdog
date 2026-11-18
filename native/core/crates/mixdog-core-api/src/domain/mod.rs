@@ -17,6 +17,7 @@
 //! run in their own tests.
 
 pub mod approval;
+pub mod cache_tail;
 pub mod cache_warm;
 pub mod command;
 pub mod common;
@@ -29,6 +30,9 @@ pub mod login_page;
 pub mod media;
 pub mod ownership;
 pub mod process;
+pub mod image_overlay;
+pub mod image_supply;
+pub mod prepared_request;
 pub mod provider;
 pub mod repo;
 pub mod retry;

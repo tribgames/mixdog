@@ -80,4 +80,19 @@ mod tests {
     fn rejects_garbage() {
         assert!(parse("1.4").is_err());
     }
+
+    /// The `initialize` gate of the daemon's server: what each client version is told by the core it meets.
+    #[test]
+    fn the_initialize_gate_orders_a_client_by_precedence_and_refuses_what_it_cannot_read() {
+        use mixdog_app_server::VersionOrder;
+        let core = env!("CARGO_PKG_VERSION");
+        let gate = crate::server::server_config(Default::default(), Default::default()).version_gate;
+        let order = |version: &str| gate(&serde_json::from_value(serde_json::json!({ "name": "t", "version": version, "kind": "cli" })).unwrap());
+        assert!(matches!(order(core), VersionOrder::Equal), "the same version");
+        assert!(matches!(order(&format!("{core}+another.build")), VersionOrder::Equal), "a build-only difference is not a difference");
+        assert!(matches!(order("0.0.1"), VersionOrder::ClientOlder), "an older client is told to update");
+        assert!(matches!(order("1.4.5"), VersionOrder::ClientOlder), "a 1.4.5 client meeting this core");
+        assert!(matches!(order("999.0.0"), VersionOrder::ClientNewer), "a newer client is told the server is outdated");
+        assert!(matches!(order("1.4"), VersionOrder::ClientOlder), "a version that is not semver is treated as outdated");
+    }
 }

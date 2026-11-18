@@ -1,7 +1,7 @@
 //! The composition of the turn path as plain functions of their inputs, so the daemon's
 //! `compose.rs` only supplies the parts it builds (`compose-seams.md`, "TurnPath inputs").
 //!
-//! - [`early_rows`]: what the tool pool is built from (todos, running work, goals, cycles).
+//! - [`early_rows`]: what the tool pool is built from (todos, running work, goals).
 //! - [`ready_rows`]: every other row that needs nothing the tree lacks once a `ProcessServices`
 //!   and the tool pool exist.
 //! - [`turn_path_parts`]: the whole `TurnPathParts`, every owner part a parameter of [`Owed`].
@@ -31,7 +31,6 @@ use mixdog_core_ports::ports::threads::HeaderUpdate;
 use mixdog_core_ports::ports::threads::HeaderUpdates;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_run::ports::running_work::ProcessWork;
-use mixdog_core_run::run_host::guards::UserCycles;
 use mixdog_core_run::run_host::hop_host::HopFactory;
 use mixdog_core_run::run_host::hop_host::HopDeps;
 use mixdog_core_run::run_host::hop_host::HopSessions;
@@ -201,17 +200,13 @@ pub struct EarlyRows {
     pub todos: Arc<ThreadTodos>,
     pub work: Arc<ProcessWork>,
     pub goals: Arc<GoalRuntime>,
-    pub cycles: Arc<UserCycles>,
 }
 
-/// `ProcessWork::new` points the exec runtime at `cycles`, so build the rows once per process.
 pub fn early_rows(input: EarlyIn) -> EarlyRows {
-    let cycles = Arc::<UserCycles>::default();
     EarlyRows {
         todos: Arc::new(ThreadTodos::new(input.threads, input.clock)),
-        work: Arc::new(ProcessWork::new(input.board, input.exec, cycles.clone())),
+        work: Arc::new(ProcessWork::new(input.board, input.exec)),
         goals: Arc::new(GoalRuntime::new(GoalConfig::new(input.data_dir.to_string_lossy().into_owned()), GoalEnv::system(input.durability))),
-        cycles,
     }
 }
 
@@ -234,6 +229,8 @@ pub struct ReadyIn {
 
 pub struct ReadyRows {
     pub ladder: Arc<super::ladder_sources::ProcessLadder>,
+    auto_effort: Arc<super::auto_effort::ConfigAutoEffort>,
+    auto_effort_env: EnvReader,
     /// `wiring` and `errors` of the route hop's `HopDeps`; `settings.wiring` is the same `wiring`.
     pub hop: HopBindings,
     pub settings: SettingsSources,
@@ -241,50 +238,6 @@ pub struct ReadyRows {
     pub resolver: Arc<McpAwareResolver>,
     pub skills_listed: Arc<CatalogSkillsListed>,
     pub allow_all: Arc<ConfigAllowAll>,
-}
-
-/// The process's one provider registry: `DefaultProviderBuilder` over the builder inputs of `process`, accounted
-/// by pricing, the ledger, the send scope and the account lookup. Built right after `ProcessServices`, so
-/// `ProviderReadiness::new(registry, catalog)` and the settings and feature effects share it with the turn path.
-pub fn provider_registry(
-    process: &ProcessServices,
-    env: mixdog_ai::registry::builder::BuilderEnv,
-    images: Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>,
-) -> (Arc<ProviderRegistry>, Arc<mixdog_ai::registry::builder::DefaultProviderBuilder>) {
-    // `images`: the extension host's `sharp`, which every Messages engine fits its images with.
-    let builder = Arc::new(mixdog_ai::registry::builder::DefaultProviderBuilder::new(env).with_images(images));
-    // The concrete builder is handed back with the registry: `ProviderAdmin::production` takes the same `Arc` (wp-ai-svc-21).
-    let registry = Arc::new(ProviderRegistry::new(builder.clone()).with_accounting(super::accounting_scope::accounting_deps(process)));
-    (registry, builder)
-}
-
-/// Builds every row whose inputs exist. `process` is the one `ProcessServices` of the daemon.
-pub fn ready_rows(process: &ProcessServices, input: ReadyIn) -> ReadyRows {
-    let hop = HopBindings::new(process);
-    let settings = SettingsSources {
-        wiring: hop.wiring.clone(),
-        attachments: Arc::new(mixdog_core_domains::domains::ai_admin::model_proxy::StoreAttachments {
-            store: input.blobs,
-            interactive: process.lanes.interactive_io,
-        }),
-        media: Some(Arc::new({
-            let source = hop.source.clone();
-            move |session: &serde_json::Value| source.media(session)
-        })),
-        heartbeats: input.heartbeats,
-        ceilings: Arc::new(CatalogCeilings::new(process.catalog.clone())),
-        auto_effort: Arc::new(super::auto_effort::ConfigAutoEffort::new(process.config.clone(), input.env)),
-        vision: Some(Arc::new(CatalogVision::new(process.catalog.clone(), process.config.clone()))),
-    };
-    ReadyRows {
-        ladder: Arc::new(super::ladder_sources::ProcessLadder::new(process)),
-        hop,
-        settings,
-        bots: Arc::new(BotRouteStore::new(input.data_dir, process.lanes.interactive_io)),
-        resolver: Arc::new(McpAwareResolver::new(input.tool_pool, input.hub)),
-        skills_listed: Arc::new(CatalogSkillsListed(input.skills)),
-        allow_all: Arc::new(ConfigAllowAll(process.config.clone())),
-    }
 }
 
 /// `TurnPathParts.hops`: the route hop over the directory and the path's registry. `sessions` builds
@@ -307,105 +260,10 @@ pub fn hops(
             errors,
             wiring,
         };
-        HopFactory::new(deps, sessions(directory))
+        HopFactory::new(deps, sessions(directory)).with_eligibility(Arc::new(
+            mixdog_core_run::run_host::hop_host::RegistryEligibility(registry.clone()),
+        ))
     })
-}
-
-// ---- the whole TurnPathParts -----------------------------------------------------------------
-
-/// Every part another owner builds. The daemon fills it as each lands; nothing here has a default.
-pub struct Owed {
-    /// `markUnattendedRun`'s registry over the late run stamps (`UnattendedRunRegistry::new(Arc::new(LateRunStamps(directory)))`): the setup tool's held
-    /// requests read it before the path exists, so the composition builds it and the path takes it.
-    pub unattended: Arc<super::unattended::UnattendedRunRegistry>,
-    /// Where a run's approval asks go (see `TurnPathParts::approvals`).
-    pub approvals: Arc<dyn super::run_approvals::RunApprovals>,
-    /// The one set of tool exclusions (see `TurnPathParts::exclusions`).
-    pub exclusions: Arc<mixdog_core_session::session::SessionToolExclusions>,
-    pub tokens: LaneTokens,
-    pub clock: Arc<dyn Clock>,
-    pub paths: Paths,
-    pub effort_judge: Arc<EffortJudgeModel>,
-    pub side: SideRequests,
-    pub next: Arc<NextRequestSource>,
-    pub files: Arc<dyn FileService>,
-    pub processes: Arc<dyn ProcessManager>,
-    pub policy: Arc<ToolPolicy>,
-    pub connectors: Arc<dyn ConnectorPermissions>,
-    pub agents: Arc<AgentDefinitions>,
-    pub hub: Arc<McpHub>,
-    pub blobs: Arc<dyn BlobReads>,
-    pub mcp: Arc<dyn SessionMcp>,
-    pub skills: Arc<mixdog_mcp::skill_catalog::SkillCatalog>,
-    pub ext_pool: Arc<dyn ExtPool>,
-    pub hook_bus: Arc<HookBus>,
-    pub config: Arc<dyn ConfigSeams>,
-    pub deps: Box<dyn FnOnce(Arc<dyn RunFactory>) -> SessionDeps>,
-    /// `SessionCompactors::new(Arc::new(ProcessCompactionWorld::new(services)), clock)`, built by the composition with the world it keeps.
-    pub compactors: Arc<super::compactors::SessionCompactors>,
-    /// `HopSessions` over the directory.
-    pub hop_sessions: HopSessionsBuilder,
-    pub directory: Arc<LateDirectory>,
-    /// The pool the `early` rows were built into; `Skill`, `todo` and `load_tool` included.
-    pub tool_pool: Vec<Arc<dyn Tool>>,
-    /// The shell control over the runtime `early.work` runs in (`TurnPathParts.shells`).
-    pub shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
-    /// The runtime liveness map (TurnPathParts.liveness), made before the path because the prewarm inside the session deps reads it.
-    pub liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
-    /// The hosted web search's usage registry (`TurnPathParts.search_usage`), made before the web tools are built.
-    pub search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
-    /// The sessions' result caches (`TurnPathParts.reuses`), made before the manual compaction that resets them.
-    pub reuses: Arc<super::result_reuse::LiveReuses>,
-}
-
-/// The whole `TurnPathParts`: the flip only adds the calls that produce `process`, `early`,
-/// `ready` and `owed`.
-pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry>, prefix_guards: Arc<super::assemble::PrefixGuards>, early: EarlyRows, ready: ReadyRows, owed: Owed) -> TurnPathParts {
-    let hops = hops(process, &ready.hop, ready.bots.clone(), owed.hop_sessions);
-    TurnPathParts {
-        tokens: owed.tokens,
-        clock: owed.clock,
-        paths: owed.paths,
-        registry,
-        prefix_guards,
-        effort_judge: owed.effort_judge,
-        side: owed.side,
-        next: owed.next,
-        files: owed.files,
-        processes: owed.processes,
-        policy: owed.policy,
-        connectors: owed.connectors,
-        resolver: ready.resolver,
-        unattended: owed.unattended.clone(),
-        approvals: owed.approvals,
-        exclusions: owed.exclusions.clone(),
-        agents: owed.agents,
-        allow_all: ready.allow_all,
-        hub: owed.hub,
-        blobs: owed.blobs,
-        tool_pool: owed.tool_pool,
-        mcp: owed.mcp,
-        skills_listed: ready.skills_listed,
-        skill_deliveries: Some(owed.skills.clone()),
-        skill_names: owed.skills,
-        ext_pool: owed.ext_pool,
-        hook_bus: owed.hook_bus,
-        hook_common: hook_common(owed.directory),
-        goals: early.goals,
-        todos: early.todos,
-        work: early.work,
-        cycles: early.cycles,
-        config: owed.config,
-        settings: ready.settings,
-        ladder: ready.ladder,
-        deps: owed.deps,
-        compactors: owed.compactors.clone(),
-        hops,
-        shells: owed.shells,
-        liveness: owed.liveness,
-        search_usage: owed.search_usage,
-        reuses: owed.reuses,
-    }
 }
 
 // ---- views over the late directory ------------------------------------------------------------
@@ -461,6 +319,9 @@ impl HeaderUpdates for LateThreads {
 impl ThreadMessages for LateThreads {
     async fn messages(&self, thread: &ThreadId) -> Result<Vec<Value>, PortError> {
         self.threads()?.messages(thread).await
+    }
+    async fn messages_until(&self, thread: &ThreadId, wanted: &(dyn for<'v> Fn(&'v Value) -> bool + Sync)) -> Result<Vec<Value>, PortError> {
+        self.threads()?.messages_until(thread, wanted).await
     }
 }
 
@@ -525,35 +386,6 @@ pub fn live_routes(config: Config, facts: Arc<CatalogFacts>) -> Arc<SessionRoute
     Arc::new(SessionRoutes::new(move |request: &Route| {
         resolve_route(&config.agent(), request, &|provider, full| facts.is_known(provider, full))
     }))
-}
-
-/// What the one `ConfigHosts` reads. `gauge` and `refresh` have no production type yet
-/// (compose-seams.md, "Blocked rows"): the caller supplies them.
-pub struct ConfigHostsIn {
-    pub config: Config,
-    pub routes: Arc<dyn LiveRoute>,
-    pub gauge: Arc<dyn ContextStatusCache>,
-    pub agents: Arc<AgentDefinitions>,
-    /// The catalog and readiness; answers both `RouteFacts` and `ProvidersReady`.
-    pub facts: Arc<CatalogFacts>,
-    pub refresh: Arc<dyn AuthRefresh>,
-    pub env: Env,
-    pub surface: mixdog_core_base::surface::SurfaceGeneration,
-}
-
-/// The one `ConfigHosts`: assign it to `DomainSeams.compaction_host` and `.workflow_host`.
-pub fn config_hosts(input: ConfigHostsIn) -> Arc<ConfigHosts> {
-    Arc::new(ConfigHosts {
-        config: input.config,
-        routes: input.routes,
-        gauge: input.gauge,
-        agents: input.agents,
-        facts: input.facts.clone(),
-        ready: input.facts,
-        refresh: input.refresh,
-        env: input.env,
-        surface: input.surface,
-    })
 }
 
 // ---- the late cells' bound() checks -------------------------------------------------------------
@@ -670,6 +502,34 @@ mod tests {
         assert!(LateRunStamps(late).stamp_of(&ThreadId::from("nobody")).await.is_none());
     }
 
+    /// Every view of the late directory reports itself unbound until the directory is, and the
+    /// composition's check names the first one left over.
+    #[test]
+    fn every_view_of_the_late_directory_is_unbound_until_the_directory_is_bound() {
+        use super::super::late::{Unbound, require};
+        let late = Arc::new(LateDirectory::default());
+        let cells: [&dyn Bound; 6] =
+            [&*late, &DirectoryHeaders(late.clone()), &LateRunStamps(late.clone()), &LateThreads(late.clone()), &LateHeaders(late.clone()), &HookCommonCell(late.clone())];
+        for cell in cells {
+            assert!(!cell.is_bound(), "{}", cell.cell());
+        }
+        assert_eq!(require(&cells), Err(Unbound { cell: "session directory" }));
+        assert_eq!(require(&cells[1..]), Err(Unbound { cell: "directory headers" }));
+    }
+
+
+    /// Registry, readiness and the effects are built from the process services before the turn path,
+    /// and all of them hold the one registry the turn path takes.
+    #[tokio::test]
+    async fn the_registry_is_built_once_and_shared_with_readiness() {
+        let world = world(&[], json!({}), Vec::new()).await;
+        let images = Arc::new(mixdog_exthost::ExtImageCodec::new(Arc::new(mixdog_core_api::domain::mock::MockExtPool::new(1))));
+        let (registry, builder) = provider_registry(&world.services, crate::run_host::builder_env::builder_env(&world.services), images, None);
+        assert!(Arc::strong_count(&builder) >= 2, "the registry holds the builder it hands back");
+        let readiness = mixdog_ai::catalog::ProviderReadiness::new(registry.clone(), world.services.catalog.clone());
+        assert!(Arc::strong_count(&registry) >= 2, "readiness holds the registry the turn path is given");
+        drop(readiness);
+    }
     #[tokio::test]
     async fn the_ready_rows_share_the_instances_the_turn_reads() {
         let world = world(&[], json!({}), Vec::new()).await;
@@ -708,31 +568,213 @@ mod tests {
         assert!(!rows.allow_all.allow_all_actions(), "an unset developer option is off");
         assert_eq!(rows.skills_listed.any_for(dir.path()).await, Ok(false), "no skill root, no skill");
     }
+}
 
-    /// Registry, readiness and the effects are built from the process services before the turn path,
-    /// and all of them hold the one registry the turn path takes.
-    #[tokio::test]
-    async fn the_registry_is_built_once_and_shared_with_readiness() {
-        let world = world(&[], json!({}), Vec::new()).await;
-        let images = Arc::new(mixdog_exthost::ExtImageCodec::new(Arc::new(mixdog_core_api::domain::mock::MockExtPool::new(1))));
-        let (registry, builder) = provider_registry(&world.services, crate::run_host::builder_env::builder_env(&world.services), images);
-        assert!(Arc::strong_count(&builder) >= 2, "the registry holds the builder it hands back");
-        let readiness = mixdog_ai::catalog::ProviderReadiness::new(registry.clone(), world.services.catalog.clone());
-        assert!(Arc::strong_count(&registry) >= 2, "readiness holds the registry the turn path is given");
-        drop(readiness);
+
+/// What the one `ConfigHosts` reads. `gauge` and `refresh` have no production type yet
+/// (compose-seams.md, "Blocked rows"): the caller supplies them.
+pub struct ConfigHostsIn {
+    pub config: Config,
+    pub routes: Arc<dyn LiveRoute>,
+    pub gauge: Arc<dyn ContextStatusCache>,
+    pub agents: Arc<AgentDefinitions>,
+    /// The catalog and readiness; answers both `RouteFacts` and `ProvidersReady`.
+    pub facts: Arc<CatalogFacts>,
+    pub refresh: Arc<dyn AuthRefresh>,
+    pub env: Env,
+    pub surface: mixdog_core_base::surface::SurfaceGeneration,
+}
+/// The one `ConfigHosts`: assign it to `DomainSeams.compaction_host` and `.workflow_host`.
+pub fn config_hosts(input: ConfigHostsIn) -> Arc<ConfigHosts> {
+    Arc::new(ConfigHosts {
+        config: input.config,
+        routes: input.routes,
+        gauge: input.gauge,
+        agents: input.agents,
+        facts: input.facts.clone(),
+        ready: input.facts,
+        refresh: input.refresh,
+        env: input.env,
+        surface: input.surface,
+    })
+}
+// ---- the whole TurnPathParts -----------------------------------------------------------------
+
+/// Every part another owner builds. The daemon fills it as each lands; nothing here has a default.
+pub struct Owed {
+    /// `markUnattendedRun`'s registry over the late run stamps (`UnattendedRunRegistry::new(Arc::new(LateRunStamps(directory)))`): the setup tool's held
+    /// requests read it before the path exists, so the composition builds it and the path takes it.
+    pub unattended: Arc<super::unattended::UnattendedRunRegistry>,
+    /// Where a run's approval asks go (see `TurnPathParts::approvals`).
+    pub approvals: Arc<dyn super::run_approvals::RunApprovals>,
+    /// The one set of tool exclusions (see `TurnPathParts::exclusions`).
+    pub exclusions: Arc<mixdog_core_session::session::SessionToolExclusions>,
+    pub tokens: LaneTokens,
+    pub clock: Arc<dyn Clock>,
+    pub paths: Paths,
+    pub effort_judge: Arc<EffortJudgeModel>,
+    pub side: SideRequests,
+    pub next: Arc<NextRequestSource>,
+    pub files: Arc<dyn FileService>,
+    pub processes: Arc<dyn ProcessManager>,
+    pub policy: Arc<ToolPolicy>,
+    pub connectors: Arc<dyn ConnectorPermissions>,
+    pub agents: Arc<AgentDefinitions>,
+    pub hub: Arc<McpHub>,
+    pub blobs: Arc<dyn BlobReads>,
+    pub mcp: Arc<dyn SessionMcp>,
+    pub skills: Arc<mixdog_mcp::skill_catalog::SkillCatalog>,
+    pub ext_pool: Arc<dyn ExtPool>,
+    pub hook_bus: Arc<HookBus>,
+    pub config: Arc<dyn ConfigSeams>,
+    pub deps: Box<dyn FnOnce(Arc<dyn RunFactory>) -> SessionDeps>,
+    /// `SessionCompactors::new(Arc::new(ProcessCompactionWorld::new(services)), clock)`, built by the composition with the world it keeps.
+    pub compactors: Arc<super::compactors::SessionCompactors>,
+    /// `HopSessions` over the directory.
+    pub hop_sessions: HopSessionsBuilder,
+    pub directory: Arc<LateDirectory>,
+    /// The pool the `early` rows were built into; `Skill`, `todo` and `load_tool` included.
+    pub tool_pool: Vec<Arc<dyn Tool>>,
+    /// The shell control over the runtime `early.work` runs in (`TurnPathParts.shells`).
+    pub shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
+    /// The runtime liveness map (TurnPathParts.liveness), made before the path because the prewarm inside the session deps reads it.
+    pub liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
+    /// The hosted web search's usage registry (`TurnPathParts.search_usage`), made before the web tools are built.
+    pub search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
+    /// The sessions' result caches (`TurnPathParts.reuses`), made before the manual compaction that resets them.
+    pub reuses: Arc<super::result_reuse::LiveReuses>,
+}
+/// The whole `TurnPathParts`: the flip only adds the calls that produce `process`, `early`,
+/// `ready` and `owed`.
+pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry>, early: EarlyRows, mut ready: ReadyRows, owed: Owed) -> TurnPathParts {
+    let hops = hops(process, &ready.hop, ready.bots.clone(), owed.hop_sessions);
+    let env = ready.auto_effort_env;
+    let clock = owed.clock.clone();
+    ready.settings.first_auto_effort = Some(Arc::new(super::auto_effort::TurnAutoEffort::new(
+        ready.auto_effort,
+        Arc::new(super::turn_judge::ModelTurnJudge::new(owed.effort_judge.clone(), &env)),
+        ready.ladder.clone(),
+        Arc::new(super::auto_effort::RegistryConfiguration::new(
+            registry.clone(), ready.hop.source.clone(), process.unsupported.clone(), ready.hop.codex_declared.clone(),
+        )),
+        Arc::new(super::auto_effort::EffortDecisionLog::new(
+            env, owed.paths.data_dir.clone(), owed.tokens.durability_io, owed.tokens.maintenance_io,
+        )),
+        Arc::new(move || {
+            chrono::DateTime::from_timestamp_millis(clock.now_ms())
+                .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+                .unwrap_or_default()
+        }),
+    )));
+    TurnPathParts {
+        tokens: owed.tokens,
+        clock: owed.clock,
+        paths: owed.paths,
+        registry,
+        effort_judge: owed.effort_judge,
+        side: owed.side,
+        next: owed.next,
+        files: owed.files,
+        processes: owed.processes,
+        policy: owed.policy,
+        connectors: owed.connectors,
+        resolver: ready.resolver,
+        unattended: owed.unattended.clone(),
+        approvals: owed.approvals,
+        exclusions: owed.exclusions.clone(),
+        agents: owed.agents,
+        allow_all: ready.allow_all,
+        hub: owed.hub,
+        blobs: owed.blobs,
+        tool_pool: owed.tool_pool,
+        mcp: owed.mcp,
+        skills_listed: ready.skills_listed,
+        skill_deliveries: Some(owed.skills.clone()),
+        skill_names: owed.skills,
+        ext_pool: owed.ext_pool,
+        hook_bus: owed.hook_bus,
+        hook_common: hook_common(owed.directory),
+        goals: early.goals,
+        todos: early.todos,
+        work: early.work,
+        config: owed.config,
+        settings: ready.settings,
+        ladder: ready.ladder,
+        deps: owed.deps,
+        compactors: owed.compactors.clone(),
+        hops,
+        shells: owed.shells,
+        liveness: owed.liveness,
+        search_usage: owed.search_usage,
+        reuses: owed.reuses,
     }
+}
 
-    /// Every view of the late directory reports itself unbound until the directory is, and the
-    /// composition's check names the first one left over.
-    #[test]
-    fn every_view_of_the_late_directory_is_unbound_until_the_directory_is_bound() {
-        use super::super::late::{Unbound, require};
-        let late = Arc::new(LateDirectory::default());
-        let cells: [&dyn Bound; 6] =
-            [&*late, &DirectoryHeaders(late.clone()), &LateRunStamps(late.clone()), &LateThreads(late.clone()), &LateHeaders(late.clone()), &HookCommonCell(late.clone())];
-        for cell in cells {
-            assert!(!cell.is_bound(), "{}", cell.cell());
+
+/// The process's one provider registry: `DefaultProviderBuilder` over the builder inputs of `process`, accounted
+/// by pricing, the ledger, the send scope and the account lookup. Built right after `ProcessServices`, so
+/// `ProviderReadiness::new(registry, catalog)` and the settings and feature effects share it with the turn path.
+///
+/// In the model-proxy client mode (`client`) the registry's providers are the PC's: each is the stand-in that sends over
+/// `client.transport`, and the set is the one the PC reports. The concrete builder is still the local one, for the views
+/// that read local settings.
+pub fn provider_registry(
+    process: &ProcessServices,
+    env: mixdog_ai::registry::builder::BuilderEnv,
+    images: Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>,
+    client: Option<ModelProxyClient>,
+) -> (Arc<ProviderRegistry>, Arc<mixdog_ai::registry::builder::DefaultProviderBuilder>) {
+    // `images`: the extension host's `sharp`, which every Messages engine fits its images with.
+    let builder = Arc::new(mixdog_ai::registry::builder::DefaultProviderBuilder::new(env).with_images(images));
+    // The concrete builder is handed back with the registry: `ProviderAdmin::production` takes the same `Arc` (wp-ai-svc-21).
+    let registry = match client {
+        None => ProviderRegistry::new(builder.clone()),
+        Some(client) => {
+            let proxied = mixdog_core_domains::domains::ai_admin::model_proxy_adapter::ProxiedBuilder::new(client.transport, client.attachments);
+            ProviderRegistry::new(Arc::new(proxied)).with_remote(client.providers)
         }
-        assert_eq!(require(&cells), Err(Unbound { cell: "session directory" }));
-        assert_eq!(require(&cells[1..]), Err(Unbound { cell: "directory headers" }));
-    }}
+    };
+    (Arc::new(registry.with_accounting(super::accounting_scope::accounting_deps(process))), builder)
+}
+
+/// What the registry of the model-proxy client mode sends through and learns its providers from.
+pub struct ModelProxyClient {
+    /// `model/proxy/execute` to the PC that declared `capabilities.modelProxy`.
+    pub transport: Arc<dyn mixdog_ai::broker::ModelProxyTransport>,
+    /// This server's stored attachments, inlined into each call (the PC cannot read them).
+    pub attachments: Arc<dyn mixdog_ai::service::model_proxy_inline::AttachmentReader>,
+    /// The PC's provider config (`loadModelProxyProviderConfig`).
+    pub providers: Arc<dyn mixdog_ai::registry::providers::RemoteProviders>,
+}
+/// Builds every row whose inputs exist. `process` is the one `ProcessServices` of the daemon.
+pub fn ready_rows(process: &ProcessServices, input: ReadyIn) -> ReadyRows {
+    let hop = HopBindings::new(process);
+    let auto_effort = Arc::new(super::auto_effort::ConfigAutoEffort::new(process.config.clone(), input.env.clone()));
+    let settings = SettingsSources {
+        wiring: hop.wiring.clone(),
+        attachments: Arc::new(mixdog_core_domains::domains::ai_admin::model_proxy::StoreAttachments {
+            store: input.blobs,
+            interactive: process.lanes.interactive_io,
+        }),
+        media: Some(Arc::new({
+            let source = hop.source.clone();
+            move |session: &serde_json::Value| source.media(session)
+        })),
+        heartbeats: input.heartbeats,
+        ceilings: Arc::new(CatalogCeilings::new(process.catalog.clone())),
+        auto_effort: auto_effort.clone(),
+        first_auto_effort: None,
+        vision: Some(Arc::new(CatalogVision::new(process.catalog.clone(), process.config.clone()))),
+    };
+    ReadyRows {
+        ladder: Arc::new(super::ladder_sources::ProcessLadder::new(process)),
+        auto_effort,
+        auto_effort_env: input.env,
+        hop,
+        settings,
+        bots: Arc::new(BotRouteStore::new(input.data_dir, process.lanes.interactive_io)),
+        resolver: Arc::new(McpAwareResolver::new(input.tool_pool, input.hub)),
+        skills_listed: Arc::new(CatalogSkillsListed(input.skills)),
+        allow_all: Arc::new(ConfigAllowAll(process.config.clone())),
+    }
+}

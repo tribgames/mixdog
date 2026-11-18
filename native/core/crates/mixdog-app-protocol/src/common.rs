@@ -3,6 +3,32 @@
 //! origins (DS §4.2)`. The macros below generate the typed message enums,
 //! the static spec tables and, with the `codegen` feature, the type visitors used by `export`.
 
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __delivery {
+    () => {
+        None
+    };
+    (thread) => {
+        Some($crate::common::Delivery::Thread)
+    };
+    (app) => {
+        Some($crate::common::Delivery::App)
+    };
+    (connection) => {
+        Some($crate::common::Delivery::Connection)
+    };
+    (scoped(Any)) => {
+        Some($crate::common::Delivery::AnyScoped)
+    };
+    (scoped($kind:ident)) => {
+        Some($crate::common::Delivery::Scoped(
+            $crate::v2::feed::ScopedFeedKind::$kind,
+        ))
+    };
+}
+
 use std::fmt;
 
 use mixdog_protocol::OpId;
@@ -834,31 +860,6 @@ macro_rules! notification_definitions {
         pub fn $visit_fn(visitor: &mut impl $crate::export::NotificationTypeVisitor) {
             $( visitor.visit::<$params>($wire); )*
         }
-    };
-}
-
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __delivery {
-    () => {
-        None
-    };
-    (thread) => {
-        Some($crate::common::Delivery::Thread)
-    };
-    (app) => {
-        Some($crate::common::Delivery::App)
-    };
-    (connection) => {
-        Some($crate::common::Delivery::Connection)
-    };
-    (scoped(Any)) => {
-        Some($crate::common::Delivery::AnyScoped)
-    };
-    (scoped($kind:ident)) => {
-        Some($crate::common::Delivery::Scoped(
-            $crate::v2::feed::ScopedFeedKind::$kind,
-        ))
     };
 }
 

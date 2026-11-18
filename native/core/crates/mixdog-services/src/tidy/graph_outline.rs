@@ -109,19 +109,6 @@ mod tests {
 
     const SOURCE: &str = "use std::fmt;\n\nfn short() {}\n\nstruct Holder;\n\nimpl Holder {\n    fn method(&self) -> u32 {\n        1\n    }\n}\n\nfn long_one() {\n    let a = 1;\n    let b = 2;\n    let c = a + b;\n    let _ = c;\n}\n";
 
-    fn source() -> GraphOutlineSource {
-        GraphOutlineSource::new(mixdog_rt::testing::tokens().cpu_bulk)
-    }
-
-    #[tokio::test]
-    async fn a_cancelled_request_outlines_nothing() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a.rs"), SOURCE).unwrap();
-        let cancel = CancellationToken::new();
-        cancel.cancel();
-        assert!(source().outline(dir.path(), &["a.rs".to_owned()], &cancel).await.is_err());
-    }
-
     #[test]
     fn a_cancel_after_the_first_batch_stops_the_later_batches() {
         let rels: Vec<String> = (0..CANCEL_CHECK_BATCH * 3).map(|n| format!("f{n}.rs")).collect();
@@ -136,6 +123,18 @@ mod tests {
         assert_eq!(outlined, rels[..CANCEL_CHECK_BATCH], "only the first batch was outlined");
     }
 
+
+    fn source() -> GraphOutlineSource {
+        GraphOutlineSource::new(mixdog_rt::testing::tokens().cpu_bulk)
+    }
+    #[tokio::test]
+    async fn a_cancelled_request_outlines_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), SOURCE).unwrap();
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        assert!(source().outline(dir.path(), &["a.rs".to_owned()], &cancel).await.is_err());
+    }
     #[tokio::test]
     async fn a_real_rust_file_yields_spans_in_the_unified_kinds() {
         let dir = tempfile::tempdir().unwrap();
@@ -152,7 +151,6 @@ mod tests {
         assert_eq!((find("method")["kind"].clone(), find("method")["startLine"].clone(), find("method")["endLine"].clone()), (json!("method"), json!(8), json!(10)));
         assert!(symbols.iter().all(|s| s["name"] != "fmt" && s["startLine"].as_u64().unwrap() >= 1), "imports are not symbols");
     }
-
     #[tokio::test]
     async fn the_function_length_summary_counts_from_the_real_outline() {
         let dir = tempfile::tempdir().unwrap();
@@ -165,7 +163,6 @@ mod tests {
         assert_eq!(out["longest"][0]["lines"], 6);
         assert_eq!(out["notMeasured"], json!([".txt"]));
     }
-
     #[tokio::test]
     async fn an_empty_selection_never_walks_the_directory() {
         let dir = tempfile::tempdir().unwrap();

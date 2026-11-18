@@ -4,7 +4,7 @@
 import { DESKTOP_IPC } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import type { IpcHandle } from './ipc';
-import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-validation';
+import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-capability-request';
 import type { SignInFocus } from './sign-in-focus';
 
 /** This PC's daemon as the owner of a server window's provider quota. */
@@ -35,6 +35,8 @@ export interface HostExtrasOptions {
   pcHost?: PcQuotaHost;
   /** The person's human-only confirmation (developer-risk-confirm.ts). */
   confirmAllowAllActions: () => Promise<boolean>;
+  /** Captures the private writer of the core the person is about to confirm for. */
+  prepareConfirmedAllowAllActions?: () => (() => Promise<unknown>) | undefined;
   /** The window's sign-in raise; null where the host is not this PC's daemon. */
   signInFocus: SignInFocus | null;
 }
@@ -173,14 +175,16 @@ export function registerHostExtrasIpc({
   host,
   pcHost,
   confirmAllowAllActions,
+  prepareConfirmedAllowAllActions,
   signInFocus,
 }: HostExtrasOptions): () => void {
-  // Turning on "Allow all actions" is the person's, answered here under the human-only lock; a click an agent made in
-  // the window cannot also confirm it. The write goes out on main's own connection (Local, not a Window, so the core's
-  // Window refusal does not apply). Not confirmed: nothing changes.
+  // Turning on "Allow all actions" is the person's, answered on main's own confirm surface under the human-only lock
+  // (developer-risk-confirm.ts); this window's renderer only asks and never carries the answer.
   handle(HOST_EXTRAS_IPC.enableAllowAllActions, async () => {
+    const applyConfirmedAllowAllActions = prepareConfirmedAllowAllActions?.();
+    if (!applyConfirmedAllowAllActions) throw new Error('Allow all actions can only be enabled on this PC.');
     if ((await confirmAllowAllActions()) === true) {
-      await host.invokeCapability('setDeveloperOption', ['allowAllActions', true]);
+      await applyConfirmedAllowAllActions();
     }
     return host.invokeCapability('getDeveloperSettings', []);
   });

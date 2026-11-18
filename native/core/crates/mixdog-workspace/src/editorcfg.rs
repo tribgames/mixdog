@@ -304,6 +304,23 @@ pub fn write_workspace_file(workspace_file: &Path, folders: &Value) -> WsResult<
 
 // ---- scoped editor settings -------------------------------------------------------------------
 
+const LEGACY_MARKDOWN_VIEW: &str = "mixdog.markdown.defaultView";
+
+fn read_user_settings(user_data: &Path) -> WsResult<Option<Map<String, Value>>> {
+    read_jsonc_file(&user_data.join("User").join("settings.json"))
+}
+
+/// Only the unscoped user preference can become the desktop-wide default.
+pub fn legacy_markdown_view(user_data: &Path) -> Option<&'static str> {
+    let settings = read_user_settings(user_data).ok().flatten()?;
+    match setting_in_scope(&settings, LEGACY_MARKDOWN_VIEW)?.as_str() {
+        Some("rich") => Some("rich"),
+        Some("source") => Some("source"),
+        Some("preview") => Some("preview"),
+        _ => None,
+    }
+}
+
 fn language_settings(source: &Map<String, Value>, language: &str) -> Map<String, Value> {
     let mut result = source.clone();
     for (key, value) in source {
@@ -374,7 +391,7 @@ fn editor_settings(scopes: Vec<Value>, language: &str) -> Value {
         "formatOnSave": boolean(get("editor.formatOnSave"), false),
         "formatOnPaste": boolean(get("editor.formatOnPaste"), false),
         "formatOnType": boolean(get("editor.formatOnType"), false),
-        "markdownDefaultView": get("mixdog.markdown.defaultView").as_ref().and_then(Value::as_str).filter(|v| matches!(*v, "rich" | "source")).unwrap_or("preview"),
+        "markdownDefaultView": get(LEGACY_MARKDOWN_VIEW).as_ref().and_then(Value::as_str).filter(|v| matches!(*v, "rich" | "source")).unwrap_or("preview"),
         "tabSize": number_json(finite(get("editor.tabSize"), 4.0, 1.0, 16.0).round()),
         "insertSpaces": boolean(get("editor.insertSpaces"), true),
         "detectIndentation": boolean(get("editor.detectIndentation"), true),
@@ -387,16 +404,16 @@ fn editor_settings(scopes: Vec<Value>, language: &str) -> Value {
 /// the user scope carries it, so a workspace or folder setting still wins over it, as in Node.
 pub fn read_editor_settings(user_data: &Path, folder: &Path, rel: &str, workspace_file: Option<&Path>, user_markdown_view: Option<String>) -> WsResult<Value> {
     let scope = |path: PathBuf| -> WsResult<Value> { Ok(Value::Object(read_jsonc_file(&path)?.unwrap_or_default())) };
-    let mut user = scope(user_data.join("User").join("settings.json"))?;
-    if let (Some(view), Some(map)) = (user_markdown_view, user.as_object_mut()) {
-        map.insert("mixdog.markdown.defaultView".to_owned(), Value::String(view));
+    let mut user = read_user_settings(user_data)?.unwrap_or_default();
+    if let Some(view) = user_markdown_view {
+        user.insert(LEGACY_MARKDOWN_VIEW.to_owned(), Value::String(view));
     }
     let workspace = match workspace_file {
         Some(file) => scope(lexical(file))?.get("settings").filter(|s| s.is_object()).cloned().unwrap_or_else(|| json!({})),
         None => json!({}),
     };
     let folder_scope = scope(lexical(folder).join(".vscode").join("settings.json"))?;
-    Ok(editor_settings(vec![user, workspace, folder_scope], &language_id_for_path(rel)))
+    Ok(editor_settings(vec![Value::Object(user), workspace, folder_scope], &language_id_for_path(rel)))
 }
 
 // ---- editor backups ---------------------------------------------------------------------------
@@ -404,6 +421,285 @@ pub fn read_editor_settings(user_data: &Path, folder: &Path, rel: &str, workspac
 const MAX_BACKUP_CONTENT: usize = 4_194_304;
 const MAX_BACKUP_AGE_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 const MAX_BACKUP_FILES: usize = 100;
+
+/// Where the profile migration put the backups before it moved them under the user-data folder, relative to the data dir.
+const MIGRATED_BACKUPS: &str = "desktop/editor-backups";
+
+pub struct Backups {
+    dir: PathBuf,
+}
+
+/// The app's internal "no project" working folder, created on demand.
+pub fn task_workspace(user_data: &Path) -> WsResult<PathBuf> {
+    let path = user_data.join("workspace").join("unclassified");
+    std::fs::create_dir_all(&path)?;
+    canonical(&path).map_err(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn language_ids_follow_names_patterns_then_longest_extension() {
+        assert_eq!(language_id_for_path("src/a.ts"), "typescript");
+        assert_eq!(language_id_for_path("Dockerfile"), "dockerfile");
+        assert_eq!(language_id_for_path("x.unknownext"), "plaintext");
+    }
+
+    #[test]
+    fn settings_merge_scopes_languages_and_clamp() {
+        let user = json!({ "editor.fontSize": 18, "[typescript]": { "editor.tabSize": 2 }, "editor.wordWrap": "on" });
+        let folder = json!({ "editor": { "fontSize": "20", "tabSize": 99 }, "editor.minimap.enabled": false });
+        let out = editor_settings(vec![user, json!({}), folder], "typescript");
+        assert_eq!(out["fontSize"], 20);
+        assert_eq!(out["tabSize"], 4);
+        assert_eq!(out["wordWrap"], "on");
+        assert_eq!(out["minimapEnabled"], false);
+    }
+
+    #[test]
+    fn jsonc_comments_and_trailing_commas() {
+        let v = parse_jsonc("{ // c\n \"a\": [1, 2,], /* x */ \"b\": \"//no\", }").unwrap();
+        assert_eq!(v, json!({ "a": [1, 2], "b": "//no" }));
+    }
+
+    #[test]
+    fn workspace_file_round_trips_relative_folders_and_keeps_other_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = canonical(dir.path()).unwrap();
+        let file = base.join("w");
+        std::fs::write(base.join("w.code-workspace"), r#"{ "settings": { "a": 1 } }"#).unwrap();
+        let folders = json!([{ "path": base.join("one").to_string_lossy() }, { "path": base.join("two").to_string_lossy(), "name": "Two" }]);
+        let written = write_workspace_file(&file, &folders).unwrap();
+        assert_eq!(written["name"], "w");
+        let text = std::fs::read_to_string(base.join("w.code-workspace")).unwrap();
+        assert!(text.contains("\"path\": \"one\"") && text.contains("\"settings\""));
+        let read = read_workspace_file(&base.join("w.code-workspace")).unwrap();
+        assert_eq!(read["folders"][1]["name"], "Two");
+    }
+
+    #[test]
+    fn backups_round_trip_and_delete() {
+        let dir = tempfile::tempdir().unwrap();
+        let backups = Backups::new(dir.path());
+        let source = dir.path().join("file.txt").to_string_lossy().into_owned();
+        assert_eq!(backups.read(&source).unwrap(), Value::Null);
+        backups.write(&source, "mine", "disk").unwrap();
+        assert_eq!(backups.read(&source).unwrap()["content"], "mine");
+        backups.delete(&source).unwrap();
+        assert_eq!(backups.read(&source).unwrap(), Value::Null);
+    }
+
+    /// The user-level settings file is read where the migration puts it (`<data>/userdata/User/settings.json`).
+    #[test]
+    fn the_migrated_user_settings_file_applies_to_every_file() {
+        let data = tempfile::tempdir().unwrap();
+        let user_data = data.path().join("userdata");
+        std::fs::create_dir_all(user_data.join("User")).unwrap();
+        std::fs::write(user_data.join("User").join("settings.json"), "{
+  // mine
+  \"editor.tabSize\": 2,
+}
+").unwrap();
+        let folder = data.path().join("project");
+        std::fs::create_dir_all(&folder).unwrap();
+        let settings = read_editor_settings(&user_data, &folder, "a.ts", None, None).unwrap();
+        assert_eq!(settings["tabSize"], 2);
+    }
+
+    /// A data dir the first migration pass already filled holds the old app's drafts under `desktop/editor-backups`: the backups
+    /// the core reads take them in, keep what is already there, and leave no copy behind.
+    #[test]
+    fn backups_an_earlier_migration_left_under_desktop_are_offered_from_the_user_data_folder() {
+        let data = tempfile::tempdir().unwrap();
+        let (mine, theirs) = (data.path().join("mine.txt").to_string_lossy().into_owned(), data.path().join("theirs.txt").to_string_lossy().into_owned());
+        let probe = Backups::new(&data.path().join("probe"));
+        let name_of = |source: &str| probe.path_of(source).unwrap().file_name().unwrap().to_owned();
+        let draft = |content: &str| json!({ "content": content, "expectedContent": "disk", "updatedAt": now_ms() }).to_string();
+        let left = data.path().join("desktop").join("editor-backups");
+        std::fs::create_dir_all(&left).unwrap();
+        std::fs::write(left.join(name_of(&mine)), draft("old draft")).unwrap();
+        std::fs::write(left.join(name_of(&theirs)), draft("stale copy")).unwrap();
+        let user_data = data.path().join("userdata");
+        std::fs::create_dir_all(user_data.join("editor-backups")).unwrap();
+        std::fs::write(user_data.join("editor-backups").join(name_of(&theirs)), draft("newer draft")).unwrap();
+
+        let backups = Backups::new(&user_data);
+        assert_eq!(backups.read(&mine).unwrap()["content"], "old draft");
+        assert_eq!(backups.read(&theirs).unwrap()["content"], "newer draft", "a draft written since stays");
+        backups.delete(&theirs).unwrap();
+        assert!(Backups::new(&user_data).read(&theirs).unwrap().is_null(), "deleted draft stays deleted");
+        let archives = data.path().join("desktop/editor-backups-superseded");
+        let slot = std::fs::read_dir(archives).unwrap().next().unwrap().unwrap().path();
+        let preserved: Value = serde_json::from_slice(&std::fs::read(slot.join(name_of(&theirs))).unwrap()).unwrap();
+        assert_eq!(preserved["content"], "stale copy", "the conflict is preserved outside adoption");
+        assert!(!data.path().join("desktop").join("editor-backups").join(name_of(&mine)).exists());
+    }
+    #[test]
+    fn archive_obstruction_blocks_backup_deletion_until_old_copy_is_preserved() {
+        let data = tempfile::tempdir().unwrap();
+        let source = data.path().join("a.txt").to_string_lossy().into_owned();
+        let backups = Backups::new(&data.path().join("userdata"));
+        backups.write(&source, "current", "disk").unwrap();
+        let name = backups.path_of(&source).unwrap().file_name().unwrap().to_owned();
+        let legacy = data.path().join("desktop/editor-backups");
+        std::fs::create_dir_all(&legacy).unwrap();
+        let stale = json!({"content":"stale", "expectedContent":"disk", "updatedAt":now_ms()}).to_string();
+        std::fs::write(legacy.join(&name), &stale).unwrap();
+        let archive = data.path().join("desktop/editor-backups-superseded");
+        std::fs::write(&archive, "obstruction").unwrap();
+        assert!(backups.delete(&source).is_err());
+        assert!(backups.read(&source).is_err());
+        assert!(legacy.join(&name).exists());
+        std::fs::remove_file(&archive).unwrap();
+        assert_eq!(backups.read(&source).unwrap()["content"], "current");
+        backups.delete(&source).unwrap();
+        assert!(Backups::new(&data.path().join("userdata")).read(&source).unwrap().is_null());
+        let slot = std::fs::read_dir(archive).unwrap().next().unwrap().unwrap().path();
+        assert_eq!(std::fs::read_to_string(slot.join(name)).unwrap(), stale);
+    }
+
+
+    #[cfg(node_twin)]
+    include!("node-twin/editorcfg.rs");
+
+    /// A draft backed up holding half of an emoji (a lone surrogate escape) is read back with U+FFFD in its place and is not deleted.
+    #[test]
+    fn a_backup_holding_half_an_emoji_is_read_not_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let backups = Backups::new(dir.path());
+        let source = dir.path().join("notes.md").to_string_lossy().into_owned();
+        let path = backups.path_of(&source).unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"content":"Draft reply \ud83d","expectedContent":"Draft reply\n","updatedAt":1794355203000}"#).unwrap();
+        let read = backups.read(&source).unwrap();
+        assert_eq!((read["content"].as_str(), read["expectedContent"].as_str()), (Some("Draft reply \u{fffd}"), Some("Draft reply\n")));
+        assert!(path.exists());
+    }
+
+    /// Saving a workspace file adds the `.code-workspace` extension, names the workspace after the file, drops a folder listed twice
+    /// (however it is spelled) and keeps a folder's name (an empty one is kept in the answer, left out of the file).
+    #[test]
+    fn a_workspace_file_is_named_after_its_file_and_lists_each_folder_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = canonical(dir.path()).unwrap();
+        let folder = |rel: &str| {
+            let mut path = base.clone();
+            path.extend(rel.split('/'));
+            path.to_string_lossy().into_owned()
+        };
+        let folders = json!([
+            { "path": folder("proj/a") },
+            { "name": "B", "path": folder("proj/b") },
+            { "path": folder("proj/a/../a") },
+            { "name": "", "path": folder("proj/d") },
+            { "path": folder("proj") },
+        ]);
+        let written = write_workspace_file(&base.join("proj").join("team"), &folders).unwrap();
+        assert_eq!((written["kind"].as_str(), written["name"].as_str()), (Some("workspace"), Some("team")));
+        let names: Vec<(String, Option<String>)> = written["folders"].as_array().unwrap().iter().map(|f| (f["path"].as_str().unwrap().to_owned(), f["name"].as_str().map(str::to_owned))).collect();
+        assert_eq!(names, [(folder("proj/a"), None), (folder("proj/b"), Some("B".into())), (folder("proj/d"), Some(String::new())), (folder("proj"), None)]);
+        let text = std::fs::read_to_string(base.join("proj").join("team.code-workspace")).unwrap();
+        let saved: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(saved["folders"], json!([{ "path": "a" }, { "name": "B", "path": "b" }, { "path": "d" }, { "path": folder("proj") }]));
+        let read = read_workspace_file(&base.join("proj").join("team.code-workspace")).unwrap();
+        assert_eq!(read["folders"].as_array().unwrap().len(), 4);
+        assert!(read_workspace_file(&base.join("proj").join("team.json")).is_err(), "the extension is required");
+    }
+
+    /// A workspace file may carry comments and trailing commas (`parse_jsonc` strips both, and nothing else); its folders are
+    /// resolved against its own folder, and a file that is not an object is refused.
+    #[test]
+    fn a_commented_workspace_file_is_read_and_its_folders_resolved() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = canonical(dir.path()).unwrap();
+        std::fs::create_dir_all(base.join("proj")).unwrap();
+        std::fs::write(base.join("proj/commented.code-workspace"), "{\n // c\n \"folders\": [ {\"path\": \"sub\"}, {\"path\": \"../up\", \"name\": \"Up\"}, ],\n}").unwrap();
+        let read = read_workspace_file(&base.join("proj/commented.code-workspace")).unwrap();
+        let paths: Vec<String> = read["folders"].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap().to_owned()).collect();
+        assert_eq!(paths, [base.join("proj").join("sub").to_string_lossy().into_owned(), base.join("up").to_string_lossy().into_owned()]);
+        std::fs::write(base.join("proj/bad.code-workspace"), "{ nope").unwrap();
+        assert!(read_workspace_file(&base.join("proj/bad.code-workspace")).is_err());
+        std::fs::write(base.join("proj/arr.code-workspace"), "[1]").unwrap();
+        assert!(read_workspace_file(&base.join("proj/arr.code-workspace")).is_err());
+    }
+
+    /// Editor settings with nothing configured are the defaults; the user's file, then the workspace's `settings`, then the
+    /// folder's `.vscode/settings.json` each override the one before; an unreadable or NUL-filled file is as if absent; values out of
+    /// range fall back to the default.
+    #[test]
+    fn editor_settings_are_the_defaults_then_user_workspace_and_folder_in_that_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = canonical(dir.path()).unwrap();
+        let (user_data, folder) = (base.join("userData"), base.join("folder"));
+        std::fs::create_dir_all(user_data.join("User")).unwrap();
+        std::fs::create_dir_all(folder.join(".vscode")).unwrap();
+        let defaults = read_editor_settings(&user_data, &folder, "a.ts", None, None).unwrap();
+        assert_eq!(
+            (defaults["fontSize"].clone(), defaults["lineHeight"].clone(), defaults["tabSize"].clone(), defaults["wordWrap"].clone(), defaults["renderWhitespace"].clone(), defaults["markdownDefaultView"].clone()),
+            (json!(14), json!(21), json!(4), json!("off"), json!("selection"), json!("preview"))
+        );
+        assert_eq!((defaults["minimapEnabled"].clone(), defaults["formatOnSave"].clone(), defaults["insertSpaces"].clone(), defaults["inlayHintsEnabled"].clone()), (json!(true), json!(false), json!(true), json!("on")));
+        std::fs::write(user_data.join("User/settings.json"), r#"{ "editor.fontSize": 18, "editor.tabSize": 2, "editor.wordWrap": "on" }"#).unwrap();
+        let workspace = base.join("w.code-workspace");
+        std::fs::write(&workspace, r#"{ "settings": { "editor.fontSize": 16, "editor.wordWrap": "bounded", "editor.lineHeight": 2 } }"#).unwrap();
+        std::fs::write(folder.join(".vscode/settings.json"), r#"{ "editor.fontSize": 12 }"#).unwrap();
+        let merged = read_editor_settings(&user_data, &folder, "a.ts", Some(&workspace), Some("rich".into())).unwrap();
+        // The folder wins the font size, the workspace the wrap, the user the tab size; a line height below 8 is out of range.
+        assert_eq!((merged["fontSize"].clone(), merged["wordWrap"].clone(), merged["tabSize"].clone(), merged["lineHeight"].clone(), merged["markdownDefaultView"].clone()), (json!(12), json!("bounded"), json!(2), json!(21), json!("rich")));
+        std::fs::write(folder.join(".vscode/settings.json"), "\0\0").unwrap();
+        assert_eq!(read_editor_settings(&user_data, &folder, "a.ts", None, None).unwrap()["fontSize"], 18, "a NUL-filled file is absent");
+        std::fs::write(folder.join(".vscode/settings.json"), r#"{ "editor.fontSize": "#).unwrap();
+        assert!(read_editor_settings(&user_data, &folder, "a.ts", None, None).is_err(), "a file that does not parse is an error");
+    }
+
+    /// A backup needs an absolute source path and content within 4 MiB (counted in UTF-16 units); a file that does not parse, is
+    /// older than 30 days or has the wrong shape reads as none and is removed; at most 100 backup files are kept, the oldest go.
+    #[test]
+    fn backups_refuse_bad_input_drop_unusable_files_and_keep_the_newest_hundred() {
+        let dir = tempfile::tempdir().unwrap();
+        let backups = Backups::new(dir.path());
+        let source = |name: &str| dir.path().join("p").join(name).to_string_lossy().into_owned();
+        assert_eq!(backups.write("relative/file.txt", "a", "b").unwrap_err().message, "Editor backup path is invalid.");
+        assert_eq!(backups.read("relative/file.txt").unwrap_err().message, "Editor backup path is invalid.");
+        assert_eq!(backups.write(&source("big.txt"), &"x".repeat(4_194_305), "").unwrap_err().message, "Editor backup content is invalid.");
+        assert!(backups.write(&source("max.txt"), &"x".repeat(4_194_304), "").is_ok());
+        assert_eq!(backups.write(&source("emoji.txt"), &"😀".repeat(2_097_152), "").map(|v| v["content"].as_str().map(|s| s.encode_utf16().count())).unwrap(), Some(4_194_304));
+        let planted = |name: &str, text: &str| {
+            let path = backups.path_of(&source(name)).unwrap();
+            std::fs::write(&path, text).unwrap();
+            path
+        };
+        let bad = planted("bad.txt", "{ not json");
+        assert_eq!(backups.read(&source("bad.txt")).unwrap(), Value::Null);
+        assert!(!bad.exists());
+        let old = planted("old.txt", &json!({ "content": "c", "expectedContent": "e", "updatedAt": now_ms() - 31 * 24 * 60 * 60 * 1000 }).to_string());
+        assert_eq!(backups.read(&source("old.txt")).unwrap(), Value::Null);
+        assert!(!old.exists());
+        planted("shape.txt", &json!({ "content": 5, "expectedContent": "e", "updatedAt": now_ms() }).to_string());
+        assert_eq!(backups.read(&source("shape.txt")).unwrap(), Value::Null);
+        backups.write(&source("file.txt"), "mine", "disk").unwrap();
+        backups.delete(&source("file.txt")).unwrap();
+        backups.delete(&source("file.txt")).unwrap();
+        assert_eq!(backups.read(&source("file.txt")).unwrap(), Value::Null);
+
+        let _ = std::fs::remove_dir_all(dir.path().join("editor-backups"));
+        let now = SystemTime::now();
+        for number in 0..105u64 {
+            let path = backups.path_of(&source(&format!("n{number}.txt"))).unwrap();
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, json!({ "content": "c", "expectedContent": "e", "updatedAt": now_ms() }).to_string()).unwrap();
+            std::fs::File::options().write(true).open(&path).unwrap().set_modified(now - std::time::Duration::from_secs(1000 - number)).unwrap();
+        }
+        backups.write(&source("newest.txt"), "n", "").unwrap();
+        let kept = std::fs::read_dir(dir.path().join("editor-backups")).unwrap().count();
+        assert_eq!(kept, 101, "the hundred newest of the old ones are pruned to 100 before the new one is added");
+        assert_eq!(backups.read(&source("n0.txt")).unwrap(), Value::Null, "the oldest is gone");
+        assert_eq!(backups.read(&source("n104.txt")).unwrap()["content"], "c");
+    }
+}
+
 
 /// The backup clock. A debug build (never a release one) reads `MIXDOG_FIXED_NOW_MS` as a pinned instant, so a replay can give the
 /// core the same virtual clock the Node recording ran on.
@@ -414,14 +710,6 @@ pub fn now_ms() -> i64 {
     }
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
-
-/// Where the profile migration put the backups before it moved them under the user-data folder, relative to the data dir.
-const MIGRATED_BACKUPS: &str = "desktop/editor-backups";
-
-pub struct Backups {
-    dir: PathBuf,
-}
-
 impl Backups {
     /// The backups of `user_data` (`<data>/userdata`). Read, write and delete adopt
     /// `<data>/desktop/editor-backups` first; construction and path lookup perform no I/O.
@@ -523,164 +811,4 @@ impl Backups {
             Err(e) => Err(e.into()),
         }
     }
-}
-
-/// The app's internal "no project" working folder, created on demand.
-pub fn task_workspace(user_data: &Path) -> WsResult<PathBuf> {
-    let path = user_data.join("workspace").join("unclassified");
-    std::fs::create_dir_all(&path)?;
-    canonical(&path).map_err(Into::into)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn language_ids_follow_names_patterns_then_longest_extension() {
-        assert_eq!(language_id_for_path("src/a.ts"), "typescript");
-        assert_eq!(language_id_for_path("Dockerfile"), "dockerfile");
-        assert_eq!(language_id_for_path("x.unknownext"), "plaintext");
-    }
-
-    #[test]
-    fn settings_merge_scopes_languages_and_clamp() {
-        let user = json!({ "editor.fontSize": 18, "[typescript]": { "editor.tabSize": 2 }, "editor.wordWrap": "on" });
-        let folder = json!({ "editor": { "fontSize": "20", "tabSize": 99 }, "editor.minimap.enabled": false });
-        let out = editor_settings(vec![user, json!({}), folder], "typescript");
-        assert_eq!(out["fontSize"], 20);
-        assert_eq!(out["tabSize"], 4);
-        assert_eq!(out["wordWrap"], "on");
-        assert_eq!(out["minimapEnabled"], false);
-    }
-
-    #[test]
-    fn jsonc_comments_and_trailing_commas() {
-        let v = parse_jsonc("{ // c\n \"a\": [1, 2,], /* x */ \"b\": \"//no\", }").unwrap();
-        assert_eq!(v, json!({ "a": [1, 2], "b": "//no" }));
-    }
-
-    #[test]
-    fn workspace_file_round_trips_relative_folders_and_keeps_other_keys() {
-        let dir = tempfile::tempdir().unwrap();
-        let base = canonical(dir.path()).unwrap();
-        let file = base.join("w");
-        std::fs::write(base.join("w.code-workspace"), r#"{ "settings": { "a": 1 } }"#).unwrap();
-        let folders = json!([{ "path": base.join("one").to_string_lossy() }, { "path": base.join("two").to_string_lossy(), "name": "Two" }]);
-        let written = write_workspace_file(&file, &folders).unwrap();
-        assert_eq!(written["name"], "w");
-        let text = std::fs::read_to_string(base.join("w.code-workspace")).unwrap();
-        assert!(text.contains("\"path\": \"one\"") && text.contains("\"settings\""));
-        let read = read_workspace_file(&base.join("w.code-workspace")).unwrap();
-        assert_eq!(read["folders"][1]["name"], "Two");
-    }
-
-    #[test]
-    fn backups_round_trip_and_delete() {
-        let dir = tempfile::tempdir().unwrap();
-        let backups = Backups::new(dir.path());
-        let source = dir.path().join("file.txt").to_string_lossy().into_owned();
-        assert_eq!(backups.read(&source).unwrap(), Value::Null);
-        backups.write(&source, "mine", "disk").unwrap();
-        assert_eq!(backups.read(&source).unwrap()["content"], "mine");
-        backups.delete(&source).unwrap();
-        assert_eq!(backups.read(&source).unwrap(), Value::Null);
-    }
-
-    /// A draft Node backed up holding half of an emoji (`native/core/fixtures/lone-surrogate-files`,
-    /// record-lone-surrogate-files.mjs): read back as Node's `readEditorBackup` reads it (U+FFFD), not deleted.
-    #[test]
-    fn a_backup_node_wrote_with_half_an_emoji_is_read_not_deleted() {
-        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
-        let cases: Value = serde_json::from_slice(&std::fs::read(set.join("cases.json")).unwrap()).unwrap();
-        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "editor-backup").unwrap();
-        // The recording's clock (nextest runs each test in its own process).
-        unsafe { std::env::set_var("MIXDOG_FIXED_NOW_MS", case["nodeRead"]["updatedAt"].to_string()) };
-        let dir = tempfile::tempdir().unwrap();
-        let backups = Backups::new(dir.path());
-        let source = dir.path().join("notes.md").to_string_lossy().into_owned();
-        let path = backups.path_of(&source).unwrap();
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::copy(set.join("editor-backup/before").join(case["file"].as_str().unwrap()), &path).unwrap();
-        assert_eq!(backups.read(&source).unwrap(), case["nodeRead"]);
-        assert!(path.exists());
-        // Node's own rewrite of the draft it read, one second later on the recording's clock: the same document.
-        let rel = case["file"].as_str().unwrap();
-        let after = &case["after"][rel];
-        unsafe { std::env::set_var("MIXDOG_FIXED_NOW_MS", after["updatedAt"].to_string()) };
-        let op = &case["op"]["writeEditorBackup"];
-        backups.write(&source, op["content"].as_str().unwrap(), op["expectedContent"].as_str().unwrap()).unwrap();
-        let written: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(&written, after);
-    }
-
-    /// A data dir the first migration pass already filled holds the old app's drafts under `desktop/editor-backups`: the backups
-    /// the core reads take them in, keep what is already there, and leave no copy behind.
-    #[test]
-    fn backups_an_earlier_migration_left_under_desktop_are_offered_from_the_user_data_folder() {
-        let data = tempfile::tempdir().unwrap();
-        let (mine, theirs) = (data.path().join("mine.txt").to_string_lossy().into_owned(), data.path().join("theirs.txt").to_string_lossy().into_owned());
-        let probe = Backups::new(&data.path().join("probe"));
-        let name_of = |source: &str| probe.path_of(source).unwrap().file_name().unwrap().to_owned();
-        let draft = |content: &str| json!({ "content": content, "expectedContent": "disk", "updatedAt": now_ms() }).to_string();
-        let left = data.path().join("desktop").join("editor-backups");
-        std::fs::create_dir_all(&left).unwrap();
-        std::fs::write(left.join(name_of(&mine)), draft("old draft")).unwrap();
-        std::fs::write(left.join(name_of(&theirs)), draft("stale copy")).unwrap();
-        let user_data = data.path().join("userdata");
-        std::fs::create_dir_all(user_data.join("editor-backups")).unwrap();
-        std::fs::write(user_data.join("editor-backups").join(name_of(&theirs)), draft("newer draft")).unwrap();
-
-        let backups = Backups::new(&user_data);
-        assert_eq!(backups.read(&mine).unwrap()["content"], "old draft");
-        assert_eq!(backups.read(&theirs).unwrap()["content"], "newer draft", "a draft written since stays");
-        backups.delete(&theirs).unwrap();
-        assert!(Backups::new(&user_data).read(&theirs).unwrap().is_null(), "deleted draft stays deleted");
-        let archives = data.path().join("desktop/editor-backups-superseded");
-        let slot = std::fs::read_dir(archives).unwrap().next().unwrap().unwrap().path();
-        let preserved: Value = serde_json::from_slice(&std::fs::read(slot.join(name_of(&theirs))).unwrap()).unwrap();
-        assert_eq!(preserved["content"], "stale copy", "the conflict is preserved outside adoption");
-        assert!(!data.path().join("desktop").join("editor-backups").join(name_of(&mine)).exists());
-    }
-
-    /// The user-level settings file is read where the migration puts it (`<data>/userdata/User/settings.json`).
-    #[test]
-    fn the_migrated_user_settings_file_applies_to_every_file() {
-        let data = tempfile::tempdir().unwrap();
-        let user_data = data.path().join("userdata");
-        std::fs::create_dir_all(user_data.join("User")).unwrap();
-        std::fs::write(user_data.join("User").join("settings.json"), "{
-  // mine
-  \"editor.tabSize\": 2,
-}
-").unwrap();
-        let folder = data.path().join("project");
-        std::fs::create_dir_all(&folder).unwrap();
-        let settings = read_editor_settings(&user_data, &folder, "a.ts", None, None).unwrap();
-        assert_eq!(settings["tabSize"], 2);
-    }
-    #[test]
-    fn archive_obstruction_blocks_backup_deletion_until_old_copy_is_preserved() {
-        let data = tempfile::tempdir().unwrap();
-        let source = data.path().join("a.txt").to_string_lossy().into_owned();
-        let backups = Backups::new(&data.path().join("userdata"));
-        backups.write(&source, "current", "disk").unwrap();
-        let name = backups.path_of(&source).unwrap().file_name().unwrap().to_owned();
-        let legacy = data.path().join("desktop/editor-backups");
-        std::fs::create_dir_all(&legacy).unwrap();
-        let stale = json!({"content":"stale", "expectedContent":"disk", "updatedAt":now_ms()}).to_string();
-        std::fs::write(legacy.join(&name), &stale).unwrap();
-        let archive = data.path().join("desktop/editor-backups-superseded");
-        std::fs::write(&archive, "obstruction").unwrap();
-        assert!(backups.delete(&source).is_err());
-        assert!(backups.read(&source).is_err());
-        assert!(legacy.join(&name).exists());
-        std::fs::remove_file(&archive).unwrap();
-        assert_eq!(backups.read(&source).unwrap()["content"], "current");
-        backups.delete(&source).unwrap();
-        assert!(Backups::new(&data.path().join("userdata")).read(&source).unwrap().is_null());
-        let slot = std::fs::read_dir(archive).unwrap().next().unwrap().unwrap().path();
-        assert_eq!(std::fs::read_to_string(slot.join(name)).unwrap(), stale);
-    }
-
 }

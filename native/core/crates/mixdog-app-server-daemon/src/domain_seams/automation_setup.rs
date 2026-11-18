@@ -85,32 +85,55 @@ impl StatusReader for AutomationActions {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use std::sync::Mutex;
 
+    #[cfg(node_twin)]
     use mixdog_core_agents::setup::DesktopAnswer;
+    #[cfg(node_twin)]
     use mixdog_core_agents::setup::SetupDesktop;
+    #[cfg(node_twin)]
     use mixdog_core_agents::setup::SetupService;
+    #[cfg(node_twin)]
     use mixdog_core_agents::setup::SetupVoice;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::common::AbsPath;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::tool::SurfaceKind;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::tool::Tool;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::tool::ToolPart;
+    #[cfg(node_twin)]
     use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
+    #[cfg(node_twin)]
     use mixdog_core_config::config::Config;
+    #[cfg(node_twin)]
     use mixdog_core_config::config::ConfigLanes;
+    #[cfg(node_twin)]
     use mixdog_core_config::tool_modules::EffortJudgeState;
+    #[cfg(node_twin)]
     use mixdog_core_config::tool_modules::External;
+    #[cfg(node_twin)]
     use mixdog_core_config::tool_modules::ToolModules;
+    #[cfg(node_twin)]
     use mixdog_core_config::tool_modules::ToolModulesHost;
+    #[cfg(node_twin)]
     use mixdog_protocol::ThreadId;
+    #[cfg(node_twin)]
     use mixdog_tools::orch::service::ServiceCall;
+    #[cfg(node_twin)]
     use mixdog_tools::orch::service::ServiceTool;
+    #[cfg(node_twin)]
     use mixdog_tools::orch::service::ToolService;
+    #[cfg(node_twin)]
     use serde_json::json;
+    #[cfg(node_twin)]
     use tokio::sync::watch;
 
     use super::*;
 
+    #[cfg(node_twin)]
     /// Chrono-free `new Date(ms).toISOString()` (days-from-civil, inverted).
     fn iso(ms: i64) -> String {
         let (days, rem) = (ms.div_euclid(86_400_000), ms.rem_euclid(86_400_000));
@@ -131,10 +154,12 @@ mod tests {
         )
     }
 
+    #[cfg(node_twin)]
     fn absent() -> Value {
         json!({"absent": true})
     }
 
+    #[cfg(node_twin)]
     /// The fake runtime of the recorder: the same answers, and every call noted.
     struct Fake {
         state: Mutex<Value>,
@@ -143,25 +168,7 @@ mod tests {
         noted: watch::Sender<()>,
     }
 
-    impl Fake {
-        fn note(&self, method: &str, args: Vec<Value>) {
-            self.calls.lock().unwrap().push(json!({"method": method, "args": args}));
-            self.noted.send_replace(());
-        }
-
-        fn saved(entry: &Value) -> Value {
-            let mut out = entry.as_object().unwrap().clone();
-            if let Some(at) = entry.get("at").and_then(Value::as_str).filter(|at| !at.is_empty()) {
-                out.insert("whenAt".into(), iso(mixdog_js::time::date_parse(at) as i64).into());
-            }
-            if let Some(time) = entry.get("time").filter(|time| time.as_str() != Some("")) {
-                out.insert("whenCron".into(), time.clone());
-            }
-            out.insert("secret".into(), "sek".into());
-            Value::Object(out)
-        }
-    }
-
+    #[cfg(node_twin)]
     #[async_trait]
     impl AutomationAdmin for Fake {
         async fn get_channel_setup(&self) -> Result<Value, String> {
@@ -205,9 +212,11 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     /// The recorder's `listAgents`.
     struct Directory(Vec<String>);
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl AgentDirectory for Directory {
         async fn agent_ids(&self) -> Result<Vec<String>, String> {
@@ -215,9 +224,11 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     /// The kind of session the case calls from (the recorder's `CALLERS`).
     struct Callers(Mutex<String>);
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl SetupCallers for Callers {
         async fn scope(&self, _: &ThreadId) -> CallerScope {
@@ -243,8 +254,10 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Desktop;
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl SetupDesktop for Desktop {
         async fn request(&self, _: &ThreadId, _: &Value) -> Result<DesktopAnswer, PortError> {
@@ -252,8 +265,10 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Voice;
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl SetupVoice for Voice {
         async fn set_enabled(&self, _: bool) -> Result<Value, PortError> {
@@ -261,8 +276,10 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Host(watch::Sender<u64>);
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl ToolModulesHost for Host {
         async fn external(&self) -> External {
@@ -278,8 +295,8 @@ mod tests {
         fn changes(&self) -> watch::Receiver<u64> {
             self.0.subscribe()
         }
-        async fn prepare_builtin_feature(&self, _: &str, _: Option<&[String]>) -> Result<(), String> {
-            Ok(())
+        async fn prepare_builtin_feature(&self, _: &str, _: Option<&[String]>) -> Result<Option<Value>, String> {
+            Ok(None)
         }
         async fn stop_local_provider_server(&self) {}
         async fn sync_local_provider_registry(&self, _: bool) {}
@@ -288,6 +305,7 @@ mod tests {
         fn invalidate_pre_session_tool_surface(&self) {}
     }
 
+    #[cfg(node_twin)]
     fn message(error: &PortError) -> String {
         match error {
             PortError::Denied(message) => message.clone(),
@@ -297,6 +315,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     /// The `setup` tool over a `SetupService` with the one automation owner registered for both
     /// its actions and its `status` domains, the way `mcp_services` composes it.
     struct Rig {
@@ -307,6 +326,37 @@ mod tests {
         fake: Arc<Fake>,
     }
 
+    #[test]
+    fn a_callers_scope_is_the_scope_of_the_access_rules() {
+        assert_eq!(access_scope(CallerScope::Human), AccessScope::Human);
+        assert_eq!(
+            access_scope(CallerScope::Agent { agent_id: "reviewer".into(), unattended: true }),
+            AccessScope::Agent { agent_id: "reviewer".into() }
+        );
+        assert_eq!(access_scope(CallerScope::RoomMember), AccessScope::RoomMember);
+        assert_eq!(access_scope(CallerScope::Headless), AccessScope::Headless);
+    }
+
+    #[cfg(node_twin)]
+    impl Fake {
+        fn note(&self, method: &str, args: Vec<Value>) {
+            self.calls.lock().unwrap().push(json!({"method": method, "args": args}));
+            self.noted.send_replace(());
+        }
+
+        fn saved(entry: &Value) -> Value {
+            let mut out = entry.as_object().unwrap().clone();
+            if let Some(at) = entry.get("at").and_then(Value::as_str).filter(|at| !at.is_empty()) {
+                out.insert("whenAt".into(), iso(mixdog_js::time::date_parse(at) as i64).into());
+            }
+            if let Some(time) = entry.get("time").filter(|time| time.as_str() != Some("")) {
+                out.insert("whenCron".into(), time.clone());
+            }
+            out.insert("secret".into(), "sek".into());
+            Value::Object(out)
+        }
+    }
+    #[cfg(node_twin)]
     async fn rig(agents: Vec<String>) -> Rig {
         let dir = tempfile::tempdir().unwrap();
         let tokens = mixdog_rt::testing::tokens();
@@ -332,6 +382,8 @@ mod tests {
         Rig { _dir: dir, service, tool, callers, fake }
     }
 
+
+    #[cfg(node_twin)]
     /// `fixtures/automation-setup-reply/golden.json` (`record-automation-setup-reply.mjs`): the
     /// reply (or refusal) of the real Node `createSetupToolExecutor` for every automation action
     /// from every kind of calling session, with the runtime calls it made. `SetupService` with
@@ -400,7 +452,7 @@ mod tests {
         }
         assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
     }
-
+    #[cfg(node_twin)]
     /// `fixtures/automation-status/golden.json` (`record-automation-status.mjs`): the reply (or
     /// error) of the real Node `createSetupToolExecutor` for `status` on `schedules` and
     /// `webhooks`, over listings of every shape (key order and unlisted keys, attachments,
@@ -439,16 +491,5 @@ mod tests {
         }
         assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
         assert!(fake.calls.lock().unwrap().is_empty(), "a status read only lists");
-    }
-
-    #[test]
-    fn a_callers_scope_is_the_scope_of_the_access_rules() {
-        assert_eq!(access_scope(CallerScope::Human), AccessScope::Human);
-        assert_eq!(
-            access_scope(CallerScope::Agent { agent_id: "reviewer".into(), unattended: true }),
-            AccessScope::Agent { agent_id: "reviewer".into() }
-        );
-        assert_eq!(access_scope(CallerScope::RoomMember), AccessScope::RoomMember);
-        assert_eq!(access_scope(CallerScope::Headless), AccessScope::Headless);
     }
 }

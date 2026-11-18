@@ -23,23 +23,29 @@ export function useEditorSettings({
 }): DesktopEditorSettings {
   const [editorSettings, setEditorSettings] = useState<DesktopEditorSettings>(DEFAULT_DESKTOP_EDITOR_SETTINGS);
   useEffect(() => {
-    let live = true;
     const reader = api?.readEditorSettings;
     if (!reader || accessToken) {
       setEditorSettings(DEFAULT_DESKTOP_EDITOR_SETTINGS);
-      return () => {
-        live = false;
-      };
+      return;
     }
-    void reader(projectPath, relPath, workspaceFile)
-      .then((settings) => {
-        if (live && settings) setEditorSettings(settings);
-      })
-      .catch(() => {
-        if (live) setEditorSettings(DEFAULT_DESKTOP_EDITOR_SETTINGS);
-      });
+    let revision = 0;
+    const refresh = () => {
+      const current = ++revision;
+      void reader(projectPath, relPath, workspaceFile)
+        .then((settings) => {
+          if (current === revision && settings) setEditorSettings(settings);
+        })
+        .catch(() => {
+          if (current === revision) setEditorSettings(DEFAULT_DESKTOP_EDITOR_SETTINGS);
+        });
+    };
+    const unsubscribe = api?.subscribeSettingsChanged?.(({ scope }) => {
+      if (scope === 'desktop') refresh();
+    });
+    refresh();
     return () => {
-      live = false;
+      ++revision;
+      unsubscribe?.();
     };
   }, [accessToken, api, projectPath, relPath, workspaceFile]);
   useEffect(() => {

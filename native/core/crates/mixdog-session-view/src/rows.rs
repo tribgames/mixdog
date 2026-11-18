@@ -2,10 +2,9 @@
 //! of `packages/protocol-client/src/rows.ts`). A row has the exact shape Node's transcript has, field for field, so every
 //! surface reads it unchanged.
 //!
-//! Two steps, because the fold keeps one row per item and an aggregate card is a view over a run of them:
-//! - [`row_of`] is one item's row (a tool call with its result attached once it has finished, a user or assistant row with its
-//!   route fields and attachments, a room row); `meta.ext`, the core's exact row attributes, is applied last, so the core always
-//!   has the final word on a row.
+//! The fold keeps an item's individual rows before it merges consecutive cards:
+//! - [`item_rows`] projects an item, using [`row_of`] for ordinary rows. `meta.ext` supplies remaining row attributes after the
+//!   typed fields, except for payloads that need normalization.
 //! - [`merge_tool_rows`] collapses a run of finished tool rows into one `__aggregate__` row and drops the tool rows the
 //!   transcript hides.
 //!
@@ -196,7 +195,7 @@ pub fn row_of(item: &Value) -> Option<Row> {
     let mut row = row_body(item, meta)?;
     if let Value::Object(map) = &mut row.value {
         for (key, value) in ext_of(item, meta) {
-            if key != DIVIDERS_AFTER {
+            if key != DIVIDERS_AFTER && !(key == "toolMeta" && text(fld(item_ref, "type")) == "toolCall") {
                 map.insert(key, value);
             }
         }
@@ -206,15 +205,219 @@ pub fn row_of(item: &Value) -> Option<Row> {
 
 /// A history page's item as its rows: its own row, then the rows of the compaction dividers that follow it.
 pub fn rows_of(item: &Value) -> Vec<Row> {
-    let own = row_of(item);
     let after = fld(fld(fld(Some(item), "meta"), "ext"), DIVIDERS_AFTER);
     let dividers = match after {
         Some(Value::Array(list)) => list.iter().filter_map(row_of).collect(),
         _ => Vec::new(),
     };
-    own.into_iter().chain(dividers).collect()
+    item_rows(item).into_iter().chain(dividers).collect()
 }
 
+/// One completion of a woken batch: its text's byte range in the row's joined text, and what the batch recorded of its job.
+struct BatchEntry {
+    range: std::ops::Range<usize>,
+    execution: Value,
+}
+
+/// The byte index of a UTF-16 code unit offset (what the core records and a JavaScript client slices by).
+fn byte_at(content: &str, utf16: u64) -> Option<usize> {
+    let mut units = 0u64;
+    for (at, ch) in content.char_indices() {
+        if units == utf16 {
+            return Some(at);
+        }
+        units += ch.len_utf16() as u64;
+    }
+    (units == utf16).then_some(content.len())
+}
+
+fn escape_field(value: &str) -> String {
+    value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+/// `parseTaskNotification`'s outer fields (task id, status, surface) of one envelope, as the `execution` record a row reads.
+fn envelope_execution(envelope: &str) -> Value {
+    match mixdog_view_model::card_model::background_task::parse_background_task_result(envelope) {
+        Some(parsed) => json!({ "id": parsed.task_id, "status": parsed.status, "surface": parsed.surface }),
+        None => json!({}),
+    }
+}
+
+/// The completions of a turn input row, located in its text. A row the core wrote for a batch carries them as data
+/// (`details.completions`, UTF-16 offsets into the text): nothing is cut by its content. A row stored before that data existed has
+/// only `details.consumedExecutionIds`, one id per queued entry in order, and an entry's text is its `<task-notification>` envelope
+/// whose first field is its own `<task-id>`: entry k starts at the first line after entry k-1's start that opens an envelope naming
+/// id k, and the last entry ends with the text. The envelope writers do not escape a result, so a result may quote envelopes; the
+/// only cut that can then be wrong is a result quoting the envelope of the very next completion (same task id) before that
+/// completion's own envelope. A row whose ids cannot all be found (an entry that named none, or an execution id other than its
+/// envelope's task id, as `restart:` ids are) is not split: it stays the one card it always was. Twin of `batchEntries` (rows.ts).
+fn batch_entries(content: &str, details: Opt) -> Vec<BatchEntry> {
+    if let Some(Value::Array(recorded)) = fld(details, "completions").filter(|list| list.as_array().is_some_and(|list| !list.is_empty())) {
+        let mut entries = Vec::new();
+        for one in recorded {
+            let one = Some(one);
+            let (Some(start), Some(end)) = (fld(one, "start").and_then(Value::as_u64), fld(one, "end").and_then(Value::as_u64)) else { return Vec::new() };
+            let (Some(start), Some(end)) = (byte_at(content, start), byte_at(content, end)) else { return Vec::new() };
+            let mut execution = Map::new();
+            for (key, from) in [("id", "executionId"), ("surface", "surface"), ("status", "status")] {
+                put_text(&mut execution, key, fld(one, from));
+            }
+            entries.push(BatchEntry { range: start..end, execution: Value::Object(execution) });
+        }
+        return entries;
+    }
+    let ids: Vec<&str> = match fld(details, "consumedExecutionIds") {
+        Some(Value::Array(list)) => list.iter().map(|id| id.as_str().unwrap_or("")).collect(),
+        _ => Vec::new(),
+    };
+    if ids.len() < 2 || ids.iter().any(|id| id.is_empty()) {
+        return Vec::new();
+    }
+    let mut starts: Vec<usize> = Vec::new();
+    let mut from = 0usize;
+    for (at, id) in ids.iter().enumerate() {
+        let opening = format!("<task-notification>\n<task-id>{}</task-id>\n", escape_field(id));
+        let found = if at == 0 {
+            content.starts_with(&opening).then_some(0)
+        } else {
+            content.get(from..).and_then(|rest| rest.find(&format!("\n{opening}"))).map(|found| from + found + 1)
+        };
+        let Some(found) = found else { return Vec::new() };
+        starts.push(found);
+        from = found + 1;
+    }
+    (0..starts.len())
+        .map(|at| {
+            let end = starts.get(at + 1).map_or(content.len(), |next| next - 1);
+            BatchEntry { range: starts[at]..end, execution: envelope_execution(&content[starts[at]..end]) }
+        })
+        .collect()
+}
+
+/// The canonical marker written by the importers. The Rust importer clips names by UTF-16, the older importer by code point.
+fn imported_tool_line(tools: &[(&str, u64)], code_points: bool) -> String {
+    let suffix = |remaining| if remaining > 0 { format!(", +{remaining} more") } else { String::new() };
+    let mut line = "[ran tools: ".to_owned();
+    let mut shown = 0;
+    for (name, count) in tools {
+        let display = if code_points && name.chars().count() > 40 {
+            format!("{}…", name.chars().take(39).collect::<String>())
+        } else if !code_points && utf16_len(name) > 40 {
+            format!("{}…", slice_utf16(name, 39))
+        } else {
+            (*name).to_owned()
+        };
+        let entry = format!("{}{display} ×{count}", if shown > 0 { ", " } else { "" });
+        if shown > 0 && utf16_len(&line) + utf16_len(&entry) + suffix(tools.len() - shown - 1).len() + 1 > 400 {
+            break;
+        }
+        line.push_str(&entry);
+        shown += 1;
+    }
+    line.push_str(&suffix(tools.len() - shown));
+    line.push(']');
+    line
+}
+
+fn push_imported_row(rows: &mut Vec<Row>, mut row: Map<String, Value>, id: Opt) {
+    // The core uses `:<n>` for other items attached to this same stored message.
+    if rows.is_empty() {
+        put(&mut row, "id", id);
+    } else {
+        row.insert("id".to_owned(), json!(format!("{}:import:{}", js_string(id), rows.len())));
+    }
+    rows.push(Row::plain(Value::Object(row)));
+}
+
+fn imported_assistant_rows(item: &Value, meta: Opt) -> Option<Vec<Row>> {
+    let content = item.get("text")?.as_str()?;
+    let runs = item.get("importedToolRuns")?.as_array().filter(|runs| !runs.is_empty())?;
+    let assistant = row_of(item)?.value;
+    let assistant = assistant.as_object()?;
+    let id = assistant.get("id");
+    let mut rows = Vec::new();
+    let push_text = |rows: &mut Vec<Row>, raw: &str| {
+        let prose = js_trim(raw);
+        if !prose.is_empty() {
+            let mut row = assistant.clone();
+            row.insert("text".to_owned(), json!(prose));
+            push_imported_row(rows, row, id);
+        }
+    };
+    let mut cursor = 0;
+    for run in runs {
+        let (Some(start), Some(end)) = (run.get("start").and_then(Value::as_u64), run.get("end").and_then(Value::as_u64)) else { continue };
+        let (Some(start), Some(end)) = (byte_at(content, start), byte_at(content, end)) else { continue };
+        if start < cursor || end <= start {
+            continue;
+        }
+        let Some(tools) = run.get("tools").and_then(Value::as_array).filter(|tools| !tools.is_empty()) else { continue };
+        let Some(tools): Option<Vec<(&str, u64)>> = tools.iter().map(|tool| {
+            Some((tool.get("name")?.as_str()?, tool.get("count")?.as_u64().filter(|count| *count > 0)?))
+        }).collect() else { continue };
+        let marker = &content[start..end];
+        if marker != imported_tool_line(&tools, true) && marker != imported_tool_line(&tools, false) {
+            continue;
+        }
+        push_text(&mut rows, &content[cursor..start]);
+        for (name, count) in tools {
+            if is_transcript_hidden_control_tool_name(name) {
+                continue;
+            }
+            let mut row = Map::new();
+            row.insert("kind".to_owned(), json!("tool"));
+            row.insert("name".to_owned(), json!(name));
+            row.insert("count".to_owned(), json!(count));
+            row.insert("completedCount".to_owned(), json!(count));
+            row.insert("imported".to_owned(), json!(true));
+            row.insert("expanded".to_owned(), json!(false));
+            if is_number(fld(meta, "at")) {
+                for key in ["at", "startedAt", "completedAt"] {
+                    put(&mut row, key, fld(meta, "at"));
+                }
+            }
+            if assistant.get("archived") == Some(&Value::Bool(true)) {
+                row.insert("archived".to_owned(), json!(true));
+            }
+            push_imported_row(&mut rows, row, id);
+        }
+        cursor = end;
+    }
+    push_text(&mut rows, &content[cursor..]);
+    Some(rows)
+}
+
+/// A reply may expand into imported prose and tools, and a queued batch into one card per completion.
+/// In either case the first visible row keeps the item id and subsequent ids are local to that item.
+pub fn item_rows(item: &Value) -> Vec<Row> {
+    let meta = fld(Some(item), "meta");
+    let details = fld(Some(item), "details");
+    if text(fld(Some(item), "type")) == "agentMessage"
+        && let Some(imported) = imported_assistant_rows(item, meta)
+    {
+        return imported;
+    }
+    if text(fld(Some(item), "type")) == "userMessage" && text(coalesce(fld(meta, "source"), fld(details, "source"))) == "task-notification" {
+        let content = user_row(item, meta).get("text").and_then(Value::as_str).unwrap_or("").to_owned();
+        let entries = batch_entries(&content, details);
+        if entries.len() > 1 {
+            return entries
+                .iter()
+                .enumerate()
+                .filter_map(|(at, entry)| {
+                    let mut each = item.clone();
+                    if at > 0 {
+                        each["id"] = json!(format!("{}:{at}", text(fld(Some(item), "id"))));
+                    }
+                    each["content"] = json!([{ "type": "text", "text": &content[entry.range.clone()] }]);
+                    each["meta"]["ext"]["execution"] = entry.execution.clone();
+                    row_of(&each)
+                })
+                .collect();
+        }
+    }
+    row_of(item).into_iter().collect()
+}
 fn row_body(item: &Value, meta: Opt) -> Option<Row> {
     let item_ref = Some(item);
     let id = fld(item_ref, "id");
@@ -326,6 +529,26 @@ fn present_error(value: &str, surface: &str) -> String {
     present_error_text(Some(&Value::String(value.to_owned())), &PresentOptions { surface, ..PresentOptions::default() })
 }
 
+fn put_tool_meta(row: &mut Map<String, Value>, meta: Opt) {
+    let code = text(fld(meta, "code"));
+    if code.is_empty() {
+        return;
+    }
+    let missing: Vec<&str> = fld(meta, "missing")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|name| !name.is_empty())
+        .collect();
+    let mut normalized = json!({ "code": code, "missing": missing });
+    let owner = text(fld(meta, "ownerSessionId"));
+    if (1..=128).contains(&owner.len()) && owner.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-')) {
+        normalized["ownerSessionId"] = json!(owner);
+    }
+    row.insert("toolMeta".to_owned(), normalized);
+}
+
 /// One tool call's row: restore.mjs `restoredToolCallItems` for the call, `attachRestoredToolResult` once it has finished.
 fn tool_row(item: &Value, meta: Opt, name: &str, args: Option<Value>, output: Option<String>, failed: bool) -> Option<Row> {
     let item_ref = Some(item);
@@ -349,8 +572,10 @@ fn tool_row(item: &Value, meta: Opt, name: &str, args: Option<Value>, output: Op
         row.insert("args".to_owned(), args.clone());
     }
     row.insert("expanded".to_owned(), json!(false));
-    row.insert("count".to_owned(), json!(1));
-    row.insert("completedCount".to_owned(), json!(u8::from(finished)));
+    // A card the core extended with later responses (`agent_response`) states how many it covers on its run.
+    let count = fld(run, "count").and_then(Value::as_u64).filter(|n| *n >= 1).unwrap_or(1);
+    row.insert("count".to_owned(), json!(count));
+    row.insert("completedCount".to_owned(), json!(if finished { count } else { 0 }));
     let at = fld(meta, "at");
     if is_number(at) {
         let started = if live && is_number(fld(run, "startedAt")) { fld(run, "startedAt") } else { at };
@@ -362,6 +587,7 @@ fn tool_row(item: &Value, meta: Opt, name: &str, args: Option<Value>, output: Op
         }
     }
     put_text(&mut row, "callId", coalesce(fld(run, "callId"), fld(ext, "callId")));
+    put_text(&mut row, "messageId", fld(meta, "messageId"));
     // The core ends a live card as `interrupted` only with the abort's error result: a failed call whose card the Stop ended.
     let stopped = live && status == "interrupted";
     if !finished {
@@ -372,6 +598,10 @@ fn tool_row(item: &Value, meta: Opt, name: &str, args: Option<Value>, output: Op
     // `attachRestoredToolResult` -> `assignUiDiffFromMessage`: the result message's diff is the card's.
     for (key, value) in string_ui_diff_patch(fld(run, "uiDiff")) {
         row.insert(key, value);
+    }
+    put_tool_meta(&mut row, coalesce(fld(run, "toolMeta"), fld(ext, "toolMeta")));
+    if let raw @ Some(Value::String(_)) = fld(run, "rawResult") {
+        put(&mut row, "rawResult", raw);
     }
     // A cancel/crash body is not a red failure (restore.mjs): it shows the Cancelled tone.
     let cancelled = tool_result_terminal_status(&result) == "cancelled";
@@ -412,6 +642,18 @@ struct Run<'a> {
     bucket: String,
     live: bool,
     members: Vec<Member<'a>>,
+}
+
+/// Ownership belongs to the call, not to an aggregate that can contain different owners.
+fn restore_member_metadata(tool_members: &mut [Value], members: &[Member<'_>], yield_point: &mut impl FnMut()) {
+    for (i, (tool, member)) in tool_members.iter_mut().zip(members).enumerate() {
+        if i % ROWS_PER_STEP == ROWS_PER_STEP - 1 {
+            yield_point();
+        }
+        if let Some(meta) = member.row.value.get("toolMeta") {
+            tool["toolMeta"] = meta.clone();
+        }
+    }
 }
 
 /// `mergeToolRows`: collapses every run of two or more consecutive finished tool rows of one bucket into one `__aggregate__`
@@ -597,7 +839,9 @@ fn aggregate_row_steps(members: &[Member<'_>], live: bool, yield_point: &mut imp
         card.insert("count".to_owned(), json!(calls.len()));
         card.insert("completedCount".to_owned(), json!(resolved_count));
         card.insert("categories".to_owned(), entries_object(&header));
-        card.insert("toolMembers".to_owned(), Value::Array(aggregate_tool_members_steps(&calls, &mut *yield_point)));
+        let mut tool_members = aggregate_tool_members_steps(&calls, &mut *yield_point);
+        restore_member_metadata(&mut tool_members, members, &mut *yield_point);
+        card.insert("toolMembers".to_owned(), Value::Array(tool_members));
         card.insert("aggregate".to_owned(), json!(true));
         card.insert("result".to_owned(), Value::Null);
         card.insert("rawResult".to_owned(), Value::Null);
@@ -612,6 +856,9 @@ fn aggregate_row_steps(members: &[Member<'_>], live: bool, yield_point: &mut imp
     }
     // Every pass over the members below steps with the same quantum: the helpers' stepped forms, and the two small ones here.
     let mut outcome_patch = aggregate_result_patch_steps(&calls, &calls, calls.len(), &mut *yield_point);
+    if let Some(tool_members) = outcome_patch.get_mut("toolMembers").and_then(Value::as_array_mut) {
+        restore_member_metadata(tool_members, members, &mut *yield_point);
+    }
     let mut latest_ui_diff: Opt = None;
     for (from_end, member) in members.iter().rev().enumerate() {
         if (from_end + 1) % ROWS_PER_STEP == 0 {
@@ -751,6 +998,20 @@ fn put_reactions(out: &mut Map<String, Value>, value: Opt) {
     }
 }
 
+fn put_routine_trigger(out: &mut Map<String, Value>, value: Opt) {
+    let name = js_trim(text(fld(value, "name")));
+    let kind = text(fld(value, "kind"));
+    if name.is_empty() || !matches!(kind, "schedule" | "webhook") {
+        return;
+    }
+    let mut trigger = json!({ "kind": kind, "name": slice_utf16(name, 200) });
+    let event = js_trim(text(fld(value, "event")));
+    if !event.is_empty() {
+        trigger["event"] = json!(slice_utf16(event, 200));
+    }
+    out.insert("routineTrigger".to_owned(), trigger);
+}
+
 /// The typed source of a user-role item that the product shows as something other than the user's prompt.
 const NOTICE_SOURCES: [&str; 3] = ["schedule-result", "held-request", "task-notification"];
 /// The ext keys the source branches consume to build the row themselves (the stored payloads, not row attributes).
@@ -769,7 +1030,7 @@ fn ext_of(item: &Value, meta: Opt) -> Map<String, Value> {
         ext.insert("checkpointId".to_owned(), json!(submission));
         return ext;
     }
-    if item_type == "userMessage" && NOTICE_SOURCES.contains(&text(fld(meta, "source"))) {
+    if item_type == "userMessage" && NOTICE_SOURCES.contains(&text(coalesce(fld(meta, "source"), item.pointer("/details/source")))) {
         for key in SOURCE_PAYLOAD_KEYS {
             ext.shift_remove(key);
         }
@@ -779,8 +1040,8 @@ fn ext_of(item: &Value, meta: Opt) -> Map<String, Value> {
 
 /// Posted into the thread outside any turn (restore.mjs `isPostedMessage`): stamped so, or a message id minted by the routine
 /// delivery (`routine_<runId>`).
-fn put_posted(out: &mut Map<String, Value>, ext: Opt) {
-    if fld(ext, "posted") == Some(&Value::Bool(true)) || text(fld(ext, "messageId")).starts_with("routine_") {
+fn put_posted(out: &mut Map<String, Value>, posted: Opt, message_id: Opt) {
+    if posted == Some(&Value::Bool(true)) || text(message_id).starts_with("routine_") {
         out.insert("posted".to_owned(), json!(true));
     }
 }
@@ -811,7 +1072,7 @@ fn handoff_files(value: Opt) -> Vec<Value> {
 }
 
 /// `routineResultNotice` (routine-result.mjs): the line, tone and `routine` payload of a stored routine result.
-fn routine_notice(ext: Opt) -> Map<String, Value> {
+fn routine_notice(ext: Opt, attachments: Opt) -> Map<String, Value> {
     let routine = fld(ext, "routine");
     let mut out = Map::new();
     if num(fld(routine, "omitted")) > 0.0 {
@@ -863,7 +1124,11 @@ fn routine_notice(ext: Opt) -> Map<String, Value> {
         }
         put_text(&mut payload, "line", fld(routine, "line"));
         out.insert("routine".to_owned(), Value::Object(payload));
-        put_attachments(&mut out, fld(ext, "attachments"));
+        let mut records = attachments.and_then(Value::as_array).cloned().unwrap_or_default();
+        if let Some(Value::Array(legacy)) = fld(ext, "attachments") {
+            records.extend(legacy.iter().cloned());
+        }
+        put_attachments(&mut out, Some(&Value::Array(records)));
         return out;
     }
     let webhook = fld(routine, "kind") == Some(&json!("webhook"));
@@ -916,8 +1181,7 @@ fn held_notice(held: Opt) -> Map<String, Value> {
 }
 
 /// A user-role item by its typed message source (`meta.source`; the core drops `skill` and `hook` rows and sends internal wrappers
-/// and interrupted ends as typed records, so nothing here reads text). The stored payloads (`routine`, `heldRequest`, `execution`,
-/// the stored attachments, `messageId`) are `meta.ext`.
+/// and interrupted ends as typed records, so nothing here reads text). Some older items keep their payloads and stamps in `meta.ext`.
 fn user_message_row(item: &Value, meta: Opt) -> Option<Map<String, Value>> {
     let item_ref = Some(item);
     let id = fld(item_ref, "id");
@@ -927,20 +1191,21 @@ fn user_message_row(item: &Value, meta: Opt) -> Option<Map<String, Value>> {
     let details = fld(item_ref, "details");
     let held = if is_obj(fld(ext, "heldRequest")) { fld(ext, "heldRequest") } else { fld(details, "heldRequest") };
     let mut stamp = Map::new();
-    put_text(&mut stamp, "messageId", fld(ext, "messageId"));
+    let message_id = coalesce(fld(meta, "messageId"), fld(ext, "messageId"));
+    put_text(&mut stamp, "messageId", message_id);
     if let at @ Some(Value::Number(number)) = fld(meta, "at")
         && number.as_f64().is_some_and(|f| f != 0.0)
     {
         put(&mut stamp, "at", at);
     }
+    put_posted(&mut stamp, coalesce(fld(meta, "posted"), fld(ext, "posted")), message_id);
     match text(coalesce(fld(meta, "source"), fld(details, "source"))) {
         "schedule-result" => {
             let mut row = Map::new();
             row.insert("kind".to_owned(), json!("notice"));
             put(&mut row, "id", id);
-            row.extend(routine_notice(ext));
+            row.extend(routine_notice(ext, body.get("attachments")));
             row.extend(stamp);
-            put_posted(&mut row, ext);
             Some(row)
         }
         // A held request without its id cannot be answered, so it has no row.
@@ -977,7 +1242,7 @@ fn user_message_row(item: &Value, meta: Opt) -> Option<Map<String, Value>> {
             let mut row = Map::new();
             row.insert("kind".to_owned(), json!("tool"));
             put(&mut row, "id", id);
-            put_text(&mut row, "messageId", fld(ext, "messageId"));
+            put_text(&mut row, "messageId", message_id);
             row.insert("name".to_owned(), json!(if ["agent", "shell", "web_search"].contains(&surface.as_str()) { surface.as_str() } else { "task" }));
             row.insert("args".to_owned(), Value::Object(args));
             row.insert("result".to_owned(), json!(result));
@@ -1051,6 +1316,8 @@ fn user_row(item: &Value, meta: Opt) -> Map<String, Value> {
     let details = fld(item_ref, "details");
     put_text(&mut row, "sender", fld(details, "sender"));
     put_text(&mut row, "fromAgent", fld(details, "fromAgent"));
+    put_routine_trigger(&mut row, fld(details, "routineTrigger"));
+    put_reactions(&mut row, fld(details, "reactions"));
     // restore.mjs `restoredTranscriptMetadata`: the stored attachments (`meta.transcript.attachments`, the core's
     // `details.attachments`) the pasted-text and file chips read and open from the store.
     let mut attachments = attachments;
@@ -1177,6 +1444,98 @@ fn room_row_item(item: &Value, meta: Opt) -> Value {
 mod tests {
     use super::*;
 
+    #[test]
+    fn imported_prose_and_counted_tools_interleave_without_duplication_on_replay() {
+        use crate::reducer::SessionReducer;
+        use mixdog_app_protocol::JsonRpcNotification;
+        use mixdog_app_server_client::ThreadReducer;
+
+        let prefix = "😀 First.\n\n";
+        let marker = "[ran tools: read ×2, grep ×1]";
+        let between = "\n\n[ran tools: shell ×99]\n\n";
+        let last_marker = "[ran tools: shell ×1]";
+        let last_start = utf16_len(prefix) + utf16_len(marker) + utf16_len(between);
+        let item = json!({
+            "type": "agentMessage", "id": "imported", "text": format!("{prefix}{marker}{between}{last_marker}\n\nDone."),
+            "importedToolRuns": [
+                { "start": utf16_len(prefix), "end": utf16_len(prefix) + utf16_len(marker), "tools": [{ "name": "read", "count": 2 }, { "name": "grep", "count": 1 }] },
+                { "start": utf16_len(prefix) + utf16_len(marker) + 2, "end": last_start - 2, "tools": [{ "name": "shell", "count": 1 }] },
+                { "start": last_start, "end": last_start + utf16_len(last_marker), "tools": [{ "name": "shell", "count": 1 }] }
+            ],
+            "meta": { "at": 42, "messageId": "msg_imported", "provider": "p" }
+        });
+        let prose = |id: &str, text: &str| json!({ "kind": "assistant", "id": id, "text": text, "at": 42, "messageId": "msg_imported", "provider": "p" });
+        let tool = |id: &str, name: &str, count: u64| json!({
+            "kind": "tool", "id": id, "name": name, "count": count, "completedCount": count, "imported": true, "expanded": false,
+            "at": 42, "startedAt": 42, "completedAt": 42
+        });
+        let mut expected = vec![
+            prose("imported", "😀 First."),
+            tool("imported:import:1", "read", 2),
+            tool("imported:import:2", "grep", 1),
+            prose("imported:import:3", "[ran tools: shell ×99]"),
+            tool("imported:import:4", "shell", 1),
+            prose("imported:import:5", "Done."),
+        ];
+        assert_eq!(rows_of(&item).into_iter().map(|row| row.value).collect::<Vec<_>>(), expected);
+        let reducer = SessionReducer;
+        let tail = json!({ "type": "agentMessage", "id": "imported:1", "text": "Later." });
+        let fold = reducer.initial(&json!({ "thread": { "id": "t" }, "items": [item, tail], "state": {} }));
+        let replay: JsonRpcNotification = serde_json::from_value(json!({ "method": "item/completed", "params": { "item": item } })).unwrap();
+        let replayed = reducer.apply(&fold, &replay);
+        expected.push(json!({ "kind": "assistant", "id": "imported:1", "text": "Later." }));
+        assert_eq!(replayed["items"], json!(expected));
+    }
+
+    #[test]
+    fn completed_tools_keep_validated_metadata_on_each_grouped_preview() {
+        let call = |id: &str, tool_meta: Value| json!({
+            "type": "toolCall", "id": id, "name": "visualize", "input": {}, "meta": { "status": "completed" },
+            "run": { "result": "opened", "toolMeta": tool_meta }
+        });
+        let good = call("one", json!({ "code": "visualize_owner", "missing": ["display", "", 5], "ownerSessionId": "room:owner-1", "extra": "ignored" }));
+        let bad = call("two", json!({ "code": "visualize_owner", "ownerSessionId": "../other/session" }));
+        let expected = json!({ "code": "visualize_owner", "missing": ["display"], "ownerSessionId": "room:owner-1" });
+        assert_eq!(row_of(&good).unwrap().value["toolMeta"], expected);
+        let grouped = merged(&[good, bad]);
+        assert_eq!(grouped[0]["toolMembers"][0]["toolMeta"], expected);
+        assert_eq!(grouped[0]["toolMembers"][1]["toolMeta"], json!({ "code": "visualize_owner", "missing": [] }));
+        assert!(row_of(&call("three", json!({ "ownerSessionId": "valid-shape" }))).unwrap().value.get("toolMeta").is_none());
+    }
+
+    #[test]
+    fn routine_prompts_show_the_trigger_and_one_reaction_per_bot() {
+        let row = row_of(&json!({
+            "type": "userMessage", "id": "u", "content": [{ "type": "text", "text": "check" }],
+            "details": {
+                "source": "routine-trigger", "routineTrigger": { "kind": "webhook", "name": " Checks ", "event": " opened " },
+                "reactions": [{ "agentId": "bot", "emoji": "👍", "at": 4 }, { "agentId": "bot", "emoji": "👋" }, { "agentId": "bad/bot", "emoji": "👍" }]
+            }
+        })).unwrap().value;
+        assert_eq!(row["routineTrigger"], json!({ "kind": "webhook", "name": "Checks", "event": "opened" }));
+        assert_eq!(row["reactions"], json!([{ "agentId": "bot", "emoji": "👍", "at": 4 }]));
+    }
+
+    #[test]
+    fn posted_task_reports_restore_the_typed_stamp_and_downloadable_artifact() {
+        let id = "a".repeat(64);
+        let attachment = json!({ "id": id, "name": "report.txt", "kind": "file", "mimeType": "text/plain", "size": 5 });
+        let mut file = attachment.clone();
+        file["path"] = json!("/report.txt");
+        let routine = json!({ "kind": "task", "name": "Build", "status": "completed", "files": [file] });
+        let row = row_of(&json!({
+            "type": "userMessage", "id": "notice", "content": [],
+            "details": { "source": "schedule-result", "attachments": [attachment, attachment] },
+            "meta": { "messageId": "msg_notice", "posted": true, "at": 7, "ext": { "routine": routine, "messageId": "old", "posted": false } }
+        })).unwrap().value;
+        let mut download = attachment;
+        download["attachmentRef"] = json!(id);
+        assert_eq!(row, json!({
+            "kind": "notice", "id": "notice", "text": "🛠 Agent task completed · Build", "tone": "info",
+            "messageId": "msg_notice", "posted": true, "at": 7, "routine": routine, "attachments": [download]
+        }));
+    }
+
     fn merged(items: &[Value]) -> Vec<Value> {
         let rows: Vec<Row> = items.iter().filter_map(row_of).collect();
         let refs: Vec<RowRef<'_>> = rows.iter().map(Row::as_ref).collect();
@@ -1191,6 +1550,67 @@ mod tests {
         item
     }
 
+    fn envelope(id: &str, status: &str, summary: &str, result: &str) -> String {
+        let body = if result.is_empty() { String::new() } else { format!("<result>\n{result}\n</result>\n") };
+        format!("<task-notification>\n<task-id>{id}</task-id>\n<status>{status}</status>\n<summary>{summary}</summary>\n{body}</task-notification>")
+    }
+
+    fn batch_item(details: Value, text: &str) -> Value {
+        json!({
+            "type": "userMessage", "id": "u1", "content": [{ "type": "text", "text": text }],
+            "details": details,
+            "meta": { "at": 5, "source": "task-notification", "ext": { "execution": { "id": "t-ok", "surface": "agent", "status": "completed" } } }
+        })
+    }
+
+    fn shown(rows: &[Row]) -> Vec<(String, String, String, String, bool, i64, usize)> {
+        rows.iter()
+            .map(|r| {
+                let v = &r.value;
+                (v["id"].as_str().unwrap().into(), v["name"].as_str().unwrap().into(), v["args"]["task_id"].as_str().unwrap().into(), v["args"]["status"].as_str().unwrap().into(), v["isError"] == true, v["count"].as_i64().unwrap(), v["result"].as_str().unwrap().len())
+            })
+            .collect()
+    }
+
+    /// A turn that took three completions (an agent with a result that quotes envelopes, an agent that failed, a shell task) shows
+    /// three cards cut by the entries the core recorded, not by the text; the same row stored without the entries is located by its
+    /// execution ids; a row whose ids cannot be found, and a single completion, stay one card.
+    #[test]
+    fn a_turn_that_took_three_completions_shows_three_cards() {
+        let bad = envelope("t-bad", "failed", "Agent \"fix\" failed: boom", "");
+        let shell = envelope("t-sh", "completed", "Shell task completed (exit 0): npm test", "");
+        let ok = envelope("t-ok", "completed", "Agent \"rev\" completed", &format!("see 한글 😀\n{bad}\n{shell}"));
+        let texts = [&ok, &bad, &shell];
+        let joined = texts.iter().map(|t| t.as_str()).collect::<Vec<_>>().join("\n");
+        let mut at = 0usize;
+        let located: Vec<Value> = texts
+            .iter()
+            .zip([("t-ok", "agent", "completed"), ("t-bad", "agent", "failed"), ("t-sh", "shell", "completed")])
+            .map(|(t, (id, surface, status))| {
+                let start = at;
+                at += t.encode_utf16().count() + 1;
+                json!({ "executionId": id, "surface": surface, "status": status, "start": start, "end": at - 1 })
+            })
+            .collect();
+        let ids = json!(["t-ok", "t-bad", "t-sh"]);
+        let want = |first: &str| {
+            let (a, b, c) = (first.len(), bad.len(), shell.len());
+            vec![
+                ("u1".to_owned(), "agent".to_owned(), "t-ok".to_owned(), "completed".to_owned(), false, 1, a),
+                ("u1:1".to_owned(), "agent".to_owned(), "t-bad".to_owned(), "failed".to_owned(), true, 1, b),
+                ("u1:2".to_owned(), "shell".to_owned(), "t-sh".to_owned(), "completed".to_owned(), false, 1, c),
+            ]
+        };
+        assert_eq!(shown(&rows_of(&batch_item(json!({ "consumedExecutionIds": ids, "completions": located }), &joined))), want(&ok));
+        // Stored before the entries existed: located by the ids (a result quoting an envelope of another task is not cut).
+        let other = envelope("t-other", "completed", "Agent \"o\" completed", "quoted");
+        let quoting = envelope("t-ok", "completed", "Agent \"rev\" completed", &format!("{other}\n{other}"));
+        let old = [quoting.as_str(), bad.as_str(), shell.as_str()].join("\n");
+        assert_eq!(shown(&rows_of(&batch_item(json!({ "consumedExecutionIds": ids }), &old))), want(&quoting));
+        assert_eq!(rows_of(&batch_item(json!({ "consumedExecutionIds": ["t-ok", null, "t-sh"] }), &joined)).len(), 1);
+        assert_eq!(rows_of(&batch_item(json!({ "consumedExecutionIds": ["t-ok", "restart:t-bad", "t-sh"] }), &joined)).len(), 1);
+        assert_eq!(rows_of(&batch_item(json!({ "consumedExecutionIds": ["t-ok"] }), &ok)).len(), 1);
+    }
     #[test]
     fn a_tool_call_still_running_is_its_own_card_and_reasoning_has_no_row() {
         let rows = merged(&[
@@ -1311,6 +1731,25 @@ mod tests {
         let rows = rows_of(&item);
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[1].value["label"], "Conversation compacted");
+    }
+
+    /// A card the core extended with later responses (`agent_response`) states how many it covers on its run: its row is counted by
+    /// that, finished or not; an ordinary card, or a run with no usable count, stays one.
+    #[test]
+    fn a_card_whose_run_covers_several_responses_is_counted_by_them() {
+        let card = |run: Value, status: &str| json!({
+            "type": "toolCall", "id": "r", "name": "agent", "input": { "type": "result", "status": "completed", "task_id": "t1", "surface": "agent" },
+            "run": run, "meta": { "status": status, "at": 5 }
+        });
+        let counted = |item: Value| {
+            let row = row_of(&item).unwrap().value;
+            (row["count"].clone(), row["completedCount"].clone())
+        };
+        assert_eq!(counted(card(json!({ "result": "x", "count": 3, "completedCount": 3 }), "completed")), (json!(3), json!(3)));
+        assert_eq!(counted(card(json!({ "result": "x", "count": 3 }), "running")), (json!(3), json!(0)));
+        assert_eq!(counted(card(json!({ "result": "x" }), "completed")), (json!(1), json!(1)));
+        assert_eq!(counted(card(json!({ "result": "x", "count": 0 }), "completed")), (json!(1), json!(1)));
+        assert_eq!(counted(call("c", "completed", Some("ok"))), (json!(1), json!(1)));
     }
 
     #[test]

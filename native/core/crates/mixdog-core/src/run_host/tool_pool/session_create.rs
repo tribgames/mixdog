@@ -648,3 +648,114 @@ impl CreateHost for DirectoryCreate {
         super::session_port::directory_call(&self.directory, &ThreadId::from(session_id), "thread/delete", params).await.map_err(|e| format!("{e:?}"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_worktree_name_is_a_short_git_safe_slug() {
+        let rows: [(Value, Option<&str>); 9] = [
+            (json!("fix-1_2.3"), None),
+            (json!(""), Some("a name is required")),
+            (json!(5), Some("a name is required")),
+            (json!("a".repeat(65)), Some("at most 64 characters")),
+            (json!("-lead"), Some("use letters, digits, \".\", \"_\" or \"-\", starting with a letter or digit")),
+            (json!("a/b"), Some("use letters, digits, \".\", \"_\" or \"-\", starting with a letter or digit")),
+            (json!("a..b"), Some("not a valid git branch component")),
+            (json!("a."), Some("not a valid git branch component")),
+            (json!("x.LOCK"), Some("not a valid git branch component")),
+        ];
+        for (name, expected) in rows {
+            assert_eq!(worktree_name_error(&name).as_deref(), expected, "{name}");
+        }
+        assert_eq!(worktree_name_error(&json!("a".repeat(64))), None, "sixty-four is the limit");
+    }
+
+    #[test]
+    fn the_worktree_option_picks_where_a_task_session_starts() {
+        let rows: [(Option<Value>, Result<Location, &str>); 9] = [
+            (None, Ok(Location::Default)),
+            (Some(Value::Null), Ok(Location::Default)),
+            (Some(json!({ "mode": "branch" })), Ok(Location::Branch)),
+            (Some(json!({ "mode": "worktree" })), Ok(Location::Worktree(None))),
+            (Some(json!({ "mode": "worktree", "name": "fix-1" })), Ok(Location::Worktree(Some("fix-1".into())))),
+            (Some(json!({ "mode": "copy" })), Err("session: worktree.mode must be \"branch\" or \"worktree\"")),
+            (Some(json!("worktree")), Err("session: worktree.mode must be \"branch\" or \"worktree\"")),
+            (Some(json!({ "mode": "branch", "name": "x" })), Err("session: worktree.name applies only to mode \"worktree\"")),
+            (
+                Some(json!({ "mode": "worktree", "name": "bad name" })),
+                Err("session: worktree.name is invalid: use letters, digits, \".\", \"_\" or \"-\", starting with a letter or digit"),
+            ),
+        ];
+        for (option, expected) in rows {
+            assert_eq!(task_location(option.as_ref()), expected.map_err(str::to_owned), "{option:?}");
+        }
+    }
+
+    #[test]
+    fn a_model_ref_is_a_provider_and_model_with_optional_effort_fast_noauto_and_query_parameters() {
+        let route = |raw: &str| parse_schedule_model_ref(raw).map(Value::Object);
+        assert_eq!(route("openai/gpt-5"), Ok(json!({ "provider": "openai", "model": "gpt-5" })));
+        assert_eq!(route("openai/gpt-5@high+fast"), Ok(json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "fast": true })));
+        assert_eq!(route("x/m@low+fast+noauto"), Ok(json!({ "provider": "x", "model": "m", "effort": "low", "fast": true, "autoEffort": false })));
+        assert_eq!(route("p/m?a=1&b=x+y%21&flag"), Ok(json!({ "provider": "p", "model": "m", "modelParameters": { "a": "1", "b": "x y!", "flag": "" } })));
+        assert_eq!(route("a-preset"), Err("a-preset".to_owned()), "no provider: the text is a preset's id or name");
+        assert_eq!(route("/m"), Err("/m".to_owned()), "an empty provider is none");
+    }
+
+    fn catalog() -> Vec<Value> {
+        vec![json!({ "id": "gpt-5", "provider": "openai", "display": "GPT 5" }), json!({ "id": "claude-x", "provider": "anthropic", "display": "Claude X" })]
+    }
+
+    #[test]
+    fn a_display_name_names_its_route_whatever_its_case() {
+        let route = route_by_display_name("  gpt 5 ", &catalog(), false).expect("one model is named");
+        assert_eq!(Value::Object(route), json!({ "provider": "openai", "model": "gpt-5" }));
+    }
+
+    #[test]
+    fn an_unknown_display_name_lists_every_choice_and_a_trailing_effort_word_points_at_the_effort_field() {
+        let choices = "GPT 5 (openai/gpt-5); Claude X (anthropic/claude-x)";
+        let lead = "is neither a provider/model route, a preset name nor a model display name. Choices: ";
+        assert_eq!(route_by_display_name("nothing", &catalog(), false), Err(format!("session: model \"nothing\" {lead}{choices}")));
+        assert_eq!(
+            route_by_display_name("nothing high", &catalog(), false),
+            Err(format!("session: model \"nothing high\" {lead}{choices}. To set the reasoning effort, pass it as the effort field"))
+        );
+    }
+
+    #[test]
+    fn a_display_name_two_models_share_is_ambiguous_and_names_them() {
+        let rows = vec![json!({ "id": "m1", "provider": "a", "display": "Dup" }), json!({ "id": "m2", "provider": "b", "display": "Dup" })];
+        assert_eq!(route_by_display_name("Dup", &rows, false), Err("session: model \"Dup\" is ambiguous; use provider/model: Dup (a/m1); Dup (b/m2)".to_owned()));
+    }
+
+    #[test]
+    fn an_error_names_six_choices_and_the_total() {
+        let rows: Vec<Value> = (1..=7).map(|n| json!({ "id": format!("m{n}"), "provider": "p" })).collect();
+        let refs: Vec<&Value> = rows.iter().collect();
+        assert_eq!(choices(&refs), "m1 (p/m1); m2 (p/m2); m3 (p/m3); m4 (p/m4); m5 (p/m5); m6 (p/m6); … (7 total)");
+        assert_eq!(choices(&refs[..6]), "m1 (p/m1); m2 (p/m2); m3 (p/m3); m4 (p/m4); m5 (p/m5); m6 (p/m6)");
+    }
+
+    #[test]
+    fn a_large_repository_worktree_failure_asks_the_user_before_it_may_be_confirmed() {
+        let large = CreateFailure {
+            code: Some("WORKTREE_LARGE_REPO_CONFIRM".into()),
+            message: "big".into(),
+            details: Some(json!({ "estimateBytes": 3145728.0, "thresholdBytes": 1048576.0 })),
+        };
+        assert_eq!(
+            task_worktree_failure(&large),
+            "session: WORKTREE_LARGE_REPO_CONFIRM: big The repository is about 3 MB (warning threshold 1 MB). Ask the user whether to create the worktree anyway; only if they confirm, call create again with confirm_large: true."
+        );
+        assert_eq!(task_worktree_failure(&CreateFailure::coded("WORKTREE_DIRTY", "uncommitted changes")), "session: WORKTREE_DIRTY: uncommitted changes");
+    }
+
+    #[test]
+    fn a_project_path_is_compared_without_its_trailing_separator() {
+        assert_eq!(path_key("/work/repo/"), path_key("/work/repo"));
+        assert_eq!(path_key("C:\\Work\\Repo\\"), if cfg!(windows) { "c:/work/repo" } else { "C:/Work/Repo" });
+    }
+}

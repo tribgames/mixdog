@@ -111,6 +111,7 @@ pub fn snapshot(body: &Value, user_id: &str, fetched_at: i64) -> Option<Value> {
     Some(Value::Object(out))
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "usage_command_code_tests.rs"]
 mod tests;

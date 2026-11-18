@@ -5,45 +5,6 @@
 //! raw channel (`lane::host_lane` over `Arc<dyn HostChannel>`, and the fake host of the tests) only moves JSON, so the typing,
 //! the error mapping and the wire names live here and nowhere else.
 
-use std::path::Path;
-use std::path::PathBuf;
-
-use async_trait::async_trait;
-use bytes::Bytes;
-use mixdog_app_protocol::v2::browser_engine::*;
-use mixdog_core_api::domain::tool::ToolError;
-use mixdog_protocol::ThreadId;
-use mixdog_rt::CancellationToken;
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-use serde_json::Value;
-
-use crate::error::HostCallError;
-use crate::types::ApprovalAnswer;
-use crate::types::BrowserApprovalPrompt;
-use crate::types::FileFacts;
-use crate::types::TakeoverGuard;
-
-/// The raw `host/browser/*` channel: a request by wire name with JSON params, answered with JSON or a [`HostCallError`].
-#[async_trait]
-pub trait HostWire: Send + Sync {
-    /// A request that also ends, as `HostCallError::Cancelled`, when `cancel` fires.
-    async fn call(&self, method: &'static str, params: Value, cancel: &CancellationToken) -> Result<Value, HostCallError>;
-
-    /// A notification to the host (`host/browser/lease/release`).
-    fn notify(&self, method: &'static str, params: Value) -> Result<(), HostCallError>;
-}
-
-async fn typed<W, P, R>(wire: &W, method: &'static str, params: P, cancel: &CancellationToken) -> Result<R, HostCallError>
-where
-    W: HostWire + ?Sized,
-    P: Serialize + Send,
-    R: DeserializeOwned,
-{
-    let params = serde_json::to_value(params).map_err(|error| HostCallError::Failed { message: format!("{method}: params do not serialize: {error}") })?;
-    let answer = wire.call(method, params, cancel).await?;
-    serde_json::from_value(answer).map_err(|error| HostCallError::Failed { message: format!("{method}: malformed answer: {error}") })
-}
 
 macro_rules! host_methods {
     ($($(#[$doc:meta])* $name:ident, $wire:literal, $params:ty, $result:ty;)*) => {
@@ -72,6 +33,35 @@ macro_rules! host_methods {
         /// Every request's wire name, in the order of the trait: the table the lane and the fake host check names against.
         pub const HOST_METHODS: &[&str] = &[$($wire),*];
     };
+}
+
+use std::path::Path;
+use std::path::PathBuf;
+
+use async_trait::async_trait;
+use bytes::Bytes;
+use mixdog_app_protocol::v2::browser_engine::*;
+use mixdog_core_api::domain::tool::ToolError;
+use mixdog_protocol::ThreadId;
+use mixdog_rt::CancellationToken;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use serde_json::Value;
+
+use crate::error::HostCallError;
+use crate::types::ApprovalAnswer;
+use crate::types::BrowserApprovalPrompt;
+use crate::types::FileFacts;
+use crate::types::TakeoverGuard;
+
+/// The raw `host/browser/*` channel: a request by wire name with JSON params, answered with JSON or a [`HostCallError`].
+#[async_trait]
+pub trait HostWire: Send + Sync {
+    /// A request that also ends, as `HostCallError::Cancelled`, when `cancel` fires.
+    async fn call(&self, method: &'static str, params: Value, cancel: &CancellationToken) -> Result<Value, HostCallError>;
+
+    /// A notification to the host (`host/browser/lease/release`).
+    fn notify(&self, method: &'static str, params: Value) -> Result<(), HostCallError>;
 }
 
 host_methods! {
@@ -177,4 +167,21 @@ mod tests {
         sorted.dedup();
         assert_eq!(sorted.len(), HOST_METHODS.len(), "a wire name is listed twice");
     }
+}
+
+
+async fn typed<W, P, R>(wire: &W, method: &'static str, params: P, cancel: &CancellationToken) -> Result<R, HostCallError>
+where
+    W: HostWire + ?Sized,
+    P: Serialize + Send,
+    R: DeserializeOwned,
+{
+    let params = serde_json::to_value(params).map_err(|error| HostCallError::Failed { message: format!("{method}: params do not serialize: {error}") })?;
+    // Every typed request of the engine passes here, whatever the wire: the loss is latched for the command that asked.
+    let answer = wire.call(method, params, cancel).await.inspect_err(|error| {
+        if *error == HostCallError::ConnectionLost {
+            crate::error::note_connection_lost();
+        }
+    })?;
+    serde_json::from_value(answer).map_err(|error| HostCallError::Failed { message: format!("{method}: malformed answer: {error}") })
 }

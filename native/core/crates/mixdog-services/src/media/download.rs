@@ -24,21 +24,23 @@ pub struct AdapterError {
     pub usage: Option<serde_json::Value>,
     /// When a usage window reopens (rr.resetsAt, an ISO time).
     pub resets_at: Option<String>,
+    /// Nothing was sent because of the reference images: every blocker, as the job reports it.
+    pub refusal: Option<Box<mixdog_image_egress::NotSent>>,
 }
 
 impl AdapterError {
     pub fn plain(message: impl Into<String>) -> Self {
-        Self { message: message.into(), code: None, status: None, usage: None, resets_at: None }
+        Self { message: message.into(), code: None, status: None, usage: None, resets_at: None, refusal: None }
     }
 
     fn invalid_url() -> Self {
-        Self { message: "Invalid URL".to_owned(), code: Some("ERR_INVALID_URL".to_owned()), status: None, usage: None, resets_at: None }
+        Self { message: "Invalid URL".to_owned(), code: Some("ERR_INVALID_URL".to_owned()), status: None, usage: None, resets_at: None, refusal: None }
     }
 }
 
 impl From<LaneError> for AdapterError {
     fn from(error: LaneError) -> Self {
-        Self { message: error.message, code: Some(error.code.to_owned()), status: Some(error.status), usage: None, resets_at: None }
+        Self { message: error.message, code: Some(error.code.to_owned()), status: Some(error.status), usage: None, resets_at: None, refusal: None }
     }
 }
 
@@ -105,6 +107,8 @@ pub async fn read_response_buffer(response: &mut dyn PublicResponse, limits: &Li
     let mut out = Vec::new();
     loop {
         let next = tokio::select! {
+            // A stopped read is an error whatever the response still holds: the stop is looked at first.
+            biased;
             () = cancel.cancelled() => return Err(AdapterError::plain("This operation was aborted")),
             next = response.chunk() => next?,
         };

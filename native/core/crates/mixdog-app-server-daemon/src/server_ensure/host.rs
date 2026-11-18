@@ -126,4 +126,8 @@ pub trait CoreAccess {
     fn launch(&self, launch: &Launch) -> Result<(), EnsureError>;
     /// Blocks until discovery names the launched core past `booting`, or it exits.
     fn await_core(&self) -> Result<CoreReport, EnsureError>;
+    /// Blocks until `core`, which an earlier run started and discovery shows still booting or migrating, has settled
+    /// (the same state-based success and bound as `await_core`), or its process is gone (`Exited`). `since` is when
+    /// the attempt began waiting: the bound runs from it across every instance waited for.
+    fn await_serving(&self, core: &ServerCore, since: std::time::Instant) -> Result<CoreReport, EnsureError>;
 }

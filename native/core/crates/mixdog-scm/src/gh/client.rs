@@ -267,6 +267,155 @@ pub struct GhClient {
 #[cfg(feature = "write-queue-hook")]
 type WriteQueued = Arc<dyn Fn(&str) + Send + Sync>;
 
+fn finish(
+    request: &GithubRequest,
+    command: &GhCommand,
+    repo: &str,
+    hostname: &str,
+    raw: &str,
+) -> Result<Value, ScmFailure> {
+    let trimmed = raw.trim();
+    let data: Value = if command.json && !trimmed.is_empty() {
+        serde_json::from_str(trimmed).map_err(|_| ScmFailure::Command {
+            domain: GITHUB_DOMAIN,
+            text: if command.mutation {
+                "The write completed, but its response was unreadable. Inspect remote state; do not replay the write.".into()
+            } else {
+                "GitHub returned an unreadable response.".into()
+            },
+        })?
+    } else {
+        Value::String(trimmed.to_owned())
+    };
+    if request.action() == "pr.merge" && data.get("merged") == Some(&Value::Bool(false)) {
+        let message = data
+            .get("message")
+            .and_then(Value::as_str)
+            .filter(|message| !message.is_empty())
+            .unwrap_or("GitHub refused to merge this pull request.");
+        return Err(ScmFailure::Command {
+            domain: GITHUB_DOMAIN,
+            text: message.to_owned(),
+        });
+    }
+    let mut response = json!({ "action": request.action(), "repo": repo, "hostname": hostname, "data": data });
+    if command.list {
+        let items = match command.collection {
+            Some(key) => response["data"].get(key).cloned(),
+            None => Some(response["data"].clone()),
+        };
+        let Some(Value::Array(items)) = items else {
+            return Err(ScmFailure::Command {
+                domain: GITHUB_DOMAIN,
+                text: "GitHub returned an invalid list.".into(),
+            });
+        };
+        let has_more = items.len() as u64 == command.limit;
+        // The REST issues list also contains pull requests; paging follows the unfiltered page.
+        let shown: Vec<Value> = if request.action() == "issue.list" {
+            items
+                .into_iter()
+                .filter(|item| item.get("pull_request").is_none_or(|v| v.is_null() || v == &Value::Bool(false)))
+                .collect()
+        } else {
+            items
+        };
+        response["data"] = Value::Array(shown);
+        response["page"] = json!(command.page);
+        response["hasMore"] = json!(has_more);
+    }
+    Ok(response)
+}
+
+/// `executeGithubRequest`'s check before it sends anything: a request whose caller already gave up is not dispatched.
+fn dispatchable(cancel: &CancellationToken) -> Result<(), ScmFailure> {
+    if cancel.is_cancelled() {
+        return Err(ScmFailure::GithubCancelledBeforeDispatch);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn writes_to_one_repository_queue_and_others_do_not_wait() {
+        let queue = Arc::new(mixdog_rt::KeyedGate::new());
+        let cancel = CancellationToken::new();
+        let first = queue.enter("h/a", &cancel).await.unwrap();
+        let other = mixdog_rt::time::timeout(Duration::from_millis(200), queue.enter("h/b", &cancel)).await;
+        assert!(other.is_ok(), "a different repository does not wait");
+        let waiting = {
+            let queue = queue.clone();
+            let cancel = cancel.clone();
+            tokio::spawn(async move { queue.enter("h/a", &cancel).await.map(drop) })
+        };
+        mixdog_rt::time::sleep(Duration::from_millis(30)).await;
+        assert!(!waiting.is_finished());
+        drop(first);
+        assert!(waiting.await.unwrap().is_ok());
+        assert!(queue.busy_keys() <= 1);
+    }
+
+    /// A process manager whose every start the system refuses for access (libuv's EPERM on Windows, EACCES elsewhere).
+    struct Refused;
+
+    #[async_trait]
+    impl mixdog_core_api::domain::process::ProcessManager for Refused {
+        async fn spawn(&self, _request: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::PermissionDenied)
+        }
+        fn subscribe(&self, _handle: &mixdog_protocol::ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
+        }
+        async fn write_stdin(&self, _handle: &mixdog_protocol::ProcessHandle, _bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
+        }
+        fn close_stdin(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
+        }
+        fn resize_pty(&self, _handle: &mixdog_protocol::ProcessHandle, _size: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
+        }
+        fn kill(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
+        }
+        fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    /// `runGithubProcess`: a start the system refused rejects with execFile's own message (`spawn <file> <code>`, no stderr), a
+    /// write's followed by the notice that it was not retried.
+    #[tokio::test]
+    async fn a_refused_gh_start_answers_execfiles_message_and_a_writes_notice() {
+        let gh = ProcessGh::with_program(Arc::new(Exec::new(Arc::new(Refused))), "C:\\gh\\gh.exe");
+        let code = if cfg!(windows) { "EPERM" } else { "EACCES" };
+        let cwd = std::env::temp_dir();
+        let cancel = CancellationToken::new();
+        let read = GhCommand::read(vec!["repo".into(), "view".into()], None);
+        let mut write = read.clone();
+        write.mutation = true;
+        let text = |failure: ScmFailure| match failure {
+            ScmFailure::Command { text, .. } => text,
+            other => panic!("not a command failure: {other:?}"),
+        };
+        assert_eq!(text(run_text(&gh, &read, &cwd, &cancel).await.unwrap_err()), format!("spawn C:\\gh\\gh.exe {code}"));
+        assert_eq!(text(run_text(&gh, &write, &cwd, &cancel).await.unwrap_err()), format!("spawn C:\\gh\\gh.exe {code}{WRITE_UNCERTAIN}"));
+    }
+
+
+    #[test]
+    fn clone_destinations_must_be_new_absolute_folders() {
+        assert!(clone_destination("relative/dir").is_err());
+        assert!(clone_destination("/tmp/$HOME/x").is_err());
+        let dir = std::env::temp_dir().join(format!("mixdog-clone-{}", std::process::id()));
+        assert!(clone_destination(&dir.to_string_lossy()).is_ok());
+    }
+}
+
+
 impl GhClient {
     pub fn new(runner: Arc<dyn GhRunner>, locks: Arc<RepoLocks>) -> Self {
         Self {
@@ -292,7 +441,7 @@ impl GhClient {
         let entering = {
             let mut entering = Box::pin(entering);
             match std::future::poll_fn(|cx| std::task::Poll::Ready(std::future::Future::poll(entering.as_mut(), cx))).await {
-                std::task::Poll::Ready(turn) => return turn.map_err(|_| ScmFailure::Cancelled),
+                std::task::Poll::Ready(turn) => return turn.map_err(|_| ScmFailure::GithubCancelledBeforeDispatch),
                 std::task::Poll::Pending => {
                     let hook = self.write_queued.lock().expect("write queue hook").clone();
                     if let Some(hook) = hook {
@@ -302,7 +451,7 @@ impl GhClient {
                 }
             }
         };
-        entering.await.map_err(|_| ScmFailure::Cancelled)
+        entering.await.map_err(|_| ScmFailure::GithubCancelledBeforeDispatch)
     }
 
     /// The raw answer of `gh` with plain arguments: the exit code is the caller's to read.
@@ -397,79 +546,13 @@ impl GhClient {
             std::fs::create_dir(dest)?;
         }
         dispatchable(cancel)?;
-        let raw = run_text(self.runner.as_ref(), &command, cwd, cancel).await?;
+        let raw = run_text(self.runner.as_ref(), &command, cwd, cancel).await.map_err(|error| match error {
+            ScmFailure::Cancelled if mutates => ScmFailure::GithubWriteCancelledAfterDispatch,
+            other => other,
+        })?;
         finish(&request, &command, &repo_name, &hostname, &raw)
     }
 }
-
-fn finish(
-    request: &GithubRequest,
-    command: &GhCommand,
-    repo: &str,
-    hostname: &str,
-    raw: &str,
-) -> Result<Value, ScmFailure> {
-    let trimmed = raw.trim();
-    let data: Value = if command.json && !trimmed.is_empty() {
-        serde_json::from_str(trimmed).map_err(|_| ScmFailure::Command {
-            domain: GITHUB_DOMAIN,
-            text: if command.mutation {
-                "The write completed, but its response was unreadable. Inspect remote state; do not replay the write.".into()
-            } else {
-                "GitHub returned an unreadable response.".into()
-            },
-        })?
-    } else {
-        Value::String(trimmed.to_owned())
-    };
-    if request.action() == "pr.merge" && data.get("merged") == Some(&Value::Bool(false)) {
-        let message = data
-            .get("message")
-            .and_then(Value::as_str)
-            .filter(|message| !message.is_empty())
-            .unwrap_or("GitHub refused to merge this pull request.");
-        return Err(ScmFailure::Command {
-            domain: GITHUB_DOMAIN,
-            text: message.to_owned(),
-        });
-    }
-    let mut response = json!({ "action": request.action(), "repo": repo, "hostname": hostname, "data": data });
-    if command.list {
-        let items = match command.collection {
-            Some(key) => response["data"].get(key).cloned(),
-            None => Some(response["data"].clone()),
-        };
-        let Some(Value::Array(items)) = items else {
-            return Err(ScmFailure::Command {
-                domain: GITHUB_DOMAIN,
-                text: "GitHub returned an invalid list.".into(),
-            });
-        };
-        let has_more = items.len() as u64 == command.limit;
-        // The REST issues list also contains pull requests; paging follows the unfiltered page.
-        let shown: Vec<Value> = if request.action() == "issue.list" {
-            items
-                .into_iter()
-                .filter(|item| item.get("pull_request").is_none_or(|v| v.is_null() || v == &Value::Bool(false)))
-                .collect()
-        } else {
-            items
-        };
-        response["data"] = Value::Array(shown);
-        response["page"] = json!(command.page);
-        response["hasMore"] = json!(has_more);
-    }
-    Ok(response)
-}
-
-/// `executeGithubRequest`'s check before it sends anything: a request whose caller already gave up is not dispatched.
-fn dispatchable(cancel: &CancellationToken) -> Result<(), ScmFailure> {
-    if cancel.is_cancelled() {
-        return Err(ScmFailure::Command { domain: GITHUB_DOMAIN, text: "GitHub request cancelled before dispatch.".into() });
-    }
-    Ok(())
-}
-
 /// A clone destination must be an explicit, absolute, new directory (`cloneDestination`, client.mjs).
 fn clone_destination(value: &str) -> Result<PathBuf, ScmFailure> {
     let invalid = || contract::type_error("Clone destination must be an explicit absolute new directory.");
@@ -497,83 +580,4 @@ fn clone_destination(value: &str) -> Result<PathBuf, ScmFailure> {
     let parent = path.parent().ok_or_else(invalid)?;
     std::fs::canonicalize(parent)?;
     Ok(path.to_path_buf())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test(start_paused = true)]
-    async fn writes_to_one_repository_queue_and_others_do_not_wait() {
-        let queue = Arc::new(mixdog_rt::KeyedGate::new());
-        let cancel = CancellationToken::new();
-        let first = queue.enter("h/a", &cancel).await.unwrap();
-        let other = mixdog_rt::time::timeout(Duration::from_millis(200), queue.enter("h/b", &cancel)).await;
-        assert!(other.is_ok(), "a different repository does not wait");
-        let waiting = {
-            let queue = queue.clone();
-            let cancel = cancel.clone();
-            tokio::spawn(async move { queue.enter("h/a", &cancel).await.map(drop) })
-        };
-        mixdog_rt::time::sleep(Duration::from_millis(30)).await;
-        assert!(!waiting.is_finished());
-        drop(first);
-        assert!(waiting.await.unwrap().is_ok());
-        assert!(queue.busy_keys() <= 1);
-    }
-
-    /// A process manager whose every start the system refuses for access (libuv's EPERM on Windows, EACCES elsewhere).
-    struct Refused;
-
-    #[async_trait]
-    impl mixdog_core_api::domain::process::ProcessManager for Refused {
-        async fn spawn(&self, _request: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
-            Err(mixdog_core_api::domain::process::ProcessError::PermissionDenied)
-        }
-        fn subscribe(&self, _handle: &mixdog_protocol::ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
-            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
-        }
-        async fn write_stdin(&self, _handle: &mixdog_protocol::ProcessHandle, _bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
-            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
-        }
-        fn close_stdin(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
-            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
-        }
-        fn resize_pty(&self, _handle: &mixdog_protocol::ProcessHandle, _size: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
-            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
-        }
-        fn kill(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
-            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
-        }
-        fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
-            Vec::new()
-        }
-    }
-
-    /// `runGithubProcess`: a start the system refused rejects with execFile's own message (`spawn <file> <code>`, no stderr), a
-    /// write's followed by the notice that it was not retried.
-    #[tokio::test]
-    async fn a_refused_gh_start_answers_execfiles_message_and_a_writes_notice() {
-        let gh = ProcessGh::with_program(Arc::new(Exec::new(Arc::new(Refused))), "C:\\gh\\gh.exe");
-        let code = if cfg!(windows) { "EPERM" } else { "EACCES" };
-        let cwd = std::env::temp_dir();
-        let cancel = CancellationToken::new();
-        let read = GhCommand::read(vec!["repo".into(), "view".into()], None);
-        let mut write = read.clone();
-        write.mutation = true;
-        let text = |failure: ScmFailure| match failure {
-            ScmFailure::Command { text, .. } => text,
-            other => panic!("not a command failure: {other:?}"),
-        };
-        assert_eq!(text(run_text(&gh, &read, &cwd, &cancel).await.unwrap_err()), format!("spawn C:\\gh\\gh.exe {code}"));
-        assert_eq!(text(run_text(&gh, &write, &cwd, &cancel).await.unwrap_err()), format!("spawn C:\\gh\\gh.exe {code}{WRITE_UNCERTAIN}"));
-    }
-
-    #[test]
-    fn clone_destinations_must_be_new_absolute_folders() {
-        assert!(clone_destination("relative/dir").is_err());
-        assert!(clone_destination("/tmp/$HOME/x").is_err());
-        let dir = std::env::temp_dir().join(format!("mixdog-clone-{}", std::process::id()));
-        assert!(clone_destination(&dir.to_string_lossy()).is_ok());
-    }
 }

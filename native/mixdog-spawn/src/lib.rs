@@ -119,10 +119,31 @@ pub mod testing {
 
     static SETTLE_WINDOW: Seam = Seam::new();
     static EXIT_WINDOW: Seam = Seam::new();
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    static ROOT_EXIT_WINDOW: Seam = Seam::new();
     static KILL_WINDOW: Seam = Seam::new();
     static LAUNCH_WINDOW: Seam = Seam::new();
     static ANSWER_WINDOW: Seam = Seam::new();
     static CREATED_WINDOW: Seam = Seam::new();
+
+    static WAITER_FAILURE: std::sync::Mutex<Option<(mixdog_protocol::ProcessHandle, tokio::sync::oneshot::Sender<u32>)>> =
+        std::sync::Mutex::new(None);
+
+    /// Refuse waiter creation for this launch, after its real child exists.
+    pub fn refuse_waiter(handle: mixdog_protocol::ProcessHandle) -> tokio::sync::oneshot::Receiver<u32> {
+        let (send, receive) = tokio::sync::oneshot::channel();
+        *WAITER_FAILURE.lock().unwrap() = Some((handle, send));
+        receive
+    }
+
+    pub(crate) fn waiter_admission(handle: &mixdog_protocol::ProcessHandle, pid: u32) -> std::io::Result<()> {
+        let mut pending = WAITER_FAILURE.lock().unwrap();
+        if let Some((_, send)) = pending.take_if(|(expected, _)| expected == handle) {
+            let _ = send.send(pid);
+            return Err(std::io::Error::other("injected waiter creation failure"));
+        }
+        Ok(())
+    }
 
     /// The next Windows spawn parks on its launch thread right after the OS created its child,
     /// until [`release_created_window`]: the moment the helper dying used to leave a suspended
@@ -203,6 +224,33 @@ pub mod testing {
         EXIT_WINDOW.pass();
     }
 
+    /// Parks the waiter after the OS reports exit but before it records the exit.
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    pub async fn with_root_exit_window<T>(future: impl std::future::Future<Output = T>) -> T {
+        struct Release;
+        impl Drop for Release {
+            fn drop(&mut self) {
+                ROOT_EXIT_WINDOW.release();
+            }
+        }
+        ROOT_EXIT_WINDOW.arm();
+        let _release = Release;
+        future.await
+    }
+
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    pub fn wait_root_exit_window_entered(limit: std::time::Duration) -> bool {
+        let (state, _) = ROOT_EXIT_WINDOW.changed.wait_timeout_while(
+            ROOT_EXIT_WINDOW.window(), limit, |state| !state.entered,
+        ).unwrap();
+        state.entered
+    }
+
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    pub(crate) fn root_exit_window() {
+        ROOT_EXIT_WINDOW.pass();
+    }
+
     /// The next kill parks once the tree is signalled, before the kill returns, until
     /// [`release_kill_window`]: a kill held in flight.
     pub fn arm_kill_window() {
@@ -222,6 +270,7 @@ pub mod testing {
         KILL_WINDOW.pass();
     }
 }
+pub use contain::ShutdownOutcome;
 pub use manager::LocalProcessManager;
 pub use manager::OutputFilter;
 pub use manager::ProcessConfig;

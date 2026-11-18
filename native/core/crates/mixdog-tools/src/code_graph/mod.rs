@@ -3,16 +3,21 @@
 mod args;
 mod dispatch;
 mod cache;
+mod exports;
 mod federation;
+#[cfg(test)]
+mod federation_tests;
 mod graph;
 mod hits;
 mod modes;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod node_cases;
 mod outline;
 mod output;
 mod refs;
 mod roots;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod routing_tests;
 #[cfg(test)]
@@ -72,14 +77,6 @@ pub use cache::is_tmp_name;
 pub use federation::TrustedRoots;
 pub use workspace::WorkspaceCodeGraph;
 
-/// Why a call produced no answer.
-enum Failure {
-    /// The dispatcher refused the call (Node throws an `Error` with this message).
-    Refused(String),
-    /// The lane job did not complete.
-    Lane(mixdog_scm::error::ScmFailure),
-}
-
 /// The modes the schema offers (`CODE_GRAPH_MODES`) and the file modes among them (`CODE_GRAPH_FILE_MODES`); `prewarm` is the
 /// hidden one a call may also name.
 const SCHEMA_MODES: [&str; 12] = [
@@ -88,6 +85,118 @@ const SCHEMA_MODES: [&str; 12] = [
 ];
 const FILE_MODES: [&str; 5] = ["overview", "imports", "dependents", "related", "impact"];
 
+pub struct CodeGraphTool {
+    spec: ToolSpec,
+    trust: std::sync::Arc<dyn TrustedRoots>,
+    cache: std::sync::Arc<GraphCache>,
+    #[cfg(test)]
+    output_budget: Option<usize>,
+}
+
+impl CodeGraphTool {
+    /// `trust` is where federated calls find the registered and selected project roots; `cache`
+    /// is the on-disk graph cache, whose manifest also supplies the cached roots.
+    pub fn new(trust: std::sync::Arc<dyn TrustedRoots>, cache: std::sync::Arc<GraphCache>) -> Self {
+        Self {
+            spec: crate::orch::util::spec_from_def(SPEC, true, &[]),
+            trust,
+            cache,
+            #[cfg(test)]
+            output_budget: None,
+        }
+    }
+}
+
+/// The calls made so far: a request's number in its trace row.
+static NEXT_REQUEST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// What the lane job measured of one call.
+#[derive(Default)]
+struct CallStages {
+    lane_wait_ms: u64,
+    run_ms: u64,
+    prune_ms: u64,
+    spent: cache::Timings,
+}
+
+/// One call's trace row (`target: "code_graph"`, `event = "call"`).
+struct CallRow<'a> {
+    request: u64,
+    mode: &'a str,
+    outcome: &'static str,
+    stages: CallStages,
+    wrap_ms: u64,
+    total_ms: u64,
+}
+
+impl CallRow<'_> {
+    /// What the graph work does not account for inside the run: the query itself.
+    fn query_ms(&self) -> u64 {
+        self.stages.run_ms.saturating_sub(self.stages.spent.graph_ms())
+    }
+
+    /// What no stage accounts for.
+    fn other_ms(&self) -> u64 {
+        let stages = &self.stages;
+        self.total_ms.saturating_sub(stages.lane_wait_ms + stages.run_ms + stages.prune_ms + self.wrap_ms)
+    }
+
+    fn emit(&self) {
+        let (stages, graph) = (&self.stages, &self.stages.spent);
+        let (query_ms, other_ms) = (self.query_ms(), self.other_ms());
+        tracing::info!(
+            target: "code_graph",
+            event = "call",
+            request = self.request,
+            mode = self.mode,
+            outcome = self.outcome,
+            lane_wait_ms = stages.lane_wait_ms,
+            root_wait_ms = graph.root_wait_ms,
+            inventory_ms = graph.inventory_ms,
+            cache_load_ms = graph.cache_load_ms,
+            parse_ms = graph.parse_ms,
+            link_ms = graph.link_ms,
+            assemble_ms = graph.assemble_ms,
+            admission_ms = graph.admission_ms,
+            query_ms,
+            prune_ms = stages.prune_ms,
+            wrap_ms = self.wrap_ms,
+            other_ms,
+            total_ms = self.total_ms,
+            files_reused = graph.reused,
+            files_parsed = graph.parsed,
+            files_omitted = graph.omitted,
+            retained = ?graph.retained,
+            generation = graph.generation,
+            "code_graph call"
+        );
+    }
+}
+
+/// The build behind [`CodeGraphTool::prewarm_if_project`]: `true` when `cwd` belongs to a project and its build ran.
+async fn warm_project(cache: std::sync::Arc<GraphCache>, cwd: std::path::PathBuf, io: mixdog_rt::MaintenanceIo, cancel: &mixdog_rt::CancellationToken) -> bool {
+    let built = mixdog_scm::repo::on_lane(io, cancel, {
+        let cache = cache.clone();
+        move || {
+            let root = roots::find_dir_project_root(&cwd, true)?;
+            // Fills the shared graph cache, or finds it valid already; builds nothing the cache cannot keep.
+            cache.prewarm(&root);
+            Some(root)
+        }
+    })
+    .await;
+    cache.schedule_flush(io);
+    matches!(built, Ok(Some(_)))
+}
+
+
+/// Why a call produced no answer.
+enum Failure {
+    /// The dispatcher refused the call (Node throws an `Error` with this message).
+    Refused(String),
+    /// The lane job did not complete.
+    Lane(mixdog_scm::error::ScmFailure),
+}
 /// `validateBuiltinArgs('code_graph', args)` (`arg-guard.mjs`): the null drops and list normalisation that come first, then
 /// `guardCodeGraph`. The arguments the call runs with, or the refusal text Node answers with.
 fn guard_args(args: JsonValue) -> Result<JsonValue, String> {
@@ -129,25 +238,6 @@ fn guard_args(args: JsonValue) -> Result<JsonValue, String> {
     }
     Ok(JsonValue::Object(a))
 }
-
-pub struct CodeGraphTool {
-    spec: ToolSpec,
-    trust: std::sync::Arc<dyn TrustedRoots>,
-    cache: std::sync::Arc<GraphCache>,
-}
-
-impl CodeGraphTool {
-    /// `trust` is where federated calls find the registered and selected project roots; `cache`
-    /// is the on-disk graph cache, whose manifest also supplies the cached roots.
-    pub fn new(trust: std::sync::Arc<dyn TrustedRoots>, cache: std::sync::Arc<GraphCache>) -> Self {
-        Self {
-            spec: crate::orch::util::spec_from_def(SPEC, true, &[]),
-            trust,
-            cache,
-        }
-    }
-}
-
 impl CodeGraphTool {
     /// `prewarmCodeGraphIfProject(cwd)`: builds the graph of the project `cwd` belongs to, so the
     /// first `code_graph` call finds its files in the cache instead of parsing them. The root is
@@ -187,47 +277,63 @@ impl CodeGraphTool {
         io: mixdog_rt::MaintenanceIo,
         cancel: &mixdog_rt::CancellationToken,
     ) -> Result<dispatch::Answer, Failure> {
+        let request = NEXT_REQUEST.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        // End to end: from before the lane is asked for to after the answer is wrapped.
+        let started = std::time::Instant::now();
         let parsed = args::Args::parse(args);
         // Parsing and indexing a project is CPU and disk bound: keep it off the async workers.
         let snapshot = federation::TrustSnapshot::read(&*self.trust).await;
         let cache = self.cache.clone();
         let job_args = parsed.clone();
+        let submitted = std::time::Instant::now();
         let joined = mixdog_scm::repo::on_lane(io, cancel, move || {
+            let lane_wait_ms = cache::elapsed_ms(submitted);
             let snapshot = snapshot.with_cached(cache.roots());
             let env = dispatch::Env { trust: &snapshot, cache: &cache, session_cwd: &cwd };
+            // This lane thread's timings are this call's: none are left from another call that ran on it.
+            let _ = cache::take_timings();
+            let running = std::time::Instant::now();
             let answer = dispatch::run(&job_args, &cwd, &env);
+            let run_ms = cache::elapsed_ms(running);
+            let spent = cache::take_timings();
+            let pruning = std::time::Instant::now();
             cache.prune_after_call();
-            answer
+            (answer, CallStages { lane_wait_ms, run_ms, prune_ms: cache::elapsed_ms(pruning), spent })
         })
         .await;
         self.cache.schedule_flush(io);
+        let mode = parsed.mode.clone();
         match joined {
-            Ok(Ok(mut answer)) => {
-                answer.text = output::wrap(answer.text, &answer.warnings, &parsed);
-                Ok(answer)
+            Ok((answer, stages)) => {
+                let wrapping = std::time::Instant::now();
+                let outcome = answer.map(|mut answer| {
+                    #[cfg(test)]
+                    let budget = self.output_budget.unwrap_or_else(output::max_bytes);
+                    #[cfg(not(test))]
+                    let budget = output::max_bytes();
+                    let (text, uncapped) = output::wrap_with_status(answer.text, &answer.warnings, &parsed, budget);
+                    answer.text = text;
+                    answer.complete &= uncapped;
+                    answer
+                });
+                let wrap_ms = cache::elapsed_ms(wrapping);
+                CallRow { request, mode: &mode, outcome: if outcome.is_ok() { "ok" } else { "refused" }, stages, wrap_ms, total_ms: cache::elapsed_ms(started) }.emit();
+                outcome.map_err(Failure::Refused)
             }
-            Ok(Err(message)) => Err(Failure::Refused(message)),
-            Err(failure) => Err(Failure::Lane(failure)),
+            Err(failure) => {
+                // The lane never ran the call: the row says so, with the whole time as what could not be attributed.
+                CallRow { request, mode: &mode, outcome: "lane_failed", stages: CallStages::default(), wrap_ms: 0, total_ms: cache::elapsed_ms(started) }.emit();
+                Err(Failure::Lane(failure))
+            }
         }
     }
 }
-
-/// The build behind [`CodeGraphTool::prewarm_if_project`]: `true` when `cwd` belongs to a project and its build ran.
-async fn warm_project(cache: std::sync::Arc<GraphCache>, cwd: std::path::PathBuf, io: mixdog_rt::MaintenanceIo, cancel: &mixdog_rt::CancellationToken) -> bool {
-    let built = mixdog_scm::repo::on_lane(io, cancel, {
-        let cache = cache.clone();
-        move || {
-            let root = roots::find_dir_project_root(&cwd, true)?;
-            // Fills the shared graph cache, or finds it valid already; builds nothing the cache cannot keep.
-            cache.prewarm(&root);
-            Some(root)
-        }
-    })
-    .await;
-    cache.schedule_flush(io);
-    matches!(built, Ok(Some(_)))
+/// The row of a public call that never reached the lane (an argument refusal, an accepted `prewarm`): every public return
+/// path has exactly one, and all of its time is `other`. The background warm a `prewarm` schedules is not a call and has none.
+fn emit_unrun_row(mode: &str, outcome: &'static str, started: std::time::Instant) {
+    let request = NEXT_REQUEST.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    CallRow { request, mode, outcome, stages: CallStages::default(), wrap_ms: 0, total_ms: cache::elapsed_ms(started) }.emit();
 }
-
 #[async_trait]
 impl Tool for CodeGraphTool {
     fn spec(&self) -> &ToolSpec {
@@ -235,10 +341,20 @@ impl Tool for CodeGraphTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let args = guard_args(args).map_err(|message| invalid_args("arguments", message))?;
+        let started = std::time::Instant::now();
+        let named_mode = args.get("mode").and_then(JsonValue::as_str).unwrap_or_default().to_owned();
+        let args = match guard_args(args) {
+            Ok(args) => args,
+            Err(message) => {
+                emit_unrun_row(&named_mode, "refused", started);
+                return Err(invalid_args("arguments", message));
+            }
+        };
         let cwd = ctx.cwd.as_path().to_path_buf();
         if mixdog_js::js_trim(args.get("mode").and_then(JsonValue::as_str).unwrap_or_default()) == "prewarm" {
-            return Ok(text_output(self.prewarm(&cwd, &args, ctx)));
+            let text = self.prewarm(&cwd, &args, ctx);
+            emit_unrun_row("prewarm", "ok", started);
+            return Ok(text_output(text));
         }
         match self.answer(cwd, &args, ctx.io.maintenance, &ctx.cancel).await {
             Ok(answer) => {

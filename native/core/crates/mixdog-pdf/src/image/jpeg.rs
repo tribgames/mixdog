@@ -277,21 +277,6 @@ fn read_data_block(data: &[u8], offset: usize) -> Step<(usize, usize)> {
     Ok((start, end))
 }
 
-/// `skipData`.
-fn skip_data(data: &[u8], offset: usize) -> Step<usize> {
-    let length = u16_at(data, offset)? as isize;
-    let start = offset + 2;
-    let end = (start as isize + length - 2) as usize;
-    match find_next_file_marker(data, end, start as isize)? {
-        Some(FileMarker {
-            invalid: Some(_),
-            offset,
-            ..
-        }) => Ok(offset),
-        _ => Ok(end),
-    }
-}
-
 // ---- scan decoding -------------------------------------------------------------------------------------------------
 
 /// The state of one `decodeScan`.

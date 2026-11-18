@@ -20,6 +20,7 @@ function setup({ confirm = true, pc = true } = {}) {
     host: service('main'),
     pcHost: pc ? { ...service('pc'), isProviderAllowed: (p) => p !== 'xai' } : undefined,
     confirmAllowAllActions: async () => confirm,
+    prepareConfirmedAllowAllActions: () => async () => calls.push(['main', 'applyConfirmedAllowAllActions', []]),
     signInFocus: { observe: (...a) => observed.push(a) },
   });
   return { handlers, calls, observed, off };
@@ -35,7 +36,7 @@ test('confirm_yes_writes_on_main_connection', async () => {
   const t = setup({ confirm: true });
   await t.handlers.get(HOST_EXTRAS_IPC.enableAllowAllActions)({});
   assert.deepEqual(t.calls.map((c) => [c[0], c[1], c[2]]), [
-    ['main', 'setDeveloperOption', ['allowAllActions', true]],
+    ['main', 'applyConfirmedAllowAllActions', []],
     ['main', 'getDeveloperSettings', []],
   ]);
   t.off();

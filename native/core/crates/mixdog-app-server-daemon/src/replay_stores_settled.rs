@@ -113,5 +113,5 @@ impl DomainService for StoresSettled {
 }
 
 #[cfg(test)]
-#[path = "replay_stores_settled_tests.rs"]
+#[path = "stores_settled_tests.rs"]
 mod tests;

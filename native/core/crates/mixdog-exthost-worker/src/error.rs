@@ -7,6 +7,9 @@ use std::error::Error;
 pub struct CodedError {
     pub code: String,
     pub message: String,
+    /// Whether the worker still holds state for the call's thread (an Office session): an answer that fails says so too, because the
+    /// pool keeps the thread on this worker only while its answers say it.
+    pub pin: bool,
     source: Option<Box<dyn Error + Send + Sync>>,
 }
 
@@ -15,6 +18,7 @@ impl CodedError {
         Self {
             code: code.into(),
             message: message.into(),
+            pin: false,
             source: None,
         }
     }
@@ -27,6 +31,12 @@ impl CodedError {
     /// The answer to a call that was cancelled.
     pub fn cancelled() -> Self {
         Self::new("cancelled", "call cancelled")
+    }
+
+    /// This failure reports that the worker still holds state for the thread.
+    pub fn pinning(mut self, pin: bool) -> Self {
+        self.pin = pin;
+        self
     }
 
     /// The failure this one wraps, which [`is_environment_error`] follows.

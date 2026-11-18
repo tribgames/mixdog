@@ -12,7 +12,8 @@ let unsubscribeFsChanged: (() => void) | null = null;
 let nextWatchId = 1;
 const coreOfSections = new WeakMap<object, Promise<boolean>>();
 
-function watchKey(path: string): string {
+/** A folder path as one key: no trailing separator, forward slashes, case-folded on Windows. */
+export function projectWatchKey(path: string): string {
   const normalized = path.replace(/[\\/]+$/, '').replace(/\\/g, '/');
   return navigator.platform.toLowerCase().includes('win') ? normalized.toLocaleLowerCase() : normalized;
 }
@@ -85,7 +86,7 @@ async function startWatch(api: Bridge, target: ProjectWatchTarget): Promise<(() 
 }
 
 const registry = createProjectWatchRegistry({
-  keyOf: watchKey,
+  keyOf: projectWatchKey,
   start: (target) => startWatch(window.mixdogDesktop!, target),
   idle() {
     unsubscribeBridge?.();

@@ -128,10 +128,15 @@ impl Watchdog {
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
-    use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    #[cfg(node_twin)]
+    use std::sync::atomic::AtomicI64;
+    #[cfg(node_twin)]
+    use std::sync::atomic::AtomicBool;
 
     use mixdog_core_session::session::testing::eventually_on_awaiting;
     use mixdog_core_session::session::testing::HeldClock;
+    #[cfg(node_twin)]
     use serde_json::Value;
 
     use super::*;
@@ -152,6 +157,7 @@ mod tests {
     /// What real Node's `evaluateAgentWatchdogAbort` answered for a streaming run last heard from
     /// `last` ms after `T0`, at `now` ms after it (`benchmarks/rust-core/recorders/
     /// record-agent-watchdog.mjs`). The recorded policy is the one `POLICY` carries.
+    #[cfg(node_twin)]
     fn node_verdict(last: i64, awaiting_user: bool, now: i64) -> Option<String> {
         let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-watchdog/golden.json")).unwrap();
         let found = golden["evaluations"].as_array().unwrap().iter().find(|case| {
@@ -182,6 +188,7 @@ mod tests {
         }
 
         /// When each sweep ran, in milliseconds after `T0`.
+        #[cfg(node_twin)]
         fn times(&self) -> Vec<i64> {
             self.times.lock().unwrap().iter().map(|now| now - T0).collect()
         }
@@ -251,6 +258,7 @@ mod tests {
     }
 
     /// One run in the replay below: armed at its recorded instant, its progress stamp what the recording's `updateSessionStage` calls made it.
+    #[cfg(node_twin)]
     struct Replayed {
         name: String,
         armed_at: i64,
@@ -271,6 +279,7 @@ mod tests {
     /// runs between an arming and the next advance, so a sweep task's first poll comes after the clock has moved), and every run's
     /// evaluations must be the whole sequence Node's were, and its abort when and with what Node's was.
     #[tokio::test(start_paused = true)]
+    #[cfg(node_twin)]
     async fn the_sweeps_come_when_nodes_come_counted_from_each_arming() {
         let _held = HeldClock::hold();
         mixdog_rt::testing::tokens();
@@ -337,6 +346,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    #[cfg(node_twin)]
     async fn an_unattended_silent_run_is_aborted_with_nodes_stale_sentence() {
         let _held = HeldClock::hold();
         let (watchdog, signal, sweeps) = start(true, |_| Some(streaming(T0)));
@@ -361,6 +371,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    #[cfg(node_twin)]
     async fn progress_and_a_waiting_approval_keep_a_run_alive_as_they_do_in_node() {
         let _held = HeldClock::hold();
         let last = Arc::new(AtomicI64::new(T0));
@@ -412,8 +423,10 @@ mod tests {
     }
 
     /// Epoch milliseconds that follow the paused tokio clock from a recorded run's own start.
+    #[cfg(node_twin)]
     struct Since(tokio::time::Instant, i64);
 
+    #[cfg(node_twin)]
     impl Clock for Since {
         fn now_ms(&self) -> i64 {
             self.1 + self.0.elapsed().as_millis() as i64
@@ -421,6 +434,7 @@ mod tests {
     }
 
     /// Node's progress snapshot object (`getSessionProgressSnapshot`) as the Rust snapshot.
+    #[cfg(node_twin)]
     fn snapshot_of(v: &Value) -> Snapshot {
         let n = |k: &str| v[k].as_i64().unwrap_or_else(|| panic!("{k} in {v}"));
         let b = |k: &str| v[k].as_bool().unwrap_or_else(|| panic!("{k} in {v}"));
@@ -447,6 +461,8 @@ mod tests {
                 Some(other) => panic!("semantic kind {other}"),
             },
             current_tool: v["currentTool"].as_str().map(str::to_owned),
+            attempt_phase: None,
+            retry_at: 0,
         }
     }
 
@@ -455,14 +471,17 @@ mod tests {
     /// writer tells its appends as they happen; an abort is set synchronously and seen at the next append or at the run's end, so
     /// an abort delivered before an append comes before it in the record.
     #[derive(Default)]
+    #[cfg(node_twin)]
     struct Probe {
         run: Mutex<Option<(tokio::time::Instant, i64, Cancel)>>,
         last: AtomicI64,
         events: Mutex<Vec<String>>,
     }
 
+    #[cfg(node_twin)]
     impl Probe {
         /// "aborted", once, when the run's signal is aborted and the record does not have it yet.
+        #[cfg(node_twin)]
         fn note_abort(&self) {
             let aborted = self.run.lock().unwrap().as_ref().is_some_and(|(_, _, signal)| signal.is_aborted());
             let mut events = self.events.lock().unwrap();
@@ -477,6 +496,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     impl Clock for Probe {
         fn now_ms(&self) -> i64 {
             match &*self.run.lock().unwrap() {
@@ -492,6 +512,7 @@ mod tests {
 
     /// The registry's `registration_id`s of a whole file, each 8 lowercase hex digits, named `<registration:N>` by order of
     /// appearance (the run's own value the fixture's manifest declares, `runOwnValues.registration_id`).
+    #[cfg(node_twin)]
     fn mask_registrations(text: &str) -> String {
         let mut seen: Vec<String> = Vec::new();
         text.split_inclusive('\n')
@@ -518,6 +539,7 @@ mod tests {
     /// `FailureWriter::record_watchdog_abort` in `compose_flip.rs`). Each stop must come at Node's sweep with Node's sentence, and its
     /// run's events must be `appended`: the writer's append of the stop's rows, then the abort (Node records, then aborts:
     /// `agent-progress-watchdog.mjs:291-293`). Returns the two files the writer's exit flush left (`None`: not written).
+    #[cfg(node_twin)]
     async fn replay_stall_rows(golden: &Value, env: &[(&str, &str)], appended: &[&str]) -> (Option<String>, Option<String>) {
         let tokens = mixdog_rt::testing::tokens();
         let policy = &golden["policy"];
@@ -577,6 +599,7 @@ mod tests {
     /// The two files Node wrote when its watchdogs stopped the recorded runs (`MIXDOG_DIAGNOSTICS=1`), whole and in order, the
     /// registration ids named as the manifest declares.
     #[tokio::test(start_paused = true)]
+    #[cfg(node_twin)]
     async fn a_stop_writes_the_stall_abort_rows_node_writes() {
         let _held = HeldClock::hold();
         let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/watchdog-stall-rows/golden.json")).unwrap();
@@ -592,6 +615,7 @@ mod tests {
     /// With `MIXDOG_AGENT_TRACE_DISABLE=1` Node's stop records nothing (`agent-progress-watchdog.mjs:201`, and `appendAgentTrace`):
     /// the runs stop as before and the files are what Node's were (`traceDisabled`).
     #[tokio::test(start_paused = true)]
+    #[cfg(node_twin)]
     async fn a_stop_with_the_trace_disabled_writes_what_node_writes() {
         let _held = HeldClock::hold();
         let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/watchdog-stall-rows/golden.json")).unwrap();

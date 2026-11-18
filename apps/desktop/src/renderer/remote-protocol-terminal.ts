@@ -10,10 +10,12 @@ import {
   terminalActivityChanges,
   terminalActivityRows,
   terminalEnsureRequest,
+  terminalReplayCut,
   terminalReply,
   terminalResizeRequest,
   terminalRunPush,
   terminalSizeOwnerChanges,
+  type TerminalReplayCut,
 } from '../shared/terminal-protocol';
 import type { TerminalSizeOwner } from '../shared/terminal-size-owner';
 import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
@@ -85,13 +87,97 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
     unwire = wire(host, client);
   };
   const off = host.onClient?.(rewire);
+  const offReset = host.onPairingReset?.(() => {
+    unwire?.();
+    unwire = undefined;
+  });
   const started = ctx.phone.start();
   if (!off) void started.then(() => rewire(host.client()), () => undefined);
   else void started.catch(() => undefined);
   return () => {
     stopped = true;
     off?.();
+    offReset?.();
     unwire?.();
+  };
+}
+
+type QueuedOutput = { params: unknown } | { exitStream: unknown };
+type HeldTab = { cut?: TerminalReplayCut; recovery?: { frames: QueuedOutput[] }; retry?: ReturnType<typeof setTimeout> };
+type TerminalOutput = { id: string; data: string; reset?: true };
+
+/** Restores every held tab, including a parked view with no mounted pane. Its output listener survives the park. */
+export function followTerminalOutput(
+  read: (id: string) => Promise<unknown>,
+  emit: (event: TerminalOutput) => void,
+  ready: () => boolean,
+) {
+  const tabs = new Map<string, HeldTab>();
+  const output = createTerminalOutputDecoder();
+  const publish = (params: unknown, cut?: TerminalReplayCut) => {
+    const event = output.text(params, cut);
+    if (event.data) emit(event);
+  };
+  const ended = (id: string, tab: HeldTab | undefined, stream: unknown) => {
+    if (tab?.cut && typeof stream === 'string' && tab.cut.stream !== stream) return;
+    if (tab) delete tab.cut;
+    output.end(id);
+  };
+  const recover = (id: string, tab: HeldTab): void => {
+    clearTimeout(tab.retry);
+    const recovery = { frames: tab.recovery?.frames ?? [] };
+    tab.recovery = recovery;
+    if (!ready()) return;
+    void read(id).then((reply) => {
+      if (tabs.get(id) !== tab || tab.recovery !== recovery) return;
+      const cut = terminalReplayCut(reply);
+      if (cut) {
+        output.end(id);
+        tab.cut = cut;
+        emit({ id, data: terminalReply(reply).replay, reset: true });
+      }
+      for (const frame of recovery.frames) {
+        if ('params' in frame) publish(frame.params, tab.cut);
+        else ended(id, tab, frame.exitStream);
+      }
+      delete tab.recovery;
+    }, () => {
+      if (tabs.get(id) !== tab || tab.recovery !== recovery || !ready()) return;
+      tab.retry = setTimeout(() => recover(id, tab), 1_000);
+    });
+  };
+  const forget = (id: string) => {
+    clearTimeout(tabs.get(id)?.retry);
+    tabs.delete(id);
+    output.end(id);
+  };
+  return {
+    hold(id: string) {
+      if (id && !tabs.has(id)) tabs.set(id, {});
+    },
+    forget,
+    gap() {
+      for (const [id, tab] of tabs) {
+        tab.recovery = { frames: [] };
+        recover(id, tab);
+      }
+    },
+    ready() {
+      for (const [id, tab] of tabs) if (tab.recovery) recover(id, tab);
+    },
+    frame(id: string, params: unknown) {
+      const tab = tabs.get(id);
+      if (tab?.recovery) tab.recovery.frames.push({ params });
+      else publish(params, tab?.cut);
+    },
+    end(id: string, stream: unknown) {
+      const tab = tabs.get(id);
+      if (tab?.recovery) tab.recovery.frames.push({ exitStream: stream });
+      else ended(id, tab, stream);
+    },
+    stop() {
+      for (const id of tabs.keys()) forget(id);
+    },
   };
 }
 
@@ -119,25 +205,33 @@ function wire(host: PhoneProtocolHost, client: Client): () => void {
       for (const event of events) ctx.fanOut(ctx.termSizeOwnerListeners, event);
     };
     let connection = '';
+    const output = followTerminalOutput(
+      (id) => rpc(client, 'terminal/attach', { tabId: id }),
+      (event) => { if (laneInUse()) ctx.fanOut(ctx.termListeners, event); },
+      () => client.status.state === 'ready',
+    );
     const remember = (reply: unknown): void => {
-      const client = (reply as { client?: unknown } | null)?.client;
+      const info = reply as { client?: unknown; id?: unknown } | null;
+      const client = info?.client;
       if (typeof client === 'string') connection = client;
+      if (typeof info?.id === 'string') output.hold(info.id);
     };
-    remembered.set(ctx, remember);
+    remembered.set(ctx, { remember, forget: output.forget });
     readActivity();
     readTabs();
 
-    const output = createTerminalOutputDecoder();
+    const onGap = () => output.gap();
+    window.addEventListener('mixdog:remote-terminal-gap', onGap);
     const watchDirs = (): Map<string, string> => new Map([...(watches.get(ctx) ?? [])].map(([, watch]) => [watch.watchId, watch.dir]));
     const ranRequests = new Set<string>();
     const offEvents = client.on((event) => {
+      if (event.type === 'status' && event.status.state === 'ready') output.ready();
       if (event.type !== 'notification') return;
       const { method, params, feed } = event.notification as { method: string; params?: any; feed?: { id: string } };
       if (method === 'process/outputDelta' && feed?.id === LANE_FEED) {
-        const { id, data } = output.text(params);
-        if (data && laneInUse()) ctx.fanOut(ctx.termListeners, { id, data });
+        output.frame(String(params?.processHandle ?? ''), params);
       } else if (method === 'process/exited' && feed?.id === LANE_FEED) {
-        output.end(String(params?.processHandle ?? ''));
+        output.end(String(params?.processHandle ?? ''), params?.outputStream);
       } else if (method === 'fs/changed' && feed?.id.startsWith('fs:')) {
         const dir = watchDirs().get(feed.id.slice('fs:'.length));
         if (dir !== undefined && ctx.activeLanes.has(FILES_LANE)) ctx.fanOut(ctx.folderChangeListeners, dir);
@@ -163,12 +257,15 @@ function wire(host: PhoneProtocolHost, client: Client): () => void {
     return () => {
       offEvents();
       offStore();
+      window.removeEventListener('mixdog:remote-terminal-gap', onGap);
+      remembered.delete(ctx);
+      output.stop();
     };
   }
 }
 
 /** The ensure/attach replies name the asking connection; the size-owner events say whose claim it is by that name. */
-const remembered = new WeakMap<object, (reply: unknown) => void>();
+const remembered = new WeakMap<object, { remember(reply: unknown): void; forget(id: string): void }>();
 
 export const adapter: PhoneProtocolAdapter = {
   group: 'terminal',
@@ -178,21 +275,26 @@ export const adapter: PhoneProtocolAdapter = {
     // connection's one call queue (remote-protocol-queue.ts), which the router enters for every call; the adapter has no lane of its own.
     termEnsure: async ([id, cwd, shell], host) => {
       const { method, params } = terminalEnsureRequest(id, cwd, shell);
+      const held = remembered.get(host.ctx);
       const reply = await rpc(host.client(), method, params);
-      remembered.get(host.ctx)?.(reply);
+      if (held === remembered.get(host.ctx)) held?.remember(reply);
       return terminalReply(reply);
     },
     termAttach: async ([id], host) => {
+      const held = remembered.get(host.ctx);
       const reply = await rpc(host.client(), 'terminal/attach', { tabId: requiredString(id, 'terminal id', 128) });
       if (reply == null) return null;
-      remembered.get(host.ctx)?.(reply);
+      if (held === remembered.get(host.ctx)) held?.remember(reply);
       // The output subscription is the adapter's own: Node's answer carries none.
-      const { subscription: _subscription, ...answer } = reply;
+      const { subscription: _subscription, replayCut: _replayCut, ...answer } = reply;
       return terminalReply(answer);
     },
     termProfiles: (_params, host) => rpc(host.client(), 'terminal/profiles', {}),
     termDispose: async ([id], host) => {
-      await rpc(host.client(), 'terminal/dispose', { tabId: requiredString(id, 'terminal id', 128) });
+      const tabId = requiredString(id, 'terminal id', 128);
+      const held = remembered.get(host.ctx);
+      await rpc(host.client(), 'terminal/dispose', { tabId });
+      held?.forget(tabId);
       return null;
     },
     termActivity: async (_params, host) => terminalActivityRows(sectionValue(host.client(), 'terminalActivity')),

@@ -179,6 +179,154 @@ pub(crate) struct HostClient {
     cleanup: OnceCell<Value>,
 }
 
+/// Writes queued lines to the host; when the queue is closed and empty, dropping stdin is the EOF.
+async fn write_lines(mut stdin: ChildStdin, mut lines: mpsc::UnboundedReceiver<String>) {
+    while let Some(line) = lines.recv().await {
+        if stdin.write_all(line.as_bytes()).await.is_err() || stdin.flush().await.is_err() {
+            return;
+        }
+    }
+}
+
+async fn read_stdout(client: Arc<HostClient>, stdout: ChildStdout) {
+    let mut reader = BufReader::new(stdout);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match reader.read_until(b'\n', &mut line).await {
+            Ok(0) | Err(_) => return,
+            Ok(_) => {
+                let text = String::from_utf8_lossy(&line);
+                if client.one_shot {
+                    lock(&client.shared).stdout.push_str(&text);
+                } else if !text.trim().is_empty() {
+                    client.on_message(text.trim());
+                }
+            }
+        }
+    }
+}
+
+async fn read_stderr(client: Arc<HostClient>, mut stderr: ChildStderr) {
+    let mut chunk = vec![0_u8; 8192];
+    // A chunk can end inside a character: the bytes of an unfinished one wait for the next chunk.
+    let mut carried: Vec<u8> = Vec::new();
+    loop {
+        match stderr.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(read) => {
+                carried.extend_from_slice(&chunk[..read]);
+                let complete = match std::str::from_utf8(&carried) {
+                    Ok(_) => carried.len(),
+                    Err(error) if error.error_len().is_none() => error.valid_up_to(),
+                    Err(_) => carried.len(),
+                };
+                let rest = carried.split_off(complete);
+                client.on_stderr(&String::from_utf8_lossy(&carried));
+                carried = rest;
+            }
+        }
+    }
+    if !carried.is_empty() {
+        client.on_stderr(&String::from_utf8_lossy(&carried));
+    }
+}
+
+/// Owns the child from start to exit. A kill request ends it; otherwise it only waits.
+async fn watch_exit(
+    mut child: Child,
+    mut kill: oneshot::Receiver<()>,
+    readers: [JoinHandle<()>; 2],
+    state: watch::Sender<HostState>,
+    sweeper: Sweeper,
+) {
+    let status = tokio::select! {
+        status = child.wait() => status,
+        Ok(()) = &mut kill => {
+            let _ = child.start_kill();
+            child.wait().await
+        }
+    };
+    let code = status.ok().and_then(|status| status.code());
+    state.send_modify(|state| state.exit = Some(code));
+    // A host that left with a failure or a signal did not finish its cleanup: what it recorded is swept.
+    if code != Some(0) {
+        sweeper.request();
+    }
+    for reader in readers {
+        let _ = reader.await;
+    }
+    state.send_modify(|state| state.closed = true);
+}
+
+#[derive(Default)]
+struct SessionTable {
+    clients: HashMap<String, Arc<HostClient>>,
+    starting: HashSet<String>,
+}
+
+/// The live session hosts, by session id.
+#[derive(Default)]
+pub(crate) struct Sessions {
+    table: Mutex<SessionTable>,
+}
+
+impl Sessions {
+    pub(crate) fn get(&self, id: &str) -> Option<Arc<HostClient>> {
+        lock(&self.table).clients.get(id).cloned()
+    }
+
+    pub(crate) fn all(&self) -> Vec<Arc<HostClient>> {
+        lock(&self.table).clients.values().cloned().collect()
+    }
+
+    /// Reserves `id` for a host that is starting; `false` when the id is taken.
+    pub(crate) fn reserve(&self, id: &str) -> bool {
+        let mut table = lock(&self.table);
+        if table.clients.contains_key(id) || table.starting.contains(id) {
+            return false;
+        }
+        table.starting.insert(id.to_owned());
+        true
+    }
+
+    /// Gives up a reservation whose host did not start.
+    pub(crate) fn release(&self, id: &str) {
+        lock(&self.table).starting.remove(id);
+    }
+
+    /// Turns a reservation into a live session.
+    pub(crate) fn register(&self, client: Arc<HostClient>) {
+        let mut table = lock(&self.table);
+        table.starting.remove(client.session_id());
+        table.clients.insert(client.session_id().to_owned(), client);
+    }
+
+    pub(crate) fn remove(&self, id: &str) {
+        lock(&self.table).clients.remove(id);
+    }
+
+    fn forget(&self, client: &HostClient) {
+        let mut table = lock(&self.table);
+        if table.clients.get(client.session_id()).is_some_and(|held| std::ptr::eq(Arc::as_ptr(held), client)) {
+            table.clients.remove(client.session_id());
+        }
+    }
+}
+
+#[cfg(test)]
+mod host_args_tests {
+    use super::*;
+
+    #[test]
+    fn the_host_arguments_name_the_kind_of_host_and_the_data_directory() {
+        let dir = Path::new("/data/dir");
+        assert_eq!(host_args(false, dir), ["office-com-host", "--data-dir", "/data/dir"].map(OsString::from));
+        assert_eq!(host_args(true, dir), ["office-com-host", "--session", "--data-dir", "/data/dir"].map(OsString::from));
+    }
+}
+
+
 impl HostClient {
     /// Takes over a started host: tasks feed its stdin, read its stdout and stderr and watch it exit.
     pub(crate) fn attach(running: Running, how: Attach) -> Arc<Self> {
@@ -449,152 +597,5 @@ impl HostClient {
                 shared.stderr.drain(..cut);
             }
         }
-    }
-}
-
-/// Writes queued lines to the host; when the queue is closed and empty, dropping stdin is the EOF.
-async fn write_lines(mut stdin: ChildStdin, mut lines: mpsc::UnboundedReceiver<String>) {
-    while let Some(line) = lines.recv().await {
-        if stdin.write_all(line.as_bytes()).await.is_err() || stdin.flush().await.is_err() {
-            return;
-        }
-    }
-}
-
-async fn read_stdout(client: Arc<HostClient>, stdout: ChildStdout) {
-    let mut reader = BufReader::new(stdout);
-    let mut line = Vec::new();
-    loop {
-        line.clear();
-        match reader.read_until(b'\n', &mut line).await {
-            Ok(0) | Err(_) => return,
-            Ok(_) => {
-                let text = String::from_utf8_lossy(&line);
-                if client.one_shot {
-                    lock(&client.shared).stdout.push_str(&text);
-                } else if !text.trim().is_empty() {
-                    client.on_message(text.trim());
-                }
-            }
-        }
-    }
-}
-
-async fn read_stderr(client: Arc<HostClient>, mut stderr: ChildStderr) {
-    let mut chunk = vec![0_u8; 8192];
-    // A chunk can end inside a character: the bytes of an unfinished one wait for the next chunk.
-    let mut carried: Vec<u8> = Vec::new();
-    loop {
-        match stderr.read(&mut chunk).await {
-            Ok(0) | Err(_) => break,
-            Ok(read) => {
-                carried.extend_from_slice(&chunk[..read]);
-                let complete = match std::str::from_utf8(&carried) {
-                    Ok(_) => carried.len(),
-                    Err(error) if error.error_len().is_none() => error.valid_up_to(),
-                    Err(_) => carried.len(),
-                };
-                let rest = carried.split_off(complete);
-                client.on_stderr(&String::from_utf8_lossy(&carried));
-                carried = rest;
-            }
-        }
-    }
-    if !carried.is_empty() {
-        client.on_stderr(&String::from_utf8_lossy(&carried));
-    }
-}
-
-/// Owns the child from start to exit. A kill request ends it; otherwise it only waits.
-async fn watch_exit(
-    mut child: Child,
-    mut kill: oneshot::Receiver<()>,
-    readers: [JoinHandle<()>; 2],
-    state: watch::Sender<HostState>,
-    sweeper: Sweeper,
-) {
-    let status = tokio::select! {
-        status = child.wait() => status,
-        Ok(()) = &mut kill => {
-            let _ = child.start_kill();
-            child.wait().await
-        }
-    };
-    let code = status.ok().and_then(|status| status.code());
-    state.send_modify(|state| state.exit = Some(code));
-    // A host that left with a failure or a signal did not finish its cleanup: what it recorded is swept.
-    if code != Some(0) {
-        sweeper.request();
-    }
-    for reader in readers {
-        let _ = reader.await;
-    }
-    state.send_modify(|state| state.closed = true);
-}
-
-#[derive(Default)]
-struct SessionTable {
-    clients: HashMap<String, Arc<HostClient>>,
-    starting: HashSet<String>,
-}
-
-/// The live session hosts, by session id.
-#[derive(Default)]
-pub(crate) struct Sessions {
-    table: Mutex<SessionTable>,
-}
-
-impl Sessions {
-    pub(crate) fn get(&self, id: &str) -> Option<Arc<HostClient>> {
-        lock(&self.table).clients.get(id).cloned()
-    }
-
-    pub(crate) fn all(&self) -> Vec<Arc<HostClient>> {
-        lock(&self.table).clients.values().cloned().collect()
-    }
-
-    /// Reserves `id` for a host that is starting; `false` when the id is taken.
-    pub(crate) fn reserve(&self, id: &str) -> bool {
-        let mut table = lock(&self.table);
-        if table.clients.contains_key(id) || table.starting.contains(id) {
-            return false;
-        }
-        table.starting.insert(id.to_owned());
-        true
-    }
-
-    /// Gives up a reservation whose host did not start.
-    pub(crate) fn release(&self, id: &str) {
-        lock(&self.table).starting.remove(id);
-    }
-
-    /// Turns a reservation into a live session.
-    pub(crate) fn register(&self, client: Arc<HostClient>) {
-        let mut table = lock(&self.table);
-        table.starting.remove(client.session_id());
-        table.clients.insert(client.session_id().to_owned(), client);
-    }
-
-    pub(crate) fn remove(&self, id: &str) {
-        lock(&self.table).clients.remove(id);
-    }
-
-    fn forget(&self, client: &HostClient) {
-        let mut table = lock(&self.table);
-        if table.clients.get(client.session_id()).is_some_and(|held| std::ptr::eq(Arc::as_ptr(held), client)) {
-            table.clients.remove(client.session_id());
-        }
-    }
-}
-
-#[cfg(test)]
-mod host_args_tests {
-    use super::*;
-
-    #[test]
-    fn the_host_arguments_name_the_kind_of_host_and_the_data_directory() {
-        let dir = Path::new("/data/dir");
-        assert_eq!(host_args(false, dir), ["office-com-host", "--data-dir", "/data/dir"].map(OsString::from));
-        assert_eq!(host_args(true, dir), ["office-com-host", "--session", "--data-dir", "/data/dir"].map(OsString::from));
     }
 }

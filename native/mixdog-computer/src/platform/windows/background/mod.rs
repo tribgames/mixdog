@@ -14,152 +14,99 @@ mod pointer;
 
 pub use holds::{hold_inactive, release_inactive};
 
-use super::native::{self, hwnd};
+use super::native;
 use super::{edit, native_state};
 use crate::keys::Mod;
 use crate::observer::Shared;
 use crate::platform::{Background, Wid};
+use crate::port::windows::{read_message, Message, Pressed, ReadMessage, Refusal, WinPort};
 use std::sync::Arc;
 use std::time::Duration;
-use windows::Win32::Foundation::{GetLastError, SetLastError, ERROR_ACCESS_DENIED, LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{SendMessageTimeoutW, SMTO_ABORTIFHUNG, SMTO_BLOCK};
 
-/// A failed message delivery, and whether the system proved nothing arrived.
+/// A failed message delivery. Whether anything was queued is the port's to know: its receipts decide what is released.
 #[derive(Debug)]
 struct MsgError {
     text: String,
-    not_delivered: bool,
-    hung: bool,
-    gone: bool,
 }
 
 impl MsgError {
     fn plain(text: impl Into<String>) -> MsgError {
-        MsgError {
-            text: text.into(),
-            not_delivered: false,
-            hung: false,
-            gone: false,
-        }
+        MsgError { text: text.into() }
     }
 }
 
 type Msg<T = ()> = Result<T, MsgError>;
 
-fn send(target: Wid, message: u32, wparam: usize, lparam: isize) -> Msg<usize> {
-    let mut result = 0usize;
-    // SAFETY: the call can fail without setting an error, so it is cleared first.
-    let sent = unsafe {
-        SetLastError(Default::default());
-        SendMessageTimeoutW(
-            hwnd(target),
-            message,
-            WPARAM(wparam),
-            LPARAM(lparam),
-            SMTO_BLOCK | SMTO_ABORTIFHUNG,
-            1000,
-            Some(&mut result),
-        )
-    };
-    if sent.0 != 0 {
-        return Ok(result);
-    }
-    let error = unsafe { GetLastError() };
-    Err(match error.0 {
-        0 | 1460 => MsgError {
-            hung: true,
-            ..MsgError::plain("background_target_hung|native window message timed out")
-        },
-        code if code == ERROR_ACCESS_DENIED.0 => MsgError {
-            not_delivered: true,
-            ..MsgError::plain(
-                "background_blocked_uipi|Windows integrity isolation blocked the native message",
-            )
-        },
-        code => MsgError::plain(format!(
-            "background_message_rejected|native window message failed with Win32 error {code}"
-        )),
-    })
-}
+/// How long a queued message's handling is awaited (the wait holds nothing).
+const REPLY_WAIT: Duration = Duration::from_millis(1000);
 
-/// One message to a window, for callers outside the background routes.
-pub fn send_value(target: Wid, message: u32, wparam: usize, lparam: isize) -> Result<usize, String> {
-    send(target, message, wparam, lparam).map_err(|error| error.text)
-}
-
-/// Binds a release to the window's process and thread: a destroyed window's
-/// handle may be reused, and cleanup must never reach its successor.
-fn bound(target: Wid, release: impl Fn() -> Msg + 'static) -> impl Fn() -> Msg {
-    let (pid, thread) = native::pid_thread(target);
-    move || {
-        let (now_pid, now_thread) = native::pid_thread(target);
-        if pid == 0 || thread == 0 || !native::is_window(target) || (now_pid, now_thread) != (pid, thread) {
-            return Err(MsgError {
-                gone: true,
-                ..MsgError::plain("background_target_gone|the target window closed before it acknowledged a background input release")
-            });
+fn refused(refusal: Refusal) -> MsgError {
+    match refusal {
+        Refusal::Revoked => MsgError::plain(crate::port::REVOKED),
+        Refusal::Hung => MsgError::plain("background_target_hung|the target window does not answer; no message was queued"),
+        Refusal::Isolated => {
+            MsgError::plain("background_blocked_uipi|Windows integrity isolation blocked the native message")
         }
-        release()
+        Refusal::Gone => MsgError::plain(
+            "background_target_gone|the target window closed before it acknowledged a background input release",
+        ),
+        Refusal::Failed(code) => {
+            MsgError::plain(format!("background_message_rejected|native window message failed with Win32 error {code}"))
+        }
     }
+}
+
+/// One message through the port to `target`, a window of `top`, then its handling awaited: the reply is data, and the next
+/// message is arbitrated again.
+fn send(port: &WinPort, top: Wid, target: Wid, message: Message) -> Msg<usize> {
+    let reply = port.message(top, target, message).map_err(refused)?;
+    port.wait(&reply, REPLY_WAIT)
+        .ok_or_else(|| MsgError::plain("background_target_hung|native window message timed out"))
+}
+
+/// One read of a window's state: holds no permission and changes nothing.
+pub fn read_value(target: Wid, read: ReadMessage<'_>) -> Result<usize, String> {
+    read_message(target, read).map_err(|refusal| refused(refusal).text)
 }
 
 const RELEASE_ATTEMPTS: u32 = 3;
-const RELEASE_ATTEMPT_MS: u64 = 1000;
 
-/// A busy target times a release out without saying whether it landed; a
-/// release is harmless to send again, so a timeout gets up to three attempts
-/// about a second apart. A target gone before any release reached it holds
-/// nothing; gone after an unanswered one, the release stays unconfirmed.
-fn confirm_release(release: &dyn Fn() -> Msg) -> Result<(), String> {
-    for attempt in 1..=RELEASE_ATTEMPTS {
-        let started = std::time::Instant::now();
-        match release() {
-            Ok(()) => return Ok(()),
-            Err(error) if error.gone => {
-                return if attempt > 1 {
-                    Err(format!("input_cleanup_unconfirmed: {}", error.text))
-                } else {
-                    Ok(())
-                };
-            }
-            Err(error) if error.hung && attempt < RELEASE_ATTEMPTS => {
-                let rest = Duration::from_millis(RELEASE_ATTEMPT_MS).saturating_sub(started.elapsed());
-                std::thread::sleep(rest);
-            }
-            Err(_) => {
-                return Err(
-                    "input_cleanup_unconfirmed: background input release was not acknowledged"
-                        .into(),
-                )
-            }
+/// Lets go of what `top`'s queue holds through its receipt, and waits for the target to acknowledge it. A busy target gets up
+/// to three waits; the release itself is queued once and never sent again. A target gone since the press holds nothing.
+fn confirm_release(port: &WinPort, top: Wid, target: Wid, pressed: Pressed) -> Result<(), String> {
+    let release = match port.release_pressed(top, target, pressed) {
+        None => return Ok(()),
+        Some(Err(Refusal::Gone)) => return Ok(()),
+        Some(Err(_)) => {
+            return Err("input_cleanup_unconfirmed: background input release was not acknowledged".into());
+        }
+        Some(Ok(reply)) => reply,
+    };
+    for _ in 0..RELEASE_ATTEMPTS {
+        if port.wait(&release, REPLY_WAIT).is_some() {
+            return Ok(());
         }
     }
-    unreachable!("the loop returns on its last attempt")
+    Err("input_cleanup_unconfirmed: background input release was not acknowledged".into())
 }
 
-/// A press and its release as one guarded unit: whatever happens in between,
-/// the release is sent and acknowledged unless the press provably never landed.
+/// A press and its release as one unit: once the port queued the press, its receipt holds the release, which goes out and is
+/// acknowledged whatever happens in between (a revocation, an error, a lost reply). A press refused before it was queued holds
+/// nothing.
 fn with_release(
-    press: impl FnOnce() -> Msg,
+    port: &WinPort,
+    top: Wid,
+    target: Wid,
+    press: Message,
     held: impl FnOnce() -> Msg,
-    release: &dyn Fn() -> Msg,
 ) -> Result<(), String> {
-    let mut release_required = true;
-    let outcome = (|| {
-        match press() {
-            Ok(()) => {}
-            Err(error) => {
-                if error.not_delivered {
-                    release_required = false;
-                }
-                return Err(error.text);
-            }
-        }
-        held().map_err(|error| error.text)
-    })();
-    if release_required {
-        confirm_release(release)?;
-    }
+    let pressed = match press {
+        Message::KeyDown { vk, .. } => Pressed::Key(vk),
+        Message::ButtonDown { button, .. } => Pressed::Button(button),
+        _ => Pressed::Button(crate::port::windows::MouseButton::Left),
+    };
+    let outcome = send(port, top, target, press).and_then(|_| held()).map_err(|error| error.text);
+    confirm_release(port, top, target, pressed)?;
     outcome
 }
 
@@ -195,11 +142,27 @@ pub(in crate::platform::windows) fn belongs_to_top(top: Wid, candidate: Wid) -> 
 
 pub struct WinBackground {
     shared: Arc<Shared>,
+    /// Every message, hold and focus recovery of the background routes goes through the executor's port.
+    port: Arc<WinPort>,
 }
 
 impl WinBackground {
-    pub fn new(shared: Arc<Shared>) -> WinBackground {
-        WinBackground { shared }
+    pub fn new(shared: Arc<Shared>, port: Arc<WinPort>) -> WinBackground {
+        WinBackground { shared, port }
+    }
+
+    pub(in crate::platform::windows) fn port(&self) -> &WinPort {
+        &self.port
+    }
+
+    /// `EM_SETSEL` on `control`, a window of `top`, through the port; its reply once handled.
+    pub(in crate::platform::windows) fn edit_select(&self, top: Wid, control: Wid, start: usize, end: isize) -> Result<usize, String> {
+        send(&self.port, top, control, Message::EditSelect { start, end }).map_err(|error| error.text)
+    }
+
+    /// `WM_INITMENUPOPUP` on `window`, through the port: an opening menu refreshes its items.
+    pub(in crate::platform::windows) fn announce_menu(&self, window: Wid, menu: usize, position: isize) -> Result<usize, String> {
+        send(&self.port, window, window, Message::MenuAnnounce { menu, position }).map_err(|error| error.text)
     }
 }
 

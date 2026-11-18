@@ -32,6 +32,7 @@ use mixdog_core_api::domain::fs::WriteRequest;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InteractiveIo;
 use mixdog_services::bots::WebhookEvents;
+use mixdog_services::webhooks::StateWebhookStore;
 use mixdog_services::webhooks::prompt::UNTRUSTED_MARKER;
 use mixdog_services::webhooks::prompt::scrub_fence_marker;
 use mixdog_services::webhooks::signature::Headers;
@@ -263,10 +264,12 @@ pub struct QueueFiles {
 pub struct EventPipeline {
     me: std::sync::Weak<EventPipeline>,
     files: QueueFiles,
+    deliveries: Arc<StateWebhookStore>,
     sink: Arc<dyn EventSink>,
     rules: Mutex<Vec<Rule>>,
     config: Mutex<Value>,
     seq: AtomicU64,
+    publishing: tokio::sync::Mutex<()>,
     processing: AtomicBool,
     fail_counts: Mutex<HashMap<String, u64>>,
     now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
@@ -276,14 +279,16 @@ type Item = Map<String, Value>;
 
 impl EventPipeline {
     /// `config` is `config.events` (`{rules, queue}`).
-    pub fn new(files: QueueFiles, sink: Arc<dyn EventSink>, config: &Value, now_ms: Arc<dyn Fn() -> i64 + Send + Sync>) -> Arc<Self> {
+    pub fn new(files: QueueFiles, sink: Arc<dyn EventSink>, deliveries: Arc<StateWebhookStore>, config: &Value, now_ms: Arc<dyn Fn() -> i64 + Send + Sync>) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             me: me.clone(),
             files,
+            deliveries,
             sink,
             rules: Mutex::new(webhook_rules(config)),
             config: Mutex::new(config.get("queue").cloned().unwrap_or(Value::Null)),
             seq: AtomicU64::new(0),
+            publishing: tokio::sync::Mutex::new(()),
             processing: AtomicBool::new(false),
             fail_counts: Mutex::new(HashMap::new()),
             now_ms,
@@ -342,39 +347,88 @@ impl EventPipeline {
         names
     }
 
-    async fn ensure_dirs(&self) {
+    async fn ensure_dirs(&self) -> Result<(), String> {
         for name in ["queue", "in-progress", "processed"] {
-            if let Err(error) = self.files.fs.create_dir(self.files.write, self.dir(name), true).await {
-                tracing::warn!(dir = name, "event queue directory: {:?}", error.kind);
-            }
+            self.files
+                .fs
+                .create_dir(self.files.write, self.dir(name), true)
+                .await
+                .map_err(|error| format!("event queue directory {name}: {:?}", error.kind))?;
         }
+        Ok(())
     }
 
     // ── source: webhook ───────────────────────────────────────────────────────────────────
 
-    async fn enqueue(&self, rule_fields: &Map<String, Value>, prompt: String) {
-        self.ensure_dirs().await;
-        let seq = self.seq.fetch_add(1, Ordering::SeqCst);
-        let now = (self.now_ms)();
-        let id = format!("{now}-{seq:08}-{:04x}", rand::random::<u16>());
-        let mut item = rule_fields.clone();
-        item.insert("prompt".into(), prompt.into());
-        item.insert("timestamp".into(), now.into());
-        let name = item.get("name").map(js_string).unwrap_or_default();
-        let priority = item.get("priority").map(js_string).unwrap_or_default();
-        if let Err(error) = self.write_json(self.dir("queue").join(format!("{id}.json")), &item).await {
-            tracing::warn!("{name}: enqueue failed: {error}");
-            return;
+    /// The reservation survives both a lost write acknowledgement and a lost HTTP response.
+    /// Check it before the current rule, which could have changed since the first attempt.
+    async fn enqueue(&self, name: &str, id: &str, body: &Value, headers: &Headers) -> Result<bool, String> {
+        let publishing = self.publishing.lock().await;
+        let reserved = self.deliveries.rule_file(name, id).await?;
+        if let Some((file, accepted)) = &reserved {
+            if *accepted {
+                return Ok(true);
+            }
+            if self.has_publication(name, id, file).await? {
+                self.deliveries.record_queued_rule(name, id, file).await?;
+                return Ok(true);
+            }
         }
+        let rule = self.rules.lock().unwrap_or_else(PoisonError::into_inner).iter().find(|r| r.name == name).cloned();
+        let Some(rule) = rule else { return Ok(false) };
+        let data = apply_parser(&rule.parser, body, headers);
+        if rule.filter.as_deref().is_some_and(|expr| !evaluate_filter(expr, &data)) {
+            return Ok(true);
+        }
+        let now = (self.now_ms)();
+        let file = if let Some((file, _)) = reserved {
+            file
+        } else {
+            let seq = self.seq.fetch_add(1, Ordering::SeqCst);
+            let file = format!("{now}-{seq:08}-{:04x}.json", rand::random::<u16>());
+            self.deliveries.reserve_rule_file(name, id, &file).await?;
+            file
+        };
+        self.ensure_dirs().await?;
+        let mut item = rule.fields;
+        item.insert("deliveryEndpoint".into(), name.into());
+        item.insert("deliveryId".into(), id.into());
+        item.insert("prompt".into(), fenced_prompt(&rule.execute, &data).into());
+        item.insert("timestamp".into(), now.into());
+        let priority = item.get("priority").map(js_string).unwrap_or_default();
+        if let Err(error) = self.write_json(self.dir("queue").join(&file), &item).await {
+            // The writer can fail checking the final path after its atomic publish.
+            if !self.has_publication(name, id, &file).await? {
+                return Err(format!("{name}: event enqueue failed: {error}"));
+            }
+        }
+        self.deliveries.record_queued_rule(name, id, &file).await?;
+        drop(publishing);
         mixdog_rt::node_stderr!("mixdog event: {name}: enqueued ({priority})");
         if priority == "high" {
-            self.process_queue().await;
+            let this = self.me.upgrade().expect("the pipeline is alive while it handles a request");
+            drop(mixdog_rt::spawn("event-process", mixdog_rt::TaskClass::Work, async move {
+                this.process_queue().await;
+            }));
         }
+        Ok(true)
+    }
+
+    async fn has_publication(&self, name: &str, id: &str, file: &str) -> Result<bool, String> {
+        let Some(bytes) = self.read_file(self.dir("queue").join(file)).await? else { return Ok(false) };
+        let item: Value = serde_json::from_slice(&bytes).map_err(|error| format!("{file}: {error}"))?;
+        if item["deliveryId"].as_str() != Some(id) || item["deliveryEndpoint"].as_str() != Some(name) {
+            return Err(format!("{file}: does not belong to delivery {name}/{id}"));
+        }
+        Ok(true)
     }
 
     // ── process ───────────────────────────────────────────────────────────────────────────
 
     async fn read_item(&self, file: &str) -> Option<Item> {
+        // Serialize the read and receipt with publication. A file cannot leave the
+        // queue until the receipt prevents a retry from publishing it again.
+        let _publishing = self.publishing.lock().await;
         let bytes = match self.read_file(self.dir("queue").join(file)).await {
             Ok(Some(bytes)) => bytes,
             Ok(None) => return None,
@@ -386,7 +440,15 @@ impl EventPipeline {
         };
         // A webhook field holding a lone surrogate escape is a string to Node, which stores it: U+FFFD here.
         match serde_json::from_slice::<Value>(&mixdog_js::json_well_formed(&bytes)) {
-            Ok(Value::Object(item)) => Some(item),
+            Ok(Value::Object(item)) => {
+                if let (Some(Value::String(name)), Some(Value::String(id))) = (item.get("deliveryEndpoint"), item.get("deliveryId"))
+                    && let Err(error) = self.deliveries.record_queued_rule(name, id, file).await
+                {
+                    tracing::warn!(name, file, "event queue receipt: {error}");
+                    return None;
+                }
+                Some(item)
+            }
             _ => {
                 // Corrupt bytes (or not an event record) can never run: set aside.
                 mixdog_rt::node_stderr!("mixdog event: queue: invalid record {file} — quarantined");
@@ -560,7 +622,9 @@ impl EventPipeline {
     /// minutes. Needs the proof that startup finished (the ownership lock, the claim barrier and
     /// the migration): the queue directories are not touched before then.
     pub async fn run(self: Arc<Self>, _started: crate::startup::Started, stop: CancellationToken) {
-        self.ensure_dirs().await;
+        if let Err(error) = self.ensure_dirs().await {
+            tracing::warn!("{error}");
+        }
         self.requeue_stranded().await;
         let wait = |after: Duration| mixdog_rt::ticker().wait_until(Instant::now() + after);
         let mut next_tick = Duration::from_secs(3);
@@ -594,42 +658,42 @@ fn original_name(claimed: &str) -> &str {
         .map_or(claimed, |(_, name)| name)
 }
 
+#[async_trait]
 impl WebhookEvents for EventPipeline {
-    /// `handleWebhook`: `false` for a name no rule claims; a filtered event is taken and dropped.
-    fn handle_webhook(&self, name: &str, body: &Value, headers: &Headers) -> bool {
-        let rule = self.rules.lock().unwrap_or_else(PoisonError::into_inner).iter().find(|r| r.name == name).cloned();
-        let Some(rule) = rule else { return false };
-        let data = apply_parser(&rule.parser, body, headers);
-        if rule.filter.as_deref().is_some_and(|expr| !evaluate_filter(expr, &data)) {
-            return true;
-        }
-        let prompt = fenced_prompt(&rule.execute, &data);
-        // The caller is answered at once; the event reaches the disk off the request.
-        let this = self.queue_handle();
-        drop(mixdog_rt::spawn("event-enqueue", mixdog_rt::TaskClass::Work, async move {
-            this.enqueue(&rule.fields, prompt).await;
-        }));
-        true
+    fn matches(&self, name: &str) -> bool {
+        self.rules.lock().unwrap_or_else(PoisonError::into_inner).iter().any(|r| r.name == name)
     }
-}
 
-impl EventPipeline {
-    fn queue_handle(&self) -> Arc<EventPipeline> {
-        self.me.upgrade().expect("the pipeline is alive while it handles a request")
+    async fn handle_webhook(&self, name: &str, body: &Value, headers: &Headers, delivery_id: &str) -> Result<bool, String> {
+        self.enqueue(name, delivery_id, body, headers).await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use mixdog_workspace::localfs::LocalFileService;
+    use mixdog_services::webhooks::{Claim, WebhookStore};
 
     use super::*;
 
+    #[cfg(node_twin)]
     /// Recorded from Node's real `event-pipeline.mjs`, `event-queue.mjs` and `executor.mjs`
     /// (`record-event-pipeline.mjs`).
     const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/event-pipeline/golden.json");
     const NOW: i64 = 1_700_000_000_000;
 
+    fn deliveries(dir: &std::path::Path) -> Arc<StateWebhookStore> {
+        let tokens = mixdog_rt::testing::tokens();
+        let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.join("core.sqlite")).unwrap();
+        Arc::new(StateWebhookStore::new(state, Arc::new(mixdog_services::scheduler::SystemClock)))
+    }
+
+    async fn receive(store: &StateWebhookStore, name: &str, id: &str) {
+        let claim = Claim { status: "received", event: None, headers_summary: serde_json::json!({}), payload_preview: "{}".into() };
+        assert!(store.claim_delivery(name, id, claim).await.unwrap());
+    }
+
+    #[cfg(node_twin)]
     fn golden() -> Value {
         serde_json::from_str(&GOLDEN).unwrap()
     }
@@ -651,14 +715,55 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn a_published_rule_event_is_reconciled_under_its_reserved_identity_before_injection() {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let store = deliveries(dir.path());
+        let sink = Arc::new(Sink::default());
+        let pipeline = EventPipeline::new(
+            QueueFiles {
+                fs: Arc::new(LocalFileService::new()),
+                read: tokens.interactive_io,
+                write: tokens.durability_io,
+                root: AbsPath::new(dir.path().join("events")).unwrap(),
+            },
+            sink.clone(),
+            store.clone(),
+            &serde_json::json!({"rules": []}),
+            Arc::new(|| NOW),
+        );
+        pipeline.ensure_dirs().await.unwrap();
+        receive(&store, "hook", "retry-id").await;
+        let file = "1700000000000-00000000-000a.json";
+        store.reserve_rule_file("hook", "retry-id", file).await.unwrap();
+        let record = serde_json::json!({
+            "name":"hook", "deliveryEndpoint":"hook", "deliveryId":"retry-id", "prompt":"original prompt",
+        });
+        // The file was published but the previous request lost its write acknowledgement.
+        pipeline.write_json(pipeline.dir("queue").join(file), record.as_object().unwrap()).await.unwrap();
+        store.fail_handoff("hook", "retry-id", "write acknowledgement lost").await.unwrap();
+
+        receive(&store, "hook", "retry-id").await;
+        assert!(pipeline.handle_webhook("hook", &Value::Null, &Headers::default(), "retry-id").await.unwrap());
+        assert_eq!(store.rule_file("hook", "retry-id").await.unwrap(), Some((file.into(), true)));
+        pipeline.process_queue().await;
+        pipeline.process_queue().await;
+        assert_eq!(*sink.got.lock().unwrap(), [("event:hook".to_owned(), "original prompt".to_owned())]);
+        assert_eq!(store.delivery_rows().await[0]["status"], "done");
+    }
+
+    #[cfg(node_twin)]
     fn headers_of(value: &Value) -> Headers {
         value.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect()
     }
 
+    #[cfg(node_twin)]
     fn data_of(value: &Value) -> Data {
         value.as_object().unwrap().clone()
     }
 
+    #[cfg(node_twin)]
     #[test]
     fn the_parsers_filter_and_template_answer_every_recorded_node_case() {
         let golden = golden();
@@ -677,6 +782,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     /// `<13-digit ms>` → `T`; the random suffix after the eight-digit sequence is dropped.
     fn normalize(file: &str) -> String {
         let mut parts: Vec<&str> = file.trim_end_matches(".json").split('-').collect();
@@ -688,10 +794,12 @@ mod tests {
         format!("{}.json", parts.join("-"))
     }
 
+    #[cfg(node_twin)]
     async fn on_lane<R: Send + 'static>(job: impl FnOnce(&mixdog_rt::InLane<mixdog_rt::DurabilityIo>) -> R + Send + 'static) -> R {
         mixdog_core_base::support::on_lane(mixdog_rt::testing::tokens().durability_io, &CancellationToken::new(), job).await.unwrap()
     }
 
+    #[cfg(node_twin)]
     async fn dir_names(root: &std::path::Path, dir: &str) -> Vec<String> {
         let path = root.join("events").join(dir);
         let mut names = on_lane(move |lane| mixdog_statefile::list_dir(lane, &path)).await.unwrap();
@@ -699,6 +807,7 @@ mod tests {
         names
     }
 
+    #[cfg(node_twin)]
     async fn write_step(path: std::path::PathBuf, content: String) {
         on_lane(move |lane| {
             let opts = mixdog_statefile::Opts { lock: false, ..mixdog_statefile::Opts::default() };
@@ -708,6 +817,7 @@ mod tests {
         .unwrap();
     }
 
+    #[cfg(node_twin)]
     /// The directories as the recorder snapshots them.
     async fn snapshot(root: &std::path::Path) -> (Value, Value, Value) {
         let queue = dir_names(root, "queue")
@@ -718,6 +828,8 @@ mod tests {
                 let item = match serde_json::from_slice::<Value>(&raw) {
                     Ok(Value::Object(mut item)) => {
                         item.shift_remove("timestamp");
+                        item.shift_remove("deliveryEndpoint");
+                        item.shift_remove("deliveryId");
                         Value::Object(item)
                     }
                     Ok(other) => other,
@@ -736,6 +848,7 @@ mod tests {
         (Value::Array(queue), normalized(dir_names(root, "in-progress").await, false), normalized(dir_names(root, "processed").await, true))
     }
 
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn every_recorded_node_flow_leaves_the_same_queue_and_injections() {
         let golden = golden();
@@ -750,14 +863,21 @@ mod tests {
                 root: AbsPath::new(dir.path().join("events")).unwrap(),
             };
             let config = serde_json::json!({"rules": golden["rules"], "queue": {}});
-            let pipeline = EventPipeline::new(files, sink.clone(), &config, Arc::new(|| NOW));
-            pipeline.ensure_dirs().await;
+            let deliveries = deliveries(dir.path());
+            let pipeline = EventPipeline::new(files, sink.clone(), deliveries.clone(), &config, Arc::new(|| NOW));
+            pipeline.ensure_dirs().await.unwrap();
             for (index, entry) in flow["steps"].as_array().unwrap().iter().enumerate() {
                 let step = &entry["step"];
                 let at = format!("{name} step {index} {step}");
                 match step["op"].as_str().unwrap() {
                     "webhook" => {
-                        let handled = pipeline.handle_webhook(step["name"].as_str().unwrap(), &step["body"], &headers_of(&step["headers"]));
+                        let id = index.to_string();
+                        let endpoint = step["name"].as_str().unwrap();
+                        receive(&deliveries, endpoint, &id).await;
+                        let handled = pipeline
+                            .handle_webhook(endpoint, &step["body"], &headers_of(&step["headers"]), &id)
+                            .await
+                            .unwrap();
                         assert_eq!(handled, entry["handled"].as_bool().unwrap(), "{at}");
                     }
                     "tick" => pipeline.process_queue().await,
@@ -768,7 +888,7 @@ mod tests {
                     other => panic!("unknown op {other}"),
                 }
                 let want = (entry["queue"].clone(), entry["inProgress"].clone(), entry["processed"].clone());
-                // A webhook reaches the disk off the request, and a high-priority one is then processed.
+                // A high-priority webhook can still be processing after enqueue returns.
                 for _ in 0..500 {
                     if snapshot(dir.path()).await == want {
                         break;
@@ -783,6 +903,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     /// A queued event Node wrote from a webhook whose field held a lone surrogate escape
     /// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): the core reads the item Node's
     /// `JSON.parse` reads (the half emoji as U+FFFD) instead of quarantining it as corrupt.
@@ -801,8 +922,8 @@ mod tests {
             write: tokens.durability_io,
             root: AbsPath::new(dir.path().join("events")).unwrap(),
         };
-        let pipeline = EventPipeline::new(files, Arc::new(Sink::default()), &serde_json::json!({"rules": [], "queue": {}}), Arc::new(|| NOW));
-        pipeline.ensure_dirs().await;
+        let pipeline = EventPipeline::new(files, Arc::new(Sink::default()), deliveries(dir.path()), &serde_json::json!({"rules": [], "queue": {}}), Arc::new(|| NOW));
+        pipeline.ensure_dirs().await.unwrap();
         std::fs::copy(set.join("event-queue/before").join(rel), dir.path().join(rel)).unwrap();
         let name = rel.rsplit('/').next().unwrap();
         let item = pipeline.read_item(name).await.unwrap();

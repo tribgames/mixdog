@@ -294,7 +294,8 @@ impl ItemContext<'_> {
         }
     }
 
-    /// `<D>/prompt-attachments/sha256/<ab>/<hex>`.
+    /// `<D>/blobs/sha256/<ab>/<hex>`: the core's store, which holds every 1.4.5 blob before any item runs
+    /// (`crate::legacy_blobs`).
     pub fn blob_path(&self, hex: &str) -> PathBuf {
         self.roots.data.join(BLOB_DIR).join(&hex[..2]).join(hex)
     }

@@ -238,12 +238,8 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
     // A failed handshake reaches every reader that awaits `whenSynced`; one nobody awaits must not be an unhandled rejection.
     synced.catch(() => undefined);
   };
-  // True once a handshake has completed: from then on a missing client is a link that went down (calls fail at once,
-  // the status says reconnecting), not a connection that has not been opened yet.
-  let everOpened = false;
   const settleSynced = (error?: unknown): void => {
     syncedSettled = true;
-    if (error === undefined) everOpened = true;
     if (error === undefined) resolveSynced();
     else rejectSynced(error);
   };
@@ -253,12 +249,20 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
     if (!client) throw new Error('The core connection is not open.');
     return client;
   };
-  /** The client for a request that may arrive before the first connection is open (a window's first calls come while
-   *  the core is still starting): it waits for that first handshake, and fails with its error if that fails. */
+  /** The client for a request made while the connection is not open (a window's first calls come while the core is still
+   *  starting): it waits for the open in flight and fails with its error; with none in flight (the first open failed, or
+   *  the connection ended for good) it opens the connection anew, once for every caller waiting. A link that is merely
+   *  down is the client's own ladder's business and is not replaced. */
   const connectedAfterFirstOpen = async (): Promise<ConnectionClient> => {
-    if (!client && !everOpened && !closedByOwner) await synced;
+    if ((!client || status === 'closed') && !closedByOwner) {
+      // The open in flight settles `synced` (a close ends it too); with none in flight the connection is opened anew.
+      if (inflight) await synced;
+      else await connection.ensureOpen();
+    }
     return connected();
   };
+  /** The client a request can use at once (none while the connection is not open or has ended for good). */
+  const usable = (): ConnectionClient | null => (client && status !== 'closed' ? client : null);
   const unwatchQuietly = (watchId: string): void => {
     fsWatches.delete(watchId);
     // Best effort: a link that is down ends its watches by itself.
@@ -310,7 +314,7 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
     if (changes.length) for (const window of [...route.windows]) window.push({ kind: 'sections', changes });
   };
   const watchFeed = async (window: ProtocolWindow, feedId: string): Promise<{ absent: boolean }> => {
-    const live = client ?? (await connectedAfterFirstOpen());
+    const live = usable() ?? (await connectedAfterFirstOpen());
     const known = feedWatches.get(feedId);
     if (known) {
       known.windows.add(window);
@@ -435,6 +439,9 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
     await opened.subscribeApp();
     return mine === epoch;
   };
+  const announce = (state: { state: string; attempt?: number }): void => {
+    for (const listener of [...eventListeners]) listener({ type: 'status', status: state } as ConnectionClientEvent);
+  };
   /** What a caller superseded by a newer open gets: that open's outcome. */
   const supersededBy = async (): Promise<void> => {
     await newest;
@@ -450,7 +457,7 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
     }
   };
 
-  return {
+  const connection: ProtocolConnection = {
     get status() {
       return status;
     },
@@ -474,7 +481,7 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
     ensureOpen() {
       if (inflight) return inflight;
       if (client && status === 'ready') return Promise.resolve();
-      return this.reopen();
+      return connection.reopen();
     },
     reopen() {
       if (closedByOwner) return Promise.reject(new Error('The core connection is closed.'));
@@ -484,6 +491,9 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
       const run = (async (): Promise<void> => {
         await release('reconnecting');
         if (mine !== epoch) return supersededBy();
+        // A client opened by a reopen is ready from its start, so it reports no status of its own: what attaches to the
+        // link when it becomes ready (the host role's claim, the screen sessions) is told here, as for a link that came back.
+        announce({ state: 'reconnecting', attempt: 0 });
         try {
           await connect(mine);
         } catch (error) {
@@ -493,6 +503,7 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
         if (mine !== epoch) return;
         if (client) restoreScopedFeeds(client);
         settleSynced();
+        announce({ state: 'ready' });
         for (const listener of [...replacedListeners]) listener();
       })();
       newest = run;
@@ -520,7 +531,7 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
       };
     },
     async watchFiles(window, params) {
-      const live = client ?? (await connectedAfterFirstOpen());
+      const live = usable() ?? (await connectedAfterFirstOpen());
       fsWatches.set(params.watchId, { window, params });
       try {
         return await live.call('fs/watch', params);
@@ -540,7 +551,7 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
       return connected().call('fs/unwatch', { watchId });
     },
     async call(method, params) {
-      const live = client ?? (await connectedAfterFirstOpen());
+      const live = usable() ?? (await connectedAfterFirstOpen());
       const reply = await live.call(method, params);
       const flowId = (LOGIN_START_METHODS.has(method) ? reply : params) as { flowId?: unknown } | null;
       if (typeof flowId?.flowId === 'string' && flowId.flowId) {
@@ -551,10 +562,10 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
     },
     client: () => client,
     async resumeThread(threadId, window) {
-      return (client ?? (await connectedAfterFirstOpen())).resumeThread(threadId, window);
+      return (usable() ?? (await connectedAfterFirstOpen())).resumeThread(threadId, window);
     },
     async unsubscribeThread(threadId) {
-      return (client ?? (await connectedAfterFirstOpen())).unsubscribeThread(threadId);
+      return (usable() ?? (await connectedAfterFirstOpen())).unsubscribeThread(threadId);
     },
     onStoreChange(listener) {
       storeListeners.add(listener);
@@ -609,4 +620,5 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
       await closing?.close();
     },
   };
+  return connection;
 }

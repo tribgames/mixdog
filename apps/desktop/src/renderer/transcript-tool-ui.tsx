@@ -760,9 +760,17 @@ function toolActivityPreviewMode(presentation: ToolActivityPresentation): ToolAc
 /** The first lines of an output and how many it hides. A single hidden line
  *  is shown instead of being counted. */
 function previewOutputLines(text: string): { text: string; hidden: number } {
-  const lines = text.split('\n');
-  if (lines.length <= PREVIEW_OUTPUT_LINES + 1) return { text, hidden: 0 };
-  return { text: lines.slice(0, PREVIEW_OUTPUT_LINES).join('\n'), hidden: lines.length - PREVIEW_OUTPUT_LINES };
+  // Scanned, not split: an expanded card re-renders with the whole output, and splitting a large one built an array of
+  // every line each render only to keep the first few.
+  let end = -1;
+  for (let line = 0; line < PREVIEW_OUTPUT_LINES; line++) {
+    end = text.indexOf('\n', end + 1);
+    if (end < 0) return { text, hidden: 0 };
+  }
+  let total = PREVIEW_OUTPUT_LINES + 1;
+  for (let at = text.indexOf('\n', end + 1); at >= 0; at = text.indexOf('\n', at + 1)) total += 1;
+  if (total <= PREVIEW_OUTPUT_LINES + 1) return { text, hidden: 0 };
+  return { text: text.slice(0, end), hidden: total - PREVIEW_OUTPUT_LINES };
 }
 
 // The height clamp shows about six lines (6 × line + 16px); twice that always

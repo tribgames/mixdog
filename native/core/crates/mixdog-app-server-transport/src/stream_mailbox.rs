@@ -208,7 +208,7 @@ pub fn is_streaming_text_append(before: Option<&Value>, after: &Value) -> bool {
     same_fields(&left, &right, &["text"]) && same_fields(old, next, &["streamingTail", "streamingPartial"])
 }
 
-#[cfg(test)]
+#[cfg(all(test, node_twin))]
 mod replay_tests {
     //! The recorded cases of `native/core/fixtures/remote-streaming-mailbox-cases` (Node's mailbox on a virtual clock), replayed
     //! step by step: after each step the clock, the pending timers and the frames sent; at the end every frame, whole.
@@ -348,3 +348,5 @@ mod replay_tests {
         assert_eq!(rig.frames.last().map(|frame| frame.value["snapshot"].clone()), Some(recorded["received"].clone()), "the phone's last state");
     }
 }
+
+

@@ -520,6 +520,10 @@ fn notice_items(keys: &[String], sections: &OwnedSections, told: &Map<String, Va
                 }
             }
             "coreMemory" => {
+                if sections.core_memory.is_empty() {
+                    add(&mut items, key, "# Core Memory\nNo core memory is currently supplied.".to_owned(), None, None);
+                    continue;
+                }
                 let later = format!("# Core Memory\nCore memory was updated; {LATER}");
                 let diff = if told.contains_key("coreMemory") { line_diff(told_text(told, "coreMemory"), &sections.core_memory, DIFF_MAX_BYTES) } else { String::new() };
                 let full = if diff.is_empty() { later.clone() } else { format!("# Core Memory\nCore memory was updated:\n{diff}") };
@@ -810,5 +814,9 @@ pub fn note_presented(session: &mut Header, sections: &OwnedSections) {
     }
 }
 
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod tests;

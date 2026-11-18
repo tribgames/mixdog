@@ -1,8 +1,0 @@
-{
-  "input": {
-    "action": "nope"
-  },
-  "isError": false,
-  "text": "{\"content\":[{\"type\":\"text\",\"text\":\"Error: session or path is required\"}],\"isError\":true}",
-  "tool": "office"
-}

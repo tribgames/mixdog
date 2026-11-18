@@ -129,6 +129,7 @@ mod tests {
     use mixdog_core_rooms::rooms::records::RoomStore;
     use mixdog_core_rooms::rooms::records::Rooms;
     use mixdog_core_rooms::rooms::service::RoomService;
+    #[cfg(node_twin)]
     use mixdog_core_rooms::rooms::home::HomePorts;
     use mixdog_core_rooms::rooms::home::Presence;
     use mixdog_core_rooms::rooms::sessions::SessionHomePorts;
@@ -176,6 +177,7 @@ mod tests {
             }
         }
         /// The opener and the arrival signal of the next presence check.
+        #[cfg(node_twin)]
         fn arm_presence(&self) -> (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) {
             let (open, held) = tokio::sync::oneshot::channel();
             let (reached, arrived) = tokio::sync::oneshot::channel();
@@ -267,6 +269,7 @@ mod tests {
     }
     impl HeldLabels {
         /// The arrival signal of the next exchange.
+        #[cfg(node_twin)]
         fn arm(&self) -> tokio::sync::oneshot::Receiver<()> {
             let (reached, arrived) = tokio::sync::oneshot::channel();
             *self.armed.lock().unwrap() = Some(reached);
@@ -306,7 +309,7 @@ mod tests {
         fn member_questions(&self, _: &str, _: &[String]) -> Vec<Value> {
             Vec::new()
         }
-        fn publish_view(&self, _: &str, _: Option<mixdog_core_rooms::rooms::live::ExchangeView>, _: Vec<Value>) {}
+        async fn publish_view(&self, _: &str, _: Option<mixdog_core_rooms::rooms::live::ExchangeView>, _: Vec<Value>) {}
     }
     #[async_trait]
     impl mixdog_core_rooms::rooms::live::RoomFiles for Unreached {
@@ -423,6 +426,7 @@ mod tests {
     struct SaveGate(Arc<std::sync::Mutex<Option<SaveStop>>>, Arc<std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>>);
     impl SaveGate {
         /// The opener and the arrival signal of the next save, which fails with `fails` when given.
+        #[cfg(node_twin)]
         fn arm(&self, fails: Option<String>) -> (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) {
             let (open, held) = tokio::sync::oneshot::channel();
             let (reached, arrived) = tokio::sync::oneshot::channel();
@@ -430,6 +434,7 @@ mod tests {
             (open, arrived)
         }
         /// The opener and the arrival signal of the next load (a core's first read of the room records).
+        #[cfg(node_twin)]
         fn arm_load(&self) -> (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) {
             let (open, held) = tokio::sync::oneshot::channel();
             let (reached, arrived) = tokio::sync::oneshot::channel();
@@ -470,26 +475,33 @@ mod tests {
     struct Composed {
         service: Arc<Service>,
         list: Arc<ThreadListService>,
-        homes: Arc<SessionHomePorts<Saves>>,
-        ready: Arc<RoomsReady>,
         agents: Arc<Agents>,
         app: MockConnection,
+        summaries: Arc<RoomSummaries>,
         gate: Arc<Gate>,
         deletes: Arc<Deletes>,
+        edges: Arc<ThreadEdges>,
+        /// The index writes acknowledged and not yet projected (the list's fence).
+        projections: Arc<StoreThreads>,
+        /// Kept for the lifetime of the core: the rig's runtime and the folder of the core's files, which a restart opens again.
+        _rig: Rig,
+        _data: mixdog_core_session::session::testing::DataDir,
+        /// What only the restart and the comparison replays touch.
+        #[cfg(node_twin)]
+        twin: Twin,
+    }
+
+    #[cfg(node_twin)]
+    struct Twin {
+        homes: Arc<SessionHomePorts<Saves>>,
+        ready: Arc<RoomsReady>,
         saves: SaveGate,
-        summaries: Arc<RoomSummaries>,
         rooms: Arc<Rooms<Saves>>,
         host: Arc<SessionRoomHost>,
         sessions: Arc<dyn SessionOps>,
         ops: mixdog_store::state::CoreState,
         /// The rooms' log (`[mixdog-rooms] <line>`, `compose_flip.rs` `room_log`), line by line.
         logged: Arc<std::sync::Mutex<Vec<String>>>,
-        edges: Arc<ThreadEdges>,
-        /// The index writes acknowledged and not yet projected (the list's fence).
-        projections: Arc<StoreThreads>,
-        rig: Rig,
-        /// The folder of the core's files, which a restart opens again.
-        data: mixdog_core_session::session::testing::DataDir,
         /// The live rooms (their exchanges, and the start-up's recovery of the rooms cut off).
         live: Arc<mixdog_core_rooms::rooms::live::LiveRooms>,
         /// Where an exchange stops after its start.
@@ -536,8 +548,9 @@ mod tests {
 
     /// The start-up's recovery as `compose_flip.rs` passes it to `ready::recover`: the rooms cut off marked interrupted, then the
     /// catalog republished, bounded.
+    #[cfg(node_twin)]
     fn recovery(world: &Composed) -> impl FnOnce() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), RoomError>> + Send>> + Send + 'static {
-        let (live, rooms, summaries) = (world.live.clone(), world.rooms.clone(), world.summaries.clone());
+        let (live, rooms, summaries) = (world.twin.live.clone(), world.twin.rooms.clone(), world.summaries.clone());
         move || {
             Box::pin(async move {
                 live.recover(&rooms).await?;
@@ -560,12 +573,14 @@ mod tests {
         /// daemon's, which outlives it), and its start-up `recover` as `compose_flip.rs` starts it ([`recovery`]), ahead of the
         /// mutations that awaited the first load. An exchange the old core held stays held. The new core's app feed is a new
         /// connection.
+        #[cfg(node_twin)]
         async fn restart(self) -> (Self, tokio::task::JoinHandle<()>) {
-            let Composed { service, list, homes, ready, agents, app, gate, deletes, saves, summaries, rooms, host, sessions, ops, logged, edges, projections, rig, data, live, exchanges, prepares } = self;
+            let Composed { service, list, agents, app, gate, deletes, summaries, edges, projections, _rig: rig, _data: data, twin } = self;
+            let Twin { homes, ready, saves, rooms, host, sessions, ops, logged, live, exchanges, prepares } = twin;
             drop((service, list, homes, ready, app, gate, deletes, summaries, rooms, host, sessions, ops, edges, projections, rig, live, exchanges, prepares));
             data.close_databases();
             let world = composed_over(agents, data, saves, logged).await;
-            let started = mixdog_core_rooms::rooms::ready::recover(world.rooms.clone(), world.ready.clone(), recovery(&world), room_log(&world.logged));
+            let started = mixdog_core_rooms::rooms::ready::recover(world.twin.rooms.clone(), world.twin.ready.clone(), recovery(&world), room_log(&world.twin.logged));
             (world, started)
         }
 
@@ -583,6 +598,7 @@ mod tests {
         }
 
         /// A whole `thread/list` answer.
+        #[cfg(node_twin)]
         async fn listed(&self) -> Value {
             value(self.list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.expect("thread/list")
         }
@@ -638,6 +654,7 @@ mod tests {
         }
 
         /// The ids of the rows the feed was sent under `method`, in order.
+        #[cfg(node_twin)]
         fn sent(&self, method: &str) -> Vec<String> {
             self.app
                 .drain_text()
@@ -749,6 +766,7 @@ mod tests {
     /// recording. The test runs as a task of the runtime's one worker: the listing, told it has its rows in hand, runs on until it
     /// awaits something before the test sees anything (the session store's blocking reads need a multi-threaded runtime).
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[cfg(node_twin)]
     async fn before_any_listing_a_room_update_answers_before_its_background_listing_publishes() {
         assert_as_recorded(&tokio::spawn(replay("not-loaded-large", Some("update-rounds"))).await.expect("the test task"));
     }
@@ -788,6 +806,7 @@ mod tests {
         assert!(world.list.catalog_loaded(), "the joined listing loaded the catalog");
     }
 
+    #[cfg(node_twin)]
     fn recorded(scenario: &str) -> Value {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../fixtures/room-catalog-states/{scenario}.json"));
         serde_json::from_slice(&std::fs::read(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))).expect("recording")
@@ -804,8 +823,11 @@ mod tests {
     /// What a listener of the app feed holds, folded as the roster folds it (`replay-roster-rows-live.mjs` `folded`): a thread edge
     /// puts its row, a deletion takes it out, an archive or unarchive marks it. In the order rows first came.
     #[derive(Clone, Default)]
+    #[cfg(node_twin)]
     struct Fold(Vec<(String, Value)>);
+    #[cfg(node_twin)]
     impl Fold {
+        #[cfg(node_twin)]
         fn apply(&mut self, frame: &Value) {
             let params = &frame["params"];
             match frame["method"].as_str().unwrap_or_default() {
@@ -836,6 +858,7 @@ mod tests {
     }
 
     /// The rows of the last publication pass in `frames` (the last run of `thread/summary/updated` frames), in the order sent.
+    #[cfg(node_twin)]
     fn last_pass(frames: &[Value]) -> Vec<&Value> {
         let mut pass: Vec<&Value> = frames.iter().rev().take_while(|frame| frame["method"] == "thread/summary/updated").map(|frame| &frame["params"]["thread"]).collect();
         pass.reverse();
@@ -846,12 +869,15 @@ mod tests {
     /// run's clock; per field, as two clock reads of one run can land in one millisecond) are named by their order of first
     /// appearance in the scenario; the task workspace a room log is made in (`agent-rooms.ts:284`, the log row's `cwd`) is named
     /// as such.
+    #[cfg(node_twin)]
     struct Names {
         ids: Vec<String>,
         times: HashMap<&'static str, Vec<i64>>,
         workspace: String,
     }
+    #[cfg(node_twin)]
     impl Names {
+        #[cfg(node_twin)]
         fn new(workspace: &str) -> Self {
             Self { ids: Vec::new(), times: HashMap::new(), workspace: workspace.to_owned() }
         }
@@ -887,6 +913,7 @@ mod tests {
     /// lists a session it still holds live from the session object (`listLeadSessions` over a session, no summary:
     /// `store-summary-real-turns.test.mjs:115-118`), a row without them, while the core's row is always the stored summary's.
     /// A declared field is taken off the core's row only where Node's row lacks that field; any other difference stays.
+    #[cfg(node_twin)]
     fn live_form(mut core: Value, node: &Value) -> Value {
         let manifest: Value = serde_json::from_slice(
             &std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/room-catalog-states/MANIFEST.json")).expect("manifest"),
@@ -908,6 +935,7 @@ mod tests {
     /// listener folds it (see [`compare_part`]). Node's listing fault (the daemon's `session.list` failing, per step as recorded) is
     /// the core's listing failing at its first step, the task workspace lookup.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[cfg(node_twin)]
     async fn room_calls_replay_nodes_catalog_states() {
         let manifest: Value = serde_json::from_slice(
             &std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/room-catalog-states/MANIFEST.json")).expect("manifest"),
@@ -924,6 +952,7 @@ mod tests {
     /// One recorded scenario replayed; the parts of it that differ from Node's publications ([`compare_part`]), every other
     /// difference failing at once. At step `forced` (a call that starts a background listing), the listing is let have its rows in
     /// hand before the replay reads what the call sent by its reply: the order a busy runtime can produce.
+    #[cfg(node_twin)]
     async fn replay(scenario: &str, forced: Option<&str>) -> Vec<String> {
         let node = recorded(scenario);
         let mut differences = Differences::of(scenario);
@@ -980,7 +1009,7 @@ mod tests {
                         "remove" => world.call_held("room/remove", json!({ "roomId": room_id }), created).await,
                         // No client call: nothing waits for a reply (`agent-rooms.ts:339-350`).
                         "forget-member" => {
-                            let forget = world.homes.forget_room_member(&bots[2]);
+                            let forget = world.twin.homes.forget_room_member(&bots[2]);
                             let answer = mixdog_rt::time::timeout(DEADLINE, forget).await.expect("forget_room_member answered");
                             (answer.map(|()| Value::Null).map_err(|error| format!("{error:?}")), AfterAnswer::default())
                         }
@@ -998,10 +1027,10 @@ mod tests {
                         "restart-after-agent-deletion" | "restart-held-at-save" | "restart-save-fails" => {
                             world.agents.deleted.lock().unwrap().push(bots[2].clone());
                             let mut stop = match call {
-                                "restart-held-at-save" => Some(world.saves.arm(None)),
+                                "restart-held-at-save" => Some(world.twin.saves.arm(None)),
                                 "restart-save-fails" => {
                                     let failure = events.iter().find(|e| e["kind"] == "logged").and_then(|e| e["parts"][1]["error"].as_str());
-                                    Some(world.saves.arm(Some(failure.expect("Node's logged save failure").to_owned())))
+                                    Some(world.twin.saves.arm(Some(failure.expect("Node's logged save failure").to_owned())))
                                 }
                                 _ => None,
                             };
@@ -1065,7 +1094,7 @@ mod tests {
                         // continue answers at once (`agent-rooms.ts:414`); the core's exchange runs beside the reply, unordered.
                         "continue-held" => {
                             after_reply = Some(world.gate.arm().0);
-                            let arrived = world.exchanges.arm();
+                            let arrived = world.twin.exchanges.arm();
                             let held = world.call_held("room/continue", json!({ "roomId": room_id }), created).await;
                             tokio::time::timeout(DEADLINE, arrived)
                                 .await
@@ -1084,7 +1113,7 @@ mod tests {
                             // Node's daemon detaches the room log (its earlier host's connection closed) while the recovery's post is
                             // admitted: the core releases the log between the opening and the post.
                             world.agents.detach_next_post.store(node["startupClaim"] == json!("post-behind-detach"), std::sync::atomic::Ordering::SeqCst);
-                            let load = (waiters != "interrupted").then(|| world.saves.arm_load());
+                            let load = (waiters != "interrupted").then(|| world.twin.saves.arm_load());
                             let (presence_open, presence) = world.agents.arm_presence();
                             let (next, started) = world.restart().await;
                             (world, fold) = (next, Fold::default());
@@ -1096,12 +1125,12 @@ mod tests {
                                     .await
                                     .unwrap_or_else(|_| panic!("{what}: the start-up never read the room records"))
                                     .expect("the load's stop");
-                                let mut prepares = world.prepares.clone();
+                                let mut prepares = world.twin.prepares.clone();
                                 let before = *prepares.borrow_and_update();
                                 if waiters == "update-before-recovery" {
                                     updating = Some(update(&world));
                                 } else {
-                                    let (homes, spare) = (world.homes.clone(), node["spareBot"].as_str().expect("the bot in no room").to_owned());
+                                    let (homes, spare) = (world.twin.homes.clone(), node["spareBot"].as_str().expect("the bot in no room").to_owned());
                                     forgetting = Some(tokio::spawn(async move { homes.forget_room_member(&spare).await }));
                                 }
                                 tokio::time::timeout(DEADLINE, prepares.wait_for(|count| *count > before))
@@ -1170,7 +1199,7 @@ mod tests {
                     // A room's id is random in each run (a log line names it, and its log session): named as the answers name it.
                     let by_room = |line: &str, id: &str| if id.is_empty() { line.to_owned() } else { line.replace(id, "<room>") };
                     let core_id = room_id.as_str().unwrap_or_default();
-                    let core_logged: Vec<String> = std::mem::take(&mut *world.logged.lock().unwrap()).iter().map(|line| by_room(line, core_id)).collect();
+                    let core_logged: Vec<String> = std::mem::take(&mut *world.twin.logged.lock().unwrap()).iter().map(|line| by_room(line, core_id)).collect();
                     let node_logged: Vec<String> = node_logged.iter().map(|line| by_room(line, &node_room)).collect();
                     assert_eq!(core_logged, node_logged, "{what}: the rooms' log");
                     // Whether a first load ran in the step (a failed one is run again by the next call that awaits it), by its checks.
@@ -1222,6 +1251,7 @@ mod tests {
     }
 
     /// Fails with every part of the replayed scenarios that differs from Node's recording.
+    #[cfg(node_twin)]
     fn assert_as_recorded(failures: &[String]) {
         assert!(failures.is_empty(), "{} part(s) differ from Node's recording:\n{}", failures.len(), failures.join("\n"));
     }
@@ -1233,13 +1263,16 @@ mod tests {
     /// `compareWith`: the recorded scenario whose same step and part
     /// is the order the core produces, which the core's part then equals whole. A part that differs from Node and is not named so, a
     /// named part that differs from its entry, and an entry no part used all fail the replay, together, at its end.
+    #[cfg(node_twin)]
     struct Differences {
         entries: Vec<(Value, bool)>,
         /// Per `compareWith` scenario: Node's publications of each step and part, named as that scenario's own replay names them.
         compared: HashMap<String, HashMap<(String, String), Vec<(String, Vec<Value>)>>>,
         failures: Vec<String>,
     }
+    #[cfg(node_twin)]
     impl Differences {
+ #[cfg(node_twin)]
         fn of(scenario: &str) -> Self {
             let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/room-catalog-states/MANIFEST.json");
             let manifest: Value = serde_json::from_slice(&std::fs::read(&path).expect("manifest")).expect("manifest json");
@@ -1258,6 +1291,7 @@ mod tests {
             }
             Self { entries, compared, failures: Vec::new() }
         }
+        #[cfg(node_twin)]
         fn entry(&mut self, step: &str, part: &str) -> Option<Value> {
             let (entry, used) = self.entries.iter_mut().find(|(entry, _)| entry["step"] == step && entry["part"] == part)?;
             assert!(!*used, "two parts named {step} / {part}");
@@ -1277,6 +1311,7 @@ mod tests {
     }
 
     /// A frame of the app feed by what it is: its method and the row it names.
+    #[cfg(node_twin)]
     fn frame_shape(frame: &Value, names: &mut Names) -> String {
         let params = &frame["params"];
         let id = match params["thread"].as_object() {
@@ -1294,6 +1329,7 @@ mod tests {
     /// keep Node's order, and after the last frame paired with a publication the client holds exactly that catalog. A named order
     /// the core cannot produce is compared as an unnamed part is, against its `compareWith` scenario's publications.
     /// Node's `published` events of one part, each the catalog named and its rows named.
+    #[cfg(node_twin)]
     fn published(events: &[Value], names: &mut Names) -> Vec<(String, Vec<Value>)> {
         events
             .iter()
@@ -1310,6 +1346,7 @@ mod tests {
 
     /// A recorded scenario's publications per step and part, named in the order its own replay names them: a listing step's rows,
     /// then each part's publications. A step whose replay names other rows (a listing answered within a call) is not walked.
+    #[cfg(node_twin)]
     fn node_parts(scenario: &str) -> HashMap<(String, String), Vec<(String, Vec<Value>)>> {
         let node = recorded(scenario);
         let mut names = Names::new(node["taskWorkspace"].as_str().expect("task workspace"));
@@ -1337,6 +1374,7 @@ mod tests {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[cfg(node_twin)]
     fn compare_part(what: &str, part: &str, events: &[Value], sent: &[Value], fold: &mut Fold, node_names: &mut Names, core_names: &mut Names, differences: &mut Differences) {
         let node = published(events, node_names);
         // Each frame: its shape, its row (named), and the client's fold after it.
@@ -1457,11 +1495,13 @@ mod tests {
     }
 
     /// Node's listed rows, named.
+    #[cfg(node_twin)]
     fn named_rows(rows: &Value, names: &mut Names) -> Vec<Value> {
         rows.as_array().expect("Node's rows").iter().map(|row| names.named(row)).collect()
     }
 
     /// The core's `thread/list` answer's rows, named, each in Node's live form where Node's row has it (`live_form`).
+    #[cfg(node_twin)]
     fn listed_rows(listed: &Value, names: &mut Names, node_rows: &Value) -> Vec<Value> {
         let node_rows = node_rows.as_array().expect("Node's rows");
         listed["data"]
@@ -1482,6 +1522,7 @@ mod tests {
     /// The core client's catalog, named: every row of the fold, in the order of the last publication pass in `sent` when that pass
     /// carried every row (a whole publication is in catalog order), else in the order the rows first came. A row Node holds in its live
     /// form is compared in that form (`live_form`).
+    #[cfg(node_twin)]
     fn held(fold: &Fold, sent: &[Value], names: &mut Names, node_rows: &[Value]) -> Vec<Value> {
         let pass = last_pass(sent);
         let ids: Vec<&str> = if pass.len() == fold.0.len() && fold.0.iter().all(|(id, _)| pass.iter().any(|row| row["id"] == id.as_str())) {
@@ -1672,29 +1713,26 @@ mod tests {
         let ops = data.state(mixdog_core_base::support::testing::op_state(data.path()));
         let host = publication.host;
         let (service, homes, ready, prepares) = rooms_over(&rooms, &host, &sessions, &agents, &ops, &logged, &live, &runner).await;
+        #[cfg(not(node_twin))]
+        drop((homes, ready, prepares));
+        #[cfg(node_twin)]
+        let twin = Twin { homes, ready, saves, rooms, host, sessions, ops, logged, live, exchanges, prepares };
         Composed {
             service,
             list,
-            homes,
-            ready,
             agents,
             app,
             gate,
             deletes,
-            saves,
             summaries: publication.summaries,
-            rooms,
-            host,
-            sessions,
-            ops,
-            logged,
             edges: publication.edges,
             projections: store,
-            rig,
-            data,
-            live,
-            exchanges,
-            prepares,
+            _rig: rig,
+            _data: data,
+            #[cfg(node_twin)]
+            twin,
         }
     }
 }
+
+

@@ -6,19 +6,21 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use mixdog_app_protocol::v2::connections::{SshConfigSummary, SshHopKey, SshHopRole, SshHopStatus, SshHostKeyCheck, SshMissing};
+use mixdog_app_protocol::v2::connections::{SshConfigSummary, SshHopKey, SshHopRole, SshHopStatus, SshHostKeyCheck, SshMessage, SshMissing};
 use mixdog_fsio::Unlaned;
 use regex::Regex;
 
 use crate::binary::{client_install_command, is_missing_message, missing_client_message, ssh_tool_command};
 use crate::command::{parse_ssh_target, FailureClass, SshError, SshTarget};
-use crate::context::{AttemptContext, SshEnv, ToolOutput};
+use crate::context::{AttemptContext, ReviewedConfig, SshEnv, ToolOutput};
+use crate::resolved_config::{Block, ResolvedConfigs, Route};
 use crate::diagnostics::{describe_argv, DiagnosticKind};
 use crate::known_hosts::{host_field_matches, key_fingerprint, known_hosts_spec, parse, KnownHostEntry, KnownHostMarker};
-use crate::mixdog_config::{account, append_text, word, MixdogSshConfig};
+use crate::pins::{can_rotate, commit_claims, owner_of, rotate_claim, Claim, EndpointTrust, KnownEntry};
+use crate::mixdog_config::{account, word, MixdogSshConfig};
 use crate::private_dir::{create_private_dir, join_name, make_temp_dir};
 use crate::spawn::now_ms;
 
@@ -183,6 +185,14 @@ fn error(message: impl Into<String>) -> SshError {
     SshError::new(message, FailureClass::Transient)
 }
 
+fn said(said: mixdog_app_protocol::message::Said) -> SshError {
+    SshError::said(said, FailureClass::Transient)
+}
+
+fn state_error(failure: crate::pins::StateError) -> SshError {
+    said(failure.said())
+}
+
 /// Runs one OpenSSH tool to the end, writing the run to the attempt's diagnostics ring. A tool that is not
 /// installed fails with the message the connect dialog explains.
 async fn run_tool(env: &SshEnv, ctx: &AttemptContext, name: &str, args: &[String], timeout: Duration) -> Result<ToolOutput, SshError> {
@@ -195,6 +205,11 @@ async fn run_tool(env: &SshEnv, ctx: &AttemptContext, name: &str, args: &[String
 
 /// `ssh -G` of one destination.
 pub async fn resolve_host(env: &SshEnv, ctx: &AttemptContext, destination: &SshTarget) -> Result<ResolvedHost, SshError> {
+    resolve_dump(env, ctx, destination).await.map(|(_, host)| host)
+}
+
+/// `ssh -G` of one destination: what it printed, and the host read from it.
+async fn resolve_dump(env: &SshEnv, ctx: &AttemptContext, destination: &SshTarget) -> Result<(String, ResolvedHost), SshError> {
     let mut args = vec!["-G".to_owned()];
     if let Some(port) = destination.port {
         args.extend(["-p".to_owned(), port.to_string()]);
@@ -202,10 +217,13 @@ pub async fn resolve_host(env: &SshEnv, ctx: &AttemptContext, destination: &SshT
     args.extend(["--".to_owned(), destination.destination.clone()]);
     let dump = run_tool(env, ctx, "ssh", &args, TOOL_TIMEOUT).await?;
     let host = if dump.exit_code == Some(0) { parse_ssh_config_dump(&dump.stdout, env) } else { None };
-    host.ok_or_else(|| {
-        let reason = dump.stderr.trim();
-        error(if reason.is_empty() { "ssh could not read its configuration for this address." } else { reason })
-    })
+    match host {
+        Some(host) => Ok((dump.stdout, host)),
+        None => {
+            let reason = dump.stderr.trim();
+            Err(if reason.is_empty() { said(crate::said::SSH_CONFIG_UNREADABLE.plain()) } else { error(reason) })
+        }
+    }
 }
 
 fn summarize(host: &ResolvedHost) -> SshConfigSummary {
@@ -219,12 +237,27 @@ fn summarize(host: &ResolvedHost) -> SshConfigSummary {
     }
 }
 
-/// Key(s) to save once the user confirms an unknown key.
+/// Key(s) to save once the user confirms an unknown key: the keys this server accepts, each held in its name. There is no pin
+/// without an owner.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pin {
-    /// One known_hosts line per server whose key is shown (newline separated).
-    pub line: String,
     pub file: PathBuf,
+    pub claims: Vec<Claim>,
+    /// The entries for every endpoint of the route in the known_hosts files its ssh consults, as the user was shown them: the
+    /// commit reads those files again and is refused unless the entries for each endpoint are unchanged, also for an endpoint it
+    /// writes nothing for (a hop trusted through the user's own file), so a key revoked since the inspection is never saved.
+    pub shown: Vec<EndpointTrust>,
+}
+
+impl Pin {
+    pub fn new(file: PathBuf, claims: Vec<Claim>, shown: Vec<EndpointTrust>) -> Self {
+        Self { file, claims, shown }
+    }
+
+    /// The known_hosts lines this pin writes, as the user's file would show them.
+    pub fn text(&self) -> String {
+        self.claims.iter().map(Claim::line).collect::<Vec<_>>().join("\n")
+    }
 }
 
 /// A changed key: what replacing it removes and then pins (after the user typed the host name).
@@ -232,8 +265,20 @@ pub struct Pin {
 pub struct Replace {
     pub spec: String,
     pub file: PathBuf,
-    pub line: String,
+    /// The new key, held in the name of the server that confirms the replacement (the old pin keeps its mark as written).
+    pub claim: Claim,
     pub host: String,
+    /// The key the user reviewed being replaced (base64 of the pin's blob, with `claim.key_type`): the commit replaces exactly
+    /// that pin, so a pin another desktop already rotated is not overwritten.
+    pub old_key: String,
+    /// See [`Pin::shown`].
+    pub shown: Vec<EndpointTrust>,
+}
+
+impl Replace {
+    pub fn line(&self) -> String {
+        self.claim.line()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -244,6 +289,9 @@ pub struct HostKeyInspection {
     pub pin: Option<Pin>,
     pub replace: Option<Replace>,
     pub summary: Option<SshConfigSummary>,
+    /// The config the files were judged by, published for the target: the attempt's ssh runs with it. None where no config
+    /// was prepared (the server could not be read, or no configs were given).
+    pub reviewed: Option<ReviewedConfig>,
 }
 
 /// What a through-the-proxy read of one server may do.
@@ -295,7 +343,7 @@ async fn private_scan_dir(env: &SshEnv) -> std::io::Result<PathBuf> {
 /// trusted. The remote command is a plain `true`, and nothing is trusted until the user confirms.
 pub async fn scan_through_ssh(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget, scope: &ScanScope) -> Result<ScanOutput, SshError> {
     if scope.open != "*" && !safe_host(&scope.open) {
-        return Err(error("The host name cannot be read through a proxy."));
+        return Err(said(crate::said::PROXY_HOST_UNREADABLE.plain()));
     }
     let dir = private_scan_dir(env).await.map_err(|failure| error(failure.to_string()))?;
     let outcome = scan_in(env, ctx, target, scope, &dir).await;
@@ -349,16 +397,8 @@ struct Endpoint {
     role: SshHopRole,
     host: ResolvedHost,
     spec: String,
-}
-
-#[derive(Clone)]
-struct KnownEntry {
-    entry: KnownHostEntry,
-    file: String,
-}
-
-fn entries_for<'a>(known: &'a [KnownEntry], spec: &str) -> Vec<&'a KnownEntry> {
-    known.iter().filter(|candidate| host_field_matches(&candidate.entry.hosts, spec)).collect()
+    /// The entries for this endpoint in the files its own ssh consults: it is judged by these alone.
+    trust: EndpointTrust,
 }
 
 enum Verdict {
@@ -370,14 +410,14 @@ enum Verdict {
     Changed { old: KnownEntry, current: HostKeyLine },
 }
 
-fn judge(endpoint: &Endpoint, scanned: &[HostKeyLine], known: &[KnownEntry]) -> Verdict {
+fn judge(endpoint: &Endpoint, scanned: &[HostKeyLine]) -> Verdict {
     let configured: Vec<&str> = endpoint.host.host_key_algorithms.iter().map(String::as_str).collect();
     let order: &[&str] = if configured.is_empty() { &DEFAULT_ALGORITHM_ORDER } else { &configured };
     let rank = |key_type: &str| order.iter().position(|candidate| *candidate == key_type).unwrap_or(order.len());
     let mut by_rank: Vec<&HostKeyLine> = scanned.iter().collect();
     by_rank.sort_by_key(|line| rank(&line.key_type));
-    let matching = entries_for(known, &endpoint.spec);
-    let plain: Vec<&KnownEntry> = matching.iter().copied().filter(|candidate| candidate.entry.marker == KnownHostMarker::None).collect();
+    let matching = &endpoint.trust.entries;
+    let plain: Vec<&KnownEntry> = matching.iter().filter(|candidate| candidate.entry.marker == KnownHostMarker::None).collect();
     let Some(first) = by_rank.first().copied() else {
         return if plain.is_empty() { Verdict::Unreadable } else { Verdict::Trusted { authority: None } };
     };
@@ -401,14 +441,35 @@ fn judge(endpoint: &Endpoint, scanned: &[HostKeyLine], known: &[KnownEntry]) -> 
     Verdict::Unknown { best: first.clone() }
 }
 
+/// What a failed read of the host key says: ssh-keyscan's lines without its `#` banners, each once. It dials once per key type,
+/// so a server that is down reports the same line for every type.
+fn scan_failure_lines(scan_error: &str) -> String {
+    let mut lines: Vec<&str> = Vec::new();
+    for line in scan_error.lines().filter(|line| !line.starts_with('#')) {
+        if !lines.contains(&line) {
+            lines.push(line);
+        }
+    }
+    lines.join("\n")
+}
+
+#[cfg(test)]
+#[path = "host_key_lines_tests.rs"]
+mod host_key_lines_tests;
+
 fn unreachable(env: &SshEnv, text: &str, summary: Option<SshConfigSummary>) -> HostKeyInspection {
+    unreachable_said(env, text, None, summary)
+}
+
+fn unreachable_said(env: &SshEnv, text: &str, notice: Option<SshMessage>, summary: Option<SshConfigSummary>) -> HostKeyInspection {
     let ssh_missing = is_missing_message(text).then(|| SshMissing { command: client_install_command(env.platform).map(str::to_owned) });
     HostKeyInspection {
         hops: Vec::new(),
-        check: HostKeyCheck::Unreachable { message: text.to_owned(), ssh_missing },
+        check: HostKeyCheck::Unreachable { message: text.to_owned(), notice, ssh_missing },
         pin: None,
         replace: None,
         summary,
+        reviewed: None,
     }
 }
 
@@ -493,7 +554,7 @@ fn marker_prefix(marker: KnownHostMarker) -> &'static str {
 }
 
 /// The keys each server presents, by known_hosts spec; the returned set holds the endpoints left for the next check.
-async fn scan_endpoints(endpoints: &[Endpoint], host: &ResolvedHost, known: &[KnownEntry], scanner: &mut Scanner<'_>) -> (BTreeMap<String, Vec<HostKeyLine>>, Vec<usize>) {
+async fn scan_endpoints(endpoints: &[Endpoint], host: &ResolvedHost, scanner: &mut Scanner<'_>) -> (BTreeMap<String, Vec<HostKeyLine>>, Vec<usize>) {
     let mut scanned: BTreeMap<String, Vec<HostKeyLine>> = BTreeMap::new();
     let mut unread: Vec<usize> = Vec::new();
     if !host.proxied {
@@ -510,7 +571,7 @@ async fn scan_endpoints(endpoints: &[Endpoint], host: &ResolvedHost, known: &[Kn
         for (index, endpoint) in endpoints.iter().enumerate() {
             let trusted = endpoints[..index]
                 .iter()
-                .flat_map(|earlier| entries_for(known, &earlier.spec))
+                .flat_map(|earlier| &earlier.trust.entries)
                 .map(|candidate| format!("{}{} {} {}", marker_prefix(candidate.entry.marker), candidate.entry.hosts, candidate.entry.key_type, candidate.entry.key))
                 .collect::<Vec<_>>()
                 .join("\n");
@@ -526,7 +587,7 @@ async fn scan_endpoints(endpoints: &[Endpoint], host: &ResolvedHost, known: &[Kn
             };
             scanned.insert(endpoint.spec.clone(), lines);
             let settled = scanned.get(&endpoint.spec).map_or(&[][..], Vec::as_slice);
-            if !matches!(judge(endpoint, settled, known), Verdict::Trusted { .. }) {
+            if !matches!(judge(endpoint, settled), Verdict::Trusted { .. }) {
                 unread.extend(index + 1..endpoints.len());
                 break;
             }
@@ -554,18 +615,72 @@ fn hop_keys(endpoints: &[Endpoint], verdicts: &[Verdict]) -> Vec<HopKey> {
         .collect()
 }
 
-/// Every server on the way (each ProxyJump hop, then the target), resolved; or why one could not be read.
-async fn route_endpoints(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget, host: &ResolvedHost) -> Result<Vec<Endpoint>, String> {
-    let mut endpoints = Vec::new();
-    if let Some(jump) = &host.proxy_jump {
-        for part in jump.split(',') {
-            let written = part.trim();
-            let bare = written.strip_prefix("ssh://").unwrap_or(written);
-            let hop_target = parse_ssh_target(bare).map_err(|failure| format!("The jump host {written} could not be read: {}", failure.0))?;
-            let resolved = resolve_host(env, ctx, &hop_target).await.map_err(|failure| format!("The jump host {written} could not be read: {}", failure.message))?;
-            let spec = known_hosts_spec(&resolved.hostname, resolved.port);
-            endpoints.push(Endpoint { dest: hop_target, part: bare.to_owned(), name: written.to_owned(), role: SshHopRole::Jump, host: resolved, spec });
+/// The entries for each endpoint in the files its ssh consults, each file read once: Mixdog's own file and the endpoint's own
+/// resolved ones (what the config written for the attempt names for it), or the user's alone where Mixdog has no folder, and the
+/// endpoint's system-wide files.
+fn fill_trust(env: &SshEnv, endpoints: &mut [Endpoint], own: Option<&Path>) {
+    let mut texts: BTreeMap<PathBuf, Option<String>> = BTreeMap::new();
+    for endpoint in endpoints {
+        let host = &endpoint.host;
+        let user: Vec<PathBuf> = own.map(Path::to_path_buf).into_iter().chain(host.known_hosts_files.iter().map(PathBuf::from)).collect();
+        let global: Vec<PathBuf> = host.global_known_hosts_files.iter().map(PathBuf::from).collect();
+        let listed = EndpointTrust { spec: endpoint.spec.clone(), user, global, entries: Vec::new() };
+        for file in listed.files() {
+            texts.entry(file.clone()).or_insert_with(|| env.files.read_text(&file));
         }
+        endpoint.trust = EndpointTrust::of(&listed.spec, listed.user, listed.global, own, |file| texts.get(file).cloned().flatten());
+    }
+}
+
+/// The ProxyJump entries of a server, as written and without `ssh://`.
+fn jump_parts(host: &ResolvedHost) -> Vec<(String, String)> {
+    let Some(jump) = &host.proxy_jump else { return Vec::new() };
+    jump.split(',').map(str::trim).map(|written| (written.to_owned(), written.strip_prefix("ssh://").unwrap_or(written).to_owned())).collect()
+}
+
+/// `ssh -G` of the route, once: the target, every ProxyJump hop of it (the inspection reads each one, so one that cannot be read
+/// fails it), then the hops behind those (only a config written out needs them; one that cannot be read leaves the route
+/// incomplete).
+pub(crate) async fn resolve_route(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget) -> Result<Route, SshError> {
+    let (dump, host) = resolve_dump(env, ctx, target).await?;
+    let mut route = Route { blocks: vec![Block::new(target.clone(), &dump, host)], complete: true };
+    let jump_host = |written: &str, reason: &str| error(format!("The jump host {written} could not be read: {reason}"));
+    for (written, bare) in jump_parts(&route.blocks[0].host) {
+        let hop = parse_ssh_target(&bare).map_err(|failure| jump_host(&written, &failure.0))?;
+        if route.holds(&hop) {
+            continue;
+        }
+        let (dump, host) = resolve_dump(env, ctx, &hop).await.map_err(|failure| jump_host(&written, &failure.message))?;
+        route.blocks.push(Block::new(hop, &dump, host));
+    }
+    let mut pending: Vec<String> = route.blocks[1..].iter().flat_map(|block| jump_parts(&block.host)).map(|(_, bare)| bare).collect();
+    while let Some(bare) = pending.pop() {
+        let Ok(hop) = parse_ssh_target(&bare) else {
+            route.complete = false;
+            break;
+        };
+        if route.holds(&hop) {
+            continue;
+        }
+        let read = if route.is_full() { None } else { resolve_dump(env, ctx, &hop).await.ok() };
+        let Some((dump, host)) = read else {
+            route.complete = false;
+            break;
+        };
+        pending.extend(jump_parts(&host).into_iter().map(|(_, bare)| bare));
+        route.blocks.push(Block::new(hop, &dump, host));
+    }
+    Ok(route)
+}
+
+/// Every server on the way (each ProxyJump hop, then the target), as the route resolved them.
+fn route_endpoints(target: &SshTarget, route: &Route) -> Vec<Endpoint> {
+    let host = &route.blocks[0].host;
+    let mut endpoints = Vec::new();
+    for (written, bare) in jump_parts(host) {
+        let Some((hop, resolved)) = parse_ssh_target(&bare).ok().and_then(|hop| route.host_of(&hop).cloned().map(|resolved| (hop, resolved))) else { continue };
+        let spec = known_hosts_spec(&resolved.hostname, resolved.port);
+        endpoints.push(Endpoint { dest: hop, part: bare, name: written, role: SshHopRole::Jump, host: resolved, spec, trust: EndpointTrust::default() });
     }
     endpoints.push(Endpoint {
         dest: target.clone(),
@@ -574,21 +689,33 @@ async fn route_endpoints(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget,
         role: SshHopRole::Target,
         host: host.clone(),
         spec: known_hosts_spec(&host.hostname, host.port),
+        trust: EndpointTrust::default(),
     });
-    Ok(endpoints)
+    endpoints
 }
 
 fn default_known_hosts(env: &SshEnv) -> String {
     join_name(env.platform, &join_name(env.platform, &env.home.to_string_lossy(), ".ssh"), "known_hosts")
 }
 
-/// The inspection of a server whose key differs from the one known; replaceable only when the old key is in
-/// Mixdog's own known_hosts.
-fn changed_inspection(env: &SshEnv, old: &KnownEntry, current: &HostKeyLine, endpoint: &Endpoint, own_file: Option<&str>, chain: Option<Vec<HopKey>>) -> (HostKeyCheck, Option<Replace>) {
+/// What a changed key's replacement needs to know.
+struct RotationOf<'a> {
+    env: &'a SshEnv,
+    own: Option<&'a Path>,
+    /// The server that confirms the replacement.
+    owner: &'a str,
+    /// The entries for every endpoint of the route in the files its ssh consults, as the user was shown them.
+    shown: &'a [EndpointTrust],
+}
+
+/// The inspection of a server whose key differs from the one known; replaceable only when the old key is one unambiguous pin
+/// Mixdog wrote in its own known_hosts (no entry of the user's, no hashed, wildcard or listed entry names the endpoint too).
+fn changed_inspection(rotation: &RotationOf<'_>, old: &KnownEntry, current: &HostKeyLine, endpoint: &Endpoint, chain: Option<Vec<HopKey>>) -> (HostKeyCheck, Option<Replace>) {
+    let (env, own_file) = (rotation.env, rotation.own);
     let spec = &endpoint.spec;
-    let file_option = if old.file == default_known_hosts(env) { String::new() } else { format!(" -f \"{}\"", old.file) };
-    // Only Mixdog's own known_hosts is edited from here; a key in the user's file is theirs to remove.
-    let editable = own_file == Some(old.file.as_str());
+    let file_option = if old.file == Path::new(&default_known_hosts(env)) { String::new() } else { format!(" -f \"{}\"", old.file.display()) };
+    let held = if own_file == Some(old.file.as_path()) { env.files.read_text(&old.file) } else { None };
+    let editable = held.as_deref().is_some_and(|text| can_rotate(text.as_bytes(), spec, &current.key_type));
     let check = HostKeyCheck::Changed {
         previous: key_fingerprint(&old.entry.key),
         current: key_fingerprint(&current.key),
@@ -600,70 +727,95 @@ fn changed_inspection(env: &SshEnv, old: &KnownEntry, current: &HostKeyLine, end
     };
     let replace = editable.then(|| Replace {
         spec: spec.clone(),
-        file: PathBuf::from(&old.file),
-        line: format!("{spec} {} {}", current.key_type, current.key),
+        file: old.file.clone(),
+        claim: Claim::new(rotation.owner.to_owned(), spec.clone(), current.key_type.clone(), current.key.clone()),
         host: endpoint.host.hostname.clone(),
+        old_key: old.entry.key.clone(),
+        shown: rotation.shown.to_vec(),
     });
     (check, replace)
 }
 
 /// Compares the key(s) a server presents with what is known, using Mixdog's own known_hosts (see
 /// [`MixdogSshConfig::current`]) as the file pins go to.
-pub async fn inspect_host_key(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget) -> Result<HostKeyInspection, SshError> {
-    let own = MixdogSshConfig::current();
-    inspect_with(env, ctx, target, own.as_deref()).await
+///
+/// The route is resolved once; the servers are judged by the files each one's ssh consults under it. Only once the server could be
+/// read is the config the attempt runs with written from that same route (and named in the inspection), and the user's files
+/// registered with the generic config: nothing is written for a server that is unreachable.
+pub async fn inspect_host_key(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget, configs: &ResolvedConfigs) -> Result<HostKeyInspection, SshError> {
+    inspect_with(env, ctx, target, MixdogSshConfig::current(), Some(configs)).await
 }
 
-async fn inspect_with(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget, own: Option<&MixdogSshConfig>) -> Result<HostKeyInspection, SshError> {
-    let host = match resolve_host(env, ctx, target).await {
-        Ok(host) => host,
-        Err(failure) => return Ok(unreachable(env, &failure.message, None)),
-    };
-    let summary = Some(summarize(&host));
-    let endpoints = match route_endpoints(env, ctx, target, &host).await {
-        Ok(endpoints) => endpoints,
-        Err(reason) => return Ok(unreachable(env, &reason, summary)),
-    };
+/// A failure of this PC's own ssh state, said by code: shown the way an unreadable server is, never as bare text.
+fn state_unreachable(env: &SshEnv, failure: &SshError, summary: Option<SshConfigSummary>) -> HostKeyInspection {
+    unreachable_said(env, &failure.message, failure.notice.clone(), summary)
+}
 
-    let own_file = own.map(|config| config.known_hosts_file().to_string_lossy().into_owned());
-    let user_files: Vec<String> = endpoints.iter().flat_map(|endpoint| endpoint.host.known_hosts_files.iter().cloned()).collect();
-    if let Some(config) = own {
-        config.register_user_known_hosts(&user_files).map_err(|failure| error(failure.to_string()))?;
+async fn inspect_with(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget, own: Option<Arc<MixdogSshConfig>>, configs: Option<&ResolvedConfigs>) -> Result<HostKeyInspection, SshError> {
+    // Read before the route, so the config written from it is the user's config the route was resolved through, or older.
+    let user_config = env.files.read_text(&env.home.join(".ssh").join("config"));
+    let route = match resolve_route(env, ctx, target).await {
+        Ok(route) => route,
+        Err(failure) => return Ok(unreachable_said(env, &failure.message, failure.notice.clone(), None)),
+    };
+    let mut inspection = judge_route(env, ctx, target, own.as_deref(), &route).await?;
+    let Some(configs) = configs else { return Ok(inspection) };
+    if matches!(inspection.check, HostKeyCheck::Unreachable { .. }) {
+        return Ok(inspection);
     }
-    let mut files: Vec<String> = Vec::new();
-    for file in own_file.iter().chain(&user_files).chain(&host.global_known_hosts_files) {
-        if !files.contains(file) {
-            files.push(file.clone());
+    let not_updated = |failure: std::io::Error| said(crate::said::SSH_SETTINGS_NOT_UPDATED.said([("error", failure.to_string())]));
+    // The generic config, which an ssh of no inspection (a restore) runs with, also reads the user's files of the route.
+    if let Some(config) = own.as_deref() {
+        let user_files: Vec<String> = route.blocks.iter().flat_map(|block| block.host.known_hosts_files.iter().cloned()).collect();
+        if let Err(failure) = config.register_user_known_hosts(&user_files).await {
+            return Ok(state_unreachable(env, &not_updated(failure), inspection.summary));
         }
     }
-    let mut known: Vec<KnownEntry> = Vec::new();
-    for file in files {
-        if let Some(text) = env.files.read_text(Path::new(&file)).filter(|text| !text.is_empty()) {
-            known.extend(parse(&text).into_iter().map(|entry| KnownEntry { entry, file: file.clone() }));
+    match configs.write_reviewed(env, ctx, target, &route, user_config.as_deref()).await {
+        Ok((reviewed, forwards)) => {
+            // Where the route's own options could not be written out, the user's config and its forwards apply: they are listed.
+            if let Some(summary) = inspection.summary.as_mut().filter(|_| !forwards.is_empty()) {
+                summary.forwards = Some(forwards);
+            }
+            inspection.reviewed = Some(reviewed);
         }
+        Err(failure) => return Ok(state_unreachable(env, &not_updated(failure), inspection.summary)),
     }
+    Ok(inspection)
+}
+
+/// The verdict on the route read.
+async fn judge_route(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget, own: Option<&MixdogSshConfig>, route: &Route) -> Result<HostKeyInspection, SshError> {
+    let owner = owner_of(target);
+    let host = &route.blocks[0].host;
+    let summary = Some(summarize(host));
+    let own_file = own.map(MixdogSshConfig::known_hosts_file);
+    let mut endpoints = route_endpoints(target, route);
+    fill_trust(env, &mut endpoints, own_file);
+    let shown: Vec<EndpointTrust> = endpoints.iter().map(|endpoint| endpoint.trust.clone()).collect();
 
     let mut scanner = Scanner { env, ctx, error: String::new() };
-    let (scanned, unread) = scan_endpoints(&endpoints, &host, &known, &mut scanner).await;
+    let (scanned, unread) = scan_endpoints(&endpoints, &host, &mut scanner).await;
     let scan_error = scanner.error;
     let verdicts: Vec<Verdict> = endpoints
         .iter()
         .enumerate()
-        .map(|(index, endpoint)| if unread.contains(&index) { Verdict::Pending } else { judge(endpoint, scanned.get(&endpoint.spec).map_or(&[][..], Vec::as_slice), &known) })
+        .map(|(index, endpoint)| if unread.contains(&index) { Verdict::Pending } else { judge(endpoint, scanned.get(&endpoint.spec).map_or(&[][..], Vec::as_slice)) })
         .collect();
     let hops = hop_keys(&endpoints, &verdicts);
     let chain = (endpoints.len() > 1).then(|| hops.clone());
-    let done = |check: HostKeyCheck, pin: Option<Pin>, replace: Option<Replace>| HostKeyInspection { hops: hops.clone(), check, pin, replace, summary: summary.clone() };
+    let done = |check: HostKeyCheck, pin: Option<Pin>, replace: Option<Replace>| HostKeyInspection { hops: hops.clone(), check, pin, replace, summary: summary.clone(), reviewed: None };
 
     if let Some((index, Verdict::Revoked { fingerprint, .. })) = verdicts.iter().enumerate().find(|(_, verdict)| matches!(verdict, Verdict::Revoked { .. })) {
         return Ok(done(HostKeyCheck::Revoked { fingerprint: fingerprint.clone(), host: endpoints[index].host.hostname.clone() }, None, None));
     }
     if let Some((index, Verdict::Changed { old, current })) = verdicts.iter().enumerate().find(|(_, verdict)| matches!(verdict, Verdict::Changed { .. })) {
-        let (check, replace) = changed_inspection(env, old, current, &endpoints[index], own_file.as_deref(), chain);
+        let rotation = RotationOf { env, own: own_file, owner: &owner, shown: &shown };
+        let (check, replace) = changed_inspection(&rotation, old, current, &endpoints[index], chain);
         return Ok(done(check, None, replace));
     }
     if let Some(index) = verdicts.iter().position(|verdict| matches!(verdict, Verdict::Unreadable)) {
-        let detail = scan_error.lines().filter(|line| !line.starts_with('#')).collect::<Vec<_>>().join("\n");
+        let detail = scan_failure_lines(&scan_error);
         let detail = detail.trim();
         let name = if endpoints.len() > 1 { endpoints[index].name.as_str() } else { target.display.as_str() };
         let message = if detail.is_empty() { format!("Could not read the host key of {name}.") } else { detail.to_owned() };
@@ -677,11 +829,13 @@ async fn inspect_with(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget, ow
             _ => None,
         })
         .collect();
-    if let Some((shown, _)) = unknown.last() {
-        let file = own_file.clone().or_else(|| host.known_hosts_files.first().cloned()).unwrap_or_else(|| default_known_hosts(env));
-        let check = HostKeyCheck::Unknown { fingerprint: key_fingerprint(&shown.key), key_type: key_type_label(&shown.key_type), hops: chain };
-        let line = unknown.iter().map(|(best, spec)| format!("{spec} {} {}", best.key_type, best.key)).collect::<Vec<_>>().join("\n");
-        return Ok(done(check, Some(Pin { line, file: PathBuf::from(file) }), None));
+    if let Some((key, _)) = unknown.last() {
+        let check = HostKeyCheck::Unknown { fingerprint: key_fingerprint(&key.key), key_type: key_type_label(&key.key_type), hops: chain };
+        // The keys asked to be confirmed. Without Mixdog's own known_hosts nothing is ever written into the user's file: the key is
+        // shown and cannot be confirmed.
+        let claims = unknown.iter().map(|(line, spec)| Claim::new(owner.clone(), (*spec).to_owned(), line.key_type.clone(), line.key.clone())).collect();
+        let pin = own.map(|config| Pin::new(config.known_hosts_file().to_path_buf(), claims, shown));
+        return Ok(done(check, pin, None));
     }
     let authority = verdicts.iter().find_map(|verdict| match verdict {
         Verdict::Trusted { authority } => authority.clone(),
@@ -690,22 +844,18 @@ async fn inspect_with(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget, ow
     Ok(done(HostKeyCheck::Trusted { authority, hops: chain }, None, None))
 }
 
-/// Appends the confirmed key(s) to known_hosts.
-pub fn pin_host_key(env: &SshEnv, inspection: &HostKeyInspection) -> Result<(), SshError> {
-    let pin = inspection.pin.as_ref().ok_or_else(|| error("There is no key to save."))?;
-    append_text(env.files.as_ref(), &pin.file, &format!("{}\n", pin.line)).map_err(|failure| error(failure.to_string()))
+/// Writes the confirmed keys to Mixdog's known_hosts as one transaction, refused when the entries for an endpoint of the route in
+/// the files its ssh consults are no longer the ones the user was shown.
+pub async fn pin_host_key(inspection: &HostKeyInspection) -> Result<(), SshError> {
+    let pin = inspection.pin.as_ref().ok_or_else(|| said(crate::said::NO_KEY_TO_SAVE.plain()))?;
+    commit_claims(&pin.file, pin.shown.clone(), pin.claims.clone()).await.map_err(state_error)
 }
 
-/// Forgets the old key (`ssh-keygen -R` keeps a `.old` copy) and pins the one the server presents now.
-pub async fn replace_host_key(env: &SshEnv, inspection: &HostKeyInspection) -> Result<(), SshError> {
-    let replace = inspection.replace.as_ref().ok_or_else(|| error("There is no key to replace."))?;
-    let args = ["-R".to_owned(), replace.spec.clone(), "-f".to_owned(), replace.file.to_string_lossy().into_owned()];
-    let removed = run_tool(env, &AttemptContext::default(), "ssh-keygen", &args, TOOL_TIMEOUT).await?;
-    if removed.exit_code != Some(0) {
-        let reason = removed.stderr.trim();
-        return Err(error(if reason.is_empty() { "ssh-keygen could not remove the old key." } else { reason }));
-    }
-    append_text(env.files.as_ref(), &replace.file, &format!("{}\n", replace.line)).map_err(|failure| error(failure.to_string()))
+/// Replaces the changed key of a pin in place (never with `ssh-keygen -R`, which would remove every entry that names the host,
+/// hashed ones included). The old key must be one unambiguous pin Mixdog wrote; otherwise the entry is for the user to review.
+pub async fn replace_host_key(inspection: &HostKeyInspection) -> Result<(), SshError> {
+    let replace = inspection.replace.as_ref().ok_or_else(|| said(crate::said::NO_KEY_TO_REPLACE.plain()))?;
+    rotate_claim(&replace.file, replace.shown.clone(), replace.claim.clone(), replace.old_key.clone()).await.map_err(state_error)
 }
 
 #[cfg(test)]

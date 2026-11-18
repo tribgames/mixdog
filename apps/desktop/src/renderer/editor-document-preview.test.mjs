@@ -25,7 +25,7 @@ const { useEditorFileSession } = await import('./use-editor-file-session.ts');
 // --test-force-exit ends the process once registered tests finish.
 const { EditorPaneFileFallback } = await import('./editor-pane-surfaces.tsx');
 const { resetOfficeInstall } = await import('./editor-office-install.ts');
-const { storeDesktopStatus } = await import('./settings/desktop-status-cache.ts');
+const { recordDesktopStatus } = await import('./settings/desktop-status-cache.ts');
 
 async function mountSession(api, relPath) {
   window.mixdogDesktop = api;
@@ -613,7 +613,7 @@ test('an install done elsewhere clears the failure and retries the failed pane',
       pages: options.pages.map(renderedPage),
     });
     await act(async () => {
-      storeDesktopStatus(api, 'libreOffice', { installed: true });
+      recordDesktopStatus(api, 'libreOffice', { installed: true });
     });
     assert.equal(calls.installs, 1, 'the pane did not install again');
     assert.ok(host.querySelector('#pages'), 'the failed pane retried and now renders');

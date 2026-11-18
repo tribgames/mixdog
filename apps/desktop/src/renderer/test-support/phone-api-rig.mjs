@@ -35,6 +35,7 @@ export async function withPhoneApi(handlers, run, { synced } = {}) {
       host: { ctx, client: () => { throw new Error('the test adapter does not reach a core'); }, declareLane() {} },
       started: () => ready,
       synced: synced ?? (() => ready),
+      appSynced: synced ?? (() => ready),
       probe() {},
       silentSince: () => false,
           });

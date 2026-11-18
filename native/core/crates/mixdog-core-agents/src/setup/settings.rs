@@ -30,8 +30,8 @@ pub trait UpdateSettings: Send + Sync {
     async fn set_auto_update(&self, enabled: bool) -> Result<Value, PortError>;
 }
 
-/// `setQuotaAutoResumeEnabled(enabled)`: the global switch is the config key `quotaAutoResume`; turning it off drops
-/// every pending resume.
+/// `setQuotaAutoResumeEnabled(enabled)`: the global switch is 1.4.5's `quotaResume.autoResume`, kept equal to the registered
+/// `quotaAutoResume` (`config::quota`); turning it off drops every pending resume.
 pub struct QuotaAutoResume {
     config: Config,
     store: Arc<QuotaResumeStore>,
@@ -49,7 +49,7 @@ impl QuotaAutoResume {
         let config = self.config.clone();
         let store = self.store.clone();
         let mut changes = config.changes();
-        let enabled = |config: &Config| config.get("quotaAutoResume") != Some(Value::Bool(false));
+        let enabled = |config: &Config| config.quota_auto_resume_enabled();
         let mut on = enabled(&config);
         tokio::spawn(async move {
             loop {
@@ -75,7 +75,7 @@ impl QuotaAutoResume {
     async fn set(&self, enabled: bool) -> Result<bool, PortError> {
         self.config
             .update(move |doc| {
-                doc.insert("quotaAutoResume".into(), Value::Bool(enabled));
+                mixdog_core_config::config::quota::set_auto_resume(doc, enabled);
                 Ok(())
             })
             .await

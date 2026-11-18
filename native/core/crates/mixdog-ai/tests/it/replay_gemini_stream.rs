@@ -21,7 +21,6 @@ use mixdog_ai::providers::google::decode::DecodeDialect;
 use mixdog_ai::providers::google::decode::GeminiDecoder;
 use mixdog_ai::providers::google::decode::UsageStyle;
 use mixdog_ai::providers::google::error::ErrorDialect;
-use mixdog_ai::transport::HttpSend;
 use mixdog_ai::transport::ReqwestLink;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::keepalive::TransportKind;
@@ -30,7 +29,7 @@ use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::WireRequest;
-use mixdog_ai::providers::google::StreamWatch;
+use mixdog_ai::providers::google::stream_call;
 use mixdog_ai::providers::google::adapter::GoogleStream;
 use std::time::Duration;
 use mixdog_protocol::ProviderId;
@@ -71,8 +70,6 @@ async fn consume(set: &CaseSet, id: &str) -> (Vec<StreamEvent>, Option<ProviderE
         body: b"{}".to_vec(),
     };
     let link = endpoint.link(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).expect("the production link"));
-    let response =
-        within("the scripted answer", link.send(request, mixdog_ai::transport::deadlines::MODEL_STREAM)).await.expect("answered");
     let options = case.args_of("consumeGeminiRestStreamResponse", 0)[1].clone();
     let label: &'static str = Box::leak(options.get("label").as_str().to_owned().into_boxed_str());
     let mut decoder = GeminiDecoder::new(DecodeDialect {
@@ -96,8 +93,11 @@ async fn consume(set: &CaseSet, id: &str) -> (Vec<StreamEvent>, Option<ProviderE
     };
     // The idle window of the recorder's scrubbed environment (`PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS`).
     let idle = mixdog_ai::providers::google::cache::policy::semantic_idle_ms(|_| None).map(|ms| Duration::from_millis(ms as u64));
-    let watch = StreamWatch { first_byte: Duration::from_millis(window as u64), idle, idle_after_first_chunk: false, label };
-    let mut stream = GoogleStream::consume(response.body, Box::new(decoder), Some(watch));
+    // The scripted answer is one attempt of the model-exchange driver under the recorded windows.
+    let call = stream_call(&mixdog_core_api::domain::provider::SendIdentity::default(), Duration::from_millis(window as u64), idle, label);
+    let driver = mixdog_ai::transport::model_driver::ModelDriver::new(std::sync::Arc::new(link));
+    let (response, attempt) = within("the scripted answer", driver.send(&call, request, mixdog_ai::transport::deadlines::MODEL_STREAM)).await.expect("answered");
+    let mut stream = GoogleStream::consume(response.body, Box::new(decoder)).with_attempt(attempt);
     // The window is armed: the recorded clock steps run while the consumer waits.
     let collect = async move {
         let mut events = Vec::new();

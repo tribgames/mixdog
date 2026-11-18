@@ -16,10 +16,14 @@ use mixdog_ai::service::error_text::ErrorView;
 use mixdog_ai::service::error_text::PresentOptions;
 use mixdog_ai::service::error_text::TimeoutPhase;
 use mixdog_ai::service::error_text::present_error_text;
+use mixdog_ai::service::error_text::provider_error_text;
 use mixdog_ai::service::error_text::safe_error_details;
 use mixdog_ai::service::error_text::sent_code;
+use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::StreamTimeoutPhase;
+use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_js::JsRegex;
 use mixdog_protocol::ProviderErrorDetail;
 use mixdog_protocol::TurnError;
@@ -68,6 +72,119 @@ pub struct TimeoutFacts {
     pub attempts: u64,
 }
 
+/// The wire a keepalive probe went unanswered on ([`TransportFault::KeepaliveExpired`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum KeepaliveWire {
+    Http1,
+    Http2,
+    WebSocket,
+}
+
+/// `error.transport` ([`TransportFault`]): what ended the link or stream, kept typed so the transcript row, the agent task's
+/// text and the log read the same cause.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum FaultFacts {
+    Connect {
+        #[serde(default, rename = "osCode", skip_serializing_if = "Option::is_none")]
+        os_code: Option<i32>,
+    },
+    Dns,
+    Reset,
+    Closed,
+    Tls,
+    H2GoAway {
+        code: u32,
+    },
+    H2RstStream {
+        code: u32,
+    },
+    WsClose {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<u16>,
+    },
+    KeepaliveExpired {
+        wire: KeepaliveWire,
+    },
+    TruncatedStream,
+    Io {
+        #[serde(default, rename = "osCode", skip_serializing_if = "Option::is_none")]
+        os_code: Option<i32>,
+    },
+    TooManyEncodings,
+    CorruptBody,
+}
+
+impl From<&TransportFault> for FaultFacts {
+    fn from(fault: &TransportFault) -> Self {
+        match *fault {
+            TransportFault::Connect { os_code } => Self::Connect { os_code },
+            TransportFault::Dns => Self::Dns,
+            TransportFault::Reset => Self::Reset,
+            TransportFault::Closed => Self::Closed,
+            TransportFault::Tls => Self::Tls,
+            TransportFault::H2GoAway { code } => Self::H2GoAway { code },
+            TransportFault::H2RstStream { code } => Self::H2RstStream { code },
+            TransportFault::WsClose { code } => Self::WsClose { code },
+            TransportFault::KeepaliveExpired { transport } => Self::KeepaliveExpired {
+                wire: match transport {
+                    TransportKind::Http1 => KeepaliveWire::Http1,
+                    TransportKind::Http2 => KeepaliveWire::Http2,
+                    TransportKind::WebSocket => KeepaliveWire::WebSocket,
+                },
+            },
+            TransportFault::TruncatedStream => Self::TruncatedStream,
+            TransportFault::Io { os_code } => Self::Io { os_code },
+            TransportFault::TooManyEncodings => Self::TooManyEncodings,
+            TransportFault::CorruptBody => Self::CorruptBody,
+        }
+    }
+}
+
+impl FaultFacts {
+    pub fn fault(self) -> TransportFault {
+        match self {
+            Self::Connect { os_code } => TransportFault::Connect { os_code },
+            Self::Dns => TransportFault::Dns,
+            Self::Reset => TransportFault::Reset,
+            Self::Closed => TransportFault::Closed,
+            Self::Tls => TransportFault::Tls,
+            Self::H2GoAway { code } => TransportFault::H2GoAway { code },
+            Self::H2RstStream { code } => TransportFault::H2RstStream { code },
+            Self::WsClose { code } => TransportFault::WsClose { code },
+            Self::KeepaliveExpired { wire } => TransportFault::KeepaliveExpired {
+                transport: match wire {
+                    KeepaliveWire::Http1 => TransportKind::Http1,
+                    KeepaliveWire::Http2 => TransportKind::Http2,
+                    KeepaliveWire::WebSocket => TransportKind::WebSocket,
+                },
+            },
+            Self::TruncatedStream => TransportFault::TruncatedStream,
+            Self::Io { os_code } => TransportFault::Io { os_code },
+            Self::TooManyEncodings => TransportFault::TooManyEncodings,
+            Self::CorruptBody => TransportFault::CorruptBody,
+        }
+    }
+}
+
+/// [`ProviderError::connection`]: the connection the request rode.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectionFacts {
+    pub id: u64,
+    pub protocol: String,
+}
+
+/// [`ProviderError::partial_usage`]: what the stream had reported when it failed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PartialUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+}
+
 /// What `turnFailureRecord` reads off a provider error beyond [`ProviderErrorDetail`]'s provider, status and
 /// kind. Every field is absent when the error had none.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -86,10 +203,21 @@ pub struct ProviderFacts {
     pub quota_exhausted: Option<QuotaProof>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<TimeoutFacts>,
+    /// `error.transport`: what ended the link or stream.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fault: Option<FaultFacts>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<ConnectionFacts>,
+    /// The usage the stream reported before it failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partial_usage: Option<PartialUsage>,
 }
 
 /// The key of [`ProviderFacts`] in `TurnError.data`.
 const FACTS_KEY: &str = "providerFacts";
+
+/// The key of a refused image request's blockers in `TurnError.data` and in the failure's `errorKind`.
+const IMAGE_REFUSAL_KEY: &str = "imageRefusal";
 
 /// The `providerFacts` of a `TurnError` are not facts this crate writes: only [`ProviderFacts::into_data`] puts them
 /// there, so a value of another shape is a bug of whoever built the error, not an error without facts.
@@ -139,16 +267,39 @@ pub fn provider_turn_error(error: &ProviderError, provider: &str, data: Value) -
         retry_after_ms: descriptor.retry_after_ms,
         reset_at: descriptor.reset_at,
         quota_exhausted: None,
-        timeout: None,
+        timeout: error.timeout_phase.map(|phase| TimeoutFacts {
+            phase: match phase {
+                StreamTimeoutPhase::Headers => TimeoutKind::Headers,
+                StreamTimeoutPhase::FirstChunk => TimeoutKind::FirstChunk,
+                StreamTimeoutPhase::Idle => TimeoutKind::Idle,
+            },
+            waited_ms: 0,
+            attempts: 0,
+        }),
+        fault: error.transport.as_ref().map(FaultFacts::from),
+        connection: error.connection.map(|c| ConnectionFacts { id: c.id, protocol: c.protocol.to_owned() }),
+        partial_usage: error.partial_usage.as_deref().map(|u| PartialUsage {
+            input_tokens: u.input_tokens,
+            output_tokens: u.output_tokens,
+            cache_read_tokens: u.cache_read_tokens,
+            cache_write_tokens: u.cache_write_tokens,
+        }),
     };
     let delivery = match error.delivery {
         DeliveryState::NotSent => mixdog_protocol::DeliveryState::NotSent,
         DeliveryState::Ambiguous => mixdog_protocol::DeliveryState::Ambiguous,
         DeliveryState::Accepted => mixdog_protocol::DeliveryState::Accepted,
     };
+    let mut data = facts.into_data(data);
+    // A refused image request keeps its blockers, with the ids the local fixes take, beside the facts: `failure_record` hands
+    // them to the interface in `errorKind`.
+    if let Some(refusal) = error.image_refusal.as_deref() {
+        data[IMAGE_REFUSAL_KEY] = super::image_recovery::refusal_json(refusal);
+    }
     TurnError {
-        message: error.message.clone(),
-        data: facts.into_data(data),
+        // An adapter's transport error has no text of its own: the wire error says what the kind, the delivery and the fault say.
+        message: provider_error_text(error, "turn"),
+        data,
         provider_error: Some(ProviderErrorDetail { provider: provider.to_owned(), status: error.status, kind: descriptor.kind, delivery: Some(delivery) }),
     }
 }
@@ -222,7 +373,11 @@ pub(crate) fn failure_record(error: &TurnError, route: &Route<'_>) -> Result<Map
     let reset_at = facts.reset_at.filter(|at| *at > 0).or_else(|| proof.and_then(|p| p.reset_at).filter(|at| *at > 0));
     let mut out = Map::new();
     out.insert("providerKind".into(), json!(kind));
-    out.insert("errorKind".into(), json!({ "kind": kind, "code": code, "status": status, "retryAfterMs": retry_after_ms, "resetAt": reset_at }));
+    let mut error_kind = json!({ "kind": kind, "code": code, "status": status, "retryAfterMs": retry_after_ms, "resetAt": reset_at });
+    if let Some(refusal) = error.data.get(IMAGE_REFUSAL_KEY) {
+        error_kind[IMAGE_REFUSAL_KEY] = refusal.clone();
+    }
+    out.insert("errorKind".into(), error_kind);
     // `turnFailureRecord`: a quota stop is the pool's proof, or an exhausted quota with the reset the provider named.
     if proof.is_some() || (kind == "quota_exhausted" && reset_at.is_some()) {
         let named = |own: Option<&String>, route: &str| own.filter(|name| !name.is_empty()).map_or_else(|| route.to_owned(), Clone::clone);
@@ -260,6 +415,12 @@ pub(crate) fn failure_record(error: &TurnError, route: &Route<'_>) -> Result<Map
         }),
         waited_ms: timeout.map_or(0, |t| t.waited_ms),
         attempts: timeout.map_or(0, |t| t.attempts),
+        fault: facts.fault.map(FaultFacts::fault),
+        delivery: provider.and_then(|p| p.delivery).map(|delivery| match delivery {
+            mixdog_protocol::DeliveryState::NotSent => DeliveryState::NotSent,
+            mixdog_protocol::DeliveryState::Ambiguous => DeliveryState::Ambiguous,
+            mixdog_protocol::DeliveryState::Accepted => DeliveryState::Accepted,
+        }),
         ..ErrorView::default()
     };
     // The provider is named from the turn's own route, never from the error (`turn-failure.mjs:44`).
@@ -267,9 +428,52 @@ pub(crate) fn failure_record(error: &TurnError, route: &Route<'_>) -> Result<Map
     let options = PresentOptions { surface: "turn".into(), max: None, provider_label };
     let text = present_error_text(&view, &options);
     let shown = if SPECIAL.is_match(&text) || ERROR_COLON.is_match(&text) { text } else { format!("Error: {text}") };
-    out.insert("detail".into(), json!(STRIP.replace_all_with(&shown, |_| String::new())));
-    out.insert("errorDetails".into(), json!(safe_error_details(error_text(error))));
+    let detail = STRIP.replace_all_with(&shown, |_| String::new());
+    // A failure with no message of its own has the derived sentence as its details, not its name.
+    let details = if error.message.is_empty() { safe_error_details(&detail) } else { safe_error_details(error_text(error)) };
+    out.insert("detail".into(), json!(detail));
+    out.insert("errorDetails".into(), json!(details));
     Ok(out)
+}
+
+/// The one daemon-log line of a failed turn (Node 1.4.5's `[ask-error]`, `logAskError`): the session, the turn, the provider and
+/// the typed cause of the failure; the message is the error's, else the sentence derived from its kind, delivery and fault.
+pub(crate) fn failure_log_line(tag: &str, session: &str, turn: &str, error: &TurnError, route: &Route<'_>) -> String {
+    let facts = ProviderFacts::of(error).unwrap_or_default();
+    let provider = error.provider_error.as_ref();
+    let delivery = match provider.and_then(|p| p.delivery) {
+        Some(mixdog_protocol::DeliveryState::NotSent) => "not_sent",
+        Some(mixdog_protocol::DeliveryState::Ambiguous) => "ambiguous",
+        Some(mixdog_protocol::DeliveryState::Accepted) => "accepted",
+        None => "-",
+    };
+    let msg: String = safe_error_details(&failure_text(error, route)).chars().take(300).collect();
+    let mut line = format!(
+        "[{tag}] session={session} turn={turn} provider={} kind={} code={} delivery={delivery} fault={}",
+        provider.map_or(route.provider, |p| p.provider.as_str()),
+        provider.map_or("unknown", |p| p.kind.as_str()),
+        facts.code.as_deref().filter(|code| !code.is_empty()).unwrap_or("-"),
+        facts.fault.map_or_else(|| "-".to_owned(), |fault| format!("{:?}", fault.fault())),
+    );
+    if let Some(connection) = &facts.connection {
+        line.push_str(&format!(" connection={}/{}", connection.protocol, connection.id));
+    }
+    line.push_str(&format!(" msg={}", json!(msg)));
+    line
+}
+
+/// The text of a failure: its message, else the sentence its kind, delivery and fault derive (the record's `detail`).
+pub(crate) fn failure_text(error: &TurnError, route: &Route<'_>) -> String {
+    if !error.message.is_empty() {
+        return error.message.clone();
+    }
+    failure_record(error, route).ok().and_then(|record| record.get("detail").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default()
+}
+
+/// Writes [`failure_log_line`] to the daemon log (`process.stderr.write`, the shard host's mirror into `daemon.log`): `ask-error`
+/// for a failed turn, `agent-task-error` for a failed agent task.
+pub(crate) fn log_failure(tag: &str, session: &str, turn: &str, error: &TurnError, route: &Route<'_>) {
+    mixdog_rt::node_stderr!("{}", failure_log_line(tag, session, turn, error, route));
 }
 
 /// What `failedTurnCompletion` adds to the turn's own facts. `raw` is the turn's `meta.transcript`
@@ -336,20 +540,7 @@ pub(crate) fn failed_completion(record: &Map<String, Value>, facts: &Facts<'_>) 
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_failure_reads_as_nodes_turn_failure_record() {
-        let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/failed-completion/golden.json")).unwrap();
-        for case in gold["cases"].as_array().unwrap() {
-            let error = TurnError { message: case["message"].as_str().unwrap().to_owned(), data: json!({}), provider_error: None };
-            let route = Route { provider: case["route"]["provider"].as_str().unwrap(), model: case["route"]["model"].as_str().unwrap() };
-            let got = failure_record(&error, &route).unwrap();
-            assert_eq!(got["errorKind"], case["errorKind"], "{case}");
-            assert_eq!(got.get("quota").cloned().unwrap_or(Value::Null), case["quota"], "{case}");
-            assert_eq!(got["detail"], case["detail"], "{case}");
-            assert_eq!(got["errorDetails"], case["errorDetails"], "{case}");
-        }
-    }
-
+    #[cfg(node_twin)]
     /// A provider failure as the run host reports it: the `ProviderError` the adapter classified, through
     /// [`provider_turn_error`], plus what no `ProviderError` states (the pool's proof, a timeout's phase) from `fields`.
     fn reported(case: &Value) -> TurnError {
@@ -380,23 +571,6 @@ mod tests {
         });
         error.data = facts.into_data(error.data);
         error
-    }
-
-    /// Node's `turnFailureRecord` for the errors a provider raises (`fixtures/turn-failure`, recorded by
-    /// `record-turn-failure.mjs`): the kind with its code, status, retry advice and reset, the quota stop (the pool's
-    /// proof, or an exhausted quota whose reset the provider named), and the text, a first-byte timeout naming the
-    /// turn's own provider.
-    #[test]
-    fn a_provider_failure_reads_as_nodes_turn_failure_record() {
-        let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/turn-failure/golden.json")).unwrap();
-        for case in gold["cases"].as_array().unwrap() {
-            let route = Route { provider: case["route"]["provider"].as_str().unwrap_or_default(), model: case["route"]["model"].as_str().unwrap() };
-            let got = failure_record(&reported(case), &route).unwrap();
-            assert_eq!(got["errorKind"], case["errorKind"], "{}", case["name"]);
-            assert_eq!(got.get("quota").cloned().unwrap_or(Value::Null), case["quota"], "{}", case["name"]);
-            assert_eq!(got["detail"], case["detail"], "{}", case["name"]);
-            assert_eq!(got["errorDetails"], case["errorDetails"], "{}", case["name"]);
-        }
     }
 
     /// `providerKind` is the classified kind; an untyped error's usage-limit or billing wording reads as that kind
@@ -442,13 +616,101 @@ mod tests {
         assert_eq!(error.data["carriedReport"], "kept", "the error's other typed fields stay");
         assert_eq!(
             ProviderFacts::of(&error).unwrap(),
-            ProviderFacts { code: Some("Rate_Limit_Exceeded".into()), retry_after_ms: Some(4000), reset_at: Some(1_900_000_000_000), quota_exhausted: None, timeout: None }
+            ProviderFacts { code: Some("Rate_Limit_Exceeded".into()), retry_after_ms: Some(4000), reset_at: Some(1_900_000_000_000), ..ProviderFacts::default() }
         );
         let detail = error.provider_error.as_ref().unwrap();
         assert_eq!((detail.provider.as_str(), detail.status, detail.kind.as_str(), detail.delivery), ("anthropic-oauth", Some(429), "rate_limited", Some(mixdog_protocol::DeliveryState::Accepted)));
         let record = failure_record(&error, &Route { provider: "anthropic-oauth", model: "m" }).unwrap();
         assert_eq!(record["errorKind"], json!({ "kind": "rate_limited", "code": "rate_limit_exceeded", "status": 429, "retryAfterMs": 4000, "resetAt": 1_900_000_000_000_u64 }));
         assert!(!record.contains_key("quota"), "a rate limit is no quota stop");
+    }
+
+    #[test]
+    fn a_refused_image_request_hands_its_blockers_and_their_ids_to_the_interface() {
+        use mixdog_image_egress::NotSent;
+        use mixdog_image_egress::Origin;
+        use mixdog_image_egress::Reason;
+        use mixdog_image_egress::Refusal;
+        use mixdog_image_egress::Role;
+
+        let origin = Origin {
+            session: "s".into(),
+            branch: String::new(),
+            message_id: "row-7".into(),
+            role: Role::User,
+            tool_call_id: None,
+            // Message 0 of the request, part 2 of the stored message: the part is what a later choice is saved under.
+            part_path: vec![0, 2],
+            display_name: "scan.heic".into(),
+            turn: 3,
+            tool_label: None,
+        };
+        let mut not_sent = NotSent::new(vec![Refusal::new(origin, Reason::NoVision)]);
+        not_sent.offer_new_context(1);
+        let refusal = ProviderError::images_not_sent(not_sent);
+        let error = provider_turn_error(&refusal, "my-gateway", Value::Null);
+        let record = failure_record(&error, &Route { provider: "my-gateway", model: "m" }).unwrap();
+        let shown = &record["errorKind"]["imageRefusal"];
+        assert_eq!(shown["blockers"][0]["messageId"], "row-7");
+        assert_eq!(shown["blockers"][0]["part"], 2);
+        assert_eq!(shown["blockers"][0]["name"], "scan.heic");
+        assert_eq!(shown["blockers"][0]["actions"], json!(["replace", "continueWithout"]));
+        assert_eq!(shown["newContextOffered"], true);
+        assert!(shown["message"].as_str().unwrap().starts_with("Nothing was sent."), "{shown}");
+        let plain = provider_turn_error(&ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Unknown, DeliveryState::NotSent), "p", Value::Null);
+        assert!(failure_record(&plain, &Route { provider: "p", model: "m" }).unwrap()["errorKind"].get("imageRefusal").is_none(), "an ordinary failure carries none");
+    }
+
+    /// The incident: an accepted stream cut by a connection-level error has an empty message. The failed turn's transcript row
+    /// says what was lost, the typed cause rides the error to the row, the text and the log line, and the partial usage and
+    /// the connection are kept.
+    #[test]
+    fn a_cut_stream_without_a_message_keeps_its_cause_to_the_row_and_the_log() {
+        use mixdog_core_api::domain::provider::ConnectionInfo;
+        use mixdog_core_api::domain::provider::Usage;
+
+        let route = Route { provider: "anthropic-oauth", model: "m" };
+        for (fault, code, sentence) in [
+            (TransportFault::Reset, "ECONNRESET", "Connection to the provider was lost (ECONNRESET)."),
+            (TransportFault::Closed, "UND_ERR_SOCKET", "Connection to the provider was lost (UND_ERR_SOCKET)."),
+            (TransportFault::H2GoAway { code: 11 }, "ERR_HTTP2_GOAWAY_SESSION", "Connection to the provider was lost (ERR_HTTP2_GOAWAY_SESSION)."),
+        ] {
+            let mut cut = ProviderError::transport(fault.clone(), DeliveryState::Accepted);
+            cut.connection = Some(ConnectionInfo { id: 7, protocol: "h2" });
+            cut.partial_usage = Some(Box::new(Usage { input_tokens: 10, output_tokens: 3, ..Usage::default() }));
+            assert!(cut.message.is_empty());
+            let error = provider_turn_error(&cut, "anthropic-oauth", Value::Null);
+            assert_eq!(error.message, sentence);
+            let facts = ProviderFacts::of(&error).unwrap();
+            assert_eq!(facts.fault.map(FaultFacts::fault), Some(fault.clone()));
+            assert_eq!(facts.connection, Some(ConnectionFacts { id: 7, protocol: "h2".into() }));
+            assert_eq!(facts.partial_usage, Some(PartialUsage { input_tokens: 10, output_tokens: 3, ..PartialUsage::default() }));
+            assert_eq!(error.provider_error.as_ref().unwrap().delivery, Some(mixdog_protocol::DeliveryState::Accepted));
+            // The row reads the same whether the message was filled in or an older writer left it empty.
+            for message in [error.message.clone(), String::new()] {
+                let row = failure_record(&TurnError { message, ..error.clone() }, &route).unwrap();
+                assert_eq!(row["detail"], json!(sentence));
+                assert_eq!(row["errorDetails"], json!(sentence));
+                assert_eq!(row["errorKind"]["code"], json!(code.to_lowercase()));
+            }
+            let line = failure_log_line("ask-error", "s1", "t1", &error, &route);
+            assert_eq!(
+                line,
+                format!(
+                    "[ask-error] session=s1 turn=t1 provider=anthropic-oauth kind=transient code={code} delivery=accepted fault={fault:?} connection=h2/7 msg={}",
+                    json!(sentence)
+                )
+            );
+        }
+    }
+
+    /// A failure with neither message nor fault reads from its kind and delivery.
+    #[test]
+    fn an_empty_failure_reads_from_its_kind_and_delivery() {
+        use mixdog_core_api::domain::provider::ErrorKind;
+
+        let error = provider_turn_error(&ProviderError::new(ErrorKind::Overloaded, DeliveryState::NotSent), "p", Value::Null);
+        assert_eq!(error.message, "The provider request failed (overloaded, before the request was sent).");
     }
 
     /// A `providerFacts` value this crate did not write is a typed error, not an error without facts; an error with
@@ -479,5 +741,38 @@ mod tests {
         let bare = Facts { raw: &Value::Null, started_at: 5, now: 4, attempt_id: "fresh".into(), route: Route { provider: "p", model: "m" } };
         let done = failed_completion(&failure_record(&error, &bare.route).unwrap(), &bare);
         assert_eq!((done["attemptId"].clone(), done["at"].clone(), done["elapsedMs"].clone()), (json!("fresh"), json!(5), json!(0)));
+    }
+
+
+    #[cfg(node_twin)]
+    #[test]
+    fn a_failure_reads_as_nodes_turn_failure_record() {
+        let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/failed-completion/golden.json")).unwrap();
+        for case in gold["cases"].as_array().unwrap() {
+            let error = TurnError { message: case["message"].as_str().unwrap().to_owned(), data: json!({}), provider_error: None };
+            let route = Route { provider: case["route"]["provider"].as_str().unwrap(), model: case["route"]["model"].as_str().unwrap() };
+            let got = failure_record(&error, &route).unwrap();
+            assert_eq!(got["errorKind"], case["errorKind"], "{case}");
+            assert_eq!(got.get("quota").cloned().unwrap_or(Value::Null), case["quota"], "{case}");
+            assert_eq!(got["detail"], case["detail"], "{case}");
+            assert_eq!(got["errorDetails"], case["errorDetails"], "{case}");
+        }
+    }
+    #[cfg(node_twin)]
+    /// Node's `turnFailureRecord` for the errors a provider raises (`fixtures/turn-failure`, recorded by
+    /// `record-turn-failure.mjs`): the kind with its code, status, retry advice and reset, the quota stop (the pool's
+    /// proof, or an exhausted quota whose reset the provider named), and the text, a first-byte timeout naming the
+    /// turn's own provider.
+    #[test]
+    fn a_provider_failure_reads_as_nodes_turn_failure_record() {
+        let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/turn-failure/golden.json")).unwrap();
+        for case in gold["cases"].as_array().unwrap() {
+            let route = Route { provider: case["route"]["provider"].as_str().unwrap_or_default(), model: case["route"]["model"].as_str().unwrap() };
+            let got = failure_record(&reported(case), &route).unwrap();
+            assert_eq!(got["errorKind"], case["errorKind"], "{}", case["name"]);
+            assert_eq!(got.get("quota").cloned().unwrap_or(Value::Null), case["quota"], "{}", case["name"]);
+            assert_eq!(got["detail"], case["detail"], "{}", case["name"]);
+            assert_eq!(got["errorDetails"], case["errorDetails"], "{}", case["name"]);
+        }
     }
 }

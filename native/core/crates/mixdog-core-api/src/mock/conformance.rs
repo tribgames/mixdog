@@ -155,10 +155,21 @@ pub fn snapshot_then_live(make: &FeedFactory) {
     );
 }
 
+/// The earlier visit of a client that later resumes: a position of this epoch is only ever handed out by an attach, so a
+/// scenario that resumes from one starts with the attach that gave it. A feed nobody has attached to owes no replay (it may
+/// keep no frames the view already describes), and resuming there snapshots.
+fn visited(feed: &Arc<dyn Feed>, limits: MockLimits) {
+    let conn = MockConnection::new(ConnectionId(0), limits);
+    let attached = attach(feed, &conn, "earlier", Window::Fixed, None);
+    respond(&conn, attached, "resp");
+    feed.detach(sub("earlier"));
+}
+
 /// Same epoch, same window, position inside the ring, frames fit: replay from `seq + 1`.
 pub fn replay_then_live(make: &FeedFactory) {
     let limits = MockLimits::default();
     let feed = make(limits);
+    visited(&feed, limits);
     publish(feed.as_ref(), 1..=4);
     let conn = MockConnection::new(ConnectionId(1), limits);
     let epoch = epoch_of(feed.as_ref());
@@ -242,6 +253,7 @@ pub fn evicted_position_snapshots(make: &FeedFactory) {
         ..MockLimits::default()
     };
     let feed = make(limits);
+    visited(&feed, limits);
     publish(feed.as_ref(), 1..=6);
     let conn = MockConnection::new(ConnectionId(1), limits);
     let epoch = epoch_of(feed.as_ref());

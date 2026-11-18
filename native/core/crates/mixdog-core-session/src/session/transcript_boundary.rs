@@ -118,6 +118,7 @@ mod tests {
     use mixdog_store::schema::blob::Slot;
     use mixdog_store::schema::record::ItemRecord;
 
+    #[cfg(node_twin)]
     use mixdog_protocol::ThreadItem;
 
     use super::*;
@@ -151,6 +152,24 @@ mod tests {
         assert_eq!(id_of(&live), "a1:model:200");
     }
 
+    #[cfg(node_twin)]
+    fn live_item(shown: &Shown) -> &ThreadItem {
+        match shown {
+            Shown::Item(item) | Shown::Update(item) => item,
+        }
+    }
+
+    #[test]
+    fn a_switch_is_recorded_once_and_a_bare_boundary_shows_nothing() {
+        let entry = json!({ "provider": "openai", "modelId": "next", "at": 200 });
+        let folded = with_model_switch(&json!({ "role": "assistant", "content": "x" }), &entry).unwrap();
+        assert!(with_model_switch(&folded, &entry).is_none());
+        assert_eq!(folded["meta"]["modelSwitches"], json!([entry]));
+        assert!(model_switch_item("a1", None, &json!({ "provider": "openai", "at": 1 })).is_none());
+    }
+
+
+    #[cfg(node_twin)]
     /// Node's recorded folds (`record-model-switch.mjs`): the anchor message after the boundary
     /// is recorded, and the rows a restore shows for the session.
     #[test]
@@ -196,7 +215,7 @@ mod tests {
             assert_eq!(got, want, "{name}: rows");
         }
     }
-
+    #[cfg(node_twin)]
     /// A reader's path: the anchor row plus its stored entries (`HistoryRow.model_switches`)
     /// show Node's rows, and the live row for the last entry is the restored row's twin.
     #[test]
@@ -233,7 +252,7 @@ mod tests {
         }
         assert!(checked >= 4);
     }
-
+    #[cfg(node_twin)]
     /// A boundary on the compaction summary (or its context ack) shows Node's rows: the summary
     /// bubble stays hidden and the "Model switched" rows follow; live and restored rows agree.
     #[test]
@@ -274,20 +293,5 @@ mod tests {
             checked += 1;
         }
         assert!(checked >= 3);
-    }
-
-    fn live_item(shown: &Shown) -> &ThreadItem {
-        match shown {
-            Shown::Item(item) | Shown::Update(item) => item,
-        }
-    }
-
-    #[test]
-    fn a_switch_is_recorded_once_and_a_bare_boundary_shows_nothing() {
-        let entry = json!({ "provider": "openai", "modelId": "next", "at": 200 });
-        let folded = with_model_switch(&json!({ "role": "assistant", "content": "x" }), &entry).unwrap();
-        assert!(with_model_switch(&folded, &entry).is_none());
-        assert_eq!(folded["meta"]["modelSwitches"], json!([entry]));
-        assert!(model_switch_item("a1", None, &json!({ "provider": "openai", "at": 1 })).is_none());
     }
 }

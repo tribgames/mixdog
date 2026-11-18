@@ -110,36 +110,8 @@ impl fmt::Display for ProbeError {
     }
 }
 
-impl std::error::Error for ProbeError {}
-
 fn is_hex64(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
-
-fn refused_in(error: &(dyn std::error::Error + 'static)) -> bool {
-    let mut current = Some(error);
-    while let Some(error) = current {
-        if error.downcast_ref::<std::io::Error>().is_some_and(|io| io.kind() == std::io::ErrorKind::ConnectionRefused) {
-            return true;
-        }
-        current = error.source();
-    }
-    false
-}
-
-fn chain_message(error: &(dyn std::error::Error + 'static)) -> String {
-    let mut text = error.to_string();
-    let mut current = error.source();
-    while let Some(source) = current {
-        text.push_str(": ");
-        text.push_str(&source.to_string());
-        current = source.source();
-    }
-    text
-}
-
-fn transport_error(error: &(dyn std::error::Error + 'static)) -> ProbeError {
-    ProbeError { refused: refused_in(error), message: chain_message(error) }
 }
 
 fn parse_origin(origin: &str) -> Result<Url, ProbeError> {
@@ -168,6 +140,123 @@ fn tls_config(extra: &[Vec<u8>]) -> Arc<ClientConfig> {
     Arc::new(config)
 }
 
+trait Wire: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> Wire for T {}
+
+/// `Number(value)` as JavaScript converts a parsed JSON value (an array through its `join(',')` string).
+fn to_number(value: &Value) -> f64 {
+    match value {
+        Value::Null => 0.0,
+        Value::Bool(flag) => f64::from(u8::from(*flag)),
+        Value::Number(number) => number.as_f64().unwrap_or(f64::NAN),
+        Value::String(text) => mixdog_js::string_to_number(text),
+        Value::Array(items) => match items.as_slice() {
+            [] | [Value::Null] => 0.0,
+            [Value::String(_) | Value::Number(_) | Value::Array(_)] => to_number(&items[0]),
+            _ => f64::NAN,
+        },
+        Value::Object(_) => f64::NAN,
+    }
+}
+
+/// `value > 0` as JavaScript evaluates it for what `/readyz` reports; an absent value is `undefined`, which is not.
+fn positive(value: Option<&Value>) -> bool {
+    value.is_some_and(|value| to_number(value) > 0.0)
+}
+
+/// `--name=value` arguments; a later flag of the same name wins. The first argument of another shape is returned as the error.
+fn parse_flags(args: &[String]) -> Result<HashMap<&str, &str>, &str> {
+    let mut flags = HashMap::new();
+    for arg in args {
+        match arg.strip_prefix("--").and_then(|rest| rest.split_once('=')) {
+            Some((name, value)) if !name.is_empty() => {
+                flags.insert(name, value);
+            }
+            _ => return Err(arg),
+        }
+    }
+    Ok(flags)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|arg| (*arg).to_owned()).collect()
+    }
+
+    #[test]
+    fn flags_are_name_equals_value_and_the_last_of_a_name_wins() {
+        let list = args(&["--origin=https://a", "--address=", "--origin=https://b?x=1", "--other=ignored"]);
+        let flags = parse_flags(&list).unwrap();
+        assert_eq!(flags["origin"], "https://b?x=1");
+        assert_eq!(flags["address"], "");
+        assert_eq!(flags["other"], "ignored");
+    }
+
+    #[test]
+    fn an_argument_of_another_shape_is_named() {
+        for bad in ["origin=x", "--origin", "--=x", "-origin=x", ""] {
+            let list = args(&["--ok=1", bad]);
+            assert_eq!(parse_flags(&list).unwrap_err(), bad);
+        }
+    }
+
+    #[test]
+    fn the_hex_digest_is_64_lower_case_characters() {
+        assert!(is_hex64(&"0f".repeat(32)));
+        assert!(!is_hex64(&"0F".repeat(32)));
+        assert!(!is_hex64(&"0f".repeat(31)));
+        assert!(!is_hex64(&"0g".repeat(32)));
+    }
+
+    #[test]
+    fn assets_are_positive_as_javascript_compares_them_with_zero() {
+        for value in [json!(8), json!(0.5), json!("3"), json!(" 0x10 "), json!("Infinity"), json!(true), json!([2]), json!(["4"])] {
+            assert!(positive(Some(&value)), "{value}");
+        }
+        for value in [json!(0), json!(-1), json!(""), json!("3a"), json!(null), json!(false), json!([]), json!([1, 2]), json!([true]), json!({})] {
+            assert!(!positive(Some(&value)), "{value}");
+        }
+        assert!(!positive(None));
+    }
+
+    #[test]
+    fn the_result_line_is_the_json_of_the_result_object() {
+        let verified = Verified { index_sha256: "a".repeat(64), assets: json!("3"), releases: 0 };
+        let expected = format!(r#"{{"status":"verified","indexSha256":"{}","assets":"3","releases":0,"websocket":"gated"}}"#, "a".repeat(64));
+        assert_eq!(verified.to_line(), expected);
+    }
+}
+
+
+impl std::error::Error for ProbeError {}
+fn refused_in(error: &(dyn std::error::Error + 'static)) -> bool {
+    let mut current = Some(error);
+    while let Some(error) = current {
+        if error.downcast_ref::<std::io::Error>().is_some_and(|io| io.kind() == std::io::ErrorKind::ConnectionRefused) {
+            return true;
+        }
+        current = error.source();
+    }
+    false
+}
+fn chain_message(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut text = error.to_string();
+    let mut current = error.source();
+    while let Some(source) = current {
+        text.push_str(": ");
+        text.push_str(&source.to_string());
+        current = source.source();
+    }
+    text
+}
+fn transport_error(error: &(dyn std::error::Error + 'static)) -> ProbeError {
+    ProbeError { refused: refused_in(error), message: chain_message(error) }
+}
 /// One GET of `path` on the origin, parsed as JSON. Redirects are failures, the body is capped and the whole exchange is
 /// timed.
 async fn read_json(base: &Url, path: &str, options: &Options, address: Option<Ipv4Addr>) -> Result<Value, ProbeError> {
@@ -208,10 +297,6 @@ async fn read_json(base: &Url, path: &str, options: &Options, address: Option<Ip
         Err(_) => Err(ProbeError::new("Deployment HTTP probe timed out.")),
     }
 }
-
-trait Wire: AsyncRead + AsyncWrite + Unpin + Send {}
-impl<T: AsyncRead + AsyncWrite + Unpin + Send> Wire for T {}
-
 /// A TCP connection to the origin (to `address` when it overrides DNS), with TLS validated against the public host name for
 /// https.
 async fn dial(base: &Url, options: &Options, address: Option<Ipv4Addr>) -> Result<Box<dyn Wire>, ProbeError> {
@@ -238,7 +323,6 @@ async fn dial(base: &Url, options: &Options, address: Option<Ipv4Addr>) -> Resul
         .map_err(|error| transport_error(&error))?;
     Ok(Box::new(tls))
 }
-
 /// One `/ws` upgrade. With the origin of the deployment the relay must accept and close with 4005; with a foreign origin it
 /// must refuse the upgrade with 403.
 async fn check_websocket(
@@ -291,28 +375,6 @@ async fn check_websocket(
         Err(_) => Err(ProbeError::new("Deployment WebSocket probe timed out.")),
     }
 }
-
-/// `Number(value)` as JavaScript converts a parsed JSON value (an array through its `join(',')` string).
-fn to_number(value: &Value) -> f64 {
-    match value {
-        Value::Null => 0.0,
-        Value::Bool(flag) => f64::from(u8::from(*flag)),
-        Value::Number(number) => number.as_f64().unwrap_or(f64::NAN),
-        Value::String(text) => mixdog_js::string_to_number(text),
-        Value::Array(items) => match items.as_slice() {
-            [] | [Value::Null] => 0.0,
-            [Value::String(_) | Value::Number(_) | Value::Array(_)] => to_number(&items[0]),
-            _ => f64::NAN,
-        },
-        Value::Object(_) => f64::NAN,
-    }
-}
-
-/// `value > 0` as JavaScript evaluates it for what `/readyz` reports; an absent value is `undefined`, which is not.
-fn positive(value: Option<&Value>) -> bool {
-    value.is_some_and(|value| to_number(value) > 0.0)
-}
-
 /// Runs every check of a deployment: liveness (waiting out a refused connection for the startup window), readiness and
 /// release identity, then the two WebSocket gates.
 pub async fn verify_release(options: &Options) -> Result<Verified, ProbeError> {
@@ -373,21 +435,6 @@ pub async fn verify_release(options: &Options) -> Result<Verified, ProbeError> {
         releases: releases.map_or(0, Vec::len),
     })
 }
-
-/// `--name=value` arguments; a later flag of the same name wins. The first argument of another shape is returned as the error.
-fn parse_flags(args: &[String]) -> Result<HashMap<&str, &str>, &str> {
-    let mut flags = HashMap::new();
-    for arg in args {
-        match arg.strip_prefix("--").and_then(|rest| rest.split_once('=')) {
-            Some((name, value)) if !name.is_empty() => {
-                flags.insert(name, value);
-            }
-            _ => return Err(arg),
-        }
-    }
-    Ok(flags)
-}
-
 /// The subcommand: the arguments after `verify-release`.
 pub fn main(args: &[String]) -> ExitCode {
     let flags = match parse_flags(args) {
@@ -417,59 +464,5 @@ pub fn main(args: &[String]) -> ExitCode {
             eprintln!("[deploy] verification failed: {error}");
             ExitCode::from(1)
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    fn args(list: &[&str]) -> Vec<String> {
-        list.iter().map(|arg| (*arg).to_owned()).collect()
-    }
-
-    #[test]
-    fn flags_are_name_equals_value_and_the_last_of_a_name_wins() {
-        let list = args(&["--origin=https://a", "--address=", "--origin=https://b?x=1", "--other=ignored"]);
-        let flags = parse_flags(&list).unwrap();
-        assert_eq!(flags["origin"], "https://b?x=1");
-        assert_eq!(flags["address"], "");
-        assert_eq!(flags["other"], "ignored");
-    }
-
-    #[test]
-    fn an_argument_of_another_shape_is_named() {
-        for bad in ["origin=x", "--origin", "--=x", "-origin=x", ""] {
-            let list = args(&["--ok=1", bad]);
-            assert_eq!(parse_flags(&list).unwrap_err(), bad);
-        }
-    }
-
-    #[test]
-    fn the_hex_digest_is_64_lower_case_characters() {
-        assert!(is_hex64(&"0f".repeat(32)));
-        assert!(!is_hex64(&"0F".repeat(32)));
-        assert!(!is_hex64(&"0f".repeat(31)));
-        assert!(!is_hex64(&"0g".repeat(32)));
-    }
-
-    #[test]
-    fn assets_are_positive_as_javascript_compares_them_with_zero() {
-        for value in [json!(8), json!(0.5), json!("3"), json!(" 0x10 "), json!("Infinity"), json!(true), json!([2]), json!(["4"])] {
-            assert!(positive(Some(&value)), "{value}");
-        }
-        for value in [json!(0), json!(-1), json!(""), json!("3a"), json!(null), json!(false), json!([]), json!([1, 2]), json!([true]), json!({})] {
-            assert!(!positive(Some(&value)), "{value}");
-        }
-        assert!(!positive(None));
-    }
-
-    #[test]
-    fn the_result_line_is_the_json_of_the_result_object() {
-        let verified = Verified { index_sha256: "a".repeat(64), assets: json!("3"), releases: 0 };
-        let expected = format!(r#"{{"status":"verified","indexSha256":"{}","assets":"3","releases":0,"websocket":"gated"}}"#, "a".repeat(64));
-        assert_eq!(verified.to_line(), expected);
     }
 }

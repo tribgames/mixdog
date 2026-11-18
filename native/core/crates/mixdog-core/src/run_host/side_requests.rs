@@ -12,7 +12,7 @@ use mixdog_agent::compact::summary_run::{SummaryFailure, SummaryResponse, Summar
 use mixdog_agent::env::{Clock, SendTap, SendTicket};
 use mixdog_agent::fork::{forked_request, prompt_tokens, send_forked};
 use mixdog_agent::response::ModelResponse;
-use mixdog_agent::without_tail_reminder;
+use mixdog_agent::kept_messages;
 use mixdog_ai::service::model_proxy_inline::AttachmentReader;
 use mixdog_core_api::domain::ext::DocumentText;
 use mixdog_core_api::domain::provider::{ModelRequest, ProviderAdapter, Usage};
@@ -49,13 +49,17 @@ pub struct RunSide {
 
 impl SideRequests {
     pub fn tap(&self, run: RunSide) -> Arc<dyn SendTap> {
-        Arc::new(RunTap { side: self.clone(), run })
+        let RunSide { thread, provider_name, provider, agent_owner } = run;
+        Arc::new(RunTap { side: self.clone(), thread, agent_owner, route: Mutex::new((provider_name, provider)) })
     }
 }
 
 struct RunTap {
     side: SideRequests,
-    run: RunSide,
+    thread: ThreadId,
+    agent_owner: bool,
+    /// The provider name and adapter the run's sends go out on: the departing route's until a model fallback moves them.
+    route: Mutex<(String, Arc<dyn ProviderAdapter>)>,
 }
 
 /// `cacheStrategy.messages` of the request's model parameters.
@@ -65,32 +69,45 @@ fn messages_tier(request: &ModelRequest) -> Option<String> {
 
 impl SendTap for RunTap {
     fn begin(&self, request: &ModelRequest) -> Box<dyn SendTicket> {
-        // The store keeps the request without its tail reminder (Node captures the messages before
-        // `sendWithRecovery` adds it): a fork or a warm adds the reminder of its own moment, and the
-        // shared prefix counts the messages the reminder is not part of.
-        let request = &without_tail_reminder(request);
+        self.begin_shared(&Arc::new(request.clone()))
+    }
+
+    fn begin_shared(&self, shared: &Arc<ModelRequest>) -> Box<dyn SendTicket> {
+        // The store keeps the request the loop sent, shared with the loop (no copy), its tail reminder included: what it is
+        // used as is the request without the reminder (Node captures the messages before `sendWithRecovery` adds it), which
+        // a fork (`forked_request` starts from `kept_messages`), a warm and a request snapshot (`without_tail_reminder`)
+        // take when they read it, each adding the reminder of its own moment; the shared prefix counts the messages before it.
+        let shared = shared.clone();
+        let request = shared.as_ref();
         let side = &self.side;
         let reply = Arc::new(Mutex::new(None));
+        // The route this send goes out on, read once: a fallback between two sends moves the next one only.
+        let (provider_name, provider) = self.route.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let sender = Arc::new(RequestFork {
-            thread: self.run.thread.clone(),
-            provider: self.run.provider.clone(),
-            request: request.clone(),
+            thread: self.thread.clone(),
+            provider_name: provider_name.clone(),
+            provider: provider.clone(),
+            request: shared.clone(),
             reply: reply.clone(),
         });
         let saved = SavedRequest {
-            provider_name: self.run.provider_name.clone(),
+            provider_name: provider_name.clone(),
             model: request.model.clone(),
             messages_tier: messages_tier(request),
-            catalog_supports_prompt_caching: (side.caching)(&self.run.provider_name, &request.model),
+            catalog_supports_prompt_caching: (side.caching)(&provider_name, &request.model),
             sent_at: side.clock.now_ms().max(0) as u64,
             settled: false,
             compacted: false,
             prompt_tokens: 0,
-            shared_prefix_messages: request.messages.len(),
+            shared_prefix_messages: kept_messages(request).len(),
         };
-        let material = SideMaterial { request: request.clone(), provider: self.run.provider.clone() };
-        let capture = side.store.capture(&self.run.thread, saved, sender.clone(), material, self.run.agent_owner);
-        Box::new(Sent { side: side.clone(), run_thread: self.run.thread.clone(), provider_name: self.run.provider_name.clone(), capture, fork: sender, reply })
+        let material = SideMaterial { request: shared.clone(), provider };
+        let capture = side.store.capture(&self.thread, saved, sender.clone(), material, self.agent_owner);
+        Box::new(Sent { side: side.clone(), run_thread: self.thread.clone(), provider_name, capture, fork: sender, reply })
+    }
+
+    fn route_changed(&self, provider_name: &str, provider: &Arc<dyn ProviderAdapter>) {
+        *self.route.lock().unwrap_or_else(PoisonError::into_inner) = (provider_name.to_owned(), provider.clone());
     }
 }
 
@@ -130,37 +147,20 @@ impl SendTicket for Sent {
 /// transport scope.
 pub(crate) struct RequestFork {
     pub(crate) thread: ThreadId,
+    pub(super) provider_name: String,
     pub(crate) provider: Arc<dyn ProviderAdapter>,
-    pub(crate) request: ModelRequest,
+    pub(crate) request: Arc<ModelRequest>,
     /// The reply the saved request produced; `None` until its send settles.
     pub(crate) reply: Arc<Mutex<Option<ModelResponse>>>,
 }
 
 #[async_trait]
 impl ForkSender for RequestFork {
-    async fn send(&self, _route: &SummaryRoute) -> Result<SummaryResponse, SummaryFailure> {
-        self.send_fork().await
-    }
-}
-
-impl RequestFork {
-    /// The compaction's fork of the saved request, sent on its provider.
-    pub(crate) async fn send_fork(&self) -> Result<SummaryResponse, SummaryFailure> {
-        let reply = self.reply.lock().unwrap_or_else(PoisonError::into_inner).clone();
-        let mut fork = forked_request(&self.request, reply.as_ref(), &forked_compaction_prompt());
-        // The ledger source, and a transport scope of its own: no pooled socket or response chain of the
-        // main session is touched (`forkTransportScope(sessionId, 'compact')`).
-        fork.options.request_kind = Some("compaction".to_owned());
-        let scope = ForkScope::new(&self.thread, "compact", &self.provider);
-        scope.apply(&mut fork);
-        match send_forked(&self.provider, fork, &CancellationToken::new()).await {
-            Ok(Some(response)) => {
-                let reported = response.usage != Usage::default();
-                Ok(SummaryResponse { text: response.content, tool_call: !response.tool_calls.is_empty(), usage: reported.then_some(response.usage), input_excludes_cache: mixdog_ai::registry::accounted::adapter_input_excludes_cache(&*self.provider) })
-            }
-            Ok(None) => Err(SummaryFailure::Aborted),
-            Err(error) => Err(SummaryFailure::Failed(error.message)),
+    async fn send(&self, route: &SummaryRoute) -> Result<SummaryResponse, SummaryFailure> {
+        if self.provider_name != route.provider_name || self.request.model != route.model {
+            return Err(SummaryFailure::Failed("saved compaction request is on a different route".to_owned()));
         }
+        self.send_fork().await
     }
 }
 
@@ -262,6 +262,35 @@ mod tests {
         assert!(!response.tool_call);
     }
 
+    /// After a model fallback the run's next send is captured on the destination: its saved request names the destination's
+    /// provider, and its fork goes out through the destination's adapter, not the departing one.
+    #[tokio::test]
+    async fn a_send_after_a_route_change_is_captured_and_forked_on_the_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let side = side(dir.path()).await;
+        let left = Arc::new(MockProvider::new([]));
+        let destination = Arc::new(MockProvider::new([MockAttempt::Body(b"t:the summary\ndone\n".to_vec())]));
+        let tap = side.tap(run(left, false));
+        tap.begin(&request("one")).settle(&reply("ok"));
+        let adapter: Arc<dyn ProviderAdapter> = destination.clone();
+        tap.route_changed("mock-next", &adapter);
+        let thread = ThreadId::from("t");
+        tap.begin(&request("two")).settle(&reply("ok"));
+        assert_eq!(side.store.saved_request(&thread).unwrap().provider_name, "mock-next");
+        let route = SummaryRoute {
+            step: RouteStep::Session,
+            provider_name: "mock-next".into(),
+            model: "mock-model".into(),
+            context_window: 100_000,
+            calibration: 1.0,
+            fast: false,
+            effort: None,
+            sender: Arc::new(Quiet),
+        };
+        let response = side.store.fork_sender(&thread).send(&route).await.unwrap();
+        assert_eq!(response.text, "the summary", "only the destination adapter had a scripted reply");
+    }
+
     #[tokio::test]
     async fn a_discarded_send_puts_the_previous_request_back_and_an_agent_session_keeps_nothing() {
         let dir = tempfile::tempdir().unwrap();
@@ -278,5 +307,28 @@ mod tests {
         agent.begin(&request("three")).settle(&reply("ok"));
         let again = side.store.saved_request(&thread).unwrap();
         assert!(again.settled, "the agent session's send replaced nothing");
+    }
+}
+
+
+impl RequestFork {
+    /// The compaction's fork of the saved request, sent on its provider.
+    pub(crate) async fn send_fork(&self) -> Result<SummaryResponse, SummaryFailure> {
+        let reply = self.reply.lock().unwrap_or_else(PoisonError::into_inner).clone()
+            .ok_or_else(|| SummaryFailure::Failed("saved compaction request has no settled reply".to_owned()))?;
+        let mut fork = forked_request(&self.request, Some(&reply), &forked_compaction_prompt());
+        // The ledger source, and a transport scope of its own: no pooled socket or response chain of the
+        // main session is touched (`forkTransportScope(sessionId, 'compact')`).
+        fork.options.request_kind = Some("compaction".to_owned());
+        let scope = ForkScope::new(&self.thread, "compact", &self.provider);
+        scope.apply(&mut fork);
+        match send_forked(&self.provider, fork, &CancellationToken::new()).await {
+            Ok(Some(response)) => {
+                let reported = response.usage != Usage::default();
+                Ok(SummaryResponse { text: response.content, tool_call: !response.tool_calls.is_empty(), stop: response.stop.clone(), usage: reported.then_some(response.usage), input_excludes_cache: mixdog_ai::registry::accounted::adapter_input_excludes_cache(&*self.provider) })
+            }
+            Ok(None) => Err(SummaryFailure::Aborted),
+            Err(error) => Err(SummaryFailure::Failed(error.message)),
+        }
     }
 }

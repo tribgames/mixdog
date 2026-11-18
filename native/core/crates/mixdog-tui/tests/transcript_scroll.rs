@@ -5,50 +5,59 @@
 //! port of `use-transcript-scroll.test.mjs` and `use-transcript-activity.test.mjs` (the selection tests of the first belong to
 //! the mouse module).
 
+#[cfg(node_twin)]
 use mixdog_tui::transcript::scroll::activity::{ActiveTool, ActiveTools, active_tools, active_tools_signature, agent_revision, statusline_stats};
-use mixdog_tui::transcript::scroll::anchor::{
-    Anchor, Current, Geometry, bottom_snap_rows, reading_anchor_at, resolve_anchor_scroll_offset, swap_returns_to_tail,
-};
-use mixdog_tui::transcript::scroll::coalesce::{DirectionalDelta, ScrollCoalescer, accumulate_directional_scroll_delta};
-use mixdog_tui::transcript::scroll::engine::{ScrollHost, TranscriptScroll, Viewport};
+use mixdog_tui::transcript::scroll::anchor::{Anchor, Geometry, reading_anchor_at};
+#[cfg(node_twin)]
+use mixdog_tui::transcript::scroll::anchor::{Current, bottom_snap_rows, resolve_anchor_scroll_offset, swap_returns_to_tail};
+use mixdog_tui::transcript::scroll::coalesce::ScrollCoalescer;
+#[cfg(node_twin)]
+use mixdog_tui::transcript::scroll::coalesce::{DirectionalDelta, accumulate_directional_scroll_delta};
+use mixdog_tui::transcript::scroll::engine::{ScrollHost, TranscriptScroll};
+#[cfg(node_twin)]
+use mixdog_tui::transcript::scroll::engine::Viewport;
 use mixdog_tui::transcript::scroll::lock::{CommitFrame, RowIndex};
 use mixdog_tui::transcript::scroll::tuning::{ScrollTuning, WheelAccel};
-use serde_json::{Value, json};
+use serde_json::json;
+#[cfg(node_twin)]
+use serde_json::Value;
 
-const GOLDEN: &str = include_str!("goldens/scroll.json");
-
-fn golden() -> Value {
-    serde_json::from_str(GOLDEN).expect("the golden parses")
-}
-
+#[cfg(node_twin)]
 fn list<'a>(value: &'a Value, key: &str) -> &'a [Value] {
     value[key].as_array().unwrap_or_else(|| panic!("{key} is a list"))
 }
 
+#[cfg(node_twin)]
 fn number(value: &Value, key: &str) -> f64 {
     value[key].as_f64().unwrap_or_else(|| panic!("{key} is a number"))
 }
 
+#[cfg(node_twin)]
 fn count(value: &Value, key: &str) -> usize {
     value[key].as_u64().unwrap_or_else(|| panic!("{key} is a count")) as usize
 }
 
+#[cfg(node_twin)]
 fn flag(value: &Value, key: &str) -> bool {
     value[key].as_bool().unwrap_or(false)
 }
 
+#[cfg(node_twin)]
 fn prefix(value: &Value, key: &str) -> Option<Vec<usize>> {
     value[key].as_array().map(|rows| rows.iter().map(|row| row.as_u64().expect("a row") as usize).collect())
 }
 
+#[cfg(node_twin)]
 fn ids(value: &Value, key: &str) -> Vec<Value> {
     list(value, key).to_vec()
 }
 
+#[cfg(node_twin)]
 fn anchor(value: &Value) -> Option<Anchor> {
     value.is_object().then(|| Anchor { id: value["id"].clone(), offset: number(value, "offset") })
 }
 
+#[cfg(node_twin)]
 fn same_anchor(actual: &Option<Anchor>, expected: &Value, context: &str) {
     assert_eq!(*actual, anchor(expected), "{context}");
 }
@@ -104,40 +113,9 @@ fn transcript(heights: &[usize], view: usize) -> TranscriptScroll {
     TranscriptScroll { max_scroll_rows: geom.total_rows.saturating_sub(view), following: true, geom, ..TranscriptScroll::default() }
 }
 
+#[cfg(node_twin)]
 fn lookup(env: &Value) -> impl Fn(&str) -> Option<String> + '_ {
     move |name| env.get(name).and_then(Value::as_str).map(str::to_owned)
-}
-
-#[test]
-fn tuning_reads_each_variable_like_node() {
-    for case in list(&golden(), "tuning") {
-        let tuning = ScrollTuning::from_lookup(lookup(&case["env"]));
-        let expected = &case["values"];
-        let context = format!("env {}", case["env"]);
-        assert_eq!(tuning.coalesce_ms as f64, number(expected, "coalesceMs"), "{context}");
-        assert_eq!(tuning.step_rows as f64, number(expected, "stepRows"), "{context}");
-        assert_eq!(tuning.accel_enabled, flag(expected, "accelEnabled"), "{context}");
-        assert_eq!(tuning.step_max_rows as f64, number(expected, "stepMaxRows"), "{context}");
-        assert_eq!(tuning.accel_idle_ms as f64, number(expected, "accelIdleMs"), "{context}");
-    }
-}
-
-#[test]
-fn wheel_acceleration_matches_the_wheel_router() {
-    for case in list(&golden(), "wheel") {
-        let tuning = ScrollTuning::from_lookup(lookup(&case["env"]));
-        for (burst, expected) in list(case, "bursts").iter().zip(list(case, "rows")) {
-            let mut accel = WheelAccel::new(&tuning);
-            let rows: Vec<i64> = burst
-                .as_array()
-                .expect("a burst")
-                .iter()
-                .map(|notch| accel.notch(notch[0].as_i64().expect("direction") as i32, notch[1].as_u64().expect("time"), &tuning))
-                .collect();
-            let expected: Vec<i64> = expected.as_array().expect("rows").iter().map(|row| row.as_i64().expect("a row")).collect();
-            assert_eq!(rows, expected, "env {} burst {burst}", case["env"]);
-        }
-    }
 }
 
 #[test]
@@ -147,49 +125,7 @@ fn defaults_are_the_documented_ones() {
     assert!(tuning.accel_enabled);
 }
 
-#[test]
-fn reading_anchor_and_resolution_match_node() {
-    let golden = golden();
-    for case in list(&golden, "anchors") {
-        let prefix_rows = prefix(case, "prefixRows");
-        let actual = reading_anchor_at(prefix_rows.as_deref(), &ids(case, "ids"), count(case, "totalRows"), count(case, "viewRows"), number(case, "target"));
-        same_anchor(&actual, &case["expected"], &format!("{case}"));
-    }
-    for case in list(&golden, "resolve") {
-        let prefix_rows = prefix(case, "prefixRows");
-        let list_ids = ids(case, "ids");
-        let current = Current {
-            ids: &list_ids,
-            prefix_rows: prefix_rows.as_deref(),
-            total_rows: count(case, "totalRows"),
-            view_rows: count(case, "viewRows"),
-            max_rows: count(case, "maxRows"),
-        };
-        let actual = resolve_anchor_scroll_offset(&Anchor { id: case["anchor"]["id"].clone(), offset: number(&case["anchor"], "offset") }, &current);
-        assert_eq!(actual, case["expected"].as_f64(), "{case}");
-    }
-    for case in list(&golden, "snap") {
-        assert_eq!(bottom_snap_rows(count(case, "viewRows")), count(case, "expected"));
-    }
-    for case in list(&golden, "swapReturns") {
-        let actual = swap_returns_to_tail(count(case, "count"), count(case, "previousCount"), &case["firstId"], &case["previousFirstId"]);
-        assert_eq!(actual, flag(case, "expected"), "{case}");
-    }
-}
-
-#[test]
-fn directional_accumulation_matches_node() {
-    for case in list(&golden(), "coalesce") {
-        let mut state = DirectionalDelta::default();
-        for (delta, expected) in list(case, "deltas").iter().zip(list(case, "steps")) {
-            let reversed = accumulate_directional_scroll_delta(&mut state, delta.as_f64().expect("a delta"));
-            assert_eq!(reversed, flag(expected, "reversed"), "{case}");
-            assert_eq!(state.pending_rows, number(expected, "pendingRows"), "{case}");
-            assert_eq!(i64::from(state.direction), expected["direction"].as_i64().expect("direction"), "{case}");
-        }
-    }
-}
-
+#[cfg(node_twin)]
 fn scroll_from(spec: &Value) -> TranscriptScroll {
     let refs = &spec["refs"];
     let geom = if refs["geom"].is_object() {
@@ -220,6 +156,7 @@ fn scroll_from(spec: &Value) -> TranscriptScroll {
     }
 }
 
+#[cfg(node_twin)]
 fn same_state(scroll: &TranscriptScroll, expected: &Value, context: &str) {
     assert_eq!(scroll.target, number(expected, "target"), "target: {context}");
     assert_eq!(scroll.position, number(expected, "position"), "position: {context}");
@@ -229,124 +166,7 @@ fn same_state(scroll: &TranscriptScroll, expected: &Value, context: &str) {
     assert_eq!(scroll.scroll_offset as f64, number(expected, "offset"), "offset: {context}");
 }
 
-#[test]
-fn render_time_anchor_lock_matches_node() {
-    for case in list(&golden(), "render") {
-        let mut scroll = scroll_from(case);
-        let list_ids = ids(case, "ids");
-        let prefix_rows = prefix(&case["rowIndex"], "prefixRows");
-        let row_index = RowIndex { total_rows: count(&case["rowIndex"], "totalRows"), prefix_rows: prefix_rows.as_deref() };
-        let offset = scroll.resolve_render_scroll_offset(&list_ids, row_index, count(case, "viewRows"), count(case, "floatingPanelRows"));
-        let expected = &case["expected"];
-        assert_eq!(offset, number(expected, "offset"), "render offset: {case}");
-        // The published offset is not touched by the render.
-        assert_eq!(scroll.scroll_offset as f64, number(case, "scrollOffset"), "{case}");
-        assert_eq!(scroll.target, number(expected, "target"), "{case}");
-        assert_eq!(scroll.following, flag(expected, "following"), "{case}");
-        same_anchor(&scroll.anchor, &expected["anchor"], &format!("{case}"));
-        assert_eq!(scroll.anchor_dirty, flag(expected, "dirty"), "{case}");
-        let viewport = scroll.viewport.expect("the render records its viewport");
-        assert_eq!(
-            (viewport.content_height as f64, viewport.floating_panel_rows as f64),
-            (number(&expected["prevViewport"], "contentHeight"), number(&expected["prevViewport"], "floatingPanelRows")),
-            "{case}"
-        );
-    }
-}
-
-#[test]
-fn post_commit_reconciliation_matches_node() {
-    for case in list(&golden(), "commit") {
-        let mut scroll = scroll_from(case);
-        let frame = &case["frame"];
-        let list_ids = ids(frame, "ids");
-        let prefix_rows = prefix(frame, "prefixRows");
-        match case["kind"].as_str().expect("a kind") {
-            "commit" => scroll.sync_reading_anchor_after_commit(&CommitFrame {
-                drag_active: flag(frame, "dragActive"),
-                total_rows: count(frame, "totalRows"),
-                previous_total_rows: count(frame, "previousTotalRows"),
-                prefix_rows: prefix_rows.as_deref(),
-                ids: &list_ids,
-                view_rows: count(frame, "viewRows"),
-                max_rows: count(frame, "maxRows"),
-            }),
-            "unanchored" => scroll.reset_scroll_when_unanchored(),
-            "clamp" => scroll.clamp_scroll_to_overflow(count(frame, "maxRows")),
-            other => panic!("unknown kind {other}"),
-        }
-        same_state(&scroll, &case["expected"], &format!("{case}"));
-    }
-}
-
-#[test]
-fn scripted_scrolls_match_node() {
-    let tuning = ScrollTuning::default();
-    for case in list(&golden(), "engine") {
-        let heights: Vec<usize> = list(case, "heights").iter().map(|height| height.as_u64().expect("a height") as usize).collect();
-        let mut scroll = transcript(&heights, count(case, "view"));
-        assert_eq!(scroll.max_scroll_rows, count(case, "maxRows"));
-        let mut host = host();
-        let mut coalescer = ScrollCoalescer::default();
-        let mut now = 0_u64;
-        for (index, (step, expected)) in list(case, "steps").iter().zip(list(case, "expected")).enumerate() {
-            let context = format!("{} step {index} {step}", case["name"]);
-            match step["op"].as_str().expect("an op") {
-                "scroll" => scroll.scroll_rows(&mut host, number(step, "rows"), flag(step, "smooth")),
-                "queue" => {
-                    if let Some(rows) = coalescer.queue(number(step, "rows"), now, tuning.coalesce_ms) {
-                        scroll.scroll_rows(&mut host, rows, false);
-                    }
-                }
-                "settle" => {
-                    now += step["ms"].as_u64().expect("milliseconds");
-                    if let Some(rows) = coalescer.tick(now) {
-                        scroll.scroll_rows(&mut host, rows, false);
-                    }
-                    let mut ticks = 0;
-                    while scroll.glide_tick() {
-                        ticks += 1;
-                        assert!(ticks < 1000, "the glide lands: {context}");
-                    }
-                }
-                "reset" => scroll.reset_transcript_scroll(),
-                "arm" => scroll.arm_transcript_follow(),
-                "max" => {
-                    scroll.max_scroll_rows = count(step, "rows");
-                    scroll.replay_pending_readback(&mut host);
-                }
-                "history" => {
-                    host.before = flag(step, "before");
-                    host.after = flag(step, "after");
-                    host.restores = step.get("restores").and_then(Value::as_bool).unwrap_or(true);
-                }
-                "target" => scroll.target = number(step, "value"),
-                other => panic!("unknown step {other}"),
-            }
-            same_state(&scroll, expected, &context);
-            assert_eq!((host.older, host.newer), (count(expected, "olderRestores"), count(expected, "newerRestores")), "{context}");
-        }
-    }
-}
-
-#[test]
-fn swap_reset_matches_node() {
-    for case in list(&golden(), "swap") {
-        let mut scroll = TranscriptScroll::default();
-        let mut resets: Vec<usize> = Vec::new();
-        for (step, (items, expected)) in list(case, "lists").iter().zip(list(case, "expected")).enumerate() {
-            scroll.target = 5.0;
-            scroll.following = false;
-            scroll.swap_reset(items.as_array().expect("items"));
-            if scroll.target == 0.0 && scroll.following {
-                resets.push(step);
-            }
-            let expected: Vec<usize> = expected["resets"].as_array().expect("resets").iter().map(|at| at.as_u64().expect("a step") as usize).collect();
-            assert_eq!(resets, expected, "{case} step {step}");
-        }
-    }
-}
-
+#[cfg(node_twin)]
 fn active(tools: Option<ActiveTools>) -> Value {
     let segment = |tool: Option<ActiveTool>| tool.map(|tool| json!({ "count": tool.count, "startedAt": tool.started_at }));
     tools.map_or(Value::Null, |tools| {
@@ -361,6 +181,7 @@ fn active(tools: Option<ActiveTools>) -> Value {
 }
 
 /// The numbers of a value, so `2` and `2.0` compare equal.
+#[cfg(node_twin)]
 fn numbers_equal(left: &Value, right: &Value) -> bool {
     match (left, right) {
         (Value::Number(left), Value::Number(right)) => left.as_f64() == right.as_f64(),
@@ -368,18 +189,6 @@ fn numbers_equal(left: &Value, right: &Value) -> bool {
             left.len() == right.len() && left.iter().all(|(key, value)| right.get(key).is_some_and(|other| numbers_equal(value, other)))
         }
         _ => left == right,
-    }
-}
-
-#[test]
-fn activity_signatures_match_node() {
-    for case in list(&golden(), "activity") {
-        let state = &case["state"];
-        let expected = &case["expected"];
-        assert_eq!(agent_revision(state), expected["agentRevision"].as_str().expect("a revision"), "{state}");
-        let tools = active(active_tools(&active_tools_signature(state)));
-        assert!(numbers_equal(&tools, &expected["activeTools"]), "{state}: {tools} against {}", expected["activeTools"]);
-        assert!(numbers_equal(&statusline_stats(state), &expected["statuslineStats"]), "{state}");
     }
 }
 
@@ -579,3 +388,42 @@ fn tuning_parses_javascript_number_spellings() {
     assert!(!tuning("MIXDOG_TUI_SCROLL_ACCELERATION", " Off ").accel_enabled);
     assert!(tuning("MIXDOG_TUI_SCROLL_ACCELERATION", "maybe").accel_enabled);
 }
+
+#[test]
+fn the_maximum_step_defaults_to_three_notches_and_never_falls_below_one() {
+    let with = |pairs: &'static [(&'static str, &'static str)]| {
+        ScrollTuning::from_lookup(move |key| pairs.iter().find(|(name, _)| *name == key).map(|(_, value)| (*value).to_owned()))
+    };
+    let defaults = with(&[]);
+    assert_eq!((defaults.coalesce_ms, defaults.step_rows, defaults.step_max_rows, defaults.accel_idle_ms), (16, 3, 9, 150));
+    assert!(defaults.accel_enabled);
+    assert_eq!(with(&[("MIXDOG_TUI_SCROLL_SPEED", "5")]).step_max_rows, 15, "three notches of the chosen speed");
+    assert_eq!(with(&[("MIXDOG_TUI_SCROLL_SPEED", "5"), ("MIXDOG_TUI_SCROLL_SPEED_MAX", "4")]).step_max_rows, 5, "never below the base step");
+    assert_eq!(with(&[("MIXDOG_TUI_SCROLL_SPEED_MAX", "20")]).step_max_rows, 20);
+    assert_eq!(with(&[("MIXDOG_TUI_SCROLL_ACCEL_IDLE_MS", "0")]).accel_idle_ms, 150, "a value under one is not a setting");
+}
+
+#[test]
+fn consecutive_notches_in_one_direction_speed_up_to_the_maximum_and_a_pause_or_turn_resets_them() {
+    let tuning = ScrollTuning::default();
+    let mut wheel = WheelAccel::new(&tuning);
+    assert_eq!(wheel.notch(1, 1_000, &tuning), 3, "the first notch is the base step");
+    assert_eq!(wheel.notch(1, 1_050, &tuning), 6);
+    assert_eq!(wheel.notch(1, 1_100, &tuning), 9);
+    assert_eq!(wheel.notch(1, 1_150, &tuning), 9, "the step stops at the maximum");
+    assert_eq!(wheel.notch(1, 1_301, &tuning), 3, "a gap over the idle time starts again");
+    assert_eq!(wheel.notch(1, 1_350, &tuning), 6);
+    assert_eq!(wheel.notch(-1, 1_360, &tuning), -3, "the other direction starts again, with its own sign");
+}
+
+#[test]
+fn with_acceleration_off_every_notch_is_the_base_step() {
+    let tuning = ScrollTuning::from_lookup(|key| (key == "MIXDOG_TUI_SCROLL_ACCELERATION").then(|| "off".to_owned()));
+    let mut wheel = WheelAccel::new(&tuning);
+    let steps: Vec<i64> = (0..4).map(|n| wheel.notch(-1, 1_000 + n * 10, &tuning)).collect();
+    assert_eq!(steps, [-3, -3, -3, -3]);
+}
+
+#[cfg(node_twin)]
+#[path = "node-twin/transcript_scroll.rs"]
+mod node_twin;

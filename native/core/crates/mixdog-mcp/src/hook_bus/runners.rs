@@ -125,6 +125,122 @@ pub struct CommandContext<'a> {
     pub event: &'a str,
 }
 
+// ---- http ------------------------------------------------------------------------------
+
+/// Hosts that name the local machine or a private network.
+fn private_hostname(host: &str) -> bool {
+    let lowered = js_trim(host).to_lowercase();
+    let h = lowered.strip_prefix('[').unwrap_or(&lowered);
+    let h = h.strip_suffix(']').unwrap_or(h);
+    let h = h.strip_suffix('.').unwrap_or(h);
+    let h = h.strip_prefix("::ffff:").unwrap_or(h);
+    if h.is_empty() || h == "localhost" || h.ends_with(".localhost") || h.ends_with(".local") {
+        return true;
+    }
+    if h == "::1" || h == "::" || h.starts_with("fe80:") {
+        return true;
+    }
+    if h.contains(':') && (h.starts_with("fc") || h.starts_with("fd")) {
+        return true;
+    }
+    let dotted = JsRegex::new_static(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$", "");
+    dotted.captures(h).is_some_and(|m| {
+        let octet = |group: usize| m.get(group).and_then(|g| g.parse::<u32>().ok()).unwrap_or_default();
+        private_v4_prefix(octet(1), octet(2))
+    })
+}
+
+/// The first two octets of a private, loopback, link-local or carrier-grade-NAT IPv4 address.
+fn private_v4_prefix(a: u32, b: u32) -> bool {
+    a == 10 || a == 127 || a == 0 || (a == 169 && b == 254) || (a == 172 && (16..=31).contains(&b)) || (a == 192 && b == 168) || (a == 100 && (64..=127).contains(&b))
+}
+
+fn private_v4(ip: Ipv4Addr) -> bool {
+    let [a, b, ..] = ip.octets();
+    private_v4_prefix(u32::from(a), u32::from(b))
+}
+
+/// An address a hook may not reach unless the handler opts in: loopback, private, link-local,
+/// carrier-grade NAT, unique-local, multicast, unspecified.
+pub fn non_public(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => private_v4(v4) || v4.is_multicast() || v4.is_broadcast() || v4.is_link_local(),
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => non_public(IpAddr::V4(v4)),
+            None => v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() || is_unique_local(v6) || is_link_local_v6(v6),
+        },
+    }
+}
+
+fn is_unique_local(ip: Ipv6Addr) -> bool {
+    ip.segments()[0] & 0xfe00 == 0xfc00
+}
+
+fn is_link_local_v6(ip: Ipv6Addr) -> bool {
+    ip.segments()[0] & 0xffc0 == 0xfe80
+}
+
+struct Checked {
+    url: Url,
+    allow_private: bool,
+}
+
+fn validate_url(handler: &Value) -> Result<Checked, String> {
+    let text = handler.get("url").map(value_to_string).unwrap_or_default();
+    let url = Url::parse(&text).map_err(|_| format!("invalid hook URL: {text}"))?;
+    if url.scheme() != "http" && url.scheme() != "https" {
+        return Err(format!("blocked non-http(s) hook URL scheme: {}:", url.scheme()));
+    }
+    let allowed: Vec<String> = handler
+        .get("allowedHosts")
+        .and_then(Value::as_array)
+        .map(|hosts| hosts.iter().map(|h| js_trim(h.as_str().unwrap_or_default()).to_lowercase()).filter(|h| !h.is_empty()).collect())
+        .unwrap_or_default();
+    let host = url.host_str().unwrap_or_default().to_lowercase();
+    let allow_private = allowed.contains(&host) || handler.get("allowPrivateHosts") == Some(&Value::Bool(true));
+    if !allow_private && private_hostname(&host) {
+        return Err(format!(
+            "blocked hook URL to private/loopback host: {host} (set allowPrivateHosts or allowedHosts to opt in)"
+        ));
+    }
+    Ok(Checked { url, allow_private })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn private_and_local_hosts_are_recognised() {
+        for host in ["localhost", "foo.localhost", "printer.local", "127.0.0.1", "10.1.2.3", "172.20.0.1", "192.168.1.1", "169.254.1.1", "100.64.0.1", "[::1]", "fd12::1", "::ffff:127.0.0.1", ""] {
+            assert!(private_hostname(host), "{host}");
+        }
+        for host in ["example.com", "8.8.8.8", "172.32.0.1"] {
+            assert!(!private_hostname(host), "{host}");
+        }
+        assert!(non_public("::ffff:10.0.0.1".parse().unwrap()));
+        assert!(!non_public("93.184.216.34".parse().unwrap()));
+    }
+
+    #[test]
+    fn urls_are_validated_before_anything_is_sent() {
+        assert!(validate_url(&serde_json::json!({"url": "ftp://x/y"})).is_err());
+        assert!(validate_url(&serde_json::json!({"url": "http://localhost/h"})).is_err());
+        assert!(validate_url(&serde_json::json!({"url": "http://localhost/h", "allowPrivateHosts": true})).is_ok());
+        assert!(validate_url(&serde_json::json!({"url": "http://hooks.test/h", "allowedHosts": ["hooks.test"]})).is_ok());
+    }
+
+
+    #[test]
+    fn headers_expand_only_allowed_environment_variables() {
+        let path = std::env::var("PATH").unwrap_or_default();
+        let allowed = vec!["PATH".to_owned()];
+        assert_eq!(resolve_header(&serde_json::json!("Bearer ${PATH}"), &allowed), format!("Bearer {path}"));
+        assert_eq!(resolve_header(&serde_json::json!("Bearer $PATH"), &[]), "Bearer ");
+    }
+}
+
+
 impl CommandRunner {
     pub fn new(processes: Arc<dyn ProcessManager>) -> Self {
         Self { processes, next: AtomicU64::new(0), prefix: format!("hook-{}", std::process::id()) }
@@ -229,88 +345,6 @@ impl CommandRunner {
         }
     }
 }
-
-// ---- http ------------------------------------------------------------------------------
-
-/// Hosts that name the local machine or a private network.
-fn private_hostname(host: &str) -> bool {
-    let lowered = js_trim(host).to_lowercase();
-    let h = lowered.strip_prefix('[').unwrap_or(&lowered);
-    let h = h.strip_suffix(']').unwrap_or(h);
-    let h = h.strip_suffix('.').unwrap_or(h);
-    let h = h.strip_prefix("::ffff:").unwrap_or(h);
-    if h.is_empty() || h == "localhost" || h.ends_with(".localhost") || h.ends_with(".local") {
-        return true;
-    }
-    if h == "::1" || h == "::" || h.starts_with("fe80:") {
-        return true;
-    }
-    if h.contains(':') && (h.starts_with("fc") || h.starts_with("fd")) {
-        return true;
-    }
-    let dotted = JsRegex::new_static(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$", "");
-    dotted.captures(h).is_some_and(|m| {
-        let octet = |group: usize| m.get(group).and_then(|g| g.parse::<u32>().ok()).unwrap_or_default();
-        private_v4_prefix(octet(1), octet(2))
-    })
-}
-
-/// The first two octets of a private, loopback, link-local or carrier-grade-NAT IPv4 address.
-fn private_v4_prefix(a: u32, b: u32) -> bool {
-    a == 10 || a == 127 || a == 0 || (a == 169 && b == 254) || (a == 172 && (16..=31).contains(&b)) || (a == 192 && b == 168) || (a == 100 && (64..=127).contains(&b))
-}
-
-fn private_v4(ip: Ipv4Addr) -> bool {
-    let [a, b, ..] = ip.octets();
-    private_v4_prefix(u32::from(a), u32::from(b))
-}
-
-/// An address a hook may not reach unless the handler opts in: loopback, private, link-local,
-/// carrier-grade NAT, unique-local, multicast, unspecified.
-pub fn non_public(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => private_v4(v4) || v4.is_multicast() || v4.is_broadcast() || v4.is_link_local(),
-        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
-            Some(v4) => non_public(IpAddr::V4(v4)),
-            None => v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() || is_unique_local(v6) || is_link_local_v6(v6),
-        },
-    }
-}
-
-fn is_unique_local(ip: Ipv6Addr) -> bool {
-    ip.segments()[0] & 0xfe00 == 0xfc00
-}
-
-fn is_link_local_v6(ip: Ipv6Addr) -> bool {
-    ip.segments()[0] & 0xffc0 == 0xfe80
-}
-
-struct Checked {
-    url: Url,
-    allow_private: bool,
-}
-
-fn validate_url(handler: &Value) -> Result<Checked, String> {
-    let text = handler.get("url").map(value_to_string).unwrap_or_default();
-    let url = Url::parse(&text).map_err(|_| format!("invalid hook URL: {text}"))?;
-    if url.scheme() != "http" && url.scheme() != "https" {
-        return Err(format!("blocked non-http(s) hook URL scheme: {}:", url.scheme()));
-    }
-    let allowed: Vec<String> = handler
-        .get("allowedHosts")
-        .and_then(Value::as_array)
-        .map(|hosts| hosts.iter().map(|h| js_trim(h.as_str().unwrap_or_default()).to_lowercase()).filter(|h| !h.is_empty()).collect())
-        .unwrap_or_default();
-    let host = url.host_str().unwrap_or_default().to_lowercase();
-    let allow_private = allowed.contains(&host) || handler.get("allowPrivateHosts") == Some(&Value::Bool(true));
-    if !allow_private && private_hostname(&host) {
-        return Err(format!(
-            "blocked hook URL to private/loopback host: {host} (set allowPrivateHosts or allowedHosts to opt in)"
-        ));
-    }
-    Ok(Checked { url, allow_private })
-}
-
 fn resolve_header(value: &Value, allowed: &[String]) -> String {
     let Some(text) = value.as_str() else { return if value.is_null() { String::new() } else { mixdog_js::value_to_string(value) } };
     let pattern = regex::Regex::new(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))").expect("static pattern");
@@ -321,7 +355,6 @@ fn resolve_header(value: &Value, allowed: &[String]) -> String {
         })
         .into_owned()
 }
-
 /// POSTs the payload to an HTTP hook. Redirects are refused; a host that resolves to a
 /// non-public address is refused (and the connection is pinned to the address that was
 /// checked) unless the handler opts in.
@@ -387,37 +420,4 @@ pub async fn run_http(handler: &HookHandler, payload: &Value, event: &str) -> Ha
         return HandlerRun { exit_code: 1, stdout: text, stderr: js_trim(&format!("HTTP {} {reason}", status.as_u16())).to_owned(), ..HandlerRun::default() };
     }
     HandlerRun { exit_code: 0, stdout: text, ..HandlerRun::default() }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn private_and_local_hosts_are_recognised() {
-        for host in ["localhost", "foo.localhost", "printer.local", "127.0.0.1", "10.1.2.3", "172.20.0.1", "192.168.1.1", "169.254.1.1", "100.64.0.1", "[::1]", "fd12::1", "::ffff:127.0.0.1", ""] {
-            assert!(private_hostname(host), "{host}");
-        }
-        for host in ["example.com", "8.8.8.8", "172.32.0.1"] {
-            assert!(!private_hostname(host), "{host}");
-        }
-        assert!(non_public("::ffff:10.0.0.1".parse().unwrap()));
-        assert!(!non_public("93.184.216.34".parse().unwrap()));
-    }
-
-    #[test]
-    fn urls_are_validated_before_anything_is_sent() {
-        assert!(validate_url(&serde_json::json!({"url": "ftp://x/y"})).is_err());
-        assert!(validate_url(&serde_json::json!({"url": "http://localhost/h"})).is_err());
-        assert!(validate_url(&serde_json::json!({"url": "http://localhost/h", "allowPrivateHosts": true})).is_ok());
-        assert!(validate_url(&serde_json::json!({"url": "http://hooks.test/h", "allowedHosts": ["hooks.test"]})).is_ok());
-    }
-
-    #[test]
-    fn headers_expand_only_allowed_environment_variables() {
-        let path = std::env::var("PATH").unwrap_or_default();
-        let allowed = vec!["PATH".to_owned()];
-        assert_eq!(resolve_header(&serde_json::json!("Bearer ${PATH}"), &allowed), format!("Bearer {path}"));
-        assert_eq!(resolve_header(&serde_json::json!("Bearer $PATH"), &[]), "Bearer ");
-    }
 }

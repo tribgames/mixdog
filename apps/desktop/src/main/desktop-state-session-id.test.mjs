@@ -49,13 +49,13 @@ test('catalog and stored-id filters keep pattern-only ids longer than 256', () =
   const summaries = desktopSessionSummaries([
     {
       id: stored,
-      cwd: 'C:\\Project\\mixdog',
+      cwd: 'C:\\Project\\sample',
       title: 'Stored long id',
       desktopSession: { classification: 'task', projectPath: null },
     },
     {
       id: 'bad id',
-      cwd: 'C:\\Project\\mixdog',
+      cwd: 'C:\\Project\\sample',
       title: 'Rejected',
       desktopSession: { classification: 'task', projectPath: null },
     },

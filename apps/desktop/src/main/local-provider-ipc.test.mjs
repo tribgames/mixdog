@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { requiredDesktopCapabilityRequest } from './ipc-validation.ts';
+import { requiredDesktopCapabilityRequest } from './ipc-capability-request.ts';
 
 test('local operation capabilities validate targets and idle limits before dispatch', () => {
   for (const request of [

@@ -6,13 +6,13 @@ export type ReplayTrackedView = {
   id: string | null;
   /** The replay write still in flight (trackReplay). */
   replayPending: Promise<void> | null;
-  writer: { writeReplay(replay: string): Promise<void> };
+  writer: { writeReplay(replay: string, before?: () => void): Promise<void> };
 };
 
 /** Writes a scrollback replay into the view, marking it incomplete
  *  (`replayPending`) until the write settles. */
-export function trackReplay(view: ReplayTrackedView, replay: string): Promise<void> {
-  const write = view.writer.writeReplay(replay).finally(() => {
+export function trackReplay(view: ReplayTrackedView, replay: string, before?: () => void): Promise<void> {
+  const write = view.writer.writeReplay(replay, before).finally(() => {
     if (view.replayPending === write) view.replayPending = null;
   });
   view.replayPending = write;

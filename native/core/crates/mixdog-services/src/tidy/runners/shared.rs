@@ -99,6 +99,11 @@ pub struct RunnerResult {
     pub truncated: bool,
     pub counts: Option<Value>,
     pub note: Option<String>,
+    /// Files the engine actually processed; `None` means every requested file when it ran cleanly
+    /// and none when it failed.
+    pub files_checked: Option<usize>,
+    /// Requested files the engine did not process because its own configuration ignores them.
+    pub ignored: Vec<String>,
 }
 
 impl RunnerResult {
@@ -290,8 +295,17 @@ pub fn spawn_failure_result(id: &str, error: &str, timed_out: bool, code: i32, s
     RunnerResult {
         diagnostics: vec![diagnostic(DiagnosticInit { code: &format!("{id}/spawn"), message: &message, ..Default::default() })],
         stderr_tail: tail600(stderr),
+        error: Some(message),
         ..Default::default()
     }
+}
+
+/// The engine ran but did not complete (bad config, unreadable or unparsable input): the reason is
+/// the run's error, and nothing it was given counts as checked.
+pub fn engine_failure(id: &str, code: i32, stderr: &str) -> RunnerResult {
+    let detail = tail600(stderr);
+    let error = if detail.is_empty() { format!("{id} exited {code} without completing") } else { format!("{id} exited {code} without completing: {detail}") };
+    RunnerResult { error: Some(error), stderr_tail: detail, ..Default::default() }
 }
 
 pub fn spawn_failure(id: &str, r: &Chunked) -> RunnerResult {
@@ -423,6 +437,7 @@ mod tests {
             self.1.clone()
         }
     }
+
 
     #[tokio::test]
     async fn list_formatters_chunk_the_files_and_report_listed_ones_as_fixable() {

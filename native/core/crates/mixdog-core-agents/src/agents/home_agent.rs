@@ -10,7 +10,7 @@ use super::files::{Folders, Lane};
 use super::{AgentDefinitions, AgentsError, is_contact};
 
 #[cfg(test)]
-mod tests;
+mod kind_tests;
 
 /// What the definition says about the agent's home chat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

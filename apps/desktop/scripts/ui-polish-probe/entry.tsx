@@ -19,13 +19,13 @@ const sessions = Array.from({ length: 12 }, (_, index) => ({
   updatedAt: now - index * 60_000,
   activityAt: now - index * 60_000,
   messageCount: 2,
-  cwd: 'C:\\Project\\mixdog',
+  cwd: 'C:\\Project\\sample',
   classification: 'task' as const,
-  projectPath: 'C:\\Project\\mixdog',
+  projectPath: 'C:\\Project\\sample',
   working: false,
 }));
 const resources = [
-  ['Mixdog', 'C:\\Project\\mixdog · 데스크톱 앱'],
+  ['Mixdog', 'C:\\Project\\sample · 데스크톱 앱'],
   ['ProjectAA', 'Unity · 전투 시뮬레이션'],
   ['Gamerscroll', '게임과 기술을 다루는 블로그'],
   ['이름이 긴 프로젝트의 정렬과 말줄임 확인', 'C:\\Project\\long-project-name\\source\\components'],
@@ -160,7 +160,7 @@ function Scene({ view, mobile }: { view: string; mobile: boolean }) {
             </label>
             <label className="schedules-field">
               <span>프로젝트 경로</span>
-              <input defaultValue="C:\\Project\\mixdog" />
+              <input defaultValue="C:\\Project\\sample" />
             </label>
             <label className="schedules-field">
               <span>설명</span>

@@ -315,10 +315,13 @@ fn tool_row(item: &ThreadItem) -> Option<Row> {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::disallowed_methods, reason = "test setup: reads the recorded fixture")]
+    #[cfg(node_twin)]
     use std::path::Path;
 
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     /// Node's `pushAsyncAgentResponse` over recorded completions (`record-agent-response.mjs`):
     /// after every delivery the transcript's items equal Node's, field for field.
     #[test]
@@ -358,3 +361,5 @@ mod tests {
         assert!(cards >= 10);
     }
 }
+
+

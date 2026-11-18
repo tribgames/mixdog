@@ -4,7 +4,7 @@
 //! count and size it declares is checked against its real length before it is used, every sector chain is walked with
 //! a record of the sectors it visited (a sector seen twice is a cycle, and the container malformed), and no walk goes
 //! past a fixed number of sectors, whatever the file declares. Only the header, the directory sectors and the streams
-//! asked for are read, never the whole file. The messages of the refusals are the ones Node's reader threw.
+//! asked for are read, never the whole file. The messages of the refusals are fixed texts.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -29,7 +29,7 @@ pub const MAX_ENCRYPTED_PACKAGE_BYTES: u64 = 256 * 1024 * 1024;
 /// The most sectors any one chain walk visits: the 512-byte sectors of the largest stream ever read.
 const MAX_CHAIN_SECTORS: u64 = MAX_ENCRYPTED_PACKAGE_BYTES / 512;
 
-/// A container that cannot be read, with the message Node's reader gave.
+/// A container that cannot be read, with its fixed refusal message.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CfbError(String);
 

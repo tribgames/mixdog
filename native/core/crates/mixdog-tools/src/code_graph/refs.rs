@@ -6,13 +6,12 @@ use std::collections::{HashMap, HashSet};
 use mixdog_graph::calls::CallInfo;
 use regex::Regex;
 
+use super::exports::exposing_files;
 use super::graph::{Graph, Node};
-use super::hits::{augment_no_hit, callee_declaration, find_hits, occurrences};
+use super::hits::{callee_declaration, find_hits, occurrences};
 use super::outline::{parent_index, symbol_path};
 use super::util::{head_chars, identifier_occurrences, name_cmp};
 
-const TARGET_RELS_MAX: usize = 16;
-const FORWARD_HOP_MAX: usize = 32;
 const SELF_RECEIVERS: [&str; 7] = ["", "this", "self", "super", "Self", "cls", "me"];
 const CONTAINER_KINDS: [&str; 10] = [
     "module", "namespace", "package", "class", "struct", "interface", "trait", "enum", "protocol",
@@ -36,6 +35,39 @@ impl Scope<'_> {
         }
         true
     }
+}
+
+impl<'a> Scope<'a> {
+    /// The scope callers are searched in: `file_rel` only names where the symbol is declared.
+    pub fn for_callers(self) -> Scope<'a> {
+        Scope { file_rel: None, prefix: self.prefix }
+    }
+}
+
+/// Mentions of `symbol` in the files that reach this file's declaration of it: its importers and
+/// the re-export forwarders that carry the name onward. Importers that declare the name themselves
+/// do not resolve to this file.
+pub(super) fn importer_references(graph: &Graph, rel: &str, symbol: &str) -> Vec<RefEntry> {
+    let targets = exposing_files(graph, &[rel.to_string()], symbol);
+    let mut out = Vec::new();
+    for node in &graph.nodes {
+        if node.rel == rel {
+            continue;
+        }
+        let mut names: HashSet<&str> = targets.get(&node.rel).into_iter().flatten().map(String::as_str).collect();
+        for imported in &node.resolved_imports {
+            names.extend(targets.get(imported).into_iter().flatten().map(String::as_str));
+        }
+        for name in names {
+            if !(node.tokens.is_empty() || node.has_token(name)) {
+                continue;
+            }
+            for (line, col) in occurrences(node, name) {
+                out.push(RefEntry { file: node.rel.clone(), line, col });
+            }
+        }
+    }
+    out
 }
 
 pub(super) struct RefEntry {
@@ -332,42 +364,6 @@ pub(super) fn caller_target_rels(
             rels.push(h.rel.clone());
         }
     }
-    rels.truncate(TARGET_RELS_MAX);
-    rels
-}
-
-/// The declaring files plus the re-export forwarders that carry the name onward.
-fn reachable_targets(graph: &Graph, roots: &[String], name: &str) -> HashSet<String> {
-    let mut rels: HashSet<String> = roots.iter().cloned().collect();
-    let mut queue: Vec<String> = roots.to_vec();
-    while !queue.is_empty() && rels.len() < FORWARD_HOP_MAX {
-        let rel = queue.remove(0);
-        for importer_rel in graph.dependents(&rel) {
-            if rels.contains(&importer_rel) {
-                continue;
-            }
-            let Some(importer) = graph.node(&importer_rel) else {
-                continue;
-            };
-            if importer.symbols.iter().any(|s| s.name == name) {
-                continue;
-            }
-            if !(importer.tokens.is_empty() || importer.has_token(name)) {
-                continue;
-            }
-            if importer
-                .calls()
-                .is_some_and(|calls| calls.iter().any(|c| c.name == name))
-            {
-                continue;
-            }
-            rels.insert(importer_rel.clone());
-            queue.push(importer_rel);
-            if rels.len() >= FORWARD_HOP_MAX {
-                break;
-            }
-        }
-    }
     rels
 }
 
@@ -381,24 +377,30 @@ fn caller_entries(
     if target_rels.is_empty() || symbol.is_empty() {
         return Vec::new();
     }
-    let targets = reachable_targets(graph, target_rels, symbol);
+    let targets = exposing_files(graph, target_rels, symbol);
     let mut found: Vec<(&Node, CallInfo)> = Vec::new();
     for node in &graph.nodes {
         if language.is_some_and(|l| node.lang != l) || !scope.contains(&node.rel) {
             continue;
         }
-        let same_file = targets.contains(&node.rel);
-        let imports_target = node.resolved_imports.iter().any(|r| targets.contains(r));
-        let imports_unresolved = !node.raw_imports.is_empty() && node.resolved_imports.is_empty();
-        if !same_file && !imports_target && !imports_unresolved {
-            continue;
+        // The names the file's own module and the modules it imports expose the symbol under.
+        let mut names: HashSet<&str> = targets.get(&node.rel).into_iter().flatten().map(String::as_str).collect();
+        let mut imports_target = false;
+        for imported in &node.resolved_imports {
+            if let Some(exposed) = targets.get(imported) {
+                imports_target = true;
+                names.extend(exposed.iter().map(String::as_str));
+            }
         }
-        // A call named `symbol` is an identifier of the file: read the sources of the files that carry it only.
-        if !(node.tokens.is_empty() || node.has_token(symbol)) {
+        if node.resolved_imports.is_empty() && !node.raw_imports.is_empty() {
+            names.insert(symbol);
+        }
+        // A call is an identifier of the file: read the sources of the files that carry one of the names only.
+        if names.is_empty() || !(node.tokens.is_empty() || names.iter().any(|n| node.has_token(n))) {
             continue;
         }
         let Some(calls) = node.calls() else { continue };
-        for call in calls.iter().filter(|c| c.name == symbol) {
+        for call in calls.iter().filter(|c| names.contains(c.name.as_str())) {
             if call.kind == "method" && !SELF_RECEIVERS.contains(&call.recv.as_str()) && !imports_target {
                 continue;
             }
@@ -427,11 +429,14 @@ pub(super) fn format_callers(
     limit: usize,
 ) -> String {
     let targets = caller_target_rels(graph, symbol, language, scope);
-    let entries = caller_entries(graph, symbol, &targets, language, scope);
+    let entries = caller_entries(graph, symbol, &targets, language, scope.for_callers());
     if entries.is_empty() {
         return "(no callers)".to_string();
     }
-    let mut rows = vec!["# call sites".to_string()];
+    let mut rows = vec![
+        "# caller-name matches (importer-restricted name matching; not binding-resolved)".to_string(),
+        "# May include unrelated same-named identifiers; aliases, namespace members, and unrecognized re-export paths may be missed.".to_string(),
+    ];
     rows.extend(entries.iter().take(limit).map(|e| {
         let caller = if e.caller.is_empty() {
             String::new()
@@ -463,10 +468,10 @@ fn caller_names(
     symbol: &str,
     language: Option<&str>,
     scope: Scope<'_>,
-) -> Vec<(String, String, bool)> {
+) -> (Vec<(String, String, bool)>, usize) {
     const ANON_LEAF_MAX: usize = 6;
     let targets = caller_target_rels(graph, symbol, language, scope);
-    let entries = caller_entries(graph, symbol, &targets, language, scope);
+    let entries = caller_entries(graph, symbol, &targets, language, scope.for_callers());
     let mut named: Vec<(String, String, bool)> = Vec::new();
     let mut leaves: Vec<(String, String, bool)> = Vec::new();
     for e in &entries {
@@ -481,10 +486,12 @@ fn caller_names(
             leaves.push((format!("«{}»", head_chars(&snippet, 48)), loc, true));
         }
     }
-    if leaves.len() <= ANON_LEAF_MAX {
+    // Anonymous call sites past the bound are counted, never silently dropped.
+    let omitted = if leaves.len() <= ANON_LEAF_MAX { 0 } else { leaves.len() };
+    if omitted == 0 {
         named.extend(leaves);
     }
-    named
+    (named, omitted)
 }
 
 pub(super) struct TransitiveOptions<'a> {
@@ -498,20 +505,17 @@ pub(super) struct TransitiveOptions<'a> {
 pub(super) fn format_transitive_callers(
     graph: &Graph,
     root: &str,
-    cwd: &str,
     opts: TransitiveOptions<'_>,
 ) -> String {
-    const HARD_MAX: usize = 1000;
     struct Walk<'g, 'o> {
         graph: &'g Graph,
         opts: &'o TransitiveOptions<'o>,
         expanded: HashSet<String>,
         collected: Vec<Level>,
-        overflow: bool,
     }
     impl Walk<'_, '_> {
         fn walk(&mut self, symbol: &str, level: usize) {
-            if self.overflow || level >= self.opts.depth {
+            if level >= self.opts.depth {
                 return;
             }
             if self.expanded.contains(symbol) {
@@ -522,13 +526,8 @@ pub(super) fn format_transitive_callers(
                 return;
             }
             self.expanded.insert(symbol.to_string());
-            for (name, loc, leaf) in
-                caller_names(self.graph, symbol, self.opts.language, self.opts.scope)
-            {
-                if self.collected.len() >= HARD_MAX {
-                    self.overflow = true;
-                    return;
-                }
+            let (names, omitted) = caller_names(self.graph, symbol, self.opts.language, self.opts.scope);
+            for (name, loc, leaf) in names {
                 self.collected.push(Level {
                     indent: level + 1,
                     label: format!("{name}\t{loc}"),
@@ -537,6 +536,12 @@ pub(super) fn format_transitive_callers(
                     self.walk(&name, level + 1);
                 }
             }
+            if omitted > 0 {
+                self.collected.push(Level {
+                    indent: level + 1,
+                    label: format!("… {omitted} anonymous call-site name matches of {symbol} not listed here; use depth:1 to list them"),
+                });
+            }
         }
     }
     let mut walk = Walk {
@@ -544,30 +549,28 @@ pub(super) fn format_transitive_callers(
         opts: &opts,
         expanded: HashSet::new(),
         collected: Vec::new(),
-        overflow: false,
     };
     walk.walk(root, 0);
-    let (collected, overflow) = (walk.collected, walk.overflow);
+    let collected = walk.collected;
     if collected.is_empty() {
-        return augment_no_hit("(no callers)".to_string(), "(no callers)", graph, cwd, root);
+        return "(no callers)".to_string();
     }
     let size = opts.page_size.max(1);
     let page = opts.page.max(1);
     let total = collected.len();
-    let plus = if overflow { "+" } else { "" };
     let last_page = total.div_ceil(size);
-    let start = (page - 1) * size;
+    let start = (page - 1).saturating_mul(size);
     let depth = opts.depth;
     if start >= total {
         return format!(
-            "# transitive callers of {root} (depth={depth}) — page {page} is past the end (total {total}{plus} node(s); last page is {last_page})."
+            "# transitive callers of {root} (depth={depth}) — page {page} is past the end (total {total} node(s); last page is {last_page})."
         );
     }
-    let slice = &collected[start..(start + size).min(total)];
-    let has_more = overflow || start + slice.len() < total;
+    let slice = &collected[start..start.saturating_add(size).min(total)];
+    let has_more = start + slice.len() < total;
     let mut lines = vec![
         format!(
-            "# transitive callers of {root} (depth={depth}) — page {page}, nodes {}-{} of {total}{plus}; INDENTED children are ITS callers",
+            "# transitive callers of {root} (depth={depth}) — page {page}, nodes {}-{} of {total}; INDENTED children are ITS callers",
             start + 1,
             start + slice.len()
         ),
@@ -576,13 +579,11 @@ pub(super) fn format_transitive_callers(
     lines.extend(slice.iter().map(|e| format!("{}{}", "  ".repeat(e.indent), e.label)));
     lines.push(if has_more {
         format!(
-            "# NEXT — more callers remain; re-run callers with the SAME symbol + depth + page:{} for the next {size} node(s). Every node carries file:line — do NOT grep/read.",
+            "# NEXT — keep the same callers arguments and set page:{} for the next {size} node(s). Every node carries file:line.",
             page + 1
         )
     } else {
-        format!(
-            "# END — complete caller set delivered (page {page} of {last_page}): named callers PLUS timer/event/module-level call sites (the «…» leaves), each with file:line. No further callers/grep/read is needed."
-        )
+        "# END — end of collected caller-name matches, not a complete binding-resolved caller set. Verify with grep/read.".to_string()
     });
     lines.join("\n")
 }

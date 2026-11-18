@@ -21,10 +21,13 @@ mod search;
 mod ssrf;
 mod tools;
 
+#[cfg(node_twin)]
 #[cfg(test)]
 mod document_node_cases;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod fetch_output_node_cases;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod fetch_pipeline_node_cases;
 #[cfg(test)]
@@ -33,6 +36,7 @@ mod hosted_native_tests;
 mod render_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod node_cases;
 
@@ -66,6 +70,7 @@ pub use pipeline::StagePage;
 pub use public_get::PublicError;
 pub use public_get::PublicGet;
 pub use public_get::PublicReply;
+pub use search::NativeSearchError;
 pub use search::NativeSearchRequest;
 pub use search::NativeSearchResult;
 pub use search::NativeSource;

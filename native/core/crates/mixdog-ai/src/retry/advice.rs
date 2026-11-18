@@ -20,26 +20,6 @@ fn positive(millis: f64) -> Option<Duration> {
     (millis.is_finite() && millis > 0.0).then(|| Duration::from_millis(millis.ceil() as u64))
 }
 
-/// Precedence: `retry-after-ms`, `retry-after` in seconds, `retry-after` as
-/// an HTTP date relative to `now`.
-pub fn from_headers(headers: &[(String, String)], now: SystemTime) -> Option<Duration> {
-    if let Some(ms) = header(headers, "retry-after-ms").and_then(|v| v.parse::<f64>().ok())
-        && let Some(advice) = positive(ms)
-    {
-        return Some(advice);
-    }
-    let value = header(headers, "retry-after")?;
-    if let Ok(seconds) = value.parse::<f64>() {
-        return positive(seconds * 1000.0);
-    }
-    let at = mixdog_js::time::date_parse(value);
-    if !at.is_finite() {
-        return None;
-    }
-    let at = SystemTime::UNIX_EPOCH + Duration::from_millis(at.max(0.0) as u64);
-    at.duration_since(now).ok().filter(|d| !d.is_zero())
-}
-
 /// Google `RetryInfo.retryDelay`: a `"12.5s"` string or `{seconds, nanos}`.
 pub fn google_retry_delay(delay: &Value) -> Option<Duration> {
     match delay {
@@ -82,38 +62,6 @@ mod tests {
     }
 
     #[test]
-    fn millisecond_header_wins_over_seconds() {
-        let h = headers(&[("Retry-After", "9"), ("retry-after-ms", "1500.2")]);
-        assert_eq!(
-            from_headers(&h, SystemTime::UNIX_EPOCH),
-            Some(Duration::from_millis(1501))
-        );
-    }
-
-    #[test]
-    fn seconds_round_up_and_zero_is_no_advice() {
-        let now = SystemTime::UNIX_EPOCH;
-        assert_eq!(
-            from_headers(&headers(&[("retry-after", "0.0011")]), now),
-            Some(Duration::from_millis(2))
-        );
-        assert_eq!(from_headers(&headers(&[("retry-after", "0")]), now), None);
-        assert_eq!(from_headers(&headers(&[("retry-after", "-3")]), now), None);
-    }
-
-    #[test]
-    fn http_date_is_relative_to_now() {
-        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(784_111_717);
-        let h = headers(&[("retry-after", "Sun, 06 Nov 1994 08:49:37 GMT")]);
-        assert_eq!(from_headers(&h, now), Some(Duration::from_secs(60)));
-        assert_eq!(
-            from_headers(&h, now + Duration::from_secs(61)),
-            None,
-            "a date in the past is no advice"
-        );
-    }
-
-    #[test]
     fn google_retry_info_shapes() {
         assert_eq!(
             google_retry_delay(&json!("12.5s")),
@@ -134,4 +82,55 @@ mod tests {
         );
         assert_eq!(resets_in(&json!({"message": "try again in 30 seconds"})), None);
     }
+
+
+    #[test]
+    fn millisecond_header_wins_over_seconds() {
+        let h = headers(&[("Retry-After", "9"), ("retry-after-ms", "1500.2")]);
+        assert_eq!(
+            from_headers(&h, SystemTime::UNIX_EPOCH),
+            Some(Duration::from_millis(1501))
+        );
+    }
+    #[test]
+    fn seconds_round_up_and_zero_is_no_advice() {
+        let now = SystemTime::UNIX_EPOCH;
+        assert_eq!(
+            from_headers(&headers(&[("retry-after", "0.0011")]), now),
+            Some(Duration::from_millis(2))
+        );
+        assert_eq!(from_headers(&headers(&[("retry-after", "0")]), now), None);
+        assert_eq!(from_headers(&headers(&[("retry-after", "-3")]), now), None);
+    }
+    #[test]
+    fn http_date_is_relative_to_now() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(784_111_717);
+        let h = headers(&[("retry-after", "Sun, 06 Nov 1994 08:49:37 GMT")]);
+        assert_eq!(from_headers(&h, now), Some(Duration::from_secs(60)));
+        assert_eq!(
+            from_headers(&h, now + Duration::from_secs(61)),
+            None,
+            "a date in the past is no advice"
+        );
+    }
+}
+
+/// Precedence: `retry-after-ms`, `retry-after` in seconds, `retry-after` as
+/// an HTTP date relative to `now`.
+pub fn from_headers(headers: &[(String, String)], now: SystemTime) -> Option<Duration> {
+    if let Some(ms) = header(headers, "retry-after-ms").and_then(|v| v.parse::<f64>().ok())
+        && let Some(advice) = positive(ms)
+    {
+        return Some(advice);
+    }
+    let value = header(headers, "retry-after")?;
+    if let Ok(seconds) = value.parse::<f64>() {
+        return positive(seconds * 1000.0);
+    }
+    let at = mixdog_js::time::date_parse(value);
+    if !at.is_finite() {
+        return None;
+    }
+    let at = SystemTime::UNIX_EPOCH + Duration::from_millis(at.max(0.0) as u64);
+    at.duration_since(now).ok().filter(|d| !d.is_zero())
 }

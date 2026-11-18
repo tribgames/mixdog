@@ -19,7 +19,9 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_agent::compact::skills::{CurrentSkill, CurrentSkillResult, CurrentSkills};
 use mixdog_agent::env::Clock;
+use mixdog_agent::native_search::parse_native_tool_search;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::gate::connector_policy_agent;
 use mixdog_core_ports::ports::memory_source::ThreadMessages;
@@ -27,13 +29,15 @@ use mixdog_core_ports::ports::threads::HeaderUpdate;
 use mixdog_core_ports::ports::threads::HeaderUpdates;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_session::session::RouteExclusions;
+use mixdog_mcp::skill_catalog::{SkillCatalog, SkillLoad};
 use mixdog_mcp::skill_deps::SkillToolDependencies;
 use mixdog_mcp::skill_port::DeferredToolArm;
 use mixdog_mcp::skill_port::TranscriptTexts;
 use mixdog_mcp::skill_state::message_text;
+use mixdog_mcp::skills::SkillSource;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::HeaderChange;
-use mixdog_tools::orch::skill::ArmNotice;
+use mixdog_tools::orch::skill::{ArmNotice, result_envelope, stub};
 use mixdog_tools::orch::util::PortError;
 use mixdog_tools::policy::ConnectorPermissions;
 use mixdog_tools::policy::SessionSurface;
@@ -81,6 +85,51 @@ struct Lookups {
     connector_disabled: HashSet<String>,
     project_disabled: HashSet<String>,
     asked: HashSet<String>,
+}
+
+pub(super) struct CompactionSkills {
+    pub catalog: Arc<SkillCatalog>,
+    pub arm: Arc<HeaderSkillArm>,
+    pub thread: ThreadId,
+    pub cwd: std::path::PathBuf,
+}
+
+#[async_trait]
+impl CurrentSkills for CompactionSkills {
+    async fn resolve(&self, name: &str, preview: bool) -> Result<Option<CurrentSkill>, String> {
+        let SkillLoad::Loaded(resource) = self.catalog.load(name, &self.cwd).await.map_err(|error| error.to_string())? else {
+            return Ok(None);
+        };
+        let dependencies = &resource.skill.tool_dependencies;
+        let body = result_envelope(name, &resource.body, Some(&resource.dir));
+        let tools = dependencies.manifest_names();
+        let result = if preview {
+            None
+        } else {
+            let notice = if dependencies.tool_dependencies.is_empty() && dependencies.issues.is_empty() {
+                ArmNotice::default()
+            } else {
+                let header = self.arm.threads.header(&self.thread).await.map_err(|error| format!("{error:?}"))?;
+                let lookups = self.arm.lookups(&self.thread, &header, dependencies);
+                self.arm.parts.load(&header, dependencies, &lookups).map_err(|name| format!("could not resolve skill-linked tool {name}"))?.1
+            };
+            let source = if resource.skill.source == SkillSource::Builtin { "builtin" } else { "" };
+            let text = notice.result(&stub(name, source));
+            let native = parse_native_tool_search("Skill", &text);
+            let summary = native.as_ref().and_then(|value| value.get("summary")).and_then(Value::as_str).map_or(text, str::to_owned);
+            Some(CurrentSkillResult { summary, native })
+        };
+        Ok(Some(CurrentSkill { body, tools, result }))
+    }
+
+    async fn activate(&self, name: &str, body: &str) -> Result<(), String> {
+        if let SkillLoad::Loaded(resource) = self.catalog.load(name, &self.cwd).await.map_err(|error| error.to_string())?
+            && result_envelope(name, &resource.body, Some(&resource.dir)) == body
+        {
+            self.arm.arm(&self.thread, &resource.skill.tool_dependencies).await.map_err(|error| format!("{error:?}"))?;
+        }
+        Ok(())
+    }
 }
 
 impl HeaderSkillArm {
@@ -175,6 +224,9 @@ impl Parts {
         for (name, reason) in selection.iter().flat_map(|selection| &selection.blocked) {
             unavailable.push(format!("{name} ({reason})"));
         }
+        for (name, reason) in selection.iter().flat_map(|selection| &selection.unavailable) {
+            unavailable.push(format!("{name} ({reason})"));
+        }
         for name in selection.iter().flat_map(|selection| &selection.missing) {
             unavailable.push(format!("{name} (not available in this session)"));
         }
@@ -187,7 +239,9 @@ impl Parts {
             }
             map.insert("skillLoadedTools".to_owned(), names_value(&kept));
         }
-        let native = selection.as_ref().is_some_and(|selection| selection.native);
+        // Discovery flags outlive the result that actually registers a schema. The input
+        // owners decide what is already present in the transcript they will keep.
+        let native = selection.as_ref().filter(|s| s.native).map(|_| loaded.as_slice());
         let notice = notice_of(&session, &catalog, &loaded, &unavailable, native);
         Ok((session, notice))
     }
@@ -197,7 +251,7 @@ impl Parts {
 /// payload it replaces the result with: `loaded` after the load, `unavailable` what it could not
 /// load, `catalog` the one the dependencies were named in, `native` whether the provider's own
 /// tool search is on.
-fn notice_of(session: &Value, catalog: &[(String, Value)], loaded: &[String], unavailable: &[String], native: bool) -> ArmNotice {
+fn notice_of(session: &Value, catalog: &[(String, Value)], loaded: &[String], unavailable: &[String], native: Option<&[String]>) -> ArmNotice {
     let eager: HashSet<&str> = session.get("tools").and_then(Value::as_array).into_iter().flatten().filter_map(|tool| tool.get("name").and_then(Value::as_str)).collect();
     // Bridge exposure never promotes a schema: deferred dependencies stay reachable through call_tool
     // while the eager surface keeps its bytes.
@@ -220,9 +274,11 @@ fn notice_of(session: &Value, catalog: &[(String, Value)], loaded: &[String], un
         lines.push("No tools were installed or enabled and no permissions were changed.".to_owned());
     }
     let provider = clean(session.get("provider"));
-    let promoted: Vec<String> = loaded.iter().filter(|name| !eager.contains(name.as_str())).cloned().collect();
     // `toolSearchNativePayload` without its summary: the result's own stands in.
-    let payload = native.then(|| tool_search_native_payload(catalog.iter().map(|(_, tool)| tool), &promoted, &provider)).flatten().map(|mut payload| {
+    let payload = native.and_then(|names| {
+        let promoted: Vec<String> = names.iter().filter(|name| !eager.contains(name.as_str())).cloned().collect();
+        tool_search_native_payload(catalog.iter().map(|(_, tool)| tool), &promoted, &provider)
+    }).map(|mut payload| {
         if let Some(map) = payload.as_object_mut() {
             map.shift_remove("summary");
         }

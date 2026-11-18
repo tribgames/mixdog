@@ -46,7 +46,6 @@ impl GitRunner for ProcessGit {
 #[allow(clippy::disallowed_methods, reason = "the test lays out its fixture files with blocking calls on the test thread")]
 mod tests {
     use super::*;
-    use crate::domain_seams::golden;
     use crate::domain_seams::portable;
     use serde_json::Value;
     use serde_json::json;
@@ -57,16 +56,33 @@ mod tests {
         rx.await.unwrap()
     }
 
-    /// Node's `runGit` over the recorded scenario: one repository made, cloned from nothing, read and
-    /// committed in, each step's trimmed stdout or its failure text.
+    /// One scenario: a repository made, cloned from nothing, read and committed in, each step's trimmed stdout or its failure text.
+    fn steps() -> Value {
+        json!([
+            {"args": ["init", "<root>/source"], "before": null, "ok": "Initialized empty Git repository in <root>/source/.git/"},
+            {"args": ["-C", "<root>/source", "config", "user.name", "n"], "before": null, "ok": ""},
+            {"args": ["-C", "<root>/source", "config", "core.autocrlf", "false"], "before": null, "ok": ""},
+            {"args": ["-C", "<root>/source", "rev-parse", "--is-inside-work-tree"], "before": null, "ok": "true"},
+            {"args": ["clone", "<root>/none", "<root>/dest"], "before": null,
+             "error": "Cloning into '<root>/dest'...\nfatal: '<root>/none' does not appear to be a git repository\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists."},
+            {"args": ["nosuchcommand"], "before": null, "error": "git: 'nosuchcommand' is not a git command. See 'git --help'."},
+            {"args": ["-C", "<root>/source", "diff", "--quiet"], "before": null, "ok": ""},
+            {"args": ["-C", "<root>/source", "status", "--porcelain"], "before": {"source/f.txt": "one\n"}, "ok": "?? f.txt"},
+            {"args": ["-C", "<root>/source", "add", "f.txt"], "before": null, "ok": ""},
+            {"args": ["-C", "<root>/source", "-c", "user.name=a", "-c", "user.email=b@c", "commit", "-q", "-m", "m"], "before": null, "ok": ""},
+            {"args": ["-C", "<root>/source", "status", "--porcelain"], "before": {"source/f.txt": "two\n"}, "ok": "M f.txt"},
+            {"args": ["-C", "<root>/source", "diff", "--quiet"], "before": null, "error": "git -C <root>/source diff --quiet failed"}
+        ])
+    }
+
     #[tokio::test(flavor = "multi_thread")]
-    async fn each_git_step_answers_what_nodes_run_git_answers() {
+    async fn each_git_step_answers_its_trimmed_stdout_or_its_failure_text() {
         let dir = tempfile::tempdir().unwrap();
         let base = dir.path().to_path_buf();
         let tokens = mixdog_rt::testing::tokens();
         let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
         let runner = ProcessGit::new(Processes::new(manager, tokens.durability_io), Handle::current(), base.clone());
-        for step in golden()["git"].as_array().unwrap() {
+        for step in steps().as_array().unwrap() {
             if let Some(files) = step["before"].as_object() {
                 for (rel, text) in files {
                     let path = base.join(rel);

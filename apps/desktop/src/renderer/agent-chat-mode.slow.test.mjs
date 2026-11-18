@@ -1,6 +1,7 @@
 // Agent mode (에이전트 모드): which sessions take it, the bubble runs, the
 // messenger composer, the phone's no-tab chat slot — and coding mode left as it was.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { installTestDom } from './test-support/test-dom.mjs';
 
@@ -719,10 +720,11 @@ test('agent mode shows no working status: a typing bubble while the agent works,
   assert.doesNotMatch(coding, /mx-chat/);
 });
 
-test('a room shows a typing bubble only while a member types, held until that member’s words land', async (t) => {
+test('a room draws the band the core supplies: a named speaker, the hand-off, or nothing, with one footprint', async (t) => {
   const render = rowHarness(t);
   const thinking = { _tag: 'Thinking', key: 'think', turnKey: 't', active: true };
   const typing = (id, speaker) => ({ kind: 'notice', id, text: '', room: { kind: 'typing', speaker, name: speaker } });
+  const deciding = { kind: 'notice', id: 'room-deciding', text: '', room: { kind: 'typing', speaker: '', name: '', deciding: true } };
   const prompt = user('u1', DAY1);
   const s1 = speech('s1', 'alpha', DAY1);
   const s2 = speech('s2', 'beta', DAY1);
@@ -750,24 +752,52 @@ test('a room shows a typing bubble only while a member types, held until that me
       rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
     );
   }
-  const typer = async (settled) => {
+  const bandOf = async (settled) => {
     const host = document.createElement('div');
     host.innerHTML = await render(React.createElement(Rows, { settled }));
     const bubble = host.querySelector('.mx-chat-typing');
-    return bubble ? bubble.closest('.mx-chat-row').querySelector('.mx-chat-name')?.textContent : null;
+    if (!bubble) return null;
+    const row = bubble.closest('.mx-chat-row');
+    return {
+      name: row.querySelector('.mx-chat-name')?.textContent,
+      status: bubble.getAttribute('aria-label'),
+      // What the band occupies: its elements in order, whoever it names.
+      footprint: [...row.querySelectorAll('.mx-chat-face,.mx-chat-column,.mx-chat-name,.mx-chat-line,.mx-chat-typing,.mx-chat-dots')].map(
+        (element) => element.className.split(' ')[0]
+      ),
+    };
   };
-  assert.equal(await typer([prompt.item, typing('ty-a', 'alpha')]), 'alpha');
-  // The host drops the typing row while the supervisor decides, before the
-  // member's words reach the view: the bubble stays until they land, so the
-  // thread does not drop by a bubble and rise again 70ms later.
-  assert.equal(await typer([prompt.item]), 'alpha');
-  assert.equal(await typer([prompt.item, s1.item]), null, 'the words replace the bubble');
-  assert.equal(await typer([prompt.item, s1.item, typing('ty-b', 'beta')]), 'beta');
-  // The words land while the typing row is still there: no bubble under them.
-  assert.equal(await typer([prompt.item, s1.item, s2.item, typing('ty-b', 'beta')]), null);
-  assert.equal(await typer([prompt.item, s1.item, s2.item]), null);
-  assert.equal(await typer([prompt.item, s1.item, s2.item, typing('ty-c', 'gamma')]), 'gamma');
-  assert.equal(await typer([prompt.item, s1.item, s2.item, pass]), null, 'a pass ends the bubble');
+  const speaker = async (settled) => (await bandOf(settled))?.name ?? null;
+  assert.equal(await speaker([prompt.item, typing('ty-a', 'alpha')]), 'alpha');
+  // No typing row, no band: nothing is held across the moment a row leaves.
+  assert.equal(await speaker([prompt.item]), null);
+  // The words arrive with the hand-off band: it replaces the speaker's bubble, no member named.
+  assert.equal(await speaker([prompt.item, s1.item, deciding]), '');
+  assert.equal(await speaker([prompt.item, s1.item, typing('ty-b', 'beta')]), 'beta');
+  assert.equal(await speaker([prompt.item, s1.item, s2.item, deciding]), '');
+  assert.equal(await speaker([prompt.item, s1.item, s2.item]), null, 'the room finished');
+  assert.equal(await speaker([prompt.item, s1.item, s2.item, typing('ty-c', 'gamma')]), 'gamma');
+  assert.equal(await speaker([prompt.item, s1.item, s2.item, pass]), null, 'a pass is no band');
+
+  // Named -> deciding -> named keeps the band's rendered footprint, on the desktop and on the phone (the same renderer under
+  // the mobile tabs): the same elements, and the band's name line is one fixed line (measured in real Chrome by
+  // agent-chat-band-stability.slow.test.mjs).
+  const css = readFileSync(new URL('./agent-chat.css', import.meta.url), 'utf8');
+  assert.match(css, /^\.mx-chat-name\[data-band\] \{[^}]*white-space: nowrap;[^}]*text-overflow: ellipsis;/m, 'the band name is one truncated line');
+  assert.doesNotMatch(css, /mx-chat-name:empty/);
+  for (const phone of [false, true]) {
+    if (phone) document.documentElement.setAttribute('data-mixdog-mobile-tabs', '');
+    t.after(() => document.documentElement.removeAttribute('data-mixdog-mobile-tabs'));
+    const named = await bandOf([prompt.item, typing('ty-a', 'alpha')]);
+    const handOff = await bandOf([prompt.item, s1.item, deciding]);
+    const next = await bandOf([prompt.item, s1.item, typing('ty-b', 'beta')]);
+    assert.deepEqual(handOff.footprint, named.footprint, phone ? 'phone: hand-off footprint' : 'desktop: hand-off footprint');
+    assert.deepEqual(next.footprint, named.footprint);
+    assert.ok(handOff.footprint.includes('mx-chat-name'), 'the name line is there');
+    // Its own status, not "<nobody> is typing".
+    assert.equal(handOff.status, 'Choosing who speaks next…');
+    assert.match(named.status, /alpha is typing…/);
+  }
 });
 
 function composerProps(calls, overrides = {}) {

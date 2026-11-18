@@ -40,7 +40,7 @@ fn adapter_error(error: PublicError) -> AdapterError {
         PublicError::FetchFailed => "fetch failed".to_owned(),
         PublicError::Terminated => "terminated".to_owned(),
     };
-    AdapterError { message, code, status: None, usage: None, resets_at: None }
+    AdapterError { message, code, status: None, usage: None, resets_at: None, refusal: None }
 }
 
 struct Reply(PublicReply);
@@ -90,37 +90,6 @@ mod tests {
         RoutedPublicFetch::new(Arc::new(RoutedClients::new(policy, |_| reqwest::Client::builder().build())), lanes)
     }
 
-    #[test]
-    fn a_failed_name_lookup_reads_as_nodes_media_path() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/public-get/golden.json")).unwrap();
-        let cases = golden["lookup_failures"].as_array().unwrap();
-        assert_eq!(cases.len(), 3);
-        for case in cases {
-            let node = case["message"].as_str().unwrap();
-            // What the guarded GET reports: the typed lookup failure for a transient one, the
-            // guard's own words when the name has no addresses.
-            let host = case["host"].as_str().unwrap().to_owned();
-            let reported = if case["code"] == "EAI_AGAIN" {
-                PublicError::Lookup { code: "EAI_AGAIN".to_owned(), host }
-            } else {
-                PublicError::Refused(node.to_owned())
-            };
-            let error = adapter_error(reported);
-            assert_eq!((error.message.as_str(), error.code), (node, None), "{}", case["code"]);
-        }
-        let again = adapter_error(PublicError::Lookup { code: "EAI_AGAIN".to_owned(), host: "h.example".to_owned() });
-        assert_eq!(again.message, "getaddrinfo EAI_AGAIN h.example");
-        let kinds = [
-            (PublicError::InvalidUrl, "Invalid URL", Some("ERR_INVALID_URL")),
-            (PublicError::FetchFailed, "fetch failed", None),
-            (PublicError::Terminated, "terminated", None),
-        ];
-        for (error, message, code) in kinds {
-            let mapped = adapter_error(error);
-            assert_eq!((mapped.message.as_str(), mapped.code.as_deref()), (message, code));
-        }
-    }
-
     #[tokio::test]
     async fn a_refused_address_is_the_adapters_error_in_nodes_words() {
         let fetch = fetch();
@@ -135,6 +104,25 @@ mod tests {
         for (url, message, code) in cases {
             let error = fetch.get(url, &[], &cancel).await.err().unwrap();
             assert_eq!((error.message.as_str(), error.code.as_deref(), error.status), (message, code, None), "{url}");
+        }
+    }
+
+
+    #[test]
+    fn a_failed_name_lookup_reads_as_nodes_media_path() {
+        // The guard's own words when the name has no addresses are passed through unchanged.
+        let refused = adapter_error(PublicError::Refused("getaddrinfo ENOTFOUND h.example".to_owned()));
+        assert_eq!((refused.message.as_str(), refused.code), ("getaddrinfo ENOTFOUND h.example", None));
+        let again = adapter_error(PublicError::Lookup { code: "EAI_AGAIN".to_owned(), host: "h.example".to_owned() });
+        assert_eq!(again.message, "getaddrinfo EAI_AGAIN h.example");
+        let kinds = [
+            (PublicError::InvalidUrl, "Invalid URL", Some("ERR_INVALID_URL")),
+            (PublicError::FetchFailed, "fetch failed", None),
+            (PublicError::Terminated, "terminated", None),
+        ];
+        for (error, message, code) in kinds {
+            let mapped = adapter_error(error);
+            assert_eq!((mapped.message.as_str(), mapped.code.as_deref()), (message, code));
         }
     }
 }

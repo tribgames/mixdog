@@ -165,15 +165,6 @@ mod pg {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn public_recall_preserves_every_supported_page_boundary_including_the_last_offset() {
-        let g = golden(SET);
-        let name = "public recall preserves every supported page boundary, including the last offset";
-        let c = case(&g, 0, name);
-        let rows = fixture(c.get("rows").as_f64() as i64, now_ms(&g));
-        steps(name, &rows, c.get("steps").as_array(), now_ms(&g), Script::FirstByLimit).await;
-    }
-
-    #[tokio::test(flavor = "current_thread")]
     async fn public_historical_enrichment_cannot_reintroduce_an_alias_beside_its_representative() {
         let g = golden(SET);
         let name = "public historical enrichment cannot reintroduce an alias beside its representative";
@@ -187,5 +178,15 @@ mod pg {
         let name = "public enrichment filters time before duplicate grouping";
         let c = case(&g, 2, name);
         steps(name, c.get("rows").as_array(), std::slice::from_ref(c.get("step")), now_ms(&g), Script::RootOnlyPicksSecond).await;
+    }
+
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn public_recall_preserves_every_supported_page_boundary_including_the_last_offset() {
+        let g = golden(SET);
+        let name = "public recall preserves every supported page boundary, including the last offset";
+        let c = case(&g, 0, name);
+        let rows = fixture(c.get("rows").as_f64() as i64, now_ms(&g));
+        steps(name, &rows, c.get("steps").as_array(), now_ms(&g), Script::FirstByLimit).await;
     }
 }

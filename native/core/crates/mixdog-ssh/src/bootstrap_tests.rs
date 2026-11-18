@@ -228,8 +228,16 @@ fn discovery_json(change: impl FnOnce(&mut serde_json::Map<String, Value>)) -> S
     json!({ "pid": 4242, "endpoints": { "session": { "port": 41002, "token": "session-secret-1" } }, "core": core }).to_string()
 }
 
+/// A serving core that publishes no ssh listener: one that is too old to have it.
 fn serving() -> String {
     discovery_json(|_| {})
+}
+
+/// A serving core of this build: the ssh listener beside the ordinary one.
+fn current() -> String {
+    discovery_json(|core| {
+        core.insert("sshRpc".into(), json!({ "port": 41003 }));
+    })
 }
 
 fn with_platform(body: &str) -> String {
@@ -241,7 +249,7 @@ fn result(overrides: Value) -> Reply {
     let mut value = json!({
         "home": "/home/alice", "uid": 1000, "runtimeRoot": "/tmp/mixdog-1000",
         "versionDir": "/home/alice/.mixdog-remote/versions/1.4.6-0123456789abcdef", "installed": true,
-        "daemonJson": serving(), "healthy": true, "coreCurrent": true, "started": false,
+        "daemonJson": current(), "healthy": true, "coreCurrent": true, "started": false,
     });
     for (key, field) in overrides.as_object().into_iter().flatten() {
         value[key] = field.clone();
@@ -285,7 +293,7 @@ async fn run_bootstrap(
     phases: &Phases,
 ) -> Result<crate::bootstrap::RemoteReport, ConnectError> {
     let progress = |phase: BootstrapPhase| phases.lock().unwrap().push(phase);
-    bootstrap(env, context, &target(host), BootstrapOptions { model_login, payloads: release, progress: &progress }).await
+    bootstrap(env, context, &target(host), BootstrapOptions { model_login, grace_ms: None, payloads: release, progress: &progress }).await
 }
 
 fn bootstrap_error(result: Result<crate::bootstrap::RemoteReport, ConnectError>) -> RemoteBootstrapError {
@@ -310,6 +318,16 @@ fn remote_discovery_reads_the_control_port_the_serving_rpc_port_token_and_identi
     }))
     .unwrap();
     assert_eq!((draining.rpc_port, draining.control_port), (None, 41002));
+}
+
+#[test]
+fn the_ssh_rpc_port_is_read_apart_from_the_ordinary_one_and_a_core_without_it_names_none() {
+    let with = parse_remote_discovery(&discovery_json(|core| {
+        core.insert("sshRpc".into(), json!({ "port": 41003 }));
+    }))
+    .unwrap();
+    assert_eq!((with.rpc_port, with.ssh_rpc_port), (Some(41001), Some(41003)));
+    assert_eq!(parse_remote_discovery(&serving()).unwrap().ssh_rpc_port, None, "an older core has no ssh endpoint");
 }
 
 #[test]
@@ -513,6 +531,25 @@ async fn server_logins_travel_as_the_model_login_argument_this_pcs_logins_as_not
 }
 
 #[tokio::test]
+async fn a_hosts_own_grace_travels_on_the_probe_and_the_ensure_and_nothing_travels_without_one() {
+    let release = all_platforms();
+    let progress = |_: BootstrapPhase| {};
+    // The rule: a probe that finds the build installed but its core not current (`older()`) is followed by an ensure run, and the
+    // ensure is what starts the core, so both carry the host's grace; a probe that finds a current core ends the bootstrap alone.
+    let (env, ssh) = world(vec![result(older()), result(json!({ "started": true }))]);
+    let options = BootstrapOptions { model_login: None, grace_ms: Some(300_000), payloads: &release, progress: &progress };
+    bootstrap(&env, &AttemptContext::default(), &target("graced"), options).await.unwrap();
+    assert_eq!(ssh.calls.lock().unwrap().len(), 2, "a probe, then the ensure");
+    assert_eq!(ssh.program_args(0)["graceMs"], json!(300_000));
+    assert_eq!(ssh.program_args(1)["graceMs"], json!(300_000), "the ensure that starts the core carries it");
+    // Without a saved grace neither run sends one.
+    let (env, ssh) = world(vec![result(older()), result(json!({ "started": true }))]);
+    run_bootstrap(&env, &AttemptContext::default(), "ungraced", None, &release, &Phases::default()).await.unwrap();
+    assert_eq!(ssh.calls.lock().unwrap().len(), 2, "a probe, then the ensure");
+    assert!(ssh.program_args(0).get("graceMs").is_none() && ssh.program_args(1).get("graceMs").is_none());
+}
+
+#[tokio::test]
 async fn a_windows_server_is_an_unsupported_platform() {
     let reply = Reply { stdout: String::new(), stderr: "'sh' is not recognized as an internal or external command,".to_owned(), code: 1 };
     let (env, _ssh) = world(vec![reply]);
@@ -522,7 +559,7 @@ async fn a_windows_server_is_an_unsupported_platform() {
     let reply = Reply { stdout: String::new(), stderr: "line1\nline2\n".to_owned(), code: 2 };
     let (env, _ssh) = world(vec![reply]);
     let error = bootstrap_error(run_bootstrap(&env, &AttemptContext::default(), "odd-shell", None, &all_platforms(), &Phases::default()).await);
-    assert_eq!((error.code.as_str(), error.message.as_str()), ("remote-shell", "Remote bootstrap exited with status 2.\nline1\nline2"));
+    assert_eq!((error.code.as_str(), error.message.as_str()), ("remote-shell", "The install check on the server stopped unexpectedly (status 2). Try connecting again.\nline1\nline2"));
 }
 
 #[tokio::test]
@@ -599,8 +636,8 @@ async fn cleanup_stops_the_core_then_removes_everything_but_user_data() {
     assert_eq!(shape(2), (json!("cleanup"), Some(json!("remove")), None, None));
     let events = events.lock().unwrap();
     assert_eq!(events[0], CleanupProgress::Connect);
-    assert_eq!(events[1], CleanupProgress::Stop { detail: "stopped pid 4242".to_owned() });
-    assert!(matches!(&events[2], CleanupProgress::Remove { detail } if detail.contains("kept user-data")));
+    assert_eq!(events[1], CleanupProgress::Stop { detail: crate::said::CLEANUP_STOPPED.said([("pid", 4242)]) });
+    assert!(matches!(&events[2], CleanupProgress::Remove { detail } if detail.message.params.get("kept").is_some_and(|kept| kept.contains("user-data"))));
     assert_eq!(events[3], CleanupProgress::Done);
     assert_eq!((report.removed.len(), report.kept.clone()), (4, vec!["user-data".to_owned()]));
     assert_eq!(report.stopped.map(|core| core.pid), Some(4242));
@@ -620,8 +657,8 @@ async fn a_server_without_this_build_gets_the_runtime_once_for_the_stop_run() {
     assert!(!ssh.input(1).is_empty() && ssh.input(2).is_empty());
     assert_eq!(ssh.program_args(1)["removeUserData"], json!(true));
     let events = events.lock().unwrap();
-    assert_eq!(events[1], CleanupProgress::Stop { detail: "no core running".to_owned() });
-    assert_eq!(events[2], CleanupProgress::Remove { detail: "removed versions".to_owned() });
+    assert_eq!(events[1], CleanupProgress::Stop { detail: crate::said::CLEANUP_NOTHING_RUNNING.plain() });
+    assert_eq!(events[2], CleanupProgress::Remove { detail: crate::said::CLEANUP_REMOVED.said([("removed", "versions")]) });
 }
 
 #[tokio::test]

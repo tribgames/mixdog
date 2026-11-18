@@ -47,13 +47,15 @@ pub enum LedgerError {
     /// One import failure shared unchanged by all readers waiting for that import.
     #[error(transparent)]
     SharedHistory(std::sync::Arc<LedgerError>),
+    #[error(transparent)]
+    SharedStats(std::sync::Arc<LedgerError>),
 }
 
 impl LedgerError {
-    /// The original typed failure, before sharing it with concurrent history readers.
+    /// The original typed failure, before sharing it with concurrent readers.
     pub fn unshared(&self) -> &Self {
         let mut error = self;
-        while let Self::SharedHistory(shared) = error { error = shared; }
+        while let Self::SharedHistory(shared) | Self::SharedStats(shared) = error { error = shared; }
         error
     }
 }

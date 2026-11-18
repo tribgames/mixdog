@@ -170,7 +170,7 @@ pub struct RemoteCapabilities {
     pub visualize: bool,
     /// The host file download lane (`transfer/*`).
     pub file_downloads: bool,
-    /// A handoff secret typed on the phone (`approval/provideSecret`).
+    /// Legacy flag, always false: handoff secrets must be entered on the PC.
     pub secret_input: bool,
     /// The WebRTC live view's version (Node's `REMOTE_WEBRTC_VERSION`); 0 when it is not served.
     pub browser_webrtc: u32,

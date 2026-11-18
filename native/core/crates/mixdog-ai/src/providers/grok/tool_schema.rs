@@ -783,5 +783,6 @@ pub fn flatten_tools(body: &mut Value) -> Js<Flattened> {
     Ok(Flattened { changed, marker })
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 mod tests;

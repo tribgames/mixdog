@@ -14,30 +14,56 @@ function fake(handlers) {
   };
 }
 
-test('a core behind the generation is told the profile and reports what moved', async () => {
+test('a core that has moved SSH hosts but not editor settings is told the profile', async () => {
   const client = fake({
-    'migrate/profile/status': () => ({ generation: 1, profile: null, completedWithProfile: false }),
-    'migrate/profile/adopt': () => ({ generation: 2, moved: ['ssh-hosts.json'] }),
+    'migrate/profile/status': () => ({ generation: 2, profile: 'C:\\profile', completedWithProfile: true }),
+    'migrate/profile/adopt': () => ({ generation: 3, moved: ['User/settings.json'] }),
   });
-  assert.deepEqual(await adoptProfileIfBehind(client, 'C:\\profile'), { adopted: true, moved: ['ssh-hosts.json'] });
+  assert.deepEqual(await adoptProfileIfBehind(client, 'C:\\profile'), { adopted: true, moved: ['User/settings.json'] });
   assert.deepEqual(client.calls, [
     ['migrate/profile/status', {}],
     ['migrate/profile/adopt', { userData: 'C:\\profile' }],
   ]);
 });
 
-test('a core at the generation is left alone', async () => {
-  const client = fake({ 'migrate/profile/status': () => ({ generation: 2, profile: 'x', completedWithProfile: true }) });
+test('a core at the generation with a canonical preference is left alone', async () => {
+  const client = fake({
+    'migrate/profile/status': () => ({ generation: 3, profile: 'p', completedWithProfile: true }),
+    'config/read': () => ({ config: { 'desktop.editor.markdownDefaultView': null } }),
+  });
   assert.deepEqual(await adoptProfileIfBehind(client, 'p'), { adopted: false, moved: [] });
-  assert.equal(client.calls.length, 1);
+  assert.deepEqual(client.calls, [
+    ['migrate/profile/status', {}],
+    ['config/read', { keys: ['desktop.editor.markdownDefaultView'] }],
+  ]);
+});
+
+test('reattaching retries an unfinished preference import after the files have moved', async () => {
+  let generation = 2;
+  let config = {};
+  const client = fake({
+    'migrate/profile/status': () => ({ generation, profile: 'p', completedWithProfile: true }),
+    'config/read': () => ({ config }),
+    'migrate/profile/adopt': () => {
+      if (generation === 2) {
+        generation = 3;
+        throw new Error('preference write failed');
+      }
+      config = { 'desktop.editor.markdownDefaultView': 'rich' };
+      return { generation, moved: [] };
+    },
+  });
+  assert.deepEqual(await adoptProfileIfBehind(client, 'p'), { adopted: false, moved: [] });
+  assert.deepEqual(await adoptProfileIfBehind(client, 'p'), { adopted: true, moved: [] });
+  assert.deepEqual(await adoptProfileIfBehind(client, 'p'), { adopted: false, moved: [] });
 });
 
 test('the expected generation is a parameter', async () => {
   const client = fake({
-    'migrate/profile/status': () => ({ generation: 2, profile: null, completedWithProfile: false }),
-    'migrate/profile/adopt': () => ({ generation: 3, moved: [] }),
+    'migrate/profile/status': () => ({ generation: 3, profile: 'p', completedWithProfile: true }),
+    'migrate/profile/adopt': () => ({ generation: 4, moved: [] }),
   });
-  assert.equal((await adoptProfileIfBehind(client, 'p', 3)).adopted, true);
+  assert.equal((await adoptProfileIfBehind(client, 'p', 4)).adopted, true);
 });
 
 test('a failing status or adopt is logged and not thrown', async () => {

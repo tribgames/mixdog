@@ -75,9 +75,10 @@ pub trait SweepStore: Send + Sync {
     /// The session owns a non-closed runtime entry (`_isSessionLive`). Only the verdict's input:
     /// a mutation never relies on it.
     fn is_live(&self, id: &str) -> bool;
-    /// Removes the session scratch folders that belong to none of `stored`, the ids of every
-    /// stored session as this pass read them. A store without scratch folders does nothing.
-    async fn reap_scratch(&self, _stored: &[String]) {}
+    /// Removes the session scratch folders whose session is known not to exist. What the store
+    /// lists is the store's to say, not the pass's: a session the pass could not judge still
+    /// exists. A store without scratch folders does nothing.
+    async fn reap_scratch(&self) {}
 }
 
 /// What one pass did (`sweepStaleSessions`' tally).
@@ -169,9 +170,7 @@ pub async fn sweep_once(store: &dyn SweepStore, now: i64) -> Result<Tally, Strin
         }
     }
     prune_open(store, now, candidates, &mut tally).await;
-    // Every id the pass read, the ones it just deleted included: their folders went with them.
-    let stored: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
-    store.reap_scratch(&stored).await;
+    store.reap_scratch().await;
     Ok(tally)
 }
 
@@ -195,48 +194,18 @@ async fn prune_open(store: &dyn SweepStore, now: i64, mut candidates: Vec<(&Swee
     }
 }
 
-fn now_ms() -> i64 {
-    mixdog_rt::wall_clock!()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
-}
-
-/// `startIdleCleanup`: one cycle per interval, the first after one interval, a cycle never
-/// overlapping the next. Returns once `stop` is cancelled. Needs the proof that startup (the
-/// ownership lock, the prior-owner verdict, the claim barrier, the migration) has finished: no
-/// sweep may touch a data directory before then.
-pub async fn run(_started: crate::startup::Started, store: Arc<dyn SweepStore>, interval: Duration, stop: CancellationToken) {
-    loop {
-        let due = mixdog_rt::ticker().wait_until(Instant::now() + interval);
-        tokio::select! {
-            () = stop.cancelled() => return,
-            () = due => {}
-        }
-        match sweep_once(store.as_ref(), now_ms()).await {
-            Ok(tally) if !tally.cleaned.is_empty() || !tally.tombstones_cleaned.is_empty() || !tally.open_pruned.is_empty() => {
-                tracing::debug!(
-                    closed = tally.cleaned.len(),
-                    tombstones = tally.tombstones_cleaned.len(),
-                    pruned = tally.open_pruned.len(),
-                    remaining = tally.remaining,
-                    "idle sweep"
-                );
-            }
-            Ok(_) => {}
-            Err(error) => mixdog_rt::node_stderr!("[agent-session] idle sweep error: {error}"),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use std::collections::HashSet;
+    #[cfg(node_twin)]
     use std::sync::Mutex;
 
     use super::*;
 
     const NOW: i64 = 10_000_000_000;
 
+    #[cfg(node_twin)]
     #[derive(Default)]
     struct Store {
         rows: Vec<SweepRow>,
@@ -247,6 +216,7 @@ mod tests {
         log: Mutex<Vec<String>>,
     }
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl SweepStore for Store {
         async fn rows(&self) -> Result<Vec<SweepRow>, String> {
@@ -265,12 +235,35 @@ mod tests {
         }
     }
 
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/idle-sweep/golden.json");
-
+    #[cfg(node_twin)]
     fn ids(value: &serde_json::Value) -> Vec<String> {
         value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect()
     }
+    #[tokio::test]
+    async fn an_unreadable_store_is_not_swept() {
+        struct Broken;
+        #[async_trait]
+        impl SweepStore for Broken {
+            async fn rows(&self) -> Result<Vec<SweepRow>, String> {
+                Err("EACCES".into())
+            }
+            async fn close_idle(&self, _: &SweepRow) -> Result<bool, String> {
+                unreachable!()
+            }
+            async fn delete(&self, _: &SweepRow) -> Result<bool, String> {
+                unreachable!()
+            }
+            fn is_live(&self, _: &str) -> bool {
+                false
+            }
+        }
+        assert_eq!(sweep_once(&Broken, NOW).await.unwrap_err(), "EACCES");
+    }
 
+
+    #[cfg(node_twin)]
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/idle-sweep/golden.json");
+    #[cfg(node_twin)]
     /// Each scenario is a set of session records and the tally Node's `sweepStaleSessions` returned
     /// for them over a real store (`record-idle-sweep.mjs`).
     #[tokio::test]
@@ -310,24 +303,37 @@ mod tests {
             assert_eq!(sorted(tally.tombstone_errors.into_iter().map(|(id, _)| id).collect()), ids(&scenario["tombstoneErrors"]), "{name}: unlink errors");
         }
     }
-    #[tokio::test]
-    async fn an_unreadable_store_is_not_swept() {
-        struct Broken;
-        #[async_trait]
-        impl SweepStore for Broken {
-            async fn rows(&self) -> Result<Vec<SweepRow>, String> {
-                Err("EACCES".into())
-            }
-            async fn close_idle(&self, _: &SweepRow) -> Result<bool, String> {
-                unreachable!()
-            }
-            async fn delete(&self, _: &SweepRow) -> Result<bool, String> {
-                unreachable!()
-            }
-            fn is_live(&self, _: &str) -> bool {
-                false
-            }
+}
+
+
+fn now_ms() -> i64 {
+    mixdog_rt::wall_clock!()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
+}
+/// `startIdleCleanup`: one cycle per interval, the first after one interval, a cycle never
+/// overlapping the next. Returns once `stop` is cancelled. Needs the proof that startup (the
+/// ownership lock, the prior-owner verdict, the claim barrier, the migration) has finished: no
+/// sweep may touch a data directory before then.
+pub async fn run(_started: crate::startup::Started, store: Arc<dyn SweepStore>, interval: Duration, stop: CancellationToken) {
+    loop {
+        let due = mixdog_rt::ticker().wait_until(Instant::now() + interval);
+        tokio::select! {
+            () = stop.cancelled() => return,
+            () = due => {}
         }
-        assert_eq!(sweep_once(&Broken, NOW).await.unwrap_err(), "EACCES");
+        match sweep_once(store.as_ref(), now_ms()).await {
+            Ok(tally) if !tally.cleaned.is_empty() || !tally.tombstones_cleaned.is_empty() || !tally.open_pruned.is_empty() => {
+                tracing::debug!(
+                    closed = tally.cleaned.len(),
+                    tombstones = tally.tombstones_cleaned.len(),
+                    pruned = tally.open_pruned.len(),
+                    remaining = tally.remaining,
+                    "idle sweep"
+                );
+            }
+            Ok(_) => {}
+            Err(error) => mixdog_rt::node_stderr!("[agent-session] idle sweep error: {error}"),
+        }
     }
 }

@@ -177,6 +177,31 @@ fn failure_text(failure: &LoginFailure) -> String {
     }
 }
 
+/// How long a provider's browser login waits for the sign-in (`LOGIN_TIMEOUT_MS`), and the failure text its own
+/// timer ends it with; `None` text is a login that settled falsy ("did not complete"). A device-code login
+/// (`LoginState::DeviceCode`) has no such timer here: Node's are longer than the registry's own expiry, which then
+/// ends it (OpenAI's 15 min, openai-oauth-login.mjs:29/:170-173; Grok's `max(expires_in, 600)` s from the poll's
+/// start, grok-oauth-login.mjs:42/:213), and Cursor's poll runs 150 attempts (cursor-auth.mjs:267), also longer.
+/// Node's browser timers, all `src/runtime/agent/orchestrator/providers/`: openai-oauth-login.mjs:26/:299,
+/// grok-oauth-tokens.mjs:92 with grok-oauth-login.mjs:368, anthropic-oauth-credentials.mjs:78/:770,
+/// devin-auth.mjs:31/:394, mimo-oauth-tokens.mjs:19 with mimo-oauth-login.mjs:148-150,
+/// antigravity-oauth-tokens.mjs:76 with antigravity-oauth-login.mjs:395, command-code-oauth-tokens.mjs:22 with
+/// command-code-oauth-login.mjs:196.
+fn login_deadline(provider: &str, device: bool) -> Option<(Duration, Option<&'static str>)> {
+    if device {
+        return None;
+    }
+    let minutes = |n: u64| Duration::from_secs(n * 60);
+    Some(match provider {
+        "openai-oauth" | "grok-oauth" | "anthropic-oauth" => (minutes(5), None),
+        "devin-oauth" => (minutes(5), Some("Browser authentication timed out after 300000ms")),
+        "mimo-oauth" => (minutes(5), Some("[mimo-oauth] login timed out after 300s")),
+        "antigravity-oauth" => (minutes(5), Some("[antigravity-oauth] browser authentication timed out after 300000ms")),
+        "command-code-oauth" => (minutes(2), Some("[command-code-oauth] login timed out after 120s")),
+        _ => return None,
+    })
+}
+
 #[derive(Clone)]
 pub struct OAuthFlows {
     inner: Arc<Mutex<Registry>>,
@@ -193,6 +218,21 @@ impl OAuthFlows {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// A newer login of `provider` is about to start: the pending one ends as superseded first, so its callback
+    /// server and flow slot are free (Node's registry supersedes it, and never refuses the new login as busy).
+    /// The cancelled session is returned: its `released` resolves when the slot and port are free, which the
+    /// newer login awaits (an event, not a retry count).
+    pub fn supersede(&self, provider: &str) -> Option<Arc<dyn LoginSession>> {
+        let mut reg = self.lock();
+        let prior = reg.active_by_provider.get(mixdog_js::js_trim(provider)).cloned()?;
+        if !reg.finish(&prior, State::Cancelled, Some("Superseded by a newer OAuth login.".into()), Ending::None) {
+            return None;
+        }
+        let session = reg.flows[&prior].session.clone();
+        session.cancel();
+        Some(session)
+    }
+
     /// `register`: keeps the live session and answers its status. A newer login of the same
     /// provider supersedes a pending one.
     pub fn register(&self, provider: &str, session: Box<dyn LoginSession>, settle: Settle) -> Result<Value, Failure> {
@@ -201,6 +241,8 @@ impl OAuthFlows {
             return Err(Failure::error("OAuth provider login is missing its provider id."));
         }
         let session: Arc<dyn LoginSession> = Arc::from(session);
+        let provider_id = provider.clone();
+        let device = session.device_code();
         let (id, status) = {
             let mut reg = self.lock();
             if let Some(prior) = reg.active_by_provider.get(&provider).cloned()
@@ -214,7 +256,7 @@ impl OAuthFlows {
                 id: id.clone(),
                 provider: provider.clone(),
                 session: session.clone(),
-                shown: Shown::of(&session.state()).unwrap_or_default(),
+                shown: Shown::of(&session.started()).unwrap_or_default(),
                 state: State::Pending,
                 error: None,
                 ending: Ending::None,
@@ -231,10 +273,17 @@ impl OAuthFlows {
         let this = self.clone();
         let expiry_id = id.clone();
         let ttl = self.ttl;
+        // The provider's own login deadline (`LOGIN_TIMEOUT_MS`) ends the sign-in before the registry's expiry does.
+        let deadline = login_deadline(&provider_id, device).filter(|(after, _)| *after < ttl);
         let timeout = tokio::spawn(async move {
-            mixdog_rt::time::sleep(ttl).await;
+            mixdog_rt::time::sleep(deadline.map_or(ttl, |(after, _)| after)).await;
             let mut reg = this.lock();
-            if reg.finish(&expiry_id, State::Expired, Some("OAuth login expired.".into()), Ending::None) {
+            let ended = match deadline {
+                Some((_, Some(message))) => reg.finish(&expiry_id, State::Failed, Some(message.into()), Ending::Threw(message.into())),
+                Some((_, None)) => reg.finish(&expiry_id, State::Failed, Some("OAuth login did not complete.".into()), Ending::None),
+                None => reg.finish(&expiry_id, State::Expired, Some("OAuth login expired.".into()), Ending::None),
+            };
+            if ended {
                 reg.flows[&expiry_id].session.cancel();
             }
         });

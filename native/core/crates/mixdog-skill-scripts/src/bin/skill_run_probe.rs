@@ -12,5 +12,6 @@ fn main() -> ExitCode {
         (Some(program), Some(entry)) => UserScriptRuntime::Interpreter { program: PathBuf::from(program), entry: PathBuf::from(entry), electron: false },
         _ => UserScriptRuntime::Unavailable { reason: "no interpreter is configured".to_owned() },
     };
-    mixdog_skill_scripts::skill_run(std::env::args_os().skip(1).collect(), runtime)
+    // The launchers start this program with the `skill-run` word, as they start `mixdogd`; it is not part of the script's arguments.
+    mixdog_skill_scripts::skill_run(std::env::args_os().skip(2).collect(), runtime)
 }

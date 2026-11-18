@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 import i18n from './i18n.ts';
 import { CompletionStatus, ContextUsageIndicator } from './transcript-status.tsx';
+import { TranscriptRow } from './transcript-row.tsx';
 import { DESKTOP_TOAST_EVENT } from './desktop-toasts.tsx';
 import { modelDisplayName } from './provider-display.tsx';
 
@@ -57,6 +58,23 @@ test('inheritance completion renders a distinct, accessible conversation boundar
     assert.doesNotMatch(status.textContent, /compacted/i);
   } finally {
     dom.window.close();
+  }
+});
+
+test('a quota fallback renders a switch divider with the localized reason and both model names', async () => {
+  const previousLang = i18n.language;
+  try {
+    await i18n.changeLanguage('ko');
+    const item = {
+      kind: 'notice',
+      text: 'Claude Fable 5.2 usage limit reached — switched to GPT-6.2-Astra.',
+    };
+    const row = JSDOM.fragment(renderToStaticMarkup(React.createElement(TranscriptRow, { item })));
+    const divider = row.querySelector('.compaction-divider[role="status"]');
+    assert.ok(divider?.querySelector('svg.lucide-arrow-left-right'));
+    assert.match(divider.textContent, /^Claude Fable 5\.2 한도 소진 — GPT-6\.2-Astra.*로 전환합니다\.$/);
+  } finally {
+    await i18n.changeLanguage(previousLang);
   }
 });
 

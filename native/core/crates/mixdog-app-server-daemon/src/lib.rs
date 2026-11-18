@@ -11,6 +11,7 @@ use mixdog_rt::exec::Executors;
 use mixdog_rt::exec::RtConfig;
 
 pub mod acquired;
+mod desktop_confirmation;
 pub mod agent_lifecycle;
 pub mod barrier;
 pub mod boot_coordinator;
@@ -22,7 +23,7 @@ pub mod compose;
 #[cfg(test)]
 mod compose_test_support;
 pub mod compose_core;
-#[cfg(all(test, windows))]
+#[cfg(all(test, windows, node_twin))]
 mod lead_request_tests;
 pub mod compose_mcp;
 pub mod compose_computer;
@@ -31,6 +32,7 @@ pub mod compose_screen;
 pub mod computer_control;
 pub mod computer_gate;
 pub mod computer_pointer_service;
+pub mod computer_scope_report_service;
 pub mod browser_engine_service;
 pub mod compose_browser_engine;
 pub mod compose_connections;
@@ -42,6 +44,7 @@ pub mod code_graph_trust;
 pub mod worktree_cache_cleanups;
 pub mod compose_flip;
 mod compose_desktop_files;
+mod compose_media_lease;
 #[cfg(feature = "replay-controls")]
 mod replay_stores_settled;
 #[cfg(feature = "test-hooks")]
@@ -53,8 +56,11 @@ pub mod late_lifecycle;
 pub mod memory_agent_watch;
 pub mod prewarm_world;
 pub mod setup_host;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod warmup_schedulers_replay;
+#[cfg(test)]
+mod warmup_scheduler_tests;
 pub mod compose_domains;
 pub mod late_live_route;
 pub mod late_route_positions;
@@ -76,12 +82,22 @@ pub mod domain_seams;
 pub mod js_runtime;
 pub mod event_pipeline;
 pub mod held_requests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod held_runs_tests;
 #[cfg(test)]
+mod held_run_scenes;
+#[cfg(test)]
 mod workers_stop_tests;
 #[cfg(test)]
+mod ssh_origin_tests;
+#[cfg(test)]
+mod model_proxy_client_tests;
+#[cfg(node_twin)]
+#[cfg(test)]
 mod session_host_replay_tests;
+#[cfg(test)]
+mod session_host_tests;
 pub mod memory_callers;
 pub mod hook_rule_setup;
 pub mod setup_status;
@@ -151,10 +167,10 @@ pub fn boot_executors() -> Result<(Arc<Executors>, LaneTokens), ServeError> {
 ///
 /// The process has no runtime of its own: the calling thread blocks inside RT-W's context, so the composition's tasks and every ambient `Handle::current()` land on the
 /// executors, and the connection tasks the transport spawns with `TaskClass::Control` run on RT-C. Blocking work goes to the lanes, never to either runtime.
-pub fn run() -> Result<(), ServeError> {
+pub fn run(desktop_confirmation_pipe: bool) -> Result<(), ServeError> {
     adopt_login_shell_environment(std::io::IsTerminal::is_terminal(&std::io::stdin()));
     let (executors, tokens) = boot_executors()?;
-    match executors.handle(TaskClass::Work).block_on(serve(&executors, tokens)) {
+    match executors.handle(TaskClass::Work).block_on(serve(&executors, tokens, desktop_confirmation_pipe)) {
         Err(ServeError::Startup(startup::StartupError::Ownership(ownership::AcquireError::AlreadyOwned))) => {
             crash_record::yield_ownership(discovery::running_core_pid());
             Ok(())
@@ -201,7 +217,7 @@ fn adopt_login_shell_environment(started_from_terminal: bool) {
 /// Composes the core and serves until the process is told to stop.
 ///
 /// The core is the real composition (see [`compose`]); the transport and the server attach here.
-async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), ServeError> {
+async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmation_pipe: bool) -> Result<(), ServeError> {
     let booted_at = std::time::Instant::now();
     // Every install ships the manifest: a missing or broken one is a startup error.
     let js_runtime = js_runtime::resolve_current_on(tokens.interactive_io).await?;
@@ -237,11 +253,12 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     let stop = mixdog_rt::CancellationToken::new();
     let log = daemon_log::DaemonLog::new(data_dir.join("daemon.log"), tokens.maintenance_io, stop.clone());
     log.attach_memory_log(daemon_log::DaemonLog::new(data_dir.join("memory-runtime-proxy.log"), tokens.maintenance_io, stop.clone()));
+    daemon_log::attach_topic_logs(&log, &data_dir, tokens.maintenance_io, &stop);
     // The memory worker starts during composition and mirrors its stderr into its proxy log from its first line, ready or not.
     mixdog_rt::node_log::install(log.memory_sink());
     let ready_log = log.clone();
     let sweep_dir = data_dir.clone();
-    let config = compose::ComposeConfig {
+    let config = compose::ComposeConfig { rebuild: booting.discovery.rebuild_progress(),
         user_data_dir: data_dir.join("userdata"),
         runtime_root,
         data_dir,
@@ -259,7 +276,12 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     // A stop that arrives while the core composes (the stop watcher is the one installed at boot) cancels the composition's slow waits, and the composition then fails
     // through its own cleanup: what it had acquired (PostgreSQL) is given back before the error returns. The composition is never dropped half done.
     let interrupt = tokio_util::sync::CancellationToken::new();
-    let composed = watch.drive(compose::compose_interruptible(&tokens, config, interrupt.clone()), || interrupt.cancel()).await;
+    let sessions_bound = tokio_util::sync::CancellationToken::new();
+    let cutover = behind.as_ref().map(|back| compose::Cutover {
+        legacy_homes: back.legacy_homes.clone(),
+        sessions_bound: sessions_bound.clone(),
+    });
+    let composed = watch.drive(compose::compose_for_cutover(&tokens, config, interrupt.clone(), cutover), || interrupt.cancel()).await;
     let core = match composed {
         Ok(core) => std::sync::Arc::new(core),
         Err(error) => {
@@ -290,6 +312,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
             }
         }
     }
+    sessions_bound.cancel();
     // From here the core's own stop procedure gives everything back: a failure before the core serves runs it with Node's boot-error reason (`daemon.mjs:1347`).
     let served = async {
         let serving = serving::attach(booting, core.clone(), outgoing).await?;
@@ -304,6 +327,9 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
             return Err(error);
         }
     };
+    if desktop_confirmation_pipe {
+        desktop_confirmation::start(core.clone(), executors.handle(TaskClass::Work));
+    }
     // Node's ready boundary (`announceDaemonReady`, daemon.mjs:836-845): `enableFileLogging()` then `installRedirect()`. From here the file has
     // the log, and a line Node writes to its stderr lands where its redirect put it (`mixdog_rt::node_log`): the memory worker's in its own
     // proxy log, every other in `daemon.log`, each as a `[<ISO>] ` row.

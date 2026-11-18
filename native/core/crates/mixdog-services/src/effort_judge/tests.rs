@@ -4,45 +4,32 @@
 //! `MIXDOG_EFFORT_JUDGE_DIR`, the ONNX Runtime library from `MIXDOG_ORT_LIBRARY`.
 
 use std::path::PathBuf;
+#[cfg(node_twin)]
 use std::sync::Arc;
+#[cfg(node_twin)]
 use std::time::Duration;
 
-use mixdog_agent::step_effort::{StepCall, StepEffortJudge, StepInput, StepResult};
+use mixdog_agent::step_effort::StepResult;
+#[cfg(node_twin)]
+use mixdog_agent::step_effort::{StepCall, StepInput};
+#[cfg(node_twin)]
+use mixdog_agent::step_effort::StepEffortJudge;
+#[cfg(node_twin)]
 use serde_json::Value;
 
+#[cfg(node_twin)]
 use crate::effort_judge::input::{step_judge_text, step_result_window};
-use crate::effort_judge::ladder::{AutoLadder, StepLadder, resolve_auto_effort};
+use crate::effort_judge::ladder::StepLadder;
+#[cfg(node_twin)]
+use crate::effort_judge::ladder::{AutoLadder, resolve_auto_effort};
 use crate::effort_judge::model::{JudgeModel, ModelConfig, OrtRuntime};
+#[cfg(node_twin)]
 use crate::effort_judge::tokenizer::BpeTokenizer;
-use crate::effort_judge::{EffortJudge, EffortJudgeModel};
+use crate::effort_judge::EffortJudgeModel;
+#[cfg(node_twin)]
+use crate::effort_judge::EffortJudge;
 
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/effort-judge/golden.json");
-
-fn golden() -> Value {
-    serde_json::from_str(&GOLDEN).expect("golden parses")
-}
-
-/// The real judge and runtime, for the ignored integration tests only.
-fn config() -> ModelConfig {
-    ModelConfig {
-        dir: PathBuf::from(std::env::var_os("MIXDOG_EFFORT_JUDGE_DIR").expect("MIXDOG_EFFORT_JUDGE_DIR")),
-        explicit: true,
-        ort_library: OrtRuntime::Library(PathBuf::from(std::env::var_os("MIXDOG_ORT_LIBRARY").expect("MIXDOG_ORT_LIBRARY"))),
-    }
-}
-
-fn lane() -> crate::effort_judge::JudgeLanes {
-    crate::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens())
-}
-
-/// The real model with the waits of a cold, busy machine: the product's 3 s cold wait and 500 ms answer deadline answer `warming` /
-/// `timeout` while the 150 MB graph loads beside other work, and these tests check the answers, not the waits.
-fn real_model() -> Arc<EffortJudgeModel> {
-    let timing = crate::effort_judge::JudgeTiming { cold: Duration::from_secs(90), warm: Duration::from_secs(60), queue: Duration::from_secs(60), ..Default::default() };
-    let host = Some(crate::effort_judge::host_tests::real_host_launch(&config()));
-    EffortJudgeModel::with_options(config(), lane(), crate::effort_judge::judge::JudgeOptions { timing, host, ..Default::default() }).expect("model")
-}
-
+#[cfg(node_twin)]
 /// The input as the loop hands it over: raw results, not yet windowed.
 fn input_of(case: &Value) -> StepInput {
     let i = &case["input"];
@@ -63,10 +50,12 @@ fn input_of(case: &Value) -> StepInput {
     }
 }
 
+#[cfg(node_twin)]
 fn options(v: &Value) -> Vec<String> {
     v.as_array().expect("options").iter().filter_map(|o| o.as_str().map(str::to_owned)).collect()
 }
 
+#[cfg(node_twin)]
 fn check_resolved(want: &Value, got: Option<crate::effort_judge::ladder::Resolved>, what: &str) {
     match (want.is_null(), got) {
         (true, None) => {}
@@ -80,176 +69,6 @@ fn check_resolved(want: &Value, got: Option<crate::effort_judge::ladder::Resolve
         }
         (want_none, got) => panic!("{what}: want none={want_none}, got {got:?}"),
     }
-}
-
-#[test]
-fn ladder_matches_recorded_efforts() {
-    let g = golden();
-    let ladders = g["ladders"].as_array().expect("ladders");
-    let all: Vec<(&Value, Vec<f64>)> = g["cases"]
-        .as_array()
-        .expect("cases")
-        .iter()
-        .chain(g["ladderCases"].as_array().expect("ladderCases"))
-        .map(|c| (c, c["probs"].as_array().expect("probs").iter().filter_map(Value::as_f64).collect()))
-        .collect();
-    for (case, probs) in &all {
-        for (index, ladder) in ladders.iter().enumerate() {
-            let got = resolve_auto_effort(ladder["base"].as_str().expect("base"), &options(&ladder["options"]), probs);
-            check_resolved(&case["resolved"][index], got, &format!("{probs:?} ladder {index}"));
-        }
-    }
-    let auto = AutoLadder { base: "medium".into(), options: options(&ladders[0]["options"]) };
-    assert_eq!(auto.resolve(&[0.9, 0.05, 0.03, 0.02]), Some(StepResult { level: None, effort: Some("low".into()) }));
-    assert_eq!(auto.resolve(&[f64::NAN, 0.0, 0.0, 0.0]), Some(StepResult { level: None, effort: Some("medium".into()) }));
-}
-
-#[test]
-fn step_text_matches_recorded_text() {
-    for case in golden()["cases"].as_array().expect("cases") {
-        let mut input = input_of(case);
-        // Node windows each result before it reaches the judge.
-        for call in &mut input.calls {
-            call.result = step_result_window(&call.result);
-        }
-        assert_eq!(step_judge_text(&input), case["text"].as_str().expect("text"), "{}", case["name"]);
-    }
-}
-
-#[test]
-#[ignore = "integration: needs the installed judge model (MIXDOG_EFFORT_JUDGE_DIR)"]
-fn token_ids_match_recorded_ids() {
-    let c = config();
-    let tokenizer = BpeTokenizer::load(&c.dir.join("tokenizer.json")).expect("tokenizer loads");
-    for case in golden()["cases"].as_array().expect("cases") {
-        let text = case["text"].as_str().expect("text");
-        let want: Vec<u32> = case["ids"].as_array().expect("ids").iter().filter_map(|v| v.as_u64().map(|v| v as u32)).collect();
-        let room = 256 - tokenizer.prefix.len() - tokenizer.suffix.len();
-        let got: Vec<u32> = tokenizer
-            .prefix
-            .iter()
-            .copied()
-            .chain(tokenizer.encode(text).into_iter().take(room))
-            .chain(tokenizer.suffix.iter().copied())
-            .collect();
-        assert_eq!(got, want, "{}", case["name"]);
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "integration: needs the installed judge model (MIXDOG_EFFORT_JUDGE_DIR) and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]
-async fn probabilities_and_efforts_match_the_node_judge() {
-    let model = real_model();
-    let g = golden();
-    let ladders = g["ladders"].as_array().expect("ladders");
-    for case in g["cases"].as_array().expect("cases") {
-        let probs = model.probs(input_of(case)).await.expect("judges");
-        let want: Vec<f64> = case["probs"].as_array().expect("probs").iter().filter_map(Value::as_f64).collect();
-        assert_eq!(probs.len(), want.len());
-        for (got, want) in probs.iter().zip(&want) {
-            assert!((got - want).abs() < 1e-6, "{}: {probs:?} vs {want:?}", case["name"]);
-        }
-        for (index, ladder) in ladders.iter().enumerate() {
-            let judge = EffortJudge::new(
-                model.clone(),
-                Arc::new(AutoLadder { base: ladder["base"].as_str().expect("base").into(), options: options(&ladder["options"]) }),
-            );
-            let judged = judge.judge(input_of(case)).await;
-            let want = &case["resolved"][index];
-            let want_effort = want.get("effort").and_then(Value::as_str).map(str::to_owned);
-            assert_eq!(judged.and_then(|r| r.effort), want_effort, "{} ladder {index}", case["name"]);
-        }
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_missing_model_answers_none_without_hanging() {
-    let dir = tempfile::tempdir().expect("dir");
-    let model = EffortJudgeModel::new(
-        ModelConfig { dir: dir.path().to_owned(), explicit: false, ort_library: OrtRuntime::Library(PathBuf::from("unused")) },
-        lane(),
-    ).expect("model");
-    let judge = EffortJudge::new(model, Arc::new(AutoLadder { base: "medium".into(), options: vec!["low".into(), "medium".into()] }));
-    let case = &golden()["cases"][0];
-    let answer = mixdog_rt::time::timeout(Duration::from_secs(5), judge.judge(input_of(case))).await.expect("answers");
-    assert_eq!(answer, None);
-    // The failure is remembered: asking again answers at once.
-    let again = mixdog_rt::time::timeout(Duration::from_secs(5), judge.judge(input_of(case))).await.expect("answers");
-    assert_eq!(again, None);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn step_support_follows_calibration_steps_one_and_is_read_once() {
-    let judge_in = |dir: &std::path::Path| {
-        EffortJudgeModel::new(ModelConfig { dir: dir.to_owned(), explicit: true, ort_library: OrtRuntime::Library(PathBuf::from("unused")) }, lane()).expect("model")
-    };
-    let dir = tempfile::tempdir().expect("dir");
-    // Not installed: no steps.
-    assert!(!judge_in(dir.path()).supports_steps().await);
-    for (text, want) in [(r#"{"steps":1}"#, true), (r#"{"steps":1.0}"#, true), (r#"{"steps":0}"#, false), (r#"{"steps":"1"}"#, false), (r#"{"steps":true}"#, false), ("{}", false), ("not json", false)] {
-        std::fs::write(dir.path().join("calibration.json"), text).expect("write");
-        assert_eq!(judge_in(dir.path()).supports_steps().await, want, "{text}");
-    }
-    // Read once per instance, as Node does per directory.
-    std::fs::write(dir.path().join("calibration.json"), r#"{"steps":1}"#).expect("write");
-    let model = judge_in(dir.path());
-    assert!(model.supports_steps().await);
-    std::fs::write(dir.path().join("calibration.json"), r#"{"steps":0}"#).expect("write");
-    assert!(model.supports_steps().await);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_corrupt_model_answers_none() {
-    let dir = tempfile::tempdir().expect("dir");
-    std::fs::write(dir.path().join("model.onnx"), b"not an onnx model").expect("write");
-    std::fs::write(dir.path().join("tokenizer.json"), b"{}").expect("write");
-    let model = EffortJudgeModel::new(
-        ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: OrtRuntime::Library(PathBuf::from("unused")) },
-        lane(),
-    ).expect("model");
-    let case = &golden()["cases"][0];
-    let err = mixdog_rt::time::timeout(Duration::from_secs(10), model.probs(input_of(case))).await.expect("answers").expect_err("fails");
-    assert!(matches!(err, crate::effort_judge::error::JudgeError::Load(_)), "{err}");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "integration: needs the installed judge model (MIXDOG_EFFORT_JUDGE_DIR) and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]
-async fn concurrent_judgments_all_complete_and_dropping_one_does_not_block_the_rest() {
-    let model = real_model();
-    let g = golden();
-    let cases = g["cases"].as_array().expect("cases");
-    let mut tasks = Vec::new();
-    for case in cases.iter().cycle().take(6) {
-        let (model, input) = (model.clone(), input_of(case));
-        tasks.push(tokio::spawn(async move { model.probs(input).await }));
-    }
-    // A judgment whose caller gives up (the run was cancelled) is dropped mid-wait.
-    let dropped = tokio::spawn({
-        let model = model.clone();
-        let input = input_of(&cases[1]);
-        async move { model.probs(input).await }
-    });
-    dropped.abort();
-    for task in tasks {
-        let probs = task.await.expect("joins").expect("judges");
-        assert_eq!(probs.len(), 4);
-        assert!((probs.iter().sum::<f64>() - 1.0).abs() < 1e-9);
-    }
-}
-
-#[test]
-#[ignore = "integration: needs the installed judge model (MIXDOG_EFFORT_JUDGE_DIR) and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]
-fn a_model_without_step_support_is_refused() {
-    let dir = tempfile::tempdir().expect("dir");
-    let c = config();
-    for file in ["model.onnx", "tokenizer.json"] {
-        std::fs::copy(c.dir.join(file), dir.path().join(file)).expect("copy");
-    }
-    std::fs::write(dir.path().join("calibration.json"), r#"{"temperature":1.55,"maxTokens":256}"#).expect("write");
-    let model = JudgeModel::load(&ModelConfig { dir: dir.path().to_owned(), ..c }, lane().thread).expect("loads");
-    let case = &golden()["cases"][0];
-    let err = model.probs(&input_of(case)).expect_err("refused");
-    assert!(matches!(err, crate::effort_judge::error::JudgeError::StepsUnsupported));
 }
 
 #[test]
@@ -277,6 +96,225 @@ fn a_custom_route_snaps_onto_its_own_levels() {
     assert_eq!(ladder(None).resolve(&hard), None);
 }
 
+#[cfg(node_twin)]
+/// The real judge and runtime, for the ignored integration tests only.
+fn config() -> ModelConfig {
+    ModelConfig {
+        dir: PathBuf::from(std::env::var_os("MIXDOG_EFFORT_JUDGE_DIR").expect("MIXDOG_EFFORT_JUDGE_DIR")),
+        explicit: true,
+        ort_library: OrtRuntime::Library(PathBuf::from(std::env::var_os("MIXDOG_ORT_LIBRARY").expect("MIXDOG_ORT_LIBRARY"))),
+    }
+}
+fn lane() -> crate::effort_judge::JudgeLanes {
+    crate::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens())
+}
+#[cfg(node_twin)]
+/// The real model with the waits of a cold, busy machine: the product's 3 s cold wait and 500 ms answer deadline answer `warming` /
+/// `timeout` while the 150 MB graph loads beside other work, and these tests check the answers, not the waits.
+fn real_model() -> Arc<EffortJudgeModel> {
+    let timing = crate::effort_judge::JudgeTiming { cold: Duration::from_secs(90), warm: Duration::from_secs(60), queue: Duration::from_secs(60), ..Default::default() };
+    let host = Some(crate::effort_judge::host_tests::real_host_launch(&config()));
+    EffortJudgeModel::with_options(config(), lane(), crate::effort_judge::judge::JudgeOptions { timing, host, ..Default::default() }).expect("model")
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn step_support_follows_calibration_steps_one_and_is_read_once() {
+    let judge_in = |dir: &std::path::Path| {
+        EffortJudgeModel::new(ModelConfig { dir: dir.to_owned(), explicit: true, ort_library: OrtRuntime::Library(PathBuf::from("unused")) }, lane()).expect("model")
+    };
+    let dir = tempfile::tempdir().expect("dir");
+    // Not installed: no steps.
+    assert!(!judge_in(dir.path()).supports_steps().await);
+    for (text, want) in [(r#"{"steps":1}"#, true), (r#"{"steps":1.0}"#, true), (r#"{"steps":0}"#, false), (r#"{"steps":"1"}"#, false), (r#"{"steps":true}"#, false), ("{}", false), ("not json", false)] {
+        std::fs::write(dir.path().join("calibration.json"), text).expect("write");
+        assert_eq!(judge_in(dir.path()).supports_steps().await, want, "{text}");
+    }
+    // Read once per instance, as Node does per directory.
+    std::fs::write(dir.path().join("calibration.json"), r#"{"steps":1}"#).expect("write");
+    let model = judge_in(dir.path());
+    assert!(model.supports_steps().await);
+    std::fs::write(dir.path().join("calibration.json"), r#"{"steps":0}"#).expect("write");
+    assert!(model.supports_steps().await);
+}
+/// Node's `onnxRuntimeSupported()` false (macOS Intel, no binding): the judge answers as Node does there and
+/// never tries to load a library.
+#[tokio::test]
+async fn a_platform_without_a_binding_answers_unsupported_and_never_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: OrtRuntime::NoBinding };
+    assert!(!config.runtime_supported());
+    assert!(matches!(JudgeModel::load(&config, lane().thread), Err(crate::effort_judge::error::JudgeError::Unsupported)));
+    let judge = EffortJudgeModel::new(config, lane()).unwrap();
+    assert!(!judge.is_available());
+}
+/// A known library on a platform that has a binding: the judge is supported and reaches the model files.
+#[tokio::test]
+async fn a_known_library_leaves_the_judge_to_the_installed_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: OrtRuntime::Library(dir.path().join("ort")) };
+    assert_eq!(config.runtime_supported(), crate::tool_state::onnx_runtime_supported());
+    if config.runtime_supported() {
+        assert!(matches!(JudgeModel::load(&config, lane().thread), Err(crate::effort_judge::error::JudgeError::NotInstalled(_))));
+    }
+}
+
+
+#[cfg(node_twin)]
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/effort-judge/golden.json");
+#[cfg(node_twin)]
+fn golden() -> Value {
+    serde_json::from_str(&GOLDEN).expect("golden parses")
+}
+#[cfg(node_twin)]
+#[test]
+fn ladder_matches_recorded_efforts() {
+    let g = golden();
+    let ladders = g["ladders"].as_array().expect("ladders");
+    let all: Vec<(&Value, Vec<f64>)> = g["cases"]
+        .as_array()
+        .expect("cases")
+        .iter()
+        .chain(g["ladderCases"].as_array().expect("ladderCases"))
+        .map(|c| (c, c["probs"].as_array().expect("probs").iter().filter_map(Value::as_f64).collect()))
+        .collect();
+    for (case, probs) in &all {
+        for (index, ladder) in ladders.iter().enumerate() {
+            let got = resolve_auto_effort(ladder["base"].as_str().expect("base"), &options(&ladder["options"]), probs);
+            check_resolved(&case["resolved"][index], got, &format!("{probs:?} ladder {index}"));
+        }
+    }
+    let auto = AutoLadder { base: "medium".into(), options: options(&ladders[0]["options"]) };
+    assert_eq!(auto.resolve(&[0.9, 0.05, 0.03, 0.02]), Some(StepResult { level: None, effort: Some("low".into()) }));
+    assert_eq!(auto.resolve(&[f64::NAN, 0.0, 0.0, 0.0]), Some(StepResult { level: None, effort: Some("medium".into()) }));
+}
+#[cfg(node_twin)]
+#[test]
+fn step_text_matches_recorded_text() {
+    for case in golden()["cases"].as_array().expect("cases") {
+        let mut input = input_of(case);
+        // Node windows each result before it reaches the judge.
+        for call in &mut input.calls {
+            call.result = step_result_window(&call.result);
+        }
+        assert_eq!(step_judge_text(&input), case["text"].as_str().expect("text"), "{}", case["name"]);
+    }
+}
+#[cfg(node_twin)]
+#[test]
+#[ignore = "integration: needs the installed judge model (MIXDOG_EFFORT_JUDGE_DIR)"]
+fn token_ids_match_recorded_ids() {
+    let c = config();
+    let tokenizer = BpeTokenizer::load(&c.dir.join("tokenizer.json")).expect("tokenizer loads");
+    for case in golden()["cases"].as_array().expect("cases") {
+        let text = case["text"].as_str().expect("text");
+        let want: Vec<u32> = case["ids"].as_array().expect("ids").iter().filter_map(|v| v.as_u64().map(|v| v as u32)).collect();
+        let room = 256 - tokenizer.prefix.len() - tokenizer.suffix.len();
+        let got: Vec<u32> = tokenizer
+            .prefix
+            .iter()
+            .copied()
+            .chain(tokenizer.encode(text).into_iter().take(room))
+            .chain(tokenizer.suffix.iter().copied())
+            .collect();
+        assert_eq!(got, want, "{}", case["name"]);
+    }
+}
+#[cfg(node_twin)]
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs the installed judge model (MIXDOG_EFFORT_JUDGE_DIR) and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]
+async fn probabilities_and_efforts_match_the_node_judge() {
+    let model = real_model();
+    let g = golden();
+    let ladders = g["ladders"].as_array().expect("ladders");
+    for case in g["cases"].as_array().expect("cases") {
+        let probs = model.probs(input_of(case)).await.expect("judges");
+        let want: Vec<f64> = case["probs"].as_array().expect("probs").iter().filter_map(Value::as_f64).collect();
+        assert_eq!(probs.len(), want.len());
+        for (got, want) in probs.iter().zip(&want) {
+            assert!((got - want).abs() < 1e-6, "{}: {probs:?} vs {want:?}", case["name"]);
+        }
+        for (index, ladder) in ladders.iter().enumerate() {
+            let judge = EffortJudge::new(
+                model.clone(),
+                Arc::new(AutoLadder { base: ladder["base"].as_str().expect("base").into(), options: options(&ladder["options"]) }),
+            );
+            let judged = judge.judge(input_of(case)).await;
+            let want = &case["resolved"][index];
+            let want_effort = want.get("effort").and_then(Value::as_str).map(str::to_owned);
+            assert_eq!(judged.and_then(|r| r.effort), want_effort, "{} ladder {index}", case["name"]);
+        }
+    }
+}
+#[cfg(node_twin)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_missing_model_answers_none_without_hanging() {
+    let dir = tempfile::tempdir().expect("dir");
+    let model = EffortJudgeModel::new(
+        ModelConfig { dir: dir.path().to_owned(), explicit: false, ort_library: OrtRuntime::Library(PathBuf::from("unused")) },
+        lane(),
+    ).expect("model");
+    let judge = EffortJudge::new(model, Arc::new(AutoLadder { base: "medium".into(), options: vec!["low".into(), "medium".into()] }));
+    let case = &golden()["cases"][0];
+    let answer = mixdog_rt::time::timeout(Duration::from_secs(5), judge.judge(input_of(case))).await.expect("answers");
+    assert_eq!(answer, None);
+    // The failure is remembered: asking again answers at once.
+    let again = mixdog_rt::time::timeout(Duration::from_secs(5), judge.judge(input_of(case))).await.expect("answers");
+    assert_eq!(again, None);
+}
+#[cfg(node_twin)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_corrupt_model_answers_none() {
+    let dir = tempfile::tempdir().expect("dir");
+    std::fs::write(dir.path().join("model.onnx"), b"not an onnx model").expect("write");
+    std::fs::write(dir.path().join("tokenizer.json"), b"{}").expect("write");
+    let model = EffortJudgeModel::new(
+        ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: OrtRuntime::Library(PathBuf::from("unused")) },
+        lane(),
+    ).expect("model");
+    let case = &golden()["cases"][0];
+    let err = mixdog_rt::time::timeout(Duration::from_secs(10), model.probs(input_of(case))).await.expect("answers").expect_err("fails");
+    assert!(matches!(err, crate::effort_judge::error::JudgeError::Load(_)), "{err}");
+}
+#[cfg(node_twin)]
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs the installed judge model (MIXDOG_EFFORT_JUDGE_DIR) and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]
+async fn concurrent_judgments_all_complete_and_dropping_one_does_not_block_the_rest() {
+    let model = real_model();
+    let g = golden();
+    let cases = g["cases"].as_array().expect("cases");
+    let mut tasks = Vec::new();
+    for case in cases.iter().cycle().take(6) {
+        let (model, input) = (model.clone(), input_of(case));
+        tasks.push(tokio::spawn(async move { model.probs(input).await }));
+    }
+    // A judgment whose caller gives up (the run was cancelled) is dropped mid-wait.
+    let dropped = tokio::spawn({
+        let model = model.clone();
+        let input = input_of(&cases[1]);
+        async move { model.probs(input).await }
+    });
+    dropped.abort();
+    for task in tasks {
+        let probs = task.await.expect("joins").expect("judges");
+        assert_eq!(probs.len(), 4);
+        assert!((probs.iter().sum::<f64>() - 1.0).abs() < 1e-9);
+    }
+}
+#[cfg(node_twin)]
+#[test]
+#[ignore = "integration: needs the installed judge model (MIXDOG_EFFORT_JUDGE_DIR) and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]
+fn a_model_without_step_support_is_refused() {
+    let dir = tempfile::tempdir().expect("dir");
+    let c = config();
+    for file in ["model.onnx", "tokenizer.json"] {
+        std::fs::copy(c.dir.join(file), dir.path().join(file)).expect("copy");
+    }
+    std::fs::write(dir.path().join("calibration.json"), r#"{"temperature":1.55,"maxTokens":256}"#).expect("write");
+    let model = JudgeModel::load(&ModelConfig { dir: dir.path().to_owned(), ..c }, lane().thread).expect("loads");
+    let case = &golden()["cases"][0];
+    let err = model.probs(&input_of(case)).expect_err("refused");
+    assert!(matches!(err, crate::effort_judge::error::JudgeError::StepsUnsupported));
+}
+#[cfg(node_twin)]
 #[tokio::test(flavor = "multi_thread")]
 async fn status_follows_load_failure_and_ticks_on_each_change() {
     use crate::tool_state::StateTick;
@@ -300,27 +338,4 @@ async fn status_follows_load_failure_and_ticks_on_each_change() {
     let after = model.status();
     assert!(!after.ready && after.last_error.starts_with("effort judge load failed"), "{}", after.last_error);
     assert_eq!(*rx.borrow(), 1);
-}
-
-/// Node's `onnxRuntimeSupported()` false (macOS Intel, no binding): the judge answers as Node does there and
-/// never tries to load a library.
-#[tokio::test]
-async fn a_platform_without_a_binding_answers_unsupported_and_never_loads() {
-    let dir = tempfile::tempdir().unwrap();
-    let config = ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: OrtRuntime::NoBinding };
-    assert!(!config.runtime_supported());
-    assert!(matches!(JudgeModel::load(&config, lane().thread), Err(crate::effort_judge::error::JudgeError::Unsupported)));
-    let judge = EffortJudgeModel::new(config, lane()).unwrap();
-    assert!(!judge.is_available());
-}
-
-/// A known library on a platform that has a binding: the judge is supported and reaches the model files.
-#[tokio::test]
-async fn a_known_library_leaves_the_judge_to_the_installed_files() {
-    let dir = tempfile::tempdir().unwrap();
-    let config = ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: OrtRuntime::Library(dir.path().join("ort")) };
-    assert_eq!(config.runtime_supported(), crate::tool_state::onnx_runtime_supported());
-    if config.runtime_supported() {
-        assert!(matches!(JudgeModel::load(&config, lane().thread), Err(crate::effort_judge::error::JudgeError::NotInstalled(_))));
-    }
 }

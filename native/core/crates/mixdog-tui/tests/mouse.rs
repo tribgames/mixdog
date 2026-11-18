@@ -11,16 +11,14 @@ use mixdog_js::{js_trim, js_trim_end};
 use mixdog_term::selection::{CellSpan, SelectedRow, SelectionMode, SelectionRect};
 use mixdog_term::{MouseKind, MouseReport};
 use mixdog_tui::mouse::scroll::SelectionScroll;
-use mixdog_tui::mouse::{
-    FocusMove, HintTone, Mouse, MouseConfig, MouseHost, Point, PromptBoxRect, PromptSelection, Region, RenderStore, SelectionIo, SlashPalette, SpanKind,
-};
+use mixdog_tui::mouse::{HintTone, Mouse, MouseConfig, MouseHost, Point, PromptBoxRect, PromptSelection, Region, RenderStore, SelectionIo, SlashPalette, SpanKind};
+#[cfg(node_twin)]
+use mixdog_tui::mouse::FocusMove;
 use mixdog_tui::slash::commands::OverlayOwner;
 use mixdog_tui::transcript::scroll::anchor::Geometry;
 use mixdog_tui::transcript::scroll::coalesce::ScrollCoalescer;
 use mixdog_tui::transcript::scroll::engine::{ScrollHost, TranscriptScroll};
 use serde_json::{Map, Value, json};
-
-const GOLDEN: &str = include_str!("goldens/mouse.json");
 
 const COLUMNS: usize = 40;
 const VIEW_ROWS: usize = 10;
@@ -386,6 +384,7 @@ impl MouseHost for World {
 // ── the recording ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /// JSON numbers the way JavaScript prints them: a whole number has no fraction.
+#[cfg(node_twin)]
 fn num(value: f64) -> Value {
     if value.fract() == 0.0 && value.abs() < 1e15 { json!(value as i64) } else { json!(value) }
 }
@@ -409,10 +408,12 @@ fn rect_json(rect: &SelectionRect) -> Value {
     Value::Object(out)
 }
 
+#[cfg(node_twin)]
 fn point_json(point: Option<Point>) -> Value {
     point.map_or(Value::Null, |p| json!({"x": p.x, "y": p.y}))
 }
 
+#[cfg(node_twin)]
 fn region_json(region: Option<Region>) -> Value {
     match region {
         None => Value::Null,
@@ -422,6 +423,7 @@ fn region_json(region: Option<Region>) -> Value {
     }
 }
 
+#[cfg(node_twin)]
 fn snapshot(world: &mut World, mouse: &Mouse) -> Value {
     let drag = &mouse.drag;
     let stitched = mouse.stitched_selection_text(world.scroll.target);
@@ -453,6 +455,7 @@ fn snapshot(world: &mut World, mouse: &Mouse) -> Value {
     out
 }
 
+#[cfg(node_twin)]
 fn report(step: &Value) -> MouseReport {
     let button = step["b"].as_i64().expect("button") as i32;
     let (col, row) = (step["x"].as_i64().expect("x") as i32, step["y"].as_i64().expect("y") as i32);
@@ -466,6 +469,7 @@ fn report(step: &Value) -> MouseReport {
     MouseReport { kind, button, col, row, shift: button & 4 != 0, alt: button & 8 != 0, ctrl: button & 16 != 0 }
 }
 
+#[cfg(node_twin)]
 fn wheel_report(step: &Value) -> MouseReport {
     let up = step["dir"].as_i64().expect("direction") > 0;
     let ctrl = step["ctrl"].as_bool().unwrap_or(false);
@@ -480,6 +484,7 @@ fn wheel_report(step: &Value) -> MouseReport {
     }
 }
 
+#[cfg(node_twin)]
 fn focus_move(name: &str) -> Option<FocusMove> {
     Some(match name {
         "left" => FocusMove::Left,
@@ -493,6 +498,7 @@ fn focus_move(name: &str) -> Option<FocusMove> {
 }
 
 /// A frame passes: fires what is due up to `until` in time order, the deferred capture and harvest running after every batch.
+#[cfg(node_twin)]
 fn advance(world: &mut World, mouse: &mut Mouse, until: u64) {
     mouse.after_frame(world);
     loop {
@@ -514,6 +520,7 @@ fn config(windows_terminal: bool) -> MouseConfig {
     MouseConfig::from_lookup(|name| (windows_terminal && name == "WT_SESSION").then(|| "recorded-wt-session".to_owned()), STATUSLINE_BAND_ROWS)
 }
 
+#[cfg(node_twin)]
 fn mouse_for(case: &Value) -> (World, Mouse) {
     let cfg = config(case["wt"].as_bool().unwrap_or(false));
     let target = case["target"].as_f64().unwrap_or(0.0);
@@ -526,53 +533,6 @@ fn mouse_for(case: &Value) -> (World, Mouse) {
         mouse.set_prompt_box_rect(Some(PromptBoxRect { top: field("top"), left: field("left"), height: field("height"), content_width: field("contentWidth") }));
     }
     (world, mouse)
-}
-
-#[test]
-fn gestures_match_node_over_scripted_sequences() {
-    let golden: Value = serde_json::from_str(GOLDEN).expect("the golden parses");
-    assert_eq!(golden["frame"]["columns"], COLUMNS);
-    for case in golden["cases"].as_array().expect("cases") {
-        let name = case["name"].as_str().expect("name");
-        let (mut world, mut mouse) = mouse_for(case);
-        for (index, expected) in case["steps"].as_array().expect("steps").iter().enumerate() {
-            let step = &expected["step"];
-            let op = step["op"].as_str().expect("op");
-            if let Some(t) = step["t"].as_u64().filter(|_| op != "advance") {
-                world.now = world.now.max(t);
-            }
-            let now = world.now;
-            match op {
-                "mouse" => mouse.handle_report(&report(step), &mut world, now),
-                "wheel" => mouse.handle_report(&wheel_report(step), &mut world, now),
-                "advance" => advance(&mut world, &mut mouse, step["t"].as_u64().expect("time")),
-                "copy" => mouse.copy_selection(&mut world, 0, now),
-                "focus" => {
-                    let consumed = focus_move(step["move"].as_str().expect("move")).is_some_and(|m| mouse.move_selection_focus(&mut world, m, now));
-                    world.prompt.log.push(json!(["focus", step["move"], consumed]));
-                }
-                "settle" => {
-                    let settled = mouse.settle_stuck_drag(&mut world, now);
-                    world.prompt.log.push(json!(["settle", settled]));
-                }
-                "palette" => world.palette = SlashPalette { open: step["open"].as_bool().expect("open"), count: step["count"].as_u64().expect("count") as usize },
-                "overlay" => world.overlay = OverlayOwner { btw_panel: step["btw"].as_bool().expect("btw"), ..OverlayOwner::default() },
-                "promptSel" => world.prompt.has = step["has"].as_bool().expect("has"),
-                "clipboard" => world.clipboard_fail = step["fail"].as_str().map(str::to_owned),
-                other => panic!("unknown step {other}"),
-            }
-            let actual = snapshot(&mut world, &mouse);
-            for (key, want) in expected.as_object().expect("step record") {
-                if key == "step" {
-                    continue;
-                }
-                if actual[key] != *want {
-                    let clip = |value: &Value| value.to_string().chars().take(400).collect::<String>();
-                    panic!("{name}: step {index} ({step}) {key}\n  expected {}\n  actual   {}", clip(want), clip(&actual[key]));
-                }
-            }
-        }
-    }
 }
 
 // ── use-mouse-input.test.mjs ────────────────────────────────────────────────────────────────────────────────────────────
@@ -932,3 +892,81 @@ fn copy_reports_one_char_without_a_plural_and_nothing_to_copy_after_the_retries(
     assert_eq!(world.hints, vec![json!(["nothing to copy \u{b7} select text first", "error"])]);
     assert_eq!(now, 2000 + 3 * 24, "the first retry is immediate, the next ones wait 24 ms");
 }
+
+fn wheel(up: bool, ctrl: bool) -> MouseReport {
+    MouseReport {
+        kind: if up { MouseKind::WheelUp } else { MouseKind::WheelDown },
+        button: (if up { 64 } else { 65 }) + if ctrl { CTRL } else { 0 },
+        col: 0,
+        row: 0,
+        shift: false,
+        alt: false,
+        ctrl,
+    }
+}
+
+fn wheel_world(target: f64) -> (World, Mouse) {
+    let cfg = config(false);
+    let coalesce_ms = cfg.tuning.coalesce_ms;
+    let mut mouse = Mouse::new(cfg);
+    mouse.set_frame(24.0, 40);
+    mouse.set_transcript_viewport(0.0, (VIEW_ROWS - 1) as f64);
+    (World::new(target, false, coalesce_ms), mouse)
+}
+
+/// Lets every pending coalesced scroll fire.
+fn flush_scrolls(world: &mut World, mouse: &mut Mouse) {
+    while let Some(due) = world.coalescer.deadline() {
+        world.now = world.now.max(due);
+        if let Some(rows) = world.coalescer.tick(world.now) {
+            world.scroll_now(mouse, rows);
+        }
+    }
+}
+
+#[test]
+fn a_wheel_notch_scrolls_toward_older_rows_when_up_and_toward_the_tail_when_down() {
+    let (mut world, mut mouse) = wheel_world(5.0);
+    mouse.route_wheel(&wheel(true, false), &mut world, 1_000);
+    flush_scrolls(&mut world, &mut mouse);
+    assert_eq!(world.scroll.target, 8.0, "one notch is three rows toward older rows");
+    let (mut down, mut down_mouse) = wheel_world(20.0);
+    down_mouse.route_wheel(&wheel(false, false), &mut down, 1_000);
+    flush_scrolls(&mut down, &mut down_mouse);
+    assert_eq!(down.scroll.target, 17.0, "and three rows toward the tail, outside the band that snaps to it");
+}
+
+#[test]
+fn ctrl_wheel_is_left_to_the_terminals_zoom_and_never_scrolls() {
+    let (mut world, mut mouse) = wheel_world(5.0);
+    mouse.route_wheel(&wheel(true, true), &mut world, 1_000);
+    flush_scrolls(&mut world, &mut mouse);
+    assert_eq!((world.zoom, world.scroll.target), (1, 5.0));
+}
+
+#[test]
+fn an_open_palette_takes_the_wheel_as_list_navigation() {
+    let (mut world, mut mouse) = wheel_world(5.0);
+    world.palette = SlashPalette { open: true, count: 3 };
+    mouse.route_wheel(&wheel(true, false), &mut world, 1_000);
+    mouse.route_wheel(&wheel(false, false), &mut world, 1_010);
+    assert_eq!(world.slash_log, [1, 2], "up moves the highlight up, down moves it back");
+    flush_scrolls(&mut world, &mut mouse);
+    assert_eq!(world.scroll.target, 5.0, "the transcript does not scroll under the palette");
+    world.palette = SlashPalette { open: true, count: 0 };
+    mouse.route_wheel(&wheel(true, false), &mut world, 1_020);
+    assert_eq!(world.slash_log.len(), 2, "an empty palette gives the wheel back to the transcript");
+}
+
+#[test]
+fn an_overlay_that_owns_the_keys_blocks_the_transcript_scroll() {
+    let (mut world, mut mouse) = wheel_world(5.0);
+    world.overlay = OverlayOwner { picker: true, ..OverlayOwner::default() };
+    mouse.route_wheel(&wheel(true, false), &mut world, 1_000);
+    flush_scrolls(&mut world, &mut mouse);
+    assert_eq!(world.scroll.target, 5.0);
+}
+
+#[cfg(node_twin)]
+#[path = "node-twin/mouse.rs"]
+mod node_twin;

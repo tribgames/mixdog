@@ -96,18 +96,24 @@ pub fn cleanup(args: &ProgramArgs, host: &dyn EnsureHost, access: &dyn CoreAcces
     Ok(Report { cleanup: Some(CleanupResult { stopped, removed, kept }), ..report })
 }
 
+#[cfg(test)]
+#[path = "manage_tests.rs"]
+mod manage_tests;
+
 /// Nothing may still run from, or own, what a removal deletes. An unanswered process list is
 /// never evidence that the install is idle.
 fn assert_install_idle(paths: &RemotePaths, host: &dyn EnsureHost) -> Result<(), EnsureError> {
     let Some(images) = host.process_images() else {
         return Err(EnsureError::DaemonUnproven(format!(
-            "Could not list the processes on the server to prove nothing still runs Mixdog from {}; nothing was removed.",
+            "Could not list the processes on the server to prove that nothing on the server still runs the app from {}; nothing was removed.",
             paths.root.display()
         )));
     };
     let users: Vec<u32> = images
         .iter()
         .filter(|p| p.within(&paths.versions) || p.within(&paths.deps))
+        // Only this run itself: any other process under the install, another installer included, blocks the removal.
+        .filter(|p| p.pid != std::process::id())
         .map(|p| p.pid)
         .collect();
     // A 1.4.5 daemon runs under node, so its image is not in the install; its data-dir record
@@ -128,3 +134,4 @@ fn assert_install_idle(paths: &RemotePaths, host: &dyn EnsureHost) -> Result<(),
         paths.root.display()
     )))
 }
+

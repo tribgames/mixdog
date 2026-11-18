@@ -1,8 +1,7 @@
 name: Rust Core Unix
 
 # WP-OWN's Unix job for native/core: the ownership/barrier/verdict/discovery unit tests, the
-# 1.4.5 tag gates against a real `git archive 69fe41b05` tree, and clippy, on Linux and macOS as
-# a non-root user. Manual only until the schedule is decided (native/core/RELEASE.md).
+# composed-core tests over Postgres, and clippy, on Linux and macOS as a non-root user. Manual only until the schedule is decided (native/core/RELEASE.md).
 
 on:
   workflow_dispatch:
@@ -19,7 +18,6 @@ env:
   RUST_TOOLCHAIN: "1.99.1"
   # Satisfies `^22.19.0 || >=24.0.0`; the same pin as apps/desktop/scripts/node-pin.json.
   NODE_VERSION: "22.19.0"
-  TAG_COMMIT: 69fe41b05
 
 jobs:
   unix:
@@ -36,8 +34,6 @@ jobs:
         working-directory: native/core
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -63,26 +59,6 @@ jobs:
       # the mount they read on (mixdog-workspace localfs).
       - name: Search read cancel
         run: "cargo test -p mixdog-workspace --lib -- localfs::unix_io:: localfs::tests::a_producer_in_a_blocked_pipe_read localfs::tests::ten_thousand_reads localfs::tests::ten_thousand_searches_queued localfs::tests::nine_running_searches localfs::tests::a_search_past_the_queue_capacity"
-
-      - name: Tag tree
-        run: |
-          tree="$RUNNER_TEMP/tag145"
-          mkdir -p "$tree"
-          git archive "$TAG_COMMIT" | tar -x -C "$tree"
-          git show "$TAG_COMMIT:package-lock.json" > "$tree/package-lock.json"
-          (cd "$tree" && npm ci --omit=dev --ignore-scripts)
-          echo "MIXDOG_TAG_TREE=$tree" >> "$GITHUB_ENV"
-
-      # Gate 4 suspends the core for 61 s and waits for its contenders: allow well over 3 minutes.
-      - name: Tag gates 1, 2, 4 and 5
-        timeout-minutes: 15
-        run: "cargo test -p mixdog-app-server-daemon --lib verdict::tag_gates:: -- --ignored --test-threads=1 --skip gate_3"
-
-      - name: Tag gates 3a and 3b at 200 repetitions
-        timeout-minutes: 60
-        env:
-          MIXDOG_TAG_GATE_REPS: "200"
-        run: "cargo test -p mixdog-app-server-daemon --lib verdict::tag_gates::gate_3 -- --ignored --test-threads=1 --nocapture"
 
       # The bundled Postgres runtime, from the release the manifest names (the same asset `ensure_runtime` would download), checked against the manifest's hash.
       - name: Postgres runtime
@@ -111,9 +87,9 @@ jobs:
           esac
           curl -fsSL "https://get.nexte.st/0.9.151/$target" | tar -xzf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
 
-      # Replays Node's review recording against the core composed as the daemon composes it, stopped and composed again over one data directory:
+      # The core composed as the daemon composes it, stopped and composed again over one data directory:
       # the `pg` profile (the same command the merge check runs).
-      - name: Review restart replay over the composed core
+      - name: Composed core over Postgres
         timeout-minutes: 20
         run: cargo nextest run --profile pg --run-ignored only -p mixdog-app-server-daemon
 

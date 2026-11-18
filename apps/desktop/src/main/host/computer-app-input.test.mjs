@@ -14,6 +14,7 @@ registerHooks({
 });
 const { registerComputerAppWindows, appWindowId } = await import('./computer-app-windows.ts');
 const { registerComputerAppInput } = await import('./computer-app-input.ts');
+const { createComputerSwitch, registerComputerScopes } = await import('./computer-scope.ts');
 const { registerComputerUseInternalWindow } = await import('../computer/overlay/internal-windows.ts');
 
 function fakeWindow(number, { editable = true, title = 'Mixdog', parent = null } = {}) {
@@ -59,9 +60,10 @@ function rig(windows) {
   globalThis.appWindows = windows;
   const handlers = new Map();
   const cursors = [];
-  const connection = { handleRequest: (method, run) => handlers.set(method, run) };
+  const connection = { handleRequest: (method, run) => handlers.set(method, run), notify() {}, onClose() {} };
   registerComputerAppWindows(connection);
-  registerComputerAppInput(connection, { showCursor: (...args) => cursors.push(args) });
+  const scopes = registerComputerScopes(connection, createComputerSwitch(true));
+  registerComputerAppInput(connection, { showCursor: (...args) => cursors.push(args), scopes });
   const ask = (method, params, signal = new AbortController().signal) => handlers.get(method)(params, signal);
   return { cursors, ask: (params, signal) => ask('host/computer/appInput', params, signal), windows: () => ask('host/computer/appWindows', {}) };
 }
@@ -232,6 +234,44 @@ test('an overlay window is not app-owned for input', async () => {
     await rejects(ask({ ...base(overlay), op: 'key', keys: 'a' }), -32602);
   } finally {
     unregister();
+    delete globalThis.appWindows;
+  }
+});
+
+test('input queued in the window or half sent when its scope is revoked sends no further press, only the release', async () => {
+  const window = fakeWindow(0x1ab);
+  globalThis.appWindows = [window];
+  const handlers = new Map();
+  const connection = { handleRequest: (method, run) => handlers.set(method, run), notify() {}, onClose() {} };
+  const scopes = registerComputerScopes(connection, createComputerSwitch(true));
+  registerComputerAppInput(connection, { showCursor() {}, scopes });
+  const ask = (params) => handlers.get('host/computer/appInput')(params, new AbortController().signal);
+  // The first press is held in the debugger until the test lets it go: the barrier that orders the revocation.
+  let pressed;
+  const pressing = new Promise((resolve) => (pressed = resolve));
+  let release;
+  const released = new Promise((resolve) => (release = resolve));
+  const send = window.webContents.debugger.sendCommand;
+  window.webContents.debugger.sendCommand = async (method, params) => {
+    await send(method, params);
+    if (params.type === 'mousePressed' && params.clickCount === 1) {
+      pressed();
+      await released;
+    }
+  };
+  try {
+    const scoped = { ...base(window), automationScope: 5 };
+    const first = ask({ ...scoped, op: 'click', x: 20, y: 30, clicks: 2 });
+    await pressing;
+    const queued = ask({ ...scoped, op: 'click', x: 40, y: 40 });
+    await handlers.get('host/computer/revokeScopes')({ scopes: [5] });
+    release();
+    await assert.rejects(first);
+    await assert.rejects(queued);
+    const types = window.sent.map((entry) => entry.params.type);
+    assert.equal(types.filter((type) => type === 'mousePressed').length, 1, `one press only: ${types}`);
+    assert.equal(types.at(-1), 'mouseReleased', `the held button was let go: ${types}`);
+  } finally {
     delete globalThis.appWindows;
   }
 });

@@ -15,6 +15,21 @@ const LIBRARIES: &[&str] = &["mixdog-core", "mixdog-core-session"];
 /// `(file under the crates dir, the item the predicate is on, why it may stay bare)`.
 const ALLOWED: &[(&str, &str, &str)] = &[
     (
+        "mixdog-core-session/src/session/store.rs",
+        "pub(super) fn shape_now(",
+        "a reader of the inline sensitive_carry tests alone: under `test-support` it would be unused",
+    ),
+    (
+        "mixdog-core-session/src/session/store.rs",
+        "pub(super) fn shape_and_open(",
+        "a reader of the inline sensitive_carry tests alone: under `test-support` it would be unused",
+    ),
+    (
+        "mixdog-core-session/src/session/prompt_submission.rs",
+        "pub(crate) fn import_in_memory(",
+        "the intake of the in-memory stores of the inline prompt_submission and phone_chat tests alone: under `test-support` it would be unused",
+    ),
+    (
         "mixdog-core-session/src/session/agent_registry/rows.rs",
         "pub fn total(&self) -> usize {",
         "only the inline agent_registry/tests.rs work-budget assertions call Counts::total; rows is a private module and those tests stay in the library, while moved replays use the existing individual counters",
@@ -145,6 +160,31 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-core-session/src/session/actor.rs", "fn ask_marked(&self) -> bool {", "the mark above, and the release build's constant in its place"),
     ("mixdog-core-session/src/session/actor.rs", "AskEnded,", "the end of the mark above: only the inline tests send it"),
     ("mixdog-core-session/src/session/actor.rs", "Inbox::AskEnded => {", "the end of the mark above"),
+    (
+        "mixdog-core-session/src/session/control.rs",
+        "pub fn latched_count(",
+        "a read of the stop latches for the inline tests alone: under `test-support` it would be unused",
+    ),
+    (
+        "mixdog-core-session/src/session/store.rs",
+        "pub(super) fn marks_lost(",
+        "a probe of the projector's lost marks for the inline tests alone: under `test-support` it would be unused",
+    ),
+    (
+        "mixdog-core-session/src/session/store.rs",
+        "pub(super) fn hold_after_marks_snapshot(",
+        "a hook between a marks read's snapshot and its check, for the inline tests alone",
+    ),
+    (
+        "mixdog-core-session/src/session/store.rs",
+        "pub(super) fn refuse_next_projection(",
+        "a fault injection into the projector, for the inline tests alone",
+    ),
+    (
+        "mixdog-core-session/src/session/store.rs",
+        "pub(super) fn projections_sent(",
+        "a count of the projector's registered writes, for the inline tests alone",
+    ),
     (
         "mixdog-core-session/src/session/actor.rs",
         "pub(crate) use offload_prune::OFFLOAD_SCAN_BATCH;",

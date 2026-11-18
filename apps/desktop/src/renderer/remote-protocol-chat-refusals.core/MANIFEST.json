@@ -8,9 +8,9 @@
   ],
   "recorder": {
     "remote-protocol-chat-refusals.record.mjs": "94271540454566d286995dec2644783f8640bf3ccc792a8b20e777ccc2ee5bb5",
-    "../../../../packages/protocol-client/src/client.ts": "3298a34866083d1ad450acb00822d4add08f5b346fbe5da34cce5cc7bb381eac",
+    "../../../../packages/protocol-client/src/client.ts": "1f5a71c4c1ea6afd2f88b7c5fbb34a174ebfc8a95e2acfbdbc235078c08cbfe0",
     "../main/protocol/service-route.ts": "690a6ca7093920aba55215e7739abc3413870b250c2a1a91a5e1007e88facaf5",
-    "../shared/core-lanes/service-route.ts": "d8f8cf2192c25b4f69ac4e2807eb9d66d7c953c8d01a9f3649655eb23e278e9c",
+    "../shared/core-lanes/service-route.ts": "97d86fd42b093112c16ac817194fea97b63b7f387ba816a5e932ef5814f6a9cd",
     "remote-protocol-chat-abort-procs.mjs": "2283528c6a2dc4c5e8ce0b1f9f251fdb1e873ee06bcbf4cbff4a832ae4125f61"
   }
 }

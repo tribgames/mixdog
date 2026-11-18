@@ -1,13 +1,11 @@
-//! `mixdog-relay renderer-delta`: the cases of `deploy/renderer-delta.test.mjs`, and byte equality with what the Node tool
-//! wrote. `tests/fixtures/renderer-delta.recording.json` (made by `renderer_delta_record.mjs` beside it) holds a base tree and
-//! a current tree, the manifest lines Node printed for them, the manifest file and result Node's `create` produced, the files
-//! of the delta it made and the results of applying it. A Rust manifest file equal byte for byte to Node's is a file Node's
-//! `apply` accepts (the recorder applied that very file), so the Rust-created-delta-applied-by-Node direction rests on the
-//! equal bytes and the Node-created-delta-applied-by-Rust direction is run here.
+//! `mixdog-relay renderer-delta`: manifests of a renderer tree, the delta between two trees, and applying a delta to a base,
+//! including the shapes of the files and result lines the deploy scripts read.
 
 use std::path::Path;
 
+#[cfg(node_twin)]
 use base64::Engine;
+#[cfg(node_twin)]
 use base64::engine::general_purpose::STANDARD;
 use mixdog_fsio::Unlaned;
 use mixdog_relay::js;
@@ -281,8 +279,67 @@ fn a_symbolic_link_in_a_tree_is_refused() {
     assert!(error.to_string().starts_with("Renderer tree contains a symbolic link: "), "{error}");
 }
 
+#[cfg(node_twin)]
 struct Recording(Value);
 
+#[cfg(node_twin)]
+#[test]
+fn manifests_of_a_tree_equal_the_node_tools_bytes() {
+    let recording = Recording::load();
+    let dirs = fixture();
+    recording.write("base", &dirs.base);
+    recording.write("current", &dirs.current);
+    assert_eq!(build_manifest(&dirs.base).expect("base").compact_json(), recording.text("baseManifestLine"));
+    assert_eq!(build_manifest(&dirs.current).expect("current").compact_json(), recording.text("currentManifestLine"));
+}
+
+#[cfg(node_twin)]
+#[test]
+fn a_created_delta_equals_the_node_tools_delta_byte_for_byte() {
+    let recording = Recording::load();
+    let dirs = fixture();
+    recording.write("base", &dirs.base);
+    recording.write("current", &dirs.current);
+    let base = validate_manifest(&js::parse(recording.text("baseManifestLine")).expect("json")).expect("valid");
+    // The Node recorder wrote its manifest outside the tree; this one is written outside it too.
+    let manifest_path = dirs.delta.with_file_name("renderer-manifest.json");
+    let result = create_delta(&dirs.current, Some(&base), &dirs.delta, &manifest_path).expect("create");
+
+    assert_eq!(result.json(), recording.text("createResult"));
+    assert_eq!(read_text(&manifest_path), recording.text("manifestFile"));
+    let node_delta = dirs.delta.with_file_name("node-delta");
+    recording.write("delta", &node_delta);
+    assert_eq!(
+        build_manifest(&dirs.delta).expect("delta").compact_json(),
+        build_manifest(&node_delta).expect("node delta").compact_json()
+    );
+}
+
+#[cfg(node_twin)]
+#[test]
+fn a_delta_created_by_node_is_applied_to_the_same_tree_and_the_same_report() {
+    let recording = Recording::load();
+    let dirs = fixture();
+    recording.write("base", &dirs.base);
+    recording.write("delta", &dirs.delta);
+    let manifest_path = dirs.output.with_file_name("renderer-manifest.json");
+    mixdog_fsio::write(&Unlaned, &manifest_path, recording.text("manifestFile")).expect("manifest file");
+    let manifest = read_manifest(&manifest_path).expect("Node's manifest file is valid");
+
+    let applied = apply_delta(&dirs.base, &dirs.delta, &manifest, &dirs.output, false).expect("apply");
+    assert_eq!(applied.json(), recording.text("applyResult"));
+    assert_eq!(build_manifest(&dirs.output).expect("rebuilt").compact_json(), recording.text("currentManifestLine"));
+
+    let linked = dirs.output.with_file_name("linked");
+    let applied = apply_delta(&dirs.base, &dirs.delta, &manifest, &linked, true).expect("apply with hardlinks");
+    assert_eq!(applied.json(), recording.text("linkedResult"));
+    assert_eq!(build_manifest(&linked).expect("rebuilt").compact_json(), recording.text("currentManifestLine"));
+    // The installed base is still the base tree.
+    assert_eq!(build_manifest(&dirs.base).expect("base").compact_json(), recording.text("baseManifestLine"));
+}
+
+
+#[cfg(node_twin)]
 impl Recording {
     fn load() -> Self {
         Self(serde_json::from_str(mixdog_testkit::fixture!("tests/fixtures/renderer-delta.recording.json")).expect("the recording parses"))
@@ -310,54 +367,42 @@ impl Recording {
 }
 
 #[test]
-fn manifests_of_a_tree_equal_the_node_tools_bytes() {
-    let recording = Recording::load();
+fn the_manifest_line_and_the_manifest_file_have_the_shapes_the_deploy_scripts_read() {
     let dirs = fixture();
-    recording.write("base", &dirs.base);
-    recording.write("current", &dirs.current);
-    assert_eq!(build_manifest(&dirs.base).expect("base").compact_json(), recording.text("baseManifestLine"));
-    assert_eq!(build_manifest(&dirs.current).expect("current").compact_json(), recording.text("currentManifestLine"));
+    sample(&dirs);
+    let line = build_manifest(&dirs.current).expect("manifest").compact_json();
+    assert!(!line.contains('\n') && !line.contains(": "), "the printed line is compact: {line}");
+    let document = js::parse(&line).expect("json");
+    assert_eq!(document["schemaVersion"], 1);
+    assert!(is_hash(document["treeHash"].as_str().expect("treeHash")));
+    let files: Vec<(&str, u64)> =
+        document["files"].as_array().expect("files").iter().map(|f| (f["path"].as_str().expect("path"), f["size"].as_u64().expect("size"))).collect();
+    assert_eq!(files, [("assets/new.css", 3), ("changed.js", 5), ("same.js", 4)]);
+    let changed = &document["files"][1];
+    assert_eq!(changed["sha256"], format!("{:x}", Sha256::digest(b"after")));
+
+    let (manifest_path, _) = create_sample(&dirs);
+    let file = read_text(&manifest_path);
+    assert!(file.starts_with("{\n  \"schemaVersion\": 1,\n  \"treeHash\": \""), "{file}");
+    assert!(file.ends_with("}\n"), "{file}");
+    assert_eq!(js::parse(&file).expect("json")["base"], build_manifest(&dirs.base).expect("base").tree_hash);
 }
 
 #[test]
-fn a_created_delta_equals_the_node_tools_delta_byte_for_byte() {
-    let recording = Recording::load();
+fn creating_and_applying_a_delta_report_their_counts_as_one_json_line() {
     let dirs = fixture();
-    recording.write("base", &dirs.base);
-    recording.write("current", &dirs.current);
-    let base = validate_manifest(&js::parse(recording.text("baseManifestLine")).expect("json")).expect("valid");
-    // The Node recorder wrote its manifest outside the tree; this one is written outside it too.
-    let manifest_path = dirs.delta.with_file_name("renderer-manifest.json");
-    let result = create_delta(&dirs.current, Some(&base), &dirs.delta, &manifest_path).expect("create");
-
-    assert_eq!(result.json(), recording.text("createResult"));
-    assert_eq!(read_text(&manifest_path), recording.text("manifestFile"));
-    let node_delta = dirs.delta.with_file_name("node-delta");
-    recording.write("delta", &node_delta);
+    sample(&dirs);
+    let current_hash = build_manifest(&dirs.current).expect("current").tree_hash;
+    let (manifest_path, created) = create_sample(&dirs);
     assert_eq!(
-        build_manifest(&dirs.delta).expect("delta").compact_json(),
-        build_manifest(&node_delta).expect("node delta").compact_json()
+        created.json(),
+        format!("{{\"totalFiles\":3,\"totalBytes\":12,\"changedFiles\":2,\"changedBytes\":8,\"removedFiles\":1,\"treeHash\":\"{current_hash}\"}}")
     );
-}
-
-#[test]
-fn a_delta_created_by_node_is_applied_to_the_same_tree_and_the_same_report() {
-    let recording = Recording::load();
-    let dirs = fixture();
-    recording.write("base", &dirs.base);
-    recording.write("delta", &dirs.delta);
-    let manifest_path = dirs.output.with_file_name("renderer-manifest.json");
-    mixdog_fsio::write(&Unlaned, &manifest_path, recording.text("manifestFile")).expect("manifest file");
-    let manifest = read_manifest(&manifest_path).expect("Node's manifest file is valid");
-
+    let manifest = read_manifest(&manifest_path).expect("manifest");
     let applied = apply_delta(&dirs.base, &dirs.delta, &manifest, &dirs.output, false).expect("apply");
-    assert_eq!(applied.json(), recording.text("applyResult"));
-    assert_eq!(build_manifest(&dirs.output).expect("rebuilt").compact_json(), recording.text("currentManifestLine"));
-
+    assert_eq!(applied.json(), format!("{{\"files\":3,\"bytes\":12,\"treeHash\":\"{current_hash}\"}}"));
     let linked = dirs.output.with_file_name("linked");
     let applied = apply_delta(&dirs.base, &dirs.delta, &manifest, &linked, true).expect("apply with hardlinks");
-    assert_eq!(applied.json(), recording.text("linkedResult"));
-    assert_eq!(build_manifest(&linked).expect("rebuilt").compact_json(), recording.text("currentManifestLine"));
-    // The installed base is still the base tree.
-    assert_eq!(build_manifest(&dirs.base).expect("base").compact_json(), recording.text("baseManifestLine"));
+    assert_eq!(applied.json(), format!("{{\"files\":3,\"bytes\":12,\"treeHash\":\"{current_hash}\"}}"));
+    assert_eq!(build_manifest(&linked).expect("rebuilt").tree_hash, current_hash);
 }

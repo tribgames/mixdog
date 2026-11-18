@@ -547,6 +547,117 @@ fn shared_clause(count: usize) -> String {
     format!("{} shared from the main checkout by .worktreeinclude and not installed here", if count > 1 { "are" } else { "is" })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pnpm_patterns_read_block_and_flow_styles() {
+        let block = "packages:\n  - 'apps/*'\n  - \"libs/**\"  # c\n  - tools\nother: 1\n";
+        assert_eq!(pnpm_workspace_patterns(block), ["apps/*", "libs/**", "tools"]);
+        assert_eq!(pnpm_workspace_patterns("packages: [a/*, \"b\"]\r\n"), ["a/*", "b"]);
+    }
+
+    #[test]
+    fn workspace_globs_follow_node_and_exclusions_win() {
+        let matcher = workspace_matcher(&strings(&["packages/*", "apps/**", "!packages/skip", "./tools/"]));
+        assert!(matcher("packages/a") && matcher("apps/x/y") && matcher("apps") && matcher("tools"));
+        assert!(!matcher("packages/a/b") && !matcher("packages/skip") && !matcher("other"));
+    }
+
+    #[test]
+    fn requirements_pick_orders_the_plain_file_first() {
+        let files: BTreeSet<String> = ["requirements-dev.txt", "requirements.txt", "package.json"].iter().map(|s| (*s).to_owned()).collect();
+        let picked = pick(&STACKS[1], &files).unwrap();
+        assert_eq!((picked.manager, picked.requirements), ("pip", strings(&["requirements.txt", "requirements-dev.txt"])));
+        assert!(pick(&STACKS[0], &files).is_none());
+    }
+
+    #[test]
+    fn commands_are_quoted_the_way_the_node_display_does() {
+        assert_eq!(display_line("\"/x/npm\"", &strings(&["ci", "a b"])), "\"/x/npm\" ci \"a b\"");
+        assert_eq!(parse_int("2.1.0"), Some(2));
+        assert_eq!(parse_int("v2"), None);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn yarn_behind_a_cmd_shim_is_versioned_through_the_interpreter() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = std::fs::canonicalize(dir.path()).unwrap();
+        // cmd.exe cannot run a `\\?\` path, which canonicalize returns and PATH never holds.
+        let bin = dir.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("yarn.cmd"), "@echo 3.6.0\r\n").unwrap();
+        std::fs::write(repo.join("package.json"), "{}").unwrap();
+        std::fs::write(repo.join("yarn.lock"), "").unwrap();
+        let git = |args: &[&str]| {
+            assert!(std::process::Command::new("git").args(args).current_dir(&repo).output().unwrap().status.success());
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["add", "-f", "package.json", "yarn.lock"]);
+        let scm = Scm::new(crate::testing::TestProcesses::shared(), mixdog_rt::testing::tokens().maintenance_io, dir.path().join("scratch"));
+        let cancel = CancellationToken::new();
+        let plan =plan_dependency_setup(
+            &scm,
+            &cancel,
+            PlanInput { worktree_dir: repo.clone(), main_dir: None, shared: Vec::new(), path_var: Some(bin.to_string_lossy().into_owned()) },
+        )
+        .await
+        .unwrap();
+        assert_eq!(plan.commands.len(), 1, "{:?}", plan.notes);
+        assert!(plan.commands[0].args.contains(&"--immutable".to_owned()), "{:?}", plan.commands);
+    }
+
+
+    #[tokio::test]
+    async fn folders_come_from_committed_files_and_workspaces_and_links_block_installs() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = std::fs::canonicalize(dir.path()).unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git").args(args).current_dir(&repo).output().unwrap();
+            assert!(out.status.success(), "{args:?}");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        for (path, text) in [
+            ("package.json", "{\"workspaces\":[\"packages/*\"]}"),
+            ("package-lock.json", "{}"),
+            ("packages/a/package.json", "{}"),
+            ("packages/a/package-lock.json", "{}"),
+            ("fixtures/x/package.json", "{}"),
+            ("fixtures/x/yarn.lock", ""),
+            ("node_modules/skip/package.json", "{}"),
+        ] {
+            let file = repo.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, text).unwrap();
+        }
+        git(&["add", "-f", "."]);
+        let scm = Scm::new(
+            crate::testing::TestProcesses::shared(),
+            mixdog_rt::testing::tokens().maintenance_io,
+            dir.path().join("scratch"),
+        );
+        let cancel = CancellationToken::new();
+        let found = find_lockfile_folders(&scm, &cancel, &repo, None).await.unwrap();
+        let dirs: Vec<_> = found.iter().map(|f| (f.dir.as_str(), f.manager)).collect();
+        // A test fixture is not a project unless the main checkout installed there.
+        assert_eq!(dirs, [("", "npm"), ("packages/a", "npm")]);
+        assert_eq!(dependency_artefacts(&scm, &cancel, &repo).await.unwrap().len(), 3);
+        assert!(linked_artefacts(&scm, &cancel, &repo).await.unwrap().is_empty());
+        let none = plan_dependency_setup(
+            &scm,
+            &cancel,
+            PlanInput { worktree_dir: repo.clone(), main_dir: None, shared: Vec::new(), path_var: Some(String::new()) },
+        )
+        .await
+        .unwrap();
+        assert!(none.commands.is_empty());
+        assert!(none.notes[0].starts_with("npm is not on PATH; packages/a was not prepared"), "{:?}", none.notes);
+    }
+}
+
+
 /// What the first turn still has to do in the worktree folder: the installs and one note per
 /// folder it leaves alone (nothing found, tool not on PATH, an artefact that is a link).
 pub async fn plan_dependency_setup(scm: &Scm, cancel: &CancellationToken, input: PlanInput) -> Result<DependencyPlan, ScmFailure> {
@@ -640,113 +751,4 @@ pub async fn plan_dependency_setup(scm: &Scm, cancel: &CancellationToken, input:
         }
     }
     Ok(plan)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pnpm_patterns_read_block_and_flow_styles() {
-        let block = "packages:\n  - 'apps/*'\n  - \"libs/**\"  # c\n  - tools\nother: 1\n";
-        assert_eq!(pnpm_workspace_patterns(block), ["apps/*", "libs/**", "tools"]);
-        assert_eq!(pnpm_workspace_patterns("packages: [a/*, \"b\"]\r\n"), ["a/*", "b"]);
-    }
-
-    #[test]
-    fn workspace_globs_follow_node_and_exclusions_win() {
-        let matcher = workspace_matcher(&strings(&["packages/*", "apps/**", "!packages/skip", "./tools/"]));
-        assert!(matcher("packages/a") && matcher("apps/x/y") && matcher("apps") && matcher("tools"));
-        assert!(!matcher("packages/a/b") && !matcher("packages/skip") && !matcher("other"));
-    }
-
-    #[test]
-    fn requirements_pick_orders_the_plain_file_first() {
-        let files: BTreeSet<String> = ["requirements-dev.txt", "requirements.txt", "package.json"].iter().map(|s| (*s).to_owned()).collect();
-        let picked = pick(&STACKS[1], &files).unwrap();
-        assert_eq!((picked.manager, picked.requirements), ("pip", strings(&["requirements.txt", "requirements-dev.txt"])));
-        assert!(pick(&STACKS[0], &files).is_none());
-    }
-
-    #[tokio::test]
-    async fn folders_come_from_committed_files_and_workspaces_and_links_block_installs() {
-        let dir = tempfile::tempdir().unwrap();
-        let repo = std::fs::canonicalize(dir.path()).unwrap();
-        let git = |args: &[&str]| {
-            let out = std::process::Command::new("git").args(args).current_dir(&repo).output().unwrap();
-            assert!(out.status.success(), "{args:?}");
-        };
-        git(&["init", "-q", "-b", "main"]);
-        for (path, text) in [
-            ("package.json", "{\"workspaces\":[\"packages/*\"]}"),
-            ("package-lock.json", "{}"),
-            ("packages/a/package.json", "{}"),
-            ("packages/a/package-lock.json", "{}"),
-            ("fixtures/x/package.json", "{}"),
-            ("fixtures/x/yarn.lock", ""),
-            ("node_modules/skip/package.json", "{}"),
-        ] {
-            let file = repo.join(path);
-            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-            std::fs::write(file, text).unwrap();
-        }
-        git(&["add", "-f", "."]);
-        let scm = Scm::new(
-            crate::testing::TestProcesses::shared(),
-            mixdog_rt::testing::tokens().maintenance_io,
-            dir.path().join("scratch"),
-        );
-        let cancel = CancellationToken::new();
-        let found = find_lockfile_folders(&scm, &cancel, &repo, None).await.unwrap();
-        let dirs: Vec<_> = found.iter().map(|f| (f.dir.as_str(), f.manager)).collect();
-        // A test fixture is not a project unless the main checkout installed there.
-        assert_eq!(dirs, [("", "npm"), ("packages/a", "npm")]);
-        assert_eq!(dependency_artefacts(&scm, &cancel, &repo).await.unwrap().len(), 3);
-        assert!(linked_artefacts(&scm, &cancel, &repo).await.unwrap().is_empty());
-        let none = plan_dependency_setup(
-            &scm,
-            &cancel,
-            PlanInput { worktree_dir: repo.clone(), main_dir: None, shared: Vec::new(), path_var: Some(String::new()) },
-        )
-        .await
-        .unwrap();
-        assert!(none.commands.is_empty());
-        assert!(none.notes[0].starts_with("npm is not on PATH; packages/a was not prepared"), "{:?}", none.notes);
-    }
-
-    #[cfg(windows)]
-    #[tokio::test]
-    async fn yarn_behind_a_cmd_shim_is_versioned_through_the_interpreter() {
-        let dir = tempfile::tempdir().unwrap();
-        let repo = std::fs::canonicalize(dir.path()).unwrap();
-        // cmd.exe cannot run a `\\?\` path, which canonicalize returns and PATH never holds.
-        let bin = dir.path().join("bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        std::fs::write(bin.join("yarn.cmd"), "@echo 3.6.0\r\n").unwrap();
-        std::fs::write(repo.join("package.json"), "{}").unwrap();
-        std::fs::write(repo.join("yarn.lock"), "").unwrap();
-        let git = |args: &[&str]| {
-            assert!(std::process::Command::new("git").args(args).current_dir(&repo).output().unwrap().status.success());
-        };
-        git(&["init", "-q", "-b", "main"]);
-        git(&["add", "-f", "package.json", "yarn.lock"]);
-        let scm = Scm::new(crate::testing::TestProcesses::shared(), mixdog_rt::testing::tokens().maintenance_io, dir.path().join("scratch"));
-        let cancel = CancellationToken::new();
-        let plan =plan_dependency_setup(
-            &scm,
-            &cancel,
-            PlanInput { worktree_dir: repo.clone(), main_dir: None, shared: Vec::new(), path_var: Some(bin.to_string_lossy().into_owned()) },
-        )
-        .await
-        .unwrap();
-        assert_eq!(plan.commands.len(), 1, "{:?}", plan.notes);
-        assert!(plan.commands[0].args.contains(&"--immutable".to_owned()), "{:?}", plan.commands);
-    }
-
-    #[test]
-    fn commands_are_quoted_the_way_the_node_display_does() {
-        assert_eq!(display_line("\"/x/npm\"", &strings(&["ci", "a b"])), "\"/x/npm\" ci \"a b\"");
-        assert_eq!(parse_int("2.1.0"), Some(2));
-        assert_eq!(parse_int("v2"), None);
-    }
 }

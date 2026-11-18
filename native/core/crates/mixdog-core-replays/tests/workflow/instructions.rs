@@ -2,23 +2,29 @@
 //! `record-workflow-orchestration-text.mjs`): what `readInstructionFile` answers for the user's
 //! and the shipped file of a mode, and what `orchestrationInstructions` returns.
 
+#[cfg(node_twin)]
 use std::path::Path;
 
+#[cfg(node_twin)]
 use mixdog_core_base::support::on_lane;
+#[cfg(node_twin)]
 use mixdog_rt::CancellationToken;
+#[cfg(node_twin)]
 use serde_json::Value;
+#[cfg(node_twin)]
 use sha2::Digest as _;
+#[cfg(node_twin)]
 use sha2::Sha256;
 
+#[cfg(node_twin)]
 use mixdog_core::run_host::workflow_surface::instructions::Instruction;
 use mixdog_core::run_host::workflow_surface::instructions::OrchestrationTexts;
+#[cfg(node_twin)]
 use mixdog_core::run_host::workflow_surface::instructions::read_instruction_file;
+#[cfg(node_twin)]
 use mixdog_core::run_host::fixture_fs;
 
-fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../fixtures/workflow-surface/orchestration.json")).expect("the golden is JSON")
-}
-
+#[cfg(node_twin)]
 fn bytes_of(spec: &Value) -> Vec<u8> {
     match spec.get("hex").and_then(Value::as_str) {
         Some(hex) => (0..hex.len()).step_by(2).map(|at| u8::from_str_radix(&hex[at..at + 2], 16).expect("hex byte")).collect(),
@@ -27,6 +33,7 @@ fn bytes_of(spec: &Value) -> Vec<u8> {
 }
 
 /// The files a case lays in `folder`: byte specs, folders, or `parentIsFile` (the folder itself is a file).
+#[cfg(node_twin)]
 fn lay(folder: &Path, files: &Value) {
     let Some(files) = files.as_object() else { return };
     if files.get("parentIsFile") == Some(&Value::Bool(true)) {
@@ -44,6 +51,7 @@ fn lay(folder: &Path, files: &Value) {
 }
 
 /// A text, or (over 4096 characters) its UTF-16 length and the sha256 of its bytes.
+#[cfg(node_twin)]
 fn expect_text(want: &Value, got: &str, case: &str) {
     match want.get("text").and_then(Value::as_str) {
         Some(text) => assert_eq!(got, text, "{case}"),
@@ -55,6 +63,7 @@ fn expect_text(want: &Value, got: &str, case: &str) {
     }
 }
 
+#[cfg(node_twin)]
 fn expect_read(want: &Value, got: Option<Instruction>, case: &str) {
     match (want, got) {
         (Value::Null, None) => {}
@@ -64,7 +73,23 @@ fn expect_read(want: &Value, got: Option<Instruction>, case: &str) {
     }
 }
 
+/// A lane that cannot run the read is a typed failure, not an empty mode text.
 #[tokio::test]
+async fn a_refused_lane_read_is_a_typed_failure() {
+    let lane = mixdog_rt::testing::tokens().interactive_io;
+    let texts = OrchestrationTexts::new(lane, "root", "data");
+    let _refusing = mixdog_rt::testing::refuse_jobs_on_this_thread();
+    let failure = texts.orchestration_instructions("swarm").await.expect_err("the lane refuses");
+    assert!(failure.0.contains("could not be read"), "{failure}");
+}
+
+
+#[cfg(node_twin)]
+fn golden() -> Value {
+    serde_json::from_str(include_str!("../../../../fixtures/workflow-surface/orchestration.json")).expect("the golden is JSON")
+}
+#[tokio::test]
+#[cfg(node_twin)]
 async fn the_mode_texts_and_the_file_decode_equal_nodes() {
     let lane = mixdog_rt::testing::tokens().interactive_io;
     let golden = golden();
@@ -86,14 +111,4 @@ async fn the_mode_texts_and_the_file_decode_equal_nodes() {
         let got = texts.orchestration_instructions(case["mode"].as_str().expect("mode")).await.expect("the lane ran the read");
         expect_text(&case["instructions"], &got, name);
     }
-}
-
-/// A lane that cannot run the read is a typed failure, not an empty mode text.
-#[tokio::test]
-async fn a_refused_lane_read_is_a_typed_failure() {
-    let lane = mixdog_rt::testing::tokens().interactive_io;
-    let texts = OrchestrationTexts::new(lane, "root", "data");
-    let _refusing = mixdog_rt::testing::refuse_jobs_on_this_thread();
-    let failure = texts.orchestration_instructions("swarm").await.expect_err("the lane refuses");
-    assert!(failure.0.contains("could not be read"), "{failure}");
 }

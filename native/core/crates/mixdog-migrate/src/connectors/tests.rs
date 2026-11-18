@@ -1,116 +1,19 @@
-//! The connector transition against Node's goldens (`vectors/connector_merge.mjs`): each
-//! case's data dir goes through a whole migration and must end as Node's start left it.
+//! The connector transition: the servers of one connector merge into one holding its accounts, and the stores that
+//! name a merged-away server follow it.
 
 #![allow(
     clippy::disallowed_methods,
     reason = "the tests build and read data dirs with blocking std::fs"
 )]
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
-use mixdog_store::schema::migration::MANIFEST_PATH;
-use mixdog_store::schema::migration::Manifest;
 use serde_json::Value;
 use serde_json::json;
 
 use super::*;
-use crate::run::MigrateOptions;
-use crate::run::Migrator;
 use crate::run::tests::corpus;
-use crate::run::tests::drivers;
 use crate::run::tests::write;
-
-fn golden() -> Value {
-    serde_json::from_str(include_str!("vectors/connector_merge.json")).expect("golden")
-}
-
-/// The case's data dir after a whole migration, in the shape the generator prints.
-fn migrated(case: &Value) -> (tempfile::TempDir, MigrationRoots, Manifest, Value) {
-    let dir = tempfile::tempdir().unwrap();
-    let roots = MigrationRoots { data: dir.path().join("data"), home: dir.path().join("home"), profile: None };
-    std::fs::create_dir_all(&roots.home).unwrap();
-    let input = case["input"].as_object().unwrap();
-    for (rel, text) in input {
-        write(&roots.data, rel, text.as_str().unwrap().as_bytes());
-    }
-    let complete = Migrator::new(roots.clone(), drivers(), MigrateOptions::default()).run().unwrap();
-    assert_eq!(complete.kinds.data.quarantined_unexpected, 0, "{}: {complete:?}", case["name"]);
-    let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
-    let config: Value = serde_json::from_slice(&std::fs::read(roots.data.join(stores::CONFIG_FILE)).unwrap()).unwrap();
-    // The files the generator prints: the case's own and every store it can write.
-    let mut files = BTreeMap::new();
-    for rel in durable::walk_files(&roots.data).unwrap() {
-        let store = ["agents/", "bots/", "hooks", "project-connectors", "connector-"].iter().any(|p| rel.starts_with(p));
-        if rel != stores::CONFIG_FILE && (input.contains_key(&rel) || store) {
-            files.insert(rel.clone(), String::from_utf8(std::fs::read(roots.data.join(&rel)).unwrap()).unwrap());
-        }
-    }
-    let out = json!({
-        "mcpServers": config["agent"].get("mcpServers").cloned().unwrap_or(Value::Null),
-        "extensionScopes": config["agent"].get("extensionScopes").cloned().unwrap_or(Value::Null),
-        "files": files,
-    });
-    (dir, roots, manifest, out)
-}
-
-/// `out` with each v4 id not in the input written `<new-id-N>` in order of appearance, as the
-/// generator writes Node's random ones.
-fn placeholders(out: &Value, case: &Value) -> Value {
-    let input = case["input"].to_string();
-    let uuid = regex::Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}").unwrap();
-    let mut ids: Vec<String> = Vec::new();
-    let out = out.to_string();
-    let text = uuid.replace_all(&out, |caps: &regex::Captures<'_>| {
-        let id = caps[0].to_owned();
-        if input.contains(&id) {
-            return id;
-        }
-        if !ids.contains(&id) {
-            ids.push(id.clone());
-        }
-        format!("<new-id-{}>", ids.iter().position(|x| *x == id).unwrap() + 1)
-    });
-    serde_json::from_str(&text).unwrap()
-}
-
-#[test]
-fn every_case_ends_as_node_leaves_it() {
-    for case in golden()["cases"].as_array().unwrap() {
-        let name = case["name"].as_str().unwrap();
-        let input: Value = serde_json::from_str(case["input"]["mixdog-config.json"].as_str().unwrap()).unwrap();
-        let (servers, merged) = merge_servers(input["agent"].get("mcpServers"));
-        let merged: Vec<Value> = merged.iter().map(|g| json!({"name": g.name, "from": g.from})).collect();
-        assert_eq!(Value::from(merged.clone()), case["merged"], "{name}: merged");
-        let (_dir, roots, manifest, out) = migrated(case);
-        let want = json!({"mcpServers": case["mcpServers"], "extensionScopes": case["extensionScopes"], "files": case["files"]});
-        assert_eq!(placeholders(&out, case), want, "{name}");
-        // The servers keep Node's order.
-        let order = |v: &Value| v.as_object().map(|m| m.keys().cloned().collect::<Vec<_>>());
-        assert_eq!(order(&out["mcpServers"]), order(&case["mcpServers"]), "{name}: server order");
-        if !merged.is_empty() {
-            assert_eq!(order(&Value::Object(servers.clone())), order(&case["mcpServers"]), "{name}: merge order");
-        }
-        // Nothing else of the config changes.
-        let config: Value = serde_json::from_slice(&std::fs::read(roots.data.join(stores::CONFIG_FILE)).unwrap()).unwrap();
-        let rest = |mut doc: Value| {
-            let agent = doc["agent"].as_object_mut().unwrap();
-            agent.shift_remove("mcpServers");
-            agent.shift_remove("extensionScopes");
-            doc
-        };
-        assert_eq!(rest(config), rest(input.clone()), "{name}: the rest of the config");
-        // A case Node leaves as it is plans nothing.
-        let unchanged = case["input"].as_object().unwrap().iter().all(|(rel, text)| case["files"].get(rel).is_none_or(|t| t == text))
-            && case["mcpServers"] == input["agent"]["mcpServers"]
-            && case["files"].as_object().unwrap().keys().all(|rel| case["input"].get(rel).is_some());
-        assert_eq!(manifest.items.iter().any(|i| i.key.as_str() == ITEM), !unchanged, "{name}: item planned");
-        if unchanged {
-            let bytes = std::fs::read(roots.data.join(stores::CONFIG_FILE)).unwrap();
-            assert_eq!(bytes, case["input"]["mixdog-config.json"].as_str().unwrap().as_bytes(), "{name}: config bytes");
-        }
-    }
-}
 
 #[test]
 fn numbered_servers_sort_naturally() {
@@ -154,3 +57,95 @@ fn v145_needs_no_connector_transition() {
     assert!(!Path::new(&data.join(PENDING_FILE)).exists());
     assert!(convert(&data, &|_| true).unwrap().outputs.is_empty());
 }
+
+fn notion(extra: Value) -> Value {
+    let mut server = json!({"url": "https://mcp.notion.com/mcp", "connector": "notion"});
+    server.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+    server
+}
+
+fn account_names(server: &Value) -> Vec<&str> {
+    server["accounts"].as_array().unwrap().iter().map(|a| a["name"].as_str().unwrap()).collect()
+}
+
+#[test]
+fn one_connectors_servers_merge_into_one_holding_the_accounts() {
+    let servers = json!({
+        "other": {"command": "x"},
+        "notion-2": notion(json!({"oauthKey": "2"})),
+        "notion": notion(json!({})),
+    });
+    let (merged_servers, groups) = merge_servers(Some(&servers));
+    assert_eq!(groups, [Group { name: "notion".into(), from: vec!["notion".into(), "notion-2".into()] }]);
+    assert_eq!(merged_servers.keys().collect::<Vec<_>>(), ["other", "notion"], "the other server stays, the merged one takes the surviving name");
+    assert_eq!(merged_servers["other"], json!({"command": "x"}));
+    let notion = &merged_servers["notion"];
+    assert_eq!(notion["type"], "http");
+    assert_eq!(notion["connector"], "notion");
+    assert_eq!(notion["url"], "https://connectors.mixdog.invalid/notion/mcp");
+    assert_eq!(account_names(notion), ["notion", "notion-2"], "the surviving server's account first");
+    assert_eq!(notion["accounts"][1]["oauthKey"], "2");
+    assert!(notion.get("enabled").is_none());
+}
+
+#[test]
+fn a_connector_already_merged_is_left_as_it_is() {
+    let servers = json!({"notion": notion(json!({"accounts": [{"name": "a", "url": "https://mcp.notion.com/mcp"}]}))});
+    let (_, groups) = merge_servers(Some(&servers));
+    assert!(groups.is_empty());
+    assert_eq!(merge_servers(None).1, []);
+}
+
+#[test]
+fn numbered_accounts_join_lowest_number_first_and_without_duplicates() {
+    let servers = json!({
+        "notion-10": notion(json!({"oauthKey": "10"})),
+        "notion-2": notion(json!({"oauthKey": "2"})),
+        "notion-3": notion(json!({"oauthKey": "2"})),
+    });
+    let (merged_servers, groups) = merge_servers(Some(&servers));
+    assert_eq!(groups[0].from, ["notion-2", "notion-3", "notion-10"]);
+    assert_eq!(groups[0].name, "notion-2", "with no server named for the connector, the lowest-numbered survives");
+    // notion-3 is the same connection as notion-2 and adds no account.
+    assert_eq!(account_names(&merged_servers["notion-2"]), ["notion-2", "notion-10"]);
+}
+
+#[test]
+fn a_disabled_server_keeps_its_account_off_and_a_fully_disabled_connector_is_off() {
+    let servers = json!({"notion": notion(json!({})), "notion-2": notion(json!({"oauthKey": "2", "enabled": false}))});
+    let (merged_servers, _) = merge_servers(Some(&servers));
+    let notion_server = &merged_servers["notion"];
+    assert!(notion_server.get("enabled").is_none());
+    assert_eq!(notion_server["accounts"][1]["enabled"], false);
+    assert!(notion_server["accounts"][0].get("enabled").is_none());
+
+    let servers = json!({"notion": notion(json!({"enabled": false})), "notion-2": notion(json!({"oauthKey": "2", "enabled": false}))});
+    let (merged_servers, _) = merge_servers(Some(&servers));
+    assert_eq!(merged_servers["notion"]["enabled"], false);
+}
+
+fn policy(allow: Option<&[&str]>, off: &[&str]) -> Policy {
+    Policy {
+        allow: allow.map(|a| a.iter().map(|s| (*s).to_owned()).collect()),
+        off: off.iter().map(|s| (*s).to_owned()).collect(),
+        tools: Default::default(),
+    }
+}
+
+fn group() -> Vec<Group> {
+    vec![Group { name: "notion".into(), from: vec!["notion".into(), "notion-2".into()] }]
+}
+
+#[test]
+fn a_policy_naming_a_merged_away_server_follows_the_surviving_one() {
+    let mapped = map_policy(&policy(None, &["notion-2"]), &group()).unwrap();
+    assert_eq!(mapped.off.iter().collect::<Vec<_>>(), ["notion"], "off follows");
+    let mapped = map_policy(&policy(Some(&["notion-2", "gmail"]), &[]), &group()).unwrap();
+    assert_eq!(mapped.allow.unwrap().iter().collect::<Vec<_>>(), ["gmail", "notion"], "allowed follows");
+    assert_eq!(map_policy(&policy(None, &["gmail"]), &group()), None, "a policy naming none of them is untouched");
+    assert_eq!(map_policy(&policy(None, &["notion"]), &group()), None, "the surviving server's own entry needs no move");
+}
+
+#[cfg(node_twin)]
+#[path = "node-twin/merge_cases.rs"]
+mod merge_cases;

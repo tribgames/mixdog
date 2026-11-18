@@ -4,7 +4,7 @@ import { BLOB_REF_FIELDS } from '../../shared/core-lanes/blob-ref-fields';
 
 /** Above this many bytes the request is measured field by field; the frame bound itself comes from the initialize reply. */
 const SEND_BOUND_BYTES = 192 * 1024;
-/** A listed string field shorter than this stays inline. */
+/** Below this size, prefer inline strings when the remaining request fits. */
 const FIELD_BLOB_BYTES = 64 * 1024;
 /** Room kept in a frame for the JSON-RPC envelope around the params (limits.rs BLOB_PUT_ENVELOPE_BYTES). */
 const ENVELOPE_BYTES = 4 * 1024;
@@ -41,6 +41,7 @@ function stringSlots(root: Json, pointer: string): Array<[Container, string]> {
 }
 
 const BASE64_BODY = /^[A-Za-z0-9+/]*={0,2}$/;
+const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 /**
  * The bytes of a padded standard base64 string, or null when it is not one. The core expands a "base64" reference as the
@@ -48,6 +49,9 @@ const BASE64_BODY = /^[A-Za-z0-9+/]*={0,2}$/;
  */
 function decodeBase64(text: string): Uint8Array | null {
   if (text.length % 4 !== 0 || !BASE64_BODY.test(text)) return null;
+  // Non-zero padding bits would not survive re-encoding on the server.
+  if (text.endsWith('==') && (BASE64_ALPHABET.indexOf(text.at(-3)!) & 15) !== 0) return null;
+  if (text.endsWith('=') && !text.endsWith('==') && (BASE64_ALPHABET.indexOf(text.at(-2)!) & 3) !== 0) return null;
   try {
     const raw = atob(text);
     const out = new Uint8Array(raw.length);
@@ -82,7 +86,7 @@ function isBase64Field(pointer: string): boolean {
  */
 export async function sizedCall(client: SizedCallClient, method: string, params: unknown): Promise<unknown> {
   const send = (body: unknown): Promise<unknown> => (client.call as (m: string, p: unknown) => Promise<unknown>)(method, body);
-  const frameBound = (client.server.limits.maxInboundFrameBytes ?? DEFAULT_MAX_INBOUND_FRAME_BYTES) - ENVELOPE_BYTES;
+  const frameBound = (client.server?.limits?.maxInboundFrameBytes ?? DEFAULT_MAX_INBOUND_FRAME_BYTES) - ENVELOPE_BYTES;
   const size = bytesOf(params);
   if (size <= Math.min(SEND_BOUND_BYTES, frameBound)) return send(params);
   const pointers = BLOB_REF_FIELDS[method];
@@ -91,23 +95,28 @@ export async function sizedCall(client: SizedCallClient, method: string, params:
     throw new TypeError(`${method} is too large to send: the request is ${size} bytes and the core accepts ${frameBound} bytes in one frame.`);
   }
   const body = structuredClone(params) as Json;
-  for (const pointer of pointers) {
-    for (const [container, key] of stringSlots(body, pointer)) {
-      const value = (container as Record<string, Json>)[key] as string;
-      if (value.length < FIELD_BLOB_BYTES / 3 || encoder.encode(value).length <= FIELD_BLOB_BYTES) continue;
-      const blob = blobOf(pointer, value);
-      const ref = await client.putBlob(blob.bytes, blob.mediaType);
-      (container as Record<string, Json>)[key] = { $blobRef: ref.blob.digest, as: blob.as };
-    }
+  const slots = pointers.flatMap((pointer) => stringSlots(body, pointer).map(([container, key]) => {
+    const target = container as Record<string, Json>;
+    const value = target[key] as string;
+    return { target, key, pointer, value, wireBytes: bytesOf(value) };
+  })).sort((a, b) => b.wireBytes - a.wireBytes);
+  const placeholder = { $blobRef: `sha256:${'0'.repeat(64)}`, as: 'base64' };
+  const refBytes = bytesOf(placeholder);
+  const uploads: typeof slots = [];
+  let total = size;
+  for (const slot of slots) {
+    if (slot.wireBytes <= refBytes || (slot.wireBytes <= FIELD_BLOB_BYTES && total <= frameBound)) break;
+    slot.target[slot.key] = placeholder;
+    total -= slot.wireBytes - refBytes;
+    uploads.push(slot);
   }
-  const total = bytesOf(body);
-  if (total <= frameBound) return send(body);
-  let largest = { pointer: pointers[0], bytes: 0 };
-  for (const pointer of pointers) {
-    for (const [container, key] of stringSlots(body, pointer)) {
-      const bytes = encoder.encode((container as Record<string, Json>)[key] as string).length;
-      if (bytes > largest.bytes) largest = { pointer, bytes };
-    }
+  if (total > frameBound) {
+    throw new TypeError(`${slots[0]?.pointer ?? pointers[0]} is too large to send: the request is ${total} bytes and the core accepts ${frameBound} bytes in one frame.`);
   }
-  throw new TypeError(`${largest.pointer} is too large to send: the request is ${total} bytes and the core accepts ${frameBound} bytes in one frame.`);
+  for (const { target, key, pointer, value } of uploads) {
+    const blob = blobOf(pointer, value);
+    const ref = await client.putBlob(blob.bytes, blob.mediaType);
+    target[key] = { $blobRef: ref.blob.digest, as: blob.as };
+  }
+  return send(body);
 }

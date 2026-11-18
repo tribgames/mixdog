@@ -116,21 +116,24 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use async_trait::async_trait;
+    #[cfg(node_twin)]
     use mixdog_remote::push::native_crypto::{NativePushContent, Reason, collapse_key};
+    #[cfg(node_twin)]
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::notify::decision::{
-        Conversation, ConversationOverride, DESKTOP_HOLD_MS, DevicePreferences, Event, PreferencesView, SessionFields,
-    };
+    use crate::notify::decision::{DESKTOP_HOLD_MS, DevicePreferences, PreferencesView};
+    #[cfg(node_twin)]
+    use crate::notify::decision::{Conversation, ConversationOverride, SessionFields};
+    #[cfg(node_twin)]
+    use crate::notify::decision::Event;
     use crate::notify::engine::{
-        Audience, HostConnection, NotificationEngine, PairedDevice, PushApproval, PushSchedule, ToastStyle,
+        Audience, NotificationEngine, PairedDevice, PushApproval, ToastStyle,
     };
+    #[cfg(node_twin)]
+    use crate::notify::engine::{HostConnection, PushSchedule};
 
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/held-push/golden.json")).expect("golden parses")
-    }
-
+    #[cfg(node_twin)]
     fn text<'a>(value: &'a Value, key: &str) -> &'a str {
         value[key].as_str().unwrap_or_else(|| panic!("{key} in {value}"))
     }
@@ -139,17 +142,7 @@ mod tests {
         NotificationEngine::new(Arc::new(|| ToastStyle::for_volume(50)))
     }
 
-    /// `createPushNotifier.onHeldRequest` recorded over Node (`record-held-request-push.mjs`).
-    #[test]
-    fn the_text_is_nodes() {
-        let golden = golden();
-        let rows = golden["text"].as_array().expect("text rows");
-        assert_eq!(rows.len(), 12);
-        for row in rows {
-            assert_eq!(held_request_push_text(text(row, "agentName")), text(row, "text"), "{row}");
-        }
-    }
-
+    #[cfg(node_twin)]
     fn event_of(row: &Value) -> HeldRequestEvent {
         HeldRequestEvent {
             session_id: text(row, "sessionId").to_owned(),
@@ -160,6 +153,7 @@ mod tests {
     }
 
     /// The conversation the notifier knows for the session: its catalog row, else its bare id.
+    #[cfg(node_twin)]
     fn conversation_of(case: &Value, session_id: &str) -> Conversation {
         let fields = match case["session"].as_object() {
             Some(row) => SessionFields {
@@ -172,6 +166,7 @@ mod tests {
     }
 
     /// Node's `{ target: { kind, id }, setting }` as the decision's override.
+    #[cfg(node_twin)]
     fn override_of(row: &Value) -> ConversationOverride {
         serde_json::from_value(json!({
             "kind": row["target"]["kind"],
@@ -179,78 +174,6 @@ mod tests {
             "setting": row["setting"],
         }))
         .expect("override")
-    }
-
-    #[test]
-    fn who_hears_a_held_request_and_what_they_read_is_nodes() {
-        let golden = golden();
-        let cases = golden["cases"].as_array().expect("cases");
-        assert_eq!(cases.len(), 23);
-        for case in cases {
-            let held = event_of(&case["event"]);
-            let overrides: Vec<ConversationOverride> =
-                case["overrides"].as_array().expect("overrides").iter().map(override_of).collect();
-            let devices = case["devices"]
-                .as_array()
-                .expect("devices")
-                .iter()
-                .map(|device| PairedDevice {
-                    device_id: text(device, "deviceId").to_owned(),
-                    view: PreferencesView {
-                        preferences: serde_json::from_value(device["preferences"].clone()).expect("preferences"),
-                        overrides: overrides.clone(),
-                    },
-                    foreground_thread: device["foreground"].as_bool().unwrap().then(|| held.session_id.clone()),
-                })
-                .collect();
-            let audience = Audience {
-                pc: PreferencesView { preferences: DevicePreferences::default(), overrides: Vec::new() },
-                hosts: vec![HostConnection { connection_id: "c1".into(), foreground_thread: None }],
-                devices,
-                desktop_active: case["desktopActive"].as_bool().unwrap(),
-            };
-            let now = case["now"].as_i64().unwrap();
-            let conversation = conversation_of(case, &held.session_id);
-            let plan = engine().on_held_request(&held, &conversation, &audience, now);
-
-            assert!(plan.toasts.is_empty(), "only phones hear it: {}", case["name"]);
-            let deliveries = case["deliveries"].as_array().expect("deliveries");
-            // The notifier's own off switch (`isEnabled`) is the caller's, not the plan's.
-            if case["enabled"] == Value::Bool(false) {
-                assert!(deliveries.is_empty(), "{}", case["name"]);
-                continue;
-            }
-            let mut planned: Vec<_> = plan.pushes.iter().collect();
-            planned.sort_by_key(|push| (matches!(push.schedule, PushSchedule::HoldUntil(_)), push.device_id.clone()));
-            assert_eq!(
-                planned.iter().map(|push| push.device_id.as_str()).collect::<Vec<_>>(),
-                deliveries.iter().map(|delivery| text(delivery, "deviceId")).collect::<Vec<_>>(),
-                "{}",
-                case["name"]
-            );
-            for (push, delivery) in planned.iter().zip(deliveries) {
-                let content = &delivery["content"];
-                let after_hold = delivery["afterHold"].as_bool().unwrap();
-                let schedule = if after_hold { PushSchedule::HoldUntil(now + DESKTOP_HOLD_MS as i64) } else { PushSchedule::Now };
-                assert_eq!(push.schedule, schedule, "{}", case["name"]);
-                assert_eq!(push.event, Event::Approval);
-                assert_eq!(push.thread_id, text(content, "sessionId"));
-                assert_eq!(push.title, text(content, "title"));
-                assert_eq!(push.body, text(content, "body"));
-                assert_eq!(
-                    push.approval,
-                    Some(PushApproval { id: text(content, "approvalId").to_owned(), allow_once: false }),
-                    "no Allow is offered on a held request"
-                );
-                assert!(content.get("allowOnce").is_none());
-                // What the sink then sends: the clipped native content and the relay's reason.
-                let (title, body) = NativePushContent::clip(&push.title, &push.body);
-                assert_eq!((title.as_str(), body.as_str()), (text(content, "title"), text(content, "body")));
-                assert_eq!(Reason::ApprovalPending.name(), text(content, "reason"));
-                assert_eq!(Reason::ApprovalPending.for_relay(), text(&delivery["relay"], "reason"));
-                assert_eq!(collapse_key(&push.thread_id, Reason::ApprovalPending), text(&delivery["relay"], "collapseKey"));
-            }
-        }
     }
 
     struct Listeners(Mutex<Audience>);
@@ -399,5 +322,94 @@ mod tests {
         rig.notifier.notify(held());
         run_tasks().await;
         assert_eq!(*rig.logs.lock().unwrap(), ["[mixdog-remote-push] The relay is not connected right now."]);
+    }
+
+
+    #[cfg(node_twin)]
+    fn golden() -> Value {
+        serde_json::from_str(include_str!("../../../../fixtures/held-push/golden.json")).expect("golden parses")
+    }
+    /// `createPushNotifier.onHeldRequest` recorded over Node (`record-held-request-push.mjs`).
+    #[cfg(node_twin)]
+    #[test]
+    fn the_text_is_nodes() {
+        let golden = golden();
+        let rows = golden["text"].as_array().expect("text rows");
+        assert_eq!(rows.len(), 12);
+        for row in rows {
+            assert_eq!(held_request_push_text(text(row, "agentName")), text(row, "text"), "{row}");
+        }
+    }
+    #[cfg(node_twin)]
+    #[test]
+    fn who_hears_a_held_request_and_what_they_read_is_nodes() {
+        let golden = golden();
+        let cases = golden["cases"].as_array().expect("cases");
+        assert_eq!(cases.len(), 23);
+        for case in cases {
+            let held = event_of(&case["event"]);
+            let overrides: Vec<ConversationOverride> =
+                case["overrides"].as_array().expect("overrides").iter().map(override_of).collect();
+            let devices = case["devices"]
+                .as_array()
+                .expect("devices")
+                .iter()
+                .map(|device| PairedDevice {
+                    device_id: text(device, "deviceId").to_owned(),
+                    view: PreferencesView {
+                        preferences: serde_json::from_value(device["preferences"].clone()).expect("preferences"),
+                        overrides: overrides.clone(),
+                    },
+                    foreground_thread: device["foreground"].as_bool().unwrap().then(|| held.session_id.clone()),
+                })
+                .collect();
+            let audience = Audience {
+                pc: PreferencesView { preferences: DevicePreferences::default(), overrides: Vec::new() },
+                hosts: vec![HostConnection { connection_id: "c1".into(), foreground_thread: None }],
+                devices,
+                desktop_active: case["desktopActive"].as_bool().unwrap(),
+            };
+            let now = case["now"].as_i64().unwrap();
+            let conversation = conversation_of(case, &held.session_id);
+            let plan = engine().on_held_request(&held, &conversation, &audience, now);
+
+            assert!(plan.toasts.is_empty(), "only phones hear it: {}", case["name"]);
+            let deliveries = case["deliveries"].as_array().expect("deliveries");
+            // The notifier's own off switch (`isEnabled`) is the caller's, not the plan's.
+            if case["enabled"] == Value::Bool(false) {
+                assert!(deliveries.is_empty(), "{}", case["name"]);
+                continue;
+            }
+            let mut planned: Vec<_> = plan.pushes.iter().collect();
+            planned.sort_by_key(|push| (matches!(push.schedule, PushSchedule::HoldUntil(_)), push.device_id.clone()));
+            assert_eq!(
+                planned.iter().map(|push| push.device_id.as_str()).collect::<Vec<_>>(),
+                deliveries.iter().map(|delivery| text(delivery, "deviceId")).collect::<Vec<_>>(),
+                "{}",
+                case["name"]
+            );
+            for (push, delivery) in planned.iter().zip(deliveries) {
+                let content = &delivery["content"];
+                let after_hold = delivery["afterHold"].as_bool().unwrap();
+                let schedule = if after_hold { PushSchedule::HoldUntil(now + DESKTOP_HOLD_MS as i64) } else { PushSchedule::Now };
+                assert_eq!(push.schedule, schedule, "{}", case["name"]);
+                assert_eq!(push.event, Event::Approval);
+                assert_eq!(push.thread_id, text(content, "sessionId"));
+                assert_eq!(push.title, text(content, "title"));
+                assert_eq!(push.body, text(content, "body"));
+                assert_eq!(
+                    push.approval,
+                    Some(PushApproval { id: text(content, "approvalId").to_owned(), allow_once: false }),
+                    "no Allow is offered on a held request"
+                );
+                assert!(content.get("allowOnce").is_none());
+                // What the sink then sends: the clipped native content and the relay's reason.
+                let (title, body) = NativePushContent::clip(&push.title, &push.body);
+                assert_eq!((title.as_str(), body.as_str()), (text(content, "title"), text(content, "body")));
+                assert_eq!(Reason::ApprovalPending.name(), text(content, "reason"));
+                assert_eq!(Reason::ApprovalPending.for_relay(), text(&delivery["relay"], "reason"));
+                assert_eq!(collapse_key(&push.thread_id, Reason::ApprovalPending), text(&delivery["relay"], "collapseKey"));
+            }
+        }
     }
 }

@@ -17,23 +17,10 @@ import {
   readFileSync,
   readSync,
   statSync,
-  unlinkSync,
-  utimesSync,
 } from 'node:fs';
-import {
-  mkdir,
-  readdir,
-  readFile as readFileAsync,
-  rm,
-  stat,
-  unlink,
-  writeFile as writeFileAsync,
-} from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
-import { COMPACTION_ARCHIVE_SUFFIX } from '../agent/orchestrator/session/compaction-archive.mjs';
-import { SESSION_LOG_SUFFIX } from '../agent/orchestrator/session/store/session-log-format.mjs';
-import { writeFileAtomicSync, writeJsonAtomicAsync } from '../shared/atomic-file.mjs';
+import { writeFileAtomicSync } from '../shared/atomic-file.mjs';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { attachmentFileName } from './attachment-file-name.mjs';
 import {
@@ -51,57 +38,14 @@ const TEXT_TOKEN_RE = /\[(?:Pasted text|File) #(\d+)[^\]\r\n]*\]/g;
 const TEXT_REFERENCE_THRESHOLD_BYTES = 800;
 const MAX_PROMPT_TEXT_BYTES = 1024 * 1024;
 const ATTACHMENT_CACHE_MAX_BYTES = 64 * 1024 * 1024;
-const ATTACHMENT_GC_MIN_AGE_MS = Math.max(
-  60_000,
-  Number(process.env.MIXDOG_ATTACHMENT_GC_MIN_AGE_MS) || 7 * 24 * 60 * 60 * 1000
-);
-// The least time between two censuses, across processes; not a cadence (no
-// timer waits for it).
-const ATTACHMENT_GC_SPACING_MS = 6 * 60 * 60 * 1000;
-const ATTACHMENT_GC_START_DELAY_MS = 5_000;
-// A census that died mid-run must not hold the claim forever.
-const ATTACHMENT_GC_LOCK_STALE_MS = 60 * 60 * 1000;
 
 const bufferCache = new Map();
 let bufferCacheBytes = 0;
 let cacheHits = 0;
 let cacheMisses = 0;
-let attachmentGcTimer = null;
-// True while scheduleAttachmentGc reads the stamp before arming the timer.
-let attachmentGcScheduling = false;
-// Referenced ids per reference file, keyed by path + full stat stamp.
-let referenceCache = null; // { root, files: Map<path, { stamp, refs }> }
 
 function attachmentsDir() {
   return join(resolvePluginData(), 'prompt-attachments', 'sha256');
-}
-
-// The census reads every session file, so its 6-hour spacing must hold across
-// processes: an in-memory timestamp alone re-ran it 5 s after every CLI, TUI
-// and daemon launch (a 1.9 GB census spiked the heap past 500 MB).
-function attachmentGcStampPath() {
-  return join(resolvePluginData(), 'prompt-attachments', 'gc-last-run');
-}
-
-function attachmentGcLockPath() {
-  return join(resolvePluginData(), 'prompt-attachments', 'gc-running');
-}
-
-function attachmentReferenceCachePath() {
-  return join(resolvePluginData(), 'prompt-attachments', 'gc-reference-cache.json');
-}
-
-async function readAttachmentGcStamp() {
-  try {
-    return (await stat(attachmentGcStampPath())).mtimeMs;
-  } catch {
-    return 0;
-  }
-}
-
-async function writeAttachmentGcStamp() {
-  await mkdir(join(resolvePluginData(), 'prompt-attachments'), { recursive: true });
-  await writeFileAsync(attachmentGcStampPath(), '');
 }
 
 function attachmentPath(ref) {
@@ -151,36 +95,15 @@ function saveBuffer(buffer) {
       return false;
     }
   };
-  let existingValid = false;
-  if (existsSync(target)) {
-    existingValid = storedMatches();
-    if (!existingValid) {
-      try {
-        unlinkSync(target);
-      } catch {}
-    }
-  }
-  if (!existingValid) {
+  if (!storedMatches()) {
     mkdirSync(join(attachmentsDir(), attachmentRef.slice(0, 2)), { recursive: true, mode: 0o700 });
-    try {
-      // Durable, so a crash cannot leave this content address holding NUL
-      // bytes (a read would then fail its digest check).
-      writeFileAtomicSync(target, buffer, { mode: 0o600 });
-    } catch (error) {
-      // A concurrent writer may have published the same content first.
-      if (!storedMatches()) throw error;
+    // Installed only where nothing is (a durable tmp linked to the name): a file at this address, whatever it holds and
+    // whoever published it first, is never unlinked or renamed over. One that is not these bytes fails the upload.
+    if (!writeFileAtomicSync(target, buffer, { mode: 0o600, createOnly: true }) && !storedMatches()) {
+      throw new Error('stored attachment failed its integrity check');
     }
-  } else {
-    // Reusing old content creates a fresh reference before its queue/session
-    // record is durable. Refresh mtime so the GC safety window protects that
-    // cross-process publication race.
-    try {
-      const now = new Date();
-      utimesSync(target, now, now);
-    } catch {}
   }
   rememberBuffer(target, buffer);
-  scheduleAttachmentGc();
   return { attachmentRef, sizeBytes: buffer.length };
 }
 
@@ -196,8 +119,7 @@ export function attachmentFilePath(ref) {
   return attachmentPath(ref);
 }
 
-// Named copies live beside the content-addressed blobs, one folder per blob,
-// and go with the blob when the census sweeps it.
+// Named copies live beside the content-addressed blobs, one folder per blob.
 function namedFilesDir(ref) {
   return join(resolvePluginData(), 'prompt-attachments', 'files', ref);
 }
@@ -261,15 +183,6 @@ function publishNamedCopy({ dir, target, buffer }) {
     writeFileAtomicSync(target, buffer, { mode: 0o600 });
   }
   return target;
-}
-
-/** Delete a stored blob and its named copies (a staged original that was
- *  evicted or expired); resolves once both are gone. */
-export async function removeAttachmentBlob(ref) {
-  const path = attachmentPath(ref);
-  await unlink(path).catch(() => {});
-  dropCachedAttachment(path);
-  await rm(namedFilesDir(ref), { recursive: true, force: true });
 }
 
 export function isAttachmentReference(value) {
@@ -653,15 +566,13 @@ const MAX_MESSAGE_ATTACHMENTS = 64;
  * The user-attachment records of one materialized submission, for the message
  * metadata (`meta.transcript.attachments`): every image, file and
  * pasted/attached text that lives in the store, by its content hash. The id IS
- * the `attachmentRef`; the record repeats it under that key so the store's
- * mark-and-sweep census (which scans persisted sessions for `"attachmentRef"`)
- * keeps the blob for as long as the message exists, even after compaction
- * dropped the content part. Plain long prompt text (no `textKind`) is not an
- * attachment.
+ * the `attachmentRef`; the record repeats it under that key, so the message
+ * names the blob even after compaction dropped the content part. Plain long
+ * prompt text (no `textKind`) is not an attachment.
  */
 // The file the user picked, when the composer kept it beside the resized image
 // it sent the model and the store still holds it. The record names it under
-// `attachmentRef`, so the census keeps it as long as the message exists.
+// `attachmentRef`.
 function pickedOriginal(raw) {
   const ref = String(raw?.originalRef || '');
   if (!ATTACHMENT_REF_RE.test(ref) || !existsSync(attachmentPath(ref))) return {};
@@ -907,284 +818,4 @@ export function attachmentStoreCacheStats() {
 export function clearAttachmentBufferCache() {
   bufferCache.clear();
   bufferCacheBytes = 0;
-}
-
-function dropCachedAttachment(path) {
-  const cached = bufferCache.get(path);
-  if (!cached) return;
-  bufferCache.delete(path);
-  bufferCacheBytes -= cached.length;
-}
-
-// Besides a legacy `<id>.json`, a session's messages live in its log
-// `<id>.log.jsonl`, in any log set aside as `<log>.<kind>-<ms>-<hex>`
-// (damaged, diverged, torn, invalid: kept whole for recovery), and in the
-// compaction archive of the history its compactions dropped (still shown).
-// A log temp file (`<log>.<hex>.tmp`) is counted too: it is the proven
-// replacement mid-swap, so the record it replaces may already be gone.
-const SET_ASIDE_LOG = /^(?:[a-z]+-\d+-[0-9a-f]+|[0-9a-f]+\.tmp)$/;
-
-function isSessionReferenceFile(name) {
-  if (name.endsWith(SESSION_LOG_SUFFIX) || name.endsWith(COMPACTION_ARCHIVE_SUFFIX)) return true;
-  const at = name.lastIndexOf(`${SESSION_LOG_SUFFIX}.`);
-  return at > 0 && SET_ASIDE_LOG.test(name.slice(at + SESSION_LOG_SUFFIX.length + 1));
-}
-
-async function persistedAttachmentReferencePaths() {
-  const root = resolvePluginData();
-  const paths = [];
-  for (const subdir of ['sessions', 'turn-checkpoints', 'session-pending']) {
-    const dir = join(root, subdir);
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch (error) {
-      if (error?.code === 'ENOENT') continue;
-      throw error;
-    }
-    for (const entry of entries) {
-      if (!entry.isFile()) continue;
-      // The turn-checkpoint journal appends `<session>.jsonl` records that
-      // carry attachment refs of in-flight turns.
-      if (
-        entry.name.endsWith('.json') ||
-        (subdir === 'turn-checkpoints' && entry.name.endsWith('.jsonl')) ||
-        (subdir === 'sessions' && isSessionReferenceFile(entry.name))
-      ) {
-        paths.push(join(dir, entry.name));
-      }
-    }
-  }
-  // Pre-sharding global spool, until its one-time migration has renamed it.
-  paths.push(join(root, 'session-pending-messages.json'));
-  return paths;
-}
-
-const ATTACHMENT_REF_KEY = Buffer.from('"attachmentRef"');
-
-function isJsonSpace(byte) {
-  return byte === 0x20 || byte === 0x09 || byte === 0x0a || byte === 0x0d;
-}
-
-// Matches `"attachmentRef" : "<64 hex>"` on the raw bytes. Decoding each
-// session file to a UTF-8 string and running a regex over it dominated the
-// census CPU; the key and value are ASCII, so no decode is needed.
-function addReferencedAttachments(buffer, referenced) {
-  let at = buffer.indexOf(ATTACHMENT_REF_KEY);
-  while (at !== -1) {
-    let i = at + ATTACHMENT_REF_KEY.length;
-    while (isJsonSpace(buffer[i])) i += 1;
-    if (buffer[i] === 0x3a) {
-      i += 1;
-      while (isJsonSpace(buffer[i])) i += 1;
-      if (buffer[i] === 0x22 && buffer[i + 65] === 0x22) {
-        const ref = buffer.toString('latin1', i + 1, i + 65);
-        if (ATTACHMENT_REF_RE.test(ref)) referenced.add(ref);
-      }
-    }
-    at = buffer.indexOf(ATTACHMENT_REF_KEY, at + ATTACHMENT_REF_KEY.length);
-  }
-}
-
-function referenceFileStamp(info) {
-  return `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
-}
-
-// Session files are mostly idle, so a census re-reads only the files whose
-// stamp changed since the last census in any process (the cache is persisted
-// beside the run stamp). An unusable cache file only costs a full re-read.
-async function loadReferenceCache(root) {
-  if (referenceCache?.root === root) return referenceCache.files;
-  const files = new Map();
-  try {
-    const parsed = JSON.parse(await readFileAsync(attachmentReferenceCachePath(), 'utf8'));
-    if (parsed?.version === 1 && parsed.files && typeof parsed.files === 'object') {
-      for (const [path, entry] of Object.entries(parsed.files)) {
-        if (
-          typeof entry?.stamp === 'string' &&
-          Array.isArray(entry.refs) &&
-          entry.refs.every((ref) => ATTACHMENT_REF_RE.test(String(ref)))
-        ) {
-          files.set(path, { stamp: entry.stamp, refs: entry.refs });
-        }
-      }
-    }
-  } catch {}
-  referenceCache = { root, files };
-  return files;
-}
-
-async function saveReferenceCache(root, files) {
-  referenceCache = { root, files };
-  const target = attachmentReferenceCachePath();
-  try {
-    // An unusable cache only costs a full re-read (loadReferenceCache), so no fsync.
-    await writeJsonAtomicAsync(
-      target,
-      { version: 1, files: Object.fromEntries(files) },
-      { compact: true, fsync: false }
-    );
-  } catch {}
-}
-
-export async function collectPromptAttachments({ now = Date.now(), minAgeMs = ATTACHMENT_GC_MIN_AGE_MS } = {}) {
-  const root = resolvePluginData();
-  const cached = await loadReferenceCache(root);
-  const current = new Map();
-  let reread = false;
-  const referenced = new Set();
-  let referenceFiles = 0;
-  for (const path of await persistedAttachmentReferencePaths()) {
-    let entry;
-    try {
-      // Stat before reading: content changed after the stat gets a new stamp,
-      // so the next census re-reads it.
-      const stamp = referenceFileStamp(await stat(path, { bigint: true }));
-      entry = cached.get(path);
-      if (entry?.stamp !== stamp) {
-        const found = new Set();
-        addReferencedAttachments(await readFileAsync(path), found);
-        entry = { stamp, refs: [...found] };
-        reread = true;
-      }
-    } catch (error) {
-      if (error?.code === 'ENOENT') continue;
-      // A partial reference census must never authorize deletion.
-      return { deleted: 0, referenced: 0, fresh: 0, scanned: 0, incomplete: true };
-    }
-    current.set(path, entry);
-    referenceFiles += 1;
-    for (const ref of entry.refs) referenced.add(ref);
-  }
-  if (reread || current.size !== cached.size) await saveReferenceCache(root, current);
-
-  const cutoff = Number(now) - Math.max(0, Number(minAgeMs) || 0);
-  let prefixes;
-  try {
-    prefixes = await readdir(attachmentsDir(), { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === 'ENOENT') {
-      return { deleted: 0, referenced: referenced.size, fresh: 0, scanned: 0, referenceFiles };
-    }
-    return { deleted: 0, referenced: referenced.size, fresh: 0, scanned: 0, referenceFiles, incomplete: true };
-  }
-  let deleted = 0;
-  let fresh = 0;
-  let scanned = 0;
-  for (const prefix of prefixes) {
-    if (!prefix.isDirectory() || !/^[a-f0-9]{2}$/.test(prefix.name)) continue;
-    const dir = join(attachmentsDir(), prefix.name);
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      // A writer that died between create and rename leaves
-      // `<ref>.mixdog-tmp-<rand>` (atomic writer), or the older
-      // `.<ref>.<rand>.tmp` / `<ref>.<pid>.<rand>.tmp`.
-      if (entry.isFile() && /^(?:\.?[a-f0-9]{64}\..+\.tmp|[a-f0-9]{64}\.mixdog-tmp-[0-9a-f]+)$/.test(entry.name)) {
-        const tempPath = join(dir, entry.name);
-        try {
-          if ((await stat(tempPath)).mtimeMs <= cutoff) await unlink(tempPath);
-        } catch {}
-        continue;
-      }
-      if (!entry.isFile() || !ATTACHMENT_REF_RE.test(entry.name)) continue;
-      scanned += 1;
-      if (referenced.has(entry.name)) continue;
-      const path = join(dir, entry.name);
-      try {
-        const first = await stat(path);
-        if (first.mtimeMs > cutoff) {
-          fresh += 1;
-          continue;
-        }
-        // Re-stat immediately before unlink so a concurrent intake mtime touch
-        // wins unless it races the final filesystem operation itself.
-        const latest = await stat(path);
-        if (latest.mtimeMs > cutoff || latest.mtimeMs !== first.mtimeMs) {
-          fresh += 1;
-          continue;
-        }
-        await unlink(path);
-        dropCachedAttachment(path);
-        deleted += 1;
-        await rm(namedFilesDir(entry.name), { recursive: true, force: true }).catch(() => {});
-      } catch (error) {
-        if (error?.code !== 'ENOENT') fresh += 1;
-      }
-    }
-  }
-  return { deleted, referenced: referenced.size, fresh, scanned, referenceFiles };
-}
-
-// Remaining spacing while a census from any process ran recently, else 0.
-async function attachmentGcFreshFor() {
-  const last = await readAttachmentGcStamp();
-  return last > 0 ? Math.max(0, ATTACHMENT_GC_SPACING_MS - (Date.now() - last)) : 0;
-}
-
-// Exclusive per-data-dir claim so concurrent processes never run the census
-// together. Resolves whether this process created the claim file, or null when
-// the claim itself is unusable (the census then runs unclaimed, as before).
-async function claimAttachmentGc() {
-  const lock = attachmentGcLockPath();
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      await mkdir(dirname(lock), { recursive: true });
-      await writeFileAsync(lock, String(process.pid), { flag: 'wx' });
-      return true;
-    } catch (error) {
-      if (error?.code !== 'EEXIST') return null;
-    }
-    try {
-      if (Date.now() - (await stat(lock)).mtimeMs < ATTACHMENT_GC_LOCK_STALE_MS) return false;
-      await unlink(lock);
-    } catch {}
-  }
-  return false;
-}
-
-// Runs the census unless another process ran it within the spacing or is
-// running it now; the stamp is re-read once the claim is held.
-async function runScheduledAttachmentGc() {
-  const claim = await claimAttachmentGc();
-  if (claim === false) return;
-  try {
-    if ((await attachmentGcFreshFor()) > 0) return;
-    const result = await collectPromptAttachments();
-    if (!result?.incomplete) await writeAttachmentGcStamp();
-  } finally {
-    if (claim) await unlink(attachmentGcLockPath()).catch(() => {});
-  }
-}
-
-// Run by events, never on a cadence: daemon start (startAttachmentGc) and each
-// attachment the daemon intake stores (saveBuffer) — the intake is the sole
-// attachment writer. Each runs one census off the boot path, unless one from
-// any process ran within the spacing. Readers (TUI, provider lowering) never
-// run it.
-function scheduleAttachmentGc() {
-  if (attachmentGcTimer || attachmentGcScheduling) return;
-  attachmentGcScheduling = true;
-  void attachmentGcFreshFor()
-    .then((freshForMs) => {
-      if (freshForMs > 0 || attachmentGcTimer) return;
-      attachmentGcTimer = setTimeout(() => {
-        attachmentGcTimer = null;
-        void runScheduledAttachmentGc().catch(() => {});
-      }, ATTACHMENT_GC_START_DELAY_MS);
-      attachmentGcTimer.unref?.();
-    })
-    .finally(() => {
-      attachmentGcScheduling = false;
-    });
-}
-
-export function startAttachmentGc() {
-  scheduleAttachmentGc();
-  // Dynamic: staged-originals.mjs imports this module.
-  void import('./staged-originals.mjs').then((staged) => staged.startStagedOriginalsPrune()).catch(() => {});
 }

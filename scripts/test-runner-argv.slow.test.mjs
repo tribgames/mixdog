@@ -3,12 +3,10 @@
 // full run alive and the flag errors that must stay flag errors.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import {
   ARG_BUDGET,
@@ -19,12 +17,14 @@ import {
   testConcurrencyArg,
   testTimeoutArg,
 } from './lib/run-node-tests.mjs';
+import { waitForFile } from './lib/wait-for-file.mjs';
 import { defaultRerunFailed } from './test.mjs';
 import { parseArgs } from './test.mjs';
 
 const runnerPath = fileURLToPath(new URL('./test.mjs', import.meta.url));
 const runNodeTestsUrl = new URL('./lib/run-node-tests.mjs', import.meta.url).href;
 const spawnLedgerUrl = new URL('./lib/test-spawn-ledger.mjs', import.meta.url).href;
+const waitForFileUrl = new URL('./lib/wait-for-file.mjs', import.meta.url).href;
 const WINDOWS_COMMAND_LINE_LIMIT = 32_767;
 const cost = (files) => files.reduce((total, file) => total + file.length + 3, 0);
 
@@ -240,7 +240,7 @@ test('a process a test leaves running is killed, while one that only names the s
       import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
       import { join } from 'node:path';
       import test from 'node:test';
-      import { setTimeout as delay } from 'node:timers/promises';
+      import { waitForFile } from ${JSON.stringify(waitForFileUrl)};
       test('starts a server and forgets it', async () => {
         const data = process.env.MIXDOG_DATA_DIR;
         const nested = join(data, 'a', 'b', 'c');
@@ -252,7 +252,7 @@ test('a process a test leaves running is killed, while one that only names the s
         });
         child.unref();
         writeFileSync('leak.json', JSON.stringify({ pid: child.pid, scratch: process.env.TEMP }));
-        for (let waited = 0; !existsSync('bystander.ready') && waited < 30_000; waited += 100) await delay(100);
+        await waitForFile('bystander.ready');
       });
     `,
   });
@@ -276,7 +276,7 @@ test('a process a test leaves running is killed, while one that only names the s
   run.stderr.on('data', (chunk) => (output.stderr += chunk));
   const status = new Promise((resolve) => run.on('close', resolve));
   const leakPath = join(cwd, 'leak.json');
-  for (let waited = 0; !existsSync(leakPath) && waited < 30_000; waited += 100) await delay(100);
+  await waitForFile(leakPath);
   const { pid, scratch } = JSON.parse(await readFile(leakPath, 'utf8'));
   t.after(() => alive(pid) && process.kill(pid));
   const bystander = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', scratch], { stdio: 'ignore' });
@@ -302,10 +302,10 @@ test('a process outside the run that took the pid of a spawn the run saw exit su
     'reuse.test.mjs': `
       import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
       import test from 'node:test';
-      import { setTimeout as delay } from 'node:timers/promises';
+      import { waitForFile } from ${JSON.stringify(waitForFileUrl)};
       test('a recorded child exits and its pid is reused', async () => {
         writeFileSync('started', '');
-        for (let waited = 0; !existsSync('bystander.json') && waited < 30_000; waited += 100) await delay(100);
+        await waitForFile('bystander.json');
         const { pid, before } = JSON.parse(readFileSync('bystander.json', 'utf8'));
         const spawned = \`\${pid} \${before - 1_005} \${before - 1_000}\`;
         appendFileSync(\`\${process.env.MIXDOG_TEST_FAILURE_RECORDS}.spawns\`, \`\${spawned}\\n\${spawned} \${before - 700}\\n\`);
@@ -323,7 +323,7 @@ test('a process outside the run that took the pid of a spawn the run saw exit su
   run.stdout.on('data', (chunk) => (output.stdout += chunk));
   run.stderr.on('data', (chunk) => (output.stderr += chunk));
   const status = new Promise((resolve) => run.on('close', resolve));
-  for (let waited = 0; !existsSync(join(cwd, 'started')) && waited < 30_000; waited += 100) await delay(100);
+  await waitForFile(join(cwd, 'started'));
   const before = Date.now();
   const bystander = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   t.after(() => bystander.kill());

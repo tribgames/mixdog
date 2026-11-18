@@ -105,21 +105,58 @@ pub fn preflight_powershell_hygiene(
 mod tests {
     use super::*;
 
-    /// Node's `preflightPowerShellHygiene` on 24 commands × shell names.
+    const HEAD: &str = "PowerShell preflight blocked this command (invalid PowerShell syntax). Fix and retry:\n";
+    const PID_RULE: &str = "- `$PID` is a reserved PowerShell automatic variable — do not reassign it (use a different name).";
+    const AND_RULE: &str = "- `&&` is not supported in Windows PowerShell 5.1 — use `;` to sequence or issue separate calls.";
+
+    fn preflight(command: &str, name: &str) -> (String, Option<String>) {
+        preflight_powershell_hygiene(command, true, name)
+    }
+
     #[test]
-    fn the_preflight_equals_nodes() {
-        let vectors: Vec<serde_json::Value> =
-            serde_json::from_str(include_str!("testdata/hygiene_node_vectors.json")).unwrap();
-        assert_eq!(vectors.len(), 48);
-        for v in &vectors {
-            let (command, shell, name) = (
-                v["command"].as_str().unwrap(),
-                v["shellType"].as_str().unwrap(),
-                v["shellName"].as_str().unwrap(),
-            );
-            let (text, block) = preflight_powershell_hygiene(command, shell == "powershell", name);
-            assert_eq!(v["result"]["command"].as_str(), Some(text.as_str()), "{command:?} {name}");
-            assert_eq!(v["result"]["block"].as_str(), block.as_deref(), "{command:?} {name}");
+    fn a_unix_style_drive_path_is_written_as_a_windows_path_outside_quotes_comments_and_here_strings() {
+        for name in ["powershell.exe", "pwsh.exe"] {
+            for (command, want) in [
+                ("ls /c/Users/x/file.txt", "ls C:\\Users\\x\\file.txt"),
+                ("Get-Content /c/a/b/c.txt; Get-Content /d/x", "Get-Content C:\\a\\b\\c.txt; Get-Content D:\\x"),
+                ("ls (/c/a)", "ls (C:\\a)"),
+                ("rm /c/Users/x/a b", "rm C:\\Users\\x\\a b"),
+                ("# /c/comment\nls /c/real", "# /c/comment\nls C:\\real"),
+                ("echo \"/c/Users/x\"", "echo \"/c/Users/x\""),
+                ("echo '/c/Users/x'", "echo '/c/Users/x'"),
+                ("@'\n/c/not/rewritten\n'@", "@'\n/c/not/rewritten\n'@"),
+                ("ls /cc/not-a-drive", "ls /cc/not-a-drive"),
+                ("   ", "   "),
+            ] {
+                assert_eq!(preflight(command, name), (want.to_owned(), None), "{command:?} {name}");
+            }
         }
     }
+
+    #[test]
+    fn reassigning_the_reserved_pid_variable_is_blocked_but_reading_or_quoting_it_is_not() {
+        for command in ["$PID = 5", "$pid=1"] {
+            assert_eq!(preflight(command, "pwsh.exe"), (command.to_owned(), Some(format!("{HEAD}{PID_RULE}"))), "{command}");
+        }
+        for command in ["$PID == 3", "Write-Output '$PID=1'", "echo \"$PID=1\""] {
+            assert_eq!(preflight(command, "pwsh.exe").1, None, "{command}");
+        }
+    }
+
+    #[test]
+    fn a_chained_and_is_blocked_only_for_windows_powershell_5() {
+        for command in ["a && b", "a && b && c", "a &&", "&& a"] {
+            assert_eq!(preflight(command, "powershell.exe").1, Some(format!("{HEAD}{AND_RULE}")), "{command}");
+            assert_eq!(preflight(command, "pwsh.exe").1, None, "{command}");
+        }
+        for command in ["echo \"a && b\"", "a & b"] {
+            assert_eq!(preflight(command, "powershell.exe").1, None, "{command}");
+        }
+        // A rewritten path is still reported with the rule it broke, and every broken rule is listed.
+        assert_eq!(preflight("cd /d/work && ls", "powershell.exe"), ("cd D:\\work && ls".to_owned(), Some(format!("{HEAD}{AND_RULE}"))));
+        assert_eq!(preflight("$PID = 1; a && b", "powershell.exe").1, Some(format!("{HEAD}{PID_RULE}\n{AND_RULE}")));
+        assert_eq!(preflight("$PID = 1; a && b", "pwsh.exe").1, Some(format!("{HEAD}{PID_RULE}")));
+    }
 }
+
+

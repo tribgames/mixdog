@@ -5,29 +5,46 @@
 //! arrival order, body bytes). The three headers the SDK stack fills with the recording host's OS, architecture and
 //! Node version are compared as the recorder's marker on both sides (declared in the sets' manifests).
 
+#[cfg(node_twin)]
 use std::collections::VecDeque;
+#[cfg(node_twin)]
 use std::sync::Arc;
+#[cfg(node_twin)]
 use std::sync::Mutex;
 
+#[cfg(node_twin)]
 use async_trait::async_trait;
+#[cfg(node_twin)]
 use bytes::Bytes;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ProviderError;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::TransportFault;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::WireRequest;
+#[cfg(node_twin)]
 use serde_json::Value;
+#[cfg(node_twin)]
 use serde_json::json;
 
+#[cfg(node_twin)]
 use crate::transport::BodyStream;
+#[cfg(node_twin)]
 use crate::transport::Exchange;
+#[cfg(node_twin)]
 use crate::transport::HttpResponse;
+#[cfg(node_twin)]
 use crate::transport::HttpSend;
+#[cfg(node_twin)]
 use crate::transport::node_http::Writer;
 
+#[cfg(node_twin)]
 /// The text of `<set>/cases.json`.
 pub(crate) fn cases(text: &str) -> Value {
     serde_json::from_str(text).expect("cases.json")
 }
 
+#[cfg(node_twin)]
 /// Node's `undefined` (the recorder's `{"$exact": "undefined"}`) as an absent field, at every depth.
 pub(crate) fn without_undefined(value: &Value) -> Value {
     match value {
@@ -42,8 +59,10 @@ pub(crate) fn without_undefined(value: &Value) -> Value {
     }
 }
 
+#[cfg(node_twin)]
 struct Chunks(VecDeque<Bytes>);
 
+#[cfg(node_twin)]
 #[async_trait]
 impl BodyStream for Chunks {
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
@@ -51,25 +70,30 @@ impl BodyStream for Chunks {
     }
 }
 
+#[cfg(node_twin)]
 /// Answers the n-th request with the n-th recorded reply and keeps every request as the product's client writes it.
 pub(crate) struct Capture {
     replies: Mutex<VecDeque<Value>>,
     pub sent: Mutex<Vec<(WireRequest, Writer)>>,
 }
 
+#[cfg(node_twin)]
 impl Capture {
+    #[cfg(node_twin)]
     /// One answer per request of the case, in the order Node's endpoint received them.
     pub fn new(case: &Value) -> Arc<Self> {
         let replies = case["requests"].as_array().into_iter().flatten().map(|r| r["reply"].clone()).collect();
         Arc::new(Self { replies: Mutex::new(replies), sent: Mutex::default() })
     }
 
+    #[cfg(node_twin)]
     /// Every request sent so far in Node's recorded form (see [`request_record`]).
     pub fn records(&self) -> Vec<Value> {
         self.sent.lock().unwrap().iter().map(|(request, writer)| request_record(request, *writer)).collect()
     }
 }
 
+#[cfg(node_twin)]
 #[async_trait]
 impl HttpSend for Capture {
     async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
@@ -92,6 +116,7 @@ impl HttpSend for Capture {
     }
 }
 
+#[cfg(node_twin)]
 /// The marker the recorder writes for a header that carries the recording host.
 fn host_header(name: &str, value: String) -> String {
     let lower = name.to_ascii_lowercase();
@@ -102,6 +127,7 @@ fn host_header(name: &str, value: String) -> String {
     }
 }
 
+#[cfg(node_twin)]
 /// The request as Node's endpoint recorded it: the head the product's HTTP client writes for the recorder's plain-http
 /// loopback (undici's `accept-encoding` follows the scheme it dials), the origin the product addressed, the body text.
 pub(crate) fn request_record(request: &WireRequest, writer: Writer) -> Value {
@@ -123,6 +149,7 @@ pub(crate) fn request_record(request: &WireRequest, writer: Writer) -> Value {
            "body": String::from_utf8_lossy(&request.body)})
 }
 
+#[cfg(node_twin)]
 /// Node's recorded requests of the case, in the form of [`request_record`].
 pub(crate) fn recorded_requests(case: &Value) -> Vec<Value> {
     case["requests"]
@@ -138,6 +165,7 @@ pub(crate) fn recorded_requests(case: &Value) -> Vec<Value> {
         .collect()
 }
 
+#[cfg(node_twin)]
 /// The requests the product sent are Node's, whole, in order and count.
 pub(crate) fn assert_same_requests(capture: &Capture, case: &Value) {
     let id = case["id"].as_str().unwrap();

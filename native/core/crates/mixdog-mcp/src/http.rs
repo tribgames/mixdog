@@ -246,6 +246,219 @@ fn reconnect_delay(attempt: u32, server_retry: Option<Duration>) -> Duration {
     })
 }
 
+impl Drop for HttpTransport {
+    fn drop(&mut self) {
+        self.shutdown.cancel();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpListener;
+
+    use super::*;
+
+    /// The first GET gets a stream that ends after one event with an id and a `retry:`; every
+    /// later GET gets a 500 and its `Last-Event-ID` is recorded.
+    async fn listener_server() -> (std::net::SocketAddr, Arc<Mutex<Vec<Option<String>>>>) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let served = Arc::new(AtomicUsize::new(0));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let record = Arc::clone(&seen);
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let (record, served) = (Arc::clone(&record), Arc::clone(&served));
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 2048];
+                    let read = socket.read(&mut buf).await.unwrap_or(0);
+                    let head = String::from_utf8_lossy(&buf[..read]).to_lowercase();
+                    let id = head
+                        .lines()
+                        .find_map(|l| l.strip_prefix("last-event-id: "))
+                        .map(|v| v.trim().to_owned());
+                    record.lock().unwrap().push(id);
+                    let reply = if served.fetch_add(1, Ordering::SeqCst) == 0 {
+                        let body = "id: 7\nretry: 100\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n\n";
+                        format!(
+                            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                    } else {
+                        "HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned()
+                    };
+                    let _ = socket.write_all(reply.as_bytes()).await;
+                });
+            }
+        });
+        (addr, seen)
+    }
+
+    use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+
+    /// Answers every GET `401` unless it carries `Bearer new`, which gets a stream; each answer is
+    /// signalled (its status) after it was written.
+    async fn refusing_server() -> (std::net::SocketAddr, UnboundedReceiver<u16>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (answered, signals) = unbounded_channel();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let answered = answered.clone();
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 2048];
+                    let read = socket.read(&mut buf).await.unwrap_or(0);
+                    let head = String::from_utf8_lossy(&buf[..read]).to_lowercase();
+                    let (status, reply) = if head.contains("authorization: bearer new") {
+                        let body = "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n\n";
+                        (200, format!("HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()))
+                    } else {
+                        (401, "HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned())
+                    };
+                    let _ = socket.write_all(reply.as_bytes()).await;
+                    let _ = answered.send(status);
+                });
+            }
+        });
+        (addr, signals)
+    }
+
+    /// A sign-in holding `old`; a renewal gives `new` when `renews`, `stays` keeps `old` (the
+    /// replay is refused again), else it needs the user. Every call is signalled.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Renewal {
+        Renews,
+        Stays,
+        NeedsUser,
+    }
+
+    struct Recording {
+        token: Mutex<String>,
+        renewal: Renewal,
+        events: UnboundedSender<String>,
+    }
+
+    #[async_trait::async_trait]
+    impl Authorizer for Recording {
+        async fn token(&self) -> Result<Option<String>, TransportError> {
+            Ok(Some(self.token.lock().unwrap().clone()))
+        }
+        async fn renew(&self, rejected: Option<String>, _: Option<String>) -> Result<(), TransportError> {
+            let _ = self.events.send(format!("renew {}", rejected.unwrap_or_default()));
+            match self.renewal {
+                Renewal::Renews => {
+                    *self.token.lock().unwrap() = "new".to_owned();
+                    Ok(())
+                }
+                Renewal::Stays => Ok(()),
+                Renewal::NeedsUser => Err(TransportError::AuthRequired),
+            }
+        }
+        fn answered(&self, sent: Option<&str>) {
+            let _ = self.events.send(format!("answered {}", sent.unwrap_or_default()));
+        }
+        fn refused_after_renewal(&self, attempted: Option<&str>) {
+            let _ = self.events.send(format!("refused again {}", attempted.unwrap_or_default()));
+        }
+    }
+
+    #[test]
+    fn the_reconnect_delay_grows_by_half_each_attempt_up_to_the_cap_and_yields_to_the_server() {
+        assert_eq!(reconnect_delay(0, None), Duration::from_millis(1000));
+        assert_eq!(reconnect_delay(1, None), Duration::from_millis(1500));
+        assert_eq!(reconnect_delay(30, None), Duration::from_millis(30_000));
+        assert_eq!(
+            reconnect_delay(1, Some(Duration::from_millis(100))),
+            Duration::from_millis(100)
+        );
+    }
+
+
+    /// Opens the listener of a transport over `Recording` and awaits its first `n` reports and the
+    /// first `m` answers of the server: signals, not time.
+    async fn listen(renewal: Renewal, n: usize, m: usize) -> (Vec<String>, Vec<u16>) {
+        // `initialized` spawns the listener through the runtime, which needs a backend installed.
+        let _runtime = mixdog_rt::testing::tokens();
+        let (addr, mut answers) = refusing_server().await;
+        let (events, mut reports) = unbounded_channel();
+        let auth = Arc::new(Recording { token: Mutex::new("old".to_owned()), renewal, events });
+        let url = Url::parse(&format!("http://{addr}/mcp")).unwrap();
+        let (transport, _rx) = HttpTransport::new(url, &BTreeMap::new(), Some(auth)).unwrap();
+        transport.initialized();
+        let mut seen = Vec::new();
+        while seen.len() < n {
+            seen.push(reports.recv().await.expect("the listener reports"));
+        }
+        let mut statuses = Vec::new();
+        while statuses.len() < m {
+            statuses.push(answers.recv().await.expect("the server answers"));
+        }
+        transport.close().await;
+        (seen, statuses)
+    }
+    /// The listener's GET is covered like any other request (Node's fetch): a refused token is
+    /// renewed and replayed, and the success is reported with the renewed token.
+    #[tokio::test]
+    async fn the_listener_renews_a_refused_token_and_reports_the_success() {
+        let (seen, statuses) = listen(Renewal::Renews, 2, 2).await;
+        assert_eq!(seen, ["renew old", "answered new"]);
+        assert_eq!(statuses, [401, 200]);
+    }
+    /// A second refusal after the renewal is reported with the token first sent.
+    #[tokio::test]
+    async fn the_listener_reports_a_refusal_after_renewal() {
+        let (seen, statuses) = listen(Renewal::Stays, 2, 2).await;
+        assert_eq!(seen, ["renew old", "refused again old"]);
+        assert_eq!(statuses, [401, 401]);
+    }
+    /// A renewal that needs the user ends the attempt: nothing is replayed or reported after it.
+    #[tokio::test]
+    async fn the_listener_stops_when_the_renewal_needs_the_user() {
+        let (seen, statuses) = listen(Renewal::NeedsUser, 1, 1).await;
+        assert_eq!(seen, ["renew old"]);
+        assert_eq!(statuses, [401]);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn the_listener_stream_ends_and_is_reopened_with_its_last_event_id_then_given_up_after_two_failures()
+     {
+        let (addr, seen) = listener_server().await;
+        let client = reqwest::Client::new();
+        let open = move |resume: Option<String>| {
+            let client = client.clone();
+            async move {
+                let mut request = client.get(format!("http://{addr}/mcp"));
+                if let Some(id) = resume {
+                    request = request.header("last-event-id", id);
+                }
+                match request.send().await {
+                    Ok(response) if response.status().is_success() => Listener::Stream(response),
+                    _ => Listener::Failed,
+                }
+            }
+        };
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        keep_listening(open, tx, CancellationToken::new()).await;
+
+        // One stream, then two failed reopens: the SDK's `maxRetries` of 2. Both reopens resumed from id 7.
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![None, Some("7".to_owned()), Some("7".to_owned())]
+        );
+        // The event arrived, and the client was never told the connection closed.
+        assert!(matches!(rx.try_recv(), Ok(Incoming::Message(_))));
+        assert!(
+            rx.try_recv().is_err(),
+            "no Incoming::Closed: the POST path still works"
+        );
+    }
+}
+
+
 /// The standalone stream as the SDK keeps it (`_startOrAuthSse`, `_scheduleReconnection`): the
 /// first open is tried once; once a stream has been up, its end (clean or not) reopens it after a
 /// backoff with `Last-Event-ID`, and a reopen that fails is retried up to `RECONNECT_RETRIES`
@@ -288,13 +501,6 @@ where
         first = false;
     }
 }
-
-impl Drop for HttpTransport {
-    fn drop(&mut self) {
-        self.shutdown.cancel();
-    }
-}
-
 #[async_trait]
 impl Transport for HttpTransport {
     async fn send(&self, message: Value, liveness: Liveness) -> Result<(), TransportError> {
@@ -420,7 +626,6 @@ impl Transport for HttpTransport {
         );
     }
 }
-
 impl HttpTransport {
     /// `post_message` to a built-in Google connector: the same refusal, renewal and answer rules, with the answer made in this
     /// process ([`crate::google_mcp::answer`]) instead of by a server.
@@ -533,213 +738,5 @@ impl HttpTransport {
             self.deliver(value);
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
-
-    use tokio::io::AsyncReadExt;
-    use tokio::io::AsyncWriteExt;
-    use tokio::net::TcpListener;
-
-    use super::*;
-
-    /// The first GET gets a stream that ends after one event with an id and a `retry:`; every
-    /// later GET gets a 500 and its `Last-Event-ID` is recorded.
-    async fn listener_server() -> (std::net::SocketAddr, Arc<Mutex<Vec<Option<String>>>>) {
-        let seen = Arc::new(Mutex::new(Vec::new()));
-        let served = Arc::new(AtomicUsize::new(0));
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let record = Arc::clone(&seen);
-        tokio::spawn(async move {
-            while let Ok((mut socket, _)) = listener.accept().await {
-                let (record, served) = (Arc::clone(&record), Arc::clone(&served));
-                tokio::spawn(async move {
-                    let mut buf = [0u8; 2048];
-                    let read = socket.read(&mut buf).await.unwrap_or(0);
-                    let head = String::from_utf8_lossy(&buf[..read]).to_lowercase();
-                    let id = head
-                        .lines()
-                        .find_map(|l| l.strip_prefix("last-event-id: "))
-                        .map(|v| v.trim().to_owned());
-                    record.lock().unwrap().push(id);
-                    let reply = if served.fetch_add(1, Ordering::SeqCst) == 0 {
-                        let body = "id: 7\nretry: 100\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n\n";
-                        format!(
-                            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                            body.len()
-                        )
-                    } else {
-                        "HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned()
-                    };
-                    let _ = socket.write_all(reply.as_bytes()).await;
-                });
-            }
-        });
-        (addr, seen)
-    }
-
-    use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-
-    /// Answers every GET `401` unless it carries `Bearer new`, which gets a stream; each answer is
-    /// signalled (its status) after it was written.
-    async fn refusing_server() -> (std::net::SocketAddr, UnboundedReceiver<u16>) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let (answered, signals) = unbounded_channel();
-        tokio::spawn(async move {
-            while let Ok((mut socket, _)) = listener.accept().await {
-                let answered = answered.clone();
-                tokio::spawn(async move {
-                    let mut buf = [0u8; 2048];
-                    let read = socket.read(&mut buf).await.unwrap_or(0);
-                    let head = String::from_utf8_lossy(&buf[..read]).to_lowercase();
-                    let (status, reply) = if head.contains("authorization: bearer new") {
-                        let body = "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n\n";
-                        (200, format!("HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()))
-                    } else {
-                        (401, "HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned())
-                    };
-                    let _ = socket.write_all(reply.as_bytes()).await;
-                    let _ = answered.send(status);
-                });
-            }
-        });
-        (addr, signals)
-    }
-
-    /// A sign-in holding `old`; a renewal gives `new` when `renews`, `stays` keeps `old` (the
-    /// replay is refused again), else it needs the user. Every call is signalled.
-    #[derive(Clone, Copy, PartialEq)]
-    enum Renewal {
-        Renews,
-        Stays,
-        NeedsUser,
-    }
-
-    struct Recording {
-        token: Mutex<String>,
-        renewal: Renewal,
-        events: UnboundedSender<String>,
-    }
-
-    #[async_trait::async_trait]
-    impl Authorizer for Recording {
-        async fn token(&self) -> Result<Option<String>, TransportError> {
-            Ok(Some(self.token.lock().unwrap().clone()))
-        }
-        async fn renew(&self, rejected: Option<String>, _: Option<String>) -> Result<(), TransportError> {
-            let _ = self.events.send(format!("renew {}", rejected.unwrap_or_default()));
-            match self.renewal {
-                Renewal::Renews => {
-                    *self.token.lock().unwrap() = "new".to_owned();
-                    Ok(())
-                }
-                Renewal::Stays => Ok(()),
-                Renewal::NeedsUser => Err(TransportError::AuthRequired),
-            }
-        }
-        fn answered(&self, sent: Option<&str>) {
-            let _ = self.events.send(format!("answered {}", sent.unwrap_or_default()));
-        }
-        fn refused_after_renewal(&self, attempted: Option<&str>) {
-            let _ = self.events.send(format!("refused again {}", attempted.unwrap_or_default()));
-        }
-    }
-
-    /// Opens the listener of a transport over `Recording` and awaits its first `n` reports and the
-    /// first `m` answers of the server: signals, not time.
-    async fn listen(renewal: Renewal, n: usize, m: usize) -> (Vec<String>, Vec<u16>) {
-        // `initialized` spawns the listener through the runtime, which needs a backend installed.
-        let _runtime = mixdog_rt::testing::tokens();
-        let (addr, mut answers) = refusing_server().await;
-        let (events, mut reports) = unbounded_channel();
-        let auth = Arc::new(Recording { token: Mutex::new("old".to_owned()), renewal, events });
-        let url = Url::parse(&format!("http://{addr}/mcp")).unwrap();
-        let (transport, _rx) = HttpTransport::new(url, &BTreeMap::new(), Some(auth)).unwrap();
-        transport.initialized();
-        let mut seen = Vec::new();
-        while seen.len() < n {
-            seen.push(reports.recv().await.expect("the listener reports"));
-        }
-        let mut statuses = Vec::new();
-        while statuses.len() < m {
-            statuses.push(answers.recv().await.expect("the server answers"));
-        }
-        transport.close().await;
-        (seen, statuses)
-    }
-
-    /// The listener's GET is covered like any other request (Node's fetch): a refused token is
-    /// renewed and replayed, and the success is reported with the renewed token.
-    #[tokio::test]
-    async fn the_listener_renews_a_refused_token_and_reports_the_success() {
-        let (seen, statuses) = listen(Renewal::Renews, 2, 2).await;
-        assert_eq!(seen, ["renew old", "answered new"]);
-        assert_eq!(statuses, [401, 200]);
-    }
-
-    /// A second refusal after the renewal is reported with the token first sent.
-    #[tokio::test]
-    async fn the_listener_reports_a_refusal_after_renewal() {
-        let (seen, statuses) = listen(Renewal::Stays, 2, 2).await;
-        assert_eq!(seen, ["renew old", "refused again old"]);
-        assert_eq!(statuses, [401, 401]);
-    }
-
-    /// A renewal that needs the user ends the attempt: nothing is replayed or reported after it.
-    #[tokio::test]
-    async fn the_listener_stops_when_the_renewal_needs_the_user() {
-        let (seen, statuses) = listen(Renewal::NeedsUser, 1, 1).await;
-        assert_eq!(seen, ["renew old"]);
-        assert_eq!(statuses, [401]);
-    }
-    #[tokio::test(start_paused = true)]
-    async fn the_listener_stream_ends_and_is_reopened_with_its_last_event_id_then_given_up_after_two_failures()
-     {
-        let (addr, seen) = listener_server().await;
-        let client = reqwest::Client::new();
-        let open = move |resume: Option<String>| {
-            let client = client.clone();
-            async move {
-                let mut request = client.get(format!("http://{addr}/mcp"));
-                if let Some(id) = resume {
-                    request = request.header("last-event-id", id);
-                }
-                match request.send().await {
-                    Ok(response) if response.status().is_success() => Listener::Stream(response),
-                    _ => Listener::Failed,
-                }
-            }
-        };
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        keep_listening(open, tx, CancellationToken::new()).await;
-
-        // One stream, then two failed reopens: the SDK's `maxRetries` of 2. Both reopens resumed from id 7.
-        assert_eq!(
-            *seen.lock().unwrap(),
-            vec![None, Some("7".to_owned()), Some("7".to_owned())]
-        );
-        // The event arrived, and the client was never told the connection closed.
-        assert!(matches!(rx.try_recv(), Ok(Incoming::Message(_))));
-        assert!(
-            rx.try_recv().is_err(),
-            "no Incoming::Closed: the POST path still works"
-        );
-    }
-
-    #[test]
-    fn the_reconnect_delay_grows_by_half_each_attempt_up_to_the_cap_and_yields_to_the_server() {
-        assert_eq!(reconnect_delay(0, None), Duration::from_millis(1000));
-        assert_eq!(reconnect_delay(1, None), Duration::from_millis(1500));
-        assert_eq!(reconnect_delay(30, None), Duration::from_millis(30_000));
-        assert_eq!(
-            reconnect_delay(1, Some(Duration::from_millis(100))),
-            Duration::from_millis(100)
-        );
     }
 }

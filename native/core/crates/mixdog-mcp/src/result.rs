@@ -9,6 +9,8 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use base64::Engine;
+use mixdog_ai::providers::file_text::FileKind;
+use mixdog_ai::providers::file_text::inline_file_kind;
 use mixdog_core_api::domain::tool::ImageData;
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolPart;
@@ -56,38 +58,6 @@ fn write_artifact(_lane: &InLane<DurabilityIo>, dir: &Path, target: &Path, bytes
         return Ok(());
     }
     std::fs::write(target, bytes)
-}
-
-impl Spiller {
-    pub fn new(dir: PathBuf, io: DurabilityIo) -> Self {
-        Self { dir, io }
-    }
-
-    async fn write(&self, name: String, bytes: Vec<u8>, create_only: bool) -> std::io::Result<PathBuf> {
-        let path = self.dir.join(name);
-        let (dir, target) = (self.dir.clone(), path.clone());
-        let job = self
-            .io
-            .submit(&CancellationToken::new(), move |lane| write_artifact(lane, &dir, &target, &bytes, create_only))
-            .map_err(|_| std::io::Error::other("the durability lane is full"))?;
-        job.await.map_err(std::io::Error::other)??;
-        Ok(path)
-    }
-
-    /// The full text of an over-cap result: `mcp-<ms>-<8 hex>.txt`.
-    async fn write_text(&self, text: String) -> std::io::Result<PathBuf> {
-        let millis = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis());
-        let id = uuid::Uuid::new_v4().simple().to_string();
-        self.write(format!("mcp-{millis}-{}.txt", &id[..8]), text.into_bytes(), false).await
-    }
-
-    /// Media with no inline form, named by its content hash.
-    async fn write_binary(&self, bytes: Vec<u8>, extension: &str) -> std::io::Result<PathBuf> {
-        let hash: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
-        self.write(format!("mcp-{hash}.{extension}"), bytes, true).await
-    }
 }
 
 /// A server-reported tool failure (`isError: true`) as the model reads it.
@@ -244,56 +214,8 @@ fn resource_filename(uri: &str) -> String {
     if cleaned.is_empty() { "resource".to_owned() } else { cleaned }
 }
 
-const TEXTUAL_MIME: [&str; 6] = [
-    "application/json",
-    "application/xml",
-    "application/yaml",
-    "application/toml",
-    "application/x-ndjson",
-    "application/x-www-form-urlencoded",
-];
-const OFFICE_MIME: [&str; 4] = [
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.ms-excel.sheet.macroenabled.12",
-];
-
-#[derive(PartialEq, Eq)]
-enum FileKind {
-    Pdf,
-    Office,
-    Text,
-    Binary,
-}
-
-/// How an inline file payload can reach a model; the bytes decide before the label does.
-fn inline_file_kind(mime: &str, bytes: &[u8], filename: &str) -> FileKind {
-    let mime = js_trim(mime.split(';').next().unwrap_or("")).to_lowercase();
-    if mime == "application/pdf" || bytes.starts_with(b"%PDF-") {
-        return FileKind::Pdf;
-    }
-    let office_name = {
-        let lower = js_trim(filename).to_lowercase();
-        [".docx", ".pptx", ".xlsx", ".xlsm"].iter().any(|e| lower.ends_with(e))
-    };
-    if OFFICE_MIME.contains(&mime.as_str())
-        || (["application/zip", "application/x-zip-compressed", "application/octet-stream"].contains(&mime.as_str()) && office_name)
-    {
-        return FileKind::Office;
-    }
-    if mime.starts_with("text/")
-        || mime.starts_with("application/javascript")
-        || mime.starts_with("application/ecmascript")
-        || mime.ends_with("+json")
-        || mime.ends_with("+xml")
-        || TEXTUAL_MIME.contains(&mime.as_str())
-    {
-        return FileKind::Text;
-    }
-    FileKind::Binary
-}
-
+/// A resource blob as a part. Its kind is `mixdog_ai::providers::file_text::inline_file_kind`, the one classifier the provider
+/// lowering and the media layer also use: a binary is saved to disk and named, anything else is the inline file a model reads.
 async fn file_part(blob: &str, raw_mime: Option<&str>, uri: &str, spiller: &Spiller) -> Part {
     let mime = nonblank(raw_mime, "application/octet-stream");
     let filename = resource_filename(uri);
@@ -307,7 +229,8 @@ async fn file_part(blob: &str, raw_mime: Option<&str>, uri: &str, spiller: &Spil
         }
         Canon::Bytes(bytes) => bytes,
     };
-    if inline_file_kind(&mime, &bytes, &filename) == FileKind::Binary {
+    let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    if inline_file_kind(&mime, &data, &filename) == FileKind::Binary {
         let extension = filename
             .rsplit_once('.')
             .map(|(_, e)| e)
@@ -324,7 +247,6 @@ async fn file_part(blob: &str, raw_mime: Option<&str>, uri: &str, spiller: &Spil
             }
         };
     }
-    let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Part::File(serde_json::json!({"type": "file", "data": data, "mimeType": mime, "filename": filename}))
 }
 
@@ -534,7 +456,13 @@ fn tool_part(part: Part) -> ToolPart {
     match part {
         Part::Text(text) => ToolPart::Text(text),
         Part::Image { mime, bytes } => ToolPart::Image { mime, data: ImageData::Bytes(bytes), width: None, height: None },
-        Part::File(value) => ToolPart::Json(value),
+        // The `{ type: 'file', data, mimeType, filename }` block Node handed the loop (`mcpFilePart`): the inline file part an
+        // attachment is, not the JSON text of it.
+        Part::File(value) => {
+            let text = |key: &str| value.get(key).and_then(Value::as_str).unwrap_or_default();
+            let data = base64::engine::general_purpose::STANDARD.decode(text("data")).unwrap_or_default();
+            ToolPart::File { mime: text("mimeType").to_owned(), data, filename: Some(text("filename").to_owned()) }
+        }
     }
 }
 
@@ -588,5 +516,38 @@ mod tests {
         assert_eq!(lenient_base64("aGk="), b"hi");
         assert_eq!(lenient_base64("aGk"), b"hi");
         assert_eq!(lenient_base64("a G-k_"), lenient_base64("aG+k"));
+    }
+}
+
+
+impl Spiller {
+    pub fn new(dir: PathBuf, io: DurabilityIo) -> Self {
+        Self { dir, io }
+    }
+
+    async fn write(&self, name: String, bytes: Vec<u8>, create_only: bool) -> std::io::Result<PathBuf> {
+        let path = self.dir.join(name);
+        let (dir, target) = (self.dir.clone(), path.clone());
+        let job = self
+            .io
+            .submit(&CancellationToken::new(), move |lane| write_artifact(lane, &dir, &target, &bytes, create_only))
+            .map_err(|_| std::io::Error::other("the durability lane is full"))?;
+        job.await.map_err(std::io::Error::other)??;
+        Ok(path)
+    }
+
+    /// The full text of an over-cap result: `mcp-<ms>-<8 hex>.txt`.
+    async fn write_text(&self, text: String) -> std::io::Result<PathBuf> {
+        let millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis());
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        self.write(format!("mcp-{millis}-{}.txt", &id[..8]), text.into_bytes(), false).await
+    }
+
+    /// Media with no inline form, named by its content hash.
+    async fn write_binary(&self, bytes: Vec<u8>, extension: &str) -> std::io::Result<PathBuf> {
+        let hash: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+        self.write(format!("mcp-{hash}.{extension}"), bytes, true).await
     }
 }

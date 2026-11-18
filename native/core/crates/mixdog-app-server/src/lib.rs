@@ -11,6 +11,7 @@
 //!   channel. Built first, given to the core as its `ServerRequestSink` and `HostChannel`.
 //! - [`error_data`] / [`error_frame`]: the single mapping of `CoreError` to the wire.
 
+mod arrival_order;
 mod config;
 mod connection;
 mod error;

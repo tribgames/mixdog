@@ -219,6 +219,25 @@ mod tests {
         ImportedSession { conversation, origin, project_path: project.map(str::to_owned) }
     }
 
+    #[test]
+    fn the_header_is_a_lead_session_with_provenance_and_no_host_pid() {
+        let route = json!({ "provider": "p", "model": "m" });
+        let header = imported_header(&route, &session(Some("C:/proj"), Some("Hello")), 100);
+        assert_eq!(header["agent"], "lead");
+        assert_eq!(header["sourceType"], "lead");
+        assert_eq!(header["cwd"], "C:/proj");
+        assert_eq!(header["desktopSession"], json!({ "classification": "project", "projectPath": "C:/proj" }));
+        assert_eq!(header["title"], "Hello");
+        assert_eq!(header["importOrigin"]["key"], "claude:f1");
+        assert_eq!(header["importOrigin"]["importedAt"], 7);
+        assert_eq!(header["clientHostPid"], Value::Null);
+        let task = imported_header(&route, &session(None, None), 100);
+        assert_eq!(task["desktopSession"], json!({ "classification": "task", "projectPath": Value::Null }));
+        assert!(!task.contains_key("cwd") && !task.contains_key("title"));
+    }
+
+
+    #[cfg(node_twin)]
     /// Node's stored session (`fixtures/services/import-session-twin.json`, recorded by
     /// `record-import-session.mjs` over the real `createImportedSession`): the header fields and
     /// the plain rows after the system layer.
@@ -261,22 +280,5 @@ mod tests {
             let want: Vec<Value> = case["rows"].as_array().unwrap().clone();
             assert_eq!(rows, want, "rows of {}", case["name"]);
         }
-    }
-
-    #[test]
-    fn the_header_is_a_lead_session_with_provenance_and_no_host_pid() {
-        let route = json!({ "provider": "p", "model": "m" });
-        let header = imported_header(&route, &session(Some("C:/proj"), Some("Hello")), 100);
-        assert_eq!(header["agent"], "lead");
-        assert_eq!(header["sourceType"], "lead");
-        assert_eq!(header["cwd"], "C:/proj");
-        assert_eq!(header["desktopSession"], json!({ "classification": "project", "projectPath": "C:/proj" }));
-        assert_eq!(header["title"], "Hello");
-        assert_eq!(header["importOrigin"]["key"], "claude:f1");
-        assert_eq!(header["importOrigin"]["importedAt"], 7);
-        assert_eq!(header["clientHostPid"], Value::Null);
-        let task = imported_header(&route, &session(None, None), 100);
-        assert_eq!(task["desktopSession"], json!({ "classification": "task", "projectPath": Value::Null }));
-        assert!(!task.contains_key("cwd") && !task.contains_key("title"));
     }
 }

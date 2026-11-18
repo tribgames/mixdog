@@ -16,7 +16,7 @@ use crate::memory::embed::config::InputType;
 use crate::memory::embed::host::Embedder;
 use crate::memory::embed::provider::EmbeddingProvider;
 use crate::memory::error::{MemoryError, Result};
-use crate::memory::pg::db::Db;
+use crate::memory::pg::db::{Db, Lease};
 use crate::memory::recall::hybrid::embedding_to_sql;
 use crate::tool_state::onnx_runtime_supported;
 
@@ -64,17 +64,6 @@ fn is_raw_embeddable(role: &str, content: &str) -> bool {
         return false;
     }
     CONVERSATION_ROLES.contains(&role.as_str()) || !NON_CONVERSATION_CONTENT.is_match(content)
-}
-
-/// The text is bounded before it is hashed or embedded: a huge row would
-/// otherwise build a giant tensor, and identical truncations share a cache row.
-fn truncate_for_embed(text: &str) -> String {
-    let limit = std::env::var("MIXDOG_EMBED_MAX_CHARS")
-        .ok()
-        .map(|raw| string_to_number(&raw))
-        .filter(|n| n.is_finite() && *n > 0.0)
-        .map_or(DEFAULT_MAX_CHARS, |n| n.floor() as usize);
-    if utf16_len(text) > limit { slice_utf16(text, limit) } else { text.to_owned() }
 }
 
 /// `resolveEmbeddingCacheMaxRows`: a positive row count, else the default. A fraction below one is invalid like 0
@@ -147,11 +136,11 @@ pub struct RawEmbedFlush {
     pruned_at: Mutex<i64>,
     /// The cache cap, read from `MIXDOG_EMBED_CACHE_MAX_ROWS` once (Node reads it at module load).
     cache_max_rows: i64,
-    /// The root flush running now, if any: `_flushInFlight`.
-    roots_in_flight: Mutex<Option<root::Flight>>,
     /// Each `flush` call (limit, ids), in order.
     #[cfg(test)]
     pub(crate) calls: Mutex<Vec<(usize, Option<Vec<i64>>)>>,
+    #[cfg(test)]
+    claim_seam: Mutex<Option<ClaimSeam>>,
 }
 
 pub struct FlushOutcome {
@@ -162,6 +151,68 @@ pub struct FlushOutcome {
     pub pruned: Option<Result<PruneOutcome>>,
 }
 
+/// `pruneEmbeddingCache` with Node's batch of 5000.
+async fn prune(client: &deadpool_postgres::Object, max_rows: i64) -> Result<PruneOutcome> {
+    observe_prune(PRUNE_COUNT_SQL, None);
+    let count: i64 = client.query(PRUNE_COUNT_SQL, &[]).await?[0].get(0);
+    let mut over = count - max_rows;
+    if over <= 0 {
+        return Ok(PruneOutcome { removed: 0, truncated: false, remaining: count });
+    }
+    if count > max_rows * 2 {
+        observe_prune(PRUNE_TRUNCATE_SQL, None);
+        client.batch_execute(PRUNE_TRUNCATE_SQL).await?;
+        return Ok(PruneOutcome { removed: count, truncated: true, remaining: 0 });
+    }
+    let (mut removed, mut guard) = (0i64, 0);
+    while over > 0 && guard < 1000 {
+        guard += 1;
+        let requested = PRUNE_BATCH.min(over);
+        observe_prune(PRUNE_DELETE_SQL, Some(requested));
+        let deleted = client.execute(PRUNE_DELETE_SQL, &[&requested]).await? as i64;
+        if deleted == 0 {
+            break;
+        }
+        removed += deleted;
+        over -= deleted;
+    }
+    Ok(PruneOutcome { removed, truncated: false, remaining: (count - removed).max(0) })
+}
+
+/// A test's hold on the next flush batch, right after its claim (the transaction open, the rows locked): `entered` is told, then the batch waits
+/// for `release`.
+#[cfg(test)]
+pub(crate) struct ClaimSeam {
+    pub(crate) entered: tokio::sync::mpsc::UnboundedSender<()>,
+    pub(crate) release: Arc<tokio::sync::Semaphore>,
+}
+
+#[cfg(test)]
+impl RawEmbedFlush {
+    pub(crate) fn hold_after_claim(&self, seam: ClaimSeam) {
+        *self.claim_seam.lock().expect("claim seam") = Some(seam);
+    }
+
+    async fn claimed_seam(&self) {
+        let held = self.claim_seam.lock().expect("claim seam").as_ref().map(|seam| (seam.entered.clone(), seam.release.clone()));
+        if let Some((entered, release)) = held {
+            let _ = entered.send(());
+            let _ = release.acquire().await.map(tokio::sync::SemaphorePermit::forget);
+        }
+    }
+}
+
+
+/// The text is bounded before it is hashed or embedded: a huge row would
+/// otherwise build a giant tensor, and identical truncations share a cache row.
+fn truncate_for_embed(text: &str) -> String {
+    let limit = std::env::var("MIXDOG_EMBED_MAX_CHARS")
+        .ok()
+        .map(|raw| string_to_number(&raw))
+        .filter(|n| n.is_finite() && *n > 0.0)
+        .map_or(DEFAULT_MAX_CHARS, |n| n.floor() as usize);
+    if utf16_len(text) > limit { slice_utf16(text, limit) } else { text.to_owned() }
+}
 impl RawEmbedFlush {
     pub fn new(db: Db, provider: Option<Arc<EmbeddingProvider>>) -> Self {
         Self {
@@ -170,10 +221,16 @@ impl RawEmbedFlush {
             cache_ready: AtomicBool::new(false),
             pruned_at: Mutex::new(0),
             cache_max_rows: resolve_cache_max_rows(std::env::var("MIXDOG_EMBED_CACHE_MAX_ROWS").ok().as_deref()),
-            roots_in_flight: Mutex::new(None),
             #[cfg(test)]
             calls: Mutex::new(Vec::new()),
+            #[cfg(test)]
+            claim_seam: Mutex::new(None),
         }
+    }
+
+    /// The owner of the flushes' work: the database's scope.
+    pub(crate) fn scope(&self) -> &crate::memory::lifecycle::Scope {
+        self.db.scope()
     }
 
     /// Embeds up to `limit` unembedded raw rows; `ids` restricts the claim to
@@ -192,43 +249,53 @@ impl RawEmbedFlush {
         let (mut attempted, mut embedded, mut cursor, mut pruned) = (0usize, 0usize, 0i64, None);
         while attempted < limit {
             let batch_cap = BATCH_SIZE.min(limit - attempted);
-            let client = match self.db.client().await {
-                Ok(client) => client,
+            // Each batch's row locks live in its transaction on this lease: a failed end or a cancelled flush discards the connection.
+            let lease = match Lease::take(&self.db).await {
+                Ok(lease) => lease,
                 Err(error) => {
                     tracing::warn!(%error, "[embed] raw flush: no connection");
                     break;
                 }
             };
-            let claimed = self.claim(&client, batch_cap, cursor, ids).await;
+            let claimed = self.claim(&lease, batch_cap, cursor, ids).await;
             let claimed = match claimed {
                 Ok(claimed) => claimed,
                 Err(error) => {
-                    let _ = client.batch_execute("ROLLBACK").await;
+                    if lease.rollback().await.is_ok() {
+                        lease.release(None).await;
+                    }
                     mixdog_rt::memory_stderr!("[embed] raw flush SKIP LOCKED claim failed: {error}");
                     break;
                 }
             };
             if claimed.is_empty() {
-                let _ = client.batch_execute("COMMIT").await;
+                if lease.commit().await.is_ok() {
+                    lease.release(None).await;
+                }
                 break;
             }
             cursor = claimed[claimed.len() - 1];
             attempted += claimed.len();
+            #[cfg(test)]
+            self.claimed_seam().await;
             // Only a full batch says a backlog goes on; a lone live row lets the model idle out.
             if backlog_continues(claimed.len(), batch_cap)
                 && let Some(provider) = &self.provider
             {
                 provider.hold_warm();
             }
-            match self.sync_batch(&client, &claimed, &mut pruned).await {
+            let ended = match self.sync_batch(&lease, &claimed, &mut pruned).await {
                 Ok(written) => {
                     embedded += written;
-                    let _ = client.batch_execute("COMMIT").await;
+                    lease.commit().await
                 }
                 Err(error) => {
                     mixdog_rt::memory_stderr!("[embed] raw batch failed (ids={}..{}): {error}", claimed[0], claimed[claimed.len() - 1]);
-                    let _ = client.batch_execute("ROLLBACK").await;
+                    lease.rollback().await
                 }
+            };
+            if ended.is_ok() {
+                lease.release(None).await;
             }
             if claimed.len() < batch_cap {
                 break;
@@ -237,8 +304,8 @@ impl RawEmbedFlush {
         FlushOutcome { attempted, embedded, pruned }
     }
 
-    async fn claim(&self, client: &deadpool_postgres::Object, cap: usize, cursor: i64, ids: Option<&[i64]>) -> Result<Vec<i64>> {
-        client.batch_execute("BEGIN").await?;
+    async fn claim(&self, client: &Lease, cap: usize, cursor: i64, ids: Option<&[i64]>) -> Result<Vec<i64>> {
+        client.begin().await?;
         let id_clause = if ids.is_some() { " AND id = ANY($7::bigint[])" } else { "" };
         let sql = format!(
             "SELECT id FROM entries
@@ -432,35 +499,4 @@ impl RawEmbedFlush {
         }
         Some(outcome)
     }
-}
-
-/// `pruneEmbeddingCache` with Node's batch of 5000.
-async fn prune(client: &deadpool_postgres::Object, max_rows: i64) -> Result<PruneOutcome> {
-    observe_prune(PRUNE_COUNT_SQL, None);
-    let count: i64 = client.query(PRUNE_COUNT_SQL, &[]).await?[0].get(0);
-    let mut over = count - max_rows;
-    if over <= 0 {
-        return Ok(PruneOutcome { removed: 0, truncated: false, remaining: count });
-    }
-    if count > max_rows * 2 {
-        observe_prune(PRUNE_TRUNCATE_SQL, None);
-        client.batch_execute(PRUNE_TRUNCATE_SQL).await?;
-        return Ok(PruneOutcome { removed: count, truncated: true, remaining: 0 });
-    }
-    let (mut removed, mut guard) = (0i64, 0);
-    while over > 0 && guard < 1000 {
-        guard += 1;
-        let requested = PRUNE_BATCH.min(over);
-        observe_prune(PRUNE_DELETE_SQL, Some(requested));
-        let deleted = client.execute(PRUNE_DELETE_SQL, &[&requested]).await? as i64;
-        if deleted == 0 {
-            break;
-        }
-        removed += deleted;
-        over -= deleted;
-    }
-    Ok(PruneOutcome { removed, truncated: false, remaining: (count - removed).max(0) })
-}
-
-impl RawEmbedFlush {
 }

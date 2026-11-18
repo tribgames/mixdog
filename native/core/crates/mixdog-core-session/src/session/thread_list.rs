@@ -273,16 +273,29 @@ impl ThreadListService {
         Self { store, overlay, rooms, task_workspace, observer: OnceLock::new(), fence: OnceLock::new(), on_row: OnceLock::new(), loaded: false.into(), announced: Default::default() }
     }
 
-    /// Sends `thread` on the app feed, as `thread/started` when `started`, else as `thread/summary/updated`, unless it is the row
-    /// last sent for that thread. Every send of a thread row goes through here, so the baseline is what the feed's listeners hold.
+    /// Sends `thread` on the app feed, as `thread/started` when `started`, else as `thread/summary/updated`, unless it matches
+    /// the last full row sent for that thread.
     pub fn announce(&self, app: &mixdog_core_base::state::SectionFeedState, thread: ThreadSummary, started: bool) {
+        self.announce_row(app, thread, started, false);
+    }
+
+    /// Public archive changes the listener's row without sending a full summary. A committed
+    /// internal restore must replace that row even if it matches the last full summary.
+    pub(super) fn announce_restored(&self, app: &mixdog_core_base::state::SectionFeedState, thread: ThreadSummary) {
+        self.announce_row(app, thread, false, true);
+    }
+
+    fn announce_row(&self, app: &mixdog_core_base::state::SectionFeedState, thread: ThreadSummary, started: bool, restored: bool) {
         let mut announced = self.announced.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if announced.get(thread.id.as_str()) == Some(&thread) {
-            return;
-        }
-        announced.insert(thread.id.as_str().to_owned(), thread.clone());
-        if let Some(hook) = self.on_row.get() {
-            hook(&thread);
+            if !restored {
+                return;
+            }
+        } else {
+            announced.insert(thread.id.as_str().to_owned(), thread.clone());
+            if let Some(hook) = self.on_row.get() {
+                hook(&thread);
+            }
         }
         if started {
             app.notify(STARTED, &mixdog_app_protocol::v2::thread::ThreadStartedParams { thread });
@@ -317,7 +330,7 @@ impl ThreadListService {
     }
 
     /// Waits, at most [`FENCE_BOUND`], for the projections queued before this call; it holds no lock while it waits.
-    async fn caught_up(&self) {
+    pub(super) async fn caught_up(&self) {
         let Some(wait) = self.fence.get().and_then(|fence| fence.pending()) else { return };
         if mixdog_rt::time::timeout(FENCE_BOUND, wait).await.is_err() {
             tracing::warn!("thread/list: the index has not taken the writes acknowledged before this list within {FENCE_BOUND:?}; answering what it holds");
@@ -804,8 +817,18 @@ mod tests {
         }
     }
 
-    fn golden() -> Value {
+    #[cfg(node_twin)]
+    fn recorded() -> Value {
         serde_json::from_str(include_str!("../../../../fixtures/session-list/golden.json")).expect("golden json")
+    }
+
+    fn golden() -> Value {
+        json!({ "sessions": [
+            { "record": { "id": "s_c", "title": "third", "updatedAt": 5000, "createdAt": 500, "cwd": "C:/w" } },
+            { "record": { "id": "s_a", "title": "first", "updatedAt": 3000, "createdAt": 500, "cwd": "C:/w" } },
+            { "record": { "id": "s_b", "title": "second", "updatedAt": 3000, "createdAt": 600, "cwd": "C:/w" } },
+            { "record": { "id": "s_d", "title": "fourth", "updatedAt": 2500, "createdAt": 700, "cwd": "C:/w" } },
+        ] })
     }
 
     async fn service(data: &crate::session::testing::DataDir, golden: &Value) -> ThreadListService {
@@ -913,13 +936,52 @@ mod tests {
         let row = listed["data"].as_array().expect("data").iter().find(|row| row["id"] == id.as_str()).expect("the row is listed");
         assert!(row.to_string().contains("after-the-write"), "{row}");
     }
+    /// Pages are newest first with the id as the tie-break, `limit` rows each; the cursor names the last row kept and comes only
+    /// when more follow; the live overlay lays `working` over the row of a thread with a turn in flight.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pages_walk_the_listing_newest_first_and_end_without_a_cursor() {
+        let golden = golden();
+        let data = crate::session::testing::DataDir::default();
+        let service = service(&data, &golden).await;
+        let page = |limit: u64, cursor: Option<String>| {
+            let mut params = json!({ "limit": limit });
+            if let Some(cursor) = cursor {
+                params["cursor"] = json!(cursor);
+            }
+            value(&service, request(LIST, params, None))
+        };
+        let ids = |answer: &Value| -> Vec<String> { answer["data"].as_array().expect("data").iter().map(|row| row["id"].as_str().expect("id").to_owned()).collect() };
+
+        let whole = page(100, None).await.expect("list");
+        assert_eq!(ids(&whole), ["s_c", "s_a", "s_b", "s_d"]);
+        assert!(whole["nextCursor"].is_null(), "everything fit: no cursor");
+        let rows = whole["data"].as_array().expect("data");
+        assert_eq!(rows.iter().map(|row| row["working"] == json!(true)).collect::<Vec<_>>(), [false, true, false, false], "only s_a has a turn in flight");
+        assert_eq!((rows[0]["title"].as_str(), rows[0]["updatedAt"].as_u64()), (Some("third"), Some(5000)));
+
+        let mut walked = Vec::new();
+        let mut cursor = None;
+        loop {
+            let answer = page(2, cursor).await.expect("page");
+            walked.push(ids(&answer));
+            cursor = answer["nextCursor"].as_str().map(str::to_owned);
+            if cursor.is_none() {
+                break;
+            }
+        }
+        assert_eq!(walked, [vec!["s_c", "s_a"], vec!["s_b", "s_d"]], "a page of two, then the rest, then no cursor");
+        let single = page(1, None).await.expect("page");
+        assert_eq!(ids(&single), ["s_c"]);
+        assert!(single["nextCursor"].is_string(), "more follow");
+    }
+    #[cfg(node_twin)]
     /// Every page `listStoredSessionSummaryPage` answered over Node's crafted records (the limit
     /// rules, the order, `nextCursor`), and the rows of those pages as Node's `_sessionSummary` built
     /// them. A limit the protocol cannot carry (negative, fractional) is refused by the wire type
     /// before it reaches the handler, so only the in-range limits run here.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pages_equal_nodes() {
-        let golden = golden();
+        let golden = recorded();
         let data = crate::session::testing::DataDir::default();
         let service = service(&data, &golden).await;
         let summaries: std::collections::HashMap<&str, &Value> =
@@ -1203,6 +1265,7 @@ mod tests {
             busy: true,
             tool_approval: Some(json!({ "id": "7", "name": "ask_user", "kind": "question" })),
             typing: Some(json!({ "kind": "notice", "id": "room-typing-n1", "tone": "info", "text": "Git Hub…", "room": { "kind": "typing", "speaker": "gh.bot", "name": "Git Hub" } })),
+            deciding: None,
             handoff_questions: None,
         };
         let log = directory.handle(&thread).expect("loaded");

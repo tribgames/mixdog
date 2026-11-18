@@ -144,8 +144,8 @@ mod tests {
         fn close_ext_host(&self) {
             self.inner.close_ext_host();
         }
-        fn close_data_handles(&self) {
-            self.inner.close_data_handles();
+        fn close_data_handles(&self, drain: &crate::lifecycle::ManagedDrain) {
+            self.inner.close_data_handles(drain);
         }
     }
 

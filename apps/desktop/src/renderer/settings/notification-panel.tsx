@@ -23,7 +23,7 @@ import { OpenSelect } from '../OpenSelect';
 import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { subscribeSetupChanges } from '../setup-change-refresh';
 import { ActionButton, Group, SelectRow, ToggleRow } from './capability-controls';
-import { getCachedDesktopStatus, readDesktopStatus, storeDesktopStatus } from './desktop-status-cache';
+import { getCachedDesktopStatus, readDesktopStatus, writeDesktopStatus } from './desktop-status-cache';
 import { quietTimeLabel, scopeLabel, useNotificationPreferences } from './notification-state';
 import { DevicePushRegistration } from './push-notification-toggle';
 import type { SettingsCategory } from './settings-items';
@@ -184,6 +184,7 @@ function SoundVolumeRow({ api }: { api: NotificationsApi }) {
   // The last volume the PC confirmed: what a failed save falls back to.
   const confirmed = useRef<number | null>(cached ? cached.notificationVolume : null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSave = useRef<(() => void) | null>(null);
   // Bumped by every slider move: a failed save only rolls back when no newer edit exists.
   const editGeneration = useRef(0);
   useEffect(() => {
@@ -205,19 +206,18 @@ function SoundVolumeRow({ api }: { api: NotificationsApi }) {
   }, [api]);
   useEffect(
     () => () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
+      pendingSave.current?.();
     },
     []
   );
   const saveVolume = (next: number) => {
+    pendingSave.current = null;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = null;
     const generation = editGeneration.current;
-    return Promise.resolve(api.setNotificationVolume?.(next))
+    return writeDesktopStatus(api, 'settings', () => api.setNotificationVolume?.(next))
       .then((saved) => {
-        if (!saved) return;
-        confirmed.current = saved.notificationVolume;
-        storeDesktopStatus(api, 'settings', saved);
+        if (saved) confirmed.current = saved.notificationVolume;
       })
       .catch((error) => {
         if (generation === editGeneration.current) setVolume(confirmed.current);
@@ -243,7 +243,8 @@ function SoundVolumeRow({ api }: { api: NotificationsApi }) {
             setVolume(next);
             editGeneration.current += 1;
             if (saveTimer.current) clearTimeout(saveTimer.current);
-            saveTimer.current = setTimeout(() => void saveVolume(next)?.catch(() => {}), VOLUME_SAVE_DEBOUNCE_MS);
+            pendingSave.current = () => void saveVolume(next).catch(() => {});
+            saveTimer.current = setTimeout(pendingSave.current, VOLUME_SAVE_DEBOUNCE_MS);
           }}
         />
         <output>{`${volume}%`}</output>

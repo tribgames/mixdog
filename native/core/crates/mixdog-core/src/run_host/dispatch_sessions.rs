@@ -15,6 +15,7 @@ use mixdog_agent::agent_tool::progress::Snapshot;
 use mixdog_agent::cancel::Cancel;
 use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_ai::service::admin_route::{normalize_context_tokens, number, truthy};
+use mixdog_core_config::config::Config;
 use mixdog_core_session::session::dispatch_sessions::DispatchThreads;
 use mixdog_store::schema::record::Header;
 use serde_json::{Map, Value, json};
@@ -24,12 +25,14 @@ use crate::run_host::agent_dispatch::{AskRequest, DispatchSessions, PrepareSpec,
 pub struct SessionDispatch {
     threads: Arc<DispatchThreads>,
     providers: Arc<ProviderRegistry>,
+    /// The saved configuration: the `autoClear` a session's cache policy follows.
+    config: Config,
 }
 
 impl SessionDispatch {
-    /// `providers`: the process's provider registry (`getProvider`).
-    pub fn new(threads: Arc<DispatchThreads>, providers: Arc<ProviderRegistry>) -> Self {
-        Self { threads, providers }
+    /// `providers`: the process's provider registry (`getProvider`); `config`: the saved configuration.
+    pub fn new(threads: Arc<DispatchThreads>, providers: Arc<ProviderRegistry>, config: Config) -> Self {
+        Self { threads, providers, config }
     }
 }
 
@@ -48,14 +51,14 @@ fn text_or_null(value: Option<&String>) -> Value {
 }
 
 /// What `prepareAgentSession(spec)` records on the new session (the record's route, provenance
-/// and permission fields), or the error `createSession` throws. `registered`: `getProvider(name)`.
-pub fn stamped_header(spec: &PrepareSpec, registered: impl Fn(&str) -> bool) -> Result<Header, String> {
+/// and permission fields), or the error `createSession` throws.
+pub fn stamped_header(spec: &PrepareSpec, available_route: impl FnOnce(&str) -> bool) -> Result<Header, String> {
     let preset = &spec.preset;
     let field = |key: &str| preset.get(key).filter(|value| truthy(Some(value)));
     let Some(provider) = field("provider") else { return Err("createSession: provider is required".into()) };
     let Some(model) = field("model") else { return Err("createSession: model is required".into()) };
     let provider = mixdog_js::value_to_string(provider);
-    if !registered(&provider) {
+    if !available_route(&provider) {
         return Err(format!("Provider \"{provider}\" not found or not enabled"));
     }
     let context = |key: &str| spec.context.get(key);
@@ -106,15 +109,25 @@ pub fn stamped_header(spec: &PrepareSpec, registered: impl Fn(&str) -> bool) -> 
 #[async_trait]
 impl DispatchSessions for SessionDispatch {
     async fn prepare(&self, spec: PrepareSpec) -> Result<Prepared, String> {
-        let mut header = stamped_header(&spec, |name| self.providers.registered(name).is_some())?;
+        let mut provider = None;
+        let mut header = stamped_header(&spec, |name| {
+            provider = self.providers.registered_for_route(name);
+            provider.is_some()
+        })?;
+        super::session_cache_opts::stamp_cache_opts(&mut header, &self.config.agent().get("autoClear").cloned().unwrap_or(Value::Null));
         // The MCP scope of the session that asked for the run (`mcpScopeId` of the spawning runtime).
         if let Some(parent) = spec.parent_session_id.as_deref().filter(|parent| !parent.is_empty())
             && let Some(scope) = self.threads.mcp_scope_of(parent).await
         {
             header.insert("mcpScopeId".into(), json!(scope));
         }
+        // The first-response window the session's provider declares for its model: what the watchdog's first-response
+        // deadlines sit above (`provider.firstResponseBudget(model, { modelParameters })`).
+        let first_response_budget = provider.zip(header.get("model").and_then(Value::as_str)).and_then(|(provider, model)| {
+            provider.first_response_budget(model, header.get("modelParameters").filter(|parameters| parameters.is_object()))
+        });
         let id = self.threads.create(header).await?;
-        Ok(Prepared { tools: self.threads.tools(&id), id })
+        Ok(Prepared { tools: self.threads.tools(&id), id, first_response_budget })
     }
 
     async fn set_status(&self, id: &str, status: &str) {

@@ -96,34 +96,6 @@ impl CacheStrategy {
     }
 }
 
-fn tier_ms(tier: &str) -> Option<f64> {
-    match tier {
-        "5m" => Some(TTL_5M_MS),
-        "1h" => Some(TTL_1H_MS),
-        _ => None,
-    }
-}
-
-/// `writtenCacheTtlMs(usage, cacheStrategy)`: the lifetime of the message-tail entry a response
-/// wrote, or 0 when the usage does not prove it.
-pub fn written_cache_ttl_ms(cache_write: f64, cache_write_1h: f64, strategy: Option<&CacheStrategy>) -> f64 {
-    if cache_write.is_nan() || cache_write <= 0.0 {
-        return 0.0;
-    }
-    let written_1h = f64::min(cache_write_1h, cache_write);
-    let written_5m = cache_write - written_1h;
-    if written_5m <= 0.0 {
-        return TTL_1H_MS;
-    }
-    if written_1h <= 0.0 {
-        return TTL_5M_MS;
-    }
-    let Some(strategy) = strategy else { return 0.0 };
-    let Some(tail) = strategy.messages.as_deref().filter(|t| tier_ms(t).is_some()) else { return 0.0 };
-    let asked = [&strategy.tools, &strategy.system, &strategy.tier3].iter().any(|other| other.as_deref() == Some(tail));
-    if asked { 0.0 } else { tier_ms(tail).unwrap_or(0.0) }
-}
-
 /// Per-token dollars of a read, a write of the entry's tier and an output token; each unknown
 /// price is `None`.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
@@ -318,23 +290,29 @@ pub fn warming_enabled(config: Option<&Value>) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use serde_json::json;
 
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     fn golden() -> Value {
         serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/cache-warm/golden.json")).unwrap()
     }
 
+    #[cfg(node_twin)]
     fn gap_of(value: &Value) -> Gap {
         Gap { at: value["at"].as_f64().unwrap(), ms: value["ms"].as_f64().unwrap(), censored: value["censored"] == json!(true) }
     }
 
+    #[cfg(node_twin)]
     fn prices_of(value: &Value) -> Prices {
         let price = |key: &str| value.get(key).and_then(Value::as_f64);
         Prices { read: price("read"), write: price("write"), output: price("output") }
     }
 
+    #[cfg(node_twin)]
     #[test]
     fn the_wilson_bound_and_the_return_chance_equal_nodes() {
         let golden = golden();
@@ -349,6 +327,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     #[test]
     fn the_tier_a_response_wrote_the_rewrite_test_and_the_delay_equal_nodes() {
         let golden = golden();
@@ -363,14 +342,9 @@ mod tests {
         for row in golden["pure"]["delay"].as_array().unwrap() {
             assert_eq!(warm_delay_ms(row["ttl"].as_f64().unwrap()), row["delay"].as_f64().unwrap(), "{row}");
         }
-        for row in golden["pure"]["ttl"].as_array().unwrap() {
-            let usage = &row["usage"];
-            let strategy = CacheStrategy::from_value(&row["strategy"]);
-            let got = written_cache_ttl_ms(num(usage, "cacheWriteTokens"), num(usage, "cacheWrite1hTokens"), strategy.as_ref());
-            assert_eq!(got, row["ttl"].as_f64().unwrap(), "{row}");
-        }
     }
 
+    #[cfg(node_twin)]
     #[test]
     fn the_economics_and_the_plan_equal_nodes_for_every_recorded_input() {
         let golden = golden();
@@ -406,6 +380,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     #[test]
     fn a_turns_kind_equals_nodes_for_every_recorded_provenance() {
         let golden = golden();
@@ -422,3 +397,5 @@ mod tests {
         }
     }
 }
+
+

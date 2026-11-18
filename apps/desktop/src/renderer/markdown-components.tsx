@@ -39,9 +39,9 @@ function RunInTerminal({ code }: { code: string }) {
 }
 
 /** Tables wrap inside the transcript column and never scroll sideways. */
-function MarkdownTable({ children }: { children?: ReactNode }) {
+function MarkdownTable({ children, 'data-md-unit': unit }: { children?: ReactNode; 'data-md-unit'?: string }) {
   return (
-    <div className="markdown-table-frame">
+    <div className="markdown-table-frame" data-md-unit={unit}>
       <div className="markdown-table">
         <table>{children}</table>
       </div>
@@ -97,14 +97,20 @@ function createMarkdownComponents(CopyControl: MarkdownCopyControl) {
     table: MarkdownTable,
     td: MarkdownTd,
     th: MarkdownTh,
-    pre({ children }: { children?: ReactNode }) {
+    pre({ children, 'data-md-unit': unit }: { children?: ReactNode; 'data-md-unit'?: string }) {
       const child = React.Children.count(children) === 1 ? React.Children.only(children) : null;
-      if (!React.isValidElement(child)) return <pre data-scrollable>{children}</pre>;
+      if (!React.isValidElement(child)) {
+        return (
+          <pre data-scrollable data-md-unit={unit}>
+            {children}
+          </pre>
+        );
+      }
       const props = child.props as { className?: string; children?: ReactNode };
       const language = props.className?.match(/language-([^\s]+)/)?.[1] || '';
       const code = childrenText(props.children).replace(/\n$/, '');
       return (
-        <div className="markdown-code">
+        <div className="markdown-code" data-md-unit={unit}>
           {/* No language, no label — a bare "code" caption named nothing. */}
           <header>
             <span>{language}</span>

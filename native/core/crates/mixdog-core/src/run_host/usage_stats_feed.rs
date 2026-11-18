@@ -161,20 +161,6 @@ impl SectionSource for DashboardSlot {
     }
 }
 
-/// Starts both feeds of one opened ledger. The statistics feed holds the ledger weakly (it never keeps a
-/// closed ledger alive); both end when the writer is gone.
-pub fn spawn_feeds(ledger: &Arc<UsageLedger>, changes: watch::Receiver<u64>, push: &UsagePush) {
-    spawn(Arc::downgrade(ledger), STATS_KEY, REFRESH_INTERVAL, changes.clone(), None, push.clone());
-    spawn(Arc::downgrade(&push.dashboard), DASHBOARD_KEY, DASHBOARD_INTERVAL, changes, Some(push.dashboard.bindings()), push.clone());
-}
-
-/// Publishes `source`'s answer under `key`: once at startup (a client that subscribes later is handed the entry
-/// the section holds, so the first value never waits for a ledger change), again whenever `changes` says the figures
-/// moved, and when `bindings` says the source became readable; until the writer or the source is gone.
-pub fn spawn<S: SectionSource>(source: Weak<S>, key: &'static str, interval: Duration, changes: watch::Receiver<u64>, bindings: Option<watch::Receiver<u64>>, push: UsagePush) {
-    tokio::spawn(run(source, key, changes, bindings, push, interval));
-}
-
 /// Waits for the next ledger change or binding; `false` when the writer is gone.
 async fn woken(changes: &mut watch::Receiver<u64>, bindings: &mut Option<watch::Receiver<u64>>) -> bool {
     match bindings {
@@ -186,6 +172,33 @@ async fn woken(changes: &mut watch::Receiver<u64>, bindings: &mut Option<watch::
     }
 }
 
+/// A push into a recording publisher, for tests of the ledger's other behaviour.
+#[cfg(any(test, feature = "test-support"))]
+#[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
+pub(crate) fn recording_push() -> UsagePush {
+    UsagePush::new(Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), Arc::new(|| chrono::Utc::now().timestamp_millis()))
+}
+
+#[cfg(node_twin)]
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+mod feed_tests;
+
+
+/// Starts both feeds of one opened ledger. The statistics feed holds the ledger weakly (it never keeps a
+/// closed ledger alive); both end when the writer is gone.
+pub fn spawn_feeds(ledger: &Arc<UsageLedger>, changes: watch::Receiver<u64>, push: &UsagePush) {
+    spawn(Arc::downgrade(ledger), STATS_KEY, REFRESH_INTERVAL, changes.clone(), None, push.clone());
+    spawn(Arc::downgrade(&push.dashboard), DASHBOARD_KEY, DASHBOARD_INTERVAL, changes, Some(push.dashboard.bindings()), push.clone());
+}
+/// Publishes `source`'s answer under `key`: once at startup (a client that subscribes later is handed the entry
+/// the section holds, so the first value never waits for a ledger change), again whenever `changes` says the figures
+/// moved, and when `bindings` says the source became readable; until the writer or the source is gone.
+pub fn spawn<S: SectionSource>(source: Weak<S>, key: &'static str, interval: Duration, changes: watch::Receiver<u64>, bindings: Option<watch::Receiver<u64>>, push: UsagePush) {
+    tokio::spawn(run(source, key, changes, bindings, push, interval));
+}
 /// A read is due from the start, once the source can be read. Node cleared its dirty state when a re-read started and
 /// never retried a failure by itself, and so does this: a read, answered or failed, clears what was pending and stamps
 /// the interval from when it began; a failure schedules nothing. The next trigger (a ledger change, the binding)
@@ -233,13 +246,3 @@ async fn run<S: SectionSource>(
         }
     }
 }
-
-/// A push into a recording publisher, for tests of the ledger's other behaviour.
-#[cfg(any(test, feature = "test-support"))]
-#[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
-pub(crate) fn recording_push() -> UsagePush {
-    UsagePush::new(Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), Arc::new(|| chrono::Utc::now().timestamp_millis()))
-}
-
-#[cfg(test)]
-mod tests;
