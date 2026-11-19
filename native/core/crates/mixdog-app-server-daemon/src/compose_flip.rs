@@ -774,6 +774,67 @@ pub struct Built {
 }
 
 
+/// The memory stack's session-search copy of a rewritten session: confirmed gone (no cluster, or its rows deleted), then the
+/// session indexed again from its rewritten log, as the once-a-run backfill may have passed it already.
+struct MemorySearchCopy {
+    memory: Arc<mixdog_services::memory::boot::MemoryStack>,
+    stored: Arc<dyn mixdog_services::memory::session_search::ingest::StoredSessions>,
+}
+
+impl mixdog_core_session::session::store::SearchCopy for MemorySearchCopy {
+    fn invalidate(&self, session: &str) -> futures::future::BoxFuture<'static, Result<bool, String>> {
+        let (memory, session) = (self.memory.clone(), session.to_owned());
+        Box::pin(async move { memory.invalidate_search_copy(&session).await })
+    }
+
+    fn reindex(&self, session: &str) -> futures::future::BoxFuture<'static, Result<bool, String>> {
+        let (memory, stored, session) = (self.memory.clone(), self.stored.clone(), session.to_owned());
+        Box::pin(async move { memory.search().reindex_session_owned(stored, &session).await.map_err(|error| error.to_string()) })
+    }
+}
+
+/// The owed sensitive rewrites (`MarkRewrites::run`) and the discharge of the search-copy debts they leave, as tasks of the
+/// core: started before the core serves, never awaited by the start; ended by the stop (or by a failed composition's release),
+/// the rewrites after the session in hand.
+#[derive(Clone)]
+pub struct MarkRewritesRun {
+    stop: tokio_util::sync::CancellationToken,
+    tasks: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+}
+
+impl MarkRewritesRun {
+    fn start(owed: mixdog_core_session::session::store::MarkRewrites, stop: tokio_util::sync::CancellationToken) -> Self {
+        let task = mixdog_rt::spawn("sensitive-mark-rewrites", mixdog_rt::TaskClass::Work, {
+            let stop = stop.clone();
+            async move {
+                let count = owed.owed();
+                if let Err(error) = owed.run(&stop).await {
+                    tracing::error!("[mixdog-session] the owed sensitive rewrites of {count} session(s) did not all finish: {error:?}");
+                }
+            }
+        });
+        Self { stop, tasks: Arc::new(std::sync::Mutex::new(vec![task])) }
+    }
+
+    /// Discharges the search-copy debts through `copy` until the stop.
+    fn discharge(&self, threads: Arc<mixdog_core_session::session::StoreThreads>, copy: Arc<dyn mixdog_core_session::session::store::SearchCopy>) {
+        let task = mixdog_rt::spawn("sensitive-search-debts", mixdog_rt::TaskClass::Work, threads.discharge_search_debt(copy, self.stop.clone()));
+        self.tasks.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(task);
+    }
+
+    /// Ends them; resolves once the rewrite in hand is done (at once when they have ended or another stop took them).
+    fn stop(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let (stop, tasks) = (self.stop.clone(), self.tasks.clone());
+        async move {
+            stop.cancel();
+            let tasks = std::mem::take(&mut *tasks.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+            for task in tasks {
+                let _ = task.await;
+            }
+        }
+    }
+}
+
 /// The pieces `ComposedCore` keeps from the real core.
 ///
 /// `compose()` registers `core.on_stop("session directory shutdown", real.session_shutdown_step(core.stop_reason()))` first among the stop steps: Node's
@@ -797,6 +858,8 @@ pub struct Real {
     pub maintenance_stop: tokio_util::sync::CancellationToken,
     /// Taken once by the stop step: awaiting it is the end of the schedule (it admits no further task after the cancel and ends the in-flight tick within its grace).
     pub maintenance_loop: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// The sensitive rewrites an earlier process left owed, running behind the serving core: the first stop step ends them.
+    pub mark_rewrites: MarkRewritesRun,
     /// The `worktree-cleanup` registration, kept for the schedule's life.
     pub worktree_task: mixdog_core_base::maintenance::TaskRegistration,
     /// Cancelled by the first stop step, BEFORE the directory shuts down: the worktree maintenance (startup reconcile, hourly cleanup) reads the directory.
@@ -892,10 +955,13 @@ impl Real {
         let (graph_cache, maintenance_io) = (self.code_graph_cache.clone(), self.maintenance_io);
         let exec = self.exec.clone();
         let schedule_end = self.maintenance_loop.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let mark_rewrites_end = self.mark_rewrites.stop();
         async move {
             closing.cancel();
             worktrees.cancel(); // the maintenance stops before the directory it reads is shut down
             maintenance.cancel();
+            // The owed rewrites end after the session in hand, before the index and the logs they write are closed.
+            mark_rewrites_end.await;
             // The schedule ends before the directory shuts down: a running cleanup tick reads the directory.
             if let Some(schedule_end) = schedule_end {
                 let _ = schedule_end.await;
@@ -1142,6 +1208,16 @@ impl Real {
     }
 }
 
+
+/// The session delete's `purgeAgentDefinition` over the agent definitions: a deleted bot's archived home chat deleted again takes the bot for good.
+struct RetiredAgentPurge(Arc<mixdog_core_agents::agents::AgentDefinitions>);
+
+#[async_trait::async_trait]
+impl mixdog_core_session::session::purge::RetiredAgents for RetiredAgentPurge {
+    async fn purge(&self, agent_id: &str) -> Result<(), String> {
+        self.0.purge(agent_id).await.map(drop).map_err(|error| error.to_string())
+    }
+}
 
 pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let boot = b.log.clone();
@@ -2625,7 +2701,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let archive_states = archive_states
         .map_err(|e| ComposeError::CatalogIndex(format!("the session archive authority: {e}")))?;
     boot.boot_mark("before-archive-states-bind");
-    archive_states.bind_index(&catalog_index).await.map_err(|e| ComposeError::CatalogIndex(format!("the session archive authority: {e}")))?;
+    // The projection waits behind the catalog writer (seconds at start) and the first screen reads archive state through the bound
+    // snapshot, so only the binding is awaited; the entries are owed to the index until the projection (or the recent search,
+    // which settles owed entries first) writes them. The projection starts once the core serves (`ComposedCore::start_archive_projection`).
+    archive_states.bind_index_deferred(&catalog_index).map_err(|e| ComposeError::CatalogIndex(format!("the session archive authority: {e}")))?;
     boot.boot_mark("archive-states-bound");
     let _ = engine_catalog.set(Arc::new(catalog_index.clone())); // the browser card's requester reads the asking session's listed row
     // A 1.4.5 desktop run on this data afterwards reads the archive state from its profile's `desktop-session-metadata.json`: every
@@ -2678,10 +2757,16 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     if store_threads.redact_with(sensitive_marks.clone()).is_err() {
         unreachable!("the thread store is bound once, here");
     }
-    // Before any thread is served (no directory can open a log yet): restore journaled marks and finish their rewrites.
+    // Before any thread is served (no directory can open a log yet): restore journaled marks and withhold every session still
+    // owing its rewrite from every read. The rewrites run behind the serving core (a start with hundreds owed spent minutes
+    // here before its first screen): each session is answered again once its own is done, a read of one still owed asks for
+    // it next, and the boot's progress counts them while they run. A quit ends them between two sessions; the journal keeps
+    // what is done, so the next start rewrites only the rest.
     boot.boot_mark("before-sensitive-marks-settle");
-    store_threads.settle_marks(b.tokens.durability_io).await.map_err(|e| ComposeError::Config(format!("sensitive marks: {e:?}")))?;
-    boot.boot_mark("sensitive-marks-settle-ended");
+    let owed_rewrites =store_threads.owe_marks(b.tokens.durability_io, Some(&b.rebuild)).await.map_err(|e| ComposeError::Config(format!("sensitive marks: {e:?}")))?;
+    boot.boot_mark("sensitive-marks-owed");
+    let mark_rewrites = MarkRewritesRun::start(owed_rewrites, b.cancel.child_token());
+    b.acquired.on_release("sensitive-mark-rewrites", mark_rewrites.stop());
     // The stored sessions, shared with the search backfill and `StoredConsumers`; the snapshot cleanups, built once.
     let session_lanes = || mixdog_core_session::session::SessionLanes { cpu: b.tokens.cpu_interactive, io: b.tokens.interactive_io, durability: b.tokens.durability_io };
     // A hook payload's `transcript_path` (`hookTranscriptPath`): the bus asks the session's export just before a handler runs; a delete removes the file (the purge's `transcript_export`).
@@ -2737,6 +2822,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // Under `MIXDOG_DAEMON_SKIP_MEMORY=1` the process has no memory runtime, and its session-search copy would start one.
     let skip_memory = (b.env)("MIXDOG_DAEMON_SKIP_MEMORY").as_deref() == Some("1");
     let session_search = Arc::new(mixdog_core_session::session::SessionSearchTurns::new((!skip_memory).then(|| memory.search())));
+    // The search-copy debts the owed rewrites leave (and an earlier boot's) are discharged through the memory stack; without
+    // a memory runtime they stay owed for a boot that has one, and no search answers those sessions meanwhile.
+    if !skip_memory {
+        mark_rewrites.discharge(store_threads.clone(), Arc::new(MemorySearchCopy { memory: memory.clone(), stored: stored_sessions.clone() }));
+    }
     let pending = |directory: &Arc<mixdog_core_session::session::SessionDirectory>| pending_rows(directory, clock.clone());
     let _ = pending;
     // The thread store: `StoreThreads::over_data_dir` with the ONE `BlobStore` instead of a second one it would make itself:
@@ -2949,6 +3039,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         progress: Arc::new(mixdog_core::run_host::summary_host::DroppedProgress), // Node emits no summary progress (run-host-38, D-sp-1)
         io: mixdog_core_api::domain::tool::ToolIo { interactive: b.tokens.interactive_io, durability: b.tokens.durability_io, maintenance: b.tokens.maintenance_io },
     }));
+    // The Goal runtime was built before the providers: its title model (`wireGoalRuntime`'s `generateTitle`) is bound here.
+    early.goal_titles.bind(Arc::new(summaries.title_completion()));
     // The attachment ports are shared by the compaction world and the context world's per-thread lowering (flip-attach).
     let route_traits = Arc::new(mixdog_core::run_host::compaction_world::RegisteredRouteTraits::new(registry.clone()));
     let compaction_services = mixdog_core::run_host::compaction_world::CompactionServices {
@@ -3294,6 +3386,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let core_work: Arc<dyn mixdog_core_session::session::CoreWork> = late_lifecycle.clone();
             let archive = archive_states.clone();
             let read_state = read_state.clone();
+            let agents = agents.clone();
             move |runs| mixdog_core_session::session::SessionDeps {
                 archive: archive.clone(),
                 store: store_threads,
@@ -3337,6 +3430,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     tool_events: Arc::new(mixdog_core_session::session::tool_events::ToolEventsLog::new(&data_dir, tokens.maintenance_io, clock.clone())),
                     mcp_scopes: mcp_glue.clone(), // a closed session's MCP scope goes with it
                     read_state: read_state.clone(),
+                    agents: Some(Arc::new(RetiredAgentPurge(agents.clone()))),
                 }),
                 purge,
                 // A Goal record written before the todo list still carries its tasks: the session's list adopts them (`goal-facade-api.mjs` `adoptLegacyTasks`).
@@ -4423,6 +4517,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     io: b.tokens.interactive_io,
                 }),
                 rooms: room_hosts.clone(),
+                hop_limit: {
+                    let config = config.clone();
+                    Arc::new(move || config.bot_handoff_limit() as u32)
+                },
             }))
             .map_err(ComposeError::AlreadyBound)?;
         late_bot_sources
@@ -4537,8 +4635,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(LateThreads(late.clone())),
         Arc::new(config.clone()),
     )))))?;
-    // thread/search: the read side of the session-search database the stack's ingest writer owns.
-    builder.register(mixdog_services::memory::thread_search::ThreadSearchService::new(memory.search_access()))?;
+    // thread/search: the read side of the session-search database the stack's ingest writer owns. A session still owing its
+    // sensitive rewrite is never answered: its copy holds text from before the rewrite until the rewrite drops it.
+    let search_hidden = store_threads.clone();
+    builder.register(mixdog_services::memory::thread_search::ThreadSearchService::hiding(
+        memory.search_access(),
+        Arc::new(move || search_hidden.search_withheld()),
+    ))?;
     // channel/*: the admin and the call dispatch of the channel worker; `ChannelRuntime` is the lifecycle `activate_channel_bridge`/`reload_config` drive.
     // `degraded` is `isChannelsDegraded()`, a constant `false` in Node (`crash-log.mjs:12`).
     let channel_calls = mixdog_services::channels::CallDispatch::new(
@@ -4771,5 +4874,5 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             }
         }));
     }
-    Ok(Real { session_notifier, screens, defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_admin: channel_admin.clone(), channel_calls, channel_config_follow, config_watch: composed.watcher, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, connections, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, archive_trees, core_state: b.core_state.clone(), skip_memory, gateway_usage, workers: workers.clone(), #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool, #[cfg(test)] mcp_glue: kept_mcp_glue })
+    Ok(Real { session_notifier, screens, defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), mark_rewrites, ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_admin: channel_admin.clone(), channel_calls, channel_config_follow, config_watch: composed.watcher, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, connections, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, archive_trees, core_state: b.core_state.clone(), skip_memory, gateway_usage, workers: workers.clone(), #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool, #[cfg(test)] mcp_glue: kept_mcp_glue })
 }

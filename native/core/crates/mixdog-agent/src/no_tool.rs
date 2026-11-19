@@ -261,6 +261,9 @@ impl Run {
         let Some(hooks) = self.env.hooks.clone() else { return Ok(false) };
         let active = self.no_tool.stop_continuations > 0;
         let verdict = or_cancelled(&self.cancel, hooks.on_stop(active)).await.ok_or(AgentError::Aborted)?;
+        // The hooks learn what became of their verdict before anything else can end the turn.
+        let continued = matches!(verdict, StopVerdict::Continue(_)) && ended.is_some() && self.no_tool.stop_continuations < STOP_CONTINUATION_LIMIT;
+        hooks.stop_settled(continued);
         let warning = match (verdict, ended) {
             (StopVerdict::Proceed, _) => {
                 self.no_tool.stop_asked = true;

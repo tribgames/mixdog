@@ -125,8 +125,6 @@ pub struct TurnPathParts {
 
 #[derive(Debug, thiserror::Error)]
 pub enum TurnPathError {
-    #[error("no `Skill` tool is registered")]
-    NoSkillTool,
     #[error("starting the providers: {0}")]
     Providers(String),
     /// A `git` or `task` without the definition delegated agents are sent.
@@ -171,7 +169,8 @@ impl TurnPath {
         let intake = Arc::new(super::attachment_store::StoreFiles::new(mixdog_store::blobs::BlobStore::new(&data_dir), &data_dir, &tokens));
         // And every provider send reads its images' verdicts and bytes back from the same store.
         mixdog_core_api::domain::image_supply::install(Arc::new(super::image_supply::VaultSupply::new(mixdog_store::blobs::BlobStore::new(&data_dir), &data_dir, &tokens)));
-        let skill_tool = tool_pool.iter().find(|t| t.spec().name == "Skill").cloned().ok_or(TurnPathError::NoSkillTool)?;
+        // A core composed with skills off (`MIXDOG_DISABLE_SKILLS`, the exec boundary's guard) has no `Skill` tool.
+        let skill_tool = tool_pool.iter().find(|t| t.spec().name == "Skill").cloned();
         let reaction_targets: Arc<ReactionTargets> = Arc::default();
         let turn_settings: Arc<super::turn_settings::LateTurnSettings> = Arc::default();
         let contacts = Arc::new(ContactIds::new(agents));
@@ -199,7 +198,7 @@ impl TurnPath {
                 tools: SessionToolBuilder::new(tool_pool, mcp, skills_listed)?,
                 todos: TodoViews::new(todos, goals, work),
                 post_tool: Arc::new(BusPostToolDispatch::new(hook_bus, hook_common)),
-                skills: Some(SkillParts { names: skill_names, tool: skill_tool, deliveries: skill_deliveries }),
+                skills: skill_tool.map(|tool| SkillParts { names: skill_names, tool, deliveries: skill_deliveries }),
                 config,
                 ladder,
                 images: Some(Arc::new(ToolImageCompactor::new(Arc::new(ExtImageCodec::new(ext_pool))).with_intake(intake))),

@@ -586,8 +586,10 @@ mod tests {
     #[path = "../../turn_durability_replay.rs"]
     mod turn_durability_replay;
 
-    #[path = "../../factory_pinned_account_tests.rs"]
-    mod pinned_account;
+    // `include!` resolves from this file's directory; `#[path]` here would walk through the absent `factory/tests/`.
+    mod pinned_account {
+        include!("factory_pinned_account_tests.rs");
+    }
 
     use std::collections::VecDeque;
     use std::sync::atomic::{AtomicBool, AtomicI64};
@@ -1266,6 +1268,106 @@ mod tests {
         }
     }
     struct NoHopWrites;
+
+    /// The route facts of a routed world's hops: no catalog row and no cache policy.
+    struct NoRouteFacts;
+    #[async_trait]
+    impl super::super::route_change::RouteFacts for NoRouteFacts {
+        fn context_meta(&self, _: &str, _: &str, _: &Value) -> Option<mixdog_core_run::run_host::session_context_meta::ContextMeta> {
+            None
+        }
+        fn cache_opts(&self, _: &str, _: &str, _: Option<&str>, _: &mixdog_store::schema::record::Header) -> Option<Value> {
+            None
+        }
+    }
+
+    /// The agent config a routed world's route adapter reads, with no statusline or context gauge to tell.
+    struct HopRouteConfig(serde_json::Map<String, Value>);
+    impl mixdog_core_session::session::route_session::RouteConfig for HopRouteConfig {
+        fn agent_config(&self) -> mixdog_core_ports::ports::domain_sessions::Obj {
+            self.0.clone()
+        }
+        fn bots(&self) -> &(dyn mixdog_core_run::run_host::route_chain::BotRoutes + Send + Sync) {
+            &NoBots
+        }
+    }
+    impl mixdog_core_session::session::route_session::RouteStatusline for HopRouteConfig {
+        fn write(&self, _: &str, _: &mixdog_core_ports::ports::route::Route, _: Option<u64>) {}
+    }
+    impl mixdog_core_session::session::route_session::ContextStatusCache for HopRouteConfig {
+        fn invalidate(&self, _: &ThreadId) {}
+    }
+
+    /// A scripted adapter that answers its next attempt with an armed refusal, once, and retries nothing: a failure that
+    /// reaches the route chain at once.
+    struct ArmedRefusal {
+        inner: Arc<Scripted>,
+        policy: RetryPolicy,
+        refusal: Mutex<Option<ProviderError>>,
+    }
+    impl ArmedRefusal {
+        fn new(inner: Arc<Scripted>) -> Arc<Self> {
+            let mut policy = RetryPolicy::codex_default();
+            for row in [&mut policy.request, &mut policy.midstream, &mut policy.transport, &mut policy.connection] {
+                row.schedule.max_retries = 0;
+            }
+            policy.recovery = None;
+            Arc::new(Self { inner, policy, refusal: Mutex::new(None) })
+        }
+    }
+    #[async_trait]
+    impl ProviderAdapter for ArmedRefusal {
+        fn release_send(&self, group: &str) {
+            self.inner.release_send(group);
+        }
+        fn id(&self) -> &ProviderId {
+            self.inner.id()
+        }
+        fn codec(&self) -> &dyn WireCodec {
+            self.inner.codec()
+        }
+        fn retry_policy(&self) -> &RetryPolicy {
+            &self.policy
+        }
+        fn keepalive(&self) -> &KeepaliveSchedule {
+            self.inner.keepalive()
+        }
+        async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+            let refused = lock(&self.refusal).take();
+            match refused {
+                Some(refusal) => Err(refusal),
+                None => self.inner.attempt(request).await,
+            }
+        }
+    }
+
+    /// Builds the one scripted adapter of each provider it serves, each not available while its switch is off; any other
+    /// name is a provider no family serves (a removed custom provider), whose build fails as the product's does.
+    struct GatedProviders(Vec<(&'static str, Arc<dyn ProviderAdapter>, std::sync::atomic::AtomicBool)>);
+    impl GatedProviders {
+        fn new(adapters: Vec<(&'static str, Arc<dyn ProviderAdapter>)>) -> Arc<Self> {
+            Arc::new(Self(adapters.into_iter().map(|(name, adapter)| (name, adapter, std::sync::atomic::AtomicBool::new(true))).collect()))
+        }
+        fn set(&self, name: &str, on: bool) {
+            let (_, _, switch) = self.0.iter().find(|(served, ..)| *served == name).expect("a served provider");
+            switch.store(on, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    #[async_trait]
+    impl mixdog_ai::registry::providers::ProviderBuilder for GatedProviders {
+        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            self.0.iter().find(|(served, ..)| *served == name).map(|(_, adapter, _)| adapter.clone()).ok_or_else(|| format!("unknown enabled provider: {name}"))
+        }
+        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, name: &str) -> bool {
+            self.0.iter().find(|(served, ..)| *served == name).is_none_or(|(_, _, on)| on.load(std::sync::atomic::Ordering::SeqCst))
+        }
+        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
+            Ok(true)
+        }
+    }
 
     struct NoWiring;
 
@@ -3872,6 +3974,8 @@ mod tests {
             let provider = scripted(&["ok"]);
             let rig = Rig::new();
             let mut deps = rig.deps_parts(rig.store.clone());
+            // The product's user row keeps the prompt's parts; the rig's text transcript writes a parts prompt as empty text.
+            deps.transcript = Arc::new(mixdog_core_session::session::testing::RecordTranscript::new());
             let settings = CompactSettings { auto, context_window: Some(100_000), token_calibration: 1.0, ..Default::default() };
             let id = ThreadId::from("sess_scan");
             let header = json!({ "provider": "scripted", "model": "m" }).as_object().unwrap().clone();
@@ -3896,7 +4000,12 @@ mod tests {
 
             let requests = lock(&provider.requests);
             assert_eq!(requests.len(), 1, "one provider request (auto={auto})");
-            let user = requests[0].messages.iter().rfind(|message| message.role == Role::User).expect("the user prompt");
+            // The prompt's message, not a runtime notice sent after it.
+            let prompt_of = |message: &&mixdog_core_api::domain::provider::Message| match &message.content {
+                Content::Text(text) => text.contains("Review this scan."),
+                Content::Parts(parts) => parts.iter().any(|part| matches!(part, ContentPart::Text(text, _) if text.contains("Review this scan."))),
+            };
+            let user = requests[0].messages.iter().filter(|message| message.role == Role::User).rfind(prompt_of).unwrap_or_else(|| panic!("the user prompt (auto={auto}) in {:?}", requests[0].messages.iter().map(|m| (m.role, format!("{:?}", m.content))).collect::<Vec<_>>()));
             let Content::Parts(parts) = &user.content else { panic!("expected prompt and PDF reference (auto={auto})") };
             let copy = workspace.path().join("prompt-attachments").join("files").join(reference).join("scan.pdf");
             assert!(parts.iter().any(|part| matches!(part, ContentPart::Text(text, _) if text.contains("Review this scan."))));
@@ -5301,6 +5410,35 @@ mod tests {
         summaries_on_turn_registry: bool,
         first_auto_effort: Option<Arc<super::super::auto_effort::TurnAutoEffort>>,
     ) -> World {
+        turn_world_routed(provider, mcp, connected, lead, threads, pool, files, header_surfaces, clock, config, summaries_on_turn_registry, first_auto_effort, None).await
+    }
+    /// The providers a [`turn_world_routed`] registry builds and the agent config its route hops read; its hops write the
+    /// session through the production route adapter. The hops read `config` as it stands at each read, so a test may edit
+    /// it between turns.
+    struct Routed {
+        builder: Arc<dyn mixdog_ai::registry::providers::ProviderBuilder>,
+        config: Arc<Mutex<serde_json::Map<String, Value>>>,
+    }
+    fn routed(builder: Arc<dyn mixdog_ai::registry::providers::ProviderBuilder>, config: Value) -> Routed {
+        Routed { builder, config: Arc::new(Mutex::new(config.as_object().expect("an agent config").clone())) }
+    }
+    /// [`turn_world_at`]; with `routed`, a registry over `routed`'s providers and route hops that write the session.
+    #[allow(clippy::too_many_arguments)]
+    async fn turn_world_routed(
+        provider: Arc<dyn ProviderAdapter>,
+        mcp: Arc<dyn super::super::session_tools::SessionMcp>,
+        connected: Vec<Arc<dyn Tool>>,
+        lead: bool,
+        threads: Option<Arc<dyn mixdog_core_session::session::ThreadStore>>,
+        pool: Option<Vec<Arc<dyn Tool>>>,
+        files: Arc<dyn mixdog_core_api::domain::fs::FileService>,
+        header_surfaces: bool,
+        clock: Arc<dyn Clock>,
+        config: Arc<dyn super::super::host_seams::ConfigSeams>,
+        summaries_on_turn_registry: bool,
+        first_auto_effort: Option<Arc<super::super::auto_effort::TurnAutoEffort>>,
+        routed: Option<Routed>,
+    ) -> World {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let tokens = mixdog_rt::testing::tokens();
@@ -5326,7 +5464,12 @@ mod tests {
         )
         .unwrap();
         let store = Arc::new(super::super::side_question_store::SideQuestionStore::new());
-        let registry = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(OneProvider(provider.clone()))).with_accounting(accounting));
+        let (builder, hop_config) = match routed {
+            Some(Routed { builder, config }) => (builder, Some(config)),
+            None => (Arc::new(OneProvider(provider.clone())) as Arc<dyn mixdog_ai::registry::providers::ProviderBuilder>, None),
+        };
+        let hop_clocks: (Arc<dyn Clock>, Arc<dyn mixdog_core_session::session::Clock>) = (clock.clone(), rig.clock.clone());
+        let registry = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(builder).with_accounting(accounting));
         let compaction = if summaries_on_turn_registry {
             super::super::compaction_world::tests::services_over(workspace.path(), json!({}), Arc::default(), store.clone(), registry.clone(), serde_json::Map::new()).await
         } else {
@@ -5436,20 +5579,33 @@ mod tests {
             compactors,
             hops: Box::new({
                 let registry_dir = workspace.path().join("catalog");
-                move |_directory, registry| {
+                move |directory, registry| {
                     let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
                     let metadata = mixdog_ai::catalog::ModelsDevSource::new(Arc::new(Offline), registry_dir, io);
                     let catalog = futures::executor::block_on(mixdog_ai::catalog::CatalogService::cold_start(mixdog_ai::catalog::CatalogSnapshot::default(), Vec::new(), metadata));
+                    // A routed world's hops write the session as the composition's do (`compose_flip`): the route adapter over
+                    // the directory, with the route change the run host computes.
+                    let (config, sessions): (mixdog_core_run::run_host::hop_host::ConfigSnapshot, Arc<dyn mixdog_core_run::run_host::hop_host::HopSessions>) = match hop_config {
+                        Some(config) => {
+                            let (run_clock, session_clock) = hop_clocks;
+                            let change = Arc::new(super::super::route_change::RunHostRouteChange::new(Arc::new(NoRouteFacts), run_clock));
+                            let threads = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone()));
+                            let routes = Arc::new(HopRouteConfig(lock(&config).clone()));
+                            let adapter = Arc::new(mixdog_core_session::session::route_session::SessionRouteAdapter::new(directory.clone(), threads, change, routes.clone(), routes.clone(), routes, session_clock));
+                            (Arc::new(move || lock(&config).clone()) as mixdog_core_run::run_host::hop_host::ConfigSnapshot, Arc::new(mixdog_core_session::session::route_session::SessionHops::new(adapter)) as Arc<dyn mixdog_core_run::run_host::hop_host::HopSessions>)
+                        }
+                        None => (Arc::new(serde_json::Map::new) as mixdog_core_run::run_host::hop_host::ConfigSnapshot, Arc::new(OpenHopSessions) as Arc<dyn mixdog_core_run::run_host::hop_host::HopSessions>),
+                    };
                     mixdog_core_run::run_host::hop_host::HopFactory::new(
                         mixdog_core_run::run_host::hop_host::HopDeps {
                             registry: registry.clone(),
                             catalog: Arc::new(catalog),
-                            config: Arc::new(serde_json::Map::new),
+                            config,
                             bots: Arc::new(NoBots),
                             errors: Arc::new(|e| e.message.clone()),
                             wiring: Arc::new(NoWiring),
                         },
-                        Arc::new(OpenHopSessions),
+                        sessions,
                     )
                 }
             }),
@@ -5681,6 +5837,261 @@ mod tests {
         let fork = requests.last().expect("the rebuilt fork");
         assert_eq!(fork.messages.iter().map(|m| m.role).collect::<Vec<_>>(), [Role::User, Role::Assistant, Role::Tool, Role::Assistant, Role::User]);
         assert_eq!((fork.model.as_str(), fork.options.session_id.as_deref()), ("m", Some(id.as_str())));
+    }
+    /// Issue #327 through the real assembly: a turn whose primary provider is not available at preflight sends its first
+    /// request on the configured Codex fallback, as a mid-turn hop would leave it (the landing model and its minted wire
+    /// identity, no provider state or replay of the primary), tells the switch once, books the usage on the landing model;
+    /// the next turn goes back to the primary once its provider is there again, a turn that starts on the fallback while
+    /// that one is gone and the primary is back runs on the primary, and once the fallback is back a mid-turn hop off the
+    /// primary takes it again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_primary_unavailable_at_preflight_runs_the_turn_on_the_fallback_and_the_next_turn_returns() {
+        let scripted = |id: &str, script: Vec<Vec<StreamEvent>>| {
+            Arc::new(Scripted {
+                id: ProviderId::from(id),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                script: Mutex::new(script.into()),
+                requests: Mutex::new(Vec::new()),
+                fail_first: std::sync::atomic::AtomicBool::new(false),
+            })
+        };
+        let done = || StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None };
+        let primary_state = mixdog_core_api::domain::provider::ProviderState { gemini: None, rest: json!({ "primarySlot": "p0" }).as_object().unwrap().clone() };
+        let primary = scripted("primary", vec![
+            vec![
+                StreamEvent::ThinkingBlocks(json!([{ "type": "thinking", "thinking": "plan", "signature": "sig-primary" }])),
+                StreamEvent::ProviderState(primary_state),
+                StreamEvent::TextDelta("first".into()),
+                done(),
+            ],
+            vec![StreamEvent::TextDelta("primary again".into()), done()],
+            vec![StreamEvent::TextDelta("primary while the fallback is gone".into()), done()],
+        ]);
+        let fallback = scripted("openai-oauth", vec![
+            vec![StreamEvent::TextDelta("fallback answer".into()), done()],
+            vec![StreamEvent::TextDelta("fallback again".into()), done()],
+            vec![StreamEvent::TextDelta("fallback after the hop".into()), done()],
+        ]);
+        let refusing = ArmedRefusal::new(primary.clone());
+        let providers = GatedProviders::new(vec![("primary", refusing.clone() as Arc<dyn ProviderAdapter>), ("openai-oauth", fallback.clone() as Arc<dyn ProviderAdapter>)]);
+        let config = json!({
+            "default": "lead-route",
+            "presets": [{ "id": "lead-route", "provider": "primary", "model": "m1", "fallbacks": [{ "provider": "openai-oauth", "model": "m2" }] }],
+            "providers": { "primary": { "enabled": true }, "openai-oauth": { "enabled": true } },
+        });
+        let routed = routed(providers.clone(), config);
+        let world = turn_world_routed(
+            fallback.clone(), Arc::new(NoMcp), Vec::new(), false, None, None, Arc::new(MockFileService::default()), false, Arc::new(Fixed), Arc::new(Config), false, None, Some(routed),
+        )
+        .await;
+        let (id, handle) = started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
+        let run_turn = |op: &'static str, count: usize| {
+            let (handle, id, world) = (handle.clone(), id.clone(), &world);
+            async move {
+                let covered = handle.header_snapshot().get("turnCoverage").cloned();
+                let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": op } }), op)).await.expect("turn/start");
+                let Reply::Value(started) = started else { panic!("turn/start answers a value") };
+                assert_eq!(started["kind"], "started", "{op}");
+                settled_turns(world, &id, &handle, count, covered).await;
+            }
+        };
+        let notices = |needle: &str| {
+            world.rig.feeds.frames(id.as_str()).iter().filter(|(_, method, params)| method == "item/completed" && params["item"].to_string().contains(needle)).count()
+        };
+        let route = || {
+            let header = handle.live_header().header();
+            (header["provider"].as_str().unwrap_or_default().to_owned(), header["model"].as_str().unwrap_or_default().to_owned())
+        };
+        let on = |provider: &str, model: &str| (provider.to_owned(), model.to_owned());
+
+        // The primary answers a turn and leaves its replay and its provider state on the session.
+        run_turn("op-1", 1).await;
+        assert_eq!(handle.live_header().header()["providerState"]["primarySlot"], "p0", "the primary's saved state");
+
+        // Its provider is gone at the next preflight: the turn runs on the Codex fallback.
+        providers.set("primary", false);
+        run_turn("op-2", 2).await;
+        assert_eq!(lock(&primary.requests).len(), 1, "nothing reached the unavailable primary");
+        let landed = lock(&fallback.requests).first().cloned().expect("the turn's request went to the fallback");
+        let header = handle.live_header().header();
+        let wire = header["codexWireSessionId"].as_str().expect("the landing Codex route's wire identity is minted").to_owned();
+        assert!(wire.len() == 36 && wire.as_bytes()[14] == b'7' && wire != id.as_str(), "a v7 wire id of its own: {wire}");
+        assert_eq!(landed.model, "m2");
+        assert_eq!(landed.options.session_id.as_deref(), Some(wire.as_str()), "the first request names the minted wire id");
+        assert_eq!(landed.options.provider_state, None, "the primary's continuation state stays with the primary");
+        assert!(landed.messages.iter().all(|m| m.thinking_blocks.is_none() && m.provider_replay().is_empty()), "the primary's replay reached the fallback: {:?}", landed.messages);
+        assert_eq!(route(), on("openai-oauth", "m2"));
+        assert_eq!(header["routeFallbackFailures"][0]["kind"], mixdog_core_run::run_host::route_fallback::PROVIDER_UNAVAILABLE);
+        assert_eq!(notices("switched to"), 1, "the switch is told once");
+
+        // The provider is back: the next turn returns to the primary before its first request.
+        providers.set("primary", true);
+        run_turn("op-3", 3).await;
+        assert_eq!(lock(&fallback.requests).len(), 1);
+        assert_eq!(lock(&primary.requests).get(1).map(|r| r.model.clone()).as_deref(), Some("m1"), "the recovered primary takes the turn");
+        assert_eq!(route(), on("primary", "m1"));
+        assert_eq!(notices("available again"), 1);
+
+        // Gone again: the session moves to the fallback; then the fallback is gone and the primary back before the next turn,
+        // which starts on the fallback and runs on the primary.
+        providers.set("primary", false);
+        run_turn("op-4", 4).await;
+        assert_eq!((lock(&fallback.requests).len(), route()), (2, on("openai-oauth", "m2")));
+        providers.set("primary", true);
+        providers.set("openai-oauth", false);
+        run_turn("op-5", 5).await;
+        assert_eq!(lock(&primary.requests).get(2).map(|r| r.model.clone()).as_deref(), Some("m1"), "the recovered primary takes the turn the fallback cannot");
+        assert_eq!(route(), on("primary", "m1"));
+        assert_eq!(notices("switched to"), 3, "each preflight switch is told once");
+
+        // The fallback is back, and the primary answers the next turn's request with a 503 before any output: the hop takes
+        // the fallback, whose earlier absence no longer holds.
+        providers.set("openai-oauth", true);
+        let mut overloaded = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Transient, DeliveryState::Accepted);
+        overloaded.status = Some(503);
+        overloaded.message = "Service Unavailable".into();
+        *lock(&refusing.refusal) = Some(overloaded);
+        run_turn("op-6", 6).await;
+        assert_eq!(lock(&primary.requests).len(), 3, "the refused attempt never reached the script");
+        assert_eq!(lock(&fallback.requests).len(), 3, "the hop's request went to the recovered fallback");
+        assert_eq!(route(), on("openai-oauth", "m2"));
+        assert_eq!(notices("switched to"), 4);
+
+        // Every send the server answered is a ledger row (`accountProviderSend`): the primary's 503 is the sixth turn's failed
+        // row, ahead of the fallback's.
+        eventually_on_awaiting(|| "a usage row per sent request".to_owned(), &[&world.ledger.1], || (lock(&world.ledger.0).len() >= 7).then_some(())).await;
+        let booked: Vec<(String, String, String)> = lock(&world.ledger.0).iter().map(|row| (row.provider.clone(), row.model.clone(), row.status.clone())).collect();
+        let row = |provider: &str, model: &str, status: &str| (provider.to_owned(), model.to_owned(), status.to_owned());
+        assert_eq!(booked, [
+            row("primary", "m1", "completed"),
+            row("openai-oauth", "m2", "completed"),
+            row("primary", "m1", "completed"),
+            row("openai-oauth", "m2", "completed"),
+            row("primary", "m1", "completed"),
+            row("primary", "m1", "failed"),
+            row("openai-oauth", "m2", "completed"),
+        ]);
+    }
+    /// A → B → C with A not available at preflight and B a removed custom provider (no family serves it): B is absent, not
+    /// an error, and the turn runs on C.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_removed_intermediate_provider_is_skipped_at_preflight() {
+        let third = Arc::new(Scripted {
+            id: ProviderId::from("third"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([vec![StreamEvent::TextDelta("from c".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let primary = Arc::new(Scripted {
+            id: ProviderId::from("primary"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::new()),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let providers = GatedProviders::new(vec![("primary", primary.clone() as Arc<dyn ProviderAdapter>), ("third", third.clone() as Arc<dyn ProviderAdapter>)]);
+        providers.set("primary", false);
+        // The removed custom provider is in the route, not in the providers the config enables.
+        let config = json!({
+            "default": "lead-route",
+            "presets": [{ "id": "lead-route", "provider": "primary", "model": "m1", "fallbacks": [{ "provider": "custom-gone", "model": "mb" }, { "provider": "third", "model": "m3" }] }],
+            "providers": { "primary": { "enabled": true }, "third": { "enabled": true } },
+        });
+        let routed = routed(providers.clone(), config);
+        let world = turn_world_routed(
+            third.clone(), Arc::new(NoMcp), Vec::new(), false, None, None, Arc::new(MockFileService::default()), false, Arc::new(Fixed), Arc::new(Config), false, None, Some(routed),
+        )
+        .await;
+        let (id, handle) = started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
+        let covered = handle.header_snapshot().get("turnCoverage").cloned();
+        let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+        assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
+        settled_turns(&world, &id, &handle, 1, covered).await;
+        assert_eq!(lock(&third.requests).first().map(|r| r.model.clone()).as_deref(), Some("m3"), "the turn ran on C");
+        assert!(lock(&primary.requests).is_empty());
+        let header = handle.live_header().header();
+        assert_eq!((header["provider"].as_str(), header["model"].as_str()), (Some("third"), Some("m3")));
+    }
+    /// The two providers of a switched-off test: `primary` and the Codex fallback `openai-oauth`, each answering `answers`
+    /// requests, behind a registry that builds either.
+    fn switched_off_pair(answers: usize) -> (Arc<Scripted>, Arc<Scripted>, Arc<GatedProviders>) {
+        let scripted = |id: &str| {
+            let reply = || vec![StreamEvent::TextDelta(format!("from {id}")), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }];
+            Arc::new(Scripted {
+                id: ProviderId::from(id),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                script: Mutex::new((0..answers).map(|_| reply()).collect()),
+                requests: Mutex::new(Vec::new()),
+                fail_first: std::sync::atomic::AtomicBool::new(false),
+            })
+        };
+        let (primary, fallback) = (scripted("primary"), scripted("openai-oauth"));
+        let providers = GatedProviders::new(vec![("primary", primary.clone() as Arc<dyn ProviderAdapter>), ("openai-oauth", fallback.clone() as Arc<dyn ProviderAdapter>)]);
+        (primary, fallback, providers)
+    }
+    /// One turn of `id` (`op`), the `count`th, settled.
+    async fn settled_turn(world: &World, id: &ThreadId, handle: &Arc<mixdog_core_session::session::SessionHandle>, op: &str, count: usize) {
+        let covered = handle.header_snapshot().get("turnCoverage").cloned();
+        let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": op } }), op)).await.expect("turn/start");
+        assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
+        settled_turns(world, id, handle, count, covered).await;
+    }
+    /// A cold registry, the primary switched off by the user and the fallback known only by its stored key (no entry in the
+    /// providers map): the primary is absent, not a registry refusal, and the turn runs on the fallback.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_switched_off_primary_on_a_cold_registry_runs_the_turn_on_a_key_only_fallback() {
+        let (primary, fallback, providers) = switched_off_pair(1);
+        let config = json!({
+            "default": "lead-route",
+            "presets": [{ "id": "lead-route", "provider": "primary", "model": "m1", "fallbacks": [{ "provider": "openai-oauth", "model": "m2" }] }],
+            "providers": { "primary": { "enabled": false } },
+        });
+        let world = turn_world_routed(
+            fallback.clone(), Arc::new(NoMcp), Vec::new(), false, None, None, Arc::new(MockFileService::default()), false, Arc::new(Fixed), Arc::new(Config), false, None, Some(routed(providers, config)),
+        )
+        .await;
+        let (id, handle) = started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
+        settled_turn(&world, &id, &handle, "op-1", 1).await;
+        assert!(lock(&primary.requests).is_empty());
+        assert_eq!(lock(&fallback.requests).first().map(|r| r.model.clone()).as_deref(), Some("m2"), "the turn ran on the fallback");
+        let header = handle.live_header().header();
+        assert_eq!((header["provider"].as_str(), header["model"].as_str()), (Some("openai-oauth"), Some("m2")));
+    }
+    /// The primary answered a turn and is registered; the user then switches it off. The next turn does not take the
+    /// registered adapter: it runs on the fallback, and stays there while the primary is off.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_primary_switched_off_after_it_was_registered_is_not_used() {
+        let (primary, fallback, providers) = switched_off_pair(2);
+        let config = json!({
+            "default": "lead-route",
+            "presets": [{ "id": "lead-route", "provider": "primary", "model": "m1", "fallbacks": [{ "provider": "openai-oauth", "model": "m2" }] }],
+            "providers": { "primary": { "enabled": true }, "openai-oauth": { "enabled": true } },
+        });
+        let routed = routed(providers, config);
+        let config = routed.config.clone();
+        let world = turn_world_routed(
+            fallback.clone(), Arc::new(NoMcp), Vec::new(), false, None, None, Arc::new(MockFileService::default()), false, Arc::new(Fixed), Arc::new(Config), false, None, Some(routed),
+        )
+        .await;
+        let (id, handle) = started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
+        settled_turn(&world, &id, &handle, "op-1", 1).await;
+        assert_eq!(lock(&primary.requests).len(), 1, "the primary answered while on");
+        lock(&config)["providers"]["primary"]["enabled"] = json!(false);
+        settled_turn(&world, &id, &handle, "op-2", 2).await;
+        settled_turn(&world, &id, &handle, "op-3", 3).await;
+        assert_eq!(lock(&primary.requests).len(), 1, "nothing reached the switched-off primary");
+        assert_eq!(lock(&fallback.requests).iter().map(|r| r.model.clone()).collect::<Vec<_>>(), ["m2", "m2"]);
+        let header = handle.live_header().header();
+        assert_eq!((header["provider"].as_str(), header["model"].as_str()), (Some("openai-oauth"), Some("m2")));
     }
     #[async_trait]
     impl mixdog_core_ports::ports::tools_status::SurfaceHost for Reconciling {
@@ -7173,7 +7584,9 @@ async fn drive(
     // whileTurnDispatched and the runtime entry (`runtime-state.mjs`): the run is live from here to the end of the drive.
     let _live = super::turn_liveness::TurnLiveness::begin(&liveness, &thread, &header, progress.subscribe(), cancel.clone());
     // The turn's own context (`options.context`: an agent spawn's or send's `context` argument).
-    let own_context = agent_turn.as_ref().and_then(|turn| turn.context.as_ref()).and_then(Value::as_str).map(str::to_owned);
+    // A queued follow-up carries it in its submission options (`drain.mjs` `turnOptionsForBatch`).
+    let own_context = agent_turn.as_ref().and_then(|turn| turn.context.as_ref()).and_then(Value::as_str).map(str::to_owned)
+        .or_else(|| submitted.options.as_ref().and_then(|options| options.context.clone()));
     let (slot, skill_selection, on_tool_result, notify) = match agent_turn {
         Some(turn) => {
             let hook = turn.hooks.notify;
@@ -7435,8 +7848,9 @@ async fn drive(
     // attached to (Node arms it per worker turn once the ask has started).
     let watchdog = if unattended {
         let agent = header.get("agent").and_then(Value::as_str).filter(|name| !name.is_empty());
-        let model = header.get("model").and_then(Value::as_str).unwrap_or_default();
-        let budget = provider.first_response_budget(model, header.get("modelParameters").filter(|parameters| parameters.is_object()));
+        // The assembled route's model and parameters: the provider is the one the assembly chose, which a preflight fallback
+        // moved off the header this turn started from.
+        let budget = provider.first_response_budget(&config.model, config.options.model_parameters.as_ref().filter(|parameters| parameters.is_object()));
         // `agentWatchdogOverrides`: the agent definition's first-response deadline and the routed
         // model's first-response budget.
         let overrides = Overrides {

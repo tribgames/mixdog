@@ -19,7 +19,7 @@ pub(crate) fn steered(qid: QueuedId, entry: &Value) -> SteerInput {
         submitted_at: entry.get("submittedAt").and_then(Value::as_i64),
         message_id: entry.get("messageId").and_then(Value::as_str).map(str::to_owned),
         originals_missing: super::staged_originals::lost_in_entry(entry),
-        transcript_meta: meta_of(entry).cloned(),
+        transcript_meta: prompt_meta(entry),
     }
 }
 
@@ -35,7 +35,7 @@ pub(crate) fn groups(entries: &[(QueuedId, Value)]) -> Vec<SteerInput> {
         if completions::is_notification(entry) {
             out.push(input(vec![submission_of(id.clone(), entry)], merged, SteerMode::TaskNotification, completions::execution(entry), 0, meta_of(entry).cloned()));
         } else {
-            out.push(input(vec![submission_of(id.clone(), entry)], merged, SteerMode::Prompt, None, super::staged_originals::lost_in_entry(entry), meta_of(entry).cloned()));
+            out.push(input(vec![submission_of(id.clone(), entry)], merged, SteerMode::Prompt, None, super::staged_originals::lost_in_entry(entry), prompt_meta(entry)));
         }
     }
     out
@@ -98,7 +98,25 @@ fn meta_of(entry: &Value) -> Option<&Value> {
 /// The id a delivered row names its entry by: the client's submission (`options.clientSubmissionId`, Node's `submissionIds`),
 /// else the queue id.
 fn submission_of(qid: QueuedId, entry: &Value) -> QueuedId {
-    entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()).map_or(qid, QueuedId::from)
+    client_submission(entry).map_or(qid, QueuedId::from)
+}
+
+/// The `transcriptMeta` a steered prompt's row is stored with: the entry's own, plus the client submission it was sent with
+/// as `clientSubmissionId` (as a turn-start row has it), so the row shows under the id the client holds. A notification, or
+/// an entry that names no submission, keeps its own meta.
+fn prompt_meta(entry: &Value) -> Option<Value> {
+    let mut meta = meta_of(entry).cloned();
+    if let Some(submission) = client_submission(entry).filter(|_| super::control::is_editable_entry(entry)) {
+        let fields = meta.get_or_insert_with(|| Value::Object(Default::default())).as_object_mut().expect("an object");
+        // The submission the entry was sent with wins over one its `transcriptMeta` already names.
+        fields.insert("clientSubmissionId".into(), Value::String(submission.to_owned()));
+    }
+    meta
+}
+
+/// The client submission an entry was sent with (`options.clientSubmissionId`), as the queue entry publishes it.
+fn client_submission(entry: &Value) -> Option<&str> {
+    entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty())
 }
 
 /// The `transcriptMeta` of the steering inputs [`groups`] makes of `entries`, in the same order:
@@ -423,11 +441,39 @@ mod tests {
         assert_eq!((steered.queued_ids.clone(), steered.originals_missing), (vec![id("sub-1")], 2));
         assert_eq!(super::steered(id("q2"), &whole).originals_missing, 0);
         // The entry's `transcriptMeta` rides the same input, under the same id.
-        assert_eq!(steered.transcript_meta, Some(json!({ "sender": "bot", "hop": 2 })));
+        let stored = json!({ "sender": "bot", "hop": 2, "clientSubmissionId": "sub-1" });
+        assert_eq!(steered.transcript_meta, Some(stored.clone()));
         let inputs = groups(&[(id("q1"), lost), (id("q2"), whole)]);
         let counts: Vec<_> = inputs.iter().map(|input| input.originals_missing).collect();
         assert_eq!(counts, [2, 0]);
-        assert_eq!((inputs[0].transcript_meta.clone(), inputs[1].transcript_meta.clone()), (Some(json!({ "sender": "bot", "hop": 2 })), None));
+        assert_eq!((inputs[0].transcript_meta.clone(), inputs[1].transcript_meta.clone()), (Some(stored), None));
+    }
+
+    /// A steered prompt's stored row carries the submission it was sent with in `meta.transcript.clientSubmissionId`, so
+    /// its row and item show under that id; a queue id never stands in for one, and a notification does not take one.
+    #[test]
+    fn a_steered_prompt_row_carries_its_client_submission() {
+        let named = json!({ "message": "a", "options": { "clientSubmissionId": "sub-1" }, "transcriptMeta": { "device": "Desktop" } });
+        let bare = json!({ "message": "b" });
+        let note = json!({ "message": "done", "mode": "task-notification", "options": { "clientSubmissionId": "sub-2" } });
+        let meta = |input: &SteerInput| input.transcript_meta.clone();
+        let steered_named = steered(id("q1"), &named);
+        assert_eq!(meta(&steered_named), Some(json!({ "device": "Desktop", "clientSubmissionId": "sub-1" })));
+        assert_eq!(meta(&steered(id("q2"), &bare)), None);
+        let inputs = groups(&[(id("q1"), named), (id("q2"), bare), (id("q3"), note)]);
+        assert_eq!(meta(&inputs[0]), Some(json!({ "device": "Desktop", "clientSubmissionId": "sub-1" })));
+        assert_eq!((meta(&inputs[1]), meta(&inputs[2])), (None, None));
+        // Only a prompt the user typed takes it: not a pending resume, a Goal entry or a meta entry.
+        for other in [json!({ "mode": "pending-resume" }), json!({ "mode": super::super::goal_lane::CONTINUATION_MODE }), json!({ "isMeta": true })] {
+            let mut entry = json!({ "message": "x", "options": { "clientSubmissionId": "sub-3" } });
+            entry.as_object_mut().unwrap().extend(other.as_object().unwrap().clone());
+            assert_eq!(meta(&steered(id("q4"), &entry)), None, "{entry}");
+            assert_eq!(meta(&groups(&[(id("q4"), entry)])[0]), None);
+        }
+        // The id is stored as the entry and the delivery name it, untrimmed; the entry's own submission wins over a stale one.
+        let spaced = json!({ "message": "a", "options": { "clientSubmissionId": " sub-4 " }, "transcriptMeta": { "clientSubmissionId": "stale" } });
+        let input = steered(id("q5"), &spaced);
+        assert_eq!((meta(&input), input.queued_ids), (Some(json!({ "clientSubmissionId": " sub-4 " })), vec![id(" sub-4 ")]));
     }
 
     /// Each input carries its own entry's `transcriptMeta`; an entry that is no object has none.

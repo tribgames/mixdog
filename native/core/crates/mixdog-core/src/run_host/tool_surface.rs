@@ -1001,8 +1001,13 @@ mod tests {
         let names: Vec<String> = session["deferredToolCatalog"].as_array().expect("catalog").iter().map(tool_name).collect();
         assert!(names.contains(&"mcp__gmail__search".to_owned()), "{names:?}");
         assert!(!names.iter().any(|name| name.starts_with("mcp__gmail-")), "{names:?}");
-        let roster = session.to_string();
+        // The roster: the prompt's deferred-tool block and the announced names. The refresh told the model the accounts it had
+        // announced are gone (the pending delta's removal, which names them), and the roster no longer lists them.
+        let roster = json!([session["messages"], session["deferredAnnouncedTools"]]).to_string();
         assert!(!roster.contains("mcp__gmail-2") && !roster.contains("mcp__gmail-3"), "{roster}");
+        let mut removed: Vec<&str> = stale[1..].iter().copied().chain(["mcp__gmail-2__recorded"]).collect();
+        removed.sort_unstable();
+        assert_eq!(session["pendingDeferredToolDelta"]["removed"], json!(removed), "{session}");
     }
 
     /// A host that defines every tool but `machine` (an upgrade removed it) and runs `computer` and `eagerone` only once the flag

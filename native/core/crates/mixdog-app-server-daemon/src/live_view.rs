@@ -777,10 +777,19 @@ impl HostEnv for LiveEnv {
     fn source_closed(&self, source_key: &str) {
         #[cfg(windows)]
         if let Some(live) = self.inner().and_then(|inner| inner.screen_live.get().cloned()) {
-            live.closed(source_key);
+            live.closed(source_key, None);
         }
         #[cfg(not(windows))]
         let _ = source_key;
+    }
+
+    fn screen_source_closed(&self, source_key: &str, session: u64) {
+        #[cfg(windows)]
+        if let Some(live) = self.inner().and_then(|inner| inner.screen_live.get().cloned()) {
+            live.closed(source_key, Some(session));
+        }
+        #[cfg(not(windows))]
+        let _ = (source_key, session);
     }
 
     fn report(&self, event: &str, data: Value) {

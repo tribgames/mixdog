@@ -58,6 +58,22 @@ pub trait PostToolDispatch: Send + Sync {
     async fn post_batch(&self, session_id: &str, cwd: &str, tool_count: usize) -> Option<BatchDecision>;
     /// `Stop`, with `stop_hook_active` set on every continuation a block already made in the turn.
     async fn stop(&self, session_id: &str, cwd: &str, stop_hook_active: bool) -> StopDecision;
+    /// `SubagentStop` of a worker's turn the model ended, with the same `stop_hook_active` rule as `Stop`.
+    async fn subagent_stop(&self, session_id: &str, cwd: &str, agent_type: &str, stop_hook_active: bool) -> StopDecision;
+}
+
+/// The worker sessions whose spawn turn is running (`SubagentStart` to the spawn's end), each with whether a
+/// `SubagentStop` the loop delivered at a stop that ended the turn already stands for the spawn's terminal event.
+static SPAWN_RUNS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, bool>>> = std::sync::LazyLock::new(Default::default);
+
+fn spawn_runs() -> std::sync::MutexGuard<'static, std::collections::HashMap<String, bool>> {
+    SPAWN_RUNS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The agent a worker session runs as, read from its header: `Some` when the header's owner is `agent` (the run host's
+/// one agent-owner predicate), with the header's `agent` (empty when it names none).
+pub(crate) fn worker_agent(header: &mixdog_store::schema::record::Header) -> Option<String> {
+    super::compaction_world::is_agent_owner(header).then(|| header.get("agent").and_then(JsonValue::as_str).unwrap_or_default().to_owned())
 }
 
 pub struct SessionToolHooks {
@@ -66,6 +82,10 @@ pub struct SessionToolHooks {
     dispatch: Arc<dyn PostToolDispatch>,
     /// Nobody attends the session (a hidden or delegated agent): a Stop block does not continue it.
     unattended: bool,
+    /// The agent of a worker session (its header's `owner` is `agent`): every turn it runs ends with its `SubagentStop`.
+    worker: Option<String>,
+    /// The loop's last stop asked `SubagentStop` and has not yet said what became of it.
+    asked: std::sync::atomic::AtomicBool,
 }
 
 /// `normalizeHookUpdatedToolOutput` for a text result: a string as is, null as empty, a legacy
@@ -139,25 +159,50 @@ impl ToolHooks for SessionToolHooks {
     /// A block with a reason continues an attended turn; a block without one, or in an unattended
     /// session, is ignored with a warning.
     async fn on_stop(&self, stop_hook_active: bool) -> StopVerdict {
-        let decision = self.dispatch.stop(&self.session_id, &self.cwd, stop_hook_active).await;
-        if !decision.blocked {
-            return StopVerdict::Proceed;
-        }
-        let reason = decision.reason.as_deref().map(mixdog_js::js_trim).unwrap_or_default();
-        if reason.is_empty() {
-            return StopVerdict::Ignored("A Stop hook blocked the stop without a reason; it is ignored.".to_owned());
-        }
-        if self.unattended {
-            return StopVerdict::Ignored(format!("A Stop hook blocked the stop of an unattended session; it is ignored: {reason}"));
-        }
-        StopVerdict::Continue(reason.to_owned())
+        // Every turn the model ended fires `Stop`, a worker's included (Node's turn settlement).
+        let stopped = self.dispatch.stop(&self.session_id, &self.cwd, stop_hook_active).await;
+        let verdict = stop_verdict("Stop", stopped, self.unattended);
+        // A worker's turn end is also its `SubagentStop`, asked here so that a block continues the worker under the same
+        // cap as `Stop`; `HookSubagentEvents::stop` then leaves that event to the loop. It is asked whatever `Stop`
+        // answered: a `Stop` block the loop cannot honour ends the turn, and nothing else fires it for a restored worker.
+        let Some(agent) = &self.worker else { return verdict };
+        self.asked.store(true, std::sync::atomic::Ordering::SeqCst);
+        let decided = self.dispatch.subagent_stop(&self.session_id, &self.cwd, agent, stop_hook_active).await;
+        if matches!(verdict, StopVerdict::Continue(_)) || !decided.blocked { verdict } else { stop_verdict("SubagentStop", decided, false) }
     }
+
+    /// Only a stop that ends the turn stands for the spawn's terminal event: a worker the loop continues may still fail
+    /// or be cancelled, and that end fires it; a `Continue` the loop could not honour ended the turn after the hook ran.
+    fn stop_settled(&self, continued: bool) {
+        if self.asked.swap(false, std::sync::atomic::Ordering::SeqCst)
+            && !continued
+            && let Some(accepted) = spawn_runs().get_mut(&self.session_id)
+        {
+            *accepted = true;
+        }
+    }
+}
+
+/// A block with a reason continues the turn unless nobody attends it; a block without one is ignored with a warning.
+fn stop_verdict(event: &str, decision: StopDecision, unattended: bool) -> StopVerdict {
+    if !decision.blocked {
+        return StopVerdict::Proceed;
+    }
+    let reason = decision.reason.as_deref().map(mixdog_js::js_trim).unwrap_or_default();
+    if reason.is_empty() {
+        return StopVerdict::Ignored(format!("A {event} hook blocked the stop without a reason; it is ignored."));
+    }
+    if unattended {
+        return StopVerdict::Ignored(format!("A {event} hook blocked the stop of an unattended session; it is ignored: {reason}"));
+    }
+    StopVerdict::Continue(reason.to_owned())
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
 
+    use mixdog_agent::agent_tool::flow::seams::SubagentEvents;
     use serde_json::json;
 
     use super::*;
@@ -166,6 +211,7 @@ mod tests {
     struct Fake {
         answer: Mutex<PostToolAnswer>,
         stop: Mutex<(StopDecision, Vec<bool>)>,
+        subagent_stop: Mutex<(StopDecision, Vec<(String, bool)>)>,
         seen: Mutex<Vec<PostToolEvent>>,
         decision: Mutex<Option<(bool, Option<String>)>>,
     }
@@ -179,6 +225,11 @@ mod tests {
         async fn stop(&self, _: &str, _: &str, stop_hook_active: bool) -> StopDecision {
             let mut stop = self.stop.lock().unwrap();
             stop.1.push(stop_hook_active);
+            stop.0.clone()
+        }
+        async fn subagent_stop(&self, _: &str, _: &str, agent_type: &str, stop_hook_active: bool) -> StopDecision {
+            let mut stop = self.subagent_stop.lock().unwrap();
+            stop.1.push((agent_type.to_owned(), stop_hook_active));
             stop.0.clone()
         }
         async fn post_failure(&self, event: &PostToolEvent) {
@@ -243,6 +294,162 @@ mod tests {
         assert!(matches!(unattended.on_stop(false).await, StopVerdict::Ignored(_)));
     }
 
+    /// A worker's turn end fires `Stop` as any turn's does (its block ignored in the unattended worker) and `SubagentStop`
+    /// in addition, whose block continues the worker; once the hook allows, the turn ends and the event is not fired a
+    /// second time at the spawn's end.
+    #[tokio::test]
+    async fn a_worker_turn_fires_stop_and_a_subagent_stop_block_continues_it() {
+        let fake = Arc::new(Fake::default());
+        let events = idle_events();
+        events.start("reviewer", "worker-s1", "t");
+        let worker = worker_hooks("worker-s1", &fake);
+        fake.subagent_stop.lock().unwrap().0 = StopDecision { blocked: true, reason: Some(" run the tests ".into()) };
+        assert_eq!(worker.on_stop(false).await, StopVerdict::Continue("run the tests".into()));
+        worker.stop_settled(true);
+        // A blocked stop the loop honoured is not one the hooks let happen: a worker that then fails still fires the
+        // terminal event.
+        assert!(!accepted("worker-s1"));
+        fake.subagent_stop.lock().unwrap().0 = StopDecision::default();
+        fake.stop.lock().unwrap().0 = StopDecision { blocked: true, reason: Some("more".into()) };
+        assert!(matches!(worker.on_stop(true).await, StopVerdict::Ignored(_)), "the unattended worker's Stop block is ignored");
+        worker.stop_settled(false);
+        assert_eq!(fake.stop.lock().unwrap().1, [false, true], "Stop is asked for every worker turn end");
+        assert_eq!(fake.subagent_stop.lock().unwrap().1, [("reviewer".to_owned(), false), ("reviewer".to_owned(), true)]);
+        assert!(accepted("worker-s1"));
+        // The spawn's end takes the acceptance (and does not fire the event again), and nothing of the worker is kept.
+        events.stop("reviewer", "worker-s1", "t", "idle");
+        assert!(!SPAWN_RUNS.lock().unwrap().contains_key("worker-s1"));
+    }
+
+    /// A `SubagentStop` block the loop cannot honour (the continuation cap, an ending that cannot go on) ends the turn
+    /// after the hook ran: that stop is accepted, so the spawn's end does not run the hook a second time.
+    #[tokio::test]
+    async fn a_subagent_stop_block_the_loop_ignores_is_an_accepted_stop() {
+        let fake = Arc::new(Fake::default());
+        let events = idle_events();
+        events.start("reviewer", "worker-s3", "t");
+        let worker = worker_hooks("worker-s3", &fake);
+        fake.subagent_stop.lock().unwrap().0 = StopDecision { blocked: true, reason: Some("again".into()) };
+        assert_eq!(worker.on_stop(true).await, StopVerdict::Continue("again".into()));
+        worker.stop_settled(false);
+        assert!(accepted("worker-s3"));
+        SPAWN_RUNS.lock().unwrap().remove("worker-s3");
+    }
+
+    /// A worker this process has never seen (a restored one, its registry empty) is known from its header: its turn asks
+    /// `SubagentStop` as the header's agent, and a reasoned block continues it. A session whose header is not an agent
+    /// owner's asks `Stop` only.
+    #[tokio::test]
+    async fn a_worker_known_only_from_its_header_asks_subagent_stop() {
+        let fake = Arc::new(Fake::default());
+        assert!(!SPAWN_RUNS.lock().unwrap().contains_key("restored-s5"));
+        let header = |value: JsonValue| value.as_object().unwrap().clone();
+        let agent = worker_agent(&header(json!({"owner": " Agent ", "agent": "reviewer"})));
+        assert_eq!(agent.as_deref(), Some("reviewer"));
+        assert_eq!(worker_agent(&header(json!({"owner": "user", "agent": "lead"}))), None);
+        let restored = SessionToolHooks::new("restored-s5", Path::new("/work"), fake.clone(), true).worker(agent);
+        fake.subagent_stop.lock().unwrap().0 = StopDecision { blocked: true, reason: Some("finish the review".into()) };
+        assert_eq!(restored.on_stop(false).await, StopVerdict::Continue("finish the review".into()));
+        restored.stop_settled(true);
+        assert_eq!(fake.subagent_stop.lock().unwrap().1, [("reviewer".to_owned(), false)]);
+        assert!(!SPAWN_RUNS.lock().unwrap().contains_key("restored-s5"), "no spawn of it to deduplicate against");
+        let lead = SessionToolHooks::new("lead-s5", Path::new("/work"), fake.clone(), false).worker(None);
+        assert_eq!(lead.on_stop(false).await, StopVerdict::Proceed);
+        assert_eq!(fake.subagent_stop.lock().unwrap().1.len(), 1, "a session that is not a worker asks Stop only");
+    }
+
+    /// An attended worker whose `Stop` hook blocks with a reason is still asked `SubagentStop`: the loop may end the turn
+    /// on that verdict (the continuation cap), and a restored worker has no spawn end to fire it.
+    #[tokio::test]
+    async fn a_stop_block_of_an_attended_worker_still_asks_subagent_stop() {
+        let fake = Arc::new(Fake::default());
+        let worker = SessionToolHooks::new("restored-s6", Path::new("/work"), fake.clone(), false).worker(Some("reviewer".to_owned()));
+        fake.stop.lock().unwrap().0 = StopDecision { blocked: true, reason: Some("keep going".into()) };
+        assert_eq!(worker.on_stop(true).await, StopVerdict::Continue("keep going".into()));
+        assert_eq!(fake.subagent_stop.lock().unwrap().1, [("reviewer".to_owned(), true)]);
+    }
+
+    fn worker_hooks(session_id: &str, fake: &Arc<Fake>) -> SessionToolHooks {
+        SessionToolHooks::new(session_id, Path::new("/work"), fake.clone(), true).worker(Some("reviewer".into()))
+    }
+
+    /// Lifecycle events over a bus with no hooks configured.
+    fn idle_events() -> HookSubagentEvents {
+        let tokens = mixdog_rt::testing::tokens();
+        let processes = Arc::new(mixdog_core_api::domain::mock::MockProcessManager::default());
+        let bus = mixdog_mcp::hook_bus::HookBus::new(std::env::temp_dir().join("mixdog-hooks-no-config"), tokens.maintenance_io, processes, None, None, None);
+        HookSubagentEvents::new(bus, Arc::new(|_: &str| (std::env::temp_dir(), mixdog_mcp::hook_bus::HookCommon::default())))
+    }
+
+    fn accepted(session_id: &str) -> bool {
+        SPAWN_RUNS.lock().unwrap().get(session_id).copied().unwrap_or(false)
+    }
+
+    /// A `SubagentStop` block without a reason, read by the real parser from an exit 2 or a bare `decision: "block"`, is
+    /// ignored with a warning as a reasonless `Stop` block is: it does not continue the worker.
+    #[tokio::test]
+    async fn a_reasonless_subagent_stop_block_does_not_continue_the_worker() {
+        use mixdog_mcp::hook_bus::output::HandlerRun;
+        use mixdog_mcp::hook_bus::output::parse_handler_output;
+        let fake = Arc::new(Fake::default());
+        let worker = worker_hooks("worker-s2", &fake);
+        let exit2 = HandlerRun { exit_code: 2, ..HandlerRun::default() };
+        let bare = HandlerRun { exit_code: 0, stdout: r#"{"decision":"block"}"#.into(), ..HandlerRun::default() };
+        for run in [exit2, bare] {
+            let parsed = parse_handler_output(&run, "SubagentStop");
+            fake.subagent_stop.lock().unwrap().0 = StopDecision { blocked: parsed.block, reason: parsed.reason };
+            match worker.on_stop(false).await {
+                StopVerdict::Ignored(warning) => assert!(warning.contains("without a reason"), "{warning}"),
+                other => panic!("{run:?}: {other:?}"),
+            }
+        }
+    }
+
+    /// Configured command hooks reach a spawned worker's turn end through the real hook bus: `SubagentStop` blocks with
+    /// its reason and continues the worker; on the continuation it allows, and the `Stop` hook's block (fired too, ignored
+    /// in the unattended worker) comes back with its reason.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup: the hook configuration file.")]
+    async fn configured_hooks_reach_a_worker_turn_through_the_bus() {
+        use mixdog_mcp::hook_bus::HookCommon;
+        let dir = tempfile::tempdir().unwrap();
+        let (shell, stop, subagent_stop) = if cfg!(windows) {
+            (
+                "powershell",
+                r#"'{"decision":"block","reason":"from stop"}'"#,
+                r#"$i = [Console]::In.ReadToEnd(); if ($i -notmatch '"stop_hook_active":true') { '{"decision":"block","reason":"run the tests"}' }"#,
+            )
+        } else {
+            (
+                "bash",
+                r#"echo '{"decision":"block","reason":"from stop"}'"#,
+                r#"i=$(cat); case "$i" in *'"stop_hook_active":true'*) ;; *) echo '{"decision":"block","reason":"run the tests"}' ;; esac"#,
+            )
+        };
+        let handler = |command: &str| json!([{"hooks": [{"type": "command", "command": command, "shell": shell, "timeout": 60}]}]);
+        let config = json!({"hooks": {"Stop": handler(stop), "SubagentStop": handler(subagent_stop)}});
+        std::fs::write(dir.path().join("hooks.json"), config.to_string()).unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let processes = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
+        let bus = mixdog_mcp::hook_bus::HookBus::new(dir.path().to_path_buf(), tokens.maintenance_io, processes, None, None, None);
+        let dispatch = Arc::new(super::super::mcp_seams::BusPostToolDispatch::new(bus.clone(), Arc::new(|_: &str| HookCommon::default())));
+        let cwd = dir.path().to_path_buf();
+        let events = HookSubagentEvents::new(bus, Arc::new(move |_: &str| (cwd.clone(), HookCommon::default())));
+        events.start("reviewer", "worker-bus", "t");
+        let header = json!({"owner": "agent", "agent": "reviewer"}).as_object().unwrap().clone();
+        let worker = SessionToolHooks::new("worker-bus", dir.path(), dispatch, true).worker(worker_agent(&header));
+        assert_eq!(worker.on_stop(false).await, StopVerdict::Continue("run the tests".into()));
+        worker.stop_settled(true);
+        match worker.on_stop(true).await {
+            StopVerdict::Ignored(warning) => assert!(warning.contains("from stop"), "{warning}"),
+            other => panic!("{other:?}"),
+        }
+        worker.stop_settled(false);
+        assert!(accepted("worker-bus"));
+        events.stop("reviewer", "worker-bus", "t", "idle");
+        assert!(!SPAWN_RUNS.lock().unwrap().contains_key("worker-bus"));
+    }
+
     /// A call prepared in one folder and finished after the session moved to another reports the folder it ran in.
     #[tokio::test]
     async fn the_event_names_the_folder_the_call_was_prepared_in() {
@@ -299,18 +506,38 @@ impl HookSubagentEvents {
 
 impl mixdog_agent::agent_tool::flow::seams::SubagentEvents for HookSubagentEvents {
     fn start(&self, agent: &str, session_id: &str, _tag: &str) {
+        spawn_runs().insert(session_id.to_owned(), false);
         self.emit(false, agent, session_id);
     }
 
-    // The bus takes the agent and session only: the tag and status are not part of the payload.
+    // The bus takes the agent and session only: the tag and status are not part of the payload. A spawn whose loop
+    // already delivered `SubagentStop` at a stop that ended the turn does not fire it twice; one that failed or was
+    // cancelled before that (a block's continuation included) does.
     fn stop(&self, agent: &str, session_id: &str, _tag: &str, _status: &str) {
-        self.emit(true, agent, session_id);
+        let accepted = spawn_runs().remove(session_id).unwrap_or(false);
+        if !accepted {
+            self.emit(true, agent, session_id);
+        }
     }
 }
 
 impl SessionToolHooks {
     pub fn new(session_id: &str, cwd: &Path, dispatch: Arc<dyn PostToolDispatch>, unattended: bool) -> Self {
-        Self { session_id: session_id.to_owned(), cwd: cwd.to_string_lossy().into_owned(), dispatch, unattended }
+        Self {
+            session_id: session_id.to_owned(),
+            cwd: cwd.to_string_lossy().into_owned(),
+            dispatch,
+            unattended,
+            worker: None,
+            asked: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// The session is a worker running as `agent` (`SubagentStop`'s `agent_type`), as its header says: whatever this
+    /// process has seen of it, every turn it runs ends with its `SubagentStop`.
+    pub fn worker(mut self, agent: Option<String>) -> Self {
+        self.worker = agent;
+        self
     }
 
     /// The event reports the folder the call was prepared in (`call.cwd = prepared.cwd`), not the session's folder at the time

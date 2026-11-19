@@ -90,6 +90,11 @@ impl PostToolDispatch for BusPostToolDispatch {
         // `continue: false` ends the turn even when a handler also blocked the stop (Claude Code's `preventContinuation`).
         StopDecision { blocked: decided.blocked && !decided.prevent_continuation, reason: decided.reason }
     }
+
+    async fn subagent_stop(&self, session_id: &str, cwd: &str, agent_type: &str, stop_hook_active: bool) -> StopDecision {
+        let decided = self.inner.subagent_stop(session_id, agent_type, cwd, stop_hook_active).await;
+        StopDecision { blocked: decided.blocked && !decided.prevent_continuation, reason: decided.reason }
+    }
 }
 
 /// The user's prompt as selection reads it.

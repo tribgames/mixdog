@@ -6,7 +6,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum InventoryList {
-    /// The 173 desktop operations.
+    /// The 174 desktop operations.
     Operations,
     /// The 61 DesktopService methods.
     Services,
@@ -515,6 +515,11 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Operations,
         "updateSessionRetention",
+        Target::Method("config/value/write"),
+    ),
+    (
+        InventoryList::Operations,
+        "updateBotHandoffLimit",
         Target::Method("config/value/write"),
     ),
     (
@@ -1941,7 +1946,9 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "provideSecretInput",
-        Target::Method("approval/provideSecret"),
+        Target::ByDesign(
+            "a handoff secret is entered on a local or SSH desktop (`approval/provideSecret`), never from a paired relay (`remote.secretInput` false)",
+        ),
     ),
     (
         InventoryList::Remote,

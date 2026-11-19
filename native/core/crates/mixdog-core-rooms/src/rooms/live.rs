@@ -505,7 +505,6 @@ impl LiveRooms {
     /// pass reads the rooms before a mutation that awaited the same load writes (`ready::recover`).
     pub async fn recover<S: RoomStore + 'static>(&self, rooms: &Rooms<S>) -> Result<Vec<String>, RoomError> {
         let cut = rooms.recover().await?;
-        let mut failure = None;
         for room in &cut {
             let Some(live) = lock(&self.shared.live).get(&room.id).cloned() else { continue };
             lock(&live.extra).running = None;
@@ -520,14 +519,12 @@ impl LiveRooms {
             for &started_at in &room.interrupted_rounds {
                 let notice = json!({ "id": format!("row_restart_{started_at}"), "kind": "interrupted", "at": view.now(), "text": "" });
                 if let Err(error) = view.post(vec![notice]).await {
-                    failure.get_or_insert_with(|| RoomError::Port(format!("room {} interrupted notice: {error}", room.id)));
+                    // Logged for this room, as Node does; the other rooms are still recovered and the catalog republished.
+                    view.log(&format!("room {} interrupted notice: {error}", room.id));
                     break;
                 }
                 rooms.interrupted_notice_committed(&room.id, started_at).await?;
             }
-        }
-        if let Some(error) = failure {
-            return Err(error);
         }
         Ok(cut.into_iter().map(|room| room.id).collect())
     }

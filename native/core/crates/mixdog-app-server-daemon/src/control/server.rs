@@ -182,7 +182,8 @@ impl Shared {
             return self.manage(request, out);
         }
         if request.method == "GET" && request.path == "/health" {
-            return self.config.legacy.health().write_to(out);
+            let status = self.lifecycle.status();
+            return self.config.legacy.health(status.clients, running_sessions(&status.running)).write_to(out);
         }
         // Everything else is a route a 1.4.5 client could call.
         self.config.legacy.refuse().write_to(out)
@@ -279,4 +280,24 @@ impl Shared {
 
 fn bad_request(message: &str, out: &mut impl Write) -> std::io::Result<()> {
     Response::json(400, &ErrorReply::new("badRequest", message)).write_to(out)
+}
+
+/// Sessions with running work: a turn and its background shell are two activities of one session.
+fn running_sessions(running: &[super::api::RunningWork]) -> usize {
+    running.iter().filter_map(|work| work.thread_id.as_deref()).collect::<std::collections::HashSet<_>>().len()
+}
+
+#[cfg(test)]
+mod running_sessions_tests {
+    use super::super::api::{ActivityKind, RunningWork};
+
+    fn work(kind: ActivityKind, thread: Option<&str>) -> RunningWork {
+        RunningWork { kind, thread_id: thread.map(str::to_owned), turn_id: None, title: String::new() }
+    }
+
+    #[test]
+    fn a_turn_and_its_background_shell_are_one_running_session() {
+        let running = [work(ActivityKind::Turn, Some("a")), work(ActivityKind::BackgroundShell, Some("a")), work(ActivityKind::Turn, Some("b"))];
+        assert_eq!(super::running_sessions(&running), 2);
+    }
 }

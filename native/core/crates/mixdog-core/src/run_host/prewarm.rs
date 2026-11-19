@@ -192,6 +192,12 @@ impl StartupProbes {
         futures::future::join_all(requests.iter().map(|request| self.run(observed, request, false))).await;
     }
 }
+/// `os.homedir()`: the environment's home folder when it is set and not empty, else the account's (the passwd entry on
+/// Unix, where HOME may be unset).
+fn resolve_home(env: Option<std::ffi::OsString>, account: impl FnOnce() -> Option<std::path::PathBuf>) -> std::path::PathBuf {
+    env.filter(|home| !home.is_empty()).map(std::path::PathBuf::from).or_else(account).unwrap_or_default()
+}
+
 /// The host facts of a composition (`HostFacts` without the borrows).
 pub struct PromptFacts {
     pub plugin_root: std::path::PathBuf,
@@ -207,7 +213,8 @@ pub struct PromptFacts {
 impl PromptFacts {
     /// The facts from the process: the home folder, PATH, and the instruction-files override.
     pub fn from_process(plugin_root: std::path::PathBuf, data_dir: std::path::PathBuf, stored_instruction_files: Option<serde_json::Value>) -> Self {
-        let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(std::path::PathBuf::from).unwrap_or_default();
+        // `os.homedir()`: the environment's home folder, else (Unix, HOME unset) the account's passwd entry.
+        let home = resolve_home(std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }), std::env::home_dir);
         Self { plugin_root, data_dir, home_dir: home, path_env: std::env::var("PATH").unwrap_or_default(), stored_instruction_files }
     }
 
@@ -315,5 +322,15 @@ mod tests {
         assert!(tail.contains("Git startup state:"), "{tail}");
         assert!(tail.contains("changes present"), "{tail}");
         assert!(!tail.contains("was not inside a git repository"), "{tail}");
+    }
+
+    #[test]
+    fn the_home_folder_is_the_environments_else_the_accounts() {
+        let account = || Some(std::path::PathBuf::from("/home/account"));
+        assert_eq!(resolve_home(Some("/home/env".into()), || unreachable!("HOME is set")), std::path::PathBuf::from("/home/env"));
+        // os.homedir(): HOME unset or empty falls back to the account's passwd entry.
+        assert_eq!(resolve_home(None, account), std::path::PathBuf::from("/home/account"));
+        assert_eq!(resolve_home(Some("".into()), account), std::path::PathBuf::from("/home/account"));
+        assert_eq!(resolve_home(None, || None), std::path::PathBuf::new());
     }
 }

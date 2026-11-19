@@ -9,7 +9,7 @@ use std::sync::Arc;
 use mixdog_term::KeyFlags;
 use mixdog_tui::app::clock::Clock;
 use mixdog_tui::app::picker::AppPicker;
-use mixdog_tui::app::store::AppStore;
+use mixdog_tui::app::store::{AppStore, StoreCaller};
 use mixdog_tui::app::{AppCtx, AppOptions, AppState};
 use mixdog_tui::handlers::exit::ExitStep;
 use mixdog_tui::pickers::extensions::ExtensionsHost;
@@ -26,9 +26,14 @@ struct FakeStore {
     state: Arc<Value>,
     onboarding_completed: bool,
     notices: Rc<RefCell<Vec<(String, String)>>>,
+    caller: Option<StoreCaller>,
 }
 
 impl AppStore for FakeStore {
+    fn caller(&self) -> Option<StoreCaller> {
+        self.caller.clone()
+    }
+
     fn call(&mut self, action: &str, args: &[Value]) -> Result<Value, String> {
         self.calls.borrow_mut().push((action.to_owned(), Value::Array(args.to_vec())));
         self.answers.get(action).cloned().unwrap_or(Ok(Value::Null))
@@ -88,6 +93,10 @@ impl Harness {
 }
 
 fn harness(items: usize, completed: bool, force: bool, answers: Vec<(&str, Result<Value, String>)>) -> Harness {
+    harness_calling(items, completed, force, answers, None)
+}
+
+fn harness_calling(items: usize, completed: bool, force: bool, answers: Vec<(&str, Result<Value, String>)>, caller: Option<StoreCaller>) -> Harness {
     let calls: Calls = Rc::new(RefCell::new(Vec::new()));
     let clock = Clock::new(1_000);
     let state = json!({ "items": (0..items).map(|n| json!({ "id": format!("u{n}"), "kind": "user", "text": "hi" })).collect::<Vec<_>>(), "cwd": "C:/work" });
@@ -97,6 +106,7 @@ fn harness(items: usize, completed: bool, force: bool, answers: Vec<(&str, Resul
         state: Arc::new(state),
         onboarding_completed: completed,
         notices: Rc::new(RefCell::new(Vec::new())),
+        caller,
     };
     let options = AppOptions { cwd: "C:/work".to_owned(), version: "1.2.3".to_owned(), force_onboarding: force, onboarding_completed: Some(completed) };
     let app = AppState::new(Box::new(store), clock.clone(), options);
@@ -302,4 +312,35 @@ fn typing_a_quit_command_and_pressing_enter_starts_the_exit_and_freezes_the_prom
     let enter = KeyFlags { return_key: true, ..KeyFlags::default() };
     assert!(h.app.prompt_key("\r", &enter));
     assert!(h.app.exiting());
+}
+
+/// The model answers a `/btw` side question on a worker: asking returns at once and the answer settles the panel when it arrives.
+#[test]
+fn a_side_question_does_not_hold_the_loop_while_the_model_answers() {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let released = Mutex::new(released);
+    let caller: StoreCaller = Arc::new(move |action: &str, _args: &[Value]| {
+        assert_eq!(action, "askSide");
+        released.lock().unwrap().recv_timeout(Duration::from_secs(30)).map_err(|_| "never released".to_owned())?;
+        Ok(json!({ "text": "because" }))
+    });
+    let mut h = harness_calling(1, true, false, vec![], Some(caller));
+    let woken = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&woken);
+    h.app.set_wake(Arc::new(move || flag.store(true, Ordering::SeqCst)));
+    let started = Instant::now();
+    SlashHost::btw_ask(&mut h.app, "why?");
+    assert!(started.elapsed() < Duration::from_secs(5), "the ask waited for the model");
+    assert!(!woken.load(Ordering::SeqCst));
+    release.send(()).unwrap();
+    let until = Instant::now() + Duration::from_secs(30);
+    while !woken.load(Ordering::SeqCst) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(woken.load(Ordering::SeqCst), "the answer woke the loop");
+    h.app.on_timers();
 }

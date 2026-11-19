@@ -323,3 +323,42 @@ impl ToolSurface<'_> {
         Some(added.into_iter().map(|(name, _)| name).chain(removed.into_iter().map(|(name, _)| name)).collect())
     }
 }
+
+/// The names [`assert_late_history_kept`] lets the session hold beyond Node's late pool.
+#[cfg(test)]
+pub(crate) fn late_names_kept(before: &Value, want: &Value) -> Vec<String> {
+    let anthropic_native = before.get("deferredNativeTools") == Some(&Value::Bool(true))
+        && native_provider_family(&clean(before.get("provider")), before.get("wireRoute")) == "anthropic";
+    let held: HashSet<String> = list(want, "deferredLateToolCatalog").iter().map(tool_name).collect();
+    list(before, "deferredLateToolCatalog").iter().map(tool_name).filter(|name| anthropic_native && is_mcp(name) && !held.contains(name)).collect()
+}
+
+/// A session after a reconcile compared with Node's, but for the departure an Anthropic native-search session makes by
+/// decision (`keeps_history_schemas` in [`ToolSurface::reconcile_mcp_catalog`]): a late MCP schema that left the registry
+/// stays in `deferredLateToolCatalog` until the cold repair, since that provider's search history can name it by name
+/// alone; Node drops it at once. `got` must be Node's `want` but for exactly those entries: each late MCP entry of `before`
+/// (the session the call was given) that `want` no longer holds, kept as `before` stored it and in its order; Node's own
+/// entries keep theirs. Any other session is compared whole.
+#[cfg(test)]
+pub(crate) fn assert_late_history_kept(got: &Value, want: &Value, before: &Value, what: &str) {
+    let anthropic_native = before.get("deferredNativeTools") == Some(&Value::Bool(true))
+        && native_provider_family(&clean(before.get("provider")), before.get("wireRoute")) == "anthropic";
+    if !anthropic_native {
+        assert_eq!(got, want, "{what}");
+        return;
+    }
+    let held: HashSet<String> = list(want, "deferredLateToolCatalog").iter().map(tool_name).collect();
+    let kept: Vec<Value> = list(before, "deferredLateToolCatalog").iter().filter(|tool| is_mcp(&tool_name(tool)) && !held.contains(&tool_name(tool))).cloned().collect();
+    let kept_names: HashSet<String> = kept.iter().map(tool_name).collect();
+    let (ours, nodes): (Vec<Value>, Vec<Value>) = list(got, "deferredLateToolCatalog").iter().cloned().partition(|tool| kept_names.contains(&tool_name(tool)));
+    assert_eq!(nodes, list(want, "deferredLateToolCatalog"), "{what}: Node's late pool, in its order");
+    assert_eq!(ours, kept, "{what}: the late schemas kept for the search history, as stored");
+    let rest = |session: &Value| {
+        let mut session = session.clone();
+        if let Some(map) = session.as_object_mut() {
+            map.shift_remove("deferredLateToolCatalog");
+        }
+        session
+    };
+    assert_eq!(rest(got), rest(want), "{what}");
+}

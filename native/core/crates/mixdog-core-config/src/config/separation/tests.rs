@@ -97,6 +97,19 @@ async fn put_files(dir: &std::path::Path, case: &Value) {
         put(dir.join(file), text).await;
     }
 }
+/// Node's file after the pass (`key`: `output` or `final`), with one departure: the web-search route keeps an explicit `fast`
+/// (`stored_web_search_route`), so a reloaded route reads back at the speed it was saved at; Node's canonical save dropped
+/// `fast: false`.
+#[cfg(node_twin)]
+fn node_file(case: &Value, key: &str) -> Value {
+    let mut want = case[key].clone();
+    if let Some(fast) = case["input"]["agent"]["webSearchRoute"]["fast"].as_bool()
+        && let Some(route) = want.pointer_mut("/agent/webSearchRoute").and_then(Value::as_object_mut)
+    {
+        route.entry("fast").or_insert(Value::Bool(fast));
+    }
+    want
+}
 #[cfg(node_twin)]
 #[tokio::test]
 async fn the_boot_pass_leaves_the_file_node_left() {
@@ -113,9 +126,10 @@ async fn the_boot_pass_leaves_the_file_node_left() {
         config.separate_defaults(NOW_MS).await.expect(name);
 
         // What the file holds afterwards (the pass, then the canonical agent section), in memory and on disk.
-        assert!(same(&config.full(), &case["final"]), "{name}: {:?}", config.full());
+        let want = node_file(case, "final");
+        assert!(same(&config.full(), &want), "{name}: {:?}", config.full());
         let stored: Value = serde_json::from_slice(&text_of(dir.path().join("mixdog-config.json")).await).expect("json");
-        assert!(js_deep_equal(&stored, &case["final"]), "{name}: on disk {stored}");
+        assert!(js_deep_equal(&stored, &want), "{name}: on disk {stored}");
 
         // The copy taken before the rewrite: the file as it was, in a folder named for the moment.
         let folder = dir.path().join("backups");
@@ -152,13 +166,13 @@ async fn the_pass_alone_writes_what_node_published() {
             put(dir.path().join("mixdog-config.json"), case["inputText"].as_str().expect("input").to_owned()).await;
             let config = open(dir.path()).await;
             config.separate_defaults(NOW_MS).await.expect(name);
-            assert!(same(&config.full(), &case["output"]), "{name}: {:?}", config.full());
+            assert!(same(&config.full(), &node_file(case, "output")), "{name}: {:?}", config.full());
             continue;
         }
         let mut separated = separate_defaults_in_config(input, dir.path());
         separated.insert(DEFAULTS_VERSION_KEY.into(), Value::from(2));
         let written = super::super::canonical::canonicalize(separated);
-        assert!(same(&written, &case["output"]), "{name}: {written:?}");
+        assert!(same(&written, &node_file(case, "output")), "{name}: {written:?}");
     }
 }
 /// A file created by this code is born separated (`withFreshDefaultsVersion`): the first write into

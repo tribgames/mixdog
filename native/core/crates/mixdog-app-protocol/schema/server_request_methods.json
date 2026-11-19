@@ -4357,6 +4357,12 @@
         },
         "name": {
           "type": "string"
+        },
+        "windowToken": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -4368,6 +4374,12 @@
     },
     "HostWindowOpenResult": {
       "properties": {
+        "created": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "opened": {
           "type": "boolean"
         }
@@ -6408,7 +6420,19 @@
             "null"
           ]
         },
+        "xaiApiMode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "xaiResponsesCacheScope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "xaiResponsesTransport": {
           "type": [
             "string",
             "null"

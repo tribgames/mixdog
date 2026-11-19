@@ -1,6 +1,6 @@
 //! A burst of connection-level cuts on a provider whose stream ladder leaves a spent cut to the loop
 //! (`RetryPolicy::stream_cut_loop_replay`, the Anthropic routes): the loop replays such a send on its transport ladder
-//! (5, 15, 30 s), and every replay is a new send that runs the stream ladder again. A response the loop proceeds with, a
+//! (5, 15, 30 s), and a replay does not refill the stream row the first send spent. A response the loop proceeds with, a
 //! salvaged one included, ends the outage the budgets covered.
 
 use mixdog_core_api::domain::provider::ConnectionInfo;
@@ -49,7 +49,7 @@ fn reconnecting(h: &Harness) -> Vec<(u32, u32)> {
 }
 
 /// A burst longer than the stream row: the fourth cut in a row spends it, the loop waits its first transport step, and the
-/// replay (a new send, its stream row whole again) completes.
+/// replay completes.
 #[tokio::test]
 async fn a_burst_that_outlasts_the_stream_row_is_carried_by_the_loop_transport_row() {
     let mut script: Vec<Attempt> = (0..4).map(|_| cut_attempt()).collect();
@@ -63,17 +63,19 @@ async fn a_burst_that_outlasts_the_stream_row_is_carried_by_the_loop_transport_r
     assert_eq!(reconnecting(&h), [(1, 3), (2, 3), (3, 3), (1, 3)], "the stream row's three, then the loop's first of three");
 }
 
-/// Cuts that never stop: every send runs the stream row whole (4 attempts), the loop replays three times on 5, 15 and 30 s,
-/// and the cut then surfaces as itself. Each failed attempt is named in the daemon log with its fault and connection.
+/// Cuts that never stop: the first send spends the stream row (4 attempts), the loop replays three times on 5, 15 and 30 s
+/// with one attempt each, and the cut then surfaces as itself. Each failed attempt is named in the daemon log with its fault and connection.
 #[tokio::test]
 async fn a_spent_budget_surfaces_the_cut_after_every_send_ran_its_stream_row() {
     let (lines, _capture) = mixdog_rt::node_log::capture();
     let (h, provider) = judged((0..20).map(|_| cut_attempt()).collect(), cut_replaying());
     let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("the cut surfaces once spent");
     assert!(matches!(failure.error, AgentError::Provider(ref error) if error.transport == Some(TransportFault::H2GoAway { code: 0 })));
-    assert_eq!(provider.requests().len(), 16, "four sends of four attempts");
+    // The replays do not refill the provider's spent stream row (the loop's escalation only changes the schedule): the
+    // first send's four attempts, then one attempt per replay.
+    assert_eq!(provider.requests().len(), 7, "four attempts, then three replays of one");
     assert_eq!(loop_waits(&h), [Duration::from_secs(5), Duration::from_secs(15), Duration::from_secs(30)]);
-    assert_eq!(waits(&h).len(), 15);
+    assert_eq!(waits(&h).len(), 6);
     let attempts: Vec<String> = lines
         .lock()
         .unwrap()
@@ -81,10 +83,11 @@ async fn a_spent_budget_surfaces_the_cut_after_every_send_ran_its_stream_row() {
         .map(|(_, _, line)| line.clone())
         .filter(|line| line.starts_with("[attempt-error] "))
         .collect();
-    assert_eq!(attempts.len(), 16, "one line per failed attempt");
+    assert_eq!(attempts.len(), 7, "one line per failed attempt");
     for line in &attempts {
         assert!(line.contains(" phase=stream ") && line.contains(" delivery=Accepted "), "{line}");
-        assert!(line.ends_with(" fault=H2GoAway { code: 0 } connection=h2/7"), "{line}");
+        // The daemon log appends the turn's trace identity (session, turn, send, attempt, phase) to every line.
+        assert!(line.contains(" fault=H2GoAway { code: 0 } connection=h2/7 session=t turn=r send="), "{line}");
     }
 }
 

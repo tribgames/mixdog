@@ -32,6 +32,9 @@ const ACTIVITY_RAIL_PIN_IDS: &[&str] = &[
 
 pub const NOTIFICATION_VOLUME_DEFAULT: i64 = 100;
 pub const NOTIFICATION_VOLUME_MAX: i64 = 400;
+pub const BOT_HANDOFF_LIMIT_DEFAULT: i64 = 3;
+pub const BOT_HANDOFF_LIMIT_MIN: i64 = 1;
+pub const BOT_HANDOFF_LIMIT_MAX: i64 = 20;
 pub const SESSION_AUTO_ARCHIVE_DAY_CHOICES: &[i64] = &[0, 1, 7, 14, 30, 90];
 pub const SESSION_AUTO_DELETE_DAY_CHOICES: &[i64] = &[0, 7, 30, 90];
 pub const SESSION_AUTO_ARCHIVE_DAYS_DEFAULT: i64 = 7;
@@ -100,6 +103,11 @@ pub(crate) fn registry() -> Vec<Key> {
             "desktop.notificationVolume",
             Kind::IntRange(0, NOTIFICATION_VOLUME_MAX),
             int(NOTIFICATION_VOLUME_DEFAULT),
+        ),
+        key(
+            "desktop.botHandoffLimit",
+            Kind::IntRange(BOT_HANDOFF_LIMIT_MIN, BOT_HANDOFF_LIMIT_MAX),
+            int(BOT_HANDOFF_LIMIT_DEFAULT),
         ),
         key(
             "desktop.sessionAutoArchiveDays",
@@ -228,6 +236,7 @@ pub(crate) const SETTING_UPDATE_PATHS: &[&str] = &[
 /// value, so the section exists afterwards: the flags of [`SETTING_UPDATE_PATHS`] and the other settings-store writers.
 pub(crate) const DESKTOP_WRITER_PATHS: &[&str] = &[
     "desktop.notificationVolume",
+    "desktop.botHandoffLimit",
     "desktop.sessionAutoArchiveDays",
     "desktop.sessionAutoDeleteDays",
     "desktop.browserPermissions",

@@ -204,8 +204,15 @@ impl SlashHost for AppState {
         let ask = btw.ask(self, question);
         // The microtask after `ask`: a dropped ask settles with nothing.
         if btw.dispatch(&*self, &ask) {
-            let result = self.call_store("askSide", json!([ask.question]));
-            btw.settle(&*self, &ask, result);
+            // The model answers on a worker: the loop goes on taking input meanwhile. A store that cannot be called from
+            // another thread answers here.
+            match self.store.caller() {
+                Some(call) => self.paste.ask_btw(call, ask),
+                None => {
+                    let result = self.call_store("askSide", json!([ask.question]));
+                    btw.settle(&*self, &ask, result);
+                }
+            }
         } else {
             btw.settle(&*self, &ask, Ok(Value::Null));
         }

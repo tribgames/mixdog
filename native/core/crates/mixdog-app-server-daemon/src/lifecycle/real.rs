@@ -255,7 +255,8 @@ pub struct DiscoveryPublication {
     /// The core runs its models through the desktop's model proxy; the serving document then advertises it.
     model_proxy: std::sync::atomic::AtomicBool,
     jobs: Arc<Mutex<mpsc::Sender<Job>>>,
-    /// This boot's index rebuild: its sessions done and total are named by the document while the core boots. The writer
+    /// This boot's index rebuild and owed rewrites: their sessions done and total are named by the document while the core
+    /// boots, and while work still runs behind a serving core (the owed sensitive rewrites). The writer
     /// thread reads it when it writes, so what is written never goes backwards.
     rebuild: Arc<mixdog_store::sqlite::RebuildProgress>,
 }
@@ -266,7 +267,16 @@ fn booting(state: CoreState) -> bool {
 }
 
 fn rebuild_of(progress: &mixdog_store::sqlite::RebuildProgress) -> Option<discovery::Rebuild> {
-    progress.snapshot().map(|(done, total)| discovery::Rebuild { done, total })
+    progress.snapshot().map(|(done, total)| discovery::Rebuild { done, total, failed: progress.failed() })
+}
+
+/// What a document of `state` names of the progress: all of it while the core boots; once it serves, work still running
+/// behind it (the owed sensitive rewrites) until it ends, and for the rest of the boot any of it that failed (those sessions
+/// stay unread until the next start).
+fn rebuild_for(state: CoreState, progress: &mixdog_store::sqlite::RebuildProgress) -> Option<discovery::Rebuild> {
+    rebuild_of(progress).filter(|rebuild| {
+        booting(state) || (state == CoreState::Serving && (rebuild.done + rebuild.failed < rebuild.total || rebuild.failed > 0))
+    })
 }
 
 impl DiscoveryPublication {
@@ -323,14 +333,14 @@ impl DiscoveryPublication {
                 for job in inbox {
                     match job {
                         Job::Publish(mut document) => {
-                            document.core.rebuild = booting(document.core.state).then(|| rebuild_of(&reporter)).flatten();
+                            document.core.rebuild = rebuild_for(document.core.state, &reporter);
                             put(&mut document);
                             last = Some(document);
                         }
                         Job::Refresh => {
                             wake.store(false, std::sync::atomic::Ordering::SeqCst);
-                            if let Some(document) = last.as_mut().filter(|document| booting(document.core.state)) {
-                                let now = rebuild_of(&reporter);
+                            if let Some(document) = last.as_mut().filter(|document| booting(document.core.state) || document.core.state == CoreState::Serving) {
+                                let now = rebuild_for(document.core.state, &reporter);
                                 if document.core.rebuild != now {
                                     document.core.rebuild = now;
                                     put(document);

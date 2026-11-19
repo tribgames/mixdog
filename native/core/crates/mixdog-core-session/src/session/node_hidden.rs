@@ -24,19 +24,25 @@ pub struct HiddenSession {
 }
 
 /// The sessions of the Node hidden set not yet imported; empty when there is no file, it is unreadable, or the
-/// import already ran. `apply` marks one session and the record of the import is written after every call
-/// returned, so an interrupted import runs again.
+/// import already ran. `apply` marks one session and answers whether it is decided (`false`: it could not be read now,
+/// a session still owing its sensitive rewrite for one); the record of the import is written after every call returned
+/// with all of them decided, so an interrupted import, or one with a session left undecided, runs again.
 pub async fn import_node_hidden<F, Fut>(data_dir: PathBuf, io: InteractiveIo, mut apply: F) -> Result<usize, CoreError>
 where
     F: FnMut(HiddenSession) -> Fut,
-    Fut: std::future::Future<Output = ()>,
+    Fut: std::future::Future<Output = bool>,
 {
     let dir = data_dir.clone();
     let rows = mixdog_core_base::support::on_lane(io, &CancellationToken::new(), move |lane| unimported(lane, &dir)).await?;
     let Some(rows) = rows else { return Ok(0) };
     let count = rows.len();
+    let mut undecided = 0usize;
     for row in rows {
-        apply(row).await;
+        undecided += usize::from(!apply(row).await);
+    }
+    if undecided > 0 {
+        tracing::info!("[session-hidden] {undecided} session(s) could not be read now; the import runs again at the next start");
+        return Ok(count);
     }
     let record = data_dir.join(IMPORTED_FILE);
     let written = mixdog_core_base::support::on_lane(io, &CancellationToken::new(), move |_lane| publish_file_with(&record, b"1", Access::Inherit)).await?;
@@ -94,17 +100,22 @@ mod tests {
         let data = tempfile::tempdir().expect("data");
         let io = mixdog_rt::testing::tokens().interactive_io;
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let run = |seen: std::sync::Arc<std::sync::Mutex<Vec<String>>>| {
+        let run = |seen: std::sync::Arc<std::sync::Mutex<Vec<String>>>, decided: bool| {
             import_node_hidden(data.path().to_path_buf(), io, move |row| {
                 let seen = seen.clone();
-                async move { seen.lock().unwrap().push(row.id) }
+                async move {
+                    seen.lock().unwrap().push(row.id);
+                    decided
+                }
             })
         };
-        assert_eq!(run(seen.clone()).await.unwrap(), 0, "no file, nothing to import");
+        assert_eq!(run(seen.clone(), true).await.unwrap(), 0, "no file, nothing to import");
         std::fs::write(data.path().join(HIDDEN_FILE), "{\"version\":1,\"hidden\":{\"sess_a\":5}}").unwrap();
-        assert_eq!(run(seen.clone()).await.unwrap(), 1);
-        assert_eq!(run(seen.clone()).await.unwrap(), 0, "the second start imports nothing");
-        assert_eq!(*seen.lock().unwrap(), vec!["sess_a".to_owned()]);
+        // A session that could not be read now (owing its sensitive rewrite) leaves the import pending.
+        assert_eq!(run(seen.clone(), false).await.unwrap(), 1);
+        assert_eq!(run(seen.clone(), true).await.unwrap(), 1, "the next start imports it again");
+        assert_eq!(run(seen.clone(), true).await.unwrap(), 0, "the start after a complete import imports nothing");
+        assert_eq!(*seen.lock().unwrap(), vec!["sess_a".to_owned(), "sess_a".to_owned()]);
         assert!(data.path().join(HIDDEN_FILE).exists());
     }
 }

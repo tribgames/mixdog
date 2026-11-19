@@ -20,6 +20,7 @@ use mixdog_rt::LaneToken;
 use mixdog_services::memory::error::MemoryError;
 use mixdog_services::memory::error::Result;
 use mixdog_services::memory::session_search::ingest::IngestSession;
+use mixdog_services::memory::session_search::ingest::SessionStamp;
 use mixdog_services::memory::session_search::ingest::StoredSessions;
 use mixdog_store::schema::record::Header;
 use mixdog_store::sqlite::lead::LeadRow;
@@ -106,9 +107,18 @@ impl StoredSessions for StoredSearchSessions {
     }
 
     async fn record_stamp(&self, session_id: &str) -> Result<Option<String>> {
-        let Some(epoch) = mixdog_store::log_epoch::settled(session_id) else { return Ok(None) };
+        Ok(match self.stamp(session_id).await? {
+            SessionStamp::At(stamp) => Some(stamp),
+            SessionStamp::Busy | SessionStamp::Gone => None,
+        })
+    }
+
+    /// `Busy` while an operation on the log runs or one ran during the stamp (a write, a sensitive rewrite); `Gone` for a
+    /// session the index holds no row of or whose first log file is not there.
+    async fn stamp(&self, session_id: &str) -> Result<SessionStamp> {
+        let Some(epoch) = mixdog_store::log_epoch::settled(session_id) else { return Ok(SessionStamp::Busy) };
         let Some(at) = self.threads.search_position(session_id).await.map_err(|e| failed("read session stamp", e))? else {
-            return Ok(None);
+            return Ok(SessionStamp::Gone);
         };
         let first = self.sessions_dir().join(session_id).join(mixdog_store::log::log_name(0));
         let version = self.lanes.io
@@ -116,14 +126,14 @@ impl StoredSessions for StoredSearchSessions {
             .await.map_err(|e| failed("schedule session stamp", e))?
             .await.map_err(|e| failed("read session stamp", e))?;
         if mixdog_store::log_epoch::settled(session_id) != Some(epoch) {
-            return Ok(None);
+            return Ok(SessionStamp::Busy);
         }
         let version = match version {
             Ok(version) => version,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(SessionStamp::Gone),
             Err(e) => return Err(failed("stat first session log", e)),
         };
-        Ok(Some(format!("frame-v2:{}:{}:{}:{}:{}:{}:{}:{}",
+        Ok(SessionStamp::At(format!("frame-v2:{}:{}:{}:{}:{}:{}:{}:{}",
             at.ordinal, at.file_no, at.offset, version.dev, version.ino, version.size, version.mtime_ns, version.ctime_ns)))
     }
 

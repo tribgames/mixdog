@@ -89,13 +89,18 @@ impl DirectorySessions {
     /// (a session the file names that is gone, or already archived, is left as it is). Returns how many the file named.
     pub async fn import_node_hidden(&self, data_dir: std::path::PathBuf, io: mixdog_rt::InteractiveIo) -> Result<usize, CoreError> {
         mixdog_core_session::session::node_hidden::import_node_hidden(data_dir, io, |row| async move {
-            let Ok(Some(header)) = self.header(&row.id).await else { return };
+            // A session that cannot be read now (one still owing its sensitive rewrite is refused) is left for the next start.
+            let header = match self.header(&row.id).await {
+                Ok(Some(header)) => header,
+                Ok(None) => return true,
+                Err(_) => return false,
+            };
             // A session archived already (or restored since, through the archive authority) is left as it is.
             if self.directory.archive_state(&row.id, &header).entry.is_some() {
-                return;
+                return true;
             }
             let at = row.at_ms.unwrap_or_else(|| self.directory.deps().clock.now_ms()) as f64;
-            let _ = self.directory.mark_archived(&row.id, &header, Mark::Archive(Box::new(move || at))).await;
+            self.directory.mark_archived(&row.id, &header, Mark::Archive(Box::new(move || at))).await.is_ok()
         })
         .await
     }

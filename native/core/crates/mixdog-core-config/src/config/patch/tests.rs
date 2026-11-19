@@ -160,7 +160,9 @@ async fn a_web_search_fallback_speed_edit_survives_a_config_reload() {
 
 
 /// The stored `presets` and `webSearchRoute` equal what Node's save writes
-/// (`record-config-presets.mjs`): `modelParameters`, `fast: false` and the like never reach the file.
+/// (`record-config-presets.mjs`): `modelParameters`, an ordinary preset's `fast: false` and the like never reach the file.
+/// Departure: the web-search route keeps an explicit `fast: false` (`stored_web_search_route`), so a reloaded route reads back
+/// at the speed it was saved at (`a_web_search_fallback_speed_edit_survives_a_config_reload`); Node's save dropped it.
 #[cfg(node_twin)]
 #[test]
 fn stored_presets_and_web_search_route_match_the_recorded_node_save() {
@@ -173,7 +175,14 @@ fn stored_presets_and_web_search_route_match_the_recorded_node_save() {
         let presets = stored.get("presets").filter(|p| p.as_array().is_some_and(|l| !l.is_empty())).cloned().unwrap_or(Value::Null);
         assert!(same(&presets, &entry["presets"]), "presets of {i}: {presets} vs {}", entry["presets"]);
         let route = stored.get("webSearchRoute").cloned();
-        let expected = &entry["webSearchRoute"];
+        let mut expected = entry["webSearchRoute"].clone();
+        if entry["config"]["webSearchRoute"]["fast"] == false
+            && let Some(kept) = expected.as_object_mut()
+            && kept.get("provider") != Some(&json!("default"))
+        {
+            kept.insert("fast".into(), json!(false));
+        }
+        let expected = &expected;
         if expected == "__absent__" {
             assert!(route.is_none(), "route of {i}");
         } else {

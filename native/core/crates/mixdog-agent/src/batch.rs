@@ -740,7 +740,8 @@ impl Run {
                 let execution_cwd = self.live_cwd();
                 let eager = self.eager.remove(&call.id);
                 // A streamed result thrown away is not announced again by its re-run: Node's serial path never notifies.
-                if eager.is_some() {
+                let rerun = eager.is_some();
+                if rerun {
                     streamed.insert(j);
                 }
                 // A write is never run twice: only a streamed read is thrown away, and only when it may be stale.
@@ -779,7 +780,7 @@ impl Run {
                     let env = Arc::clone(&env);
                     // The call runs on its own task and tells the host the instant it settles, as a streamed call does: its result
                     // is shown as finished at once, whatever the batch is waiting on, while its row is still recorded in call order.
-                    let announce = !crate::tools::is_invalid_args_marker(&call.arguments);
+                    let announce = !rerun && !crate::tools::is_invalid_args_marker(&call.arguments);
                     if announce {
                         streamed.insert(j);
                     }

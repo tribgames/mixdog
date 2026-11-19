@@ -133,7 +133,9 @@ use super::run::RunPort;
 use super::run::DrainRequest;
 use super::run::DrainStage;
 use super::run::SteerInput;
+use super::run::Priority;
 use super::run::within_priority;
+use super::state::priority_rank;
 use super::completions;
 use super::pending;
 use mixdog_core_base::support::coded;
@@ -317,6 +319,8 @@ pub(super) struct AfterCompaction {
 #[allow(clippy::large_enum_variant, reason = "Retain the existing queued request/retry ownership without adding a separate allocation for each retry")]
 pub(super) enum Waiting {
     Request(CoreRequest, Waiter),
+    /// The idle plan of a person's clear ([`Inbox::ForkPlan`]).
+    Plan(oneshot::Sender<Result<ForkSource, CoreError>>),
     Retry(super::quota_lane::RetryTurn),
 }
 
@@ -331,6 +335,17 @@ pub(super) struct ForkSource {
     pub revision: HistoryRevision,
     pub header: Header,
     pub active_input: Option<mixdog_core_api::ids::ItemId>,
+    /// The gate held this plan and holds the thread's turns for its clear ([`Waiting::Plan`]) until this is dropped.
+    pub hold: Option<ClearHold>,
+}
+
+/// A clear the gate released is under way: dropped when it ended, however it ended, an answer nobody read included.
+pub(super) struct ClearHold(mpsc::UnboundedSender<JobDone>);
+
+impl Drop for ClearHold {
+    fn drop(&mut self) {
+        let _ = self.0.send(JobDone::ClearSettled);
+    }
 }
 
 pub(super) struct RewindPreview {
@@ -1090,6 +1105,9 @@ pub(crate) enum Inbox {
     },
     /// The op store of this thread's scope (`ThreadOps`): the actor is the scope's only writer.
     Op { call: super::thread_ops::OpCall, tx: Waiter },
+    /// Answered once everything accepted so far is on disk, a write a failed save held going again with it (`Ok`), or
+    /// once that write fails (`Err`): a fork copies durable history, so it first makes the one fresh save a turn start makes.
+    WritesLanded { tx: oneshot::Sender<Result<(), RunError>> },
     /// An acknowledged source for fork, or the idle history a clear must protect.
     ForkPlan {
         idle: bool,
@@ -1197,6 +1215,8 @@ impl Drop for DecisionEnd {
 /// Results of lane jobs the actor submitted.
 #[allow(clippy::large_enum_variant, reason = "Keep the established actor completion message and encoded record by value; boxing changes the mailbox representation and allocates on every encoded result")]
 pub(crate) enum JobDone {
+    /// A clear whose plan the gate held has ended ([`ClearHold`]): turns may start again.
+    ClearSettled,
     /// What the runs the process died in leave, by run id ([`SessionActor::recover`]).
     Recovered(Vec<(String, super::seams::CrashedRows)>),
     /// A send of submission `id` got its answer ([`Submissions::admit`]): `answer` when it succeeded, its receipt.
@@ -1555,6 +1575,9 @@ pub(crate) struct SessionActor {
     outbox: Outbox,
     /// Records released unsaved (a failed barrier) are handed again with the next records (`retry_due`).
     retry_due: bool,
+    /// [`Inbox::WritesLanded`] waiters, each with the last entry accepted before it: answered once every record up to that
+    /// entry is stored, or with the next failed barrier.
+    writes_landed: Vec<(u64, oneshot::Sender<Result<(), RunError>>)>,
     /// The cause of the last failed barrier, which the next turn's refusal names.
     save_failure: Arc<str>,
     /// A turn asked while records are unsaved (`awaitPreviousTurnDurable`): it starts once they land, and is refused
@@ -1563,6 +1586,9 @@ pub(crate) struct SessionActor {
     /// The idle auto-clear works on the start in `deferred_start`: its meter check or its compaction is under way, and no
     /// turn starts meanwhile ([`Self::starts_gated`]).
     idle_clearing: bool,
+    /// Clears the gate released whose copy-and-clear is under way ([`Waiting::Plan`]): no turn starts meanwhile, so a prompt
+    /// queued behind the clear runs after it ([`Inbox::ClearSettled`]).
+    pub(super) clear_holds: usize,
     /// The idle auto-clear has run for the start about to be taken again: it is decided once, never twice for one start.
     idle_cleared: bool,
     /// The admitted start that already attempted a pre-switch compaction.
@@ -1781,6 +1807,12 @@ pub(crate) struct SessionActor {
     /// `pendingCompactSessionIds` holds this session: the session tool scheduled a compaction for
     /// when the turn settles.
     compact_scheduled: bool,
+    /// A user's `/compact` asked while a turn ran (`scheduleCompactForTurnEnd`): it runs once the session is idle, holds no
+    /// command and shows nothing queued, after the turn and its queued follow-ups.
+    manual_compact_due: bool,
+    /// While a drain runs: the queue's ids in order as it started, and the entries it handed back so far
+    /// ([`Self::hand_back_all`]).
+    drain_handbacks: Option<(Vec<String>, Vec<super::state::Queued>)>,
     /// The scheduled compaction runs (`createCompactionGate`'s tail).
     after_compaction: Option<AfterCompaction>,
     /// The run's compaction divider and the pass's event, whichever came first.
@@ -1928,9 +1960,11 @@ impl SessionActor {
             projected: state.clone(),
             acked: state,
             retry_due: false,
+            writes_landed: Vec::new(),
             save_failure: Arc::from(""),
             deferred_start: None,
             idle_clearing: false,
+            clear_holds: 0,
             idle_cleared: false,
             pre_switch_compacted: None,
             admitted_pick: None,
@@ -2035,6 +2069,8 @@ impl SessionActor {
             quota_answered: None,
             compactions: 0,
             compact_scheduled: false,
+            manual_compact_due: false,
+            drain_handbacks: None,
             after_compaction: None,
             compact_pairs: None,
             pending_retry: None,
@@ -2246,6 +2282,12 @@ impl SessionActor {
         // Another delete holds the thread: it is gone for this one.
         if self.deleting {
             let _ = closed.send(Err("missing"));
+            return;
+        }
+        // A favorite marked while the idle delete awaited: the header is reread here, not the one judged earlier, and as
+        // accepted: a favorite whose save is still owed is the user's all the same.
+        if idle && super::delete::sidebar_flag(&self.projected.header, "favoriteAt") {
+            let _ = closed.send(Err("favorite"));
             return;
         }
         // A guarded delete reads the admission word first and closes it from exactly that value:
@@ -3296,11 +3338,19 @@ impl SessionActor {
                 self.compactions = self.compactions.saturating_sub(1);
                 if self.compactions == 0 {
                     self.end_command_status();
+                    // What queued behind the command goes on (`drain.mjs`: the commandBusy release re-kicks the queue).
+                    self.start_next_queued();
                 }
                 // A busy change (`updateEntryBusy`'s `onBusyChange`): the idle clock starts over.
                 self.try_unload();
             }
             JobDone::ScheduledCompactionEnded => self.scheduled_compaction_ended(),
+            JobDone::ClearSettled => {
+                self.clear_holds = self.clear_holds.saturating_sub(1);
+                if self.clear_holds == 0 && !self.deleting {
+                    self.start_next_queued();
+                }
+            }
             JobDone::IdleClearChecked(due) => self.idle_clear_checked(due),
             JobDone::IdleClearEnded(skipped) => self.idle_clear_ended(skipped),
             JobDone::SetupUiExpired(id) => self.setup_ui_settled(&id),
@@ -3648,6 +3698,13 @@ impl SessionActor {
             }
         }
         self.releasing = false;
+        if !self.writes_landed.is_empty() {
+            let (landed, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.writes_landed).into_iter().partition(|(through, _)| !self.outbox.unwritten_through(*through));
+            self.writes_landed = waiting;
+            for (_, tx) in landed {
+                let _ = tx.send(Ok(()));
+            }
+        }
         fold_room_view(&mut notes);
         let storage = self.storage();
         if storage != self.published_storage {
@@ -4152,6 +4209,9 @@ impl SessionActor {
     /// The units retained on a write rolled back cleanly (`retain`: a room post, an import) are kept in their place,
     /// unreleased: their requests hear the failure now and they go with the next write. A unit is failed or held whole.
     fn hold_failed(&mut self, error: &CoreError, cause: Arc<str>, retain: bool) {
+        for (_, tx) in self.writes_landed.drain(..) {
+            let _ = tx.send(Err(RunError::NotApplied));
+        }
         self.generation += 1;
         self.save_failure = cause;
         let retained: std::collections::HashSet<u64> = if retain { self.outbox.handed_retained().into_iter().collect() } else { Default::default() };
@@ -4867,6 +4927,7 @@ impl SessionActor {
         let Some(mut slot) = self.run.take_if(|run| run.turn == turn) else {
             return;
         };
+        self.deps.wakes.reset(&self.id);
         self.compact_pairs = None;
         // The turn's terminal save writes the books still waiting, before its end.
         self.save_usage();
@@ -5379,7 +5440,20 @@ impl SessionActor {
     /// suppressed while one was in flight; `ask-queue.mjs:87-101` runs each notification as its
     /// own turn). Without wakes, completions wait for the next turn to take them.
     fn start_next_queued(&mut self) {
+        // The outermost pass collects what it (and the passes a refusal runs inside it) hands back, against the queue's order
+        // as it starts, and publishes it once ([`Self::hand_back_all`]).
+        let outermost = self.drain_handbacks.is_none();
+        if outermost {
+            self.drain_handbacks = Some((self.projected.queue.iter().map(|q| q.qid.clone()).collect(), Vec::new()));
+        }
         self.drain_pass();
+        if outermost
+            && let Some((order, mut handbacks)) = self.drain_handbacks.take()
+            && !handbacks.is_empty()
+        {
+            handbacks.sort_by_key(|entry| order.iter().position(|qid| *qid == entry.qid));
+            self.publish_handback(&handbacks);
+        }
         // The pass decided and registered any next start: the fence a test waits on before it shows that nothing started.
         #[cfg(any(test, feature = "test-support"))]
         {
@@ -5408,21 +5482,30 @@ impl SessionActor {
         }
         // A queued copy of work a user Stop froze is never taken (its Stop record removed it; one whose save failed is still
         // ineligible here).
-        let wake = self.completion_wake();
-        let Some(next) = self
-            .projected
-            .queue
-            .iter()
-            .filter(|q| !self.queued_stopped(q))
-            .find(|q| wake || completions::is_channel(&q.entry) || !completions::is_notification(&q.entry))
-            .cloned()
-        else {
+        let Some(next) = self.next_queued() else {
+            // Nothing is left for the model: a queued slash command is the post-turn command processor's (`steering.mjs`), which
+            // runs in the composer that sent it, so it goes back there as a hand-back instead of waiting in the queue for good.
+            // The session state holds one hand-back, so every command goes back in that one, none overwriting another.
+            let commands: Vec<super::state::Queued> =
+                self.projected.queue.iter().filter(|q| !self.queued_stopped(q) && pending::is_slash_entry(&q.entry)).cloned().collect();
+            if !commands.is_empty() {
+                self.hand_back_all(&commands);
+            }
+            // A user's `/compact` asked mid-turn runs now: the turn and every queued follow-up are done, no command holds the
+            // session and its visible queue is empty (`scheduleCompactForTurnEnd`'s check). It runs as the command does
+            // (`compactCommand`: `runtime.compact({ recoverAgent: true })`).
+            if self.manual_compact_due && !self.ui_busy() && self.compactions == 0 && self.projected.queued_rows().is_empty() {
+                self.manual_compact_due = false;
+                // Nobody waits on the answer: the request was answered when it was scheduled.
+                let (tx, _answered) = oneshot::channel();
+                self.compact_start(None, tx, Some(json!({ "recoverAgent": true })));
+            }
             return;
         };
         if completions::is_notification(&next.entry) {
-            // A wake drains every queued completion as one batch in one turn (`drain.mjs` `presentBatch`), so one Stop ends
-            // them all.
-            let batch = self.wake_batch(wake);
+            // A wake drains the queued completions of the selected priority as one batch in one turn (`drain.mjs` `presentBatch`,
+            // `dequeueQueueBatch`), so one Stop ends them all.
+            let batch = self.next_wake_batch(&next);
             self.start_completion(batch);
             return;
         }
@@ -5455,6 +5538,10 @@ impl SessionActor {
                 .unwrap_or(PromptContent::Text(String::new())),
             options: serde_json::from_value(next.entry["options"].clone()).ok(),
         };
+        // The queued follow-up's own `context` (`drain.mjs` `turnOptionsForBatch`) rides its turn: the entry holds it beside the options.
+        if let Some(context) = next.entry.get("context").and_then(Value::as_str) {
+            input.options.get_or_insert_with(Default::default).context = Some(context.to_owned());
+        }
         // The entry keeps the submission as it was sent; the message drops the originals its acceptance found missing.
         let originals_missing = super::staged_originals::drop_missing(&mut input, &super::staged_originals::missing_of(&next.entry));
         // A prompt a user queued is still the composer's to take back (`restorable`), from the device that sent it.
@@ -5481,14 +5568,44 @@ impl SessionActor {
         self.start_run_with(input, body, None, None, None, false, work);
     }
 
-    /// The queued completions a wake takes as one batch.
-    fn wake_batch(&self, wake: bool) -> Vec<super::state::Queued> {
+    /// The entry the drain takes next: the most urgent, the earliest of its priority (`dequeueQueueBatch`). A slash command is the
+    /// command dispatcher's, never the model's (`dequeueModelBatch`); a queued copy of work a user Stop froze is never taken (its
+    /// Stop record removed it; one whose save failed is still ineligible here); a completion waits for a wake the session allows.
+    fn next_queued(&self) -> Option<super::state::Queued> {
+        let wake = self.completion_wake();
         self.projected
             .queue
             .iter()
-            .filter(|q| completions::is_notification(&q.entry) && (wake || completions::is_channel(&q.entry)) && !self.queued_stopped(q))
+            .filter(|q| !self.queued_stopped(q) && !pending::is_slash_entry(&q.entry))
+            .filter(|q| wake || completions::is_channel(&q.entry) || !completions::is_notification(&q.entry))
+            .min_by_key(|q| priority_rank(&q.entry))
+            .cloned()
+    }
+
+    /// The queued completions the wake of `next` (a notification the drain selected) takes as one batch: each of its priority
+    /// (`dequeueQueueBatch` takes one priority bucket; a less urgent notice waits for the work ahead of it).
+    fn next_wake_batch(&self, next: &super::state::Queued) -> Vec<super::state::Queued> {
+        let (wake, rank) = (self.completion_wake(), priority_rank(&next.entry));
+        self.projected
+            .queue
+            .iter()
+            .filter(|q| {
+                completions::is_notification(&q.entry)
+                    && priority_rank(&q.entry) == rank
+                    && (wake || completions::is_channel(&q.entry))
+                    && !self.queued_stopped(q)
+            })
             .cloned()
             .collect()
+    }
+
+    /// The batch of the completion wake the drain would start next, empty when it would start none (it takes a prompt next,
+    /// or nothing).
+    fn impending_wake_batch(&self) -> Vec<super::state::Queued> {
+        match self.next_queued() {
+            Some(next) if completions::is_notification(&next.entry) => self.next_wake_batch(&next),
+            _ => Vec::new(),
+        }
     }
 
     /// The queued completions as one turn's input row, stored as a task notification ([`completions::batch_row`]).
@@ -5542,12 +5659,43 @@ impl SessionActor {
     /// composer as a hand-back does (`PromptRestore`).
     fn refuse_queued(&mut self, qid: &str, entry: &Value, why: &str) {
         tracing::warn!(thread = %self.id, queued = qid, "a queued prompt was handed back undelivered: {why}");
-        let queued = super::state::Queued { qid: qid.to_owned(), entry: entry.clone(), display: Value::Null };
-        let text = Taken::of(&queued).text;
-        let device = entry.pointer("/transcriptMeta/device").and_then(Value::as_str).unwrap_or_default().to_owned();
-        let record = Record::Queue(QueueRecord { qid: id(qid), action: QueueAction::Dequeue, reason: Some(DequeueReason::Cancelled), op: None, entry: None });
-        self.accept_record(record, Class::Control, Display::None, Vec::new(), Vec::new());
-        let restore = prompt_restore(submissions_of(&[queued]), text, device, self.deps.clock.now_ms());
+        self.hand_back_all(&[super::state::Queued { qid: qid.to_owned(), entry: entry.clone(), display: Value::Null }]);
+    }
+
+    /// The queued entries leave the queue as cancelled, not delivered, and return to their composer in one hand-back
+    /// (`PromptRestore`, as `restoreQueued` returns several): the session state holds one, so a hand-back per entry would leave
+    /// only the last recoverable by a composer that had not rendered the others. Inside a drain the entries are collected
+    /// ([`Self::start_next_queued`]) and every one the drain hands back, refused prompts and slash commands alike, goes out
+    /// in one hand-back at its end, in queue order.
+    ///
+    /// Two limits stand, as the single slot and the composers' own bookkeeping leave them (lifting either needs a list of
+    /// hand-backs or a composer's acknowledgment, a protocol change):
+    /// - A hand-back of a later drain (or turn boundary) replaces this one in the slot, even when a composer has not
+    ///   rendered it yet.
+    /// - The hand-back names every entry's submission, so each composer that sent one of them takes it whole: two devices
+    ///   each get every text in it (nothing is lost, but each sees the other's).
+    fn hand_back_all(&mut self, queued: &[super::state::Queued]) {
+        for entry in queued {
+            let record = Record::Queue(QueueRecord { qid: id(&entry.qid), action: QueueAction::Dequeue, reason: Some(DequeueReason::Cancelled), op: None, entry: None });
+            self.accept_record(record, Class::Control, Display::None, Vec::new(), Vec::new());
+        }
+        if let Some((_, collected)) = self.drain_handbacks.as_mut() {
+            collected.extend(queued.iter().cloned());
+            return;
+        }
+        self.publish_handback(queued);
+    }
+
+    /// The one `PromptRestore` of `queued`: their submissions, and their texts in the order given.
+    fn publish_handback(&mut self, queued: &[super::state::Queued]) {
+        let present = |text: &String| !mixdog_js::js_trim(text).is_empty();
+        let text = queued.iter().map(|entry| Taken::of(entry).text).filter(present).collect::<Vec<_>>().join("\n");
+        let device = queued
+            .iter()
+            .find_map(|entry| entry.entry.pointer("/transcriptMeta/device").and_then(Value::as_str).filter(|device| !device.is_empty()))
+            .unwrap_or_default()
+            .to_owned();
+        let restore = prompt_restore(submissions_of(queued), text, device, self.deps.clock.now_ms());
         self.accept_view(Change::Section(Section::PromptRestore(Some(restore))), Vec::new());
     }
 
@@ -5632,7 +5780,7 @@ impl SessionActor {
     /// (`afterCompaction`, `compaction-gate.mjs`, wraps every ask; its end drains the queue). A held start waits and
     /// [`Self::pump`] resumes it.
     fn starts_gated(&self) -> bool {
-        self.turn_unsettled() || self.compaction_held() || self.idle_clearing
+        self.turn_unsettled() || self.compaction_held() || self.idle_clearing || self.clear_holds > 0
     }
 
     /// A queue drain may not dequeue now: starts are held ([`Self::starts_gated`]), or the core holds new turn starts (`hold{on}`:
@@ -5640,7 +5788,8 @@ impl SessionActor {
     /// stays for the next core, or for this one once the drain is cancelled). The hold is read here, where the drain decides, and not again by the start: what it
     /// dequeues (a prompt, a completion, a Goal entry checked later) starts whatever the hold reads next, so none is lost.
     fn drain_gated(&self) -> bool {
-        self.starts_gated() || self.core_hold() != StartHold::Open
+        // A manual compaction holds the queue too (`commandBusy`, `drain.mjs` `mayStartDrain`); a turn already admitted goes on.
+        self.starts_gated() || self.compactions > 0 || self.core_hold() != StartHold::Open
     }
 
     /// The core's hold on new turn starts as it reads now.
@@ -6346,14 +6495,20 @@ impl SessionActor {
             })
             .map(|q| QueuedId::from(q.qid.as_str()))
             .collect();
-        let candidates: Vec<QueuedId> = self.steer_marked.iter().cloned().chain(host_prompts).collect();
+        // Every boundary takes the most urgent first, and of one priority the queue's order (a later promotion sits ahead of
+        // an earlier one: `prioritizeQueued` puts it at the front; `dequeueQueueBatch`).
+        let mut candidates: Vec<QueuedId> = self.steer_marked.iter().cloned().chain(host_prompts).collect();
+        let position = |qid: &QueuedId| self.projected.queue.iter().position(|q| q.qid == qid.as_str());
+        candidates.sort_by_key(|qid| (position(qid).map_or(u8::MAX, |at| priority_rank(&self.projected.queue[at].entry)), position(qid)));
         for qid in candidates {
-            // No boundary injects work a user Stop froze.
+            // Eligibility reads the accepted queue the order was chosen from: a promotion still being saved counts at both. An entry
+            // whose enqueue is not durable yet waits. No boundary injects work a user Stop froze.
             let Some(entry) = self
-                .acked
+                .projected
                 .queue
                 .iter()
                 .find(|q| q.qid == qid.as_str() && within_priority(&q.entry, max_priority) && !self.queued_stopped(q))
+                .filter(|q| self.acked.queue.iter().any(|acked| acked.qid == q.qid))
                 .map(|q| q.entry.clone())
             else {
                 continue;
@@ -6394,8 +6549,11 @@ impl SessionActor {
                         && !self.steer_marked.iter().any(|s| s.as_str() == q.qid)
                         && within_priority(&q.entry, max_priority)
                         && !self.queued_stopped(q)
+                        && !pending::is_slash_entry(&q.entry)
                 })
                 .collect();
+            let mut rest = rest;
+            rest.sort_by_key(|q| priority_rank(&q.entry));
             // `stage === 'terminal' || pendingQueueHoldsOnlyNotifications(sessionId)`.
             let only_notifications = !rest.is_empty()
                 && rest.iter().all(|q| completions::is_notification(&q.entry));
@@ -6495,6 +6653,25 @@ impl SessionActor {
                 Vec::new(),
             );
         }
+        // A user message the drain left queued (beyond its priority) is still unanswered: a `task wait` must not start.
+        let user_pending = self.projected.queue.iter().any(|q| {
+            !taken.iter().chain(&dropped).any(|t| t.as_str() == q.qid)
+                && !completions::is_notification(&q.entry)
+                && !super::goal_lane::is_goal_entry(&q.entry)
+                && !pending::is_slash_entry(&q.entry)
+        });
+        // Likewise a notification due now (a `later` channel notice is not due before the turn ends).
+        let notice_pending = self
+            .projected
+            .queue
+            .iter()
+            .any(|q| {
+                !taken.iter().chain(&dropped).any(|t| t.as_str() == q.qid)
+                    && completions::is_notification(&q.entry)
+                    && within_priority(&q.entry, Priority::Next)
+            })
+            .then_some(None);
+        self.deps.wakes.boundary(&self.id, user_pending, notice_pending);
         let _ = reply.send(out);
     }
 
@@ -7006,13 +7183,27 @@ impl SessionActor {
                 let ack = self.ingest_when_durable();
                 self.outbox.push(None, Change::Barrier, Vec::new(), vec![Effect::ItemAck(ack)]);
             }
+            Inbox::WritesLanded { tx } => match self.outbox.last_id().filter(|through| self.outbox.unwritten_through(*through)) {
+                None => {
+                    let _ = tx.send(Ok(()));
+                }
+                Some(through) => {
+                    // What a failed barrier held goes again only with a next write: the pump hands it now. A barrier would not
+                    // wait for it (a view-only entry behind held ones settles at once), so the waiter watches the records.
+                    self.retry_due |= self.outbox.has_unsaved() || self.outbox.awaits_retry();
+                    self.writes_landed.push((through, tx));
+                }
+            },
             Inbox::ForkPlan { idle, tx } => {
-                let plan = self.history_revision(idle).map(|revision| ForkSource {
-                    revision,
-                    header: self.acked.header.clone(),
-                    active_input: self.run.as_ref().map(|run| run.input_item.clone()),
-                });
-                let _ = tx.send(plan);
+                // A person's clear (the idle plan) waits out the scheduled compaction, as Node's `afterCompaction(clear)`
+                // does: its copy is then of the conversation the compaction left.
+                if idle && let Some(after) = &mut self.after_compaction {
+                    after.waiting.push(Waiting::Plan(tx));
+                    #[cfg(any(test, feature = "test-support"))]
+                    self.cell.gate_holds.fetch_add(1, SeqCst);
+                } else {
+                    let _ = tx.send(self.fork_plan(idle));
+                }
             }
             Inbox::RewindPreview { item, tx } => {
                 let _ = tx.send(self.rewind_preview(&item));
@@ -7451,7 +7642,7 @@ impl SessionActor {
         // The originals the acceptance found missing (`SessionHandle::turn_start`): a message built now drops them; a queued
         // entry keeps the submission as it was sent and records them beside it.
         let missing = super::staged_originals::missing_of(&req.params);
-        if !self.turn_busy() && !self.compaction_held() {
+        if !self.turn_busy() && !self.compaction_held() && self.compactions == 0 && self.clear_holds == 0 {
             let value = json!({ "kind": "started" });
             let op_ref = self.op_ref(req, None)?;
             self.submitter = submitter;
@@ -7526,8 +7717,7 @@ impl SessionActor {
             if let Some(priority) = options.priority.take() {
                 entry["priority"] = serde_json::to_value(priority).expect("protocol types serialize");
             }
-            // Likewise the follow-up's `context` (`entry-shape.mjs:32`); the queued turn runs
-            // without it (`queuedTurnInput` re-applies no caller context).
+            // Likewise the follow-up's `context` (`entry-shape.mjs:32`); the drain gives it back to the turn it starts.
             if let Some(context) = options.context.take() {
                 entry["context"] = Value::String(context);
             }
@@ -7650,6 +7840,23 @@ impl SessionActor {
             op: None,
             change: Slot::Inline(change),
         }))
+    }
+
+    /// What [`Inbox::ForkPlan`] answers.
+    pub(super) fn fork_plan(&self, idle: bool) -> Result<ForkSource, CoreError> {
+        self.history_revision(idle).map(|revision| ForkSource {
+            revision,
+            header: self.acked.header.clone(),
+            active_input: self.run.as_ref().map(|run| run.input_item.clone()),
+            hold: None,
+        })
+    }
+
+    /// The idle plan of a clear the gate held, answered at its release: no turn starts until its hold is dropped.
+    pub(super) fn held_plan(&mut self) -> Result<ForkSource, CoreError> {
+        let plan = self.fork_plan(true)?;
+        self.clear_holds += 1;
+        Ok(ForkSource { hold: Some(ClearHold(self.jobs_tx.clone())), ..plan })
     }
 
     fn history_revision(&self, idle: bool) -> Result<HistoryRevision, CoreError> {
@@ -8454,6 +8661,7 @@ impl SessionActor {
             }
             return;
         }
+        let due_now = within_priority(&entry, Priority::Next);
         let record = Record::Queue(QueueRecord {
             qid: id(&qid),
             action: QueueAction::Enqueue,
@@ -8462,9 +8670,12 @@ impl SessionActor {
             entry: Some(Slot::Inline(entry)),
         });
         self.accept_record(record, Class::Normal, Display::None, Vec::new(), acks(durable));
-        self.deps
-            .wakes
-            .interrupt(&self.id, WakeReason::Notification, Some(task_id).filter(|id| !id.is_empty()));
+        // A `later` notice is not due for delivery while the turn runs, so it wakes no wait.
+        if due_now {
+            self.deps
+                .wakes
+                .interrupt(&self.id, WakeReason::Notification, Some(task_id).filter(|id| !id.is_empty()));
+        }
         if live && self.run.is_none() {
             self.start_next_queued();
         }
@@ -8885,6 +9096,7 @@ impl SessionActor {
         let core_abort = self.hold_core().run(&token);
         #[cfg(any(test, feature = "test-support"))]
         self.ledger(format!("run:admitted:{}", work.id));
+        self.deps.wakes.reset(&self.id);
         self.run = Some(RunSlot {
             journal: Default::default(),
             prompt: prompt_state.clone(),

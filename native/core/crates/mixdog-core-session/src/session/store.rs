@@ -209,6 +209,224 @@ struct Rewrites {
     done: tokio::sync::Notify,
 }
 
+/// The session-search copy (the memory service's) a stored session's text is also kept in: an owed session's copy was derived
+/// from its log before the rewrite. It is a debt of its own ([`StoreThreads::discharge_search_debt`]): no search answers the
+/// session until the copy is confirmed gone, while its reads are answered from its release on.
+pub trait SearchCopy: Send + Sync + 'static {
+    /// The session's search rows confirmed gone: `Ok(false)` when no copy is kept at all (nothing is to be indexed again),
+    /// `Ok(true)` when its rows were deleted; `Err` while that is not confirmed.
+    fn invalidate(&self, session: &str) -> futures::future::BoxFuture<'static, Result<bool, String>>;
+
+    /// The session indexed again from its rewritten log after its rows were deleted: `Ok(false)` when it could not be read
+    /// now (a fork whose base still owes its rewrite), to be tried again at a later release.
+    fn reindex(&self, session: &str) -> futures::future::BoxFuture<'static, Result<bool, String>>;
+}
+
+/// The wait before the debts a failed discharge left are tried again.
+const SEARCH_DEBT_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The rewrites an earlier process left owed ([`StoreThreads::owe_marks`]), run behind the serving core: what they have done
+/// and failed of how many, and the sessions a refused read asked for first.
+///
+/// `held` is the log reads' copy of the index's withheld state (`mixdog-store` `withheld`, which decides every index read):
+/// it holds a session from before the catalog withholds it until after the catalog's release has committed, so it never
+/// holds less than the catalog. A log read it lets through is of a session whose release committed, and a release commits
+/// only once the log was rewritten and its rows rebuilt from it; the release is never undone in a boot. So the copy can only
+/// refuse a read the catalog would answer, never answer one the catalog withholds.
+#[derive(Default)]
+struct OwedRewrites {
+    asked: std::sync::Mutex<std::collections::VecDeque<String>>,
+    held: std::sync::RwLock<std::collections::HashSet<String>>,
+    /// The sessions whose rewrite failed in this boot: refused until the next start, and told so.
+    failed: std::sync::Mutex<std::collections::HashSet<String>>,
+    done: std::sync::atomic::AtomicU64,
+    total: std::sync::atomic::AtomicU64,
+}
+
+impl OwedRewrites {
+    /// Boot only ([`StoreThreads::owe_marks`], before anything is served): the one place `held` is added to.
+    fn begin(&self, sessions: impl IntoIterator<Item = String>) {
+        use std::sync::atomic::Ordering::SeqCst;
+        let mut held = self.held.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        held.clear();
+        held.extend(sessions);
+        self.done.store(0, SeqCst);
+        self.total.store(held.len() as u64, SeqCst);
+        self.failed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+    }
+
+    fn holds(&self, session: &str) -> bool {
+        self.held.read().unwrap_or_else(std::sync::PoisonError::into_inner).contains(session)
+    }
+
+    fn held(&self) -> Vec<String> {
+        self.held.read().unwrap_or_else(std::sync::PoisonError::into_inner).iter().cloned().collect()
+    }
+
+    /// After the catalog's release of `session` committed.
+    fn released(&self, session: &str) {
+        self.held.write().unwrap_or_else(std::sync::PoisonError::into_inner).remove(session);
+    }
+
+    fn advance(&self) {
+        self.done.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn fail(&self, session: &str) {
+        self.failed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(session.to_owned());
+    }
+
+    /// A read refused `session`: its rewrite goes next.
+    fn ask(&self, session: &str) {
+        let mut asked = self.asked.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !asked.iter().any(|held| held == session) {
+            asked.push_back(session.to_owned());
+        }
+    }
+
+    fn next_asked(&self) -> Option<String> {
+        self.asked.lock().unwrap_or_else(std::sync::PoisonError::into_inner).pop_front()
+    }
+
+    /// `coreMigrating` of kind `sensitiveRewrite` while `session`'s rewrite is still to come, `sensitiveRewriteFailed` once it
+    /// failed (it is not answered before the next start).
+    fn refusal(&self, session: &str) -> CoreError {
+        use std::sync::atomic::Ordering::SeqCst;
+        let failed = self.failed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(session);
+        let kind = if failed { "sensitiveRewriteFailed" } else { "sensitiveRewrite" };
+        CoreError::CoreMigrating { kind: kind.into(), done: self.done.load(SeqCst), total: self.total.load(SeqCst) }
+    }
+}
+
+/// The owed rewrites [`StoreThreads::owe_marks`] found, each session's file numbers of the journaled marks it settles, to be
+/// run behind the serving core ([`Self::run`]). Dropped unrun, the sessions stay refused until the next start.
+pub struct MarkRewrites {
+    threads: Arc<StoreThreads>,
+    durability: DurabilityIo,
+    progress: Option<Arc<mixdog_store::sqlite::RebuildProgress>>,
+    owed: std::collections::BTreeMap<String, Vec<u64>>,
+    recovered: Vec<u64>,
+}
+
+impl MarkRewrites {
+    /// How many sessions owe their rewrite.
+    pub fn owed(&self) -> usize {
+        self.owed.len()
+    }
+
+    /// The next session to rewrite: one a refused read asked for first, else the next in id order.
+    fn next(&mut self) -> Option<(String, Vec<u64>)> {
+        while let Some(session) = self.threads.owed.next_asked() {
+            if let Some(marks) = self.owed.remove(&session) {
+                return Some((session, marks));
+            }
+        }
+        self.owed.pop_first()
+    }
+
+    /// Each owed session in turn, while the core serves the others: its log rewritten and its rows rebuilt, its search copy
+    /// refreshed, the journal told it is settled (durably), and only then is it answered again. `stop` (a quit) ends it
+    /// between two sessions: what is done stays done (the journal says so), and the next start goes on with the rest. A
+    /// session any step of which fails stays refused, its mark journaled, for the next start; the progress counts it as
+    /// failed, and the error names how many.
+    pub async fn run(mut self, stop: &mixdog_rt::CancellationToken) -> Result<(), CoreError> {
+        use mixdog_core_base::support::on_lane_wait as wait;
+        let (Some(marks), Some(journal)) = (self.threads.sensitive.get().cloned(), self.threads.journal.get().cloned()) else { return Ok(()) };
+        let never = mixdog_rt::CancellationToken::new();
+        let (mut failed, mut first) = (0usize, None);
+        loop {
+            if stop.is_cancelled() {
+                return Ok(());
+            }
+            let Some((session, settles)) = self.next() else { break };
+            match self.settle_one(&marks, &journal, stop, &session, settles).await {
+                Ok(()) => {
+                    self.threads.owed.advance();
+                    if let Some(progress) = &self.progress {
+                        progress.advance();
+                    }
+                }
+                Err(_) if stop.is_cancelled() => return Ok(()),
+                Err(error) => {
+                    tracing::warn!(thread = %session, "an owed sensitive rewrite failed; the session stays unread until the next start: {error:?}");
+                    self.threads.owed.fail(&session);
+                    if let Some(progress) = &self.progress {
+                        progress.fail();
+                    }
+                    failed += 1;
+                    first.get_or_insert(error);
+                }
+            }
+        }
+        if let Some(error) = first {
+            return Err(internal("sensitive-marks", &format!("{failed} session(s) still owe their rewrite (first: {error:?})")));
+        }
+        let (journal, recovered) = (journal.clone(), std::mem::take(&mut self.recovered));
+        wait(self.threads.maintenance, &never, move |_lane| journal.forget_recovered(recovered)).await?;
+        Ok(())
+    }
+
+    /// One session's steps, each only after the one before it held.
+    #[allow(clippy::disallowed_methods, reason = "the journal's files are written inside its maintenance lane job")]
+    async fn settle_one(
+        &self,
+        marks: &Arc<dyn super::seams::SensitiveMarks>,
+        journal: &Arc<super::mark_journal::MarksOnDisk>,
+        stop: &mixdog_rt::CancellationToken,
+        session: &str,
+        settles: Vec<u64>,
+    ) -> Result<(), CoreError> {
+        use mixdog_core_base::support::on_lane_wait as wait;
+        let threads = &self.threads;
+        let never = mixdog_rt::CancellationToken::new();
+        // The search copy's debt is on disk before anything can release the session: from the release on, no search
+        // answers its old copy, whenever the process ends.
+        {
+            let (journal, id) = (journal.clone(), session.to_owned());
+            wait(threads.maintenance, &never, move |_lane| journal.owe_search(&id))
+                .await?
+                .map_err(|error| internal("sensitive-marks-journal", &error))?;
+        }
+        let id = ThreadId::from(session);
+        let mut settles = Some(settles);
+        loop {
+            // The log rewritten and the rows rebuilt from it, still withheld.
+            let version = threads.rewrite_owed(self.durability, stop, marks, session).await?;
+            // The settlement on disk before the release: a crash after the release does not rewrite the session again, and a
+            // failed write leaves it withheld (refused and told failed), never readable and counted failed. A crash between
+            // the two leaves the catalog withholding a settled session: the next start's withholding, which owes it
+            // nothing, drops it.
+            let (journal, held, owed) = (journal.clone(), session.to_owned(), settles.take());
+            wait(threads.maintenance, &never, move |_lane| {
+                if let Some(owed) = owed {
+                    journal.settled(&held, &owed)?;
+                }
+                journal.applied(&held, version);
+                Ok::<(), String>(())
+            })
+            .await?
+            .map_err(|error| internal("sensitive-marks-journal", &error))?;
+            // A mark that arrived since the rewrite keeps the session withheld for another round.
+            if marks.version(&id) != version {
+                if stop.is_cancelled() {
+                    // Settled for what it was rewritten for; the newer mark is journaled and owed by the next start.
+                    return Err(internal("sensitive-marks", &"stopped before a newer mark's round"));
+                }
+                continue;
+            }
+            // The catalog first, then the log reads' gate (`OwedRewrites`).
+            threads.index.release_withheld(session).await.map_err(|error| internal("sensitive-marks-release", &error))?;
+            threads.owed.released(session);
+            // No lock ties a mark to this release. A mark that landed after the check above is a mark on a session about to
+            // be released: the thread its carried listener opens is refused while the gate stands, and that task opens it
+            // again until it is released (`SessionDirectory::carried`), then rewrites it as a released session is for any mark.
+            break;
+        }
+        threads.search_debt.notify_waiters();
+        Ok(())
+    }
+}
+
 /// One running rewrite; ends when dropped.
 struct Rewriting(Arc<Rewrites>);
 
@@ -1120,6 +1338,10 @@ pub struct StoreThreads {
     journal: std::sync::OnceLock<Arc<super::mark_journal::MarksOnDisk>>,
     gate: ReadGate,
     rewrites: Arc<Rewrites>,
+    /// The rewrites an earlier process left owed, run behind the serving core ([`Self::owe_marks`]).
+    owed: Arc<OwedRewrites>,
+    /// Told when a rewritten session is released: its search-copy debt can be discharged ([`Self::discharge_search_debt`]).
+    search_debt: tokio::sync::Notify,
     retention: Arc<std::sync::atomic::AtomicU64>,
     /// What the reads of a thread's rows take from its opened log, by thread, with the stamp of the log it was read from
     /// ([`StoreThreads::shape`]).
@@ -1154,6 +1376,8 @@ impl StoreThreads {
             journal: std::sync::OnceLock::new(),
             gate: ReadGate::default(),
             rewrites: Arc::default(),
+            owed: Arc::default(),
+            search_debt: tokio::sync::Notify::new(),
             retention: Arc::default(),
             shapes: std::sync::Mutex::default(),
             picked: std::sync::Mutex::default(),
@@ -1225,40 +1449,194 @@ impl StoreThreads {
         self.projector.sent.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// The read gate, shared for one lane job of a read (see [`ReadGate`]). Taken after any wait on the projector: a
-    /// rewrite holds the projector while it waits for the gate.
-    fn read_gate(&self) -> std::sync::RwLockReadGuard<'_, u64> {
-        self.gate.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+    /// The read gate, shared for one lane job of a read of `id` (see [`ReadGate`]). Taken after any wait on the projector: a
+    /// rewrite holds the projector while it waits for the gate. Every read of a thread's log or rows takes it first, so a
+    /// thread that still owes a sensitive rewrite from an earlier process is refused here ([`Self::owes_nothing`]).
+    fn read_gate(&self, id: &ThreadId) -> Result<std::sync::RwLockReadGuard<'_, u64>, CoreError> {
+        self.owes_nothing(id.as_str())?;
+        Ok(self.gate.read().unwrap_or_else(std::sync::PoisonError::into_inner))
     }
 
-    /// At start, before any thread is served: the marks this data dir saved are known again, and a thread that owes a rewrite
-    /// for one has it.
-    #[allow(clippy::disallowed_methods, reason = "the session folder is looked up inside the durability lane job")]
-    pub async fn settle_marks(&self, durability: DurabilityIo) -> Result<(), CoreError> {
-        let (Some(marks), Some(journal)) = (self.sensitive.get(), self.journal.get()) else { return Ok(()) };
-        let refused = |what: &str| internal("sensitive-marks", &what);
-        // Each job waits out a full lane: a mark owed is settled, not skipped for a busy one.
+    /// `coreMigrating` while `session` owes the rewrite [`Self::owe_marks`] found: nothing of its log is read before the
+    /// rewrite is done. The refusal never waits (a lane job waiting on the rewrite could hold the lane the rewrite needs);
+    /// it asks the rewrites to take `session` next, so a retry soon reads it.
+    fn owes_nothing(&self, session: &str) -> Result<(), CoreError> {
+        if !self.owed.holds(session) {
+            return Ok(());
+        }
+        self.owed.ask(session);
+        Err(self.owed.refusal(session))
+    }
+
+    /// Tells the search-debt discharge a session was released, as a rewrite's release does.
+    #[cfg(test)]
+    pub(super) fn tell_released(&self) {
+        self.search_debt.notify_waiters();
+    }
+
+    /// The sessions no search may answer: those still owing their sensitive rewrite, and those whose search copy (text from
+    /// before the rewrite) is not yet confirmed gone.
+    pub fn search_withheld(&self) -> Vec<String> {
+        // The copy never holds less than the catalog, and a session's debt is on disk before its release.
+        let mut hidden = self.owed.held();
+        if let Some(journal) = self.journal.get() {
+            hidden.extend(journal.search_owed());
+        }
+        hidden
+    }
+
+    /// Discharges the search-copy debts the journal holds (those an earlier boot left included) through `copy`, as each
+    /// rewritten session is released, until `stop`. A debt leaves the journal only once `copy` confirms its rows gone; one
+    /// that is not confirmed is tried again after a while, and a boot that runs no discharge (no memory runtime) keeps it.
+    /// A session whose rows were deleted is then indexed again; one that cannot be read yet (a fork whose base still owes
+    /// its rewrite) stays pending and is tried again at each later release (a restart's backfill finds it unstamped).
+    #[allow(clippy::disallowed_methods, reason = "the journal's file is removed inside its maintenance lane job")]
+    pub async fn discharge_search_debt(self: Arc<Self>, copy: Arc<dyn SearchCopy>, stop: mixdog_rt::CancellationToken) {
+        use mixdog_core_base::support::on_lane_wait as wait;
+        let Some(journal) = self.journal.get().cloned() else { return };
+        let mut reindex: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        loop {
+            let added = self.search_debt.notified();
+            tokio::pin!(added);
+            added.as_mut().enable();
+            let mut unconfirmed = false;
+            for session in journal.search_owed() {
+                if stop.is_cancelled() {
+                    return;
+                }
+                // Still owing its rewrite: it is told again once released.
+                if self.owed.holds(&session) {
+                    continue;
+                }
+                // A quit does not wait out the copy (a lock it waits on, up to the statement timeout): the debt stays on
+                // disk and the next start discharges it.
+                let invalidated = tokio::select! {
+                    invalidated = copy.invalidate(&session) => invalidated,
+                    () = stop.cancelled() => return,
+                };
+                let confirmed = match invalidated {
+                    Ok(deleted) => {
+                        let (journal, id) = (journal.clone(), session.clone());
+                        wait(self.maintenance, &mixdog_rt::CancellationToken::new(), move |_lane| journal.search_discharged(&id))
+                            .await
+                            .map_err(|error| format!("{error:?}"))
+                            .and_then(|discharged| discharged)
+                            .map(|()| deleted)
+                    }
+                    Err(error) => Err(error),
+                };
+                match confirmed {
+                    // Only rows that were deleted are derived again: no copy kept, nothing is opened for one.
+                    Ok(deleted) => {
+                        if deleted {
+                            reindex.insert(session);
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(thread = %session, "the search copy of a rewritten session is not confirmed gone; no search answers it meanwhile: {error}");
+                        unconfirmed = true;
+                    }
+                }
+            }
+            for session in reindex.clone() {
+                if stop.is_cancelled() {
+                    return;
+                }
+                if self.owed.holds(&session) {
+                    continue;
+                }
+                // Cut short by a quit: its stamp was deleted with its rows, so the next start's backfill indexes it.
+                let reindexed = tokio::select! {
+                    reindexed = copy.reindex(&session) => reindexed,
+                    () = stop.cancelled() => return,
+                };
+                match reindexed {
+                    Ok(true) => {
+                        reindex.remove(&session);
+                    }
+                    // Not readable yet (busy, or a base still owed): tried again at a later release or on the timer.
+                    Ok(false) => {}
+                    Err(error) => {
+                        tracing::warn!(thread = %session, "a rewritten session's search copy was not derived again; it is tried again: {error}");
+                        unconfirmed = true;
+                    }
+                }
+            }
+            // A re-index still pending is tried again on a timer too, not only at a later release (none may come).
+            let retry = async {
+                if unconfirmed || !reindex.is_empty() {
+                    let _ = mixdog_rt::time::timeout(SEARCH_DEBT_RETRY, std::future::pending::<()>()).await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            };
+            tokio::select! {
+                () = added => {}
+                () = retry => {}
+                () = stop.cancelled() => return,
+            }
+        }
+    }
+
+    /// At start, before any thread is served: the marks this data dir saved are known again, and every session that owes a
+    /// rewrite for one is withheld (no read of its log or rows answers until its rewrite is done); then the rewrites, all of
+    /// them. The composition does the two apart ([`Self::owe_marks`], then [`MarkRewrites::run`] behind the serving core).
+    pub async fn settle_marks(self: &Arc<Self>, durability: DurabilityIo, progress: Option<&Arc<mixdog_store::sqlite::RebuildProgress>>) -> Result<(), CoreError> {
+        self.owe_marks(durability, progress).await?.run(&mixdog_rt::CancellationToken::new()).await
+    }
+
+    /// Before any thread is served: the journaled marks restored, and each session still owing its rewrite withheld from every
+    /// read (the index's content of it included) until [`MarkRewrites::run`] has rewritten it. A session a run before already
+    /// rewrote for a mark (the journal names it settled) owes that mark nothing. The rewrites owed are added to `progress`,
+    /// which they advance as they run.
+    pub async fn owe_marks(self: &Arc<Self>, durability: DurabilityIo, progress: Option<&Arc<mixdog_store::sqlite::RebuildProgress>>) -> Result<MarkRewrites, CoreError> {
+        let mut owed = MarkRewrites { threads: self.clone(), durability, progress: progress.cloned(), owed: std::collections::BTreeMap::new(), recovered: Vec::new() };
+        let (Some(marks), Some(journal)) = (self.sensitive.get(), self.journal.get()) else {
+            // No marks bound, so none is owed and the log reads refuse nothing: the catalog agrees.
+            self.index.withhold(Vec::new()).await.map_err(|e| internal("sensitive-marks-withhold", &e))?;
+            return Ok(owed);
+        };
         use mixdog_core_base::support::on_lane_wait as wait;
         let never = mixdog_rt::CancellationToken::new();
         let loaded = {
             let journal = journal.clone();
             wait(self.maintenance, &never, move |_lane| journal.load()).await?
         }
-        .map_err(|e| refused(&e.to_string()))?;
+        .map_err(|e| internal("sensitive-marks", &e))?;
         marks.restore_carries(loaded.carries);
-        if loaded.pending.is_empty() {
-            return Ok(());
-        }
-        let mut recovered = Vec::with_capacity(loaded.pending.len());
-        let mut owed = std::collections::BTreeSet::new();
         for (n, mark) in loaded.pending {
-            recovered.push(n);
-            owed.extend(marks.restore(mark.origin, mark.sessions.into_keys().collect(), mark.values));
+            owed.recovered.push(n);
+            for session in marks.restore(mark.origin, mark.sessions.into_keys().collect(), mark.values) {
+                if !mark.settled.contains(&session) {
+                    owed.owed.entry(session).or_default().push(n);
+                }
+            }
         }
-        for session in owed {
-            let (dir, data, deps) = (self.dir(&session), self.data.clone(), self.writer.clone());
-            let (marks, runtime, index) = (marks.clone(), self.runtime.clone(), self.index.clone());
-            wait(durability, &never, move |lane| -> Result<(), String> {
+        // The log reads' copy first, then the catalog: the copy never holds less than the catalog (`OwedRewrites`). The
+        // catalog is set to exactly these sessions, so whatever an earlier start left withheld and owes nothing now goes.
+        // This is the only place either set is added to, and it runs at boot, before any thread is served: the copy's
+        // safety rests on no session being withheld again after its release in the same boot.
+        self.owed.begin(owed.owed.keys().cloned());
+        self.index.withhold(owed.owed.keys().cloned().collect()).await.map_err(|e| internal("sensitive-marks-withhold", &e))?;
+        if let Some(progress) = progress {
+            progress.extend(owed.owed.len());
+        }
+        Ok(owed)
+    }
+
+    /// One owed session's log rewritten for every value its marks hold, and its rows rebuilt from the rewritten log; again
+    /// while a mark arrived meanwhile. The version of the marks it was rewritten for.
+    #[allow(clippy::disallowed_methods, reason = "the session folder is looked up inside the durability lane job")]
+    async fn rewrite_owed(&self, durability: DurabilityIo, stop: &mixdog_rt::CancellationToken, marks: &Arc<dyn super::seams::SensitiveMarks>, session: &str) -> Result<u64, CoreError> {
+        // The job waits out a full lane: a mark owed is settled, not skipped for a busy one; a quit ends the wait.
+        use mixdog_core_base::support::on_lane_wait as wait;
+        let id = ThreadId::from(session);
+        loop {
+            let version = marks.version(&id);
+            let (dir, data, deps, session) = (self.dir(session), self.data.clone(), self.writer.clone(), session.to_owned());
+            let (rewriting, runtime, index) = (marks.clone(), self.runtime.clone(), self.index.clone());
+            wait(durability, stop, move |lane| -> Result<(), String> {
+                // The rebuilt rows stay withheld: the session is released apart, once settled ([`MarkRewrites::settle_one`]).
                 let mut index_step = || {
                     let rewrite = mixdog_store::sqlite::Rewritten { data: data.clone(), session: session.clone(), dirty: DirtyMark::Set };
                     let block = || runtime.block_on(index.reproject(rewrite));
@@ -1293,18 +1671,18 @@ impl StoreThreads {
                     mixdog_store::fsio::sweep_tmp(lane, &dir).map_err(|e| e.to_string())?;
                 }
                 let id = ThreadId::from(session.as_str());
-                let mut replace = marks.rewriter(&id);
+                let mut replace = rewriting.rewriter(&id);
                 if mixdog_store::log_rewrite::plan(lane, &data, &session, &*deps.io, &deps.blobs, &mut *replace).map_err(|e| e.to_string())? {
                     settle()?;
                 }
                 Ok(())
             })
             .await?
-            .map_err(|error| refused(&error))?;
+            .map_err(|error| internal("sensitive-marks", &error))?;
+            if marks.version(&id) == version {
+                return Ok(version);
+            }
         }
-        let journal = journal.clone();
-        wait(self.maintenance, &never, move |_lane| journal.forget_recovered(recovered)).await?;
-        Ok(())
     }
 
     /// The marks the session actors take (`SessionDeps::sensitive`, the same instance): a log rewrites what it wrote before
@@ -1402,7 +1780,7 @@ impl StoreThreads {
     }
 
     pub(super) fn search_shape(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Arc<LogShape>, CoreError> {
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         self.shape(lane, id)
     }
 
@@ -1493,14 +1871,14 @@ impl StoreThreads {
     /// The shape a row read of `id` takes now, under the read gate as a read holds it.
     #[cfg(test)]
     pub(super) fn shape_now(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Arc<LogShape> {
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id).expect("the thread owes no rewrite");
         self.shape(lane, id).expect("the thread's shape")
     }
 
     /// What `shape` answers for `id` against an open made now: its history revision and inherited-history cut, each twice.
     #[cfg(test)]
     pub(super) fn shape_and_open(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> ((u64, Option<u64>), (u64, Option<u64>)) {
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id).expect("the thread owes no rewrite");
         let shape = self.shape(lane, id).expect("the thread's shape");
         let opened = self.open(lane, id).expect("the thread's log");
         ((shape.history_rev, shape.base_cut), (opened.fold.history_rev, opened.fold.base_cut))
@@ -1552,6 +1930,8 @@ impl StoreThreads {
             if levels.len() >= MAX_LINEAGE {
                 return Err(internal("lineage", &"fork chain too deep"));
             }
+            // A fork reads its base's log: a base that owes its sensitive rewrite is not read through the fork either.
+            self.owes_nothing(level.session.as_str())?;
             let dir = self.dir(level.session.as_str());
             let head = log::read_head(lane, &dir).map_err(|e| internal("lineage", &e))?;
             let tail = log::read_tail(lane, head, &self.blobs, &self.index)
@@ -1680,7 +2060,7 @@ impl StoreThreads {
         } else {
             self.wait(lane, barrier)?;
         }
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         loop {
             if let Some(cancel) = cancel { check_turn_read_cancel(cancel)?; }
             let shape = self.shape(lane, id)?;
@@ -1852,7 +2232,7 @@ impl ThreadStore for StoreThreads {
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
     ) -> Result<HeadRead, CoreError> {
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         if !self.dir(id.as_str()).is_dir() {
             return Err(Self::not_found(id));
         }
@@ -1866,7 +2246,7 @@ impl ThreadStore for StoreThreads {
 
     #[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof argument)")]
     fn read_header(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError> {
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         if !self.dir(id.as_str()).is_dir() {
             return Err(Self::not_found(id));
         }
@@ -1913,7 +2293,7 @@ impl ThreadStore for StoreThreads {
     }
 
     fn read_log_id(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError> {
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         Ok(self.open(lane, id)?.fold.log_id.clone())
     }
 
@@ -1928,7 +2308,7 @@ impl ThreadStore for StoreThreads {
         self.wait(lane, self.projector.caught_up())?;
         // The head was read in an earlier job; only the thread's own loaded actor rewrites its log, and a head is read
         // to load the thread, so no rewrite of this log comes between the two.
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         let opened = head
             .0
             .downcast_ref::<log::OpenedLog>()
@@ -2050,7 +2430,7 @@ impl ThreadStore for StoreThreads {
         id: &ThreadId,
     ) -> Result<Vec<ItemRecord>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
         let prompts = self
@@ -2079,7 +2459,7 @@ impl ThreadStore for StoreThreads {
         want: usize,
     ) -> Result<(u64, Vec<ItemRecord>, bool), CoreError> {
         self.wait(lane, self.projector.caught_up())?;
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         loop {
             let shape = self.shape(lane, id)?;
             let Some((mut rows, complete)) = self.read_rows(lane, id, &shape.lineage, shape.base_cut, None, want)? else {
@@ -2103,7 +2483,7 @@ impl ThreadStore for StoreThreads {
 
         const RECORDS_PER_CHUNK: usize = 16;
         check_turn_read_cancel(cancel)?;
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         check_turn_read_cancel(cancel)?;
         let (shape, cursor) = match after {
             Some(after) => *after.0.downcast::<(Arc<LogShape>, PageCursor)>().expect("turn history cursor"),
@@ -2163,7 +2543,7 @@ impl ThreadStore for StoreThreads {
 
     fn window_archived(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<u64>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
         // The rows `read_window` reads, and its verdict of them.
@@ -2188,7 +2568,7 @@ impl ThreadStore for StoreThreads {
         rows: usize,
     ) -> Result<Option<HistoryBefore>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         loop {
             let opened = self.open(lane, id)?;
             let lineage = self.lineage(lane, &opened.fold)?;
@@ -2214,7 +2594,7 @@ impl ThreadStore for StoreThreads {
 
     fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<StoredOp>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         let Some(row) = self.index.thread_op_on_lane(lane, id.as_str(), op).map_err(|e| internal("thread-op", &e))? else {
             return Ok(None);
         };
@@ -2238,7 +2618,7 @@ impl ThreadStore for StoreThreads {
 
     fn submission(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, submission: &str) -> Result<Option<Value>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         self.index.submission_on_lane(lane, id.as_str(), submission).map_err(|e| internal("submission", &e))
     }
 
@@ -2255,7 +2635,7 @@ impl ThreadStore for StoreThreads {
         iid: &str,
     ) -> Result<Option<(u64, ItemRecord)>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         'read: loop {
             let opened = self.open(lane, id)?;
             let lineage = self.lineage(lane, &opened.fold)?;
@@ -2284,7 +2664,7 @@ impl ThreadStore for StoreThreads {
         iid: &str,
     ) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
         self.index
@@ -2349,6 +2729,7 @@ impl ThreadStore for StoreThreads {
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
         let (projector, index, lane, data) = (self.projector.clone(), self.index.clone(), self.maintenance, self.data.clone());
         Box::pin(async move {
+            // A session still owing its rewrite is left for a later purge by the index itself.
             projector.caught_up().await?;
             index.purge_deleted(lane, data).await.map_err(|e| internal("purge", &e))
         })
@@ -2365,10 +2746,10 @@ impl ThreadStore for StoreThreads {
         let Some(read) = read else {
             // The read must see every row acked so far.
             self.wait(lane, self.projector.caught_up())?;
-            let gate = self.read_gate();
+            let gate = self.read_gate(id)?;
             return Ok(ContextRead(Box::new(self.context_start(lane, id, *gate, 0)?)));
         };
-        let gate = self.read_gate();
+        let gate = self.read_gate(id)?;
         let mut state = *read.0.downcast::<ContextState>().expect("StoreThreads context");
         // A log rewritten since the read's earlier jobs: their positions and blobs are of the old log, so it starts again.
         if state.generation != *gate {
@@ -2431,14 +2812,14 @@ impl ThreadStore for StoreThreads {
     fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError> {
         // The read must see every row acked so far, as a context read does.
         self.wait(lane, self.projector.caught_up())?;
-        let _gate = self.read_gate();
+        let _gate = self.read_gate(id)?;
         let shape = self.shape(lane, id)?;
         self.index.context_len_on_lane(lane, &shape.lineage, shape.base_cut).map_err(|e| internal("context", &e))
     }
 
     fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<ContextRead, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
-        let gate = self.read_gate();
+        let gate = self.read_gate(id)?;
         Ok(ContextRead(Box::new(self.context_start(lane, id, *gate, skip)?)))
     }
 
@@ -2449,6 +2830,11 @@ impl ThreadStore for StoreThreads {
         id: &ThreadId,
         at: AppendPosition,
     ) -> Result<Box<dyn SessionLog>, BarrierError> {
+        // Its rewrite runs on the log without a writer: none is opened before it is done (a head was read before, so this is
+        // only ever a thread whose head no read refused).
+        if self.owed.holds(id.as_str()) {
+            return Err(BarrierError::failed("sensitiveRewriteOwed"));
+        }
         let opened = *at.0.downcast::<log::OpenedLog>().expect("StoreThreads position");
         self.wait(lane, self.index.mark_dirty(id.as_str()))
             .map_err(|e| BarrierError::failed(&format!("index:{e}")))?;

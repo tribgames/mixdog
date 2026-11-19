@@ -24,6 +24,7 @@ mixdog-trace = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }
+tracing = { workspace = true }
 mixdog-core-base = { workspace = true }
 mixdog-core-ports = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }

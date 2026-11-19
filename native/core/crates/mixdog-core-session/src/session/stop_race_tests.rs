@@ -497,6 +497,57 @@ async fn a_stop_during_the_settlement_freezes_the_queued_completion_and_a_later_
     assert!(handle.cell.queued.load().is_empty());
 }
 
+/// A Stop during the settlement freezes the batch of the wake it cancels, and only that: with a `next` completion (A) and a `later`
+/// channel message (C) queued, the impending wake is A's alone (`dequeueQueueBatch` takes one priority bucket), so C is not stopped
+/// and runs as a wake of its own once the settlement finishes.
+#[tokio::test(start_paused = true)]
+async fn a_stop_during_the_settlement_leaves_a_notice_of_another_priority_queued() {
+    let rig = Rig::new();
+    let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+    rig.set_script(provider(seen.clone(), Arc::new(Notify::new())));
+    let release: Arc<Notify> = Arc::default();
+    let settled: Arc<std::sync::atomic::AtomicUsize> = Arc::default();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.goals = Arc::new(super::tests::HeldSettle { goals: rig.goals.clone(), release: release.clone(), settled: settled.clone() });
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    super::tests::turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.turn_held.load(SeqCst) && settled.load(SeqCst) == 0).then_some(())).await;
+    directory.queue_completion_durably(&handle.id, "shell", "job-a", "completed", "job-a finished.".into()).await.expect("A is queued durably");
+    let (durable, saved) = tokio::sync::oneshot::channel();
+    let channel = super::actor::Inbox::TaskNotification {
+        surface: "channel".into(),
+        task_id: String::new(),
+        status: "completed".into(),
+        text: "a channel message".into(),
+        origin: Some(super::completions::ORIGIN_CHANNEL),
+        hop: 0,
+        live: true,
+        durable: Some(durable),
+    };
+    handle.inbox.send(channel).await.expect("the actor runs");
+    saved.await.expect("answered").expect("C is queued durably");
+    let queued = handle.cell.queue.load_full();
+    let qid_of = |channel: bool| {
+        queued.iter().find(|q| super::completions::is_channel(&q.entry) == channel).map(|q| q.qid.clone()).expect("queued")
+    };
+    let (a, c) = (qid_of(false), qid_of(true));
+    let reply = awaiting(|| "the Stop's reply".to_owned(), stop(&handle)).await.expect("stop task");
+    assert_eq!(reply["aborted"], json!(true), "{reply}");
+    let frozen = ledger(&handle).into_iter().find(|event| event.starts_with("stop:frozen:")).expect("the Stop froze its targets");
+    assert!(frozen.contains(&work_stops::queued(&a)), "{frozen}");
+    assert!(!frozen.contains(&work_stops::queued(&c)), "the later notice is not the cancelled wake's: {frozen}");
+    release.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (seen.lock().unwrap().len() == 2).then_some(())).await;
+    release.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && settled.load(SeqCst) == 2).then_some(())).await;
+    let seen = seen.lock().unwrap().clone();
+    assert!(seen[1].contains("a channel message") && !seen[1].contains("job-a"), "C ran alone: {seen:?}");
+    let header = rig.store.stored_header(&handle.id).expect("header");
+    assert!(work_stops::stopped(&header, &work_stops::queued(&c)).is_none(), "C is not stopped");
+    assert!(handle.cell.queued.load().is_empty());
+}
+
 
 /// The same with nothing queued for the wake when the Stop is taken: it freezes nothing and prohibits nothing; B, arriving after it,
 /// runs once the settlement finishes.

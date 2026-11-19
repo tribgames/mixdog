@@ -346,6 +346,16 @@ impl Outbox {
         })
     }
 
+    /// The last entry accepted.
+    pub fn last_id(&self) -> Option<u64> {
+        self.entries.back().map(|entry| entry.id)
+    }
+
+    /// Some record accepted at or before entry `id` is not stored yet.
+    pub fn unwritten_through(&self, id: u64) -> bool {
+        self.entries.iter().take_while(|entry| entry.id <= id).any(|entry| entry.durable.as_ref().is_some_and(|durable| !matches!(durable.stage, Stage::Acked(_))))
+    }
+
     /// Some record a failed barrier left, held or kept, waits for a retry.
     pub fn awaits_retry(&self) -> bool {
         self.entries.iter().any(|entry| matches!(entry.durable, Some(Durable { stage: Stage::Held(_), .. })))

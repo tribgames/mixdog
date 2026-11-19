@@ -1275,7 +1275,7 @@ impl World {
         let Some(Waiting { aid, run }) = waiting else {
             // No card is pending (an unattended run answered the call itself): the response reaches none.
             let last = ApprovalId(self.client.ids.load(Ordering::SeqCst));
-            let accepted = self.client.book.lock().unwrap().validate(&last.request_id(), &result, DeviceInfo { device, kind: ConnectionKind::Desktop }, self.now_ms);
+            let accepted = self.client.book.lock().unwrap().validate(&last.request_id(), &result, DeviceInfo { device, kind: ConnectionKind::Desktop }, self.now_ms, mixdog_protocol::Origin::Local);
             assert!(matches!(accepted, Ok(None)), "a response to no pending card is a no-op: {accepted:?}");
             return None;
         };

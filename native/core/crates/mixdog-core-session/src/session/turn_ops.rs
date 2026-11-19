@@ -199,10 +199,12 @@ pub trait ManualCompaction: Send + Sync {
     ///
     /// `cancel` is the session's abort signal (`getSessionAbortSignal`): the pass ends with its text when it fires.
     async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, cancel: &mixdog_agent::cancel::Cancel) -> Result<Option<Value>, CoreError>;
-    /// `compactConversationForHeir` (`inheritance.mjs`): the conversation of `source` compacted to fit `budget_tokens`, on a
-    /// copy - nothing of the source is touched. `summarize` (an explicitly chosen compacted carry) summarizes whatever the
-    /// size. The rows of the result, system blocks included; `None` when the compaction yields no conversation.
-    async fn compact_for_heir(&self, source: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError>;
+    /// `compactConversationForHeir` (`inheritance.mjs`): `rows`, the conversation of `source` the carry measured (its committed
+    /// turns as bound to the heir's prefix, `carrySource`, after the source's system blocks), compacted to fit `budget_tokens`
+    /// by the source's compactor, on a copy - nothing of the source is touched. `summarize` (an explicitly chosen compacted
+    /// carry) summarizes whatever the size. The rows of the result, system blocks included; `None` when the compaction yields
+    /// no conversation.
+    async fn compact_for_heir(&self, source: &ThreadId, rows: &[Value], budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError>;
     /// `session.postCompactHook({ trigger })`, best-effort.
     async fn post_compact(&self, thread: &ThreadId, trigger: &str);
     /// `pruneOffloadSession`'s listing, after a committed compaction: the session's tool-result sidecars old
@@ -280,6 +282,18 @@ pub struct Books {
 pub fn compact_trigger(options: Option<&Value>) -> (&'static str, bool) {
     let require_reduction = options.and_then(|options| options.get("requireReduction")) == Some(&Value::Bool(true));
     (if require_reduction { "auto_clear" } else { "manual" }, require_reduction)
+}
+
+/// A user's own `/compact` (`compactCommand`): not a side question's idle-only pass nor an auto-clear, which keep their refusal
+/// while a turn runs.
+pub fn is_user_compaction(options: Option<&serde_json::Value>) -> bool {
+    let set = |key: &str| options.and_then(|options| options.get(key)) == Some(&serde_json::Value::Bool(true));
+    !set("idleOnly") && !set("requireReduction")
+}
+
+/// The answer of a user's compaction scheduled for the turn's end (`scheduleCompactForTurnEnd`).
+pub fn compact_scheduled_for_turn_end() -> serde_json::Value {
+    serde_json::json!({ "changed": false, "scheduled": true })
 }
 
 /// The answer of a compaction refused because a turn runs.

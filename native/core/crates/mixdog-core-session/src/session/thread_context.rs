@@ -407,7 +407,18 @@ mod tests {
             }
             let name = case["name"].as_str().expect("name");
             let answer = host.context_status(Some(ThreadId::from(name.to_owned())), None).await.expect("status");
-            assert_eq!(answer, case["status"], "{name}");
+            // Intended departures of the core's usage block (`usage_counters`): a last-request reading the session does not hold
+            // stays unknown (null) where Node read it as 0, and the prompt total (`lastPromptTokens`) sits beside Node's split.
+            let header = &case["header"];
+            let mut want = case["status"].clone();
+            let usage = want["usage"].as_object_mut().expect("usage");
+            for (key, value) in usage.iter_mut() {
+                if key.starts_with("last") && *value == Value::from(0) && header.get(key) != Some(&Value::from(0)) {
+                    *value = Value::Null;
+                }
+            }
+            usage.insert("lastPromptTokens".into(), header.get("lastPromptTokens").filter(|v| v.is_number()).cloned().unwrap_or(Value::Null));
+            assert_eq!(answer, want, "{name}");
             compared += 1;
         }
         assert_eq!(compared, 2, "empty-transcript cases compared");

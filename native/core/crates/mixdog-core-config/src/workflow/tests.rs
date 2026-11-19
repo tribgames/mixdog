@@ -200,6 +200,17 @@ async fn the_sections_push_the_values_of_the_actions_and_only_what_changed() {
 fn fixtures() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/workflow-config")
 }
+/// An explicit route leaf (not the follow-Main marker) and its fallbacks with the Standard speed Node's save left out.
+#[cfg(node_twin)]
+fn speed_kept(route: &mut Value) {
+    let Some(leaf) = route.as_object_mut() else { return };
+    if leaf.get("provider") != Some(&json!("default")) {
+        leaf.entry("fast").or_insert(json!(false));
+    }
+    if let Some(fallbacks) = leaf.get_mut("fallbacks").and_then(Value::as_array_mut) {
+        fallbacks.iter_mut().for_each(speed_kept);
+    }
+}
 #[cfg(node_twin)]
 #[tokio::test]
 async fn methods_match_node() {
@@ -264,7 +275,12 @@ async fn methods_match_node() {
             assert_eq!(without_empty_params(got), without_empty_params(want), "{name} #{i} {method} {}", step["params"]);
             // The recording's config is Node's in-memory agent section (nothing off unless it lists `disabledAgents`); `Config` holds
             // the stored delta form, which the seed above built the same way.
-            let want_config = crate::config::agent_routes::stored_file_of(&step["config"])["agent"].clone();
+            let mut want_config = crate::config::agent_routes::stored_file_of(&step["config"])["agent"].clone();
+            // Departure: a saved explicit web-search route keeps its resolved speed, Standard (`fast: false`) included, so a reloaded
+            // route reads back at the speed it was saved at (`stored_web_search_route`); Node's save dropped `fast: false`.
+            if method == "setWebSearchRoute" && step.get("error").is_none() {
+                speed_kept(&mut want_config["webSearchRoute"]);
+            }
             assert_eq!(scrub(&Value::Object(config.agent()), &data.to_string_lossy()), want_config, "{name} #{i} {method} config");
             let files: BTreeMap<String, String> = serde_json::from_value(step["files"].clone()).unwrap();
             assert_eq!(files_of(&data), files, "{name} #{i} {method} files");

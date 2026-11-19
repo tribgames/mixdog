@@ -18,6 +18,7 @@ use serde_json::json;
 
 use super::transcript_convert::Ctx;
 use super::transcript_convert::item_of;
+use super::transcript_convert::message_items;
 use super::transcript_rows::model_switch_id;
 use super::transcript_rows::model_switch_row;
 use crate::session::seams::Shown;
@@ -56,14 +57,28 @@ pub(in crate::session) fn fold_model_switches(record: &mut ItemRecord, switches:
     }
 }
 
-/// The live row of a boundary record committed on `anchor`, with the id its restored row
-/// carries; nothing when the anchor's own row is not a model message.
+/// The live row of a boundary record committed on `anchor` (as a reader shows it, its recorded
+/// boundaries folded in): the row its restore shows, history position included; nothing when the
+/// anchor's own row is not a model message.
 pub(in crate::session) fn live_model_switch(anchor: &ItemRecord, entry: &ModelSwitchEntry) -> Option<Shown> {
     if anchor.form != Form::Message {
         return None;
     }
     let entry = serde_json::to_value(entry).ok()?;
-    model_switch_item(anchor.iid.as_str(), anchor.turn.as_ref().map(|t| t.as_str()), &entry)
+    let live = model_switch_item(anchor.iid.as_str(), anchor.turn.as_ref().map(|t| t.as_str()), &entry)?;
+    let Slot::Inline(body) = &anchor.body else { return Some(live) };
+    let folded = with_model_switch(body, &entry).unwrap_or_else(|| body.clone());
+    let mut record = anchor.clone();
+    record.body = Slot::Inline(folded.clone());
+    let id = live_id(&live);
+    // Two switches at one time on one anchor share the id: the boundary just folded in is the last of them.
+    message_items(&record, &folded).into_iter().rfind(|shown| live_id(shown) == id).or(Some(live))
+}
+
+fn live_id(shown: &Shown) -> &str {
+    match shown {
+        Shown::Item(item) | Shown::Update(item) => item.id().as_str(),
+    }
 }
 
 /// The anchor id of a boundary on a compaction's replacement entry (the summary, the context
@@ -146,7 +161,8 @@ mod tests {
         let entry = json!({ "provider": "openai", "modelId": "next", "at": 200 });
         let folded = with_model_switch(&anchor, &entry).expect("a new switch");
         let restored = message_items(&record("a1", &folded), &folded);
-        let live = model_switch_item("a1", None, &entry).expect("live row");
+        let stored: ModelSwitchEntry = serde_json::from_value(entry.clone()).expect("a stored entry");
+        let live = live_model_switch(&record("a1", &anchor), &stored).expect("live row");
         assert_eq!(restored.len(), 2, "the reply, then the switch row");
         assert_eq!(restored[1], live);
         assert_eq!(id_of(&live), "a1:model:200");

@@ -241,6 +241,82 @@ async fn a_restore_after_the_judgment_refuses_the_retention_delete() {
     assert!(!world.rig.archive.resolve(&id, world.handle.cell.header.load().get("archivedAt")).archived(), "restored");
 }
 
+/// A deleted bot's archived home chat deleted again takes the bot's definition for good (`deleteSessionLocked`); a home chat of a
+/// bot that still exists is only deleted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleting_a_retired_bots_home_chat_purges_the_bot() {
+    let world = world().await;
+    for (agent, retired) in [("probe", true), ("kept", false)] {
+        let id = mixdog_core_base::rooms::ids::agent_home_session_id(agent).expect("a home session id");
+        let mut header = serde_json::Map::new();
+        header.insert("cwd".into(), json!("/ws"));
+        if retired {
+            header.insert("retiredAt".into(), json!(1_793_306_570_000_i64));
+        }
+        world.directory.create_with_id(mixdog_core_api::ids::ThreadId::from(id.clone()), header, json!({})).await.expect("home chat");
+        let handle = world.directory.handle(&mixdog_core_api::ids::ThreadId::from(id.clone())).expect("loaded");
+        handle.request(request("thread/delete", json!({ "threadId": id, "opId": "op-del" }), "op-del")).await.expect("delete");
+    }
+    let steps = lock(&world.rig.deletes.0).clone();
+    assert!(steps.contains(&"purgeAgentDefinition:probe".to_owned()), "{steps:?}");
+    assert!(!steps.iter().any(|step| step == "purgeAgentDefinition:kept"), "{steps:?}");
+}
+
+/// The user favorites the session while the idle delete waits between its judgment and its admission: the delete rereads the
+/// flag at its close and refuses, and the favorite stays.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_favorite_after_the_judgment_refuses_the_idle_delete() {
+    let world = world().await;
+    world.flags(true, false).await;
+    let id = world.handle.id.as_str().to_owned();
+    let used = world.directory.session_meta(&world.handle.id).await.expect("meta").expect("listed").last_used_at;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (go, go_rx) = tokio::sync::oneshot::channel();
+    super::delete::JUDGED_HOLDS.lock().unwrap().push((id.clone(), arrived_tx, go_rx));
+    let favorite = async {
+        arrived.await.expect("the delete judged");
+        world.flags(true, true).await;
+        go.send(()).expect("the delete waits");
+    };
+    let (reply, ()) = tokio::join!(world.ask(&id, json!({ "lastUsedAt": used })), favorite);
+    assert_eq!(reply, json!({ "deleted": false, "reason": "favorite" }));
+    assert!(world.directory.is_open(&world.handle.id), "the session stays");
+}
+
+/// A favorite the session accepted whose save is still owed when the idle delete arrives: the delete sees it (the accepted header,
+/// not the shown one), refuses, and the favorite lands. The favorite is written as `setSessionFavorite` writes it
+/// (`ThreadSettings::update_header`, through `patch_header_if`): a conditional patch, which the outbox shows (applies to the state
+/// `cell.header` publishes) only once durable, so while its save is held neither the shown header nor the store holds it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_favorite_accepted_but_not_yet_saved_refuses_the_idle_delete() {
+    use mixdog_store::schema::record::Record;
+    use mixdog_store::schema::blob::Slot;
+    let world = world().await;
+    world.flags(true, false).await;
+    let id = world.handle.id.as_str().to_owned();
+    let used = world.directory.session_meta(&world.handle.id).await.expect("meta").expect("listed").last_used_at;
+    let (saving, save) = world.rig.store.hold_record(|record| {
+        matches!(record, Record::Meta(meta) if matches!(&meta.change, Slot::Inline(change) if change.set.contains_key("favoriteAt")))
+    });
+    let params = json!({ "threadId": world.handle.id, "expect": { "favoriteAt": null }, "set": { "favoriteAt": 1_793_306_570_000_i64 }, "unset": [] });
+    let favorite = world.handle.request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("thread-settings") });
+    tokio::pin!(favorite);
+    tokio::select! {
+        answered = &mut favorite => panic!("the favorite was answered past the gate: {answered:?}"),
+        () = saving.notified() => {}
+    }
+    // Inside the interval: accepted, its save held at the store, not yet shown.
+    assert!(!super::delete::sidebar_flag(&world.handle.cell.header.load(), "favoriteAt"), "the shown header waits for the save");
+    assert!(!super::delete::sidebar_flag(&world.rig.store.stored_header(&world.handle.id).expect("stored"), "favoriteAt"), "nothing is durable yet");
+    let reply = world.ask(&id, json!({ "lastUsedAt": used })).await;
+    save.send(()).expect("the save waits");
+    let answered = favorite.await.expect("the favorite is saved");
+    assert!(matches!(&answered, Reply::Value(value) if value.get("conflict").is_none()), "{answered:?}");
+    assert_eq!(reply, json!({ "deleted": false, "reason": "favorite" }));
+    assert!(world.directory.is_open(&world.handle.id), "the session stays");
+    assert!(super::delete::sidebar_flag(&world.handle.cell.header.load(), "favoriteAt"), "the favorite is kept");
+}
+
 /// After the archive entries were lost (the state database was set aside), an archive only a header still states is not one the
 /// retention may act on (`trusted`, which the idle delete and the pass's archive stamp ask): it may be a restore the user made.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

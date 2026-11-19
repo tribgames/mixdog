@@ -158,8 +158,8 @@ impl ManualCompaction for Pruning {
     async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, cancel: &mixdog_agent::cancel::Cancel) -> Result<Option<Value>, CoreError> {
         self.rig.compact(thread, trigger, require_reduction, cancel).await
     }
-    async fn compact_for_heir(&self, source: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError> {
-        self.rig.compact_for_heir(source, budget_tokens, summarize).await
+    async fn compact_for_heir(&self, source: &ThreadId, rows: &[Value], budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError> {
+        self.rig.compact_for_heir(source, rows, budget_tokens, summarize).await
     }
     async fn post_compact(&self, thread: &ThreadId, trigger: &str) {
         self.rig.post_compact(thread, trigger).await;

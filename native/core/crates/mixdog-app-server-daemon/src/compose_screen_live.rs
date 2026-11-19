@@ -81,6 +81,16 @@ enum Op {
     Frame(String, ScreenFrame),
 }
 
+impl Op {
+    fn key(&self) -> &str {
+        match self {
+            Self::Geometry(key, _) | Self::Capture(key) | Self::Channel(key, _) | Self::Drawn(key, _) | Self::Frame(key, _) => key,
+        }
+    }
+}
+
+type Event = (Option<u64>, Op);
+
 struct Core {
     host: LiveHost,
     screens: Arc<dyn PhoneScreens>,
@@ -90,42 +100,62 @@ struct Core {
 /// The live view's screens (see the module header).
 pub(crate) struct ScreenLive {
     core: Arc<Core>,
-    ops: mpsc::UnboundedSender<Op>,
+    ops: mpsc::UnboundedSender<Event>,
 }
 
-struct Sink(mpsc::UnboundedSender<Op>);
+struct Sink {
+    ops: mpsc::UnboundedSender<Event>,
+    session: Option<u64>,
+}
+
+impl Sink {
+    fn send(&self, op: Op) {
+        let _ = self.ops.send((self.session, op));
+    }
+}
 
 impl ScreenSink for Sink {
+    fn for_session(&self, id: u64) -> Option<Arc<dyn ScreenSink>> {
+        Some(Arc::new(Self { ops: self.ops.clone(), session: Some(id) }))
+    }
+
     fn geometry_changed(&self, key: &str, geometry: Option<Value>) {
-        let _ = self.0.send(Op::Geometry(key.to_owned(), geometry));
+        self.send(Op::Geometry(key.to_owned(), geometry));
     }
 
     fn capture_changed(&self, key: &str) {
-        let _ = self.0.send(Op::Capture(key.to_owned()));
+        self.send(Op::Capture(key.to_owned()));
     }
 
     fn channel_push(&self, key: &str, message: Value) {
-        let _ = self.0.send(Op::Channel(key.to_owned(), message));
+        self.send(Op::Channel(key.to_owned(), message));
     }
 
     fn drawn_track(&self, key: &str, drawn: bool) {
-        let _ = self.0.send(Op::Drawn(key.to_owned(), drawn));
+        self.send(Op::Drawn(key.to_owned(), drawn));
     }
 
     fn frame(&self, key: &str, frame: ScreenFrame) {
-        let _ = self.0.send(Op::Frame(key.to_owned(), frame));
+        self.send(Op::Frame(key.to_owned(), frame));
     }
 }
 
 impl ScreenLive {
     /// Must be made inside the runtime.
     pub(crate) fn new(host: LiveHost, screens: Arc<dyn PhoneScreens>) -> Arc<Self> {
-        let (ops, mut queue) = mpsc::unbounded_channel();
+        let (ops, mut queue) = mpsc::unbounded_channel::<Event>();
         let core = Arc::new(Core { host, screens, feeds: Mutex::default() });
         let worker = core.clone();
         mixdog_rt::spawn("live-view-screen", TaskClass::Work, async move {
-            while let Some(op) = queue.recv().await {
-                worker.apply(op);
+            while let Some((session, op)) = queue.recv().await {
+                worker.host.screen_event(|| {
+                    // A rapid stop/start can replace the source before its queued stop or
+                    // status reaches us. The display key alone no longer identifies it.
+                    let current = lock(&worker.feeds).get(op.key()).and_then(|feed| feed.viewer.as_ref()).map(|viewer| viewer.id());
+                    if session.is_none() || current == session {
+                        worker.apply(op);
+                    }
+                });
             }
         });
         Arc::new(Self { core, ops })
@@ -133,13 +163,17 @@ impl ScreenLive {
 
     /// The sink the screen sources report to.
     pub(crate) fn sink(&self) -> Arc<dyn ScreenSink> {
-        Arc::new(Sink(self.ops.clone()))
+        Arc::new(Sink { ops: self.ops.clone(), session: None })
     }
 
     /// The host's source for a client's screen signal: the session of `screen_id` for its owner, one made for the owner's `ready`.
     pub(crate) fn source(&self, screen_id: &str, connection: ConnectionId, ready: bool) -> Option<Arc<dyn VideoSource>> {
         let viewer = self.core.screens.resolve(screen_id, connection, ready)?;
-        lock(&self.core.feeds).entry(format!("{KEY_PREFIX}{screen_id}")).or_default().viewer = Some(viewer.clone());
+        let mut feeds = lock(&self.core.feeds);
+        let feed = feeds.entry(format!("{KEY_PREFIX}{screen_id}")).or_default();
+        if feed.viewer.as_ref().is_none_or(|active| active.id() != viewer.id()) {
+            *feed = Feed { viewer: Some(viewer.clone()), ..Feed::default() };
+        }
         Some(Arc::new(ScreenPage { viewer }))
     }
 
@@ -160,8 +194,11 @@ impl ScreenLive {
     }
 
     /// The screen ended: its track goes.
-    pub(crate) fn closed(&self, key: &str) {
-        lock(&self.core.feeds).remove(key);
+    pub(crate) fn closed(&self, key: &str, session: Option<u64>) {
+        let mut feeds = lock(&self.core.feeds);
+        if session.is_none() || feeds.get(key).and_then(|feed| feed.viewer.as_ref()).map(|viewer| viewer.id()) == session {
+            feeds.remove(key);
+        }
     }
 }
 
@@ -177,8 +214,8 @@ impl Core {
                 Err(error) => tracing::warn!(error, key, "a screen's geometry was refused"),
             },
             Op::Geometry(key, None) => {
-                lock(&self.feeds).remove(&key);
                 self.host.geometry_changed(&key, None);
+                lock(&self.feeds).remove(&key);
             }
             Op::Capture(key) => self.recapture(&key),
             Op::Channel(key, message) => self.host.channel_push(&key, &message.to_string()),
@@ -280,6 +317,10 @@ struct ScreenPage {
 
 #[async_trait]
 impl VideoSource for ScreenPage {
+    fn screen_session(&self) -> Option<u64> {
+        Some(self.viewer.id())
+    }
+
     fn start(&self) {
         self.viewer.start();
     }

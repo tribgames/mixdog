@@ -1160,6 +1160,9 @@ async fn compose_inner(
     // The 1.4.5 mirror of the archive authority ends with the store: what it still owes is written once more.
     let archive_trees = core.real.archive_trees.clone();
     core.on_stop("session archive mirror", async move { archive_trees.archive_states().close_mirror().await });
+    // The background projection of the archive entries (started once the core serves) is cancelled and joined before the store closes.
+    let archive_trees = core.real.archive_trees.clone();
+    core.on_stop("session archive projection", async move { archive_trees.archive_states().close_projection().await });
     for (name, step) in later {
         core.on_stop(name, step);
     }
@@ -1269,6 +1272,12 @@ impl ComposedCore {
     /// extension host has closed.
     pub fn on_stop(&self, name: &'static str, step: impl Future<Output = ()> + Send + 'static) {
         self.stop_steps.push(name, Box::pin(step));
+    }
+
+    /// Starts the background projection of the archive entries into the catalog index; the daemon calls it once the core serves, so
+    /// the projection never queues ahead of the writes serving waits for. The stop sequence ends it.
+    pub fn start_archive_projection(&self) {
+        self.real.archive_trees.archive_states().start_projection();
     }
 
     /// Registers a barrier the release procedure runs before it closes connections: a session

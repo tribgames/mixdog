@@ -162,14 +162,20 @@ fn without_replay(m: &AgentMessage) -> AgentMessage {
 }
 
 /// Only the newest assistant message can still need its replay: an
-/// in-progress tool loop continues from it.
+/// in-progress tool loop continues from it. The earlier steps of that loop keep
+/// their signed thinking too: the loop's request must start with it.
 fn without_stale_replay(messages: &[AgentMessage]) -> Vec<AgentMessage> {
     let newest = messages.iter().rposition(|m| m.role() == Role::Assistant);
+    let mut round_start = newest.unwrap_or(0);
+    while round_start > 0 && matches!(messages[round_start - 1].role(), Role::Assistant | Role::Tool) {
+        round_start -= 1;
+    }
     messages
         .iter()
         .enumerate()
         .map(|(index, m)| {
-            if m.role() == Role::Assistant && newest.is_some_and(|n| index < n) {
+            let open_round_thinking = index >= round_start && crate::recovery::has_signed_thinking(m);
+            if m.role() == Role::Assistant && newest.is_some_and(|n| index < n) && !open_round_thinking {
                 without_replay(m)
             } else {
                 m.clone()
@@ -177,7 +183,6 @@ fn without_stale_replay(messages: &[AgentMessage]) -> Vec<AgentMessage> {
         })
         .collect()
 }
-
 /// One message per line (JSONL): line N + 1 holds message index N. A line that
 /// reaches `ARCHIVE_BLOB_MIN_BYTES` is stored once per session as its own
 /// content-addressed file and the dump repeats only a reference to it. The session's sensitive
@@ -250,8 +255,9 @@ fn recovery_archive_paths(m: &AgentMessage) -> Vec<String> {
     paths
 }
 
-/// The reminder naming the new dump and the earlier ones it supersedes.
-fn recovery_reminder(archive: &Artifact, previous: &[AgentMessage]) -> AgentMessage {
+/// The reminder naming the new dump and the earlier ones it supersedes, and
+/// `latest`'s lines in it when the reminder stands in for that group too.
+fn recovery_reminder(archive: &Artifact, previous: &[AgentMessage], latest: Option<&Group>) -> AgentMessage {
     let mut seen = HashSet::new();
     let earlier_all: Vec<String> = previous
         .iter()
@@ -265,8 +271,11 @@ fn recovery_reminder(archive: &Artifact, previous: &[AgentMessage]) -> AgentMess
     } else {
         format!("\nEarlier dumps (older first): {}", earlier.join(EARLIER_DUMPS_SEPARATOR))
     };
+    let latest_line = latest.map_or(String::new(), |g| {
+        format!(" The latest execution group (message indices {}-{}) is on lines {}-{}.", g.start, g.end - 1, g.start + 1, g.end)
+    });
     let text = format!(
-        "<system-reminder>\nSome execution history was omitted or shortened to fit the tool-history budget. This is not an instruction to repeat those calls. The original calls, outcomes, and earlier recovery references are available at {} (sha256:{}). The dump is JSONL: line N+1 is message index N; an \"archivedMessage\" line names the file holding that message, so search its directory too. Read only missing evidence when needed.{}\n</system-reminder>",
+        "<system-reminder>\nSome execution history was omitted or shortened to fit the tool-history budget. This is not an instruction to repeat those calls. The original calls, outcomes, and earlier recovery references are available at {} (sha256:{}). The dump is JSONL: line N+1 is message index N; an \"archivedMessage\" line names the file holding that message, so search its directory too. Read only missing evidence when needed.{latest_line}{}\n</system-reminder>",
         archive.path, archive.sha256, earlier_line
     );
     let mut message = AgentMessage::sourced(Source::CompactExecutionRecovery, text.clone());
@@ -320,6 +329,25 @@ fn shrink_group(ctx: &TailContext<'_>, group: &Group, archive: &Artifact, level:
             rest
         })
         .collect()
+}
+
+/// A user-role reference for a whole group: its calls, arguments, outcomes and the assistant's
+/// own text sit on the archive's lines for these messages. A plain note, never a recovery reminder
+/// (the next compaction must not carry it as one).
+fn group_stand_in(group: &Group, archive: &Artifact) -> AgentMessage {
+    AgentMessage::sourced(
+        Source::CompactContext,
+        format!(
+            "<system-reminder>\nThe latest execution group ({} messages, message indices {}-{}) was archived without interpretation at {} (sha256:{}), lines {}-{}. This is not an instruction to repeat those calls. Read the original calls, arguments and outcomes there if needed.\n</system-reminder>",
+            group.messages.len(),
+            group.start,
+            group.end - 1,
+            archive.path,
+            archive.sha256,
+            group.start + 1,
+            group.end
+        ),
+    )
 }
 
 struct Assemble<'a> {
@@ -387,7 +415,7 @@ async fn ensure_archive(
         .store(&text)
         .await
         .ok_or("compact: execution history could not be archived; original context preserved")?;
-    *recovery = vec![recovery_reminder(&dump, previous)];
+    *recovery = vec![recovery_reminder(&dump, previous, None)];
     *archive = Some(dump);
     Ok(())
 }
@@ -498,6 +526,7 @@ pub async fn build_execution_tail(
             omitted_groups: 0,
         });
     }
+    // Signed thinking the rewrite invalidates is dropped by the caller, against the request it sends.
     let mut out = recovery.clone();
     out.extend(tail);
     Ok(TailOutput {
@@ -563,6 +592,21 @@ async fn keep_group(
             if fits(&shrunk, recovery, *tokens) {
                 found = Some(shrunk);
                 break;
+            }
+        }
+        // Nothing shed kept a wide newest group in budget: one reference to its archived line range
+        // replaces it (the archive is already written), so a retry is not the same failure again.
+        if found.is_none() && is_latest {
+            let standin = vec![group_stand_in(group, dump)];
+            if fits(&standin, recovery, *tokens) {
+                found = Some(standin);
+            } else {
+                // Two notices exceed the budget: the recovery reminder names the group's lines itself.
+                let named = vec![recovery_reminder(dump, previous_recovery, Some(group))];
+                if fits(&[], &named, *tokens) {
+                    *recovery = named;
+                    found = Some(Vec::new());
+                }
             }
         }
         match found {

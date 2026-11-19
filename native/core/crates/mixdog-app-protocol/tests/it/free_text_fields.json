@@ -1833,6 +1833,13 @@
       }
      }
     },
+    "/call/request/messages/*/content/*/cacheControl": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs part_in (a text part's cache_control marker, forwarded; mixdog-ai/src/providers/anthropic/body.rs writes {type, ttl?})",
+     "fields": [
+      "/type",
+      "/ttl"
+     ]
+    },
     "/call/request/messages/*/content/*/source/content": {
      "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs part_in (DocumentSource::Content)",
      "open": {
@@ -1900,6 +1907,16 @@
        "reason": "a tool's JSON schema (descriptions written in a tool's source), forwarded to the provider"
       }
      }
+    }
+   },
+   "transfer/authorizeRead": {
+    "/source/input": {
+     "source": "native/core/crates/mixdog-workspace/src/service.rs transfer/authorizeRead (DownloadRequest::Export, its sessionId replaced by the validated conversation's); mixdog-app-server-daemon/src/compose_domains/export.rs render; apps/desktop/src/main/ipc-validation.ts visualizeExportCommand ({sessionId, tabId, format, pane?})",
+     "fields": [
+      "/sessionId",
+      "/tabId",
+      "/format"
+     ]
     }
    },
    "transfer/grant/mint": {
@@ -3023,6 +3040,10 @@
     "request modelProxy/run /call/request/options/thread/turn",
     "request modelProxy/run /call/request/options/toolChoice",
     "request modelProxy/run /call/request/options/xaiResponsesCacheScope",
+    "request modelProxy/run /call/request/options/xaiApiMode",
+    "request modelProxy/run /call/request/options/xaiResponsesTransport",
+    "request modelProxy/run /call/request/messages/*/content/*/cacheControl/type",
+    "request modelProxy/run /call/request/messages/*/content/*/cacheControl/ttl",
     "request notify/test /target",
     "request op/status /scope",
     "request plugins/addPlugin /source",
@@ -3082,6 +3103,7 @@
     "request thread/turns/list /sortDirection",
     "request transfer/authorizeRead /purpose",
     "request transfer/authorizeRead /source/kind",
+    "request transfer/authorizeRead /source/input/format",
     "request transfer/beginRead /source/kind",
     "request transfer/beginWrite /scope",
     "request turn/start /input/options/pastedImages/*/type",
@@ -3807,6 +3829,7 @@
     "notification host/notification/clicked /threadId",
     "notification host/screen/indicator/stop /screenId",
     "notification host/window/closed /connectionId",
+    "notification host/window/closed /windowToken",
     "notification model/proxy/event /event/accountId",
     "notification model/proxy/event /event/call/id",
     "notification model/proxy/event /event/calls/*/id",
@@ -4226,6 +4249,8 @@
     "request host/state/set /value/*/tabs/*/panes/*/remoteRenderId",
     "request host/state/set /value/jobId",
     "request host/state/set /value/sessionId",
+    "request host/state/set /value/*",
+    "request feed/heads /feedIds/*",
     "request host/state/set /value/state/history/*/id",
     "request host/state/set /value/state/sessionId",
     "request host/state/set /value/state/tabs/*/id",
@@ -4709,6 +4734,8 @@
     "request transfer/abort /transferId",
     "request transfer/authorizeRead /sessionId",
     "request transfer/authorizeRead /source/assetId",
+    "request transfer/authorizeRead /source/input/sessionId",
+    "request transfer/authorizeRead /source/input/tabId",
     "request transfer/authorizeRead /source/attachmentId",
     "request transfer/authorizeRead /source/itemId",
     "request transfer/beginRead /source/assetId",

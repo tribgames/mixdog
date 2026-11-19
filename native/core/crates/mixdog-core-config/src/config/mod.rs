@@ -799,6 +799,10 @@ impl Config {
         desktop_settings(&self.shared.doc.load())
     }
 
+    pub fn bot_handoff_limit(&self) -> i64 {
+        desktop::bot_handoff_limit(&self.shared.doc.load())
+    }
+
     pub fn session_retention(&self) -> Option<SessionRetention> {
         session_retention(&self.shared.doc.load())
     }
@@ -930,9 +934,21 @@ impl Config {
     /// for this single setting. Generic transactions cannot carry that authority.
     async fn enable_confirmed_allow_all_actions(&self) -> Result<Applied, ConfigError> {
         let shared = self.shared.clone();
+        let origin = self.origin;
         on_lane(self.lanes.write, move |lane| {
-            shared.update_viewed(lane, &[], true, |doc| {
+            shared.update_viewed(lane, &[], true, move |doc| {
+                if allow_all_actions_enabled(doc) {
+                    return Ok(());
+                }
+                // `saveConfigAndAdopt`'s `seedChanges`: the first write seeds the adopted `builtins` where the stored section lacks it.
+                let agent = doc.get(AGENT_SECTION).and_then(Value::as_object).cloned().unwrap_or_default();
+                let seed = (!agent.contains_key("builtins"))
+                    .then(|| crate::tool_modules::adopt(&agent, origin).remove("builtins"))
+                    .flatten();
                 set_in(doc, ALLOW_ALL_ACTIONS, Value::Bool(true));
+                if let Some(seed) = seed {
+                    set_in(doc, &[AGENT_SECTION, "builtins"], seed);
+                }
                 Ok(())
             }, |_| ()).map(|(applied, ())| applied)
         }).await?

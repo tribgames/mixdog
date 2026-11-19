@@ -1268,7 +1268,13 @@ impl RunObserver for Events {
         Retracted::Refused
     }
 }
-async fn observed(scenario: &Value, defined: &[Value]) -> Value {
+/// The replay of one scenario, as a boxed future. In a debug build the replay's future is about a quarter of a megabyte, and a test
+/// that awaited it inline kept that much in its own poll frame for every call site; with the loop's own debug frames under it, that
+/// passed the test thread's 2 MiB stack.
+fn observed<'a>(scenario: &'a Value, defined: &'a [Value]) -> std::pin::Pin<Box<dyn std::future::Future<Output = Value> + 'a>> {
+    Box::pin(replay_scenario(scenario, defined))
+}
+async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
     let non_bridge = scenario["nonBridge"].as_bool() == Some(true);
     let surface = &scenario["surface"];
     let eager = strings(&surface["tools"]);
@@ -1458,7 +1464,8 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
             timeline.note(json!({ "ev": "aborted" }));
         })
     });
-    let ran = awaiting_for(DEADLINE, || format!("the run of {}", scenario["name"]), run.run()).await;
+    // Boxed: inline, the run's debug-build future would sit in this replay's state and poll frame twice over.
+    let ran = awaiting_for(DEADLINE, || format!("the run of {}", scenario["name"]), Box::pin(run.run())).await;
     // What the host has seen of the run when it ends: the interruption of a cancelled turn is built from it.
     let seen_at_end = observer.0.lock().expect("events").clone();
     if holds_until_turn_end(scenario) {

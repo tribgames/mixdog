@@ -833,18 +833,18 @@ async fn the_gate_asks_the_builders_switch_and_gets_nodes_answer() {
         let w = world(proxy, json!({}), Vec::new()).await;
         let developer = case["developer"]["value"].clone();
         let absent = case["developer"]["absent"] == true;
-        w.services
-            .config
-            .update_agent(move |doc| {
-                if absent {
-                    doc.shift_remove("developer");
-                } else {
-                    doc.insert("developer".into(), developer);
-                }
-                Ok(())
-            })
-            .await
-            .unwrap();
+        // The stored Developer value is the config file's, as a profile holds it: a write through the config would be refused
+        // for a value that turns on Allow all actions without the desktop's risk confirmation (`RISK_CONFIRMATION_REQUIRED`).
+        let file = w.services.home_dir.join("mixdog-config.json");
+        let mut stored: Value = serde_json::from_str(&fixture_fs::read_to_string(&file).unwrap()).unwrap();
+        let agent = stored["agent"].as_object_mut().expect("the agent section");
+        if absent {
+            agent.shift_remove("developer");
+        } else {
+            agent.insert("developer".into(), developer);
+        }
+        fixture_fs::write(&file, serde_json::to_vec_pretty(&stored).unwrap());
+        w.services.config.reload().await.unwrap();
         let switch = GatedOff(builder_env(&w.services).gated_off);
         for (name, available) in case["available"].as_object().unwrap() {
             assert_eq!(switch.available(name), *available, "{} proxy={} {name:?}", case["developer"], case["proxyClient"]);

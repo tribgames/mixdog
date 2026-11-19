@@ -98,7 +98,6 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-core/src/run_host/vault.rs", "self.store.get(account)", "KeychainVault::get delegates to the SecretStore, which counts"),
     ("mixdog-core-domains/src/domains/ai_account/admin.rs", "self.vault.get(&account)", "the store behind the vault performs and counts the read"),
     ("mixdog-core-domains/src/domains/ai_account/custom_admin.rs", "self.vault.get(&account)", "the store behind the vault performs and counts the read"),
-    ("mixdog-core-domains/src/domains/ai_account/keychain_live.rs", "self.probe.get(PROBE_ACCOUNT)", "a SecretStore lookup: the store counts it"),
     ("mixdog-core-config/src/config/secret_changes.rs", "self.inner.get(account)", "a wrapper that delegates to the SecretStore, which counts"),
     ("mixdog-ai/src/accounts/rotation.rs", "state.last_probe.get(", "a map of probe times, not a secret store"),
     ("mixdog-ai/src/accounts/mod.rs", "env.var(variable)", "a provider's *_OAUTH_CREDENTIALS_PATH: the path of a credential file, not a secret; the file read is counted"),
@@ -116,7 +115,6 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-ai/src/registry/builder.rs", "CLOUDSDK_ACTIVE_CONFIG_NAME", "the name of a gcloud configuration"),
     ("mixdog-ai/src/registry/builder.rs", "let get = |name: &str| env.var(name)", "the Vertex project and location variables: identifiers"),
     ("mixdog-ai/src/registry/builder.rs", "resolve_project(&credential, &|n| env.var(n))", "the Vertex project variables: identifiers"),
-    ("mixdog-ai/src/registry/builder.rs", "env_location(|n| self.env.env.var(n)", "the Vertex location variable: an identifier"),
     ("mixdog-ai/src/registry/builder.rs", ".find_map(|name| env.var(name)", "vertex::PROJECT_ENV: project identifiers"),
     ("mixdog-ai/src/service/api_usage.rs", "XAI_TEAM_ID", "a team identifier, not a secret"),
     ("mixdog-ai/src/catalog/listing.rs", "MIXDOG_MODEL_STALE_MONTHS", "a staleness bound (code after an inline test module, unscanned before this round)"),
@@ -175,6 +173,14 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-core/src/run_host/process.rs", "MIXDOG_CODEX_INSTALLATION_ID", "an installation identifier"),
     ("mixdog-core/src/run_host/builder_env.rs", "env.var(name).map(|v| mixdog_js::js_trim(&v)", "set(): MIXDOG_CODEX_USER_AGENT, _ORIGINATOR, _VERSION, TERM_PROGRAM: header texts"),
     ("mixdog-core/src/run_host/builder_env.rs", "MIXDOG_CODEX_BETA_FEATURES", "a feature list"),
+    ("mixdog-ai/src/providers/anthropic/codec.rs", "std::env::var(\"ANTHROPIC_MSG_SLOTS\")", "the message-tail cache breakpoint cap: a count"),
+    ("mixdog-ai/src/providers/compat/xai_transport.rs", "MIXDOG_XAI_RESPONSES_TRANSPORT", "the xAI Responses transport choice"),
+    ("mixdog-ai/src/providers/compat/xai_transport.rs", "MIXDOG_XAI_TRANSPORT", "the xAI transport choice"),
+    ("mixdog-ai/src/providers/compat/xai_transport.rs", "MIXDOG_OAI_TRANSPORT", "the shared Responses transport choice"),
+    ("mixdog-ai/src/providers/compat/xai_transport.rs", "MIXDOG_XAI_WS_HTTP_FALLBACK", "the xAI WebSocket-to-HTTP fallback switch"),
+    ("mixdog-ai/src/providers/google/codec.rs", "env_location(|name| env.var(name), claude_id)", "the Vertex region variables: a location"),
+    ("mixdog-ai/src/providers/openai/adapter.rs", "MIXDOG_OPENAI_HTTP_FALLBACK", "the WebSocket-to-HTTP fallback switch"),
+    ("mixdog-ai/src/registry/builder.rs", "MIXDOG_OAI_STORE", "the Responses store switch"),
 ];
 #[test]
 fn every_direct_credential_read_in_the_credential_modules_is_listed_with_its_reason() {

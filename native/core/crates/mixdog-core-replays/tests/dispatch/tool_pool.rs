@@ -1820,6 +1820,7 @@ async fn session_control_answers_as_the_node_session_tool_does_over_real_session
         let (turn_hop, turn_bots) = (hop, chain.clone());
         let send = Arc::new(mixdog_core::run_host::tool_pool::session_send::LateSend::default());
         send.bind(Arc::new(mixdog_core::run_host::tool_pool::session_send::SessionSend {
+            hop_limit: Arc::new(|| 3),
             rooms: Arc::new(mixdog_core_rooms::rooms::room_hosts::RoomHostRegistry::default()),
             directory: world.directory.clone(),
             tasks,

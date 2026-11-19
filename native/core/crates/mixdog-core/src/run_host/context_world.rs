@@ -611,6 +611,36 @@ pub(crate) mod tests {
         }
     }
 
+    /// The last-request readings of a status's `usage`.
+    #[cfg(node_twin)]
+    const LAST_READINGS: [&str; 7] =
+        ["lastInputTokens", "lastUncachedInputTokens", "lastOutputTokens", "lastCachedReadTokens", "lastCacheWriteTokens", "lastPromptTokens", "lastContextTokens"];
+
+    /// A decided departure from every status Node recorded (`mixdog-agent` `compact/pressure/status.rs` `usage_counters`): a
+    /// last-request reading keeps missing evidence missing, `null` when the session holds no number for it, where Node
+    /// answered `0` and reported no `lastPromptTokens` at all. The expected status is Node's with each of those readings
+    /// that is `0` (or absent) made `null`, unless the session's header (`header`, `None` for no session) stores that `0`.
+    #[cfg(node_twin)]
+    fn with_unmeasured_readings(status: &Value, header: Option<&Map<String, Value>>) -> Value {
+        let mut status = status.clone();
+        if let Some(usage) = status.get_mut("usage").and_then(Value::as_object_mut) {
+            for key in LAST_READINGS {
+                let recorded = usage.get(key).cloned().unwrap_or(Value::Null);
+                let stored = header.and_then(|header| header.get(key)).filter(|value| value.is_number());
+                // What Node recorded stays when it is a reading; its `0` is a reading only where the session stores that `0`.
+                let value = if recorded.as_f64().is_some_and(|n| n != 0.0) {
+                    recorded
+                } else if stored.is_some_and(|n| n.as_f64() == Some(0.0)) {
+                    json!(0)
+                } else {
+                    Value::Null
+                };
+                usage.insert(key.into(), value);
+            }
+        }
+        status
+    }
+
     /// The paths at which two answers differ, in document order.
     fn differences(got: &Value, want: &Value, path: &str, out: &mut Vec<String>) {
         match (got, want) {
@@ -905,7 +935,7 @@ pub(crate) mod tests {
                 //    a function of those totals and of the messages.
                 // What no recording pins: a deferred MCP definition whose stored text is large would still be metered at that recorded
                 // amount only because deferred schemas are left out of the count; no case records one metered otherwise.
-                let mut expected = case["status"].clone();
+                let mut expected = with_unmeasured_readings(&case["status"], case["header"].as_object());
                 let recorded_mcp = expected["request"]["toolSchemaBreakdown"]["mcp"].clone();
                 assert_eq!(recorded_mcp["count"], 1, "{name}: the recorded row is that of one deferred MCP definition");
                 let (count, tokens) = (recorded_mcp["count"].as_u64().expect("count"), recorded_mcp["tokens"].as_u64().expect("tokens"));
@@ -916,7 +946,7 @@ pub(crate) mod tests {
             }
             let host = LiveContextStatus::new(Arc::new(world(&case)));
             let answer = host.context_status(Some(ThreadId::from(name.to_owned())), None).await.expect("status");
-            assert_eq!(answer, case["status"], "{name}");
+            assert_eq!(answer, with_unmeasured_readings(&case["status"], case["header"].as_object()), "{name}");
             compared += 1;
         }
         assert_eq!(compared, 15);
@@ -949,7 +979,7 @@ pub(crate) mod tests {
         let calls = golden["calls"].as_array().expect("calls");
         let world = LiveContextWorld {
             threads: state.clone(),
-            messages: state,
+            messages: state.clone(),
             routes: Arc::new(RecordedRoute(golden["route"].as_object().cloned().expect("route"))),
             session: adapter,
             // The recorder's own input (`record-context-inspection.mjs` `options.toolMode`), not read from an answer.
@@ -966,8 +996,9 @@ pub(crate) mod tests {
                 ctx: mixdog_core_api::call::CallContext::internal("desktop"),
             };
             let mixdog_core_api::call::Reply::Value(answer) = service.call(req).await.expect("thread/contextStatus") else { panic!("thread/contextStatus answers a value") };
+            let header = mixdog_core_ports::ports::threads::ThreadState::header(&*state, &ThreadId::from(thread.to_owned())).await.ok();
             let mut diff = Vec::new();
-            differences(&answer, &call["status"], "$", &mut diff);
+            differences(&answer, &with_unmeasured_readings(&call["status"], header.as_ref()), "$", &mut diff);
             assert!(diff.is_empty(), "call {at} {}: {diff:#?}", call["options"]);
         }
         let listed = calls[0]["status"]["inspection"]["revision"].clone();
@@ -1214,6 +1245,11 @@ pub(crate) mod tests {
             assert_eq!(log.append_rows(self.id(name).as_str(), vec![row]).await.expect("store the prompt"), 1);
         }
 
+        /// The stored header of `name`, when its thread holds one.
+        async fn header(&self, name: &str) -> Option<Map<String, Value>> {
+            mixdog_core_ports::ports::threads::ThreadState::header(&*self.threads, &self.id(name)).await.ok()
+        }
+
         async fn context_status(&self, name: &str) -> Value {
             let answer = self.status.context_status(Some(self.id(name)), None).await.expect("status");
             // A session's open reads the header status: at every recorded step it shows what the full status shows.
@@ -1259,13 +1295,15 @@ pub(crate) mod tests {
                 // system prompt, tool surface and pre-send check are the turn machinery's, which this replay has none of.
                 "submit" => replay.seed(name, args[0].as_str().expect("the prompt"), &golden["stored"]).await,
                 "contextStatus" if name == "control" => {
-                    assert_eq!(replay.context_status(name).await, step["value"], "{at}");
+                    let got = replay.context_status(name).await;
+                    assert_eq!(got, with_unmeasured_readings(&step["value"], replay.header(name).await.as_ref()), "{at}");
                     control_reads += 1;
                 }
                 "contextStatus" => {
-                    let (got, want) = (replay.context_status(name).await, &step["value"]);
+                    let got = replay.context_status(name).await;
+                    let want = with_unmeasured_readings(&step["value"], replay.header(name).await.as_ref());
                     let mut differing = Vec::new();
-                    differences(&got, want, "$", &mut differing);
+                    differences(&got, &want, "$", &mut differing);
                     assert!(differing.is_empty(), "{at}: {differing:#?}");
                     task_reads += 1;
                 }

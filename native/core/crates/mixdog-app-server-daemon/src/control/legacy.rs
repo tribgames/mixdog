@@ -48,7 +48,9 @@ struct Refusal<'a> {
 }
 
 impl Legacy {
-    pub fn health(&self) -> Response {
+    /// `clients` and `busy` are the live counts: the ssh desktop's login-mode confirmation tells the user how many running sessions a
+    /// restart stops from `busy`.
+    pub fn health(&self, clients: usize, busy: usize) -> Response {
         Response::json(
             200,
             &Health {
@@ -62,8 +64,8 @@ impl Legacy {
                 // Deliberate: the 1.4.5 ssh installer prints `health.packageVersion || version` ("a Mixdog daemon the desktop did not
                 // install (pid N, mixdog <this>)"), the only field it shows, so the update text rides here.
                 package_version: format!("{} \u{2014} {}", self.version, self.update_text),
-                clients: 0,
-                busy: 0,
+                clients: u32::try_from(clients).unwrap_or(u32::MAX),
+                busy: u32::try_from(busy).unwrap_or(u32::MAX),
             },
         )
     }
@@ -89,8 +91,15 @@ mod tests {
     }
 
     #[test]
+    fn health_reports_the_live_counts() {
+        let response = legacy().health(3, 2);
+        let json: serde_json::Value = serde_json::from_str(&response.body).unwrap();
+        assert_eq!((json["clients"].as_u64(), json["busy"].as_u64()), (Some(3), Some(2)));
+    }
+
+    #[test]
     fn health_has_the_fixed_shape() {
-        let response = legacy().health();
+        let response = legacy().health(0, 0);
         assert_eq!(response.status, 200);
         let json: serde_json::Value = serde_json::from_str(&response.body).unwrap();
         assert_eq!(

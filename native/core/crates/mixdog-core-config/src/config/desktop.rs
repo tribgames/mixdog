@@ -5,6 +5,9 @@ use serde::Serialize;
 use serde_json::Map;
 use serde_json::Value;
 
+use super::schema::BOT_HANDOFF_LIMIT_DEFAULT;
+use super::schema::BOT_HANDOFF_LIMIT_MAX;
+use super::schema::BOT_HANDOFF_LIMIT_MIN;
 use super::schema::DEFAULT_ACTIVITY_RAIL_PINS;
 use super::schema::NOTIFICATION_VOLUME_DEFAULT;
 use super::schema::NOTIFICATION_VOLUME_MAX;
@@ -24,6 +27,7 @@ pub struct DesktopSettings {
     pub keep_awake: bool,
     pub run_in_background: bool,
     pub notification_volume: i64,
+    pub bot_handoff_limit: i64,
     pub session_auto_archive_days: i64,
     pub session_auto_delete_days: i64,
     pub usage_pinned: bool,
@@ -133,6 +137,17 @@ pub fn computer_backend(config: &Map<String, Value>) -> ComputerBackendChoice {
     choose_computer_backend(object(config, "desktop").unwrap_or(empty()).get("computerBackend"), cfg!(windows))
 }
 
+/// How many bot-to-bot handoffs in a row a chain may make (`desktop.botHandoffLimit`): a missing or out-of-range
+/// stored value is the default.
+pub fn bot_handoff_limit(config: &Map<String, Value>) -> i64 {
+    object(config, "desktop")
+        .unwrap_or(empty())
+        .get("botHandoffLimit")
+        .and_then(super::notifications::safe_integer)
+        .filter(|n| (BOT_HANDOFF_LIMIT_MIN..=BOT_HANDOFF_LIMIT_MAX).contains(n))
+        .unwrap_or(BOT_HANDOFF_LIMIT_DEFAULT)
+}
+
 pub fn desktop_settings(config: &Map<String, Value>) -> DesktopSettings {
     let desktop = object(config, "desktop").unwrap_or(empty());
     let agent = object(config, "agent").unwrap_or(empty());
@@ -155,6 +170,7 @@ pub fn desktop_settings(config: &Map<String, Value>) -> DesktopSettings {
             .and_then(super::notifications::safe_integer)
             .filter(|n| (0..=NOTIFICATION_VOLUME_MAX).contains(n))
             .unwrap_or(NOTIFICATION_VOLUME_DEFAULT),
+        bot_handoff_limit: bot_handoff_limit(config),
         session_auto_archive_days: retention(
             "sessionAutoArchiveDays",
             SESSION_AUTO_ARCHIVE_DAY_CHOICES,
@@ -225,6 +241,17 @@ mod tests {
         let host = json!("desktopHost");
         assert_eq!(choose_computer_backend(Some(&host), true), ComputerBackendChoice::DesktopHost);
         assert_eq!(choose_computer_backend(Some(&host), false), ComputerBackendChoice::Helper);
+    }
+
+    #[test]
+    fn the_handoff_limit_is_stored_value_in_range_else_three() {
+        assert_eq!(bot_handoff_limit(&Map::new()), 3);
+        assert_eq!(bot_handoff_limit(&config(json!({ "botHandoffLimit": 7 }))), 7);
+        assert_eq!(bot_handoff_limit(&config(json!({ "botHandoffLimit": 1 }))), 1);
+        assert_eq!(bot_handoff_limit(&config(json!({ "botHandoffLimit": 20 }))), 20);
+        for stored in [json!(0), json!(21), json!(-4), json!("5"), json!(2.5), json!(null)] {
+            assert_eq!(bot_handoff_limit(&config(json!({ "botHandoffLimit": stored }))), 3, "{stored}");
+        }
     }
 
     #[test]

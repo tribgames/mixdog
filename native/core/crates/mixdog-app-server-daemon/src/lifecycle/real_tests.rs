@@ -119,7 +119,7 @@ fn discovery_names_the_phase_and_the_rpc_port_only_while_serving() {
 }
 
 #[test]
-fn discovery_names_the_rebuild_while_it_runs_and_not_before_or_once_serving() {
+fn discovery_names_the_rebuild_while_it_runs_and_not_before_or_once_done() {
     let root = tempfile::tempdir().unwrap();
     let publication = DiscoveryPublication::new(root.path().to_path_buf(), template(), Box::new(|_| {}));
     let progress = publication.rebuild_progress();
@@ -141,10 +141,22 @@ fn discovery_names_the_rebuild_while_it_runs_and_not_before_or_once_serving() {
 
     publication.publish(&state(DiscoveryPhase::Serving));
     publication.flush();
-    assert_eq!(rebuild(root.path()), None, "a serving core names no rebuild");
-    progress.begin(5);
+    assert_eq!(rebuild(root.path()), None, "a serving core names no finished work");
+    // The owed sensitive rewrites run behind the serving core: their progress is named until they end.
+    progress.extend(2);
     publication.flush();
-    assert_eq!(rebuild(root.path()), None, "a rebuild that begins after the core serves is not named");
+    assert_eq!(rebuild(root.path()), Some(serde_json::json!({ "done": 3, "total": 5 })));
+    progress.advance();
+    publication.flush();
+    assert_eq!(rebuild(root.path()), Some(serde_json::json!({ "done": 4, "total": 5 })));
+    progress.advance();
+    publication.flush();
+    assert_eq!(rebuild(root.path()), None, "work behind the serving core is no longer named once it ends");
+    // A session of it that fails is told apart from the done ones, for the rest of the boot.
+    progress.extend(1);
+    progress.fail();
+    publication.flush();
+    assert_eq!(rebuild(root.path()), Some(serde_json::json!({ "done": 5, "total": 6, "failed": 1 })));
 }
 
 /// Sessions finish on many threads while the lifecycle publishes: what is written never goes backwards, and ends at the total.
