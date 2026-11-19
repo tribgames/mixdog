@@ -11,6 +11,7 @@ import { registerComputerUseInternalWindow } from '../computer/overlay/internal-
 import { clipWindowToPill, type Rect } from '../computer/overlay/overlay-layout';
 import { computerUsePillShown, onComputerUsePillShownChange } from '../computer/overlay/overlay-presence';
 import { pillWindowOptions } from '../computer/overlay/overlay-windows';
+import { tagRendererSurface } from '../process-memory-diagnostics';
 import {
   createRemoteScreenIndicatorHost,
   handleRemoteIndicatorControl,
@@ -27,6 +28,7 @@ const REMOTE_ACCENT = '#30d158';
 function openIndicatorWindow(bounds: Rect, handlers: IndicatorWindowHandlers): IndicatorWindow {
   const locale = app.getLocale();
   const next = new BrowserWindow({ ...pillWindowOptions(screen.getPrimaryDisplay()), ...bounds });
+  tagRendererSurface(next, 'remote-screen-indicator');
   const unregisterInternalWindow = registerComputerUseInternalWindow(next);
   next.setAlwaysOnTop(true, 'screen-saver');
   hardenWindowSurface(next);

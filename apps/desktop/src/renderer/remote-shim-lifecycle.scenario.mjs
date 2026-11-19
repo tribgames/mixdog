@@ -7,7 +7,9 @@ import { PAYLOAD_CEILING_CHARS, SCENARIOS, play } from '../../../../benchmarks/r
 
 async function main() {
 const name = process.argv[2];
-const ops = SCENARIOS[name];
+// A scenario whose Node script asks for a failure the phone does not meet (a refused resync) runs the phone's own script from the departures file.
+const departures = JSON.parse(readFileSync(new URL('./remote-shim-lifecycle-departures.json', import.meta.url), 'utf8'));
+const ops = departures[name]?.script ?? SCENARIOS[name];
 const repo = new URL('../../../../', import.meta.url);
 const options = JSON.parse(readFileSync(new URL('packages/protocol-client/conformance/options.json', repo), 'utf8'));
 const version = JSON.parse(readFileSync(new URL('apps/desktop/package.json', repo), 'utf8')).version;

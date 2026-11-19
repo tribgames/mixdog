@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   externalLinkTarget,
   isRemoteHostNavigation,
+  presenceOf,
   remoteHostPartition,
   remoteWindowTitle,
   remoteWindowUserAgent,
@@ -85,4 +86,12 @@ test('the host-lists watch notifies on a change, subscribes again after the link
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(listener, null);
   assert.deepEqual(calls.at(-1), ['connections/unsubscribe', { subscriptionId: 'sub-2' }], 'the live subscription is released');
+});
+
+test('a host the relay could not be asked about is unknown, never offline', () => {
+  const presence = { online: ['a'], offline: ['b'] };
+  assert.equal(presenceOf('a', presence), true);
+  assert.equal(presenceOf('b', presence), false);
+  assert.equal(presenceOf('c', presence), undefined);
+  assert.equal(presenceOf('a', null), undefined);
 });

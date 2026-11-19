@@ -37,8 +37,9 @@ import { createCapabilityLane } from '../main/protocol/capability-route';
 import { coreErrorForWindow } from '../main/protocol/core-error';
 import { routeService } from '../main/protocol/service-route';
 import { summariesOfThreadRows } from '../main/protocol/thread-rows';
-import { remoteToolOutput } from '../main/remote-transcript';
+import { remoteToolOutput, remoteTranscriptSnapshot } from '../main/remote-transcript';
 import { approvalAllowIsPointerOnly } from '../shared/approval-enter-rule';
+import { markPartialCatalog } from '../shared/session-catalog';
 import { normalizedProviderModels } from '../shared/desktop-transcript-limits';
 
 /** The part of `ProtocolClient` (packages/protocol-client) this adapter uses. */
@@ -240,8 +241,9 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
       draft: DesktopNewTaskDraft = {}
     ): Promise<DesktopNewTaskSubmitResult> => {
       const started = record(await service('submitNewTask', [prompt, submit, draft]));
-      if (!started.turn) return { accepted: false, sessionId: '', snapshot: null } as unknown as DesktopNewTaskSubmitResult;
-      const sessionId = String(record(started.thread).id);
+      // A refusal is an error, not a reply; a reply without turn answers a retry of a submission the core already accepted.
+      const sessionId = String(record(started.thread).id || '');
+      if (!sessionId) return { accepted: false, sessionId: '', snapshot: null } as unknown as DesktopNewTaskSubmitResult;
       // Node answers the session's projection (session-host-lifecycle.ts:938 applySessionResult), not the published state the host
       // decorates with its shell jobs (session-host.ts snapshotWithShellJobs).
       const { shellJobs: _shellJobs, hostShellJobs: _hostShellJobs, ...snapshot } = (await snapshotOf(sessionId)) as Record<string, unknown>;
@@ -384,7 +386,14 @@ export function createRosterFeed<S>(options: {
     }, delay);
   };
   let known = false;
+  // Whether the page was ever handed a whole list by this feed: only before that does it have nothing to lose by a first page.
+  let everKnown = false;
   let reading: Promise<S[]> | null = null;
+  // The current read's first page (resolved only while the page has no list from this feed, and a later page is still to come).
+  let firstPage: Promise<S[]> | null = null;
+  // A first page was (or is about to be) handed to a caller: it is handed once, so every other read, a retry after a failed walk
+  // included, is answered with a whole list or an error and never with page one again.
+  let partialGiven = false;
   // Which listing is the current one: a snapshot (the core says changes were missed) or a reset (another pairing) ends the one before it.
   let generation = 0;
   let retired = false;
@@ -414,6 +423,8 @@ export function createRosterFeed<S>(options: {
       if (retired) return Promise.reject(remoteConnectionInterruptedError());
       return reading ?? (known ? Promise.resolve(project(held.values())) : Promise.reject(remoteConnectionInterruptedError()));
     };
+    const first: { show?: (rows: S[]) => void; shown?: boolean } = {};
+    firstPage = everKnown ? null : new Promise<S[]>((resolve) => (first.show = resolve));
     const read = (async () => {
       const listed = new Map<string, ThreadRow>();
       for (let cursor: string | undefined; ; ) {
@@ -424,6 +435,17 @@ export function createRosterFeed<S>(options: {
         if (mine !== generation) return superseded();
         for (const row of page.data ?? []) listed.set(idOf(row), row);
         if (!page.nextCursor) break;
+        if (!cursor && first.show) {
+          // The edges heard so far outrank the page, as they do the whole listing below.
+          const early = new Map(listed);
+          for (const [id, row] of edges) apply(early, id, row);
+          for (const [id, flag] of pendingArchive) {
+            const row = early.get(id);
+            if (row && !edges.has(id)) early.set(id, { ...row, archived: flag });
+          }
+          first.show(project(early.values()));
+          first.shown = true;
+        }
         cursor = page.nextCursor;
       }
       // The read is over from here: a re-attachment announced after this point starts a read of its own, not this one's answer.
@@ -437,6 +459,8 @@ export function createRosterFeed<S>(options: {
       pendingArchive.clear();
       held = listed;
       known = true;
+      everKnown = true;
+      firstPage = null;
       const rows = project(held.values());
       shown = JSON.stringify(rows);
       options.publish(rows);
@@ -446,7 +470,11 @@ export function createRosterFeed<S>(options: {
     const done = (): void => {
       if (reading === read) reading = null;
     };
-    read.then(done, done);
+    read.then(done, () => {
+      done();
+      // A walk that failed before its first page was shown handed nothing out: the next read may still show one.
+      if (!first.shown) partialGiven = false;
+    });
     return read;
   };
 
@@ -475,6 +503,16 @@ export function createRosterFeed<S>(options: {
 
   return {
     list,
+    /** `list`, answered with the first page when the page has had no list from this feed yet and more pages follow: the page paints
+     *  from it, and the whole list reaches it by `publish` when the read ends. Any other time (a refresh, a reconnect) the answer
+     *  is the whole list, since the page treats a catalog it is handed as exact (a session missing from it was deleted). */
+    listFirst(client: Pick<RosterClient, 'call'>): Promise<S[]> {
+      const whole = list(client);
+      if (!firstPage || partialGiven) return whole;
+      partialGiven = true;
+      // Marked, so the page takes it as rows to add and update and never as the list (shared/session-catalog.ts).
+      return Promise.race([whole, firstPage.then(markPartialCatalog)]);
+    },
     /** The list the roster holds while it is exact (a read is not under way and every attach has been read); undefined when it must be read. */
     current: (): S[] | undefined => (known && !reading ? project(held.values()) : undefined),
     /** The roster belongs to the client it is attached to: another pairing's client gets none of it. */
@@ -484,6 +522,7 @@ export function createRosterFeed<S>(options: {
       held = new Map();
       known = false;
       reading = null;
+      firstPage = null;
       shown = '';
       edges.clear();
       pendingArchive.clear();
@@ -608,7 +647,9 @@ export function createChatAdapter(options: {
   /** A thread's state as the page is shown it (Node's host pushed it as a `sessionState` frame, remote-shim-dispatch.ts at v1.4.5),
    *  with the remote channel's session as this client holds it now. */
   const decorated = (client: ChatClient, state: unknown): SessionSnapshot =>
-    withRemoteSession(state, remoteSessionIdOf(options.remoteSession(client))) as unknown as SessionSnapshot;
+    // The core sends tool results whole; the page is shown them capped (main/remote-transcript.ts). The fold itself stays whole,
+    // which is where `readTranscriptItem` reads "show full output" from.
+    withRemoteSession(remoteTranscriptSnapshot(state), remoteSessionIdOf(options.remoteSession(client))) as unknown as SessionSnapshot;
   /** The page's follower of its current client's threads (remote-session-states.ts), per page: the page's sessions are these
    *  states (session-lane-store.ts). A page whose host hands it no client (`onClient`) has none. */
   const followers = new WeakMap<object, SessionStateFollower>();
@@ -652,7 +693,7 @@ export function createChatAdapter(options: {
   };
   calls.listSessions = (_params, host) => {
     const feed = feedFor(host);
-    return feed.current() ?? feed.list(host.client() as unknown as RosterClient);
+    return feed.current() ?? feed.listFirst(host.client() as unknown as RosterClient);
   };
   calls.sessionStreamPosition = (params, host) =>
     (host.client() as unknown as ProtocolClient<SessionFold>).feedPosition(String(params[0] ?? '')) ?? null;

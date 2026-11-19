@@ -128,6 +128,18 @@ test('ready may state a video limit within the contract bound', () => {
   assert.throws(() => parseRemoteWebrtcClientSignal({ ...ready, videoLimit: { maxWidth: 4097, maxHeight: 100 } }));
 });
 
+test('only screen viewer departures can omit the peer reference', () => {
+  const leave = {
+    v: REMOTE_WEBRTC_VERSION, source: { kind: 'screen', screenId: '1' },
+    type: 'close', reason: 'viewer-left', viewerAttempt: 3,
+  };
+  assert.deepEqual(parseRemoteWebrtcClientSignal(leave), leave);
+  assert.throws(() => parseRemoteWebrtcClientSignal({ ...leave, source }), /viewer attempt/);
+  assert.throws(() => parseRemoteWebrtcClientSignal({ ...leave, viewerAttempt: 0 }), /viewer attempt/);
+  assert.throws(() => parseRemoteWebrtcClientSignal({ ...leave, reason: 'ice-failed' }), /close reason/);
+  assert.throws(() => parseRemoteWebrtcClientSignal({ ...leave, connectionId: ref.connectionId }), /generation/);
+});
+
 test('the connected certificate must be one the E2EE channel delivered', () => {
   const declared = [{ algorithm: 'sha-256', value: HEX_A }];
   assert.equal(remoteWebrtcCertificateMatches(declared, { fingerprintAlgorithm: 'sha-256', fingerprint: HEX_A }), true);

@@ -2,7 +2,14 @@
 // run from the exact b6f10295a export) against the roster the phone feed publishes from a RUNNING mixdogd's rows and edges
 // (remote-protocol-chat-live.recorded.json).
 //
-// Nothing is filtered: every field of every row, and the order of the rows, is compared. The mapping is representation only:
+// Every field of every row, and the order of the rows, is compared, with one deliberate departure:
+//   incomingTail  the phone's rows carry the core's `incomingTail` (shared/core-lanes/thread-rows.ts) so a bot's or room's unread pill
+//              counts the incoming messages past the read cursor instead of reading 1; Node's phone roster had no such field (its
+//              daemon listed the live session, and only its summary index held the tail). The field is checked on the core's side
+//              instead: present exactly on a bot home's and a room log's row (`sess_home_*`, `sess_room_*`, the core's
+//              `wants_incoming_tail`), as strictly ascending places in 1..messageCount. Only a tail of that form is left out of the
+//              comparison; any other presence or form stays in it, and so differs from Node.
+// The mapping is representation only:
 //   ids        Node's `sess_N` is the live session `made.sess_N` (a room's own id likewise: made.room)
 //   folders    Node's `C:\proj\a|b` is the live project folder `projects.a|b`
 //   timestamps wall-clock times differ by run, so a Node time is mapped to the live time it first appears with, walking the recorded
@@ -11,6 +18,23 @@
 import assert from 'node:assert/strict';
 
 export const TIME_FIELDS = ['createdAt', 'updatedAt', 'activityAt'];
+
+/** Whether the phone's row carries the core's `incomingTail` as the header's departure allows: on a bot home or room log only, as
+ *  strictly ascending places among its counted messages. */
+function wellFormedTail(row) {
+  const wanted = /^sess_(home|room)_/.test(String(row.id));
+  if (!wanted) return !('incomingTail' in row);
+  const tail = row.incomingTail;
+  return Array.isArray(tail) && tail.every((place, at) => Number.isSafeInteger(place) && place >= 1 && place <= row.messageCount && (at === 0 || place > tail[at - 1]));
+}
+
+/** The phone's row as compared with Node's: a well-formed `incomingTail` left out (the departure); an ill-formed one kept, and a
+ *  missing one marked, so either differs from Node's row. */
+function withoutDeparture(row) {
+  const { incomingTail, ...rest } = row;
+  if (wellFormedTail(row)) return rest;
+  return { ...rest, incomingTail: 'incomingTail' in row ? incomingTail : '(missing)' };
+}
 
 export function createParity({ live, node, project }) {
   // Node's and the core's runs each made the same named threads (sess_N, agents, the room) under ids of their own.
@@ -55,7 +79,7 @@ export function createParity({ live, node, project }) {
     /** Node's roster `rows` (ids and folders mapped to the live run's) as content, its times by type. */
     nodeContent: (rows) => JSON.stringify(rows.map((row) => timeless(Object.fromEntries(Object.entries(row).map(([key, value]) => [key, TIME_FIELDS.includes(key) ? value : mapped(key, value)]))))),
     /** The phone's roster `rows` as content, its times by type. */
-    phoneContent: (rows) => JSON.stringify(rows.map(timeless)),
+    phoneContent: (rows) => JSON.stringify(rows.map((row) => timeless(withoutDeparture(row)))),
     /** The Node times whose live time breaks Node's order of times. */
     timeOrderBreaks: () => unordered.map(({ title, field }) => `${title}.${field}`),
     /** Every difference between Node's roster and the phone's rows, row by row in order (each row's every field, its id included),
@@ -65,7 +89,7 @@ export function createParity({ live, node, project }) {
       const differences = [];
       for (let index = 0; index < Math.max(want.length, phoneRows.length); index++) {
         const a = want[index];
-        const b = phoneRows[index];
+        const b = phoneRows[index] && withoutDeparture(phoneRows[index]);
         if (!a || !b) { differences.push(`${index}:${(a ?? b).title}.row`); continue; }
         for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
           if (!same(a[key], b[key])) differences.push(`${index}:${a.title}.${key}: ${JSON.stringify(a[key])} != ${JSON.stringify(b[key])}`);

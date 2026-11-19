@@ -214,6 +214,20 @@ impl Harness {
 }
 
 #[test]
+fn a_new_code_request_clears_the_shown_code_until_the_relay_answers() {
+    let (mut pc, mut fx) = (Harness::new(), Fx::default());
+    pc.want(&mut fx, "PC", 1000, 1);
+    let lease = fx.sent[0]["lease"].as_str().unwrap().to_owned();
+    pc.on_issued(&mut fx, &json!({"ok":true,"lease":lease,"code":"123456","expiresInMs":300000}), 1000);
+    pc.renew(&mut fx, "PC", 2000);
+    assert!(pc.inner.current().is_none(), "the old code is not returned while the new one is awaited");
+    assert_eq!(fx.published.last(), Some(&None));
+    let lease = fx.sent.last().unwrap()["lease"].as_str().unwrap().to_owned();
+    pc.on_issued(&mut fx, &json!({"ok":true,"lease":lease,"code":"654321","expiresInMs":300000}), 2500);
+    assert_eq!(fx.published.last(), Some(&Some(("654321".into(), 302_500))));
+}
+
+#[test]
 fn pair_code_is_published_on_change_and_nulled_by_the_ticker_at_expiry() {
     use self::Harness as PairCode;
     let (mut pc, mut fx) = (PairCode::new(), Fx::default());

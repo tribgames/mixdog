@@ -170,3 +170,29 @@ test('a relative path is projected at once, whatever folder the session runs in'
   const row = { id: 'rel', kind: 'tool', name: 'read', args: { path: 'src/a.ts' }, result: 'code' };
   assert.equal(remoteTranscriptSnapshot({ items: [row] }).items[0], row);
 });
+
+test('a group too large for one row keeps the head and the tail of each output, and the note counts all that was left out', () => {
+  const body = (mark) => `${mark}-HEAD-${'x'.repeat(60_000)}-END-${mark} exit code: 2`;
+  const members = Array.from({ length: 6 }, (_, at) => ({ kind: 'tool', id: `m${at}`, name: 'shell', result: body(at), rawResult: body(at), count: 1 }));
+  const group = { id: 'g', kind: 'tool', aggregate: true, name: '__aggregate__', result: body('G'), rawResult: body('G'), toolMembers: members };
+  const row = remoteTranscriptSnapshot({ items: [group] }).items[0];
+  assert.ok(Buffer.byteLength(JSON.stringify(row)) <= 128_000, 'the row is bounded');
+  for (const record of [row, ...row.toolMembers]) {
+    const text = record.result;
+    assert.ok(text.endsWith('exit code: 2'), 'the tail survives the second cut');
+    assert.ok(text.startsWith(record === row ? 'G-HEAD-' : `${row.toolMembers.indexOf(record)}-HEAD-`), 'the head survives');
+    const note = record.remoteOutputNotes.result;
+    assert.equal(note.kind, 'omitted');
+    assert.equal(text.length + note.omitted, body(record === row ? 'G' : row.toolMembers.indexOf(record)).length, 'the note accounts for every missing character');
+    assert.equal(text.slice(0, note.at), body(record === row ? 'G' : row.toolMembers.indexOf(record)).slice(0, note.at), 'the note stands where the head ends');
+  }
+});
+
+test('two revisions of a row that differ only in the text its copy leaves out do not share a revision', () => {
+  const make = (middle) => ({ id: 't1', kind: 'tool', name: 'shell', result: `${'a'.repeat(7_000)}${middle}${'z'.repeat(7_000)}`, rawResult: null });
+  const one = remoteTranscriptSnapshot({ items: [make('1'.repeat(5_000))] }).items[0];
+  const two = remoteTranscriptSnapshot({ items: [make('2'.repeat(5_000))] }).items[0];
+  assert.equal(one.result, two.result, 'the phone copies are alike');
+  assert.equal(typeof one.remoteOutputRevision, 'string');
+  assert.notEqual(one.remoteOutputRevision, two.remoteOutputRevision);
+});

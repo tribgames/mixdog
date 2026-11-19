@@ -103,11 +103,17 @@ test('history keeps the original body and a digest cannot authorize replay of a 
     replies: { 'thread/items/list': { data: [row] } },
   });
   const page = await api.readTranscriptHistory(S, { before: 'tail', limit: 3 });
-  assert.equal(page.items[0].result, full);
-  assert.equal(page.items[0].rawResult, full);
+  // A history row reaches the page bounded, naming how long the output was; its whole output is read back by id, though the row is
+  // not in the live fold.
+  assert.ok(page.items[0].result.length < full.length && page.items[0].result.length <= 8_192);
+  assert.ok(page.items[0].result.endsWith('last line'), 'the end of the output is kept');
+  assert.equal(page.items[0].remoteOutputTruncated, full.length);
   assert.deepEqual(page.positions, ['h1:0:record-1']);
   const token = `${'a'.repeat(64)}:h1:0:record-1`;
   assert.equal(await api.readTranscriptItem(S, row.id, token), null);
+  const whole = await api.readTranscriptItem(S, row.id);
+  assert.equal(whole.result, full);
+  assert.equal(whole.rawResult, full);
   assert.deepEqual(sent, [
     { method: 'thread/items/list', params: { threadId: S, cursor: { type: 'item', itemId: 'tail' }, sortDirection: 'desc', limit: 3 } },
   ]);
@@ -269,4 +275,15 @@ test('every request a host call writes is handed the call\'s claim', async () =>
   await api.provideSecretInput('secret_abcdef123456', 'v');
   assert.ok(sent.some((s) => s.resume) && sent.length > 4, 'the stale refusal resumed the thread, and each call wrote');
   assert.deepEqual(unclaimed, []);
+});
+
+test('a forked session reaches the page with its tool output bounded, and its whole output is still read by id', async () => {
+  const full = `${'forked output\n'.repeat(2_000)}last line`;
+  const state = { items: [{ id: 'tool-9', kind: 'tool', name: 'shell', result: full, rawResult: full }] };
+  const { api } = adapter({ state, replies: { 'thread/fork': { thread: { id: 'S2' } } } });
+  const forked = await api.inheritSession(S, null, null);
+  const shown = forked.snapshot.items[0];
+  assert.ok(shown.result.length <= 8_192 && shown.result.endsWith('last line'));
+  assert.equal(shown.remoteOutputTruncated, full.length);
+  assert.equal((await api.readTranscriptItem('S2', 'tool-9')).result, full);
 });

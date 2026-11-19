@@ -141,6 +141,7 @@ export function useRemoteScreen({
   // viewer, the page shown again, a lapsed cooldown) goes through the
   // viewer's `start` below, which is the one place this is checked.
   const decidedRef = useRef(false);
+  const relayGeneration = useRef(0);
   /** A new viewer, whose `ready` asks the PC for a new session. */
   const resume = useCallback(() => {
     setResuming(true);
@@ -150,8 +151,12 @@ export function useRemoteScreen({
   // session of the previous one with it (and a view opened while no host was
   // connected starts here).
   useEffect(() => {
-    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, resume);
-    return () => window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, resume);
+    const reconnected = () => {
+      relayGeneration.current += 1;
+      resume();
+    };
+    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, reconnected);
+    return () => window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, reconnected);
   }, [resume]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the retry trigger (a new connection comes back through it too); the viewer follows the host and the display.
@@ -159,6 +164,10 @@ export function useRemoteScreen({
     // Read with the check, once: the shim's members go when the relay drops.
     const listen = remoteWebrtcHost(api) ? api.onRemoteBrowserWebrtc : undefined;
     if (!rtc || !listen) return undefined;
+    const generation = relayGeneration.current;
+    let hostStopped = false;
+    const shouldNotifyHost = () =>
+      !hostStopped && generation === relayGeneration.current && remoteWebrtcHost(api);
     /** This viewer asked for its replacement already. */
     let resumed = false;
     /** No session of this viewer was asked for yet. */
@@ -167,7 +176,7 @@ export function useRemoteScreen({
      *  stands, its status stays shown, until `retry`). The first one starts
      *  from a clean slate. */
     const start = () => {
-      if (decidedRef.current) return;
+      if (decidedRef.current || hostStopped) return;
       if (fresh) {
         fresh = false;
         setStatus(null);
@@ -197,6 +206,8 @@ export function useRemoteScreen({
         // The PC's status is its answer to a pending helper request.
         setHelperPending(false);
         if (next.state !== 'stopped') return;
+        hostStopped = true;
+        viewer.stop();
         if (!screenStopIsConnectionLoss(next)) decidedRef.current = true;
         // Ended with this phone's connection: again at once while a host is
         // up, else when the next relay connection is ready.
@@ -225,7 +236,7 @@ export function useRemoteScreen({
       if (document.visibilityState === 'hidden') {
         // Nothing stays pressed on the PC while this page is away.
         viewer.sendInput(RELEASE);
-        viewer.stop();
+        viewer.stop(shouldNotifyHost());
       } else start();
     };
     document.addEventListener('visibilitychange', visibility);
@@ -235,7 +246,7 @@ export function useRemoteScreen({
       unsubscribe();
       grants.invalidate();
       viewer.sendInput(RELEASE);
-      viewer.dispose();
+      viewer.dispose(shouldNotifyHost());
       viewerRef.current = null;
       setStream(null);
     };
@@ -249,20 +260,24 @@ export function useRemoteScreen({
     video.srcObject = stream;
     if (!stream) return undefined;
     void Promise.resolve(video.play()).catch(() => {});
-    if (typeof video.requestVideoFrameCallback !== 'function') return undefined;
-    let handle = 0;
-    const presented: VideoFrameRequestCallback = (_now, frame) => {
-      viewerRef.current?.framePresented({
-        width: frame.width,
-        height: frame.height,
-        captureTime: frame.captureTime,
-        expectedDisplayTime: frame.expectedDisplayTime,
-        receiveTime: frame.receiveTime,
-      });
+    let handle: number | null = null;
+    if (typeof video.requestVideoFrameCallback === 'function') {
+      const presented: VideoFrameRequestCallback = (_now, frame) => {
+        viewerRef.current?.framePresented({
+          width: frame.width,
+          height: frame.height,
+          captureTime: frame.captureTime,
+          expectedDisplayTime: frame.expectedDisplayTime,
+          receiveTime: frame.receiveTime,
+        });
+        handle = video.requestVideoFrameCallback(presented);
+      };
       handle = video.requestVideoFrameCallback(presented);
+    }
+    return () => {
+      if (handle !== null) video.cancelVideoFrameCallback(handle);
+      video.srcObject = null;
     };
-    handle = video.requestVideoFrameCallback(presented);
-    return () => video.cancelVideoFrameCallback(handle);
   }, [stream]);
 
   const viewer = viewerRef.current;

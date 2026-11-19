@@ -19,6 +19,7 @@ import { blankSnapshot, remoteSessionIdOf, startFolder, withRemoteSession } from
 import type { StartCall } from '../shared/blank-snapshot.ts';
 import { MAX_SECRET_LENGTH, SECRET_REQUEST_ID } from '../shared/secret-slots.ts';
 import { viewIsStale } from '../main/remote-view-staleness.ts';
+import { remoteToolOutput, remoteTranscriptRow, remoteTranscriptSnapshot } from '../main/remote-transcript.ts';
 import { historyPositionOf, rowsOf } from '../../../../packages/protocol-client/src/rows.ts';
 // Types only: the adapter module (remote-protocol-chat.ts) imports this one, so nothing here may need it loaded first.
 import type { ChatApi, ChatClient, ChatShared } from './remote-protocol-chat.ts';
@@ -35,6 +36,8 @@ const HISTORY_PAGE_ITEMS = 512;
 const HISTORY_ROW_ID_MAX_CHARS = 512;
 /** session-service transcript-window.mjs: the newest rows read to judge what the connection has not been shown. */
 const LATEST_ROWS = HISTORY_PAGE_ITEMS;
+const HELD_HISTORY_ROWS = 400;
+const HELD_HISTORY_SESSIONS = 8;
 /** session-host.ts agentRoomAction */
 const ROOM_ACTIONS: ReadonlySet<string> = new Set(['create', 'update', 'continue', 'leave', 'reset', 'remove']);
 
@@ -107,7 +110,24 @@ const reasonOf = (error: unknown): unknown => (error as { detail?: { data?: { re
 
 export function createChatHostApi(client: ChatClient, shared: ChatHostShared, base: ChatApi, options: ChatHostOptions) {
   const remoteId = (): string => remoteSessionIdOf(options.remoteSession());
-  const decorated = <T>(snapshot: T): T => withRemoteSession(snapshot, remoteId());
+  // Every snapshot the page is handed is bounded like the fold's states (remote-transcript.ts); the fold itself stays whole.
+  const decorated = <T>(snapshot: T): T => withRemoteSession(remoteTranscriptSnapshot(snapshot) as T, remoteId());
+  // The whole rows of history pages handed to the page, by session and row id: a row outside the live fold has no other place to read
+  // its full output from. Bounded; the oldest go first.
+  const heldHistory = new Map<string, Map<string, unknown>>();
+  const holdHistory = (sessionId: string, rows: readonly unknown[]): void => {
+    const held = heldHistory.get(sessionId) ?? new Map<string, unknown>();
+    heldHistory.delete(sessionId);
+    heldHistory.set(sessionId, held);
+    for (const row of rows) {
+      const id = (row as { id?: unknown } | null)?.id;
+      if (id == null) continue;
+      held.delete(String(id));
+      held.set(String(id), row);
+    }
+    while (held.size > HELD_HISTORY_ROWS) held.delete(held.keys().next().value as string);
+    while (heldHistory.size > HELD_HISTORY_SESSIONS) heldHistory.delete(heldHistory.keys().next().value as string);
+  };
   const send = (method: string, params: unknown): Promise<unknown> =>
     client.call(method, params).catch((error: unknown) => {
       throw shared.coreErrorForWindow(error);
@@ -159,7 +179,8 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
     },
     setModelRoute: async (...args: Parameters<ChatApi['setModelRoute']>) => decorated(await base.setModelRoute(...args)),
     setFast: async (...args: Parameters<ChatApi['setFast']>) => decorated(await base.setFast(...args)),
-    readTranscriptHistory: async (sessionId: string, request: DesktopTranscriptHistoryRequest): Promise<DesktopTranscriptHistoryPage> => {
+    // desktop: the desktop's own pages keep every row whole; the phone's rows are the capped projection of remoteTranscriptRow.
+    readTranscriptHistory: async (sessionId: string, request: DesktopTranscriptHistoryRequest, desktop = false): Promise<DesktopTranscriptHistoryPage> => {
       const history = requiredTranscriptHistoryRequest(request);
       const state = shared.sessionStateOf(sessionId);
       if (!state) throw new Error(READ_NOT_VIEWED);
@@ -190,12 +211,24 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
         const after = historyPositionOf(item, 'after');
         return before === after ? null : { ...(before === undefined ? {} : { before }), ...(after === undefined ? {} : { after }) };
       });
+      holdHistory(sessionId, items);
       return {
-        items,
+        items: desktop ? items : items.map((item) => remoteTranscriptRow(item, false).row),
         hasOlder: page.hasOlder === true, hasNewer: page.hasNewer === true,
         ...(positions.some((position) => position !== null) ? { positions } : {}),
         ...(positionEdges.some((edges) => edges !== null) ? { positionEdges } : {}),
       } as DesktopTranscriptHistoryPage;
+    },
+    readTranscriptItem: async (sessionId: string, itemId: string, replayToken?: string) => {
+      try {
+        return await base.readTranscriptItem(sessionId, itemId, replayToken);
+      } catch (error) {
+        // A row a history page showed is not in the live fold: its whole output is the page's held copy.
+        const held = replayToken === undefined ? heldHistory.get(sessionId) : undefined;
+        const output = held ? remoteToolOutput({ items: [...held.values()] }, itemId) : null;
+        if (output) return output;
+        throw error;
+      }
     },
     provideSecretInput: async (requestId: string, value: string): Promise<boolean> => {
       const id = requiredString(requestId, 'secret request id', 120);

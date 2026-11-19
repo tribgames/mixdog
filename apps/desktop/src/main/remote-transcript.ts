@@ -3,6 +3,7 @@ import { patchSectionDigests } from '../renderer/renderer-logic.mjs';
 import { normalizeToolName } from '../../../../packages/protocol-client/src/rows/tool-primitives.mjs';
 import { outputFactsOf, REMOTE_OUTPUT_FACTS_FIELD } from '../renderer/tool-output-facts.mjs';
 import { REMOTE_TRANSCRIPT_TAIL_BYTES } from '../shared/desktop-transcript-limits';
+import { wholeOutputRevision } from '../shared/tool-output-revision';
 
 // Provider replay material, not display data: `thinkingBlocks` are Anthropic's
 // thinking/redacted_thinking blocks, kept so a later request can hand the model
@@ -172,16 +173,28 @@ function cappedToolRecord(record: Record<string, unknown>, history = false): Rec
 /** A tool row (or an aggregate's members) with its outputs capped. */
 function cappedToolItem(item: Record<string, unknown>, history: boolean): Record<string, unknown> {
   let capped = cappedToolRecord(item, history);
-  if (!Array.isArray(item.toolMembers)) return capped;
-  let changed = false;
-  const members = item.toolMembers.map((member) => {
-    if (!member || typeof member !== 'object' || Array.isArray(member)) return member;
-    const next = cappedToolRecord(member as Record<string, unknown>, history);
-    if (next !== member) changed = true;
-    return next;
-  });
-  if (changed) capped = { ...capped, toolMembers: members };
-  return capped;
+  if (Array.isArray(item.toolMembers)) {
+    let changed = false;
+    const members = item.toolMembers.map((member) => {
+      if (!member || typeof member !== 'object' || Array.isArray(member)) return member;
+      const next = cappedToolRecord(member as Record<string, unknown>, history);
+      if (next !== member) changed = true;
+      return next;
+    });
+    if (changed) capped = { ...capped, toolMembers: members };
+  }
+  if (capped === item) return item;
+  // The phone keys what it read in full by this: the cut copy alone cannot tell two revisions apart.
+  const marked: Record<string, unknown> = { ...capped, remoteOutputRevision: wholeOutputRevision(item) };
+  // A grouped card carries the last diff of its members under its own (first member's) id: its digest is read back by the member the
+  // diff is of.
+  if (REMOTE_DIFF_DIGEST_FIELD in marked && Array.isArray(item.toolMembers) && typeof item.uiDiff === 'string') {
+    let at = item.toolMembers.length - 1;
+    while (at >= 0 && asRecord(item.toolMembers[at])?.uiDiff !== item.uiDiff) at -= 1;
+    const member = at < 0 ? null : asRecord(item.toolMembers[at]);
+    if (member) marked.uiDiffMemberId = String(member.id ?? `${String(item.id ?? 'aggregate')}:member:${at}`);
+  }
+  return marked;
 }
 
 /** The phone copy a tool row's outputs are cut to fit: a phone's whole first
@@ -192,8 +205,9 @@ const utf8 = new TextEncoder();
 const serializedBytes = (value: unknown): number => utf8.encode(JSON.stringify(value ?? null) ?? 'null').length;
 
 /** `record` with each output field (REMOTE_TOOL_OUTPUT_FIELDS) longer than `cap`
- *  cut to its first `cap` characters (never splitting a surrogate pair), an
- *  `omitted` note at the cut (counting what an earlier cut already left out)
+ *  cut to `cap` characters: a head and the end of the text (a build log's exit
+ *  status and errors are at its end; never splitting a surrogate pair), an
+ *  `omitted` note at the seam (counting what an earlier cut already left out)
  *  and the whole length in `remoteOutputTruncated`; `record` when none is longer. */
 function headCutRecord(record: Record<string, unknown>, cap: number): Record<string, unknown> {
   let cut: Record<string, unknown> | null = null;
@@ -203,14 +217,22 @@ function headCutRecord(record: Record<string, unknown>, cap: number): Record<str
   for (const field of REMOTE_TOOL_OUTPUT_FIELDS) {
     const value = record[field];
     if (typeof value !== 'string' || value.length <= cap) continue;
-    let end = cap;
-    const last = value.charCodeAt(end - 1);
-    if (last >= 0xd800 && last <= 0xdbff) end -= 1;
     const earlier = asRecord(prior[field]);
     const before = earlier?.kind === 'omitted' && Number.isInteger(earlier.omitted) ? Number(earlier.omitted) : 0;
+    // A field cut before keeps its seam: its head is only ever shortened, so the note still names the one place text is missing.
+    const seam = before > 0 && Number.isInteger(earlier?.at) ? Number(earlier?.at) : Infinity;
+    const tailChars = Math.min(REMOTE_TOOL_OUTPUT_TAIL_CHARS, Math.floor(cap / 4));
+    let headEnd = Math.min(seam, cap - tailChars);
+    if (headEnd > 0) {
+      const last = value.charCodeAt(headEnd - 1);
+      if (last >= 0xd800 && last <= 0xdbff) headEnd -= 1;
+    }
+    let tailStart = value.length - tailChars;
+    const first = value.charCodeAt(tailStart);
+    if (tailChars > 0 && first >= 0xdc00 && first <= 0xdfff) tailStart += 1;
     cut ??= { ...record };
-    cut[field] = value.slice(0, end);
-    notes[field] = { kind: 'omitted', at: end, omitted: value.length - end + before };
+    cut[field] = value.slice(0, headEnd) + (tailChars > 0 ? value.slice(tailStart) : '');
+    notes[field] = { kind: 'omitted', at: headEnd, omitted: tailStart - headEnd + before };
     longest = Math.max(longest, value.length + before);
   }
   if (!cut) return record;

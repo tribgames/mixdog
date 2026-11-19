@@ -207,6 +207,8 @@ impl PairCode {
         }
         self.host_name = host_name.to_owned();
         if !self.unsupported {
+            // The shown code is cleared with the request: "new code" never hands the old one back while the relay's reply is awaited.
+            self.drop_current(fx);
             self.pending = None;
             self.request(fx);
         }

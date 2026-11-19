@@ -244,6 +244,25 @@ test('a core that says it is starting and answers its control listener is waited
   assert.ok(clock < 1_200);
 });
 
+test('a core that answers but reports no progress for many ready times fails with an error, one whose counts move is waited for', async () => {
+  let clock = 0;
+  const base = { state: 'migrating', rpcPort: null, pid: 4321, controlPort: 7, token: 't' };
+  const run = (discovery: () => object) =>
+    ensureCore({
+      readDiscovery: async () => discovery() as never,
+      launch: async () => ({}),
+      sleep: async (ms) => void (clock += ms),
+      now: () => clock,
+      readyTimeoutMs: 1_000,
+      runs: () => true,
+      ping: async () => ({ answered: true, stalledMs: 0 }),
+    });
+  await assert.rejects(run(() => base), /no progress/);
+  clock = 0;
+  const moving = () => (clock >= 20_000 ? { ...base, state: 'serving', rpcPort: 9 } : { ...base, rebuild: { done: Math.floor(clock / 1_000), total: 30 } });
+  assert.equal((await run(moving)).state, 'serving');
+});
+
 test('a blocked core names its own reason and no owner is blamed beside it', async () => {
   let clock = 0;
   await assert.rejects(

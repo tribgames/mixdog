@@ -47,6 +47,26 @@ test('a missing row and a reorder are differences', () => {
   assert.ok(seen(parity.classify(nodeRoster, swapped), 'Title 3.id'), 'the rows at swapped positions differ by identity');
 });
 
+test('the incomingTail departure leaves out only a well-formed tail on a bot home or room row', () => {
+  const nodeRoster = node.steps.find((s) => s.name === 'action:room').roster;
+  const phone = project(live.steps.find((s) => s.name === 'room').listed.data);
+  const home = phone.find((row) => row.id.startsWith('sess_home_')).title;
+  const room = phone.find((row) => row.id.startsWith('sess_room_')).title;
+  assert.ok(!seen(parity.classify(nodeRoster, phone), `${home}.incomingTail`) && !seen(parity.classify(nodeRoster, phone), `${room}.incomingTail`));
+  const without = ({ incomingTail: _t, ...rest }) => rest;
+  for (const [title, change] of [
+    [home, without],
+    [home, (row) => ({ ...row, incomingTail: [row.messageCount + 1] })],
+    [home, (row) => ({ ...row, incomingTail: [2, 2] })],
+    [room, (row) => ({ ...row, incomingTail: 'none' })],
+    ['Title 1', (row) => ({ ...row, incomingTail: [1] })],
+  ]) {
+    const got = parity.classify(nodeRoster, edit(phone, title, change));
+    assert.ok(seen(got, `${title}.incomingTail`), `${title}: ${got.join()}`);
+  }
+  assert.notEqual(parity.phoneContent(edit(phone, home, without)), parity.phoneContent(phone));
+});
+
 test('rows are compared by position: two rows of one title are not merged', () => {
   const { nodeRoster, phone } = after('turns');
   const titled = (rows) => rows.map((row) => ({ ...row, title: 'same' }));

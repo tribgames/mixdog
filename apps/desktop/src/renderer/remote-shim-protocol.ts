@@ -187,7 +187,7 @@ export function createProtocolRouter(
           };
           // Node restarts the deadline and starts measuring silence when this call's own frame has left, not when the call began (:258-268):
           // the client the handler reaches hands that frame to this call's claim. A call that fails before sending claims nothing.
-          const claim = firstFrame((sent) => void sent.then(watch.transmitted));
+          const claim = firstFrame((sent) => void sent.then(watch.transmitted, () => undefined));
           const transferProgress = (): void => {
             if (!waiting.has(id)) throw remoteConnectionInterruptedError();
             watch.progressed();

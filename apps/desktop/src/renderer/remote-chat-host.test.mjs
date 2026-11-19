@@ -249,3 +249,14 @@ test('every request a host call writes is handed the call\'s claim', async () =>
   assert.ok(resumed > 0 && sent.length > 4, 'the stale refusal resumed the thread, and each call wrote');
   assert.deepEqual(unclaimed, []);
 });
+
+test('the desktop history page keeps a tool output whole; the phone page caps it', async () => {
+  const output = 'line of output\n'.repeat(2000);
+  const wire = { data: [{ type: 'toolCall', id: 'big', name: 'bash', input: { command: 'ls' }, output, meta: { status: 'completed', at: 1 } }], hasOlder: false, hasNewer: false };
+  const outputOf = (page) => JSON.stringify(page.items[0]);
+  const { api } = adapter({ replies: { 'thread/items/list': wire }, state: { items: [] } });
+  const desktop = await api.readTranscriptHistory(S, { before: 'anchor', limit: 2 }, true);
+  const phone = await api.readTranscriptHistory(S, { before: 'anchor', limit: 2 });
+  assert.ok(outputOf(desktop).includes(output.trimEnd().replaceAll('\n', '\\n')));
+  assert.ok(!outputOf(phone).includes(output.trimEnd().replaceAll('\n', '\\n')));
+});

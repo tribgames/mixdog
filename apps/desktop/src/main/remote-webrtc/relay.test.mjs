@@ -195,6 +195,133 @@ test('screen readies whose authorization checks finish out of order: only the ne
   assert.deepEqual(f.forwarded, [['c1', 'ready', limit]], 'only the newer ready');
 });
 
+test('screen cancellation drops only its own pending ready and cannot replay it', async () => {
+  const ice = deferredIce();
+  const forwarded = [];
+  const origin = {};
+  const relay = createRemoteWebrtcRelay({
+    subscribed: () => false,
+    awaitingFit: () => false,
+    screenAuthorized: async (_client, from) => from === origin,
+    screenDisplays: async () => [],
+    setImages: () => {},
+    resolveIceServers: ice.resolveIceServers,
+    forward: async (client, signal) => forwarded.push([client, signal.type, signal.viewerAttempt]),
+    viewerLeft: async () => {},
+    send: async () => {},
+  });
+  const phone = (client, type, viewerAttempt, from = origin) => {
+    const body = type === 'ready' ? { receiveCodecs: ['video/VP8'] } : { reason: 'viewer-left' };
+    const signal = relay.accept(client, {
+      v: 1, source: { kind: 'screen', screenId: '1' }, type, viewerAttempt, ...body,
+    });
+    return relay.forward(client, signal, from);
+  };
+  const first = phone('c1', 'ready', 1);
+  await new Promise((resolve) => setImmediate(resolve));
+  await assert.rejects(phone('c1', 'close', 1, {}), /not allowed/);
+  await phone('c1', 'close', 1);
+  ice.settle(0);
+  await first;
+  await phone('c1', 'ready', 1);
+
+  const next = phone('c1', 'ready', 2);
+  const other = phone('c2', 'ready', 1);
+  await new Promise((resolve) => setImmediate(resolve));
+  await phone('c1', 'close', 1);
+  ice.settle(1);
+  ice.settle(2);
+  await Promise.all([next, other]);
+  assert.deepEqual(forwarded, [['c1', 'close', 1], ['c1', 'close', 1], ['c1', 'ready', 2], ['c2', 'ready', 1]]);
+});
+
+test('screen replay compacts only cancelled IDs and explicitly requires a new connection on overflow', async () => {
+  let finishOldAuthorization;
+  let holdAuthorization = false;
+  const forwarded = [];
+  const relay = createRemoteWebrtcRelay({
+    subscribed: () => false,
+    awaitingFit: () => false,
+    screenAuthorized: () =>
+      holdAuthorization
+        ? new Promise((resolve) => { finishOldAuthorization = resolve; })
+        : Promise.resolve(true),
+    screenDisplays: async () => [],
+    setImages: () => {},
+    resolveIceServers: async () => [],
+    forward: async (_client, signal) => forwarded.push([signal.type, signal.source.screenId, signal.viewerAttempt]),
+    viewerLeft: async () => {},
+    send: async () => {},
+  });
+  const origin = {};
+  function signal(type, screenId, viewerAttempt, from = origin) {
+    const body = type === 'ready' ? { receiveCodecs: ['video/VP8'] } : { reason: 'viewer-left' };
+    return relay.forward('c1', relay.accept('c1', {
+      v: REMOTE_WEBRTC_VERSION, source: { kind: 'screen', screenId }, type, viewerAttempt, ...body,
+    }), from);
+  }
+  const readies = () => forwarded.filter(([type]) => type === 'ready').map(([, screenId, id]) => [screenId, id]);
+
+  await signal('ready', 'live', 1);
+  holdAuthorization = true;
+  const superseded = signal('ready', 'main', 4);
+  holdAuthorization = false;
+  await signal('ready', 'main', 5);
+  await signal('close', 'main', 4);
+  finishOldAuthorization(true);
+  await superseded;
+
+  for (let id = 100; id < 230; id++) {
+    if (id === 166) continue;
+    await signal('close', 'reordered', id);
+    await signal('ready', 'reordered', id);
+  }
+  await signal('ready', 'reordered', 100);
+  await signal('ready', 'reordered', 229);
+  await signal('ready', 'main', 4);
+  await signal('ready', 'live', 1);
+  await signal('ready', 'unseen', 2);
+  await signal('ready', 'unseen', 166);
+  await signal('close', 'other-display', 6); // Not the same source.
+  await signal('ready', 'main', 6);
+  assert.deepEqual(readies(), [['live', 1], ['main', 5], ['live', 1], ['unseen', 2], ['unseen', 166], ['main', 6]]);
+
+  const resync = /resynchronization.*Reconnect/;
+  await signal('close', 'first-unmatched', 999);
+  let overflow;
+  for (let id = 1000; id < 1128; id++) {
+    try {
+      await signal('close', `unseen-${id}`, id);
+    } catch (error) {
+      assert.match(error.message, resync);
+      overflow = id;
+      break;
+    }
+  }
+  assert.ok(overflow, 'unmatched closes reach a bounded limit');
+  let beforeReplay = forwarded.length;
+  await signal('ready', 'first-unmatched', 999);
+  assert.equal(forwarded.length, beforeReplay, 'the earliest unmatched close still blocks its ready');
+  // Joining the two retired ranges frees capacity, but cannot recover a lost close.
+  await signal('close', 'unseen', 166);
+  await assert.rejects(signal('ready', `unseen-${overflow}`, overflow), resync);
+  await assert.rejects(signal('ready', 'fresh', 3), resync);
+  await signal('ready', 'live', 1);
+  await signal('close', 'live', 1);
+  await signal('ready', 'live', 1);
+  assert.deepEqual(forwarded.slice(beforeReplay), [['close', 'unseen', 166], ['ready', 'live', 1], ['close', 'live', 1]]);
+
+  holdAuthorization = true;
+  const oldClose = signal('close', 'live', 1);
+  holdAuthorization = false;
+  relay.connectionRemoved('c1');
+  beforeReplay = forwarded.length;
+  await signal('ready', 'live', 1, {});
+  finishOldAuthorization(true);
+  await oldClose;
+  assert.deepEqual(forwarded.slice(beforeReplay), [['ready', 'live', 1]], 'only the new connection reaches the host');
+});
+
 test('regression: a screen ready stays bound to the connection that delivered it, across ICE', async () => {
   /** The relay registry: client id → the connection object that holds it. */
   const registry = new Map();

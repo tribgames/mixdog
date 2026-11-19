@@ -1658,7 +1658,7 @@ export type DownloadItem = { id: string, file: string, path: string, url: string
 /**
  * What a paired phone asks to download (`transfer/authorizeRead`).
  */
-export type DownloadSource = { "kind": "file", rel: string, } | { "kind": "sessionFile", path: string, } | { "kind": "mediaAsset", assetId: string, } | { "kind": "link", itemId: string, href: string, } | { "kind": "attachment", attachmentId: string, } | { "kind": "folder", path: string, };
+export type DownloadSource = { "kind": "file", rel: string, } | { "kind": "sessionFile", path: string, } | { "kind": "mediaAsset", assetId: string, } | { "kind": "link", itemId: string, href: string, } | { "kind": "attachment", attachmentId: string, } | { "kind": "folder", path: string, } | { "kind": "export", input: JsonValue, };
 
 /**
  * Why the core is winding down (LR §5, SPEC R22). Shared by core-api and the wire.
@@ -3178,7 +3178,7 @@ endpoint?: string, token?: string, };
 
 /**
  * Publishes desktop-owned state into section `hostState`: `{key, value}`, the value's shape
- * picked by the key. Only `visualize` is typed; the others stay the desktop's own JSON.
+ * picked by the key.
  */
 export type HostStateSetParams = { "key": "browserTabs", "value": JsonValue } | { "key": "browserImport", "value": JsonValue } | { "key": "browserDialogApprovalSessions", "value": Array<string> } | { "key": "visualize", "value": VisualizeHostValue } | { "key": "displayPreferences", "value": JsonValue } | { "key": "windowFocus", "value": WindowFocusValue };
 
@@ -5124,7 +5124,7 @@ export type ProxyNotice = { message: string, warn: boolean, };
  * `RequestOptions` field for field. The connection scope and the model's output ceiling are the
  * PC's to derive, so they are not carried.
  */
-export type ProxyOptions = { sessionId: string | null, effort: string | null, maxOutputTokensOverride: number | null, fast: boolean, toolChoice: string | null, verbosity: string | null, requestKind: string | null, iteration: number, promptCacheKey: string | null, promptCacheScope: string | null, xaiResponsesCacheScope: string | null, modelParameters: JsonValue | null, thread: ProxyThread | null, parentSessionId: string | null, parallelToolCalls: boolean | null, temperature: number | null, effortProjection: ProxyEffortProjection | null, hostedTools: Array<ProxyHostedTool>, sharedCachePrefixCount: number | null, providerState: JsonValue | null,
+export type ProxyOptions = { sessionId: string | null, effort: string | null, maxOutputTokensOverride: number | null, fast: boolean, toolChoice: string | null, verbosity: string | null, requestKind: string | null, iteration: number, promptCacheKey: string | null, promptCacheScope: string | null, xaiResponsesCacheScope: string | null, xaiApiMode?: string | null, xaiResponsesTransport?: string | null, modelParameters: JsonValue | null, thread: ProxyThread | null, parentSessionId: string | null, parallelToolCalls: boolean | null, temperature: number | null, effortProjection: ProxyEffortProjection | null, hostedTools: Array<ProxyHostedTool>, sharedCachePrefixCount: number | null, providerState: JsonValue | null,
 /**
  * The server forked this request from a session (a side question) and gave it a transport scope of its own
  * (`options.transportScope`). Its string means nothing on this PC, which allocates a scope for the request and

@@ -126,15 +126,92 @@ function settleAck(
   }
 }
 
+const SCREEN_REPLAY_LIMIT = 64;
+const SCREEN_RESYNC = 'Screen signaling needs resynchronization. Reconnect before starting another screen viewer.';
+
+class ScreenReplay {
+  // Attempt IDs are unique within the authenticated origin, but execution
+  // order is not guaranteed. Only known cancellations enter the exact ranges.
+  private readonly starts = new Map<number, string>();
+  private readonly retired: { first: number; last: number }[] = [];
+  private readonly earlyCloses: { sourceKey: string; id: number }[] = [];
+  private needsResync = false;
+
+  allowsReady(sourceKey: string, id: number): boolean {
+    if (this.isRetired(id)) return false;
+    const start = this.starts.get(id);
+    if (start !== undefined) return start === sourceKey;
+    const early = this.earlyCloses.findIndex((close) => close.sourceKey === sourceKey && close.id === id);
+    if (early !== -1) {
+      this.earlyCloses.splice(early, 1);
+      this.retire(id);
+      return false;
+    }
+    this.reserve();
+    this.starts.set(id, sourceKey);
+    return true;
+  }
+
+  cancel(sourceKey: string, id: number): void {
+    if (this.isRetired(id)) return;
+    const start = this.starts.get(id);
+    if (start !== undefined) {
+      if (start === sourceKey) {
+        this.starts.delete(id);
+        this.retire(id);
+      }
+    } else if (!this.earlyCloses.some((close) => close.sourceKey === sourceKey && close.id === id)) {
+      this.reserve();
+      this.earlyCloses.push({ sourceKey, id });
+    }
+  }
+
+  private isRetired(id: number): boolean {
+    return this.retired.some(({ first, last }) => first <= id && id <= last);
+  }
+
+  private retire(id: number): void {
+    // Replaces an existing slot; merging adjacent IDs never fills a hole.
+    let first = id;
+    let last = id;
+    for (let i = this.retired.length - 1; i >= 0; i--) {
+      const range = this.retired[i];
+      if (range.first > id + 1 || range.last + 1 < id) continue;
+      first = Math.min(first, range.first);
+      last = Math.max(last, range.last);
+      this.retired.splice(i, 1);
+    }
+    this.retired.push({ first, last });
+  }
+
+  private reserve(): void {
+    if (this.needsResync || this.starts.size + this.retired.length + this.earlyCloses.length >= SCREEN_REPLAY_LIMIT) {
+      // An unmatched close may no longer be recorded. Never admit a new ID
+      // on this origin again; the RPC error asks for a fresh authenticated
+      // connection. Repeats and closes for known viewers still work.
+      this.needsResync = true;
+      throw new Error(SCREEN_RESYNC);
+    }
+  }
+}
+
 export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
   const ownership = new Map<string, Ownership>();
   /** The `ready` per client × source still resolving its ICE servers; a newer
    *  `ready` or the viewer's departure makes an older one stale. */
-  const attempts = new Map<string, number>();
-  let attemptSerial = 0;
+  const attempts = new Map<string, { viewerAttempt?: number; origin: RemoteWebrtcOrigin }>();
+  const screenReplays = new Map<string, WeakMap<RemoteWebrtcOrigin, ScreenReplay>>();
   const key = (clientId: string, sourceKey: string) => `${clientId}\u0000${sourceKey}`;
   const sessionOf = (signal: { source: RemoteWebrtcClientSignal['source'] }): string | null =>
     signal.source.kind === 'browser' ? signal.source.sessionId : null;
+
+  function screenReplay(clientId: string, origin: RemoteWebrtcOrigin): ScreenReplay {
+    let byOrigin = screenReplays.get(clientId);
+    if (!byOrigin) screenReplays.set(clientId, (byOrigin = new WeakMap()));
+    let replay = byOrigin.get(origin);
+    if (!replay) byOrigin.set(origin, (replay = new ScreenReplay()));
+    return replay;
+  }
 
   function release(clientId: string, sourceKey: string, sessionId: string | null): void {
     const k = key(clientId, sourceKey);
@@ -160,9 +237,26 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
 
     /** Execution step: hand the signal to the window, a `ready` with the ICE
      *  servers. `origin` is the connection that delivered it; a screen signal
-     *  is authorized and forwarded for that connection only. */
+     *  is authorized and forwarded for that connection only. A screen resync
+     *  error requires a fresh authenticated connection, not a retry on this one. */
     async forward(clientId: string, signal: RemoteWebrtcClientSignal, origin: RemoteWebrtcOrigin): Promise<void> {
+      const sourceKey = remoteWebrtcSourceKey(signal.source);
+      const k = key(clientId, sourceKey);
       if (signal.type !== 'ready') {
+        if (signal.type === 'close' && 'viewerAttempt' in signal) {
+          const replay = screenReplay(clientId, origin);
+          if (!(await deps.screenAuthorized(clientId, origin))) {
+            throw new TypeError('Remote screen is not allowed for this device.');
+          }
+          // The connection may have left during authorization.
+          if (screenReplays.get(clientId)?.get(origin) !== replay) return;
+          const pending = attempts.get(k);
+          const matches = pending?.origin === origin && pending?.viewerAttempt === signal.viewerAttempt;
+          replay.cancel(sourceKey, signal.viewerAttempt);
+          if (matches) attempts.delete(k);
+          await deps.forward(clientId, signal, undefined, origin);
+          return;
+        }
         if (signal.source.kind === 'screen' && !(await deps.screenAuthorized(clientId, origin))) {
           throw new TypeError('Remote screen is not allowed for this device.');
         }
@@ -182,9 +276,15 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
       }
       // The attempt is registered before anything is awaited, so the order
       // `ready`s were decoded in decides which one is current.
-      const k = key(clientId, remoteWebrtcSourceKey(signal.source));
-      attemptSerial += 1;
-      const attempt = attemptSerial;
+      const attempt = { viewerAttempt: signal.viewerAttempt, origin };
+      if (
+        signal.viewerAttempt !== undefined &&
+        !screenReplay(clientId, origin).allowsReady(sourceKey, signal.viewerAttempt)
+      ) {
+        return;
+      }
+      const pending = attempts.get(k);
+      if (pending && pending.origin === origin && (pending.viewerAttempt ?? 0) > (signal.viewerAttempt ?? 0)) return;
       attempts.set(k, attempt);
       // The viewer may leave (a forwarded `ready` would recreate it) or a
       // newer `ready` take over at every await: this one is then dropped.
@@ -252,6 +352,7 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
     connectionRemoved(clientId: string): void {
       const prefix = key(clientId, 'screen:');
       for (const k of [...attempts.keys()]) if (k.startsWith(prefix)) attempts.delete(k);
+      screenReplays.delete(clientId);
     },
 
     /** The client stopped streaming the session (or left the relay). */

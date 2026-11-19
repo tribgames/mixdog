@@ -260,3 +260,13 @@ for (const c of recorded.cases) {
     }
   });
 }
+
+test('submitNewTask: a retry of an already accepted task (a reply without a turn) is accepted with its session and snapshot', async () => {
+  const c = recorded.cases.find((x) => x.name === 'submitNewTask-accepted');
+  const script = SCRIPT[c.name]({ ...c.node, daemon: c.daemon });
+  delete script['thread/start'].turn;
+  const { api } = adapterFor(script);
+  const reply = await invoke[c.call](api, c.args);
+  assert.deepEqual(pick(c.name, reply), pick(c.name, c.node.result));
+  assert.equal(reply.accepted, true);
+});

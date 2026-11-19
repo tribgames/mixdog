@@ -24,6 +24,14 @@ export function remoteWindowUserAgent(defaultUserAgent: string, appName: string)
   return `${stripped} MixdogDesktop/1`;
 }
 
+/** A host's reachability from the core's presence answer: a host in neither list could not be asked (its relay did not answer),
+ *  so its state is unknown (`undefined`), never offline. */
+export function presenceOf(id: string, presence: { online: readonly string[]; offline: readonly string[] } | null): boolean | undefined {
+  if (!presence) return undefined;
+  if (presence.online.includes(id)) return true;
+  return presence.offline.includes(id) ? false : undefined;
+}
+
 /** Same relay origin: stays in the remote window. Anything else is a link the
  *  user's default browser should handle. */
 export function isRemoteHostNavigation(hostUrl: string, target: string): boolean {

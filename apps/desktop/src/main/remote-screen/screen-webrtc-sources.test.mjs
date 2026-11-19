@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { REMOTE_WEBRTC_VERSION } from '../../shared/remote-webrtc.ts';
 import { createRemoteWebrtcHost } from '../remote-webrtc/host.ts';
+import * as screenSource from './screen-source.ts';
 import { createRemoteScreenSources, parseRemoteScreenAccess } from './screen-webrtc-sources.ts';
 import { createSecureDesktopAdapter } from './secure-desktop-adapter.ts';
 import { createSecureDesktopHelper } from './secure-desktop-helper.ts';
@@ -77,7 +78,7 @@ function mockInputHost(log) {
   };
 }
 
-function build(over = {}) {
+function build(over = {}, createSources = createRemoteScreenSources) {
   const commands = [];
   const signals = [];
   const injected = [];
@@ -86,9 +87,9 @@ function build(over = {}) {
   let refreshes = 0;
   let hosts = 0;
   let webrtc = null;
-  const screens = createRemoteScreenSources({
+  const screens = createSources({
     displays: {
-      list: () => [display],
+      list: over.listDisplays ?? (() => [display]),
       onChange: () => () => {},
       refresh: async () => {
         refreshes += 1;
@@ -96,7 +97,7 @@ function build(over = {}) {
     },
     createInputHost: () => {
       hosts += 1;
-      return mockInputHost(injected);
+      return over.createInputHost?.(injected) ?? mockInputHost(injected);
     },
     secureDesktop: over.secureDesktop ?? noHelper(),
     indicator: () => ({
@@ -175,6 +176,87 @@ test('no session without access, from a non-ready signal, or for a second client
   await env.screens.setAccess('c2', granted());
   await assert.rejects(env.webrtc.signal('c2', ready, TURN), /not streamed/);
   assert.equal(env.indicator.filter(([kind]) => kind === 'show').length, 1);
+});
+
+test('failed screen starts release their leases once without evicting a replacement', async (t) => {
+  const captures = [];
+  const stopTargets = [];
+  // Stopping a source that never started is a no-op, so observe the calls themselves.
+  t.mock.module('./screen-source.ts', {
+    namedExports: {
+      ...screenSource,
+      createRemoteScreenSource(deps) {
+        const capture = screenSource.createRemoteScreenSource(deps);
+        const stop = capture.stop;
+        captures.push(capture);
+        t.mock.method(capture, 'stop', (...args) => {
+          stopTargets.push(capture);
+          return stop(...args);
+        });
+        return capture;
+      },
+    },
+  });
+  const { createRemoteScreenSources: createObservedSources } = await import('./screen-webrtc-sources.ts?observe-stop');
+  const helper = noHelper();
+  const disposals = [0, 0, 0];
+  const pendingStart = Promise.withResolvers();
+  let leases = 0;
+  let present = true;
+  let holdStart = true;
+  const env = build(
+    {
+      listDisplays: () => (present ? [display] : []),
+      createInputHost: (commands) => {
+        const host = mockInputHost(commands);
+        return holdStart ? { ...host, start: () => pendingStart.promise } : host;
+      },
+      secureDesktop: {
+        ...helper,
+        lease() {
+          const lease = helper.lease();
+          const index = leases++;
+          return {
+            ...lease,
+            dispose() {
+              disposals[index] += 1;
+              lease.dispose();
+            },
+          };
+        },
+      },
+    },
+    createObservedSources
+  );
+  t.after(() => env.screens.dispose());
+  const open = () => env.screens.resolve(screen, { clientId: 'c1', signal: 'ready' });
+
+  await env.screens.setAccess('c1', granted());
+  present = false;
+  const missing = open();
+  await new Promise(setImmediate);
+  assert.equal(env.hosts(), 0);
+  assert.equal(stops(env).length, 0, 'no stop event for a display missing at start');
+  assert.deepEqual(disposals, [1, 0, 0]);
+
+  present = true;
+  const interrupted = open();
+  assert.notEqual(interrupted, missing);
+  interrupted.stop();
+  holdStart = false;
+  const replacement = open();
+  assert.notEqual(replacement, interrupted);
+  pendingStart.reject(new Error('input host start interrupted'));
+  await new Promise(setImmediate);
+
+  assert.equal(env.events.filter((event) => event.type === 'start-failed').length, 2);
+  assert.equal(open(), replacement, 'the late rejection must not forget the live session');
+  assert.equal(replacement.capturePlan().sourceId, display.captureSourceId);
+  assert.deepEqual(disposals, [1, 1, 0], 'both failure paths release only their own leases');
+  stopTargets.length = 0;
+  await env.screens.stopForQuit();
+  assert.deepEqual(stopTargets.map((capture) => captures.indexOf(capture)), [2], 'quit only tries to stop the replacement');
+  assert.deepEqual(disposals, [1, 1, 1], 'quit only releases the remaining session');
 });
 
 test('regression: a phone whose network changed is not revoked: its session ends as viewer-left and its next connection opens a new one', async () => {

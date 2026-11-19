@@ -8,8 +8,7 @@
 //! view.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::sync::PoisonError;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -73,8 +72,105 @@ struct State {
     ownership: HashMap<String, Ownership>,
     /// The `ready` per client × source still resolving its ICE servers; a newer `ready` or the
     /// viewer's departure makes an older one stale.
-    attempts: HashMap<String, u64>,
+    attempts: HashMap<String, PendingReady>,
+    screen_replays: HashMap<String, HashMap<Origin, ScreenReplay>>,
     serial: u64,
+}
+
+const SCREEN_REPLAY_LIMIT: usize = 64;
+const SCREEN_RESYNC: &str = "Screen signaling needs resynchronization. Reconnect before starting another screen viewer.";
+
+#[derive(Default)]
+struct ScreenReplay {
+    // Attempt IDs are unique within the authenticated origin, but execution
+    // order is not guaranteed. Only known cancellations enter the exact ranges.
+    starts: HashMap<u64, String>,
+    retired: Vec<(u64, u64)>,
+    early_closes: Vec<(String, u64)>,
+    needs_resync: bool,
+    // Only this connection's final screen handoffs are serialized, never ICE or authorization.
+    handoff: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl ScreenReplay {
+    fn allows_ready(&mut self, source_key: &str, id: u64) -> Result<bool, String> {
+        if self.is_retired(id) {
+            return Ok(false);
+        }
+        if let Some(source) = self.starts.get(&id) {
+            return Ok(source == source_key);
+        }
+        if let Some(index) = self.early_closes.iter().position(|(source, attempt)| source == source_key && *attempt == id) {
+            self.early_closes.swap_remove(index);
+            self.retire(id);
+            return Ok(false);
+        }
+        self.reserve()?;
+        self.starts.insert(id, source_key.to_owned());
+        Ok(true)
+    }
+
+    fn cancel(&mut self, source_key: &str, id: u64) -> Result<(), String> {
+        if self.is_retired(id) {
+            return Ok(());
+        }
+        if let Some(source) = self.starts.get(&id) {
+            if source == source_key {
+                self.starts.remove(&id);
+                self.retire(id);
+            }
+        } else if !self.early_closes.iter().any(|(source, attempt)| source == source_key && *attempt == id) {
+            self.reserve()?;
+            self.early_closes.push((source_key.to_owned(), id));
+        }
+        Ok(())
+    }
+
+    fn is_retired(&self, id: u64) -> bool {
+        self.retired.iter().any(|&(first, last)| first <= id && id <= last)
+    }
+
+    fn retire(&mut self, id: u64) {
+        // Replaces an existing slot; merging adjacent IDs never fills a hole.
+        let (mut first, mut last) = (id, id);
+        self.retired.retain(|&(lo, hi)| {
+            if lo > id.saturating_add(1) || hi.saturating_add(1) < id {
+                return true;
+            }
+            first = first.min(lo);
+            last = last.max(hi);
+            false
+        });
+        self.retired.push((first, last));
+    }
+
+    fn reserve(&mut self) -> Result<(), String> {
+        if self.needs_resync || self.starts.len() + self.retired.len() + self.early_closes.len() >= SCREEN_REPLAY_LIMIT {
+            // An unmatched close may no longer be recorded. Never admit a new ID
+            // on this origin again; the RPC error asks for a fresh authenticated
+            // connection. Repeats and closes for known viewers still work.
+            self.needs_resync = true;
+            return Err(SCREEN_RESYNC.to_owned());
+        }
+        Ok(())
+    }
+}
+
+impl State {
+    fn screen_replay(&mut self, client: &str, origin: Origin) -> &mut ScreenReplay {
+        self.screen_replays.entry(client.to_owned()).or_default().entry(origin).or_default()
+    }
+
+    fn existing_replay(&mut self, client: &str, origin: Origin) -> Option<&mut ScreenReplay> {
+        self.screen_replays.get_mut(client)?.get_mut(&origin)
+    }
+}
+
+#[derive(PartialEq)]
+struct PendingReady {
+    serial: u64,
+    viewer_attempt: Option<u64>,
+    origin: Origin,
 }
 
 pub struct Relay<D> {
@@ -147,9 +243,33 @@ impl<D: RelayDeps> Relay<D> {
 
     /// Execution step: hand the signal to the host, a `ready` with the ICE servers. `origin` is the
     /// connection that delivered it; a screen signal is authorized and forwarded for that
-    /// connection only.
+    /// connection only. A screen resync error requires a fresh authenticated connection, not a
+    /// retry on this one.
     pub async fn forward(&self, client: &str, signal: &ClientSignal, origin: Origin) -> Result<(), String> {
-        let ClientSignal::Ready { source, .. } = signal else {
+        let ClientSignal::Ready { source, viewer_attempt, .. } = signal else {
+            if let ClientSignal::CancelScreen { source, viewer_attempt, .. } = signal {
+                let handoff = self.state().screen_replay(client, origin).handoff.clone();
+                if !self.deps.screen_authorized(client, origin).await {
+                    return Err(SCREEN_REFUSED.to_owned());
+                }
+                let _handoff = handoff.lock().await;
+                let source_key = source.key();
+                let key = key(client, &source_key);
+                {
+                    let mut state = self.state();
+                    let matches =
+                        state.attempts.get(&key).is_some_and(|pending| pending.origin == origin && pending.viewer_attempt == Some(*viewer_attempt));
+                    // The connection may have left during authorization or while waiting for handoff.
+                    let Some(replay) = state.existing_replay(client, origin).filter(|replay| Arc::ptr_eq(&replay.handoff, &handoff)) else {
+                        return Ok(());
+                    };
+                    replay.cancel(&source_key, *viewer_attempt)?;
+                    if matches {
+                        state.attempts.remove(&key);
+                    }
+                }
+                return self.deps.forward(client, signal, None, origin).await;
+            }
             if matches!(signal.source(), Source::Screen { .. }) && !self.deps.screen_authorized(client, origin).await {
                 return Err(SCREEN_REFUSED.to_owned());
             }
@@ -164,17 +284,26 @@ impl<D: RelayDeps> Relay<D> {
         };
         // The attempt is registered before anything is awaited, so the order `ready`s were
         // decoded in decides which one is current.
-        let attempt_key = key(client, &source.key());
-        let attempt = {
+        let source_key = source.key();
+        let attempt_key = key(client, &source_key);
+        let session = session_of(source);
+        let (attempt, handoff) = {
             let mut state = self.state();
+            if let Some(id) = viewer_attempt {
+                let allowed = state.screen_replay(client, origin).allows_ready(&source_key, *id)?;
+                let newer = state.attempts.get(&attempt_key).is_some_and(|pending| pending.origin == origin && pending.viewer_attempt > Some(*id));
+                if !allowed || newer {
+                    return Ok(());
+                }
+            }
+            let handoff = session.is_none().then(|| state.screen_replay(client, origin).handoff.clone());
             state.serial += 1;
-            let attempt = state.serial;
-            state.attempts.insert(attempt_key.clone(), attempt);
-            attempt
+            let serial = state.serial;
+            state.attempts.insert(attempt_key.clone(), PendingReady { serial, viewer_attempt: *viewer_attempt, origin });
+            (serial, handoff)
         };
         // The viewer may leave or a newer `ready` take over at every await: this one is then dropped.
-        let current = || self.state().attempts.get(&attempt_key) == Some(&attempt);
-        let session = session_of(source);
+        let current = || self.state().attempts.get(&attempt_key).is_some_and(|pending| pending.serial == attempt);
         let authorized = || async {
             match session {
                 None => self.deps.screen_authorized(client, origin).await,
@@ -182,7 +311,10 @@ impl<D: RelayDeps> Relay<D> {
             }
         };
         let refuse = || {
-            self.state().attempts.remove(&attempt_key);
+            let mut state = self.state();
+            if state.attempts.get(&attempt_key).is_some_and(|pending| pending.serial == attempt) {
+                state.attempts.remove(&attempt_key);
+            }
             Err(if session.is_none() { SCREEN_REFUSED } else { SOURCE_REFUSED }.to_owned())
         };
         if session.is_none() {
@@ -200,13 +332,20 @@ impl<D: RelayDeps> Relay<D> {
             return Ok(());
         }
         let allowed = authorized().await;
-        if !current() {
-            return Ok(());
-        }
+        let _handoff = if let Some(handoff) = &handoff { Some(handoff.lock().await) } else { None };
         if !allowed {
+            if !current() {
+                return Ok(());
+            }
             return refuse();
         }
-        self.state().attempts.remove(&attempt_key);
+        {
+            let mut state = self.state();
+            if !state.attempts.get(&attempt_key).is_some_and(|pending| pending.serial == attempt) {
+                return Ok(());
+            }
+            state.attempts.remove(&attempt_key);
+        }
         self.deps.forward(client, signal, Some(&ice_servers), origin).await
     }
 
@@ -276,7 +415,9 @@ impl<D: RelayDeps> Relay<D> {
     /// cancelled (dropped, never forwarded).
     pub fn connection_removed(&self, client: &str) {
         let prefix = key(client, "screen:");
-        self.state().attempts.retain(|attempt, _| !attempt.starts_with(&prefix));
+        let mut state = self.state();
+        state.attempts.retain(|attempt, _| !attempt.starts_with(&prefix));
+        state.screen_replays.remove(client);
     }
 
     /// The client stopped streaming the session (or left the relay).

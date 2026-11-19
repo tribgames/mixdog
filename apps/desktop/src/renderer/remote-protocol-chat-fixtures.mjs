@@ -5,7 +5,7 @@
 //   node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs src/renderer/remote-protocol-chat-fixtures.mjs <fixture> <recording.json>...
 // installs the recordings as the fixture's folder (history | roster | live | refusals).
 import { createHash } from 'node:crypto';
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 /** Each fixture's folder and the files its recorder is made of (paths relative to this folder). */
@@ -25,17 +25,61 @@ export const FIXTURES = {
     node: true,
   },
   roster: { dir: 'remote-protocol-chat-roster.node/', recorder: ['remote-protocol-chat-roster.record.mjs'], node: true },
-  live: { dir: 'remote-protocol-chat-live.core/', recorder: ['remote-protocol-chat-live.record.mjs', '../../../../packages/protocol-client/src/client.ts', 'remote-protocol-chat-abort-procs.mjs'], node: false },
+  live: { dir: 'remote-protocol-chat-live.core/', recorder: ['remote-protocol-chat-live.record.mjs', '../../../../packages/protocol-client/src/client.ts', 'remote-protocol-chat-abort-live.mjs', 'remote-protocol-chat-record-core.mjs', 'remote-protocol-chat-fixtures.mjs', 'remote-protocol-chat-abort-procs.mjs'], node: false },
   refusals: {
     dir: 'remote-protocol-chat-refusals.core/',
-    recorder: ['remote-protocol-chat-refusals.record.mjs', '../../../../packages/protocol-client/src/client.ts', '../main/protocol/service-route.ts', '../shared/core-lanes/service-route.ts', 'remote-protocol-chat-abort-procs.mjs'],
+    recorder: ['remote-protocol-chat-refusals.record.mjs', '../../../../packages/protocol-client/src/client.ts', '../main/protocol/service-route.ts', '../shared/core-lanes/service-route.ts', 'remote-protocol-chat-abort-live.mjs', 'remote-protocol-chat-record-core.mjs', 'remote-protocol-chat-fixtures.mjs', 'remote-protocol-chat-abort-procs.mjs'],
     node: false,
   },
 };
 
-const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const dirOf = (name) => new URL(FIXTURES[name].dir, import.meta.url);
-const recorderHashes = (name) => Object.fromEntries(FIXTURES[name].recorder.map((file) => [file, sha256(readFileSync(new URL(file, import.meta.url)))]));
+export const recorderHashes = (name) => Object.fromEntries(FIXTURES[name].recorder.map((file) => [file, sha256(readFileSync(new URL(file, import.meta.url)))]));
+
+/** Every file of the public harness the core recorders run on (lib/), by name: what a capture is bound to. */
+export function harnessHashes(lib = new URL('./remote-protocol-chat-harness/lib/', import.meta.url)) {
+  if (!existsSync(lib)) throw new Error('the public harness remote-protocol-chat-harness/lib is missing');
+  return Object.fromEntries(readdirSync(lib).sort().map((file) => [`lib/${file}`, sha256(readFileSync(new URL(file, lib)))]));
+}
+
+/** The one folder name a recording's core-visible paths live under (a run's own folder inside it, at a drive's root): no user or checkout in it. */
+export const NEUTRAL_ROOT = 'mixdog-chat-record';
+const DRIVE_PATH = /(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\s"'<>|*?]*/g;
+const NEUTRAL_PATH = new RegExp(`^[A-Za-z]:[\\\\/]${NEUTRAL_ROOT}[\\\\/]`, 'i');
+// /home/ names a profile only as a rooted path: a protocol method such as agent/home/open is not one.
+const PROFILE_PATH = /\\\\(?![?.]\\)[^\\/]|[\\/]Users[\\/]|(?<![A-Za-z0-9_])[\\/]home[\\/]/;
+/**
+ * The first string anywhere in `value` (keys included) that names a private path: a drive path outside the neutral folder, a UNC path, a user
+ * profile. Raw text is only looked at, never changed: a recording that has one is refused whole.
+ */
+export function privatePathIn(value) {
+  const strings = [];
+  (function walk(v) {
+    if (typeof v === 'string') strings.push(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) { strings.push(k); walk(x); }
+  })(value);
+  for (const s of strings) {
+    if (PROFILE_PATH.test(s)) return s;
+    for (const [path] of s.matchAll(DRIVE_PATH)) if (!NEUTRAL_PATH.test(path)) return path;
+  }
+  return null;
+}
+
+/** A core recording, whole, must be of this checkout's recorder and public harness as they are now, bind a core build by hash, and name no private path. */
+export function checkCoreRecording(name, file, recording) {
+  const label = `${FIXTURES[name].dir}${file}`;
+  const manifest = recording.manifest;
+  const hex = /^[0-9a-f]{64}$/;
+  if (JSON.stringify(manifest.recorder) !== JSON.stringify(recorderHashes(name))) throw new Error(`${label} was captured by another recorder than the current one: record again`);
+  if (JSON.stringify(manifest.harness) !== JSON.stringify(harnessHashes())) throw new Error(`${label} was captured on another public harness than the current one: record again`);
+  if (!hex.test(manifest.binarySha256 ?? '') || !hex.test(manifest.builtFrom?.sourceSha256 ?? '')) throw new Error(`${label} does not bind its core binary and the sources it was built from`);
+  if (!/^[A-Za-z0-9._-]+$/.test(manifest.binary ?? '')) throw new Error(`${label}: the manifest's binary must be a bare file name`);
+  if (manifest.clientVersion !== JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version) throw new Error(`${label} announced another client version than this tree's`);
+  const leaked = privatePathIn(recording);
+  if (leaked) throw new Error(`${label} names a private path: ${leaked}`);
+}
 
 /** The fixture's manifest and recordings, verified against its folder (`dir`, by default its own) and its recorder as they are now. */
 export function verifiedFixture(name, dir = dirOf(name)) {
@@ -57,24 +101,26 @@ export function verifiedFixture(name, dir = dirOf(name)) {
   if (FIXTURES[name].node) {
     for (const r of recordings) if (r.manifest.commit !== manifest.commit || r.manifest.exact !== true) throw new Error(`${FIXTURES[name].dir}: a recording is not of the manifest's exact Node commit`);
   }
+  if (!FIXTURES[name].node) manifest.recordings.forEach(({ file }, i) => checkCoreRecording(name, file, recordings[i]));
   return { manifest, recordings };
 }
 
-/** Installs `files` (recordings, in order) as the fixture `name`, with `extra` fields in its manifest. */
+/**
+ * Installs `files` (recordings, in order) as the fixture `name`, with `extra` fields in its manifest. Each file is read once: the bytes that
+ * are validated are the bytes that are written and hashed, and nothing of the old fixture is cleared before every recording has passed.
+ */
 export function installFixture(name, files, extra = {}) {
-  const recordings = files.map((file) => JSON.parse(readFileSync(file, 'utf8')));
+  const bytesOf = files.map((file) => readFileSync(file));
+  const recordings = bytesOf.map((bytes) => JSON.parse(bytes.toString('utf8')));
   const commit = FIXTURES[name].node ? recordings[0].manifest.commit : undefined;
   if (FIXTURES[name].node) for (const r of recordings) if (r.manifest.commit !== commit || r.manifest.exact !== true) throw new Error('the recordings are not all of one exact Node commit');
+  if (!FIXTURES[name].node) recordings.forEach((r, i) => checkCoreRecording(name, files[i], r));
+  const listed = bytesOf.map((bytes, i) => ({ file: `${String(i + 1).padStart(2, '0')}.json`, sha256: sha256(bytes) }));
+  const manifest = { count: files.length, ...(commit ? { commit } : {}), recordings: listed, recorder: recorderHashes(name), ...extra };
   const dir = dirOf(name);
   mkdirSync(dir, { recursive: true });
   for (const file of readdirSync(dir)) rmSync(new URL(file, dir));
-  const listed = files.map((file, i) => {
-    const bytes = readFileSync(file);
-    const named = `${String(i + 1).padStart(2, '0')}.json`;
-    writeFileSync(new URL(named, dir), bytes);
-    return { file: named, sha256: sha256(bytes) };
-  });
-  const manifest = { count: files.length, ...(commit ? { commit } : {}), recordings: listed, recorder: recorderHashes(name), ...extra };
+  listed.forEach(({ file }, i) => writeFileSync(new URL(file, dir), bytesOf[i]));
   writeFileSync(new URL('MANIFEST.json', dir), `${JSON.stringify(manifest, null, 2)}\n`);
   return { manifest, recordings };
 }

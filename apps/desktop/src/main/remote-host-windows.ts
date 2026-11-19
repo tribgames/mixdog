@@ -7,6 +7,7 @@
 // links in the default browser) are this machine's own Chromium/Electron
 // features and need no bridge into the host.
 import { app, BrowserWindow, ipcMain, session, shell } from 'electron';
+import { tagRendererSurface } from './process-memory-diagnostics';
 
 import type {
   ConnectionsIdParams,
@@ -24,6 +25,7 @@ import { notifyHostListsChanged } from './host-lists-changed';
 import {
   externalLinkTarget,
   isRemoteHostNavigation,
+  presenceOf,
   remoteHostPartition,
   remoteWindowTitle,
   remoteWindowUserAgent,
@@ -72,18 +74,15 @@ export function createRemoteHostWindows(
   const snapshot = async (): Promise<DesktopRemoteHost[]> => {
     const hosts = await saved();
     // A relay that cannot answer leaves the hosts without a presence: state unknown.
-    let online: Set<string> | null = null;
+    let presence: RemoteHostPresenceResult | null = null;
     if (hosts.length > 0) {
       const params: RemoteHostPresenceParams = { ids: hosts.map((host) => host.id) };
-      online = await (core.call('remoteHosts/presence', params) as Promise<RemoteHostPresenceResult>).then(
-        (result) => new Set(result.online),
-        () => null
-      );
+      presence = await (core.call('remoteHosts/presence', params) as Promise<RemoteHostPresenceResult>).catch(() => null);
     }
-    return hosts.map((host) => ({
-      ...asDesktopHost(host),
-      ...(online ? { online: online.has(host.id) } : {}),
-    }));
+    return hosts.map((host) => {
+      const online = presenceOf(host.id, presence);
+      return { ...asDesktopHost(host), ...(online === undefined ? {} : { online }) };
+    });
   };
 
   // The remote window's own PC switcher (top bar). Only a window this module
@@ -157,6 +156,7 @@ export function createRemoteHostWindows(
         nodeIntegration: false,
       },
     });
+    tagRendererSurface(window, 'remote-host');
     windows.set(id, window);
     notifyHostListsChanged();
     window.setMenuBarVisibility(false);

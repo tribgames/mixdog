@@ -49,7 +49,9 @@ const ENTRY = `
   window.mixdogDesktop = new Proxy({
     invokeCapability: async ({ capability }) => ({ value: values[capability] ?? [] }),
   }, {
+    // No pushed-section source: the host's sections is a store source (subscribe/read), not a method.
     get: (target, name) => name in target ? target[name]
+      : name === 'sections' ? undefined
       : String(name).startsWith('subscribe') ? () => () => {} : async () => undefined,
   });
   const root = createRoot(document.getElementById('root'));
@@ -134,6 +136,8 @@ async function bundle() {
     write: false,
     format: 'iife',
     platform: 'browser',
+    // The connection panel's import graph reaches main/remote-access-window.ts, whose electron import is dynamic and never runs here.
+    external: ['electron'],
     jsx: 'automatic',
     define: { 'process.env.NODE_ENV': '"production"', 'import.meta.url': '"file:///renderer/bundle.mjs"' },
     logLevel: 'error',
@@ -196,7 +200,7 @@ async function launch(t, { phone }) {
   await page.evaluate(() => setSheet(true));
   assert.ok(await page.evaluate(() => waitFor('.agent-profile-form')), 'the real profile form rendered');
   await page.evaluate(() => settle());
-  t.after(() => assert.deepEqual(errors, []));
+  t.after(() => assert.deepEqual(errors, [], errors.join('\n')));
   return page;
 }
 

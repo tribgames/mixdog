@@ -495,6 +495,54 @@ async function connectScreen(h, generation = 1) {
   await settle();
 }
 
+test('a host close releases a screen receiver immediately, even after demotion', async () => {
+  for (const demoted of [false, true]) {
+    const h = harness({ extra: { source: screenSource } });
+    await connectScreen(h);
+    h.viewer.handle(signal(1, { source: screenSource, type: 'promote', inputEpoch: 2, geometryGeneration: 1 }));
+    await settle();
+    assert.equal(h.viewer.showsVideo, true);
+    // A close for an unseen attempt (or another source) cannot take down this peer.
+    h.viewer.handle(signal(2, { source: screenSource, type: 'close', reason: 'viewer-left' }));
+    h.viewer.handle(signal(1, { type: 'close', reason: 'viewer-left' }));
+    assert.equal(h.peers[0].closed, false);
+    if (demoted) {
+      h.viewer.handle(signal(1, { source: screenSource, type: 'demote', reason: 'channel-failed', inputEpoch: 3 }));
+    }
+    h.viewer.handle(signal(1, { source: screenSource, type: 'close', reason: 'viewer-left' }));
+    assert.equal(h.peers[0].closed, true);
+    assert.equal(h.peers[0].channel.readyState, 'closed');
+    assert.equal(h.streams.at(-1), null);
+    assert.equal(h.viewer.showsVideo, false);
+    assert.equal(h.viewer.state, 'cooldown');
+  }
+});
+
+test('leaving a screen reports the start that left, before an offer and after its peer closes', async () => {
+  const h = harness({ extra: { source: screenSource } });
+  h.viewer.start();
+  const first = h.signals('ready').at(-1).viewerAttempt;
+  assert.ok(Number.isSafeInteger(first));
+  h.viewer.stop(true);
+  h.viewer.stop(true);
+  assert.deepEqual(
+    h.signals('close').map(({ signal: _, ...body }) => parseRemoteWebrtcClientSignal(body)),
+    [{ v: 1, source: screenSource, type: 'close', reason: 'viewer-left', viewerAttempt: first }]
+  );
+
+  await connectScreen(h);
+  const second = h.signals('ready').at(-1).viewerAttempt;
+  assert.ok(second > first);
+  h.viewer.handle(signal(1, { source: screenSource, type: 'close', reason: 'ice-failed' }));
+  assert.equal(h.peers[0].closed, true);
+  h.viewer.dispose(true);
+  const { signal: _, ...left } = h.signals('close').at(-1);
+  assert.deepEqual(parseRemoteWebrtcClientSignal(left), {
+    v: 1, source: screenSource, type: 'close', reason: 'viewer-left', viewerAttempt: second,
+    connectionId: id(1), generation: 1,
+  });
+});
+
 test('helper messages go over the verified channel of a screen source only, and never queue', async () => {
   const { publicKey } = await generateSecureDesktopControllerKey();
   const b64 = (bytes, byte) => Buffer.alloc(bytes, byte).toString('base64');

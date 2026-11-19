@@ -797,7 +797,9 @@ pub struct VideoLimit {
 /// A phone's signal, as the service receives it from the relay.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClientSignal {
-    Ready { source: Source, receive_codecs: Vec<String>, video_limit: Option<VideoLimit> },
+    Ready { source: Source, receive_codecs: Vec<String>, video_limit: Option<VideoLimit>, viewer_attempt: Option<u64> },
+    /// Uses the existing viewer-left wire shape, with a peer ref only if one was offered.
+    CancelScreen { source: Source, viewer_attempt: u64, connection: Option<ConnectionRef> },
     GeometryAck { source: Source, geometry_generation: u64 },
     ResizeRequest { source: Source, resize: Resize },
     Answer { connection: ConnectionRef, sdp: String, fingerprints: Vec<Fingerprint> },
@@ -811,7 +813,7 @@ pub enum ClientSignal {
 impl ClientSignal {
     pub fn source(&self) -> &Source {
         match self {
-            Self::Ready { source, .. } | Self::GeometryAck { source, .. } | Self::ResizeRequest { source, .. } => source,
+            Self::Ready { source, .. } | Self::CancelScreen { source, .. } | Self::GeometryAck { source, .. } | Self::ResizeRequest { source, .. } => source,
             Self::Answer { connection, .. }
             | Self::Candidate { connection, .. }
             | Self::MediaReady { connection, .. }
@@ -831,7 +833,7 @@ impl ClientSignal {
             Self::MediaReady { .. } => "media-ready",
             Self::PromoteAck { .. } => "promote-ack",
             Self::DemoteAck { .. } => "demote-ack",
-            Self::Close { .. } => "close",
+            Self::Close { .. } | Self::CancelScreen { .. } => "close",
         }
     }
 
@@ -866,7 +868,9 @@ impl ClientSignal {
                         })
                     }
                 };
-                Ok(Self::Ready { source: source_ref(input)?, receive_codecs, video_limit })
+                let source = source_ref(input)?;
+                let viewer_attempt = input.get("viewerAttempt").map(|value| screen_viewer_attempt(&source, value)).transpose()?;
+                Ok(Self::Ready { source, receive_codecs, video_limit, viewer_attempt })
             }
             Some("geometry-ack") => {
                 let source = source_ref(input)?;
@@ -915,6 +919,19 @@ impl ClientSignal {
                 Ok(if kind == "promote-ack" { Self::PromoteAck { connection, input_epoch } } else { Self::DemoteAck { connection, input_epoch } })
             }
             Some("close") => {
+                if let Some(value) = input.get("viewerAttempt") {
+                    let source = source_ref(input)?;
+                    let viewer_attempt = screen_viewer_attempt(&source, value)?;
+                    if CloseReason::parse(field(input, "reason"))? != CloseReason::ViewerLeft {
+                        return fail("close reason");
+                    }
+                    let connection = if input.contains_key("connectionId") || input.contains_key("generation") {
+                        Some(connection_ref(input)?)
+                    } else {
+                        None
+                    };
+                    return Ok(Self::CancelScreen { source, viewer_attempt, connection });
+                }
                 let connection = connection_ref(input)?;
                 let reason = CloseReason::parse(field(input, "reason"))?;
                 let detail = input.get("detail").map(|d| bounded_text(d, MAX_REASON_DETAIL, "close detail")).transpose()?;
@@ -933,12 +950,24 @@ impl ClientSignal {
         };
         out.insert("type".into(), json!(self.type_name()));
         match self {
-            Self::Ready { source: s, receive_codecs, video_limit } => {
+            Self::Ready { source: s, receive_codecs, video_limit, viewer_attempt } => {
                 source(s, &mut out);
                 out.insert("receiveCodecs".into(), json!(receive_codecs));
                 if let Some(limit) = video_limit {
                     out.insert("videoLimit".into(), json!({ "maxWidth": limit.max_width, "maxHeight": limit.max_height }));
                 }
+                if let Some(attempt) = viewer_attempt {
+                    out.insert("viewerAttempt".into(), json!(attempt));
+                }
+            }
+            Self::CancelScreen { source: s, viewer_attempt, connection: peer } => {
+                if let Some(peer) = peer {
+                    connection(peer, &mut out);
+                } else {
+                    source(s, &mut out);
+                }
+                out.insert("reason".into(), json!(CloseReason::ViewerLeft.wire_name()));
+                out.insert("viewerAttempt".into(), json!(viewer_attempt));
             }
             Self::GeometryAck { source: s, geometry_generation } => {
                 source(s, &mut out);
@@ -978,6 +1007,13 @@ impl ClientSignal {
         }
         Value::Object(out)
     }
+}
+
+fn screen_viewer_attempt(source: &Source, value: &Value) -> Result<u64, Refusal> {
+    if source.session_id().is_some() {
+        return fail("viewer attempt");
+    }
+    positive_integer(value, "viewer attempt")
 }
 
 /// The desktop's signal, as the phone receives it.
